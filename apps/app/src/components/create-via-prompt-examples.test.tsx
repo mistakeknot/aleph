@@ -39,8 +39,8 @@ describe.each([false, true])(
         const trigger = screen.getByRole("button", {
           name: "New plugin options",
         });
-      if (compact) fireEvent.click(trigger);
-      else fireEvent.keyDown(trigger, { key: "Enter" });
+        if (compact) fireEvent.click(trigger);
+        else fireEvent.keyDown(trigger, { key: "Enter" });
         await screen.findByRole("menuitem", { name: "Examples" });
       };
       return { onCreate, onInstallFromSource, open };

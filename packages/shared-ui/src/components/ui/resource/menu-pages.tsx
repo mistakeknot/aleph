@@ -56,7 +56,7 @@ export function ResourceMenuPages({
           (candidate) =>
             candidate.dataset.resourceMenuPage === returnPageRef.current,
         );
-        item?.focus();
+        item?.closest<HTMLElement>('[role="menuitem"]')?.focus();
       }
     });
     return () => cancelAnimationFrame(frame);
@@ -80,6 +80,20 @@ export function ResourceMenuPages({
         mobileTitle={page?.label ?? label}
         className={className}
         onKeyDown={(event) => {
+          if (
+            !page &&
+            event.key === "ArrowRight" &&
+            event.target instanceof Element
+          ) {
+            const nextPage = event.target
+              .closest('[role="menuitem"]')
+              ?.querySelector<HTMLElement>("[data-resource-menu-page]")
+              ?.dataset.resourceMenuPage;
+            if (nextPage) {
+              event.preventDefault();
+              setPageId(nextPage);
+            }
+          }
           if (
             page &&
             event.key === "ArrowLeft" &&
@@ -112,19 +126,14 @@ export function ResourceMenuPages({
             {pages.map((entry) => (
               <DropdownMenuItem
                 key={entry.id}
-                data-resource-menu-page={entry.id}
                 onSelect={(event) => {
                   event.preventDefault();
                   setPageId(entry.id);
                 }}
-                onKeyDown={(event) => {
-                  if (event.key === "ArrowRight") {
-                    event.preventDefault();
-                    setPageId(entry.id);
-                  }
-                }}
               >
-                {entry.trigger}
+                <span className="contents" data-resource-menu-page={entry.id}>
+                  {entry.trigger}
+                </span>
                 <Icon
                   name="ChevronRight"
                   className="ml-auto size-4 shrink-0"
