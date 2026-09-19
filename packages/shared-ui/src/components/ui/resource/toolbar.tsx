@@ -26,6 +26,7 @@ import {
   TooltipTrigger,
 } from "../tooltip";
 import { cn } from "../../../lib/utils";
+import { ResourceMenuPages } from "./menu-pages";
 
 export function ResourceToolbar({
   searchValue,
@@ -846,6 +847,48 @@ export function ResourceCreateButton({
   const groups: readonly ResourceCreateTemplateGroup[] = templateGroups ?? [
     { label: "Examples", templates },
   ];
+  const menuTrigger = (
+    <Button
+      type="button"
+      size="sm"
+      aria-label={`${label} options`}
+      className={cn("rounded-l-none px-1.5", compactWhenNarrow && "pl-1 pr-2")}
+    >
+      <Icon name="ChevronDown" className="size-4" aria-hidden />
+    </Button>
+  );
+  const actions = menuActions.map((action) => (
+    <DropdownMenuItem key={action.label} onSelect={action.onSelect}>
+      <Icon name={action.icon} className="size-4" aria-hidden />
+      {action.label}
+    </DropdownMenuItem>
+  ));
+  const renderGroup = (group: ResourceCreateTemplateGroup) => (
+    <>
+      <DropdownMenuLabel className="text-xs font-normal text-subtle-foreground">
+        {group.label}
+      </DropdownMenuLabel>
+      {group.templates.map((template) => (
+        <DropdownMenuItem
+          key={template.label}
+          className="py-2"
+          onSelect={() => onCreate(template.prompt)}
+        >
+          {template.icon ? (
+            <Icon
+              name={template.icon}
+              className="size-4 shrink-0 text-muted-foreground"
+              aria-hidden
+            />
+          ) : null}
+          <span className="min-w-0 truncate text-sm text-foreground">
+            {template.label}
+          </span>
+          <span className="sr-only">: {template.description}</span>
+        </DropdownMenuItem>
+      ))}
+    </>
+  );
   const createButton = (
     <Button
       aria-label={label}
@@ -870,62 +913,39 @@ export function ResourceCreateButton({
       ) : (
         createButton
       )}
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            type="button"
-            size="sm"
-            aria-label={`${label} options`}
-            className={cn(
-              "rounded-l-none px-1.5",
-              compactWhenNarrow && "pl-1 pr-2",
-            )}
+      {groups.length > 1 ? (
+        <ResourceMenuPages
+          label={label}
+          className="min-w-52 w-max"
+          trigger={() => menuTrigger}
+          actions={actions}
+          pages={groups.map((group) => ({
+            id: group.label,
+            label: group.label,
+            trigger: <span className="pl-6">{group.label}</span>,
+            content: renderGroup(group),
+          }))}
+        />
+      ) : (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>{menuTrigger}</DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="end"
+            className="min-w-40 w-max"
+            mobileTitle={label}
           >
-            <Icon name="ChevronDown" className="size-4" aria-hidden />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent
-          align="end"
-          className="min-w-40 w-max"
-          mobileTitle="Examples"
-        >
-          {menuActions.map((action) => (
-            <DropdownMenuItem key={action.label} onSelect={action.onSelect}>
-              <Icon name={action.icon} className="size-4" aria-hidden />
-              {action.label}
-            </DropdownMenuItem>
-          ))}
-          {groups.map((group, index) => (
-            <Fragment key={group.label}>
-              {index > 0 || menuActions.length > 0 ? (
-                <DropdownMenuSeparator />
-              ) : null}
-              <DropdownMenuLabel className="text-xs font-normal text-subtle-foreground">
-                {group.label}
-              </DropdownMenuLabel>
-              {group.templates.map((template) => (
-                <DropdownMenuItem
-                  key={template.label}
-                  className="py-2"
-                  onSelect={() => onCreate(template.prompt)}
-                >
-                  {template.icon ? (
-                    <Icon
-                      name={template.icon}
-                      className="size-4 shrink-0 text-muted-foreground"
-                      aria-hidden
-                    />
-                  ) : null}
-                  <span className="min-w-0 truncate text-sm text-foreground">
-                    {template.label}
-                  </span>
-                  <span className="sr-only">: {template.description}</span>
-                </DropdownMenuItem>
-              ))}
-            </Fragment>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
+            {actions}
+            {groups.map((group, index) => (
+              <Fragment key={group.label}>
+                {index > 0 || menuActions.length > 0 ? (
+                  <DropdownMenuSeparator />
+                ) : null}
+                {renderGroup(group)}
+              </Fragment>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
     </div>
   );
 }

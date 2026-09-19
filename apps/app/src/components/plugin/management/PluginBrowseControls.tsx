@@ -6,17 +6,11 @@ import {
   type ReactNode,
 } from "react";
 import { Icon, type IconName } from "@bb/shared-ui/icon";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@bb/shared-ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@bb/shared-ui/popover";
 import { cn } from "@bb/shared-ui/lib/utils";
 import {
   ResourceControlButton,
+  ResourceMenuPages,
   ResourceMultiSelectMenu,
   ResourceMultiSelectMenuItems,
   ResourceSortMenu,
@@ -261,49 +255,15 @@ function PluginControlsMenu({
 }: {
   pages: readonly PluginControlPage[];
 }) {
-  const [open, setOpen] = useState(false);
-  const [pageId, setPageId] = useState<string | null>(null);
-  const contentRef = useRef<HTMLDivElement>(null);
-  const returnPageRef = useRef<string | null>(null);
-  const page = pages.find((candidate) => candidate.id === pageId);
   const activeLabels = pages
     .filter((candidate) => candidate.active)
     .map((candidate) => `${candidate.label}: ${candidate.summary}`);
 
-  useEffect(() => {
-    if (!open) return;
-    const frame = requestAnimationFrame(() => {
-      const content = contentRef.current;
-      if (pageId) {
-        content
-          ?.querySelector<HTMLElement>(
-            'input, [role="menuitemradio"], [role="menuitemcheckbox"]',
-          )
-          ?.focus();
-      } else if (returnPageRef.current) {
-        content
-          ?.querySelector<HTMLElement>(
-            `[data-control-page="${returnPageRef.current}"]`,
-          )
-          ?.closest<HTMLElement>('[role="menuitem"]')
-          ?.focus();
-      }
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [open, pageId]);
-
   return (
-    <DropdownMenu
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        if (!next) {
-          setPageId(null);
-          returnPageRef.current = null;
-        }
-      }}
-    >
-      <DropdownMenuTrigger asChild>
+    <ResourceMenuPages
+      label="Filter & sort"
+      className="w-72 md:p-0.5"
+      trigger={(open) => (
         <ResourceControlButton
           label="Filter & sort"
           text="Filter & sort"
@@ -314,55 +274,27 @@ function PluginControlsMenu({
           active={activeLabels.length > 0}
           open={open}
         />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        ref={contentRef}
-        align="end"
-        mobileTitle={page?.label ?? "Filter & sort"}
-        className="w-72 md:p-0.5"
-      >
-        {page ? (
+      )}
+      pages={pages.map((control) => ({
+        ...control,
+        trigger: (
           <>
-            <DropdownMenuItem
-              onSelect={(event) => {
-                event.preventDefault();
-                returnPageRef.current = page.id;
-                setPageId(null);
-              }}
+            {control.icon ? (
+              <Icon name={control.icon} className="size-4" />
+            ) : null}
+            <span data-control-page={control.id} className="shrink-0">
+              {control.label}
+            </span>
+            <span
+              className="min-w-0 flex-1 truncate text-right text-2xs text-muted-foreground"
+              title={control.summary}
             >
-              <Icon name="ChevronLeft" className="size-4" />
-              Filter & sort
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            {page.content}
+              {control.summary}
+            </span>
           </>
-        ) : (
-          pages.map((control) => (
-            <DropdownMenuItem
-              key={control.id}
-              onSelect={(event) => {
-                event.preventDefault();
-                setPageId(control.id);
-              }}
-            >
-              {control.icon ? (
-                <Icon name={control.icon} className="size-4" />
-              ) : null}
-              <span data-control-page={control.id} className="shrink-0">
-                {control.label}
-              </span>
-              <span
-                className="min-w-0 flex-1 truncate text-right text-2xs text-muted-foreground"
-                title={control.summary}
-              >
-                {control.summary}
-              </span>
-              <Icon name="ChevronRight" className="size-4" />
-            </DropdownMenuItem>
-          ))
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
+        ),
+      }))}
+    />
   );
 }
 

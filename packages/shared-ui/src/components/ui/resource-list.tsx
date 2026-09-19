@@ -1,3 +1,4 @@
+export { ResourceMenuPages } from "./resource/menu-pages";
 export {
   ResourceCardStat,
   ResourceIconFrame,
