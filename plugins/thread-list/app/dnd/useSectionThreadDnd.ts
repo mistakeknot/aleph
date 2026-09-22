@@ -624,6 +624,14 @@ function getGroupRootThreadIds(
     .map((thread) => thread.id);
 }
 
+function getGroupDragPreviewThread(
+  thread: ThreadListEntry,
+  groupThreads: readonly ThreadListEntry[],
+): ThreadListEntry & { displayTitle: string } {
+  const title = `${thread.environmentName ?? thread.environmentBranchName ?? "Worktree group"} (${groupThreads.length} threads)`;
+  return { ...thread, title, titleFallback: title, displayTitle: title };
+}
+
 export function resolveSectionThreadDropDecision(
   lookup: SectionThreadDndLookup,
   activeId: string,
@@ -1204,10 +1212,7 @@ export function useSectionThreadDnd({
         : undefined;
       setActiveThread(
         thread && groupThreads
-          ? {
-              ...thread,
-              title: `${thread.environmentName ?? thread.environmentBranchName ?? "Worktree group"} (${groupThreads.length} threads)`,
-            }
+          ? getGroupDragPreviewThread(thread, groupThreads)
           : thread,
       );
       setDragOverParentKey(null);
