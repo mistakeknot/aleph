@@ -1763,6 +1763,13 @@ Filter menu. It syncs to every window and rejects empty or duplicate values.
 
 Settings → Keyboard → Pane navigation offers **Focus composer when switching panes with keyboard**. It defaults to off. When enabled, next, previous and numbered split-pane commands focus the destination chat composer; pointer selection and the separate Focus composer shortcut keep their existing behavior. This preference is saved in this browser or desktop app, not synchronized with server keyboard settings, and is not changed by Reset all shortcuts. Enable it separately in each client.
 
+### Thread list provider icons
+
+The Thread list plugin's `showProviderIcons` preference (default `true`) leads
+each thread row with its agent provider's icon, such as Claude Code or Codex.
+Turn it off with `bb thread-list prefs set showProviderIcons false` or the
+header's Organize → Rows → Provider icons checkbox. It syncs to every window.
+
 ## Desktop browser cookie discovery
 
 The desktop app combines known-browser definitions with schema-based discovery
