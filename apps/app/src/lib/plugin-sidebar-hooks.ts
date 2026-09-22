@@ -8,11 +8,29 @@ import {
 import { useIsCompactViewport } from "@bb/shared-ui/hooks/use-compact-viewport";
 import type {
   PluginSidebarProject,
+  PluginSidebarSection,
   PluginSidebarThread,
   PluginSidebarThreadActions,
+  PluginSidebarThreadDraftState,
   PluginSidebarThreadPullRequestState,
+  PluginSidebarThreadRowStatus,
+  PluginSidebarThreadShortcut,
   PluginSidebarThreadsState,
 } from "@get-bb/plugin-sdk";
+import { useSidebarThreadShortcut as useHostSidebarThreadShortcut } from "@/components/sidebar/sidebarThreadShortcuts";
+import {
+  useThreadTitleMentionResources,
+  type ThreadTitleMentionResources,
+} from "@/components/thread/ThreadTitleMentions";
+import {
+  usePromptDraftHasInput,
+  usePromptDraftInputThreadIds,
+} from "@/hooks/usePromptDraftStorage";
+import {
+  usePluginThreadRowStatus,
+  usePluginThreadRowStatuses,
+} from "./plugin-thread-row-status";
+import { getThreadConversationCollapsedAtom } from "@/components/secondary-panel/threadSecondaryPanelAtoms";
 import { useThreadActions } from "@/components/thread/ThreadActionsProvider";
 import {
   getEnvironmentPullRequestFromResponse,
@@ -25,10 +43,16 @@ import { useRouteNavigate } from "@/components/ui/app-route-anchor";
 import { toPluginSidebarThread } from "./plugin-sidebar-threads";
 import { useSetRootComposeProjectId } from "./root-compose-selection";
 import { openThreadInSplit } from "./split-layout/openThreadInSplit";
-import { getRootComposeRoutePath, getThreadRoutePath } from "./route-paths";
+import {
+  getProjectComposeRoutePath,
+  getRootComposeRoutePath,
+  getSettingsProjectRoutePath,
+  getThreadRoutePath,
+} from "./route-paths";
 
 const EMPTY_THREADS: readonly PluginSidebarThread[] = [];
 const EMPTY_PROJECTS: readonly PluginSidebarProject[] = [];
+const EMPTY_SECTIONS: readonly PluginSidebarSection[] = [];
 const EMPTY_ENTRIES: ReadonlyMap<string, ThreadListEntry> = new Map();
 const EMPTY_HOST_NAMES: ReadonlyMap<string, string> = new Map();
 
@@ -50,19 +74,32 @@ function hostNamesFor(
 
 const pluginSidebarThreadByEntry = new WeakMap<
   ThreadListEntry,
-  { hostNamesById: ReadonlyMap<string, string>; thread: PluginSidebarThread }
+  {
+    hostNamesById: ReadonlyMap<string, string>;
+    titleResources: ThreadTitleMentionResources;
+    thread: PluginSidebarThread;
+  }
 >();
 
 function toPluginSidebarThreadCached(
   entry: ThreadListEntry,
   hostNamesById: ReadonlyMap<string, string>,
+  titleResources: ThreadTitleMentionResources,
 ): PluginSidebarThread {
   const cached = pluginSidebarThreadByEntry.get(entry);
-  if (cached !== undefined && cached.hostNamesById === hostNamesById) {
+  if (
+    cached !== undefined &&
+    cached.hostNamesById === hostNamesById &&
+    cached.titleResources === titleResources
+  ) {
     return cached.thread;
   }
-  const thread = toPluginSidebarThread(entry, hostNamesById);
-  pluginSidebarThreadByEntry.set(entry, { hostNamesById, thread });
+  const thread = toPluginSidebarThread(entry, hostNamesById, titleResources);
+  pluginSidebarThreadByEntry.set(entry, {
+    hostNamesById,
+    titleResources,
+    thread,
+  });
   return thread;
 }
 
@@ -71,6 +108,7 @@ export function useSidebarThreads(): PluginSidebarThreadsState {
   const data = query.data;
   const { data: hosts } = useHosts();
   const hostNamesById = hostNamesFor(hosts);
+  const titleResources = useThreadTitleMentionResources();
 
   return useMemo<PluginSidebarThreadsState>(() => {
     if (data === undefined) {
@@ -78,6 +116,7 @@ export function useSidebarThreads(): PluginSidebarThreadsState {
         status: query.isError ? "error" : "loading",
         threads: EMPTY_THREADS,
         projects: EMPTY_PROJECTS,
+        sections: EMPTY_SECTIONS,
       };
     }
     const allProjects = [...data.projects, data.personalProject];
@@ -85,16 +124,19 @@ export function useSidebarThreads(): PluginSidebarThreadsState {
       status: "ready",
       threads: allProjects.flatMap((project) =>
         project.threads.map((thread) =>
-          toPluginSidebarThreadCached(thread, hostNamesById),
+          toPluginSidebarThreadCached(thread, hostNamesById, titleResources),
         ),
       ),
       projects: allProjects.map((project) => ({
         id: project.id,
         name: project.name,
         isPersonal: project.id === PERSONAL_PROJECT_ID,
+        href: getProjectComposeRoutePath(project.id),
+        settingsHref: getSettingsProjectRoutePath(project.id),
       })),
+      sections: data.sections,
     };
-  }, [data, hostNamesById, query.isError]);
+  }, [data, hostNamesById, query.isError, titleResources]);
 }
 
 function useThreadEntryMap(): ReadonlyMap<string, ThreadListEntry> {
@@ -142,6 +184,7 @@ export function useSidebarThreadActions(): PluginSidebarThreadActions {
         if (entry === undefined) return;
         const { projectId } = entry;
         if (options?.split) {
+          store.set(getThreadConversationCollapsedAtom(threadId), false);
           openThreadInSplit({
             store,
             navigate,
@@ -151,6 +194,7 @@ export function useSidebarThreadActions(): PluginSidebarThreadActions {
           });
           return;
         }
+        store.set(getThreadConversationCollapsedAtom(threadId), false);
         navigate(getThreadRoutePath({ projectId, threadId }));
       },
       openNewThread(options) {
@@ -158,8 +202,19 @@ export function useSidebarThreadActions(): PluginSidebarThreadActions {
         if (projectId !== undefined) {
           setRootComposeProjectId(projectId);
         }
-        const state = options?.focusPrompt ? { focusPrompt: true } : undefined;
-        navigate(getRootComposeRoutePath(), state ? { state } : undefined);
+        const state = {
+          ...(options?.focusPrompt ? { focusPrompt: true } : {}),
+          ...(options?.sectionId !== undefined
+            ? { sectionId: options.sectionId }
+            : {}),
+          ...(options?.environmentId !== undefined
+            ? { reuseEnvironmentId: options.environmentId }
+            : {}),
+        };
+        navigate(
+          getRootComposeRoutePath(),
+          Object.keys(state).length > 0 ? { state } : undefined,
+        );
       },
       async setPinned(threadId, pinned) {
         const entry = requireEntry(threadId);
@@ -193,6 +248,52 @@ export function useSidebarThreadActions(): PluginSidebarThreadActions {
       updateThreadAsync,
     ],
   );
+}
+
+const NO_DRAFT: PluginSidebarThreadDraftState = Object.freeze({
+  hasUnsubmittedDraft: false,
+});
+const HAS_DRAFT: PluginSidebarThreadDraftState = Object.freeze({
+  hasUnsubmittedDraft: true,
+});
+const EMPTY_DRAFT_IDS: ReadonlySet<string> = new Set();
+
+export function useSidebarThreadDraft(
+  threadId: string,
+): PluginSidebarThreadDraftState {
+  const entry = useSidebarThreadEntry(threadId);
+  const hasDraft = usePromptDraftHasInput({
+    kind: "thread",
+    projectId: entry?.projectId ?? "",
+    threadId,
+  });
+  return entry !== null && hasDraft ? HAS_DRAFT : NO_DRAFT;
+}
+
+export function useSidebarThreadDraftIds(): ReadonlySet<string> {
+  const entries = useThreadEntryMap();
+  const refs = useMemo(() => [...entries.values()], [entries]);
+  const ids = usePromptDraftInputThreadIds(refs);
+  return ids.size === 0 ? EMPTY_DRAFT_IDS : ids;
+}
+
+export function useSidebarThreadRowStatus(
+  threadId: string,
+): PluginSidebarThreadRowStatus | null {
+  return usePluginThreadRowStatus(threadId);
+}
+
+export function useSidebarThreadRowStatuses(): ReadonlyMap<
+  string,
+  PluginSidebarThreadRowStatus
+> {
+  return usePluginThreadRowStatuses();
+}
+
+export function useSidebarThreadShortcut(
+  threadId: string,
+): PluginSidebarThreadShortcut | null {
+  return useHostSidebarThreadShortcut(threadId) ?? null;
 }
 
 export function useSidebarThreadPullRequest(

@@ -11,6 +11,7 @@ import {
   RESOURCE_GRID_PAGE_SIZE,
 } from "@bb/shared-ui/resource-pagination";
 import {
+  ResourceCollectionPage,
   ResourceCollectionViewport,
   ResourceListState,
 } from "@bb/shared-ui/resource-list";
@@ -314,24 +315,13 @@ export function PluginsOverview({
       {activeMode === "browse" ? (
         <div className="flex h-full min-h-0 flex-col">{content}</div>
       ) : (
-        <div className="flex h-full min-h-0 flex-col gap-5">
-          <div className={cn("space-y-2", TOOLS_PAGE_BAND_CLASSES)}>
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-semibold tracking-tight">
-                Installed plugins
-              </h1>
-              {listQuery.data === undefined ? null : (
-                <span className="rounded-md bg-muted px-2 py-0.5 text-sm text-muted-foreground">
-                  {plugins.length}
-                </span>
-              )}
-            </div>
-            <p className="text-sm text-muted-foreground">
-              {PLUGINS_INSTALLED_DESCRIPTION}
-            </p>
-          </div>
+        <ResourceCollectionPage
+          id="plugins-collection"
+          description={PLUGINS_INSTALLED_DESCRIPTION}
+          bandClassName={TOOLS_PAGE_BAND_CLASSES}
+        >
           {content}
-        </div>
+        </ResourceCollectionPage>
       )}
       <PluginRemovalDialog removal={removal} />
       <AddPluginDialog

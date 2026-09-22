@@ -9,6 +9,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { createStore, Provider } from "jotai";
 import type { ThreadListEntry } from "@bb/domain";
@@ -22,11 +23,13 @@ import {
 
 const mocks = vi.hoisted(() => ({
   renameThread: vi.fn(),
+  unarchiveThread: vi.fn(),
 }));
 
 vi.mock("@/components/thread/ThreadActionsProvider", () => ({
   useThreadActions: () => ({
-    renameThread: mocks.renameThread,
+    renameThreadAsync: mocks.renameThread,
+    unarchiveThread: mocks.unarchiveThread,
   }),
 }));
 import { TooltipProvider } from "@bb/shared-ui/tooltip";
@@ -54,12 +57,12 @@ import { NO_COLLAPSED_CHILD_ACTIVITY } from "@bb/client-core";
 import { sdk } from "@/lib/sdk";
 import { makeThreadListEntry as makeThreadListEntryFixture } from "@bb/test-helpers/domain-fixtures";
 
-vi.mock("@/components/thread/ThreadActionsMenu", () => ({
+vi.mock("@/components/thread/ThreadActionsMenu", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/components/thread/ThreadActionsMenu")>()),
   ThreadActionsContextMenu: ({ children }: { children: ReactNode }) => (
     <>{children}</>
   ),
   ThreadActionsMenu: () => null,
-  ThreadArchiveQuickAction: () => null,
 }));
 
 function createThread(
@@ -220,6 +223,7 @@ function renderSplitThreadRow({
 afterEach(() => {
   cleanup();
   mocks.renameThread.mockReset();
+  mocks.unarchiveThread.mockReset();
   resetSidebarTitleDoubleClickForTest();
   resetPluginThreadRowStatusesForTest();
   removePluginSlotRegistrations("icon-probe");
@@ -229,6 +233,71 @@ afterEach(() => {
 });
 
 describe("ThreadRow", () => {
+  it("keeps desktop restore available, hides it on mobile, and blocks row event propagation", () => {
+    const thread = createThread({ archivedAt: 1 });
+    const rowEvent = vi.fn();
+    const client = new QueryClient();
+    render(
+      <QueryClientProvider client={client}>
+        <div onPointerDown={rowEvent} onKeyDown={rowEvent} onClick={rowEvent}>
+          <ThreadRowTestHarness thread={thread} />
+        </div>
+      </QueryClientProvider>,
+    );
+    const restore = screen.getByRole("button", { name: "Unarchive thread" });
+    expect(restore.querySelector('[data-icon="ArchiveRestore"]')).toBeTruthy();
+    expect(restore.classList.contains("bg-state-hover")).toBe(false);
+    expect(restore.classList.contains("bg-state-active")).toBe(false);
+    expect(restore.closest("[data-sidebar-hover-actions-open]")).toBeNull();
+    expect(restore.closest(".max-md\\:pointer-coarse\\:hidden")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Archive thread" })).toBeNull();
+    fireEvent.pointerDown(restore, { pointerType: "touch", button: 0 });
+    fireEvent.keyDown(restore, { key: "Enter" });
+    fireEvent.click(restore);
+    expect(mocks.unarchiveThread).toHaveBeenCalledOnce();
+    expect(mocks.unarchiveThread).toHaveBeenCalledWith(thread);
+    expect(rowEvent).not.toHaveBeenCalled();
+  });
+
+  it("disables only the restoring thread and recovers when its mutation fails", async () => {
+    const client = new QueryClient();
+    const thread = createThread({ archivedAt: 1 });
+    let rejectRestore!: (error: Error) => void;
+    const mutation = client.getMutationCache().build(client, {
+      mutationKey: ["unarchive-thread"],
+      mutationFn: (_input: { id: string }) => new Promise<void>((_resolve, reject) => {
+        rejectRestore = reject;
+      }),
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <ThreadRowTestHarness thread={thread} />
+      </QueryClientProvider>,
+    );
+    const restore = screen.getByRole<HTMLButtonElement>("button", { name: "Unarchive thread" });
+    let completion: Promise<unknown>;
+    act(() => {
+      completion = mutation.execute({ id: "another-thread" }).catch(() => undefined);
+    });
+    await waitFor(() => expect(rejectRestore).toBeTypeOf("function"));
+    expect(restore.disabled).toBe(false);
+    await act(async () => {
+      rejectRestore(new Error("Unarchive failed"));
+      await completion;
+    });
+    act(() => {
+      completion = mutation.execute({ id: thread.id }).catch(() => undefined);
+    });
+    await waitFor(() => expect(restore.disabled).toBe(true));
+    fireEvent.click(restore);
+    expect(mocks.unarchiveThread).not.toHaveBeenCalled();
+    await act(async () => {
+      rejectRestore(new Error("Unarchive failed"));
+      await completion;
+    });
+    await waitFor(() => expect(restore.disabled).toBe(false));
+  });
+
   const splitWorkingCases: Array<{
     label: string;
     pluginStatus?: PluginComposerThreadRowStatus;
@@ -544,6 +613,25 @@ describe("ThreadRow", () => {
     expect(errorIcon.getAttribute("data-icon")).toBe("AlertCircle");
     expect(Array.from(errorIcon.classList)).toContain("text-destructive");
     expect(Array.from(errorIcon.classList)).not.toContain("animate-shine-icon");
+  });
+
+  it("disables runtime glyph rotation when reduced motion is requested", () => {
+    renderThreadRow({
+      hasComposerDraft: false,
+      thread: createThread({
+        status: "active",
+        runtime: {
+          displayStatus: "active",
+          hostReconnectGraceExpiresAt: null,
+        },
+      }),
+    });
+
+    const runningIcon = screen.getByLabelText("Thread working");
+    expect(runningIcon.getAttribute("data-icon")).toBe("Loading");
+    expect(Array.from(runningIcon.classList)).toContain(
+      "motion-reduce:animate-none",
+    );
   });
 
   it("keeps the runtime spinner ahead of a plugin status", () => {
@@ -1501,33 +1589,66 @@ describe("ThreadRow", () => {
     expect(screen.getByLabelText("Unread thread succeeded")).not.toBeNull();
   });
 
-  it("edits the row title inline after a double click and commits on Enter", () => {
+  it("edits the row title inline after a double click and commits on Enter", async () => {
     renderThreadRow({
       thread: createThread({ title: "Thread", titleFallback: "Thread" }),
     });
 
     fireEvent.doubleClick(screen.getByText("Thread"));
-    const input = screen.getByRole("textbox", { name: "Thread name" });
+    const input = await screen.findByRole("textbox", { name: "Thread name" });
     expect(input).toHaveProperty("value", "Thread");
 
     fireEvent.change(input, { target: { value: "Renamed thread" } });
     fireEvent.keyDown(input, { key: "Enter" });
 
-    expect(mocks.renameThread).toHaveBeenCalledWith(
-      "thr_test",
-      "Renamed thread",
-    );
-    expect(screen.queryByRole("textbox", { name: "Thread name" })).toBeNull();
+    await waitFor(() => {
+      expect(mocks.renameThread).toHaveBeenCalledWith(
+        "thr_test",
+        "Renamed thread",
+      );
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole("textbox", { name: "Thread name" })).toBeNull();
+    });
     expect(screen.getByText("Thread")).not.toBeNull();
   });
 
-  it("cancels an inline row rename on Escape without saving", () => {
+  it("does not start a sortable drag while editing the title", async () => {
+    const onPointerDown = vi.fn();
+    renderThreadRow({
+      options: {
+        ...DEFAULT_OPTIONS,
+        dragBindings: {
+          attributes: {
+            role: "button",
+            tabIndex: 0,
+            "aria-disabled": false,
+            "aria-pressed": undefined,
+            "aria-roledescription": "sortable",
+            "aria-describedby": "thread-sortable",
+          },
+          disabled: false,
+          listeners: { onPointerDown },
+          setActivatorNodeRef: vi.fn(),
+        },
+      },
+    });
+
+    fireEvent.doubleClick(screen.getByText("Thread"));
+    fireEvent.pointerDown(
+      await screen.findByRole("textbox", { name: "Thread name" }),
+    );
+
+    expect(onPointerDown).not.toHaveBeenCalled();
+  });
+
+  it("cancels an inline row rename on Escape without saving", async () => {
     renderThreadRow({
       thread: createThread({ title: "Thread", titleFallback: "Thread" }),
     });
 
     fireEvent.doubleClick(screen.getByText("Thread"));
-    const input = screen.getByRole("textbox", { name: "Thread name" });
+    const input = await screen.findByRole("textbox", { name: "Thread name" });
     fireEvent.change(input, { target: { value: "Scratch name" } });
     fireEvent.keyDown(input, { key: "Escape" });
 
@@ -1536,7 +1657,7 @@ describe("ThreadRow", () => {
     expect(screen.getByText("Thread")).not.toBeNull();
   });
 
-  it("starts a rename from a second click after the row remounts", () => {
+  it("starts a rename from a second click after the row remounts", async () => {
     const thread = createThread({ title: "Thread", titleFallback: "Thread" });
     const { rerenderThreadRow } = renderThreadRow({ thread });
     const link = screen.getByRole("link", { name: "Open Thread" });
@@ -1545,9 +1666,8 @@ describe("ThreadRow", () => {
     rerenderThreadRow(thread);
     fireEvent.click(screen.getByRole("link", { name: "Open Thread" }));
 
-    expect(screen.getByRole("textbox", { name: "Thread name" })).toHaveProperty(
-      "value",
-      "Thread",
-    );
+    expect(
+      await screen.findByRole("textbox", { name: "Thread name" }),
+    ).toHaveProperty("value", "Thread");
   });
 });

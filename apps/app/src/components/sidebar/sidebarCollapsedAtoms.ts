@@ -4,6 +4,7 @@ import type {
   SidebarOrganizationMode,
 } from "@bb/domain";
 import { createSyncedPreferenceAtom } from "@/lib/ui-preferences/synced-preference-atom";
+import { createThreadArchiveFilterAtom } from "@/lib/thread-lifecycle-filter";
 
 export type {
   CollapsibleSidebarSectionId,
@@ -11,6 +12,10 @@ export type {
 } from "@bb/client-core";
 
 export type { SidebarChronologicalSort, SidebarOrganizationMode };
+
+export const sidebarThreadLifecyclesAtom = createThreadArchiveFilterAtom(
+  "bb.sidebar.threadArchiveFilter",
+);
 
 export const collapsedProjectIdsAtom = createSyncedPreferenceAtom(
   "sidebar.collapsedProjects",
@@ -38,6 +43,10 @@ export const sidebarManualSectionOrderAtom = createSyncedPreferenceAtom(
 
 export const sidebarMachineSectionOrderAtom = createSyncedPreferenceAtom(
   "sidebar.machineSectionOrder",
+);
+
+export const sidebarHiddenGroupsAtom = createSyncedPreferenceAtom(
+  "sidebar.hiddenGroups",
 );
 
 export const sidebarOrganizationModeAtom = createSyncedPreferenceAtom(

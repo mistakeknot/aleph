@@ -162,6 +162,7 @@ export function PluginCollectionToolbar({
           {
             id: "category",
             label: "Category",
+            icon: "SlidersHorizontal",
             active: selectedCategories.length > 0,
             summary:
               categoryOptions
@@ -177,6 +178,7 @@ export function PluginCollectionToolbar({
           {
             id: "source",
             label: "Source",
+            icon: sourceProps.icon,
             active: sourceProps.selectedValues.length > 0,
             summary:
               sourceProps.options
@@ -265,7 +267,6 @@ function PluginControlsMenu({
       trigger={(open) => (
         <ResourceControlButton
           label="Filter & sort"
-          text="Filter & sort"
           tooltip={
             activeLabels.length ? activeLabels.join("; ") : "Filter & sort"
           }

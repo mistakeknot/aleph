@@ -179,7 +179,6 @@ function namedSlotItems<
 function pluginAppSurfaceItems(
   plugin: PluginListItem,
   slots: PluginSlotSnapshot,
-  configurationPath?: string,
 ): PluginCapabilityItem[] {
   const pluginId = plugin.id;
   const settingsSections = slots.settingsSections.filter(
@@ -193,7 +192,7 @@ function pluginAppSurfaceItems(
             "settings",
             "Settings",
             "Opens this plugin's configuration.",
-            configurationPath ?? getPluginConfigurationRoutePath({ pluginId }),
+            getPluginConfigurationRoutePath({ pluginId }),
           ),
         ]
       : []),
@@ -362,19 +361,13 @@ function pluginAppSurfaceItems(
   ];
 }
 
-export function PluginIncludes({
-  plugin,
-  configurationPath,
-}: {
-  plugin: PluginListItem;
-  configurationPath?: string;
-}) {
+export function PluginIncludes({ plugin }: { plugin: PluginListItem }) {
   const slots = usePluginSlots();
   const queryClient = useQueryClient();
   const cachedSkills = queryClient.getQueryData<SkillListResponse>(
     projectSkillsQueryKey(PERSONAL_PROJECT_ID),
   );
-  const appItems = pluginAppSurfaceItems(plugin, slots, configurationPath);
+  const appItems = pluginAppSurfaceItems(plugin, slots);
 
   const skillDestination = (capabilityId: string): string => {
     const installedSkill = cachedSkills?.skills.find((skill) => {
@@ -508,13 +501,11 @@ function PluginRuntimeStatusAlert({
   runtimeStatus,
   onReload,
   reloadPending,
-  configurationPath,
 }: {
   plugin: PluginListItem;
   runtimeStatus: PluginRuntimeStatusPresentation;
   onReload: () => void;
   reloadPending: boolean;
-  configurationPath?: string;
 }) {
   const { settingsSections } = usePluginSlots();
   const hasSettingsPage =
@@ -540,18 +531,20 @@ function PluginRuntimeStatusAlert({
       tone={runtimeStatus.tone === "error" ? "destructive" : runtimeStatus.tone}
       icon={runtimeStatus.icon}
       title={runtimeStatus.label}
-      detail={detail}
+      detail={canOpenSettings ? undefined : detail}
       separator={plugin.status !== "degraded"}
       action={
         canOpenSettings || canReload ? (
           <span className="flex items-center gap-2">
             {canOpenSettings ? (
-              <Button asChild size="sm" className="h-7 gap-0.5 px-2.5 text-xs">
+              <Button
+                asChild
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-0.5 px-2.5 text-xs font-normal text-muted-foreground hover:text-foreground [&_[data-icon-root]]:size-3"
+              >
                 <Link
-                  to={
-                    configurationPath ??
-                    getPluginConfigurationRoutePath({ pluginId: plugin.id })
-                  }
+                  to={getPluginConfigurationRoutePath({ pluginId: plugin.id })}
                 >
                   Open settings
                   <Icon name="ChevronRight" className="size-3.5" aria-hidden />
@@ -561,8 +554,8 @@ function PluginRuntimeStatusAlert({
             {canReload ? (
               <ResourceActionButton
                 icon="RotateCcw"
+                className="[&_[data-icon-root]]:size-3.5"
                 label={reloadPending ? "Reloading…" : "Reload"}
-                tooltipLabel={reloadPending ? "Reloading…" : "Reload"}
                 loading={reloadPending}
                 disabled={reloadPending}
                 onClick={onReload}
@@ -578,11 +571,9 @@ function PluginRuntimeStatusAlert({
 export function PluginHealthBanner({
   plugin,
   runtimeStatus,
-  configurationPath,
 }: {
   plugin: PluginListItem;
   runtimeStatus: PluginRuntimeStatusPresentation | null;
-  configurationPath?: string;
 }) {
   const queryClient = useQueryClient();
   const reload = useMutation({
@@ -603,7 +594,6 @@ export function PluginHealthBanner({
       runtimeStatus={runtimeStatus}
       reloadPending={reload.isPending}
       onReload={() => reload.mutate()}
-      configurationPath={configurationPath}
     />
   );
 }
