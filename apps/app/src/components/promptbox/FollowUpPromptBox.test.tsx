@@ -175,7 +175,9 @@ vi.mock("@/components/promptbox/PromptBoxInternal", () => ({
         title={submission?.title}
         data-show-modifier-action={submission?.showModifierSubmitAction}
         onClick={
-          submission?.swapSubmitActions ? onSubmit : submission?.onModifierSubmit
+          submission?.swapSubmitActions
+            ? onSubmit
+            : submission?.onModifierSubmit
         }
       >
         Modifier submit
@@ -752,6 +754,30 @@ describe("FollowUpPromptBox", () => {
       expect(screen.getByLabelText("Follow-up prompt")).toBe(editor);
     },
   );
+
+  it("lets the user choose between switching in place and a new thread", () => {
+    const props = createFollowUpPromptBoxProps({ kind: "ready" });
+    const onTargetChange = vi.fn();
+    props.execution.handoff = {
+      sourceProviderId: "codex",
+      active: true,
+      onStart: vi.fn(),
+      onExit: vi.fn(),
+      onSelect: vi.fn(),
+      target: "switch",
+      onTargetChange,
+    };
+    render(<FollowUpPromptBox {...props} />);
+
+    expect(screen.queryByText("Handoff to new thread")).toBeNull();
+    const switchOption = screen.getByRole("radio", {
+      name: "Switch in this thread",
+    });
+    expect(switchOption.getAttribute("data-state")).toBe("on");
+    fireEvent.click(screen.getByRole("radio", { name: "New thread" }));
+    expect(onTargetChange).toHaveBeenCalledExactlyOnceWith("new-thread");
+    expect(screen.getByRole("button", { name: "Exit handoff" })).not.toBeNull();
+  });
 
   it("forwards the composer's host Escape action", () => {
     const props = createFollowUpPromptBoxProps({ kind: "ready" });

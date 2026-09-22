@@ -868,6 +868,30 @@ describe("ModelReasoningPicker", () => {
     },
   );
 
+  it("names the handoff row after switching when the switch target exists", () => {
+    renderPicker({
+      selectedProviderId: "codex",
+      handoff: {
+        sourceProviderId: "codex",
+        active: false,
+        onStart: vi.fn(),
+        onExit: vi.fn(),
+        onSelect: vi.fn(),
+        target: "switch",
+        onTargetChange: vi.fn(),
+      },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Provider, model and reasoning" }),
+    );
+    expect(
+      screen.getByRole("button", { name: "Switch provider" }),
+    ).not.toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Handoff to new thread" }),
+    ).toBeNull();
+  });
+
   it("keeps handoff mode when browsing the current provider", () => {
     const onSelect = vi.fn();
     const onExit = vi.fn();

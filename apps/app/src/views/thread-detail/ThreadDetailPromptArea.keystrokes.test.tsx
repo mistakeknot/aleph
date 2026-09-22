@@ -247,6 +247,10 @@ vi.mock("@/hooks/queries/sidebar-navigation-query", () => ({
   useProjectDisplayName: () => null,
 }));
 
+vi.mock("@/hooks/queries/plugin-settings-queries", () => ({
+  usePluginList: () => ({ data: undefined }),
+}));
+
 vi.mock("@/hooks/queries/thread-default-execution-options-query", () => ({
   useThreadDefaultExecutionOptions: () => ({
     data: {

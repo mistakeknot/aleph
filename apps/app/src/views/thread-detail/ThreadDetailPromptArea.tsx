@@ -126,6 +126,13 @@ import {
   stripThreadHandoffPrefix,
   type ThreadHandoffCreateSeed,
 } from "@bb/client-core";
+import { usePluginList } from "@/hooks/queries/plugin-settings-queries";
+import {
+  isThreadSwitchAvailable,
+  switchThreadProvider,
+  ThreadSwitchAttachmentsError,
+  type ThreadHandoffTarget,
+} from "@/lib/thread-provider-switch";
 import {
   emptyPromptDraftState,
   promptDraftToInput,
@@ -706,6 +713,14 @@ export function ThreadDetailPromptArea({
     overriddenFallbackIdentity: string | null;
   } | null>(null);
   const isHandoffSelection = handoffSourceSelection?.threadId === thread.id;
+  const canSwitchInThread = isThreadSwitchAvailable(
+    usePluginList({ enabled: true }).data?.plugins ?? [],
+  );
+  const [preferredHandoffTarget, setPreferredHandoffTarget] =
+    useState<ThreadHandoffTarget>("switch");
+  const handoffTarget: ThreadHandoffTarget = canSwitchInThread
+    ? preferredHandoffTarget
+    : "new-thread";
   const isFallbackModelActive =
     !isHandoffSelection &&
     selectedProviderId === thread.providerId &&
@@ -758,17 +773,20 @@ export function ThreadDetailPromptArea({
             overriddenFallbackIdentity,
           },
     );
-    const currentDraft = promptDraft.getCurrent();
-    const seededDraft = buildThreadHandoffFollowUpDraft(
-      handoffSeed,
-      currentDraft,
-    );
-    if (seededDraft !== currentDraft) {
-      promptDraft.setDraft(seededDraft);
+    if (handoffTarget === "new-thread") {
+      const currentDraft = promptDraft.getCurrent();
+      const seededDraft = buildThreadHandoffFollowUpDraft(
+        handoffSeed,
+        currentDraft,
+      );
+      if (seededDraft !== currentDraft) {
+        promptDraft.setDraft(seededDraft);
+      }
     }
   }, [
     effectiveSelectedModel,
     handoffSeed,
+    handoffTarget,
     overriddenFallbackIdentity,
     permissionMode,
     promptDraft,
@@ -802,6 +820,21 @@ export function ThreadDetailPromptArea({
     setServiceTier,
     thread.id,
   ]);
+  const handleHandoffTargetChange = useCallback(
+    (target: ThreadHandoffTarget) => {
+      setPreferredHandoffTarget(target);
+      const currentDraft = promptDraft.getCurrent();
+      const nextDraft =
+        target === "new-thread"
+          ? buildThreadHandoffFollowUpDraft(handoffSeed, currentDraft)
+          : (stripThreadHandoffPrefix(handoffSeed, currentDraft) ??
+            currentDraft);
+      if (nextDraft !== currentDraft) {
+        promptDraft.setDraft(nextDraft);
+      }
+    },
+    [handoffSeed, promptDraft],
+  );
   const handleProviderChange = useCallback(
     (providerId: string) => {
       if (providerId === selectedProviderId) {
@@ -1119,6 +1152,43 @@ export function ThreadDetailPromptArea({
       sendAt?: number,
       pluginSubmission?: SendMessageRequest["pluginSubmission"],
     ) => {
+      if (handoffTarget === "switch") {
+        if (sendAt !== undefined) {
+          throw new Error("A provider switch can't be scheduled.");
+        }
+        const clearedDraft = promptDraft.clearIfCurrentMatches(submittedDraft);
+        setBottomAttachmentError(null);
+        try {
+          const { newThreadId } = await switchThreadProvider(fetch, {
+            threadId: thread.id,
+            providerId: selectedProviderId,
+            model: effectiveSelectedModel,
+            reasoningLevel,
+            draft: submittedDraft,
+          });
+          navigate(
+            getThreadRoutePath({
+              projectId: thread.projectId,
+              threadId: newThreadId,
+            }),
+          );
+        } catch (error) {
+          if (clearedDraft) {
+            promptDraft.restoreIfEmpty(submittedDraft);
+          }
+          if (error instanceof ThreadSwitchAttachmentsError) {
+            setBottomAttachmentError(error.message);
+          } else {
+            showMutationErrorToast({
+              error,
+              fallbackMessage: "Failed to switch provider",
+              lifecycleOperation: "create_thread",
+            });
+          }
+          throw error;
+        }
+        return true;
+      }
       const baseRequest = buildThreadHandoffCreateRequest({
         execution: {
           providerId: selectedProviderId,
@@ -1162,6 +1232,7 @@ export function ThreadDetailPromptArea({
       createThread,
       effectiveSelectedModel,
       handoffSeed,
+      handoffTarget,
       navigate,
       permissionMode,
       promptDraft,
@@ -1170,6 +1241,8 @@ export function ThreadDetailPromptArea({
       serviceTier,
       setBottomAttachmentError,
       supportsServiceTier,
+      thread.id,
+      thread.projectId,
     ],
   );
 
@@ -1456,11 +1529,17 @@ export function ThreadDetailPromptArea({
       onModifierSubmit: handleBottomComposerModifierSubmit,
       onSubmit: handleBottomComposerSubmit,
       ...(isHandoffSelection
-        ? {
-            submitLabel: "New thread",
-            submitIcon: "MessageSquarePlus",
-            submitTitle: "Create new thread (Enter)",
-          }
+        ? handoffTarget === "switch"
+          ? {
+              submitLabel: "Switch",
+              submitIcon: "MessageSquarePlus",
+              submitTitle: "Switch this thread's provider (Enter)",
+            }
+          : {
+              submitLabel: "New thread",
+              submitIcon: "MessageSquarePlus",
+              submitTitle: "Create new thread (Enter)",
+            }
         : {}),
       compactPromptPlaceholder,
       promptPlaceholder,
@@ -1475,6 +1554,7 @@ export function ThreadDetailPromptArea({
       currentPromptDraft,
       handleBottomComposerModifierSubmit,
       handleBottomComposerSubmit,
+      handoffTarget,
       isFollowUpSubmitting,
       isHandoffSelection,
       promptHistoryDrafts,
@@ -1569,9 +1649,15 @@ export function ThreadDetailPromptArea({
         onStart: beginHandoff,
         onExit: exitHandoff,
         onSelect: handleHandoffSelect,
+        ...(canSwitchInThread
+          ? { target: handoffTarget, onTargetChange: handleHandoffTargetChange }
+          : {}),
       },
     }),
     [
+      canSwitchInThread,
+      handoffTarget,
+      handleHandoffTargetChange,
       effectiveSelectedModel,
       executionOptionsRouting,
       hasMultipleProviders,

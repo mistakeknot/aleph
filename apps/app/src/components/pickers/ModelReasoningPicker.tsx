@@ -110,6 +110,8 @@ export interface ModelReasoningPickerHandoff {
   onStart: () => void;
   onExit: () => void;
   onSelect: (selection: ModelReasoningPickerHandoffSelection) => void;
+  target?: "switch" | "new-thread";
+  onTargetChange?: (target: "switch" | "new-thread") => void;
 }
 
 const FAILED_TO_LOAD_MODELS_LABEL = "Failed to load models";
@@ -159,10 +161,12 @@ export function buildModelNavRows({
   isSearching: boolean;
   showMoreModels: boolean;
 }): ModelNavRow[] {
-  const rows: ModelNavRow[] = modelOptions.map((option): ModelNavRow => ({
-    kind: "model",
-    option,
-  }));
+  const rows: ModelNavRow[] = modelOptions.map(
+    (option): ModelNavRow => ({
+      kind: "model",
+      option,
+    }),
+  );
   if (moreModelOptions.length === 0) return rows;
 
   if (isSearching) {
@@ -273,6 +277,10 @@ export function ModelReasoningPicker({
   const [browsingHandoff, setHandoffMode] = useState(false);
   const handoffMode =
     handoff !== undefined && (handoff.active || browsingHandoff);
+  const handoffLabel =
+    handoff?.onTargetChange !== undefined
+      ? "Switch provider"
+      : "Handoff to new thread";
   const [handoffReasoningLevel, setHandoffReasoningLevel] =
     useState<ReasoningLevel | null>(null);
 
@@ -1044,7 +1052,7 @@ export function ModelReasoningPicker({
       <PopoverTrigger asChild>{trigger}</PopoverTrigger>
       <PopoverContent
         align={align}
-        mobileTitle={handoffMode ? "Handoff to new thread" : "Model"}
+        mobileTitle={handoffMode ? handoffLabel : "Model"}
         mobileClassName={
           handoffMode ? HANDOFF_DRAWER_TOP_CLASS_NAME : undefined
         }
@@ -1060,7 +1068,9 @@ export function ModelReasoningPicker({
         )}
       >
         <ResetBrowseStateOnContentUnmount onReset={resetBrowseState} />
-        {handoffMode ? <HandoffModeHeader onBack={exitHandoffMode} /> : null}
+        {handoffMode ? (
+          <HandoffModeHeader label={handoffLabel} onBack={exitHandoffMode} />
+        ) : null}
         {showProviderTabs ? (
           <div className="flex shrink-0 items-center gap-0.5 border-b border-border bg-background px-2.5 pt-1">
             {providerOptions.map((provider) => {
@@ -1302,7 +1312,7 @@ export function ModelReasoningPicker({
                 <div className="shrink-0 border-t border-border" />
                 <div className="shrink-0 p-1">
                   <MenuActionButton
-                    label="Handoff to new thread"
+                    label={handoffLabel}
                     iconName="MessageSquarePlus"
                     onClick={startHandoffMode}
                   />
@@ -1316,7 +1326,13 @@ export function ModelReasoningPicker({
   );
 }
 
-function HandoffModeHeader({ onBack }: { onBack: () => void }) {
+function HandoffModeHeader({
+  label,
+  onBack,
+}: {
+  label: string;
+  onBack: () => void;
+}) {
   return (
     <div className="flex shrink-0 items-center gap-1 bg-background px-2 pb-1 pt-1.5">
       <button
@@ -1331,7 +1347,7 @@ function HandoffModeHeader({ onBack }: { onBack: () => void }) {
         <Icon name="X" className="size-3.5" aria-hidden />
       </button>
       <span className="min-w-0 truncate text-xs font-normal text-subtle-foreground">
-        Handoff to new thread
+        {label}
       </span>
     </div>
   );

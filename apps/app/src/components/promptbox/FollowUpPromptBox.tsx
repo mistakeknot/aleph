@@ -1,5 +1,6 @@
 import { Icon, type IconName } from "@bb/shared-ui/icon";
 import { Button } from "@bb/shared-ui/button";
+import { ToggleGroup, ToggleGroupItem } from "@bb/shared-ui/toggle-group";
 import type { FollowUpSubmitMode } from "@bb/client-core";
 import {
   memo,
@@ -765,7 +766,32 @@ function FollowUpPromptBoxWithComposer({
                 className="size-3.5 shrink-0"
                 aria-hidden
               />
-              <span>Handoff to new thread</span>
+              {execution.handoff.onTargetChange ? (
+                <ToggleGroup
+                  type="single"
+                  aria-label="Where the handoff lands"
+                  value={execution.handoff.target ?? "switch"}
+                  onValueChange={(value) => {
+                    if (value === "switch" || value === "new-thread") {
+                      execution.handoff?.onTargetChange?.(value);
+                    }
+                  }}
+                  disabled={executionControlsDisabled}
+                  className="flex gap-0.5"
+                >
+                  {HANDOFF_TARGET_OPTIONS.map((option) => (
+                    <ToggleGroupItem
+                      key={option.value}
+                      value={option.value}
+                      className="h-6 rounded-sm px-1.5 text-xs font-normal shadow-none hover:bg-state-hover hover:text-foreground data-[state=on]:bg-state-active data-[state=on]:text-foreground"
+                    >
+                      {option.label}
+                    </ToggleGroupItem>
+                  ))}
+                </ToggleGroup>
+              ) : (
+                <span>Handoff to new thread</span>
+              )}
               <Button
                 type="button"
                 size="icon"
@@ -819,6 +845,11 @@ function FollowUpPromptBoxWithComposer({
     />
   );
 }
+
+const HANDOFF_TARGET_OPTIONS = [
+  { value: "switch", label: "Switch in this thread" },
+  { value: "new-thread", label: "New thread" },
+] as const;
 
 interface DefaultFollowUpComposerProps {
   active: boolean;

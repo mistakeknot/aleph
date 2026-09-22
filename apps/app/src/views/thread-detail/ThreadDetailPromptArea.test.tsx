@@ -60,6 +60,8 @@ const mocks = vi.hoisted(() => ({
   deleteQueuedMessageMutateAsync: vi.fn(),
   navigate: vi.fn(),
   pluginComposerHost: null as PluginComposerHost | null,
+  plugins: [] as { id: string; enabled: boolean; status: string }[],
+  switchThreadProvider: vi.fn(),
   promptDraft: {
     addAttachment: vi.fn(),
     attachments: [] as PromptDraftAttachment[],
@@ -171,6 +173,8 @@ vi.mock("@/components/promptbox/FollowUpPromptBox", async () => {
             model: string;
             reasoningLevel: "medium";
           }) => void;
+          target?: "switch" | "new-thread";
+          onTargetChange?: (target: "switch" | "new-thread") => void;
         };
         reasoning: { value: string };
         serviceTier?: { value?: string };
@@ -364,6 +368,27 @@ vi.mock("@/components/promptbox/FollowUpPromptBox", async () => {
             <button type="button" onClick={execution.handoff.onStart}>
               Start handoff
             </button>
+            {execution.handoff.onTargetChange ? (
+              <>
+                <div data-testid="handoff-target">
+                  {execution.handoff.target}
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    execution.handoff?.onTargetChange?.("new-thread")
+                  }
+                >
+                  Choose new thread
+                </button>
+                <button
+                  type="button"
+                  onClick={() => execution.handoff?.onTargetChange?.("switch")}
+                >
+                  Choose switch
+                </button>
+              </>
+            ) : null}
             <button
               type="button"
               onClick={() =>
@@ -718,6 +743,15 @@ vi.mock("@/hooks/queries/sidebar-navigation-query", () => ({
   useProjectDisplayName: () => null,
 }));
 
+vi.mock("@/hooks/queries/plugin-settings-queries", () => ({
+  usePluginList: () => ({ data: { plugins: mocks.plugins } }),
+}));
+
+vi.mock("@/lib/thread-provider-switch", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/thread-provider-switch")>()),
+  switchThreadProvider: mocks.switchThreadProvider,
+}));
+
 vi.mock("@/hooks/queries/thread-default-execution-options-query", () => ({
   useThreadDefaultExecutionOptions: (threadId: string, options: unknown) => {
     mocks.useThreadDefaultExecutionOptions(threadId, options);
@@ -916,6 +950,8 @@ beforeEach(() => {
   mocks.defaultExecutionOptions = null;
   mocks.executionInputSources = {};
   mocks.pluginComposerHost = null;
+  mocks.plugins = [];
+  mocks.switchThreadProvider.mockReset();
   mocks.promptDraft.text = "";
   mocks.promptDraft.mentions = [];
   mocks.promptDraft.attachments = [];
@@ -2413,5 +2449,128 @@ describe("ThreadDetailPromptArea", () => {
     expect(mocks.sendMessageMutateAsync).not.toHaveBeenCalled();
     expect(mocks.createQueuedMessageMutateAsync).not.toHaveBeenCalled();
     expect(mocks.promptDraft.clearIfCurrentMatches).toHaveBeenCalledTimes(1);
+  });
+
+  describe("switching provider in this thread (handoff plugin)", () => {
+    const sourceThread = () =>
+      makeThread({
+        environmentId: "env_1",
+        id: "thr_source",
+        projectId: "proj_source",
+        title: "Source thread",
+        titleFallback: null,
+      });
+
+    beforeEach(() => {
+      mocks.plugins = [{ id: "handoff", enabled: true, status: "running" }];
+    });
+
+    it("switches in place by default and navigates to the successor", async () => {
+      mocks.promptDraft.text = "what was the codeword?";
+      mocks.switchThreadProvider.mockResolvedValue({ newThreadId: "thr_succ" });
+      renderPromptArea({ thread: sourceThread() });
+
+      fireEvent.click(screen.getByRole("button", { name: "Switch provider" }));
+      expect(screen.getByTestId("handoff-target").textContent).toBe("switch");
+      expect(screen.getByTestId("submit-label").textContent).toBe("Switch");
+      expect(mocks.promptDraft.text).toBe("what was the codeword?");
+
+      fireEvent.click(screen.getByRole("button", { name: "Submit composer" }));
+      await waitFor(() =>
+        expect(mocks.navigate).toHaveBeenCalledWith(
+          "/projects/proj_source/threads/thr_succ",
+        ),
+      );
+      expect(mocks.switchThreadProvider).toHaveBeenCalledWith(
+        expect.any(Function),
+        expect.objectContaining({
+          threadId: "thr_source",
+          providerId: "claude-code",
+          model: "claude-opus-5",
+          draft: expect.objectContaining({ text: "what was the codeword?" }),
+        }),
+      );
+      expect(mocks.createThreadMutateAsync).not.toHaveBeenCalled();
+    });
+
+    it("adds and removes the continue-from prefix as the target toggles", async () => {
+      mocks.promptDraft.text = "Keep going";
+      mocks.createThreadMutateAsync.mockResolvedValue({
+        id: "thr_new",
+        projectId: "proj_source",
+      });
+      renderPromptArea({ thread: sourceThread() });
+      fireEvent.click(screen.getByRole("button", { name: "Switch provider" }));
+
+      fireEvent.click(
+        screen.getByRole("button", { name: "Choose new thread" }),
+      );
+      expect(mocks.promptDraft.text).toBe(
+        "Continue from @thread:thr_source\n\nKeep going",
+      );
+      expect(screen.getByTestId("submit-label").textContent).toBe("New thread");
+
+      fireEvent.click(screen.getByRole("button", { name: "Choose switch" }));
+      expect(mocks.promptDraft.text).toBe("Keep going");
+
+      fireEvent.click(
+        screen.getByRole("button", { name: "Choose new thread" }),
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Submit composer" }));
+      await waitFor(() =>
+        expect(mocks.createThreadMutateAsync).toHaveBeenCalled(),
+      );
+      expect(mocks.switchThreadProvider).not.toHaveBeenCalled();
+    });
+
+    it("keeps bb's own handoff when the plugin is not running", () => {
+      mocks.plugins = [{ id: "handoff", enabled: true, status: "stopped" }];
+      mocks.promptDraft.text = "Keep going";
+      renderPromptArea({ thread: sourceThread() });
+      fireEvent.click(screen.getByRole("button", { name: "Switch provider" }));
+
+      expect(screen.queryByTestId("handoff-target")).toBeNull();
+      expect(screen.getByTestId("submit-label").textContent).toBe("New thread");
+      expect(mocks.promptDraft.text).toBe(
+        "Continue from @thread:thr_source\n\nKeep going",
+      );
+    });
+
+    it("keeps the draft and says why when attachments block the switch", async () => {
+      const { ThreadSwitchAttachmentsError } = await vi.importActual<
+        typeof import("@/lib/thread-provider-switch")
+      >("@/lib/thread-provider-switch");
+      mocks.promptDraft.text = "see attached";
+      mocks.promptDraft.clearIfCurrentMatches.mockReturnValueOnce(true);
+      mocks.switchThreadProvider.mockRejectedValue(
+        new ThreadSwitchAttachmentsError(),
+      );
+      renderPromptArea({ thread: sourceThread() });
+      fireEvent.click(screen.getByRole("button", { name: "Switch provider" }));
+      fireEvent.click(screen.getByRole("button", { name: "Submit composer" }));
+
+      await waitFor(() =>
+        expect(mocks.promptDraft.restoreIfEmpty).toHaveBeenCalledWith(
+          expect.objectContaining({ text: "see attached" }),
+        ),
+      );
+      expect(mocks.navigate).not.toHaveBeenCalled();
+      expect(mocks.toastError).not.toHaveBeenCalled();
+    });
+
+    it("toasts the plugin's error and stays put when the switch fails", async () => {
+      mocks.promptDraft.text = "go";
+      mocks.promptDraft.clearIfCurrentMatches.mockReturnValueOnce(true);
+      mocks.switchThreadProvider.mockRejectedValue(
+        new Error("claude-code is not available on this machine"),
+      );
+      renderPromptArea({ thread: sourceThread() });
+      fireEvent.click(screen.getByRole("button", { name: "Switch provider" }));
+      fireEvent.click(screen.getByRole("button", { name: "Submit composer" }));
+
+      await waitFor(() => expect(mocks.toastError).toHaveBeenCalled());
+      expect(mocks.promptDraft.restoreIfEmpty).toHaveBeenCalled();
+      expect(mocks.navigate).not.toHaveBeenCalled();
+    });
   });
 });
