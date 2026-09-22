@@ -43,6 +43,7 @@ import {
 } from "../ui/mutation-errors.js";
 import { cn } from "@/lib/utils";
 import { ThreadSectionCreateDialog } from "./ThreadSectionCreateDialog.js";
+import { ProviderIconColorsDialog } from "./ProviderIconColorsDialog.js";
 import {
   ConfirmDeleteDialog,
   ConfirmDeleteDialogContent,
@@ -1841,6 +1842,7 @@ function ProjectListComponent({
       </ProjectListSectionMoveScope>
       {sectionCreateDialog}
       {sectionDeleteDialogContent}
+      <ProviderIconColorsDialog />
     </SidebarHeaderActionsProvider>
   );
 }
