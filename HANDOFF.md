@@ -1,42 +1,31 @@
-# Parent thread row navigation handoff
+# Worktree drag-to-parent reviewer handoff
 
 ## Issue and solution
 
-Clicking the highlighted blank area of a parent thread row did not navigate to the thread. The disclosure-caret separation introduced in #3989 constrained the parent row's anchor to the rendered title width, while the surrounding row continued to show hover and selected states.
+Dragging a worktree/environment group onto a thread could not create a parent relationship because grouped drags were excluded from thread-row nest targets. Thread nesting also felt unreliable because the valid vertical band was narrow, hover activation was slow, and horizontal cancellation used the dragged card edge rather than the pointer.
 
-The navigation wrapper now fills the available row width in both the bundled `thread-list` plugin and the core fallback implementation. The disclosure caret remains a separate button, so clicking the row opens the parent and clicking the caret only expands or collapses its children. Regression assertions cover both implementations.
+The fix adds a `nest-group` decision that reparents only the worktree group's root threads, preserving descendants and rejecting cycles. The target band is now the middle 70% of the row, expands to the whole row once armed, activates after 200 ms, and uses the pointer with 12 px of left-side tolerance.
 
-## Review links
+- Pull request: pending creation
+- Related issue: [#3029](https://github.com/get-bb/bb/issues/3029) covers stale sidebar placement after a different reparenting path; this change does not close it.
 
-- PR: [#4077](https://github.com/get-bb/bb/pull/4077)
-- Related GitHub issue: none; reported with a screen recording in BB thread `thr_uivddeyuu5`
-- Live build: [BB Connect](https://ymichael--23244.getbb.app)
-- CI: [14 successful checks, 2 intentional skips, 0 failures](https://github.com/get-bb/bb/pull/4077/checks); all required checks passed
-- Mergeability: GitHub reports `CLEAN` / `MERGEABLE`
+## Visual evidence
+
+| Before | Valid drag target | After drop |
+| --- | --- | --- |
+| ![Worktree group before reparenting](docs/handoff-assets/worktree-dnd-before.png) | ![Parent thread outlined as a valid target](docs/handoff-assets/worktree-dnd-target.png) | ![Worktree group nested under the parent thread](docs/handoff-assets/worktree-dnd-after.png) |
 
 ## Focused verification
 
-- `pnpm exec turbo run test --filter=@bb/app -- --run src/components/sidebar/ThreadRow.test.tsx` — 84 passed
-- `pnpm exec turbo run test --filter=bb-plugin-thread-list -- --run app/rows/ThreadRow.test.tsx` — 93 passed
-- `pnpm exec turbo run typecheck --filter=bb-plugin-thread-list --filter=@bb/app` — passed
-- Production-style `pnpm start:worktree` browser verification — passed locally against the Connect-served bundle; remote headless access reached the expected owner sign-in gate
-- Verification inventory — blocked by pre-existing unmapped `browser` CLI family drift
+- `pnpm exec turbo run test --filter=bb-plugin-thread-list --force -- --run app/dnd/useSectionThreadDnd.test.ts app/dnd/useSectionThreadDnd.projection.test.tsx` — 44 passed
+- `pnpm exec turbo run typecheck --filter=bb-plugin-thread-list --force` — passed
+- `pnpm exec turbo run test --filter=@bb/app --force -- --run src/components/sidebar/useSectionThreadDnd.test.ts src/components/sidebar/useSectionThreadDnd.projection.test.tsx` — 44 passed
+- `pnpm exec turbo run typecheck --filter=@bb/app --force` — passed
+- Source-app smoke test confirmed both group roots persisted the target `parentThreadId`, the hierarchy updated immediately, and it survived reload.
+- Current CI: pending PR creation; use the PR checks link after creation.
 
-## Exact live verification steps
+The verification inventory also reports pre-existing recipe drift: `Unmapped CLI family: browser; add recipes and an explicit owner`.
 
-1. Open the live build link above.
-2. Find the expanded `Parent navigation target` row with `Child fixture` nested below it.
-3. Click the blank portion of the parent row between its title and disclosure caret.
-4. Confirm the URL changes to the parent thread route and the parent thread header appears.
-5. Click the disclosure caret.
-6. Confirm `Child fixture` disappears while the parent thread URL remains unchanged.
+## Live reviewer fixture
 
-## Screenshots
-
-Before — the pointer lands in the highlighted row area outside the title-sized link:
-
-![Before](docs/review-assets/thread-navigation-click/before.png)
-
-After — the same row area navigates to the parent thread; the caret remains independent:
-
-![After](docs/review-assets/thread-navigation-click/after.jpg)
+The preview URL, fixture IDs, exact reset commands, and persisted-state checks are added after the live fixture is seeded.

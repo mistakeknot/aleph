@@ -47,10 +47,10 @@ import {
 } from "../rows/sidebarThreadRowDroppable.js";
 
 export const PINNED_THREAD_PARENT_KEY = "sidebar:pinned-threads";
-export const NEST_BAND_FRACTION = 0.5;
-export const NEST_BAND_ARMED_FRACTION = 0.8;
+export const NEST_BAND_FRACTION = 0.7;
+export const NEST_BAND_ARMED_FRACTION = 1;
 export const NEST_CANCEL_OFFSET_PX = 12;
-export const NEST_HOVER_DELAY_MS = 350;
+export const NEST_HOVER_DELAY_MS = 200;
 
 const SECTION_THREAD_DROPPABLE_MEASURING = {
   droppable: { strategy: MeasuringStrategy.WhileDragging, frequency: 16 },
@@ -135,6 +135,13 @@ export type SectionThreadDropDecision =
       toParentKey: string;
     }
   | {
+      kind: "nest-group";
+      activeId: string;
+      threadIds: string[];
+      parentThreadId: string;
+      sectionId?: string | null;
+    }
+  | {
       kind: "move";
       activeId: string;
       sectionId: string | null;
@@ -184,7 +191,6 @@ interface ResolvedThreadRowInfo {
 
 interface ResolveThreadRowNestCollisionsArgs {
   collisions: Collision[];
-  draggedLeft?: number | null;
   droppableRects: ReadonlyMap<UniqueIdentifier, ClientRect>;
   pointerCoordinates: { x: number; y: number } | null;
   getBandFraction: (threadId: string) => number | null;
@@ -360,7 +366,6 @@ export function isThreadWithinSubtree(
 
 export function resolveThreadRowNestCollisions({
   collisions,
-  draggedLeft = null,
   droppableRects,
   pointerCoordinates,
   getBandFraction,
@@ -401,7 +406,6 @@ export function resolveThreadRowNestCollisions({
           rowRect,
           pointerCoordinates,
           getBandFraction,
-          draggedLeft,
           retaining,
           retainedRect,
         );
@@ -432,7 +436,6 @@ function locateThreadRowPointer(
   rect: ClientRect | undefined,
   pointerCoordinates: { x: number; y: number } | null,
   getBandFraction: (threadId: string) => number | null,
-  draggedLeft: number | null,
   retainBelow: boolean,
   retainedRect: ClientRect | null,
 ): {
@@ -442,7 +445,8 @@ function locateThreadRowPointer(
 } | null {
   if (!rect || rect.height <= 0 || !pointerCoordinates) return null;
   const { x, y } = pointerCoordinates;
-  const withinX = x >= rect.left && x <= rect.left + rect.width;
+  const withinX =
+    x >= rect.left - NEST_CANCEL_OFFSET_PX && x <= rect.left + rect.width;
   const withinY = y >= rect.top && y <= rect.bottom;
   const withinRetainedRegion =
     retainBelow &&
@@ -455,8 +459,7 @@ function locateThreadRowPointer(
   const bandFraction = getBandFraction(threadId);
   const inDwellBand =
     bandFraction !== null && Math.abs(relativeY - 0.5) <= bandFraction / 2;
-  const movedLeft =
-    draggedLeft !== null && draggedLeft <= rect.left - NEST_CANCEL_OFFSET_PX;
+  const movedLeft = x < rect.left - NEST_CANCEL_OFFSET_PX;
   if (withinRetainedRegion) {
     return {
       threadId,
@@ -553,6 +556,59 @@ function resolveNestDecision(
   };
 }
 
+function resolveNestGroupDecision(
+  lookup: SectionThreadDndLookup,
+  activeId: string,
+  groupThreads: readonly ThreadListEntry[],
+  parentThreadId: string,
+  options: ResolveSectionThreadDropDecisionOptions,
+): SectionThreadDropDecision | null {
+  const parentThread = lookup.threadByItemId.get(parentThreadId);
+  const parentKey = lookup.parentKeyByItemId.get(parentThreadId);
+  if (!parentThread || !parentKey || options.groups) return null;
+  const groupThreadIds = new Set(groupThreads.map((thread) => thread.id));
+  if (groupThreadIds.has(parentThreadId)) {
+    return {
+      kind: "rejected",
+      activeId,
+      overThreadId: parentThreadId,
+      reason: "own-subtree",
+    };
+  }
+  const rootThreadIds = groupThreads
+    .filter(
+      (thread) =>
+        thread.parentThreadId === null ||
+        !groupThreadIds.has(thread.parentThreadId),
+    )
+    .map((thread) => thread.id);
+  if (rootThreadIds.length === 0) return null;
+  if (
+    rootThreadIds.every(
+      (threadId) =>
+        lookup.threadByItemId.get(threadId)?.parentThreadId === parentThreadId,
+    )
+  ) {
+    return {
+      kind: "rejected",
+      activeId,
+      overThreadId: parentThreadId,
+      reason: "already-child",
+    };
+  }
+  const parentPinned = parentKey === PINNED_THREAD_PARENT_KEY;
+  const sectionId = parentPinned
+    ? (parentThread.sectionId ?? null)
+    : (lookup.sectionIdByParentKey.get(parentKey) ?? null);
+  return {
+    kind: "nest-group",
+    activeId,
+    threadIds: rootThreadIds,
+    parentThreadId,
+    sectionId,
+  };
+}
+
 export function resolveSectionThreadDropDecision(
   lookup: SectionThreadDndLookup,
   activeId: string,
@@ -567,9 +623,27 @@ export function resolveSectionThreadDropDecision(
 
   const groupThreads = lookup.groupThreadsByItemId.get(activeId);
   if (groupThreads) {
-    if (options.groups) return null;
     const overThreadId =
       overId === null ? null : parseSidebarThreadRowDroppableId(overId);
+    if (overThreadId !== null) {
+      return resolveNestGroupDecision(
+        lookup,
+        activeId,
+        groupThreads,
+        overThreadId,
+        options,
+      );
+    }
+    if (overId === activeId && projectedNestParentId !== null) {
+      return resolveNestGroupDecision(
+        lookup,
+        activeId,
+        groupThreads,
+        projectedNestParentId,
+        options,
+      );
+    }
+    if (options.groups) return null;
     const toParentKey =
       overId === activeId
         ? projectedParentKey
@@ -700,7 +774,7 @@ function getEventIds(event: DragOverEvent | DragEndEvent) {
 function resolveRowDropState(
   decision: SectionThreadDropDecision | null,
 ): RowDropState | null {
-  if (decision?.kind === "nest") {
+  if (decision?.kind === "nest" || decision?.kind === "nest-group") {
     return { threadId: decision.parentThreadId, state: "valid" };
   }
   if (decision?.kind === "rejected") {
@@ -811,6 +885,11 @@ function hasDropDecisionLanded(
         lookup.nestParentIdByItemId.get(decision.activeId) ===
         decision.parentThreadId
       );
+    case "nest-group":
+      return decision.threadIds.every(
+        (threadId) =>
+          lookup.nestParentIdByItemId.get(threadId) === decision.parentThreadId,
+      );
     case "pin":
       return (
         lookup.parentKeyByItemId.get(decision.activeId) ===
@@ -906,12 +985,7 @@ export function useSectionThreadDnd({
   const getNestBandFraction = useCallback(
     (threadId: string): number | null => {
       const activeId = activeIdRef.current;
-      if (
-        activeId === null ||
-        threadId === activeId ||
-        lookup.groupThreadsByItemId.has(activeId)
-      )
-        return null;
+      if (activeId === null || threadId === activeId) return null;
       if (lookup.itemKindById.get(threadId) !== "thread") return null;
       const armed = armedNestThreadIdRef.current === threadId;
       if (coarsePointerRef.current) return 1;
@@ -988,7 +1062,6 @@ export function useSectionThreadDnd({
       const retainedNestTarget = retainedNestTargetRef.current;
       const collisions = resolveThreadRowNestCollisions({
         collisions: reorderCollisions,
-        draggedLeft: args.collisionRect.left,
         droppableRects: args.droppableRects,
         pointerCoordinates: args.pointerCoordinates,
         getBandFraction: getNestBandFraction,
@@ -1280,6 +1353,23 @@ export function useSectionThreadDnd({
           void Promise.allSettled(
             decision.threadIds.map((threadId) =>
               sdk.threads.update({ threadId, sectionId: decision.sectionId }),
+            ),
+          )
+            .then((results) => {
+              if (results.some((result) => result.status === "rejected")) {
+                toast.error("Failed to move threads.");
+              }
+            })
+            .finally(clearProjectedDrag);
+          break;
+        case "nest-group":
+          void Promise.allSettled(
+            decision.threadIds.map((threadId) =>
+              sdk.threads.update({
+                threadId,
+                parentThreadId: decision.parentThreadId,
+                sectionId: decision.sectionId,
+              }),
             ),
           )
             .then((results) => {
