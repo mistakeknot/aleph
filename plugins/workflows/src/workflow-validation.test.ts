@@ -91,11 +91,17 @@ describe("workflow validation", () => {
           loadModels: async () => ({
             models: [],
             selectedOnlyModels: [],
-            modelLoadError: { providerId: "codex", code: "auth_required" },
+            modelLoadError: {
+              providerId: "codex",
+              code: "auth_required",
+              detail: "codex login expired",
+            },
           }),
         }),
       ),
-    ).rejects.toThrow("Model-load error");
+    ).rejects.toThrow(
+      "Model-load error for provider codex: auth_required: codex login expired",
+    );
     await expect(
       validateWorkflowSource(
         SOURCE,

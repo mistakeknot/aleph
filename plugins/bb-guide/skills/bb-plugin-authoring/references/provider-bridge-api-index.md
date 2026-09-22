@@ -75,6 +75,7 @@ Context breakdowns are optional snapshots on `contextWindow` deltas:
 - `deltaTextChannelSchema`
 - `dynamicToolSchema`
 - `errorEnvelopeSchema`
+- `experimental_BridgeMissingExecutableError`
 - `experimental_BridgeRecoveryError`
 - `experimental_COMPACTION_PRESENTATION`
 - `experimental_REASONING_PRESENTATION`

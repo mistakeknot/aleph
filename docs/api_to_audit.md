@@ -1075,6 +1075,26 @@ hook; confirm the `{ threadId | null }` scope is the right key once bridges
 multiplex several threads over one child; and settle the recording entry
 shape (`{ ts, run, seq, dir, line }`) as a documented fixture format.
 
+## `experimental_BridgeMissingExecutableError`
+
+**What it does.** A request handler throws it when the provider's own CLI or
+runtime is absent, and `runBridgeRequest` rejects the request with
+`BRIDGE_JSON_RPC_ERRORS.MISSING_EXECUTABLE` (-32004). The host daemon maps that
+code to the `missing_executable` command error without matching the message, so
+the model picker and `bb provider models` can say the CLI is missing instead of
+repeating whichever sentence the bridge wrote. A handler that answers by hand
+passes the same code to `sendError` (the codex bridge does this for
+`model/list`). It carries no recovery hint: nothing the runtime does can heal a
+missing binary.
+
+**Audit before stabilizing.** Decide whether this stays a separate error class
+or folds into `experimental_BridgeRecoveryError` with a `notInstalled` kind once
+that audit settles the kind list — the two answer different questions
+(classification versus runtime action), which is why they are separate today.
+Confirm whether other absent-dependency failures (a missing runtime, an
+unsupported platform build) deserve the same code or distinct ones, and settle
+how it should interact with `provider/installation/*` status.
+
 ## `experimental_BridgeRecoveryError`
 
 **Kept experimental (2026-08-22).** it is part of the provider-bridge authoring surface and stabilizes together with `experimental_defineProviderBridge` / `experimental_apiVersion` in the later bridge-kit audit.

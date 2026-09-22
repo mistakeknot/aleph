@@ -72,6 +72,7 @@ import type {
 import { utf8Prefix } from "./utf8.js";
 import { parseStoredAgentOptions } from "./validation.js";
 import { prepareWorkflowSource } from "./workflow-input.js";
+import { describeModelLoadError } from "./workflow-validation.js";
 
 const executionValuesSchema = z.object({
   model: z.string().min(1),
@@ -733,7 +734,7 @@ export function createWorkflowService(
     throwIfCancelled(signal);
     if (catalog.modelLoadError !== null) {
       throw new Error(
-        `Could not load models for provider ${requested.provider}: ${catalog.modelLoadError.code}`,
+        `Could not load models for provider ${requested.provider}: ${describeModelLoadError(catalog.modelLoadError)}`,
       );
     }
     const eligibleModels = inherited

@@ -174,6 +174,7 @@ export {
   ZERO_TOKEN_USAGE,
   addTokenUsage,
   bashArgsSchema,
+  BridgeMissingExecutableError as experimental_BridgeMissingExecutableError,
   BridgeRecoveryError as experimental_BridgeRecoveryError,
   clampPercent as experimental_clampPercent,
   commandOutput as experimental_commandOutput,

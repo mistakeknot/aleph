@@ -15,7 +15,20 @@ interface CatalogModel {
 interface ModelCatalog {
   models: CatalogModel[];
   selectedOnlyModels: CatalogModel[];
-  modelLoadError: { providerId: string; code: string } | null;
+  modelLoadError: {
+    providerId: string;
+    code: string;
+    detail: string | null;
+  } | null;
+}
+
+export function describeModelLoadError(modelLoadError: {
+  code: string;
+  detail: string | null;
+}): string {
+  return modelLoadError.detail === null
+    ? modelLoadError.code
+    : `${modelLoadError.code}: ${modelLoadError.detail}`;
 }
 
 export interface WorkflowCatalogDependencies {
@@ -65,7 +78,7 @@ export async function validateWorkflowSource(
       }
       if (models.modelLoadError !== null) {
         throw new Error(
-          `Model-load error for provider ${provider.id}: ${models.modelLoadError.code}`,
+          `Model-load error for provider ${provider.id}: ${describeModelLoadError(models.modelLoadError)}`,
         );
       }
       const model = models.models.find(

@@ -1,3 +1,4 @@
+import { BRIDGE_JSON_RPC_ERRORS } from "../errors.js";
 import type { BridgeErrorData, ProviderRecoveryHint } from "../errors.js";
 
 export type BridgeJsonRpcId = string | number;
@@ -38,6 +39,16 @@ export class BridgeRecoveryError extends Error {
     this.name = "BridgeRecoveryError";
     this.code = args.code;
     this.recovery = args.recovery;
+  }
+}
+
+export class BridgeMissingExecutableError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(
+      message,
+      options?.cause === undefined ? undefined : { cause: options.cause },
+    );
+    this.name = "BridgeMissingExecutableError";
   }
 }
 
@@ -104,6 +115,14 @@ export function runBridgeRequest<
       return;
     }
     const message = error instanceof Error ? error.message : String(error);
+    if (error instanceof BridgeMissingExecutableError) {
+      args.sendError(
+        args.request.id,
+        BRIDGE_JSON_RPC_ERRORS.MISSING_EXECUTABLE,
+        message,
+      );
+      return;
+    }
     args.sendError(args.request.id, -32000, message);
   });
 }
