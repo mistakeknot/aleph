@@ -26,7 +26,7 @@ The fix adds a `nest-group` decision that reparents only the worktree group's ro
 - `pnpm exec turbo run test --filter=@bb/app --force -- --run src/components/sidebar/useSectionThreadDnd.test.ts src/components/sidebar/useSectionThreadDnd.projection.test.tsx` — 46 passed
 - `pnpm exec turbo run typecheck --filter=@bb/app --force` — passed
 - Source-app smoke tests confirmed both parenting and section-drop unparenting persisted for both roots, preserved the shared environment, updated immediately, and survived reload.
-- Follow-up CI: pending the final PR-head run. See the [PR checks](https://github.com/get-bb/bb/pull/4078/checks).
+- Final follow-up CI: 14 passed, 2 intentionally skipped, 0 failed, 0 cancelled, and 0 pending. GitHub reports the PR `CLEAN` and `MERGEABLE`. See the [PR checks](https://github.com/get-bb/bb/pull/4078/checks).
 
 The verification inventory also reports pre-existing recipe drift: `Unmapped CLI family: browser; add recipes and an explicit owner`.
 
