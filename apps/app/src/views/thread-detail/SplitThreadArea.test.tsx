@@ -10,7 +10,13 @@ import {
   within,
 } from "@testing-library/react";
 import { createStore, Provider as JotaiProvider } from "jotai";
-import { useContext, useMemo, useState, type ReactNode } from "react";
+import {
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { PERSONAL_PROJECT_ID } from "@bb/domain";
@@ -21,6 +27,7 @@ import { createQueryClientTestHarness } from "@/test/queryClientTestHarness";
 import {
   DIM_INACTIVE_SPLITS_STORAGE_KEY,
   dimInactiveSplitsAtom,
+  focusComposerOnPaneSwitchAtom,
   maximizedPaneIdAtom,
   splitLayoutAtom,
 } from "@/lib/split-layout/atoms";
@@ -32,7 +39,11 @@ import {
   SPLIT_LAYOUT_STORAGE_KEY,
 } from "@/lib/split-layout";
 import type { LayoutNode, PaneContent, SplitLayout } from "@/lib/split-layout";
-import { usePromptDraftStorage } from "@/hooks/usePromptDraftStorage";
+import {
+  getPromptDraftAccessor,
+  usePromptDraftStorage,
+  type PromptDraftScope,
+} from "@/hooks/usePromptDraftStorage";
 import { createBbDesktopApi } from "@/test/bb-desktop-test-utils";
 import { resourceRouteLabelAtom } from "@/components/layout/resourceRouteLabelAtom";
 import {
@@ -52,12 +63,19 @@ import { RouteNavigationProvider } from "@/components/ui/app-route-anchor";
 import { SplitThreadArea } from "./SplitThreadArea";
 import { applyThreadOpenToLayout } from "./splitThreadNavigation";
 import { makePluginRegistrationSet } from "@/test/fixtures/plugins";
+import { EMPTY_ORDERED_MENTION_SUGGESTIONS } from "@bb/client-core";
+import {
+  INERT_TYPEAHEAD_COMMAND_CONFIG,
+  PromptBoxInternal,
+} from "@/components/promptbox/PromptBoxInternal";
+import { subscribeComposerFocusRequests } from "@/lib/composer-focus-requests";
 
 const threadStore = vi.hoisted(
   () =>
     new Map<string, { archivedAt: number | null; deletedAt: number | null }>(),
 );
 const viewportState = vi.hoisted(() => ({ compact: false }));
+const composerState = vi.hoisted(() => ({ realEditor: false }));
 const sidebarState = vi.hoisted(() => ({ showing: true }));
 const panelFullScreenState = vi.hoisted(() => ({
   isMainCollapsed: false,
@@ -115,7 +133,16 @@ function RootComposeFixture() {
     pane?.secondaryPanelHost ?? null,
     panelModel,
   );
-  return <div data-testid="root-compose-view" />;
+  return (
+    <div data-testid="root-compose-view">
+      {composerState.realEditor ? (
+        <ThreadComposerFixture
+          scope={{ kind: "new-thread" }}
+          label="New thread message"
+        />
+      ) : null}
+    </div>
+  );
 }
 
 vi.mock("@bb/shared-ui/hooks/use-compact-viewport", () => ({
@@ -139,6 +166,7 @@ vi.mock("@/hooks/queries/thread-queries", () => ({
 
 vi.mock("@/components/commands/AppCommandProvider", () => ({
   useAppCommandContext: () => undefined,
+  useAppCommandKeyDispatch: () => () => false,
   useAppCommandHandler: (command: string, handler: () => boolean) => {
     commandHandlers.set(command, handler);
   },
@@ -287,6 +315,45 @@ vi.mock("@/components/plugin/PluginPanelRightPanelHost", () => ({
   },
 }));
 
+function ThreadComposerFixture({
+  scope,
+  label,
+}: {
+  scope: PromptDraftScope;
+  label: string;
+}) {
+  const draft = usePromptDraftStorage(scope);
+  const [focusNonce, setFocusNonce] = useState(0);
+  useEffect(
+    () =>
+      subscribeComposerFocusRequests(draft.storageKey, () => {
+        setFocusNonce((nonce) => nonce + 1);
+      }),
+    [draft.storageKey],
+  );
+  return (
+    <PromptBoxInternal
+      value={draft.text}
+      mentionRanges={draft.mentions}
+      onChange={draft.setTextAndMentions}
+      onSubmit={() => {}}
+      autoFocus={false}
+      focusEndKey={focusNonce}
+      placeholder={label}
+      mentionMenuPlacement="bottom"
+      typeahead={{
+        mention: {
+          results: EMPTY_ORDERED_MENTION_SUGGESTIONS,
+          isLoading: false,
+          isError: false,
+          onQueryChange: () => {},
+        },
+        command: INERT_TYPEAHEAD_COMMAND_CONFIG,
+      }}
+    />
+  );
+}
+
 vi.mock("./ThreadDetailView", () => ({
   ThreadDetailView: ({
     projectId = "proj_personal",
@@ -347,11 +414,20 @@ vi.mock("./ThreadDetailView", () => ({
           data-testid={`drag-${threadId}`}
           onPointerDown={(event) => pane?.beginPaneDrag?.(event, threadId)}
         />
-        <textarea
-          data-testid={`draft-${threadId}`}
-          value={draft.text}
-          onChange={(event) => draft.setTextAndMentions(event.target.value, [])}
-        />
+        {composerState.realEditor ? (
+          <ThreadComposerFixture
+            scope={{ kind: "thread", projectId, threadId }}
+            label={`Message ${threadId}`}
+          />
+        ) : (
+          <textarea
+            data-testid={`draft-${threadId}`}
+            value={draft.text}
+            onChange={(event) =>
+              draft.setTextAndMentions(event.target.value, [])
+            }
+          />
+        )}
         <div
           data-testid={`scroll-${threadId}`}
           style={{ height: 20, overflow: "auto" }}
@@ -629,7 +705,11 @@ function RouteAwareSplitArea() {
   return (
     <SplitThreadArea
       routeContent={
-        location.pathname.startsWith("/plugins/") ? docsContent : undefined
+        location.pathname === "/"
+          ? { kind: "new-thread" }
+          : location.pathname.startsWith("/plugins/")
+            ? docsContent
+            : undefined
       }
     />
   );
@@ -643,7 +723,14 @@ function renderSplitArea(options: {
   routeAwareContent?: boolean;
   pluginPanelLifecycle?: boolean;
   maximizedPaneId?: string;
+  focusComposer?: boolean;
 }) {
+  if (options.focusComposer !== undefined) {
+    window.localStorage.setItem(
+      "bb.splitLayout.focusComposerOnKeyboardSwitch",
+      String(options.focusComposer),
+    );
+  }
   const store = createStore();
   if (options.layout !== undefined) {
     store.set(splitLayoutAtom, options.layout);
@@ -678,6 +765,7 @@ function renderSplitArea(options: {
 }
 
 beforeEach(() => {
+  composerState.realEditor = false;
   viewportState.compact = false;
   sidebarState.showing = true;
   panelFullScreenState.isMainCollapsed = false;
@@ -701,6 +789,202 @@ afterEach(() => {
 });
 
 describe("SplitThreadArea", () => {
+  it("stops automatic focus immediately when disabled without remounting", async () => {
+    composerState.realEditor = true;
+    const store = renderSplitArea({
+      path: threadPath("thr-a"),
+      layout: twoPaneLayout("pane-1"),
+      focusComposer: true,
+    });
+    const first = await screen.findByRole("textbox", { name: "Message thr-a" });
+    const second = screen.getByRole("textbox", { name: "Message thr-b" });
+    act(() => first.focus());
+    act(() => {
+      commandHandlers.get("pane.focus.2")?.();
+    });
+    await waitFor(() => expect(document.activeElement).toBe(second));
+    act(() => store.set(focusComposerOnPaneSwitchAtom, false));
+    act(() => {
+      commandHandlers.get("pane.focus.1")?.();
+    });
+    expect(store.get(splitLayoutAtom)?.focusedPaneId).toBe("pane-1");
+    expect(document.activeElement).toBe(second);
+  });
+
+  it.each([undefined, false])(
+    "does not request composer focus when preference is %s",
+    async (enabled) => {
+      composerState.realEditor = true;
+      const store = renderSplitArea({
+        path: threadPath("thr-a"),
+        layout: twoPaneLayout("pane-1"),
+        focusComposer: enabled,
+      });
+      const first = await screen.findByRole("textbox", {
+        name: "Message thr-a",
+      });
+      const focus = vi.fn();
+      const unsubscribe = subscribeComposerFocusRequests(
+        getPromptDraftAccessor({
+          kind: "thread",
+          projectId: PERSONAL_PROJECT_ID,
+          threadId: "thr-b",
+        }).storageKey,
+        focus,
+      );
+      try {
+        act(() => first.focus());
+        act(() => {
+          expect(commandHandlers.get("pane.focus.2")?.()).toBe(true);
+        });
+        expect(store.get(splitLayoutAtom)?.focusedPaneId).toBe("pane-2");
+        expect(focus).not.toHaveBeenCalled();
+      } finally {
+        unsubscribe();
+      }
+    },
+  );
+
+  it.each(["pane.focus.next", "pane.focus.previous", "pane.focus.2"])(
+    "%s transfers typing focus to an already-mounted composer",
+    async (command) => {
+      composerState.realEditor = true;
+      for (const threadId of ["thr-a", "thr-b"]) {
+        getPromptDraftAccessor({
+          kind: "thread",
+          projectId: PERSONAL_PROJECT_ID,
+          threadId,
+        }).setDraft({
+          text: `Draft ${threadId}`,
+          mentions: [],
+          attachments: [],
+        });
+      }
+      const store = renderSplitArea({
+        focusComposer: true,
+        path: threadPath("thr-a"),
+        layout: twoPaneLayout("pane-1"),
+      });
+      const first = await screen.findByRole("textbox", {
+        name: "Message thr-a",
+      });
+      const second = screen.getByRole("textbox", { name: "Message thr-b" });
+      act(() => first.focus());
+      expect(document.activeElement).toBe(first);
+
+      act(() => {
+        expect(commandHandlers.get(command)?.()).toBe(true);
+      });
+
+      expect(store.get(splitLayoutAtom)?.focusedPaneId).toBe("pane-2");
+      await waitFor(() => expect(document.activeElement).toBe(second));
+      expect(second.textContent).toBe("Draft thr-b");
+      expect(first.textContent).toBe("Draft thr-a");
+      expect(second.contains(window.getSelection()?.anchorNode ?? null)).toBe(
+        true,
+      );
+      expect(window.getSelection()?.anchorOffset).toBe("Draft thr-b".length);
+      act(() => {
+        expect(commandHandlers.get("pane.focus.1")?.()).toBe(true);
+      });
+      await waitFor(() => expect(document.activeElement).toBe(first));
+    },
+  );
+
+  it("focuses an already-mounted new-thread composer through pane navigation", async () => {
+    composerState.realEditor = true;
+    const layout = twoPaneLayout("pane-1");
+    if (layout.root.type !== "split") throw new Error("Expected split");
+    layout.root.children[1] = {
+      type: "pane",
+      paneId: "pane-2",
+      content: { kind: "new-thread" },
+    };
+    const store = renderSplitArea({
+      focusComposer: true,
+      path: threadPath("thr-a"),
+      layout,
+      routeAwareContent: true,
+    });
+    const first = await screen.findByRole("textbox", { name: "Message thr-a" });
+    const second = screen.getByRole("textbox", { name: "New thread message" });
+    act(() => first.focus());
+    act(() => {
+      expect(commandHandlers.get("pane.focus.next")?.()).toBe(true);
+    });
+    expect(store.get(splitLayoutAtom)?.focusedPaneId).toBe("pane-2");
+    await waitFor(() => expect(document.activeElement).toBe(second));
+  });
+
+  it("refocuses the selected pane's composer without toggling it", async () => {
+    composerState.realEditor = true;
+    renderSplitArea({
+      focusComposer: true,
+      path: threadPath("thr-a"),
+      layout: twoPaneLayout("pane-1"),
+    });
+    const first = await screen.findByRole("textbox", { name: "Message thr-a" });
+    act(() => screen.getByTestId("drag-thr-a").focus());
+    act(() => {
+      expect(commandHandlers.get("pane.focus.1")?.()).toBe(true);
+    });
+    await waitFor(() => expect(document.activeElement).toBe(first));
+    act(() => {
+      expect(commandHandlers.get("pane.focus.1")?.()).toBe(true);
+    });
+    expect(document.activeElement).toBe(first);
+  });
+
+  it("does not redirect a pointer selection into the pane's composer", async () => {
+    composerState.realEditor = true;
+    const store = renderSplitArea({
+      focusComposer: true,
+      path: threadPath("thr-a"),
+      layout: twoPaneLayout("pane-1"),
+    });
+    const first = await screen.findByRole("textbox", { name: "Message thr-a" });
+    act(() => first.focus());
+
+    fireEvent.pointerDown(screen.getByTestId("scroll-thr-b"));
+
+    expect(store.get(splitLayoutAtom)?.focusedPaneId).toBe("pane-2");
+    expect(document.activeElement).toBe(first);
+  });
+
+  it("does not request another composer's focus when selecting a plugin pane", async () => {
+    const layout = twoPaneLayout("pane-1");
+    if (layout.root.type !== "split") throw new Error("Expected split");
+    layout.root.children[1] = {
+      type: "pane",
+      paneId: "pane-2",
+      content: docsContent,
+    };
+    const store = renderSplitArea({
+      focusComposer: true,
+      path: threadPath("thr-a"),
+      layout,
+      routeAwareContent: true,
+    });
+    const focus = vi.fn();
+    const unsubscribe = subscribeComposerFocusRequests(
+      getPromptDraftAccessor({
+        kind: "thread",
+        projectId: PERSONAL_PROJECT_ID,
+        threadId: "thr-a",
+      }).storageKey,
+      focus,
+    );
+    try {
+      act(() => {
+        expect(commandHandlers.get("pane.focus.next")?.()).toBe(true);
+      });
+      expect(store.get(splitLayoutAtom)?.focusedPaneId).toBe("pane-2");
+      expect(focus).not.toHaveBeenCalled();
+    } finally {
+      unsubscribe();
+    }
+  });
+
   it("hosts Browser-tab navigation on compact plugin-panel routes", async () => {
     viewportState.compact = true;
 

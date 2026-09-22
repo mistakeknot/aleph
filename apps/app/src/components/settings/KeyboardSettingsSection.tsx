@@ -1,3 +1,4 @@
+import { PaneComposerFocusSetting } from "./PaneComposerFocusSetting";
 import {
   memo,
   useCallback,
@@ -680,127 +681,133 @@ export function KeyboardSettingsSection() {
   const hasOverrides = overrides.length > 0;
 
   return (
-    <SettingsSection
-      action={
-        <Button
-          disabled={disabled || !hasOverrides}
-          onClick={() =>
-            applyOverrides([], null, overrides, serverOverridesKey)
-          }
-          size="sm"
-          type="button"
-          variant="outline"
-        >
-          Reset all
-        </Button>
-      }
-      description="Click a shortcut, then press its new keys. Changes sync to every bb window."
-      title="Keyboard shortcuts"
-    >
-      <div className="space-y-5">
-        <SettingsWithControl
-          description="Show shortcut badges after holding Command or Control."
-          label="Show keyboard hints when holding CMD / Control"
-        >
-          <Switch
-            aria-label="Show keyboard hints when holding CMD / Control"
-            checked={generalSettings.showKeyboardHints}
-            disabled={
-              systemConfig.data === undefined || updateGeneralSettings.isPending
+    <>
+      <SettingsSection title="Pane navigation">
+        <PaneComposerFocusSetting />
+      </SettingsSection>
+      <SettingsSection
+        action={
+          <Button
+            disabled={disabled || !hasOverrides}
+            onClick={() =>
+              applyOverrides([], null, overrides, serverOverridesKey)
             }
-            onCheckedChange={(showKeyboardHints) =>
-              updateGeneralSettings.mutate({
-                ...generalSettings,
-                showKeyboardHints,
-              })
-            }
-          />
-        </SettingsWithControl>
-        <Input
-          aria-label="Search keyboard shortcuts"
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder="Search shortcuts"
-          value={search}
-        />
-        {pendingAssignment !== null ? (
-          <div
-            role="alert"
-            className="space-y-2 rounded border border-border p-3"
+            size="sm"
+            type="button"
+            variant="outline"
           >
-            <p className="text-sm">
-              Shortcut already used by{" "}
-              {pendingAssignment.conflicts
-                .map((id) => labels.get(id) ?? id)
-                .join(", ")}
-              . Replace it with{" "}
-              {labels.get(pendingAssignment.command) ??
-                pendingAssignment.command}
-              ?
-            </p>
-            <div className="flex gap-2">
-              <Button
-                disabled={disabled}
-                onClick={() =>
-                  assignCommand(
-                    pendingAssignment.command,
-                    pendingAssignment.shortcut,
-                    true,
-                  )
-                }
-                size="sm"
-              >
-                Replace binding
-              </Button>
-              <Button
-                onClick={() => setPendingAssignment(null)}
-                size="sm"
-                variant="outline"
-              >
-                Cancel
-              </Button>
-            </div>
-          </div>
-        ) : null}
-        <fieldset
-          className={cn(
-            "m-0 min-w-0 space-y-5 border-0 p-0",
-            isKeyboardSettingsPending &&
-              "[&:disabled_button:not([disabled])]:opacity-100",
-          )}
-          disabled={disabled}
-        >
-          {visibleGroups.map((group) => (
-            <section key={group.label}>
-              <h3 className="mb-2 text-xs font-medium text-subtle-foreground">
-                {group.label}
-              </h3>
-              <div className="divide-y divide-border">
-                {group.commands.map((metadata) => {
-                  const model = commandRowModels.get(metadata.command);
-                  if (model === undefined) return null;
-                  return (
-                    <KeyboardCommandRow
-                      key={metadata.command}
-                      model={model}
-                      onChange={updateCommand}
-                      onReset={resetCommand}
-                      onRecordingChange={setRecordingCommand}
-                      pending={pendingCommand === metadata.command}
-                      platform={platform}
-                      recording={recordingCommand === metadata.command}
-                    />
-                  );
-                })}
+            Reset all
+          </Button>
+        }
+        description="Click a shortcut, then press its new keys. Changes sync to every bb window."
+        title="Keyboard shortcuts"
+      >
+        <div className="space-y-5">
+          <SettingsWithControl
+            description="Show shortcut badges after holding Command or Control."
+            label="Show keyboard hints when holding CMD / Control"
+          >
+            <Switch
+              aria-label="Show keyboard hints when holding CMD / Control"
+              checked={generalSettings.showKeyboardHints}
+              disabled={
+                systemConfig.data === undefined ||
+                updateGeneralSettings.isPending
+              }
+              onCheckedChange={(showKeyboardHints) =>
+                updateGeneralSettings.mutate({
+                  ...generalSettings,
+                  showKeyboardHints,
+                })
+              }
+            />
+          </SettingsWithControl>
+          <Input
+            aria-label="Search keyboard shortcuts"
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search shortcuts"
+            value={search}
+          />
+          {pendingAssignment !== null ? (
+            <div
+              role="alert"
+              className="space-y-2 rounded border border-border p-3"
+            >
+              <p className="text-sm">
+                Shortcut already used by{" "}
+                {pendingAssignment.conflicts
+                  .map((id) => labels.get(id) ?? id)
+                  .join(", ")}
+                . Replace it with{" "}
+                {labels.get(pendingAssignment.command) ??
+                  pendingAssignment.command}
+                ?
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  disabled={disabled}
+                  onClick={() =>
+                    assignCommand(
+                      pendingAssignment.command,
+                      pendingAssignment.shortcut,
+                      true,
+                    )
+                  }
+                  size="sm"
+                >
+                  Replace binding
+                </Button>
+                <Button
+                  onClick={() => setPendingAssignment(null)}
+                  size="sm"
+                  variant="outline"
+                >
+                  Cancel
+                </Button>
               </div>
-            </section>
-          ))}
-          {visibleGroups.length === 0 ? (
-            <p className="py-6 text-center text-sm text-subtle-foreground">
-              No shortcuts match “{search}”.
-            </p>
+            </div>
           ) : null}
-        </fieldset>
-      </div>
-    </SettingsSection>
+          <fieldset
+            className={cn(
+              "m-0 min-w-0 space-y-5 border-0 p-0",
+              isKeyboardSettingsPending &&
+                "[&:disabled_button:not([disabled])]:opacity-100",
+            )}
+            disabled={disabled}
+          >
+            {visibleGroups.map((group) => (
+              <section key={group.label}>
+                <h3 className="mb-2 text-xs font-medium text-subtle-foreground">
+                  {group.label}
+                </h3>
+                <div className="divide-y divide-border">
+                  {group.commands.map((metadata) => {
+                    const model = commandRowModels.get(metadata.command);
+                    if (model === undefined) return null;
+                    return (
+                      <KeyboardCommandRow
+                        key={metadata.command}
+                        model={model}
+                        onChange={updateCommand}
+                        onReset={resetCommand}
+                        onRecordingChange={setRecordingCommand}
+                        pending={pendingCommand === metadata.command}
+                        platform={platform}
+                        recording={recordingCommand === metadata.command}
+                      />
+                    );
+                  })}
+                </div>
+              </section>
+            ))}
+            {visibleGroups.length === 0 ? (
+              <p className="py-6 text-center text-sm text-subtle-foreground">
+                No shortcuts match “{search}”.
+              </p>
+            ) : null}
+          </fieldset>
+        </div>
+      </SettingsSection>
+    </>
   );
 }

@@ -20,6 +20,8 @@ import {
   type ReactNode,
   type SetStateAction,
 } from "react";
+import { getPromptDraftAccessor } from "@/hooks/usePromptDraftStorage";
+import { requestComposerFocus } from "@/lib/composer-focus-requests";
 import { useRouteState } from "@/hooks/useRouteState";
 import {
   getThreadRoutePath,
@@ -31,6 +33,7 @@ import { useThread } from "@/hooks/queries/thread-queries";
 import { useSplitWorkspaceActive } from "@/hooks/useSplitWorkspaceActive";
 import {
   dimInactiveSplitsAtom,
+  focusComposerOnPaneSwitchAtom,
   maximizedPaneIdAtom,
   splitLayoutAtom,
 } from "@/lib/split-layout/atoms";
@@ -276,6 +279,7 @@ function SplitThreadAreaContent({ routeContent }: SplitThreadAreaProps) {
   const splitWorkspaceActive = useSplitWorkspaceActive();
   const navigate = useImmediateRouteNavigate();
   const store = useStore();
+  const focusComposerOnPaneSwitch = useAtomValue(focusComposerOnPaneSwitchAtom);
   const [storedLayout, setLayout] = useAtom(splitLayoutAtom);
   const dimsInactiveSplits = useAtomValue(dimInactiveSplitsAtom);
   const [maximizedPaneId, setMaximizedPaneIdAtom] =
@@ -409,6 +413,22 @@ function SplitThreadAreaContent({ routeContent }: SplitThreadAreaProps) {
       }
     },
     [navigate, setMaximizedPaneId, store],
+  );
+
+  const focusPaneFromCommand = useCallback(
+    (paneId: string) => {
+      if (layout === null) return;
+      const pane = findPane(layout.root, paneId);
+      if (pane === null) return;
+      focusPane(paneId);
+      if (
+        focusComposerOnPaneSwitch === true &&
+        (pane.content.kind === "thread" || pane.content.kind === "new-thread")
+      ) {
+        requestComposerFocus(getPromptDraftAccessor(pane.content).storageKey);
+      }
+    },
+    [focusPane, layout, focusComposerOnPaneSwitch],
   );
 
   const closePane = useCallback(
@@ -598,7 +618,7 @@ function SplitThreadAreaContent({ routeContent }: SplitThreadAreaProps) {
   const commandHandlers = (
     <SplitPaneCommandHandlers
       closePane={closePane}
-      focusPane={focusPane}
+      focusPane={focusPaneFromCommand}
       isSplitActive={isSplitActive}
       layout={layout}
       maximizedPaneId={effectiveMaximizedPaneId}
@@ -1511,7 +1531,13 @@ function PaneStaleWatcher({ threadId, onStale }: PaneStaleWatcherProps) {
     ) {
       onStaleRef.current();
     }
-  }, [isConfirmedArchived, isDeleted, isGone, isUnarchived, unarchivesInFlight]);
+  }, [
+    isConfirmedArchived,
+    isDeleted,
+    isGone,
+    isUnarchived,
+    unarchivesInFlight,
+  ]);
 
   return null;
 }

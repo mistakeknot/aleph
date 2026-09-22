@@ -51,6 +51,14 @@ export const dimInactiveSplitsAtom = createBooleanPreferenceAtom(
   true,
 );
 
+export const FOCUS_COMPOSER_ON_PANE_SWITCH_STORAGE_KEY =
+  "bb.splitLayout.focusComposerOnKeyboardSwitch";
+
+export const focusComposerOnPaneSwitchAtom = createBooleanPreferenceAtom(
+  FOCUS_COMPOSER_ON_PANE_SWITCH_STORAGE_KEY,
+  false,
+);
+
 export interface ClosePanesForThreadsResult {
   removedAny: boolean;
   focusedRoute: ThreadRoutePathArgs | null;

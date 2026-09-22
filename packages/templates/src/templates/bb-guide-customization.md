@@ -401,3 +401,7 @@ or with `bb settings general telemetryEnabled false`. The saved server-wide pref
 takes effect immediately and persists across restarts. SDK callers can use
 `system.updateGeneralSettings` with `telemetryEnabled`. `BB_TELEMETRY=false`
 always disables telemetry, even when the saved preference is enabled.
+
+### Automatic composer focus on pane selection
+
+Settings → Keyboard → Pane navigation offers **Focus composer when switching panes with keyboard**. It defaults to off. When enabled, next, previous and numbered split-pane commands focus the destination chat composer; pointer selection and the separate Focus composer shortcut keep their existing behavior. This preference is saved in this browser or desktop app, not synchronized with server keyboard settings, and is not changed by Reset all shortcuts. Enable it separately in each client.

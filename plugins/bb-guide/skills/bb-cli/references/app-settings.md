@@ -235,3 +235,7 @@ Use `bb settings ui reset sidebar.hiddenFooterItems` to show everything again.
 Disable anonymous usage telemetry with `bb settings general telemetryEnabled false`
 or Settings → General → Privacy & diagnostics → Share anonymous usage data. This server-wide preference
 applies immediately and persists across restarts. `BB_TELEMETRY=false` overrides it.
+
+### Automatic composer focus on pane selection
+
+Settings → Keyboard → Pane navigation offers **Focus composer when switching panes with keyboard**. It defaults to off. When enabled, next, previous and numbered split-pane commands focus the destination chat composer; pointer selection and the separate Focus composer shortcut keep their existing behavior. This preference is saved in this browser or desktop app, not synchronized with server keyboard settings, and is not changed by Reset all shortcuts. Enable it separately in each client.

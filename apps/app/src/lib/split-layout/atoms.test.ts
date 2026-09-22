@@ -4,6 +4,8 @@ import { createStore } from "jotai";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   closePanesForThreadsAtom,
+  focusComposerOnPaneSwitchAtom,
+  FOCUS_COMPOSER_ON_PANE_SWITCH_STORAGE_KEY,
   maximizedPaneIdAtom,
   MAXIMIZED_PANE_STORAGE_KEY,
   splitLayoutAtom,
@@ -189,4 +191,20 @@ describe("closePanesForThreadsAtom", () => {
     });
     expect(countPanes(store.get(splitLayoutAtom)!.root)).toBe(2);
   });
+});
+
+it("hydrates the opt-in focus preference in a fresh store", () => {
+  const first = createStore();
+  const unsub = first.sub(focusComposerOnPaneSwitchAtom, () => {});
+  expect(first.get(focusComposerOnPaneSwitchAtom)).toBe(false);
+  first.set(focusComposerOnPaneSwitchAtom, true);
+  unsub();
+  const second = createStore();
+  const unsub2 = second.sub(focusComposerOnPaneSwitchAtom, () => {});
+  expect(second.get(focusComposerOnPaneSwitchAtom)).toBe(true);
+  second.set(focusComposerOnPaneSwitchAtom, false);
+  expect(
+    window.localStorage.getItem(FOCUS_COMPOSER_ON_PANE_SWITCH_STORAGE_KEY),
+  ).toBe("false");
+  unsub2();
 });

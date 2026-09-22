@@ -627,3 +627,22 @@ describe("KeyboardSettingsSection", () => {
     expect(within(defaults).queryByText("Desktop")).toBeNull();
   });
 });
+
+it("offers an opt-in client preference outside synchronized shortcuts", () => {
+  render(<KeyboardSettingsSection />);
+  const toggle = screen.getByRole("switch", {
+    name: "Focus composer when switching panes with keyboard",
+  });
+  expect(toggle.getAttribute("data-state")).toBe("unchecked");
+  expect(toggle.closest("section")?.textContent).not.toContain(
+    "Changes sync to every bb window",
+  );
+  fireEvent.click(toggle);
+  expect(
+    window.localStorage.getItem("bb.splitLayout.focusComposerOnKeyboardSwitch"),
+  ).toBe("true");
+  fireEvent.click(toggle);
+  expect(
+    window.localStorage.getItem("bb.splitLayout.focusComposerOnKeyboardSwitch"),
+  ).toBe("false");
+});
