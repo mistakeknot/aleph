@@ -148,6 +148,14 @@ export type SectionThreadDropDecision =
       sectionId?: string | null;
     }
   | {
+      kind: "detach-group";
+      activeId: string;
+      threadIds: string[];
+      rootThreadIds: string[];
+      sectionId: string | null;
+      toParentKey: string;
+    }
+  | {
       kind: "move";
       activeId: string;
       sectionId: string | null;
@@ -581,13 +589,7 @@ function resolveNestGroupDecision(
       reason: "own-subtree",
     };
   }
-  const rootThreadIds = groupThreads
-    .filter(
-      (thread) =>
-        thread.parentThreadId === null ||
-        !groupThreadIds.has(thread.parentThreadId),
-    )
-    .map((thread) => thread.id);
+  const rootThreadIds = getGroupRootThreadIds(groupThreads);
   if (rootThreadIds.length === 0) return null;
   if (
     rootThreadIds.every(
@@ -613,6 +615,19 @@ function resolveNestGroupDecision(
     parentThreadId,
     sectionId,
   };
+}
+
+function getGroupRootThreadIds(
+  groupThreads: readonly ThreadListEntry[],
+): string[] {
+  const groupThreadIds = new Set(groupThreads.map((thread) => thread.id));
+  return groupThreads
+    .filter(
+      (thread) =>
+        thread.parentThreadId === null ||
+        !groupThreadIds.has(thread.parentThreadId),
+    )
+    .map((thread) => thread.id);
 }
 
 export function resolveSectionThreadDropDecision(
@@ -654,17 +669,29 @@ export function resolveSectionThreadDropDecision(
       overId === activeId
         ? projectedParentKey
         : resolveSectionThreadDropParentKey(lookup, overThreadId ?? overId);
-    if (
-      !toParentKey ||
-      toParentKey === fromParentKey ||
-      !lookup.sectionIdByParentKey.has(toParentKey)
-    )
+    if (!toParentKey || !lookup.sectionIdByParentKey.has(toParentKey))
       return null;
+    const sectionId = lookup.sectionIdByParentKey.get(toParentKey) ?? null;
+    const rootThreadIds = getGroupRootThreadIds(groupThreads).filter(
+      (threadId) =>
+        lookup.threadByItemId.get(threadId)?.parentThreadId !== null,
+    );
+    if (rootThreadIds.length > 0) {
+      return {
+        kind: "detach-group",
+        activeId,
+        threadIds: groupThreads.map((thread) => thread.id),
+        rootThreadIds,
+        sectionId,
+        toParentKey,
+      };
+    }
+    if (toParentKey === fromParentKey) return null;
     return {
       kind: "move-group",
       activeId,
       threadIds: groupThreads.map((thread) => thread.id),
-      sectionId: lookup.sectionIdByParentKey.get(toParentKey) ?? null,
+      sectionId,
       toParentKey,
     };
   }
@@ -813,6 +840,7 @@ function resolveTargetParentKey(
     case "pin":
       return PINNED_THREAD_PARENT_KEY;
     case "move-group":
+    case "detach-group":
     case "move":
     case "detach":
     case "unpin":
@@ -879,6 +907,16 @@ function hasDropDecisionLanded(
     case "move":
       return (
         lookup.parentKeyByItemId.get(decision.activeId) === decision.toParentKey
+      );
+    case "detach-group":
+      return (
+        decision.threadIds.every(
+          (threadId) =>
+            lookup.parentKeyByItemId.get(threadId) === decision.toParentKey,
+        ) &&
+        decision.rootThreadIds.every(
+          (threadId) => !lookup.nestParentIdByItemId.has(threadId),
+        )
       );
     case "detach":
       return (
@@ -1365,6 +1403,24 @@ export function useSectionThreadDnd({
             ),
           ).finally(clearProjectedDrag);
           break;
+        case "detach-group": {
+          const rootThreadIds = new Set(decision.rootThreadIds);
+          void Promise.allSettled(
+            decision.threadIds.map((id) =>
+              rootThreadIds.has(id)
+                ? updateThread.mutateAsync({
+                    id,
+                    parentThreadId: null,
+                    sectionId: decision.sectionId,
+                  })
+                : updateThread.mutateAsync({
+                    id,
+                    sectionId: decision.sectionId,
+                  }),
+            ),
+          ).finally(clearProjectedDrag);
+          break;
+        }
         case "nest-group":
           void Promise.allSettled(
             decision.threadIds.map((id) =>
