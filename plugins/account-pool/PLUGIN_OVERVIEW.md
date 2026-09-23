@@ -16,6 +16,8 @@ The pool waits once on the same account for short temporary rate limits. Longer 
 
 The pooler owns its upstream HTTP connections and uses HTTP/1.1, so a broken HTTP/2 session in the server's shared fetch dispatcher does not strand pooled requests. The transport honors standard proxy environment variables and is disposed on plugin unload. This does not add request replay; existing account-fallback rules still apply. Pooled request connection failures log a known error code when available, without request bodies, credentials, URLs, or raw exception messages.
 
+Cross-provider child dispatch can query the authenticated `/availability?threadId=<id>` hub route. Its echoed thread ID and provider booleans reflect the same current routing, parent availability, usable-account, and bypass checks as BB's environment contribution. The provider-wide response without `threadId` remains available for nested servers.
+
 ## Nested bb servers
 
 A bb server started inside another bb server's thread detects the parent's pooler and enables this plugin. Choose in settings or with `bb pool parent`:

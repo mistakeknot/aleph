@@ -88,9 +88,9 @@ export function createAccountPoolPlugin(
   options: AccountPoolPluginOptions = {},
 ) {
   return async function accountPoolPlugin(bb: BbPluginApi): Promise<void> {
-    const storedConfig = z.record(z.string(), z.unknown()).parse(
-      (await bb.storage.kv.get("config")) ?? {},
-    );
+    const storedConfig = z
+      .record(z.string(), z.unknown())
+      .parse((await bb.storage.kv.get("config")) ?? {});
     const hasRemovedSettings =
       "cacheMissDebug" in storedConfig || "cacheMissMinTokens" in storedConfig;
     delete storedConfig.cacheMissDebug;
@@ -239,6 +239,11 @@ export function createAccountPoolPlugin(
       }
       return operations.hasUsableEnabledAccount(provider);
     };
+    const eligibleFor = async (
+      threadId: string,
+      provider: PoolProvider,
+    ): Promise<boolean> =>
+      !(await routing.isBypassed(threadId)) && (await canServe(provider));
     const markerEntries = (token: string): PoolEnvEntry[] => [
       {
         name: PARENT_URL_ENV,
@@ -261,8 +266,7 @@ export function createAccountPoolPlugin(
     const contributeFor =
       (provider: PoolProvider, serving: (token: string) => PoolEnvEntry[]) =>
       async (context: { threadId: string; hostId: string }) => {
-        const bypassed = await routing.isBypassed(context.threadId);
-        if (!bypassed && (await canServe(provider))) {
+        if (await eligibleFor(context.threadId, provider)) {
           const token = await hubTokens.forHost(context.hostId);
           if (provider === "claude") {
             await routing.recordRouted(context.threadId, context.hostId);
@@ -385,11 +389,29 @@ export function createAccountPoolPlugin(
         if ((await hub.authenticate(context.req.raw)) === null) {
           return new Response(null, { status: 401 });
         }
+        const threadIds = new URL(context.req.raw.url).searchParams.getAll(
+          "threadId",
+        );
+        const threadId = threadIds[0];
+        if (
+          threadIds.length > 1 ||
+          (threadId !== undefined &&
+            (threadId.length === 0 || threadId.length > 200))
+        ) {
+          return new Response(null, { status: 400 });
+        }
+        const result = poolAvailabilitySchema.parse({
+          claude:
+            threadId === undefined
+              ? await canServe("claude")
+              : await eligibleFor(threadId, "claude"),
+          codex:
+            threadId === undefined
+              ? await canServe("codex")
+              : await eligibleFor(threadId, "codex"),
+        });
         return Response.json(
-          poolAvailabilitySchema.parse({
-            claude: await canServe("claude"),
-            codex: await canServe("codex"),
-          }),
+          threadId === undefined ? result : { threadId, availability: result },
         );
       },
       { auth: "none" },

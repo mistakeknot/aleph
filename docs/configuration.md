@@ -948,6 +948,12 @@ priority changes, and usage refreshes are available through
 Provider routing is independently persisted and defaults on. Use
 `bb pool routing <claude|codex> --off` to stop contributing pool environment
 and health for one provider, and omit `--off` to enable it again.
+The machine-token-authenticated `/api/v1/plugins/account-pool/http/availability`
+endpoint reports provider-wide availability for nested bb servers. Supplying
+`?threadId=<id>` returns `{threadId, availability: {claude, codex}}` and applies
+the same per-thread bypass decision as environment contribution. Callers must
+require the echoed thread ID; older servers ignore the query and return only
+provider-wide availability.
 OAuth accounts refresh quota from Anthropic's usage endpoint when added or
 enabled and every five minutes while idle. Use `bb pool account refresh <id>`
 to request an immediate refresh for one account. `account list` adds columns

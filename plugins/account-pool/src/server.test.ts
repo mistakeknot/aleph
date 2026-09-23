@@ -6342,13 +6342,22 @@ describe("Account Pool nested proxy", () => {
       response.end("{}");
     });
     cleanups.push(upstream.close);
-    const fixture = await createFixture({ upstreamUrl: upstream.url });
+    const fixture = await createFixture({
+      upstreamUrl: upstream.url,
+      options: { env: {} },
+    });
     const denied = await fixture.host.harness.behavior.fetchHttp(
       "GET",
       "/availability",
       {},
     );
     expect(denied.status).toBe(401);
+    const deniedThread = await fixture.host.harness.behavior.fetchHttp(
+      "GET",
+      "/availability?threadId=thread-one",
+      {},
+    );
+    expect(deniedThread.status).toBe(401);
     const allowed = await fixture.host.harness.behavior.fetchHttp(
       "GET",
       "/availability",
@@ -6356,5 +6365,44 @@ describe("Account Pool nested proxy", () => {
     );
     expect(allowed.status).toBe(200);
     expect(await allowed.json()).toEqual({ claude: true, codex: false });
+
+    const threadAvailability = () =>
+      fixture.host.harness.behavior.fetchHttp(
+        "GET",
+        "/availability?threadId=thread-one",
+        { headers: { "x-bb-account-pool-token": fixture.key } },
+      );
+    expect(await (await threadAvailability()).json()).toEqual({
+      threadId: "thread-one",
+      availability: { claude: true, codex: false },
+    });
+    await fixture.host.harness.behavior.callRpc("bypass.set", {
+      threadId: "thread-one",
+      bypassed: true,
+    });
+    expect(await (await threadAvailability()).json()).toEqual({
+      threadId: "thread-one",
+      availability: { claude: false, codex: false },
+    });
+    expect(
+      await (
+        await fixture.host.harness.behavior.fetchHttp("GET", "/availability", {
+          headers: { "x-bb-account-pool-token": fixture.key },
+        })
+      ).json(),
+    ).toEqual({ claude: true, codex: false });
+    for (const path of [
+      "/availability?threadId=",
+      "/availability?threadId=one&threadId=two",
+    ]) {
+      const invalid = await fixture.host.harness.behavior.fetchHttp(
+        "GET",
+        path,
+        {
+          headers: { "x-bb-account-pool-token": fixture.key },
+        },
+      );
+      expect(invalid.status).toBe(400);
+    }
   });
 });
