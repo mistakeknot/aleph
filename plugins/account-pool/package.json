@@ -15,6 +15,7 @@
       "icon": "Layers"
     },
     "server": "./src/server.ts",
+    "host": "./src/host.ts",
     "app": "./app.tsx"
   },
   "scripts": {

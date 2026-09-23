@@ -3,8 +3,10 @@ import {
   cliCommand,
   defineCli,
   type BbPluginApi,
+  type PluginCliContext,
   type PluginCliResult,
 } from "@get-bb/plugin-sdk";
+import path from "node:path";
 import { setTimeout as wait } from "node:timers/promises";
 import {
   accountAddInputSchema,
@@ -28,6 +30,7 @@ import {
   type ModelFamily,
   type PoolStatus,
   type PoolStatusReport,
+  type PoolProvider,
 } from "./contracts.js";
 import type { PoolOperations } from "./operations.js";
 import type { ClaudeOAuthLogin } from "./oauth-login.js";
@@ -65,6 +68,22 @@ const ACCOUNT_ID_POSITIONAL = {
   description: "Account UUID from `bb pool account list`",
   required: true,
 } as const;
+
+interface PoolCommandResult {
+  started: boolean;
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+}
+
+export type PoolCommandExecutor = (
+  request: {
+    provider: PoolProvider;
+    command: string;
+    args: string[];
+  },
+  context: PluginCliContext,
+) => Promise<PoolCommandResult>;
 
 function formatReset(value: number | null): string {
   return value === null ? "-" : new Date(value).toISOString();
@@ -251,6 +270,7 @@ export function registerPoolCli(
   login: ClaudeOAuthLogin,
   codexLogin: CodexDeviceLogin,
   config: AccountPoolConfigController,
+  executePoolCommand: PoolCommandExecutor,
 ): void {
   bb.cli.register(
     defineCli({
@@ -259,6 +279,46 @@ export function registerPoolCli(
         "Manage Claude and Codex accounts and inspect the Account Pooler hub",
       description: DESCRIPTION,
       commands: {
+        exec: cliCommand({
+          summary: "Run Codex or Claude through the current account pool",
+          description:
+            "Runs the command on this bb server's enrolled primary host. Credentials remain in the child environment and are never printed.",
+          passthrough: true,
+          run: (input, context) =>
+            attempt(async () => {
+              const [command, ...args] = input.passthrough;
+              if (command === undefined) {
+                throw new PluginCliError(
+                  "Pass codex or claude after `--`, for example `bb pool exec -- codex exec ...`.",
+                  { code: "missing_command" },
+                );
+              }
+              const executable = path.basename(command).toLowerCase();
+              if (executable !== "codex" && executable !== "claude") {
+                throw new PluginCliError(
+                  "bb pool exec only launches codex or claude.",
+                  { code: "unsupported_command" },
+                );
+              }
+              const provider: PoolProvider = executable;
+              const result = await executePoolCommand(
+                { provider, command, args },
+                context,
+              );
+              if (!result.started) {
+                throw new PluginCliError(
+                  result.stderr.trim() ||
+                    `Account Pooler could not start ${provider}.`,
+                  { code: "pool_exec_unavailable" },
+                );
+              }
+              return {
+                exitCode: result.exitCode,
+                stdout: result.stdout,
+                stderr: `bb-pool-exec: transport=pooled provider=${provider}\n${result.stderr}`,
+              };
+            }),
+        }),
         "account add": cliCommand({
           summary:
             "Sign in to Claude or Codex, import credentials, or add an Anthropic API key",
