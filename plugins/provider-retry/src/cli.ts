@@ -11,6 +11,11 @@ import {
   listQueuedRetries,
   type QueuedRetry,
 } from "./queued-retries.js";
+import {
+  disableRetries,
+  enableRetries,
+  retriesDisabled,
+} from "./thread-opt-out.js";
 
 const JSON_OPTION = {
   type: "boolean",
@@ -33,7 +38,7 @@ function textQueuedRetry(queued: QueuedRetry): string {
 function requiredThreadId(
   requested: string | undefined,
   context: PluginCliContext,
-  command: "cancel" | "retry",
+  command: "cancel" | "retry" | "disable" | "enable",
 ): string {
   const threadId = requested ?? context.threadId;
   if (threadId === undefined) {
@@ -114,18 +119,29 @@ export function registerProviderRetryCli(bb: BbPluginApi): void {
               bb,
               threadId === null ? undefined : threadId,
             );
+            const disabled =
+              threadId === null ? null : await retriesDisabled(bb, threadId);
             if (input.options.json) {
               return {
                 exitCode: 0,
-                stdout: `${JSON.stringify({ retries: queued }, null, 2)}\n`,
+                stdout: `${JSON.stringify(
+                  disabled === null
+                    ? { retries: queued }
+                    : { retries: queued, disabled },
+                  null,
+                  2,
+                )}\n`,
               };
             }
+            const pending =
+              queued.length === 0
+                ? "No provider retries are pending.\n"
+                : `${queued.map(textQueuedRetry).join("\n")}\n`;
             return {
               exitCode: 0,
-              stdout:
-                queued.length === 0
-                  ? "No provider retries are pending.\n"
-                  : `${queued.map(textQueuedRetry).join("\n")}\n`,
+              stdout: disabled
+                ? `${pending}Automatic retries are disabled for ${threadId}.\n`
+                : pending,
             };
           },
         }),
@@ -144,6 +160,55 @@ export function registerProviderRetryCli(bb: BbPluginApi): void {
               input.options.json,
               "cancel",
             ),
+        }),
+        disable: cliCommand({
+          summary:
+            "Stop automatic retries for a thread whose caller owns retries, and cancel any pending one",
+          positionals: [THREAD_ID_POSITIONAL],
+          options: { json: JSON_OPTION },
+          async run(input, context) {
+            const threadId = requiredThreadId(
+              input.positionals["thread-id"],
+              context,
+              "disable",
+            );
+            const cancelled = await disableRetries(bb, threadId);
+            if (input.options.json) {
+              return {
+                exitCode: 0,
+                stdout: `${JSON.stringify({ ok: true, threadId, disabled: true, cancelled }, null, 2)}\n`,
+              };
+            }
+            return {
+              exitCode: 0,
+              stdout: `Automatic retries disabled for ${threadId}${
+                cancelled === 0 ? "" : `; cancelled ${cancelled} pending`
+              }.\n`,
+            };
+          },
+        }),
+        enable: cliCommand({
+          summary: "Resume automatic retries for a thread",
+          positionals: [THREAD_ID_POSITIONAL],
+          options: { json: JSON_OPTION },
+          async run(input, context) {
+            const threadId = requiredThreadId(
+              input.positionals["thread-id"],
+              context,
+              "enable",
+            );
+            await enableRetries(bb, threadId);
+            if (input.options.json) {
+              return {
+                exitCode: 0,
+                stdout: `${JSON.stringify({ ok: true, threadId, disabled: false }, null, 2)}\n`,
+              };
+            }
+            return {
+              exitCode: 0,
+              stdout: `Automatic retries enabled for ${threadId}.\n`,
+            };
+          },
         }),
         retry: cliCommand({
           summary: "Send a pending provider retry now instead of waiting",

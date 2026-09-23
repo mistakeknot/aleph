@@ -15,3 +15,8 @@ manually retrying it; avoid duplicating an existing queued retry.
 
 Use the core `bb thread retry` command for an intentional manual retry. Follow
 its live help for selection and scheduling flags.
+
+When a caller owns retries for a thread (an orchestrator that retries or falls
+back on its own), run `bb provider-retry disable <thread-id>` right after
+spawning it. That stops this plugin from retrying the thread and cancels any
+retry it already queued; `bb provider-retry status <thread-id>` confirms it.

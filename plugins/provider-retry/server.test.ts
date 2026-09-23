@@ -378,7 +378,7 @@ describe("provider retry plugin", () => {
     expect(host.harness.registrations.hooks["message.dispatch"]).toBeNull();
     expect(
       host.harness.registrations.cli?.commands.map((command) => command.name),
-    ).toEqual(["status", "cancel", "retry"]);
+    ).toEqual(["status", "cancel", "disable", "enable", "retry"]);
     await host.harness.dispose();
   });
 
@@ -490,6 +490,7 @@ describe("provider retry plugin", () => {
           sendAt: RESET_AT_MS + RESET_BUFFER_MS,
         },
       ],
+      disabled: false,
     });
     // Scoped to the thread the user asked about; a retry is identified by its
     // payload, not by a wait this plugin owns.
@@ -517,6 +518,88 @@ describe("provider retry plugin", () => {
       { threadId: THREAD_ID, queuedMessageId: "queued_1", mode: "auto" },
     ]);
     await host.harness.dispose();
+  });
+
+  it("does not retry a thread whose caller disabled retries", async () => {
+    // A caller that owns retries (an orchestrator dispatching the thread)
+    // must be the only thing re-running its turns.
+    const host = createHost();
+    await plugin(host.bb);
+
+    const disabled = await host.harness.runCli([
+      "disable",
+      THREAD_ID,
+      "--json",
+    ]);
+    expect(disabled.exitCode).toBe(0);
+    expect(JSON.parse(disabled.stdout ?? "")).toEqual({
+      ok: true,
+      threadId: THREAD_ID,
+      disabled: true,
+      cancelled: 0,
+    });
+    await host.harness.behavior.emitThreadEvent("turn.failed", failure());
+    await host.harness.behavior.emitThreadEvent(
+      "turn.failed",
+      overloadedFailure(),
+    );
+    expect(host.retries).toEqual([]);
+
+    // Other threads keep the default behavior.
+    await host.harness.behavior.emitThreadEvent(
+      "turn.failed",
+      failure({ threadId: "thread-other" }),
+    );
+    expect(host.retries.map((retry) => retry.threadId)).toEqual([
+      "thread-other",
+    ]);
+    await host.harness.dispose();
+  });
+
+  it("cancels a retry queued before the thread was disabled", async () => {
+    // Spawning and disabling are two calls; a turn can fail in between and
+    // leave a retry waiting on its reset.
+    const host = createHost([queuedRetry()]);
+    await plugin(host.bb);
+
+    const disabled = await host.harness.runCli(["disable", THREAD_ID]);
+    expect(disabled.stdout).toBe(
+      `Automatic retries disabled for ${THREAD_ID}; cancelled 1 pending.\n`,
+    );
+    expect(host.deleted).toEqual([
+      { threadId: THREAD_ID, queuedMessageId: "queued_1" },
+    ]);
+    await host.harness.dispose();
+  });
+
+  it("resumes retries when the thread is enabled again", async () => {
+    const host = createHost();
+    await plugin(host.bb);
+
+    await host.harness.runCli(["disable"], { threadId: THREAD_ID });
+    const status = await host.harness.runCli(["status", THREAD_ID]);
+    expect(status.stdout).toBe(
+      `No provider retries are pending.\nAutomatic retries are disabled for ${THREAD_ID}.\n`,
+    );
+
+    const enabled = await host.harness.runCli(["enable", THREAD_ID]);
+    expect(enabled.stdout).toBe(
+      `Automatic retries enabled for ${THREAD_ID}.\n`,
+    );
+    await host.harness.behavior.emitThreadEvent("turn.failed", failure());
+    expect(host.retries).toHaveLength(1);
+    await host.harness.dispose();
+  });
+
+  it("keeps the opt-out across a plugin reload", async () => {
+    const host = createHost();
+    await plugin(host.bb);
+    await host.harness.runCli(["disable", THREAD_ID]);
+
+    const reloaded = await host.harness.reload(plugin);
+    await reloaded.harness.behavior.emitThreadEvent("turn.failed", failure());
+    expect(host.retries).toEqual([]);
+    await reloaded.harness.dispose();
   });
 
   it("reports no pending retry when no row is queued", async () => {

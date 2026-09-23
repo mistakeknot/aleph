@@ -1290,6 +1290,14 @@ composer — the one surface that narrates the wait. Inspect them with
 that do not reset on a clock — credit and spend-control exhaustion — schedule
 nothing, because waiting does not fix them.
 
+A caller that applies its own retry and fallback policy to a thread, such as
+an orchestrator dispatching work into it, can turn automatic retries off for
+that thread with `bb provider-retry disable <thread-id>`. That also cancels a
+retry already queued for the thread, which covers a turn that failed between
+spawning the thread and disabling it. `bb provider-retry enable <thread-id>`
+turns retries back on, and `bb provider-retry status <thread-id>` reports
+whether they are disabled.
+
 ### Workflows plugin
 
 The builtin Workflows plugin is disabled on fresh installations. Enable it

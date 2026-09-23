@@ -72,6 +72,8 @@ settings, or run:
   bb provider-retry status [thread-id] [--json]    Inspect pending retries
   bb provider-retry cancel <thread-id> [--json]    Cancel an automatic retry
   bb provider-retry retry <thread-id> [--json]     Send a pending retry now
+  bb provider-retry disable <thread-id> [--json]   Stop retrying this thread; cancel a pending retry
+  bb provider-retry enable <thread-id> [--json]    Resume automatic retries
 
 A pending retry is a queued row on the thread, so it survives a server restart
 and appears above the composer with its reason and time. Credit and

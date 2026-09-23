@@ -20,3 +20,5 @@ The plugin reacts to each failed turn. It only retries overload errors and subsc
 - `bb provider-retry status [thread-id] [--json]`: show pending retries.
 - `bb provider-retry retry <thread-id>`: send a pending retry now.
 - `bb provider-retry cancel <thread-id>`: cancel a pending retry.
+- `bb provider-retry disable <thread-id>`: stop retrying one thread, for a caller that owns retries itself. It also cancels a retry already queued there.
+- `bb provider-retry enable <thread-id>`: resume automatic retries for that thread.

@@ -1,6 +1,7 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { registerProviderRetryCli } from "./src/cli.js";
 import { DEFAULT_MAXIMUM_WAIT_MS, decideRetry } from "./src/retry-policy.js";
+import { retriesDisabled } from "./src/thread-opt-out.js";
 
 const MAXIMUM_WAIT_OPTIONS = ["6 hours", "24 hours", "No limit"] as const;
 
@@ -45,6 +46,9 @@ export default async function plugin(bb: BbPluginApi) {
    * schedule and the re-attempt, so asking for the retry IS scheduling it.
    */
   bb.events.on("turn.failed", async (event) => {
+    if (await retriesDisabled(bb, event.threadId)) {
+      return;
+    }
     const decision = decideRetry({
       failure: event,
       maximumWaitMs: maximumWait,
