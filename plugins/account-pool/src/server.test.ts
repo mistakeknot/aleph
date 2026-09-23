@@ -9,7 +9,10 @@ import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import path from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
+import {
+  createFakePluginHost,
+  type ExperimentalFakeHostRpcCall,
+} from "@get-bb/plugin-sdk/testing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   accountSchema,
@@ -74,6 +77,7 @@ function sdkStubs() {
       ],
     },
     system: {
+      config: async () => ({ primaryHostId: "host-one" }),
       providerStates: async () => ({ providers: [] }),
     },
     plugins: {
@@ -200,12 +204,14 @@ async function createFixture(args: {
   apiKey?: string;
   priority?: number;
   beforePlugin?: (host: Fixture["host"]) => void;
+  hostRpc?: (call: ExperimentalFakeHostRpcCall) => unknown | Promise<unknown>;
 }): Promise<Fixture> {
   const dataDir = await mkdtemp(path.join(tmpdir(), "bb-account-pool-"));
   const host = createFakePluginHost({
     pluginId: "account-pool",
     dataDir,
     sdk: sdkStubs(),
+    experimental_callHostRpc: args.hostRpc,
   });
   await host.bb.storage.kv.set("config", {
     anthropicUpstreamBaseUrl: args.upstreamUrl,
@@ -6513,5 +6519,103 @@ describe("Account Pool nested proxy", () => {
       );
       expect(invalid.status).toBe(400);
     }
+  });
+});
+
+describe("pool exec CLI", () => {
+  it("runs Codex on the primary host with the current in-memory pool route", async () => {
+    const calls: ExperimentalFakeHostRpcCall[] = [];
+    const fixture = await createFixture({
+      upstreamUrl: "https://example.com",
+      provider: "codex",
+      source: "import",
+      options: {
+        importCodexCredentials: async () => ({
+          accessToken: "codex-access",
+          refreshToken: "codex-refresh",
+          idToken: null,
+          accountId: "codex-account",
+          email: "pool@example.com",
+          expiresAt: null,
+        }),
+      },
+      hostRpc: (call) => {
+        calls.push(call);
+        return {
+          started: true,
+          exitCode: 0,
+          stdout: "child output\n",
+          stderr: "",
+        };
+      },
+    });
+
+    const result = await fixture.host.harness.behavior.runCli(
+      ["exec", "--", "/home/mk/.local/bin/codex", "exec", "hello"],
+      { cwd: "/work" },
+    );
+
+    expect(result).toEqual({
+      exitCode: 0,
+      stdout: "child output\n",
+      stderr: "bb-pool-exec: transport=pooled provider=codex\n",
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      method: "run",
+      hostId: "host-one",
+      input: {
+        provider: "codex",
+        command: "/home/mk/.local/bin/codex",
+        args: ["exec", "hello"],
+        cwd: "/work",
+        baseUrl: "http://127.0.0.1:38886/api/v1/plugins/account-pool/http/v1",
+      },
+    });
+    expect((calls[0]?.input as { token: string }).token).toBe(fixture.key);
+  });
+
+  it("fails clearly without starting a child when routing is unavailable", async () => {
+    const hostRpc = vi.fn();
+    const fixture = await createFixture({
+      upstreamUrl: "https://example.com",
+      hostRpc,
+    });
+    await fixture.host.harness.behavior.runCli(["routing", "claude", "--off"]);
+
+    const result = await fixture.host.harness.behavior.runCli([
+      "exec",
+      "--",
+      "claude",
+      "--print",
+      "hello",
+    ]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(
+      "Account Pooler cannot currently serve claude",
+    );
+    expect(result.stderr).not.toContain("transport=pooled");
+    expect(hostRpc).not.toHaveBeenCalled();
+  });
+
+  it("rejects commands other than Codex and Claude", async () => {
+    const hostRpc = vi.fn();
+    const fixture = await createFixture({
+      upstreamUrl: "https://example.com",
+      hostRpc,
+    });
+
+    const result = await fixture.host.harness.behavior.runCli([
+      "exec",
+      "--",
+      "sh",
+      "-c",
+      "true",
+    ]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("only launches codex or claude");
+    expect(hostRpc).not.toHaveBeenCalled();
   });
 });

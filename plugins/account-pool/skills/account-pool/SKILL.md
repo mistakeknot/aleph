@@ -9,6 +9,12 @@ Use `bb pool` for this plugin's accounts and routes. Inspect current state with
 `bb pool status --json` and `bb pool account list --json` before changing routing.
 Use `bb pool --help` for available commands.
 
+Use `bb pool exec -- codex ...` or `bb pool exec -- claude ...` when a process
+outside a bb thread must use the current pool on the server's primary enrolled
+host. The command exits with the child status. A successful child start adds a
+`bb-pool-exec: transport=pooled provider=<provider>` stderr marker; an
+unavailable pool or host runner fails without that marker.
+
 For account login/import, secret handling, quota refresh, routing settings,
 ordering, or failover, read
 [references/accounts-and-routing.md](references/accounts-and-routing.md).

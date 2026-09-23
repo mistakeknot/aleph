@@ -25,6 +25,8 @@ bb pool config set <anthropicUpstreamBaseUrl|codexUpstreamBaseUrl|switchThreshol
 bb pool parent [proxy|isolate]
 bb pool token rotate --machine <id-or-name>
 bb pool bypass <thread-id> [--off]
+bb pool exec -- codex exec <codex-options> <prompt>
+bb pool exec -- claude --print <claude-options> <prompt>
 ```
 
 Every command accepts `--json` and `--help`. `bb pool --help` lists the
@@ -69,6 +71,19 @@ UUID is aligned with the selected OAuth account. Use `bb pool config` to
 inspect the full routing configuration and
 `bb pool config set <key> <value>` to update one value. The upstream URL keys
 are QA-only overrides; `switchThreshold` must be greater than 0 and at most 1.
+
+`bb pool exec` is the non-thread entry point for scheduled or supervised
+processes running on the bb server's primary enrolled host. It accepts only a
+`codex` or `claude` executable after `--`, fetches the current machine token at
+invocation time, and sends it to the host daemon over authenticated host RPC.
+The daemon puts the credential only in the child environment, redacts an exact
+token if the child echoes it, and never stores or prints it. Codex's non-secret
+custom-provider settings are passed as `-c` options because Codex does not read
+its custom provider base URL from an environment variable; the bearer remains
+environment-only. The command preserves stdout, stderr, and the child's exit
+code. Its stderr start marker distinguishes a child failure from a pre-start
+pool or host-runner failure, so callers can safely restrict direct-provider
+fallback to the latter case.
 
 Accounts run sequentially per provider: lower priority numbers first, with ties
 following the order accounts were added. New conversations use the current

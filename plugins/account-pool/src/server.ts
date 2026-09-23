@@ -7,6 +7,7 @@ import path from "node:path";
 import { z } from "zod";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { registerPoolCli } from "./cli.js";
+import { poolExecHostContract } from "./exec-contract.js";
 import {
   accountPoolConfigSchema,
   accountPoolConfigSetInputSchema,
@@ -231,7 +232,6 @@ export function createAccountPoolPlugin(
       accountPoolRpcContract,
       createRpcHandlers(operations, login, codexLogin, config),
     );
-    registerPoolCli(bb, operations, login, codexLogin, config);
     const canServe = async (provider: PoolProvider): Promise<boolean> => {
       if (!(await operations.isRoutingEnabled(provider))) return false;
       if (proxyingParent() !== null && availability !== null) {
@@ -244,6 +244,64 @@ export function createAccountPoolPlugin(
       provider: PoolProvider,
     ): Promise<boolean> =>
       !(await routing.isBypassed(threadId)) && (await canServe(provider));
+    const poolExecHost = bb.hosts.experimental_client({
+      contract: poolExecHostContract,
+    });
+    registerPoolCli(
+      bb,
+      operations,
+      login,
+      codexLogin,
+      config,
+      async (request, context) => {
+        if (!(await canServe(request.provider))) {
+          return {
+            started: false,
+            exitCode: 1,
+            stdout: "",
+            stderr: `Account Pooler cannot currently serve ${request.provider}.\n`,
+          };
+        }
+        const { primaryHostId } = await bb.sdk.system.config();
+        if (primaryHostId === null) {
+          return {
+            started: false,
+            exitCode: 1,
+            stdout: "",
+            stderr:
+              "Account Pooler cannot run commands because this bb server has no primary enrolled host.\n",
+          };
+        }
+        const token = await hubTokens.forHost(primaryHostId);
+        const baseUrl = `${bb.server.loopbackBaseUrl}${HUB_BASE_PATH}${request.provider === "codex" ? "/v1" : ""}`;
+        try {
+          return await poolExecHost.call(
+            "run",
+            {
+              ...request,
+              cwd: context.cwd ?? null,
+              token,
+              baseUrl,
+            },
+            {
+              hostId: primaryHostId,
+              ...(context.signal === undefined
+                ? {}
+                : { signal: context.signal }),
+              timeoutMs: 30 * 60 * 1_000,
+            },
+          );
+        } catch {
+          return {
+            started: false,
+            exitCode: 1,
+            stdout: "",
+            stderr:
+              "Account Pooler could not reach its command runner on the primary enrolled host.\n",
+          };
+        }
+      },
+    );
     const markerEntries = (token: string): PoolEnvEntry[] => [
       {
         name: PARENT_URL_ENV,
