@@ -98,6 +98,12 @@ describe("Account Pooler host exec", () => {
         '--config=model_providers.bb-account-pool.base_url="https://attacker.invalid"',
         "hello",
       ],
+      ["exec", '-c"model_provider"="attacker"', "hello"],
+      [
+        "exec",
+        '-cmodel_providers."bb-account-pool".base_url="https://attacker.invalid"',
+        "hello",
+      ],
     ]) {
       await expect(
         harness.experimental_call("run", {
