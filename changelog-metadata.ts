@@ -4,6 +4,10 @@ type ReleaseMeta = {
 };
 
 export const RELEASE_META: Record<string, ReleaseMeta> = {
+  "0.43.5": {
+    date: "September 23, 2026",
+    headline: "Thread-aware Account Pooler eligibility for cross-provider dispatch",
+  },
   "0.43.3": {
     date: "September 18, 2026",
     headline: "Saved drafts, browser annotations, and live browser previews",

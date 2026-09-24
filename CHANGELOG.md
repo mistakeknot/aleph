@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.43.5
+
+### Account Pooler
+
+Account Pooler now lets an authenticated cross-provider dispatcher check whether a specific thread may use each provider's pool. The decision follows the same routing, bypass, parent-pool, and usable-account rules as BB's provider environment. Existing provider-wide availability checks remain available for nested servers.
+
 ## 0.43.3
 
 Save messages as drafts, annotate pages for your agent, and watch browser automation live in chat. This release also redesigns handoffs and improves everyday navigation, configuration across machines, and conversation performance.

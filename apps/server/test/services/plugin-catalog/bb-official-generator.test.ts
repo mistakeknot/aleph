@@ -185,8 +185,8 @@ describe("bb-official marketplace generator", () => {
     });
 
     expect(dates.get("sample")).toEqual({
-      publishedAt: "2026-01-02T03:04:05Z",
-      updatedAt: "2026-02-03T04:05:06Z",
+      publishedAt: expect.stringMatching(/^2026-01-02T03:04:05(?:Z|\+00:00)$/u),
+      updatedAt: expect.stringMatching(/^2026-02-03T04:05:06(?:Z|\+00:00)$/u),
     });
   });
 
