@@ -11,14 +11,21 @@ Use `bb pool --help` for available commands.
 
 Use `bb pool exec -- codex ...` or `bb pool exec -- claude ...` when a process
 outside a bb thread must use the current pool on the server's primary enrolled
-host. The command exits with the child status. A successful child start adds a
+host. Only allowlisted `codex exec` and `claude --print` options are accepted;
+all caller Codex config/profile/provider overrides are rejected. The host pins
+the pooled provider inside `exec`. The command exits with the child status.
+A confirmed, provider-pinned child start adds a
 `bb-pool-exec: transport=pooled provider=<provider>` stderr marker; an
 unavailable pool or a host found offline before dispatch fails without that
-marker. Lost contact after dispatch carries the marker and must not be retried.
+marker. Lost contact after dispatch emits `transport=pool-unconfirmed` and
+must not be retried.
 Use `--stdin-file <absolute-path>` before `--` when the child reads a prompt
-from stdin. First configure its only permitted directory with
-`bb pool config set execInputDir <absolute-directory>`. The file is read on the
-enrolled host, must resolve beneath that directory, and is limited to 8 MiB.
+from stdin. An operator must first set `BB_ACCOUNT_POOL_EXEC_INPUT_DIR` in the
+BB server's startup environment; the CLI and settings RPC cannot change it.
+Files must be regular, non-symlink direct children of that directory on the
+Linux enrolled host and are limited to 8 MiB. Root, home, Codex credential
+directories and their ancestors are forbidden. See the reference for the
+argument allowlist and descriptor-based file boundary.
 
 For account login/import, secret handling, quota refresh, routing settings,
 ordering, or failover, read

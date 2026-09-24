@@ -1,14 +1,10 @@
 import { spawn as nodeSpawn } from "node:child_process";
-import {
-  readFile as nodeReadFile,
-  realpath as nodeRealpath,
-} from "node:fs/promises";
-import path from "node:path";
 import { experimental_defineHostEntry } from "@get-bb/plugin-sdk/host";
 import { poolExecHostContract } from "./exec-contract.js";
+import { parsePoolExecArgs } from "./exec-args.js";
+import { readPoolInput } from "./exec-input.js";
 
 const OUTPUT_LIMIT_BYTES = 900_000;
-const INPUT_LIMIT_BYTES = 8 << 20;
 
 interface PoolExecChild {
   stdin: NodeJS.WritableStream;
@@ -25,8 +21,7 @@ interface PoolExecChild {
 
 interface PoolExecHostDependencies {
   env: NodeJS.ProcessEnv;
-  readFile(path: string): Promise<Buffer>;
-  realpath(path: string): Promise<string>;
+  readInput?: typeof readPoolInput;
   spawn(
     command: string,
     args: readonly string[],
@@ -44,6 +39,13 @@ function redact(value: string, token: string): string {
 
 function codexArgs(args: readonly string[], baseUrl: string): string[] {
   return [
+    "exec",
+    "--ephemeral",
+    "--ignore-user-config",
+    "--ignore-rules",
+    ...(!args.some((arg) => arg === "--sandbox" || arg.startsWith("--sandbox="))
+      ? ["--sandbox=read-only"]
+      : []),
     "-c",
     'model_provider="bb-account-pool"',
     "-c",
@@ -58,43 +60,19 @@ function codexArgs(args: readonly string[], baseUrl: string): string[] {
     "model_providers.bb-account-pool.requires_openai_auth=false",
     "-c",
     "model_providers.bb-account-pool.supports_websockets=false",
-    ...args,
+    "-c",
+    "sandbox_workspace_write.network_access=false",
+    "-c",
+    'approval_policy="never"',
+    ...args
+      .slice(1)
+      .filter(
+        (arg) =>
+          !["--ephemeral", "--ignore-user-config", "--ignore-rules"].includes(
+            arg,
+          ),
+      ),
   ];
-}
-
-function protectedCodexConfig(args: readonly string[]): string | null {
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index] ?? "";
-    let value: string | undefined;
-    if (arg === "-c" || arg === "--config") {
-      value = args[index + 1];
-      index += 1;
-    } else if (arg.startsWith("-c=") || arg.startsWith("--config=")) {
-      value = arg.slice(arg.indexOf("=") + 1);
-    } else if (arg.startsWith("-c") && !arg.startsWith("--")) {
-      value = arg.slice(2);
-    }
-    if (value === undefined) continue;
-    const key = value.split("=", 1)[0]?.replace(/[\s"']/gu, "") ?? "";
-    if (
-      key === "model_provider" ||
-      key === "model_providers" ||
-      /^model_providers\.bb-account-pool(?:\.|$)/u.test(key)
-    ) {
-      return key;
-    }
-  }
-  return null;
-}
-
-function isWithin(directory: string, candidate: string): boolean {
-  const relative = path.relative(directory, candidate);
-  return (
-    relative !== "" &&
-    relative !== ".." &&
-    !relative.startsWith(`..${path.sep}`) &&
-    !path.isAbsolute(relative)
-  );
 }
 
 export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
@@ -104,62 +82,47 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
     contract: poolExecHostContract,
     handlers: {
       async run(input, context) {
-        if (input.provider === "codex") {
-          const protectedKey = protectedCodexConfig(input.args);
-          if (protectedKey !== null) {
-            return {
-              started: false,
-              exitCode: 1,
-              stdout: "",
-              stderr: `Codex argument overrides protected Account Pooler setting ${protectedKey}.\n`,
-            };
-          }
+        const permittedArgs = parsePoolExecArgs(input.provider, input.args);
+        if (permittedArgs === null) {
+          return {
+            started: false,
+            providerPinned: false,
+            exitCode: 1,
+            stdout: "",
+            stderr: `${input.provider} arguments are not permitted by the Account Pooler execution allowlist.\n`,
+          };
         }
         let stdin: Buffer<ArrayBufferLike> = Buffer.alloc(0);
         if (input.stdinPath !== null) {
           if (input.stdinDir === null) {
             return {
               started: false,
+              providerPinned: false,
               exitCode: 1,
               stdout: "",
               stderr:
-                "Account Pooler stdin files are disabled; configure execInputDir first.\n",
+                "Account Pooler stdin files are disabled; configure BB_ACCOUNT_POOL_EXEC_INPUT_DIR on the server first.\n",
             };
           }
           try {
-            const [stdinDir, stdinPath] = await Promise.all([
-              deps.realpath(input.stdinDir),
-              deps.realpath(input.stdinPath),
-            ]);
-            if (!isWithin(stdinDir, stdinPath)) {
-              return {
-                started: false,
-                exitCode: 1,
-                stdout: "",
-                stderr: `${input.provider} stdin file is outside the configured directory.\n`,
-              };
-            }
-            stdin = await deps.readFile(stdinPath);
+            stdin = await (deps.readInput ?? readPoolInput)(
+              input.stdinDir,
+              input.stdinPath,
+              deps.env,
+            );
           } catch (error) {
             return {
               started: false,
+              providerPinned: false,
               exitCode: 1,
               stdout: "",
               stderr: `Unable to read ${input.provider} stdin file: ${redact(error instanceof Error ? error.message : String(error), input.token)}\n`,
             };
           }
-          if (stdin.length > INPUT_LIMIT_BYTES) {
-            return {
-              started: false,
-              exitCode: 1,
-              stdout: "",
-              stderr: `${input.provider} stdin file exceeds 8 MiB.\n`,
-            };
-          }
         }
         return new Promise((resolve) => {
           const env = { ...deps.env };
-          let args = [...input.args];
+          let args = permittedArgs;
           if (input.provider === "codex") {
             delete env.OPENAI_API_KEY;
             delete env.CODEX_API_KEY;
@@ -183,6 +146,7 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
           } catch (error) {
             resolve({
               started: false,
+              providerPinned: false,
               exitCode: 1,
               stdout: "",
               stderr: `Unable to start ${input.provider}: ${redact(error instanceof Error ? error.message : String(error), input.token)}\n`,
@@ -229,6 +193,7 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
             context.signal.removeEventListener("abort", cancel);
             resolve({
               started,
+              providerPinned: started,
               exitCode: 1,
               stdout: "",
               stderr: `Unable to start ${input.provider}: ${redact(error.message, input.token)}\n`,
@@ -242,6 +207,7 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
             if (outputOverflow) {
               resolve({
                 started: true,
+                providerPinned: started,
                 exitCode: 1,
                 stdout: "",
                 stderr: `${input.provider} output exceeded the safe bb pool exec limit.\n`,
@@ -250,6 +216,7 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
             }
             resolve({
               started,
+              providerPinned: started,
               exitCode:
                 code === null || code < 0 || code > 255 ? 1 : Math.trunc(code),
               stdout: redact(
@@ -274,8 +241,6 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
 
 export default createAccountPoolHostEntry({
   env: process.env,
-  readFile: nodeReadFile,
-  realpath: nodeRealpath,
   spawn(command, args, options) {
     return nodeSpawn(command, [...args], options);
   },

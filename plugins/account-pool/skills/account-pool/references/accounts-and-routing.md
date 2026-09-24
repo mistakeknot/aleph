@@ -21,7 +21,7 @@ bb pool account refresh <id>
 bb pool status [--json]
 bb pool routing <claude|codex> [--off]
 bb pool config
-bb pool config set <anthropicUpstreamBaseUrl|codexUpstreamBaseUrl|switchThreshold|parentMode|execInputDir> <value>
+bb pool config set <anthropicUpstreamBaseUrl|codexUpstreamBaseUrl|switchThreshold|parentMode> <value>
 bb pool parent [proxy|isolate]
 bb pool token rotate --machine <id-or-name>
 bb pool bypass <thread-id> [--off]
@@ -71,9 +71,9 @@ UUID is aligned with the selected OAuth account. Use `bb pool config` to
 inspect the full routing configuration and
 `bb pool config set <key> <value>` to update one value. The upstream URL keys
 are QA-only overrides; `switchThreshold` must be greater than 0 and at most 1.
-`execInputDir` is the sole host directory from which `bb pool exec
---stdin-file` may read; set it to an absolute directory, or set it to
-`disabled` to reject all stdin files.
+`BB_ACCOUNT_POOL_EXEC_INPUT_DIR` is operator-owned server-startup configuration for
+stdin files, not a CLI or settings RPC key. Unset it to disable stdin files.
+Legacy `execInputDir` KV values are discarded, not trusted or migrated.
 
 `bb pool exec` is the non-thread entry point for scheduled or supervised
 processes running on the bb server's primary enrolled host. It accepts only the
@@ -86,16 +86,36 @@ token if the child echoes it, and never stores or prints it. Codex's non-secret
 custom-provider settings are passed as `-c` options because Codex does not read
 its custom provider base URL from an environment variable; the bearer remains
 environment-only. The command preserves stdout, stderr, and the child's exit
-code. Caller Codex arguments may not override `model_provider` or the pooled
-provider's configuration. A pre-dispatch host check is the only host-offline
-case reported without a start marker. If RPC fails after dispatch, the command
-reports that contact was lost and the child may have started, adds the marker,
-and must not be replayed.
+code. All caller `-c` and `--config` spellings, profiles, provider selectors,
+and unknown options are rejected at both CLI and host boundaries. Accepted
+arguments are normalized and the prompt is placed after `--` so it cannot
+select a nested subcommand. Codex's host-owned provider settings are inside
+`exec`, with `--ephemeral`, `--ignore-user-config`, `--ignore-rules`, approval
+policy `never`, and workspace tool-network access disabled. The default
+sandbox is read-only.
+
+Codex callers may supply `--model`, `--sandbox` (read-only or workspace-write),
+`--cd`, `--output-schema`, `--output-last-message`, `--color` (auto, always, never),
+`--json`, `--ephemeral`, `--ignore-user-config`, `--ignore-rules`, and one prompt
+or `-` for stdin. Value options accept separate or `--key=value` forms. Claude
+must start with `--print` or `-p`; it accepts `--model`, `--output-format` (text
+or json), `--max-turns`, and one prompt. Other short options are not accepted.
+
+A confirmed, provider-pinned start emits `transport=pooled`. A pre-dispatch
+host check is the only host-offline case reported without a start marker. If
+RPC fails after dispatch, the command reports lost contact and emits
+`transport=pool-unconfirmed`: the child may have started and must not be replayed.
 For a child that expects stdin, `--stdin-file` names an absolute file on the
-enrolled host. `execInputDir` must be configured first. The daemon resolves
-both paths, rejects files outside that directory (including symlink escapes),
-reads at most 8 MiB, and pipes the bytes to the child; the caller remains
-responsible for file permissions and deletion.
+enrolled host. An operator must configure `BB_ACCOUNT_POOL_EXEC_INPUT_DIR` in
+the server startup environment first. The host refuses root, its home, and
+ancestors of either its configured `CODEX_HOME` or default `~/.codex`, as well
+as those credential directories and their descendants. Validation resolves
+aliases even when the protected directory does not yet exist. Files must be
+direct children of the configured directory. On Linux the daemon opens a
+checked directory descriptor and opens the file through `/proc/self/fd` with
+`O_NOFOLLOW`, checks `fstat` for a regular file, and reads at most 8 MiB. This
+does not follow a replaced leaf or directory path. Other platforms fail closed.
+The caller remains responsible for private file permissions and deletion.
 
 Accounts run sequentially per provider: lower priority numbers first, with ties
 following the order accounts were added. New conversations use the current

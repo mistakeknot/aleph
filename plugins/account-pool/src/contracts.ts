@@ -5,7 +5,6 @@ export const DEFAULT_ACCOUNT_POOL_CONFIG = {
   codexUpstreamBaseUrl: "https://chatgpt.com/backend-api/codex",
   switchThreshold: 0.98,
   parentMode: "proxy" as const,
-  execInputDir: null as string | null,
 };
 
 const httpUrlSchema = z.string().refine((value) => {
@@ -21,18 +20,6 @@ const switchThresholdSchema = z
   .number()
   .positive("Must be greater than 0.")
   .max(1, "Must be at most 1.");
-
-const absolutePathSchema = z
-  .string()
-  .min(1)
-  .max(16_384)
-  .refine(
-    (value) =>
-      value.startsWith("/") ||
-      /^[A-Za-z]:[\\/]/u.test(value) ||
-      value.startsWith("\\\\"),
-    "Must be an absolute path.",
-  );
 
 export const parentModeSchema = z.enum(["proxy", "isolate"]);
 export type ParentMode = z.infer<typeof parentModeSchema>;
@@ -51,9 +38,6 @@ export const accountPoolConfigSchema = z
     parentMode: parentModeSchema.default(
       DEFAULT_ACCOUNT_POOL_CONFIG.parentMode,
     ),
-    execInputDir: absolutePathSchema
-      .nullable()
-      .default(DEFAULT_ACCOUNT_POOL_CONFIG.execInputDir),
   })
   .strict();
 
@@ -65,7 +49,6 @@ export const accountPoolConfigSetInputSchema = z
     codexUpstreamBaseUrl: httpUrlSchema.optional(),
     switchThreshold: switchThresholdSchema.optional(),
     parentMode: parentModeSchema.optional(),
-    execInputDir: absolutePathSchema.nullable().optional(),
   })
   .strict();
 

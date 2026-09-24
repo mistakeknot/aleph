@@ -1076,11 +1076,16 @@ and models routes; the hub forwards each request upstream over HTTPS SSE
 without keeping session state. Both URL values exist only for tests and QA
 with a controlled fake upstream. Inspect or update the full plugin KV-backed configuration with:
 
-`execInputDir` defaults to disabled. Set it to the one absolute host directory
-from which `bb pool exec --stdin-file` may read. The host resolves both the
-configured directory and requested file and rejects paths, traversal, and
-symlinks that escape it. Set the value back to `disabled` to reject all stdin
-files. `parentMode` controls nested-server proxying as described by
+`BB_ACCOUNT_POOL_EXEC_INPUT_DIR` is an optional static BB server startup
+environment variable naming one absolute directory on the primary enrolled
+host. It cannot be changed through the CLI, settings RPC or plugin KV. Legacy
+`execInputDir` KV values are discarded. Unset the variable to disable
+`bb pool exec --stdin-file`. The Linux host permits only regular, non-symlink
+direct children, read through checked no-follow descriptors with an 8 MiB
+limit. Root, home, ancestors of configured/default Codex homes, and the Codex
+homes themselves or their descendants are forbidden. Non-Linux hosts fail
+closed for stdin files. Operators must approve any server environment change
+and its activation separately. `parentMode` controls nested-server proxying as described by
 `bb pool parent --help`.
 
 ```sh
@@ -1088,8 +1093,6 @@ bb pool config
 bb pool config set switchThreshold 0.98
 bb pool config set anthropicUpstreamBaseUrl http://127.0.0.1:9000
 bb pool config set codexUpstreamBaseUrl http://127.0.0.1:9001
-bb pool config set execInputDir /absolute/scheduler/artifacts
-bb pool config set execInputDir disabled
 ```
 
 Upgrading from an Account Pooler build that stored these values through

@@ -368,7 +368,6 @@ describe("Account Pool config schema", () => {
       codexUpstreamBaseUrl: "https://chatgpt.com/backend-api/codex",
       switchThreshold: 0.98,
       parentMode: "proxy",
-      execInputDir: null,
     });
     expect(
       accountPoolConfigSetInputSchema.safeParse({
@@ -386,7 +385,7 @@ describe("Account Pool config schema", () => {
 });
 
 describe("Account Pool plugin", () => {
-  it("removes persisted cache debugging settings while preserving pool configuration across reloads", async () => {
+  it("removes persisted cache debugging and untrusted stdin settings while preserving pool configuration across reloads", async () => {
     const dataDir = await mkdtemp(
       path.join(tmpdir(), "bb-account-pool-config-upgrade-"),
     );
@@ -408,6 +407,7 @@ describe("Account Pool plugin", () => {
       ...expected,
       cacheMissDebug: true,
       cacheMissMinTokens: 20_000,
+      execInputDir: "/",
     });
     const plugin = createAccountPoolPlugin();
     await plugin(host.bb);
@@ -469,7 +469,6 @@ describe("Account Pool plugin", () => {
       codexUpstreamBaseUrl: "https://chatgpt.com/backend-api/codex",
       switchThreshold: 0.75,
       parentMode: "proxy",
-      execInputDir: null,
     });
     expect(
       accountPoolConfigSchema.parse(await host.bb.storage.kv.get("config")),
@@ -6527,6 +6526,30 @@ describe("Account Pool nested proxy", () => {
 });
 
 describe("pool exec CLI", () => {
+  it("rejects caller config at root or exec before dispatch and without a pooled marker", async () => {
+    const hostRpc = vi.fn();
+    const fixture = await createFixture({
+      upstreamUrl: "https://example.com",
+      hostRpc,
+    });
+    for (const args of [
+      ["-c", 'model="gpt-5"', "exec"],
+      ["exec", "-c", 'model="gpt-5"'],
+      ["exec", '--config=model="gpt-5"'],
+    ]) {
+      const result = await fixture.host.harness.behavior.runCli([
+        "exec",
+        "--",
+        "codex",
+        ...args,
+      ]);
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("not permitted");
+      expect(result.stderr).not.toContain("transport=pooled");
+    }
+    expect(hostRpc).not.toHaveBeenCalled();
+  });
+
   it("runs Codex on the primary host with the current in-memory pool route", async () => {
     const calls: ExperimentalFakeHostRpcCall[] = [];
     const fixture = await createFixture({
@@ -6534,6 +6557,7 @@ describe("pool exec CLI", () => {
       provider: "codex",
       source: "import",
       options: {
+        env: { BB_ACCOUNT_POOL_EXEC_INPUT_DIR: "/tmp" },
         importCodexCredentials: async () => ({
           accessToken: "codex-access",
           refreshToken: "codex-refresh",
@@ -6547,18 +6571,25 @@ describe("pool exec CLI", () => {
         calls.push(call);
         return {
           started: true,
+          providerPinned: true,
           exitCode: 0,
           stdout: "child output\n",
           stderr: "",
         };
       },
     });
-    await fixture.host.harness.behavior.runCli([
+    const rejected = await fixture.host.harness.behavior.runCli([
       "config",
       "set",
       "execInputDir",
       "/tmp",
     ]);
+    expect(rejected.exitCode).toBe(1);
+    await expect(
+      fixture.host.harness.behavior.callRpc("config.set", {
+        execInputDir: "/",
+      }),
+    ).rejects.toThrow();
 
     const result = await fixture.host.harness.behavior.runCli(
       [
@@ -6698,7 +6729,8 @@ describe("pool exec CLI", () => {
       "hello",
     ]);
     expect(lost.exitCode).toBe(1);
-    expect(lost.stderr).toContain("transport=pooled provider=claude");
+    expect(lost.stderr).not.toContain("transport=pooled");
+    expect(lost.stderr).toContain("transport=pool-unconfirmed provider=claude");
     expect(lost.stderr).toContain("lost contact");
     expect(lost.stderr).toContain("may have started");
     expect(lost.stderr).not.toContain("could not reach its command runner");

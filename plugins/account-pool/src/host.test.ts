@@ -1,4 +1,7 @@
 import { EventEmitter } from "node:events";
+import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { PassThrough } from "node:stream";
 import { experimental_createHostEntryHarness } from "@get-bb/plugin-sdk/testing/host";
 import { describe, expect, it, vi } from "vitest";
@@ -36,8 +39,7 @@ describe("Account Pooler host exec", () => {
       createAccountPoolHostEntry({
         spawn,
         env: { PATH: "/bin" },
-        readFile: async () => Buffer.from("prompt from file"),
-        realpath: async (value) => value,
+        readInput: async () => Buffer.from("prompt from file"),
       }),
     );
     const input: Buffer[] = [];
@@ -60,12 +62,17 @@ describe("Account Pooler host exec", () => {
 
     await expect(pending).resolves.toEqual({
       started: true,
+      providerPinned: true,
       exitCode: 0,
       stdout: "ok [REDACTED]",
       stderr: "warn [REDACTED]",
     });
     const [command, args, options] = spawn.mock.calls[0] ?? [];
     expect(command).toBe("codex");
+    expect(args?.[0]).toBe("exec");
+    expect(args).toContain('model_provider="bb-account-pool"');
+    expect(args).toContain("sandbox_workspace_write.network_access=false");
+    expect(args).toContain('approval_policy="never"');
     expect(args).not.toContain("pool-secret");
     expect(JSON.stringify(args)).not.toContain("pool-secret");
     expect(options).toMatchObject({
@@ -80,18 +87,27 @@ describe("Account Pooler host exec", () => {
     expect(Buffer.concat(input).toString("utf8")).toBe("prompt from file");
   });
 
-  it("rejects caller overrides of the pooled Codex provider", async () => {
-    const spawn = vi.fn(() => fakeChild());
+  it("rejects every caller config form including exec-level innocuous config", async () => {
+    const spawn = vi.fn(() => {
+      throw new Error("must not spawn");
+    });
     const harness = experimental_createHostEntryHarness(
       createAccountPoolHostEntry({
         spawn,
         env: {},
-        readFile: async () => Buffer.alloc(0),
-        realpath: async (value) => value,
       }),
     );
 
     for (const args of [
+      ["-c", 'model="gpt-5"', "exec", "hello"],
+      ["exec", "-c", 'model="gpt-5"', "hello"],
+      ["exec", "--config", 'model="gpt-5"', "hello"],
+      ["exec", '-c=model="gpt-5"', "hello"],
+      ["exec", '-cmodel="gpt-5"', "hello"],
+      ["exec", '--config=model="gpt-5"', "hello"],
+      ["exec", "--profile=evil", "hello"],
+      ["exec", "--oss", "hello"],
+      ["exec", "resume", "id", "-c", 'model="gpt-5"'],
       ["exec", "-c", 'model_provider="attacker"', "hello"],
       [
         "exec",
@@ -117,10 +133,59 @@ describe("Account Pooler host exec", () => {
         }),
       ).resolves.toMatchObject({
         started: false,
-        stderr: expect.stringContaining("protected Account Pooler setting"),
+        stderr: expect.stringContaining("not permitted"),
       });
     }
     expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it("rejects broad stdin directories and symlinks before reading or spawning", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "pool-input-test-"));
+    try {
+      const home = path.join(root, "home");
+      const codexHome = path.join(home, "private", "codex");
+      const inputs = path.join(root, "inputs");
+      await mkdir(codexHome, { recursive: true });
+      await mkdir(inputs);
+      const prompt = path.join(inputs, "prompt");
+      await writeFile(prompt, "test prompt", { mode: 0o600 });
+      await symlink(prompt, path.join(inputs, "link"));
+      const spawn = vi.fn(() => {
+        throw new Error("must not spawn");
+      });
+      const harness = experimental_createHostEntryHarness(
+        createAccountPoolHostEntry({
+          spawn,
+          env: { HOME: home, CODEX_HOME: codexHome },
+        }),
+      );
+      for (const stdinDir of ["/", home, path.dirname(codexHome), codexHome]) {
+        const result = await harness.experimental_call("run", {
+          provider: "codex",
+          args: ["exec", "-"],
+          cwd: null,
+          stdinDir,
+          stdinPath: path.join(stdinDir, "prompt"),
+          token: "pool-secret",
+          baseUrl: "http://127.0.0.1/v1",
+        });
+        expect(result.stderr).toContain("unsafe stdin directory");
+      }
+      const result = await harness.experimental_call("run", {
+        provider: "codex",
+        args: ["exec", "-"],
+        cwd: null,
+        stdinDir: inputs,
+        stdinPath: path.join(inputs, "link"),
+        token: "pool-secret",
+        baseUrl: "http://127.0.0.1/v1",
+      });
+      expect(result.stderr).toContain("Unable to read");
+      expect(result.stderr).not.toContain("must not spawn");
+      expect(spawn).not.toHaveBeenCalled();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("rejects path-qualified commands at the host contract", async () => {
@@ -130,8 +195,6 @@ describe("Account Pooler host exec", () => {
           throw new Error("must not spawn");
         }),
         env: {},
-        readFile: async () => Buffer.alloc(0),
-        realpath: async (value) => value,
       }),
     );
 
@@ -155,18 +218,16 @@ describe("Account Pooler host exec", () => {
       createAccountPoolHostEntry({
         spawn,
         env: {},
-        readFile: async () => Buffer.from("secret"),
-        realpath: async (value) => value,
       }),
     );
 
     await expect(
       harness.experimental_call("run", {
         provider: "codex",
-        args: [],
+        args: ["exec", "-"],
         cwd: null,
         stdinPath: "/etc/passwd",
-        stdinDir: "/var/lib/remontoire",
+        stdinDir: "/tmp",
         token: "pool-secret",
         baseUrl: "http://127.0.0.1:38886/api/v1/plugins/account-pool/http/v1",
       }),
@@ -184,8 +245,6 @@ describe("Account Pooler host exec", () => {
       createAccountPoolHostEntry({
         spawn,
         env: {},
-        readFile: async () => Buffer.alloc(0),
-        realpath: async (value) => value,
       }),
     );
     const pending = harness.experimental_call("run", {
@@ -203,6 +262,7 @@ describe("Account Pooler host exec", () => {
 
     await expect(pending).resolves.toEqual({
       started: false,
+      providerPinned: false,
       exitCode: 1,
       stdout: "",
       stderr: "Unable to start claude: spawn failed with [REDACTED]\n",
@@ -216,8 +276,6 @@ describe("Account Pooler host exec", () => {
       createAccountPoolHostEntry({
         spawn,
         env: {},
-        readFile: async () => Buffer.alloc(0),
-        realpath: async (value) => value,
       }),
     );
     const controller = new AbortController();
@@ -225,7 +283,7 @@ describe("Account Pooler host exec", () => {
       "run",
       {
         provider: "claude",
-        args: [],
+        args: ["--print"],
         cwd: null,
         stdinPath: null,
         stdinDir: null,
@@ -244,6 +302,7 @@ describe("Account Pooler host exec", () => {
     child.emit("close", 143, "SIGTERM");
     await expect(pending).resolves.toMatchObject({
       started: true,
+      providerPinned: true,
       exitCode: 143,
     });
   });

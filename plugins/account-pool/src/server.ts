@@ -88,14 +88,19 @@ export function helloResponse(): Response {
 export function createAccountPoolPlugin(
   options: AccountPoolPluginOptions = {},
 ) {
+  const execInputDir =
+    (options.env ?? process.env).BB_ACCOUNT_POOL_EXEC_INPUT_DIR || null;
   return async function accountPoolPlugin(bb: BbPluginApi): Promise<void> {
     const storedConfig = z
       .record(z.string(), z.unknown())
       .parse((await bb.storage.kv.get("config")) ?? {});
     const hasRemovedSettings =
-      "cacheMissDebug" in storedConfig || "cacheMissMinTokens" in storedConfig;
+      "cacheMissDebug" in storedConfig ||
+      "cacheMissMinTokens" in storedConfig ||
+      "execInputDir" in storedConfig;
     delete storedConfig.cacheMissDebug;
     delete storedConfig.cacheMissMinTokens;
+    delete storedConfig.execInputDir;
     let currentSettings = accountPoolConfigSchema.parse(storedConfig);
     if (hasRemovedSettings) {
       await bb.storage.kv.set("config", currentSettings);
@@ -257,6 +262,7 @@ export function createAccountPoolPlugin(
         if (!(await canServe(request.provider))) {
           return {
             started: false,
+            providerPinned: false,
             exitCode: 1,
             stdout: "",
             stderr: `Account Pooler cannot currently serve ${request.provider}.\n`,
@@ -266,6 +272,7 @@ export function createAccountPoolPlugin(
         if (primaryHostId === null) {
           return {
             started: false,
+            providerPinned: false,
             exitCode: 1,
             stdout: "",
             stderr:
@@ -278,6 +285,7 @@ export function createAccountPoolPlugin(
         if (primaryHost?.status !== "connected") {
           return {
             started: false,
+            providerPinned: false,
             exitCode: 1,
             stdout: "",
             stderr:
@@ -292,7 +300,7 @@ export function createAccountPoolPlugin(
             {
               ...request,
               cwd: context.cwd ?? null,
-              stdinDir: currentSettings.execInputDir,
+              stdinDir: execInputDir,
               token,
               baseUrl,
             },
@@ -307,6 +315,7 @@ export function createAccountPoolPlugin(
         } catch {
           return {
             started: true,
+            providerPinned: false,
             exitCode: 1,
             stdout: "",
             stderr:

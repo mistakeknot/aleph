@@ -19,6 +19,7 @@ export const poolExecHostContract = defineRpcContract({
     output: z
       .object({
         started: z.boolean(),
+        providerPinned: z.boolean(),
         exitCode: z.number().int().min(0).max(255),
         stdout: z.string(),
         stderr: z.string(),
