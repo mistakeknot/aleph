@@ -36,6 +36,11 @@ For thread-bound eligibility before cross-provider dispatch, use the authenticat
 response without the matching thread ID is not proof of thread eligibility.
 The endpoint returns no credentials and does not add native provider aliases.
 
+For authenticated per-attempt account/model/usage evidence, use the plugin's
+[receipt HTTP contract](../../RECEIPTS.md). Begin is a capability preflight;
+do not start a budgeted CLI if it fails. Scoped tokens stay in child environment,
+not command arguments, files or logs. Quota snapshots cannot prove usage.
+
 For account login/import, secret handling, quota refresh, routing settings,
 ordering, or failover, read
 [references/accounts-and-routing.md](references/accounts-and-routing.md).
