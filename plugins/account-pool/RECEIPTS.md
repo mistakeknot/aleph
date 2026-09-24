@@ -61,10 +61,14 @@ The caller must retain its provider/task exit status independently.
 Only allowlisted metadata is retained. Request/completion text, headers, credentials
 and raw upstream errors are never receipt fields. The hub retains at most 64 attempts
 for at most 24 hours, 128 requests per attempt, 32 hops per request and a 1 MiB parsing frame.
-Once finalize first reports `complete`, retention is shortened to ten minutes
-from that call (or the original expiry, if sooner). Further polls do not extend
-retention. Active attempts keep their original expiry and are not evicted to
-make room. Clients must preserve completed receipts promptly.
+Once a sealed attempt has no active request or hop, retention is shortened to
+ten minutes from the first finalize or admission sweep that observes this state
+(or the original expiry, if sooner). This includes invalidated and unused sealed
+attempts; it does not make their receipts valid or complete. Admission sweeps
+also catch a sealed attempt that settles after its caller stops polling. Further
+polls or sweeps cannot extend retention. Active and unsealed attempts keep their
+original expiry and are not evicted to make room. Clients must preserve terminal
+receipts promptly.
 Exhaustion rejects admission; malformed, oversized or truncated evidence cannot
 produce known usage. Unsupported inference routes invalidate admission. Metadata
 (`models`, `count_tokens`) never creates billable model usage.
