@@ -160,6 +160,42 @@ sequence without moving the current account. `bb pool account priority <id> <n>`
 sets an individual priority; the same operations are available through the
 `account.reorder` and `account.setPriority` plugin RPCs.
 
+## Thread-bound eligibility
+
+`GET /api/v1/plugins/account-pool/http/availability?threadId=<id>` accepts the
+calling process's existing machine token in `x-bb-account-pool-token` (or the
+hub's existing Bearer authorization header). Never print or copy that token into
+command arguments. A successful response is:
+
+```json
+{"threadId":"thr_example","availability":{"claude":true,"codex":false}}
+```
+
+The thread's current environment must belong to the authenticated machine,
+which must still be enrolled. A missing environment, deleted thread, destroyed
+environment or ownership mismatch cannot authorize borrowing. Missing/invalid
+tokens return 401; invalid or repeated thread IDs return 400; ownership refusals
+return 403; failed ownership lookups return 503. These responses are not cached.
+Callers must treat errors as unknown eligibility, not as a fallback to unrelated
+credentials. Thread IDs contain only ASCII letters, digits, underscores and
+hyphens, with a maximum length of 200 characters.
+
+The booleans use the same decision as provider environment contribution: thread
+bypass, provider routing switches, readable enabled local accounts, and parent
+availability in proxy mode. Isolate mode never uses parent availability but may
+use this instance's local pool accounts. Parent availability retains its existing
+30-second cache. This is a routing decision, not a reservation or proof of model
+quota, account selection, usage, or a completed provider request.
+
+The check returns neither a bearer nor provider environment variables, does not
+mark the thread as routed, and does not synthesize cross-provider native aliases.
+It is bound to a thread owned by the machine bearer, not a new thread-scoped
+credential: holders of that bearer may query other threads on the same machine.
+Provider traffic continues to use the existing machine-token authorization.
+Without `threadId`, the endpoint retains its provider-wide `{claude,codex}` shape
+for nested servers and legacy clients; that response does not establish
+cross-provider eligibility for a particular thread.
+
 ## Nested bb servers
 
 A bb server started from inside another bb server's thread inherits that parent's
