@@ -80,3 +80,14 @@ Storage is intentionally process-local in this first version. Restart, expiratio
 or evidence loss makes retrieval fail closed. Clients must preserve validated
 receipts and their hashes; cached receipts cannot replace a fresh begin/finalize
 exchange. Receipt support does not confer deployment or acceptance authority.
+
+## Combined caller probe
+
+Set `BB_POOL_DISPATCH_PROBE_CLAVAIN_ROOT` to a reviewed Clavain checkout containing
+the receipt adapter, then run `src/server.dispatch-probe.test.ts` with Vitest from
+this plugin directory. The opt-in probe runs that checkout's unchanged dispatcher
+with a token budget against this plugin's HTTP handler on loopback. Fake provider
+executables and synthetic credentials ensure no live calls. Both cross-provider
+directions must stop on refused thread ownership before receipt begin, provider
+launch or inference. The plugin's usual test suite runs without that external
+checkout; run this probe separately when assembling a combined generation.
