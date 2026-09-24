@@ -175,7 +175,10 @@ The thread's current environment must belong to the authenticated machine,
 which must still be enrolled. A missing environment, deleted thread, destroyed
 environment or ownership mismatch cannot authorize borrowing. Missing/invalid
 tokens return 401; invalid or repeated thread IDs return 400; ownership refusals
-return 403; failed ownership lookups return 503. These responses are not cached.
+return 403; failed ownership lookups return 503. The server normally hides a
+soft-deleted thread behind an SDK 404, which therefore returns 503 here; an
+exposed deleted row is refused with 403. Both paths fail closed. Responses are
+not cached.
 Callers must treat errors as unknown eligibility, not as a fallback to unrelated
 credentials. Thread IDs contain only ASCII letters, digits, underscores and
 hyphens, with a maximum length of 200 characters.
