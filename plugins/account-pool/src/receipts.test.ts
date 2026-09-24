@@ -4,6 +4,18 @@ import { z } from "zod";
 import { PoolReceipts, ResponseEvidence, type ReceiptHop } from "./receipts.js";
 
 describe("receipt failure boundaries", () => {
+  it("keeps the bundled receipt reference identical to the source contract", () => {
+    expect(
+      readFileSync(
+        new URL(
+          "../skills/account-pool/references/receipts.md",
+          import.meta.url,
+        ),
+        "utf8",
+      ),
+    ).toBe(readFileSync(new URL("../RECEIPTS.md", import.meta.url), "utf8"));
+  });
+
   it("retains terminal provider usage when transport fails afterward without reporting success", () => {
     const hop: ReceiptHop = {
       index: 1,
