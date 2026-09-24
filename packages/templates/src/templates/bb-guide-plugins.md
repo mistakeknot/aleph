@@ -48,7 +48,18 @@ bb pool config
 bb pool config set <anthropicUpstreamBaseUrl|codexUpstreamBaseUrl|switchThreshold> <value>
 bb pool token rotate --machine <id-or-name>
 bb pool bypass <thread-id> [--off]
+bb pool exec [--stdin-file <absolute-path>] -- codex exec <allowed-options> <prompt>
+bb pool exec -- claude --print <allowed-options> <prompt>
 ```
+
+`pool exec` runs on the primary enrolled host with the current machine pool
+credential kept in the child environment. It accepts a narrow argument allowlist,
+not arbitrary provider configuration; see the Account Pooler skill. A confirmed
+provider pin emits `transport=pooled`; lost contact emits `pool-unconfirmed` and
+must not be replayed. Stdin files require operator-owned static server startup
+configuration `BB_ACCOUNT_POOL_EXEC_INPUT_DIR`; CLI/settings cannot change it.
+Only regular, non-symlink direct children are allowed on Linux, excluding home,
+root, and Codex credential directories or their ancestors.
 
 Claude `--login` starts a ten-minute in-memory PKCE session, prints the browser
 sign-in URL and session ID, then exits. After sign-in, pipe the manual callback

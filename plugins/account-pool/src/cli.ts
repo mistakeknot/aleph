@@ -7,6 +7,7 @@ import {
   type PluginCliResult,
 } from "@get-bb/plugin-sdk";
 import path from "node:path";
+import { poolExecArgsAllowed } from "./exec-args.js";
 import { setTimeout as wait } from "node:timers/promises";
 import {
   accountAddInputSchema,
@@ -71,6 +72,7 @@ const ACCOUNT_ID_POSITIONAL = {
 
 interface PoolCommandResult {
   started: boolean;
+  providerPinned: boolean;
   exitCode: number;
   stdout: string;
   stderr: string;
@@ -203,7 +205,6 @@ function formatConfig(config: AccountPoolConfig): string {
     `codexUpstreamBaseUrl: ${config.codexUpstreamBaseUrl}`,
     `switchThreshold: ${config.switchThreshold}`,
     `parentMode: ${config.parentMode}`,
-    `execInputDir: ${config.execInputDir ?? "disabled"}`,
   ].join("\n");
 }
 
@@ -241,13 +242,8 @@ function parseConfigUpdate(
   if (key === "parentMode") {
     return accountPoolConfigSetInputSchema.parse({ parentMode: value });
   }
-  if (key === "execInputDir") {
-    return accountPoolConfigSetInputSchema.parse({
-      execInputDir: value === "disabled" ? null : value,
-    });
-  }
   throw new PluginCliError(
-    "Config key must be anthropicUpstreamBaseUrl, codexUpstreamBaseUrl, switchThreshold, parentMode, or execInputDir.",
+    "Config key must be anthropicUpstreamBaseUrl, codexUpstreamBaseUrl, switchThreshold, or parentMode.",
     { code: "invalid_value" },
   );
 }
@@ -314,6 +310,12 @@ export function registerPoolCli(
                 );
               }
               const provider: PoolProvider = command;
+              if (!poolExecArgsAllowed(provider, args)) {
+                throw new PluginCliError(
+                  `${provider} arguments are not permitted by the Account Pooler execution allowlist.`,
+                  { code: "invalid_value" },
+                );
+              }
               const stdinPath = input.options["stdin-file"];
               if (stdinPath !== undefined && !path.isAbsolute(stdinPath)) {
                 throw new PluginCliError("--stdin-file must be absolute.", {
@@ -334,7 +336,7 @@ export function registerPoolCli(
               return {
                 exitCode: result.exitCode,
                 stdout: result.stdout,
-                stderr: `bb-pool-exec: transport=pooled provider=${provider}\n${result.stderr}`,
+                stderr: `bb-pool-exec: transport=${result.providerPinned ? "pooled" : "pool-unconfirmed"} provider=${provider}\n${result.stderr}`,
               };
             }),
         }),
@@ -804,13 +806,13 @@ export function registerPoolCli(
             {
               name: "key",
               description:
-                "anthropicUpstreamBaseUrl, codexUpstreamBaseUrl, switchThreshold, parentMode, or execInputDir",
+                "anthropicUpstreamBaseUrl, codexUpstreamBaseUrl, switchThreshold, or parentMode",
               required: true,
             },
             {
               name: "value",
               description:
-                "HTTP(S) URL for upstream keys, a threshold, proxy/isolate, or an absolute execInputDir path (disabled clears it)",
+                "HTTP(S) URL for upstream keys, a threshold, or proxy/isolate",
               required: true,
             },
           ],

@@ -109,7 +109,6 @@ function config(overrides: Partial<AccountPoolConfig> = {}): AccountPoolConfig {
     codexUpstreamBaseUrl: "https://chatgpt.com/backend-api/codex",
     switchThreshold: 0.98,
     parentMode: "proxy",
-    execInputDir: null,
     ...overrides,
   };
 }
