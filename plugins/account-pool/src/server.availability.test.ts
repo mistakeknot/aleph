@@ -265,6 +265,23 @@ describe("thread-bound pool availability", () => {
     },
   );
 
+  it("fails closed when the SDK hides a soft-deleted thread behind a 404", async () => {
+    const f = await fixture();
+    f.harness.inspection.sdk.stub("threads.get", async () => {
+      throw Object.assign(new Error("Thread not found"), {
+        name: "BbHttpError",
+        status: 404,
+      });
+    });
+    const response = await f.request();
+    expect(response.status).toBe(503);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.text()).toBe("");
+    expect(f.harness.inspection.sdk.callsTo("environments.get")).toHaveLength(
+      0,
+    );
+  });
+
   it("rechecks bypass and routing switches on each request", async () => {
     const f = await fixture();
     await f.expectAvailability(both);
