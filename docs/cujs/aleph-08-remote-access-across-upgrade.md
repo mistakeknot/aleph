@@ -7,6 +7,10 @@ criticality: p1
 
 # Reach the server remotely across an upgrade
 
+*Supporting journey.* Coordinators block on the operator's decisions, and
+the operator makes them remotely. If remote access is lost, every project
+waits.
+
 ## Why This Journey Matters
 
 The operator works on the server mostly from somewhere else, through bb's
@@ -38,7 +42,7 @@ the same scrutiny as overlaps with carried patches. The review looks at
 them specifically, and the operator's summary mentions them.
 
 The switch runs as described in
-[update Aleph to a new upstream release](aleph-01-upstream-update.md).
+[update Aleph to a new upstream release](aleph-07-upstream-update.md).
 Remote access is part of the canary. With the new build running, the
 remote URL loads, the session is still paired, and the operator can open a
 thread and send a message without pairing again.

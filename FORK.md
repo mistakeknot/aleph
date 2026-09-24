@@ -53,11 +53,13 @@ conflicts.
 
 ## Project documents
 
-- [Mission](MISSION.md): why Aleph exists.
-- [Philosophy](PHILOSOPHY.md): how the fork is kept thin and current.
-- [Vision](docs/aleph-vision.md): where Aleph is going and how it relates to
-  upstream bb.
-- [Personas](docs/aleph-personas.md): the operator, coordinator agents and worker
-  or reviewer agents.
+- [Mission](MISSION.md): make long-running, multi-provider coordinator
+  sessions spend their usage on project progress.
+- [Philosophy](PHILOSOPHY.md): principles for spending usage well, and for
+  keeping the fork thin and current.
+- [Vision](docs/aleph-vision.md): where usage is lost today, where Aleph is
+  going, and how it relates to upstream bb.
+- [Personas](docs/aleph-personas.md): coordinator agents, the operator, and
+  worker or reviewer agents.
 - [Critical user journeys](docs/cujs/README.md)
 - [Roadmap](docs/aleph-roadmap.md) and [backlog](docs/aleph-backlog.md)

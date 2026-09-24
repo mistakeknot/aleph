@@ -1,101 +1,109 @@
 # Aleph personas
 
-> Who Aleph is for, and what gets in their way today.
+> Who Aleph is for, and where their usage goes today.
 
-Aleph has three users: one human and two kinds of agent. These personas come
-from how the fork is actually run. They haven't been tested against a wider
-group of users, and Aleph doesn't aim to serve one.
+Aleph has three users: one human and two kinds of agent. The coordinator
+agent is at the center, since that's where orchestration succeeds or wastes
+usage. These personas come from real operation. They haven't been tested with
+a wider group of users.
 
-## 1. The solo operator
+## 1. The coordinator agent
 
-**Who.** One technical person running many agent threads across two
-machines: a dev server where the work happens and a laptop. They mostly reach
-the server from a browser somewhere else, through bb's hosted connect
-service. They have several subscription accounts per provider.
-
-**Goals**
-- Keep plenty of agent work running without watching it.
-- Get upstream bb improvements soon after they ship.
-- Know what ran, on which account and model, at what cost.
-- Make the decisions, and leave the supervising to others.
-
-**Frustrations**
-- An upgrade erased local changes, and each upgrade needed hand work.
-- Jobs failed on exhausted logins while other accounts still had capacity.
-- A change to remote pairing could have locked them out of their own
-  server.
-- Small UI friction repeats hundreds of times a day: telling providers apart
-  in a long thread list, or switching providers without losing the thread's
-  title, pin, place and children.
-
-**Context.** Works in short sessions, often on a phone or a laptop away from
-the server. Approves decisions that coordinator threads bring to them.
-Treats the server as production: its data and running threads matter.
-
-**Success looks like:** an upstream release reaches them as a ready,
-qualified change that needs one approval. They take it and nothing they rely
-on breaks.
-
-## 2. The coordinator agent
-
-**Who.** A long-lived agent thread that plans work, starts child threads,
-passes decisions to the operator, and reports results. It works in bb's
-threads and CLI, not the UI.
+**Who.** A long-lived agent thread that runs a project for hours or days.
+It plans, starts child threads for implementation and review, waits for
+them, checks their evidence, and passes decisions to the operator. It
+works through bb's threads and CLI.
 
 **Goals**
-- Dispatch work to children and learn quickly when each one is done or
-  stuck.
-- Stay within its context window and token budget over a long session.
-- Use safe, scriptable primitives: pooled runs, receipts, thread
-  availability checks.
+- Keep the project moving with as few of its own turns as possible.
+- Hear from children only when they're DONE, BLOCKED or need a decision.
+- Send each piece of work to the cheapest model that can do it well, and
+  get an independent review when it matters.
+- Survive its own context limits by rotating from a checkpoint.
 
 **Frustrations**
-- Every child turn wakes the coordinator and costs tokens, including turns
-  that only report progress.
-- Plain CLI launches skip the pool, so dispatched jobs fail on exhausted
-  accounts.
-- Pool-wide flags can't say whether a particular thread may borrow the other
-  provider.
+- Woken 5–6 times by a single child's progress updates during one test
+  run, with nothing to act on.
+- A wait on the wrong condition (a process exit) never ended, and hours
+  were lost.
+- Reviews ran against a moving branch, looped for four rounds, or had to
+  be redone after routing rules changed underneath them.
+- A child died on a transient "no eligible account" refusal, or when every
+  account for one provider ran out at once.
+- After compaction or rotation, it re-derives state and sometimes trusts a
+  stale handoff.
 
-**Context.** Its budget is its own context and tokens. It reads structured
-output better than prose. It has to be able to prove what it did to the
-operator.
+**Context.** Its budget is its own context and tokens. Every message it
+reads costs both. It reads structured output better than prose, and it has
+to be able to prove what it did.
 
-**Success looks like:** it's woken only when a child finishes or is blocked,
-each run it starts reports its account and model, and it never has to guess
-whether a run used the pool.
+**Success looks like:** a multi-day project where it wakes about once per
+finished child, every child's return fits one screen, no child dies on
+capacity, and rotation starts from a checkpoint in one turn.
+
+## 2. The solo operator
+
+**Who.** One technical person running several projects through
+coordinator threads across a server and a laptop. They mostly reach the
+server from a browser somewhere else. They hold several subscription
+accounts per provider and pay for all of them.
+
+**Goals**
+- Turn their accounts' usage into finished, reviewed work.
+- Make decisions when a coordinator brings one, and otherwise stay out of
+  the way.
+- See what each outcome cost, and where usage went that didn't produce
+  anything.
+- Get upstream bb improvements without losing anything they rely on.
+
+**Frustrations**
+- Status-only messages from coordinators that need no decision.
+- Weekly limits reached early because of wasted wakes and repeated
+  reviews.
+- A project stalled for hours because a wait never ended and nobody
+  noticed.
+- No way to say "that feature cost this much".
+
+**Context.** Works in short sessions, often from a phone. Treats the
+server as production. Sets the rules (return shape, review cap, silence
+when nothing is new) and currently has to put them in every prompt.
+
+**Success looks like:** each week, more accepted outcomes for the same
+usage, a short list of decisions to make, and no surprises.
 
 ## 3. The worker or reviewer agent
 
-**Who.** A short-lived child thread or scripted run that implements a change
-or reviews one, sometimes with the other provider's model so the review is
-independent.
+**Who.** A short-lived child thread or scripted run that implements or
+reviews one bounded piece of work. It may use the other provider's model
+so the review is independent.
 
 **Goals**
-- Get capacity when it starts, without handling credentials.
-- Know when to stop, and report DONE or BLOCKED clearly.
-- As a reviewer, be sure it can't change what it's reviewing.
+- Get capacity when it starts, and survive transient refusals.
+- Know the end state, the target commit and the round limit.
+- Return once, with a capped, structured result.
 
 **Frustrations**
-- Launching failed because the account it happened to get was exhausted.
-- Settings from the calling folder leaked into a pooled Claude run.
-- Nothing told it whether the run was really pooled or fell back to
-  something else.
+- Killed by a transient account refusal partway through.
+- Reviewing a branch that changed underneath it.
+- Stopped by a command that matched the wrong process.
+- Build checks failing on environment problems before it gets a real
+  answer.
 
-**Context.** Runs once and exits. It may run as a scheduled job with no
-thread around it. Its output is read by a coordinator, not by a person.
+**Context.** Runs once and exits. Its output is read by a coordinator,
+not a person.
 
-**Success looks like:** it starts on a pooled account, runs with the
-provider settings the host chose, finishes its job, and ends with one clear
-status line.
+**Success looks like:** it starts on pooled capacity, works on a fixed
+target, and ends with one message: `DONE` or `BLOCKED`, evidence, and
+whether any failure was real or came from the environment.
 
-## Pain points by source
+## Waste by persona
 
-| Pain | Operator | Coordinator | Worker/reviewer | Addressed by |
+| Waste pattern | Coordinator | Operator | Worker/reviewer | Journey |
 |---|---|---|---|---|
-| Upgrades erase local changes | ● | | | [upstream update](cujs/aleph-01-upstream-update.md) |
-| Exhausted logins while pool has headroom | ● | ● | ● | [pooled runs](cujs/aleph-02-pooled-agent-runs.md) |
-| Progress chatter costs tokens | | ● | | [child reporting](cujs/aleph-03-child-thread-reporting.md) |
-| Unclear permission to borrow the other provider | | ● | ● | [cross-provider review](cujs/aleph-04-cross-provider-review.md) |
-| Switching provider loses the thread's place | ● | | | [switch in place](cujs/aleph-05-provider-switch-in-place.md) |
-| Remote access at risk on upgrade | ● | | | [remote access](cujs/aleph-06-remote-access-across-upgrade.md) |
+| Wake storms, status churn | ● | ● | | [01 multi-day project](cujs/aleph-01-multi-day-coordinator.md) |
+| Wrong wait conditions | ● | ● | | [01 multi-day project](cujs/aleph-01-multi-day-coordinator.md) |
+| Long or unstructured returns, environment failures | ● | | ● | [02 structured results](cujs/aleph-02-structured-child-results.md) |
+| Unbounded or mis-targeted review | ● | ● | ● | [03 cheapest adequate model](cujs/aleph-03-cheapest-adequate-model.md) |
+| Capacity cliffs, transient refusals | ● | ● | ● | [04 no dead jobs](cujs/aleph-04-no-dead-jobs.md) |
+| Context-heavy coordinators | ● | | | [05 rotation](cujs/aleph-05-coordinator-rotation.md) |
+| Unmeasured usage | | ● | | [06 usage per outcome](cujs/aleph-06-usage-per-outcome.md) |

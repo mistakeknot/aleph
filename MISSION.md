@@ -1,10 +1,12 @@
 # Aleph mission
 
-Aleph lets one operator run many coding agents on current bb without losing
-local changes, stranding capacity or breaking remote access. Each change bb
-doesn't yet have is carried as a small patch that can be qualified and reverted
-until upstream takes it or it's retired.
+Aleph makes long-running coordinator sessions in bb spend their usage on
+project progress. Across several providers and many accounts, every token
+should buy output or quality, and none should be lost to wake storms, stuck
+waits, unbounded reviews or jobs dying on an exhausted login.
 
-[FORK.md](FORK.md) describes the current release. The
-[philosophy](PHILOSOPHY.md), [vision](docs/aleph-vision.md) and
-[roadmap](docs/aleph-roadmap.md) build on this mission.
+Aleph is a fork of bb so it can carry the orchestration pieces bb doesn't
+have yet. Keeping the fork current, narrow and safely switchable serves this
+mission; it isn't the mission. [FORK.md](FORK.md) describes the current
+release. The [philosophy](PHILOSOPHY.md), [vision](docs/aleph-vision.md) and
+[roadmap](docs/aleph-roadmap.md) build on this.

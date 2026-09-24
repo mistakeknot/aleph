@@ -2,10 +2,13 @@
 artifact_type: cuj
 journey: upstream-update
 actor: solo operator (approves), coordinator agent (prepares)
-criticality: p0
+criticality: p1
 ---
 
 # Update Aleph to a new upstream release
+
+*Supporting journey.* It keeps the orchestration pieces behind the other
+journeys current and safe to change.
 
 ## Why This Journey Matters
 
@@ -65,7 +68,8 @@ On approval, the switch runs in order. It drains new work by setting the
 concurrency limit to 0, waits for running turns to finish, takes a quiesced
 snapshot of the server's data, installs the qualified build, and runs a
 canary. The canary opens the app remotely, starts a thread, and checks that
-the carried features are present. If the canary fails, the switch rolls back
+the carried features are present (pooled runs, thread-bound
+availability, receipts, provider switching). If the canary fails, the switch rolls back
 to the snapshot and the previous build. If it passes, the limit is restored
 and queued work continues.
 

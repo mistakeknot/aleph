@@ -1,6 +1,6 @@
 # Aleph — Vision
 
-**Version:** 0.1
+**Version:** 0.2
 **Date:** 2026-09-24
 **Status:** Draft
 
@@ -12,130 +12,155 @@
 
 ## The idea
 
-bb is a programmable workspace for coding agents. Aleph is the version of it
-that one operator runs every day: many agent threads across a server and a
-laptop, most of them reached through a browser from somewhere else, and many
-of them started and supervised by other agents.
+bb can run many coding-agent threads across machines and providers. The
+most productive way to use it is also the most expensive: a long-lived
+coordinator thread runs a project for days, starts child threads for
+implementation and review, and passes decisions to a human operator.
 
-Almost everything Aleph needs comes from upstream bb. Aleph exists for the few
-things one operator needs before upstream has them, and it's measured by how
-small and how current it stays.
+Most of the cost of that setup isn't the work. It's orchestration done
+badly. Coordinators are woken for nothing, waits never end, reviews loop,
+work is duplicated, jobs die on one exhausted account, and long sessions
+pay again to rebuild state they had already worked out. Aleph exists to make
+that orchestration cheap and reliable, so the operator's usage across
+providers turns into project output and quality.
 
-## Why a fork, and not only plugins
+## Where the usage went
 
-Aleph started because of four problems that came up in real operation:
+Over two days of real coordinator operation, these patterns showed up:
 
-1. **Upgrades erased local changes.** A hand-applied bb upgrade removed the
-   operator's UI patches. A reapply-only patch tool helped, but every upgrade
-   still needed a person.
-2. **Capacity ran out unevenly.** The operator has several subscription
-   accounts per provider, each hitting its limits at different times.
-   Scripted jobs launched the provider CLI directly, bypassed the pool, and
-   failed on exhausted logins while other accounts still had headroom.
-3. **Borrowing and spend weren't accountable.** A thread sometimes needs the
-   other provider, for example for an independent review from another lab.
-   Pool-wide switches couldn't say whether *this* thread was allowed to
-   borrow, and budgeted runs had no record of which account and model ran.
-4. **Remote access was fragile across upgrades.** An upstream change moved
-   remote pairing into a new plugin and was later reverted after a production
-   incident. For an operator who works remotely, that change could have cut
-   off access.
+| Pattern | What happened | What it cost |
+|---|---|---|
+| **Wake storms** | Children ended a turn for every progress update, and each turn end woke the coordinator | One long test run caused 5–6 coordinator wakes with nothing to act on |
+| **Wrong wait conditions** | A coordinator waited for a CI virtual machine process to exit before rebuilding; an idle process lingered | The wait never ended; a maintenance window was missed; about 7 hours lost |
+| **Unbounded review** | One change went through 4 independent review rounds with an escalation, and reviews were re-run after the reviewer-routing rules changed | Repeated full reviews for one change |
+| **Duplicate and orphaned work** | Reviews started against a branch the producer was still pushing to; a stop command matched its own shell and killed a fresh review | Reviews of the wrong target and killed work, both redone |
+| **Capacity cliffs** | Every account for one provider hit its weekly limit at once; transient "no eligible account" refusals killed two review threads; scripted jobs skipped the pool | A producer died mid-task and had to move provider; jobs failed while other accounts had headroom |
+| **Status churn** | Coordinators passed status-only messages to each other and to the operator | Tokens and attention with no decision attached |
+| **Context-heavy coordinators** | Long sessions filled up, compacted or rotated, then re-derived state, sometimes from stale handoffs | Paying twice for the same understanding, plus corrections |
+| **Verification in the wrong place** | Build checks failed on environment problems (missing native modules or type declarations, machine load) | A full rebuild cycle before the real result each time |
 
-Some of these needed changes in core or in bundled plugins, which is why
-Aleph is a fork. The [philosophy](../PHILOSOPHY.md) keeps the fork thin.
+Some of these are now handled by rules the operator gives in prompts: return
+only DONE or BLOCKED, at most two review rounds and then a human decision,
+no status-only wakes. Rules in prompts help, but they rely on every agent
+following them every time. Aleph's job is to build them into bb.
 
-## Where Aleph is now
+## What good looks like
 
-`0.43.4+aleph.1` is upstream bb 0.43.4 plus upstream main through `fdd3de3`,
-with these carried patches ([FORK.md](../FORK.md) has the details):
+- Every token spent moves a project forward.
+- Coordinators wake only on DONE, BLOCKED or a decision.
+- Work goes to the cheapest model that meets the quality bar, with
+  independent cross-provider review when it matters, bounded in rounds.
+- Capacity across providers and accounts is pooled and forecast, so no
+  job dies on one exhausted login.
+- Child returns are capped and structured.
+- Long coordinator sessions rotate cleanly from checkpoints.
+- Waste is measured: usage per outcome, wakes per task, retries.
 
-- Account Pooler 0.1.2: thread-bound availability, `bb pool exec` for Codex
-  and Claude, attempt receipts for budgeted dispatch, and pooled Claude runs
-  isolated from the calling folder's settings.
-- Provider icons in the thread list, with color modes.
-- Switching a thread's provider in place from the model picker, when the
-  handoff plugin is running.
-- Optional composer focus on keyboard pane switches.
-- A credential-free release check that the fork's CI runs on fresh machines.
+## Where Aleph is now: the first building blocks
 
-Updates are still done by hand. Two live canaries (a Codex run through
-`bb pool exec` and a live receipt) are deferred because provider capacity
-wasn't available.
+`0.43.4+aleph.1` (upstream bb 0.43.4 plus main through `fdd3de3`) ships
+the first pieces. [FORK.md](../FORK.md) has the details.
+
+| Shipped | What it gives the mission |
+|---|---|
+| `bb pool exec` for Codex and Claude | Scripted and supervised runs use the account pool instead of one login, and say whether they really ran pooled |
+| Thread-bound availability | Borrowing another provider's pool, for example for an independent review, is decided per thread and fails closed |
+| Attempt receipts for budgeted dispatch | A sealed record of account, model and usage per run; the basis for measuring usage per outcome |
+| Pooled Claude isolated from caller settings | Pooled runs behave the same wherever they're started |
+| Switch a thread's provider in place | Work can move provider after a capacity cliff without losing its place in the thread tree |
+| Provider icons in the thread list | The operator can see which provider each thread is using |
+
+From upstream bb, Aleph also relies on `bb thread wait` and
+`bb thread output`, the concurrency limit, thread compaction, and the
+pool's recheck of exhausted accounts before it refuses a request.
+
+Not yet: DONE/BLOCKED as a structural rule, capped returns, outcome waits
+with deadlines, bounded review, checkpoints for rotation, capacity
+forecasts, and any measure of usage per outcome. The live receipt canary
+and a live Codex run through the pool were deferred because no provider
+capacity was available.
 
 ## Where Aleph is going (next 6–12 months)
 
 These are goals, not shipped features. The [roadmap](aleph-roadmap.md)
 orders them.
 
-### Taking upstream releases becomes routine
+### Measure first
 
-One operator approval per upstream release. Scripts compute the upstream
-range and its overlap with carried patches, merge and qualify, then prepare
-a switch that drains work, snapshots data, installs, runs a canary and can
-roll back. Journey: [update Aleph to a new upstream release](cujs/aleph-01-upstream-update.md).
+Record wakes per task, retries, review rounds and usage per outcome, using
+receipts where possible. This gives a baseline, so each later change can
+show what it saved. Journey:
+[see usage per outcome](cujs/aleph-06-usage-per-outcome.md).
 
-### Aleph knows it's Aleph
+### Coordinators wake only for news
 
-Update checks order Aleph builds correctly, so `+aleph.2` is offered over
-`+aleph.1`. The in-app update prompt no longer installs plain upstream over
-Aleph and offers to merge the release into Aleph instead. What's New shows
-Aleph's changelog as well as upstream's.
+DONE/BLOCKED-only wakes become a bb feature instead of a prompt rule.
+Status-only messages are held back, waits target outcomes and have
+deadlines. Journey: [run a multi-day project without wake storms](cujs/aleph-01-multi-day-coordinator.md).
 
-### Capacity is pooled, fenced and accounted for
+### Returns are capped and structured
 
-Every scripted or supervised agent run goes through the pool, and each one
-reports whether it really ran pooled. Borrowing another provider's pool is
-decided per thread. Budgeted runs carry receipts and stop when usage can't
-be accounted for. The deferred live canaries pass. Journeys:
-[pooled runs](cujs/aleph-02-pooled-agent-runs.md) and
-[cross-provider review](cujs/aleph-04-cross-provider-review.md).
+Child results have a fixed shape and size, carry evidence, and classify
+failures as environment problems or real ones. Journey:
+[children return capped, structured results](cujs/aleph-02-structured-child-results.md).
 
-### Coordinators pay only for signals they need
+### Right model, bounded review
 
-A coordinator thread hears from a child when the child finishes or is
-blocked, not on every turn. Progress is coalesced or left out. Journey:
-[coordinate child threads](cujs/aleph-03-child-thread-reporting.md).
+Work goes to the cheapest model that clears the bar. Cross-provider
+review is per thread, pinned to a commit and limited in rounds. Journey:
+[route to the cheapest adequate model](cujs/aleph-03-cheapest-adequate-model.md).
 
-### Remote access survives every upgrade
+### No job dies on one exhausted account
 
-Qualification includes the remote path. An upgrade that would change
-pairing or connect behavior is caught before the switch, not after the
-operator is locked out. Journey:
-[reach the server remotely across an upgrade](cujs/aleph-06-remote-access-across-upgrade.md).
+Transient refusals are waited out, provider-wide cliffs are forecast and
+rerouted with the operator's approval, and every scripted run goes
+through the pool. Journey:
+[no job dies on an exhausted account](cujs/aleph-04-no-dead-jobs.md).
+
+### Coordinators rotate cleanly
+
+A coordinator can hand off to a fresh session from a checkpoint without
+re-deriving state. Journey:
+[rotate a coordinator from a checkpoint](cujs/aleph-05-coordinator-rotation.md).
+
+### The fork stays current and safe (supporting)
+
+One operator approval per upstream release, Aleph builds that know they're
+Aleph, and remote access that survives every switch. Journeys:
+[update to a new upstream release](cujs/aleph-07-upstream-update.md) and
+[reach the server remotely across an upgrade](cujs/aleph-08-remote-access-across-upgrade.md).
 
 ### The diff gets smaller
 
-Carried patches that are useful beyond this operator (provider icons,
-`bb pool exec`, thread-bound availability are the current candidates) are
-offered upstream when the maintainers want them. Success is a shorter
+Pieces that help other bb users (candidates today: `bb pool exec`,
+thread-bound availability, provider icons) are offered upstream when the
+maintainers want them. Success is a shorter
 `git log --no-merges <upstream main>..HEAD`, not a longer feature list.
 
 ## Relationship to upstream bb
 
-- Aleph follows upstream. It doesn't compete with bb or make promises for
-  it, and it isn't a general distribution.
+- Aleph follows upstream. It isn't a competing product or a distribution.
 - Aleph keeps bb's package and command names, so merges stay clean and
   bb's documentation still applies.
 - Upstream's direction wins. When upstream ships its own answer to a
-  problem Aleph patched, Aleph adopts it and drops the patch, even if the
-  patch worked.
-- Aleph follows upstream's contribution rules, including CLI parity for
-  every feature and the plugin API conventions. That keeps patches
-  upstreamable.
+  problem Aleph patched, Aleph adopts it and drops the patch.
+- Aleph follows upstream's rules for contributions, including CLI parity
+  and the plugin API conventions, so patches stay upstreamable.
 
 ## Not goals
 
-- A second product line with its own features or roadmap separate from bb.
-- Publishing Aleph to npm or distributing it to other users.
-- Keeping a patch after upstream has solved the problem another way.
+- A general agent framework, or orchestration outside bb.
+- Publishing Aleph or distributing it to other users.
+- Saving tokens at the cost of quality. The quality bar comes first.
 
 ## How we'll know
 
-These targets are aspirational; none of them has been measured yet.
+These targets are aspirational; the baseline hasn't been measured yet.
 
-- Taking an upstream release needs one operator decision and no hand
-  merging when there are no conflicts with carried patches.
-- No scripted agent job fails on an exhausted login while another pooled
-  account has headroom.
-- Across upgrades, the operator never loses remote access or local changes.
-- The number of carried patches goes down over time.
+- Coordinator wakes per completed child fall to about one.
+- No coordinator wait runs past its deadline without becoming BLOCKED.
+- No change needs more than two review rounds before a human decision.
+- No job fails on an exhausted account while another pooled account has
+  headroom.
+- Usage per accepted outcome goes down release over release, and quality
+  doesn't.
