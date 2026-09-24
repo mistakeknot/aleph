@@ -1073,8 +1073,12 @@ with a controlled fake upstream. Inspect or update the full plugin KV-backed con
 `BB_ACCOUNT_POOL_EXEC_INPUT_DIR` is an optional static BB server startup
 environment variable naming one absolute directory on the primary enrolled
 host. It cannot be changed through the CLI, settings RPC or plugin KV. Legacy
-`execInputDir` KV values are discarded. Unset the variable to disable
-`bb pool exec --stdin-file`. The Linux host permits only regular, non-symlink
+`execInputDir` KV values are discarded. When unset, the host plugin resolves
+`<daemon HOME>/.local/state/bb-account-pool/exec-input` at load time, independent
+of caller cwd or `TMPDIR`; this default needs no BB process restart. The host
+creates a missing directory as `0700` and verifies its effective owner and exact
+mode on the opened descriptor. It never repairs unsafe ownership or permissions.
+The Linux host permits only regular, non-symlink
 direct children, read through checked no-follow descriptors with an 8 MiB
 limit. Root, home, ancestors of configured/default Codex homes, and the Codex
 homes themselves or their descendants are forbidden. Non-Linux hosts fail

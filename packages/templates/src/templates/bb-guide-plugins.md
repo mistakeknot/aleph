@@ -56,10 +56,13 @@ bb pool exec -- claude --print <allowed-options> <prompt>
 credential kept in the child environment. It accepts a narrow argument allowlist,
 not arbitrary provider configuration; see the Account Pooler skill. A confirmed
 provider pin emits `transport=pooled`; lost contact emits `pool-unconfirmed` and
-must not be replayed. Stdin files require operator-owned static server startup
-configuration `BB_ACCOUNT_POOL_EXEC_INPUT_DIR`; CLI/settings cannot change it.
+must not be replayed. Stdin files default to the host daemon's
+`$HOME/.local/state/bb-account-pool/exec-input`, created as `0700` and checked for
+daemon ownership and exact mode. Operator-owned server startup configuration
+`BB_ACCOUNT_POOL_EXEC_INPUT_DIR` overrides that default; CLI/settings/KV cannot
+change it. The default needs only plugin reload, not a BB process restart.
 Only regular, non-symlink direct children are allowed on Linux, excluding home,
-root, and Codex credential directories or their ancestors.
+root, and Codex credential directories, their ancestors and their descendants.
 
 Claude `--login` starts a ten-minute in-memory PKCE session, prints the browser
 sign-in URL and session ID, then exits. After sign-in, pipe the manual callback
