@@ -25,7 +25,7 @@ bb pool config set <anthropicUpstreamBaseUrl|codexUpstreamBaseUrl|switchThreshol
 bb pool parent [proxy|isolate]
 bb pool token rotate --machine <id-or-name>
 bb pool bypass <thread-id> [--off]
-bb pool exec -- codex exec <codex-options> <prompt>
+bb pool exec [--stdin-file <absolute-path>] -- codex exec <codex-options> <prompt>
 bb pool exec -- claude --print <claude-options> <prompt>
 ```
 
@@ -84,6 +84,9 @@ environment-only. The command preserves stdout, stderr, and the child's exit
 code. Its stderr start marker distinguishes a child failure from a pre-start
 pool or host-runner failure, so callers can safely restrict direct-provider
 fallback to the latter case.
+For a child that expects stdin, `--stdin-file` names an absolute file on the
+enrolled host. The daemon reads at most 8 MiB and pipes the bytes to the child;
+the caller remains responsible for file permissions and deletion.
 
 Accounts run sequentially per provider: lower priority numbers first, with ties
 following the order accounts were added. New conversations use the current

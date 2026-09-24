@@ -81,6 +81,7 @@ export type PoolCommandExecutor = (
     provider: PoolProvider;
     command: string;
     args: string[];
+    stdinPath: string | null;
   },
   context: PluginCliContext,
 ) => Promise<PoolCommandResult>;
@@ -284,6 +285,14 @@ export function registerPoolCli(
           description:
             "Runs the command on this bb server's enrolled primary host. Credentials remain in the child environment and are never printed.",
           passthrough: true,
+          options: {
+            "stdin-file": {
+              type: "string",
+              placeholder: "absolute-path",
+              description:
+                "Read the child stdin from a file on the enrolled host",
+            },
+          },
           run: (input, context) =>
             attempt(async () => {
               const [command, ...args] = input.passthrough;
@@ -301,8 +310,14 @@ export function registerPoolCli(
                 );
               }
               const provider: PoolProvider = executable;
+              const stdinPath = input.options["stdin-file"];
+              if (stdinPath !== undefined && !path.isAbsolute(stdinPath)) {
+                throw new PluginCliError("--stdin-file must be absolute.", {
+                  code: "invalid_value",
+                });
+              }
               const result = await executePoolCommand(
-                { provider, command, args },
+                { provider, command, args, stdinPath: stdinPath ?? null },
                 context,
               );
               if (!result.started) {

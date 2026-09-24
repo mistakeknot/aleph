@@ -14,6 +14,8 @@ outside a bb thread must use the current pool on the server's primary enrolled
 host. The command exits with the child status. A successful child start adds a
 `bb-pool-exec: transport=pooled provider=<provider>` stderr marker; an
 unavailable pool or host runner fails without that marker.
+Use `--stdin-file <absolute-path>` before `--` when the child reads a prompt
+from stdin; the file is read on the enrolled host and is limited to 8 MiB.
 
 For account login/import, secret handling, quota refresh, routing settings,
 ordering, or failover, read

@@ -1,10 +1,13 @@
 import { spawn as nodeSpawn } from "node:child_process";
+import { readFile as nodeReadFile } from "node:fs/promises";
 import { experimental_defineHostEntry } from "@get-bb/plugin-sdk/host";
 import { poolExecHostContract } from "./exec-contract.js";
 
 const OUTPUT_LIMIT_BYTES = 900_000;
+const INPUT_LIMIT_BYTES = 8 << 20;
 
 interface PoolExecChild {
+  stdin: NodeJS.WritableStream;
   stdout: NodeJS.ReadableStream;
   stderr: NodeJS.ReadableStream;
   kill(signal: NodeJS.Signals): boolean;
@@ -18,13 +21,14 @@ interface PoolExecChild {
 
 interface PoolExecHostDependencies {
   env: NodeJS.ProcessEnv;
+  readFile(path: string): Promise<Buffer>;
   spawn(
     command: string,
     args: readonly string[],
     options: {
       cwd?: string;
       env: NodeJS.ProcessEnv;
-      stdio: ["ignore", "pipe", "pipe"];
+      stdio: ["pipe", "pipe", "pipe"];
     },
   ): PoolExecChild;
 }
@@ -59,7 +63,28 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
   return experimental_defineHostEntry({
     contract: poolExecHostContract,
     handlers: {
-      run(input, context) {
+      async run(input, context) {
+        let stdin: Buffer<ArrayBufferLike> = Buffer.alloc(0);
+        if (input.stdinPath !== null) {
+          try {
+            stdin = await deps.readFile(input.stdinPath);
+          } catch (error) {
+            return {
+              started: false,
+              exitCode: 1,
+              stdout: "",
+              stderr: `Unable to read ${input.provider} stdin file: ${redact(error instanceof Error ? error.message : String(error), input.token)}\n`,
+            };
+          }
+          if (stdin.length > INPUT_LIMIT_BYTES) {
+            return {
+              started: false,
+              exitCode: 1,
+              stdout: "",
+              stderr: `${input.provider} stdin file exceeds 8 MiB.\n`,
+            };
+          }
+        }
         return new Promise((resolve) => {
           const env = { ...deps.env };
           let args = [...input.args];
@@ -81,7 +106,7 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
             child = deps.spawn(input.command, args, {
               ...(input.cwd === null ? {} : { cwd: input.cwd }),
               env,
-              stdio: ["ignore", "pipe", "pipe"],
+              stdio: ["pipe", "pipe", "pipe"],
             });
           } catch (error) {
             resolve({
@@ -115,6 +140,8 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
           };
           child.stdout.on("data", (chunk) => append(stdout, chunk));
           child.stderr.on("data", (chunk) => append(stderr, chunk));
+          child.stdin.on("error", () => {});
+          child.stdin.end(stdin);
 
           const cancel = (): void => {
             child.kill("SIGTERM");
@@ -175,6 +202,7 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
 
 export default createAccountPoolHostEntry({
   env: process.env,
+  readFile: nodeReadFile,
   spawn(command, args, options) {
     return nodeSpawn(command, [...args], options);
   },

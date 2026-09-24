@@ -6,10 +6,12 @@ import { createAccountPoolHostEntry } from "./host.js";
 
 function fakeChild() {
   const child = new EventEmitter() as EventEmitter & {
+    stdin: PassThrough;
     stdout: PassThrough;
     stderr: PassThrough;
     kill: ReturnType<typeof vi.fn<(signal: NodeJS.Signals) => boolean>>;
   };
+  child.stdin = new PassThrough();
   child.stdout = new PassThrough();
   child.stderr = new PassThrough();
   child.kill = vi.fn((_signal: NodeJS.Signals) => true);
@@ -17,7 +19,7 @@ function fakeChild() {
 }
 
 describe("Account Pooler host exec", () => {
-  it("injects Codex credentials only through env and redacts them from output", async () => {
+  it("injects Codex credentials only through env, forwards an input file, and redacts output", async () => {
     const child = fakeChild();
     const spawn = vi.fn(
       (
@@ -26,18 +28,25 @@ describe("Account Pooler host exec", () => {
         _options: {
           cwd?: string;
           env: NodeJS.ProcessEnv;
-          stdio: ["ignore", "pipe", "pipe"];
+          stdio: ["pipe", "pipe", "pipe"];
         },
       ) => child,
     );
     const harness = experimental_createHostEntryHarness(
-      createAccountPoolHostEntry({ spawn, env: { PATH: "/bin" } }),
+      createAccountPoolHostEntry({
+        spawn,
+        env: { PATH: "/bin" },
+        readFile: async () => Buffer.from("prompt from file"),
+      }),
     );
+    const input: Buffer[] = [];
+    child.stdin.on("data", (chunk) => input.push(Buffer.from(chunk)));
     const pending = harness.experimental_call("run", {
       provider: "codex",
       command: "/opt/bin/codex",
       args: ["exec", "hello"],
       cwd: "/work",
+      stdinPath: "/tmp/prompt.txt",
       token: "pool-secret",
       baseUrl: "http://127.0.0.1:38886/api/v1/plugins/account-pool/http/v1",
     });
@@ -67,19 +76,25 @@ describe("Account Pooler host exec", () => {
           "http://127.0.0.1:38886/api/v1/plugins/account-pool/http/v1",
       },
     });
+    expect(Buffer.concat(input).toString("utf8")).toBe("prompt from file");
   });
 
   it("returns a pre-start failure without echoing the credential", async () => {
     const child = fakeChild();
     const spawn = vi.fn(() => child);
     const harness = experimental_createHostEntryHarness(
-      createAccountPoolHostEntry({ spawn, env: {} }),
+      createAccountPoolHostEntry({
+        spawn,
+        env: {},
+        readFile: async () => Buffer.alloc(0),
+      }),
     );
     const pending = harness.experimental_call("run", {
       provider: "claude",
       command: "claude",
       args: ["--print", "hello"],
       cwd: null,
+      stdinPath: null,
       token: "pool-secret",
       baseUrl: "http://127.0.0.1:38886/api/v1/plugins/account-pool/http",
     });
@@ -99,7 +114,11 @@ describe("Account Pooler host exec", () => {
     const child = fakeChild();
     const spawn = vi.fn(() => child);
     const harness = experimental_createHostEntryHarness(
-      createAccountPoolHostEntry({ spawn, env: {} }),
+      createAccountPoolHostEntry({
+        spawn,
+        env: {},
+        readFile: async () => Buffer.alloc(0),
+      }),
     );
     const controller = new AbortController();
     const pending = harness.experimental_call(
@@ -109,6 +128,7 @@ describe("Account Pooler host exec", () => {
         command: "claude",
         args: [],
         cwd: null,
+        stdinPath: null,
         token: "pool-secret",
         baseUrl: "http://127.0.0.1:38886/api/v1/plugins/account-pool/http",
       },
