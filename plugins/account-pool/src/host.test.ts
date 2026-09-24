@@ -27,8 +27,6 @@ describe("Account Pooler host exec", () => {
     async (stdinDir) => {
       const child = fakeChild();
       const spawn = vi.fn(() => child);
-      // 160 KiB comfortably clears the 128 KiB MAX_ARG_STRLEN this path
-      // guards against, without the larger buffer's I/O time on slow guests.
       const prompt = Buffer.alloc(160 * 1024, "p");
       const readInput = vi.fn(async () => prompt);
       const env = { HOME: "/daemon-home", TMPDIR: "/private-tmp" };
@@ -63,9 +61,6 @@ describe("Account Pooler host exec", () => {
       );
       expect(Buffer.concat(received)).toEqual(prompt);
     },
-    // Slow/loaded guests can take several seconds to move this much data
-    // through the mocked stdin pipe; give the test headroom past the
-    // default 5s timeout instead of racing it.
     20_000,
   );
 
