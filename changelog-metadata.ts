@@ -4,10 +4,10 @@ type ReleaseMeta = {
 };
 
 export const RELEASE_META: Record<string, ReleaseMeta> = {
-  "0.43.5": {
-    date: "September 23, 2026",
+  "0.43.4+aleph.1": {
+    date: "September 24, 2026",
     headline:
-      "Thread-bound Account Pooler availability, bb pool exec, and provider icons",
+      "Aleph: thread-bound Account Pooler availability, bb pool exec, and provider icons",
   },
   "0.43.3": {
     date: "September 18, 2026",
