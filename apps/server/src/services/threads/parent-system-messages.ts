@@ -52,6 +52,7 @@ import {
   withThreadSendGuard,
 } from "./thread-context-mutation-guard.js";
 import { requestQueuedMessageDispatch } from "./queued-message-dispatch.js";
+import { checkParentThreadHeld } from "./parent-wake-policy.js";
 
 const PARENT_SYSTEM_MESSAGE_SOURCE = "tell";
 
@@ -433,8 +434,13 @@ export async function queueParentSystemMessage(
     return false;
   }
   const hasPendingInteraction =
-    deps.pendingInteractions.hasTurnBoundPendingThreadInteraction(parentThread.id);
-  if (!hasPendingInteraction) {
+    deps.pendingInteractions.hasTurnBoundPendingThreadInteraction(
+      parentThread.id,
+    );
+  const held = hasPendingInteraction
+    ? ({ held: false } as const)
+    : await checkParentThreadHeld(deps, { input: args.input, parentThread });
+  if (!hasPendingInteraction && !held.held) {
     try {
       return await deliverParentSystemMessage(deps, {
         input: args.input,
@@ -464,15 +470,19 @@ export async function queueParentSystemMessage(
     reasoningLevel: execution.reasoningLevel,
     permissionMode: execution.permissionMode,
     serviceTier: execution.serviceTier,
-    waitingOn: { kind: hasPendingInteraction ? "interaction" : "thread-busy" },
-    sendAt: null,
+    waitingOn: hasPendingInteraction
+      ? { kind: "interaction" }
+      : held.held
+        ? { kind: "plugin", pluginId: held.pluginId, reason: held.reason }
+        : { kind: "thread-busy" },
+    sendAt: held.held ? held.sendAt : null,
     payload: { kind: "inline" },
     systemNotice: {
       kind: args.systemMessageKind,
       subject: args.systemMessageSubject,
     },
   });
-  if (!hasPendingInteraction) {
+  if (!hasPendingInteraction && !held.held) {
     requestQueuedMessageDispatch(deps, {
       kind: "thread-ready",
       threadId: parentThread.id,

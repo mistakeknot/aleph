@@ -862,6 +862,7 @@ function settleThreadCommandFailure(
         queueChildThreadTurnNotificationBestEffort(deps, {
           childThread: thread,
           parentThreadId,
+          turnId: null,
           turnStatus: "failed",
         }),
     });

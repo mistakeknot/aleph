@@ -21,6 +21,12 @@ import {
   systemMessageKindForTemplate,
 } from "./system-message-kind.js";
 import { getLastThreadOutput } from "./thread-data.js";
+import {
+  decideParentWake,
+  isChildTurnSelfInitiated,
+  recordDeliveredChildOutput,
+  resolveParentWakeNotifySetting,
+} from "./parent-wake-policy.js";
 
 export type ChildThreadNotificationSource = ParentSystemThreadMentionSource;
 
@@ -28,6 +34,7 @@ export interface ChildThreadTurnNotificationBatchItem {
   activeWorkflowCount: number;
   childThread: ChildThreadNotificationSource;
   terminalOutput: string | null;
+  turnId: string | null;
   turnStatus: ThreadEventTurnStatus;
 }
 
@@ -61,6 +68,7 @@ interface BuildChildThreadNeedsAttentionInputArgs {
 interface QueueChildThreadTurnNotificationArgs {
   childThread: ChildThreadNotificationSource;
   parentThreadId: string;
+  turnId: string | null;
   turnStatus: ThreadEventTurnStatus;
 }
 
@@ -355,6 +363,41 @@ function childThreadTurnNotificationLogMessage(
   }
 }
 
+function selectWakingChildThreadTurnNotificationItems(
+  deps: Pick<LoggedPendingInteractionWorkSessionDeps, "db">,
+  args: {
+    items: ChildThreadTurnNotificationBatchItem[];
+    parentThreadId: string;
+  },
+): ChildThreadTurnNotificationBatchItem[] {
+  const notify = resolveParentWakeNotifySetting();
+  return args.items.filter((item) => {
+    const selfInitiated =
+      item.turnId !== null &&
+      isChildTurnSelfInitiated(deps, {
+        childThreadId: item.childThread.id,
+        parentThreadId: args.parentThreadId,
+        turnId: item.turnId,
+      });
+    const decision = decideParentWake({
+      childThreadId: item.childThread.id,
+      finalText: item.terminalOutput,
+      notify,
+      parentThreadId: args.parentThreadId,
+      selfInitiated,
+      turnStatus: item.turnStatus,
+    });
+    if (decision.wake && item.turnStatus === "completed") {
+      recordDeliveredChildOutput({
+        childThreadId: item.childThread.id,
+        finalText: item.terminalOutput,
+        parentThreadId: args.parentThreadId,
+      });
+    }
+    return decision.wake;
+  });
+}
+
 async function flushChildThreadTurnNotificationBatch(
   deps: LoggedPendingInteractionWorkSessionDeps,
   parentThreadId: string,
@@ -365,13 +408,21 @@ async function flushChildThreadTurnNotificationBatch(
   }
   childThreadTurnNotificationBatches.delete(parentThreadId);
 
+  const items = selectWakingChildThreadTurnNotificationItems(deps, {
+    items: batch.items,
+    parentThreadId,
+  });
+  if (items.length === 0) {
+    return;
+  }
+
   try {
     await queueParentSystemMessage(deps, {
       input: buildChildThreadTurnStatusBatchInput({
-        items: batch.items,
+        items,
       }),
       parentThreadId,
-      ...childThreadTurnStatusBatchTaxonomy(batch.items),
+      ...childThreadTurnStatusBatchTaxonomy(items),
     });
   } catch (error) {
     deps.logger.error(
@@ -405,6 +456,7 @@ function queueChildThreadTurnNotificationBatchItem(
     activeWorkflowCount: getChildThreadActiveWorkflowCount(deps, args),
     childThread: args.childThread,
     terminalOutput: getChildThreadCompletionOutput(deps, args),
+    turnId: args.turnId,
     turnStatus: args.turnStatus,
   };
   const existingBatch = childThreadTurnNotificationBatches.get(
