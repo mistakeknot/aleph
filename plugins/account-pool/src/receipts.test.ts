@@ -85,10 +85,7 @@ describe("receipt failure boundaries", () => {
         .parse(
           JSON.parse(
             readFileSync(
-              new URL(
-                "../../provider-claude-code/src/__fixtures__/assistant-text.json",
-                import.meta.url,
-              ),
+              new URL("./fixtures/claude-assistant-text.json", import.meta.url),
               "utf8",
             ),
           ),
