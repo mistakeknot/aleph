@@ -566,8 +566,10 @@ describe("Navigation plugin in the sidebar navigation region", () => {
       await screen.findByRole("menuitem", { name: "Hide from sidebar" }),
     );
 
-    expect(store.get(pluginNavVisiblePanelKeysAtom)).toEqual(
-      DEFAULT_VISIBLE_HOST_KEYS,
+    await waitFor(() =>
+      expect(store.get(pluginNavVisiblePanelKeysAtom)).toEqual(
+        DEFAULT_VISIBLE_HOST_KEYS,
+      ),
     );
     expect(visibleRowKeys()).toEqual(DEFAULT_VISIBLE_HOST_KEYS);
     expect(store.get(splitLayoutAtom)).toEqual(initialLayout);
