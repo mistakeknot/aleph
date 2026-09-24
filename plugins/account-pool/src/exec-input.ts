@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { open, realpath } from "node:fs/promises";
+import { mkdir, open, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 
@@ -43,7 +43,7 @@ export async function readPoolInput(
   const home = path.resolve(env.HOME || homedir());
   const [allowed, protectedHome, codexHome, defaultCodexHome] =
     await Promise.all([
-      realpath(directory),
+      canonicalPath(directory),
       canonicalPath(home),
       canonicalPath(path.resolve(env.CODEX_HOME || path.join(home, ".codex"))),
       canonicalPath(path.join(home, ".codex")),
@@ -65,17 +65,24 @@ export async function readPoolInput(
       "stdin file is outside the configured directory (direct children only)",
     );
   }
+  await mkdir(allowed, { recursive: true, mode: 0o700 });
   const folder = await open(
     allowed,
     constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
   );
   try {
     const folderFd = `/proc/self/fd/${folder.fd}`;
-    if (
-      !(await folder.stat()).isDirectory() ||
-      (await realpath(folderFd)) !== allowed
-    ) {
+    const folderStat = await folder.stat();
+    if (!folderStat.isDirectory() || (await realpath(folderFd)) !== allowed) {
       throw new Error("stdin directory changed while opening");
+    }
+    if (
+      folderStat.uid !== process.geteuid?.() ||
+      (folderStat.mode & 0o7777) !== 0o700
+    ) {
+      throw new Error(
+        "stdin directory must be owned by the daemon user with mode 0700",
+      );
     }
     const file = await open(
       `${folderFd}/${path.basename(filename)}`,

@@ -24,11 +24,14 @@ unavailable pool or a host found offline before dispatch fails without that
 marker. Lost contact after dispatch emits `transport=pool-unconfirmed` and
 must not be retried.
 Use `--stdin-file <absolute-path>` before `--` when the child reads a prompt
-from stdin. An operator must first set `BB_ACCOUNT_POOL_EXEC_INPUT_DIR` in the
-BB server's startup environment; the CLI and settings RPC cannot change it.
+from stdin. The default is `<daemon HOME>/.local/state/bb-account-pool/exec-input`,
+resolved on the enrolled host, independent of caller cwd or private `/tmp`.
+An operator can override it with `BB_ACCOUNT_POOL_EXEC_INPUT_DIR` in the BB
+server's startup environment; the CLI and settings RPC cannot change it.
+The host creates a missing directory as `0700` and verifies its owner and mode.
 Files must be regular, non-symlink direct children of that directory on the
 Linux enrolled host and are limited to 8 MiB. Root, home, Codex credential
-directories and their ancestors are forbidden. See the reference for the
+directories, their ancestors and their descendants are forbidden. See the reference for the
 argument allowlist and descriptor-based file boundary.
 
 For thread-bound eligibility before cross-provider dispatch, use the authenticated

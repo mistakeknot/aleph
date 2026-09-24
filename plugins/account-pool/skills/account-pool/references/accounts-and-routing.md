@@ -72,7 +72,10 @@ inspect the full routing configuration and
 `bb pool config set <key> <value>` to update one value. The upstream URL keys
 are QA-only overrides; `switchThreshold` must be greater than 0 and at most 1.
 `BB_ACCOUNT_POOL_EXEC_INPUT_DIR` is operator-owned server-startup configuration for
-stdin files, not a CLI or settings RPC key. Unset it to disable stdin files.
+stdin files, not a CLI or settings RPC key. When unset, the host resolves the
+fixed default `<daemon HOME>/.local/state/bb-account-pool/exec-input` from its
+own environment at plugin load. The default needs no server environment change
+or process restart; caller cwd, `TMPDIR`, and `XDG_STATE_HOME` do not affect it.
 Legacy `execInputDir` KV values are discarded, not trusted or migrated.
 
 `bb pool exec` is the non-thread entry point for scheduled or supervised
@@ -129,8 +132,11 @@ The internal `providerPinned` field means a child started with this host-owned
 routing construction (it equals `started` on host responses), not an attestation
 of an upstream response. An indeterminate RPC result cannot establish it.
 For a child that expects stdin, `--stdin-file` names an absolute file on the
-enrolled host. An operator must configure `BB_ACCOUNT_POOL_EXEC_INPUT_DIR` in
-the server startup environment first. The host refuses root, its home, and
+enrolled host. Use the default directory above, or an operator's server-startup
+override. The host creates a missing directory with mode `0700`, then verifies
+the opened directory belongs to its effective user and has exactly mode `0700`.
+It rejects incorrect ownership or permissions without repairing them.
+The host refuses root, its home, and
 ancestors of either its configured `CODEX_HOME` or default `~/.codex`, as well
 as those credential directories and their descendants. Validation resolves
 aliases even when the protected directory does not yet exist. Files must be

@@ -24,7 +24,7 @@ async function fixture() {
   roots.push(root);
   const dir = path.join(root, "input");
   const outside = path.join(root, "outside");
-  await fs.mkdir(dir);
+  await fs.mkdir(dir, { mode: 0o700 });
   await fs.mkdir(outside);
   await fs.writeFile(path.join(dir, "prompt"), "allowed", { mode: 0o600 });
   await fs.writeFile(path.join(outside, "prompt"), "forbidden", {
@@ -40,6 +40,51 @@ async function fixture() {
 }
 
 describe("pool exec stdin descriptors", () => {
+  it("creates a missing input directory privately before opening its file", async () => {
+    const f = await fixture();
+    const directory = path.join(
+      f.env.HOME,
+      ".local/state/bb-account-pool/exec-input",
+    );
+    await expect(
+      readPoolInput(directory, path.join(directory, "missing"), f.env),
+    ).rejects.toThrow("ENOENT");
+    const stat = await fs.stat(directory);
+    expect(stat.isDirectory()).toBe(true);
+    expect(stat.mode & 0o7777).toBe(0o700);
+    expect(stat.uid).toBe(process.geteuid?.());
+  });
+
+  it.each([0o755, 0o770, 0o1700])(
+    "refuses an existing directory with mode %o without changing it",
+    async (mode) => {
+      const f = await fixture();
+      await fs.chmod(f.dir, mode);
+      await expect(readPoolInput(f.dir, f.filename, f.env)).rejects.toThrow(
+        "owned by the daemon user with mode 0700",
+      );
+      expect((await fs.stat(f.dir)).mode & 0o7777).toBe(mode);
+    },
+  );
+
+  it("checks the opened directory's owner before reading its input", async () => {
+    const f = await fixture();
+    const uid = process.geteuid?.() ?? -1;
+    vi.spyOn(process, "geteuid").mockReturnValue(uid + 1);
+    await expect(readPoolInput(f.dir, f.filename, f.env)).rejects.toThrow(
+      "owned by the daemon user with mode 0700",
+    );
+  });
+
+  it("does not create forbidden Codex descendants", async () => {
+    const f = await fixture();
+    const directory = path.join(f.env.HOME, ".codex", "new-input");
+    await expect(
+      readPoolInput(directory, path.join(directory, "prompt"), f.env),
+    ).rejects.toThrow("unsafe stdin directory");
+    await expect(fs.stat(directory)).rejects.toThrow("ENOENT");
+  });
+
   it("reads an allowed regular file through no-follow descriptors", async () => {
     const f = await fixture();
     const open = vi.spyOn(fs, "open");
