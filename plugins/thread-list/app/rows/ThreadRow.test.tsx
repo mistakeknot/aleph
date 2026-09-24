@@ -16,8 +16,6 @@ import {
   type RenderedSlot,
 } from "@get-bb/plugin-sdk/testing/app";
 import { NO_COLLAPSED_CHILD_ACTIVITY } from "../model/thread-activity.js";
-import type { ProviderInfo } from "@bb/domain";
-import { makeProviderInfo } from "@bb/test-helpers/domain-fixtures";
 import { getDefaultStore } from "jotai";
 import {
   sidebarProviderIconColorAtom,
@@ -25,7 +23,11 @@ import {
   sidebarShowProviderIconsAtom,
 } from "../preferences/atoms.js";
 import { resetPreferencesSyncForTest } from "../preferences/preferences-sync.js";
-import { makeSidebarThread } from "../model/fixtures.js";
+import {
+  makeProviderInfo,
+  makeSidebarThread,
+  type SidebarProviderInfo,
+} from "../model/fixtures.js";
 import {
   SIDEBAR_SUCCESS_STATUS_COLOR_CLASS,
   SIDEBAR_WORKING_STATUS_COLOR_CLASS,
@@ -114,7 +116,7 @@ interface RenderThreadRowArgs extends Omit<HarnessProps, "thread"> {
   pluginStatus?: PluginSidebarThreadRowStatus;
   splitLayout?: PluginSidebarSplitLayout;
   projects?: PluginSidebarProject[];
-  providers?: ProviderInfo[];
+  providers?: SidebarProviderInfo[];
   sdk?: PluginSdkTestFakes;
 }
 

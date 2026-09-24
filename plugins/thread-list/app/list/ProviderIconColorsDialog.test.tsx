@@ -6,7 +6,7 @@ import {
   installTestPluginRuntime,
   renderSlot,
 } from "@get-bb/plugin-sdk/testing/app";
-import { makeProviderInfo } from "@bb/test-helpers/domain-fixtures";
+import { makeProviderInfo } from "../model/fixtures.js";
 import { sidebarProviderIconColorsAtom } from "../preferences/atoms.js";
 import { resetPreferencesSyncForTest } from "../preferences/preferences-sync.js";
 

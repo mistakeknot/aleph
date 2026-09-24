@@ -1,4 +1,4 @@
-import { isPresentationTintColor } from "@bb/domain";
+import { isPresentationTintColor } from "../../shared/tint-color.js";
 import type {
   ProviderIconColorMode,
   ProviderIconColors,
@@ -9,7 +9,6 @@ interface ProviderIconTint {
   dark: string;
 }
 
-/** Theme variable that colors one provider's icon, e.g. `--provider-icon-codex`. */
 export function providerIconThemeVariable(providerId: string): string {
   return `--provider-icon-${providerId.replace(/[^a-zA-Z0-9_-]/gu, "-")}`;
 }
@@ -26,11 +25,6 @@ function isValidTint(tint: ProviderIconTint | null | undefined): tint is Provide
   );
 }
 
-/**
- * The CSS color for a row's provider icon. A custom color wins outright; then
- * the theme's per-provider variable, then its `--provider-icon` variable; then
- * the color mode: the provider's brand tint, or the row's own text color.
- */
 export function resolveProviderIconColor({
   providerId,
   brandTint,
