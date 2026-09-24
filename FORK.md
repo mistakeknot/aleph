@@ -50,3 +50,14 @@ Beyond upstream, Aleph carries:
 `git log --no-merges <upstream main>..HEAD` lists the carried commits.
 Upstream is merged into Aleph, not rebased, and each merge commit records its
 conflicts.
+
+## Project documents
+
+- [Mission](MISSION.md): why Aleph exists.
+- [Philosophy](PHILOSOPHY.md): how the fork is kept thin and current.
+- [Vision](docs/aleph-vision.md): where Aleph is going and how it relates to
+  upstream bb.
+- [Personas](docs/personas.md): the operator, coordinator agents and worker
+  or reviewer agents.
+- [Critical user journeys](docs/cujs/README.md)
+- [Roadmap](docs/aleph-roadmap.md) and [backlog](docs/backlog.md)
