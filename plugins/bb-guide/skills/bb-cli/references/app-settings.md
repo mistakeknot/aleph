@@ -20,12 +20,18 @@ Use `bb settings ui reset sidebar.threadListProvider` to restore the default, or
 `bb settings ui set sidebar.threadListProvider <plugin-id>/<slot-id>` to select
 another plugin. The SDK exposes the same setting through `uiPreferences`.
 
+The sidebar navigation works the same way: `sidebar.navigationProvider` defaults
+to the bundled Navigation plugin (`navigation/navigation`), and legacy
+`__automatic__` and `__builtin__` selections resolve to it. Navigation order and
+visibility stay in `sidebar.pluginPanelOrder` and `sidebar.visiblePluginPanels`,
+so they carry over between navigation plugins.
+
 - The server keeps a keyed, revisioned registry of sidebar layout preferences
   (`sidebar.organizationMode`, `sidebar.threadGrouping.environment`,
   `sidebar.chronologicalSort`, the section
   orders, the collapsed-id lists, `sidebar.hiddenGroups`,
   `sidebar.pluginPanelOrder`, `sidebar.visiblePluginPanels`, `sidebar.navigationProvider`,
-  `sidebar.threadListProvider`).
+  `sidebar.headerProvider`, `sidebar.threadListProvider`).
 - The built-in sidebar's Filter selects Active and Archived, defaulting to Active,
   including threads with saved messages. This selection is browser-local, not
   a server-backed preference or SDK/CLI setting. Selected archived rows
@@ -190,10 +196,8 @@ another plugin. The SDK exposes the same setting through `uiPreferences`.
 
 ## Timeline windowing
 
-- The `timelineWindowing` experiment defaults to false.
-- Enable it with `bb settings experiment timelineWindowing true`.
-- It keeps stable timeline wrappers while mounting only rows near the active
-  main or nested detail scrollport.
+- Long timelines keep stable row wrappers while mounting only rows near the
+  active main or nested detail scrollport.
 
 ## Server move
 
@@ -201,14 +205,6 @@ another plugin. The SDK exposes the same setting through `uiPreferences`.
 - Enable it with `bb settings experiment serverMove true`.
 - It shows Move server here in Settings → Machines and lets the server run
   `bb server move`, `bb server export`, and old server copy deletion.
-
-## Multi-machine picker
-
-- The `multiMachinePicker` experiment defaults to false.
-- Enable it with `bb settings experiment multiMachinePicker true`.
-- Projects with at least three machines use a searchable, target-first
-  environment picker. Machine-only pickers add search when they contain more
-  than five machines.
 
 Machine access: `bb settings general machineServerUrl https://bb.example.com`
 sets the server URL reachable by machines. Set `null` to use BB_EXTERNAL_URL.

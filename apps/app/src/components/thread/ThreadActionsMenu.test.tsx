@@ -30,7 +30,7 @@ import { useSidebarRename } from "../sidebar/SidebarInlineRename";
 const moveThreadToSection = vi.hoisted(() => vi.fn());
 const copyToClipboardWithToast = vi.hoisted(() => vi.fn());
 const threadActions = vi.hoisted(() => ({
-  archiveThreadAndChildren: vi.fn(),
+  requestArchive: vi.fn(),
   requestDelete: vi.fn(),
   requestRename: vi.fn(),
   togglePin: vi.fn(),
@@ -47,10 +47,7 @@ vi.mock("@/hooks/mutations/thread-state-mutations", () => ({
 }));
 
 vi.mock("./ThreadActionsProvider", () => ({
-  useThreadActions: () => ({
-    ...threadActions,
-    renameThread: vi.fn(),
-  }),
+  useThreadActions: () => threadActions,
 }));
 
 const destinations = [

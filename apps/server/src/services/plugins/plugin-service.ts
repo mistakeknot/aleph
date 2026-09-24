@@ -28,6 +28,7 @@ import {
   type ExperimentalPluginProviderEnvContext,
   type ExperimentalPluginProviderEnvHealthContext,
   type PluginRpcError,
+  type ExperimentalPluginRpcCaller,
 } from "@get-bb/plugin-sdk";
 import {
   enforcePluginCliOutputLimit,
@@ -116,6 +117,7 @@ import {
   type PluginRpcHandler,
   type PluginWebSocketRouteRecord,
 } from "./plugin-api.js";
+import type { PluginRpcCallerResolution } from "./plugin-rpc-caller.js";
 import {
   syncPluginCommandsSkill,
   type PluginCliContribution,
@@ -147,7 +149,11 @@ import {
   forgetMutableRoot,
   type PluginLoadHold,
 } from "./plugin-runtime.js";
-import { nextCronRunAt, raceTimeout } from "./plugin-time-box.js";
+import {
+  nextCronRunAt,
+  raceTimeout,
+  settledWithin,
+} from "./plugin-time-box.js";
 import { createPluginUpdates } from "./plugin-updates.js";
 
 import type {
@@ -341,6 +347,12 @@ export interface PluginService {
   ): PluginWireLookup<PluginWebSocketRouteRecord>;
   discoverRpc(query: PluginRpcDiscoveryQuery): PublishedPluginRpcMethod[];
   getRpcHandler(id: string, method: string): PluginWireLookup<PluginRpcHandler>;
+  /**
+   * The caller of a plugin rpc request: a plugin when `token` is the live
+   * per-load token its `bb.sdk.plugins.callRpc` attaches, the client when no
+   * token was sent, and not ok for any other token.
+   */
+  resolveRpcCaller(token: string | undefined): PluginRpcCallerResolution;
   invokeHttpRoute(
     id: string,
     route: PluginHttpRouteRecord,
@@ -365,6 +377,7 @@ export interface PluginService {
     method: string,
     handler: PluginRpcHandler,
     input: unknown,
+    caller: ExperimentalPluginRpcCaller,
   ): Promise<
     { ok: true; result: JsonValue } | { ok: false; error: PluginRpcError }
   >;
@@ -535,6 +548,24 @@ function normalizeMentionSearchItems(
 
 export function createPluginService(deps: PluginServiceDeps): PluginService {
   const logger = deps.logger;
+  const installHandlerTimeoutMs = deps.installHandlerTimeoutMs ?? 30_000;
+
+  async function runInstallHandlers(id: string): Promise<void> {
+    const plugin = loaded.get(id);
+    if (plugin === undefined) return;
+    const handlers = [...plugin.handle.installHandlers];
+    if (handlers.length === 0) return;
+    const run = (async () => {
+      for (const handler of handlers) {
+        await invokeWrapped(id, "install handler", handler);
+      }
+    })();
+    if (!(await settledWithin(run, installHandlerTimeoutMs))) {
+      logger.warn(
+        `[plugin:${id}] install handlers were still running after ${installHandlerTimeoutMs / 1000}s; the install finished without waiting for them`,
+      );
+    }
+  }
   const bundledPlugins =
     deps.bundledPlugins ?? listBundledPluginRegistrations();
   const mentionSearchTimeoutMs =
@@ -571,6 +602,7 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
     agentToolProblems,
     appBundles,
     bindSdk: bindRuntimeSdk,
+    resolveRpcCaller,
     buildThreadDto,
     builtinSourceWatchers,
     checkEngineRange,
@@ -635,6 +667,7 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
     restoreRegistration,
     sourceFingerprint,
   } = createPluginRegistration({
+    runInstallHandlers,
     deps,
     bundledPlugins,
     withLifecycleLock,
@@ -1816,6 +1849,8 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
       return wireLookup(id, (plugin) => plugin.handle.rpcHandlers.get(method));
     },
 
+    resolveRpcCaller,
+
     async invokeHttpRoute(id, route, context) {
       const outcome = await invokeWrapped(
         id,
@@ -1870,7 +1905,7 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
       await invokeWrapped(id, `websocket ${route.path} ${event}`, run);
     },
 
-    async invokeRpcHandler(id, method, handler, input) {
+    async invokeRpcHandler(id, method, handler, input, caller) {
       const outcome = await invokeWrapped(id, `rpc ${method}`, async () => {
         const parsedInput = await validateRpcValue(
           handler.inputSchema,
@@ -1878,7 +1913,9 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
           "input",
           throwRpcBoundaryError,
         );
-        const result = await handler.handler(parsedInput);
+        const result = await handler.handler(parsedInput, {
+          experimental_caller: caller,
+        });
         const parsedOutput = await validateRpcValue(
           handler.outputSchema,
           result,

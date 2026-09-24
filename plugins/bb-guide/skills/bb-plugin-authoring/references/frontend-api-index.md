@@ -30,6 +30,10 @@ Read the installed SDK declarations for the exact current signatures.
 - `useRealtimeConnectionState`
 - `useSettings`
 - `useBbContext`
+- `experimental_usePluginId` — this plugin's id, for keying browser-side
+  state such as localStorage entries
+- `experimental_useQuestionFormHost` — bb's answer shortcuts inside a
+  `pendingInteraction` form
 - `useBbNavigate`
 - `experimental_useAppPanel`
 - `experimental_useFixedTabTarget`
@@ -39,6 +43,13 @@ Read the installed SDK declarations for the exact current signatures.
 - `experimental_useSidebarThreadActions`
 - `experimental_useSidebarThreadPullRequest`
 - `experimental_useSidebarThreadSplit`
+- `experimental_useSidebarNavigation` — the sidebar navigation items in the
+  user's saved order, the active item, and host actions to activate, hide,
+  reorder, and customize them
+- `experimental_useSidebarNavigationSplit` — drag-to-split support for one
+  navigation item
+- `experimental_SidebarNavigationIcon` — bb's artwork for a navigation item's
+  icon, including plugin branding
 - `useSidebarThreadDraft` — whether the composer holds an unsent draft for
   one thread, for the pencil glyph bb's row paints
 - `useSidebarThreadDraftIds` — every thread id with an unsent draft, for
@@ -75,6 +86,8 @@ Read the installed SDK declarations for the exact current signatures.
 - `PluginNewThreadPanelProps`
 - `PluginPendingInteractionView`
 - `PluginPendingInteractionProps`
+- `ExperimentalQuestionFormHost`
+- `ExperimentalQuestionShortcut`
 - `BranchPickerProps`
 - `UseBranchesArgs`
 - `BranchesState`
@@ -95,7 +108,13 @@ Read the installed SDK declarations for the exact current signatures.
 - `ExperimentalSidebarNavigationIcon`
 - `ExperimentalSidebarNavigationItem`
 - `ExperimentalSidebarNavigationActivationOptions`
+- `ExperimentalSidebarNavigationActions`
+- `ExperimentalSidebarNavigationState`
+- `ExperimentalSidebarNavigationSplit`
+- `ExperimentalSidebarNavigationSplitOptions`
+- `ExperimentalSidebarNavigationIconProps`
 - `ExperimentalSidebarNavigationProps`
+- `ExperimentalSidebarHeaderProps`
 - `PluginThreadListProps`
 - `PluginThreadHeaderActionProps`
 - `ExperimentalPluginBrowserToolbarActionProps`
@@ -140,6 +159,7 @@ Read the installed SDK declarations for the exact current signatures.
 - `ExperimentalSidebarFooterDisclosureController`
 - `ExperimentalSidebarFooter`
 - `ExperimentalSidebarNavigationRegistration`
+- `ExperimentalSidebarHeaderRegistration`
 - `PluginSidebarThreadIndicator`
 - `PluginSidebarThreadActivity`
 - `PluginSidebarThread`

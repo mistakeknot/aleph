@@ -1,7 +1,10 @@
-import { useMemo } from "react";
-import { useAtomValue } from "jotai";
+import { useEffect, useMemo } from "react";
+import { useAtomValue, useSetAtom } from "jotai";
 import { sidebarThreadLifecyclesAtom } from "../preferences/atoms.js";
-import type { Host } from "@bb/domain";
+import {
+  resolveSectionName,
+  sectionNameOverridesAtom,
+} from "./section-name-overrides.js";
 import {
   experimental_useSidebarThreads,
   type PluginSidebarProject,
@@ -9,7 +12,7 @@ import {
   type PluginSidebarThread,
   type PluginSidebarThreadsState,
 } from "@get-bb/plugin-sdk/app";
-import { toSidebarThread, type SidebarThread } from "./sidebar-thread.js";
+import type { SidebarThread } from "./sidebar-thread.js";
 
 export interface SidebarProject {
   id: string;
@@ -78,12 +81,11 @@ export function buildSidebarData(
   const threadsByProjectId = new Map<string, SidebarThread[]>();
   const hostsById = new Map<string, SidebarHost>();
   for (const thread of threads) {
-    const entry = toSidebarThread(thread);
-    const bucket = threadsByProjectId.get(entry.projectId);
+    const bucket = threadsByProjectId.get(thread.projectId);
     if (bucket === undefined) {
-      threadsByProjectId.set(entry.projectId, [entry]);
+      threadsByProjectId.set(thread.projectId, [thread]);
     } else {
-      bucket.push(entry);
+      bucket.push(thread);
     }
     if (thread.host !== null && !hostsById.has(thread.host.id)) {
       hostsById.set(thread.host.id, thread.host);
@@ -184,28 +186,53 @@ export function useSidebarProjectName(
 
 export function useSidebarData() {
   const lifecycles = useAtomValue(sidebarThreadLifecyclesAtom);
+  const sectionNameOverrides = useAtomValue(sectionNameOverridesAtom);
+  const setSectionNameOverrides = useSetAtom(sectionNameOverridesAtom);
   const state = experimental_useSidebarThreads({
     experimental_lifecycles: lifecycles,
   });
+  useEffect(() => {
+    const settledIds = state.sections
+      .filter((section) => {
+        const override = sectionNameOverrides.get(section.id);
+        return override && override.previousName !== section.name;
+      })
+      .map((section) => section.id);
+    if (settledIds.length === 0) return;
+    setSectionNameOverrides((current) => {
+      const next = new Map(current);
+      for (const id of settledIds) next.delete(id);
+      return next;
+    });
+  }, [state.sections, sectionNameOverrides, setSectionNameOverrides]);
   return useMemo(
-    () => ({
-      ...getSidebarData(state),
-      archived: state.experimental_archived,
-    }),
-    [state],
-  );
-}
-
-export function toMachineHosts(
-  hostsById: ReadonlyMap<string, SidebarHost>,
-): Host[] {
-  return [...hostsById.values()].map(
-    (host) => ({ id: host.id, name: host.name }) as Host,
+    () => {
+      const sections = state.sections.map((section) => {
+        const name = resolveSectionName(
+          section.id,
+          section.name,
+          sectionNameOverrides,
+        );
+        return name === section.name ? section : { ...section, name };
+      });
+      return {
+        ...getSidebarData({
+          ...state,
+          sections: sections.every(
+            (section, index) => section === state.sections[index],
+          )
+            ? state.sections
+            : sections,
+        }),
+        archived: state.experimental_archived,
+      };
+    },
+    [state, sectionNameOverrides],
   );
 }
 
 export function useSidebarMachineHosts(
   hostsById: ReadonlyMap<string, SidebarHost>,
-): Host[] {
-  return useMemo(() => toMachineHosts(hostsById), [hostsById]);
+): SidebarHost[] {
+  return useMemo(() => [...hostsById.values()], [hostsById]);
 }

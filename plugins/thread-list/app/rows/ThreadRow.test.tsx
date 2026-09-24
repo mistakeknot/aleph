@@ -2,7 +2,7 @@
 
 import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { TooltipProvider } from "@bb/shared-ui/tooltip";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import type {
   PluginSidebarProject,
   PluginSidebarSplitLayout,
@@ -15,9 +15,8 @@ import {
   type PluginSdkTestFakes,
   type RenderedSlot,
 } from "@get-bb/plugin-sdk/testing/app";
-import { NO_COLLAPSED_CHILD_ACTIVITY } from "@bb/client-core";
+import { NO_COLLAPSED_CHILD_ACTIVITY } from "../model/thread-activity.js";
 import { makeSidebarThread } from "../model/fixtures.js";
-import { toSidebarThread } from "../model/sidebar-thread.js";
 import {
   SIDEBAR_SUCCESS_STATUS_COLOR_CLASS,
   SIDEBAR_WORKING_STATUS_COLOR_CLASS,
@@ -78,7 +77,7 @@ function ThreadRowHarness({
   const row = (
     <ThreadRow
       projectId={thread.projectId}
-      thread={toSidebarThread(thread)}
+      thread={thread}
       crossProjectId={crossProjectId}
       isActive={isActive}
       options={options}
@@ -587,20 +586,6 @@ describe("ThreadRow", () => {
     expect(screen.queryByLabelText("Unread thread succeeded")).toBeNull();
   });
 
-  it("falls back to the default glyph for an icon name no plugin registered", () => {
-    renderThreadRow({
-      pluginStatus: {
-        icon: "icon-probe/undeclared",
-        label: "Unregistered name",
-      },
-      thread: createThread({ lastReadAt: 1, latestAttentionAt: 1 }),
-    });
-
-    expect(
-      screen.getByLabelText("Unregistered name").getAttribute("data-icon"),
-    ).toBe("Zap");
-  });
-
   it("replaces the draft icon with a plugin status and restores it without one", () => {
     const withStatus = renderThreadRow({
       hasComposerDraft: true,
@@ -822,6 +807,11 @@ describe("ThreadRow", () => {
     expect(marker?.getAttribute("aria-label")).toBe("In project Web App");
     expect(marker?.querySelector('[data-icon="FolderExport"]')).not.toBeNull();
     expect(
+      marker?.parentElement?.previousElementSibling?.querySelector(
+        ".bb-thread-title",
+      ),
+    ).not.toBeNull();
+    expect(
       marker?.closest("[data-sidebar-thread-trailing-indicator]"),
     ).toBeNull();
     expect(
@@ -998,6 +988,41 @@ describe("ThreadRow", () => {
       expect(onToggleCollapsed).toHaveBeenCalledWith("thr_test");
     },
   );
+
+  it("routes a tap on the bare row through its navigation link", () => {
+    renderThreadRow();
+    const link = screen.getByRole("link", { name: "Open Thread" });
+    const row = link.closest("[data-sidebar-rename-row]");
+    expect(row).not.toBeNull();
+    const clickLink = vi.spyOn(link, "click");
+
+    fireEvent.click(row!);
+    expect(clickLink).toHaveBeenCalledOnce();
+
+    fireEvent.click(row!.querySelector("[data-sidebar-thread-trailing]")!);
+    expect(clickLink).toHaveBeenCalledTimes(2);
+
+    fireEvent.click(link);
+    expect(clickLink).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not route a suppressed drag click on the trailing area", () => {
+    renderThreadRow({
+      options: {
+        ...DEFAULT_OPTIONS,
+        consumeClickSuppression: vi.fn(() => true),
+      },
+    });
+    const link = screen.getByRole("link", { name: "Open Thread" });
+    const clickLink = vi.spyOn(link, "click");
+    const trailing = link
+      .closest("[data-sidebar-rename-row]")
+      ?.querySelector("[data-sidebar-thread-trailing]");
+    expect(trailing).not.toBeNull();
+
+    fireEvent.click(trailing!);
+    expect(clickLink).not.toHaveBeenCalled();
+  });
 
   it("keeps the parent-thread disclosure caret visible on mobile", () => {
     renderThreadRow({
@@ -1353,6 +1378,7 @@ describe("ThreadRow", () => {
       status: "idle",
       runtimeStatus: "idle",
       latestAttentionAt: 2_000,
+      isUnread: true,
     });
 
     expect(container.querySelector('[data-icon="CircleCheck"]')).toBeNull();

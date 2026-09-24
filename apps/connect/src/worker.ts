@@ -3,9 +3,11 @@ import { escapeHtmlText } from "@bb/text-utils";
 import {
   RESERVED_HANDLES,
   handleAppLinkAssociationRequest,
+  isTunnelTicket,
   parseVisitorHost,
   schema,
   sha256Hex,
+  verifyTunnelTicket,
 } from "@bb/connect-db";
 import { refreshAccountSessionCookies } from "./account-session.js";
 import { TUNNEL_OFFLINE_HEADER, TunnelDO, type Env } from "./tunnel-do.js";
@@ -309,7 +311,18 @@ export default {
           403,
         );
       }
-      if ((await sha256Hex(credential)) !== owner.credentialHash) {
+      if (isTunnelTicket(credential)) {
+        const ticket =
+          resolved.kind === "server"
+            ? await verifyTunnelTicket(credential, env.BETTER_AUTH_SECRET, {
+                id: owner.id,
+                credentialHash: owner.credentialHash,
+              })
+            : null;
+        if (ticket === null) {
+          return text("bb connect: invalid ticket\n", 401);
+        }
+      } else if ((await sha256Hex(credential)) !== owner.credentialHash) {
         return text("bb connect: invalid credential\n", 401);
       }
       const forward = new URL(request.url);

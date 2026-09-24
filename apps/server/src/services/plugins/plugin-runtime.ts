@@ -1,7 +1,6 @@
 import type { MachineEnrollmentService } from "../machines/machine-services.js";
 import { AsyncLocalStorage } from "node:async_hooks";
 import {
-  assertAiServiceRegistrable,
   providerWithoutBridgeMessage,
   type NormalizedPluginProviderDeclaration,
 } from "@get-bb/plugin-sdk/internal/host-policy";
@@ -38,7 +37,6 @@ import {
 import { PluginHostArtifactRegistry } from "./plugin-host-artifact-registry.js";
 import { getPluginBuildToolchain } from "./build-toolchain.js";
 import { createNodeBbSdk, type BbSdk } from "@bb/sdk";
-import { experimental_aiServicesHostContract } from "@get-bb/plugin-sdk/ai-services";
 import {
   getInstalledPlugin,
   listInstalledPlugins,
@@ -101,6 +99,7 @@ import type {
 import { createKeyedLock } from "../lib/async-deduper.js";
 import { runEventLoopWork } from "../system/event-loop-work.js";
 import { abortPluginToolCallsForPlugin } from "./plugin-tool-calls.js";
+import { createPluginRpcCallerRegistry } from "./plugin-rpc-caller.js";
 
 const serverRuntimeDir = dirname(fileURLToPath(import.meta.url));
 const pluginSdkRuntimePath = join(serverRuntimeDir, "plugin-sdk-runtime.js");
@@ -311,7 +310,7 @@ interface PluginRuntimeContext {
 }
 
 export interface PluginLoadHold {
-  source: string;
+  sources: readonly string[];
   detail: string;
   isActive(): Promise<boolean>;
 }
@@ -373,6 +372,7 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
   const handlerStats = new Map<string, PluginHandlerStats>();
   let boundSdk: BbSdk | undefined;
   let boundLoopbackBaseUrl: string | undefined;
+  const rpcCallers = createPluginRpcCallerRegistry();
   let loadHold: PluginLoadHold | null = null;
 
   function publishStatus(
@@ -1349,7 +1349,7 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
 
   async function heldDetail(row: InstalledPluginRow): Promise<string | null> {
     const hold = loadHold;
-    if (hold === null || !row.enabled || row.source !== hold.source) {
+    if (hold === null || !row.enabled || !hold.sources.includes(row.source)) {
       return null;
     }
     return (await hold.isActive()) ? hold.detail : null;
@@ -1453,6 +1453,7 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
       },
       getAppUrl: deps.getAppUrl ?? (() => null),
       getLoopbackBaseUrl: () => boundLoopbackBaseUrl,
+      rpcCaller: rpcCallers.issue(row.id),
       publishSignal: (channel, payload) => {
         deps.hub.notifyPluginSignal(row.id, channel, payload);
       },
@@ -1547,45 +1548,12 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
           artifact: hostArtifactCandidate,
         });
       },
-      registerAiService: (declaration, binding) => {
-        if (binding.artifact === null) {
-          throw new Error(
-            `AI service "${declaration.id}" cannot go live: its host artifact failed to build: ${binding.problem}`,
-          );
-        }
-        const artifact = binding.artifact;
-        if (!deps.callPluginHost) {
-          throw new Error("host plugin transport is unavailable");
-        }
-        const callPluginHost = deps.callPluginHost;
-        const call = (
-          method: keyof typeof experimental_aiServicesHostContract,
-          input: unknown,
-          options: { hostId: string; timeoutMs: number; signal?: AbortSignal },
-        ): Promise<unknown> =>
-          callPluginHost({
-            pluginId: row.id,
-            contract: experimental_aiServicesHostContract,
-            method,
-            input,
-            hostId: options.hostId,
-            timeoutMs: options.timeoutMs,
-            ...(options.signal === undefined ? {} : { signal: options.signal }),
-            artifact,
-          });
-        return deps.aiServices.register({
+      registerAiService: (declaration) =>
+        deps.aiServices.register({
           ...declaration,
           pluginId: row.id,
-          completeInference: async (input, options) =>
-            experimental_aiServicesHostContract[
-              "ai.inference.complete"
-            ].output.parse(await call("ai.inference.complete", input, options)),
-          transcribeVoice: async (input, options) =>
-            experimental_aiServicesHostContract[
-              "ai.voice.transcribe"
-            ].output.parse(await call("ai.voice.transcribe", input, options)),
-        });
-      },
+          builtin: row.sourceKind === "builtin",
+        }),
       registerProvider: (declaration) => {
         return registerPluginProvider({
           available: true,
@@ -1603,16 +1571,6 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
         }
         throw new Error(providerWithoutBridgeMessage(providerId));
       },
-      isAiServiceIdTaken: (serviceId) => {
-        const existing = deps.aiServices.get(serviceId);
-        return existing !== null && existing.pluginId !== row.id;
-      },
-      assertAiServiceRegistrable: (serviceId) =>
-        assertAiServiceRegistrable({
-          id: serviceId,
-          hostArtifact: hostArtifactCandidate,
-          hostArtifactProblem,
-        }),
       isProviderIdTaken: (providerId) => {
         if (!deps.providerRegistry) {
           throw new Error("the provider registry is unavailable in this host");
@@ -1872,6 +1830,7 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
     appBundles,
     hostArtifacts,
     bindSdk,
+    resolveRpcCaller: rpcCallers.resolve,
     buildThreadDto,
     builtinSourceWatchers,
     checkEngineRange,

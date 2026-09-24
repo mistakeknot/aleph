@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { Icon } from "@bb/shared-ui/icon";
+import { Icon } from "@/components/ui/icon";
 import {
   DropdownMenuGroup,
   DropdownMenuItem,
@@ -10,8 +10,8 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuSubContent,
   DropdownMenuPortal,
-} from "@bb/shared-ui/dropdown-menu";
-import type { SidebarSectionId } from "@bb/client-core";
+} from "@/components/ui/dropdown-menu";
+import type { SidebarSectionId } from "../model/sidebar-section-id.js";
 import type { HeaderCreationActions } from "./SidebarHeaderControls.js";
 import { ThreadListVisibilityMenuItems } from "./ThreadListVisibility.js";
 import {

@@ -8,14 +8,12 @@ import {
   type ReactNode,
 } from "react";
 import { useAtom } from "jotai";
-import type { ThreadListEntry } from "@bb/domain";
-import {
-  getCollapsedChildActivity,
-  type SidebarSectionId,
-} from "@bb/client-core";
-import { DropdownMenuItem } from "@bb/shared-ui/dropdown-menu";
-import { ContextMenuItem } from "@bb/shared-ui/context-menu";
-import { useIsCompactViewport } from "@bb/shared-ui/hooks/use-compact-viewport";
+import type { SidebarThread } from "../model/sidebar-thread.js";
+import type { SidebarSectionId } from "../model/sidebar-section-id.js";
+import { getCollapsedChildActivity } from "../model/thread-activity.js";
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { ContextMenuItem } from "@/components/ui/context-menu";
+import { useIsCompactViewport } from "@/components/ui/hooks/use-compact-viewport";
 import { useSidebarThreadDraftIds } from "@get-bb/plugin-sdk/app";
 import { ActionMenuSeparator } from "../ui/action-menu-items.js";
 import { SidebarContentElementContext } from "../ui/sidebar.js";
@@ -34,8 +32,9 @@ import {
 
 export interface ThreadListVisibilityGroup extends SidebarVisibilityItem {
   id: SidebarSectionId;
-  threads: readonly ThreadListEntry[];
+  threads: readonly SidebarThread[];
   renderContent: (close: () => void) => ReactNode;
+  onNewThread?: () => void;
 }
 
 interface ThreadListVisibilityState {
@@ -44,6 +43,7 @@ interface ThreadListVisibilityState {
   restore: (id: string) => void;
   customize: () => void;
   label: string;
+  selectedThreadId?: string;
 }
 
 const VisibilityContext = createContext<ThreadListVisibilityState | null>(null);
@@ -54,12 +54,14 @@ export function ThreadListVisibility({
   order,
   onOrderChange,
   label,
+  selectedThreadId,
   children,
 }: {
   groups: readonly ThreadListVisibilityGroup[];
   order: readonly SidebarSectionId[];
   onOrderChange: (order: SidebarSectionId[]) => void;
   label: string;
+  selectedThreadId?: string;
   children: ReactNode;
 }) {
   const [hidden, setHidden] = useAtom(sidebarHiddenGroupsAtom);
@@ -109,6 +111,7 @@ export function ThreadListVisibility({
   const value: ThreadListVisibilityState = {
     hiddenGroups: orderedGroups.filter((group) => hiddenIds.has(group.id)),
     label,
+    selectedThreadId,
     customize: () => setCustomizing(true),
     hide: (id) => {
       focusTarget.current = "more";
@@ -172,8 +175,10 @@ export function ThreadListVisibilityGroupScope({
 
 export function ThreadListVisibilityMenuItems({
   surface = "dropdown",
+  leadingSeparator = true,
 }: {
   surface?: "dropdown" | "context";
+  leadingSeparator?: boolean;
 }) {
   const state = useContext(VisibilityContext);
   const id = useContext(GroupContext);
@@ -181,7 +186,7 @@ export function ThreadListVisibilityMenuItems({
   const Item = surface === "context" ? ContextMenuItem : DropdownMenuItem;
   return (
     <>
-      <ActionMenuSeparator surface={surface} />
+      {leadingSeparator && <ActionMenuSeparator surface={surface} />}
       {id !== null && (
         <Item onSelect={() => state.hide(id)}>
           <SidebarVisibilityActionContent visible label="Hide from list" />
@@ -194,7 +199,7 @@ export function ThreadListVisibilityMenuItems({
   );
 }
 
-function GroupActivity({ threads }: { threads: readonly ThreadListEntry[] }) {
+function GroupActivity({ threads }: { threads: readonly SidebarThread[] }) {
   const drafts = useSidebarThreadDraftIds();
   const pluginStatus = usePluginThreadRowStatusForThreads(threads);
   return (
@@ -207,18 +212,23 @@ function GroupActivity({ threads }: { threads: readonly ThreadListEntry[] }) {
 
 function HiddenGroup({
   group,
+  selected,
   close,
   restore,
 }: {
   group: ThreadListVisibilityGroup;
+  selected: boolean;
   close: () => void;
   restore: (id: string) => void;
 }) {
   return (
     <SidebarOverflowItem
       item={group}
+      selected={selected}
+      empty={group.threads.length === 0}
       onClose={close}
       onAddToSidebar={restore}
+      onNewThread={group.onNewThread}
       activity={<GroupActivity threads={group.threads} />}
     >
       {(closeSection) => group.renderContent(closeSection)}
@@ -230,6 +240,9 @@ export function ThreadListMore() {
   const state = useContext(VisibilityContext);
   if (!state || state.hiddenGroups.length === 0) return null;
   const groups = state.hiddenGroups;
+  const selectedGroupId = groups.find((group) =>
+    group.threads.some((thread) => thread.id === state.selectedThreadId),
+  )?.id;
   const threads = [
     ...new Map(
       groups
@@ -244,6 +257,7 @@ export function ThreadListMore() {
         listLabel={`Hidden ${state.label.toLowerCase()}`}
         customizeLabel="Customize list"
         onCustomize={state.customize}
+        selected={selectedGroupId !== undefined}
         activity={<GroupActivity threads={threads} />}
         testIdPrefix="sidebar-thread-list"
       >
@@ -254,6 +268,7 @@ export function ThreadListMore() {
                 <HiddenGroup
                   key={group.id}
                   group={group}
+                  selected={group.id === selectedGroupId}
                   close={close}
                   restore={state.restore}
                 />

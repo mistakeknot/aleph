@@ -1,13 +1,17 @@
 import { useCallback, useState, type ReactNode } from "react";
-import { Button } from "@bb/shared-ui/button";
-import { Icon } from "@bb/shared-ui/icon";
-import { Popover, PopoverContent, PopoverTrigger } from "@bb/shared-ui/popover";
+import { Button } from "@/components/ui/button";
+import { Icon } from "@/components/ui/icon";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuTrigger,
-} from "@bb/shared-ui/context-menu";
+} from "@/components/ui/context-menu";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -17,12 +21,19 @@ import {
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
-} from "@bb/shared-ui/dropdown-menu";
-import { COARSE_POINTER_COMPACT_ROW_HEIGHT_CLASS } from "@bb/shared-ui/coarse-pointer-sizing";
-import { useIsCompactViewport } from "@bb/shared-ui/hooks/use-compact-viewport";
-import { SIDEBAR_DISCLOSURE_ACTION_CLASS } from "@bb/shared-ui/chrome-style-tokens";
-import { cn } from "@bb/shared-ui/lib/utils";
-import { PROJECT_LIST_ACTION_BUTTON_CLASS } from "../rows/sidebarRowClasses.js";
+} from "@/components/ui/dropdown-menu";
+import {
+  COARSE_POINTER_COMPACT_ROW_HEIGHT_CLASS,
+  COARSE_POINTER_ROW_ACTION_SIZE_CLASS,
+} from "@/components/ui/coarse-pointer-sizing";
+import { useIsCompactViewport } from "@/components/ui/hooks/use-compact-viewport";
+import { SIDEBAR_DISCLOSURE_ACTION_CLASS } from "@/components/ui/chrome-style-tokens";
+import { cn } from "@/lib/utils";
+import {
+  PROJECT_LIST_ACTION_BUTTON_CLASS,
+  SIDEBAR_ROW_SELECTED_STATE_CLASS,
+} from "../rows/sidebarRowClasses.js";
+import { CONTEXT_SELECTION_SURFACE_CLASS } from "../ui/context-selection.js";
 
 const OVERFLOW_ROW_BUTTON_CLASS =
   "w-full justify-start gap-2 rounded-sm px-2 text-xs font-normal hover:bg-state-hover focus-visible:bg-state-hover";
@@ -70,6 +81,7 @@ export function SidebarMore({
   customizeLabel,
   listLabel,
   onCustomize,
+  selected = false,
   testIdPrefix = "sidebar-navigation",
 }: {
   activity?: ReactNode;
@@ -78,6 +90,7 @@ export function SidebarMore({
   customizeLabel: string;
   listLabel: string;
   onCustomize: () => void;
+  selected?: boolean;
   testIdPrefix?: string;
 }) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -103,14 +116,23 @@ export function SidebarMore({
                     PROJECT_LIST_ACTION_BUTTON_CLASS,
                     SIDEBAR_DISCLOSURE_ACTION_CLASS,
                     "w-full hover:text-sidebar-foreground focus-visible:text-sidebar-foreground data-[state=open]:text-sidebar-foreground",
+                    selected && SIDEBAR_ROW_SELECTED_STATE_CLASS,
                     isMenuOpen && "bg-sidebar-accent",
                   )}
+                  data-selected={selected ? "true" : undefined}
                   data-testid={`${testIdPrefix}-more-trigger`}
                 >
                   <Icon name="MoreHorizontal" aria-hidden="true" />
                   <span className="min-w-0 truncate text-left">More</span>
                   {activity ? (
-                    <span className="ml-auto flex shrink-0">{activity}</span>
+                    <span
+                      className={cn(
+                        "ml-auto inline-flex shrink-0 items-center justify-center",
+                        COARSE_POINTER_ROW_ACTION_SIZE_CLASS,
+                      )}
+                    >
+                      {activity}
+                    </span>
                   ) : null}
                 </Button>
               </DropdownMenuTrigger>
@@ -164,15 +186,21 @@ export function SidebarMore({
 export function SidebarOverflowItem({
   activity,
   children,
+  empty = false,
   item,
   onAddToSidebar,
   onClose,
+  onNewThread,
+  selected = false,
 }: {
   activity?: ReactNode;
   children: (close: () => void) => ReactNode;
+  empty?: boolean;
   item: SidebarVisibilityItem;
   onAddToSidebar: (id: string) => void;
   onClose: () => void;
+  onNewThread?: () => void;
+  selected?: boolean;
 }) {
   const compact = useIsCompactViewport();
   const [isCompactOpen, setIsCompactOpen] = useState(false);
@@ -182,9 +210,31 @@ export function SidebarOverflowItem({
   }, [onClose]);
   const content = (close: () => void) => (
     <div data-sidebar-overflow="true" className="flex min-h-0 flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-        {children(close)}
-      </div>
+      {empty ? (
+        onNewThread ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className={cn(
+              OVERFLOW_ROW_BUTTON_CLASS,
+              COARSE_POINTER_COMPACT_ROW_HEIGHT_CLASS,
+              "shrink-0",
+            )}
+            onClick={() => {
+              close();
+              onNewThread();
+            }}
+          >
+            <Icon name="MessageSquarePlus" aria-hidden="true" />
+            New thread
+          </Button>
+        ) : null
+      ) : (
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          {children(close)}
+        </div>
+      )}
       <Button
         type="button"
         variant="ghost"
@@ -192,7 +242,8 @@ export function SidebarOverflowItem({
         className={cn(
           OVERFLOW_ROW_BUTTON_CLASS,
           COARSE_POINTER_COMPACT_ROW_HEIGHT_CLASS,
-          "mt-1 shrink-0 border-t",
+          "shrink-0",
+          !empty && "mt-1 border-t",
         )}
         onClick={() => {
           close();
@@ -208,12 +259,12 @@ export function SidebarOverflowItem({
       <span className="flex min-w-0 flex-1 items-center gap-1 text-left">
         {item.icon}
         <span className="min-w-0 truncate">{item.title}</span>
-        <span className="relative z-20 inline-flex size-6 shrink-0 items-center justify-center">
-          <Icon name="ChevronRight" className="size-3" aria-hidden="true" />
-        </span>
       </span>
       {activity ? (
         <span className="ml-auto flex shrink-0">{activity}</span>
+      ) : null}
+      {compact ? (
+        <Icon name="ChevronRight" className="ml-auto" aria-hidden="true" />
       ) : null}
     </>
   );
@@ -228,9 +279,11 @@ export function SidebarOverflowItem({
             className={cn(
               OVERFLOW_ROW_BUTTON_CLASS,
               COARSE_POINTER_COMPACT_ROW_HEIGHT_CLASS,
+              selected && CONTEXT_SELECTION_SURFACE_CLASS,
             )}
             disabled={item.disabled}
             data-sidebar-overflow-item={item.id}
+            data-selected={selected ? "true" : undefined}
           >
             {label}
           </Button>
@@ -249,9 +302,13 @@ export function SidebarOverflowItem({
   return (
     <DropdownMenuSub>
       <DropdownMenuSubTrigger
-        className="[&>[data-icon-root]:last-child]:hidden"
+        className={cn(
+          "[&>[data-icon-root]:last-child]:hidden",
+          selected && CONTEXT_SELECTION_SURFACE_CLASS,
+        )}
         disabled={item.disabled}
         data-sidebar-overflow-item={item.id}
+        data-selected={selected ? "true" : undefined}
         textValue={item.title}
       >
         {label}

@@ -33,6 +33,31 @@ model or default binding policy.
 
 Before stabilization, audit schema export fidelity (especially refinements and transforms), descriptor size and reference limits, lifecycle races, and cross-plugin copied-schema compatibility. Verify `bb plugin rpc list|inspect` is sufficient to implement a consumer without a shared contract package. Method names carry optional versions; there is no negotiation.
 
+## RPC caller identity (`ExperimentalPluginRpcHandlerContext.experimental_caller`)
+
+Every `bb.rpc.register` handler receives a second argument, an
+`ExperimentalPluginRpcHandlerContext`; `register` takes an
+`ExperimentalPluginRpcHandlersWithContext` map, and a one-argument
+`PluginRpcHandlers` map still assigns to it, so plugins that call their own
+handlers directly keep compiling. `experimental_caller` is an
+`ExperimentalPluginRpcCaller`: `{ kind: "plugin", pluginId }` when a loaded
+plugin called through its own `bb.sdk.plugins.callRpc`, and `{ kind: "client" }`
+for every other caller (the app, the `bb` CLI, agents, and bb itself). The
+server gives each plugin load an unguessable caller token kept only in server
+memory, attaches it to that load's `bb.sdk.plugins.callRpc` requests in the
+`x-bb-plugin-caller` header, and revokes it when the load is disposed or
+replaced. The rpc route answers 403 for any token that is not a live load's,
+so a client can't claim to be a plugin. The fake plugin host's
+`harness.callRpc(method, input, { experimental_caller })` sets the caller for
+tests and defaults to the client. Requires SDK 0.5.24.
+
+Before stabilizing, audit whether other surfaces (HTTP routes, agent tools,
+CLI commands) need the same identity, whether a plugin needs to know the
+calling app window or thread, and whether in-process plugins that read other
+plugins' memory make the token a meaningful boundary for third-party plugins.
+bb account relies on it to keep `/api/connect/` requests and credential
+adoption to the connect plugin.
+
 ## `bb.http.experimental_websocket`
 
 **What it does.** Registers an exact-path WebSocket upgrade in the plugin's
@@ -1833,6 +1858,54 @@ while a palette switch resolves, so a consumer never paints an unthemed frame.
 4. **Consumer count.** One consumer today. Confirm a second engine (CodeMirror,
    xterm) needs the same payload before the prefix drops.
 
+## `app.experimental_usePluginId` (`@get-bb/plugin-sdk/app`)
+
+**What it does.** Returns the id of the plugin that owns the calling component,
+the same value `bb.pluginId` gives the plugin's server. The id comes from the
+package name, so a plugin that keys browser-side state by it (a localStorage
+mirror, log prefixes) keeps working unchanged when someone copies it and
+publishes the copy under another name, instead of sharing or clobbering the
+original's state. The Thread list plugin is the first consumer: its
+preferences mirror key and log prefixes come from this hook. The test harness
+returns `renderSlot`'s `pluginId` option, `test-plugin` by default.
+
+**Audit before stabilizing.**
+
+1. **Hook or setup value.** Code that runs in `definePluginApp`'s setup, not
+   in a component, cannot call a hook. Decide whether the builder should carry
+   the id as well, or instead.
+2. **Scope.** The hook throws outside a plugin slot component, like the other
+   SDK hooks. Content scripts already receive `context.pluginId`; confirm no
+   other frontend entry point needs it.
+3. **Consumer count.** One consumer today. Confirm a second plugin needs it
+   before the prefix drops.
+
+## `app.experimental_useQuestionFormHost` (`@get-bb/plugin-sdk/app`)
+
+**What it does.** Returns the answer shortcuts bb binds while a pending
+interaction is open (`question.select.1` and on, which users can remap), keyed
+by zero-based option index, and `registerChoiceHandler`, which receives the
+index a person chose with a shortcut while the thread's pane is focused. A
+`pendingInteraction` component shows each option's shortcut and decides what
+choosing it means. Outside a pending interaction the map is empty and handlers
+never run; the test harness returns that empty host. The registry's
+`question-form-host` item re-exports it as `useQuestionFormHost`, so the
+registry's `question-form` works in any plugin. Before this, the built-in Ask
+User Question and pi plugins reached the same host context through a private
+`@bb/shared-ui` module the build shimmed, which a copy of either plugin could
+not import.
+
+**Audit before stabilizing.**
+
+1. **Props or hook.** The host already renders the pending-interaction slot;
+   decide whether the shortcuts belong in `PluginPendingInteractionProps`
+   instead of a hook any component can call.
+2. **Scope.** Only pending interactions bind the shortcuts. Confirm no other
+   surface (a message action form, a panel) should get them.
+3. **Consumer count.** Two first-party consumers (Ask User Question, pi's
+   extension dialogs). Confirm a third-party form needs it before the prefix
+   drops.
+
 ## `app.slots.experimental_providerIcon` (`@get-bb/plugin-sdk/app`)
 
 **Kept experimental (2026-08-22).** zero shipped registrations — first-party
@@ -2235,32 +2308,115 @@ renders in the same footer row.
 
 **What it does.** Replaces the bounded sidebar navigation controls for New
 thread, Search threads, Plugins, Skills, and plugin panel destinations. The
-plugin receives semantic items, split-drag bindings, and one host activation callback.
-BB retains the drawer, thread list, footer, resize handle, and hidden-body
-shortcut policy.
+component receives `isCompactViewport` and `experimental_Original`; it reads
+items and host actions through `experimental_useSidebarNavigation()`. BB
+retains the drawer, thread list, footer, resize handle, and hidden-body
+shortcut policy. While a provider calls `openCustomize()`, the host renders
+its customize editor in the region and keeps the provider mounted but hidden.
 
 Search activation opens the quick palette. The removed inline sidebar search
 field, query state, combobox, and result list do not form part of this API.
-`experimental_Original` bypasses replacement resolution. A crash restores only
-the bounded controls and leaves the retained sidebar regions mounted.
+bb's own rows ship as the bundled Navigation plugin, the default provider
+(`sidebar.navigationProvider` is `navigation/navigation`; legacy
+`__automatic__` and `__builtin__` resolve to it). A picked provider that is
+disabled or removed falls back to the bundled plugin once plugin frontends
+have loaded. The host keeps a placeholder for loading (skeleton rows at the
+provider's remembered height), missing (the bundled plugin is also off), and
+crashed (Reload) states. `experimental_Original` renders the bundled plugin, or
+nothing while it is disabled. A crash leaves the retained sidebar regions
+mounted.
 
 **Audit before stabilizing.**
 
 1. **Boundary.** Verify plugins can express useful navigation without control
    of the drawer, thread list, footer, resize handle, or shortcuts.
-2. **Semantic items.** Confirm the action and icon variants cover current
-   navigation without exposing routes or host React elements.
-3. **Split contract.** Audit `experimental_splitProps` and
-   `experimental_activate(..., { openInSplit })` for pointer, keyboard,
-   modifier-click, pane-cap, and compact behavior.
-4. **Search action.** Confirm a semantic quick-palette action remains useful
-   without the former inline query and result UI.
-5. **Crash and delegation.** Verify `experimental_Original` and crash fallback
-   never recurse or remount the thread list and footer.
-6. **Arbitration.** Confirm Automatic remains the correct default when several
-   navigation replacements exist.
-7. **Accessibility.** Validate labels, `aria-current`, shortcut metadata,
-   disabled state, and focus order in third-party markup.
+2. **Crash and delegation.** Verify the crash placeholder and
+   `experimental_Original` never recurse or remount the thread list and
+   footer. Remove `experimental_Original` once released plugins (Compact Nav
+   0.1.x) no longer render it.
+3. **Arbitration.** Confirm an explicit provider choice with no Automatic
+   option is right when several navigation replacements exist.
+4. **Customize handoff.** Confirm providers accept the host editor replacing
+   their region, and that focus returns to the control that opened it from a
+   button, a dropdown item, and a context-menu item.
+
+## `experimental_useSidebarNavigation`, `experimental_useSidebarNavigationSplit`, `experimental_SidebarNavigationIcon` (`@get-bb/plugin-sdk/app`)
+
+**What it does.** `experimental_useSidebarNavigation()` returns
+`{ items, activeItemId, isShortcutModifierHeld, actions }` from one host model mounted above the
+sidebar, so every caller sees the same data. Items arrive in the user's saved
+order with `isVisible`, `isLoading` (a remembered plugin panel whose bundle
+has not registered), `pluginId`, shortcut metadata, and
+`experimental_Accessory` (the panel's sidebar accessory, wrapped in the host's
+crash boundary; null on compact viewports). Item ids are the arrangement keys
+stored in `sidebar.pluginPanelOrder` and `sidebar.visiblePluginPanels`.
+Items keep their identity while unchanged.
+
+`actions` covers `activate(id, { openInSplit })`, `setVisible`, `setOrder`
+(a full or partial order; unknown ids are dropped and omitted ids keep their
+relative order at the end), `openCustomize`, `openDetails`, and
+`disablePlugin`. Each hook call binds the actions to its component: calls made
+after it unmounts do nothing. Outside the sidebar the hook returns no items
+and inert actions.
+
+`experimental_useSidebarNavigationSplit(id)` mirrors
+`experimental_useSidebarThreadSplit`. `experimental_SidebarNavigationIcon`
+renders bb's glyphs for its own items and plugin branding for panels.
+
+**Audit before stabilizing.**
+
+1. **Semantic items.** Confirm the action and icon variants cover current
+   navigation without exposing routes or host React elements, including the
+   Skills and Automations destinations.
+2. **Accessory as a component.** Confirm handing providers a host-wrapped
+   component is preferable to a value contract, given the same questions as
+   `PluginNavPanelRegistration.experimental_sidebarAccessory`.
+3. **Order semantics.** Confirm `setOrder`'s partial-order rule works for
+   drag-and-drop in real providers, and that entries for disabled plugins keep
+   their stored position.
+4. **Split contract.** Audit split props and `activate(..., { openInSplit })`
+   for pointer, keyboard, modifier-click, pane-cap, and compact behavior.
+5. **Scope.** Decide whether the hook should work outside the sidebar (for
+   example in a command palette plugin) or stay sidebar-only.
+6. **Accessibility.** Validate labels, `aria-current`, shortcut metadata,
+   disabled and loading state, and focus order in third-party markup.
+
+## `app.slots.experimental_sidebarHeader` (`@get-bb/plugin-sdk/app`)
+
+**What it does.** Renders one plugin component in the sidebar header row,
+between the sidebar toggle (and the macOS window controls) and bb's back and
+forward buttons. The slot is exclusive and opt-in: `sidebar.headerProvider`
+defaults to `__builtin__` (bb's controls only) and the user picks a provider
+under Settings → Appearance → Header. The component receives `width`,
+`controlSize`, and `isCompactViewport`. The host clips content to the row,
+keeps the window drag region on macOS while interactive descendants opt out,
+hides the header while the navigation customize editor is open, and removes
+it with one toast on a crash. `--bb-sidebar-control-size` and
+`--bb-sidebar-control-icon-size` expose the header's control sizing.
+
+A plugin that moves its navigation into the header tracks whether its header
+is mounted itself (a module-level flag both components read) and returns null
+from its navigation component while it is. A plugin can pick its own header
+and navigation from `bb.onInstall`; later choices are the user's.
+
+**Audit before stabilizing.**
+
+1. **Exclusive versus shared.** Confirm one provider is right for the header
+   row, or whether several small controls should share it the way the sidebar
+   footer does.
+2. **Two pickers.** A plugin that wants its navigation in the header needs
+   both its header and its navigation picked, which plugins do for the user
+   from `bb.onInstall`. Decide whether that write should become a declared,
+   host-applied default, or whether a navigation registration should declare
+   a paired header instead.
+3. **Geometry.** Validate `width` and the start inset across macOS with and
+   without traffic lights, browsers, compact drawers, landscape safe areas,
+   and a sidebar narrower than one control.
+4. **Focus order.** Confirm header controls before the history buttons is
+   acceptable when a plugin splits one list of items across the header and
+   the navigation region.
+5. **Drag regions.** Confirm the interactive-descendant no-drag rule covers
+   real plugin markup, including custom elements and menus.
 
 ## `app.slots.experimental_threadList` (`@get-bb/plugin-sdk/app`)
 
@@ -2303,48 +2459,56 @@ place of a whole sidebar would strand the user) plus one toast.
    focus order, and the mobile close behavior when a plugin owns the markup —
    `onNavigate` is currently the plugin's responsibility to call.
 
-## AI services (`bb.experimental_aiServices.register`, `@get-bb/plugin-sdk/ai-services`)
+## AI services (`bb.experimental_aiServices.register`)
 
-**Kept experimental (2026-08-22).** one consumer (the codex plugin); the 5 MB plugin-served transcription cap (the old direct path allowed 25 MB) and the host-pull alternative are still open; the reserved-id model is now one static SDK list (`SERVER_DIRECT_AI_SERVICE_IDS`), pinned to pi-ai's provider registry by plugin-ai-services.test.ts.
+**Reshaped (2026-09-22).** The host contract (`@get-bb/plugin-sdk/ai-services`),
+its error codes, `kinds`, the reserved server-direct ids, and the
+`BB_INFERENCE` / `BB_INFERENCE_FALLBACK` / `BB_TRANSCRIPTION` settings are gone.
+Consumers: the codex plugin and the bb-ai plugin.
 
-**What it does.** Lets a plugin serve bb's own AI services — server-side
-helper inference (thread titles, commit messages: prompt + JSON Schema in,
-structured value out) and voice transcription — from its `bb.host` entry.
-`bb.experimental_aiServices.register({ id, displayName, kinds })` stages the
-service during the factory and lands it when the load commits; the host entry
-implements `experimental_aiServicesHostContract` (`ai.inference.complete`,
-`ai.voice.transcribe`), both carrying `serviceId`. Core routes the user's
-`BB_INFERENCE` / `BB_TRANSCRIPTION` (`<serviceId>/<model>`) to the plugin
-through the generic host RPC call on the primary host; failures ride the result
-(`{ ok: false, code }`) so core's retry/fallback policy stays generic. Ids the
-server serves itself (`openai` transcription, the builtin inference providers)
-are reserved: they route server-direct before the registry is consulted and a
-plugin cannot register them, so a plugin can never capture that traffic. A
-cross-plugin id collision fails the later plugin's load at the `register`
-call. The
-codex plugin is the first registrant (its ChatGPT client moved out of the
-daemon); `GET /system/config` and `bb settings ai-services` list the registered
-options.
+**What it does.** A plugin registers plain server-side functions:
+`bb.experimental_aiServices.register({ id, displayName, complete?, transcribe?, status? })`.
+`complete(prompt, { signal }) → Promise<string>` serves thread titles and
+commit messages; `transcribe(audio: File, { signal, hint }) → Promise<string>`
+serves voice input; `status() → Promise<{ ready: true } | { ready: false, message }>`
+feeds the picker, Automatic, and the microphone (cached ~10 s; a task awaits a
+fresh status, bounded at 2 s, before skipping a service whose cached status is
+older). At least one of `complete` / `transcribe` is required; which tasks a
+service appears for follows from the functions it declares. bb owns the
+prompts and the reply cleanup; the plugin owns the model, the API, and any retries. Failure is a
+rejected promise, and core aborts `signal` at 5 s (text) or 10 s (voice).
+
+The user picks per task in Settings → AI services, `bb settings ai-services
+set`, or `sdk.system.setAiServiceSelection` (`automatic` | `off` |
+`{ pluginId, serviceId }`, stored server-side under the `aiServiceSelections`
+app-settings key). Automatic walks `AUTOMATIC_AI_SERVICE_PLUGIN_IDS` in the
+builtin registry (`provider-codex`, then `bb-ai`) and only matches builtin
+installs, so a third-party plugin receives text only after the user picks it.
+An explicit pick is strict: failure uses the plain fallback text and never
+moves to another service. Services are keyed by plugin id plus service id, so
+ids only need to be unique within a plugin: a plugin that registers one id
+twice fails its load, and two plugins may share an id without either failing.
+`automatic` and `off` are reserved ids because the CLI and selections use them
+as modes. `bb settings ai-services set` takes `--plugin` to pick between
+plugins that share an id; the Settings → AI services test result names both
+ids (`pluginId`, `serviceId`). The voice-transcription and test routes abort
+the service's `signal` when the HTTP request is cancelled.
 
 **Audit before stabilizing.**
 
-1. **Chooser.** Confirm `BB_INFERENCE` / `BB_TRANSCRIPTION` strings stay the
-   setting, or move to a structured core setting whose options are the
-   registered services (a picker needs per-service model lists, which the
-   contract does not carry yet).
-2. **Payload cap.** A plugin-served transcription travels as base64 inside one
-   host RPC call (32 MiB JSON input cap → 20 MB audio), below the 25 MB
-   the server-direct path accepts for long recordings. The daemon retains
-   its existing 32 MiB aggregate active-input budget. The alternative is a host
-   pull: the server stores the audio under a short-lived token and the call carries the token, so the host
-   worker fetches the bytes over the internal route instead of receiving
-   them inline; decide whether that or a streamed path replaces the cap.
-3. **Failure vocabulary.** Confirm the six codes are enough for core's policy
-   and whether a service should be able to declare per-call retry hints.
-4. **Multiple services per plugin / per kind.** Confirm the `serviceId`-on-
-   every-call shape and the first-registered-wins collision rule.
-5. **Host choice.** Calls go to the primary host; decide whether a service may
-   declare which host(s) can serve it.
+1. **Structured input.** Confirm a bare prompt string stays enough, or whether
+   services need the task (title vs commit) or a length hint without breaking
+   the "plugin owns the model" split.
+2. **Status freshness.** The picker and the microphone can show a status up
+   to 10 s stale, and a task past that age waits up to 2 s for a fresh one; a
+   plugin whose readiness flips (sign-in, quota) might want to push a change
+   instead of waiting for the next poll.
+3. **Voice payloads.** `transcribe` receives the whole `File` in process
+   (25 MB cap). Decide whether streaming matters for long recordings.
+4. **Automatic order as policy.** The order lives in core's builtin registry.
+   Decide whether it should become a user-editable setting.
+5. **Several services per plugin.** Confirm the id-per-registration shape and
+   the per-plugin id scope (plugin id plus service id).
 
 ## `PluginFileOpenerSource.experimental_hostId` (`@get-bb/plugin-sdk/app`)
 
@@ -3119,7 +3283,7 @@ hostId })` deletes the locked old server data on that machine. All refuse
 requests authenticated by a machine credential. `checkMove`, `startMove`,
 `export`, and old-copy deletion also require the default-off `serverMove`
 experiment and otherwise fail with 403 `server_move_experiment_disabled`. The CLI equivalents are
-`bb server move|export|import|unlock|allow-connect|delete-old-copy`.
+`bb server move|export|import|unlock|allow-connect|delete-old-copy|install-machine-service`.
 
 Before stabilization, audit: authorization for plugin backends (`bb.sdk` runs
 with owner access, so a plugin can export every secret or move the server);

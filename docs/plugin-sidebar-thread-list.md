@@ -17,8 +17,8 @@ Every member below ships with the `experimental_` prefix and an entry in
 | Region                                     | Owner today                | After this change |
 | ------------------------------------------ | -------------------------- | ----------------- |
 | Top reserve / window drag row              | host                       | host, always      |
-| Primary actions (New thread, search)       | `BuiltInSidebarNavigation` | host, always      |
-| Plugin nav rows (Tools, Docs, Tasks)       | `PluginNavSidebarItems`    | host, always      |
+| Primary actions (New thread, search)       | Navigation plugin          | navigation slot   |
+| Plugin nav rows (Tools, Docs, Tasks)       | Navigation plugin          | navigation slot   |
 | **Scrolling thread list**                  | `ProjectList`              | **the plugin**    |
 | Footer (Settings, plugin actions, updates) | host                       | host, always      |
 
@@ -605,6 +605,30 @@ export default definePluginApp((app) => {
 That is a working sidebar in about eighty lines. It stays live, it draws its
 own status icons, its rows drag out to split panes, they answer the numbered
 thread shortcuts, and right-click still opens bb's full menu.
+
+### Starting from bb's own list instead
+
+bb's list is itself a plugin, [`plugins/thread-list`](../plugins/thread-list),
+and it is kept forkable: it imports only `@get-bb/plugin-sdk`, npm packages,
+its own files, and component registry items through the scaffold's `@/`
+alias (`@/components/ui/button`, `@/lib/utils`). In this repository its
+tsconfig maps `@/*` onto `packages/shared-ui/src`, the source the registry is
+generated from, and `@/components/ui/icon` onto the registry's host-backed
+icon. To diverge from it freely, copy the directory and give the package a new
+name. Then add the registry items it imports (`npx shadcn add @bb/button …`)
+and point `@/*` at `./*`. Install `@get-bb/plugin-sdk` from npm in place of
+`workspace:*`, and replace `@bb/shared-ui` with the items' packages. Drop the
+`@bb/plugin-build` dev dependency and the `prepare:bundled` script, which only
+the monorepo uses. The copy's CLI command, preferences mirror, and log
+prefixes follow its new plugin id.
+
+Inside this repository, `scripts/forkable-plugins.json` lists the built-ins
+held to that rule ([forkable-plugins.md](forkable-plugins.md)). The
+`bb/forkable-plugin-imports` lint rule rejects workspace-package imports in
+them and `@/` imports that no registry item provides.
+`pnpm check:plugin-forks` makes that copy in a temporary directory, with the
+same rewrite `scripts/lib/plugin-fork.mjs` implements, and runs its install,
+typecheck, tests, and `bb plugin build` there.
 
 ---
 
