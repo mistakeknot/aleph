@@ -111,11 +111,14 @@ provider. The host also sets `CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST=1` to prevent
 settings-file provider/auth/endpoint variables from overriding its route, and
 sets inherited Bedrock, Vertex and Foundry selectors to `0`.
 
-`CLAUDE_CONFIG_DIR` is resolved to an absolute path at host-entry creation from
-the daemon's own environment, defaulting to its `HOME/.claude`. Relative values
-are anchored at the daemon cwd, never the caller cwd. Caller environments are
-not forwarded. This preserves the daemon operator's user permissions and
-customizations; it is not a fresh profile. The directory, its symlink targets,
+`CLAUDE_CONFIG_DIR` is passed to Claude only when the daemon's own environment
+sets it, resolved to an absolute path at host-entry creation; relative values
+are anchored at the daemon cwd, never the caller cwd. When the daemon leaves it
+unset, so does the host: Claude then uses `HOME/.claude` and keeps its global
+state in `HOME/.claude.json`, where setting the variable would move that state
+into the config directory. Caller environments are not forwarded. This
+preserves the daemon operator's user permissions and customizations; it is not
+a fresh profile. The directory, its symlink targets,
 and user hooks/helpers/plugins must be controlled by trusted daemon operators,
 the same trust boundary as the daemon's environment and executable `PATH`.
 The routing guard is not containment of malicious operator-owned code. Managed

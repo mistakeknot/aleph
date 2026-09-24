@@ -83,10 +83,9 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
     deps.env.HOME || homedir(),
     ".local/state/bb-account-pool/exec-input",
   );
-  const claudeConfigDir = path.resolve(
-    deps.env.CLAUDE_CONFIG_DIR ||
-      path.join(deps.env.HOME || homedir(), ".claude"),
-  );
+  const claudeConfigDir = deps.env.CLAUDE_CONFIG_DIR
+    ? path.resolve(deps.env.CLAUDE_CONFIG_DIR)
+    : undefined;
 
   return experimental_defineHostEntry({
     contract: poolExecHostContract,
@@ -131,7 +130,8 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
             args = codexArgs(args, input.baseUrl);
           } else {
             delete env.ANTHROPIC_API_KEY;
-            env.CLAUDE_CONFIG_DIR = claudeConfigDir;
+            if (claudeConfigDir === undefined) delete env.CLAUDE_CONFIG_DIR;
+            else env.CLAUDE_CONFIG_DIR = claudeConfigDir;
             env.CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST = "1";
             env.CLAUDE_CODE_USE_BEDROCK = "0";
             env.CLAUDE_CODE_USE_VERTEX = "0";
