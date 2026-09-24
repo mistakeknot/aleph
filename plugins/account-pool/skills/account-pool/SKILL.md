@@ -31,6 +31,11 @@ Linux enrolled host and are limited to 8 MiB. Root, home, Codex credential
 directories and their ancestors are forbidden. See the reference for the
 argument allowlist and descriptor-based file boundary.
 
+For thread-bound eligibility before cross-provider dispatch, use the authenticated
+`/availability?threadId=<id>` route described in the reference. A provider-wide
+response without the matching thread ID is not proof of thread eligibility.
+The endpoint returns no credentials and does not add native provider aliases.
+
 For account login/import, secret handling, quota refresh, routing settings,
 ordering, or failover, read
 [references/accounts-and-routing.md](references/accounts-and-routing.md).

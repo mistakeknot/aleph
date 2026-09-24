@@ -69,6 +69,15 @@ export interface AccountPoolPluginOptions {
 const DISPOSE_INSPECTION_TIMEOUT_MS = 2_000;
 const DISPOSE_INSPECTION_TIMEOUT = Symbol("dispose-inspection-timeout");
 const HUB_BASE_PATH = "/api/v1/plugins/account-pool/http";
+const availabilityThreadIdsSchema = z
+  .array(
+    z
+      .string()
+      .min(1)
+      .max(200)
+      .regex(/^[A-Za-z0-9_-]+$/u),
+  )
+  .max(1);
 
 const PROVIDER_ROUTING_ENV: Record<PoolProvider, readonly string[]> = {
   claude: ["ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN"],
@@ -244,9 +253,9 @@ export function createAccountPoolPlugin(
       }
       return operations.hasUsableEnabledAccount(provider);
     };
-    const eligibleFor = async (
-      threadId: string,
+    const canServeThread = async (
       provider: PoolProvider,
+      threadId: string,
     ): Promise<boolean> =>
       !(await routing.isBypassed(threadId)) && (await canServe(provider));
     const poolExecHost = bb.hosts.experimental_client({
@@ -346,7 +355,7 @@ export function createAccountPoolPlugin(
     const contributeFor =
       (provider: PoolProvider, serving: (token: string) => PoolEnvEntry[]) =>
       async (context: { threadId: string; hostId: string }) => {
-        if (await eligibleFor(context.threadId, provider)) {
+        if (await canServeThread(provider, context.threadId)) {
           const token = await hubTokens.forHost(context.hostId);
           if (provider === "claude") {
             await routing.recordRouted(context.threadId, context.hostId);
@@ -466,32 +475,62 @@ export function createAccountPoolPlugin(
       "GET",
       AVAILABILITY_PATH,
       async (context) => {
-        if ((await hub.authenticate(context.req.raw)) === null) {
-          return new Response(null, { status: 401 });
+        const headers = { "Cache-Control": "no-store" };
+        const hostId = await hub.authenticate(context.req.raw);
+        if (hostId === null) {
+          return new Response(null, { status: 401, headers });
         }
-        const threadIds = new URL(context.req.raw.url).searchParams.getAll(
-          "threadId",
+        const parsed = availabilityThreadIdsSchema.safeParse(
+          new URL(context.req.url).searchParams.getAll("threadId"),
         );
-        const threadId = threadIds[0];
-        if (
-          threadIds.length > 1 ||
-          (threadId !== undefined &&
-            (threadId.length === 0 || threadId.length > 200))
-        ) {
-          return new Response(null, { status: 400 });
+        if (!parsed.success)
+          return new Response(null, { status: 400, headers });
+        const threadId = parsed.data[0];
+        if (threadId !== undefined) {
+          try {
+            const thread = await bb.sdk.threads.get({ threadId });
+            if (
+              thread.id !== threadId ||
+              thread.deletedAt !== null ||
+              thread.environmentId === null
+            ) {
+              return new Response(null, { status: 403, headers });
+            }
+            const environment = await bb.sdk.environments.get({
+              environmentId: thread.environmentId,
+            });
+            if (
+              environment.id !== thread.environmentId ||
+              environment.projectId !== thread.projectId ||
+              environment.status === "destroyed" ||
+              environment.hostId !== hostId
+            ) {
+              return new Response(null, { status: 403, headers });
+            }
+            const host = await bb.sdk.hosts.get({ hostId });
+            if (host.id !== hostId || host.lifecycle.phase === "destroyed") {
+              return new Response(null, { status: 403, headers });
+            }
+          } catch {
+            return new Response(null, { status: 503, headers });
+          }
+          return Response.json(
+            {
+              threadId,
+              availability: poolAvailabilitySchema.parse({
+                claude: await canServeThread("claude", threadId),
+                codex: await canServeThread("codex", threadId),
+              }),
+            },
+            { headers },
+          );
         }
-        const result = poolAvailabilitySchema.parse({
-          claude:
-            threadId === undefined
-              ? await canServe("claude")
-              : await eligibleFor(threadId, "claude"),
-          codex:
-            threadId === undefined
-              ? await canServe("codex")
-              : await eligibleFor(threadId, "codex"),
-        });
         return Response.json(
-          threadId === undefined ? result : { threadId, availability: result },
+          poolAvailabilitySchema.parse({
+            claude: await canServe("claude"),
+            codex: await canServe("codex"),
+          }),
+          { headers },
         );
       },
       { auth: "none" },
