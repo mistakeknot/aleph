@@ -46,6 +46,10 @@ Beyond upstream, Aleph carries:
   handoff plugin is running.
 - **Release qualification.** `scripts/ci-zklw-release-check.sh`, run by the
   fork's CI worker in a credential-free guest.
+- **Thecla theme, default for new installs.** A built-in palette (rose,
+  orchid pink, and cyan on deep black) that new installs and never-configured
+  users start on; anyone who has explicitly picked a theme, including the
+  upstream Default, keeps it.
 
 `git log --no-merges <upstream main>..HEAD` lists the carried commits.
 Upstream is merged into Aleph, not rebased, and each merge commit records its

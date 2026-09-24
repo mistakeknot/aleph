@@ -8,6 +8,7 @@ import { draculaThemeCss } from "./dracula";
 import { gruvboxThemeCss } from "./gruvbox";
 import { nordThemeCss } from "./nord";
 import { solarizedThemeCss } from "./solarized";
+import { theclaThemeCss } from "./thecla";
 
 const APP_THEME_STYLE_ELEMENT_ID = "bb-app-theme";
 export const APP_THEME_CSS_STORAGE_KEY = "bb.appThemeCss";
@@ -19,6 +20,7 @@ const builtInThemeCss: Record<BuiltInThemeId, string> = {
   solarized: solarizedThemeCss,
   gruvbox: gruvboxThemeCss,
   catppuccin: catppuccinThemeCss,
+  thecla: theclaThemeCss,
 };
 
 export function resolveAppThemeCss(appearance: AppTheme): string {

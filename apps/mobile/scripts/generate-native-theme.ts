@@ -33,6 +33,11 @@ const WEB_ONLY_TOKEN_PATTERNS: readonly { pattern: RegExp; reason: string }[] =
       pattern: /^diffs-/,
       reason: "@pierre/diffs bridge; defined per mode only",
     },
+    {
+      pattern: /^thecla-/,
+      reason:
+        "Thecla-only decorative tokens (sidebar wash, promptbox edge gradient); web-only",
+    },
   ];
 
 interface CssRule {

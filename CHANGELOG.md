@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.43.4+aleph.2
+
+### Appearance
+
+- **Thecla is the default theme.** New installs and users who have never
+  chosen a theme now start on Thecla (rose, orchid pink, and cyan on deep
+  black) instead of upstream's Default. Anyone who has explicitly picked a
+  theme, including Default, keeps it unchanged.
+
 ## 0.43.4+aleph.1
 
 This is Aleph, mk's fork of bb. It is based on upstream bb 0.43.4 plus get-bb/bb main through `fdd3de3`, and adds the changes below. Aleph keeps bb's package and command names; see `FORK.md` in the repository for the name, the version scheme, and the carried patches.

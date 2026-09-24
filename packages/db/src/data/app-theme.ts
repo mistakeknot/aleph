@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import {
-  defaultAppTheme,
   defaultFaviconColor,
+  NEW_INSTALL_DEFAULT_THEME_ID,
   type FaviconColorPreference,
 } from "@bb/domain";
 import type { DbConnection } from "../connection.js";
@@ -16,10 +16,12 @@ export function getStoredThemeId(db: DbConnection): string {
     .where(eq(appTheme.id, APP_THEME_ROW_ID))
     .get();
 
-  return row?.themeId ?? defaultAppTheme.themeId;
+  return row?.themeId ?? NEW_INSTALL_DEFAULT_THEME_ID;
 }
 
-export function getStoredFaviconColor(db: DbConnection): FaviconColorPreference {
+export function getStoredFaviconColor(
+  db: DbConnection,
+): FaviconColorPreference {
   const row = db
     .select({ faviconColor: appTheme.faviconColor })
     .from(appTheme)
