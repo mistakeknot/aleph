@@ -6551,7 +6551,15 @@ describe("pool exec CLI", () => {
     });
 
     const result = await fixture.host.harness.behavior.runCli(
-      ["exec", "--", "/home/mk/.local/bin/codex", "exec", "hello"],
+      [
+        "exec",
+        "--stdin-file",
+        "/tmp/prompt.txt",
+        "--",
+        "/home/mk/.local/bin/codex",
+        "exec",
+        "hello",
+      ],
       { cwd: "/work" },
     );
 
@@ -6569,6 +6577,7 @@ describe("pool exec CLI", () => {
         command: "/home/mk/.local/bin/codex",
         args: ["exec", "hello"],
         cwd: "/work",
+        stdinPath: "/tmp/prompt.txt",
         baseUrl: "http://127.0.0.1:38886/api/v1/plugins/account-pool/http/v1",
       },
     });
