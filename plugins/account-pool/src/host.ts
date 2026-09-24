@@ -1,4 +1,6 @@
 import { spawn as nodeSpawn } from "node:child_process";
+import { homedir } from "node:os";
+import path from "node:path";
 import { experimental_defineHostEntry } from "@get-bb/plugin-sdk/host";
 import { poolExecHostContract } from "./exec-contract.js";
 import { parsePoolExecArgs } from "./exec-args.js";
@@ -77,6 +79,10 @@ function codexArgs(args: readonly string[], baseUrl: string): string[] {
 
 export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
   const active = new Set<PoolExecChild>();
+  const claudeConfigDir = path.resolve(
+    deps.env.CLAUDE_CONFIG_DIR ||
+      path.join(deps.env.HOME || homedir(), ".claude"),
+  );
 
   return experimental_defineHostEntry({
     contract: poolExecHostContract,
@@ -131,9 +137,15 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
             args = codexArgs(args, input.baseUrl);
           } else {
             delete env.ANTHROPIC_API_KEY;
+            env.CLAUDE_CONFIG_DIR = claudeConfigDir;
+            env.CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST = "1";
+            env.CLAUDE_CODE_USE_BEDROCK = "0";
+            env.CLAUDE_CODE_USE_VERTEX = "0";
+            env.CLAUDE_CODE_USE_FOUNDRY = "0";
             env.ANTHROPIC_BASE_URL = input.baseUrl;
             env.ANTHROPIC_AUTH_TOKEN = input.token;
             env.ENABLE_TOOL_SEARCH = "true";
+            args = ["--setting-sources", "user", ...args];
           }
 
           let child: PoolExecChild;

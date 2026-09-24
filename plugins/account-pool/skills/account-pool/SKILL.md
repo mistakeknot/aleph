@@ -14,6 +14,10 @@ outside a bb thread must use the current pool on the server's primary enrolled
 host. Only allowlisted `codex exec` and `claude --print` options are accepted;
 all caller Codex config/profile/provider overrides are rejected. The host pins
 the pooled provider inside `exec`. The command exits with the child status.
+Claude receives host-owned `--setting-sources user` and host-managed provider
+routing. Caller settings-source overrides are rejected. Its config directory
+is anchored to the daemon environment, not the caller cwd; the daemon's user
+hooks/plugins remain trusted operator code. See the reference for this boundary.
 A confirmed, provider-pinned child start adds a
 `bb-pool-exec: transport=pooled provider=<provider>` stderr marker; an
 unavailable pool or a host found offline before dispatch fails without that

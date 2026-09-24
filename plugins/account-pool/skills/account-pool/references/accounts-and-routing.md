@@ -101,10 +101,33 @@ or `-` for stdin. Value options accept separate or `--key=value` forms. Claude
 must start with `--print` or `-p`; it accepts `--model`, `--output-format` (text
 or json), `--max-turns`, and one prompt. Other short options are not accepted.
 
+Claude receives `--setting-sources user` after argument validation. Both caller
+`--setting-sources` spellings and `--settings` are rejected: project and local
+settings cannot replace the endpoint, run their hooks/helpers, or select another
+provider. The host also sets `CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST=1` to prevent
+settings-file provider/auth/endpoint variables from overriding its route, and
+sets inherited Bedrock, Vertex and Foundry selectors to `0`.
+
+`CLAUDE_CONFIG_DIR` is resolved to an absolute path at host-entry creation from
+the daemon's own environment, defaulting to its `HOME/.claude`. Relative values
+are anchored at the daemon cwd, never the caller cwd. Caller environments are
+not forwarded. This preserves the daemon operator's user permissions and
+customizations; it is not a fresh profile. The directory, its symlink targets,
+and user hooks/helpers/plugins must be controlled by trusted daemon operators,
+the same trust boundary as the daemon's environment and executable `PATH`.
+The routing guard is not containment of malicious operator-owned code. Managed
+administrative policy still applies. A/B probes cover project, local and user
+endpoint redirects on Claude Code 2.1.280; rerun them for provider upgrades.
+See the official [CLI reference](https://code.claude.com/docs/en/cli-reference)
+and [environment reference](https://code.claude.com/docs/en/env-vars).
+
 A confirmed, provider-pinned start emits `transport=pooled`. A pre-dispatch
 host check is the only host-offline case reported without a start marker. If
 RPC fails after dispatch, the command reports lost contact and emits
 `transport=pool-unconfirmed`: the child may have started and must not be replayed.
+The internal `providerPinned` field means a child started with this host-owned
+routing construction (it equals `started` on host responses), not an attestation
+of an upstream response. An indeterminate RPC result cannot establish it.
 For a child that expects stdin, `--stdin-file` names an absolute file on the
 enrolled host. An operator must configure `BB_ACCOUNT_POOL_EXEC_INPUT_DIR` in
 the server startup environment first. The host refuses root, its home, and

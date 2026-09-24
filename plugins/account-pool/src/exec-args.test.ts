@@ -34,6 +34,9 @@ describe("pool exec argument allowlist", () => {
     }
     for (const args of [
       ["--print", "--settings={}"],
+      ["--setting-sources", "project", "--print", "hello"],
+      ["--print", "--setting-sources", "project,local", "hello"],
+      ["--print", "--setting-sources=project,local", "hello"],
       ["--print", "--resume=id"],
       ["--print", "--agents={}"],
       ["--version"],

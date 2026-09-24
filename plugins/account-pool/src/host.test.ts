@@ -22,6 +22,75 @@ function fakeChild() {
 }
 
 describe("Account Pooler host exec", () => {
+  it.each([undefined, "daemon-config", "/daemon-config"])(
+    "owns Claude settings sources and anchors config %s at the daemon, not the caller cwd",
+    async (configDir) => {
+      const child = fakeChild();
+      const spawn = vi.fn(
+        (
+          _command: string,
+          _args: readonly string[],
+          _options: {
+            cwd?: string;
+            env: NodeJS.ProcessEnv;
+            stdio: ["pipe", "pipe", "pipe"];
+          },
+        ) => child,
+      );
+      const harness = experimental_createHostEntryHarness(
+        createAccountPoolHostEntry({
+          spawn,
+          env: {
+            HOME: "/daemon-home",
+            CLAUDE_CONFIG_DIR: configDir,
+            ANTHROPIC_API_KEY: "unused-key",
+            CLAUDE_CODE_USE_BEDROCK: "1",
+            CLAUDE_CODE_USE_VERTEX: "1",
+            CLAUDE_CODE_USE_FOUNDRY: "1",
+          },
+        }),
+      );
+      const pending = harness.experimental_call("run", {
+        provider: "claude",
+        args: ["--print", "hello"],
+        cwd: "/caller-cwd",
+        stdinPath: null,
+        stdinDir: null,
+        token: "pool-secret",
+        baseUrl: "http://127.0.0.1:38886/pool",
+      });
+      await vi.waitFor(() => expect(spawn).toHaveBeenCalledOnce());
+      child.emit("spawn");
+      child.emit("close", 0, null);
+      await expect(pending).resolves.toMatchObject({
+        started: true,
+        providerPinned: true,
+      });
+      const [, args, options] = spawn.mock.calls[0] ?? [];
+      expect(args).toEqual([
+        "--setting-sources",
+        "user",
+        "--print",
+        "--",
+        "hello",
+      ]);
+      expect(options).toMatchObject({
+        cwd: "/caller-cwd",
+        env: {
+          CLAUDE_CONFIG_DIR: path.resolve(configDir ?? "/daemon-home/.claude"),
+          CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST: "1",
+          CLAUDE_CODE_USE_BEDROCK: "0",
+          CLAUDE_CODE_USE_VERTEX: "0",
+          CLAUDE_CODE_USE_FOUNDRY: "0",
+          ANTHROPIC_AUTH_TOKEN: "pool-secret",
+          ANTHROPIC_BASE_URL: "http://127.0.0.1:38886/pool",
+        },
+      });
+      expect(options?.env.ANTHROPIC_API_KEY).toBeUndefined();
+      expect(JSON.stringify(args)).not.toContain("pool-secret");
+    },
+  );
+
   it("injects Codex credentials only through env, forwards an input file, and redacts output", async () => {
     const child = fakeChild();
     const spawn = vi.fn(
