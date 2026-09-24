@@ -5,8 +5,8 @@
 **Status:** Draft
 
 [Mission](../MISSION.md) · [Philosophy](../PHILOSOPHY.md) ·
-[Personas](personas.md) · [Journeys](cujs/README.md) ·
-[Roadmap](aleph-roadmap.md) · [Backlog](backlog.md)
+[Personas](aleph-personas.md) · [Journeys](cujs/README.md) ·
+[Roadmap](aleph-roadmap.md) · [Backlog](aleph-backlog.md)
 
 ---
 

@@ -72,4 +72,4 @@ routine updates. P2 improves daily work. P3 is when there's room.
   → [Child reporting](cujs/aleph-03-child-thread-reporting.md)
 - **Revise personas and journeys with the operator.** The first drafts come
   from operating notes, not from structured sessions.
-  → [Personas](personas.md)
+  → [Personas](aleph-personas.md)

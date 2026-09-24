@@ -2,13 +2,13 @@
 
 **Last reviewed:** 2026-09-24. **Current release:** `0.43.4+aleph.1`.
 
-[Vision](aleph-vision.md) · [Backlog](backlog.md) · [Journeys](cujs/README.md) ·
+[Vision](aleph-vision.md) · [Backlog](aleph-backlog.md) · [Journeys](cujs/README.md) ·
 [FORK.md](../FORK.md)
 
 The immediate goal is to make taking the next upstream release a routine,
 safe step, and to stop Aleph from being overwritten by accident. Everything
 here comes from [journeys](cujs/README.md) and from work left open by the
-first release. The [backlog](backlog.md) has the item-level priorities.
+first release. The [backlog](aleph-backlog.md) has the item-level priorities.
 
 ## Where we are
 
@@ -50,7 +50,7 @@ upstream release.
 |---|---|
 | Offer patches upstream when maintainers want them: provider icons, `bb pool exec`, thread-bound availability | [Vision](aleph-vision.md#the-diff-gets-smaller) |
 | Measure what coordinators spend on child updates | [Child reporting](cujs/aleph-03-child-thread-reporting.md) |
-| Revise personas and journeys after working sessions with the operator | [Personas](personas.md) |
+| Revise personas and journeys after working sessions with the operator | [Personas](aleph-personas.md) |
 
 ## Open questions
 

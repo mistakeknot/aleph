@@ -3,7 +3,7 @@
 Each journey describes an experience Aleph must support well, with typed
 success signals (`measurable`, `observable`, `qualitative`) and a status for
 each signal (`active` or `planned`). The actors are described in
-[personas](../personas.md). These are first drafts written from operating
+[personas](../aleph-personas.md). These are first drafts written from operating
 experience. They'll be revised after working sessions with the operator.
 
 | # | Journey | Actor | Criticality |
