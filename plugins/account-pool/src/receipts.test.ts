@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { PoolReceipts, ResponseEvidence, type ReceiptHop } from "./receipts.js";
@@ -15,6 +15,21 @@ describe("receipt failure boundaries", () => {
       ),
     ).toBe(readFileSync(new URL("../RECEIPTS.md", import.meta.url), "utf8"));
   });
+
+  const providerClaudeFixture = new URL(
+    "../../provider-claude-code/src/__fixtures__/assistant-text.json",
+    import.meta.url,
+  );
+  it.skipIf(!existsSync(providerClaudeFixture))(
+    "keeps the copied Claude fixture identical to the provider's recording",
+    () => {
+      expect(
+        readFileSync(
+          new URL("./fixtures/claude-assistant-text.json", import.meta.url),
+        ),
+      ).toEqual(readFileSync(providerClaudeFixture));
+    },
+  );
 
   it("retains terminal provider usage when transport fails afterward without reporting success", () => {
     const hop: ReceiptHop = {
