@@ -24,8 +24,33 @@ or orphaned runs, extra review rounds.
 | Receipt begin returns 503 when receipts can't be issued, before spend | **Shipped** |
 | Pool and account usage views | **Shipped** (upstream Provider Usage) |
 | Live receipt canary | **Planned** (deferred: no provider capacity) |
-| Usage rolled up per task or outcome | **Planned** |
-| Wakes per task, retries, review rounds, duplicate runs recorded | **Planned** |
+| Outcome tag, inherited by child turns, pooled runs and receipts | **Planned** |
+| Usage rolled up per accepted outcome, by kind, with a waste ratio | **Planned** |
+| No-action wakes, retries, duplicate runs, over-cap review rounds and environment rebuilds recorded | **Planned** |
+
+## What an outcome is
+
+*Provisional, pending operator confirmation.*
+
+- **Unit.** An outcome is a declared bb-native unit with an ID, a kind
+  (`change`, `release`, `review`, `research` or `decision`), an acceptance
+  test, and optionally an external reference (a tracker item or a pull
+  request). The coordinator declares it at dispatch, and the operator can
+  re-tag.
+- **Inheritance.** Usage from every turn, child thread, pooled run and
+  receipt inherits the outcome ID, the way ownership passes from parent to
+  child. Untagged usage goes to an `unattributed` bucket.
+- **Acceptance.** An outcome counts only when it's accepted on evidence: a
+  merged SHA, a PASS verdict, a canary pass, or the operator's accept. The
+  operator can override.
+- **Waste.** An outcome that's abandoned or superseded counts entirely as
+  waste. Within an outcome, no-action wakes, retries, duplicate runs,
+  review rounds past the cap and environment-failure rebuilds count as
+  waste too.
+- **Cost unit.** Tokens, with cached and reasoning tokens shown
+  separately, plus the percentage of the subscription window used.
+  Dollars only for pay-per-token providers.
+- **Headline.** Usage per accepted outcome, by kind, plus the waste ratio.
 
 ## The Journey
 
@@ -35,13 +60,14 @@ and the coordinator stops before spending. Otherwise the run completes
 and the attempt is finalized. The result is a sealed record of every
 upstream request and account hop, with the account, model and usage.
 
-*Planned:* each receipt is tagged with the task or outcome it served.
-bb also records the waste counters for that outcome: coordinator wakes,
-retries, review rounds, and runs that were duplicated or abandoned.
+*Planned:* the coordinator declares an outcome when it dispatches work,
+and every turn, child, pooled run and receipt under it carries the
+outcome ID. bb records the waste counters for that outcome as it goes.
 
 *Planned:* the operator opens a view, or runs a `bb` command, that lists
-recent outcomes with their total usage by provider and model, their waste
-counters, and whether the outcome was accepted. They can see that a
+recent outcomes by kind with their usage by provider and model, their
+waste counters, whether they were accepted and on what evidence, and the
+size of the `unattributed` bucket. They can see that a
 feature cost this much, that review took this share, and that this many
 wakes were empty. The next release of Aleph can then be judged by whether
 those numbers fell without quality falling.
@@ -52,16 +78,20 @@ those numbers fell without quality falling.
 |---|---|---|---|
 | Budget stops before spend | measurable | active | Receipt begin returning 503 → no provider process starts |
 | Every budgeted run has a receipt | measurable | planned | Live canary: a finalized receipt names account, model and usage for a real run |
-| Usage attributed to outcomes | measurable | planned | ≥ 90% of pooled usage in a week is attributed to a named task or outcome |
-| Waste is counted | measurable | planned | Each outcome shows wakes, retries, review rounds and duplicate runs |
-| Trend is visible | observable | planned | Usage per accepted outcome can be compared between Aleph releases |
+| Usage attributed to outcomes | measurable | planned | `unattributed` holds ≤ 10% of a week's usage |
+| Tags are inherited | measurable | planned | A child thread, pooled run or receipt started under an outcome carries its ID without the child setting it |
+| Acceptance needs evidence | observable | planned | Every accepted outcome names its merged SHA, PASS verdict, canary pass or operator accept |
+| Waste is counted | measurable | planned | Each outcome shows no-action wakes, retries, duplicate runs, over-cap review rounds and environment rebuilds; abandoned and superseded outcomes count fully as waste |
+| Headline is visible | observable | planned | Usage per accepted outcome, by kind, and the waste ratio can be compared between Aleph releases |
 | Numbers change decisions | qualitative | planned | The operator uses the view to change a routing, review or dispatch rule |
 
 ## Known Friction Points
 
 - **Receipts cover budgeted dispatch only.** Ordinary thread turns don't
   yet produce receipts, so coverage is partial.
-- **Outcomes aren't a bb concept yet.** Tagging usage with a task needs a
-  convention or a new field.
+- **Outcomes aren't a bb concept yet.** The definition above is
+  provisional, and the tag needs new fields in bb.
+- **Subscription-window share is approximate.** It comes from quota
+  snapshots, which lag behind real usage.
 - **Unknown usage must stay unknown.** Quota snapshots can't prove what a
   run used. Missing data is shown as missing, not estimated.

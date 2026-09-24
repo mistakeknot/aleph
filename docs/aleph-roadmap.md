@@ -33,6 +33,7 @@ update can still replace Aleph.
 
 | Outcome | Serves | Done when |
 |---|---|---|
+| Outcome tag and inheritance | [Usage per outcome](cujs/aleph-06-usage-per-outcome.md#what-an-outcome-is) | Work is declared as an outcome at dispatch, and turns, children, pooled runs and receipts inherit its ID; untagged usage lands in `unattributed` |
 | A waste baseline | [Usage per outcome](cujs/aleph-06-usage-per-outcome.md) | Wakes per task, retries, review rounds and duplicate runs are counted over one real project; the live receipt canary passes |
 | Wakes only for news | [Multi-day project](cujs/aleph-01-multi-day-coordinator.md) | A child's non-final turns don't wake its parent; BLOCKED always does |
 | Transient refusals don't kill threads | [No dead jobs](cujs/aleph-04-no-dead-jobs.md) | A "no eligible account" 429 leads to a bounded wait, not a failed thread; the live Codex pool canary passes |
@@ -59,12 +60,19 @@ update can still replace Aleph.
 | Offer building blocks upstream when maintainers want them | [Vision](aleph-vision.md#the-diff-gets-smaller) |
 | Revise personas and journeys after working sessions with the operator | [Personas](aleph-personas.md) |
 
+## Decisions
+
+- **What an outcome is** *(provisional, pending operator confirmation)*:
+  a declared bb-native unit with an ID, a kind, an acceptance test and
+  optionally an external reference. Usage is inherited from parent to
+  child, and an outcome counts only when accepted on evidence. The
+  headline is usage per accepted outcome, by kind, plus a waste ratio.
+  See [usage per outcome](cujs/aleph-06-usage-per-outcome.md#what-an-outcome-is).
+
 ## Open questions
 
 - Where should holding back child turns live, and would upstream want a
   general version of it?
-- What is an "outcome" in bb terms: a thread, a task, a commit, a merged
-  change?
 - Can ordinary thread turns produce receipts, or only budgeted dispatch?
 - Should pooled runs work from machines other than the primary one?
 
