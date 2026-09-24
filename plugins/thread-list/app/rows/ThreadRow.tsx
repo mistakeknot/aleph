@@ -224,12 +224,6 @@ function renderThreadRowContainer({
   );
 }
 
-/**
- * The agent provider's mark, so a glance at the list tells which backend a
- * thread runs on. Draws nothing when the list hides provider icons, or until
- * the provider directory knows the id. The row owns the color (see
- * {@link resolveProviderIconColor}), so the icon itself draws untinted.
- */
 function ThreadRowProviderIcon({ providerId }: { providerId: string }) {
   const showProviderIcons = useAtomValue(sidebarShowProviderIconsAtom);
   const colorMode = useAtomValue(sidebarProviderIconColorAtom);

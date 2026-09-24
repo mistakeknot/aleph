@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { isPresentationTintColor } from "@bb/domain";
+import { isPresentationTintColor } from "./tint-color.js";
 
 const STRING_MAX_LENGTH = 1_024;
 const LIST_MAX_LENGTH = 10_000;

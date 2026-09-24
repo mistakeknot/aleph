@@ -1,5 +1,5 @@
 import { atom, useAtom } from "jotai";
-import { Button } from "@bb/shared-ui/button";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -7,21 +7,19 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@bb/shared-ui/dialog";
+} from "@/components/ui/dialog";
 import {
   experimental_ProviderIcon as ProviderIcon,
   experimental_useProviders,
 } from "@get-bb/plugin-sdk/app";
 import { sidebarProviderIconColorsAtom } from "../preferences/atoms.js";
 
-/** Open state for the dialog, so a menu item can open it and then close. */
 export const providerIconColorsDialogOpenAtom = atom(false);
 
 const HEX_COLOR_PATTERN = /^#[0-9a-f]{6}$/iu;
 const NEUTRAL_LIGHT = "#6b6b6b";
 const NEUTRAL_DARK = "#a3a3a3";
 
-/** A native color input only takes #rrggbb, so other tints start neutral. */
 function pickerValue(color: string | undefined, neutral: string): string {
   return color !== undefined && HEX_COLOR_PATTERN.test(color) ? color : neutral;
 }

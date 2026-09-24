@@ -1,4 +1,5 @@
 import type {
+  experimental_useProviders,
   PluginSidebarProject,
   PluginSidebarThread,
 } from "@get-bb/plugin-sdk/app";
@@ -119,4 +120,34 @@ export function makeSidebarProject(
   overrides: Partial<SidebarProject> = {},
 ): SidebarProject {
   return { ...makePluginProject(overrides), threads: [], ...overrides };
+}
+
+export type SidebarProviderInfo = ReturnType<
+  typeof experimental_useProviders
+>["providers"][number];
+
+export function makeProviderInfo(
+  overrides: Partial<SidebarProviderInfo> & Pick<SidebarProviderInfo, "id">,
+): SidebarProviderInfo {
+  const id = overrides.id;
+  return {
+    pluginId: `provider-${id}`,
+    displayName: id,
+    logoUrl: `/api/v1/system/providers/${id}/logo`,
+    available: true,
+    maintenance: { health: false, usage: false, installation: false },
+    composerActions: [],
+    completedTurnDisplay: "collapse",
+    capabilities: {
+      supportsThreadArchive: true,
+      supportsThreadRename: true,
+      supportsServiceTier: false,
+      supportsNativeUserQuestion: false,
+      supportsFork: true,
+      supportsSessionRewind: false,
+      modelCatalogScope: "workspace",
+      permissionModes: ["accept-edits", "auto", "full"],
+    },
+    ...overrides,
+  };
 }
