@@ -45,7 +45,7 @@ Beyond upstream, Aleph carries:
 - **Model picker.** Switching a thread's provider in place when the local
   handoff plugin is running.
 - **Release qualification.** `scripts/ci-zklw-release-check.sh`, run by the
-  zklw fleet worker in a credential-free guest.
+  fork's CI worker in a credential-free guest.
 
 `git log --no-merges <upstream main>..HEAD` lists the carried commits.
 Upstream is merged into Aleph, not rebased, and each merge commit records its
@@ -57,7 +57,7 @@ conflicts.
 - [Philosophy](PHILOSOPHY.md): how the fork is kept thin and current.
 - [Vision](docs/aleph-vision.md): where Aleph is going and how it relates to
   upstream bb.
-- [Personas](docs/personas.md): the operator, coordinator agents and worker
+- [Personas](docs/aleph-personas.md): the operator, coordinator agents and worker
   or reviewer agents.
 - [Critical user journeys](docs/cujs/README.md)
-- [Roadmap](docs/aleph-roadmap.md) and [backlog](docs/backlog.md)
+- [Roadmap](docs/aleph-roadmap.md) and [backlog](docs/aleph-backlog.md)
