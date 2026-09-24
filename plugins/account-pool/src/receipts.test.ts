@@ -197,6 +197,128 @@ describe("receipt failure boundaries", () => {
     ).not.toBeNull();
   });
 
+  it.each(["unused", "invalidated"])(
+    "recycles sealed %s attempts without making their receipts complete",
+    (kind) => {
+      let now = 0;
+      const store = new PoolReceipts(() => now);
+      const leases = Array.from({ length: 64 }, (_, i) =>
+        leaseSchema.parse(
+          store.begin("owner", {
+            version: 1,
+            provider: "claude",
+            attempt_id: String(i),
+          }),
+        ),
+      );
+      const finalize = (i: number) =>
+        store.finalize("owner", {
+          version: 1,
+          id: leases[i]!.id,
+          attempt_id: String(i),
+        });
+      for (let i = 0; i < leases.length; i++) {
+        if (kind === "invalidated")
+          store.admit(
+            store.identify(leases[i]!.token)!,
+            "codex",
+            "/v1/responses",
+          );
+        expect(finalize(i)).toMatchObject({
+          complete: false,
+          valid: kind === "unused",
+        });
+      }
+      const begin = () =>
+        store.begin("owner", {
+          version: 1,
+          provider: "claude",
+          attempt_id: "new",
+        });
+      now = 9 * 60 * 1000;
+      expect(finalize(0)).toMatchObject({ complete: false });
+      expect(begin()).toBeNull();
+      now = 10 * 60 * 1000;
+      expect(begin()).not.toBeNull();
+      for (let i = 0; i < leases.length; i++) {
+        expect(finalize(i)).toBeNull();
+        expect(store.identify(leases[i]!.token)).toBeNull();
+      }
+    },
+  );
+
+  it.each(["request", "hop"])(
+    "keeps an active %s and recycles a sealed attempt after it settles without more polling",
+    (active) => {
+      let now = 0;
+      const store = new PoolReceipts(() => now);
+      const leases = Array.from({ length: 64 }, (_, i) =>
+        leaseSchema.parse(
+          store.begin("owner", {
+            version: 1,
+            provider: "claude",
+            attempt_id: String(i),
+          }),
+        ),
+      );
+      const first = leases[0]!;
+      const request = store.admit(
+        store.identify(first.token)!,
+        "claude",
+        "/v1/messages",
+      )!;
+      request.state = active === "request" ? "active" : "finished";
+      request.hops.push({
+        index: 1,
+        account_id: "account",
+        provider: "claude",
+        status: 500,
+        state: active === "hop" ? "active" : "rejected",
+        model: null,
+        usage: null,
+      });
+      expect(
+        store.finalize("owner", { version: 1, id: first.id, attempt_id: "0" }),
+      ).toMatchObject({ complete: false });
+      const begin = () =>
+        store.begin("owner", {
+          version: 1,
+          provider: "claude",
+          attempt_id: "new",
+        });
+      now = 60 * 60 * 1000;
+      expect(begin()).toBeNull();
+      expect(store.identify(first.token)).not.toBeNull();
+      request.state = "error";
+      request.hops[0]!.state = "transport_error";
+      expect(begin()).toBeNull();
+      now += 10 * 60 * 1000 - 1;
+      expect(begin()).toBeNull();
+      now++;
+      expect(begin()).not.toBeNull();
+      expect(store.identify(first.token)).toBeNull();
+      expect(store.identify(leases[1]!.token)).not.toBeNull();
+    },
+  );
+
+  it("never extends the original expiry of a late-sealed failed attempt", () => {
+    let now = 0;
+    const store = new PoolReceipts(() => now);
+    const lease = leaseSchema.parse(
+      store.begin("owner", {
+        version: 1,
+        provider: "claude",
+        attempt_id: "late",
+      }),
+    );
+    now = 24 * 60 * 60 * 1000 - 1;
+    expect(
+      store.finalize("owner", { version: 1, id: lease.id, attempt_id: "late" }),
+    ).toMatchObject({ complete: false });
+    now++;
+    expect(store.identify(lease.token)).toBeNull();
+  });
+
   const leaseSchema = z.object({ id: z.string(), token: z.string() });
   it("fails closed on restart, expiry, capacity exhaustion and provider mismatch", () => {
     let now = 0;

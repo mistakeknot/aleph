@@ -117,6 +117,7 @@ export class PoolReceipts {
     input: z.infer<typeof receiptBeginSchema>,
   ): object | null {
     for (const [id, attempt] of this.attempts) {
+      this.shortenSettledRetention(attempt);
       if (attempt.expires_at <= this.now()) {
         this.attempts.delete(id);
         this.tokens.delete(attempt.token_hash);
@@ -203,19 +204,8 @@ export class PoolReceipts {
     )
       return null;
     attempt.sealed = true;
-    const complete =
-      attempt.valid &&
-      attempt.requests.length > 0 &&
-      attempt.requests.every(
-        (request) =>
-          request.state !== "active" &&
-          request.hops.every((hop) => hop.state !== "active"),
-      );
-    if (complete)
-      attempt.expires_at = Math.min(
-        attempt.expires_at,
-        this.now() + 10 * 60 * 1000,
-      );
+    const settled = this.shortenSettledRetention(attempt);
+    const complete = attempt.valid && attempt.requests.length > 0 && settled;
     return {
       version: 1,
       id: attempt.id,
@@ -227,6 +217,22 @@ export class PoolReceipts {
       complete,
       requests: attempt.requests,
     };
+  }
+
+  private shortenSettledRetention(attempt: Attempt): boolean {
+    const settled =
+      attempt.sealed &&
+      attempt.requests.every(
+        (request) =>
+          request.state !== "active" &&
+          request.hops.every((hop) => hop.state !== "active"),
+      );
+    if (settled)
+      attempt.expires_at = Math.min(
+        attempt.expires_at,
+        this.now() + 10 * 60 * 1000,
+      );
+    return settled;
   }
 }
 
