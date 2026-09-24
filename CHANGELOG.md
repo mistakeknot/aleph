@@ -2,9 +2,20 @@
 
 ## 0.43.5
 
+Account Pooler 0.1.2 ties thread availability to the machine that owns the thread, runs Codex and Claude through the pool from scheduled jobs, and records receipts for budgeted dispatch. The thread list shows each thread's provider, and you can switch a thread's provider without leaving it.
+
 ### Account Pooler
 
-Account Pooler now lets an authenticated cross-provider dispatcher check whether a specific thread may use each provider's pool. The decision follows the same routing, bypass, parent-pool, and usable-account rules as BB's provider environment. Existing provider-wide availability checks remain available for nested servers.
+- **Thread-bound availability.** `GET /api/v1/plugins/account-pool/http/availability?threadId=<id>` reports whether one thread may use each provider's pool. The thread's current environment must belong to the calling machine, which must still be enrolled. Ownership refusals return 403, failed ownership lookups return 503, and responses are never cached. This replaces the earlier thread check, which followed the routing rules without checking ownership.
+- **Run agents through the pool with `bb pool exec`.** Scheduled or supervised processes on the server's primary machine can run `bb pool exec -- codex exec …` or `bb pool exec -- claude --print …`. Only an allowlist of arguments is accepted; configuration overrides, profiles, provider selectors, and unknown options are rejected. The machine token reaches only the child's environment and is never printed. Output begins with a `bb-pool-exec: transport=pooled` line on stderr, or `pool-unconfirmed` when the pooled route could not be confirmed. `--stdin-file` reads a prompt from a private directory on the host, `~/.local/state/bb-account-pool/exec-input` by default.
+- **Attempt receipts for budgeted dispatch.** A dispatcher can begin an attempt under `/api/v1/plugins/account-pool/http/receipts`, run one Codex or Claude process with a scoped token, and finalize it for a sealed record of every upstream request and account hop. Receipts use the machine's own authentication and never accept machine or account IDs from callers. Hubs that cannot issue receipts, including nested hubs using a parent pool, return 503 when an attempt begins, so a dispatcher can stop before spending model quota.
+- When no account is eligible, the pool rechecks exhausted accounts before refusing a request, at most every 30 seconds per account, so a plan upgrade or early reset takes effect on the next turn.
+
+### Thread list and panes
+
+- **Provider icons.** Each thread row leads with its agent provider's icon. Turn them off in Organize → Rows → Provider icons. Choose brand colors or monochrome, or set light and dark colors for each provider with Customize colors…. Themes can set `--provider-icon-<id>` and `--provider-icon`.
+- **Switch a thread's provider in place.** When the handoff plugin is running, changing the provider in the model picker defaults to Switch in this thread. The new thread takes over the title, pin, section, parent, and children, and the original is archived. New thread keeps bb's standard handoff.
+- **Optional composer focus on pane switches.** Settings → Keyboard → Pane navigation → Focus composer when switching panes with keyboard. It is off by default and saved separately in each browser or desktop app.
 
 ## 0.43.3
 
