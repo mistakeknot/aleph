@@ -36,6 +36,13 @@ import type {
   QuotaStore,
 } from "./store.js";
 import { parentRequestHeaders, type ParentPool } from "./parent-pool.js";
+import {
+  PoolReceipts,
+  ResponseEvidence,
+  receiptBeginSchema,
+  receiptFinalizeSchema,
+  type ReceiptRequest,
+} from "./receipts.js";
 
 const ROUTE = "/api/v1/plugins/account-pool/http";
 const DEFAULT_REFRESH_URL = "https://platform.claude.com/v1/oauth/token";
@@ -104,6 +111,7 @@ interface UpstreamResult {
   response: Response;
   controller: AbortController;
   release: () => void;
+  evidence?: ResponseEvidence;
 }
 
 interface RefreshBackoff {
@@ -142,9 +150,14 @@ export class AccountPoolHub {
   private readonly lastUsageRefreshAt = new Map<string, number>();
   private readonly drainWaiters = new Set<() => void>();
 
-  constructor(private readonly options: HubOptions) {}
+  private readonly receipts: PoolReceipts;
+
+  constructor(private readonly options: HubOptions) {
+    this.receipts = new PoolReceipts(options.now);
+  }
 
   async start(signal: AbortSignal): Promise<void> {
+    this.receipts.clear();
     this.affinityBindings = this.options.affinity.loadBindings(
       this.options.now() - AFFINITY_IDLE_TTL_MS,
       MAX_AFFINITY_BINDINGS,
@@ -173,13 +186,43 @@ export class AccountPoolHub {
     return this.adapter(provider).importAccount();
   }
 
+  async receipt(
+    request: Request,
+    operation: "begin" | "finalize",
+  ): Promise<Response> {
+    const hostId = await this.authenticate(request);
+    if (hostId === null) return new Response(null, { status: 401 });
+    if (!this.accepting || this.options.getParentRoute() !== null)
+      return new Response(null, { status: 503 });
+    try {
+      const body = await request.text();
+      if (body.length > 1024) return new Response(null, { status: 400 });
+      const value: unknown = JSON.parse(body);
+      const result =
+        operation === "begin"
+          ? this.receipts.begin(hostId, receiptBeginSchema.parse(value))
+          : this.receipts.finalize(hostId, receiptFinalizeSchema.parse(value));
+      return result === null
+        ? new Response(null, { status: operation === "begin" ? 503 : 404 })
+        : Response.json(result, { headers: { "cache-control": "no-store" } });
+    } catch {
+      return new Response(null, { status: 400 });
+    }
+  }
+
   async handle(
     request: Request,
     provider: PoolProvider,
     routePath: string,
   ): Promise<Response> {
     const adapter = this.adapter(provider);
-    const hostId = await this.authenticate(request);
+    const token =
+      request.headers.get("x-bb-account-pool-token") ??
+      readBearer(request.headers.get("authorization"));
+    const attempt = token?.startsWith("pool-attempt-")
+      ? this.receipts.identify(token)
+      : null;
+    const hostId = attempt?.host_id ?? (await this.authenticate(request));
     if (hostId === null) {
       return adapter.errorResponse(401, "Invalid Account Pooler bearer token.");
     }
@@ -189,15 +232,66 @@ export class AccountPoolHub {
         "Account Pooler is not accepting requests.",
       );
     const parent = this.options.getParentRoute();
+    if (attempt !== null && parent !== null)
+      return adapter.errorResponse(
+        503,
+        "Nested pool receipts are unsupported.",
+      );
     if (parent !== null) {
       return this.forwardToParent(request, adapter, routePath, parent);
     }
-    return this.forward(
-      request,
-      new Uint8Array(await request.arrayBuffer()),
-      adapter,
-      hostId,
-    );
+    const evidence =
+      attempt === null
+        ? undefined
+        : this.receipts.admit(attempt, provider, routePath);
+    if (evidence === null)
+      return adapter.errorResponse(409, "Pool receipt admission closed.");
+    try {
+      const response = await this.forward(
+        request,
+        new Uint8Array(await request.arrayBuffer()),
+        adapter,
+        hostId,
+        evidence,
+      );
+      if (evidence === undefined) return response;
+      const reader = response.body?.getReader();
+      if (reader === undefined) {
+        evidence.state = "finished";
+        return response;
+      }
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          async pull(controller) {
+            try {
+              const chunk = await reader.read();
+              if (chunk.done) {
+                evidence.state = request.signal.aborted
+                  ? "cancelled"
+                  : "finished";
+                controller.close();
+              } else controller.enqueue(chunk.value);
+            } catch (error) {
+              evidence.state = "error";
+              controller.error(error);
+            }
+          },
+          async cancel() {
+            evidence.state = "cancelled";
+            await reader.cancel().catch(() => undefined);
+          },
+        }),
+        {
+          status: response.status,
+          statusText: response.statusText,
+          headers: response.headers,
+        },
+      );
+    } catch (error) {
+      if (evidence !== undefined)
+        evidence.state = request.signal.aborted ? "cancelled" : "error";
+      throw error;
+    }
   }
 
   private trackRequest(
@@ -394,6 +488,7 @@ export class AccountPoolHub {
     body: Uint8Array,
     adapter: ProviderAdapter,
     hostId: string,
+    evidence?: ReceiptRequest,
   ): Promise<Response> {
     const signal = AbortSignal.any([request.signal, this.stopped.signal]);
     const attempted = new Set<string>();
@@ -523,6 +618,7 @@ export class AccountPoolHub {
               selected.account,
               secret,
               adapter,
+              evidence,
             );
           } catch (error) {
             if (pacing !== null) {
@@ -684,6 +780,9 @@ export class AccountPoolHub {
     upstream: UpstreamResult,
     readDetail: boolean,
   ): Promise<string> {
+    upstream.evidence?.finish(
+      upstream.controller.signal.aborted ? "cancelled" : "rejected",
+    );
     const reader = upstream.response.body?.getReader();
     if (reader === undefined) {
       upstream.controller.abort();
@@ -1074,7 +1173,25 @@ export class AccountPoolHub {
     account: Account,
     secret: AccountSecret,
     adapter: ProviderAdapter,
+    receipt?: ReceiptRequest,
   ): Promise<UpstreamResult> {
+    if (receipt !== undefined && receipt.hops.length >= 32) {
+      receipt.state = "error";
+      throw new Error("Pool receipt hop capacity exceeded.");
+    }
+    const hop =
+      receipt === undefined
+        ? undefined
+        : {
+            index: receipt.hops.length + 1,
+            account_id: account.id,
+            provider: adapter.provider,
+            status: null,
+            state: "active" as const,
+            model: null,
+            usage: null,
+          };
+    if (hop !== undefined) receipt?.hops.push(hop);
     this.increment(account.id);
     const { controller, release } = this.trackRequest(request, () =>
       this.decrement(account.id),
@@ -1100,8 +1217,25 @@ export class AccountPoolHub {
             cause,
           });
         });
-      return { response, controller, release };
+      let evidence: ResponseEvidence | undefined;
+      if (hop !== undefined) {
+        evidence = new ResponseEvidence(
+          hop,
+          response.headers
+            .get("content-type")
+            ?.split(";", 1)[0]
+            ?.trim()
+            .toLowerCase() === "text/event-stream",
+          receipt?.kind === "inference",
+        );
+        evidence.hop.status = response.status;
+      }
+      return { response, controller, release, evidence };
     } catch (error) {
+      if (hop !== undefined)
+        new ResponseEvidence(hop, false, receipt?.kind === "inference").finish(
+          controller.signal.aborted ? "cancelled" : "transport_error",
+        );
       release();
       throw error;
     }
@@ -1114,6 +1248,7 @@ export class AccountPoolHub {
         headers.append(name, value);
     }
     if (upstream.response.body === null) {
+      upstream.evidence?.finish();
       upstream.release();
       return new Response(null, {
         status: upstream.response.status,
@@ -1133,10 +1268,21 @@ export class AccountPoolHub {
         try {
           const chunk = await reader.read();
           if (chunk.done) {
+            upstream.evidence?.finish(
+              upstream.controller.signal.aborted ? "cancelled" : undefined,
+            );
             upstream.release();
             controller.close();
-          } else controller.enqueue(chunk.value);
+          } else {
+            upstream.evidence?.feed(chunk.value);
+            controller.enqueue(chunk.value);
+          }
         } catch (error) {
+          upstream.evidence?.finish(
+            upstream.controller.signal.aborted
+              ? "cancelled"
+              : "transport_error",
+          );
           upstream.release();
           if (!eventStream) {
             controller.error(
@@ -1153,6 +1299,7 @@ export class AccountPoolHub {
         }
       },
       async cancel() {
+        upstream.evidence?.finish("cancelled");
         upstream.controller.abort();
         await reader.cancel().catch(() => undefined);
         upstream.release();

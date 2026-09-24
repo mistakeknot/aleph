@@ -62,6 +62,463 @@ interface Fixture {
 
 const cleanups: Array<() => Promise<void>> = [];
 
+describe("attempt receipts", () => {
+  it("waits for each concurrent stream without sharing same-host evidence", async () => {
+    const streams: ReadableStreamDefaultController<Uint8Array>[] = [];
+    const fixture = await createFixture({
+      upstreamUrl: "https://upstream.example",
+      options: {
+        fetch: async () =>
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                streams.push(controller);
+              },
+            }),
+            { headers: { "content-type": "application/json" } },
+          ),
+      },
+    });
+    const leases = await Promise.all(
+      ["one", "two"].map(async (name) =>
+        leaseSchema.parse(await (await begin(fixture, "claude", name)).json()),
+      ),
+    );
+    const responses = await Promise.all(
+      leases.map((lease) =>
+        fixture.host.harness.behavior.fetchHttp("POST", "/v1/messages", {
+          headers: { authorization: `Bearer ${lease.token}` },
+          body: "{}",
+        }),
+      ),
+    );
+    const bodies = responses.map((response) => response.text());
+    const first = leases[0];
+    const second = leases[1];
+    if (first === undefined || second === undefined)
+      throw new Error("missing leases");
+    expect(
+      receiptSchema.parse(await (await seal(fixture, first.id, "one")).json())
+        .complete,
+    ).toBe(false);
+    streams[1]?.enqueue(
+      new TextEncoder().encode(
+        JSON.stringify({
+          type: "message",
+          stop_reason: "end_turn",
+          model: "second",
+          usage: { input_tokens: 9, output_tokens: 1 },
+        }),
+      ),
+    );
+    streams[1]?.close();
+    await bodies[1];
+    expect(
+      receiptSchema.parse(await (await seal(fixture, second.id, "two")).json()),
+    ).toMatchObject({
+      complete: true,
+      requests: [{ hops: [{ model: "second" }] }],
+    });
+    expect(
+      receiptSchema.parse(await (await seal(fixture, first.id, "one")).json())
+        .complete,
+    ).toBe(false);
+    streams[0]?.enqueue(
+      new TextEncoder().encode(
+        JSON.stringify({
+          type: "message",
+          stop_reason: "end_turn",
+          model: "first",
+          usage: { input_tokens: 2, output_tokens: 1 },
+        }),
+      ),
+    );
+    streams[0]?.close();
+    await bodies[0];
+    expect(
+      receiptSchema.parse(await (await seal(fixture, first.id, "one")).json()),
+    ).toMatchObject({
+      complete: true,
+      requests: [{ hops: [{ model: "first" }] }],
+    });
+  });
+
+  async function begin(
+    fixture: Fixture,
+    provider = "claude",
+    attempt = "attempt-one",
+  ) {
+    return fixture.host.harness.behavior.fetchHttp("POST", "/receipts/begin", {
+      headers: { "x-bb-account-pool-token": fixture.key },
+      body: JSON.stringify({ version: 1, provider, attempt_id: attempt }),
+    });
+  }
+
+  async function seal(
+    fixture: Fixture,
+    id: string,
+    attempt = "attempt-one",
+    key = fixture.key,
+  ) {
+    return fixture.host.harness.behavior.fetchHttp(
+      "POST",
+      "/receipts/finalize",
+      {
+        headers: { "x-bb-account-pool-token": key },
+        body: JSON.stringify({ version: 1, id, attempt_id: attempt }),
+      },
+    );
+  }
+
+  const leaseSchema = z.object({
+    id: z.string(),
+    token: z.string(),
+    host_id: z.string(),
+    version: z.literal(1),
+  });
+  const receiptSchema = z.object({
+    complete: z.boolean(),
+    sealed: z.boolean(),
+    valid: z.boolean(),
+    requests: z.array(
+      z.object({
+        kind: z.string(),
+        state: z.string(),
+        hops: z.array(
+          z.object({
+            account_id: z.string(),
+            provider: z.string(),
+            state: z.string(),
+            model: z.string().nullable(),
+            usage: z
+              .object({ input_tokens: z.number(), output_tokens: z.number() })
+              .passthrough()
+              .nullable(),
+          }),
+        ),
+      }),
+    ),
+  });
+
+  it.each(["/v1/images/generations", "/v1/images/edits", "/v1/alpha/search"])(
+    "retains unknown inference usage for %s without poisoning later requests",
+    async (route) => {
+      const fixture = await createOAuthRequestFixture(
+        "codex",
+        async () => Response.json({ data: [] }),
+        Date.now,
+      );
+      const lease = leaseSchema.parse(
+        await (await begin(fixture, "codex")).json(),
+      );
+      for (const routePath of [route, "/v1/responses"]) {
+        const response = await fixture.host.harness.behavior.fetchHttp(
+          "POST",
+          routePath,
+          {
+            headers: { "x-bb-account-pool-token": lease.token },
+            body: "{}",
+          },
+        );
+        expect(response.status).toBe(200);
+        await response.text();
+      }
+      const receipt = receiptSchema.parse(
+        await (await seal(fixture, lease.id)).json(),
+      );
+      expect(receipt).toMatchObject({ valid: true, complete: true });
+      expect(receipt.requests).toHaveLength(2);
+      expect(receipt.requests[0]).toMatchObject({
+        kind: "inference",
+        hops: [{ usage: null }],
+      });
+      expect(receipt.requests[0]?.hops[0]?.state).not.toBe("complete");
+    },
+  );
+
+  it.each(["claude", "codex"] as const)(
+    "records actual %s response evidence without credentials or content",
+    async (provider) => {
+      const fixture = await createOAuthRequestFixture(
+        provider,
+        async (_input, init) => {
+          expect(
+            new Headers(init?.headers).get("x-bb-account-pool-token"),
+          ).toBeNull();
+          return Response.json({
+            model: "observed-model",
+            usage: { input_tokens: 13, output_tokens: 4 },
+            ...(provider === "codex"
+              ? { status: "completed" }
+              : { type: "message", stop_reason: "end_turn" }),
+            content: "private completion",
+          });
+        },
+        Date.now,
+      );
+      const started = await begin(fixture, provider);
+      expect(started.status).toBe(200);
+      const lease = leaseSchema.parse(await started.json());
+      for (let i = 0; i < 2; i++) {
+        const response = await fixture.host.harness.behavior.fetchHttp(
+          "POST",
+          provider === "codex" ? "/v1/responses" : "/v1/messages",
+          {
+            headers: { "x-bb-account-pool-token": lease.token },
+            body: JSON.stringify({ model: "requested-model", messages: [] }),
+          },
+        );
+        expect(response.status).toBe(200);
+        await response.text();
+      }
+      const result = await seal(fixture, lease.id);
+      const raw = await result.text();
+      const receipt = receiptSchema.parse(JSON.parse(raw));
+      expect(receipt.complete).toBe(true);
+      expect(receipt.requests).toHaveLength(2);
+      expect(receipt.requests[0]?.hops[0]).toMatchObject({
+        account_id: fixture.account.id,
+        provider,
+        model: "observed-model",
+        state: "complete",
+        usage: { input_tokens: 13, output_tokens: 4 },
+      });
+      for (const secret of [
+        fixture.key,
+        lease.token,
+        "sk-account",
+        "private completion",
+        "requested-model",
+      ])
+        expect(raw).not.toContain(secret);
+      expect(
+        (
+          await fixture.host.harness.behavior.fetchHttp(
+            "POST",
+            "/v1/messages",
+            { headers: { authorization: `Bearer ${lease.token}` }, body: "{}" },
+          )
+        ).status,
+      ).toBe(409);
+    },
+  );
+
+  it("rejects wrong owner, nonce, delegated begin, and empty success", async () => {
+    const fixture = await createFixture({
+      upstreamUrl: "https://upstream.example",
+    });
+    const lease = leaseSchema.parse(await (await begin(fixture)).json());
+    expect((await seal(fixture, lease.id, "wrong-attempt")).status).toBe(404);
+    expect(
+      (
+        await seal(
+          fixture,
+          lease.id,
+          "attempt-one",
+          await resolveToken(fixture.host, "host-two"),
+        )
+      ).status,
+    ).toBe(404);
+    expect((await begin({ ...fixture, key: lease.token })).status).toBe(401);
+    const receipt = receiptSchema.parse(
+      await (await seal(fixture, lease.id)).json(),
+    );
+    expect(receipt.complete).toBe(false);
+    expect(receipt.requests).toEqual([]);
+  });
+
+  it.each(["truncated", "missing", "cancelled"])(
+    "preserves %s stream evidence",
+    async (mode) => {
+      const fixture = await createFixture({
+        upstreamUrl: "https://upstream.example",
+        options: {
+          fetch: async () =>
+            new Response(
+              new ReadableStream({
+                start(controller) {
+                  controller.enqueue(
+                    new TextEncoder().encode(
+                      'event: message_start\ndata: {"type":"message_start","message":{"model":"actual","usage":{"input_tokens":3,"output_tokens":0}}}\n\n',
+                    ),
+                  );
+                  if (mode !== "cancelled") controller.close();
+                },
+              }),
+              { headers: { "content-type": "text/event-stream" } },
+            ),
+        },
+      });
+      const lease = leaseSchema.parse(await (await begin(fixture)).json());
+      const response = await fixture.host.harness.behavior.fetchHttp(
+        "POST",
+        "/v1/messages",
+        { headers: { authorization: `Bearer ${lease.token}` }, body: "{}" },
+      );
+      if (mode === "cancelled") {
+        const pending = receiptSchema.parse(
+          await (await seal(fixture, lease.id)).json(),
+        );
+        expect(pending.complete).toBe(false);
+        await response.body?.cancel();
+      } else await response.text();
+      const receipt = receiptSchema.parse(
+        await (await seal(fixture, lease.id)).json(),
+      );
+      expect(receipt.requests[0]?.hops[0]?.state).not.toBe("complete");
+      expect(receipt.requests[0]?.hops[0]?.usage).toBeNull();
+    },
+  );
+
+  it.each(["claude", "codex"] as const)(
+    "accounts for complete fragmented %s streams",
+    async (provider) => {
+      const data =
+        provider === "claude"
+          ? 'data: {"type":"message_start","message":{"model":"actual","usage":{"input_tokens":3,"output_tokens":0,"cache_read_input_tokens":2}}}\r\n\r\ndata: {"type":"message_delta","usage":{"output_tokens":4}}\r\n\r\ndata: {"type":"message_stop"}\r\n\r\n'
+          : 'data: {"type":"response.completed","response":{"status":"completed","model":"actual","usage":{"input_tokens":5,"output_tokens":4,"input_tokens_details":{"cached_tokens":2}}}}\n\ndata: [DONE]\n\n';
+      const fixture = await createOAuthRequestFixture(
+        provider,
+        async () =>
+          new Response(
+            new ReadableStream({
+              start(controller) {
+                for (const byte of new TextEncoder().encode(data))
+                  controller.enqueue(new Uint8Array([byte]));
+                controller.close();
+              },
+            }),
+            { headers: { "content-type": "text/event-stream" } },
+          ),
+        Date.now,
+      );
+      const lease = leaseSchema.parse(
+        await (await begin(fixture, provider)).json(),
+      );
+      const response = await fixture.host.harness.behavior.fetchHttp(
+        "POST",
+        provider === "claude" ? "/v1/messages" : "/v1/responses",
+        { headers: { authorization: `Bearer ${lease.token}` }, body: "{}" },
+      );
+      await response.text();
+      const receipt = receiptSchema.parse(
+        await (await seal(fixture, lease.id)).json(),
+      );
+      expect(receipt.complete).toBe(true);
+      expect(receipt.requests[0]?.hops[0]).toMatchObject({
+        state: "complete",
+        model: "actual",
+        usage: {
+          input_tokens: 3,
+          output_tokens: 4,
+          cache_read_input_tokens: 2,
+        },
+      });
+    },
+  );
+
+  it.each(["rejected", "transport"])(
+    "preserves %s failover hops and isolates concurrent attempts",
+    async (failure) => {
+      let calls = 0;
+      const fixture = await createFixture({
+        upstreamUrl: "https://upstream.example",
+        options: {
+          fetch: async () => {
+            if (++calls === 1) {
+              if (failure === "transport")
+                throw new Error("secret transport detail");
+              return new Response("secret rejection detail", { status: 503 });
+            }
+            return Response.json({
+              type: "message",
+              stop_reason: "end_turn",
+              model: "actual",
+              usage: { input_tokens: 1, output_tokens: 2 },
+            });
+          },
+        },
+      });
+      await fixture.host.harness.behavior.callRpc("account.add", {
+        provider: "claude",
+        source: { kind: "api-key", apiKey: "sk-second" },
+        label: null,
+        priority: 200,
+      });
+      const one = leaseSchema.parse(await (await begin(fixture)).json());
+      const two = leaseSchema.parse(
+        await (await begin(fixture, "claude", "attempt-two")).json(),
+      );
+      await (
+        await fixture.host.harness.behavior.fetchHttp("POST", "/v1/messages", {
+          headers: { authorization: `Bearer ${one.token}` },
+          body: "{}",
+        })
+      ).text();
+      const raw = await (await seal(fixture, one.id)).text();
+      const receipt = receiptSchema.parse(JSON.parse(raw));
+      expect(receipt.complete).toBe(true);
+      expect(receipt.requests[0]?.hops).toHaveLength(2);
+      expect(receipt.requests[0]?.hops[0]).toMatchObject({
+        account_id: fixture.account.id,
+        usage: null,
+        state: failure === "transport" ? "transport_error" : "rejected",
+      });
+      expect(receipt.requests[0]?.hops[1]?.state).toBe("complete");
+      expect(raw).not.toContain("secret");
+      expect(
+        receiptSchema.parse(
+          await (await seal(fixture, two.id, "attempt-two")).json(),
+        ).requests,
+      ).toHaveLength(0);
+    },
+  );
+
+  it("does not attribute count_tokens metadata to billable model usage", async () => {
+    const fixture = await createFixture({
+      upstreamUrl: "https://upstream.example",
+      options: {
+        fetch: async () =>
+          Response.json({ input_tokens: 91, model: "not-inference" }),
+      },
+    });
+    const lease = leaseSchema.parse(await (await begin(fixture)).json());
+    await (
+      await fixture.host.harness.behavior.fetchHttp(
+        "POST",
+        "/v1/messages/count_tokens",
+        { headers: { authorization: `Bearer ${lease.token}` }, body: "{}" },
+      )
+    ).text();
+    const receipt = receiptSchema.parse(
+      await (await seal(fixture, lease.id)).json(),
+    );
+    expect(receipt.requests[0]).toMatchObject({
+      kind: "metadata",
+      hops: [{ state: "unknown", model: null, usage: null }],
+    });
+  });
+
+  it("rejects nested-parent receipt production before upstream inference", async () => {
+    let inference = false;
+    const fixture = await createFixture({
+      upstreamUrl: "https://upstream.example",
+      options: {
+        env: {
+          BB_ACCOUNT_POOL_PARENT_URL: "https://parent.example/http",
+          BB_ACCOUNT_POOL_PARENT_TOKEN: "a".repeat(43),
+        },
+        fetch: async (input) => {
+          if (!String(input).endsWith("/availability")) inference = true;
+          return Response.json({ claude: true, codex: true });
+        },
+      },
+    });
+    expect((await begin(fixture)).status).toBe(503);
+    expect(inference).toBe(false);
+  });
+});
+
 function sdkStubs() {
   return {
     hosts: {

@@ -444,6 +444,14 @@ export function createAccountPoolPlugin(
         if (timer !== null) clearTimeout(timer);
       }
     });
+    for (const operation of ["begin", "finalize"] as const) {
+      bb.http.route(
+        "POST",
+        `/receipts/${operation}`,
+        (context) => hub.receipt(context.req.raw, operation),
+        { auth: "none" },
+      );
+    }
     for (const route of ["/v1/messages", "/v1/messages/count_tokens"]) {
       bb.http.route(
         "POST",

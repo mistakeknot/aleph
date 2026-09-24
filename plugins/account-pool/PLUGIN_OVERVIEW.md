@@ -33,4 +33,6 @@ This plugin is experimental. Routing behavior, stored data, and the CLI can chan
 
 ## For agents
 
+[Attempt receipts](RECEIPTS.md) provide per-run accounting.
+
 `bb pool account add|list|remove|enable|disable|priority|reorder`, `bb pool status`, `bb pool routing <claude|codex> [--off]`, `bb pool config`, `bb pool config set`, `bb pool parent [proxy|isolate]`, `bb pool token rotate`, and `bb pool bypass <thread-id>`. Every command takes `--json` and `--help`; `bb pool --help` lists the commands and `bb pool <command> --help` prints its arguments, options, and rules.
