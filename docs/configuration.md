@@ -1066,7 +1066,7 @@ sequence without moving the current account. `bb pool account priority <id> <n>`
 sets an individual priority; the same operations are available through the
 `account.reorder` and `account.setPriority` plugin RPCs.
 
-Three plugin-owned configuration values control routing. `switchThreshold` is
+Plugin-owned configuration values control routing. `switchThreshold` is
 the shared or requested model-family quota fraction at which an account stops
 receiving matching traffic and defaults to `0.98`.
 `anthropicUpstreamBaseUrl` defaults to `https://api.anthropic.com` and
@@ -1076,11 +1076,20 @@ and models routes; the hub forwards each request upstream over HTTPS SSE
 without keeping session state. Both URL values exist only for tests and QA
 with a controlled fake upstream. Inspect or update the full plugin KV-backed configuration with:
 
+`execInputDir` defaults to disabled. Set it to the one absolute host directory
+from which `bb pool exec --stdin-file` may read. The host resolves both the
+configured directory and requested file and rejects paths, traversal, and
+symlinks that escape it. Set the value back to `disabled` to reject all stdin
+files. `parentMode` controls nested-server proxying as described by
+`bb pool parent --help`.
+
 ```sh
 bb pool config
 bb pool config set switchThreshold 0.98
 bb pool config set anthropicUpstreamBaseUrl http://127.0.0.1:9000
 bb pool config set codexUpstreamBaseUrl http://127.0.0.1:9001
+bb pool config set execInputDir /absolute/scheduler/artifacts
+bb pool config set execInputDir disabled
 ```
 
 Upgrading from an Account Pooler build that stored these values through

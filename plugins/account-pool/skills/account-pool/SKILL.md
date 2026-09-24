@@ -13,9 +13,12 @@ Use `bb pool exec -- codex ...` or `bb pool exec -- claude ...` when a process
 outside a bb thread must use the current pool on the server's primary enrolled
 host. The command exits with the child status. A successful child start adds a
 `bb-pool-exec: transport=pooled provider=<provider>` stderr marker; an
-unavailable pool or host runner fails without that marker.
+unavailable pool or a host found offline before dispatch fails without that
+marker. Lost contact after dispatch carries the marker and must not be retried.
 Use `--stdin-file <absolute-path>` before `--` when the child reads a prompt
-from stdin; the file is read on the enrolled host and is limited to 8 MiB.
+from stdin. First configure its only permitted directory with
+`bb pool config set execInputDir <absolute-directory>`. The file is read on the
+enrolled host, must resolve beneath that directory, and is limited to 8 MiB.
 
 For account login/import, secret handling, quota refresh, routing settings,
 ordering, or failover, read

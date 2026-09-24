@@ -69,10 +69,12 @@ function sdkStubs() {
         {
           id: "host-one",
           name: "One",
+          status: "connected" as const,
         },
         {
           id: "host-two",
           name: "Two",
+          status: "connected" as const,
         },
       ],
     },
@@ -366,6 +368,7 @@ describe("Account Pool config schema", () => {
       codexUpstreamBaseUrl: "https://chatgpt.com/backend-api/codex",
       switchThreshold: 0.98,
       parentMode: "proxy",
+      execInputDir: null,
     });
     expect(
       accountPoolConfigSetInputSchema.safeParse({
@@ -466,6 +469,7 @@ describe("Account Pool plugin", () => {
       codexUpstreamBaseUrl: "https://chatgpt.com/backend-api/codex",
       switchThreshold: 0.75,
       parentMode: "proxy",
+      execInputDir: null,
     });
     expect(
       accountPoolConfigSchema.parse(await host.bb.storage.kv.get("config")),
@@ -6549,6 +6553,12 @@ describe("pool exec CLI", () => {
         };
       },
     });
+    await fixture.host.harness.behavior.runCli([
+      "config",
+      "set",
+      "execInputDir",
+      "/tmp",
+    ]);
 
     const result = await fixture.host.harness.behavior.runCli(
       [
@@ -6556,7 +6566,7 @@ describe("pool exec CLI", () => {
         "--stdin-file",
         "/tmp/prompt.txt",
         "--",
-        "/home/mk/.local/bin/codex",
+        "codex",
         "exec",
         "hello",
       ],
@@ -6574,10 +6584,10 @@ describe("pool exec CLI", () => {
       hostId: "host-one",
       input: {
         provider: "codex",
-        command: "/home/mk/.local/bin/codex",
         args: ["exec", "hello"],
         cwd: "/work",
         stdinPath: "/tmp/prompt.txt",
+        stdinDir: "/tmp",
         baseUrl: "http://127.0.0.1:38886/api/v1/plugins/account-pool/http/v1",
       },
     });
@@ -6624,7 +6634,73 @@ describe("pool exec CLI", () => {
     ]);
 
     expect(result.exitCode).toBe(1);
-    expect(result.stderr).toContain("only launches codex or claude");
+    expect(result.stderr).toContain("bare command name codex or claude");
     expect(hostRpc).not.toHaveBeenCalled();
+  });
+
+  it("rejects path-qualified Codex commands", async () => {
+    const hostRpc = vi.fn();
+    const fixture = await createFixture({
+      upstreamUrl: "https://example.com",
+      hostRpc,
+    });
+
+    const result = await fixture.host.harness.behavior.runCli([
+      "exec",
+      "--",
+      "/tmp/codex",
+      "exec",
+      "hello",
+    ]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("bare command name");
+    expect(hostRpc).not.toHaveBeenCalled();
+  });
+
+  it("distinguishes a preflight-offline host from lost contact after dispatch", async () => {
+    const offlineRpc = vi.fn();
+    const offline = await createFixture({
+      upstreamUrl: "https://example.com",
+      hostRpc: offlineRpc,
+      beforePlugin: (host) => {
+        host.harness.sdk.stub("hosts.list", async () => [
+          { id: "host-one", name: "One", status: "disconnected" },
+        ]);
+      },
+    });
+
+    const preflight = await offline.host.harness.behavior.runCli([
+      "exec",
+      "--",
+      "claude",
+      "--print",
+      "hello",
+    ]);
+    expect(preflight.exitCode).toBe(1);
+    expect(preflight.stderr).toContain(
+      "could not reach its command runner on the primary enrolled host",
+    );
+    expect(preflight.stderr).not.toContain("transport=pooled");
+    expect(offlineRpc).not.toHaveBeenCalled();
+
+    const dispatched = await createFixture({
+      upstreamUrl: "https://example.com",
+      hostRpc: async () => {
+        throw new Error("socket closed");
+      },
+    });
+    const lost = await dispatched.host.harness.behavior.runCli([
+      "exec",
+      "--",
+      "claude",
+      "--print",
+      "hello",
+    ]);
+    expect(lost.exitCode).toBe(1);
+    expect(lost.stderr).toContain("transport=pooled provider=claude");
+    expect(lost.stderr).toContain("lost contact");
+    expect(lost.stderr).toContain("may have started");
+    expect(lost.stderr).not.toContain("could not reach its command runner");
   });
 });

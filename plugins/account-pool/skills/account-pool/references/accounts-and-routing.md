@@ -21,7 +21,7 @@ bb pool account refresh <id>
 bb pool status [--json]
 bb pool routing <claude|codex> [--off]
 bb pool config
-bb pool config set <anthropicUpstreamBaseUrl|codexUpstreamBaseUrl|switchThreshold|parentMode> <value>
+bb pool config set <anthropicUpstreamBaseUrl|codexUpstreamBaseUrl|switchThreshold|parentMode|execInputDir> <value>
 bb pool parent [proxy|isolate]
 bb pool token rotate --machine <id-or-name>
 bb pool bypass <thread-id> [--off]
@@ -71,22 +71,31 @@ UUID is aligned with the selected OAuth account. Use `bb pool config` to
 inspect the full routing configuration and
 `bb pool config set <key> <value>` to update one value. The upstream URL keys
 are QA-only overrides; `switchThreshold` must be greater than 0 and at most 1.
+`execInputDir` is the sole host directory from which `bb pool exec
+--stdin-file` may read; set it to an absolute directory, or set it to
+`disabled` to reject all stdin files.
 
 `bb pool exec` is the non-thread entry point for scheduled or supervised
-processes running on the bb server's primary enrolled host. It accepts only a
-`codex` or `claude` executable after `--`, fetches the current machine token at
+processes running on the bb server's primary enrolled host. It accepts only the
+bare provider name `codex` or `claude` after `--`; paths and alternate
+executables are rejected, and the host daemon resolves that name from its own
+`PATH`. It fetches the current machine token at
 invocation time, and sends it to the host daemon over authenticated host RPC.
 The daemon puts the credential only in the child environment, redacts an exact
 token if the child echoes it, and never stores or prints it. Codex's non-secret
 custom-provider settings are passed as `-c` options because Codex does not read
 its custom provider base URL from an environment variable; the bearer remains
 environment-only. The command preserves stdout, stderr, and the child's exit
-code. Its stderr start marker distinguishes a child failure from a pre-start
-pool or host-runner failure, so callers can safely restrict direct-provider
-fallback to the latter case.
+code. Caller Codex arguments may not override `model_provider` or the pooled
+provider's configuration. A pre-dispatch host check is the only host-offline
+case reported without a start marker. If RPC fails after dispatch, the command
+reports that contact was lost and the child may have started, adds the marker,
+and must not be replayed.
 For a child that expects stdin, `--stdin-file` names an absolute file on the
-enrolled host. The daemon reads at most 8 MiB and pipes the bytes to the child;
-the caller remains responsible for file permissions and deletion.
+enrolled host. `execInputDir` must be configured first. The daemon resolves
+both paths, rejects files outside that directory (including symlink escapes),
+reads at most 8 MiB, and pipes the bytes to the child; the caller remains
+responsible for file permissions and deletion.
 
 Accounts run sequentially per provider: lower priority numbers first, with ties
 following the order accounts were added. New conversations use the current

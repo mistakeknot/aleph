@@ -1,5 +1,9 @@
 import { spawn as nodeSpawn } from "node:child_process";
-import { readFile as nodeReadFile } from "node:fs/promises";
+import {
+  readFile as nodeReadFile,
+  realpath as nodeRealpath,
+} from "node:fs/promises";
+import path from "node:path";
 import { experimental_defineHostEntry } from "@get-bb/plugin-sdk/host";
 import { poolExecHostContract } from "./exec-contract.js";
 
@@ -22,6 +26,7 @@ interface PoolExecChild {
 interface PoolExecHostDependencies {
   env: NodeJS.ProcessEnv;
   readFile(path: string): Promise<Buffer>;
+  realpath(path: string): Promise<string>;
   spawn(
     command: string,
     args: readonly string[],
@@ -57,6 +62,41 @@ function codexArgs(args: readonly string[], baseUrl: string): string[] {
   ];
 }
 
+function protectedCodexConfig(args: readonly string[]): string | null {
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] ?? "";
+    let value: string | undefined;
+    if (arg === "-c" || arg === "--config") {
+      value = args[index + 1];
+      index += 1;
+    } else if (arg.startsWith("-c=") || arg.startsWith("--config=")) {
+      value = arg.slice(arg.indexOf("=") + 1);
+    }
+    if (value === undefined) continue;
+    const key = value.split("=", 1)[0]?.replace(/\s/gu, "") ?? "";
+    if (
+      key === "model_provider" ||
+      key === "model_providers" ||
+      /^model_providers\.(?:bb-account-pool|["']bb-account-pool["'])(?:\.|$)/u.test(
+        key,
+      )
+    ) {
+      return key;
+    }
+  }
+  return null;
+}
+
+function isWithin(directory: string, candidate: string): boolean {
+  const relative = path.relative(directory, candidate);
+  return (
+    relative !== "" &&
+    relative !== ".." &&
+    !relative.startsWith(`..${path.sep}`) &&
+    !path.isAbsolute(relative)
+  );
+}
+
 export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
   const active = new Set<PoolExecChild>();
 
@@ -64,10 +104,42 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
     contract: poolExecHostContract,
     handlers: {
       async run(input, context) {
+        if (input.provider === "codex") {
+          const protectedKey = protectedCodexConfig(input.args);
+          if (protectedKey !== null) {
+            return {
+              started: false,
+              exitCode: 1,
+              stdout: "",
+              stderr: `Codex argument overrides protected Account Pooler setting ${protectedKey}.\n`,
+            };
+          }
+        }
         let stdin: Buffer<ArrayBufferLike> = Buffer.alloc(0);
         if (input.stdinPath !== null) {
+          if (input.stdinDir === null) {
+            return {
+              started: false,
+              exitCode: 1,
+              stdout: "",
+              stderr:
+                "Account Pooler stdin files are disabled; configure execInputDir first.\n",
+            };
+          }
           try {
-            stdin = await deps.readFile(input.stdinPath);
+            const [stdinDir, stdinPath] = await Promise.all([
+              deps.realpath(input.stdinDir),
+              deps.realpath(input.stdinPath),
+            ]);
+            if (!isWithin(stdinDir, stdinPath)) {
+              return {
+                started: false,
+                exitCode: 1,
+                stdout: "",
+                stderr: `${input.provider} stdin file is outside the configured directory.\n`,
+              };
+            }
+            stdin = await deps.readFile(stdinPath);
           } catch (error) {
             return {
               started: false,
@@ -103,7 +175,7 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
 
           let child: PoolExecChild;
           try {
-            child = deps.spawn(input.command, args, {
+            child = deps.spawn(input.provider, args, {
               ...(input.cwd === null ? {} : { cwd: input.cwd }),
               env,
               stdio: ["pipe", "pipe", "pipe"],
@@ -203,6 +275,7 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
 export default createAccountPoolHostEntry({
   env: process.env,
   readFile: nodeReadFile,
+  realpath: nodeRealpath,
   spawn(command, args, options) {
     return nodeSpawn(command, [...args], options);
   },
