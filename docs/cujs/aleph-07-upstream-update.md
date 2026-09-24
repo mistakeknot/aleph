@@ -3,6 +3,7 @@ artifact_type: cuj
 journey: upstream-update
 actor: solo operator (approves), coordinator agent (prepares)
 criticality: p1
+bead: none
 ---
 
 # Update Aleph to a new upstream release

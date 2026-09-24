@@ -3,6 +3,7 @@ artifact_type: cuj
 journey: no-dead-jobs
 actor: coordinator agent or scheduled job (dispatches), worker agent (runs), solo operator (approves reroutes)
 criticality: p0
+bead: none
 ---
 
 # No job dies on one exhausted account
@@ -32,7 +33,8 @@ spent working out what happened and restarting it.
 | Thread traffic spread across pooled accounts; exhausted accounts rechecked before refusal | **Shipped** (upstream Account Pooler) |
 | `bb pool exec -- codex exec …` / `-- claude --print …` for scripted runs | **Shipped** |
 | Argument allowlist; token only in the child's environment | **Shipped** |
-| `transport=pooled` / `pool-unconfirmed` marker; unconfirmed runs never replayed | **Shipped** |
+| `transport=pooled` / `pool-unconfirmed` marker; `bb pool exec` itself never retries | **Shipped** |
+| Callers record unconfirmed runs as unknown and don't replay them | **Convention** (a caller rule; not enforced by bb) |
 | Pooled Claude isolated from the calling folder's settings | **Shipped** |
 | Switch a thread's provider in place, keeping its place in the thread tree | **Shipped** (needs the local handoff plugin) |
 | Transient refusals waited out instead of killing the thread | **Planned** |
@@ -54,8 +56,8 @@ child with the machine token in its environment only. stderr begins with
 request to an account with headroom. If the pool is unavailable before
 dispatch, the command fails with no marker and can be retried safely. If
 contact is lost after dispatch, the marker reads
-`transport=pool-unconfirmed`, and the run is recorded as unknown and not
-replayed.
+`transport=pool-unconfirmed`. `bb pool exec` never retries; recording the run
+as unknown and not replaying it is the caller's job.
 
 *Planned:* when every account for the provider is briefly refused, the run
 waits with a bounded backoff instead of dying, and reports BLOCKED only if
@@ -78,7 +80,7 @@ so the coordinator's tree stays intact and the work continues.
 |---|---|---|---|
 | Scripted runs use the pool | measurable | active | stderr of each scripted run begins with `bb-pool-exec: transport=pooled provider=<provider>` |
 | No exhausted-login failures with headroom left | observable | active | No pooled run fails on an exhausted account while `bb pool status` shows another account with capacity |
-| Unconfirmed runs aren't replayed | observable | active | After `transport=pool-unconfirmed`, no second attempt starts |
+| Unconfirmed runs aren't replayed | observable | active | After `transport=pool-unconfirmed`, `bb pool exec` starts no second attempt; callers that follow the convention don't either |
 | Credential stays in the child | measurable | active | Machine token appears in no argument, file, log or output line |
 | Provider switch keeps the tree | measurable | active | After switch-in-place, the new thread has the original's title, pin, section, parent and children |
 | Transient refusals don't kill threads | measurable | planned | A 429 "no eligible account" leads to a bounded wait, not a failed thread |

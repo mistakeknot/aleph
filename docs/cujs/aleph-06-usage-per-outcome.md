@@ -3,6 +3,7 @@ artifact_type: cuj
 journey: usage-per-outcome
 actor: solo operator (reads), coordinator agent (records)
 criticality: p1
+bead: none
 ---
 
 # The operator sees usage per outcome

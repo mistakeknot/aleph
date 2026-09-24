@@ -3,6 +3,7 @@ artifact_type: cuj
 journey: coordinator-rotation
 actor: coordinator agent (hands off and resumes), solo operator (approves)
 criticality: p1
+bead: none
 ---
 
 # Rotate a coordinator cleanly from a checkpoint

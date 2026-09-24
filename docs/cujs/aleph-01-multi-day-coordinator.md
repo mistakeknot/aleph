@@ -3,6 +3,7 @@ artifact_type: cuj
 journey: multi-day-coordinator
 actor: coordinator agent (runs the project), solo operator (decides)
 criticality: p0
+bead: none
 ---
 
 # Run a multi-day project without wake storms

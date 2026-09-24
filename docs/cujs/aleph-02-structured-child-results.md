@@ -3,6 +3,7 @@ artifact_type: cuj
 journey: structured-child-results
 actor: worker or reviewer agent (returns), coordinator agent (reads)
 criticality: p1
+bead: none
 ---
 
 # Children return capped, structured results

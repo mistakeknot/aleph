@@ -3,6 +3,7 @@ artifact_type: cuj
 journey: remote-access-across-upgrade
 actor: solo operator
 criticality: p1
+bead: none
 ---
 
 # Reach the server remotely across an upgrade

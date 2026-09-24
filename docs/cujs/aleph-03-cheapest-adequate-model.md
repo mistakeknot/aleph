@@ -3,6 +3,7 @@ artifact_type: cuj
 journey: cheapest-adequate-model
 actor: coordinator agent (routes and requests review), reviewer agent (reviews)
 criticality: p1
+bead: none
 ---
 
 # Route work to the cheapest adequate model, with bounded cross-provider review
