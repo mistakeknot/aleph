@@ -22,6 +22,47 @@ function fakeChild() {
 }
 
 describe("Account Pooler host exec", () => {
+  it.each([null, "/configured-input"])(
+    "forwards a 414 KiB prompt from the daemon default or server override %s",
+    async (stdinDir) => {
+      const child = fakeChild();
+      const spawn = vi.fn(() => child);
+      const prompt = Buffer.alloc(414 * 1024, "p");
+      const readInput = vi.fn(async () => prompt);
+      const env = { HOME: "/daemon-home", TMPDIR: "/private-tmp" };
+      const harness = experimental_createHostEntryHarness(
+        createAccountPoolHostEntry({ spawn, readInput, env }),
+      );
+      const directory =
+        stdinDir ?? "/daemon-home/.local/state/bb-account-pool/exec-input";
+      const received: Buffer[] = [];
+      child.stdin.on("data", (chunk) => received.push(Buffer.from(chunk)));
+      const pending = harness.experimental_call("run", {
+        provider: "codex",
+        args: ["exec", "-"],
+        cwd: "/caller-cwd",
+        stdinDir,
+        stdinPath: `${directory}/prompt`,
+        token: "pool-secret",
+        baseUrl: "http://127.0.0.1/v1",
+      });
+      await vi.waitFor(() => expect(spawn).toHaveBeenCalledOnce());
+      child.emit("spawn");
+      child.emit("close", 0, null);
+      await expect(pending).resolves.toMatchObject({
+        started: true,
+        providerPinned: true,
+        exitCode: 0,
+      });
+      expect(readInput).toHaveBeenCalledWith(
+        directory,
+        `${directory}/prompt`,
+        env,
+      );
+      expect(Buffer.concat(received)).toEqual(prompt);
+    },
+  );
+
   it.each([undefined, "daemon-config", "/daemon-config"])(
     "owns Claude settings sources and anchors config %s at the daemon, not the caller cwd",
     async (configDir) => {
@@ -215,7 +256,7 @@ describe("Account Pooler host exec", () => {
       const codexHome = path.join(home, "private", "codex");
       const inputs = path.join(root, "inputs");
       await mkdir(codexHome, { recursive: true });
-      await mkdir(inputs);
+      await mkdir(inputs, { mode: 0o700 });
       const prompt = path.join(inputs, "prompt");
       await writeFile(prompt, "test prompt", { mode: 0o600 });
       await symlink(prompt, path.join(inputs, "link"));

@@ -79,6 +79,10 @@ function codexArgs(args: readonly string[], baseUrl: string): string[] {
 
 export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
   const active = new Set<PoolExecChild>();
+  const defaultInputDir = path.resolve(
+    deps.env.HOME || homedir(),
+    ".local/state/bb-account-pool/exec-input",
+  );
   const claudeConfigDir = path.resolve(
     deps.env.CLAUDE_CONFIG_DIR ||
       path.join(deps.env.HOME || homedir(), ".claude"),
@@ -100,19 +104,9 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
         }
         let stdin: Buffer<ArrayBufferLike> = Buffer.alloc(0);
         if (input.stdinPath !== null) {
-          if (input.stdinDir === null) {
-            return {
-              started: false,
-              providerPinned: false,
-              exitCode: 1,
-              stdout: "",
-              stderr:
-                "Account Pooler stdin files are disabled; configure BB_ACCOUNT_POOL_EXEC_INPUT_DIR on the server first.\n",
-            };
-          }
           try {
             stdin = await (deps.readInput ?? readPoolInput)(
-              input.stdinDir,
+              input.stdinDir ?? defaultInputDir,
               input.stdinPath,
               deps.env,
             );

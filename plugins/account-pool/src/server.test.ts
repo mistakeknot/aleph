@@ -6959,80 +6959,83 @@ describe("pool exec CLI", () => {
     expect(hostRpc).not.toHaveBeenCalled();
   });
 
-  it("runs Codex on the primary host with the current in-memory pool route", async () => {
-    const calls: ExperimentalFakeHostRpcCall[] = [];
-    const fixture = await createFixture({
-      upstreamUrl: "https://example.com",
-      provider: "codex",
-      source: "import",
-      options: {
-        env: { BB_ACCOUNT_POOL_EXEC_INPUT_DIR: "/tmp" },
-        importCodexCredentials: async () => ({
-          accessToken: "codex-access",
-          refreshToken: "codex-refresh",
-          idToken: null,
-          accountId: "codex-account",
-          email: "pool@example.com",
-          expiresAt: null,
-        }),
-      },
-      hostRpc: (call) => {
-        calls.push(call);
-        return {
-          started: true,
-          providerPinned: true,
-          exitCode: 0,
-          stdout: "child output\n",
-          stderr: "",
-        };
-      },
-    });
-    const rejected = await fixture.host.harness.behavior.runCli([
-      "config",
-      "set",
-      "execInputDir",
-      "/tmp",
-    ]);
-    expect(rejected.exitCode).toBe(1);
-    await expect(
-      fixture.host.harness.behavior.callRpc("config.set", {
-        execInputDir: "/",
-      }),
-    ).rejects.toThrow();
-
-    const result = await fixture.host.harness.behavior.runCli(
-      [
-        "exec",
-        "--stdin-file",
-        "/tmp/prompt.txt",
-        "--",
-        "codex",
-        "exec",
-        "hello",
-      ],
-      { cwd: "/work" },
-    );
-
-    expect(result).toEqual({
-      exitCode: 0,
-      stdout: "child output\n",
-      stderr: "bb-pool-exec: transport=pooled provider=codex\n",
-    });
-    expect(calls).toHaveLength(1);
-    expect(calls[0]).toMatchObject({
-      method: "run",
-      hostId: "host-one",
-      input: {
+  it.each([undefined, "/tmp"])(
+    "runs Codex on the primary host with the server-owned stdin override %s",
+    async (inputDir) => {
+      const calls: ExperimentalFakeHostRpcCall[] = [];
+      const fixture = await createFixture({
+        upstreamUrl: "https://example.com",
         provider: "codex",
-        args: ["exec", "hello"],
-        cwd: "/work",
-        stdinPath: "/tmp/prompt.txt",
-        stdinDir: "/tmp",
-        baseUrl: "http://127.0.0.1:38886/api/v1/plugins/account-pool/http/v1",
-      },
-    });
-    expect((calls[0]?.input as { token: string }).token).toBe(fixture.key);
-  });
+        source: "import",
+        options: {
+          env: { BB_ACCOUNT_POOL_EXEC_INPUT_DIR: inputDir },
+          importCodexCredentials: async () => ({
+            accessToken: "codex-access",
+            refreshToken: "codex-refresh",
+            idToken: null,
+            accountId: "codex-account",
+            email: "pool@example.com",
+            expiresAt: null,
+          }),
+        },
+        hostRpc: (call) => {
+          calls.push(call);
+          return {
+            started: true,
+            providerPinned: true,
+            exitCode: 0,
+            stdout: "child output\n",
+            stderr: "",
+          };
+        },
+      });
+      const rejected = await fixture.host.harness.behavior.runCli([
+        "config",
+        "set",
+        "execInputDir",
+        "/tmp",
+      ]);
+      expect(rejected.exitCode).toBe(1);
+      await expect(
+        fixture.host.harness.behavior.callRpc("config.set", {
+          execInputDir: "/",
+        }),
+      ).rejects.toThrow();
+
+      const result = await fixture.host.harness.behavior.runCli(
+        [
+          "exec",
+          "--stdin-file",
+          "/tmp/prompt.txt",
+          "--",
+          "codex",
+          "exec",
+          "hello",
+        ],
+        { cwd: "/work" },
+      );
+
+      expect(result).toEqual({
+        exitCode: 0,
+        stdout: "child output\n",
+        stderr: "bb-pool-exec: transport=pooled provider=codex\n",
+      });
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toMatchObject({
+        method: "run",
+        hostId: "host-one",
+        input: {
+          provider: "codex",
+          args: ["exec", "hello"],
+          cwd: "/work",
+          stdinPath: "/tmp/prompt.txt",
+          stdinDir: inputDir ?? null,
+          baseUrl: "http://127.0.0.1:38886/api/v1/plugins/account-pool/http/v1",
+        },
+      });
+      expect((calls[0]?.input as { token: string }).token).toBe(fixture.key);
+    },
+  );
 
   it("fails clearly without starting a child when routing is unavailable", async () => {
     const hostRpc = vi.fn();
