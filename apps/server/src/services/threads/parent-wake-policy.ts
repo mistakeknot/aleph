@@ -1,5 +1,8 @@
 import { z } from "zod";
-import { getStoredTurnRequestEventForTurn } from "@bb/db";
+import {
+  getStoredTurnRequestEventForTurn,
+  hasThreadCompletedAnyOtherTurn,
+} from "@bb/db";
 import type { ThreadEventTurnStatus } from "@bb/domain";
 import type {
   MessageDispatchWaitDecision,
@@ -52,7 +55,11 @@ export function resolveParentWakeNotifySetting(): ParentWakeNotifySetting {
  * a self-continuation (compaction, rotation) or a cascade from some other
  * thread's own notice (a grandchild waking the child, which then wakes the
  * parent). `getStoredTurnRequestEventForTurn` returns null for a turn no
- * client request drove at all, which is the purest form of self-initiated.
+ * client request drove at all, which is the purest form of self-initiated —
+ * except for a child's very first turn, which a hidden delegated child is
+ * routinely dispatched into without ever going through that client-request
+ * path at all. That first completion is the only way anyone learns the
+ * delegated work is done, so it never counts as self-initiated.
  */
 export function isChildTurnSelfInitiated(
   deps: Pick<LoggedPendingInteractionWorkSessionDeps, "db">,
@@ -63,7 +70,10 @@ export function isChildTurnSelfInitiated(
     turnId: args.turnId,
   });
   if (requestRow === null) {
-    return true;
+    return hasThreadCompletedAnyOtherTurn(deps.db, {
+      threadId: args.childThreadId,
+      excludeTurnId: args.turnId,
+    });
   }
   const data: unknown = JSON.parse(requestRow.data);
   const initiator =

@@ -22,6 +22,7 @@ import {
   lt,
   lte,
   max,
+  ne,
   notExists,
   notInArray,
   or,
@@ -1285,6 +1286,11 @@ export interface HasStoredTurnStartedArgs {
   turnId: string;
 }
 
+export interface HasThreadCompletedAnyOtherTurnArgs {
+  threadId: string;
+  excludeTurnId: string;
+}
+
 export interface ThreadTurnKey {
   threadId: string;
   turnId: string;
@@ -1550,7 +1556,8 @@ export function listLatestThreadStateEventRowsByThreadIds(
       return db
         .select(storedEventRowFields)
         .from(events)
-        .where(sql`${events}.rowid IN (
+        .where(
+          sql`${events}.rowid IN (
         SELECT latest_state.rowid
         FROM ${events} AS latest_state INDEXED BY events_thread_state_thread_sequence_idx
         WHERE latest_state.thread_id IN (${threadIdList})
@@ -1562,7 +1569,8 @@ export function listLatestThreadStateEventRowsByThreadIds(
               AND candidate.type ${stateTypesPredicate}
               AND ${kindPredicate}
           )
-      )`)
+      )`,
+        )
         .all();
     },
 
@@ -2549,6 +2557,26 @@ export function hasStoredTurnStarted(
         eq(events.threadId, args.threadId),
         eq(events.type, "turn/started"),
         eq(events.turnId, args.turnId),
+      ),
+    )
+    .limit(1)
+    .get();
+
+  return row !== undefined;
+}
+
+export function hasThreadCompletedAnyOtherTurn(
+  db: DbQueryConnection,
+  args: HasThreadCompletedAnyOtherTurnArgs,
+): boolean {
+  const row = db
+    .select({ sequence: events.sequence })
+    .from(events)
+    .where(
+      and(
+        eq(events.threadId, args.threadId),
+        eq(events.type, "turn/completed"),
+        ne(events.turnId, args.excludeTurnId),
       ),
     )
     .limit(1)

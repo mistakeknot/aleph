@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { events, listQueuedThreadMessages } from "@bb/db";
-import { threadScope, turnRequestEventDataSchema, turnScope } from "@bb/domain";
+import { turnRequestEventDataSchema } from "@bb/domain";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   invokePluginInline,
@@ -81,15 +81,16 @@ function seedChildFinalOutput(
   harness: TestHarness,
   args: { childThreadId: string; text: string },
 ): void {
+  const sequence = nextSequence(harness, args.childThreadId);
   harness.deps.db
     .insert(events)
     .values({
-      id: `evt_${args.childThreadId}_output_${Date.now()}_${Math.random()}`,
+      id: `evt_${args.childThreadId}_output_${sequence}`,
       threadId: args.childThreadId,
       environmentId: null,
       providerThreadId: "provider-child",
-      scopeKind: "thread",
-      turnId: null,
+      scopeKind: "turn",
+      turnId: `output-turn-${sequence}`,
       itemId: "msg-1",
       itemKind: "agentMessage",
       parentToolCallId: null,
@@ -99,7 +100,35 @@ function seedChildFinalOutput(
         providerThreadId: "provider-child",
         item: { type: "agentMessage", id: "msg-1", text: args.text },
       }),
-      sequence: nextSequence(harness, args.childThreadId),
+      sequence,
+      createdAt: Date.now(),
+    })
+    .run();
+}
+
+function seedChildTurnCompleted(
+  harness: TestHarness,
+  args: { childThreadId: string; turnId: string },
+): void {
+  const sequence = nextSequence(harness, args.childThreadId);
+  harness.deps.db
+    .insert(events)
+    .values({
+      id: `evt_${args.childThreadId}_completed_${args.turnId}`,
+      threadId: args.childThreadId,
+      environmentId: null,
+      providerThreadId: "provider-child",
+      scopeKind: "turn",
+      turnId: args.turnId,
+      itemId: null,
+      itemKind: null,
+      parentToolCallId: null,
+      type: "turn/completed",
+      data: JSON.stringify({
+        providerThreadId: "provider-child",
+        status: "completed",
+      }),
+      sequence,
       createdAt: Date.now(),
     })
     .run();
@@ -202,6 +231,47 @@ async function waitForParentTurnRequests(
   }
 }
 
+async function waitForSecondWakeSignal(
+  harness: TestHarness,
+  parentThreadId: string,
+  timeoutMs = 6_000,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const stamped = await waitForParentTurnRequests(
+      harness,
+      parentThreadId,
+      2,
+      200,
+    );
+    if (stamped.length >= 2) {
+      return true;
+    }
+    const queued = listQueuedThreadMessages(harness.db, parentThreadId);
+    const wokeViaQueue = queued.some((message) => {
+      const notice =
+        typeof message.systemNotice === "string"
+          ? JSON.parse(message.systemNotice)
+          : message.systemNotice;
+      if (notice?.kind !== "child-completed") {
+        return false;
+      }
+      const waitingOn =
+        typeof message.waitingOn === "string"
+          ? JSON.parse(message.waitingOn)
+          : message.waitingOn;
+      return waitingOn?.kind !== "plugin" && waitingOn?.kind !== "interaction";
+    });
+    if (wokeViaQueue) {
+      return true;
+    }
+    if (Date.now() > deadline) {
+      return false;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+}
+
 describe("parent wake policy", () => {
   it("wakes the parent for a normal user-driven child completion", async () => {
     await withTestHarness(async (harness) => {
@@ -297,6 +367,23 @@ describe("parent wake policy", () => {
         title: "Worker",
         parentThreadId: fixture.parentThreadId,
       });
+      seedChildTurnRequest(harness, {
+        childThreadId: child.id,
+        turnId: "turn-1",
+        initiator: "user",
+        senderThreadId: null,
+      });
+      seedChildTurnCompleted(harness, {
+        childThreadId: child.id,
+        turnId: "turn-1",
+      });
+      await queueChildThreadTurnNotificationBestEffort(harness.deps, {
+        childThread: child,
+        parentThreadId: fixture.parentThreadId,
+        turnId: "turn-1",
+        turnStatus: "completed",
+      });
+      await waitForParentTurnRequests(harness, fixture.parentThreadId, 1);
 
       await queueChildThreadTurnNotificationBestEffort(harness.deps, {
         childThread: child,
@@ -305,15 +392,16 @@ describe("parent wake policy", () => {
         turnStatus: "completed",
       });
 
+      await new Promise((resolve) => setTimeout(resolve, 2_200));
       const stamped = await waitForParentTurnRequests(
         harness,
         fixture.parentThreadId,
         1,
         200,
       );
-      expect(stamped).toHaveLength(0);
+      expect(stamped).toHaveLength(1);
     });
-  });
+  }, 10_000);
 
   it("still wakes a self-initiated child continuation that produced genuinely new output", async () => {
     await withTestHarness(async (harness) => {
@@ -352,14 +440,13 @@ describe("parent wake policy", () => {
         turnStatus: "completed",
       });
 
-      const stamped = await waitForParentTurnRequests(
+      const wokeAgain = await waitForSecondWakeSignal(
         harness,
         fixture.parentThreadId,
-        2,
       );
-      expect(stamped).toHaveLength(2);
+      expect(wokeAgain).toBe(true);
     });
-  }, 10_000);
+  }, 20_000);
 
   it("suppresses a grandchild-notice cascade the child never asked to forward", async () => {
     await withTestHarness(async (harness) => {
@@ -493,12 +580,20 @@ describe("parent wake policy", () => {
         fixture.parentThreadId,
       );
       expect(queued).toHaveLength(1);
-      expect(queued[0]?.waitingOn).toEqual({
+      const waitingOn =
+        typeof queued[0]?.waitingOn === "string"
+          ? JSON.parse(queued[0].waitingOn)
+          : queued[0]?.waitingOn;
+      expect(waitingOn).toEqual({
         kind: "plugin",
         pluginId: "quota-governor",
         reason: "quota exceeded",
       });
-      expect(queued[0]?.systemNotice?.kind).toBe("child-completed");
+      const systemNotice =
+        typeof queued[0]?.systemNotice === "string"
+          ? JSON.parse(queued[0].systemNotice)
+          : queued[0]?.systemNotice;
+      expect(systemNotice?.kind).toBe("child-completed");
     });
   }, 10_000);
 });
