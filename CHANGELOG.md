@@ -1,15 +1,16 @@
 # Changelog
 
-## 0.43.5
+## 0.43.4+aleph.1
 
-Account Pooler 0.1.2 ties thread availability to the machine that owns the thread, runs Codex and Claude through the pool from scheduled jobs, and records receipts for budgeted dispatch. The thread list shows each thread's provider, and you can switch a thread's provider without leaving it.
+This is Aleph, mk's fork of bb. It is based on upstream bb 0.43.4 plus get-bb/bb main through `fdd3de3`, and adds the changes below. Aleph keeps bb's package and command names; see `FORK.md` in the repository for the name, the version scheme, and the carried patches.
+
+Upstream main after 0.43.4 includes the Account Pooler recheck of exhausted accounts before a request is refused, and the revert of the bb account stack: remote access uses Connect's own pairing.
 
 ### Account Pooler
 
 - **Thread-bound availability.** `GET /api/v1/plugins/account-pool/http/availability?threadId=<id>` reports whether one thread may use each provider's pool. The thread's current environment must belong to the calling machine, which must still be enrolled. Ownership refusals return 403, failed ownership lookups return 503, and responses are never cached. This replaces the earlier thread check, which followed the routing rules without checking ownership.
 - **Run agents through the pool with `bb pool exec`.** Scheduled or supervised processes on the server's primary machine can run `bb pool exec -- codex exec …` or `bb pool exec -- claude --print …`. Only an allowlist of arguments is accepted; configuration overrides, profiles, provider selectors, and unknown options are rejected. The machine token reaches only the child's environment and is never printed. Output begins with a `bb-pool-exec: transport=pooled` line on stderr, or `pool-unconfirmed` when the pooled route could not be confirmed. `--stdin-file` reads a prompt from a private directory on the host, `~/.local/state/bb-account-pool/exec-input` by default.
 - **Attempt receipts for budgeted dispatch.** A dispatcher can begin an attempt under `/api/v1/plugins/account-pool/http/receipts`, run one Codex or Claude process with a scoped token, and finalize it for a sealed record of every upstream request and account hop. Receipts use the machine's own authentication and never accept machine or account IDs from callers. Hubs that cannot issue receipts, including nested hubs using a parent pool, return 503 when an attempt begins, so a dispatcher can stop before spending model quota.
-- When no account is eligible, the pool rechecks exhausted accounts before refusing a request, at most every 30 seconds per account, so a plan upgrade or early reset takes effect on the next turn.
 
 ### Thread list and panes
 
