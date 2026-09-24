@@ -71,15 +71,15 @@ function protectedCodexConfig(args: readonly string[]): string | null {
       index += 1;
     } else if (arg.startsWith("-c=") || arg.startsWith("--config=")) {
       value = arg.slice(arg.indexOf("=") + 1);
+    } else if (arg.startsWith("-c") && !arg.startsWith("--")) {
+      value = arg.slice(2);
     }
     if (value === undefined) continue;
-    const key = value.split("=", 1)[0]?.replace(/\s/gu, "") ?? "";
+    const key = value.split("=", 1)[0]?.replace(/[\s"']/gu, "") ?? "";
     if (
       key === "model_provider" ||
       key === "model_providers" ||
-      /^model_providers\.(?:bb-account-pool|["']bb-account-pool["'])(?:\.|$)/u.test(
-        key,
-      )
+      /^model_providers\.bb-account-pool(?:\.|$)/u.test(key)
     ) {
       return key;
     }
