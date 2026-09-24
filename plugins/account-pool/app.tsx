@@ -85,7 +85,10 @@ type DialogState =
   | { kind: "claude-login" | "codex-login" | "api-key" }
   | null;
 
-type ConfigField = Exclude<keyof AccountPoolConfig, "parentMode">;
+type ConfigField = Exclude<
+  keyof AccountPoolConfig,
+  "parentMode" | "execInputDir"
+>;
 
 const PROVIDERS: Array<{
   id: PoolProvider;

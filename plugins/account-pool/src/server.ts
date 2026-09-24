@@ -272,6 +272,18 @@ export function createAccountPoolPlugin(
               "Account Pooler cannot run commands because this bb server has no primary enrolled host.\n",
           };
         }
+        const primaryHost = (await bb.sdk.hosts.list()).find(
+          (host) => host.id === primaryHostId,
+        );
+        if (primaryHost?.status !== "connected") {
+          return {
+            started: false,
+            exitCode: 1,
+            stdout: "",
+            stderr:
+              "Account Pooler could not reach its command runner on the primary enrolled host.\n",
+          };
+        }
         const token = await hubTokens.forHost(primaryHostId);
         const baseUrl = `${bb.server.loopbackBaseUrl}${HUB_BASE_PATH}${request.provider === "codex" ? "/v1" : ""}`;
         try {
@@ -280,6 +292,7 @@ export function createAccountPoolPlugin(
             {
               ...request,
               cwd: context.cwd ?? null,
+              stdinDir: currentSettings.execInputDir,
               token,
               baseUrl,
             },
@@ -293,11 +306,11 @@ export function createAccountPoolPlugin(
           );
         } catch {
           return {
-            started: false,
+            started: true,
             exitCode: 1,
             stdout: "",
             stderr:
-              "Account Pooler could not reach its command runner on the primary enrolled host.\n",
+              "Account Pooler lost contact with its command runner; the command may have started.\n",
           };
         }
       },

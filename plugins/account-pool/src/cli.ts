@@ -79,7 +79,6 @@ interface PoolCommandResult {
 export type PoolCommandExecutor = (
   request: {
     provider: PoolProvider;
-    command: string;
     args: string[];
     stdinPath: string | null;
   },
@@ -204,6 +203,7 @@ function formatConfig(config: AccountPoolConfig): string {
     `codexUpstreamBaseUrl: ${config.codexUpstreamBaseUrl}`,
     `switchThreshold: ${config.switchThreshold}`,
     `parentMode: ${config.parentMode}`,
+    `execInputDir: ${config.execInputDir ?? "disabled"}`,
   ].join("\n");
 }
 
@@ -241,8 +241,13 @@ function parseConfigUpdate(
   if (key === "parentMode") {
     return accountPoolConfigSetInputSchema.parse({ parentMode: value });
   }
+  if (key === "execInputDir") {
+    return accountPoolConfigSetInputSchema.parse({
+      execInputDir: value === "disabled" ? null : value,
+    });
+  }
   throw new PluginCliError(
-    "Config key must be anthropicUpstreamBaseUrl, codexUpstreamBaseUrl, switchThreshold, or parentMode.",
+    "Config key must be anthropicUpstreamBaseUrl, codexUpstreamBaseUrl, switchThreshold, parentMode, or execInputDir.",
     { code: "invalid_value" },
   );
 }
@@ -302,14 +307,13 @@ export function registerPoolCli(
                   { code: "missing_command" },
                 );
               }
-              const executable = path.basename(command).toLowerCase();
-              if (executable !== "codex" && executable !== "claude") {
+              if (command !== "codex" && command !== "claude") {
                 throw new PluginCliError(
-                  "bb pool exec only launches codex or claude.",
+                  "bb pool exec requires the bare command name codex or claude and rejects paths.",
                   { code: "unsupported_command" },
                 );
               }
-              const provider: PoolProvider = executable;
+              const provider: PoolProvider = command;
               const stdinPath = input.options["stdin-file"];
               if (stdinPath !== undefined && !path.isAbsolute(stdinPath)) {
                 throw new PluginCliError("--stdin-file must be absolute.", {
@@ -317,7 +321,7 @@ export function registerPoolCli(
                 });
               }
               const result = await executePoolCommand(
-                { provider, command, args, stdinPath: stdinPath ?? null },
+                { provider, args, stdinPath: stdinPath ?? null },
                 context,
               );
               if (!result.started) {
@@ -800,13 +804,13 @@ export function registerPoolCli(
             {
               name: "key",
               description:
-                "anthropicUpstreamBaseUrl, codexUpstreamBaseUrl, switchThreshold, or parentMode",
+                "anthropicUpstreamBaseUrl, codexUpstreamBaseUrl, switchThreshold, parentMode, or execInputDir",
               required: true,
             },
             {
               name: "value",
               description:
-                "HTTP(S) URL for the upstream keys, a number above 0 and at most 1 for switchThreshold, proxy or isolate for parentMode",
+                "HTTP(S) URL for upstream keys, a threshold, proxy/isolate, or an absolute execInputDir path (disabled clears it)",
               required: true,
             },
           ],

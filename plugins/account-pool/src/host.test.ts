@@ -37,16 +37,17 @@ describe("Account Pooler host exec", () => {
         spawn,
         env: { PATH: "/bin" },
         readFile: async () => Buffer.from("prompt from file"),
+        realpath: async (value) => value,
       }),
     );
     const input: Buffer[] = [];
     child.stdin.on("data", (chunk) => input.push(Buffer.from(chunk)));
     const pending = harness.experimental_call("run", {
       provider: "codex",
-      command: "/opt/bin/codex",
       args: ["exec", "hello"],
       cwd: "/work",
       stdinPath: "/tmp/prompt.txt",
+      stdinDir: "/tmp",
       token: "pool-secret",
       baseUrl: "http://127.0.0.1:38886/api/v1/plugins/account-pool/http/v1",
     });
@@ -64,7 +65,7 @@ describe("Account Pooler host exec", () => {
       stderr: "warn [REDACTED]",
     });
     const [command, args, options] = spawn.mock.calls[0] ?? [];
-    expect(command).toBe("/opt/bin/codex");
+    expect(command).toBe("codex");
     expect(args).not.toContain("pool-secret");
     expect(JSON.stringify(args)).not.toContain("pool-secret");
     expect(options).toMatchObject({
@@ -79,6 +80,97 @@ describe("Account Pooler host exec", () => {
     expect(Buffer.concat(input).toString("utf8")).toBe("prompt from file");
   });
 
+  it("rejects caller overrides of the pooled Codex provider", async () => {
+    const spawn = vi.fn(() => fakeChild());
+    const harness = experimental_createHostEntryHarness(
+      createAccountPoolHostEntry({
+        spawn,
+        env: {},
+        readFile: async () => Buffer.alloc(0),
+        realpath: async (value) => value,
+      }),
+    );
+
+    for (const args of [
+      ["exec", "-c", 'model_provider="attacker"', "hello"],
+      [
+        "exec",
+        '--config=model_providers.bb-account-pool.base_url="https://attacker.invalid"',
+        "hello",
+      ],
+    ]) {
+      await expect(
+        harness.experimental_call("run", {
+          provider: "codex",
+          args,
+          cwd: null,
+          stdinPath: null,
+          stdinDir: null,
+          token: "pool-secret",
+          baseUrl: "http://127.0.0.1:38886/api/v1/plugins/account-pool/http/v1",
+        }),
+      ).resolves.toMatchObject({
+        started: false,
+        stderr: expect.stringContaining("protected Account Pooler setting"),
+      });
+    }
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it("rejects path-qualified commands at the host contract", async () => {
+    const harness = experimental_createHostEntryHarness(
+      createAccountPoolHostEntry({
+        spawn: vi.fn(() => {
+          throw new Error("must not spawn");
+        }),
+        env: {},
+        readFile: async () => Buffer.alloc(0),
+        realpath: async (value) => value,
+      }),
+    );
+
+    await expect(
+      harness.experimental_call("run", {
+        provider: "codex",
+        command: "/tmp/codex",
+        args: [],
+        cwd: null,
+        stdinPath: null,
+        stdinDir: null,
+        token: "pool-secret",
+        baseUrl: "http://127.0.0.1:38886/api/v1/plugins/account-pool/http/v1",
+      } as never),
+    ).rejects.toThrow();
+  });
+
+  it("rejects stdin files outside the configured directory", async () => {
+    const spawn = vi.fn(() => fakeChild());
+    const harness = experimental_createHostEntryHarness(
+      createAccountPoolHostEntry({
+        spawn,
+        env: {},
+        readFile: async () => Buffer.from("secret"),
+        realpath: async (value) => value,
+      }),
+    );
+
+    await expect(
+      harness.experimental_call("run", {
+        provider: "codex",
+        args: [],
+        cwd: null,
+        stdinPath: "/etc/passwd",
+        stdinDir: "/var/lib/remontoire",
+        token: "pool-secret",
+        baseUrl: "http://127.0.0.1:38886/api/v1/plugins/account-pool/http/v1",
+      }),
+    ).resolves.toMatchObject({
+      started: false,
+      stderr: expect.stringContaining("outside the configured directory"),
+    });
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
   it("returns a pre-start failure without echoing the credential", async () => {
     const child = fakeChild();
     const spawn = vi.fn(() => child);
@@ -87,14 +179,15 @@ describe("Account Pooler host exec", () => {
         spawn,
         env: {},
         readFile: async () => Buffer.alloc(0),
+        realpath: async (value) => value,
       }),
     );
     const pending = harness.experimental_call("run", {
       provider: "claude",
-      command: "claude",
       args: ["--print", "hello"],
       cwd: null,
       stdinPath: null,
+      stdinDir: null,
       token: "pool-secret",
       baseUrl: "http://127.0.0.1:38886/api/v1/plugins/account-pool/http",
     });
@@ -118,6 +211,7 @@ describe("Account Pooler host exec", () => {
         spawn,
         env: {},
         readFile: async () => Buffer.alloc(0),
+        realpath: async (value) => value,
       }),
     );
     const controller = new AbortController();
@@ -125,10 +219,10 @@ describe("Account Pooler host exec", () => {
       "run",
       {
         provider: "claude",
-        command: "claude",
         args: [],
         cwd: null,
         stdinPath: null,
+        stdinDir: null,
         token: "pool-secret",
         baseUrl: "http://127.0.0.1:38886/api/v1/plugins/account-pool/http",
       },
