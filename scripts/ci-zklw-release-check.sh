@@ -54,10 +54,14 @@ pnpm exec turbo run typecheck --filter=@bb/server --concurrency=2 --env-mode=loo
 # Preserve every assertion while allowing the installer and machine tests time.
 pnpm exec turbo run test --filter=@bb/server --concurrency=2 --env-mode=loose -- --testTimeout=30000
 env -u CODEX_HOME pnpm exec turbo run test typecheck --concurrency=2 --env-mode=loose \
-  --filter=bb-plugin-account-pool --filter=bb-plugin-bb-account \
-  --filter=bb-plugin-bb-ai --filter=bb-plugin-connect \
+  --filter=bb-plugin-account-pool --filter=bb-plugin-connect \
   --filter=bb-plugin-provider-codex --filter=@get-bb/plugin-sdk \
   --filter=@bb/templates --filter=@bb/cli
+pnpm exec turbo run test typecheck lint --concurrency=2 --env-mode=loose \
+  --filter=bb-plugin-thread-list
+pnpm exec turbo run lint --concurrency=2 --env-mode=loose \
+  --filter=bb-plugin-account-pool
+node scripts/check-plugin-forks.mjs plugins/account-pool plugins/thread-list
 pnpm exec turbo run prepare:bundled --filter=bb-plugin-account-pool --env-mode=loose
 pnpm exec turbo run smoke:tarball --filter=bb-app --force --env-mode=loose
 (cd packages/bb-app && npm pack --json --dry-run --ignore-scripts) | node -e '
@@ -72,7 +76,8 @@ process.stdin.on("end", () => {
     if (!paths.has(required)) throw new Error(`bb-app tarball omits ${required}`);
   }
   const manifest = require("./packages/bb-app/server/dist/builtin-plugins/account-pool/package.json");
-  if (manifest.version !== "0.1.1") throw new Error("bb-app bundles the wrong Account Pooler version");
+  const source = require("./plugins/account-pool/package.json");
+  if (manifest.version !== source.version) throw new Error("bb-app bundles the wrong Account Pooler version");
 });
 '
 [[ ! -e "$CODEX_HOME/shell_snapshots" ]] || {
