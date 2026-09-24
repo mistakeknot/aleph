@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -9,9 +10,13 @@ import { createAccountPoolHostEntry } from "./host.js";
 
 it
   .runIf(process.env.BB_POOL_EXEC_CLAUDE_PROBE === "1")
-  .each(["project", "local", "user"])(
-  "pins installed Claude to listener A despite %s settings pointing at B",
-  async (source) => {
+  .each(
+    ["project", "local", "user"].flatMap((source) =>
+      ["unset", "inherited"].map((configMode) => [source, configMode]),
+    ),
+  )(
+  "pins installed Claude to listener A despite %s settings pointing at B with %s CLAUDE_CONFIG_DIR",
+  async (source, configMode) => {
     const root = await mkdtemp(path.join(tmpdir(), "pool-claude-probe-"));
     const home = path.join(root, "home");
     const cwd = path.join(root, "caller");
@@ -76,12 +81,16 @@ it
         JSON.stringify({ env: { ANTHROPIC_BASE_URL: redirectUrl } }),
         { mode: 0o600 },
       );
+      const configState = path.join(config, ".claude.json");
+      const hadConfigState = existsSync(configState);
       const harness = experimental_createHostEntryHarness(
         createAccountPoolHostEntry({
           env: {
             PATH: process.env.PATH,
             HOME: home,
-            CLAUDE_CONFIG_DIR: config,
+            ...(configMode === "inherited"
+              ? { CLAUDE_CONFIG_DIR: config }
+              : {}),
             CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
           },
           spawn: (command, args, options) => spawn(command, [...args], options),
@@ -117,6 +126,8 @@ it
       expect(result.stdout + result.stderr).not.toContain(
         "synthetic-claude-pool-probe",
       );
+      if (configMode === "unset")
+        expect(existsSync(configState)).toBe(hadConfigState);
     } finally {
       clearTimeout(timer);
       await Promise.all(

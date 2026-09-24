@@ -63,8 +63,8 @@ describe("Account Pooler host exec", () => {
     },
   );
 
-  it.each([undefined, "daemon-config", "/daemon-config"])(
-    "owns Claude settings sources and anchors config %s at the daemon, not the caller cwd",
+  it.each([undefined, "", "daemon-config", "/daemon-config"])(
+    "owns Claude settings sources and anchors config %j at the daemon, not the caller cwd",
     async (configDir) => {
       const child = fakeChild();
       const spawn = vi.fn(
@@ -118,7 +118,6 @@ describe("Account Pooler host exec", () => {
       expect(options).toMatchObject({
         cwd: "/caller-cwd",
         env: {
-          CLAUDE_CONFIG_DIR: path.resolve(configDir ?? "/daemon-home/.claude"),
           CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST: "1",
           CLAUDE_CODE_USE_BEDROCK: "0",
           CLAUDE_CODE_USE_VERTEX: "0",
@@ -128,6 +127,11 @@ describe("Account Pooler host exec", () => {
         },
       });
       expect(options?.env.ANTHROPIC_API_KEY).toBeUndefined();
+      if (configDir) {
+        expect(options?.env.CLAUDE_CONFIG_DIR).toBe(path.resolve(configDir));
+      } else {
+        expect(options?.env).not.toHaveProperty("CLAUDE_CONFIG_DIR");
+      }
       expect(JSON.stringify(args)).not.toContain("pool-secret");
     },
   );
