@@ -6,7 +6,8 @@ type ReleaseMeta = {
 export const RELEASE_META: Record<string, ReleaseMeta> = {
   "0.43.5": {
     date: "September 23, 2026",
-    headline: "Thread-aware Account Pooler eligibility for cross-provider dispatch",
+    headline:
+      "Thread-bound Account Pooler availability, bb pool exec, and provider icons",
   },
   "0.43.3": {
     date: "September 18, 2026",
