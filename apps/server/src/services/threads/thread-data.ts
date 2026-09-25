@@ -3,6 +3,7 @@ import {
   findStoredEventRow as findStoredEventRowRecord,
   getLatestThreadOutputEventRow,
   getLatestThreadSystemErrorEventRow,
+  getThreadOutputEventRowForTurn,
   hydrateRetainedEventOutputRows,
   listStoredEventRows as listStoredEventRowRecords,
 } from "@bb/db";
@@ -162,12 +163,9 @@ export function findThreadEvent(
   return parseStoredEventRow(hydrated ?? row);
 }
 
-export function getLastThreadOutput(
-  db: DbConnection,
-  threadId: string,
+function extractThreadOutputEventRowText(
+  row: StoredEventRow | null,
 ): string | null {
-  const row = getLatestThreadOutputEventRow(db, { threadId });
-
   if (!row) return null;
 
   const eventRow = parseStoredEventRow(row);
@@ -185,6 +183,30 @@ export function getLastThreadOutput(
   }
 
   return null;
+}
+
+export function getLastThreadOutput(
+  db: DbConnection,
+  threadId: string,
+): string | null {
+  return extractThreadOutputEventRowText(
+    getLatestThreadOutputEventRow(db, { threadId }),
+  );
+}
+
+/**
+ * The final agent message or user message produced within a single turn,
+ * ignoring output from any other turn. Used to decide whether a turn's own
+ * completion is genuinely new, rather than the thread's last output overall
+ * (which can be stale when a turn ends without producing a new message).
+ */
+export function getThreadTurnOutput(
+  db: DbConnection,
+  args: { threadId: string; turnId: string },
+): string | null {
+  return extractThreadOutputEventRowText(
+    getThreadOutputEventRowForTurn(db, args),
+  );
 }
 
 export function getLastThreadErrorMessage(

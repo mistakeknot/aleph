@@ -20,7 +20,7 @@ import {
   childOutcomeSystemMessageKind,
   systemMessageKindForTemplate,
 } from "./system-message-kind.js";
-import { getLastThreadOutput } from "./thread-data.js";
+import { getLastThreadOutput, getThreadTurnOutput } from "./thread-data.js";
 import {
   decideParentWake,
   isChildTurnSelfInitiated,
@@ -230,7 +230,13 @@ function getChildThreadCompletionOutput(
   if (args.turnStatus !== "completed") {
     return null;
   }
-  return getLastThreadOutput(deps.db, args.childThread.id);
+  if (args.turnId === null) {
+    return getLastThreadOutput(deps.db, args.childThread.id);
+  }
+  return getThreadTurnOutput(deps.db, {
+    threadId: args.childThread.id,
+    turnId: args.turnId,
+  });
 }
 
 function getChildThreadActiveWorkflowCount(
@@ -387,15 +393,30 @@ function selectWakingChildThreadTurnNotificationItems(
       selfInitiated,
       turnStatus: item.turnStatus,
     });
-    if (decision.wake && item.turnStatus === "completed") {
-      recordDeliveredChildOutput({
-        childThreadId: item.childThread.id,
-        finalText: item.terminalOutput,
-        parentThreadId: args.parentThreadId,
-      });
-    }
     return decision.wake;
   });
+}
+
+/**
+ * Marks each waking item's output as delivered. Called only once the notice
+ * has actually been queued or dispatched — recording it earlier would mark a
+ * notice as delivered even when queuing it later throws, which would then
+ * suppress the retry of that same output as a false duplicate.
+ */
+function recordDeliveredChildThreadTurnNotificationItems(args: {
+  items: ChildThreadTurnNotificationBatchItem[];
+  parentThreadId: string;
+}): void {
+  for (const item of args.items) {
+    if (item.turnStatus !== "completed") {
+      continue;
+    }
+    recordDeliveredChildOutput({
+      childThreadId: item.childThread.id,
+      finalText: item.terminalOutput,
+      parentThreadId: args.parentThreadId,
+    });
+  }
 }
 
 async function flushChildThreadTurnNotificationBatch(
@@ -417,13 +438,19 @@ async function flushChildThreadTurnNotificationBatch(
   }
 
   try {
-    await queueParentSystemMessage(deps, {
+    const queued = await queueParentSystemMessage(deps, {
       input: buildChildThreadTurnStatusBatchInput({
         items,
       }),
       parentThreadId,
       ...childThreadTurnStatusBatchTaxonomy(items),
     });
+    if (queued) {
+      recordDeliveredChildThreadTurnNotificationItems({
+        items,
+        parentThreadId,
+      });
+    }
   } catch (error) {
     deps.logger.error(
       {

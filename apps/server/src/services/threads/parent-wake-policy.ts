@@ -142,13 +142,16 @@ export type DecideParentWakeResult =
  * parent.
  *
  * `quiet` never wakes on its own. `all` always wakes. `changed` (the
- * default) suppresses two cases and wakes on everything else: a final
- * message identical to the last one already delivered for this child
- * (regardless of who started the turn), and a self-initiated turn — one
- * neither the parent nor a user started — that produced no final message at
- * all, i.e. a bare continuation with nothing new to report. A self-initiated
- * turn that does produce a new, non-duplicate message still wakes, and an
- * error or interruption always wakes regardless of duplication or origin.
+ * default) always wakes a turn the parent or a user asked for, no matter how
+ * its output compares to what was last delivered — the requester is owed an
+ * answer to the specific thing they asked, even if the answer happens to
+ * repeat. Suppression only applies to a self-initiated turn — one neither
+ * the parent nor a user started — and only for two cases: a final message
+ * identical to the last one already delivered for this child, or no final
+ * message at all, i.e. a bare continuation with nothing new to report. A
+ * self-initiated turn that does produce a new, non-duplicate message still
+ * wakes, and an error or interruption always wakes regardless of
+ * duplication or origin.
  */
 export function decideParentWake(
   args: DecideParentWakeArgs,
@@ -162,13 +165,16 @@ export function decideParentWake(
   if (args.notify === "quiet") {
     return { wake: false, reason: "self-initiated-unchanged" };
   }
+  if (!args.selfInitiated) {
+    return { wake: true };
+  }
 
   const previous = lastDeliveredChildOutputByKey.get(lastDeliveredKey(args));
   const isDuplicate = previous !== undefined && previous === args.finalText;
   if (isDuplicate) {
     return { wake: false, reason: "duplicate-final-message" };
   }
-  if (args.selfInitiated && args.finalText === null) {
+  if (args.finalText === null) {
     return { wake: false, reason: "self-initiated-unchanged" };
   }
   return { wake: true };

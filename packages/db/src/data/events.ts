@@ -1348,6 +1348,11 @@ export interface GetLatestThreadOutputEventRowArgs {
   threadId: string;
 }
 
+export interface GetThreadOutputEventRowForTurnArgs {
+  threadId: string;
+  turnId: string;
+}
+
 export interface GetLatestThreadSystemErrorEventRowArgs {
   threadId: string;
 }
@@ -2577,6 +2582,7 @@ export function hasThreadCompletedAnyOtherTurn(
         eq(events.threadId, args.threadId),
         eq(events.type, "turn/completed"),
         ne(events.turnId, args.excludeTurnId),
+        sql`json_extract(${events.data}, '$.status') = 'completed'`,
       ),
     )
     .limit(1)
@@ -3346,6 +3352,38 @@ export function getLatestThreadOutputEventRow(
       .from(events)
       .where(
         sql`${events.threadId} = ${args.threadId} AND (
+        (
+          ${events.type} = 'system/manager/user_message'
+          AND COALESCE(json_extract(${events.data}, '$.text'), '') <> ''
+        )
+        OR (
+          ${events.type} = 'item/completed'
+          AND ${events.itemKind} = 'agentMessage'
+          AND COALESCE(json_extract(${events.data}, '$.item.text'), '') <> ''
+        )
+      )`,
+      )
+      .orderBy(desc(events.sequence))
+      .limit(1)
+      .get() ?? null
+  );
+}
+
+/**
+ * Like `getLatestThreadOutputEventRow`, but scoped to a single turn — used
+ * where a stale cross-turn read would be wrong, such as deciding whether a
+ * turn's own output is new.
+ */
+export function getThreadOutputEventRowForTurn(
+  db: DbConnection,
+  args: GetThreadOutputEventRowForTurnArgs,
+): StoredEventRow | null {
+  return (
+    db
+      .select(storedEventRowFields)
+      .from(events)
+      .where(
+        sql`${events.threadId} = ${args.threadId} AND ${events.turnId} = ${args.turnId} AND (
         (
           ${events.type} = 'system/manager/user_message'
           AND COALESCE(json_extract(${events.data}, '$.text'), '') <> ''

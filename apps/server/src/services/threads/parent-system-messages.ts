@@ -52,7 +52,10 @@ import {
   withThreadSendGuard,
 } from "./thread-context-mutation-guard.js";
 import { requestQueuedMessageDispatch } from "./queued-message-dispatch.js";
-import { checkParentThreadHeld } from "./parent-wake-policy.js";
+import {
+  checkParentThreadHeld,
+  type ParentThreadHeldResult,
+} from "./parent-wake-policy.js";
 
 const PARENT_SYSTEM_MESSAGE_SOURCE = "tell";
 
@@ -421,6 +424,36 @@ async function queueReadyParentSystemMessage(
   return true;
 }
 
+/**
+ * `checkParentThreadHeld` runs a plugin's `message.dispatch` hook, which is
+ * fail-closed: a handler that throws, times out, or rejects raises rather
+ * than returning a decision. Letting that propagate out of
+ * `queueParentSystemMessage` would drop the notice entirely, since none of
+ * its callers retry — they log and move on. Treat a failed hook check the
+ * same as a held thread instead, so the notice is always recorded durably
+ * and can be delivered once the thread is next dispatched to.
+ */
+async function checkParentThreadHeldTolerantly(
+  deps: LoggedPendingInteractionWorkSessionDeps,
+  args: { input: PromptInput[]; parentThread: Thread },
+): Promise<ParentThreadHeldResult> {
+  try {
+    return await checkParentThreadHeld(deps, args);
+  } catch (error) {
+    deps.logger.error(
+      { err: error, parentThreadId: args.parentThread.id },
+      "Parent-thread dispatch-hook check failed; queuing the notice instead of dropping it",
+    );
+    return {
+      held: true,
+      pluginId: "unknown",
+      reason:
+        "A dispatch hook failed while checking whether this thread could be sent to.",
+      sendAt: null,
+    };
+  }
+}
+
 export async function queueParentSystemMessage(
   deps: LoggedPendingInteractionWorkSessionDeps,
   args: QueueParentSystemMessageArgs,
@@ -439,7 +472,10 @@ export async function queueParentSystemMessage(
     );
   const held = hasPendingInteraction
     ? ({ held: false } as const)
-    : await checkParentThreadHeld(deps, { input: args.input, parentThread });
+    : await checkParentThreadHeldTolerantly(deps, {
+        input: args.input,
+        parentThread,
+      });
   if (!hasPendingInteraction && !held.held) {
     try {
       return await deliverParentSystemMessage(deps, {
