@@ -38,12 +38,12 @@ function updateAvailable(feedVersion: string): boolean {
   return result.info.updateAvailable;
 }
 
-describe("Aleph build-metadata versions", () => {
+describe("feed parsing of Aleph build-metadata versions", () => {
   it("treats the upstream base release as the same version", () => {
     expect(updateAvailable("0.43.4")).toBe(false);
   });
 
-  it("reports a newer upstream release as an update", () => {
+  it("ranks a newer upstream release above an Aleph build, which is why Aleph builds turn the check off", () => {
     expect(updateAvailable("0.43.5")).toBe(true);
   });
 
