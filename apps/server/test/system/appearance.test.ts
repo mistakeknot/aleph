@@ -4,14 +4,14 @@ import { describe, expect, it } from "vitest";
 import { getStoredFaviconColor, getStoredThemeId } from "@bb/db";
 import {
   appThemeSchema,
-  builtInPaletteCodeThemes,
+  type BuiltInThemeId,
   defaultAppTheme,
   formatPluginThemeId,
   resolveCodeTheme,
 } from "@bb/domain";
 
 function appearanceForPalette(
-  themeId: keyof typeof builtInPaletteCodeThemes,
+  themeId: BuiltInThemeId,
   extras: Partial<typeof defaultAppTheme> = {},
 ) {
   return {
