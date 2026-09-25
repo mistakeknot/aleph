@@ -16,6 +16,7 @@ import {
   DEFAULT_COMPLETED_TURN_DISPLAY,
   PROMPT_HISTORY_ENTRY_LIMIT,
   threadEventTypeSchema,
+  threadStatusSchema,
   type AppSettings,
   type CompletedTurnDisplay,
   type ThreadEventType,
@@ -84,6 +85,8 @@ import {
   listThreadEventRows,
 } from "../../services/threads/thread-data.js";
 import { listThreadPromptHistory } from "../../services/prompt-history.js";
+import { toThreadResponseFromThread } from "../../services/threads/thread-runtime-display.js";
+import { resolveThreadStatusWaitOutcome } from "../../services/threads/thread-status-wait.js";
 import { tryResolveExistingThreadExecutionPlan } from "../../services/threads/thread-execution-plan.js";
 import {
   parseBoundedPositiveOptionalInteger,
@@ -653,6 +656,49 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
     }
 
     return context.json(match);
+  });
+
+  get(routes.statusWait, async (context, query) => {
+    const threadId = context.req.param("id");
+
+    const waitMs = Math.min(
+      parseOptionalInteger(query.waitMs, "waitMs") ?? 30_000,
+      60_000,
+    );
+    const parsedStatus = threadStatusSchema.safeParse(query.status);
+    if (!parsedStatus.success) {
+      throw new ApiError(400, "invalid_request", "Invalid thread status");
+    }
+    const target = parsedStatus.data;
+
+    const deadline = Date.now() + waitMs;
+    let thread = requirePublicThread(deps.db, threadId);
+    let outcome = resolveThreadStatusWaitOutcome({
+      current: thread.status,
+      target,
+    });
+    while (outcome === "pending") {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
+      const waiter = deps.hub.registerThreadEventWaiter(threadId, remaining);
+      thread = requirePublicThread(deps.db, threadId);
+      outcome = resolveThreadStatusWaitOutcome({
+        current: thread.status,
+        target,
+      });
+      if (outcome !== "pending") {
+        waiter.cancel();
+        break;
+      }
+      await waiter.promise;
+      thread = requirePublicThread(deps.db, threadId);
+      outcome = resolveThreadStatusWaitOutcome({
+        current: thread.status,
+        target,
+      });
+    }
+
+    return context.json(toThreadResponseFromThread(deps, { thread }));
   });
 
   get(routes.defaultExecutionOptions, async (context) => {

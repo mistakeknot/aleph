@@ -58,6 +58,9 @@ Fields beyond those shown exist; these are the ones scripts use.
   bb thread wait <id> --json
     {threadId, matched: true, target}
 
+  bb thread wait <id> --terminal --json
+    {threadId, status}    (status is "idle" or "error"; exits nonzero on error instead of throwing)
+
   bb thread count --json
     {total}
 

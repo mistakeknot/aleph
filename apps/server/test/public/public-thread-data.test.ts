@@ -17,6 +17,7 @@ import {
   reorderQueuedThreadMessage,
   setQueuedThreadMessageGroupBoundary,
   setThreadExecutionOverride,
+  threads,
 } from "@bb/db";
 import {
   encodeClientTurnRequestIdNumber,
@@ -5220,6 +5221,72 @@ describe("public thread data routes", () => {
         code: "invalid_request",
         message: "Invalid event type",
       });
+    });
+  });
+
+  it("returns the current thread immediately from /status-wait when it already matches", async () => {
+    await withTestHarness(async (harness) => {
+      const { thread } = seedThreadFixture(harness, {
+        thread: { status: "idle" },
+      });
+
+      const response = await harness.app.request(
+        `/api/v1/threads/${thread.id}/status-wait?status=idle&waitMs=1000`,
+      );
+      expect(response.status).toBe(200);
+      const body = threadSchema.parse(await readJson(response));
+      expect(body.status).toBe("idle");
+    });
+  });
+
+  it("returns the current (unmatched) thread on timeout from /status-wait", async () => {
+    await withTestHarness(async (harness) => {
+      const { thread } = seedThreadFixture(harness, {
+        thread: { status: "active" },
+      });
+
+      const response = await harness.app.request(
+        `/api/v1/threads/${thread.id}/status-wait?status=idle&waitMs=100`,
+      );
+      expect(response.status).toBe(200);
+      const body = threadSchema.parse(await readJson(response));
+      expect(body.status).toBe("active");
+    });
+  });
+
+  it("resolves /status-wait as soon as the thread changes, without waiting out its full budget", async () => {
+    await withTestHarness(async (harness) => {
+      const { thread } = seedThreadFixture(harness, {
+        thread: { status: "active" },
+      });
+
+      const requestStartedAt = Date.now();
+      const responsePromise = harness.app.request(
+        `/api/v1/threads/${thread.id}/status-wait?status=idle&waitMs=30000`,
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      await harness.deps.db
+        .update(threads)
+        .set({ status: "idle" })
+        .where(eq(threads.id, thread.id))
+        .run();
+      harness.deps.hub.notifyThread(thread.id, ["status-changed"]);
+
+      const response = await responsePromise;
+      expect(Date.now() - requestStartedAt).toBeLessThan(30_000);
+      expect(response.status).toBe(200);
+      const body = threadSchema.parse(await readJson(response));
+      expect(body.status).toBe("idle");
+    });
+  });
+
+  it("returns 404 for nonexistent thread on /status-wait", async () => {
+    await withTestHarness(async (harness) => {
+      const response = await harness.app.request(
+        `/api/v1/threads/nonexistent-thread-id/status-wait?status=idle&waitMs=100`,
+      );
+      expect(response.status).toBe(404);
     });
   });
 });
