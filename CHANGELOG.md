@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.43.4+aleph.3
+
+### Updating Aleph
+
+- **Settings says update checks are off.** Settings → Updates and `bb updates`
+  showed "Up to date" for the bb app on Aleph builds, though no check ran.
+  They now show "Update checks off". The server no longer suggests
+  `npx bb-app@latest`, which would install upstream bb over Aleph.
+
 ## 0.43.4+aleph.2
 
 ### Threads

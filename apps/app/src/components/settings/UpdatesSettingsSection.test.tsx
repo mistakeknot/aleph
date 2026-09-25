@@ -1968,3 +1968,92 @@ The canonical release summary.
     ).toBeNull();
   });
 });
+
+describe("UpdatesSettingsSection on an Aleph build", () => {
+  const alephVersion = {
+    currentVersion: "0.43.4+aleph.2",
+    isDevelopment: false,
+    latestVersion: null,
+    source: "npm" as const,
+    updateAvailable: false,
+    updateChecksDisabled: true,
+    upgradeCommand: null,
+  };
+
+  function expectAppRowChecksOff(): void {
+    const appRow = document
+      .querySelector('[data-bb-update-role="app"]')
+      ?.closest("div");
+    expect(appRow).not.toBeNull();
+    expect(
+      appRow?.querySelector('[data-update-state="checks-off"]'),
+    ).not.toBeNull();
+    expect(
+      appRow?.querySelector('[data-update-state="up-to-date"]'),
+    ).toBeNull();
+    expect(appRow?.textContent).toContain("Update checks off");
+    expect(appRow?.textContent).not.toContain("Up to date");
+  }
+
+  it("says checks are off instead of up to date on the web", async () => {
+    useWebApp();
+    useUpdateInventoryMock.mockReturnValue(
+      makeInventory({ systemVersion: alephVersion }),
+    );
+    vi.mocked(sdk.system.version).mockResolvedValue(alephVersion);
+
+    renderSection();
+
+    await waitFor(() => {
+      expect(sdk.system.version).toHaveBeenCalled();
+    });
+    await waitFor(expectAppRowChecksOff);
+  });
+
+  it("says checks are off when the launcher manages npm updates", async () => {
+    useWebApp();
+    useUpdateInventoryMock.mockReturnValue(
+      makeInventory({ systemVersion: alephVersion }),
+    );
+    vi.mocked(sdk.system.version).mockResolvedValue(alephVersion);
+    vi.mocked(sdk.system.appUpdate).mockResolvedValue(
+      makeAppUpdateStatus({
+        available: null,
+        current: { commit: null, version: "0.43.4+aleph.2" },
+      }),
+    );
+
+    renderSection();
+
+    await waitFor(() => {
+      expect(sdk.system.appUpdate).toHaveBeenCalled();
+    });
+    await waitFor(expectAppRowChecksOff);
+  });
+
+  it("says checks are off on the Aleph desktop app", async () => {
+    const desktopInfo: BbDesktopInfo = {
+      downloadState: "idle",
+      lastCheckedAt: null,
+      latestVersion: null,
+      pendingVersion: null,
+      platform: "macos",
+      updateAvailable: false,
+      updateDownloaded: false,
+      version: "0.43.4+aleph.2",
+    };
+    useDesktopUpdateInfoMock.mockReturnValue({
+      desktopApi: {
+        checkForUpdates: vi.fn().mockResolvedValue(desktopInfo),
+        installUpdate: vi.fn(),
+      } as unknown as BbDesktopApi,
+      desktopInfo,
+      isDesktop: true,
+    });
+    useUpdateInventoryMock.mockReturnValue(makeInventory({ desktopInfo }));
+
+    renderSection();
+
+    await waitFor(expectAppRowChecksOff);
+  });
+});

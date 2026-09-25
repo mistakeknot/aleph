@@ -27,4 +27,11 @@ describe("Aleph build-metadata versions", () => {
     expect(response.latestVersion).toBeNull();
     expect(response.updateAvailable).toBe(false);
   });
+
+  it("says checks are off and offers no upstream upgrade command", async () => {
+    const { service } = serviceFor("0.43.5");
+    const response = await service.getSystemVersion({ forceRefresh: true });
+    expect(response.updateChecksDisabled).toBe(true);
+    expect(response.upgradeCommand).toBeNull();
+  });
 });

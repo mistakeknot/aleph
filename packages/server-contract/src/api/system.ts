@@ -263,7 +263,10 @@ export const systemVersionResponseSchema = z.object({
   source: z.literal("npm"),
   updateAvailable: z.boolean(),
   isDevelopment: z.boolean(),
-  upgradeCommand: z.string(),
+  // Aleph builds never ask npm, whose bb-app is upstream bb. The flag tells
+  // clients no check ran, so they don't show "Up to date".
+  updateChecksDisabled: z.boolean().optional(),
+  upgradeCommand: z.string().nullable(),
 });
 export type SystemVersionResponse = z.infer<typeof systemVersionResponseSchema>;
 

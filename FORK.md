@@ -33,11 +33,12 @@ comparing versions:
 ## Updates
 
 An Aleph build never offers an upstream release. `isAlephAppVersion` in
-`packages/config/src/app-update.ts` looks for `aleph` in the version's build
+`packages/config/src/aleph-version.ts` looks for `aleph` in the version's build
 metadata, and when it finds it:
 
-- The server skips its npm lookup of `bb-app`, so Settings → Updates shows no
-  upstream version and the in-app npm update has nothing to install.
+- The server skips its npm lookup of `bb-app`. `/api/v1/system/version` returns
+  `updateChecksDisabled: true` and no `upgradeCommand`, and an in-app npm
+  update is refused with 409 because there is nothing to install.
 - The desktop app turns off both its `desktop-latest` feed check and
   electron-updater, so it neither shows nor downloads an upstream release.
 
@@ -47,8 +48,9 @@ path back on. `packages/config/test/aleph-release-version.test.ts` fails when
 `bb-app`, `@bb/desktop` or the newest `changelog-metadata.ts` release lacks
 `+aleph.<n>`.
 
-Settings → Updates still reports "Up to date" when nothing was checked, so it
-says nothing about whether a newer Aleph build exists.
+Settings → Updates and `bb updates` show "Update checks off" for the bb app
+instead of "Up to date", because nothing was checked. Neither says whether a
+newer Aleph build exists.
 
 Updating Aleph means installing a newer Aleph build by hand:
 

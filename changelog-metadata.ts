@@ -4,6 +4,10 @@ type ReleaseMeta = {
 };
 
 export const RELEASE_META: Record<string, ReleaseMeta> = {
+  "0.43.4+aleph.3": {
+    date: "September 25, 2026",
+    headline: "Aleph: Settings says update checks are off",
+  },
   "0.43.4+aleph.2": {
     date: "September 24, 2026",
     headline: "Aleph: quieter parent wakes and Thecla as the default theme",
