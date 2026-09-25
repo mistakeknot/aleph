@@ -2,12 +2,58 @@
 
 ## 0.43.4+aleph.3
 
+### Desktop app
+
+- **The packaged desktop app is named Aleph.** Product name, artifact name,
+  Linux executable name, About panel build type, and window titles now read
+  Aleph instead of bb, derived automatically from a `+aleph.N` package
+  version. The macOS bundle id (`dev.bb.desktop`) and userData folder name
+  (`bb`) are unchanged, so Keychain-backed secrets, TCC grants, and existing
+  `aleph.1`/`aleph.2` user data survive with no migration step.
+
 ### Updating Aleph
 
 - **Settings says update checks are off.** Settings → Updates and `bb updates`
   showed "Up to date" for the bb app on Aleph builds, though no check ran.
   They now show "Update checks off". The server no longer suggests
-  `npx bb-app@latest`, which would install upstream bb over Aleph.
+  `npx bb-app@latest`, which would install upstream bb over Aleph, and the
+  desktop app's update feed and auto-updater are narrowed to skip Aleph
+  builds entirely.
+- **A release build now fails if it drops `+aleph`.** The lockstep version
+  check previously passed a bare `0.43.5` with no build metadata, which
+  upstream semver treats as newer than any `+aleph.N` build and would have
+  offered itself as an update that replaces Aleph. The release-version test
+  now fails closed on that case for `bb-app`, `@bb/desktop`, and the newest
+  changelog entry, and `FORK.md` documents that enrolled daemons self-update
+  only on a protocol bump, not by following the server's version.
+
+### Threads
+
+- **`bb thread wait --status` and the SDK's status wait no longer poll.**
+  They now long-poll a server-side wait the same way `--event` already does,
+  instead of a client loop of `getThread()` + sleep. Add
+  `sdk.threads.waitForTerminal` and `bb thread wait --terminal`, which wait
+  for an idle or error thread status and report `{status: "error"}` instead
+  of throwing, for a caller that wants to be woken on either outcome without
+  running two overlapping waits.
+- **A provisional successor thread cannot dispatch native work before its
+  checkpoint is verified.** The check runs unconditionally in the dispatch
+  attempt path, ahead of plugin policy, so a missing plugin hook or a user
+  Send-now can no longer bypass it.
+
+### Providers
+
+- **Per-thread prompt cache TTL for the Claude Code provider.** An optional
+  `promptCacheTtl` (`"5m"` or `"1h"`) thread option now flows through to the
+  Claude Agent SDK's session settings. It only takes effect on the next
+  `thread/start`, `thread/resume`, or `thread/fork`, not on an
+  already-running session.
+- **More complete cache and token usage reporting.** Anthropic's 5-minute and
+  1-hour cache-write split is now carried through to allowlisted usage
+  events and Account Pooler receipts instead of being dropped. A turn that
+  closed before its trailing usage report arrived (for example, on an
+  interrupt) now still emits exactly one `tokenUsage` event instead of
+  silently losing its token counts.
 
 ## 0.43.4+aleph.2
 
