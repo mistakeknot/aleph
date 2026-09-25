@@ -79,6 +79,19 @@ describe.each(["project", "thread", "preference"] as const)(
           const threads = db.$client.prepare("SELECT * FROM threads").all();
           db.$client.exec("DROP TABLE ui_preference_defaults");
           db.$client.exec("DROP TABLE idempotent_thread_operations");
+          for (const column of [
+            "provisional_fence_epoch",
+            "provisional_fence_verified_epoch",
+          ]) {
+            if (
+              db.$client
+                .prepare<[], { name: string }>("PRAGMA table_info(threads)")
+                .all()
+                .some((row) => row.name === column)
+            ) {
+              db.$client.exec(`ALTER TABLE threads DROP COLUMN ${column}`);
+            }
+          }
           db.$client
             .prepare("DELETE FROM __drizzle_migrations WHERE created_at >= ?")
             .run(SIDEBAR_INSTALLATION_DEFAULTS_MIGRATION_TIMESTAMP);
