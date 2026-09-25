@@ -17,6 +17,7 @@ import {
   reorderQueuedThreadMessage,
   setQueuedThreadMessageGroupBoundary,
   setThreadExecutionOverride,
+  threads as threadRows,
 } from "@bb/db";
 import {
   encodeClientTurnRequestIdNumber,
@@ -57,6 +58,7 @@ import { textInput } from "../helpers/prompt-input.js";
 import {
   seedEnvironment,
   seedEvent,
+  seedHost,
   seedHostSession,
   seedProjectWithSource,
   seedQueuedMessage,
@@ -305,6 +307,65 @@ describe("public thread data routes", () => {
     });
   });
 
+  it("lists only the unarchived threads whose environment is on one machine", async () => {
+    await withTestHarness(async (harness) => {
+      const { host } = seedHostSession(harness.deps);
+      const other = seedHost(harness.deps, {
+        id: "host_other",
+        name: "Other",
+      });
+      const { project } = seedProjectWithSource(harness.deps, {
+        hostId: host.id,
+      });
+      const first = seedEnvironment(harness.deps, {
+        hostId: host.id,
+        path: "/tmp/thread-list-host-a",
+        projectId: project.id,
+      });
+      const second = seedEnvironment(harness.deps, {
+        hostId: host.id,
+        path: "/tmp/thread-list-host-b",
+        projectId: project.id,
+      });
+      const elsewhere = seedEnvironment(harness.deps, {
+        hostId: other.id,
+        path: "/tmp/thread-list-host-other",
+        projectId: project.id,
+      });
+      const onFirst = seedThread(harness.deps, {
+        environmentId: first.id,
+        projectId: project.id,
+      });
+      const onSecond = seedThread(harness.deps, {
+        environmentId: second.id,
+        projectId: project.id,
+      });
+      const archived = seedThread(harness.deps, {
+        environmentId: second.id,
+        projectId: project.id,
+      });
+      harness.db
+        .update(threadRows)
+        .set({ archivedAt: 1 })
+        .where(eq(threadRows.id, archived.id))
+        .run();
+      seedThread(harness.deps, {
+        environmentId: elsewhere.id,
+        projectId: project.id,
+      });
+      seedThread(harness.deps, { projectId: project.id });
+
+      const response = await harness.app.request(
+        `/api/v1/threads?hostId=${host.id}&archived=false`,
+      );
+      expect(response.status).toBe(200);
+      const listed = z.array(threadSchema).parse(await readJson(response));
+      expect(listed.map((thread) => thread.id).sort()).toEqual(
+        [onFirst.id, onSecond.id].sort(),
+      );
+    });
+  });
+
   it("allows creating or assigning a hidden thread in a section", async () => {
     await withTestHarness(async (harness) => {
       const { host } = seedHostSession(harness.deps);
@@ -378,6 +439,7 @@ describe("public thread data routes", () => {
       const leanThread = await readJson(leanResponse);
       expect(leanThread).not.toHaveProperty("environment");
       expect(leanThread).not.toHaveProperty("host");
+      expect(leanThread).not.toHaveProperty("environmentHostName");
 
       const includeResponse = await harness.app.request(
         `/api/v1/threads/${thread.id}?include=environment,host`,
@@ -390,6 +452,32 @@ describe("public thread data routes", () => {
       expect(includedThread.environment?.id).toBe(environment.id);
       expect(includedThread.host?.id).toBe(host.id);
       expect(includedThread.host?.status).toBe("connected");
+      expect(includedThread.environmentHostName).toBe(host.name);
+    });
+  });
+
+  it("retains a removed machine name for thread history without exposing an active host", async () => {
+    await withTestHarness(async (harness) => {
+      const { host, environment, thread } = seedThreadFixture(harness, {
+        session: { id: "host-thread-removed-name" },
+      });
+      harness.deps.db
+        .update(hosts)
+        .set({ destroyedAt: Date.now() })
+        .where(eq(hosts.id, host.id))
+        .run();
+
+      const response = await harness.app.request(
+        `/api/v1/threads/${thread.id}?include=environment,host`,
+      );
+      expect(response.status).toBe(200);
+      const includedThread = threadWithIncludesResponseSchema.parse(
+        await readJson(response),
+      );
+      expect(includedThread.environment?.id).toBe(environment.id);
+      expect(includedThread.environment?.hostLifecycle).toBe("removed");
+      expect(includedThread.host).toBeNull();
+      expect(includedThread.environmentHostName).toBe(host.name);
     });
   });
 
@@ -424,6 +512,7 @@ describe("public thread data routes", () => {
       );
       expect(noEnvironmentThread.environment).toBeNull();
       expect(noEnvironmentThread.host).toBeNull();
+      expect(noEnvironmentThread.environmentHostName).toBeNull();
 
       const missingHostResponse = await harness.app.request(
         `/api/v1/threads/${threadWithMissingHost.id}?include=host`,
@@ -434,6 +523,7 @@ describe("public thread data routes", () => {
       );
       expect(missingHostThread).not.toHaveProperty("environment");
       expect(missingHostThread.host).toBeNull();
+      expect(missingHostThread.environmentHostName).toBeNull();
     });
   });
 
@@ -1231,6 +1321,92 @@ describe("public thread data routes", () => {
       expect(workflowRow.taskStatus).toBe("completed");
       expect(workflowRow.summary).toBe("done");
       expect(workflowRow.completedAt).not.toBeNull();
+    });
+  });
+
+  it("hydrates a summary whose range reaches turn completion", async () => {
+    await withTestHarness(async (harness) => {
+      const { environment, thread } = seedThreadFixture(harness);
+      const base = {
+        threadId: thread.id,
+        environmentId: environment.id,
+        providerThreadId: "provider-thread-1",
+        scope: turnScope("turn-1"),
+      };
+      seedEvent(harness.deps, {
+        ...base,
+        sequence: 1,
+        type: "turn/started",
+        data: {},
+      });
+      seedEvent(harness.deps, {
+        ...base,
+        sequence: 2,
+        type: "item/started",
+        data: {
+          item: { type: "reasoning", id: "orphan", summary: [], content: [] },
+        },
+      });
+      seedEvent(harness.deps, {
+        ...base,
+        sequence: 3,
+        type: "item/reasoning/textDelta",
+        data: { itemId: "orphan", delta: "Thinking" },
+      });
+      seedEvent(harness.deps, {
+        ...base,
+        sequence: 4,
+        type: "item/completed",
+        data: {
+          item: { type: "agentMessage", id: "intermediate", text: "Checking." },
+        },
+      });
+      seedEvent(harness.deps, {
+        ...base,
+        sequence: 5,
+        type: "item/completed",
+        data: { item: { type: "agentMessage", id: "final", text: "Done." } },
+      });
+      seedEvent(harness.deps, {
+        ...base,
+        sequence: 6,
+        type: "turn/completed",
+        data: { status: "completed" },
+      });
+
+      const timelineResponse = await harness.app.request(
+        `/api/v1/threads/${thread.id}/timeline`,
+      );
+      expect(timelineResponse.status).toBe(200);
+      const timeline = threadTimelineResponseSchema.parse(
+        await readJson(timelineResponse),
+      );
+      const turnRow = timeline.rows.find(
+        (row): row is TimelineTurnRow => row.kind === "turn",
+      );
+      expect(turnRow).toMatchObject({
+        sourceSeqStart: 2,
+        sourceSeqEnd: 6,
+      });
+      if (!turnRow) throw new Error("Expected a turn row");
+
+      const detailsResponse = await harness.app.request(
+        `/api/v1/threads/${thread.id}/timeline/turn-summary-details?turnId=${turnRow.turnId}&sourceSeqStart=${turnRow.sourceSeqStart}&sourceSeqEnd=${turnRow.sourceSeqEnd}`,
+      );
+      expect(detailsResponse.status).toBe(200);
+      const details = timelineTurnSummaryDetailsResponseSchema.parse(
+        await readJson(detailsResponse),
+      );
+      expect(details.rows).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            kind: "system",
+            operationKind: "reasoning",
+            sourceSeqStart: 2,
+            sourceSeqEnd: 6,
+          }),
+        ]),
+      );
     });
   });
 

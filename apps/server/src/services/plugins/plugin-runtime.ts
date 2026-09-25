@@ -39,6 +39,7 @@ import { getPluginBuildToolchain } from "./build-toolchain.js";
 import { createNodeBbSdk, type BbSdk } from "@bb/sdk";
 import {
   getInstalledPlugin,
+  getPluginSafeMode,
   listInstalledPlugins,
   prunePluginSchedules,
   upsertPluginSchedule,
@@ -305,8 +306,18 @@ interface ServiceInstance {
 interface PluginRuntimeContext {
   machineEnrollments: MachineEnrollmentService | null;
   deps: PluginServiceDeps;
+  includedBuiltinNames: ReadonlySet<string>;
   settingsChanged?: () => void;
 }
+
+export interface SafeModeActivationRefusalArgs {
+  pluginId: string;
+  provenance: InstalledPluginRow["provenance"];
+  builtinName: string | null;
+  action: "install" | "update";
+}
+
+const PLUGIN_SAFE_MODE_DETAIL = "safe mode is on";
 
 export interface PluginLoadHold {
   source: string;
@@ -1353,6 +1364,47 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
     return (await hold.isActive()) ? hold.detail : null;
   }
 
+  function isSafeModeExempt(args: {
+    provenance: InstalledPluginRow["provenance"];
+    builtinName: string | null;
+  }): boolean {
+    return (
+      args.provenance === "builtin" ||
+      (args.builtinName !== null &&
+        context.includedBuiltinNames.has(args.builtinName))
+    );
+  }
+
+  function isSafeModeExemptRow(
+    row: Pick<
+      InstalledPluginRow,
+      "provenance" | "sourceKind" | "sourceBuiltinName"
+    >,
+  ): boolean {
+    return isSafeModeExempt({
+      provenance: row.provenance,
+      builtinName: row.sourceKind === "builtin" ? row.sourceBuiltinName : null,
+    });
+  }
+
+  function isSuppressedBySafeMode(
+    row: Pick<
+      InstalledPluginRow,
+      "enabled" | "provenance" | "sourceKind" | "sourceBuiltinName"
+    >,
+  ): boolean {
+    return (
+      row.enabled && !isSafeModeExemptRow(row) && getPluginSafeMode(deps.db)
+    );
+  }
+
+  function safeModeActivationRefusal(
+    args: SafeModeActivationRefusalArgs,
+  ): string | null {
+    if (isSafeModeExempt(args) || !getPluginSafeMode(deps.db)) return null;
+    return `plugin safe mode is on; turn it off with \`bb plugin safe-mode off\` before you ${args.action} "${args.pluginId}"`;
+  }
+
   async function loadOne(row: InstalledPluginRow): Promise<string | null> {
     const held = await heldDetail(row);
     if (held !== null) {
@@ -1360,6 +1412,14 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
       await populateIdentity(row);
       setStatus(row.id, "disabled", held);
       logger.warn(`plugin ${row.id} not loaded (held): ${held}`);
+      return null;
+    }
+    if (isSuppressedBySafeMode(row)) {
+      await disposeOne(row.id);
+      await populateIdentity(row);
+      if ((hungServices.get(row.id)?.size ?? 0) === 0) {
+        setStatus(row.id, "disabled", PLUGIN_SAFE_MODE_DETAIL);
+      }
       return null;
     }
     if (row.enabled && !loaded.has(row.id)) setStatus(row.id, "starting");
@@ -1841,6 +1901,8 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
     hungServices,
     invokeWrapped,
     isBuiltinPluginId,
+    isSafeModeExemptRow,
+    isSuppressedBySafeMode,
     listPluginHooks,
     listPluginEnvironmentCompositions,
     listPluginEnvironmentProviders,
@@ -1854,6 +1916,7 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
     loaded,
     loadOne,
     brandingAssets,
+    safeModeActivationRefusal,
     setDevBuildProblem,
     setLoadHold,
     setStatus,

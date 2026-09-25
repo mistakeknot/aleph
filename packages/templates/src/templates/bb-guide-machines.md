@@ -294,7 +294,10 @@ removes `serverUrl`, `serverHeaders`, `machineCredential`, and
 `connectMachineId` from that directory's `config.json`. Both
 default to `BB_DATA_DIR` or `~/.bb` and accept `--data-dir <dir>`; neither
 calls a server. The SDK equivalents are `sdk.experimental_server.checkMove`,
-`startMove`, `moveStatus`, `cancelMove`, and `export`.
+`startMove`, `moveStatus`, `cancelMove`, and `export`. In the desktop app,
+picking This Mac on macOS or This Computer on Linux after a move shows where
+the server went, with actions to open the moved server or choose another server.
+It leaves the old copy locked and its machine service in place.
 
 ## Local daemon lifecycle
 

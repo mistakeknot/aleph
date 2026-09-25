@@ -549,6 +549,7 @@ export type UpdateThreadPluginMetadataRequest = z.infer<
 export const threadWithIncludesResponseSchema = threadResponseSchema.extend({
   environment: environmentSchema.nullable().optional(),
   host: hostSchema.nullable().optional(),
+  environmentHostName: z.string().nullable().optional(),
 });
 export type ThreadWithIncludesResponse = z.infer<
   typeof threadWithIncludesResponseSchema
@@ -754,6 +755,7 @@ export type ThreadArchiveAllResponse = z.infer<
 export const threadListQuerySchema = z.object({
   projectId: z.string().min(1).optional(),
   environmentId: z.string().min(1).optional(),
+  hostId: z.string().min(1).optional(),
   parentThreadId: z.string().min(1).optional(),
   sourceThreadId: z.string().min(1).optional(),
   archived: z.enum(["true", "false"]).optional(),

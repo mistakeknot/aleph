@@ -30,7 +30,7 @@ import {
   makeThreadQueuedMessage as makeThreadQueuedMessageFixture,
   makeThreadWithRuntime as makeThreadWithRuntimeFixture,
 } from "@bb/test-helpers/domain-fixtures";
-import type { ReactNode } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { workflowRow } from "@/test/fixtures/thread-timeline-rows";
 import type { PromptDraftAttachment } from "@bb/client-core";
@@ -212,7 +212,7 @@ vi.mock("@/components/promptbox/FollowUpPromptBox", async () => {
         </div>
         <div data-testid="composer-boundary" />
         <div data-testid="composer-hidden">
-          {pendingInteraction ? "true" : "false"}
+          {composer === null || pendingInteraction ? "true" : "false"}
         </div>
         <div data-testid="submit-mode">
           {composer?.submitMode.kind}:{composer?.submitMode.reason ?? ""}
@@ -879,6 +879,9 @@ interface RenderPromptAreaOptions {
   modelFallback?: ThreadTimelineModelFallback | null;
   pendingInteractions?: readonly PendingInteraction[];
   childPendingInteractions?: readonly ChildThreadPendingAttention[];
+  environmentGoneStatus?: ComponentProps<
+    typeof ThreadDetailPromptArea
+  >["environmentGoneStatus"];
   pendingInteractionsInitialLoading?: boolean;
   queuedMessageCount?: number;
   sentMessageEdit?: ThreadDetailSentMessageEdit;
@@ -894,6 +897,7 @@ function buildPromptAreaElement({
   modelFallback = null,
   pendingInteractions = [],
   childPendingInteractions = [],
+  environmentGoneStatus = null,
   pendingInteractionsInitialLoading = false,
   queuedMessageCount = 0,
   sentMessageEdit,
@@ -911,7 +915,7 @@ function buildPromptAreaElement({
         childThreadsSection={null}
         composerFocusRequestNonce={0}
         contextBannerMergeBase={null}
-        environmentGoneStatus={null}
+        environmentGoneStatus={environmentGoneStatus}
         goal={goal}
         modelFallback={modelFallback}
         isEnvironmentActionPending={false}
@@ -989,6 +993,17 @@ afterEach(() => {
   resetPluginSlotStoreForTest();
   vi.clearAllMocks();
 });
+
+it.each(["removed", "removing", "cleanup-failed"] as const)(
+  "hides execution for a %s machine even when the environment still exists",
+  (status) => {
+    renderPromptArea({
+      environmentGoneStatus: status,
+      thread: makeThread({ environmentId: "env_retained" }),
+    });
+    expect(screen.getByTestId("composer-hidden").textContent).toBe("true");
+  },
+);
 
 describe("environment follow-up summary", () => {
   it("renders for a thread with an environment even when it has no environment label", () => {
