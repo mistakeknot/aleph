@@ -1319,3 +1319,38 @@ export const projectAttachmentBackfills = sqliteTable(
     error: text("error"),
   },
 );
+
+/**
+ * Durable receipt for a caller-supplied idempotency key on a thread spawn or
+ * a message enqueue. Rows are keyed by `(scope, idempotency_key)`, never by
+ * request timing, so a transport-level retry after a lost response reconciles
+ * against the SAME row instead of starting a second operation.
+ *
+ * `sendAt` is captured only on the row's own insert and never overwritten: a
+ * retry that shows up with a different `sendAt` still replays the original
+ * schedule, because the idempotency key names one logical operation and
+ * `sendAt` is one of its properties, not a per-attempt input.
+ */
+export const idempotentThreadOperations = sqliteTable(
+  "idempotent_thread_operations",
+  {
+    id: text("id").primaryKey(),
+    scope: text("scope").$type<"thread-spawn" | "message-enqueue">().notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    status: text("status")
+      .$type<"accepted" | "completed" | "consumed" | "failed">()
+      .notNull()
+      .default("accepted"),
+    sendAt: integer("send_at"),
+    resultJson: text("result_json"),
+    errorMessage: text("error_message"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("idempotent_thread_operations_scope_key_idx").on(
+      table.scope,
+      table.idempotencyKey,
+    ),
+  ],
+);

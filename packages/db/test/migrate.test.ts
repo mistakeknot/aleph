@@ -873,6 +873,7 @@ function rewindEnvironmentRowFactsMigration(db: DbConnection): void {
 
 function rewindMachineProvidersMigration(db: DbConnection): void {
   db.$client.exec("DROP TABLE IF EXISTS ui_preference_defaults");
+  db.$client.exec("DROP TABLE IF EXISTS idempotent_thread_operations");
   const queuedDispatchOrigin = db.$client
     .prepare<[], TableInfoRow>("PRAGMA table_info(queued_thread_messages)")
     .all();

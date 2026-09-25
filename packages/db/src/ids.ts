@@ -65,3 +65,7 @@ export function createHostDaemonSessionId(): string {
 export function createTerminalSessionId(): string {
   return createId("term");
 }
+
+export function createIdempotentThreadOperationId(): string {
+  return createId("idop");
+}
