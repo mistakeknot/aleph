@@ -266,6 +266,24 @@ export {
 export type { HostRow } from "./hosts.js";
 
 export {
+  reserveIdempotentThreadOperation,
+  getIdempotentThreadOperation,
+  completeIdempotentThreadOperation,
+  failIdempotentThreadOperation,
+  reopenFailedIdempotentThreadOperation,
+  consumeIdempotentThreadOperation,
+} from "./idempotent-thread-operations.js";
+export type {
+  IdempotentThreadOperationRow,
+  IdempotentThreadOperationScope,
+  IdempotentThreadOperationStatus,
+  ReserveIdempotentThreadOperationArgs,
+  ReserveIdempotentThreadOperationResult,
+  CompleteIdempotentThreadOperationArgs,
+  FailIdempotentThreadOperationArgs,
+} from "./idempotent-thread-operations.js";
+
+export {
   deleteStoredProviderModelCatalogsForHost,
   getStoredProviderModelCatalog,
   replaceStoredProviderModelCatalog,
