@@ -11,6 +11,7 @@ const builtInThemeIdSchema = z.enum([
   "solarized",
   "gruvbox",
   "catppuccin",
+  "thecla",
 ]);
 export type BuiltInThemeId = z.infer<typeof builtInThemeIdSchema>;
 
@@ -38,6 +39,11 @@ export const builtInThemes: readonly BuiltInThemeMeta[] = [
     id: "catppuccin",
     name: "Catppuccin",
     description: "Soothing pastel — Latte light, Mocha dark",
+  },
+  {
+    id: "thecla",
+    name: "Thecla",
+    description: "Luminous rose, orchid pink, and cyan on deep black",
   },
 ];
 
@@ -112,6 +118,8 @@ export const appThemeSelectionSchema = z.object({
   faviconColor: faviconColorPreferenceSchema,
 });
 export type AppThemeSelection = z.infer<typeof appThemeSelectionSchema>;
+
+export const NEW_INSTALL_DEFAULT_THEME_ID: BuiltInThemeId = "thecla";
 
 export const defaultAppTheme: AppTheme = {
   themeId: "default",

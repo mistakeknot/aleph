@@ -23,7 +23,7 @@ app uses ~/.bb/theme/…). The folder name is the theme id.
                                  unless the flag supplies the complete selection
   bb theme show [id] [--css]     Print the active palette, or resolve <id> without
                                  activating it; --css dumps the CSS
-  bb theme reset                 Back to the default theme; preserve favicon color
+  bb theme reset                 Back to Thecla (this fork's default); preserve favicon color
   bb theme favicon set <color>   Set favicon color; preserve the active theme
   bb theme favicon reset         Reset favicon color; preserve the active theme
 

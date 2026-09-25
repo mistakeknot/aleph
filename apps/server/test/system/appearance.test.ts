@@ -39,12 +39,12 @@ async function writeCustomTheme(
 }
 
 describe("appearance settings", () => {
-  it("defaults appearance to the default palette in /system/config", async () => {
+  it("defaults appearance to the Thecla palette in /system/config", async () => {
     await withTestHarness(async (harness) => {
       const response = await harness.app.request("/api/v1/system/config");
       expect(response.status).toBe(200);
       const body = systemConfigResponseSchema.parse(await readJson(response));
-      expect(body.appearance).toEqual(defaultAppTheme);
+      expect(body.appearance).toEqual(appearanceForPalette("thecla"));
       expect(body.customThemes).toEqual([]);
       expect(body.pluginThemes).toEqual([]);
     });
@@ -187,7 +187,7 @@ describe("appearance settings", () => {
       expect(catalog.dir).toBe(join(harness.config.dataDir, "theme"));
       expect(catalog.custom).toEqual(["amber", "zephyr"]);
       expect(catalog.plugins).toEqual([]);
-      expect(catalog.active).toEqual(defaultAppTheme);
+      expect(catalog.active).toEqual(appearanceForPalette("thecla"));
     });
   });
 

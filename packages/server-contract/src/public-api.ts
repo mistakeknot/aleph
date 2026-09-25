@@ -1911,6 +1911,12 @@ export const publicApiRoutes = {
       request: noRequest<PathId>(),
       response: binaryResponse<Uint8Array>(),
     }),
+    ioskeleyMonoFont: defineRoute({
+      path: "/system/fonts/ioskeley-mono.woff2",
+      method: "get",
+      request: noRequest(),
+      response: binaryResponse<Uint8Array>(),
+    }),
     providerStates: defineRoute({
       path: "/system/providers/state",
       method: "get",
