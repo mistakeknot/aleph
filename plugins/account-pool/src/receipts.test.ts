@@ -166,6 +166,88 @@ describe("receipt failure boundaries", () => {
     },
   );
 
+  it.each([false, true])(
+    "carries the 5m/1h cache-write split into the receipt (stream=%s)",
+    (stream) => {
+      const hop: ReceiptHop = {
+        index: 1,
+        account_id: "account",
+        provider: "claude",
+        status: 200,
+        state: "active",
+        model: null,
+        usage: null,
+      };
+      const evidence = new ResponseEvidence(hop, stream, true);
+      const usage = {
+        input_tokens: 100,
+        output_tokens: 10,
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 40,
+        cache_creation: {
+          ephemeral_5m_input_tokens: 25,
+          ephemeral_1h_input_tokens: 15,
+        },
+      };
+      const events = [
+        { type: "message_start", message: { model: "actual", usage } },
+        { type: "message_delta", usage: { output_tokens: 10 } },
+        { type: "message_stop" },
+      ];
+      evidence.feed(
+        new TextEncoder().encode(
+          stream
+            ? events
+                .map((event) => "data: " + JSON.stringify(event) + "\n\n")
+                .join("")
+            : JSON.stringify({
+                type: "message",
+                stop_reason: "end_turn",
+                model: "actual",
+                usage,
+              }),
+        ),
+      );
+      evidence.finish();
+      expect(hop.usage).toMatchObject({
+        cache_creation_5m_input_tokens: 25,
+        cache_creation_1h_input_tokens: 15,
+      });
+    },
+  );
+
+  it("drops the 5m/1h split when the provider reports no cache_creation", () => {
+    const hop: ReceiptHop = {
+      index: 1,
+      account_id: "account",
+      provider: "claude",
+      status: 200,
+      state: "active",
+      model: null,
+      usage: null,
+    };
+    const evidence = new ResponseEvidence(hop, false, true);
+    evidence.feed(
+      new TextEncoder().encode(
+        JSON.stringify({
+          type: "message",
+          stop_reason: "end_turn",
+          model: "actual",
+          usage: {
+            input_tokens: 100,
+            output_tokens: 10,
+            cache_read_input_tokens: 0,
+            cache_creation_input_tokens: 0,
+            cache_creation: null,
+          },
+        }),
+      ),
+    );
+    evidence.finish();
+    expect(hop.usage).not.toHaveProperty("cache_creation_5m_input_tokens");
+    expect(hop.usage).not.toHaveProperty("cache_creation_1h_input_tokens");
+  });
+
   it("recycles settled receipts after a fixed polling window without evicting active attempts", () => {
     let now = 0;
     const store = new PoolReceipts(() => now);

@@ -13,6 +13,24 @@ describe("claude usage and fixture translation (delta path)", () => {
     [{ cache_creation_input_tokens: 0 }, { cacheWriteInputTokens: 0 }],
     [{ cache_read_input_tokens: 31 }, { cacheReadInputTokens: 31 }],
     [{ cache_creation_input_tokens: 9 }, { cacheWriteInputTokens: 9 }],
+    [
+      { cache_creation: { ephemeral_5m_input_tokens: 12 } },
+      { cacheWrite5mInputTokens: 12 },
+    ],
+    [
+      { cache_creation: { ephemeral_1h_input_tokens: 34 } },
+      { cacheWrite1hInputTokens: 34 },
+    ],
+    [
+      {
+        cache_creation: {
+          ephemeral_5m_input_tokens: 0,
+          ephemeral_1h_input_tokens: 0,
+        },
+      },
+      { cacheWrite5mInputTokens: 0, cacheWrite1hInputTokens: 0 },
+    ],
+    [{ cache_creation: null }, {}],
   ])(
     "preserves independently omitted Claude cache counts %j",
     (counts, expected) => {
@@ -32,7 +50,10 @@ describe("claude usage and fixture translation (delta path)", () => {
         Object.keys(event?.tokenUsage.last ?? {})
           .filter(
             (key) =>
-              key === "cacheReadInputTokens" || key === "cacheWriteInputTokens",
+              key === "cacheReadInputTokens" ||
+              key === "cacheWriteInputTokens" ||
+              key === "cacheWrite5mInputTokens" ||
+              key === "cacheWrite1hInputTokens",
           )
           .sort(),
       ).toEqual(Object.keys(expected).sort());
