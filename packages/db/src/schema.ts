@@ -614,6 +614,16 @@ export const threads = sqliteTable(
       enum: threadOriginKindValues,
     }),
     originPluginId: text("origin_plugin_id"),
+    /**
+     * Null on every ordinary thread: the fence is opt-in. A non-null value
+     * admits this thread as a provisional successor at that epoch, with no
+     * native write/exec/spawn dispatch allowed until
+     * `provisionalFenceVerifiedEpoch` matches it. Re-admitting bumps the
+     * epoch and clears the verified column in the same write, so a stale
+     * verification from a prior epoch can never satisfy a newer one.
+     */
+    provisionalFenceEpoch: integer("provisional_fence_epoch"),
+    provisionalFenceVerifiedEpoch: integer("provisional_fence_verified_epoch"),
     visibility: text("visibility", { enum: threadVisibilityValues })
       .notNull()
       .default("visible"),

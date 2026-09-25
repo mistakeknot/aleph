@@ -86,6 +86,7 @@ import {
 import { resolveDispatchAuthor } from "./dispatch-author.js";
 import type { TurnRequestRetryMarker } from "./thread-events.js";
 import { restoreInterruptedThreadStartupRequest } from "./thread-provisioning.js";
+import { ensureProvisionalSuccessorFenceOpen } from "./provisional-successor-fence.js";
 
 export const pendingThreadStartContextSchema = z.object({
   environmentIntent: threadProvisionEnvironmentIntentSchema,
@@ -298,6 +299,10 @@ async function runDispatchAttempt(
   // recover from, rather than the 409 that used to make a stop a dead end for
   // everything the user lined up behind it.
   ensureThreadIsWritable(thread, true);
+  // Non-bypassable: runs unconditionally, ahead of plugin policy below, so a
+  // provisional successor cannot dispatch native work via a missing plugin
+  // hook, a user Send-now, or any other path through this checkpoint.
+  ensureProvisionalSuccessorFenceOpen(deps, thread);
   if (args.trigger === "user" && args.source.kind === "inline") {
     // Reject what can never deliver while the sender is still listening; a
     // drain has nobody to tell, and its rows were validated when they were queued.
