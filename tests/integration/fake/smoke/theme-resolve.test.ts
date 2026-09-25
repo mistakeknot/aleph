@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { appThemeSchema } from "@bb/domain";
+import { appThemeSchema, NEW_INSTALL_DEFAULT_THEME_ID } from "@bb/domain";
 import { describe, expect, it } from "vitest";
 import { withHarness } from "../../helpers/harness.js";
 
@@ -48,7 +48,7 @@ describe.sequential("theme resolve integration", () => {
       });
 
       const catalog = await (await harness.api.settings.themes.$get({})).json();
-      expect(catalog.active.themeId).toBe("default");
+      expect(catalog.active.themeId).toBe(NEW_INSTALL_DEFAULT_THEME_ID);
     }));
 
   it("rejects unknown and malformed theme ids", () =>
