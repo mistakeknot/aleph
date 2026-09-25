@@ -63,6 +63,10 @@ export {
   countLiveThreadsInEnvironment,
   countThreads,
   countNonDeletedAssignedChildThreads,
+  admitProvisionalSuccessor,
+  clearProvisionalSuccessorFence,
+  getProvisionalSuccessorFenceState,
+  verifyProvisionalSuccessorCheckpoint,
   getThread,
   getThreadExecutionOverride,
   hasActiveThreadAttention,
@@ -104,6 +108,7 @@ export {
 export type {
   ApplyThreadLifecycleEventArgs,
   ApplyThreadLifecycleEventOutcome,
+  ProvisionalSuccessorFenceState,
   ReorderPinnedThreadResult,
   RunningThreadRow,
   ThreadSearchResultGroup,

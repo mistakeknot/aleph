@@ -878,7 +878,7 @@ function normalizeThreadSearchHighlightText(text: string): {
   const originalStarts: number[] = [];
   const originalEnds: number[] = [];
 
-  for (let index = 0; index < text.length;) {
+  for (let index = 0; index < text.length; ) {
     const codePoint = text.codePointAt(index);
     if (codePoint === undefined) {
       break;
@@ -1881,6 +1881,104 @@ export function setThreadExecutionOverride(
     .returning()
     .get();
   return updated ?? null;
+}
+
+export interface ProvisionalSuccessorFenceState {
+  epoch: number | null;
+  verifiedEpoch: number | null;
+}
+
+/**
+ * The fence a provisional successor thread carries, or `null` when the
+ * thread does not exist. `epoch: null` means never admitted: an ordinary
+ * thread, unaffected by the fence.
+ */
+export function getProvisionalSuccessorFenceState(
+  db: ThreadWriteConnection,
+  threadId: string,
+): ProvisionalSuccessorFenceState | null {
+  const row = db
+    .select({
+      epoch: threads.provisionalFenceEpoch,
+      verifiedEpoch: threads.provisionalFenceVerifiedEpoch,
+    })
+    .from(threads)
+    .where(eq(threads.id, threadId))
+    .get();
+  return row ?? null;
+}
+
+/**
+ * Admits (or re-admits) a thread as a provisional successor at `epoch`,
+ * clearing any prior verification in the same write. Re-admitting with a
+ * higher epoch is how a source thread hands a successor a fresh, unverified
+ * checkpoint without leaving a window where the old verification still
+ * satisfies the fence.
+ */
+export function admitProvisionalSuccessor(
+  db: ThreadWriteConnection,
+  input: { threadId: string; epoch: number },
+): ProvisionalSuccessorFenceState | null {
+  const updated = db
+    .update(threads)
+    .set({
+      provisionalFenceEpoch: input.epoch,
+      provisionalFenceVerifiedEpoch: null,
+      updatedAt: Date.now(),
+    })
+    .where(eq(threads.id, input.threadId))
+    .returning({
+      epoch: threads.provisionalFenceEpoch,
+      verifiedEpoch: threads.provisionalFenceVerifiedEpoch,
+    })
+    .get();
+  return updated ?? null;
+}
+
+/**
+ * Records checkpoint verification for `epoch`. A CAS against the thread's
+ * current fence epoch: a call carrying an epoch the thread has since moved
+ * past (re-admitted) fails closed and returns `false` rather than marking a
+ * newer epoch verified by accident.
+ */
+export function verifyProvisionalSuccessorCheckpoint(
+  db: ThreadWriteConnection,
+  input: { threadId: string; epoch: number },
+): boolean {
+  const updated = db
+    .update(threads)
+    .set({
+      provisionalFenceVerifiedEpoch: input.epoch,
+      updatedAt: Date.now(),
+    })
+    .where(
+      and(
+        eq(threads.id, input.threadId),
+        eq(threads.provisionalFenceEpoch, input.epoch),
+      ),
+    )
+    .run();
+  return updated.changes > 0;
+}
+
+/**
+ * Releases the fence entirely, returning the thread to ordinary (unfenced)
+ * behavior. Distinct from verifying: verifying satisfies one epoch, this
+ * removes the admission so the thread is never re-fenced by a stale epoch
+ * comparison later.
+ */
+export function clearProvisionalSuccessorFence(
+  db: ThreadWriteConnection,
+  threadId: string,
+): void {
+  db.update(threads)
+    .set({
+      provisionalFenceEpoch: null,
+      provisionalFenceVerifiedEpoch: null,
+      updatedAt: Date.now(),
+    })
+    .where(eq(threads.id, threadId))
+    .run();
 }
 
 export interface SetThreadStartupContextInput {
