@@ -1,3 +1,4 @@
+import { isAlephAppVersion } from "@bb/config/app-update";
 import {
   createBbDesktopVersionFeedFileName,
   type BbDesktopVersionFeedPlatform,
@@ -76,6 +77,7 @@ interface DesktopUpdateSupport {
 }
 
 interface ResolveDesktopUpdateSupportArgs {
+  appVersion: string;
   canReplaceAppImage: (appImagePath: string) => boolean;
   env: NodeJS.ProcessEnv;
   platform: BbDesktopVersionFeedPlatform;
@@ -84,6 +86,10 @@ interface ResolveDesktopUpdateSupportArgs {
 export function resolveDesktopUpdateSupport(
   args: ResolveDesktopUpdateSupportArgs,
 ): DesktopUpdateSupport {
+  if (isAlephAppVersion(args.appVersion)) {
+    return { autoUpdate: false, versionCheck: false };
+  }
+
   if (args.platform === "macos") {
     return { autoUpdate: true, versionCheck: true };
   }

@@ -15,6 +15,7 @@ describe("desktop update feed url", () => {
   });
 });
 
+const UPSTREAM_VERSION = "0.43.4";
 const APP_IMAGE_PATH = "/home/user/Apps/bb-0.37.0-x86_64.AppImage";
 const alwaysReplaceable = () => true;
 const neverReplaceable = () => false;
@@ -23,6 +24,7 @@ describe("desktop update support", () => {
   it("enables both update paths on macOS", () => {
     expect(
       resolveDesktopUpdateSupport({
+        appVersion: UPSTREAM_VERSION,
         canReplaceAppImage: neverReplaceable,
         env: {},
         platform: "macos",
@@ -33,6 +35,7 @@ describe("desktop update support", () => {
   it("installs updates on Linux only inside an AppImage", () => {
     expect(
       resolveDesktopUpdateSupport({
+        appVersion: UPSTREAM_VERSION,
         canReplaceAppImage: alwaysReplaceable,
         env: { APPIMAGE: APP_IMAGE_PATH },
         platform: "linux",
@@ -40,6 +43,7 @@ describe("desktop update support", () => {
     ).toEqual({ autoUpdate: true, versionCheck: true });
     expect(
       resolveDesktopUpdateSupport({
+        appVersion: UPSTREAM_VERSION,
         canReplaceAppImage: alwaysReplaceable,
         env: {},
         platform: "linux",
@@ -47,6 +51,7 @@ describe("desktop update support", () => {
     ).toEqual({ autoUpdate: false, versionCheck: true });
     expect(
       resolveDesktopUpdateSupport({
+        appVersion: UPSTREAM_VERSION,
         canReplaceAppImage: alwaysReplaceable,
         env: { APPIMAGE: "  " },
         platform: "linux",
@@ -59,6 +64,7 @@ describe("desktop update support", () => {
 
     expect(
       resolveDesktopUpdateSupport({
+        appVersion: UPSTREAM_VERSION,
         canReplaceAppImage: (path) => {
           checked.push(path);
           return false;
@@ -70,10 +76,30 @@ describe("desktop update support", () => {
     expect(checked).toEqual([APP_IMAGE_PATH]);
   });
 
+  it("turns off both update paths for Aleph builds", () => {
+    let consulted = false;
+
+    for (const platform of ["macos", "linux"] as const) {
+      expect(
+        resolveDesktopUpdateSupport({
+          appVersion: "0.43.4+aleph.1",
+          canReplaceAppImage: () => {
+            consulted = true;
+            return true;
+          },
+          env: { APPIMAGE: APP_IMAGE_PATH },
+          platform,
+        }),
+      ).toEqual({ autoUpdate: false, versionCheck: false });
+    }
+    expect(consulted).toBe(false);
+  });
+
   it("does not consult the filesystem on macOS", () => {
     let consulted = false;
 
     resolveDesktopUpdateSupport({
+      appVersion: UPSTREAM_VERSION,
       canReplaceAppImage: () => {
         consulted = true;
         return true;

@@ -2643,6 +2643,7 @@ async function runDesktopApp(): Promise<void> {
   });
 
   const desktopUpdateSupport = resolveDesktopUpdateSupport({
+    appVersion: desktopVersion,
     canReplaceAppImage,
     env: process.env,
     platform: desktopPlatform,

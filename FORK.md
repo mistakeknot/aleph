@@ -19,15 +19,54 @@ upstream main commit it includes.
 comparing versions:
 
 - Upstream `0.43.4` compares equal to `0.43.4+aleph.1`, and upstream `0.43.5`
-  compares newer. bb's npm update check and the desktop update check therefore
-  offer upstream 0.43.5 as an update, and installing it replaces Aleph.
-- `0.43.4+aleph.2` does not compare newer than `0.43.4+aleph.1`. Update checks
-  do not offer it, and `scripts/bump-version.mjs` refuses it. Set both
+  compares newer. Upstream's update checks would therefore offer 0.43.5, and
+  installing it would replace Aleph. Aleph builds turn those checks off (see
+  [Updates](#updates)).
+- `0.43.4+aleph.2` does not compare newer than `0.43.4+aleph.1`, and
+  `scripts/bump-version.mjs` refuses it. Set both
   `packages/bb-app/package.json` and `apps/desktop/package.json` directly;
   `.github/workflows/check-version-lockstep.mjs` checks that they match.
 - `npm pack` keeps the metadata in the tarball name, for example
   `bb-app-0.43.4+aleph.1.tgz`. The npm registry drops build metadata, so an
   Aleph version cannot be published under the upstream `bb-app` package name.
+
+## Updates
+
+An Aleph build never offers an upstream release. `isAlephAppVersion` in
+`packages/config/src/app-update.ts` matches the `+aleph.<n>` suffix, and when
+it does:
+
+- The server skips its npm lookup of `bb-app`, so Settings → Updates shows no
+  upstream version and the in-app npm update has nothing to install.
+- The desktop app turns off both its `desktop-latest` feed check and
+  electron-updater, so it neither shows nor downloads an upstream release.
+
+Updating Aleph means installing a newer Aleph build by hand: `bb-app` from
+`npm pack` on the server, and a locally built desktop app on each Mac. Enrolled
+machines that run the launchd or systemd daemon need nothing extra. Their
+installer fetches the server's own `bb-app`, which is already Aleph.
+
+### Build the macOS desktop app
+
+A desktop app's local host daemon runs the `bb-app` bundled inside the app. A
+Mac connected to an Aleph server therefore needs an Aleph desktop build at the
+server's version. With stock bb, the server rejects the daemon for a
+host-daemon protocol mismatch. On the Mac, at the server's commit:
+
+```sh
+# Node 22 (.nvmrc) and pnpm 9.15.0 (packageManager)
+pnpm install --frozen-lockfile
+CSC_IDENTITY_AUTO_DISCOVERY=false pnpm --filter @bb/desktop run package
+codesign --force --deep --sign - apps/desktop/release/mac-arm64/bb.app
+```
+
+Do not use `dist` or `desktop:build`; both pass `--publish always`. Before
+installing, check that
+`bb.app/Contents/Resources/app.asar.unpacked/node_modules/bb-app/package.json`
+has the server's version. Then quit bb, move the old `/Applications/bb.app`
+aside, copy the new one in, and run
+`xattr -dr com.apple.quarantine /Applications/bb.app`. Enrollment lives in
+`~/.bb`, outside the bundle, so it survives the swap.
 
 ## Carried patches
 
@@ -44,6 +83,7 @@ Beyond upstream, Aleph carries:
   keyboard.
 - **Model picker.** Switching a thread's provider in place when the local
   handoff plugin is running.
+- **No upstream update offers.** See [Updates](#updates).
 - **Release qualification.** `scripts/ci-zklw-release-check.sh`, run by the
   fork's CI worker in a credential-free guest.
 

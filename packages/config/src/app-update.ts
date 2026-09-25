@@ -170,6 +170,10 @@ export function isNightlyAppVersion(version: string): boolean {
   return /-nightly\.\d+\.\d+$/u.test(version);
 }
 
+export function isAlephAppVersion(version: string): boolean {
+  return /\+aleph\.\d+$/u.test(version);
+}
+
 export const appUpdateTargetSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("npm"), version: z.string().min(1) }),
   z.object({ commit: gitCommitSchema, kind: z.literal("source") }),

@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased (Aleph)
+
+- **Upstream releases are no longer offered as updates.** Semver ignores the
+  `+aleph` build metadata, so upstream 0.43.5 counted as newer than
+  `0.43.4+aleph.1`, and installing it would have replaced Aleph. Aleph builds
+  now skip the server's npm update check and the desktop app's update feed and
+  auto-updater. Update Aleph by installing a newer Aleph build; `FORK.md`
+  describes the macOS desktop build.
+
 ## 0.43.4+aleph.1
 
 This is Aleph, mk's fork of bb. It is based on upstream bb 0.43.4 plus get-bb/bb main through `fdd3de3`, and adds the changes below. Aleph keeps bb's package and command names; see `FORK.md` in the repository for the name, the version scheme, and the carried patches.
