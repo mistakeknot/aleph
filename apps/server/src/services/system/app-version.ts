@@ -1,6 +1,6 @@
 import semver from "semver";
 import { z } from "zod";
-import { isNightlyAppVersion } from "@bb/config/app-update";
+import { isAlephAppVersion, isNightlyAppVersion } from "@bb/config/app-update";
 import type { SystemVersionResponse } from "@bb/server-contract";
 import type { ServerLogger, ServerRuntimeConfig } from "../../types.js";
 
@@ -166,7 +166,7 @@ export function createAppVersionService(
         upgradeCommand: `npx bb-app@${distTag}`,
       };
 
-      if (config.isDevelopment) {
+      if (config.isDevelopment || isAlephAppVersion(config.appVersion)) {
         return baseResponse;
       }
 

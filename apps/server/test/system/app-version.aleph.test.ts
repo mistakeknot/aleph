@@ -19,16 +19,12 @@ function serviceFor(latestVersion: string) {
 }
 
 describe("Aleph build-metadata versions", () => {
-  it("treats the upstream base release as the same version", async () => {
-    const { service, urls } = serviceFor("0.43.4");
-    const response = await service.getSystemVersion();
-    expect(urls).toEqual(["https://registry.npmjs.org/bb-app/latest"]);
+  it("never asks npm, whose bb-app is upstream bb", async () => {
+    const { service, urls } = serviceFor("0.43.5");
+    const response = await service.getSystemVersion({ forceRefresh: true });
+    expect(urls).toEqual([]);
     expect(response.currentVersion).toBe("0.43.4+aleph.1");
+    expect(response.latestVersion).toBeNull();
     expect(response.updateAvailable).toBe(false);
-  });
-
-  it("reports a newer upstream release as an update", async () => {
-    const { service } = serviceFor("0.43.5");
-    expect((await service.getSystemVersion()).updateAvailable).toBe(true);
   });
 });
