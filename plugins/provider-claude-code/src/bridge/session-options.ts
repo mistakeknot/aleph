@@ -27,6 +27,7 @@ export interface BuildSessionOptionsArgs {
   workflowsEnabled: boolean;
   chromeEnabled: boolean;
   memoryEnabled?: boolean;
+  promptCacheTtl?: "5m" | "1h";
 }
 
 export interface PermissionEscalationWorkContext {
@@ -64,6 +65,7 @@ function buildFlagSettings(params: BuildSessionOptionsArgs): Settings {
     autoMemoryEnabled: params.memoryEnabled ?? true,
     enableWorkflows: params.workflowsEnabled,
     ultracode: params.reasoningLevel === "ultracode",
+    ...(params.promptCacheTtl ? { promptCacheTtl: params.promptCacheTtl } : {}),
   };
 }
 

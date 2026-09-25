@@ -317,6 +317,18 @@ function toTokenUsageBreakdown(
     ...(usage.cache_creation_input_tokens === undefined
       ? {}
       : { cacheWriteInputTokens: usage.cache_creation_input_tokens }),
+    ...(usage.cache_creation?.ephemeral_5m_input_tokens === undefined
+      ? {}
+      : {
+          cacheWrite5mInputTokens:
+            usage.cache_creation.ephemeral_5m_input_tokens,
+        }),
+    ...(usage.cache_creation?.ephemeral_1h_input_tokens === undefined
+      ? {}
+      : {
+          cacheWrite1hInputTokens:
+            usage.cache_creation.ephemeral_1h_input_tokens,
+        }),
     outputTokens,
     reasoningOutputTokens: 0,
   };

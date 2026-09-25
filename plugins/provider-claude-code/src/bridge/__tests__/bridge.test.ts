@@ -1012,6 +1012,51 @@ describe("bridge", () => {
     });
   });
 
+  it("leaves promptCacheTtl unset by default", () => {
+    const options = buildSessionOptions(
+      {
+        chromeEnabled: false,
+        workflowsEnabled: false,
+        cwd: "/tmp/worktree",
+        instructionMode: "append",
+        permissionMode: "default",
+        permissionScope: "workspace",
+      },
+      {},
+    );
+
+    expect(options.settings).toEqual({
+      autoMemoryEnabled: true,
+      enableWorkflows: false,
+      ultracode: false,
+    });
+  });
+
+  it.each(["1h", "5m"] as const)(
+    "passes the thread's promptCacheTtl %s through to the session settings",
+    (promptCacheTtl) => {
+      const options = buildSessionOptions(
+        {
+          chromeEnabled: false,
+          workflowsEnabled: false,
+          cwd: "/tmp/worktree",
+          instructionMode: "append",
+          permissionMode: "default",
+          permissionScope: "workspace",
+          promptCacheTtl,
+        },
+        {},
+      );
+
+      expect(options.settings).toEqual({
+        autoMemoryEnabled: true,
+        enableWorkflows: false,
+        ultracode: false,
+        promptCacheTtl,
+      });
+    },
+  );
+
   it("passes --chrome only when Claude in Chrome is enabled", () => {
     const base = {
       workflowsEnabled: false,

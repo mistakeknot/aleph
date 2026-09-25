@@ -13,6 +13,24 @@ describe("claude usage and fixture translation (delta path)", () => {
     [{ cache_creation_input_tokens: 0 }, { cacheWriteInputTokens: 0 }],
     [{ cache_read_input_tokens: 31 }, { cacheReadInputTokens: 31 }],
     [{ cache_creation_input_tokens: 9 }, { cacheWriteInputTokens: 9 }],
+    [
+      { cache_creation: { ephemeral_5m_input_tokens: 12 } },
+      { cacheWrite5mInputTokens: 12 },
+    ],
+    [
+      { cache_creation: { ephemeral_1h_input_tokens: 34 } },
+      { cacheWrite1hInputTokens: 34 },
+    ],
+    [
+      {
+        cache_creation: {
+          ephemeral_5m_input_tokens: 0,
+          ephemeral_1h_input_tokens: 0,
+        },
+      },
+      { cacheWrite5mInputTokens: 0, cacheWrite1hInputTokens: 0 },
+    ],
+    [{ cache_creation: null }, {}],
   ])(
     "preserves independently omitted Claude cache counts %j",
     (counts, expected) => {
@@ -32,7 +50,10 @@ describe("claude usage and fixture translation (delta path)", () => {
         Object.keys(event?.tokenUsage.last ?? {})
           .filter(
             (key) =>
-              key === "cacheReadInputTokens" || key === "cacheWriteInputTokens",
+              key === "cacheReadInputTokens" ||
+              key === "cacheWriteInputTokens" ||
+              key === "cacheWrite5mInputTokens" ||
+              key === "cacheWrite1hInputTokens",
           )
           .sort(),
       ).toEqual(Object.keys(expected).sort());
@@ -698,5 +719,127 @@ describe("claude usage and fixture translation (delta path)", () => {
         },
       }),
     );
+  });
+
+  it("emits exactly one tokenUsage event per completed turn", () => {
+    const harness = createClaudeDeltaHarness();
+    const threadId = "bb-thread-1";
+    const turnCount = 3;
+    const tokenUsageEvents: Array<{
+      scope: unknown;
+      last: Record<string, unknown>;
+    }> = [];
+
+    for (let turn = 1; turn <= turnCount; turn += 1) {
+      harness.acceptInput(`creq_23456789a${turn}`, threadId);
+      harness.translate(
+        {
+          type: "assistant",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: `turn ${turn}` }],
+          },
+          session_id: "session-1",
+        },
+        { threadId },
+      );
+      const events = harness.translate(
+        {
+          type: "result",
+          subtype: "success",
+          duration_ms: 1,
+          duration_api_ms: 1,
+          is_error: false,
+          num_turns: 1,
+          result: "ok",
+          stop_reason: "end_turn",
+          total_cost_usd: 0,
+          usage: {
+            input_tokens: 100 * turn,
+            output_tokens: 20 * turn,
+          },
+          session_id: "session-1",
+        },
+        { threadId },
+      );
+      for (const event of events) {
+        if (event.type === "thread/tokenUsage/updated") {
+          tokenUsageEvents.push({
+            scope: event.scope,
+            last: event.tokenUsage.last,
+          });
+        }
+      }
+    }
+
+    expect(tokenUsageEvents).toHaveLength(turnCount);
+    expect(
+      new Set(tokenUsageEvents.map((event) => JSON.stringify(event.scope)))
+        .size,
+    ).toBe(turnCount);
+    expect(tokenUsageEvents.map((event) => event.last.inputTokens)).toEqual([
+      100, 200, 300,
+    ]);
+  });
+
+  it("still reports usage from a result message that arrives after its turn already closed", () => {
+    const harness = createClaudeDeltaHarness();
+    const threadId = "bb-thread-1";
+
+    harness.acceptInput("creq_23456789a1", threadId);
+    harness.translate(
+      {
+        type: "assistant",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "turn 1" }],
+        },
+        session_id: "session-1",
+      },
+      { threadId },
+    );
+    harness.translate(
+      {
+        type: "result",
+        subtype: "success",
+        duration_ms: 1,
+        duration_api_ms: 1,
+        is_error: false,
+        num_turns: 1,
+        result: "ok",
+        stop_reason: "end_turn",
+        total_cost_usd: 0,
+        usage: { input_tokens: 1, output_tokens: 1 },
+        session_id: "session-1",
+      },
+      { threadId },
+    );
+
+    const strayResultEvents = harness.translate(
+      {
+        type: "result",
+        subtype: "success",
+        duration_ms: 1,
+        duration_api_ms: 1,
+        is_error: false,
+        num_turns: 1,
+        result: "ok",
+        stop_reason: "end_turn",
+        total_cost_usd: 0,
+        usage: { input_tokens: 500, output_tokens: 90 },
+        session_id: "session-1",
+      },
+      { threadId },
+    );
+
+    const strayTokenUsageEvents = strayResultEvents.filter(
+      (event) => event.type === "thread/tokenUsage/updated",
+    );
+    expect(strayTokenUsageEvents).toHaveLength(1);
+    expect(strayTokenUsageEvents[0]?.tokenUsage.last).toMatchObject({
+      inputTokens: 500,
+      outputTokens: 90,
+    });
+    expect(strayTokenUsageEvents[0]?.scope).toEqual(turnScope(TURN_1));
   });
 });
