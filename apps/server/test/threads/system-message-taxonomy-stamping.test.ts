@@ -119,6 +119,7 @@ describe("Family B emit-site discriminator stamping", () => {
         await queueChildThreadTurnNotificationBestEffort(harness.deps, {
           childThread: child,
           parentThreadId: fixture.parentThreadId,
+          turnId: null,
           turnStatus,
         });
 
@@ -153,11 +154,13 @@ describe("Family B emit-site discriminator stamping", () => {
       await queueChildThreadTurnNotificationBestEffort(harness.deps, {
         childThread: childA,
         parentThreadId: fixture.parentThreadId,
+        turnId: null,
         turnStatus: "completed",
       });
       await queueChildThreadTurnNotificationBestEffort(harness.deps, {
         childThread: childB,
         parentThreadId: fixture.parentThreadId,
+        turnId: null,
         turnStatus: "interrupted",
       });
 

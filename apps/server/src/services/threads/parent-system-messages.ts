@@ -52,6 +52,10 @@ import {
   withThreadSendGuard,
 } from "./thread-context-mutation-guard.js";
 import { requestQueuedMessageDispatch } from "./queued-message-dispatch.js";
+import {
+  checkParentThreadHeld,
+  type ParentThreadHeldResult,
+} from "./parent-wake-policy.js";
 
 const PARENT_SYSTEM_MESSAGE_SOURCE = "tell";
 
@@ -420,6 +424,36 @@ async function queueReadyParentSystemMessage(
   return true;
 }
 
+/**
+ * `checkParentThreadHeld` runs a plugin's `message.dispatch` hook, which is
+ * fail-closed: a handler that throws, times out, or rejects raises rather
+ * than returning a decision. Letting that propagate out of
+ * `queueParentSystemMessage` would drop the notice entirely, since none of
+ * its callers retry — they log and move on. Treat a failed hook check the
+ * same as a held thread instead, so the notice is always recorded durably
+ * and can be delivered once the thread is next dispatched to.
+ */
+async function checkParentThreadHeldTolerantly(
+  deps: LoggedPendingInteractionWorkSessionDeps,
+  args: { input: PromptInput[]; parentThread: Thread },
+): Promise<ParentThreadHeldResult> {
+  try {
+    return await checkParentThreadHeld(deps, args);
+  } catch (error) {
+    deps.logger.error(
+      { err: error, parentThreadId: args.parentThread.id },
+      "Parent-thread dispatch-hook check failed; queuing the notice instead of dropping it",
+    );
+    return {
+      held: true,
+      pluginId: "unknown",
+      reason:
+        "A dispatch hook failed while checking whether this thread could be sent to.",
+      sendAt: null,
+    };
+  }
+}
+
 export async function queueParentSystemMessage(
   deps: LoggedPendingInteractionWorkSessionDeps,
   args: QueueParentSystemMessageArgs,
@@ -433,8 +467,16 @@ export async function queueParentSystemMessage(
     return false;
   }
   const hasPendingInteraction =
-    deps.pendingInteractions.hasTurnBoundPendingThreadInteraction(parentThread.id);
-  if (!hasPendingInteraction) {
+    deps.pendingInteractions.hasTurnBoundPendingThreadInteraction(
+      parentThread.id,
+    );
+  const held = hasPendingInteraction
+    ? ({ held: false } as const)
+    : await checkParentThreadHeldTolerantly(deps, {
+        input: args.input,
+        parentThread,
+      });
+  if (!hasPendingInteraction && !held.held) {
     try {
       return await deliverParentSystemMessage(deps, {
         input: args.input,
@@ -464,15 +506,19 @@ export async function queueParentSystemMessage(
     reasoningLevel: execution.reasoningLevel,
     permissionMode: execution.permissionMode,
     serviceTier: execution.serviceTier,
-    waitingOn: { kind: hasPendingInteraction ? "interaction" : "thread-busy" },
-    sendAt: null,
+    waitingOn: hasPendingInteraction
+      ? { kind: "interaction" }
+      : held.held
+        ? { kind: "plugin", pluginId: held.pluginId, reason: held.reason }
+        : { kind: "thread-busy" },
+    sendAt: held.held ? held.sendAt : null,
     payload: { kind: "inline" },
     systemNotice: {
       kind: args.systemMessageKind,
       subject: args.systemMessageSubject,
     },
   });
-  if (!hasPendingInteraction) {
+  if (!hasPendingInteraction && !held.held) {
     requestQueuedMessageDispatch(deps, {
       kind: "thread-ready",
       threadId: parentThread.id,

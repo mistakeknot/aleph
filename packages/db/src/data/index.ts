@@ -279,6 +279,7 @@ export {
   getActiveStoredTurnId,
   hasRootStoredTurnStarted,
   hasStoredTurnStarted,
+  hasThreadCompletedAnyOtherTurn,
   classifyStoredProviderThreadClaim,
   wouldRemoveSharedProviderSessionClaim,
   getLastStoredProviderThreadId,
@@ -289,6 +290,7 @@ export {
   getLastStoredTurnRequestEvent,
   getStoredTurnRequestEventForTurn,
   getLatestThreadOutputEventRow,
+  getThreadOutputEventRowForTurn,
   getLatestStoredConversationOutlineSequence,
   getLatestCompletedThreadContextClearSequence,
   getLatestThreadSystemErrorEventRow,
@@ -374,6 +376,7 @@ export type {
   TimelineWindowHint,
   ThreadClientTurnRequestKey,
   StoredTurnRequestEventRow,
+  HasThreadCompletedAnyOtherTurnArgs,
 } from "./events.js";
 
 export {

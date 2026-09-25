@@ -20,7 +20,13 @@ import {
   childOutcomeSystemMessageKind,
   systemMessageKindForTemplate,
 } from "./system-message-kind.js";
-import { getLastThreadOutput } from "./thread-data.js";
+import { getLastThreadOutput, getThreadTurnOutput } from "./thread-data.js";
+import {
+  decideParentWake,
+  isChildTurnSelfInitiated,
+  recordDeliveredChildOutput,
+  resolveParentWakeNotifySetting,
+} from "./parent-wake-policy.js";
 
 export type ChildThreadNotificationSource = ParentSystemThreadMentionSource;
 
@@ -28,6 +34,7 @@ export interface ChildThreadTurnNotificationBatchItem {
   activeWorkflowCount: number;
   childThread: ChildThreadNotificationSource;
   terminalOutput: string | null;
+  turnId: string | null;
   turnStatus: ThreadEventTurnStatus;
 }
 
@@ -61,6 +68,7 @@ interface BuildChildThreadNeedsAttentionInputArgs {
 interface QueueChildThreadTurnNotificationArgs {
   childThread: ChildThreadNotificationSource;
   parentThreadId: string;
+  turnId: string | null;
   turnStatus: ThreadEventTurnStatus;
 }
 
@@ -222,7 +230,13 @@ function getChildThreadCompletionOutput(
   if (args.turnStatus !== "completed") {
     return null;
   }
-  return getLastThreadOutput(deps.db, args.childThread.id);
+  if (args.turnId === null) {
+    return getLastThreadOutput(deps.db, args.childThread.id);
+  }
+  return getThreadTurnOutput(deps.db, {
+    threadId: args.childThread.id,
+    turnId: args.turnId,
+  });
 }
 
 function getChildThreadActiveWorkflowCount(
@@ -355,6 +369,56 @@ function childThreadTurnNotificationLogMessage(
   }
 }
 
+function selectWakingChildThreadTurnNotificationItems(
+  deps: Pick<LoggedPendingInteractionWorkSessionDeps, "db">,
+  args: {
+    items: ChildThreadTurnNotificationBatchItem[];
+    parentThreadId: string;
+  },
+): ChildThreadTurnNotificationBatchItem[] {
+  const notify = resolveParentWakeNotifySetting();
+  return args.items.filter((item) => {
+    const selfInitiated =
+      item.turnId !== null &&
+      isChildTurnSelfInitiated(deps, {
+        childThreadId: item.childThread.id,
+        parentThreadId: args.parentThreadId,
+        turnId: item.turnId,
+      });
+    const decision = decideParentWake({
+      childThreadId: item.childThread.id,
+      finalText: item.terminalOutput,
+      notify,
+      parentThreadId: args.parentThreadId,
+      selfInitiated,
+      turnStatus: item.turnStatus,
+    });
+    return decision.wake;
+  });
+}
+
+/**
+ * Marks each waking item's output as delivered. Called only once the notice
+ * has actually been queued or dispatched — recording it earlier would mark a
+ * notice as delivered even when queuing it later throws, which would then
+ * suppress the retry of that same output as a false duplicate.
+ */
+function recordDeliveredChildThreadTurnNotificationItems(args: {
+  items: ChildThreadTurnNotificationBatchItem[];
+  parentThreadId: string;
+}): void {
+  for (const item of args.items) {
+    if (item.turnStatus !== "completed") {
+      continue;
+    }
+    recordDeliveredChildOutput({
+      childThreadId: item.childThread.id,
+      finalText: item.terminalOutput,
+      parentThreadId: args.parentThreadId,
+    });
+  }
+}
+
 async function flushChildThreadTurnNotificationBatch(
   deps: LoggedPendingInteractionWorkSessionDeps,
   parentThreadId: string,
@@ -365,14 +429,28 @@ async function flushChildThreadTurnNotificationBatch(
   }
   childThreadTurnNotificationBatches.delete(parentThreadId);
 
+  const items = selectWakingChildThreadTurnNotificationItems(deps, {
+    items: batch.items,
+    parentThreadId,
+  });
+  if (items.length === 0) {
+    return;
+  }
+
   try {
-    await queueParentSystemMessage(deps, {
+    const queued = await queueParentSystemMessage(deps, {
       input: buildChildThreadTurnStatusBatchInput({
-        items: batch.items,
+        items,
       }),
       parentThreadId,
-      ...childThreadTurnStatusBatchTaxonomy(batch.items),
+      ...childThreadTurnStatusBatchTaxonomy(items),
     });
+    if (queued) {
+      recordDeliveredChildThreadTurnNotificationItems({
+        items,
+        parentThreadId,
+      });
+    }
   } catch (error) {
     deps.logger.error(
       {
@@ -405,6 +483,7 @@ function queueChildThreadTurnNotificationBatchItem(
     activeWorkflowCount: getChildThreadActiveWorkflowCount(deps, args),
     childThread: args.childThread,
     terminalOutput: getChildThreadCompletionOutput(deps, args),
+    turnId: args.turnId,
     turnStatus: args.turnStatus,
   };
   const existingBatch = childThreadTurnNotificationBatches.get(

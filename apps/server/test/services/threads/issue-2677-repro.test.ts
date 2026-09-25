@@ -185,6 +185,7 @@ describe("child outcome reconciliation", () => {
         await queueChildThreadTurnNotificationBestEffort(harness.deps, {
           childThread: fixture.child,
           parentThreadId: fixture.parent.id,
+          turnId: null,
           turnStatus: "failed",
         });
       }
