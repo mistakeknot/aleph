@@ -36,10 +36,11 @@
   for an idle or error thread status and report `{status: "error"}` instead
   of throwing, for a caller that wants to be woken on either outcome without
   running two overlapping waits.
-- **A provisional successor thread cannot dispatch native work before its
-  checkpoint is verified.** The check runs unconditionally in the dispatch
-  attempt path, ahead of plugin policy, so a missing plugin hook or a user
-  Send-now can no longer bypass it.
+- **Groundwork for gating a provisional successor thread's native dispatch on
+  checkpoint verification.** The check runs in the dispatch attempt path,
+  ahead of plugin policy. Nothing yet calls the admission path that sets the
+  fence, and it only guards `sendThreadMessage`-adjacent dispatch, not every
+  path that can start a turn (message edit, manual compaction, `/clear`).
 
 ### Providers
 
