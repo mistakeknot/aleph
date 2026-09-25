@@ -1,7 +1,7 @@
 export interface DesktopAboutFacts {
   applicationName: string;
   buildDate: string;
-  channel: "latest" | "nightly";
+  channel: "latest" | "nightly" | "aleph";
   commit: string;
   electronVersion: string;
   osArch: string;
@@ -74,7 +74,14 @@ export function buildDesktopAboutDetails(
 ): string {
   const lines: [string, string][] = [
     ["Version", facts.version],
-    ["Build Type", facts.channel === "nightly" ? "Nightly" : "Stable"],
+    [
+      "Build Type",
+      facts.channel === "nightly"
+        ? "Nightly"
+        : facts.channel === "aleph"
+          ? "Aleph"
+          : "Stable",
+    ],
     ["Commit", facts.commit],
     ["Date", formatBuildDate(facts.buildDate, nowMs)],
     ["Plugin SDK", facts.pluginSdkVersion],

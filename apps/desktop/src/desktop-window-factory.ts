@@ -74,6 +74,7 @@ interface OpenExternalUrlArgs {
 }
 
 interface CreateDesktopWindowFactoryArgs {
+  applicationName: string;
   browserWindowCreator: DesktopBrowserWindowCreator;
   createWindowStateKey(): WindowStateKey;
   displayWorkAreas: DisplayWorkArea[] | null;
@@ -125,6 +126,7 @@ interface LoadUrlIntoWindowArgs {
 }
 
 interface CreateWindowOptionsArgs {
+  applicationName: string;
   bounds: WindowBounds;
   icon: DesktopWindowIcon;
   isLinuxTransparent: boolean;
@@ -176,7 +178,7 @@ function createWindowOptions(
     minHeight: MIN_WINDOW_HEIGHT,
     minWidth: MIN_WINDOW_WIDTH,
     show: false,
-    title: "bb",
+    title: args.applicationName,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -228,6 +230,7 @@ export function createDesktopWindowFactory(
       });
       const browserWindow = args.browserWindowCreator.create(
         createWindowOptions({
+          applicationName: args.applicationName,
           bounds: restoredState.bounds,
           icon: args.icon,
           isLinuxTransparent: args.isLinuxTransparent,

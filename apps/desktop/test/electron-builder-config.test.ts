@@ -67,7 +67,7 @@ const macConfigSchema = z
 const linuxConfigSchema = z
   .object({
     category: z.literal("Development"),
-    executableName: z.enum(["bb", "bb-nightly"]),
+    executableName: z.enum(["bb", "bb-nightly", "aleph"]),
     icon: z.string().min(1),
     target: z.tuple([
       z
@@ -112,7 +112,7 @@ const electronBuilderConfigSchema = z
     publish: z.tuple([
       z
         .object({
-          channel: z.enum(["latest", "nightly"]),
+          channel: z.enum(["latest", "nightly", "aleph"]),
           provider: z.literal("generic"),
           url: z.string().min(1),
         })
@@ -617,6 +617,24 @@ describe("electron-builder signing config", () => {
     });
   });
 
+  it("renames the packaged app to Aleph without changing its bundle id", async () => {
+    const { config } = await readResolvedConfig({
+      BB_DESKTOP_RELEASE_CHANNEL: "aleph",
+    });
+
+    expect(config.appId).toBe("dev.bb.desktop");
+    expect(config.productName).toBe("Aleph");
+    expect(config.artifactName).toBe("Aleph-${version}-${arch}.${ext}");
+    expect(config.linux.executableName).toBe("aleph");
+    expect(config.publish[0].channel).toBe("aleph");
+  });
+
+  it("derives the aleph channel automatically from this checkout's +aleph package version", async () => {
+    const { config } = await readResolvedConfig({});
+
+    expect(config.productName).toBe("Aleph");
+  });
+
   it("rejects unknown desktop release channels", async () => {
     const result = await runConfigScript({
       BB_DESKTOP_RELEASE_CHANNEL: "canary",
@@ -624,7 +642,7 @@ describe("electron-builder signing config", () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain(
-      "BB_DESKTOP_RELEASE_CHANNEL must be latest or nightly",
+      "BB_DESKTOP_RELEASE_CHANNEL must be latest, nightly, or aleph",
     );
   });
 
