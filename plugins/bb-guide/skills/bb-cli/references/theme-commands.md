@@ -25,7 +25,9 @@
     or plugin theme, `--css` prints its CSS. For a built-in theme, it reports
     that BB bundles the CSS. Settings → Appearance previews a palette live on
     hover without saving; this command is the CLI counterpart.
-  - `bb theme reset` — back to `default` while preserving the favicon color.
+  - `bb theme reset` — back to `thecla` (this fork's default) while preserving
+    the favicon color. `default` (upstream's palette) remains selectable via
+    `bb theme set default`.
   - `bb theme favicon set <color>` — set the favicon color while preserving the
     active theme. Colors: `default`, `red`, `orange`, `yellow`, `green`, `teal`,
     `blue`, `purple`, `pink`.

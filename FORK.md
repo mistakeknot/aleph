@@ -49,7 +49,13 @@ Beyond upstream, Aleph carries:
 - **Thecla theme, default for new installs.** A built-in palette (rose,
   orchid pink, and cyan on deep black) that new installs and never-configured
   users start on; anyone who has explicitly picked a theme, including the
-  upstream Default, keeps it.
+  upstream Default, keeps it. `bb theme reset` resets to Thecla; Default
+  remains selectable. Thecla's font stack asks for "Ioskeley Mono" first,
+  falling back through Iosevka, JetBrains Mono, and the platform generic
+  monospace stack. The server downloads a pinned, sha256-verified,
+  OFL-1.1-licensed release of Ioskeley Mono into the data dir on startup and
+  serves it same-origin; the font is never committed to the repo, and a
+  failed or offline download just leaves Thecla on its fallback fonts.
 
 `git log --no-merges <upstream main>..HEAD` lists the carried commits.
 Upstream is merged into Aleph, not rebased, and each merge commit records its

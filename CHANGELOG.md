@@ -7,7 +7,15 @@
 - **Thecla is the default theme.** New installs and users who have never
   chosen a theme now start on Thecla (rose, orchid pink, and cyan on deep
   black) instead of upstream's Default. Anyone who has explicitly picked a
-  theme, including Default, keeps it unchanged.
+  theme, including Default, keeps it unchanged. `bb theme reset` now resets
+  to Thecla as well; Default remains selectable with `bb theme set default`.
+- **Thecla's font stack degrades gracefully.** Thecla asks for "Ioskeley
+  Mono" first, then falls back through Iosevka, JetBrains Mono, and the
+  platform's generic monospace stack, so the UI still looks intentional when
+  the font isn't installed. The server downloads a pinned, sha256-verified
+  release of Ioskeley Mono (OFL-1.1 licensed) into the data dir on startup
+  and serves it same-origin; a failed or offline download never blocks
+  install and simply leaves Thecla on its fallback fonts.
 
 ## 0.43.4+aleph.1
 

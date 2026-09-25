@@ -76,6 +76,7 @@ import {
   resolveCustomThemeCssPath,
   resolveThemeRootPath,
 } from "../services/system/custom-themes.js";
+import { readIoskeleyMonoFont } from "../services/system/ioskeley-mono-font.js";
 import {
   installGlobalCliSkills,
   listInstallableMachineIds,
@@ -596,6 +597,22 @@ export function registerSystemRoutes(
       "provider_logo_not_found",
       `Provider '${providerId}' has no logo.`,
     );
+  });
+
+  get(routes.ioskeleyMonoFont, async (context) => {
+    const bytes = await readIoskeleyMonoFont(deps.config.dataDir);
+    if (bytes === null) {
+      throw new ApiError(
+        404,
+        "ioskeley_mono_font_not_found",
+        "The Ioskeley Mono font has not been downloaded on this machine.",
+      );
+    }
+    return context.body(new Uint8Array(bytes), 200, {
+      "content-type": "font/woff2",
+      "x-content-type-options": "nosniff",
+      "cache-control": "public, max-age=31536000, immutable",
+    });
   });
 
   get(routes.providerStates, async (context, query) =>

@@ -12,6 +12,7 @@ import { createApp } from "./server.js";
 import { PendingInteractionLifecycle } from "./services/interactions/pending-interactions.js";
 import { createMachineAuthService } from "./services/machine-auth.js";
 import { resolveBuiltinSkillsRootPath } from "./services/skills/builtin-skills-copy.js";
+import { ensureIoskeleyMonoFont } from "./services/system/ioskeley-mono-font.js";
 import { SkillTreeRegistry } from "./services/skills/injected-skills.js";
 import { PluginHostArtifactRegistry } from "./services/plugins/plugin-host-artifact-registry.js";
 import { createProviderNativeRootsCache } from "./services/providers/native-roots.js";
@@ -321,6 +322,10 @@ export async function runServer(serverConfig: ServerConfig): Promise<void> {
   if (pendingServerMove === null) {
     await runStartupRecoverySweep(sweepDeps).catch((error) => {
       logger.error({ err: error }, "Startup recovery sweep failed");
+    });
+    void ensureIoskeleyMonoFont({
+      dataDir: serverConfig.BB_DATA_DIR,
+      logger,
     });
   }
 

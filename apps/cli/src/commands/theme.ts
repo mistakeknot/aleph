@@ -1,11 +1,11 @@
 import { Command } from "commander";
 import {
   builtInThemes,
-  defaultAppTheme,
   defaultFaviconColor,
   faviconColorPreferenceSchema,
   FAVICON_COLORS,
   isBuiltInThemeId,
+  NEW_INSTALL_DEFAULT_THEME_ID,
   type AppTheme,
   type FaviconColorPreference,
 } from "@bb/domain";
@@ -222,12 +222,12 @@ export function registerThemeCommands(
 
   theme
     .command("reset")
-    .description("Reset to the Default theme")
+    .description("Reset to the Thecla theme")
     .option("--json", "Print machine-readable JSON output")
     .action(
       action(async (opts: JsonOutputOptions) => {
         const sdk = createCliBbSdk(getUrl());
-        const updated = await sdk.theme.set(defaultAppTheme.themeId);
+        const updated = await sdk.theme.set(NEW_INSTALL_DEFAULT_THEME_ID);
         if (outputJson(opts, updated)) return;
         console.log(`Theme reset to ${describeTheme(updated)}`);
       }),

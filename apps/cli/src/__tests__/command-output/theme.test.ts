@@ -97,13 +97,13 @@ describe("bb theme commands", () => {
     });
   });
 
-  it("resets the theme without resetting the favicon color", async () => {
+  it("resets the theme to Thecla without resetting the favicon color", async () => {
     const put = stubAppearance("nord", "pink");
 
     await runCommand(["theme", "reset"], register);
 
     expect(put).toHaveBeenCalledWith({
-      json: { themeId: "default", faviconColor: "pink" },
+      json: { themeId: "thecla", faviconColor: "pink" },
     });
   });
 

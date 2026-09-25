@@ -10,9 +10,21 @@ describe("thecla theme", () => {
     );
   });
 
-  it("does not reference any install-specific path or asset URL", () => {
-    expect(theclaThemeCss).not.toMatch(/url\(/);
+  it("does not reference any install-specific path or absolute asset URL", () => {
     expect(theclaThemeCss).not.toMatch(/\/home\//);
     expect(theclaThemeCss).not.toMatch(/https?:\/\//);
+  });
+
+  it("declares Ioskeley Mono with a served fallback and a real font stack", () => {
+    expect(theclaThemeCss).toMatch(
+      /@font-face\s*{\s*font-family:\s*"Ioskeley Mono";/,
+    );
+    expect(theclaThemeCss).toMatch(/local\("Ioskeley Mono"\)/);
+    expect(theclaThemeCss).toMatch(
+      /url\("\/api\/v1\/system\/fonts\/ioskeley-mono\.woff2"\)\s*format\("woff2"\)/,
+    );
+    expect(theclaThemeCss).toContain(
+      '--font-sans: "Ioskeley Mono", Iosevka, "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;',
+    );
   });
 });

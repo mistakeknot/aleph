@@ -1,8 +1,18 @@
 export const theclaThemeCss = `
+@font-face {
+  font-family: "Ioskeley Mono";
+  src:
+    local("Ioskeley Mono"),
+    local("IoskeleyMono"),
+    url("/api/v1/system/fonts/ioskeley-mono.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
 :root, .light {
-  --font-sans: "Ioskeley Mono", "IoskeleyMono", monospace;
-  --font-mono: "Ioskeley Mono", "IoskeleyMono", monospace;
-  --font-terminal: "Ioskeley Mono", "IoskeleyMono", monospace;
+  --font-sans: "Ioskeley Mono", Iosevka, "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-mono: "Ioskeley Mono", Iosevka, "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-terminal: "Ioskeley Mono", Iosevka, "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --canvas: #fcf3f7;
   --ink: #2c1723;
   --primary: #a32c6a;
