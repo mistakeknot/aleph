@@ -3128,9 +3128,13 @@ async function runDesktopApp(): Promise<void> {
   }
   if (desktopUpdateSupport.autoUpdate) {
     desktopAutoUpdateService.start();
-  } else {
+  } else if (desktopUpdateSupport.versionCheck) {
     desktopLogger.info(
       "Desktop auto-install is disabled: only the Linux AppImage build can replace itself. Version checks still report new releases.",
+    );
+  } else {
+    desktopLogger.info(
+      "Desktop update checks and auto-install are disabled for this Aleph build. Install newer Aleph builds by hand.",
     );
   }
 

@@ -42,6 +42,18 @@
     // file, or none at all.
     // The docs' UI-anatomy manifest is the contract this test checks the real
     // app components against, so a manifest edit must re-run it.
+    // aleph-release-version.test.ts reads the shipped versions outside the
+    // package; without these inputs a version change could hit a cached pass.
+    "@bb/config#test": {
+      "dependsOn": ["//#ensure-native-modules", "topo"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/apps/desktop/package.json",
+        "$TURBO_ROOT$/changelog-metadata.ts",
+        "$TURBO_ROOT$/packages/bb-app/package.json",
+        "$TURBO_ROOT$/vitest.shared.ts"
+      ]
+    },
     "@bb/app#test": {
       "dependsOn": ["//#ensure-native-modules", "topo"],
       "inputs": [

@@ -33,18 +33,37 @@ comparing versions:
 ## Updates
 
 An Aleph build never offers an upstream release. `isAlephAppVersion` in
-`packages/config/src/app-update.ts` matches the `+aleph.<n>` suffix, and when
-it does:
+`packages/config/src/app-update.ts` looks for `aleph` in the version's build
+metadata, and when it finds it:
 
 - The server skips its npm lookup of `bb-app`, so Settings → Updates shows no
   upstream version and the in-app npm update has nothing to install.
 - The desktop app turns off both its `desktop-latest` feed check and
   electron-updater, so it neither shows nor downloads an upstream release.
 
-Updating Aleph means installing a newer Aleph build by hand: `bb-app` from
-`npm pack` on the server, and a locally built desktop app on each Mac. Enrolled
-machines that run the launchd or systemd daemon need nothing extra. Their
-installer fetches the server's own `bb-app`, which is already Aleph.
+The guard fails open: a version without the suffix, for example after an
+upstream sync that takes upstream's `package.json` version, turns every update
+path back on. `packages/config/test/aleph-release-version.test.ts` fails when
+`bb-app`, `@bb/desktop` or the newest `changelog-metadata.ts` release lacks
+`+aleph.<n>`.
+
+Settings → Updates still reports "Up to date" when nothing was checked, so it
+says nothing about whether a newer Aleph build exists.
+
+Updating Aleph means installing a newer Aleph build by hand:
+
+- **Server.** Install `bb-app` from `npm pack`. A server started from a source
+  checkout with `--in-app-updates` can instead fast-forward to Aleph's
+  `origin/main` from Settings → Updates.
+- **Macs running the desktop app.** Build and install the desktop app (below).
+- **Machines enrolled with a launchd or systemd daemon.** These do not follow
+  the server. A daemon updates itself only when the server speaks a newer
+  host-daemon protocol, and most Aleph releases keep the protocol. When a
+  release changes daemon code, rerun the machine's install command, which
+  `bb machine reconnect <machine>` prints on the server. The installer fetches
+  the server's own `bb-app`. If that download fails, it falls back to a `bb-app`
+  already on the machine's PATH, or to upstream from npm, so check the version
+  it reports.
 
 ### Build the macOS desktop app
 
@@ -63,10 +82,16 @@ codesign --force --deep --sign - apps/desktop/release/mac-arm64/bb.app
 Do not use `dist` or `desktop:build`; both pass `--publish always`. Before
 installing, check that
 `bb.app/Contents/Resources/app.asar.unpacked/node_modules/bb-app/package.json`
-has the server's version. Then quit bb, move the old `/Applications/bb.app`
-aside, copy the new one in, and run
+has the server's version. Then quit bb. A stock bb may have downloaded an upstream
+update that it installs on quit, so let that finish before the swap. Move the old
+`/Applications/bb.app` aside, copy the new one in, and run
 `xattr -dr com.apple.quarantine /Applications/bb.app`. Enrollment lives in
 `~/.bb`, outside the bundle, so it survives the swap.
+
+A Mac can also have an enrolled launchd daemon (`launchctl list | grep
+app.getbb.host-daemon`). That daemon, not the app's, then connects to the
+server and runs `bb-app` from `~/.bb/npm`, so the new app does not update it.
+Update it as an enrolled machine, above.
 
 ## Carried patches
 
