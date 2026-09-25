@@ -6,7 +6,7 @@ type ReleaseMeta = {
 export const RELEASE_META: Record<string, ReleaseMeta> = {
   "0.43.4+aleph.2": {
     date: "September 24, 2026",
-    headline: "Aleph: Thecla as the default theme",
+    headline: "Aleph: quieter parent wakes and Thecla as the default theme",
   },
   "0.43.4+aleph.1": {
     date: "September 24, 2026",

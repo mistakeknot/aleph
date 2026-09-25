@@ -2,6 +2,20 @@
 
 ## 0.43.4+aleph.2
 
+### Threads
+
+- **Quieter parent wakes.** A child turn that the parent or a user asked for
+  always wakes the parent, even when its answer repeats an earlier one, and
+  errors and interruptions always wake. A child's self-started continuation
+  (compaction, rotation, or a cascade from a grandchild's notice) wakes the
+  parent only when it produced a new final message. Set
+  `BB_PARENT_WAKE_NOTIFY=all` to wake on every child turn, or `quiet` to
+  suppress completion wakes.
+- **Plugins can hold parent notices.** A child's notice to its parent now
+  goes through the `message.dispatch` plugin hooks like any other send. When
+  a plugin holds the parent, the notice is queued durably instead of waking
+  it; a failing hook also queues the notice rather than dropping it.
+
 ### Appearance
 
 - **Thecla is the default theme.** New installs and users who have never
