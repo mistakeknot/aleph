@@ -17,7 +17,7 @@ describe("bb thread wait command output", () => {
     registerThreadCommands(program, () => "http://server");
 
   it("bb thread wait defaults to waiting for idle", async () => {
-    const get = vi.fn(async () =>
+    const statusWait = vi.fn(async () =>
       fixtures.makeThread({
         id: "thread-wait-default",
         projectId: "proj-1",
@@ -27,7 +27,7 @@ describe("bb thread wait command output", () => {
         updatedAt: 2,
       }),
     );
-    stubServerApi({ "v1.threads.:id.$get": get });
+    stubServerApi({ "v1.threads.:id.status-wait.$get": statusWait });
 
     await runCommand(["thread", "wait", "thread-wait-default"], register);
 
@@ -37,7 +37,7 @@ describe("bb thread wait command output", () => {
   });
 
   it("bb thread wait --status succeeds when the thread is already at the requested status", async () => {
-    const get = vi.fn(async () =>
+    const statusWait = vi.fn(async () =>
       fixtures.makeThread({
         id: "thread-wait",
         projectId: "proj-1",
@@ -47,7 +47,7 @@ describe("bb thread wait command output", () => {
         updatedAt: 2,
       }),
     );
-    stubServerApi({ "v1.threads.:id.$get": get });
+    stubServerApi({ "v1.threads.:id.status-wait.$get": statusWait });
 
     await runCommand(
       ["thread", "wait", "thread-wait", "--status", "idle"],
@@ -60,7 +60,7 @@ describe("bb thread wait command output", () => {
   });
 
   it("bb thread wait --status exits with timeout code when the status is not reached", async () => {
-    const get = vi.fn(async () =>
+    const statusWait = vi.fn(async () =>
       fixtures.makeThread({
         id: "thread-wait-timeout",
         projectId: "proj-1",
@@ -70,7 +70,7 @@ describe("bb thread wait command output", () => {
         updatedAt: 2,
       }),
     );
-    stubServerApi({ "v1.threads.:id.$get": get });
+    stubServerApi({ "v1.threads.:id.status-wait.$get": statusWait });
 
     await expect(
       runCommand(
@@ -89,7 +89,7 @@ describe("bb thread wait command output", () => {
   });
 
   it("bb thread wait --status idle fails fast when the thread is stuck in error", async () => {
-    const get = vi.fn(async () =>
+    const statusWait = vi.fn(async () =>
       fixtures.makeThread({
         id: "thread-wait-error",
         projectId: "proj-1",
@@ -99,7 +99,7 @@ describe("bb thread wait command output", () => {
         updatedAt: 2,
       }),
     );
-    stubServerApi({ "v1.threads.:id.$get": get });
+    stubServerApi({ "v1.threads.:id.status-wait.$get": statusWait });
 
     await expect(
       runCommand(
@@ -111,7 +111,84 @@ describe("bb thread wait command output", () => {
     expect(collectLogLines(vi.mocked(console.error))).toContain(
       "Error: Thread thread-wait-error is in status error and will not reach idle by waiting alone. Inspect it with 'bb thread show thread-wait-error' and recover by sending a follow-up.",
     );
-    expect(get).toHaveBeenCalledTimes(1);
+    expect(statusWait).toHaveBeenCalledTimes(1);
+  });
+
+  it("bb thread wait --terminal reports idle without throwing", async () => {
+    const statusWait = vi.fn(async () =>
+      fixtures.makeThread({
+        id: "thread-wait-terminal-idle",
+        projectId: "proj-1",
+        providerId: "codex",
+        status: "idle",
+        createdAt: 1,
+        updatedAt: 2,
+      }),
+    );
+    stubServerApi({ "v1.threads.:id.status-wait.$get": statusWait });
+
+    await runCommand(
+      ["thread", "wait", "thread-wait-terminal-idle", "--terminal"],
+      register,
+    );
+
+    expect(collectLogLines(vi.mocked(console.log))).toContain(
+      "Thread thread-wait-terminal-idle reached terminal status idle.",
+    );
+  });
+
+  it("bb thread wait --terminal reports error with the unreachable exit code instead of throwing an unreachable error", async () => {
+    const statusWait = vi.fn(async () =>
+      fixtures.makeThread({
+        id: "thread-wait-terminal-error",
+        projectId: "proj-1",
+        providerId: "codex",
+        status: "error",
+        createdAt: 1,
+        updatedAt: 2,
+      }),
+    );
+    const get = vi.fn(async () =>
+      fixtures.makeThread({
+        id: "thread-wait-terminal-error",
+        projectId: "proj-1",
+        providerId: "codex",
+        status: "error",
+        createdAt: 1,
+        updatedAt: 2,
+      }),
+    );
+    stubServerApi({
+      "v1.threads.:id.status-wait.$get": statusWait,
+      "v1.threads.:id.$get": get,
+    });
+
+    await expect(
+      runCommand(
+        ["thread", "wait", "thread-wait-terminal-error", "--terminal"],
+        register,
+      ),
+    ).rejects.toThrow("process.exit:4");
+
+    expect(collectLogLines(vi.mocked(console.log))).toContain(
+      "Thread thread-wait-terminal-error reached terminal status error.",
+    );
+  });
+
+  it("bb thread wait rejects --terminal combined with --status", async () => {
+    await expect(
+      runCommand(
+        [
+          "thread",
+          "wait",
+          "thread-wait-terminal-conflict",
+          "--terminal",
+          "--status",
+          "idle",
+        ],
+        register,
+      ),
+    ).rejects.toThrow("process.exit:3");
   });
 
   it("bb thread wait --event reports server errors instead of schema errors", async () => {

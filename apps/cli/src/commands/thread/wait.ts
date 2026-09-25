@@ -22,6 +22,7 @@ import {
 interface ThreadWaitCommandOptions {
   status?: string;
   event?: string;
+  terminal?: boolean;
   timeout?: string;
   pollInterval?: string;
   json?: boolean;
@@ -42,6 +43,10 @@ export function registerWaitCommand(
       "Wait until the thread log includes this event type",
     )
     .option(
+      "--terminal",
+      "Wait until the thread finishes (idle) or errors, instead of throwing on error",
+    )
+    .option(
       "--timeout <duration>",
       `Timeout as ${durationHelp("s")} (default: ${DEFAULT_THREAD_WAIT_TIMEOUT_SECONDS}s)`,
     )
@@ -54,8 +59,48 @@ export function registerWaitCommand(
       action(async (id: string | undefined, opts: ThreadWaitCommandOptions) => {
         const sdk = createCliBbSdk(getUrl());
         const threadId = requireThreadId(id);
-        const target = parseThreadWaitTarget(opts);
         const timeoutMs = parseThreadWaitTimeoutMs(opts.timeout);
+
+        if (opts.terminal) {
+          if (opts.status || opts.event) {
+            throw new CliExitError(
+              "--terminal cannot be combined with --status or --event.",
+              THREAD_WAIT_EXIT_CODE_INVALID_REQUEST,
+            );
+          }
+          let terminalResult: Awaited<
+            ReturnType<typeof sdk.threads.waitForTerminal>
+          >;
+          try {
+            terminalResult = await sdk.threads.waitForTerminal({
+              threadId,
+              timeoutMs,
+            });
+          } catch (error) {
+            if (error instanceof ThreadWaitTimeoutError) {
+              throw new CliExitError(
+                error.message,
+                THREAD_WAIT_EXIT_CODE_TIMEOUT,
+              );
+            }
+            throw error;
+          }
+
+          if (outputJson(opts, { threadId, status: terminalResult.status }))
+            return;
+          console.log(
+            `Thread ${threadId} reached terminal status ${terminalResult.status}.`,
+          );
+          if (terminalResult.status === "error") {
+            throw new CliExitError(
+              `Thread ${threadId} errored.`,
+              THREAD_WAIT_EXIT_CODE_UNREACHABLE,
+            );
+          }
+          return;
+        }
+
+        const target = parseThreadWaitTarget(opts);
         const pollIntervalMs = parseThreadWaitPollIntervalMs(opts.pollInterval);
         const waitArgs = {
           threadId,

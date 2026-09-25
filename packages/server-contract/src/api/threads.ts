@@ -957,6 +957,12 @@ export const threadEventWaitQuerySchema = z.object({
 });
 export type ThreadEventWaitQuery = z.infer<typeof threadEventWaitQuerySchema>;
 
+export const threadStatusWaitQuerySchema = z.object({
+  status: threadStatusSchema,
+  waitMs: z.string().regex(/^\d+$/).optional(),
+});
+export type ThreadStatusWaitQuery = z.infer<typeof threadStatusWaitQuerySchema>;
+
 export const threadStorageFilesQuerySchema = z
   .object({
     query: z.string().min(1).max(FILE_LIST_QUERY_MAX_LENGTH),

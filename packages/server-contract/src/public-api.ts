@@ -257,6 +257,7 @@ import type {
   ThreadStorageLocationResponse,
   ThreadStoragePathListResponse,
   ThreadStoragePathsQuery,
+  ThreadStatusWaitQuery,
   ThreadTimelineQuery,
   ThreadTimelineResponse,
   ThreadContextResponse,
@@ -376,6 +377,7 @@ import {
   threadStorageContentQuerySchema,
   threadStorageFilesQuerySchema,
   threadStoragePathsQuerySchema,
+  threadStatusWaitQuerySchema,
   terminalInputRequestSchema,
   terminalListQuerySchema,
   terminalOutputQuerySchema,
@@ -1624,6 +1626,14 @@ export const publicApiRoutes = {
         threadEventWaitQuerySchema,
       ),
       response: jsonResponse<ThreadEventRow | null>(),
+    }),
+    statusWait: defineRoute({
+      path: "/threads/:id/status-wait",
+      method: "get",
+      request: queryRequest<PathId, ThreadStatusWaitQuery>(
+        threadStatusWaitQuerySchema,
+      ),
+      response: jsonResponse<ThreadResponse>(),
     }),
     defaultExecutionOptions: defineRoute({
       path: "/threads/:id/default-execution-options",

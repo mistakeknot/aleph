@@ -69,6 +69,7 @@ import type {
   ThreadGetQuery,
   ThreadListQuery,
   ThreadSearchQuery,
+  ThreadStatusWaitQuery,
   ThreadStorageFilesQuery,
   ThreadStoragePathsQuery,
   ThreadTimelineQuery,
@@ -209,7 +210,8 @@ export type ThreadStorageFilesResult = ThreadStorageFileListResponse;
 export type ThreadStorageLocationResult = ThreadStorageLocationResponse;
 export type ThreadStoragePathsResult = ThreadStoragePathListResponse;
 export type ThreadChildSummaryResult = ThreadChildSummaryResponse;
-export type ThreadDefaultExecutionOptionsResult = ResolvedThreadExecutionOptions | null;
+export type ThreadDefaultExecutionOptionsResult =
+  ResolvedThreadExecutionOptions | null;
 export type ThreadConversationOutlineResult = ThreadConversationOutlineResponse;
 export type ThreadTimelineTurnSummaryDetailsResult =
   TimelineTurnSummaryDetailsResponse;
@@ -486,6 +488,28 @@ export class ThreadWaitUnreachableError extends Error {
   }
 }
 
+/**
+ * The two statuses `wait` treats as terminal for a completion: work stopped
+ * because it finished, or because it can't continue without a follow-up.
+ * `waitForTerminal` is the delivery primitive an external supervisor uses to
+ * be woken exactly once a thread lands on either, instead of running two
+ * overlapping status waits or falling back to polling `threads.get`.
+ */
+export const THREAD_TERMINAL_STATUSES = ["idle", "error"] as const;
+export type ThreadTerminalStatus = (typeof THREAD_TERMINAL_STATUSES)[number];
+
+export interface ThreadWaitForTerminalArgs {
+  signal?: AbortSignal;
+  threadId: string;
+  timeoutMs?: number;
+}
+
+export interface ThreadWaitForTerminalResult {
+  status: ThreadTerminalStatus;
+  thread: ThreadGetResult;
+  threadId: string;
+}
+
 export interface ThreadInteractionsArea {
   cancel(
     args: ThreadInteractionTargetArgs,
@@ -620,6 +644,15 @@ export interface ThreadsArea {
   unpin(args: ThreadActionArgs): Promise<ThreadMutationResult>;
   update(args: ThreadUpdateArgs): Promise<ThreadMutationResult>;
   wait(args: ThreadWaitArgs): Promise<ThreadWaitResult>;
+  /**
+   * Wait for a completion, delegating to `wait({ status: "idle" })` and
+   * translating its unreachable-from-idle error (the thread errored instead)
+   * into a `status: "error"` result rather than a thrown error. Event-backed
+   * like `wait`, so this never falls back to polling.
+   */
+  waitForTerminal(
+    args: ThreadWaitForTerminalArgs,
+  ): Promise<ThreadWaitForTerminalResult>;
 }
 
 function listQuery(args: ThreadListArgs | undefined): ThreadListQuery {
@@ -767,6 +800,16 @@ function eventWaitQuery(args: ThreadEventWaitArgs): ThreadEventWaitQuery {
   };
 }
 
+function statusWaitQuery(args: {
+  status: ThreadStatus;
+  waitMs: string;
+}): ThreadStatusWaitQuery {
+  return {
+    status: args.status,
+    waitMs: args.waitMs,
+  };
+}
+
 function searchQuery(args: ThreadSearchArgs): ThreadSearchQuery {
   return {
     limitPerGroup: args.limitPerGroup,
@@ -910,6 +953,21 @@ export function createThreadsArea(args: CreateSdkAreaArgs): ThreadsArea {
       return parseThreadEventRow(await response.json());
     },
   };
+  const statusWait = (input: {
+    signal?: AbortSignal;
+    status: ThreadStatus;
+    threadId: string;
+    waitMs: string;
+  }): Promise<ThreadGetResult> =>
+    transport.readJson(
+      transport.api.v1.threads[":id"]["status-wait"].$get(
+        {
+          param: { id: input.threadId },
+          query: statusWaitQuery(input),
+        },
+        ...signalRequestArgs(input.signal),
+      ),
+    );
   const interactions: ThreadInteractionsArea = {
     async cancel(input) {
       return transport.readJson(
@@ -1454,10 +1512,20 @@ export function createThreadsArea(args: CreateSdkAreaArgs): ThreadsArea {
         validateThreadWaitArgs(input);
       const deadline = Date.now() + timeoutMs;
       while (true) {
+        const roundStartedAt = Date.now();
+        const remainingMs = Math.max(0, deadline - roundStartedAt);
+        // A round is always attempted at least once, even with no time left
+        // (waitMs 0 asks the server for its current state without blocking),
+        // so a zero timeout still resolves on an already-matching thread
+        // instead of throwing before the first check.
+        const waitMs = Math.floor(Math.min(remainingMs, 30_000));
+
         if (target.kind === "status") {
-          const thread = await getThread({
+          const thread = await statusWait({
             signal: input.signal,
+            status: target.status,
             threadId: input.threadId,
+            waitMs: String(waitMs),
           });
           if (thread.status === target.status) {
             return {
@@ -1474,39 +1542,65 @@ export function createThreadsArea(args: CreateSdkAreaArgs): ThreadsArea {
               threadId: input.threadId,
             });
           }
-          if (Date.now() >= deadline) {
-            throw new ThreadWaitTimeoutError({
+        } else {
+          const event = await events.wait({
+            signal: input.signal,
+            threadId: input.threadId,
+            type: target.eventType,
+            waitMs: String(waitMs),
+          });
+          if (event !== null) {
+            return {
+              event,
+              matched: true,
               target,
               threadId: input.threadId,
-            });
+            };
           }
-          await sleep(pollIntervalMs);
-          continue;
         }
 
-        const remainingMs = Math.max(0, deadline - Date.now());
-        const waitMs = Math.floor(Math.min(remainingMs, 30_000));
-        const event = await events.wait({
-          signal: input.signal,
-          threadId: input.threadId,
-          type: target.eventType,
-          waitMs: String(waitMs),
-        });
-        if (event !== null) {
-          return {
-            event,
-            matched: true,
-            target,
-            threadId: input.threadId,
-          };
-        }
         if (Date.now() >= deadline) {
           throw new ThreadWaitTimeoutError({
             target,
             threadId: input.threadId,
           });
         }
-        await sleep(pollIntervalMs);
+        // The round above already blocked on the server until something
+        // changed or its own waitMs elapsed. This only adds a floor when a
+        // round returns fast (an unrelated thread change woke it early), so a
+        // burst of unrelated notifications can't turn the wait into a tight
+        // reissue loop.
+        const elapsedMs = Date.now() - roundStartedAt;
+        if (elapsedMs < pollIntervalMs) {
+          await sleep(pollIntervalMs - elapsedMs);
+        }
+      }
+    },
+    async waitForTerminal(input) {
+      try {
+        const result = await this.wait({
+          signal: input.signal,
+          status: "idle",
+          threadId: input.threadId,
+          timeoutMs: input.timeoutMs,
+        });
+        if (!("thread" in result)) {
+          throw new Error("waitForTerminal received an event-target result.");
+        }
+        return {
+          status: "idle",
+          thread: result.thread,
+          threadId: input.threadId,
+        };
+      } catch (error) {
+        if (error instanceof ThreadWaitUnreachableError) {
+          const thread = await getThread({
+            signal: input.signal,
+            threadId: input.threadId,
+          });
+          return { status: "error", thread, threadId: input.threadId };
+        }
+        throw error;
       }
     },
   };

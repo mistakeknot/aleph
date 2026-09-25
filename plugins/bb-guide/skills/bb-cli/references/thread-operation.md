@@ -10,7 +10,9 @@
   thread finishes. It defaults to waiting for `idle` for up to 20 minutes;
   pass `--status` or `--event` for a different target, and `--timeout
 <duration>` (seconds, or a duration with a unit such as `90s`, `20m`, `4h`)
-  when you need a shorter or longer budget.
+  when you need a shorter or longer budget. Pass `--terminal` instead of
+  `--status`/`--event` when you want to report both a finish (`idle`) and a
+  failure (`error`) without the command throwing on the latter.
 - Use `bb thread tell <thread-id> "..."` when requirements change, a blocker
   needs clarification, or follow-up work is needed. For multi-line or Markdown
   text use `bb thread tell <thread-id> --message-file <path>` (`-` reads

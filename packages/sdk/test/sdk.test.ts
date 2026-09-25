@@ -2025,10 +2025,12 @@ describe("@bb/sdk", () => {
       threadId: "thr_wait",
     });
 
-    expect(queue.requests.map((request) => request.url)).toEqual([
-      "http://bb.test/api/v1/threads/thr_wait",
-      "http://bb.test/api/v1/threads/thr_wait",
-    ]);
+    const requestUrls = queue.requests.map((request) => new URL(request.url));
+    expect(requestUrls).toHaveLength(2);
+    for (const url of requestUrls) {
+      expect(url.pathname).toBe("/api/v1/threads/thr_wait/status-wait");
+      expect(url.searchParams.get("status")).toBe("idle");
+    }
   });
 
   it("throws a typed timeout error from thread wait", async () => {
@@ -2051,6 +2053,54 @@ describe("@bb/sdk", () => {
         pollIntervalMs: 1,
       }),
     ).rejects.toBeInstanceOf(ThreadWaitTimeoutError);
+  });
+
+  it("resolves waitForTerminal with idle once the thread finishes", async () => {
+    const queue = createFetchQueue([
+      { body: { id: "thr_terminal", status: "active" } },
+      { body: { id: "thr_terminal", status: "idle" } },
+    ]);
+    const sdk = createBbSdk({
+      transport: createHttpTransport({
+        baseUrl: "http://bb.test",
+        fetch: queue.fetch,
+        runtime: "node",
+      }),
+    });
+
+    await expect(
+      sdk.threads.waitForTerminal({
+        threadId: "thr_terminal",
+        timeoutMs: 1_000,
+      }),
+    ).resolves.toMatchObject({
+      status: "idle",
+      threadId: "thr_terminal",
+    });
+  });
+
+  it("resolves waitForTerminal with error instead of throwing when the thread is stuck in error", async () => {
+    const queue = createFetchQueue([
+      { body: { id: "thr_terminal_error", status: "error" } },
+      { body: { id: "thr_terminal_error", status: "error" } },
+    ]);
+    const sdk = createBbSdk({
+      transport: createHttpTransport({
+        baseUrl: "http://bb.test",
+        fetch: queue.fetch,
+        runtime: "node",
+      }),
+    });
+
+    await expect(
+      sdk.threads.waitForTerminal({
+        threadId: "thr_terminal_error",
+        timeoutMs: 1_000,
+      }),
+    ).resolves.toMatchObject({
+      status: "error",
+      threadId: "thr_terminal_error",
+    });
   });
 
   it("exposes installed skills and canonical registry installation", async () => {
