@@ -44,7 +44,7 @@ export function evaluateProvisionalSuccessorFence(
  * successor sending a message to itself, cannot lift a fence only a
  * verified checkpoint is meant to lift.
  *
- * Conservative choice (open question, see PROPOSAL-M2b B1): this blocks
+ * Conservative choice (open question): this blocks
  * EVERY dispatch on a fenced thread, including one the user initiates
  * directly. A human wanting to intervene on an unverified successor needs a
  * distinct override affordance, not an ordinary send; no such affordance
