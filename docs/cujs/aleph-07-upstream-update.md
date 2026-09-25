@@ -74,6 +74,23 @@ availability, receipts, provider switching). If the canary fails, the switch rol
 to the snapshot and the previous build. If it passes, the limit is restored
 and queued work continues.
 
+### Rolling back after enrolled daemons have self-updated
+
+Rolling the server back to the snapshot and previous build is not enough by
+itself when the release being rolled back from bumped the host-daemon
+protocol. An enrolled machine's daemon self-updates to follow the server's
+protocol, but `protocol-self-update.ts` refuses to downgrade: a daemon
+already on the newer protocol logs "Server protocol is older than this
+daemon; refusing to downgrade" against the rolled-back server and stays
+disconnected. For example, aleph.3 moved enrolled daemons to protocol 218;
+rolling back to aleph.2 (protocol 217) strands any daemon that already took
+218 until it is reinstalled by hand with `bb machine reconnect <machine>`.
+A Mac using the desktop app's bundled daemon needs the desktop app rebuilt
+and reinstalled at the rolled-back version too, since its daemon does not
+self-update. Check `launchctl list | grep app.getbb.host-daemon` (or the
+platform equivalent) on each enrolled machine after a rollback that follows
+a protocol-bumping release.
+
 ## Success Signals
 
 | Signal | Type | Status | Assertion |
