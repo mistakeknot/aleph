@@ -854,6 +854,7 @@ function toSessionConstructionConfig(
       permissionMode: params.permissionMode,
       permissionScope: params.permissionScope,
       plugins: params.plugins,
+      promptCacheTtl: params.promptCacheTtl,
     },
   };
 }

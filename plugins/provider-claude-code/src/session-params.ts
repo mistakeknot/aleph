@@ -78,6 +78,7 @@ export type ClaudeSessionExecutionOptions = RuntimePermissionPolicy & {
   memoryEnabled?: boolean | undefined;
   providerSubagentsEnabled?: boolean | undefined;
   skillRoots?: readonly ClaudeCodeSkillRoot[] | undefined;
+  promptCacheTtl?: "5m" | "1h" | undefined;
 };
 
 function resolveClaudeSessionPermissionMode(
@@ -136,6 +137,9 @@ function buildInternalSessionParams(
     chromeEnabled: args.options.chromeEnabled,
     memoryEnabled: args.options.memoryEnabled,
     providerSubagentsEnabled: args.options.providerSubagentsEnabled,
+    ...(args.options.promptCacheTtl
+      ? { promptCacheTtl: args.options.promptCacheTtl }
+      : {}),
     ...(dynamicTools && dynamicTools.length > 0 ? { dynamicTools } : {}),
     ...(args.disallowedTools && args.disallowedTools.length > 0
       ? { disallowedTools: [...args.disallowedTools] }
@@ -151,6 +155,7 @@ const claudeProviderOptionsSchema = z
     memoryEnabled: z.boolean().optional(),
     providerSubagentsEnabled: z.boolean().optional(),
     additionalWorkspaceWriteRoots: z.array(z.string()).optional(),
+    promptCacheTtl: z.enum(["5m", "1h"]).optional(),
   })
   .passthrough();
 
@@ -195,6 +200,7 @@ export function buildClaudeSessionParams(
       chromeEnabled: providerOptions.chromeEnabled ?? false,
       memoryEnabled: providerOptions.memoryEnabled,
       providerSubagentsEnabled: providerOptions.providerSubagentsEnabled,
+      promptCacheTtl: providerOptions.promptCacheTtl,
     },
   });
 }

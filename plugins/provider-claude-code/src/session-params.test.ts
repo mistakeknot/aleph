@@ -153,6 +153,46 @@ describe("buildClaudeSessionParams", () => {
       }).workflowsEnabled,
     ).toBe(true);
   });
+
+  it("leaves promptCacheTtl unset when the providerOptions bag omits it", () => {
+    const params = buildClaudeSessionParams({
+      threadId: "thread-1",
+      cwd: "/tmp/worktree",
+      instructionMode: "append",
+      options: FULL_POLICY,
+    });
+    expect(params.promptCacheTtl).toBeUndefined();
+  });
+
+  it.each(["1h", "5m"] as const)(
+    "passes a thread's promptCacheTtl %s out of the providerOptions bag",
+    (promptCacheTtl) => {
+      const params = buildClaudeSessionParams({
+        threadId: "thread-1",
+        cwd: "/tmp/worktree",
+        instructionMode: "append",
+        options: {
+          ...FULL_POLICY,
+          providerOptions: { promptCacheTtl },
+        },
+      });
+      expect(params.promptCacheTtl).toBe(promptCacheTtl);
+    },
+  );
+
+  it("rejects an invalid promptCacheTtl from the providerOptions bag", () => {
+    expect(() =>
+      buildClaudeSessionParams({
+        threadId: "thread-1",
+        cwd: "/tmp/worktree",
+        instructionMode: "append",
+        options: {
+          ...FULL_POLICY,
+          providerOptions: { promptCacheTtl: "1d" },
+        },
+      }),
+    ).toThrow();
+  });
 });
 
 const EXTRA_WORKSPACE_WRITE_ROOTS = [
