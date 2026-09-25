@@ -230,7 +230,9 @@ function appRowFromStatus(args: {
         : target === null
           ? appUpdate.blocked?.reason === "fetch-failed"
             ? `${UPDATE_STATE_PRESENTATION["latest-unknown"].label} (${appUpdate.blocked.message})`
-            : UPDATE_STATE_PRESENTATION["up-to-date"].label
+            : version.updateChecksDisabled
+              ? UPDATE_STATE_PRESENTATION["checks-off"].label
+              : UPDATE_STATE_PRESENTATION["up-to-date"].label
           : appUpdate.blocked !== null
             ? `${UPDATE_STATE_PRESENTATION["update-available"].label} (blocked: ${appUpdate.blocked.message})`
             : `${UPDATE_STATE_PRESENTATION["update-available"].label} (run: bb updates app apply)`;
@@ -240,11 +242,15 @@ function appRowFromStatus(args: {
       state,
     ];
   }
-  const appState = version.isDevelopment
-    ? "development mode"
-    : version.updateAvailable
-      ? `${UPDATE_STATE_PRESENTATION["update-available"].label} (run: ${version.upgradeCommand})`
-      : UPDATE_STATE_PRESENTATION["up-to-date"].label;
+  const appState = version.updateChecksDisabled
+    ? UPDATE_STATE_PRESENTATION["checks-off"].label
+    : version.isDevelopment
+      ? "development mode"
+      : version.updateAvailable
+        ? version.upgradeCommand === null
+          ? UPDATE_STATE_PRESENTATION["update-available"].label
+          : `${UPDATE_STATE_PRESENTATION["update-available"].label} (run: ${version.upgradeCommand})`
+        : UPDATE_STATE_PRESENTATION["up-to-date"].label;
   const appVersionLabel =
     version.latestVersion !== null &&
     version.latestVersion !== version.currentVersion

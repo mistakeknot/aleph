@@ -6,6 +6,7 @@ const UPDATE_STATES = [
   "not-installed",
   "update-manually",
   "latest-unknown",
+  "checks-off",
   "failed",
   "offline",
 ] as const;
@@ -59,6 +60,11 @@ export const UPDATE_STATE_PRESENTATION: Record<
   "latest-unknown": {
     icon: "CircleQuestion",
     label: "Latest unknown",
+    tone: "muted",
+  },
+  "checks-off": {
+    icon: "Minus",
+    label: "Update checks off",
     tone: "muted",
   },
   failed: {

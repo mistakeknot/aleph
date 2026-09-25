@@ -170,16 +170,7 @@ export function isNightlyAppVersion(version: string): boolean {
   return /-nightly\.\d+\.\d+$/u.test(version);
 }
 
-export function isAlephAppVersion(version: string): boolean {
-  const buildStart = version.indexOf("+");
-  if (buildStart === -1) {
-    return false;
-  }
-  return version
-    .slice(buildStart + 1)
-    .split(".")
-    .some((identifier) => identifier.split("-").includes("aleph"));
-}
+export { isAlephAppVersion } from "./aleph-version.js";
 
 export const appUpdateTargetSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("npm"), version: z.string().min(1) }),

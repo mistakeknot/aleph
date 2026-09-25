@@ -166,7 +166,14 @@ export function createAppVersionService(
         upgradeCommand: `npx bb-app@${distTag}`,
       };
 
-      if (config.isDevelopment || isAlephAppVersion(config.appVersion)) {
+      if (isAlephAppVersion(config.appVersion)) {
+        return {
+          ...baseResponse,
+          updateChecksDisabled: true,
+          upgradeCommand: null,
+        };
+      }
+      if (config.isDevelopment) {
         return baseResponse;
       }
 

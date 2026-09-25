@@ -108,6 +108,11 @@
       "types": "./src/app-update.ts",
       "default": "./src/app-update.ts"
     },
+    "./aleph-version": {
+      "source": "./src/aleph-version.ts",
+      "types": "./src/aleph-version.ts",
+      "default": "./src/aleph-version.ts"
+    },
     "./app-surface": {
       "source": "./src/app-surface.ts",
       "types": "./src/app-surface.ts",

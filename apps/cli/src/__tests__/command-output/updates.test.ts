@@ -143,6 +143,33 @@ describe("bb updates command output", () => {
     expect(output).toContain("offline");
   });
 
+  it("bb updates says bb-app checks are off on an Aleph build", async () => {
+    stubServerApi({
+      "v1.system.version.$get": vi.fn(async () => ({
+        ...version,
+        currentVersion: "0.43.4+aleph.2",
+        latestVersion: null,
+        updateAvailable: false,
+        updateChecksDisabled: true,
+        upgradeCommand: null,
+      })),
+      "v1.hosts.$get": vi.fn(async () => hosts),
+      "v1.hosts.:id.provider-clis.status.$get": vi.fn(async () =>
+        providerStatus({ codexNeedsUpdate: false }),
+      ),
+    });
+
+    await runCommand(["updates"], register);
+
+    const appLine = collectLogPayloads(vi.mocked(console.log))
+      .join("\n")
+      .split("\n")
+      .find((line) => line.includes("bb-app"));
+    expect(appLine).toContain("0.43.4+aleph.2");
+    expect(appLine).toContain("Update checks off");
+    expect(appLine).not.toContain("Up to date");
+  });
+
   it("bb updates --json prints the aggregate", async () => {
     const status = providerStatus({ codexNeedsUpdate: false });
     stubServerApi({

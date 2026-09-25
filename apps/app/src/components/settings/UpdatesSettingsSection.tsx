@@ -8,6 +8,7 @@ import {
 import ReactMarkdown, { type Components } from "react-markdown";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { isAlephAppVersion } from "@bb/config/aleph-version";
 import type { BbDesktopInfo } from "@bb/desktop-contract";
 import type {
   SystemAppUpdateResult,
@@ -769,10 +770,14 @@ export function BbAppUpdateRows({
   onShowAppUpdateResult = null,
   isChecking = false,
 }: BbAppUpdateRowsProps) {
+  const checksOff =
+    desktopInfo !== null
+      ? isAlephAppVersion(desktopInfo.version)
+      : systemVersion?.updateChecksDisabled === true;
   const settledStatus = isChecking ? (
     <RowStateControl live state="in-progress" />
   ) : (
-    <RowStateControl state="up-to-date" />
+    <RowStateControl state={checksOff ? "checks-off" : "up-to-date"} />
   );
   const row = (name: ReactNode, indicator: ReactNode, caption?: ReactNode) => (
     <UpdatesRow
@@ -858,13 +863,14 @@ export function BbAppUpdateRows({
     );
   }
 
+  const upgradeCommand = systemVersion.upgradeCommand;
   const name = (
     <RowName
       name={rowName}
       detail={
-        systemVersion.updateAvailable ? (
+        systemVersion.updateAvailable && upgradeCommand !== null ? (
           <span className="hidden truncate font-mono text-2xs text-muted-foreground sm:inline">
-            {systemVersion.upgradeCommand}
+            {upgradeCommand}
           </span>
         ) : undefined
       }
@@ -876,6 +882,9 @@ export function BbAppUpdateRows({
   );
 
   if (systemVersion.updateAvailable) {
+    if (upgradeCommand === null) {
+      return row(name, <RowStateControl state="update-available" />);
+    }
     return row(
       name,
       <RowStateControl
@@ -884,7 +893,7 @@ export function BbAppUpdateRows({
         actionLabel="Copy the upgrade command"
         actionTooltip="Copy command"
         onClick={() => {
-          void copyToClipboardWithToast(systemVersion.upgradeCommand, {
+          void copyToClipboardWithToast(upgradeCommand, {
             successMessage: "Upgrade command copied",
             errorMessage: "Couldn't copy upgrade command",
           });
