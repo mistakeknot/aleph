@@ -76,17 +76,36 @@ host-daemon protocol mismatch. On the Mac, at the server's commit:
 # Node 22 (.nvmrc) and pnpm 9.15.0 (packageManager)
 pnpm install --frozen-lockfile
 CSC_IDENTITY_AUTO_DISCOVERY=false pnpm --filter @bb/desktop run package
-codesign --force --deep --sign - apps/desktop/release/mac-arm64/bb.app
+codesign --force --deep --sign - apps/desktop/release/mac-arm64/Aleph.app
 ```
 
 Do not use `dist` or `desktop:build`; both pass `--publish always`. Before
 installing, check that
-`bb.app/Contents/Resources/app.asar.unpacked/node_modules/bb-app/package.json`
+`Aleph.app/Contents/Resources/app.asar.unpacked/node_modules/bb-app/package.json`
 has the server's version. Then quit bb. A stock bb may have downloaded an upstream
 update that it installs on quit, so let that finish before the swap. Move the old
-`/Applications/bb.app` aside, copy the new one in, and run
-`xattr -dr com.apple.quarantine /Applications/bb.app`. Enrollment lives in
+`/Applications/bb.app` or `/Applications/Aleph.app` aside, copy the new one in, and
+run `xattr -dr com.apple.quarantine /Applications/Aleph.app`. Enrollment lives in
 `~/.bb`, outside the bundle, so it survives the swap.
+
+#### Desktop app naming
+
+The packaged app shows as "Aleph" — Dock, Cmd-Tab, the app menu, the About
+panel, and window titles — everywhere `apps/desktop/scripts/desktop-release-channel.mjs`
+and `apps/desktop/src/desktop-update-provider.ts` resolve a release channel.
+Both derive an `"aleph"` channel automatically from a `+aleph.N` package
+version, alongside the existing `"latest"`/`"nightly"` channels, so no build
+flag is needed. Rather than scattering `bb`/`Aleph` string edits, add a new
+channel branch here when something else needs to differ for Aleph builds.
+
+The macOS bundle id (`dev.bb.desktop`) and the userData folder name (`bb`)
+stay the same as stock bb: safeStorage-backed secrets and TCC grants are
+scoped to the bundle id, and an aleph.1/aleph.2 install already used that
+userData folder, so keeping both means an existing install's settings and
+sign-in survive the rename with no migration step. Only `productName`, the
+artifact name, the Linux executable name, and window/menu titles change. The
+CLI command name and host daemon are unaffected; this only renames the
+desktop app.
 
 A Mac can also have an enrolled launchd daemon (`launchctl list | grep
 app.getbb.host-daemon`). That daemon, not the app's, then connects to the

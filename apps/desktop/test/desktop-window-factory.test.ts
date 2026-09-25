@@ -213,6 +213,7 @@ describe("desktop window factory", () => {
       },
     };
     const factory = createDesktopWindowFactory({
+      applicationName: "Aleph",
       browserWindowCreator,
       createWindowStateKey() {
         return generatedStateKeys.shift() ?? "window-fallback";
@@ -250,6 +251,7 @@ describe("desktop window factory", () => {
     expect(firstWindow).not.toBe(secondWindow);
     expect(createdWindows).toHaveLength(2);
     expect(createdWindows[0]?.options.frame).toBe(false);
+    expect(createdWindows[0]?.options.title).toBe("Aleph");
     expect(createdWindows[0]?.options.minHeight).toBe(MIN_WINDOW_HEIGHT);
     expect(createdWindows[0]?.options.minWidth).toBe(MIN_WINDOW_WIDTH);
     expect(createdWindows[0]?.options.titleBarStyle).toBe("hiddenInset");
@@ -308,6 +310,7 @@ describe("desktop window factory", () => {
       },
     };
     const factory = createDesktopWindowFactory({
+      applicationName: "bb",
       browserWindowCreator,
       createWindowStateKey() {
         return generatedStateKeys.shift() ?? "window-fallback";
@@ -368,6 +371,7 @@ describe("desktop window factory", () => {
       },
     };
     const factory = createDesktopWindowFactory({
+      applicationName: "bb",
       browserWindowCreator,
       createWindowStateKey() {
         return "window-link-test";
@@ -425,6 +429,7 @@ describe("desktop window factory", () => {
       },
     };
     const factory = createDesktopWindowFactory({
+      applicationName: "bb",
       browserWindowCreator,
       createWindowStateKey() {
         return "linux-window";
@@ -469,6 +474,7 @@ describe("desktop window factory", () => {
       },
     };
     const factory = createDesktopWindowFactory({
+      applicationName: "bb",
       browserWindowCreator,
       createWindowStateKey() {
         return "transparent-linux-window";
@@ -504,6 +510,7 @@ describe("desktop window factory", () => {
       },
     };
     const factory = createDesktopWindowFactory({
+      applicationName: "bb",
       browserWindowCreator,
       createWindowStateKey() {
         return "frameless-linux-window";

@@ -1,4 +1,4 @@
-export type DesktopReleaseChannel = "latest" | "nightly";
+export type DesktopReleaseChannel = "latest" | "nightly" | "aleph";
 export type DesktopBuildPlatform = "macos" | "linux";
 
 export interface DesktopUpdateMetadataFileNames {
@@ -8,10 +8,10 @@ export interface DesktopUpdateMetadataFileNames {
 
 export interface DesktopReleaseConfig {
   appId: "dev.bb.desktop" | "dev.bb.desktop.nightly";
-  applicationName: "bb" | "bb Nightly";
+  applicationName: "bb" | "bb Nightly" | "Aleph";
   artifactName: string;
   iconFileName: "icon.png" | "icon-nightly.png";
-  linuxExecutableName: "bb" | "bb-nightly";
+  linuxExecutableName: "bb" | "bb-nightly" | "aleph";
   macIconPath: "assets/icon.icns" | "assets/icon-nightly.icns";
   releaseTag: "desktop-latest" | "desktop-nightly";
   updateMetadataFileNames: DesktopUpdateMetadataFileNames;
@@ -19,6 +19,7 @@ export interface DesktopReleaseConfig {
 
 export function resolveDesktopReleaseChannel(
   env: NodeJS.ProcessEnv,
+  packageVersion?: string,
 ): DesktopReleaseChannel;
 
 export function resolveDesktopBuildPlatform(

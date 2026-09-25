@@ -167,6 +167,7 @@ import {
   DESKTOP_RELEASE_CHANNEL,
   DESKTOP_RELEASE_INFO,
   resolveDesktopUpdateSupport,
+  resolveDesktopUserDataOverridePath,
 } from "./desktop-update-provider.js";
 import type { DesktopUpdateService } from "./desktop-update-scheduler.js";
 import {
@@ -2428,6 +2429,15 @@ async function runDesktopApp(): Promise<void> {
   const applicationName = app.isPackaged
     ? DESKTOP_RELEASE_INFO.applicationName
     : "bb-dev";
+  if (app.isPackaged) {
+    const userDataOverridePath = resolveDesktopUserDataOverridePath({
+      appDataPath: app.getPath("appData"),
+      channel: DESKTOP_RELEASE_CHANNEL,
+    });
+    if (userDataOverridePath !== null) {
+      app.setPath("userData", userDataOverridePath);
+    }
+  }
   app.setName(applicationName);
   installAboutPanel(applicationName);
 
@@ -2649,7 +2659,8 @@ async function runDesktopApp(): Promise<void> {
     platform: desktopPlatform,
   });
   desktopUpdateService = createDesktopUpdateService({
-    channel: DESKTOP_RELEASE_CHANNEL,
+    channel:
+      DESKTOP_RELEASE_CHANNEL === "aleph" ? "latest" : DESKTOP_RELEASE_CHANNEL,
     currentVersion: desktopVersion,
     enabled:
       desktopUpdateSupport.versionCheck &&
@@ -2856,6 +2867,7 @@ async function runDesktopApp(): Promise<void> {
   serverUrlDialogPreloadPath = resolvedServerUrlDialogPreloadPath;
   existingServerDialogPreloadPath = resolvedExistingServerDialogPreloadPath;
   desktopWindowFactory = createDesktopWindowFactory({
+    applicationName,
     browserWindowCreator,
     createWindowStateKey() {
       return `window-${randomUUID()}`;

@@ -1,13 +1,14 @@
+import { join } from "node:path";
 import { isAlephAppVersion } from "@bb/config/app-update";
 import {
   createBbDesktopVersionFeedFileName,
   type BbDesktopVersionFeedPlatform,
 } from "@bb/desktop-contract";
 
-type DesktopReleaseChannel = "latest" | "nightly";
+type DesktopReleaseChannel = "latest" | "nightly" | "aleph";
 
 interface DesktopReleaseInfo {
-  applicationName: "bb" | "bb Nightly";
+  applicationName: "bb" | "bb Nightly" | "Aleph";
   channel: DesktopReleaseChannel;
   iconFileName: "icon.png" | "icon-nightly.png";
   releaseTag: "desktop-latest" | "desktop-nightly";
@@ -21,7 +22,12 @@ export function createDesktopReleaseInfo(
   const releaseTag = nightly ? "desktop-nightly" : "desktop-latest";
 
   return {
-    applicationName: nightly ? "bb Nightly" : "bb",
+    applicationName:
+      channel === "nightly"
+        ? "bb Nightly"
+        : channel === "aleph"
+          ? "Aleph"
+          : "bb",
     channel,
     iconFileName: nightly ? "icon-nightly.png" : "icon.png",
     releaseTag,
@@ -35,13 +41,30 @@ function resolveBuiltDesktopReleaseChannel(
   if (rawChannel === undefined || rawChannel.length === 0) {
     return "latest";
   }
-  if (rawChannel === "latest" || rawChannel === "nightly") {
+  if (
+    rawChannel === "latest" ||
+    rawChannel === "nightly" ||
+    rawChannel === "aleph"
+  ) {
     return rawChannel;
   }
 
   throw new Error(
-    `Built desktop release channel must be latest or nightly, got ${String(rawChannel)}.`,
+    `Built desktop release channel must be latest, nightly, or aleph, got ${String(rawChannel)}.`,
   );
+}
+
+export function resolveDesktopUserDataOverridePath(args: {
+  appDataPath: string;
+  channel: DesktopReleaseChannel;
+}): string | null {
+  if (args.channel !== "aleph") {
+    return null;
+  }
+  // Aleph builds keep displaying as "Aleph", but userData is keyed by app
+  // name, so pin it to the "bb" folder an existing aleph.1/aleph.2 install
+  // already used to keep settings, sign-in, and local state after upgrading.
+  return join(args.appDataPath, "bb");
 }
 
 export const DESKTOP_RELEASE_CHANNEL = resolveBuiltDesktopReleaseChannel(
