@@ -147,6 +147,28 @@ Beyond upstream, Aleph carries:
 Upstream is merged into Aleph, not rebased, and each merge commit records its
 conflicts.
 
+## Fork-owned migrations
+
+`0132_aromatic_alice` and `0133_hot_joshua_kane` are the first Drizzle
+migrations Aleph owns rather than carries from upstream; they back the
+Account Pooler's idempotency table. Drizzle applies a migration only when its
+journal `when` timestamp is greater than the largest `created_at` already
+applied, so these two now occupy that point in the timestamp order for every
+Aleph host.
+
+This means an upstream sync can no longer append migrations past 0131
+without checking timestamps first: any incoming upstream migration whose
+`when` predates 0133's (currently 1790350024036) sorts before it. Drizzle
+then skips it as already applied, `validateAppliedMigrationHistory` throws
+"Database migration history is incomplete", and the server refuses to boot.
+Before merging an upstream sync that adds migrations, check each new
+migration's `when` in `packages/db/drizzle/meta/_journal.json` against
+0133's. Regenerate and renumber any that predate it (with
+`drizzle-kit generate`, then rewrite the journal entry and SQL filename to
+sort after 0133), or repair an already-shipped mismatch with a shim like the
+existing `repairBranchLocal*` migrations. Skipping this check is a boot
+outage, not a merge conflict, so nothing else surfaces it beforehand.
+
 ## Project documents
 
 - [Mission](MISSION.md): make long-running, multi-provider coordinator
