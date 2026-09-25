@@ -22,6 +22,7 @@ import {
   environmentHasLiveThreads,
   environments,
   getEnvironment,
+  getHost,
   getThread,
   findProjectEnvironmentByHostPath,
   getPreparingEnvironment,
@@ -364,7 +365,7 @@ async function runCreate(
               previous === null
                 ? null
                 : {
-                    environment: toEnvironmentResponse(previous),
+                    environment: toEnvironmentResponse(deps.db, previous),
                     resource:
                       previous.teardownStatus === "removed"
                         ? null
@@ -576,11 +577,14 @@ export function requestEnvironmentRemoval(
   environmentId: string,
 ): boolean {
   const row = getEnvironment(deps.db, environmentId);
-  if (row === null || environmentHasLiveThreads(deps.db, environmentId))
+  if (row === null) return false;
+  const removingMachine = getHost(deps.db, row.hostId)?.phase === "removing";
+  if (!removingMachine && environmentHasLiveThreads(deps.db, environmentId))
     return false;
   if (row.ownerThreadId !== null && row.teardownStatus === null) {
     const owner = getThread(deps.db, row.ownerThreadId);
     if (
+      !removingMachine &&
       owner !== null &&
       owner.status === "starting" &&
       owner.archivedAt === null &&
@@ -663,7 +667,9 @@ async function runRemove(
         () =>
           record.provider.remove({
             environment:
-              row.ownerThreadId !== null ? null : toEnvironmentResponse(row),
+              row.ownerThreadId !== null
+                ? null
+                : toEnvironmentResponse(deps.db, row),
             hostId: row.hostId,
             path: row.path,
             pathKey: row.environmentProviderInstanceKey ?? row.id,
@@ -747,19 +753,28 @@ async function sweepProviderEnvironmentInSlot(
     row.teardownStatus === "removed"
   )
     return;
-  const cancelled = row.ownerThreadId !== null && row.teardownStatus !== null;
-  const shared = environmentHasLiveThreads(deps.db, environmentId);
-  if (cancelled && shared) {
-    writeEnvironment(deps, environmentId, {
+  const environmentProviderId = row.environmentProviderId;
+  const machineRemoving = getHost(deps.db, row.hostId)?.phase === "removing";
+  const shared =
+    !machineRemoving && environmentHasLiveThreads(deps.db, environmentId);
+  if (
+    !machineRemoving &&
+    row.ownerThreadId !== null &&
+    row.teardownStatus !== null &&
+    (shared || (row.status === "ready" && row.path !== null))
+  ) {
+    const released = {
       ownerThreadId: null,
       claimPath: null,
       retireAt: null,
       teardownStatus: null,
-    });
-    return;
+    };
+    writeEnvironment(deps, environmentId, released);
+    row = { ...row, ...released };
   }
+  const cancelled = row.ownerThreadId !== null && row.teardownStatus !== null;
   if (!cancelled && row.ownerThreadId !== null) return;
-  const record = getEnvironmentProvider(row.environmentProviderId);
+  const record = getEnvironmentProvider(environmentProviderId);
   if (record === undefined) return;
   const now = Date.now();
   if (shared) {

@@ -75,6 +75,7 @@ const PROJECT_SKILLS_QUERY_KEY = "projectSkills";
 export const SKILL_CONTENT_QUERY_KEY = "skillContent";
 export const SKILL_FILES_QUERY_KEY = "skillFiles";
 const PLUGIN_LIST_QUERY_KEY = "plugin-list";
+const PLUGIN_SAFE_MODE_QUERY_KEY = "plugin-safe-mode";
 const PLUGIN_SETTINGS_VIEW_QUERY_KEY = "plugin-settings-view";
 const PLUGIN_CONTRIBUTIONS_QUERY_KEY = "plugin-contributions";
 const PLUGIN_SDK_SETTINGS_QUERY_KEY = "plugin-settings";
@@ -84,6 +85,7 @@ const PLUGIN_CATALOG_INSTALL_PLAN_QUERY_KEY = "plugin-catalog-install-plan";
 const PLUGIN_MARKETPLACES_QUERY_KEY = "plugin-marketplaces";
 export interface ThreadListQueryFilters {
   projectId?: string;
+  hostId?: string;
   hasParent?: ThreadListFilters["hasParent"];
   parentThreadId?: string;
   sourceThreadId?: string;
@@ -1233,6 +1235,10 @@ export function pluginListQueryKey(enabled: boolean) {
 
 export function allPluginListQueryKeyPrefix() {
   return [PLUGIN_LIST_QUERY_KEY] as const;
+}
+
+export function pluginSafeModeQueryKey() {
+  return [PLUGIN_SAFE_MODE_QUERY_KEY] as const;
 }
 
 export function pluginSettingsViewQueryKey(pluginId: string) {
