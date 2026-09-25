@@ -1019,7 +1019,22 @@ export function createClaudeDeltaTranslator(
       !state.mirror.turnOpen &&
       (state.mirror.pendingInputs === 0 || !resultCanClaimPendingInput)
     ) {
-      return [];
+      const strayTokenUsage = extractClaudeResultTokenUsage(message);
+      if (strayTokenUsage === undefined) {
+        return [];
+      }
+      state.cumulativeTokens = addTokenUsage(
+        state.cumulativeTokens,
+        strayTokenUsage.last,
+      );
+      return [
+        {
+          kind: "usage",
+          total: state.cumulativeTokens,
+          last: strayTokenUsage.last,
+          modelContextWindow: strayTokenUsage.modelContextWindow,
+        },
+      ];
     }
     const deltas = withMirror(state, [{ kind: "turn.open" }]);
 
