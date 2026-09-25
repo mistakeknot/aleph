@@ -31,7 +31,7 @@
   and serves it same-origin; a failed or offline download never blocks
   install and simply leaves Thecla on its fallback fonts.
 
-### Updates
+### Updating Aleph
 
 - **Upstream releases are no longer offered as updates.** Semver ignores the
   `+aleph` build metadata, so upstream 0.43.5 counted as newer than
