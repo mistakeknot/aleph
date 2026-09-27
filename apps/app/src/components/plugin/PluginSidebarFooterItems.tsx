@@ -52,6 +52,16 @@ function footerDisclosureId(item: PluginSidebarFooterItemSlot): string {
   return `plugin-sidebar-footer-disclosure-${item.pluginId}-${item.id}-${item.generation}`;
 }
 
+const HOVER_PREVIEW_OPEN_DELAY_MS = 250;
+const HOVER_PREVIEW_CLOSE_DELAY_MS = 300;
+
+export interface FooterHoverPreview {
+  onTriggerEnter(itemKey: string): void;
+  onTriggerLeave(): void;
+  onPanelEnter(): void;
+  onPanelLeave(): void;
+}
+
 function footerTriggerId(item: PluginSidebarFooterItemSlot): string {
   return `plugin-sidebar-footer-trigger-${item.pluginId}-${item.id}-${item.generation}`;
 }
@@ -63,12 +73,42 @@ export function usePluginSidebarFooterDisclosure() {
     [sidebarFooterItems],
   );
   const [activeKey, setActiveKey] = useState<string | null>(null);
+  const [previewKey, setPreviewKey] = useState<string | null>(null);
+  const previewTimer = useRef<number | null>(null);
   const [restoreFocusKey, setRestoreFocusKey] = useState<string | null>(null);
   const lastProgrammaticCommand = useRef(0);
+  const shownKey = activeKey ?? previewKey;
   const activeItem = useMemo(
-    () => disclosures.find((item) => footerItemKey(item) === activeKey) ?? null,
-    [activeKey, disclosures],
+    () => disclosures.find((item) => footerItemKey(item) === shownKey) ?? null,
+    [shownKey, disclosures],
   );
+
+  const clearPreviewTimer = useCallback(() => {
+    if (previewTimer.current === null) return;
+    window.clearTimeout(previewTimer.current);
+    previewTimer.current = null;
+  }, []);
+  useEffect(() => clearPreviewTimer, [clearPreviewTimer]);
+
+  const hoverPreview = useMemo<FooterHoverPreview>(() => {
+    const schedule = (delay: number, next: string | null) => {
+      clearPreviewTimer();
+      previewTimer.current = window.setTimeout(() => {
+        previewTimer.current = null;
+        setPreviewKey(next);
+      }, delay);
+    };
+    return {
+      onTriggerEnter: (itemKey) =>
+        schedule(
+          previewKey === null ? HOVER_PREVIEW_OPEN_DELAY_MS : 0,
+          itemKey,
+        ),
+      onTriggerLeave: () => schedule(HOVER_PREVIEW_CLOSE_DELAY_MS, null),
+      onPanelEnter: clearPreviewTimer,
+      onPanelLeave: () => schedule(HOVER_PREVIEW_CLOSE_DELAY_MS, null),
+    };
+  }, [clearPreviewTimer, previewKey]);
   const restoreFocusItem = useMemo(
     () =>
       disclosures.find((item) => footerItemKey(item) === restoreFocusKey) ??
@@ -90,21 +130,25 @@ export function usePluginSidebarFooterDisclosure() {
         (command === "close" && activeKey === itemKey) ||
         (command === "toggle" && activeKey === itemKey);
       setRestoreFocusKey(isClosing ? itemKey : null);
+      clearPreviewTimer();
+      setPreviewKey(null);
       setActiveKey((current) => {
         if (command === "open") return itemKey;
         if (command === "close") return current === itemKey ? null : current;
         return current === itemKey ? null : itemKey;
       });
     },
-    [activeKey],
+    [activeKey, clearPreviewTimer],
   );
 
   const dismiss = useCallback(() => {
     if (activeItem !== null) {
       setRestoreFocusKey(footerItemKey(activeItem));
     }
+    clearPreviewTimer();
+    setPreviewKey(null);
     setActiveKey(null);
-  }, [activeItem]);
+  }, [activeItem, clearPreviewTimer]);
 
   useLayoutEffect(() => {
     if (restoreFocusItem === null || activeItem !== null) return;
@@ -127,18 +171,21 @@ export function usePluginSidebarFooterDisclosure() {
 
   return {
     activeItem,
-    activeKey: activeItem === null ? null : activeKey,
+    activeKey: activeItem === null ? null : shownKey,
     dismiss,
     handleCommand,
+    hoverPreview,
   };
 }
 
 export function PluginSidebarFooterDisclosure({
   item,
   onDismiss,
+  hoverPreview,
 }: {
   item: PluginSidebarFooterItemSlot | null;
   onDismiss: () => void;
+  hoverPreview?: FooterHoverPreview;
 }) {
   const contentRef = useRef<HTMLDivElement | null>(null);
   const [contentHeight, setContentHeight] = useState<number | null>(null);
@@ -164,6 +211,12 @@ export function PluginSidebarFooterDisclosure({
       data-testid={`plugin-sidebar-footer-disclosure-${item.pluginId}-${item.id}`}
       className="overflow-hidden rounded-lg border border-sidebar-border bg-sidebar-accent/50 transition-[height] duration-200 ease-out motion-reduce:transition-none"
       style={{ height: contentHeight ?? undefined }}
+      onPointerEnter={(event) => {
+        if (event.pointerType === "mouse") hoverPreview?.onPanelEnter();
+      }}
+      onPointerLeave={(event) => {
+        if (event.pointerType === "mouse") hoverPreview?.onPanelLeave();
+      }}
     >
       <div ref={contentRef} className="max-h-80 overflow-auto">
         <PluginSlotMount
@@ -191,6 +244,7 @@ export function PluginSidebarFooterItems({
   onDisclosureCommand,
   onNavigate,
   builtInActions = [],
+  hoverPreview,
 }: {
   activeDisclosureKey: string | null;
   onDisclosureCommand: (
@@ -200,6 +254,7 @@ export function PluginSidebarFooterItems({
   ) => void;
   onNavigate?: () => void;
   builtInActions?: readonly BuiltinFooterAction[];
+  hoverPreview?: FooterHoverPreview;
 }) {
   const navigate = useNavigate();
   const preferences = useSidebarFooterPreferences();
@@ -276,6 +331,12 @@ export function PluginSidebarFooterItems({
             item.kind === "plugin" &&
             footerItemKey(item.slot) === activeDisclosureKey;
           const label = builtin?.ariaLabel ?? item.label;
+          const previewKey =
+            hoverPreview !== undefined &&
+            item.kind === "plugin" &&
+            item.slot.kind === "disclosure"
+              ? footerItemKey(item.slot)
+              : null;
           return (
             <ContextMenu key={item.key}>
               <ContextMenuTrigger asChild>
@@ -292,7 +353,7 @@ export function PluginSidebarFooterItems({
                     }
                     aria-label={label}
                     aria-keyshortcuts={builtin?.ariaKeyShortcuts}
-                    tooltip={{ children: label, hidden: false, side: "top" }}
+                    tooltip={{ children: label, hidden: active, side: "top" }}
                     className={cn(
                       SIDEBAR_FOOTER_ACTION_CLASS,
                       active &&
@@ -316,6 +377,24 @@ export function PluginSidebarFooterItems({
                       builtin?.href === undefined
                         ? () => activate(item)
                         : undefined
+                    }
+                    onPointerEnter={
+                      previewKey === null
+                        ? undefined
+                        : (event) => {
+                            if (event.pointerType === "mouse") {
+                              hoverPreview?.onTriggerEnter(previewKey);
+                            }
+                          }
+                    }
+                    onPointerLeave={
+                      previewKey === null
+                        ? undefined
+                        : (event) => {
+                            if (event.pointerType === "mouse") {
+                              hoverPreview?.onTriggerLeave();
+                            }
+                          }
                     }
                   >
                     {builtin?.href !== undefined ? (

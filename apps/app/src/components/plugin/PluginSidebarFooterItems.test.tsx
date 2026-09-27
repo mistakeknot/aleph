@@ -89,11 +89,13 @@ function FooterHarness() {
       <PluginSidebarFooterDisclosure
         item={disclosure.activeItem}
         onDismiss={disclosure.dismiss}
+        hoverPreview={disclosure.hoverPreview}
       />
       <SidebarMenu>
         <PluginSidebarFooterItems
           activeDisclosureKey={disclosure.activeKey}
           onDisclosureCommand={disclosure.handleCommand}
+          hoverPreview={disclosure.hoverPreview}
         />
       </SidebarMenu>
     </>
@@ -280,6 +282,63 @@ describe("PluginSidebarFooterItems", () => {
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
     expect(document.activeElement).toBe(trigger);
     expect(screen.queryByRole("tooltip")).toBeNull();
+  });
+
+  it("previews a disclosure while the mouse hovers its trigger or panel", () => {
+    vi.useFakeTimers();
+    try {
+      setPluginSlotRegistrations(
+        "usage-plugin",
+        collectPluginAppRegistrations(
+          definePluginApp((app) => {
+            app.experimental_sidebarFooter.register({
+              kind: "disclosure",
+              id: "usage",
+              label: "Provider usage",
+              icon: "ChartColumn",
+              component: UsageDisclosure,
+            });
+          }),
+        ),
+      );
+      renderWithProviders(<FooterHarness />);
+      const trigger = screen.getByRole("button", { name: "Provider usage" });
+      const advance = (ms: number) => act(() => vi.advanceTimersByTime(ms));
+
+      fireEvent.pointerOver(trigger, { pointerType: "touch" });
+      advance(1000);
+      expect(screen.queryByText("Provider usage content")).toBeNull();
+
+      fireEvent.pointerOver(trigger, { pointerType: "mouse" });
+      advance(100);
+      expect(screen.queryByText("Provider usage content")).toBeNull();
+      advance(200);
+      expect(screen.getByText("Provider usage content")).toBeDefined();
+      expect(trigger.getAttribute("aria-expanded")).toBe("true");
+
+      const panel = screen.getByTestId(
+        "plugin-sidebar-footer-disclosure-usage-plugin-usage",
+      );
+      fireEvent.pointerOut(trigger, { pointerType: "mouse" });
+      advance(100);
+      fireEvent.pointerOver(panel, { pointerType: "mouse" });
+      advance(1000);
+      expect(screen.getByText("Provider usage content")).toBeDefined();
+
+      fireEvent.pointerOut(panel, { pointerType: "mouse" });
+      advance(1000);
+      expect(screen.queryByText("Provider usage content")).toBeNull();
+
+      fireEvent.pointerOver(trigger, { pointerType: "mouse" });
+      advance(300);
+      fireEvent.click(trigger);
+      fireEvent.pointerOut(trigger, { pointerType: "mouse" });
+      advance(1000);
+      expect(screen.getByText("Provider usage content")).toBeDefined();
+      expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("keeps the tooltip closed when the More drawer returns focus after a touch dismissal", () => {
