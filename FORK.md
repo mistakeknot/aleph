@@ -10,25 +10,56 @@ fork.
 
 ## Versions
 
-Aleph versions are `<upstream version>+aleph.<n>`, for example
-`0.43.4+aleph.1`: the upstream bb release Aleph is based on, then Aleph's build
-number for that base. The changelog entry for each Aleph version names the
-upstream main commit it includes.
+Aleph releases are named `aleph-X.Y.Z`, for example `aleph-0.4.1`. `X.Y.Z` is
+Aleph's own version. The package version keeps the upstream bb release Aleph is
+based on as its semver version and carries the Aleph version in build metadata:
+`0.43.4+aleph.0.4.1` is Aleph 0.4.1 on upstream bb 0.43.4. The changelog entry
+for each Aleph version names the upstream main commit it includes.
 
-`+aleph.<n>` is semver build metadata, and semver ignores build metadata when
-comparing versions:
+Releases before 0.4.1 used a build number instead, `<upstream>+aleph.<n>`, for
+example `0.43.4+aleph.4`. That build number `n` counts as Aleph `0.n.0`, so
+aleph.4 is Aleph 0.4.0 and the next release is 0.4.1.
 
-- Upstream `0.43.4` compares equal to `0.43.4+aleph.1`, and upstream `0.43.5`
-  compares newer. Upstream's update checks would therefore offer 0.43.5, and
-  installing it would replace Aleph. Aleph builds turn those checks off (see
-  [Updates](#updates)).
-- `0.43.4+aleph.2` does not compare newer than `0.43.4+aleph.1`, and
-  `scripts/bump-version.mjs` refuses it. Set both
-  `packages/bb-app/package.json` and `apps/desktop/package.json` directly;
-  `.github/workflows/check-version-lockstep.mjs` checks that they match.
+The next versions go like this:
+
+- **Patch, `0.4.1` to `0.4.2`.** Fixes and small Aleph changes on the same
+  upstream base: `0.43.4+aleph.0.4.2`. Run
+  `node scripts/bump-version.mjs --patch`.
+- **Minor, `0.4.x` to `0.5.0`.** New Aleph features: `0.43.4+aleph.0.5.0`. Run
+  `node scripts/bump-version.mjs --minor`.
+- **New upstream base.** Moving to a newer upstream bb release changes the
+  semver part and bumps the Aleph minor version, because an upstream sync brings
+  in upstream's features. After syncing upstream 0.44.0 onto Aleph 0.5.0, the
+  version is `0.44.0+aleph.0.6.0`. Pass it explicitly:
+  `node scripts/bump-version.mjs 0.44.0+aleph.0.6.0`. An upstream sync takes
+  upstream's `package.json` version, which has no `+aleph` metadata, so set the
+  version before building.
+
+`--major` bumps the Aleph major version. The flags never change the upstream
+base.
+
+Aleph's version, not semver, orders Aleph releases. The `+aleph.X.Y.Z` part is
+semver build metadata, and semver ignores build metadata when comparing
+versions:
+
+- Upstream `0.43.4` compares equal to `0.43.4+aleph.0.4.1`, and upstream
+  `0.43.5` compares newer. Upstream's update checks would therefore offer
+  0.43.5, and installing it would replace Aleph. Aleph builds turn those checks
+  off (see [Updates](#updates)).
+- `0.43.4+aleph.0.4.2` does not compare newer than `0.43.4+aleph.0.4.1` in
+  semver. `scripts/bump-version.mjs` therefore compares Aleph versions by their
+  Aleph release instead. It requires a greater Aleph release, refuses an older
+  upstream base, and refuses a version without `+aleph.X.Y.Z`, which would turn
+  upstream updates back on. It reads an old `+aleph.<n>` version as `0.n.0`.
+  `.github/workflows/check-version-lockstep.mjs` checks that
+  `packages/bb-app/package.json` and `apps/desktop/package.json` match.
 - `npm pack` keeps the metadata in the tarball name, for example
-  `bb-app-0.43.4+aleph.1.tgz`. The npm registry drops build metadata, so an
+  `bb-app-0.43.4+aleph.0.4.1.tgz`. The npm registry drops build metadata, so an
   Aleph version cannot be published under the upstream `bb-app` package name.
+
+The desktop app's About panel shows the Aleph version first, for example
+"Version 0.4.1 (0.43.4+aleph.0.4.1)". The web app and `bb` CLI show the full
+package version.
 
 ## Updates
 
@@ -46,7 +77,7 @@ The guard fails open: a version without the suffix, for example after an
 upstream sync that takes upstream's `package.json` version, turns every update
 path back on. `packages/config/test/aleph-release-version.test.ts` fails when
 `bb-app`, `@bb/desktop` or the newest `changelog-metadata.ts` release lacks
-`+aleph.<n>`.
+`+aleph.X.Y.Z`.
 
 Settings → Updates and `bb updates` show "Update checks off" for the bb app
 instead of "Up to date", because nothing was checked. Neither says whether a
@@ -90,12 +121,30 @@ update that it installs on quit, so let that finish before the swap. Move the ol
 run `xattr -dr com.apple.quarantine /Applications/Aleph.app`. Enrollment lives in
 `~/.bb`, outside the bundle, so it survives the swap.
 
+Every copy of the app shares the bundle id `dev.bb.desktop` (see below), and
+`open /Applications/Aleph.app` can launch whichever copy LaunchServices has
+registered for that id, for example the build output. After the swap, unregister
+the other copies, register the installed one, launch it by path, and check which
+binary runs:
+
+```sh
+LSREG=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+"$LSREG" -u apps/desktop/release/mac-arm64/Aleph.app
+"$LSREG" -u ~/bb.app.moved-aside   # each moved-aside bb.app or Aleph.app
+"$LSREG" -f /Applications/Aleph.app
+open /Applications/Aleph.app
+ps -axo comm= | grep -E '/Contents/MacOS/(bb|Aleph)$'
+```
+
+The last command must print only `/Applications/Aleph.app/Contents/MacOS/Aleph`.
+If it prints another path, quit that app, unregister its copy, and launch again.
+
 #### Desktop app naming
 
 The packaged app shows as "Aleph" — Dock, Cmd-Tab, the app menu, the About
 panel, and window titles — everywhere `apps/desktop/scripts/desktop-release-channel.mjs`
 and `apps/desktop/src/desktop-update-provider.ts` resolve a release channel.
-Both derive an `"aleph"` channel automatically from a `+aleph.N` package
+Both derive an `"aleph"` channel automatically from a `+aleph` package
 version, alongside the existing `"latest"`/`"nightly"` channels, so no build
 flag is needed. Rather than scattering `bb`/`Aleph` string edits, add a new
 channel branch here when something else needs to differ for Aleph builds.

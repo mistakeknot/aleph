@@ -6,6 +6,12 @@ import {
 import { readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  assertAlephVersionFollows,
+  compareAlephVersions,
+  deriveAlephVersion,
+  parseAlephVersion,
+} from "./lib/aleph-version.mjs";
 import { compareSemver, resolveVersionArgument } from "./lib/semver.mjs";
 
 const scriptPath = fileURLToPath(import.meta.url);
@@ -53,11 +59,17 @@ async function readPackageTargets({ fileSystem, repoRoot }) {
   );
 }
 
+function compareTargetVersions(left, right) {
+  return parseAlephVersion(left) !== null && parseAlephVersion(right) !== null
+    ? compareAlephVersions(left, right)
+    : compareSemver(left, right);
+}
+
 function findMaxCurrentVersion(packageReads) {
   return packageReads.reduce((maxVersion, packageRead) => {
     const currentVersion = packageRead.packageJson.version;
 
-    return compareSemver(currentVersion, maxVersion) > 0
+    return compareTargetVersions(currentVersion, maxVersion) > 0
       ? currentVersion
       : maxVersion;
   }, packageReads[0].packageJson.version);
@@ -93,13 +105,22 @@ export async function bumpVersion(options) {
 
   const packageReads = await readPackageTargets({ fileSystem, repoRoot });
   const maxCurrentVersion = findMaxCurrentVersion(packageReads);
-  const newVersion = resolveVersionArgument({
-    argument: args[0],
-    currentVersion: maxCurrentVersion,
-    usage: USAGE,
-  });
+  const isAlephCurrent = parseAlephVersion(maxCurrentVersion) !== null;
+  const newVersion =
+    isAlephCurrent && ["--major", "--minor", "--patch"].includes(args[0])
+    ? deriveAlephVersion(maxCurrentVersion, args[0])
+    : resolveVersionArgument({
+        argument: args[0],
+        currentVersion: maxCurrentVersion,
+        usage: USAGE,
+      });
 
-  if (compareSemver(newVersion, maxCurrentVersion) <= 0) {
+  if (isAlephCurrent) {
+    assertAlephVersionFollows({
+      currentVersion: maxCurrentVersion,
+      newVersion,
+    });
+  } else if (compareSemver(newVersion, maxCurrentVersion) <= 0) {
     throw new Error(
       `New version ${newVersion} must be greater than current max ${maxCurrentVersion} across ${createPackageVersionSummary(packageReads)}.`,
     );

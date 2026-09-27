@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const ALEPH_RELEASE_VERSION =
-  /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?\+aleph\.\d+$/u;
+  /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?\+aleph\.\d+\.\d+\.\d+$/u;
 
 function readRepoFile(relativePath: string): string {
   return readFileSync(new URL(relativePath, import.meta.url), "utf8");
@@ -25,11 +25,11 @@ describe("Aleph release version", () => {
   it.each([
     ["bb-app", "../../bb-app/package.json"],
     ["@bb/desktop", "../../../apps/desktop/package.json"],
-  ])("gives %s an +aleph.<n> version", (_name, relativePath) => {
+  ])("gives %s an +aleph.<X.Y.Z> version", (_name, relativePath) => {
     expect(readPackageVersion(relativePath)).toMatch(ALEPH_RELEASE_VERSION);
   });
 
-  it("gives the newest changelog release an +aleph.<n> version", () => {
+  it("gives the newest changelog release an +aleph.<X.Y.Z> version", () => {
     const metadata = readRepoFile("../../../changelog-metadata.ts");
     const newestRelease = /RELEASE_META[^{]*\{\s*"([^"]+)"/u.exec(
       metadata,

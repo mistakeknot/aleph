@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.43.4+aleph.0.4.1
+
+Aleph 0.4.1 is the first release under Aleph's own version number. Earlier
+releases were numbered by build: aleph.4 counts as Aleph 0.4.0.
+
+### Desktop app
+
+- **A new app icon.** The Aleph desktop app has its own icon in the Dock,
+  Finder and Cmd-Tab. The 16- and 32-point sizes are drawn separately so the
+  icon stays legible in Finder lists and menus.
+- **The About panel shows the Aleph version.** It reads "Version 0.4.1
+  (0.43.4+aleph.0.4.1)": the Aleph release, then the full version with the
+  upstream bb release it is based on.
+
+### Provider usage
+
+- **Hover the sidebar's usage icon to preview the panel.** With a mouse,
+  resting on a sidebar footer icon such as Provider usage opens its panel
+  after a moment, and it closes shortly after the pointer leaves both the
+  icon and the panel. Clicking pins it open as before. A preview never takes
+  focus from the composer or handles Escape, and touch and keyboard use is
+  unchanged.
+- **Each limit shows what is left and how fast it is going.** A usage row
+  now reads: the limit, its bar, the percentage left, the burn rate in
+  percent per hour and the time until reset. When the current pace would use
+  up the limit before it resets, the row says when it runs out, in the
+  warning color. A faint extension of the bar shows the projected usage at
+  reset.
+- **The Provider usage panel scrolls inside itself.** With many providers or
+  accounts, the list scrolls under a fixed header instead of scrolling the
+  header away.
+
+### Build
+
+- **Faster release builds.** The public SDK type declarations build in their
+  own step at the start of the build instead of after the web app.
+
 ## 0.43.4+aleph.4
 
 ### Search

@@ -1,3 +1,5 @@
+import { alephReleaseVersion } from "@bb/config/app-update";
+
 export interface DesktopAboutFacts {
   applicationName: string;
   buildDate: string;
@@ -68,12 +70,20 @@ function formatBuildDate(buildDate: string, nowMs: number | null): string {
   return age === null ? trimmed : `${trimmed} (${age})`;
 }
 
+export function formatDesktopAboutVersion(facts: DesktopAboutFacts): string {
+  const alephVersion =
+    facts.channel === "aleph" ? alephReleaseVersion(facts.version) : null;
+  return alephVersion === null
+    ? facts.version
+    : `${alephVersion} (${facts.version})`;
+}
+
 export function buildDesktopAboutDetails(
   facts: DesktopAboutFacts,
   nowMs: number | null,
 ): string {
   const lines: [string, string][] = [
-    ["Version", facts.version],
+    ["Version", formatDesktopAboutVersion(facts)],
     [
       "Build Type",
       facts.channel === "nightly"
@@ -119,13 +129,13 @@ export function createDesktopAboutPanelOptions(
   if (facts.platform === "linux") {
     return {
       applicationName: facts.applicationName,
-      applicationVersion: `${facts.version}\n\n${details}`,
+      applicationVersion: `${formatDesktopAboutVersion(facts)}\n\n${details}`,
     };
   }
 
   return {
     applicationName: facts.applicationName,
-    applicationVersion: facts.version,
+    applicationVersion: formatDesktopAboutVersion(facts),
     credits: details,
   };
 }

@@ -123,6 +123,64 @@ describe("bump-version", () => {
     expect(readVersion(repoRoot, "apps/desktop/package.json")).toBe("0.0.7");
   });
 
+  it.each([
+    ["0.43.4+aleph.4", "0.43.4+aleph.0.4.1"],
+    ["0.43.4+aleph.0.4.1", "0.43.4+aleph.0.4.2"],
+    ["0.43.4+aleph.0.4.2", "0.43.4+aleph.0.5.0"],
+    ["0.43.4+aleph.0.5.0", "0.44.0+aleph.0.6.0"],
+  ])("moves Aleph %s to %s", (currentVersion, newVersion) => {
+    const repoRoot = createTestRepo({
+      bbAppVersion: currentVersion,
+      desktopVersion: currentVersion,
+    });
+    const result = runScript(repoRoot, [newVersion]);
+
+    expect(result.stderr).toBe("");
+    expect(result.status).toBe(0);
+    expect(readVersion(repoRoot, "packages/bb-app/package.json")).toBe(
+      newVersion,
+    );
+    expect(readVersion(repoRoot, "apps/desktop/package.json")).toBe(
+      newVersion,
+    );
+  });
+
+  it.each([
+    ["--patch", "0.43.4+aleph.0.4.2"],
+    ["--minor", "0.43.4+aleph.0.5.0"],
+    ["--major", "0.43.4+aleph.1.0.0"],
+  ])("bumps the Aleph release, not the upstream base, for %s", (flag, next) => {
+    const repoRoot = createTestRepo({
+      bbAppVersion: "0.43.4+aleph.0.4.1",
+      desktopVersion: "0.43.4+aleph.0.4.1",
+    });
+    const result = runScript(repoRoot, [flag]);
+
+    expect(result.status).toBe(0);
+    expect(readVersion(repoRoot, "packages/bb-app/package.json")).toBe(next);
+    expect(readVersion(repoRoot, "apps/desktop/package.json")).toBe(next);
+  });
+
+  it.each([
+    ["0.43.4+aleph.0.4.1", "must have a greater Aleph release"],
+    ["0.44.0+aleph.0.4.1", "must have a greater Aleph release"],
+    ["0.43.3+aleph.0.4.2", "must not move to an older upstream base"],
+    ["0.43.5", "drops the +aleph.<X.Y.Z> build metadata"],
+    ["0.43.4+aleph.0.4", "Invalid Aleph version"],
+  ])("rejects Aleph %s after 0.43.4+aleph.0.4.1", (newVersion, message) => {
+    const repoRoot = createTestRepo({
+      bbAppVersion: "0.43.4+aleph.0.4.1",
+      desktopVersion: "0.43.4+aleph.0.4.1",
+    });
+    const result = runScript(repoRoot, [newVersion]);
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain(message);
+    expect(readVersion(repoRoot, "packages/bb-app/package.json")).toBe(
+      "0.43.4+aleph.0.4.1",
+    );
+  });
+
   it("restores the first package file when the second rename fails", async () => {
     const repoRoot = createTestRepo({
       bbAppVersion: "0.0.6",
