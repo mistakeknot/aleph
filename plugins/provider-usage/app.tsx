@@ -162,6 +162,27 @@ function refreshUsage({
   })();
 }
 
+async function refreshMachineUsage({
+  force,
+  machineId,
+  maxAgeMs,
+  providerIds,
+}: {
+  force: boolean;
+  machineId: string;
+  maxAgeMs: number;
+  providerIds: readonly string[];
+}): Promise<void> {
+  for (const providerId of providerIds) {
+    await refreshUsage({
+      force,
+      machineIds: [machineId],
+      maxAgeMs,
+      providerId,
+    });
+  }
+}
+
 function formatResetCountdown(resetsAt: string | null): string | null {
   if (resetsAt === null) return null;
   const remaining = new Date(resetsAt).getTime() - Date.now();
@@ -504,18 +525,21 @@ export function ProviderUsageStatusContent({
             ? emptyUsageMessage(activeMachine)
             : null;
   const activeMachineId = activeMachine?.id ?? null;
-  const hasProviders = providers.length > 0;
+  const providerIdsKey = providers
+    .map((provider) => provider.providerId)
+    .join("\n");
 
   useEffect(() => {
     if (!refreshEnabled) return;
-    if (activeMachineId === null || !hasProviders) return;
+    if (activeMachineId === null || providerIdsKey === "") return;
+    const providerIds = providerIdsKey.split("\n");
     const refresh = () => {
       if (document.visibilityState === "hidden") return;
-      void refreshUsage({
+      void refreshMachineUsage({
         force: false,
-        machineIds: [activeMachineId],
-        providerId: null,
+        machineId: activeMachineId,
         maxAgeMs: CARD_MAX_AGE_MS,
+        providerIds,
       });
     };
     refresh();
@@ -525,7 +549,7 @@ export function ProviderUsageStatusContent({
       window.clearInterval(timer);
       window.removeEventListener("focus", refresh);
     };
-  }, [activeMachineId, hasProviders, refreshEnabled]);
+  }, [activeMachineId, providerIdsKey, refreshEnabled]);
 
   const selectMachine = useCallback((machineId: string) => {
     lastMachineId = machineId;
@@ -552,12 +576,20 @@ export function ProviderUsageStatusContent({
             disabled={snapshot.isRefreshing}
             className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring disabled:opacity-50"
             onClick={() =>
-              void refreshUsage({
-                force: true,
-                machineIds: activeMachineId === null ? null : [activeMachineId],
-                maxAgeMs: 0,
-                providerId: null,
-              })
+              void (activeMachineId === null || providerIdsKey === ""
+                ? refreshUsage({
+                    force: true,
+                    machineIds:
+                      activeMachineId === null ? null : [activeMachineId],
+                    maxAgeMs: 0,
+                    providerId: null,
+                  })
+                : refreshMachineUsage({
+                    force: true,
+                    machineId: activeMachineId,
+                    maxAgeMs: 0,
+                    providerIds: providerIdsKey.split("\n"),
+                  }))
             }
           >
             <Icon
@@ -590,7 +622,7 @@ export function ProviderUsageStatusContent({
             <UsageFeedback
               message={feedback}
               loading={feedback === usageFeedbackMessages.loading}
-              className={hasProviders ? "mb-2" : undefined}
+              className={providers.length > 0 ? "mb-2" : undefined}
             />
           )}
           <div className="divide-y divide-sidebar-border">

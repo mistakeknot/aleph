@@ -290,6 +290,21 @@ describe("provider usage footer disclosure", () => {
     expect(slot.getByRole("heading", { name: "Codex" })).toBeTruthy();
     expect(slot.getByText("codex@example.com")).toBeTruthy();
     expect(slot.getByText("37%")).toBeTruthy();
+    for (const providerId of ["claude-code", "codex"]) {
+      await waitFor(() =>
+        expect(fetchMock).toHaveBeenCalledWith(
+          "/api/v1/plugins/provider-usage/rpc/getUsage",
+          expect.objectContaining({
+            body: JSON.stringify({
+              force: false,
+              machineIds: ["host-m4"],
+              maxAgeMs: 2 * 60_000,
+              providerId,
+            }),
+          }),
+        ),
+      );
+    }
 
     fireEvent.pointerDown(
       slot.getByRole("button", { name: "Usage machine: M4" }),
