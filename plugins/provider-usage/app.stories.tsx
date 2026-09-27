@@ -61,13 +61,26 @@ function measured(
   email: string,
   usedPercent: number,
   planLabel: string,
+  fiveHour: { usedPercent: number; resetsInHours: number } | null = null,
 ): ProviderUsage {
   return {
     status: "ok",
     accountEmail: email,
     planLabel,
     windows: [
+      ...(fiveHour === null
+        ? []
+        : [
+            {
+              kind: "five-hour" as const,
+              label: "Five-hour limit",
+              usedPercent: fiveHour.usedPercent,
+              resetsAt: futureIso(fiveHour.resetsInHours),
+              cost: null,
+            },
+          ]),
       {
+        kind: "weekly",
         label: "Weekly limit",
         usedPercent,
         resetsAt: futureIso(usedPercent > 90 ? 18 : 83),
@@ -94,12 +107,29 @@ function machine(
 }
 
 const healthyPool = machine("source:account-pool", "Account Pooler", [
-  provider("alex-codex", "codex", measured("alex@example.com", 28, "Pro")),
-  provider("sam-codex", "codex", measured("sam@example.com", 86, "Team")),
+  provider(
+    "alex-codex",
+    "codex",
+    measured("alex@example.com", 28, "Pro", {
+      usedPercent: 12,
+      resetsInHours: 4,
+    }),
+  ),
+  provider(
+    "sam-codex",
+    "codex",
+    measured("sam@example.com", 86, "Team", {
+      usedPercent: 64,
+      resetsInHours: 2.5,
+    }),
+  ),
   provider(
     "team-claude",
     "claude-code",
-    measured("team@example.com", 97, "Max (20x)"),
+    measured("team@example.com", 97, "Max (20x)", {
+      usedPercent: 71,
+      resetsInHours: 1,
+    }),
   ),
 ]);
 const healthyMachine = machine("host-m4", "Michael-M4", [

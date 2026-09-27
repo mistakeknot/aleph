@@ -223,12 +223,15 @@ export function AppSidebar({
         <PluginSidebarFooterDisclosure
           item={pluginSidebarFooter.activeItem}
           onDismiss={pluginSidebarFooter.dismiss}
+          hoverPreview={pluginSidebarFooter.hoverPreview}
         />
         <SidebarMenu className="flex-row flex-wrap-reverse items-center gap-1">
           <PluginSidebarFooterItems
             activeDisclosureKey={pluginSidebarFooter.activeKey}
             onDisclosureCommand={pluginSidebarFooter.handleCommand}
             onNavigate={closeOnMobile}
+            hoverPreview={pluginSidebarFooter.hoverPreview}
+            previewDisclosureKey={pluginSidebarFooter.previewKey}
             builtInActions={[
               {
                 id: "settings",

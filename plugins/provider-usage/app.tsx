@@ -24,11 +24,13 @@ import {
 import { cn } from "@/lib/utils";
 import {
   describeUsageBurn,
+  formatUsageBurnRate,
   formatUsageDuration,
   formatUsageReset,
   formatUsdCents,
   usageBarColorClass,
   usageBurnRate,
+  usageProjectedPercent,
 } from "./usage-format.js";
 import {
   Tooltip,
@@ -210,6 +212,14 @@ function UsageWindow({
   const countdown = formatResetCountdown(window.resetsAt);
   const burn = usageBurnRate(window, now);
   const burnSummary = burn === null ? null : describeUsageBurn(burn);
+  const projected =
+    burn === null ? null : usageProjectedPercent(window, burn, now);
+  const usedWidth = Math.max(2, Math.min(100, window.usedPercent));
+  const remainingPercent = Math.max(0, 100 - Math.round(window.usedPercent));
+  const runsOut =
+    burn !== null && burn.runsOutInMs !== null && burn.runsOutInMs > 0
+      ? formatUsageDuration(burn.runsOutInMs)
+      : null;
   const value =
     window.cost === null
       ? Math.round(window.usedPercent) + "% used"
@@ -249,25 +259,47 @@ function UsageWindow({
           <span className="max-w-20 truncate text-subtle-foreground">
             {label}
           </span>
-          <span className="h-1 min-w-0 overflow-hidden rounded-full bg-sidebar-border">
+          <span className="relative h-1 min-w-0 overflow-hidden rounded-full bg-sidebar-border">
+            {projected === null || projected <= usedWidth ? null : (
+              <span
+                data-testid="usage-projection"
+                className={
+                  "absolute inset-y-0 left-0 rounded-full opacity-35 " +
+                  usageBarColorClass(projected)
+                }
+                style={{ width: projected + "%" }}
+              />
+            )}
             <span
               className={
-                "block h-full rounded-full " +
+                "relative block h-full rounded-full " +
                 usageBarColorClass(window.usedPercent)
               }
-              style={{
-                width: Math.max(2, Math.min(100, window.usedPercent)) + "%",
-              }}
+              style={{ width: usedWidth + "%" }}
             />
           </span>
-          <span className="text-right tabular-nums text-sidebar-foreground">
-            {Math.round(window.usedPercent)}%
+          <span
+            aria-hidden="true"
+            className="text-right tabular-nums text-sidebar-foreground"
+          >
+            {remainingPercent}% left
           </span>
           <span
             aria-hidden="true"
             className="text-right tabular-nums text-subtle-foreground"
           >
-            {countdown ?? "—"}
+            {burn === null || burn.percentPerHour <= 0
+              ? "—"
+              : formatUsageBurnRate(burn.percentPerHour) + "%/h"}
+          </span>
+          <span
+            aria-hidden="true"
+            className={
+              "text-right tabular-nums " +
+              (runsOut === null ? "text-subtle-foreground" : "text-warning-text")
+            }
+          >
+            {runsOut === null ? (countdown ?? "—") : "out " + runsOut}
           </span>
         </div>
       </TooltipTrigger>
@@ -302,7 +334,7 @@ function ProviderUsageBody({
           No usage limits reported for this plan.
         </p>
       ) : (
-        <div className="grid grid-cols-[max-content_minmax(0,1fr)_max-content_max-content] gap-x-3 gap-y-0.5">
+        <div className="grid grid-cols-[max-content_minmax(0,1fr)_max-content_max-content_max-content] gap-x-2 gap-y-0.5">
           {usage.windows.map((window) => (
             <UsageWindow key={window.label} window={window} now={now} />
           ))}
@@ -577,7 +609,7 @@ export function ProviderUsageStatusContent({
 
   return (
     <TooltipProvider delayDuration={150}>
-      <div className="flex max-h-96 flex-col">
+      <div className="flex max-h-80 flex-col">
         <div
           data-provider-usage-header=""
           className="flex h-10 min-w-0 shrink-0 items-center gap-1 border-b border-sidebar-border px-1.5"

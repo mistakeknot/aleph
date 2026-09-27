@@ -90,14 +90,30 @@ export function usageBurnRate(
   };
 }
 
+export function formatUsageBurnRate(percentPerHour: number): string {
+  if (percentPerHour <= 0) return "0";
+  if (percentPerHour < 0.05) return "<0.1";
+  if (percentPerHour < 10) return String(Number(percentPerHour.toFixed(1)));
+  return String(Math.round(percentPerHour));
+}
+
+export function usageProjectedPercent(
+  window: { usedPercent: number; resetsAt: string | null },
+  burn: UsageBurn,
+  now: number,
+): number | null {
+  if (window.resetsAt === null) return null;
+  const remainingMs = new Date(window.resetsAt).getTime() - now;
+  if (!Number.isFinite(remainingMs) || remainingMs <= 0) return null;
+  return Math.min(
+    100,
+    window.usedPercent + burn.percentPerHour * (remainingMs / HOUR_MS),
+  );
+}
+
 export function describeUsageBurn(burn: UsageBurn): string {
   if (burn.percentPerHour <= 0) return "No usage yet this window";
-  const rate =
-    burn.percentPerHour < 0.05
-      ? "<0.1"
-      : burn.percentPerHour < 10
-      ? String(Number(burn.percentPerHour.toFixed(1)))
-      : String(Math.round(burn.percentPerHour));
+  const rate = formatUsageBurnRate(burn.percentPerHour);
   const outlook =
     burn.runsOutInMs === null
       ? "lasts until reset"
