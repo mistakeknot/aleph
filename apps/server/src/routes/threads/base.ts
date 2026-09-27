@@ -4,7 +4,6 @@ import {
   THREAD_SEARCH_LIMIT_PER_GROUP_MAX,
   countNonDeletedAssignedChildThreads,
   countThreads,
-  findTopLearnedThreadMatch,
   getEnvironment,
   getHost,
   getThread,
@@ -12,6 +11,7 @@ import {
   listThreadMentionRowsByIds,
   listThreadsWithPendingInteractionState,
   markThreadDeleted,
+  listLearnedThreadMatches,
   listLifecycleThreadTree,
   normalizeThreadSearchLearnedQuery,
   recordThreadSearchSelection,
@@ -33,7 +33,6 @@ import {
   type ThreadCountResponse,
   type ThreadRunningResponse,
   type ThreadSearchResponse,
-  type ThreadSearchLearnedBoostResponse,
   type RecordThreadSearchSelectionResponse,
   type ThreadWithIncludesResponse,
   type PublicApiSchema,
@@ -320,27 +319,13 @@ export function registerThreadBaseRoutes(app: Hono, deps: AppDeps): void {
         ...searchThreadsWithPendingInteractionState(deps.db, {
           query: searchQuery,
           limitPerGroup,
+          learnedThreadIds: listLearnedThreadMatches(deps.db, {
+            queryPrefix: normalizeThreadSearchLearnedQuery(searchQuery),
+            now: Date.now(),
+          }).map((match) => match.threadId),
         }),
       }) satisfies ThreadSearchResponse,
     );
-  });
-
-  get(routes.searchLearnedBoost, (context, query) => {
-    const searchQuery = query.query.trim();
-    if (countNonWhitespaceChars(searchQuery) < 2) {
-      throw new ApiError(
-        400,
-        "invalid_request",
-        "query must contain at least two non-whitespace characters",
-      );
-    }
-    const match = findTopLearnedThreadMatch(deps.db, {
-      queryPrefix: normalizeThreadSearchLearnedQuery(searchQuery),
-      now: Date.now(),
-    });
-    return context.json({
-      threadId: match?.threadId ?? null,
-    } satisfies ThreadSearchLearnedBoostResponse);
   });
 
   post(routes.recordSearchSelection, (context, payload) => {
@@ -353,7 +338,7 @@ export function registerThreadBaseRoutes(app: Hono, deps: AppDeps): void {
       );
     }
     const thread = getThread(deps.db, payload.threadId);
-    if (!thread) {
+    if (!thread || thread.deletedAt !== null || thread.visibility !== "visible") {
       throw new ApiError(404, "thread_not_found", "Thread not found");
     }
     recordThreadSearchSelection(deps.db, {

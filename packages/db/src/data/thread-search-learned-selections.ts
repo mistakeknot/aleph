@@ -1,6 +1,7 @@
-import { like, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 import type { DbConnection, DbQueryConnection } from "../connection.js";
-import { threadSearchLearnedSelections } from "../schema.js";
+import { threadSearchLearnedSelections, threads } from "../schema.js";
+import { likePrefixPattern } from "./sql-like.js";
 
 /**
  * How strongly a past selection at this query still counts today: frequency
@@ -9,9 +10,25 @@ import { threadSearchLearnedSelections } from "../schema.js";
  */
 const LEARNED_SELECTION_HALF_LIFE_MS = 14 * 24 * 60 * 60 * 1000;
 
-/** Global row cap for the table; trimmed back to this floor once exceeded. */
+/**
+ * Retention policy. Rows not reinforced within the window are pruned on the
+ * next write (after ~6 half-lives their score is under 2% of its peak), and
+ * the table is capped at a global row count, trimmed back to the floor by
+ * oldest pick once exceeded. Rows for deleted threads are purged when the
+ * thread is deleted.
+ */
+const LEARNED_SELECTION_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
 const LEARNED_SELECTION_MAX_ROWS = 2000;
 const LEARNED_SELECTION_EVICT_FLOOR = 1800;
+
+/**
+ * A single pick is not a habit: a (query, thread) pair has to be selected at
+ * least this many times before it can reorder search results.
+ */
+const LEARNED_SELECTION_MIN_COUNT = 2;
+
+/** At most this many learned candidates are handed to the search ranker. */
+const LEARNED_SELECTION_CANDIDATE_LIMIT = 20;
 
 /** Longer queries than this are truncated before storing/matching. */
 const LEARNED_SELECTION_QUERY_MAX_LENGTH = 60;
@@ -21,10 +38,6 @@ export function normalizeThreadSearchLearnedQuery(query: string): string {
     .trim()
     .toLowerCase()
     .slice(0, LEARNED_SELECTION_QUERY_MAX_LENGTH);
-}
-
-function escapeLikePattern(value: string): string {
-  return value.replace(/[%_\\]/g, (char) => `\\${char}`);
 }
 
 /**
@@ -58,11 +71,30 @@ export function recordThreadSearchSelection(
         },
       })
       .run();
-    evictExcessLearnedSelections(tx);
+    evictExcessLearnedSelections(tx, now);
   });
 }
 
-function evictExcessLearnedSelections(db: DbQueryConnection): void {
+/** Forgets every learned pick of the given threads, e.g. on deletion. */
+export function deleteThreadSearchLearnedSelections(
+  db: DbQueryConnection,
+  threadIds: readonly string[],
+): void {
+  if (threadIds.length === 0) return;
+  db.delete(threadSearchLearnedSelections)
+    .where(inArray(threadSearchLearnedSelections.threadId, [...threadIds]))
+    .run();
+}
+
+function evictExcessLearnedSelections(db: DbQueryConnection, now: number): void {
+  db.delete(threadSearchLearnedSelections)
+    .where(
+      lt(
+        threadSearchLearnedSelections.lastSelectedAt,
+        now - LEARNED_SELECTION_RETENTION_MS,
+      ),
+    )
+    .run();
   const total = db
     .select({ total: sql<number>`COUNT(*)` })
     .from(threadSearchLearnedSelections)
@@ -79,20 +111,23 @@ function evictExcessLearnedSelections(db: DbQueryConnection): void {
   `);
 }
 
-export interface TopLearnedThreadMatch {
+export interface LearnedThreadMatch {
   threadId: string;
   score: number;
 }
 
 /**
- * Finds the thread most strongly associated with a typed prefix, if any.
- * Only the single top thread is returned — the feature is "float the one
- * thread I always pick here to the top," not a re-ranked shortlist.
+ * Lists the threads associated with a typed prefix, strongest first. Only
+ * picks made at least `LEARNED_SELECTION_MIN_COUNT` times count, and deleted
+ * or hidden threads are skipped so the next-best live thread can take the
+ * boost. The search ranker floats only the first of these that also matches
+ * the query — the feature is "float the one thread I always pick here to the
+ * top," not a re-ranked shortlist.
  */
-export function findTopLearnedThreadMatch(
+export function listLearnedThreadMatches(
   db: DbQueryConnection,
   args: { queryPrefix: string; now: number },
-): TopLearnedThreadMatch | null {
+): LearnedThreadMatch[] {
   const rows = db
     .select({
       threadId: threadSearchLearnedSelections.threadId,
@@ -100,10 +135,13 @@ export function findTopLearnedThreadMatch(
       lastSelectedAt: threadSearchLearnedSelections.lastSelectedAt,
     })
     .from(threadSearchLearnedSelections)
+    .innerJoin(threads, eq(threads.id, threadSearchLearnedSelections.threadId))
     .where(
-      like(
-        threadSearchLearnedSelections.queryText,
-        `${escapeLikePattern(args.queryPrefix)}%`,
+      and(
+        sql`${threadSearchLearnedSelections.queryText} LIKE ${likePrefixPattern(args.queryPrefix)} ESCAPE '\\'`,
+        sql`${threadSearchLearnedSelections.selectionCount} >= ${LEARNED_SELECTION_MIN_COUNT}`,
+        isNull(threads.deletedAt),
+        eq(threads.visibility, "visible"),
       ),
     )
     .all();
@@ -123,11 +161,11 @@ export function findTopLearnedThreadMatch(
     }
   }
 
-  let best: TopLearnedThreadMatch | null = null;
-  for (const [threadId, score] of bestScoreByThread) {
-    if (best === null || score > best.score) {
-      best = { threadId, score };
-    }
-  }
-  return best;
+  return [...bestScoreByThread]
+    .map(([threadId, score]) => ({ threadId, score }))
+    .sort(
+      (left, right) =>
+        right.score - left.score || left.threadId.localeCompare(right.threadId),
+    )
+    .slice(0, LEARNED_SELECTION_CANDIDATE_LIMIT);
 }

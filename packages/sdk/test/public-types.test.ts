@@ -418,7 +418,6 @@ type ExpectedThreadsKey =
   | "resolveMentions"
   | "retry"
   | "search"
-  | "searchLearnedBoost"
   | "send"
   | "spawn"
   | "stop"

@@ -1,7 +1,8 @@
+import { markThreadDeleted } from "@bb/db";
 import {
   apiErrorSchema,
   recordThreadSearchSelectionResponseSchema,
-  threadSearchLearnedBoostResponseSchema,
+  threadSearchResponseSchema,
 } from "@bb/server-contract";
 import { describe, expect, it } from "vitest";
 import { readJson } from "../helpers/json.js";
@@ -10,109 +11,104 @@ import {
   seedProjectWithSource,
   seedThread,
 } from "../helpers/seed.js";
-import { withTestHarness } from "../helpers/test-app.js";
+import { type TestAppHarness, withTestHarness } from "../helpers/test-app.js";
 
-describe("public thread search learned boost routes", () => {
-  it("returns null when no selection has been recorded for the query", async () => {
-    await withTestHarness(async (harness) => {
-      const response = await harness.app.request(
-        "/api/v1/threads/search/learned-boost?query=af",
-      );
-      expect(response.status).toBe(200);
-      const body = threadSearchLearnedBoostResponseSchema.parse(
-        await readJson(response),
-      );
-      expect(body.threadId).toBeNull();
-    });
+function recordSelection(
+  harness: TestAppHarness,
+  query: string,
+  threadId: string,
+) {
+  return harness.app.request("/api/v1/threads/search/selections", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ query, threadId }),
   });
+}
 
-  it("validates the query parameter", async () => {
-    await withTestHarness(async (harness) => {
-      const missingQueryResponse = await harness.app.request(
-        "/api/v1/threads/search/learned-boost",
-      );
-      expect(missingQueryResponse.status).toBe(400);
+async function searchActiveThreadIds(harness: TestAppHarness, query: string) {
+  const response = await harness.app.request(
+    `/api/v1/threads/search?query=${encodeURIComponent(query)}&limitPerGroup=10`,
+  );
+  expect(response.status).toBe(200);
+  const body = threadSearchResponseSchema.parse(await readJson(response));
+  return body.active.results.map((result) => result.thread.id);
+}
 
-      const shortQueryResponse = await harness.app.request(
-        "/api/v1/threads/search/learned-boost?query=x",
-      );
-      expect(shortQueryResponse.status).toBe(400);
-    });
-  });
-
-  it("records a selection and then surfaces it as the learned boost for a matching prefix", async () => {
+describe("public thread search learned selections", () => {
+  it("leads search results with a thread picked repeatedly for a matching prefix", async () => {
     await withTestHarness(async (harness) => {
       const { host } = seedHostSession(harness.deps);
       const { project } = seedProjectWithSource(harness.deps, {
         hostId: host.id,
       });
-      const thread = seedThread(harness.deps, {
+      const learnedThread = seedThread(harness.deps, {
         projectId: project.id,
+        title: "learnroute beta",
+        titleFallback: "learnroute beta",
+      });
+      const otherThread = seedThread(harness.deps, {
+        projectId: project.id,
+        title: "learnroute alpha",
+        titleFallback: "learnroute alpha",
       });
 
-      const recordResponse = await harness.app.request(
-        "/api/v1/threads/search/selections",
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            query: "afternoon-standup",
-            threadId: thread.id,
-          }),
-        },
+      // A single pick is below the learning threshold and must not reorder.
+      const firstRecord = await recordSelection(
+        harness,
+        "learnroute",
+        learnedThread.id,
       );
-      expect(recordResponse.status).toBe(200);
+      expect(firstRecord.status).toBe(200);
       expect(
         recordThreadSearchSelectionResponseSchema.parse(
-          await readJson(recordResponse),
+          await readJson(firstRecord),
         ),
       ).toEqual({ ok: true });
+      const beforeLearning = await searchActiveThreadIds(harness, "learnro");
+      expect(beforeLearning).toEqual(
+        expect.arrayContaining([learnedThread.id, otherThread.id]),
+      );
 
-      const boostResponse = await harness.app.request(
-        "/api/v1/threads/search/learned-boost?query=af",
-      );
-      expect(boostResponse.status).toBe(200);
-      const boostBody = threadSearchLearnedBoostResponseSchema.parse(
-        await readJson(boostResponse),
-      );
-      expect(boostBody.threadId).toBe(thread.id);
+      expect(
+        (await recordSelection(harness, "learnroute", learnedThread.id)).status,
+      ).toBe(200);
+      const afterLearning = await searchActiveThreadIds(harness, "learnro");
+      expect(afterLearning[0]).toBe(learnedThread.id);
+      expect(afterLearning).toContain(otherThread.id);
     });
   });
 
-  it("rejects recording a selection for a query that is too short or a missing thread", async () => {
+  it("rejects a too-short query and missing, deleted or hidden threads", async () => {
     await withTestHarness(async (harness) => {
       const { host } = seedHostSession(harness.deps);
       const { project } = seedProjectWithSource(harness.deps, {
         hostId: host.id,
       });
-      const thread = seedThread(harness.deps, {
+      const thread = seedThread(harness.deps, { projectId: project.id });
+      const deletedThread = seedThread(harness.deps, {
         projectId: project.id,
       });
-
-      const shortQueryResponse = await harness.app.request(
-        "/api/v1/threads/search/selections",
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ query: "x", threadId: thread.id }),
-        },
-      );
-      expect(shortQueryResponse.status).toBe(400);
-
-      const missingThreadResponse = await harness.app.request(
-        "/api/v1/threads/search/selections",
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ query: "afternoon", threadId: "thr_missing" }),
-        },
-      );
-      expect(missingThreadResponse.status).toBe(404);
-      expect(
-        apiErrorSchema.parse(await readJson(missingThreadResponse)),
-      ).toMatchObject({
-        code: "thread_not_found",
+      markThreadDeleted(harness.deps.db, harness.deps.hub, {
+        threadId: deletedThread.id,
       });
+      const hiddenThread = seedThread(harness.deps, {
+        projectId: project.id,
+        visibility: "hidden",
+      });
+
+      expect((await recordSelection(harness, "x", thread.id)).status).toBe(400);
+
+      for (const threadId of [
+        "thr_missing",
+        deletedThread.id,
+        hiddenThread.id,
+      ]) {
+        const response = await recordSelection(harness, "afternoon", threadId);
+        expect(response.status).toBe(404);
+        expect(apiErrorSchema.parse(await readJson(response))).toMatchObject({
+          code: "thread_not_found",
+        });
+      }
     });
   });
 });

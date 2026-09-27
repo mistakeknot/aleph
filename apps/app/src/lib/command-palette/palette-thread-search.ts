@@ -1,4 +1,7 @@
-import { PERSONAL_PROJECT_ID, type ThreadListEntry } from "@bb/domain";
+import {
+  PERSONAL_PROJECT_ID,
+  type ThreadListEntry,
+} from "@bb/domain";
 import type {
   ThreadSearchMatch,
   ThreadSearchResponse,
@@ -25,7 +28,6 @@ export interface PaletteThreadSearchRow {
 }
 
 interface BuildPaletteThreadSearchRowsArgs {
-  learnedBoostThreadId: string | null;
   lifecycles: readonly ThreadArchiveFilter[];
   now: number;
   projectNamesById: ReadonlyMap<string, string>;
@@ -101,7 +103,6 @@ function serverRow(
 }
 
 export function buildPaletteThreadSearchRows({
-  learnedBoostThreadId,
   lifecycles,
   now,
   projectNamesById,
@@ -135,39 +136,16 @@ export function buildPaletteThreadSearchRows({
             serverRow(thread, [], lifecycle, projectNamesById, now),
           )
         : isSearchable && searchResultsAreCurrent
-          ? spliceLearnedBoostToFront(
-              (searchResponse?.[lifecycle]?.results ?? []).map((result) =>
-                serverRow(
-                  result.thread,
-                  result.matches,
-                  lifecycle,
-                  projectNamesById,
-                  now,
-                ),
+          ? (searchResponse?.[lifecycle]?.results ?? []).map((result) =>
+              serverRow(
+                result.thread,
+                result.matches,
+                lifecycle,
+                projectNamesById,
+                now,
               ),
-              learnedBoostThreadId,
             )
           : [],
     ),
   };
-}
-
-/**
- * Floats the learned thread for this query prefix to the front of its
- * lifecycle's results, if it's present among them. The learned boost never
- * pulls in a thread that isn't already a match for the typed query — it only
- * reorders.
- */
-function spliceLearnedBoostToFront(
-  rows: PaletteThreadSearchRow[],
-  learnedBoostThreadId: string | null,
-): PaletteThreadSearchRow[] {
-  if (learnedBoostThreadId === null) return rows;
-  const boostedIndex = rows.findIndex(
-    (row) => row.threadId === learnedBoostThreadId,
-  );
-  if (boostedIndex <= 0) return rows;
-  const boosted = rows[boostedIndex]!;
-  const rest = rows.filter((_, index) => index !== boostedIndex);
-  return [boosted, ...rest];
 }

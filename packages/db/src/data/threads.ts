@@ -1,4 +1,5 @@
 import { copyProjectAttachmentOwnership } from "./project-attachments.js";
+import { deleteThreadSearchLearnedSelections } from "./thread-search-learned-selections.js";
 import {
   and,
   asc,
@@ -115,6 +116,11 @@ export interface ThreadSearchResults {
 export interface SearchThreadsWithPendingInteractionStateArgs {
   query: string;
   limitPerGroup: number;
+  /**
+   * Threads the user has learned to pick for this query, strongest first.
+   * The first of these that matches the query leads its group.
+   */
+  learnedThreadIds?: readonly string[];
 }
 
 export interface UpsertThreadTitleSearchSegmentsArgs {
@@ -144,6 +150,7 @@ interface UpsertThreadSearchSegmentArgs extends UpsertThreadSearchSegmentInput {
 
 interface ListThreadSearchMatchRowsArgs {
   anyTokenMatchQuery: string;
+  learnedThreadIds: readonly string[];
   limitPerGroup: number;
   tokenMatchQueries: readonly string[];
 }
@@ -998,6 +1005,15 @@ function listThreadSearchMatchRows(
     `,
   );
   const isTitleSegment = sql`thread_search_segments.source_kind IN ('title', 'title_fallback')`;
+  const learnedRank =
+    args.learnedThreadIds.length === 0
+      ? sql`NULL`
+      : sql`CASE token_matches.threadId ${sql.join(
+          args.learnedThreadIds.map(
+            (threadId, index) => sql`WHEN ${threadId} THEN ${index}`,
+          ),
+          sql` `,
+        )} END`;
 
   return db.all<ThreadSearchMatchRow>(sql`
     WITH token_matches AS (
@@ -1013,7 +1029,8 @@ function listThreadSearchMatchRows(
         MIN(token_matches.tokenMatchedTitle) AS titleMatch,
         MAX(t.updated_at) AS threadUpdatedAt,
         MAX(t.archived_at IS NOT NULL) AS archived,
-        MAX(t.pinned_at IS NOT NULL) AS pinned
+        MAX(t.pinned_at IS NOT NULL) AS pinned,
+        ${learnedRank} AS learnedRank
       FROM token_matches
       JOIN threads AS t ON t.id = token_matches.threadId
       WHERE t.deleted_at IS NULL
@@ -1021,16 +1038,30 @@ function listThreadSearchMatchRows(
       GROUP BY threadId
       HAVING COUNT(*) = ${args.tokenMatchQueries.length}
     ),
+    boosted_threads AS (
+      SELECT
+        *,
+        -- Only the strongest learned pick that matched the query leads.
+        COALESCE(
+          learnedRank = MIN(learnedRank) OVER (PARTITION BY archived),
+          0
+        ) AS learnedBoost
+      FROM ranked_threads
+    ),
     ordered_threads AS (
       SELECT
         threadId,
         archived,
+        -- Quick-switcher tiers: the learned pick, then name matches, then
+        -- body matches. Pins lead within a tier rather than across tiers, so
+        -- a pinned thread that only mentions the query in a message never
+        -- outranks a thread named after it.
         ROW_NUMBER() OVER (
           PARTITION BY archived
-          ORDER BY pinned DESC, titleMatch DESC, bestRank ASC, threadUpdatedAt DESC, threadId DESC
+          ORDER BY learnedBoost DESC, titleMatch DESC, pinned DESC, bestRank ASC, threadUpdatedAt DESC, threadId DESC
         ) AS threadOrder,
         COUNT(*) OVER (PARTITION BY archived) AS total
-      FROM ranked_threads
+      FROM boosted_threads
     ),
     limited_threads AS (
       SELECT threadId, archived, threadOrder, total
@@ -1157,6 +1188,7 @@ export function searchThreadsWithPendingInteractionState(
 
   const rows = listThreadSearchMatchRows(db, {
     anyTokenMatchQuery,
+    learnedThreadIds: args.learnedThreadIds ?? [],
     limitPerGroup,
     tokenMatchQueries,
   });
@@ -2100,6 +2132,10 @@ export function markThreadDeleted(
     )
     .returning()
     .all();
+  deleteThreadSearchLearnedSelections(
+    db,
+    updated.map((thread) => thread.id),
+  );
   for (const thread of updated) {
     notifier.notifyThread(thread.id, ["thread-deleted"], {
       projectId: thread.projectId,

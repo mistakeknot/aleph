@@ -57,7 +57,6 @@ function build(
   overrides: Partial<Parameters<typeof buildPaletteThreadSearchRows>[0]> = {},
 ) {
   return buildPaletteThreadSearchRows({
-    learnedBoostThreadId: null,
     lifecycles: ["active"],
     now: NOW,
     projectNamesById: new Map([["project-1", "Palette project"]]),
@@ -91,24 +90,12 @@ describe("buildPaletteThreadSearchRows", () => {
   it("keeps saved-message threads in Active recents", () => {
     const saved = makeThread("saved", { status: "pending", updatedAt: NOW });
     const archived = makeThread("archived", { archivedAt: 1, updatedAt: 2 });
-    const active = Array.from({ length: 25 }, (_, index) =>
-      makeThread(`active-${index}`, { updatedAt: 1 }),
-    );
+    const active = Array.from({ length: 25 }, (_, index) => makeThread(`active-${index}`, { updatedAt: 1 }));
     const recentThreads = [...active, saved, archived];
-    const result = build({
-      query: "",
-      recentThreads,
-      lifecycles: ["active", "archived"],
-    });
+    const result = build({ query: "", recentThreads, lifecycles: ["active", "archived"] });
     expect(result.rows).toHaveLength(21);
-    expect(result.rows[0]).toMatchObject({
-      threadId: "saved",
-      lifecycle: "active",
-    });
-    expect(result.rows[20]).toMatchObject({
-      threadId: "archived",
-      lifecycle: "archived",
-    });
+    expect(result.rows[0]).toMatchObject({ threadId: "saved", lifecycle: "active" });
+    expect(result.rows[20]).toMatchObject({ threadId: "archived", lifecycle: "archived" });
   });
 
   it("keeps saved-message snippets in the owning thread result without inventing an event anchor", () => {
@@ -117,30 +104,16 @@ describe("buildPaletteThreadSearchRows", () => {
       searchResponse: {
         active: {
           total: 1,
-          results: [
-            {
-              thread: makeThread("saved", { status: "pending" }),
-              matches: [
-                {
-                  sourceKind: "user_message",
-                  text: "matching saved message",
-                  highlightRanges: [{ start: 0, end: 5 }],
-                  sourceSeq: null,
-                },
-              ],
-            },
-          ],
+          results: [{
+            thread: makeThread("saved", { status: "pending" }),
+            matches: [{ sourceKind: "user_message", text: "matching saved message", highlightRanges: [{ start: 0, end: 5 }], sourceSeq: null }],
+          }],
         },
         archived: { total: 0, results: [] },
       },
     });
     expect(result.rows).toHaveLength(1);
-    expect(result.rows[0]).toMatchObject({
-      threadId: "saved",
-      lifecycle: "active",
-      primaryText: "matching saved message",
-      messageSeq: null,
-    });
+    expect(result.rows[0]).toMatchObject({ threadId: "saved", lifecycle: "active", primaryText: "matching saved message", messageSeq: null });
   });
 
   it("preserves active and archived server matches in their ranked order", () => {
@@ -337,79 +310,5 @@ describe("buildPaletteThreadSearchRows", () => {
       "unpinned",
       "pinned",
     ]);
-  });
-
-  it("splices the learned-boost thread to the front of search results", () => {
-    const first = makeThread("first");
-    const learned = makeThread("learned");
-    const result = build({
-      learnedBoostThreadId: "learned",
-      searchResponse: {
-        active: {
-          total: 2,
-          results: [
-            { thread: first, matches: [] },
-            { thread: learned, matches: [] },
-          ],
-        },
-        archived: { total: 0, results: [] },
-      },
-    });
-    expect(result.rows.map((row) => row.threadId)).toEqual([
-      "learned",
-      "first",
-    ]);
-  });
-
-  it("leaves search results untouched when the learned-boost thread is already first", () => {
-    const learned = makeThread("learned");
-    const second = makeThread("second");
-    const result = build({
-      learnedBoostThreadId: "learned",
-      searchResponse: {
-        active: {
-          total: 2,
-          results: [
-            { thread: learned, matches: [] },
-            { thread: second, matches: [] },
-          ],
-        },
-        archived: { total: 0, results: [] },
-      },
-    });
-    expect(result.rows.map((row) => row.threadId)).toEqual([
-      "learned",
-      "second",
-    ]);
-  });
-
-  it("ignores a learned-boost thread absent from the search results", () => {
-    const first = makeThread("first");
-    const second = makeThread("second");
-    const result = build({
-      learnedBoostThreadId: "not-in-results",
-      searchResponse: {
-        active: {
-          total: 2,
-          results: [
-            { thread: first, matches: [] },
-            { thread: second, matches: [] },
-          ],
-        },
-        archived: { total: 0, results: [] },
-      },
-    });
-    expect(result.rows.map((row) => row.threadId)).toEqual(["first", "second"]);
-  });
-
-  it("never applies the learned boost to the empty-query recents branch", () => {
-    const older = makeThread("older", { updatedAt: NOW - 100 });
-    const newest = makeThread("newest", { updatedAt: NOW });
-    const result = build({
-      query: "",
-      learnedBoostThreadId: "older",
-      recentThreads: [older, newest],
-    });
-    expect(result.rows.map((row) => row.threadId)).toEqual(["newest", "older"]);
   });
 });

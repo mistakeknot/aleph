@@ -43,7 +43,6 @@ import type {
   ThreadResponse,
   ThreadPluginMetadataResponse,
   ThreadSearchResponse,
-  ThreadSearchLearnedBoostResponse,
   RecordThreadSearchSelectionRequest,
   RecordThreadSearchSelectionResponse,
   ThreadStorageFileListResponse,
@@ -72,7 +71,6 @@ import type {
   ThreadGetQuery,
   ThreadListQuery,
   ThreadSearchQuery,
-  ThreadSearchLearnedBoostQuery,
   ThreadStatusWaitQuery,
   ThreadStorageFilesQuery,
   ThreadStoragePathsQuery,
@@ -106,10 +104,6 @@ export interface ThreadListArgs {
 }
 
 export interface ThreadSearchArgs extends ThreadSearchQuery {
-  signal?: AbortSignal;
-}
-
-export interface ThreadSearchLearnedBoostArgs extends ThreadSearchLearnedBoostQuery {
   signal?: AbortSignal;
 }
 
@@ -175,7 +169,6 @@ export type ThreadCountResult = ThreadCountResponse;
 export type ThreadRunningResult = ThreadRunningResponse;
 export type ThreadListResult = ThreadListResponse;
 export type ThreadSearchResult = ThreadSearchResponse;
-export type ThreadSearchLearnedBoostResult = ThreadSearchLearnedBoostResponse;
 export type ThreadRecordSearchSelectionResult =
   RecordThreadSearchSelectionResponse;
 export type ThreadResolveMentionsResult = ResolveThreadMentionsResponse;
@@ -635,9 +628,6 @@ export interface ThreadsArea {
    */
   retry(args: ThreadRetryArgs): Promise<ThreadRetryResult>;
   search(args: ThreadSearchArgs): Promise<ThreadSearchResult>;
-  searchLearnedBoost(
-    args: ThreadSearchLearnedBoostArgs,
-  ): Promise<ThreadSearchLearnedBoostResult>;
   recordSearchSelection(
     args: ThreadRecordSearchSelectionArgs,
   ): Promise<ThreadRecordSearchSelectionResult>;
@@ -834,14 +824,6 @@ function statusWaitQuery(args: {
 function searchQuery(args: ThreadSearchArgs): ThreadSearchQuery {
   return {
     limitPerGroup: args.limitPerGroup,
-    query: args.query,
-  };
-}
-
-function searchLearnedBoostQuery(
-  args: ThreadSearchLearnedBoostArgs,
-): ThreadSearchLearnedBoostQuery {
-  return {
     query: args.query,
   };
 }
@@ -1371,14 +1353,6 @@ export function createThreadsArea(args: CreateSdkAreaArgs): ThreadsArea {
       return transport.readJson(
         transport.api.v1.threads.search.$get(
           { query: searchQuery(input) },
-          ...signalRequestArgs(input.signal),
-        ),
-      );
-    },
-    async searchLearnedBoost(input) {
-      return transport.readJson(
-        transport.api.v1.threads.search["learned-boost"].$get(
-          { query: searchLearnedBoostQuery(input) },
           ...signalRequestArgs(input.signal),
         ),
       );

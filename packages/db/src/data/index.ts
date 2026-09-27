@@ -20,11 +20,12 @@ export {
 } from "./thread-conversation-outlines.js";
 
 export {
-  findTopLearnedThreadMatch,
+  deleteThreadSearchLearnedSelections,
+  listLearnedThreadMatches,
   normalizeThreadSearchLearnedQuery,
   recordThreadSearchSelection,
 } from "./thread-search-learned-selections.js";
-export type { TopLearnedThreadMatch } from "./thread-search-learned-selections.js";
+export type { LearnedThreadMatch } from "./thread-search-learned-selections.js";
 
 export {
   createThreadSection,

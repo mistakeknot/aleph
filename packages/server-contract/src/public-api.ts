@@ -251,8 +251,6 @@ import type {
   ThreadPluginMetadataResponse,
   ThreadSearchQuery,
   ThreadSearchResponse,
-  ThreadSearchLearnedBoostQuery,
-  ThreadSearchLearnedBoostResponse,
   RecordThreadSearchSelectionRequest,
   RecordThreadSearchSelectionResponse,
   ThreadStorageContentQuery,
@@ -378,7 +376,6 @@ import {
   threadOpenRequestSchema,
   threadPaneActionRequestSchema,
   threadSearchQuerySchema,
-  threadSearchLearnedBoostQuerySchema,
   recordThreadSearchSelectionRequestSchema,
   threadStorageContentQuerySchema,
   threadStorageFilesQuerySchema,
@@ -1275,14 +1272,6 @@ export const publicApiRoutes = {
         threadSearchQuerySchema,
       ),
       response: jsonResponse<ThreadSearchResponse>(),
-    }),
-    searchLearnedBoost: defineRoute({
-      path: "/threads/search/learned-boost",
-      method: "get",
-      request: queryRequest<EmptyInput, ThreadSearchLearnedBoostQuery>(
-        threadSearchLearnedBoostQuerySchema,
-      ),
-      response: jsonResponse<ThreadSearchLearnedBoostResponse>(),
     }),
     recordSearchSelection: defineRoute({
       path: "/threads/search/selections",

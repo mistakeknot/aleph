@@ -4,18 +4,20 @@
 
 ### Search
 
-- **Pinned threads come first in Cmd+K.** Pinned threads now lead both the
-  empty-query recent threads list and matching search results. Relevance and
-  recency still order threads within the pinned and unpinned groups.
 - **Cmd+K finds threads by name before message text.** A thread whose title
   contains every word you typed now ranks above threads that only mention
   those words in messages, so typing part of a thread's name jumps to it the
   way a launcher like Alfred or Spotlight would.
-- **Cmd+K learns which thread you pick for a query.** Choosing a thread after
-  typing a query remembers that pick on the server, so it follows you across
-  browsers and devices. Typing the same query, or the start of it, later puts
-  that thread at the top of its results. Picks fade over about two weeks
-  without use.
+- **Pinned threads come first in Cmd+K.** Pinned threads lead the empty-query
+  recent threads list. In search results they lead among title matches and
+  among message matches, so a pinned thread never outranks another thread
+  whose title matches when its own title does not.
+- **Cmd+K learns which thread you pick for a query.** After you pick the same
+  thread for a query at least twice, typing that query, or the start of it,
+  puts that thread at the top of its search results. Picks are stored on the
+  server, so they follow you across browsers and devices, and they also
+  shape thread search from the CLI and API. Picks fade over about two weeks
+  and are forgotten after 90 days without use or when the thread is deleted.
 
 ## 0.43.4+aleph.3
 

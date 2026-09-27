@@ -178,9 +178,9 @@ describe("thread search data", () => {
           query,
           limitPerGroup: 20,
         });
-        expect(
-          results.active.results.map((result) => result.thread.id),
-        ).toEqual([thread.id]);
+        expect(results.active.results.map((result) => result.thread.id)).toEqual(
+          [thread.id],
+        );
       }
 
       const secretResults = searchThreadsWithPendingInteractionState(db, {
@@ -272,9 +272,9 @@ describe("thread search data", () => {
         query: "livewriterneedle",
         limitPerGroup: 20,
       });
-      expect(
-        activeResults.active.results.map((result) => result.thread.id),
-      ).toEqual([activeThread.id]);
+      expect(activeResults.active.results.map((result) => result.thread.id)).toEqual(
+        [activeThread.id],
+      );
       expect(activeResults.archived.total).toBe(0);
 
       const assistantResults = searchThreadsWithPendingInteractionState(db, {
@@ -408,9 +408,7 @@ describe("thread search data", () => {
           .map((match) => match.sourceKind)
           .sort(),
       ).toEqual(["title", "title_fallback"]);
-      expect(matches.filter((match) => match.sourceSeq !== null)).toHaveLength(
-        1,
-      );
+      expect(matches.filter((match) => match.sourceSeq !== null)).toHaveLength(1);
     } finally {
       closeConnection(db);
     }
@@ -494,6 +492,115 @@ describe("thread search data", () => {
       expect(results.active.results.map((result) => result.thread.id)).toEqual([
         titleMatch.id,
         contentMatch.id,
+      ]);
+    } finally {
+      closeConnection(db);
+    }
+  });
+
+  it("ranks an unpinned title match above a pinned thread that only mentions the query in a message", () => {
+    const { db, project } = setup();
+    try {
+      const pinnedBodyOnly = createThread(db, noopNotifier, {
+        projectId: project.id,
+        providerId: "codex",
+        title: "standup notes",
+      });
+      upsertThreadSearchSegments(db, {
+        segments: [
+          {
+            threadId: pinnedBodyOnly.id,
+            sourceKind: "user_message",
+            sourceKey: "event:1",
+            sourceSeq: 1,
+            text: "tokpinneedle",
+          },
+        ],
+      });
+      pinThread(db, noopNotifier, { threadId: pinnedBodyOnly.id });
+      const unpinnedTitle = createThread(db, noopNotifier, {
+        projectId: project.id,
+        providerId: "codex",
+        title: "tokpinneedle budget",
+      });
+
+      const results = searchThreadsWithPendingInteractionState(db, {
+        query: "tokpinneedle",
+        limitPerGroup: 20,
+      });
+
+      expect(results.active.results.map((result) => result.thread.id)).toEqual([
+        unpinnedTitle.id,
+        pinnedBodyOnly.id,
+      ]);
+    } finally {
+      closeConnection(db);
+    }
+  });
+
+  it("leads each group with the strongest learned thread that matches the query", () => {
+    const { db, project } = setup();
+    try {
+      const titleMatch = createThread(db, noopNotifier, {
+        projectId: project.id,
+        providerId: "codex",
+        title: "learnedneedle channel",
+      });
+      const learnedContentMatch = createThread(db, noopNotifier, {
+        projectId: project.id,
+        providerId: "codex",
+        title: "weekly sync",
+      });
+      upsertThreadSearchSegments(db, {
+        segments: [
+          {
+            threadId: learnedContentMatch.id,
+            sourceKind: "user_message",
+            sourceKey: "event:1",
+            sourceSeq: 1,
+            text: "learnedneedle",
+          },
+        ],
+      });
+      const weakerLearned = createThread(db, noopNotifier, {
+        projectId: project.id,
+        providerId: "codex",
+        title: "retro",
+      });
+      upsertThreadSearchSegments(db, {
+        segments: [
+          {
+            threadId: weakerLearned.id,
+            sourceKind: "user_message",
+            sourceKey: "event:1",
+            sourceSeq: 1,
+            text: "learnedneedle",
+          },
+        ],
+      });
+      const nonMatching = createThread(db, noopNotifier, {
+        projectId: project.id,
+        providerId: "codex",
+        title: "unrelated",
+      });
+
+      const results = searchThreadsWithPendingInteractionState(db, {
+        query: "learnedneedle",
+        limitPerGroup: 20,
+        // The strongest learned pick doesn't match this query, so the boost
+        // falls through to the next one that does. Only that one leads; the
+        // weaker learned pick keeps its ordinary rank below the title match.
+        learnedThreadIds: [
+          nonMatching.id,
+          learnedContentMatch.id,
+          weakerLearned.id,
+        ],
+      });
+
+      expect(results.active.results.map((result) => result.thread.id)).toEqual([
+        learnedContentMatch.id,
+        titleMatch.id,
+        weakerLearned.id,
       ]);
     } finally {
       closeConnection(db);
@@ -693,10 +800,9 @@ describe("thread search data", () => {
     const { db } = setup();
     try {
       const row = db.$client
-        .prepare<
-          [],
-          { sql: string }
-        >("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'thread_search_segments_fts'")
+        .prepare<[], { sql: string }>(
+          "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'thread_search_segments_fts'",
+        )
         .get();
       expect(row?.sql).toContain("prefix = '2 3'");
     } finally {
@@ -727,9 +833,10 @@ describe("thread search data", () => {
       expect(results.active.results.map((result) => result.thread.id)).toEqual([
         thread.id,
       ]);
-      expect(
-        results.active.results[0]?.matches.map((match) => match.text),
-      ).toEqual(["alpha split title", "beta split message"]);
+      expect(results.active.results[0]?.matches.map((match) => match.text)).toEqual([
+        "alpha split title",
+        "beta split message",
+      ]);
     } finally {
       closeConnection(db);
     }

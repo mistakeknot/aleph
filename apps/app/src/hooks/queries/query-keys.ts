@@ -24,7 +24,6 @@ const PROJECT_PROMPT_HISTORY_QUERY_KEY = "projectPromptHistory";
 export const SIDEBAR_NAVIGATION_QUERY_KEY = "sidebarNavigation";
 export const THREADS_QUERY_KEY = "threads";
 const THREAD_SEARCH_QUERY_KEY = "threadSearch";
-const THREAD_SEARCH_LEARNED_BOOST_QUERY_KEY = "threadSearchLearnedBoost";
 const THREADS_DISABLED_QUERY_KEY = "threadsDisabled";
 export const THREAD_QUERY_KEY = "thread";
 const THREAD_TABS_QUERY_KEY = "threadTabs";
@@ -98,10 +97,6 @@ export interface ThreadListQueryFilters {
 interface ThreadSearchQueryFilters {
   query: ThreadSearchFilters["query"];
   limitPerGroup: NonNullable<ThreadSearchFilters["limitPerGroup"]>;
-}
-
-interface ThreadSearchLearnedBoostQueryFilters {
-  query: ThreadSearchFilters["query"];
 }
 
 export type ArchivedThreadsKindFilter = "all" | "root" | "child";
@@ -191,10 +186,6 @@ type ThreadSearchQueryKey = readonly [
   ThreadSearchQueryFilters,
 ];
 type ThreadSearchQueryKeyPrefix = readonly [typeof THREAD_SEARCH_QUERY_KEY];
-type ThreadSearchLearnedBoostQueryKey = readonly [
-  typeof THREAD_SEARCH_LEARNED_BOOST_QUERY_KEY,
-  ThreadSearchLearnedBoostQueryFilters,
-];
 type ArchivedThreadsListQueryKey = readonly [
   typeof THREADS_QUERY_KEY,
   typeof ARCHIVED_THREADS_LIST_KIND,
@@ -689,12 +680,6 @@ export function threadSearchQueryKey(
 
 export function threadSearchQueryKeyPrefix(): ThreadSearchQueryKeyPrefix {
   return [THREAD_SEARCH_QUERY_KEY];
-}
-
-export function threadSearchLearnedBoostQueryKey(
-  filters: ThreadSearchLearnedBoostQueryFilters,
-): ThreadSearchLearnedBoostQueryKey {
-  return [THREAD_SEARCH_LEARNED_BOOST_QUERY_KEY, filters];
 }
 
 export function archivedThreadsListQueryKey(
