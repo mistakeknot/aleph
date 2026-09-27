@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UsageMachine, UsageProvider } from "./usage-schema.js";
 import type { PluginSidebarThread } from "@get-bb/plugin-sdk/app";
@@ -291,7 +291,7 @@ describe("provider usage footer disclosure", () => {
     });
     expect(slot.getByRole("heading", { name: "Codex" })).toBeTruthy();
     expect(await slot.findByText("codex@example.com")).toBeTruthy();
-    expect(slot.getByText("97%")).toBeTruthy();
+    expect(slot.getByText("3% left")).toBeTruthy();
 
     fireEvent.pointerDown(machinePicker, { button: 0 });
     fireEvent.click(slot.getByRole("menuitemradio", { name: "M4" }));
@@ -306,10 +306,10 @@ describe("provider usage footer disclosure", () => {
     ).not.toBeNull();
     expect(slot.getByRole("heading", { name: "Claude Code" })).toBeTruthy();
     expect(await slot.findByText("claude@example.com")).toBeTruthy();
-    expect(slot.getByText("82%")).toBeTruthy();
+    expect(slot.getByText("18% left")).toBeTruthy();
     expect(slot.getByRole("heading", { name: "Codex" })).toBeTruthy();
     expect(await slot.findByText("codex@example.com")).toBeTruthy();
-    expect(slot.getByText("37%")).toBeTruthy();
+    expect(slot.getByText("63% left")).toBeTruthy();
     for (const providerId of ["claude-code", "codex"]) {
       await waitFor(() =>
         expect(fetchMock).toHaveBeenCalledWith(
@@ -427,8 +427,7 @@ describe("provider usage footer disclosure", () => {
     ).not.toBeNull();
     expect(slot.getAllByText("team@example.com")).toHaveLength(1);
     expect(slot.getAllByText("personal@example.com")).toHaveLength(1);
-    expect(slot.getByText("46%")).toBeTruthy();
-    expect(slot.getByText("2d 3h")).toBeTruthy();
+    expect(slot.getByText("54% left")).toBeTruthy();
     expect(
       slot.getAllByRole("heading").map((heading) => heading.textContent),
     ).toEqual([
@@ -438,8 +437,8 @@ describe("provider usage footer disclosure", () => {
       "Claude Code",
       "claude-team@example.com",
     ]);
-    expect(slot.getByText("82%")).toBeTruthy();
-    expect(slot.getByText("97%")).toBeTruthy();
+    expect(slot.getByText("18% left")).toBeTruthy();
+    expect(slot.getByText("3% left")).toBeTruthy();
     expect(
       slot.getByRole("group", {
         name: "Weekly limit: 46% used. Reset time not reported",
@@ -448,6 +447,12 @@ describe("provider usage footer disclosure", () => {
     const pacedWindow = slot.getByRole("group", {
       name: /^Weekly limit: 82% used\. Resets .*\. Burning 0\.7%\/hr · runs out in 1d 1h$/u,
     });
+    expect(within(pacedWindow).getByText("0.7%/h")).toBeTruthy();
+    expect(within(pacedWindow).getByText("out 1d 1h")).toBeTruthy();
+    expect(within(pacedWindow).queryByText("2d 3h")).toBeNull();
+    expect(
+      within(pacedWindow).getByTestId("usage-projection").style.width,
+    ).toBe("100%");
     fireEvent.pointerMove(pacedWindow, { pointerType: "mouse" });
     await waitFor(() =>
       expect(
@@ -458,6 +463,8 @@ describe("provider usage footer disclosure", () => {
     const unpacedWindow = slot.getByRole("group", {
       name: "Weekly limit: 46% used. Reset time not reported",
     });
+    expect(within(unpacedWindow).getAllByText("—")).toHaveLength(2);
+    expect(within(unpacedWindow).queryByTestId("usage-projection")).toBeNull();
     fireEvent.keyDown(document, { key: "Tab" });
     fireEvent.focus(unpacedWindow);
     await waitFor(() =>
@@ -600,7 +607,7 @@ it.each([
     expect(slot.getByText(expected, { exact: false })).toBeTruthy(),
   );
   if (state === "source-error") {
-    expect(slot.getByText("42%")).toBeTruthy();
+    expect(slot.getByText("58% left")).toBeTruthy();
     expect(slot.queryByText("private backend error")).toBeNull();
     expect(
       slot.queryByRole("button", { name: "Retry usage refresh" }),

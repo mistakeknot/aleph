@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { describeUsageBurn, usageBurnRate } from "./usage-format.js";
+import {
+  describeUsageBurn,
+  formatUsageBurnRate,
+  usageBurnRate,
+  usageProjectedPercent,
+} from "./usage-format.js";
 
 const HOUR = 60 * 60_000;
 const NOW = Date.UTC(2026, 8, 27, 12);
@@ -88,5 +93,48 @@ describe("describeUsageBurn", () => {
     expect(describeUsageBurn({ percentPerHour: 26, runsOutInMs: 0 })).toBe(
       "Burning 26%/hr · limit reached",
     );
+  });
+});
+
+describe("formatUsageBurnRate", () => {
+  it("keeps one decimal below ten and rounds above", () => {
+    expect(formatUsageBurnRate(0)).toBe("0");
+    expect(formatUsageBurnRate(0.04)).toBe("<0.1");
+    expect(formatUsageBurnRate(2.14)).toBe("2.1");
+    expect(formatUsageBurnRate(3)).toBe("3");
+    expect(formatUsageBurnRate(12.6)).toBe("13");
+  });
+});
+
+describe("usageProjectedPercent", () => {
+  it("extends the current burn to the reset, capped at the limit", () => {
+    expect(
+      usageProjectedPercent(
+        { usedPercent: 40, resetsAt: resetIn(2 * HOUR) },
+        { percentPerHour: 10, runsOutInMs: null },
+        NOW,
+      ),
+    ).toBe(60);
+    expect(
+      usageProjectedPercent(
+        { usedPercent: 80, resetsAt: resetIn(4 * HOUR) },
+        { percentPerHour: 20, runsOutInMs: HOUR },
+        NOW,
+      ),
+    ).toBe(100);
+  });
+
+  it("has no projection without a future reset", () => {
+    const burn = { percentPerHour: 5, runsOutInMs: null };
+    expect(
+      usageProjectedPercent({ usedPercent: 10, resetsAt: null }, burn, NOW),
+    ).toBeNull();
+    expect(
+      usageProjectedPercent(
+        { usedPercent: 10, resetsAt: resetIn(-HOUR) },
+        burn,
+        NOW,
+      ),
+    ).toBeNull();
   });
 });
