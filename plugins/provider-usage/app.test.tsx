@@ -86,6 +86,7 @@ describe("provider usage footer disclosure", () => {
         planLabel: "Pro",
         windows: [
           {
+            kind: "weekly",
             label: "Weekly limit",
             usedPercent: usedPercent,
             resetsAt:
@@ -274,29 +275,21 @@ describe("provider usage footer disclosure", () => {
 
     fireEvent.pointerDown(machinePicker, { button: 0 });
     fireEvent.click(slot.getByRole("menuitemradio", { name: "M4" }));
-    const claudeTab = slot.getByRole("tab", { name: "Claude Code" });
-    const codexTab = slot.getByRole("tab", { name: "Codex" });
+    expect(slot.queryAllByRole("tab")).toHaveLength(0);
+    const claudeSection = slot.getByRole("region", { name: "Claude Code" });
+    const codexSection = slot.getByRole("region", { name: "Codex" });
     expect(
-      slot
-        .getByRole("button", { name: "Usage machine: M4" })
-        .closest('[data-provider-usage-header=""]'),
-    ).toBe(claudeTab.closest('[data-provider-usage-header=""]'));
-    expect(
-      claudeTab.querySelector("[data-provider-logo*='claude-code']"),
+      claudeSection.querySelector("[data-provider-logo*='claude-code']"),
     ).not.toBeNull();
     expect(
-      codexTab.querySelector("[data-provider-logo*='/codex/']"),
+      codexSection.querySelector("[data-provider-logo*='/codex/']"),
     ).not.toBeNull();
     expect(slot.getByRole("heading", { name: "Claude Code" })).toBeTruthy();
     expect(slot.getByText("claude@example.com")).toBeTruthy();
     expect(slot.getByText("82%")).toBeTruthy();
-
-    fireEvent.click(codexTab);
     expect(slot.getByRole("heading", { name: "Codex" })).toBeTruthy();
     expect(slot.getByText("codex@example.com")).toBeTruthy();
     expect(slot.getByText("37%")).toBeTruthy();
-    fireEvent.keyDown(codexTab, { key: "ArrowLeft" });
-    expect(claudeTab.getAttribute("aria-selected")).toBe("true");
 
     fireEvent.pointerDown(
       slot.getByRole("button", { name: "Usage machine: M4" }),
@@ -359,13 +352,17 @@ describe("provider usage footer disclosure", () => {
     fireEvent.click(
       slot.getByRole("menuitemradio", { name: "Account Pooler" }),
     );
-    expect(slot.getAllByRole("tab")).toHaveLength(2);
-    const poolCodexTab = slot.getByRole("tab", { name: "Codex" });
+    const poolCodex = slot.getByRole("region", { name: "Codex" });
     expect(
-      poolCodexTab.querySelector("[data-provider-logo*='/codex/']"),
+      poolCodex.querySelector("[data-provider-logo*='/codex/']"),
     ).not.toBeNull();
     expect(
-      poolCodexTab.querySelector('[data-provider-usage-tone="warning"]'),
+      poolCodex.querySelector('[data-provider-usage-tone="warning"]'),
+    ).not.toBeNull();
+    expect(
+      slot
+        .getByRole("region", { name: "Claude Code" })
+        .querySelector('[data-provider-usage-tone="critical"]'),
     ).not.toBeNull();
     expect(slot.getAllByText("team@example.com")).toHaveLength(1);
     expect(slot.getAllByText("personal@example.com")).toHaveLength(1);
@@ -373,16 +370,29 @@ describe("provider usage footer disclosure", () => {
     expect(slot.getByText("2d 3h")).toBeTruthy();
     expect(
       slot.getAllByRole("heading").map((heading) => heading.textContent),
-    ).toEqual(["team@example.com", "personal@example.com"]);
-    const windowButton = slot.getByRole("button", {
-      name: "Weekly limit: 46% used. Reset time not reported",
-    });
-    fireEvent.click(windowButton);
-    expect(slot.getByText("Reset time not reported.")).toBeTruthy();
+    ).toEqual([
+      "Codex",
+      "team@example.com",
+      "personal@example.com",
+      "Claude Code",
+      "claude-team@example.com",
+    ]);
     expect(slot.getByText("82%")).toBeTruthy();
-    fireEvent.click(slot.getByRole("tab", { name: "Claude Code" }));
-    expect(slot.getByText("claude-team@example.com")).toBeTruthy();
-    expect(slot.queryByText("personal@example.com")).toBeNull();
+    expect(slot.getByText("97%")).toBeTruthy();
+    expect(
+      slot.getByRole("group", {
+        name: "Weekly limit: 46% used. Reset time not reported",
+      }),
+    ).toBeTruthy();
+    const pacedWindow = slot.getByRole("group", {
+      name: /^Weekly limit: 82% used\. Resets .*\. Burning 0\.7%\/hr · runs out in 1d 1h$/u,
+    });
+    fireEvent.pointerMove(pacedWindow, { pointerType: "mouse" });
+    await waitFor(() =>
+      expect(
+        slot.getAllByText("Burning 0.7%/hr · runs out in 1d 1h").length,
+      ).toBeGreaterThan(0),
+    );
     const diagnostics = vi
       .spyOn(console, "warn")
       .mockImplementation(() => undefined);
