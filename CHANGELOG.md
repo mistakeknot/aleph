@@ -20,6 +20,19 @@
   match, recent picks outweigh older ones. A pick stops counting after 90
   days without being repeated, and is forgotten when its thread is deleted.
 
+### Provider usage
+
+- **The Provider usage card shows every provider at once.** Claude Code,
+  Codex and any other provider on the selected machine or account pool are
+  listed together, one section per provider with each account's limits,
+  instead of one provider tab at a time.
+- **Hover a limit to see its burn rate.** Hovering or focusing a usage bar
+  shows its reset time, cost and burn rate. The burn rate is the share of
+  the limit used per hour since the window last reset, with a projection of
+  whether it runs out before the reset. Quota APIs report percentages, not
+  token counts, so the rate is a percentage per hour. Clicking is no longer
+  needed.
+
 ## 0.43.4+aleph.3
 
 ### Desktop app
