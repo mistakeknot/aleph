@@ -231,6 +231,7 @@ export function AppSidebar({
             onDisclosureCommand={pluginSidebarFooter.handleCommand}
             onNavigate={closeOnMobile}
             hoverPreview={pluginSidebarFooter.hoverPreview}
+            previewDisclosureKey={pluginSidebarFooter.previewKey}
             builtInActions={[
               {
                 id: "settings",

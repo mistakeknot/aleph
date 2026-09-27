@@ -181,6 +181,7 @@ export function usePluginSidebarFooterDisclosure() {
   return {
     activeItem,
     activeKey: pinnedItem === null ? null : activeKey,
+    previewKey: pinnedItem === null && activeItem !== null ? previewKey : null,
     dismiss,
     handleCommand,
     hoverPreview,
@@ -254,6 +255,7 @@ export function PluginSidebarFooterItems({
   onNavigate,
   builtInActions = [],
   hoverPreview,
+  previewDisclosureKey = null,
 }: {
   activeDisclosureKey: string | null;
   onDisclosureCommand: (
@@ -264,6 +266,7 @@ export function PluginSidebarFooterItems({
   onNavigate?: () => void;
   builtInActions?: readonly BuiltinFooterAction[];
   hoverPreview?: FooterHoverPreview;
+  previewDisclosureKey?: string | null;
 }) {
   const navigate = useNavigate();
   const preferences = useSidebarFooterPreferences();
@@ -366,7 +369,8 @@ export function PluginSidebarFooterItems({
                       children: label,
                       hidden:
                         active ||
-                        (previewKey !== null && activeDisclosureKey === null),
+                        (previewKey !== null &&
+                          previewKey === previewDisclosureKey),
                       side: "top",
                     }}
                     className={cn(

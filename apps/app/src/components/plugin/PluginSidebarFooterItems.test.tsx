@@ -96,6 +96,7 @@ function FooterHarness() {
           activeDisclosureKey={disclosure.activeKey}
           onDisclosureCommand={disclosure.handleCommand}
           hoverPreview={disclosure.hoverPreview}
+          previewDisclosureKey={disclosure.previewKey}
         />
       </SidebarMenu>
     </>
@@ -484,6 +485,46 @@ describe("PluginSidebarFooterItems", () => {
         fireEvent.pointerOver(beta, { pointerType: "mouse" });
         advance(300);
         expect(screen.getByText("Beta content")).toBeDefined();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("shows a disclosure trigger's label tooltip on keyboard focus when nothing is pinned", async () => {
+      const { alpha } = setup();
+      act(() => {
+        fireEvent.keyDown(document.body, { key: "Tab" });
+        alpha.focus();
+      });
+      expect(
+        await screen.findByRole("tooltip", {}, { timeout: 500 }),
+      ).toBeDefined();
+    });
+
+    it("shows a disclosure trigger's label tooltip on focus while another disclosure is pinned", async () => {
+      const { alpha, beta } = setup();
+      fireEvent.click(beta);
+      act(() => {
+        alpha.focus();
+      });
+      expect(
+        await screen.findByRole("tooltip", {}, { timeout: 500 }),
+      ).toBeDefined();
+    });
+
+    it("hides a disclosure trigger's label tooltip while its own preview is showing", () => {
+      vi.useFakeTimers();
+      try {
+        const { alpha } = setup();
+        fireEvent.pointerOver(alpha, { pointerType: "mouse" });
+        advance(300);
+        expect(screen.getByText("Alpha content")).toBeDefined();
+        act(() => {
+          fireEvent.keyDown(document.body, { key: "Tab" });
+          alpha.focus();
+        });
+        advance(500);
+        expect(screen.queryByRole("tooltip")).toBeNull();
       } finally {
         vi.useRealTimers();
       }
