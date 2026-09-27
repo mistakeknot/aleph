@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+<defs>
+  <radialGradient id="ground" cx="50%" cy="46%" r="62%">
+    <stop offset="0" stop-color="#1c0b3d"/>
+    <stop offset="0.55" stop-color="#120629"/>
+    <stop offset="1" stop-color="#07030f"/>
+  </radialGradient>
+  <linearGradient id="edge" x1="300" y1="290" x2="730" y2="740" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#f29bce"/>
+    <stop offset="0.5" stop-color="#e9a3d2"/>
+    <stop offset="1" stop-color="#8ed5ee"/>
+  </linearGradient>
+  <radialGradient id="sphere" cx="0.42" cy="0.38" r="0.62">
+    <stop offset="0" stop-color="#ffffff"/>
+    <stop offset="0.35" stop-color="#ffe6f3"/>
+    <stop offset="0.75" stop-color="#f29bce"/>
+    <stop offset="1" stop-color="#b77be8"/>
+  </radialGradient>
+  <radialGradient id="halo">
+    <stop offset="0" stop-color="#ffd6ec" stop-opacity="0.85"/>
+    <stop offset="0.3" stop-color="#f29bce" stop-opacity="0.35"/>
+    <stop offset="1" stop-color="#8a4fd8" stop-opacity="0"/>
+  </radialGradient>
+  <clipPath id="sq"><rect x="100" y="100" width="824" height="824" rx="185"/></clipPath>
+  <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+    <feGaussianBlur stdDeviation="18"/>
+  </filter>
+  <filter id="softglow" x="-30%" y="-30%" width="160%" height="160%">
+    <feGaussianBlur stdDeviation="7"/>
+  </filter>
+  <filter id="shadow" x="-10%" y="-10%" width="120%" height="125%">
+    <feGaussianBlur in="SourceAlpha" stdDeviation="14"/>
+    <feOffset dy="12"/>
+    <feComponentTransfer><feFuncA type="linear" slope="0.45"/></feComponentTransfer>
+    <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+  </filter><linearGradient id="armg" x1="452" y1="446" x2="628" y2="290" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#f29bce"/><stop offset="1" stop-color="#e9a3d2"/></linearGradient>
+  <linearGradient id="legg" x1="572" y1="578" x2="396" y2="734" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#e9a3d2"/><stop offset="1" stop-color="#8ed5ee"/></linearGradient>
+  <linearGradient id="tine" x1="0" y1="1" x2="1" y2="0">
+    <stop offset="0" stop-color="#8a4fd8"/><stop offset="1" stop-color="#b77be8"/></linearGradient>
+</defs>
+<g filter="url(#shadow)">
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#ground)"/>
+</g>
+<g clip-path="url(#sq)">
+<g transform="translate(512 512) scale(1.14) translate(-512 -512)"><g fill="none" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)" opacity="0.4">
+    <path d="M 318 300 L 706 724" stroke="#ffd9ee" stroke-width="105.60000000000001"/>
+    <path d="M 452 446 L 558 446 Q 628 446 628 376 L 628 290" stroke="#f29bce" stroke-width="96"/>
+    <path d="M 572 578 L 466 578 Q 396 578 396 648 L 396 734" stroke="#8ed5ee" stroke-width="96"/>
+    
+  </g><g fill="none" stroke-linecap="round" stroke-linejoin="round" >
+    <path d="M 318 300 L 706 724" stroke="#ffd9ee" stroke-width="85.80000000000001"/>
+    <path d="M 452 446 L 558 446 Q 628 446 628 376 L 628 290" stroke="#f29bce" stroke-width="78"/>
+    <path d="M 572 578 L 466 578 Q 396 578 396 648 L 396 734" stroke="#8ed5ee" stroke-width="78"/>
+    
+  </g><circle cx="512" cy="512" r="193.60000000000002" fill="url(#halo)"/><defs><linearGradient id="b17sm" x1="0.15" y1="0.15" x2="0.85" y2="0.85"><stop offset="0" stop-color="#fff4fa"/><stop offset="0.35" stop-color="#f7c9e6"/><stop offset="0.65" stop-color="#b77be8"/><stop offset="1" stop-color="#5b2bc4"/></linearGradient></defs><circle cx="512" cy="512" r="46" fill="url(#b17sm)" stroke="#fff4fa" stroke-opacity="0.9" stroke-width="7"/></g>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="none" stroke="#b77be8" stroke-opacity="0.22" stroke-width="3"/>
+</g>
+</svg>
