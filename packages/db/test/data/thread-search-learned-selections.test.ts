@@ -180,4 +180,28 @@ describe("thread search learned selections", () => {
     expect(learnedIds(db, "af")).toEqual([]);
     expect(learnedIds(db, "fresh")).toEqual([fresh.id]);
   });
+
+  it("ignores picks older than the retention window even when nothing has pruned them", () => {
+    const { db: setupDb, makeThread } = setup();
+    db = setupDb;
+    const idle = makeThread();
+    const recent = makeThread();
+    const now = Date.now();
+    vi.setSystemTime(now - 91 * 24 * 60 * 60 * 1000);
+    pick(db, "af", idle.id);
+    vi.setSystemTime(now - 89 * 24 * 60 * 60 * 1000);
+    pick(db, "re", recent.id);
+    // No later write, so the write-time prune never ran.
+    vi.setSystemTime(now);
+
+    expect(
+      db.$client
+        .prepare(
+          "SELECT count(*) AS n FROM thread_search_learned_selections WHERE thread_id = ?",
+        )
+        .get(idle.id),
+    ).toEqual({ n: 1 });
+    expect(learnedIds(db, "af")).toEqual([]);
+    expect(learnedIds(db, "re")).toEqual([recent.id]);
+  });
 });

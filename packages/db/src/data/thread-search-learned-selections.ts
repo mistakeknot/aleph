@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, lt, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull, lt, sql } from "drizzle-orm";
 import type { DbConnection, DbQueryConnection } from "../connection.js";
 import { threadSearchLearnedSelections, threads } from "../schema.js";
 import { likePrefixPattern } from "./sql-like.js";
@@ -120,7 +120,7 @@ export interface LearnedThreadMatch {
  * Lists the threads associated with a typed prefix, strongest first. Only
  * picks made at least `LEARNED_SELECTION_MIN_COUNT` times count, and deleted
  * or hidden threads are skipped so the next-best live thread can take the
- * boost. The search ranker floats only the first of these that also matches
+ * boost, as are picks not reinforced within the retention window. The search ranker floats only the first of these that also matches
  * the query — the feature is "float the one thread I always pick here to the
  * top," not a re-ranked shortlist.
  */
@@ -140,6 +140,12 @@ export function listLearnedThreadMatches(
       and(
         sql`${threadSearchLearnedSelections.queryText} LIKE ${likePrefixPattern(args.queryPrefix)} ESCAPE '\\'`,
         sql`${threadSearchLearnedSelections.selectionCount} >= ${LEARNED_SELECTION_MIN_COUNT}`,
+        // The write-time prune never runs on an install that stops picking,
+        // so reads enforce the retention window too.
+        gte(
+          threadSearchLearnedSelections.lastSelectedAt,
+          args.now - LEARNED_SELECTION_RETENTION_MS,
+        ),
         isNull(threads.deletedAt),
         eq(threads.visibility, "visible"),
       ),

@@ -1,4 +1,4 @@
-import { markThreadDeleted } from "@bb/db";
+import { markThreadDeleted, pinThread } from "@bb/db";
 import {
   apiErrorSchema,
   recordThreadSearchSelectionResponseSchema,
@@ -51,6 +51,11 @@ describe("public thread search learned selections", () => {
         title: "learnroute alpha",
         titleFallback: "learnroute alpha",
       });
+      // Pinning the other title match makes it lead until the learned pick
+      // takes over, so the order before learning is deterministic.
+      pinThread(harness.deps.db, harness.deps.hub, {
+        threadId: otherThread.id,
+      });
 
       // A single pick is below the learning threshold and must not reorder.
       const firstRecord = await recordSelection(
@@ -65,16 +70,19 @@ describe("public thread search learned selections", () => {
         ),
       ).toEqual({ ok: true });
       const beforeLearning = await searchActiveThreadIds(harness, "learnro");
-      expect(beforeLearning).toEqual(
-        expect.arrayContaining([learnedThread.id, otherThread.id]),
-      );
+      expect(beforeLearning.slice(0, 2)).toEqual([
+        otherThread.id,
+        learnedThread.id,
+      ]);
 
       expect(
         (await recordSelection(harness, "learnroute", learnedThread.id)).status,
       ).toBe(200);
       const afterLearning = await searchActiveThreadIds(harness, "learnro");
-      expect(afterLearning[0]).toBe(learnedThread.id);
-      expect(afterLearning).toContain(otherThread.id);
+      expect(afterLearning.slice(0, 2)).toEqual([
+        learnedThread.id,
+        otherThread.id,
+      ]);
     });
   });
 

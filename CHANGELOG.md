@@ -16,8 +16,9 @@
   thread for a query at least twice, typing that query, or the start of it,
   puts that thread at the top of its search results. Picks are stored on the
   server, so they follow you across browsers and devices, and they also
-  shape thread search from the CLI and API. Picks fade over about two weeks
-  and are forgotten after 90 days without use or when the thread is deleted.
+  shape thread search from the CLI and API. When several learned threads
+  match, recent picks outweigh older ones. A pick stops counting after 90
+  days without being repeated, and is forgotten when its thread is deleted.
 
 ## 0.43.4+aleph.3
 
