@@ -2,34 +2,34 @@
 artifact_type: card
 card_version: 1
 project: aleph
-status: provisional
-confirmed_by: null
-confirmed_at: null
+status: confirmed
+confirmed_by: mk
+confirmed_at: "2026-09-27T10:39:01Z"
 line: "Coordinators burn usage waking for nothing"
 fields:
   persona:
-    state: drafted
+    state: confirmed
     value: "Long-lived coordinator agent running a multi-day bb project across providers and accounts"
     evidence:
       - { path: "docs/aleph-personas.md:12", scope: project }
   pain:
-    state: drafted
+    state: confirmed
     value: "Coordinator sessions lose usage to wake storms, stuck waits, unbounded reviews, and jobs dying on an exhausted account instead of buying project progress"
     evidence:
       - { path: "MISSION.md:5", scope: project }
   cuj:
-    state: drafted
+    state: confirmed
     ref: null
     path: "docs/cujs/aleph-01-multi-day-coordinator.md"
     evidence:
       - { path: "docs/cujs/aleph-01-multi-day-coordinator.md:1", scope: journey }
   success:
-    state: drafted
+    state: confirmed
     value: "Coordinator wakes per completed child fall to about one (aspirational target; the repo notes the baseline is not yet measured)"
     evidence:
       - { path: "docs/aleph-vision.md:160", scope: project }
   guardrail:
-    state: drafted
+    state: confirmed
     value: "Usage per accepted outcome goes down release over release, and quality does not"
     evidence:
       - { path: "docs/aleph-vision.md:165", scope: project }
