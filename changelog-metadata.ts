@@ -5,8 +5,8 @@ type ReleaseMeta = {
 
 export const RELEASE_META: Record<string, ReleaseMeta> = {
   "0.43.4+aleph.4": {
-    date: "September 26, 2026",
-    headline: "Aleph: Cmd+K thread search works as a quick switcher",
+    date: "September 27, 2026",
+    headline: "Aleph: Cmd+K quick switcher and every provider's usage at once",
   },
   "0.43.4+aleph.3": {
     date: "September 25, 2026",
