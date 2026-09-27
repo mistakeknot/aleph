@@ -16,7 +16,9 @@
   thread for a query at least twice, typing that query, or the start of it,
   puts that thread at the top of its search results. Picks are stored on the
   server, so they follow you across browsers and devices, and they also
-  shape thread search from the CLI and API. When several learned threads
+  shape thread search from the CLI and API. The newest habit wins: picking a
+  different thread for the same query halves the old pick's weight, so a new
+  habit takes over within a couple of picks. When several learned threads
   match, recent picks outweigh older ones. A pick stops counting after 90
   days without being repeated, and is forgotten when its thread is deleted.
 

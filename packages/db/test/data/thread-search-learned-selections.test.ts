@@ -107,7 +107,9 @@ describe("thread search learned selections", () => {
     const thread = makeThread();
     pick(db, "af", thread.id, 3);
     const other = makeThread();
-    pick(db, "af", other.id, 2);
+    // A different stored query sharing the typed prefix, so the newest-habit
+    // demotion (exact query only) doesn't apply.
+    pick(db, "afternoon", other.id, 2);
 
     // Three selections beat two made at the same instant.
     expect(learnedIds(db, "af")).toEqual([thread.id, other.id]);
@@ -124,7 +126,7 @@ describe("thread search learned selections", () => {
     const frequent = makeThread();
     const now = Date.now();
     vi.setSystemTime(now - 60 * 24 * 60 * 60 * 1000); // 60 days ago
-    pick(db, "af", frequent.id, 5);
+    pick(db, "afternoon", frequent.id, 5);
     vi.setSystemTime(now);
     const recent = makeThread();
     pick(db, "af", recent.id, 2);
@@ -179,6 +181,62 @@ describe("thread search learned selections", () => {
 
     expect(learnedIds(db, "af")).toEqual([]);
     expect(learnedIds(db, "fresh")).toEqual([fresh.id]);
+  });
+
+  it("lets a new habit overtake a strong old one for the same query within two picks", () => {
+    const { db: setupDb, makeThread } = setup();
+    db = setupDb;
+    const oldHabit = makeThread();
+    const newHabit = makeThread();
+    const now = Date.now();
+    vi.setSystemTime(now - 7 * 24 * 60 * 60 * 1000);
+    pick(db, "bbdev", oldHabit.id, 10);
+    vi.setSystemTime(now);
+
+    pick(db, "bbdev", newHabit.id, 1);
+    expect(learnedIds(db, "bbdev")).toEqual([oldHabit.id]);
+
+    pick(db, "bbdev", newHabit.id, 1);
+    expect(learnedIds(db, "bbdev")[0]).toBe(newHabit.id);
+  });
+
+  it("only demotes other threads' picks for the exact same query", () => {
+    const { db: setupDb, makeThread } = setup();
+    db = setupDb;
+    const first = makeThread();
+    const second = makeThread();
+    pick(db, "bbdev", first.id, 4);
+    pick(db, "bbdevops", first.id, 4);
+
+    pick(db, "bbdev", second.id, 1);
+
+    const counts = db.$client
+      .prepare(
+        "SELECT query_text AS query, selection_count AS n FROM thread_search_learned_selections WHERE thread_id = ? ORDER BY query_text",
+      )
+      .all(first.id);
+    expect(counts).toEqual([
+      { query: "bbdev", n: 2 },
+      { query: "bbdevops", n: 4 },
+    ]);
+  });
+
+  it("drops a competing pick once its count reaches zero", () => {
+    const { db: setupDb, makeThread } = setup();
+    db = setupDb;
+    const oneOff = makeThread();
+    const chosen = makeThread();
+    pick(db, "bbdev", oneOff.id, 1);
+
+    pick(db, "bbdev", chosen.id, 1);
+
+    expect(
+      db.$client
+        .prepare(
+          "SELECT count(*) AS n FROM thread_search_learned_selections WHERE thread_id = ?",
+        )
+        .get(oneOff.id),
+    ).toEqual({ n: 0 });
   });
 
   it("ignores picks older than the retention window even when nothing has pruned them", () => {

@@ -1,4 +1,4 @@
-import { and, eq, gte, inArray, isNull, lt, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull, lt, lte, ne, sql } from "drizzle-orm";
 import type { DbConnection, DbQueryConnection } from "../connection.js";
 import { threadSearchLearnedSelections, threads } from "../schema.js";
 import { likePrefixPattern } from "./sql-like.js";
@@ -45,6 +45,12 @@ export function normalizeThreadSearchLearnedQuery(query: string): string {
  * selections for the same (query, thread) pair increment a counter rather
  * than creating new rows, so the table stays small and `score` below can
  * weigh frequency and recency together.
+ *
+ * The newest habit wins: picking a thread halves every other thread's count
+ * for the exact same query, so a changed habit takes over within a couple of
+ * picks instead of having to out-pick the old one. Pairs that reach zero are
+ * dropped. A query that keeps alternating between threads never builds a
+ * count of `LEARNED_SELECTION_MIN_COUNT` and so boosts nothing.
  */
 export function recordThreadSearchSelection(
   db: DbConnection,
@@ -70,6 +76,24 @@ export function recordThreadSearchSelection(
           lastSelectedAt: now,
         },
       })
+      .run();
+    const competingPicks = and(
+      eq(threadSearchLearnedSelections.queryText, args.query),
+      ne(threadSearchLearnedSelections.threadId, args.threadId),
+    );
+    tx.update(threadSearchLearnedSelections)
+      .set({
+        selectionCount: sql`${threadSearchLearnedSelections.selectionCount} / 2`,
+      })
+      .where(competingPicks)
+      .run();
+    tx.delete(threadSearchLearnedSelections)
+      .where(
+        and(
+          competingPicks,
+          lte(threadSearchLearnedSelections.selectionCount, 0),
+        ),
+      )
       .run();
     evictExcessLearnedSelections(tx, now);
   });
