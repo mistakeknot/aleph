@@ -393,6 +393,32 @@ describe("provider usage footer disclosure", () => {
         slot.getAllByText("Burning 0.7%/hr · runs out in 1d 1h").length,
       ).toBeGreaterThan(0),
     );
+    fireEvent.pointerLeave(pacedWindow, { pointerType: "mouse" });
+    const unpacedWindow = slot.getByRole("group", {
+      name: "Weekly limit: 46% used. Reset time not reported",
+    });
+    fireEvent.keyDown(document, { key: "Tab" });
+    fireEvent.focus(unpacedWindow);
+    await waitFor(() =>
+      expect(unpacedWindow.getAttribute("data-state")).not.toBe("closed"),
+    );
+    expect(
+      slot.getAllByText("46% used · Reset time not reported").length,
+    ).toBeGreaterThan(0);
+    fireEvent.blur(unpacedWindow);
+    await waitFor(() =>
+      expect(unpacedWindow.getAttribute("data-state")).toBe("closed"),
+    );
+    fireEvent.pointerDown(unpacedWindow, { pointerType: "touch" });
+    fireEvent.click(unpacedWindow);
+    await waitFor(() =>
+      expect(unpacedWindow.getAttribute("data-state")).not.toBe("closed"),
+    );
+    fireEvent.pointerDown(unpacedWindow, { pointerType: "touch" });
+    fireEvent.click(unpacedWindow);
+    await waitFor(() =>
+      expect(unpacedWindow.getAttribute("data-state")).toBe("closed"),
+    );
     const diagnostics = vi
       .spyOn(console, "warn")
       .mockImplementation(() => undefined);

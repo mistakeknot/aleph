@@ -93,7 +93,9 @@ export function usageBurnRate(
 export function describeUsageBurn(burn: UsageBurn): string {
   if (burn.percentPerHour <= 0) return "No usage yet this window";
   const rate =
-    burn.percentPerHour < 10
+    burn.percentPerHour < 0.05
+      ? "<0.1"
+      : burn.percentPerHour < 10
       ? String(Number(burn.percentPerHour.toFixed(1)))
       : String(Math.round(burn.percentPerHour));
   const outlook =

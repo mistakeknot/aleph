@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
 } from "react";
@@ -185,13 +186,27 @@ function UsageWindow({
       : formatUsdCents(window.cost.usedUsdCents, true) +
         " / " +
         formatUsdCents(window.cost.limitUsdCents, false);
+  const [open, setOpen] = useState(false);
+  const openAtPointerDown = useRef<boolean | null>(null);
   const label = window.label
     .replace(/^Five-hour limit$|^5 hours$/u, "5h")
     .replace(/^Weekly limit$|^Weekly/u, "7d")
     .replace(/^Daily limit$/u, "1d");
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
+    <Tooltip open={open} onOpenChange={setOpen}>
+      <TooltipTrigger
+        asChild
+        onPointerDown={(event) => {
+          openAtPointerDown.current = open;
+          event.preventDefault();
+        }}
+        onClick={(event) => {
+          event.preventDefault();
+          const wasOpen = openAtPointerDown.current ?? open;
+          openAtPointerDown.current = null;
+          setOpen(!wasOpen);
+        }}
+      >
         <div
           tabIndex={0}
           role="group"
