@@ -2,6 +2,7 @@
 
 # dependencies
 node_modules
+apps/desktop/scripts/.icon-tools/
 /.pnp
 .pnp.*
 .yarn/*

@@ -12,7 +12,7 @@ const TOOLS_DIR = path.join(SCRIPT_DIR, ".icon-tools");
 function installToolsOneOff() {
   fs.mkdirSync(TOOLS_DIR, { recursive: true });
   fs.writeFileSync(path.join(TOOLS_DIR, "package.json"), JSON.stringify({ name: "icon-tools", private: true }));
-  execFileSync("npm", ["install", "--no-save", "--no-audit", "--no-fund", "sharp", "@resvg/resvg-wasm"], {
+  execFileSync("npm", ["install", "--no-save", "--no-audit", "--no-fund", "sharp@0.34.5", "@resvg/resvg-wasm@2.6.2"], {
     cwd: TOOLS_DIR,
     stdio: "inherit",
   });
@@ -70,7 +70,7 @@ function buildIcns(slots) {
 
 const ICNS_SLOTS = [
   { type: "icp4", size: 16, source: "small", label: "16" },
-  { type: "ic11", size: 32, source: "master", label: "16@2x" },
+  { type: "ic11", size: 32, source: "small", label: "16@2x" },
   { type: "icp5", size: 32, source: "small", label: "32" },
   { type: "ic12", size: 64, source: "master", label: "32@2x" },
   { type: "ic07", size: 128, source: "master", label: "128" },
