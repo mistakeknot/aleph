@@ -9,10 +9,7 @@ import {
 import { useCallback, useMemo } from "react";
 import { COMPACT_VIEWPORT_QUERY } from "@bb/shared-ui/hooks/use-compact-viewport";
 import { getMediaQuerySnapshot } from "@bb/shared-ui/hooks/use-media-query";
-import type {
-  PendingInteraction,
-  ThreadListEntry,
-} from "@bb/domain";
+import type { PendingInteraction, ThreadListEntry } from "@bb/domain";
 import type {
   PromptHistoryResponse,
   ThreadQueuedMessageListResponse,
@@ -20,6 +17,7 @@ import type {
   ThreadPendingInteractionsResponse,
   ThreadResponse,
   ThreadSearchResponse,
+  ThreadSearchLearnedBoostResponse,
   ThreadWithIncludesResponse,
   ThreadConversationOutlineResponse,
   ThreadStorageFileListResponse,
@@ -78,6 +76,7 @@ import {
   threadPromptHistoryQueryKey,
   threadQueryKey,
   threadSearchQueryKey,
+  threadSearchLearnedBoostQueryKey,
   threadStorageFilesQueryKey,
   threadStorageLocationQueryKey,
   threadStoragePathsQueryKey,
@@ -185,6 +184,15 @@ export interface UseThreadSearchResult {
   isError: boolean;
   isFetching: boolean;
   isLoading: boolean;
+}
+
+interface UseThreadSearchLearnedBoostArgs {
+  active: boolean;
+  query: string;
+}
+
+export interface UseThreadSearchLearnedBoostResult {
+  threadId: string | null;
 }
 
 interface BuildThreadSubsetListFiltersArgs {
@@ -654,6 +662,31 @@ export function useThreadSearch({
     isError: threadSearchQuery.isError,
     isFetching: threadSearchQuery.isFetching,
     isLoading: threadSearchQuery.isLoading,
+  };
+}
+
+export function useThreadSearchLearnedBoost({
+  active,
+  query,
+}: UseThreadSearchLearnedBoostArgs): UseThreadSearchLearnedBoostResult {
+  const debouncedRawQuery = useDebouncedValue(query, THREAD_SEARCH_DEBOUNCE_MS);
+  const trimmedQuery = query.trim();
+  const debouncedQuery = debouncedRawQuery.trim();
+  const enabled =
+    active &&
+    hasThreadSearchableQuery(trimmedQuery) &&
+    hasThreadSearchableQuery(debouncedQuery) &&
+    trimmedQuery === debouncedQuery;
+  const learnedBoostQuery = useQuery<ThreadSearchLearnedBoostResponse>({
+    queryKey: threadSearchLearnedBoostQueryKey({ query: debouncedQuery }),
+    queryFn: ({ signal }) =>
+      sdk.threads.searchLearnedBoost({ query: debouncedQuery, signal }),
+    enabled,
+    staleTime: THREAD_SEARCH_STALE_TIME_MS,
+  });
+
+  return {
+    threadId: learnedBoostQuery.data?.threadId ?? null,
   };
 }
 

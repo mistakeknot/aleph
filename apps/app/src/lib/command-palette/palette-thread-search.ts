@@ -1,7 +1,4 @@
-import {
-  PERSONAL_PROJECT_ID,
-  type ThreadListEntry,
-} from "@bb/domain";
+import { PERSONAL_PROJECT_ID, type ThreadListEntry } from "@bb/domain";
 import type {
   ThreadSearchMatch,
   ThreadSearchResponse,
@@ -28,6 +25,7 @@ export interface PaletteThreadSearchRow {
 }
 
 interface BuildPaletteThreadSearchRowsArgs {
+  learnedBoostThreadId: string | null;
   lifecycles: readonly ThreadArchiveFilter[];
   now: number;
   projectNamesById: ReadonlyMap<string, string>;
@@ -43,6 +41,23 @@ export interface PaletteThreadSearchRowsResult {
 }
 
 const RECENT_THREAD_LIMIT = 20;
+
+/**
+ * Stable partition that moves items matching `isPinned` ahead of the rest
+ * without disturbing relative order within either group.
+ */
+function pinnedFirstThenBy<T>(
+  items: readonly T[],
+  isPinned: (item: T) => boolean,
+): T[] {
+  return items
+    .map((item, index) => ({ item, index }))
+    .sort((a, b) => {
+      const delta = Number(isPinned(b.item)) - Number(isPinned(a.item));
+      return delta !== 0 ? delta : a.index - b.index;
+    })
+    .map(({ item }) => item);
+}
 
 function isTitleMatch(match: ThreadSearchMatch): boolean {
   return match.sourceKind === "title" || match.sourceKind === "title_fallback";
@@ -86,6 +101,7 @@ function serverRow(
 }
 
 export function buildPaletteThreadSearchRows({
+  learnedBoostThreadId,
   lifecycles,
   now,
   projectNamesById,
@@ -101,32 +117,57 @@ export function buildPaletteThreadSearchRows({
     isRecent,
     rows: normalizeThreadLifecycleFilter(lifecycles).flatMap((lifecycle) =>
       isRecent
-        ? recentThreads
-            .filter((thread) =>
-              lifecycle === "archived"
-                ? thread.archivedAt !== null
-                : thread.archivedAt === null,
-            )
-            .sort((left, right) =>
-              lifecycle === "archived"
-                ? (right.archivedAt ?? 0) - (left.archivedAt ?? 0)
-                : right.updatedAt - left.updatedAt,
-            )
-            .slice(0, RECENT_THREAD_LIMIT)
-            .map((thread) =>
-              serverRow(thread, [], lifecycle, projectNamesById, now),
-            )
+        ? pinnedFirstThenBy(
+            recentThreads
+              .filter((thread) =>
+                lifecycle === "archived"
+                  ? thread.archivedAt !== null
+                  : thread.archivedAt === null,
+              )
+              .sort((left, right) =>
+                lifecycle === "archived"
+                  ? (right.archivedAt ?? 0) - (left.archivedAt ?? 0)
+                  : right.updatedAt - left.updatedAt,
+              )
+              .slice(0, RECENT_THREAD_LIMIT),
+            (thread) => thread.pinnedAt !== null,
+          ).map((thread) =>
+            serverRow(thread, [], lifecycle, projectNamesById, now),
+          )
         : isSearchable && searchResultsAreCurrent
-          ? (searchResponse?.[lifecycle]?.results ?? []).map((result) =>
-              serverRow(
-                result.thread,
-                result.matches,
-                lifecycle,
-                projectNamesById,
-                now,
+          ? spliceLearnedBoostToFront(
+              (searchResponse?.[lifecycle]?.results ?? []).map((result) =>
+                serverRow(
+                  result.thread,
+                  result.matches,
+                  lifecycle,
+                  projectNamesById,
+                  now,
+                ),
               ),
+              learnedBoostThreadId,
             )
           : [],
     ),
   };
+}
+
+/**
+ * Floats the learned thread for this query prefix to the front of its
+ * lifecycle's results, if it's present among them. The learned boost never
+ * pulls in a thread that isn't already a match for the typed query — it only
+ * reorders.
+ */
+function spliceLearnedBoostToFront(
+  rows: PaletteThreadSearchRow[],
+  learnedBoostThreadId: string | null,
+): PaletteThreadSearchRow[] {
+  if (learnedBoostThreadId === null) return rows;
+  const boostedIndex = rows.findIndex(
+    (row) => row.threadId === learnedBoostThreadId,
+  );
+  if (boostedIndex <= 0) return rows;
+  const boosted = rows[boostedIndex]!;
+  const rest = rows.filter((_, index) => index !== boostedIndex);
+  return [boosted, ...rest];
 }

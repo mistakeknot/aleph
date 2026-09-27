@@ -989,7 +989,8 @@ function listThreadSearchMatchRows(
       SELECT
         s.thread_id AS threadId,
         ${tokenIndex} AS tokenIndex,
-        MIN(thread_search_segments_fts.rank) AS tokenRank
+        MIN(thread_search_segments_fts.rank) AS tokenRank,
+        MAX(CASE WHEN s.source_kind IN ('title', 'title_fallback') THEN 1 ELSE 0 END) AS tokenMatchedTitle
       FROM thread_search_segments_fts
       JOIN thread_search_segments AS s ON s.rowid = thread_search_segments_fts.rowid
       WHERE thread_search_segments_fts MATCH ${matchQuery}
@@ -1006,8 +1007,13 @@ function listThreadSearchMatchRows(
       SELECT
         token_matches.threadId AS threadId,
         MIN(token_matches.tokenRank) AS bestRank,
+        -- Every query token matched somewhere in the title (not just the
+        -- message body), so this thread ranks as a quick-switcher-style
+        -- name match rather than a plain content match.
+        MIN(token_matches.tokenMatchedTitle) AS titleMatch,
         MAX(t.updated_at) AS threadUpdatedAt,
-        MAX(t.archived_at IS NOT NULL) AS archived
+        MAX(t.archived_at IS NOT NULL) AS archived,
+        MAX(t.pinned_at IS NOT NULL) AS pinned
       FROM token_matches
       JOIN threads AS t ON t.id = token_matches.threadId
       WHERE t.deleted_at IS NULL
@@ -1021,7 +1027,7 @@ function listThreadSearchMatchRows(
         archived,
         ROW_NUMBER() OVER (
           PARTITION BY archived
-          ORDER BY bestRank ASC, threadUpdatedAt DESC, threadId DESC
+          ORDER BY pinned DESC, titleMatch DESC, bestRank ASC, threadUpdatedAt DESC, threadId DESC
         ) AS threadOrder,
         COUNT(*) OVER (PARTITION BY archived) AS total
       FROM ranked_threads

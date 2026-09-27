@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { Thread } from "@bb/domain";
 import type {
+  RecordThreadSearchSelectionRequest,
   ReorderPinnedThreadRequest,
   ThreadArchiveAllResponse,
   ThreadResponse,
@@ -406,6 +407,22 @@ export function useMarkThreadRead() {
     onSettled: (_data, _error, _input, transaction) => {
       settleThreadReadStateTransaction({ queryClient, transaction });
     },
+  });
+}
+
+/**
+ * Records that the user picked a thread after typing a search query, so the
+ * Cmd+K palette can learn to float it to the top for matching queries next
+ * time. Fire-and-forget: no thread list state changes, so there's nothing to
+ * optimistically update or roll back.
+ */
+export function useRecordThreadSearchSelection() {
+  return useMutation({
+    meta: {
+      showErrorToast: false,
+    },
+    mutationFn: ({ query, threadId }: RecordThreadSearchSelectionRequest) =>
+      sdk.threads.recordSearchSelection({ query, threadId }),
   });
 }
 

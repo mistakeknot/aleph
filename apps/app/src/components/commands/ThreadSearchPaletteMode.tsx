@@ -39,7 +39,9 @@ import { usePaletteRecentArchivedThreads } from "@/hooks/queries/palette-thread-
 import {
   hasThreadSearchableQuery,
   useThreadSearch,
+  useThreadSearchLearnedBoost,
 } from "@/hooks/queries/thread-queries";
+import { useRecordThreadSearchSelection } from "@/hooks/mutations/thread-state-mutations";
 import { useRouteNavigate } from "@/components/ui/app-route-anchor";
 import {
   NO_THREADS_MESSAGE,
@@ -94,7 +96,9 @@ export function ThreadSearchPaletteMode({
   const [query, setQuery] = useState("");
   const [highlightedIndex, setHighlightedIndex] = useState(0);
   const [highlightedKey, setHighlightedKey] = useState<string | null>(null);
-  const [expandedGroups, setExpandedGroups] = useState<ThreadArchiveFilter[]>([]);
+  const [expandedGroups, setExpandedGroups] = useState<ThreadArchiveFilter[]>(
+    [],
+  );
   const filterKey = lifecycles.join(",");
   const [previousFilterKey, setPreviousFilterKey] = useState(filterKey);
   if (previousFilterKey !== filterKey) {
@@ -105,6 +109,11 @@ export function ThreadSearchPaletteMode({
   const navigation = useSidebarNavigation();
   const threadSearch = useThreadSearch({ active: true, query });
   const trimmedQuery = query.trim();
+  const learnedBoost = useThreadSearchLearnedBoost({
+    active: true,
+    query,
+  });
+  const recordSelection = useRecordThreadSearchSelection();
   const archived = usePaletteRecentArchivedThreads({
     enabled: trimmedQuery.length === 0 && lifecycles.includes("archived"),
   });
@@ -135,6 +144,7 @@ export function ThreadSearchPaletteMode({
   const result = useMemo(
     () =>
       buildPaletteThreadSearchRows({
+        learnedBoostThreadId: learnedBoost.threadId,
         lifecycles,
         now,
         projectNamesById,
@@ -144,6 +154,7 @@ export function ThreadSearchPaletteMode({
         searchResultsAreCurrent,
       }),
     [
+      learnedBoost.threadId,
       lifecycles,
       now,
       projectNamesById,
@@ -242,6 +253,9 @@ export function ThreadSearchPaletteMode({
         inputRef.current?.focus();
         return;
       }
+      if (hasThreadSearchableQuery(trimmedQuery)) {
+        recordSelection.mutate({ query: trimmedQuery, threadId: row.threadId });
+      }
       runAfterClose(() => {
         const state =
           row.messageSeq === null
@@ -270,7 +284,7 @@ export function ThreadSearchPaletteMode({
         );
       });
     },
-    [isCompact, navigate, runAfterClose, store],
+    [isCompact, navigate, recordSelection, runAfterClose, store, trimmedQuery],
   );
 
   const handleInputKeyDown = useCallback(

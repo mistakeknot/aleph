@@ -4,6 +4,7 @@ import {
   THREAD_SEARCH_LIMIT_PER_GROUP_MAX,
   countNonDeletedAssignedChildThreads,
   countThreads,
+  findTopLearnedThreadMatch,
   getEnvironment,
   getHost,
   getThread,
@@ -12,6 +13,8 @@ import {
   listThreadsWithPendingInteractionState,
   markThreadDeleted,
   listLifecycleThreadTree,
+  normalizeThreadSearchLearnedQuery,
+  recordThreadSearchSelection,
   searchThreadsWithPendingInteractionState,
   updateThread,
   type ThreadSearchResultGroup as DbThreadSearchResultGroup,
@@ -30,6 +33,8 @@ import {
   type ThreadCountResponse,
   type ThreadRunningResponse,
   type ThreadSearchResponse,
+  type ThreadSearchLearnedBoostResponse,
+  type RecordThreadSearchSelectionResponse,
   type ThreadWithIncludesResponse,
   type PublicApiSchema,
   type ResolveThreadMentionsResponse,
@@ -318,6 +323,46 @@ export function registerThreadBaseRoutes(app: Hono, deps: AppDeps): void {
         }),
       }) satisfies ThreadSearchResponse,
     );
+  });
+
+  get(routes.searchLearnedBoost, (context, query) => {
+    const searchQuery = query.query.trim();
+    if (countNonWhitespaceChars(searchQuery) < 2) {
+      throw new ApiError(
+        400,
+        "invalid_request",
+        "query must contain at least two non-whitespace characters",
+      );
+    }
+    const match = findTopLearnedThreadMatch(deps.db, {
+      queryPrefix: normalizeThreadSearchLearnedQuery(searchQuery),
+      now: Date.now(),
+    });
+    return context.json({
+      threadId: match?.threadId ?? null,
+    } satisfies ThreadSearchLearnedBoostResponse);
+  });
+
+  post(routes.recordSearchSelection, (context, payload) => {
+    const searchQuery = payload.query.trim();
+    if (countNonWhitespaceChars(searchQuery) < 2) {
+      throw new ApiError(
+        400,
+        "invalid_request",
+        "query must contain at least two non-whitespace characters",
+      );
+    }
+    const thread = getThread(deps.db, payload.threadId);
+    if (!thread) {
+      throw new ApiError(404, "thread_not_found", "Thread not found");
+    }
+    recordThreadSearchSelection(deps.db, {
+      query: normalizeThreadSearchLearnedQuery(searchQuery),
+      threadId: thread.id,
+    });
+    return context.json({
+      ok: true,
+    } satisfies RecordThreadSearchSelectionResponse);
   });
 
   post(routes.resolveMentions, (context, payload) => {

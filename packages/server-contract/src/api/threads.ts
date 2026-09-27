@@ -481,6 +481,41 @@ export const threadSearchResponseSchema = z
   .strict();
 export type ThreadSearchResponse = z.infer<typeof threadSearchResponseSchema>;
 
+export const threadSearchLearnedBoostQuerySchema = z.object({
+  query: z.string().trim().min(2),
+});
+export type ThreadSearchLearnedBoostQuery = z.infer<
+  typeof threadSearchLearnedBoostQuerySchema
+>;
+
+export const threadSearchLearnedBoostResponseSchema = z
+  .object({
+    threadId: z.string().nullable(),
+  })
+  .strict();
+export type ThreadSearchLearnedBoostResponse = z.infer<
+  typeof threadSearchLearnedBoostResponseSchema
+>;
+
+export const recordThreadSearchSelectionRequestSchema = z
+  .object({
+    query: z.string().trim().min(2),
+    threadId: z.string().min(1),
+  })
+  .strict();
+export type RecordThreadSearchSelectionRequest = z.infer<
+  typeof recordThreadSearchSelectionRequestSchema
+>;
+
+export const recordThreadSearchSelectionResponseSchema = z
+  .object({
+    ok: z.literal(true),
+  })
+  .strict();
+export type RecordThreadSearchSelectionResponse = z.infer<
+  typeof recordThreadSearchSelectionResponseSchema
+>;
+
 export const threadResponseSchema = threadWithRuntimeSchema.extend({
   activeBackgroundAgentCount: z.number().int().nonnegative(),
   canSpawnChild: z.boolean(),

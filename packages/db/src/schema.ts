@@ -231,6 +231,24 @@ export const uiPreferences = sqliteTable("ui_preferences", {
   updatedAt: integer("updated_at").notNull(),
 });
 
+export const threadSearchLearnedSelections = sqliteTable(
+  "thread_search_learned_selections",
+  {
+    queryText: text("query_text").notNull(),
+    threadId: text("thread_id")
+      .notNull()
+      .references(() => threads.id, { onDelete: "cascade" }),
+    selectionCount: integer("selection_count").notNull().default(1),
+    lastSelectedAt: integer("last_selected_at").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.queryText, table.threadId] }),
+    index("thread_search_learned_selections_query_idx").on(table.queryText),
+    index("thread_search_learned_selections_thread_idx").on(table.threadId),
+  ],
+);
+
 export const appSettings = sqliteTable("app_settings", {
   id: text("id").primaryKey(),
   caffeinate: integer("caffeinate", { mode: "boolean" })

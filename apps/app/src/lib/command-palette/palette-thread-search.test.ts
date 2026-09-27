@@ -57,6 +57,7 @@ function build(
   overrides: Partial<Parameters<typeof buildPaletteThreadSearchRows>[0]> = {},
 ) {
   return buildPaletteThreadSearchRows({
+    learnedBoostThreadId: null,
     lifecycles: ["active"],
     now: NOW,
     projectNamesById: new Map([["project-1", "Palette project"]]),
@@ -90,12 +91,24 @@ describe("buildPaletteThreadSearchRows", () => {
   it("keeps saved-message threads in Active recents", () => {
     const saved = makeThread("saved", { status: "pending", updatedAt: NOW });
     const archived = makeThread("archived", { archivedAt: 1, updatedAt: 2 });
-    const active = Array.from({ length: 25 }, (_, index) => makeThread(`active-${index}`, { updatedAt: 1 }));
+    const active = Array.from({ length: 25 }, (_, index) =>
+      makeThread(`active-${index}`, { updatedAt: 1 }),
+    );
     const recentThreads = [...active, saved, archived];
-    const result = build({ query: "", recentThreads, lifecycles: ["active", "archived"] });
+    const result = build({
+      query: "",
+      recentThreads,
+      lifecycles: ["active", "archived"],
+    });
     expect(result.rows).toHaveLength(21);
-    expect(result.rows[0]).toMatchObject({ threadId: "saved", lifecycle: "active" });
-    expect(result.rows[20]).toMatchObject({ threadId: "archived", lifecycle: "archived" });
+    expect(result.rows[0]).toMatchObject({
+      threadId: "saved",
+      lifecycle: "active",
+    });
+    expect(result.rows[20]).toMatchObject({
+      threadId: "archived",
+      lifecycle: "archived",
+    });
   });
 
   it("keeps saved-message snippets in the owning thread result without inventing an event anchor", () => {
@@ -104,16 +117,30 @@ describe("buildPaletteThreadSearchRows", () => {
       searchResponse: {
         active: {
           total: 1,
-          results: [{
-            thread: makeThread("saved", { status: "pending" }),
-            matches: [{ sourceKind: "user_message", text: "matching saved message", highlightRanges: [{ start: 0, end: 5 }], sourceSeq: null }],
-          }],
+          results: [
+            {
+              thread: makeThread("saved", { status: "pending" }),
+              matches: [
+                {
+                  sourceKind: "user_message",
+                  text: "matching saved message",
+                  highlightRanges: [{ start: 0, end: 5 }],
+                  sourceSeq: null,
+                },
+              ],
+            },
+          ],
         },
         archived: { total: 0, results: [] },
       },
     });
     expect(result.rows).toHaveLength(1);
-    expect(result.rows[0]).toMatchObject({ threadId: "saved", lifecycle: "active", primaryText: "matching saved message", messageSeq: null });
+    expect(result.rows[0]).toMatchObject({
+      threadId: "saved",
+      lifecycle: "active",
+      primaryText: "matching saved message",
+      messageSeq: null,
+    });
   });
 
   it("preserves active and archived server matches in their ranked order", () => {
@@ -226,8 +253,8 @@ describe("buildPaletteThreadSearchRows", () => {
     });
     expect(result.rows.map((row) => row.projectName)).toEqual([null, null]);
   });
-  it("orders active recents by update time across projects without prioritizing pinned threads", () => {
-    const older = makeThread("older", { updatedAt: NOW - 100, pinnedAt: NOW });
+  it("orders active recents by update time across projects when nothing is pinned", () => {
+    const older = makeThread("older", { updatedAt: NOW - 100 });
     const newest = makeThread("newest", {
       projectId: "project-2",
       updatedAt: NOW,
@@ -240,6 +267,30 @@ describe("buildPaletteThreadSearchRows", () => {
     ).toEqual(["active:newest", "active:tied", "active:older"]);
   });
 
+  it("floats pinned recents to the top ahead of update-time ordering, preserving order within each tier", () => {
+    const older = makeThread("older", { updatedAt: NOW - 100, pinnedAt: NOW });
+    const newest = makeThread("newest", {
+      projectId: "project-2",
+      updatedAt: NOW,
+    });
+    const tied = makeThread("tied", { updatedAt: NOW });
+    const anotherPinned = makeThread("another-pinned", {
+      updatedAt: NOW - 50,
+      pinnedAt: NOW - 1,
+    });
+    expect(
+      build({
+        query: "",
+        recentThreads: [older, newest, tied, anotherPinned],
+      }).rows.map((row) => row.id),
+    ).toEqual([
+      "active:another-pinned",
+      "active:older",
+      "active:newest",
+      "active:tied",
+    ]);
+  });
+
   it("chooses the newest threads before applying the recent limit", () => {
     const recentThreads = Array.from({ length: 21 }, (_, index) =>
       makeThread(String(index), { updatedAt: NOW + index }),
@@ -249,5 +300,116 @@ describe("buildPaletteThreadSearchRows", () => {
     expect(rows[0]?.threadId).toBe("20");
     expect(rows.at(-1)?.threadId).toBe("1");
     expect(recentThreads[0]?.id).toBe("0");
+  });
+
+  it("does not pull an ancient pinned thread into the capped recent-thread window", () => {
+    const ancientPinned = makeThread("ancient-pinned", {
+      updatedAt: NOW - 10_000,
+      pinnedAt: NOW - 10_000,
+    });
+    const recentThreads = [
+      ancientPinned,
+      ...Array.from({ length: 20 }, (_, index) =>
+        makeThread(`recent-${index}`, { updatedAt: NOW + index }),
+      ),
+    ];
+    const rows = build({ query: "", recentThreads }).rows;
+    expect(rows).toHaveLength(20);
+    expect(rows.map((row) => row.threadId)).not.toContain("ancient-pinned");
+  });
+
+  it("does not apply the pinned boost to search results — the server already orders those", () => {
+    const pinned = makeThread("pinned", { pinnedAt: NOW });
+    const unpinned = makeThread("unpinned");
+    const result = build({
+      searchResponse: {
+        active: {
+          total: 2,
+          results: [
+            { thread: unpinned, matches: [] },
+            { thread: pinned, matches: [] },
+          ],
+        },
+        archived: { total: 0, results: [] },
+      },
+    });
+    expect(result.rows.map((row) => row.threadId)).toEqual([
+      "unpinned",
+      "pinned",
+    ]);
+  });
+
+  it("splices the learned-boost thread to the front of search results", () => {
+    const first = makeThread("first");
+    const learned = makeThread("learned");
+    const result = build({
+      learnedBoostThreadId: "learned",
+      searchResponse: {
+        active: {
+          total: 2,
+          results: [
+            { thread: first, matches: [] },
+            { thread: learned, matches: [] },
+          ],
+        },
+        archived: { total: 0, results: [] },
+      },
+    });
+    expect(result.rows.map((row) => row.threadId)).toEqual([
+      "learned",
+      "first",
+    ]);
+  });
+
+  it("leaves search results untouched when the learned-boost thread is already first", () => {
+    const learned = makeThread("learned");
+    const second = makeThread("second");
+    const result = build({
+      learnedBoostThreadId: "learned",
+      searchResponse: {
+        active: {
+          total: 2,
+          results: [
+            { thread: learned, matches: [] },
+            { thread: second, matches: [] },
+          ],
+        },
+        archived: { total: 0, results: [] },
+      },
+    });
+    expect(result.rows.map((row) => row.threadId)).toEqual([
+      "learned",
+      "second",
+    ]);
+  });
+
+  it("ignores a learned-boost thread absent from the search results", () => {
+    const first = makeThread("first");
+    const second = makeThread("second");
+    const result = build({
+      learnedBoostThreadId: "not-in-results",
+      searchResponse: {
+        active: {
+          total: 2,
+          results: [
+            { thread: first, matches: [] },
+            { thread: second, matches: [] },
+          ],
+        },
+        archived: { total: 0, results: [] },
+      },
+    });
+    expect(result.rows.map((row) => row.threadId)).toEqual(["first", "second"]);
+  });
+
+  it("never applies the learned boost to the empty-query recents branch", () => {
+    const older = makeThread("older", { updatedAt: NOW - 100 });
+    const newest = makeThread("newest", { updatedAt: NOW });
+    const result = build({
+      query: "",
+      learnedBoostThreadId: "older",
+      recentThreads: [older, newest],
+    });
+    expect(result.rows.map((row) => row.threadId)).toEqual(["newest", "older"]);
   });
 });

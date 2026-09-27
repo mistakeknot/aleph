@@ -376,6 +376,7 @@ function dropRewindAddedTables(db: DbConnection): void {
   db.$client.exec("DROP INDEX IF EXISTS `threads_origin_plugin_archived_idx`");
   db.$client.prepare("ALTER TABLE threads DROP COLUMN origin_plugin_id").run();
   dropProjectGitRemoteUrlColumn(db);
+  dropThreadSearchLearnedSelectionsTable(db);
 }
 
 function requirePublishedMigrationWhen(tag: string): number {
@@ -651,6 +652,7 @@ function resetMigrationsAfterThreadSearch(db: DbConnection): void {
   dropRewindAddedTables(db);
   dropProvisionalFenceColumns(db);
   dropIdempotentThreadOperationsTable(db);
+  dropThreadSearchLearnedSelectionsTable(db);
   db.$client
     .prepare<[number]>("DELETE FROM __drizzle_migrations WHERE created_at > ?")
     .run(threadSearchRowidFtsMigrationWhen);
@@ -813,6 +815,10 @@ function dropIdempotentThreadOperationsTable(db: DbConnection): void {
   db.$client.exec("DROP TABLE IF EXISTS idempotent_thread_operations");
 }
 
+function dropThreadSearchLearnedSelectionsTable(db: DbConnection): void {
+  db.$client.exec("DROP TABLE IF EXISTS thread_search_learned_selections");
+}
+
 function dropQueueReworkSchema(db: DbConnection): void {
   dropQueuedMessageAttemptColumns(db);
   rewindEnvironmentProvisioningMigration(db);
@@ -894,6 +900,7 @@ function rewindEnvironmentRowFactsMigration(db: DbConnection): void {
 function rewindMachineProvidersMigration(db: DbConnection): void {
   db.$client.exec("DROP TABLE IF EXISTS ui_preference_defaults");
   db.$client.exec("DROP TABLE IF EXISTS idempotent_thread_operations");
+  dropThreadSearchLearnedSelectionsTable(db);
   const queuedDispatchOrigin = db.$client
     .prepare<[], TableInfoRow>("PRAGMA table_info(queued_thread_messages)")
     .all();
@@ -2574,6 +2581,7 @@ describe("migrate", () => {
       dropQueueReworkSchema(db);
       dropProvisionalFenceColumns(db);
       dropIdempotentThreadOperationsTable(db);
+      dropThreadSearchLearnedSelectionsTable(db);
 
       restoreLegacyThreadOriginColumn(db);
       migrate(db);
@@ -2983,6 +2991,7 @@ describe("migrate", () => {
       dropQueueReworkSchema(db);
       dropProvisionalFenceColumns(db);
       dropIdempotentThreadOperationsTable(db);
+      dropThreadSearchLearnedSelectionsTable(db);
 
       restoreLegacyThreadOriginColumn(db);
       expect(
@@ -3089,6 +3098,7 @@ describe("migrate", () => {
       dropQueueReworkSchema(db);
       dropProvisionalFenceColumns(db);
       dropIdempotentThreadOperationsTable(db);
+      dropThreadSearchLearnedSelectionsTable(db);
 
       restoreLegacyThreadOriginColumn(db);
       expect(() => migrate(db)).not.toThrow();
@@ -3399,6 +3409,7 @@ describe("migrate", () => {
       dropQueueReworkSchema(db);
       dropProvisionalFenceColumns(db);
       dropIdempotentThreadOperationsTable(db);
+      dropThreadSearchLearnedSelectionsTable(db);
       migrate(db);
 
       expect(
@@ -5669,6 +5680,7 @@ describe("migrate", () => {
       dropQueueReworkSchema(db);
       dropProvisionalFenceColumns(db);
       dropIdempotentThreadOperationsTable(db);
+      dropThreadSearchLearnedSelectionsTable(db);
       db.$client
         .prepare<DeleteMigrationParameters>(
           "DELETE FROM __drizzle_migrations WHERE created_at >= ?",
@@ -5769,6 +5781,7 @@ describe("environment providers migration", () => {
     dropQueuedMessageAttemptColumns(db);
     dropProvisionalFenceColumns(db);
     dropIdempotentThreadOperationsTable(db);
+    dropThreadSearchLearnedSelectionsTable(db);
     db.$client
       .prepare<
         [number]
@@ -6188,6 +6201,7 @@ describe("environment and thread startup ownership migration", () => {
         dropQueuedMessageAttemptColumns(db);
         dropProvisionalFenceColumns(db);
         dropIdempotentThreadOperationsTable(db);
+        dropThreadSearchLearnedSelectionsTable(db);
         const legacySchema = readFileSync(
           resolve(
             dirname(fileURLToPath(import.meta.url)),

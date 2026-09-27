@@ -19,6 +19,7 @@ import {
   archiveThread,
   createThread,
   deleteThread,
+  pinThread,
   searchThreadsWithPendingInteractionState,
   updateThread,
   upsertThreadSearchSegments,
@@ -177,9 +178,9 @@ describe("thread search data", () => {
           query,
           limitPerGroup: 20,
         });
-        expect(results.active.results.map((result) => result.thread.id)).toEqual(
-          [thread.id],
-        );
+        expect(
+          results.active.results.map((result) => result.thread.id),
+        ).toEqual([thread.id]);
       }
 
       const secretResults = searchThreadsWithPendingInteractionState(db, {
@@ -271,9 +272,9 @@ describe("thread search data", () => {
         query: "livewriterneedle",
         limitPerGroup: 20,
       });
-      expect(activeResults.active.results.map((result) => result.thread.id)).toEqual(
-        [activeThread.id],
-      );
+      expect(
+        activeResults.active.results.map((result) => result.thread.id),
+      ).toEqual([activeThread.id]);
       expect(activeResults.archived.total).toBe(0);
 
       const assistantResults = searchThreadsWithPendingInteractionState(db, {
@@ -407,7 +408,93 @@ describe("thread search data", () => {
           .map((match) => match.sourceKind)
           .sort(),
       ).toEqual(["title", "title_fallback"]);
-      expect(matches.filter((match) => match.sourceSeq !== null)).toHaveLength(1);
+      expect(matches.filter((match) => match.sourceSeq !== null)).toHaveLength(
+        1,
+      );
+    } finally {
+      closeConnection(db);
+    }
+  });
+
+  it("ranks a pinned thread above an equally-matching unpinned one, newest first within each tier", () => {
+    const { db, project } = setup();
+    try {
+      const unpinned = createThread(db, noopNotifier, {
+        projectId: project.id,
+        providerId: "codex",
+        title: "pintierneedle unpinned",
+      });
+      const pinnedOlder = createThread(db, noopNotifier, {
+        projectId: project.id,
+        providerId: "codex",
+        title: "pintierneedle pinned older",
+      });
+      const pinnedNewer = createThread(db, noopNotifier, {
+        projectId: project.id,
+        providerId: "codex",
+        title: "pintierneedle pinned newer",
+      });
+      // Pin order here just needs to happen after creation, in this
+      // sequence; ordering below keys off `updated_at`, which each of these
+      // calls bumps to its own call time.
+      pinThread(db, noopNotifier, { threadId: pinnedOlder.id });
+      pinThread(db, noopNotifier, { threadId: pinnedNewer.id });
+
+      const results = searchThreadsWithPendingInteractionState(db, {
+        query: "pintierneedle",
+        limitPerGroup: 20,
+      });
+
+      // Both pinned threads come first, ordered newest-updated first between
+      // themselves; the unpinned thread trails despite matching equally well.
+      expect(results.active.results.map((result) => result.thread.id)).toEqual([
+        pinnedNewer.id,
+        pinnedOlder.id,
+        unpinned.id,
+      ]);
+    } finally {
+      closeConnection(db);
+    }
+  });
+
+  it("ranks a title match above a better-bm25-ranked content match, quick-switcher style", () => {
+    const { db, project } = setup();
+    try {
+      // The content match is a short, single-token segment, which bm25
+      // ranks better than the longer title below it — without an explicit
+      // title-match tier, this thread would incorrectly outrank the thread
+      // whose title actually contains the query.
+      const contentMatch = createThread(db, noopNotifier, {
+        projectId: project.id,
+        providerId: "codex",
+        title: "unrelated thread title",
+      });
+      upsertThreadSearchSegments(db, {
+        segments: [
+          {
+            threadId: contentMatch.id,
+            sourceKind: "user_message",
+            sourceKey: "event:1",
+            sourceSeq: 1,
+            text: "titletierneedle",
+          },
+        ],
+      });
+      const titleMatch = createThread(db, noopNotifier, {
+        projectId: project.id,
+        providerId: "codex",
+        title: "the titletierneedle channel thread, created for the team",
+      });
+
+      const results = searchThreadsWithPendingInteractionState(db, {
+        query: "titletierneedle",
+        limitPerGroup: 20,
+      });
+
+      expect(results.active.results.map((result) => result.thread.id)).toEqual([
+        titleMatch.id,
+        contentMatch.id,
+      ]);
     } finally {
       closeConnection(db);
     }
@@ -606,9 +693,10 @@ describe("thread search data", () => {
     const { db } = setup();
     try {
       const row = db.$client
-        .prepare<[], { sql: string }>(
-          "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'thread_search_segments_fts'",
-        )
+        .prepare<
+          [],
+          { sql: string }
+        >("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'thread_search_segments_fts'")
         .get();
       expect(row?.sql).toContain("prefix = '2 3'");
     } finally {
@@ -639,10 +727,9 @@ describe("thread search data", () => {
       expect(results.active.results.map((result) => result.thread.id)).toEqual([
         thread.id,
       ]);
-      expect(results.active.results[0]?.matches.map((match) => match.text)).toEqual([
-        "alpha split title",
-        "beta split message",
-      ]);
+      expect(
+        results.active.results[0]?.matches.map((match) => match.text),
+      ).toEqual(["alpha split title", "beta split message"]);
     } finally {
       closeConnection(db);
     }

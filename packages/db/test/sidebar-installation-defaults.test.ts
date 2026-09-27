@@ -93,6 +93,9 @@ describe.each(["project", "thread", "preference"] as const)(
             }
           }
           db.$client
+            .prepare("DROP TABLE IF EXISTS thread_search_learned_selections")
+            .run();
+          db.$client
             .prepare("DELETE FROM __drizzle_migrations WHERE created_at >= ?")
             .run(SIDEBAR_INSTALLATION_DEFAULTS_MIGRATION_TIMESTAMP);
           migrate(db);
