@@ -47,7 +47,7 @@ export function normalizeThreadSearchLearnedQuery(query: string): string {
  * weigh frequency and recency together.
  *
  * The newest habit wins: picking a thread halves every other thread's count
- * for the exact same query, so a changed habit takes over within a couple of
+ * for the exact same query, so a changed habit takes over within a few
  * picks instead of having to out-pick the old one. Pairs that reach zero are
  * dropped. A query that keeps alternating between threads never builds a
  * count of `LEARNED_SELECTION_MIN_COUNT` and so boosts nothing.

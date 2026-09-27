@@ -18,7 +18,7 @@
   server, so they follow you across browsers and devices, and they also
   shape thread search from the CLI and API. The newest habit wins: picking a
   different thread for the same query halves the old pick's weight, so a new
-  habit takes over within a couple of picks. When several learned threads
+  habit takes over within a few picks. When several learned threads
   match, recent picks outweigh older ones. A pick stops counting after 90
   days without being repeated, and is forgotten when its thread is deleted.
 

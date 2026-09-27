@@ -198,6 +198,14 @@ describe("thread search learned selections", () => {
 
     pick(db, "bbdev", newHabit.id, 1);
     expect(learnedIds(db, "bbdev")[0]).toBe(newHabit.id);
+    // The chosen thread's own count keeps climbing; only rivals are halved.
+    expect(
+      db.$client
+        .prepare(
+          "SELECT selection_count AS n FROM thread_search_learned_selections WHERE query_text = ? AND thread_id = ?",
+        )
+        .get("bbdev", newHabit.id),
+    ).toEqual({ n: 2 });
   });
 
   it("only demotes other threads' picks for the exact same query", () => {
