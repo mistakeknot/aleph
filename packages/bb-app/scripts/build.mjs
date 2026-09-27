@@ -1,4 +1,4 @@
-import { access } from "node:fs/promises";
+import { access, copyFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -28,12 +28,10 @@ async function copyBuildOutput({ from, label, to }) {
   await copyDirectory({ from, to });
 }
 
-async function buildPublicSdkDeclarations() {
-  await execFileAsync(
-    "node",
-    [resolve(scriptsDir, "build-public-sdk-dts.mjs")],
-    { cwd: packageRoot },
-  );
+async function copyPublicSdkDeclarations() {
+  const from = resolve(packageRoot, "sdk-dts", "index.d.ts");
+  await assertPathExists(from, "public SDK declarations (build:sdk-dts)");
+  await copyFile(from, resolve(packageRoot, "dist", "index.d.ts"));
 }
 
 const entrypoints = [
@@ -59,7 +57,7 @@ await buildNodeEsmEntry({
   outfile: resolve(packageRoot, "dist", "index.js"),
   packageRoot,
 });
-await buildPublicSdkDeclarations();
+await copyPublicSdkDeclarations();
 await buildNodeEsmEntry({
   cleanDist: false,
   entryPoint: resolve(scriptsDir, "prune-bb-chunks.mjs"),

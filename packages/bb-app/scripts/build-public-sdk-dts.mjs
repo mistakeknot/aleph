@@ -55,7 +55,7 @@ const build = await rollup({
   },
 });
 await build.write({
-  file: path.join(packageRoot, "dist/index.d.ts"),
+  file: path.join(packageRoot, "sdk-dts/index.d.ts"),
   format: "es",
 });
 await build.close();
