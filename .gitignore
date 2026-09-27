@@ -24,6 +24,7 @@ out
 /apps/app/build/
 /packages/bb-app/host-daemon/
 /packages/bb-app/host-package/
+/packages/bb-app/sdk-dts/
 /apps/desktop/release/
 /apps/desktop/.electron-builder.generated.json
 

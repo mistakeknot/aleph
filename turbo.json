@@ -185,8 +185,14 @@
       ],
       "outputs": ["dist/**"]
     },
+    "bb-app#build:sdk-dts": {
+      "dependsOn": ["topo"],
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/packages/tsconfig/*.json"],
+      "outputs": ["sdk-dts/**"]
+    },
     "bb-app#build": {
       "dependsOn": [
+        "bb-app#build:sdk-dts",
         "@bb/app#build",
         "@bb/server#build",
         "@bb/bundled-plugins#build",
