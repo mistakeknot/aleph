@@ -314,7 +314,7 @@ describe("PluginSidebarFooterItems", () => {
       expect(screen.queryByText("Provider usage content")).toBeNull();
       advance(200);
       expect(screen.getByText("Provider usage content")).toBeDefined();
-      expect(trigger.getAttribute("aria-expanded")).toBe("true");
+      expect(trigger.getAttribute("aria-expanded")).toBe("false");
 
       const panel = screen.getByTestId(
         "plugin-sidebar-footer-disclosure-usage-plugin-usage",
@@ -339,6 +339,172 @@ describe("PluginSidebarFooterItems", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  describe("hover preview focus", () => {
+    function PreviewAlpha() {
+      return <p>Alpha content</p>;
+    }
+    function PreviewBeta({ dismiss }: { dismiss(): void }) {
+      return (
+        <div>
+          <p>Beta content</p>
+          <button type="button" onClick={dismiss}>
+            Dismiss beta
+          </button>
+        </div>
+      );
+    }
+    function setup() {
+      setPluginSlotRegistrations(
+        "preview-plugin",
+        collectPluginAppRegistrations(
+          definePluginApp((app) => {
+            app.experimental_sidebarFooter.register({
+              kind: "disclosure",
+              id: "alpha",
+              label: "Alpha",
+              icon: "ChartColumn",
+              component: PreviewAlpha,
+            });
+            app.experimental_sidebarFooter.register({
+              kind: "disclosure",
+              id: "beta",
+              label: "Beta",
+              icon: "ChartColumn",
+              component: PreviewBeta,
+            });
+          }),
+        ),
+      );
+      renderWithProviders(
+        <>
+          <input aria-label="Composer" />
+          <FooterHarness />
+        </>,
+      );
+      return {
+        alpha: screen.getByRole("button", { name: "Alpha" }),
+        beta: screen.getByRole("button", { name: "Beta" }),
+        composer: screen.getByLabelText("Composer"),
+      };
+    }
+    const advance = (ms: number) => act(() => vi.advanceTimersByTime(ms));
+
+    it("keeps focus in the composer when a preview closes after an earlier pinned close", () => {
+      vi.useFakeTimers();
+      try {
+        const { alpha, composer } = setup();
+        fireEvent.click(alpha);
+        fireEvent.click(alpha);
+        expect(document.activeElement).toBe(alpha);
+        composer.focus();
+
+        fireEvent.pointerOver(alpha, { pointerType: "mouse" });
+        advance(300);
+        expect(screen.getByText("Alpha content")).toBeDefined();
+        expect(document.activeElement).toBe(composer);
+        fireEvent.pointerOut(alpha, { pointerType: "mouse" });
+        advance(400);
+        expect(screen.queryByText("Alpha content")).toBeNull();
+        expect(document.activeElement).toBe(composer);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("keeps focus in the composer when previewing a different disclosure after a pinned close", () => {
+      vi.useFakeTimers();
+      try {
+        const { alpha, beta, composer } = setup();
+        fireEvent.click(alpha);
+        fireEvent.click(alpha);
+        composer.focus();
+
+        fireEvent.pointerOver(beta, { pointerType: "mouse" });
+        advance(300);
+        expect(screen.getByText("Beta content")).toBeDefined();
+        fireEvent.pointerOut(beta, { pointerType: "mouse" });
+        advance(400);
+        expect(screen.queryByText("Beta content")).toBeNull();
+        expect(document.activeElement).toBe(composer);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("leaves Escape to the composer while a preview shows", () => {
+      vi.useFakeTimers();
+      try {
+        const { alpha, composer } = setup();
+        composer.focus();
+        fireEvent.pointerOver(alpha, { pointerType: "mouse" });
+        advance(300);
+
+        const notCancelled = fireEvent.keyDown(composer, { key: "Escape" });
+        expect(notCancelled).toBe(true);
+        expect(document.activeElement).toBe(composer);
+        expect(screen.getByText("Alpha content")).toBeDefined();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("does not move focus when a previewed plugin dismisses itself", () => {
+      vi.useFakeTimers();
+      try {
+        const { beta, composer } = setup();
+        composer.focus();
+        fireEvent.pointerOver(beta, { pointerType: "mouse" });
+        advance(300);
+
+        fireEvent.click(screen.getByRole("button", { name: "Dismiss beta" }));
+        expect(screen.queryByText("Beta content")).toBeNull();
+        expect(document.activeElement).toBe(composer);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("keeps a pinned disclosure and ignores hovers over other triggers", () => {
+      vi.useFakeTimers();
+      try {
+        const { alpha, beta } = setup();
+        fireEvent.click(alpha);
+        fireEvent.pointerOver(beta, { pointerType: "mouse" });
+        advance(1000);
+        expect(screen.getByText("Alpha content")).toBeDefined();
+        expect(screen.queryByText("Beta content")).toBeNull();
+        expect(beta.getAttribute("aria-expanded")).toBe("false");
+
+        fireEvent.click(alpha);
+        expect(screen.queryByText("Alpha content")).toBeNull();
+        expect(screen.queryByText("Beta content")).toBeNull();
+        fireEvent.pointerOut(beta, { pointerType: "mouse" });
+        fireEvent.pointerOver(beta, { pointerType: "mouse" });
+        advance(300);
+        expect(screen.getByText("Beta content")).toBeDefined();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("pins a previewed disclosure when its trigger is activated", () => {
+      vi.useFakeTimers();
+      try {
+        const { alpha } = setup();
+        fireEvent.pointerOver(alpha, { pointerType: "mouse" });
+        advance(300);
+        expect(alpha.getAttribute("aria-expanded")).toBe("false");
+        fireEvent.click(alpha);
+        expect(alpha.getAttribute("aria-expanded")).toBe("true");
+        fireEvent.pointerOut(alpha, { pointerType: "mouse" });
+        advance(1000);
+        expect(screen.getByText("Alpha content")).toBeDefined();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   it("keeps the tooltip closed when the More drawer returns focus after a touch dismissal", () => {

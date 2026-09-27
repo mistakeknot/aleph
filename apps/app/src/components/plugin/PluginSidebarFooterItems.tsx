@@ -82,6 +82,10 @@ export function usePluginSidebarFooterDisclosure() {
     () => disclosures.find((item) => footerItemKey(item) === shownKey) ?? null,
     [shownKey, disclosures],
   );
+  const pinnedItem = useMemo(
+    () => disclosures.find((item) => footerItemKey(item) === activeKey) ?? null,
+    [activeKey, disclosures],
+  );
 
   const clearPreviewTimer = useCallback(() => {
     if (previewTimer.current === null) return;
@@ -99,16 +103,21 @@ export function usePluginSidebarFooterDisclosure() {
       }, delay);
     };
     return {
-      onTriggerEnter: (itemKey) =>
+      onTriggerEnter: (itemKey) => {
+        if (activeKey !== null) {
+          clearPreviewTimer();
+          return;
+        }
         schedule(
           previewKey === null ? HOVER_PREVIEW_OPEN_DELAY_MS : 0,
           itemKey,
-        ),
+        );
+      },
       onTriggerLeave: () => schedule(HOVER_PREVIEW_CLOSE_DELAY_MS, null),
       onPanelEnter: clearPreviewTimer,
       onPanelLeave: () => schedule(HOVER_PREVIEW_CLOSE_DELAY_MS, null),
     };
-  }, [clearPreviewTimer, previewKey]);
+  }, [activeKey, clearPreviewTimer, previewKey]);
   const restoreFocusItem = useMemo(
     () =>
       disclosures.find((item) => footerItemKey(item) === restoreFocusKey) ??
@@ -142,24 +151,24 @@ export function usePluginSidebarFooterDisclosure() {
   );
 
   const dismiss = useCallback(() => {
-    if (activeItem !== null) {
-      setRestoreFocusKey(footerItemKey(activeItem));
+    if (pinnedItem !== null) {
+      setRestoreFocusKey(footerItemKey(pinnedItem));
     }
     clearPreviewTimer();
     setPreviewKey(null);
     setActiveKey(null);
-  }, [activeItem, clearPreviewTimer]);
+  }, [pinnedItem, clearPreviewTimer]);
 
   useLayoutEffect(() => {
-    if (restoreFocusItem === null || activeItem !== null) return;
+    if (restoreFocusItem === null || pinnedItem !== null) return;
     (
       document.getElementById(footerTriggerId(restoreFocusItem)) ??
       document.getElementById(SIDEBAR_FOOTER_MORE_ID)
     )?.focus({ preventScroll: true });
-  }, [activeItem, restoreFocusItem]);
+  }, [pinnedItem, restoreFocusItem]);
 
   useEffect(() => {
-    if (activeItem === null) return;
+    if (pinnedItem === null) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
@@ -167,11 +176,11 @@ export function usePluginSidebarFooterDisclosure() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [activeItem, dismiss]);
+  }, [pinnedItem, dismiss]);
 
   return {
     activeItem,
-    activeKey: activeItem === null ? null : shownKey,
+    activeKey: pinnedItem === null ? null : activeKey,
     dismiss,
     handleCommand,
     hoverPreview,
@@ -353,7 +362,13 @@ export function PluginSidebarFooterItems({
                     }
                     aria-label={label}
                     aria-keyshortcuts={builtin?.ariaKeyShortcuts}
-                    tooltip={{ children: label, hidden: active, side: "top" }}
+                    tooltip={{
+                      children: label,
+                      hidden:
+                        active ||
+                        (previewKey !== null && activeDisclosureKey === null),
+                      side: "top",
+                    }}
                     className={cn(
                       SIDEBAR_FOOTER_ACTION_CLASS,
                       active &&
