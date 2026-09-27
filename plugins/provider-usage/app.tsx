@@ -173,13 +173,22 @@ async function refreshMachineUsage({
   maxAgeMs: number;
   providerIds: readonly string[];
 }): Promise<void> {
-  for (const providerId of providerIds) {
-    await refreshUsage({
-      force,
-      machineIds: [machineId],
-      maxAgeMs,
-      providerId,
-    });
+  activeRefreshCount += 1;
+  updateStore({ ...storeSnapshot, isRefreshing: true });
+  try {
+    for (const providerId of providerIds) {
+      await refreshUsage({
+        force,
+        machineIds: [machineId],
+        maxAgeMs,
+        providerId,
+      });
+    }
+  } finally {
+    activeRefreshCount -= 1;
+    if (activeRefreshCount === 0 && storeSnapshot.isRefreshing) {
+      updateStore({ ...storeSnapshot, isRefreshing: false });
+    }
   }
 }
 
@@ -525,21 +534,31 @@ export function ProviderUsageStatusContent({
             ? emptyUsageMessage(activeMachine)
             : null;
   const activeMachineId = activeMachine?.id ?? null;
+  const activeMachineConnected = activeMachine?.status === "connected";
   const providerIdsKey = providers
     .map((provider) => provider.providerId)
     .join("\n");
 
   useEffect(() => {
     if (!refreshEnabled) return;
-    if (activeMachineId === null || providerIdsKey === "") return;
+    if (
+      activeMachineId === null ||
+      !activeMachineConnected ||
+      providerIdsKey === ""
+    )
+      return;
     const providerIds = providerIdsKey.split("\n");
+    let running = false;
     const refresh = () => {
-      if (document.visibilityState === "hidden") return;
+      if (running || document.visibilityState === "hidden") return;
+      running = true;
       void refreshMachineUsage({
         force: false,
         machineId: activeMachineId,
         maxAgeMs: CARD_MAX_AGE_MS,
         providerIds,
+      }).finally(() => {
+        running = false;
       });
     };
     refresh();
@@ -549,7 +568,7 @@ export function ProviderUsageStatusContent({
       window.clearInterval(timer);
       window.removeEventListener("focus", refresh);
     };
-  }, [activeMachineId, providerIdsKey, refreshEnabled]);
+  }, [activeMachineConnected, activeMachineId, providerIdsKey, refreshEnabled]);
 
   const selectMachine = useCallback((machineId: string) => {
     lastMachineId = machineId;
@@ -576,7 +595,9 @@ export function ProviderUsageStatusContent({
             disabled={snapshot.isRefreshing}
             className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring disabled:opacity-50"
             onClick={() =>
-              void (activeMachineId === null || providerIdsKey === ""
+              void (activeMachineId === null ||
+              !activeMachineConnected ||
+              providerIdsKey === ""
                 ? refreshUsage({
                     force: true,
                     machineIds:

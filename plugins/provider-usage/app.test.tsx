@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { UsageProvider } from "./usage-schema.js";
+import type { UsageMachine, UsageProvider } from "./usage-schema.js";
 import type { PluginSidebarThread } from "@get-bb/plugin-sdk/app";
 import {
   loadPluginApp,
@@ -98,123 +98,143 @@ describe("provider usage footer disclosure", () => {
         ],
       },
     }));
-    const fetchMock = vi.fn(
-      async (_input: RequestInfo | URL, _init?: RequestInit) =>
-        new Response(
-          JSON.stringify({
-            ok: true,
-            result: {
-              machines: [
+    const machines: UsageMachine[] = [
+      {
+        id: "host-m4",
+        displayName: "M4",
+        status: "connected",
+        error: null,
+        providers: [
+          {
+            id: "claude-code",
+            providerId: "claude-code",
+            accountLabel: null,
+            displayName: "Claude Code",
+            logoUrl: "/api/v1/system/providers/claude-code/logo?h=claude",
+            icon: null,
+            strings: {
+              iconTint: { light: "#D97757", dark: "#E38A6E" },
+            },
+            signInHint: "Sign in to Claude Code.",
+            expiredHint: "Sign in to Claude Code again.",
+            usage: {
+              status: "ok",
+              accountEmail: "claude@example.com",
+              planLabel: "Max",
+              windows: [
                 {
-                  id: "host-m4",
-                  displayName: "M4",
-                  status: "connected",
-                  error: null,
-                  providers: [
-                    {
-                      id: "claude-code",
-                      providerId: "claude-code",
-                      accountLabel: null,
-                      displayName: "Claude Code",
-                      logoUrl:
-                        "/api/v1/system/providers/claude-code/logo?h=claude",
-                      icon: null,
-                      strings: {
-                        iconTint: { light: "#D97757", dark: "#E38A6E" },
-                      },
-                      signInHint: "Sign in to Claude Code.",
-                      expiredHint: "Sign in to Claude Code again.",
-                      usage: {
-                        status: "ok",
-                        accountEmail: "claude@example.com",
-                        planLabel: "Max",
-                        windows: [
-                          {
-                            label: "Five-hour limit",
-                            usedPercent: 82,
-                            resetsAt: "2026-09-02T18:42:00.000Z",
-                            cost: null,
-                          },
-                        ],
-                      },
-                    },
-                    {
-                      id: "codex",
-                      providerId: "codex",
-                      accountLabel: null,
-                      displayName: "Codex",
-                      logoUrl: "/api/v1/system/providers/codex/logo?h=codex",
-                      icon: null,
-                      strings: { iconTint: null },
-                      signInHint: "Sign in to Codex.",
-                      expiredHint: "Sign in to Codex again.",
-                      usage: {
-                        status: "ok",
-                        accountEmail: "codex@example.com",
-                        planLabel: "Plus",
-                        windows: [
-                          {
-                            label: "Weekly limit",
-                            usedPercent: 37,
-                            resetsAt: null,
-                            cost: null,
-                          },
-                        ],
-                      },
-                    },
-                  ],
-                },
-                {
-                  id: "host-m5",
-                  displayName: "M5",
-                  status: "connected",
-                  error: null,
-                  providers: [
-                    {
-                      id: "codex",
-                      providerId: "codex",
-                      accountLabel: null,
-                      displayName: "Codex",
-                      logoUrl: "/api/v1/system/providers/codex/logo?h=codex",
-                      icon: null,
-                      strings: { iconTint: null },
-                      signInHint: "Sign in to Codex.",
-                      expiredHint: "Sign in to Codex again.",
-                      usage: {
-                        status: "ok",
-                        accountEmail: "codex@example.com",
-                        planLabel: "Plus",
-                        windows: [
-                          {
-                            label: "Weekly limit",
-                            usedPercent: 97,
-                            resetsAt: null,
-                            cost: null,
-                          },
-                        ],
-                      },
-                    },
-                  ],
-                },
-                {
-                  id: "source:account-pool",
-                  displayName: "Account Pooler",
-                  status: "connected",
-                  error: null,
-                  providers: pooledAccounts,
-                },
-                {
-                  id: "host-intel",
-                  displayName: "Intel",
-                  status: "disconnected",
-                  error: null,
-                  providers: [],
+                  label: "Five-hour limit",
+                  usedPercent: 82,
+                  resetsAt: "2026-09-02T18:42:00.000Z",
+                  cost: null,
                 },
               ],
             },
+          },
+          {
+            id: "codex",
+            providerId: "codex",
+            accountLabel: null,
+            displayName: "Codex",
+            logoUrl: "/api/v1/system/providers/codex/logo?h=codex",
+            icon: null,
+            strings: { iconTint: null },
+            signInHint: "Sign in to Codex.",
+            expiredHint: "Sign in to Codex again.",
+            usage: {
+              status: "ok",
+              accountEmail: "codex@example.com",
+              planLabel: "Plus",
+              windows: [
+                {
+                  label: "Weekly limit",
+                  usedPercent: 37,
+                  resetsAt: null,
+                  cost: null,
+                },
+              ],
+            },
+          },
+        ],
+      },
+      {
+        id: "host-m5",
+        displayName: "M5",
+        status: "connected",
+        error: null,
+        providers: [
+          {
+            id: "codex",
+            providerId: "codex",
+            accountLabel: null,
+            displayName: "Codex",
+            logoUrl: "/api/v1/system/providers/codex/logo?h=codex",
+            icon: null,
+            strings: { iconTint: null },
+            signInHint: "Sign in to Codex.",
+            expiredHint: "Sign in to Codex again.",
+            usage: {
+              status: "ok",
+              accountEmail: "codex@example.com",
+              planLabel: "Plus",
+              windows: [
+                {
+                  label: "Weekly limit",
+                  usedPercent: 97,
+                  resetsAt: null,
+                  cost: null,
+                },
+              ],
+            },
+          },
+        ],
+      },
+      {
+        id: "source:account-pool",
+        displayName: "Account Pooler",
+        status: "connected",
+        error: null,
+        providers: pooledAccounts,
+      },
+      {
+        id: "host-intel",
+        displayName: "Intel",
+        status: "disconnected",
+        error: null,
+        providers: [],
+      },
+    ];
+    const measured = new Set<string>();
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const request = JSON.parse(String(init?.body)) as {
+          machineIds: string[] | null;
+          providerId: string | null;
+        };
+        if (request.providerId !== null)
+          for (const machine of machines)
+            if (
+              request.machineIds === null ||
+              request.machineIds.includes(machine.id)
+            )
+              measured.add(`${machine.id}:${request.providerId}`);
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            result: {
+              machines: machines.map((machine) => ({
+                ...machine,
+                providers: machine.providers.map((provider) =>
+                  measured.has(`${machine.id}:${provider.providerId}`)
+                    ? provider
+                    : { ...provider, usage: null },
+                ),
+              })),
+            },
           }),
           { status: 200, headers: { "content-type": "application/json" } },
-        ),
+        );
+      },
     );
     vi.stubGlobal("fetch", fetchMock);
     const app = await loadPluginApp(() => import("./app"));
@@ -270,7 +290,7 @@ describe("provider usage footer disclosure", () => {
       name: "Usage machine: M5",
     });
     expect(slot.getByRole("heading", { name: "Codex" })).toBeTruthy();
-    expect(slot.getByText("codex@example.com")).toBeTruthy();
+    expect(await slot.findByText("codex@example.com")).toBeTruthy();
     expect(slot.getByText("97%")).toBeTruthy();
 
     fireEvent.pointerDown(machinePicker, { button: 0 });
@@ -285,10 +305,10 @@ describe("provider usage footer disclosure", () => {
       codexSection.querySelector("[data-provider-logo*='/codex/']"),
     ).not.toBeNull();
     expect(slot.getByRole("heading", { name: "Claude Code" })).toBeTruthy();
-    expect(slot.getByText("claude@example.com")).toBeTruthy();
+    expect(await slot.findByText("claude@example.com")).toBeTruthy();
     expect(slot.getByText("82%")).toBeTruthy();
     expect(slot.getByRole("heading", { name: "Codex" })).toBeTruthy();
-    expect(slot.getByText("codex@example.com")).toBeTruthy();
+    expect(await slot.findByText("codex@example.com")).toBeTruthy();
     expect(slot.getByText("37%")).toBeTruthy();
     for (const providerId of ["claude-code", "codex"]) {
       await waitFor(() =>
@@ -305,6 +325,32 @@ describe("provider usage footer disclosure", () => {
         ),
       );
     }
+    const m4Reload = slot.getByRole("button", {
+      name: "Reload provider usage",
+    }) as HTMLButtonElement;
+    await waitFor(() => expect(m4Reload.disabled).toBe(false));
+    const callsBeforeM4Reload = fetchMock.mock.calls.length;
+    fireEvent.click(m4Reload);
+    expect(m4Reload.disabled).toBe(true);
+    await waitFor(() => expect(m4Reload.disabled).toBe(false));
+    expect(
+      fetchMock.mock.calls
+        .slice(callsBeforeM4Reload)
+        .map(([, init]) => JSON.parse(String(init?.body))),
+    ).toEqual([
+      {
+        force: true,
+        machineIds: ["host-m4"],
+        maxAgeMs: 0,
+        providerId: "claude-code",
+      },
+      {
+        force: true,
+        machineIds: ["host-m4"],
+        maxAgeMs: 0,
+        providerId: "codex",
+      },
+    ]);
 
     fireEvent.pointerDown(
       slot.getByRole("button", { name: "Usage machine: M4" }),
