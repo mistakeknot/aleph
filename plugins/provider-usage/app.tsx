@@ -250,7 +250,7 @@ function UsageWindow({
         <div
           tabIndex={0}
           role="group"
-          className="col-span-full grid grid-cols-subgrid items-center rounded-sm py-0.5 text-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+          className="col-span-full grid grid-cols-subgrid items-center rounded-sm py-px text-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
           aria-label={
             `${window.label}: ${value}. ${reset ?? "Reset time not reported"}` +
             (burnSummary === null ? "" : `. ${burnSummary}`)
@@ -286,7 +286,7 @@ function UsageWindow({
           </span>
           <span
             aria-hidden="true"
-            className="text-right tabular-nums text-subtle-foreground"
+            className="hidden text-right tabular-nums text-subtle-foreground @[16rem]:block"
           >
             {burn === null || burn.percentPerHour <= 0
               ? "—"
@@ -296,7 +296,9 @@ function UsageWindow({
             aria-hidden="true"
             className={
               "text-right tabular-nums " +
-              (runsOut === null ? "text-subtle-foreground" : "text-warning-text")
+              (runsOut === null
+                ? "text-subtle-foreground"
+                : "text-warning-text")
             }
           >
             {runsOut === null ? (countdown ?? "—") : "out " + runsOut}
@@ -334,7 +336,7 @@ function ProviderUsageBody({
           No usage limits reported for this plan.
         </p>
       ) : (
-        <div className="grid grid-cols-[max-content_minmax(0,1fr)_max-content_max-content_max-content] gap-x-2 gap-y-0.5">
+        <div className="grid grid-cols-[minmax(0,max-content)_minmax(1.25rem,1fr)_max-content_max-content] gap-x-1.5 @[16rem]:grid-cols-[minmax(0,max-content)_minmax(1.25rem,1fr)_max-content_max-content_max-content]">
           {usage.windows.map((window) => (
             <UsageWindow key={window.label} window={window} now={now} />
           ))}
@@ -455,7 +457,7 @@ function AccountUsage({
   return (
     <AccountContainer
       aria-label={account.accountLabel ?? undefined}
-      className="py-1.5 first:pt-0 last:pb-0"
+      className="py-1 first:pt-0 last:pb-0"
     >
       {account.accountLabel === null &&
       email === null &&
@@ -486,7 +488,7 @@ function AccountUsage({
           )}
         </div>
       )}
-      <div className="mt-1">
+      <div className="mt-0.5">
         {account.usage === null && snapshot.isRefreshing ? (
           <p className="text-xs text-muted-foreground">
             {usageFeedbackMessages.loading}
@@ -609,7 +611,7 @@ export function ProviderUsageStatusContent({
 
   return (
     <TooltipProvider delayDuration={150}>
-      <div className="flex max-h-80 flex-col">
+      <div className="flex max-h-96 flex-col">
         <div
           data-provider-usage-header=""
           className="flex h-10 min-w-0 shrink-0 items-center gap-1 border-b border-sidebar-border px-1.5"
@@ -669,7 +671,7 @@ export function ProviderUsageStatusContent({
               : activeMachine.displayName + " usage"
           }
           role="region"
-          className="min-h-0 overflow-y-auto p-2.5"
+          className="@container min-h-0 overflow-y-auto overflow-x-hidden p-2"
         >
           {feedback === null ? null : (
             <UsageFeedback
@@ -691,7 +693,7 @@ export function ProviderUsageStatusContent({
                   key={provider.id}
                   aria-label={provider.displayName}
                   data-provider-usage-provider={provider.id}
-                  className="py-2 first:pt-0 last:pb-0"
+                  className="py-1.5 first:pt-0 last:pb-0"
                 >
                   <h2
                     title={
@@ -699,7 +701,7 @@ export function ProviderUsageStatusContent({
                         ? provider.displayName
                         : `${provider.displayName}: an account usage window is at least ${tone === "critical" ? "95" : "80"}% used.`
                     }
-                    className="mb-1 flex min-w-0 items-center gap-1.5 text-xs font-medium text-sidebar-foreground"
+                    className="mb-0.5 flex min-w-0 items-center gap-1.5 text-xs font-medium text-sidebar-foreground"
                   >
                     <span className="relative flex size-4 shrink-0 items-center justify-center">
                       <ProviderIcon

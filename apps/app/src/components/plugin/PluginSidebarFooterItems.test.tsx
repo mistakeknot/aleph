@@ -90,6 +90,7 @@ function FooterHarness() {
         item={disclosure.activeItem}
         onDismiss={disclosure.dismiss}
         hoverPreview={disclosure.hoverPreview}
+        pinned={disclosure.activeKey !== null}
       />
       <SidebarMenu>
         <PluginSidebarFooterItems
@@ -340,6 +341,102 @@ describe("PluginSidebarFooterItems", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  describe("pinned versus hover presentation", () => {
+    function registerUsage() {
+      setPluginSlotRegistrations(
+        "usage-plugin",
+        collectPluginAppRegistrations(
+          definePluginApp((app) => {
+            app.experimental_sidebarFooter.register({
+              kind: "disclosure",
+              id: "usage",
+              label: "Provider usage",
+              icon: "ChartColumn",
+              component: UsageDisclosure,
+            });
+          }),
+        ),
+      );
+    }
+    const panelId = "plugin-sidebar-footer-disclosure-usage-plugin-usage";
+
+    it("marks only a pinned disclosure and its trigger as pinned", () => {
+      vi.useFakeTimers();
+      try {
+        registerUsage();
+        renderWithProviders(<FooterHarness />);
+        const trigger = screen.getByRole("button", { name: "Provider usage" });
+        expect(trigger.getAttribute("aria-pressed")).toBe("false");
+
+        fireEvent.pointerOver(trigger, { pointerType: "mouse" });
+        act(() => vi.advanceTimersByTime(300));
+        const panel = screen.getByTestId(panelId);
+        expect(panel.getAttribute("data-pinned")).toBe("false");
+        expect(trigger.getAttribute("aria-pressed")).toBe("false");
+
+        fireEvent.click(trigger);
+        expect(screen.getByTestId(panelId).getAttribute("data-pinned")).toBe(
+          "true",
+        );
+        expect(trigger.getAttribute("aria-pressed")).toBe("true");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("dismisses a pinned disclosure on a click outside it", () => {
+      registerUsage();
+      renderWithProviders(
+        <>
+          <FooterHarness />
+          <button type="button">Elsewhere</button>
+        </>,
+      );
+      const trigger = screen.getByRole("button", { name: "Provider usage" });
+      fireEvent.click(trigger);
+      expect(screen.getByText("Provider usage content")).toBeDefined();
+
+      fireEvent.pointerDown(screen.getByText("Provider usage content"));
+      expect(screen.getByText("Provider usage content")).toBeDefined();
+
+      fireEvent.pointerDown(screen.getByRole("button", { name: "Elsewhere" }));
+      expect(screen.queryByText("Provider usage content")).toBeNull();
+      expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    });
+
+    it("does not dismiss a pinned disclosure for popups it opened or for its own trigger", () => {
+      registerUsage();
+      renderWithProviders(<FooterHarness />);
+      const trigger = screen.getByRole("button", { name: "Provider usage" });
+      fireEvent.click(trigger);
+
+      const menu = document.createElement("div");
+      menu.setAttribute("role", "menu");
+      document.body.append(menu);
+      fireEvent.pointerDown(menu);
+      fireEvent.pointerDown(trigger);
+      expect(screen.getByText("Provider usage content")).toBeDefined();
+      menu.remove();
+    });
+
+    it("ignores outside clicks while only previewing", () => {
+      vi.useFakeTimers();
+      try {
+        registerUsage();
+        renderWithProviders(<FooterHarness />);
+        fireEvent.pointerOver(
+          screen.getByRole("button", { name: "Provider usage" }),
+          { pointerType: "mouse" },
+        );
+        act(() => vi.advanceTimersByTime(300));
+        fireEvent.pointerDown(document.body);
+        expect(screen.getByText("Provider usage content")).toBeDefined();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   describe("hover preview focus", () => {

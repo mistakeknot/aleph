@@ -1,7 +1,14 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UsageMachine, UsageProvider } from "./usage-schema.js";
+import { ProviderUsageStatusContent } from "./app.js";
 import type { PluginSidebarThread } from "@get-bb/plugin-sdk/app";
 import {
   loadPluginApp,
@@ -614,4 +621,99 @@ it.each([
     ).toBeNull();
   }
   await mounted.lifecycle.dispose();
+});
+
+describe("provider usage panel layout", () => {
+  function claudeAccount(email: string): UsageProvider {
+    return {
+      id: email,
+      providerId: "claude-code",
+      accountLabel: email,
+      displayName: "Claude Code",
+      logoUrl: null,
+      icon: null,
+      strings: { iconTint: null },
+      signInHint: "Sign in.",
+      expiredHint: "Sign in again.",
+      usage: {
+        status: "ok",
+        accountEmail: email,
+        planLabel: "Max (20x)",
+        windows: [
+          {
+            kind: "five-hour",
+            label: "Five-hour limit",
+            usedPercent: 0,
+            resetsAt: null,
+            cost: null,
+          },
+          {
+            kind: "weekly",
+            label: "Weekly limit",
+            usedPercent: 10,
+            resetsAt: null,
+            cost: null,
+          },
+          {
+            kind: "weekly",
+            label: "Weekly · Fable",
+            usedPercent: 0,
+            resetsAt: null,
+            cost: null,
+          },
+        ],
+      },
+    };
+  }
+
+  function renderPanel() {
+    const machine: UsageMachine = {
+      id: "source:pool",
+      displayName: "Account Pooler",
+      status: "connected",
+      providers: [
+        claudeAccount("a@example.com"),
+        claudeAccount("b@example.com"),
+      ],
+      error: null,
+    };
+    return render(
+      <ProviderUsageStatusContent
+        dismiss={vi.fn()}
+        snapshot={{
+          data: { machines: [machine] },
+          error: null,
+          isRefreshing: false,
+        }}
+        threadMachineId={null}
+        refreshEnabled={false}
+      />,
+    );
+  }
+
+  it("never scrolls sideways, so a narrow sidebar cannot clip the left edge", () => {
+    const view = renderPanel();
+    const region = view.getByRole("region", { name: "Account Pooler usage" });
+    expect(region.className).toContain("overflow-x-hidden");
+  });
+
+  it("gives every window bar a floor width and drops the burn column before squeezing it", () => {
+    const view = renderPanel();
+    const rows = view.getAllByRole("group");
+    expect(rows).toHaveLength(6);
+    const grid = rows[0]!.parentElement!;
+    expect(grid.className).toContain("minmax(1.25rem,1fr)");
+    expect(grid.className).not.toMatch(/grid-cols-\[max-content_/u);
+    expect(within(rows[0]!).getAllByText("—")[0]!.className).toContain(
+      "hidden",
+    );
+  });
+
+  it("caps the panel at a height that fits four accounts", () => {
+    const view = renderPanel();
+    expect(
+      view.container.querySelector("[data-provider-usage-header]")!
+        .parentElement!.className,
+    ).toContain("max-h-96");
+  });
 });

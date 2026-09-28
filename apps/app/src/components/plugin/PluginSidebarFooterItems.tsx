@@ -174,8 +174,26 @@ export function usePluginSidebarFooterDisclosure() {
       event.preventDefault();
       dismiss();
     };
+    const panelId = footerDisclosureId(pinnedItem);
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (
+        target instanceof Element &&
+        (document.getElementById(panelId)?.contains(target) === true ||
+          target.closest(
+            '[data-footer-item], [role="menu"], [role="tooltip"], [data-radix-popper-content-wrapper]',
+          ) !== null)
+      ) {
+        return;
+      }
+      dismiss();
+    };
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("pointerdown", onPointerDown);
+    };
   }, [pinnedItem, dismiss]);
 
   return {
@@ -192,10 +210,12 @@ export function PluginSidebarFooterDisclosure({
   item,
   onDismiss,
   hoverPreview,
+  pinned,
 }: {
   item: PluginSidebarFooterItemSlot | null;
   onDismiss: () => void;
   hoverPreview?: FooterHoverPreview;
+  pinned: boolean;
 }) {
   const contentRef = useRef<HTMLDivElement | null>(null);
   const [contentHeight, setContentHeight] = useState<number | null>(null);
@@ -219,7 +239,13 @@ export function PluginSidebarFooterDisclosure({
       id={footerDisclosureId(item)}
       aria-label={item.label}
       data-testid={`plugin-sidebar-footer-disclosure-${item.pluginId}-${item.id}`}
-      className="overflow-hidden rounded-lg border border-sidebar-border bg-sidebar-accent/50 transition-[height] duration-200 ease-out motion-reduce:transition-none"
+      data-pinned={pinned}
+      className={cn(
+        "overflow-hidden rounded-lg border bg-sidebar-accent/50 transition-[height] duration-200 ease-out motion-reduce:transition-none",
+        pinned
+          ? "border-sidebar-ring ring-1 ring-sidebar-ring/40"
+          : "border-sidebar-border",
+      )}
       style={{ height: contentHeight ?? undefined }}
       onPointerEnter={(event) => {
         if (event.pointerType === "mouse") hoverPreview?.onPanelEnter();
@@ -228,7 +254,7 @@ export function PluginSidebarFooterDisclosure({
         if (event.pointerType === "mouse") hoverPreview?.onPanelLeave();
       }}
     >
-      <div ref={contentRef} className="max-h-80 overflow-auto">
+      <div ref={contentRef} className="max-h-96 overflow-auto">
         <PluginSlotMount
           pluginId={item.pluginId}
           slotKind="experimental_sidebarFooter"
@@ -376,7 +402,7 @@ export function PluginSidebarFooterItems({
                     className={cn(
                       SIDEBAR_FOOTER_ACTION_CLASS,
                       active &&
-                        "bg-sidebar-accent text-sidebar-accent-foreground [&>[data-icon-root]]:opacity-100",
+                        "bg-sidebar-accent text-sidebar-accent-foreground ring-1 ring-inset ring-sidebar-ring [&>[data-icon-root]]:opacity-100",
                     )}
                     data-testid={
                       item.kind === "plugin"
@@ -389,6 +415,7 @@ export function PluginSidebarFooterItems({
                     item.slot.kind === "disclosure"
                       ? {
                           "aria-expanded": active,
+                          "aria-pressed": active,
                           "aria-controls": footerDisclosureId(item.slot),
                         }
                       : {})}
