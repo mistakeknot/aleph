@@ -646,14 +646,15 @@ function MarkdownAnchor({
       return;
     }
 
-    if (
-      taskLink &&
-      isPlainMarkdownAnchorClick(event) &&
-      linkRouting?.onOpenLink &&
-      rewrittenHref &&
-      linkRouting.onOpenLink({ href: rewrittenHref })
-    ) {
-      event.preventDefault();
+    if (taskLink) {
+      if (
+        isPlainMarkdownAnchorClick(event) &&
+        linkRouting?.onOpenLink &&
+        rewrittenHref &&
+        linkRouting.onOpenLink({ href: rewrittenHref })
+      ) {
+        event.preventDefault();
+      }
       return;
     }
 

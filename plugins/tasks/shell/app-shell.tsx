@@ -96,7 +96,9 @@ function TasksAppShellContent({ subPath }: PluginNavPanelProps) {
     if (!root || typeof ResizeObserver === "undefined") return;
     const update = () => {
       const rootWidth = root.clientWidth;
-      setDetailSplitFits(!(rootWidth > 0 && rootWidth < DETAIL_SPLIT_MIN_WIDTH));
+      setDetailSplitFits(
+        !(rootWidth > 0 && rootWidth < DETAIL_SPLIT_MIN_WIDTH),
+      );
     };
     update();
     const observer = new ResizeObserver(update);
@@ -104,20 +106,19 @@ function TasksAppShellContent({ subPath }: PluginNavPanelProps) {
     return () => observer.disconnect();
   }, []);
 
-  const browsePaneRef = useRef<HTMLDivElement>(null);
+  const [browsePaneEl, setBrowsePaneEl] = useState<HTMLDivElement | null>(null);
   const [boardUsable, setBoardUsable] = useState(true);
   useEffect(() => {
-    const browsePane = browsePaneRef.current;
-    if (!browsePane || typeof ResizeObserver === "undefined") return;
+    if (!browsePaneEl || typeof ResizeObserver === "undefined") return;
     const update = () => {
-      const paneWidth = browsePane.clientWidth;
+      const paneWidth = browsePaneEl.clientWidth;
       setBoardUsable(!(paneWidth > 0 && paneWidth < BOARD_MIN_WIDTH));
     };
     update();
     const observer = new ResizeObserver(update);
-    observer.observe(browsePane);
+    observer.observe(browsePaneEl);
     return () => observer.disconnect();
-  }, []);
+  }, [browsePaneEl]);
   const projects = useProjects();
 
   const lastBrowseRouteRef = useRef<BrowseRoute | null>(null);
@@ -129,7 +130,9 @@ function TasksAppShellContent({ subPath }: PluginNavPanelProps) {
     navigation.go(lastBrowseRouteRef.current ?? { kind: "all" });
   const onTaskRoute = route.kind === "task";
   const browseRoute: BrowseRoute =
-    route.kind === "task" ? (lastBrowseRouteRef.current ?? { kind: "all" }) : route;
+    route.kind === "task"
+      ? (lastBrowseRouteRef.current ?? { kind: "all" })
+      : route;
   const showBrowsePane = !onTaskRoute || detailSplitFits;
   const backRef = useRef(backFromTask);
   backRef.current = backFromTask;
@@ -187,7 +190,7 @@ function TasksAppShellContent({ subPath }: PluginNavPanelProps) {
         />
         <div className="flex min-h-0 flex-1">
           {showBrowsePane && (
-            <div ref={browsePaneRef} className="min-h-0 flex-1 overflow-auto">
+            <div ref={setBrowsePaneEl} className="min-h-0 flex-1 overflow-auto">
               {noProjects && browseRoute.kind !== "manage" ? (
                 <EmptyState
                   icon="ListTodo"
@@ -201,7 +204,10 @@ function TasksAppShellContent({ subPath }: PluginNavPanelProps) {
                   }
                 />
               ) : (
-                <BrowseRouteOutlet route={browseRoute} boardUsable={boardUsable} />
+                <BrowseRouteOutlet
+                  route={browseRoute}
+                  boardUsable={boardUsable}
+                />
               )}
             </div>
           )}
@@ -212,7 +218,9 @@ function TasksAppShellContent({ subPath }: PluginNavPanelProps) {
                   ? "min-h-0 flex-none overflow-hidden border-l border-border"
                   : "min-h-0 flex-1 overflow-hidden"
               }
-              style={detailSplitFits ? { width: DETAIL_COLUMN_WIDTH } : undefined}
+              style={
+                detailSplitFits ? { width: DETAIL_COLUMN_WIDTH } : undefined
+              }
             >
               <DetailView taskKey={route.taskKey} onClose={backFromTask} />
             </div>

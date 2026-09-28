@@ -38,6 +38,12 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+class RecordingResizeObserver {
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+}
+
 const PROJECT_ID = "01HZZZZZZZZZZZZZZZZZZZZZP1";
 const OTHER_PROJECT_ID = "01HZZZZZZZZZZZZZZZZZZZZZP2";
 const FOLDER_ID = "01HZZZZZZZZZZZZZZZZZZZZZF1";
@@ -969,8 +975,6 @@ describe("tasks app shell", () => {
         }),
       },
     );
-    // The list (browse route defaults to "all" with no prior navigation)
-    // and the task detail both render at once.
     await slot.findByRole("textbox", { name: "Task title" });
     expect(slot.getByRole("button", { name: /Sort/ })).toBeDefined();
     expect(
@@ -1010,6 +1014,65 @@ describe("tasks app shell", () => {
       path: "tasks",
       options: { subPath: `${PROJECT_ID}?view=board` },
     });
+  });
+
+  it("falls back to the list, not the board, after a narrow panel re-mounts the browse pane", async () => {
+    const originalResizeObserver = window.ResizeObserver;
+    const originalClientWidth = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "clientWidth",
+    );
+    let paneWidth = 500;
+    Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+      configurable: true,
+      get() {
+        return paneWidth;
+      },
+    });
+    window.ResizeObserver =
+      RecordingResizeObserver as unknown as typeof ResizeObserver;
+
+    try {
+      const task = {
+        ...pagerTask("TSK-4", "todo", 1),
+        description: "",
+        labelIds: [],
+      };
+      const rpc = seededRpc({
+        getTaskByKey: () => ({ task }),
+        listTasks: () => ({ tasks: [task] }),
+        listLabels: () => ({ labels: [] }),
+        listAttachments: () => ({ attachments: [] }),
+        listTaskThreads: () => ({ taskThreads: [] }),
+        listComments: () => ({ comments: [] }),
+      });
+      const Panel = app.navPanels[0]!.component;
+      const slot = renderSlot(
+        app.navPanels[0]!,
+        { subPath: `${PROJECT_ID}?view=board` },
+        { rpc },
+      );
+      await slot.findByText("Backlog");
+
+      paneWidth = 300;
+      slot.lifecycle.rerender(<Panel subPath="task/TSK-4" />);
+      await slot.findByRole("textbox", { name: "Task title" });
+
+      slot.lifecycle.rerender(<Panel subPath={`${PROJECT_ID}?view=board`} />);
+      await slot.findByRole("button", { name: /Sort/ });
+      expect(slot.queryByText("Backlog")).toBeNull();
+    } finally {
+      window.ResizeObserver = originalResizeObserver;
+      if (originalClientWidth) {
+        Object.defineProperty(
+          HTMLElement.prototype,
+          "clientWidth",
+          originalClientWidth,
+        );
+      } else {
+        Reflect.deleteProperty(HTMLElement.prototype, "clientWidth");
+      }
+    }
   });
 
   it("renders right-panel navigation and routes through the plugin panel", async () => {

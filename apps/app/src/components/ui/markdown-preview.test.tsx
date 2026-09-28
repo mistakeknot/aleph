@@ -516,6 +516,24 @@ describe("MarkdownPreview", () => {
     expect(onOpenLink).not.toHaveBeenCalled();
   });
 
+  it("leaves a cmd-clicked bbtask:// link to native new-tab navigation", () => {
+    const onOpenLink = vi.fn(() => true);
+    const href = "bbtask://MSQ-22";
+
+    render(
+      <MarkdownPreview
+        content={`Open [MSQ-22](${href}).`}
+        linkRouting={{ onOpenLink }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("link", { name: "MSQ-22" }), {
+      metaKey: true,
+    });
+
+    expect(onOpenLink).not.toHaveBeenCalled();
+  });
+
   it("falls back to native navigation when onOpenLink declines a task link", () => {
     const onOpenLink = vi.fn(() => false);
     const href = "/plugins/tasks/tasks/task/MSQ-22";

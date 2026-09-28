@@ -26,6 +26,16 @@ describe("parseMarkdownTaskLinkHref", () => {
     expect(parseMarkdownTaskLinkHref("bbtask://")).toBeNull();
   });
 
+  it("returns null instead of throwing for malformed percent-encoding in a bbtask:// scheme href", () => {
+    expect(parseMarkdownTaskLinkHref("bbtask://%ZZ")).toBeNull();
+  });
+
+  it("returns null instead of throwing for malformed percent-encoding in a task panel app-route href", () => {
+    expect(
+      parseMarkdownTaskLinkHref("/plugins/tasks/tasks/task/%E0%A4"),
+    ).toBeNull();
+  });
+
   it("parses a relative task panel app-route href", () => {
     expect(
       parseMarkdownTaskLinkHref("/plugins/tasks/tasks/task/MSQ-22"),
@@ -65,6 +75,10 @@ describe("isMarkdownTaskSchemeHref", () => {
       false,
     );
     expect(isMarkdownTaskSchemeHref("https://example.com")).toBe(false);
+  });
+
+  it("recognizes an uppercase BBTASK:// scheme href", () => {
+    expect(isMarkdownTaskSchemeHref("BBTASK://MSQ-22")).toBe(true);
   });
 });
 

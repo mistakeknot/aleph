@@ -14,6 +14,14 @@ export function isMarkdownTaskSchemeHref(href: string): boolean {
   return TASK_LINK_SCHEME_PATTERN.test(href);
 }
 
+function decodeTaskKeyComponent(rawTaskKey: string): string | null {
+  try {
+    return decodeURIComponent(rawTaskKey);
+  } catch {
+    return null;
+  }
+}
+
 export function parseMarkdownTaskLinkHref(
   href: string | undefined,
 ): MarkdownTaskLink | null {
@@ -23,8 +31,8 @@ export function parseMarkdownTaskLinkHref(
 
   const schemeMatch = TASK_LINK_SCHEME_PATTERN.exec(href);
   if (schemeMatch) {
-    const taskKey = decodeURIComponent(schemeMatch[1] ?? "");
-    return taskKey.length > 0 ? { taskKey } : null;
+    const taskKey = decodeTaskKeyComponent(schemeMatch[1] ?? "");
+    return taskKey !== null && taskKey.length > 0 ? { taskKey } : null;
   }
 
   if (typeof window === "undefined") {
@@ -41,8 +49,8 @@ export function parseMarkdownTaskLinkHref(
   if (pathMatch === null) {
     return null;
   }
-  const taskKey = decodeURIComponent(pathMatch[1] ?? "");
-  return taskKey.length > 0 ? { taskKey } : null;
+  const taskKey = decodeTaskKeyComponent(pathMatch[1] ?? "");
+  return taskKey !== null && taskKey.length > 0 ? { taskKey } : null;
 }
 
 export interface TaskLinkPluginPanelRequest {

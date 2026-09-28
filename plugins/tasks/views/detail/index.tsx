@@ -35,7 +35,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 interface DetailViewProps {
   taskKey: string;
   onClose?: () => void;
-  closeLabel?: string;
 }
 
 const DESCRIPTION_SAVE_DELAY_MS = 800;
@@ -532,7 +531,7 @@ function DetailViewBody({ taskKey }: { taskKey: string }) {
   return <TaskDetail task={query.data} />;
 }
 
-export function DetailView({ taskKey, onClose, closeLabel }: DetailViewProps) {
+export function DetailView({ taskKey, onClose }: DetailViewProps) {
   if (onClose === undefined) {
     return <DetailViewBody taskKey={taskKey} />;
   }
@@ -541,7 +540,7 @@ export function DetailView({ taskKey, onClose, closeLabel }: DetailViewProps) {
       <div className="flex shrink-0 items-center justify-end border-b border-border px-2 py-1.5">
         <button
           type="button"
-          aria-label={closeLabel ?? "Close task detail"}
+          aria-label="Close task detail"
           className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground"
           onClick={onClose}
         >
