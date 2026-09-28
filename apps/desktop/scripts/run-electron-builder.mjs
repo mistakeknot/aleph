@@ -187,6 +187,9 @@ function resolveElectronBuilderConfig(baseConfig, env) {
   config.appId = releaseConfig.appId;
   config.artifactName = releaseConfig.artifactName;
   config.productName = releaseConfig.applicationName;
+  if (releaseConfig.copyrightHolder) {
+    config.copyright = `Copyright © ${new Date().getFullYear()} ${releaseConfig.copyrightHolder}`;
+  }
   config.publish = [
     {
       channel: releaseChannel,

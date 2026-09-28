@@ -97,6 +97,7 @@ const electronBuilderConfigSchema = z
   .object({
     afterPack: z.string().min(1),
     asarUnpack: z.array(z.string().min(1)),
+    copyright: z.string().min(1).optional(),
     dmg: z
       .object({
         sign: z.boolean(),
@@ -627,6 +628,16 @@ describe("electron-builder signing config", () => {
     expect(config.artifactName).toBe("Aleph-${version}-${arch}.${ext}");
     expect(config.linux.executableName).toBe("aleph");
     expect(config.publish[0].channel).toBe("aleph");
+  });
+
+  it("packages the Aleph build with General Systems Ventures as the Info.plist copyright holder", async () => {
+    const { config } = await readResolvedConfig({
+      BB_DESKTOP_RELEASE_CHANNEL: "aleph",
+    });
+
+    expect(config.copyright).toBe(
+      `Copyright © ${new Date().getFullYear()} General Systems Ventures`,
+    );
   });
 
   it("derives the aleph channel automatically from this checkout's +aleph package version", async () => {
