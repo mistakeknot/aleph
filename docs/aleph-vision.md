@@ -115,9 +115,9 @@ review is per thread, pinned to a commit and limited in rounds. Journey:
 Transient refusals are waited out, an approaching weekly limit is
 forecast so the operator can decide whether to pause or move work, and
 every scripted run goes through the operator's budgeted accounts. Each
-account is used for its owner's own work. Nothing here adds capacity or
-hides usage; work moves to another of the operator's own accounts only
-when one is at its threshold. Journey:
+account is used for its owner's own work. Nothing here changes any
+account's limits or hides usage; work moves to another of the operator's own
+accounts only when one is unavailable or at its threshold. Journey:
 [your own accounts, budgeted](cujs/aleph-04-no-dead-jobs.md).
 
 ### Coordinators rotate cleanly

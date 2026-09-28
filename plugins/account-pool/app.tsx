@@ -1503,8 +1503,9 @@ function AccountPoolSettings() {
           >
             <p className="text-sm text-muted-foreground">
               Lower numbers are used first. Ties follow the order accounts were
-              added. Work moves to the next of your accounts only when one
-              reaches its threshold. Existing conversations stay pinned.
+              added. Work moves to the next of your accounts only when one is
+              unavailable or at its threshold. Existing conversations stay
+              pinned.
             </p>
             <Input
               type="number"

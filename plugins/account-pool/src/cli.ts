@@ -38,7 +38,7 @@ import type { ClaudeOAuthLogin } from "./oauth-login.js";
 import type { CodexDeviceLogin } from "./codex-device-login.js";
 
 const DESCRIPTION = [
-  "Your own accounts are used one after another by priority, then order added. Work moves to the next of your accounts only when the current one is unavailable or at its threshold; this adds no capacity.",
+  "Your own accounts are used one after another by priority, then order added. Work moves to the next of your accounts only when the current one is unavailable or at its threshold; this does not change any account's limits.",
   "When this bb server runs inside another bb server's thread, parent proxy routes its pooled traffic through that parent; isolate neutralises the inherited routing.",
   "Reorder includes every account for the provider and changes which of your accounts is used next; existing conversations stay pinned.",
 ].join("\n");
