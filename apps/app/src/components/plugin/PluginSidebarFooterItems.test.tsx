@@ -406,19 +406,62 @@ describe("PluginSidebarFooterItems", () => {
       expect(trigger.getAttribute("aria-expanded")).toBe("false");
     });
 
-    it("does not dismiss a pinned disclosure for popups it opened or for its own trigger", () => {
+    function appendPopup(
+      role: "menu" | "tooltip",
+      link: Record<string, string>,
+    ): HTMLElement {
+      const popup = document.createElement("div");
+      popup.setAttribute("role", role);
+      for (const [name, value] of Object.entries(link))
+        popup.setAttribute(name, value);
+      document.body.append(popup);
+      return popup;
+    }
+
+    it("does not dismiss a pinned disclosure for its own trigger or popups it opened", () => {
       registerUsage();
       renderWithProviders(<FooterHarness />);
       const trigger = screen.getByRole("button", { name: "Provider usage" });
       fireEvent.click(trigger);
+      const inner = screen.getByText("Provider usage content");
+      inner.id = "panel-inner-trigger";
+      inner.setAttribute("aria-describedby", "own-tip");
 
-      const menu = document.createElement("div");
-      menu.setAttribute("role", "menu");
-      document.body.append(menu);
-      fireEvent.pointerDown(menu);
+      const ownMenu = appendPopup("menu", {
+        "aria-labelledby": "panel-inner-trigger",
+      });
+      const ownTip = appendPopup("tooltip", { id: "own-tip" });
+      fireEvent.pointerDown(ownMenu);
+      fireEvent.pointerDown(ownTip);
       fireEvent.pointerDown(trigger);
       expect(screen.getByText("Provider usage content")).toBeDefined();
+      ownMenu.remove();
+      ownTip.remove();
+    });
+
+    it("dismisses a pinned disclosure on a click in an unrelated menu or tooltip", () => {
+      registerUsage();
+      renderWithProviders(
+        <>
+          <FooterHarness />
+          <button type="button" id="unrelated-trigger">
+            Unrelated
+          </button>
+        </>,
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Provider usage" }));
+      const menu = appendPopup("menu", {
+        "aria-labelledby": "unrelated-trigger",
+      });
+      fireEvent.pointerDown(menu);
+      expect(screen.queryByText("Provider usage content")).toBeNull();
       menu.remove();
+
+      fireEvent.click(screen.getByRole("button", { name: "Provider usage" }));
+      const bare = appendPopup("tooltip", {});
+      fireEvent.pointerDown(bare);
+      expect(screen.queryByText("Provider usage content")).toBeNull();
+      bare.remove();
     });
 
     it("ignores outside clicks while only previewing", () => {

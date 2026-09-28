@@ -175,17 +175,49 @@ export function usePluginSidebarFooterDisclosure() {
       dismiss();
     };
     const panelId = footerDisclosureId(pinnedItem);
+    const triggerId = footerTriggerId(pinnedItem);
+    const isOwnedByPanel = (owner: Element | null) => {
+      if (owner === null) return false;
+      const panel = document.getElementById(panelId);
+      return (
+        panel?.contains(owner) === true ||
+        owner.id === triggerId ||
+        owner.id === SIDEBAR_FOOTER_MORE_ID
+      );
+    };
+    const isOwnPopup = (popup: Element) => {
+      const labelledBy = popup.getAttribute("aria-labelledby");
+      if (labelledBy !== null)
+        return labelledBy
+          .split(/\s+/u)
+          .some((id) => isOwnedByPanel(document.getElementById(id)));
+      const id = popup.id;
+      if (id === "") return false;
+      return [...document.querySelectorAll("[aria-describedby]")].some(
+        (element) =>
+          element
+            .getAttribute("aria-describedby")
+            ?.split(/\s+/u)
+            .includes(id) === true && isOwnedByPanel(element),
+      );
+    };
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target;
-      if (
-        target instanceof Element &&
-        (document.getElementById(panelId)?.contains(target) === true ||
-          target.closest(
-            '[data-footer-item], [role="menu"], [role="tooltip"], [data-radix-popper-content-wrapper]',
-          ) !== null)
-      ) {
+      if (!(target instanceof Element)) {
+        dismiss();
         return;
       }
+      if (
+        document.getElementById(panelId)?.contains(target) === true ||
+        target.closest("[data-footer-item]") !== null
+      )
+        return;
+      const wrapper = target.closest("[data-radix-popper-content-wrapper]");
+      const popup =
+        target.closest('[role="menu"], [role="tooltip"]') ??
+        wrapper?.querySelector('[role="menu"], [role="tooltip"]') ??
+        null;
+      if (popup !== null && isOwnPopup(popup)) return;
       dismiss();
     };
     window.addEventListener("keydown", onKeyDown);
