@@ -58,6 +58,8 @@ the same change.
 
 - Read references/frontend-registration.md for definePluginApp, thread header,
   sidebar replacement, providers, and top-level registration.
+- Read references/frontend-app-header-status.md for the header bar's center
+  status chip slot, `experimental_appHeaderStatus`.
 - Read references/frontend-api-index.md to check every public frontend
   runtime value and type export.
 - Read references/frontend-core-slots.md for trusted content scripts, homepage,

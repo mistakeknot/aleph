@@ -163,18 +163,8 @@ A common pairing with a replaced sidebar: hide child threads from the list and
 surface them here instead, filtering `experimental_useSidebarThreads()` by
 `parentThreadId === threadId`.
 
-### A status chip in the header bar's center
-
-`app.slots.experimental_appHeaderStatus` renders a compact status chip in the header bar, ordered by plugin id then registration order.
-
-```tsx
-app.slots.experimental_appHeaderStatus({
-  id: "sync", title: "Sync status",
-  component: ({ threadId, projectId, isCompactViewport, availableWidth, openSettings }) => { ... },
-});
-```
-
-`threadId`/`projectId` are nullable off a thread route; collapse when `isCompactViewport`, fit `availableWidth`, and call `openSettings()`.
+Read references/frontend-app-header-status.md for the header bar's center
+status chip slot, `app.slots.experimental_appHeaderStatus`.
 
 ### A control in the Browser toolbar
 
