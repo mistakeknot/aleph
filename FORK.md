@@ -131,13 +131,21 @@ binary runs:
 LSREG=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 "$LSREG" -u apps/desktop/release/mac-arm64/Aleph.app
 "$LSREG" -u ~/bb.app.moved-aside   # each moved-aside bb.app or Aleph.app
+"$LSREG" -u ~/.Trash/Aleph.app     # and any copy in the Trash
 "$LSREG" -f /Applications/Aleph.app
 open /Applications/Aleph.app
-ps -axo comm= | grep -E '/Contents/MacOS/(bb|Aleph)$'
+ps -axo comm= | grep -E '/Contents/MacOS/(bb|Aleph)$' | sort -u
+lsappinfo info -only bundlepath -app dev.bb.desktop
 ```
 
-The last command must print only `/Applications/Aleph.app/Contents/MacOS/Aleph`.
-If it prints another path, quit that app, unregister its copy, and launch again.
+Unregister the build output before the swap as well, so nothing launches it
+while `/Applications` is empty. To list every registered copy:
+`"$LSREG" -dump | awk '/^path:/{p=$0} /^identifier: +dev\.bb\.desktop$/{print p}'`. The app can take several seconds to start. The
+`ps` command must then print only `/Applications/Aleph.app/Contents/MacOS/Aleph`,
+and `lsappinfo` must print `/Applications/Aleph.app`. If either shows another
+path, quit that app, unregister its copy, and launch again. To roll back, quit
+Aleph, move the new app out, move the old copy back, and repeat the
+`lsregister -u`/`-f` steps for the two copies.
 
 #### Desktop app naming
 
