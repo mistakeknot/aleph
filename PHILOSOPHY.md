@@ -46,7 +46,7 @@ The operator's own accounts for several providers each have limits that
 are a budget to plan around. Work should use the account budgeted for it,
 wait out transient refusals instead of dying, and surface an approaching
 limit early enough for the operator to pause or move work. Nothing here
-changes no account's limits, hides usage or shares accounts beyond their
+changes any account's limits, hides usage or shares accounts beyond their
 owner; work moves to another of the owner's own accounts only when one is
 unavailable or at its threshold.
 
