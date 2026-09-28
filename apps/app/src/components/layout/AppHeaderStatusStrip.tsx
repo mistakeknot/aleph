@@ -46,8 +46,10 @@ export function AppHeaderStatusStrip({
 
   if (!hasStatuses) return null;
 
-  const totalGapWidth =
-    STRIP_GAP_PX * Math.max(appHeaderStatuses.length - 1, 0);
+  const totalGapWidth = Math.min(
+    STRIP_GAP_PX * Math.max(appHeaderStatuses.length - 1, 0),
+    availableWidth,
+  );
   const perContributionWidth = Math.floor(
     Math.max(availableWidth - totalGapWidth, 0) / appHeaderStatuses.length,
   );

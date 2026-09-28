@@ -179,6 +179,26 @@ describe("AppHeaderStatusStrip", () => {
     expect(totalOccupied).toBeLessThanOrEqual(400);
   });
 
+  it("clamps the gap along with each contribution's budget when available width is smaller than the gap itself", () => {
+    stubResizeObserver();
+    registerStatus("account-pool");
+    registerStatus("other-plugin");
+    render(tree());
+
+    resizeStrip(4);
+
+    const fixtures = screen.getAllByTestId("status-fixture");
+    const perContributionWidth = Number(
+      fixtures[0]?.textContent?.split("/")[0],
+    );
+    const contributionCount = fixtures.length;
+    const clampedGapWidth = Math.min(8 * (contributionCount - 1), 4);
+    const totalOccupied =
+      perContributionWidth * contributionCount + clampedGapWidth;
+    expect(totalOccupied).toBeLessThanOrEqual(4);
+    expect(perContributionWidth).toBe(0);
+  });
+
   it("labels each contribution's wrapper region with its registration title", () => {
     stubResizeObserver();
     registerStatus();
