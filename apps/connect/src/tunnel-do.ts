@@ -5,6 +5,7 @@ import {
   HEARTBEAT_REQUEST,
   HEARTBEAT_RESPONSE,
   TUNNEL_PROTOCOL_QUERY_PARAM,
+  TUNNEL_REPLACED_CLOSE_REASON,
   decodeFrame,
   encodeFrame,
   type Frame,
@@ -26,13 +27,18 @@ export interface Env {
 const TUNNEL_TAG = "tunnel";
 const TUNNEL_OPENED_AT_KEY = "tunnelOpenedAt";
 const TUNNEL_CLOSED_AT_KEY = "tunnelClosedAt";
+const TUNNEL_LOST_AT_KEY = "tunnelLostAt";
 const VANISHED_TUNNEL_GRACE_MS = 5_000;
+const TUNNEL_RETURN_GRACE_MS = 15_000;
 const RESP_HEAD_TIMEOUT_MS = 30_000;
 const PRESENCE_INTERVAL_MS = 50_000;
+const CLEAN_CLOSE_CODE = 1000;
 
 const WS_READY_STATE_OPEN = 1;
 
 export const TUNNEL_OFFLINE_HEADER = "x-bb-tunnel-offline";
+export const TUNNEL_RESTART_REASON =
+  "the tunnel socket disappeared without a close; restarting this object";
 
 const HOP_HEADERS = new Set([
   "connection",
@@ -79,6 +85,7 @@ interface PendingHttp {
 
 export class TunnelDO {
   private readonly pendingHttp = new Map<number, PendingHttp>();
+  private readonly tunnelWaiters = new Set<() => void>();
   private nextStreamId: number;
   private clientProtocolVersion = 0;
 
@@ -129,20 +136,33 @@ export class TunnelDO {
     }
     if (url.pathname === "/__control/close") {
       void this.state.storage.put(TUNNEL_CLOSED_AT_KEY, Date.now());
+      void this.state.storage.delete(TUNNEL_LOST_AT_KEY);
       for (const ws of this.state.getWebSockets(TUNNEL_TAG))
         ws.close(1000, "revoked by owner");
       void this.state.storage.delete("serverId");
       void this.state.storage.delete("machineId");
       void this.state.storage.delete("protocolVersion");
       this.clientProtocolVersion = 0;
+      this.wakeTunnelWaiters();
       return new Response(null, { status: 204 });
     }
 
     const tunnel = this.tunnelSocket();
     if (!tunnel) {
-      return this.restartIfTunnelVanished().then(() => this.offlineResponse());
+      return this.awaitReturningTunnel().then((returned) =>
+        returned
+          ? this.forwardVisitor(request, url, returned)
+          : this.offlineResponse(),
+      );
     }
+    return this.forwardVisitor(request, url, tunnel);
+  }
 
+  private forwardVisitor(
+    request: Request,
+    url: URL,
+    tunnel: WebSocket,
+  ): Response | Promise<Response> {
     const target = readTunnelTarget(request.headers);
     if (target !== undefined && this.clientProtocolVersion < 1) {
       return new Response(`bb connect: ${PORT_SHARE_TOO_OLD}\n`, {
@@ -224,11 +244,35 @@ export class TunnelDO {
         : (closedAt === undefined || closedAt < openedAt) &&
           Date.now() - openedAt > VANISHED_TUNNEL_GRACE_MS;
     if (!vanished) return;
-    await this.state.storage.put(TUNNEL_CLOSED_AT_KEY, Date.now());
+    const now = Date.now();
+    await this.state.storage.put({
+      [TUNNEL_CLOSED_AT_KEY]: now,
+      [TUNNEL_LOST_AT_KEY]: now,
+    });
     await this.state.storage.sync();
-    this.state.abort(
-      "the tunnel socket disappeared without a close; restarting this object",
-    );
+    this.state.abort(TUNNEL_RESTART_REASON);
+  }
+
+  private async awaitReturningTunnel(): Promise<WebSocket | null> {
+    await this.restartIfTunnelVanished();
+    const lostAt = await this.state.storage.get<number>(TUNNEL_LOST_AT_KEY);
+    const remainingMs =
+      lostAt === undefined ? 0 : lostAt + TUNNEL_RETURN_GRACE_MS - Date.now();
+    if (remainingMs <= 0) return this.tunnelSocket();
+    await new Promise<void>((resolve) => {
+      const settle = () => {
+        clearTimeout(timer);
+        this.tunnelWaiters.delete(settle);
+        resolve();
+      };
+      const timer = setTimeout(settle, remainingMs);
+      this.tunnelWaiters.add(settle);
+    });
+    return this.tunnelSocket();
+  }
+
+  private wakeTunnelWaiters(): void {
+    for (const settle of [...this.tunnelWaiters]) settle();
   }
 
   async alarm(): Promise<void> {
@@ -256,7 +300,7 @@ export class TunnelDO {
     await this.restartIfTunnelVanished();
     for (const existing of this.state.getWebSockets(TUNNEL_TAG)) {
       try {
-        existing.close(1000, "replaced by a new tunnel connection");
+        existing.close(CLEAN_CLOSE_CODE, TUNNEL_REPLACED_CLOSE_REASON);
       } catch {}
     }
     this.abandonStreams("tunnel reconnected mid-request", "tunnel reconnected");
@@ -274,8 +318,10 @@ export class TunnelDO {
       void this.state.storage.setAlarm(Date.now() + PRESENCE_INTERVAL_MS);
     }
     void this.state.storage.put(TUNNEL_OPENED_AT_KEY, Date.now());
+    void this.state.storage.delete(TUNNEL_LOST_AT_KEY);
     const pair = new WebSocketPair();
     this.state.acceptWebSocket(pair[1], [TUNNEL_TAG]);
+    setTimeout(() => this.wakeTunnelWaiters(), 0);
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
 
@@ -599,7 +645,13 @@ export class TunnelDO {
     const tags = this.state.getTags(ws);
     if (tags.includes(TUNNEL_TAG)) {
       if (this.tunnelSocket() !== null) return;
-      void this.state.storage.put(TUNNEL_CLOSED_AT_KEY, Date.now());
+      const now = Date.now();
+      void this.state.storage.put(TUNNEL_CLOSED_AT_KEY, now);
+      if (code === CLEAN_CLOSE_CODE) {
+        void this.state.storage.delete(TUNNEL_LOST_AT_KEY);
+      } else {
+        void this.state.storage.put(TUNNEL_LOST_AT_KEY, now);
+      }
       this.abandonStreams(
         "tunnel disconnected mid-request",
         "tunnel disconnected",

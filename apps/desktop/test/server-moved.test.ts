@@ -517,9 +517,14 @@ describe("createServerMovedWatcher", () => {
     harness.watcher.start();
     await harness.timers.flush();
 
-    expect(harness.confirmMove).toHaveBeenCalledOnce();
-    expect(harness.onMove).toHaveBeenCalledExactlyOnceWith(CONNECT_MOVE);
-    harness.watcher.stop();
+    try {
+      await vi.waitFor(() => {
+        expect(harness.confirmMove).toHaveBeenCalledOnce();
+        expect(harness.onMove).toHaveBeenCalledExactlyOnceWith(CONNECT_MOVE);
+      });
+    } finally {
+      harness.watcher.stop();
+    }
   });
 
   it("debounces lock events into one committed move", async () => {

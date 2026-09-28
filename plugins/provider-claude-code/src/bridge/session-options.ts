@@ -1,6 +1,7 @@
 import {
   type InstructionMode,
   type ReasoningLevel,
+  type ServiceTier,
   type RuntimePermissionScope,
 } from "@get-bb/plugin-sdk/provider-bridge";
 import { accessSync, constants, statSync } from "node:fs";
@@ -24,6 +25,7 @@ export interface BuildSessionOptionsArgs {
   permissionScope: RuntimePermissionScope;
   plugins?: Options["plugins"];
   reasoningLevel?: ReasoningLevel;
+  serviceTier: ServiceTier;
   workflowsEnabled: boolean;
   chromeEnabled: boolean;
   memoryEnabled?: boolean;
@@ -66,6 +68,7 @@ function buildFlagSettings(params: BuildSessionOptionsArgs): Settings {
     enableWorkflows: params.workflowsEnabled,
     ultracode: params.reasoningLevel === "ultracode",
     ...(params.promptCacheTtl ? { promptCacheTtl: params.promptCacheTtl } : {}),
+    fastMode: params.serviceTier === "fast",
   };
 }
 
@@ -79,6 +82,7 @@ export function buildMutableFlagSettings(args: {
   memoryEnabled: boolean;
   reasoningLevel: ReasoningLevel | undefined;
   workflowsEnabled: boolean;
+  serviceTier: ServiceTier;
 }): ClaudeMutableFlagSettings {
   return {
     autoMemoryEnabled: args.memoryEnabled,
@@ -87,6 +91,7 @@ export function buildMutableFlagSettings(args: {
       ? { effortLevel: toSdkEffort(args.reasoningLevel) }
       : {}),
     ultracode: args.reasoningLevel === "ultracode",
+    fastMode: args.serviceTier === "fast",
   };
 }
 

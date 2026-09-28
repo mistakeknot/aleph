@@ -2562,6 +2562,7 @@ function ThreadDetailViewInternal(props: ThreadRoutePathArgs) {
       environmentProviderName={
         composerEnvironmentChrome?.environmentProviderName
       }
+      canRestoreEnvironment={thread.canRestoreEnvironment}
       environmentGoneStatus={threadEnvironmentGoneStatus}
       environmentHostId={environment?.hostId}
       isEnvironmentActionPending={requestEnvironmentAction.isPending}

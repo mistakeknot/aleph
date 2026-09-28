@@ -187,6 +187,13 @@ so they carry over between navigation plugins.
 - Enable it with `bb settings experiment changelogPreview true` to show the
   latest release notes on Settings → Updates.
 
+## Legacy plugin loader
+
+- The `legacyJitiPluginLoader` experiment defaults to false.
+- Enable it with `bb settings experiment legacyJitiPluginLoader true`.
+- Running plugins are unchanged when it is toggled. The selected loader applies
+  the next time a plugin is installed, reloaded, enabled, updated, or loaded
+  after a server restart.
 
 ## Sidebar progressive disclosure
 

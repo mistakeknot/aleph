@@ -1300,6 +1300,7 @@ export interface PluginSidebarThreadsState {
   } | null;
   status: "loading" | "ready" | "error";
   threads: readonly PluginSidebarThread[];
+  experimental_hosts?: readonly { id: string; name: string }[];
   projects: readonly PluginSidebarProject[];
   /** Every section, in the server's order (creation order). */
   sections: readonly PluginSidebarSection[];
@@ -1481,11 +1482,15 @@ export interface PluginSidebarThreadActions {
    * `sectionId` files the new thread under that section, and
    * `environmentId` reuses that environment (the "New thread in
    * environment" affordance), both exactly as bb's own list does.
+   * `hostId` selects a machine for a new environment when it
+   * is known and supports an environment provider. `environmentId` wins when
+   * both are supplied.
    */
   openNewThread(options?: {
     projectId?: string;
     sectionId?: string;
     environmentId?: string;
+    hostId?: string;
     focusPrompt?: boolean;
   }): void;
   setPinned(threadId: string, pinned: boolean): Promise<void>;

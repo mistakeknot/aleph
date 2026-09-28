@@ -416,6 +416,7 @@ type ExpectedThreadsKey =
   | "recordSearchSelection"
   | "reorderPinned"
   | "resolveMentions"
+  | "restoreEnvironment"
   | "retry"
   | "search"
   | "send"

@@ -38,3 +38,8 @@ remain selected. `bb thread-list prefs set threadLifecycles '["archived"]'`
 shows archived threads, and `'["active","archived"]'` shows both. The default
 is `'["active"]'`. Archived results load in pages; use Show more at the end
 of the list. The same preference is available through `setPreference` RPC.
+
+Organize → Rows → Provider icons toggles the icon before each thread title.
+`showProviderIcons` defaults to `false`; use
+`bb thread-list prefs set showProviderIcons true` to show them. Unknown
+provider ids have no icon.

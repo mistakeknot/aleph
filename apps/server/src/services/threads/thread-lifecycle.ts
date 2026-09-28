@@ -1028,6 +1028,20 @@ export function settleThreadStopCommandResult(
   }
 
   if (args.command.intent === "release") {
+    const thread = getThread(args.deps.db, args.command.threadId);
+    if (
+      args.report.ok &&
+      args.report.result.activeTurnRetained !== true &&
+      (thread?.status === "idle" || thread?.status === "error")
+    ) {
+      args.deps.pendingInteractions.interruptPendingInteractionsForThreadIdsInTransaction(
+        args.deps,
+        {
+          threadIds: [thread.id],
+          reason: pendingInteractionStopReason("manual-stop"),
+        },
+      );
+    }
     return emptyCommandResultSideEffects();
   }
 
@@ -1575,6 +1589,15 @@ async function stopThreadUntilSettled(
           command: buildThreadStopCommand({ ...args, intent: "interrupt" }),
           hostId: args.hostId,
         });
+        if (interrupted.failure !== null) {
+          const afterInterrupt = getThread(deps.db, threadId);
+          if (
+            afterInterrupt?.status === "idle" ||
+            afterInterrupt?.status === "error"
+          ) {
+            continue;
+          }
+        }
         return interrupted.failure;
       }
       const settled = getThread(deps.db, threadId);

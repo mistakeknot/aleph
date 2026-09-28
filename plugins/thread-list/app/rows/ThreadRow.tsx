@@ -8,8 +8,10 @@ import {
   type MouseEventHandler,
   type PointerEventHandler,
   type ReactNode,
+  type RefObject,
 } from "react";
 import { useComposedRefs } from "@radix-ui/react-compose-refs";
+import { useAtomValue } from "jotai";
 import { Icon } from "@/components/ui/icon";
 import {
   Tooltip,
@@ -43,7 +45,6 @@ import {
   type PluginSidebarSplitPane,
   type PluginSidebarThreadRowStatus,
 } from "@get-bb/plugin-sdk/app";
-import { useAtomValue } from "jotai";
 import type { SidebarThread } from "../model/sidebar-thread.js";
 import {
   sidebarProviderIconColorAtom,
@@ -81,6 +82,7 @@ import type {
   ThreadRowNestDrop,
 } from "./sidebarThreadRowDroppable.js";
 import type { SidebarSortableDragBindings } from "./sortableMotion.js";
+import { SidebarThreadDragChip } from "../dnd/sidebarThreadDragChip.js";
 import { SplitPaneMiniMap } from "./SplitPaneMiniMap.js";
 import {
   ThreadActionsContextMenu,
@@ -224,7 +226,13 @@ function renderThreadRowContainer({
   );
 }
 
-function ThreadRowProviderIcon({ providerId }: { providerId: string }) {
+function ThreadRowProviderIcon({
+  providerId,
+  rowLinkRef,
+}: {
+  providerId: string;
+  rowLinkRef: RefObject<HTMLAnchorElement | null>;
+}) {
   const showProviderIcons = useAtomValue(sidebarShowProviderIconsAtom);
   const colorMode = useAtomValue(sidebarProviderIconColorAtom);
   const customColors = useAtomValue(sidebarProviderIconColorsAtom);
@@ -238,21 +246,31 @@ function ThreadRowProviderIcon({ providerId }: { providerId: string }) {
     customColors,
   });
   return (
-    <span
-      data-sidebar-thread-provider-icon={providerId}
-      role="img"
-      aria-label={provider.displayName}
-      title={provider.displayName}
-      className="mr-1.5 flex shrink-0 items-center text-muted-foreground"
-      style={{ color }}
-    >
-      <ProviderIcon
-        providerKind="agent"
-        provider={{ ...provider, strings: { iconTint: null } }}
-        className="size-3.5"
-        aria-hidden
-      />
-    </span>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          data-sidebar-thread-provider-icon={providerId}
+          data-sidebar-thread-provider={providerId}
+          role="img"
+          aria-label={provider.displayName}
+          className="pointer-events-auto relative z-[31] mr-1.5 flex shrink-0 items-center text-muted-foreground"
+          style={{ color }}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            rowLinkRef.current?.click();
+          }}
+        >
+          <ProviderIcon
+            providerKind="agent"
+            provider={{ ...provider, strings: { iconTint: null } }}
+            className="size-3.5"
+            aria-hidden
+          />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="top">{provider.displayName}</TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -406,7 +424,8 @@ function ThreadRowComponent({
   const childActivity =
     parentOptions?.childActivity ?? NO_COLLAPSED_CHILD_ACTIVITY;
   const hasChildren = childCount > 0;
-  const reserveActionSpace = crossProjectLabel !== null || (isParentRow && hasChildren);
+  const reserveActionSpace =
+    crossProjectLabel !== null || (isParentRow && hasChildren);
   const hasHiddenChildren = isParentRow && isParentCollapsed && hasChildren;
   const trailingIndicatorState: ThreadListIndicatorState = {
     hasPendingInteraction:
@@ -478,6 +497,7 @@ function ThreadRowComponent({
     !showActive &&
       "has-[[data-state=open]]:bg-sidebar-accent has-[[data-sidebar-rename-anchor]:focus-visible]:bg-sidebar-accent",
     rowDragBindings && !rowDragBindings.disabled && "select-none",
+    "data-[sidebar-touch-armed=true]:!bg-transparent",
     nestTargetState && NEST_TARGET_STATE_CLASS[nestTargetState],
     reorderPlacement && REORDER_PLACEMENT_CLASS[reorderPlacement],
   );
@@ -520,6 +540,7 @@ function ThreadRowComponent({
       <span
         className={cn(
           "relative flex min-w-0 flex-1 items-center gap-1.5 self-stretch",
+          "group-data-[sidebar-touch-armed=true]/thread-row:hidden",
           !shortcut &&
             !isEditing &&
             (reserveActionSpace
@@ -565,22 +586,27 @@ function ThreadRowComponent({
               "flex-1",
           )}
         >
-          <ThreadRowProviderIcon providerId={thread.providerId} />
+          <ThreadRowProviderIcon
+            providerId={thread.providerId}
+            rowLinkRef={rowLinkRef}
+          />
           {isEditing ? (
             <span className="pointer-events-auto relative z-10 min-w-0 flex-1 overflow-visible">
               {editor}
             </span>
           ) : (
-            <span
-              className={cn(
-                "bb-thread-title",
-                crossProjectLabel !== null && "min-w-0 truncate",
-              )}
-              title={labelTitle}
-              onDoubleClick={startTitleEditing}
-            >
-              <ThreadTitle threadId={thread.id} />
-            </span>
+            <>
+              <span
+                className={cn(
+                  "bb-thread-title",
+                  crossProjectLabel !== null && "min-w-0 truncate",
+                )}
+                title={labelTitle}
+                onDoubleClick={startTitleEditing}
+              >
+                <ThreadTitle threadId={thread.id} />
+              </span>
+            </>
           )}
         </span>
         {crossProjectLabel !== null ? (
@@ -615,10 +641,17 @@ function ThreadRowComponent({
           />
         ) : null}
       </span>
+      {rowDragBindings && !rowDragBindings.disabled ? (
+        <SidebarThreadDragChip
+          title={labelTitle}
+          visualOnly
+          className="hidden group-data-[sidebar-touch-armed=true]/thread-row:flex"
+        />
+      ) : null}
       <span
         data-sidebar-thread-trailing=""
         className={cn(
-          "flex shrink-0 items-center gap-0.5",
+          "flex shrink-0 items-center gap-0.5 group-data-[sidebar-touch-armed=true]/thread-row:hidden",
           isEditing && "hidden",
         )}
       >
@@ -752,6 +785,7 @@ function ThreadRowComponent({
       onRename={rename.startEditingFromMenu}
       onCloseAutoFocus={rename.onCloseAutoFocus}
       disabled={isEditing}
+      dragging={rowDragBindings?.isDragging ?? false}
     >
       {row}
     </ThreadActionsContextMenu>

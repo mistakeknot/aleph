@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.44.0+aleph.0.4.2
+
+Aleph 0.4.2 syncs to upstream bb 0.44.0 (`desktop-v0.44.0`, commit
+`0baa605b3`).
+
+### Highlights
+
+- **Everything from upstream 0.44.0.** Diff panel filtering, safer archiving
+  with undo, plugin safe mode, and Claude Code fast mode on supported Opus
+  models. See the `0.44.0` notes below for the full list of what upstream
+  shipped in this sync.
+
 ## 0.43.4+aleph.0.4.1
 
 Aleph 0.4.1 is the first release under Aleph's own version number. Earlier
@@ -185,6 +197,40 @@ Upstream main after 0.43.4 includes the Account Pooler recheck of exhausted acco
 - **Provider icons.** Each thread row leads with its agent provider's icon. Turn them off in Organize → Rows → Provider icons. Choose brand colors or monochrome, or set light and dark colors for each provider with Customize colors…. Themes can set `--provider-icon-<id>` and `--provider-icon`.
 - **Switch a thread's provider in place.** When the handoff plugin is running, changing the provider in the model picker defaults to Switch in this thread. The new thread takes over the title, pin, section, parent, and children, and the original is archived. New thread keeps bb's standard handoff.
 - **Optional composer focus on pane switches.** Settings → Keyboard → Pane navigation → Focus composer when switching panes with keyboard. It is off by default and saved separately in each browser or desktop app.
+
+## 0.44.0
+
+Filter large diffs, recover archived threads more safely, and troubleshoot plugins with safe mode. These notes also cover 0.43.4, which shipped without notes.
+
+### Highlights
+
+- **Filter the diff panel** with globs like `*.md`, `docs/**`, or `!*.test.ts`.
+- **Safer archiving.** Undo within 30 seconds keeps a running turn and its terminals alive, and cleaned-up workspaces can be restored.
+- **Plugin safe mode** stops every plugin not included with bb in one step, then restores them when you turn it off.
+- **Claude Code fast mode** now works on supported Opus models.
+
+### Improvements
+
+- **Composer:** a send menu to queue, steer, save a draft, or send later; an Install button when a provider CLI is missing; 35 MB attachments; and automatic retries for failed queued messages.
+- **Sidebar:** show and unarchive archived threads, rename in place, and hide rows from their … menu. Installed thread-list and navigation plugins take over automatically.
+- **Navigation:** keyboard shortcuts for moving between splits and panel tabs, starting threads in existing Git worktrees, and faster long conversations.
+- **Desktop:** Cmd+F find, 50–300% zoom, clearer startup recovery, and cookie import from Dia.
+- **Machines:** remove a machine while keeping its threads as read-only history, and turn a moved server’s old computer into a regular machine with `bb server install-machine-service`.
+- **Plugins:** Docs improvements, a refreshed marketplace, 75% smaller bundled plugins, and forkable built-ins.
+- **AI services:** choose which service writes thread titles, commit messages, and voice transcripts in Settings → AI services.
+- **In-app updates (opt-in):** start bb with `npx bb-app start --in-app-updates` to update from Settings → Updates or `bb updates app`.
+
+### Fixes
+
+- Fixes for Pi, Claude Code, Codex, and ACP sessions, bb Connect tunnel resets, stuck workspaces and questions, voice input, and the mobile keyboard and sidebar.
+
+### New plugin APIs
+
+- Experimental `aiServices`, `sidebarHeader`, `useSidebarNavigation`, and `sendMenu`, plus `useSdk()`, `bb.onInstall`, and the `experimental_host.deleted` event.
+
+### Thanks
+
+Thank you to the contributors outside the core team: [@andrewkchan](https://github.com/andrewkchan), [@danielbachhuber](https://github.com/danielbachhuber), [@dillonzq](https://github.com/dillonzq), [@fgrehm](https://github.com/fgrehm), [@hemaaanth](https://github.com/hemaaanth), [@jshph](https://github.com/jshph), [@luketraas](https://github.com/luketraas), [@MacHatter1](https://github.com/MacHatter1), [@maheen-ejaz](https://github.com/maheen-ejaz), [@OXI-717](https://github.com/OXI-717), [@salemsayed](https://github.com/salemsayed), [@vyacheslav-startsev](https://github.com/vyacheslav-startsev), [@vznh](https://github.com/vznh), and [@Willhong](https://github.com/Willhong).
 
 ## 0.43.3
 

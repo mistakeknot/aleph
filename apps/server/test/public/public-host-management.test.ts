@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import {
   getEnvironment,
   getHost,
@@ -168,6 +169,14 @@ describe("public host management", () => {
         headers: { "X-BB-Enrollment": credential },
       });
       expect(reused.status).toBe(403);
+      expect(reused.headers.get("content-type")).toContain("text/x-shellscript");
+      const errorScript = spawnSync("sh", ["-c", await reused.text()], {
+        encoding: "utf8",
+      });
+      expect(errorScript.status).toBe(1);
+      expect(errorScript.stderr).toContain(
+        "already been used, replaced, or expired",
+      );
     });
   });
 
@@ -405,6 +414,30 @@ describe("public host management", () => {
         maxPermissionMode: "full",
         name: host.name,
       });
+    });
+  });
+
+  it("filters the host list by type and rejects unknown types", async () => {
+    await withTestHarness(async (harness) => {
+      const persistent = seedHost(harness.deps, { id: "host_persistent" });
+      const ephemeral = seedHost(harness.deps, { id: "host_ephemeral" });
+      updateHost(harness.db, harness.hub, ephemeral.id, { type: "ephemeral" });
+
+      const listIds = async (query: string) => {
+        const response = await harness.app.request(`${API}/hosts${query}`);
+        expect(response.status).toBe(200);
+        return z
+          .array(z.object({ id: z.string() }))
+          .parse(await readJson(response))
+          .map((host) => host.id);
+      };
+
+      expect(await listIds("")).toEqual([persistent.id, ephemeral.id]);
+      expect(await listIds("?type=persistent")).toEqual([persistent.id]);
+      expect(await listIds("?type=ephemeral")).toEqual([ephemeral.id]);
+      expect(
+        (await harness.app.request(`${API}/hosts?type=sandbox`)).status,
+      ).toBe(400);
     });
   });
 
