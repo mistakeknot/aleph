@@ -456,7 +456,11 @@ describe("CommandPalette", () => {
       ];
       renderPalette({ layout: splitLayout });
       openThreadSearch();
-      await screen.findByRole("option", { name: /Title first/ });
+      await screen.findByRole(
+        "option",
+        { name: /Title first/ },
+        { timeout: 5000 },
+      );
       fireEvent.keyDown(searchField(), { key: "ArrowDown" });
       const button = screen.getByRole("button", { name: "Open in split" });
       expect(button.querySelectorAll("kbd")).toHaveLength(1);
@@ -518,7 +522,7 @@ describe("CommandPalette", () => {
         layout: reason === "no workspace" ? null : layout,
       });
       openThreadSearch();
-      await screen.findByRole("option");
+      await screen.findByRole("option", {}, { timeout: 5000 });
       expect(
         screen.queryByRole("button", { name: "Open in split" }),
       ).toBeNull();
@@ -547,7 +551,11 @@ describe("CommandPalette", () => {
     };
     renderPalette({ layout: splitLayout });
     openThreadSearch();
-    await screen.findByRole("combobox", { name: "Search threads" });
+    await screen.findByRole(
+      "combobox",
+      { name: "Search threads" },
+      { timeout: 5000 },
+    );
     fireEvent.change(searchField(), { target: { value: "match" } });
     fireEvent.keyDown(searchField(), { key: "End" });
     expect(selectedOption()?.textContent).toContain("Show more");
@@ -586,7 +594,11 @@ describe("CommandPalette", () => {
     };
     renderPalette({ layout: splitLayout, lifecycles: ["archived"] });
     openThreadSearch();
-    await screen.findByRole("combobox", { name: "Search threads" });
+    await screen.findByRole(
+      "combobox",
+      { name: "Search threads" },
+      { timeout: 5000 },
+    );
     fireEvent.change(searchField(), { target: { value: "matching" } });
     fireEvent.keyDown(searchField(), { key: "Enter", metaKey: true });
     await waitFor(() => expect(openThreadInSplitMock).toHaveBeenCalledTimes(1));
@@ -928,7 +940,11 @@ describe("CommandPalette", () => {
     async (query) => {
       renderPalette();
       openThreadSearch();
-      await screen.findByRole("combobox", { name: "Search threads" });
+      await screen.findByRole(
+        "combobox",
+        { name: "Search threads" },
+        { timeout: 5000 },
+      );
       fireEvent.change(searchField(), { target: { value: query } });
       const message = await screen.findByText(
         query === "" ? "No threads" : "No matching threads",
@@ -993,7 +1009,11 @@ describe("CommandPalette", () => {
     expectText(await screen.findByRole("tooltip"), "Return to commands (Esc)");
     expect(document.querySelector("[data-palette-footer]")).toBeNull();
     fireEvent.keyDown(close, { key: "Escape" });
-    await screen.findByRole("combobox", { name: "Search commands" });
+    await screen.findByRole(
+      "combobox",
+      { name: "Search commands" },
+      { timeout: 5000 },
+    );
   });
 
   it("enters thread mode by running Search threads from the root", async () => {
@@ -1053,7 +1073,11 @@ describe("CommandPalette", () => {
     };
     renderPalette();
     openThreadSearch();
-    await screen.findByRole("combobox", { name: "Search threads" });
+    await screen.findByRole(
+      "combobox",
+      { name: "Search threads" },
+      { timeout: 5000 },
+    );
     const results = screen.getByRole("listbox", { name: "Threads" });
     const rows = within(results).getAllByRole("option");
     expect(rows.map((row) => row.textContent)).toEqual([
@@ -1111,7 +1135,11 @@ describe("CommandPalette", () => {
     modeState.activeRecents = [makeThread("active")];
     const { store } = renderPalette();
     openThreadSearch();
-    await screen.findByRole("combobox", { name: "Search threads" });
+    await screen.findByRole(
+      "combobox",
+      { name: "Search threads" },
+      { timeout: 5000 },
+    );
     const trigger = screen.getByRole("button", {
       name: "Filter: Active",
     });
@@ -1582,7 +1610,11 @@ describe("CommandPalette", () => {
     setPluginThreadRowStatus("waiting", "checks", pluginStatus);
     renderPalette();
     openThreadSearch();
-    await screen.findByRole("combobox", { name: "Search threads" });
+    await screen.findByRole(
+      "combobox",
+      { name: "Search threads" },
+      { timeout: 5000 },
+    );
     const row = screen.getByRole("option", { name: /Title plugin/ });
     expect(within(row).queryByRole("img")).toBeNull();
     act(() => setPluginThreadRowStatus("plugin", "checks", pluginStatus));

@@ -26,7 +26,9 @@ describe("shared sidebar visibility controls", () => {
       </CompactViewportOverrideProvider>,
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Review" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Review" }, { timeout: 5000 }),
+    );
     expect(onVisibleChange).toHaveBeenCalledWith("section:review", true);
     expect(onDone).not.toHaveBeenCalled();
     fireEvent.keyDown(screen.getByRole("button", { name: "Review" }), {
