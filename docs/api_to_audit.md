@@ -3391,3 +3391,35 @@ remain forbidden. New-machine selections continue through creation.
 
 Stabilization requires lifecycle coverage for reuse, missing paths, cleanup in
 progress, cross-project ownership, and concurrent creation before binding.
+
+## `app.slots.experimental_appHeaderStatus`
+
+Renders a compact status chip in the header bar's center, sharing width with
+breadcrumbs and the thread title. Many plugins can contribute (`{ id, title,
+component }`); the host shows them in ascending plugin id order, then
+registration order, same as `homepageSection`. The public types are
+`PluginAppHeaderStatusProps` and `PluginAppHeaderStatusRegistration`.
+
+The host renders each contribution once per window, never once per split
+pane: on thread routes it mounts only in the top-row pane's header
+(`usePaneContext().isTopRow`), and on non-thread routes (Tasks, Settings,
+Automations, Skills) it mounts in `AppHeader`. `threadId`/`projectId` reflect
+whichever pane owns the mount, or null off a thread route. `availableWidth`
+reports the strip's own measured width (all contributions combined), updated
+by a `ResizeObserver`, so a chip can switch to a narrower presentation before
+it would overflow; `isCompactViewport` signals phone widths, where a
+contribution should collapse further (this strip's own convention is a
+single icon plus one summary percent). `openSettings()` navigates to the
+contributing plugin's own configuration route (via
+`getPluginConfigurationRoutePath({ pluginId })`); a chip calls it on click
+rather than owning its own navigation. Root compose (the new-thread screen)
+renders no header row today and is out of scope.
+
+Audit before stabilizing: whether cross-plugin ordering should be explicit
+instead of alphabetical-by-plugin-id, whether the strip's 60%-of-row (40% on
+compact viewports) width cap and per-chip `availableWidth` budget generalize
+past the Account Pooler's chips, whether `threadId`/`projectId` should also
+resolve for the focused pane in a split layout rather than always the
+top-row pane, whether `openSettings` should support in-place panels instead
+of always navigating away, and whether root compose should eventually get a
+header row and this slot.

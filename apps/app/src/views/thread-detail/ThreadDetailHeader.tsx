@@ -19,6 +19,7 @@ import {
   HEADER_ICON_BUTTON_CLASS,
   HEADER_PANE_ACTION_ICON_BUTTON_CLASS,
 } from "@/components/layout/AppPageHeader";
+import { AppHeaderStatusStrip } from "@/components/layout/AppHeaderStatusStrip";
 import type { ThreadGitActionDialogTarget } from "@/components/dialogs/ThreadGitActionDialog";
 import {
   getBbDesktopInfo,
@@ -58,6 +59,7 @@ interface ThreadDetailHeaderProps {
   onOpenThreadGitAction: (target: ThreadGitActionDialogTarget) => void;
   onToggleSecondaryPanel: () => void;
   pluginActions?: ReactNode;
+  projectId?: string;
   threadHeaderGitActions: ThreadHeaderGitAction[];
   threadId: string;
   threadTitle: string;
@@ -72,6 +74,7 @@ export function ThreadDetailHeader({
   onOpenThreadGitAction,
   onToggleSecondaryPanel,
   pluginActions,
+  projectId,
   threadHeaderGitActions,
   threadId,
   threadTitle,
@@ -198,6 +201,13 @@ export function ThreadDetailHeader({
           {actionsMenu(usesResponsiveActionOverflow)}
         </span>
       )}
+      {isTopRow ? (
+        <AppHeaderStatusStrip
+          threadId={threadId}
+          projectId={projectId ?? null}
+          isCompactViewport={isCompactViewport}
+        />
+      ) : null}
     </>
   );
 

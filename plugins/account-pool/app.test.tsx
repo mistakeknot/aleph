@@ -789,3 +789,175 @@ describe("Account Pool settings", () => {
     },
   );
 });
+
+function renderHeaderStatus(
+  accounts: AccountSummary[],
+  overrides: {
+    threadId?: string | null;
+    isCompactViewport?: boolean;
+    availableWidth?: number;
+    configOverrides?: Partial<AccountPoolConfig>;
+    extraRpc?: Record<string, () => object | null | Promise<object | null>>;
+  } = {},
+) {
+  const openSettings = vi.fn();
+  const slot = renderSlot(
+    app.appHeaderStatuses[0]!,
+    {
+      threadId: overrides.threadId ?? null,
+      projectId: null,
+      isCompactViewport: overrides.isCompactViewport ?? false,
+      availableWidth: overrides.availableWidth ?? 600,
+      openSettings,
+    },
+    {
+      rpc: {
+        "status.get": () => status(accounts),
+        "config.get": () => config(overrides.configOverrides),
+        "bypass.get": () => ({
+          threadId: overrides.threadId ?? "",
+          bypassed: false,
+        }),
+        ...overrides.extraRpc,
+      },
+      openUrl: () => true,
+    },
+  );
+  return { ...slot, openSettings };
+}
+
+function codexAccount(
+  utilization: number,
+  overrides: Partial<AccountSummary> = {},
+) {
+  return account({
+    id: "22222222-2222-4222-8222-222222222222",
+    provider: "codex",
+    codexAccountId: "chatgpt-account",
+    limitWindows: [
+      {
+        slot: "primary",
+        windowMinutes: 10_080,
+        utilization,
+        resetAt: null,
+        status: null,
+        observedAt: 1,
+        source: "usage",
+      },
+    ],
+    ...overrides,
+  });
+}
+
+describe("Account Pool header status", () => {
+  it("shows one chip per provider with the tightest window's percent", async () => {
+    const slot = renderHeaderStatus([
+      account({ provider: "claude", fiveHourUtilization: 0.4 }),
+      codexAccount(0.1),
+    ]);
+    expect(await slot.findByText("40%")).toBeTruthy();
+    expect(slot.getByText("10%")).toBeTruthy();
+  });
+
+  it("renders the default tone below the switch threshold", async () => {
+    const slot = renderHeaderStatus([account({ fiveHourUtilization: 0.5 })], {
+      configOverrides: { switchThreshold: 0.9 },
+    });
+    const percent = await slot.findByText("50%");
+    expect(percent.className).toContain("text-foreground");
+  });
+
+  it("renders the warning tone at threshold minus 0.1", async () => {
+    const slot = renderHeaderStatus([account({ fiveHourUtilization: 0.8 })], {
+      configOverrides: { switchThreshold: 0.9 },
+    });
+    const percent = await slot.findByText("80%");
+    expect(percent.className).toContain("text-warning-text");
+  });
+
+  it("renders the destructive tone at full utilization", async () => {
+    const slot = renderHeaderStatus([account({ fiveHourUtilization: 1 })], {
+      configOverrides: { switchThreshold: 0.9 },
+    });
+    const percent = await slot.findByText("100%");
+    expect(percent.className).toContain("text-destructive-text");
+  });
+
+  it("renders the destructive tone when the window is rejected", async () => {
+    const slot = renderHeaderStatus([
+      account({ fiveHourUtilization: 0.2, fiveHourStatus: "rejected" }),
+    ]);
+    const percent = await slot.findByText("20%");
+    expect(percent.className).toContain("text-destructive-text");
+  });
+
+  it("says off when routing is disabled for a provider", async () => {
+    const slot = renderSlot(
+      app.appHeaderStatuses[0]!,
+      {
+        threadId: null,
+        projectId: null,
+        isCompactViewport: false,
+        availableWidth: 600,
+        openSettings: vi.fn(),
+      },
+      {
+        rpc: {
+          "status.get": () => ({
+            ...status([account()]),
+            routing: { claude: false, codex: true },
+          }),
+          "config.get": () => config(),
+          "bypass.get": () => ({ threadId: "", bypassed: false }),
+        },
+        openUrl: () => true,
+      },
+    );
+    expect(await slot.findByText("off")).toBeTruthy();
+  });
+
+  it("shows a bypassed badge for the current thread", async () => {
+    const slot = renderHeaderStatus([account()], {
+      threadId: "thread-1",
+      extraRpc: {
+        "bypass.get": () => ({ threadId: "thread-1", bypassed: true }),
+      },
+    });
+    expect(await slot.findByText("bypassed")).toBeTruthy();
+  });
+
+  it("opens settings on click", async () => {
+    const slot = renderHeaderStatus([account({ fiveHourUtilization: 0.4 })]);
+    const button = await slot.findByTestId("account-pool-header-status");
+    fireEvent.click(button);
+    expect(slot.openSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it("collapses to a single icon and the worst percent on a compact viewport", async () => {
+    const slot = renderHeaderStatus(
+      [
+        account({ provider: "claude", fiveHourUtilization: 0.4 }),
+        codexAccount(0.9),
+      ],
+      { isCompactViewport: true },
+    );
+    expect(await slot.findByText("90%")).toBeTruthy();
+    expect(slot.queryByText("40%")).toBeNull();
+  });
+
+  it("collapses to a single icon when available width is too narrow", async () => {
+    const slot = renderHeaderStatus([account({ fiveHourUtilization: 0.4 })], {
+      availableWidth: 150,
+    });
+    expect(await slot.findByText("40%")).toBeTruthy();
+    expect(slot.queryByText(/^Claude$/)).toBeNull();
+  });
+
+  it("does not collapse when available width is ample", async () => {
+    const slot = renderHeaderStatus([account({ fiveHourUtilization: 0.4 })], {
+      availableWidth: 600,
+    });
+    expect(await slot.findByText("40%")).toBeTruthy();
+    expect(slot.getByText(/^Claude$/)).toBeTruthy();
+  });
+});

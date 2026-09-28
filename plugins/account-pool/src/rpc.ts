@@ -10,6 +10,7 @@ import {
   accountSchema,
   accountSummarySchema,
   bypassInputSchema,
+  bypassQueryInputSchema,
   codexLoginCancelSchema,
   codexLoginPollInputSchema,
   codexLoginPollSchema,
@@ -110,6 +111,10 @@ export const accountPoolRpcContract = defineRpcContract({
     input: bypassInputSchema,
     output: bypassInputSchema,
   },
+  "bypass.get": {
+    input: bypassQueryInputSchema,
+    output: bypassInputSchema,
+  },
 });
 
 export function createRpcHandlers(
@@ -158,5 +163,6 @@ export function createRpcHandlers(
     "token.rotate": ({ machine }) => operations.rotateToken(machine),
     "bypass.set": ({ threadId, bypassed }) =>
       operations.setBypass(threadId, bypassed),
+    "bypass.get": ({ threadId }) => operations.getBypass(threadId),
   };
 }
