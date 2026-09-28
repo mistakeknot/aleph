@@ -21,6 +21,15 @@
   tightest limit is used, colored by how close it is, and when that limit
   resets. In a narrow window each chip shrinks to its icon.
 
+### Desktop app
+
+- **Cmd-W closes the focused pane.** With the thread view split into panes,
+  Cmd-W (Ctrl-W on Windows and Linux) closes the pane you are in instead of
+  the whole window.
+- **The desktop app says Aleph throughout.** The loading screen, error and
+  server dialogs, window titles and sign-in popups name Aleph instead of bb.
+  bb Connect keeps its name.
+
 ## 0.43.4+aleph.0.4.1
 
 Aleph 0.4.1 is the first release under Aleph's own version number. Earlier
