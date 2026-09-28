@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppCommandId } from "@bb/domain";
 import type {
   BbDesktopApi,
@@ -46,7 +46,9 @@ import {
   BB_DESKTOP_OPEN_NEW_TAB_CHANNEL,
   BB_DESKTOP_OPEN_SERVER_DAEMON_LOGS_CHANNEL,
   BB_DESKTOP_WINDOW_STATE_CHANGED_CHANNEL,
+  CLOSE_WINDOW_REQUEST_TIMEOUT_MS,
 } from "../src/desktop-window-command-ipc.js";
+import { createCloseWindowRequestTracker } from "../src/desktop-close-window-request.js";
 const electronMock = vi.hoisted(() => {
   interface IpcRendererEvent {}
 
@@ -420,6 +422,7 @@ describe("desktop preload browser API", () => {
     });
     api.onAppCommand?.((command) => {
       appCommands.push(command);
+      return false;
     });
     api.onCloseWindowRequest?.(() => {
       closeWindowRequestCount += 1;
@@ -554,6 +557,188 @@ describe("desktop preload browser API", () => {
     expect(electronMock.sendCalls).toContainEqual({
       channel: BB_DESKTOP_CLOSE_WINDOW_RESPONSE_CHANNEL,
       payload: false,
+    });
+  });
+
+  describe("Cmd/Ctrl-W close requests through preload and main", () => {
+    interface RendererWindow {
+      paneCount: number;
+      sideTabOpen: boolean;
+      closedPaneCount: number;
+      closedSideTabCount: number;
+    }
+
+    interface MainWindow {
+      closeCount: number;
+      close(): void;
+      isDestroyed(): boolean;
+    }
+
+    const webContentsId = 7;
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    function mountRenderer(args: {
+      paneCount: number;
+      sideTabOpen: boolean;
+    }): RendererWindow {
+      const renderer: RendererWindow = {
+        ...args,
+        closedPaneCount: 0,
+        closedSideTabCount: 0,
+      };
+      api.onCloseWindowRequest?.(() => {
+        if (!renderer.sideTabOpen) return false;
+        renderer.sideTabOpen = false;
+        renderer.closedSideTabCount += 1;
+        return true;
+      });
+      api.onAppCommand?.((command) => {
+        if (command !== "pane.close" || renderer.paneCount <= 1) return false;
+        renderer.paneCount -= 1;
+        renderer.closedPaneCount += 1;
+        return true;
+      });
+      return renderer;
+    }
+
+    function createMainWindow(): MainWindow {
+      return {
+        closeCount: 0,
+        close() {
+          this.closeCount += 1;
+        },
+        isDestroyed() {
+          return false;
+        },
+      };
+    }
+
+    function lastCloseResponse(): unknown {
+      const responses = electronMock.sendCalls.filter(
+        (call) => call.channel === BB_DESKTOP_CLOSE_WINDOW_RESPONSE_CHANNEL,
+      );
+      return responses.at(-1)?.payload;
+    }
+
+    function pressCloseShortcut(
+      tracker: ReturnType<typeof createCloseWindowRequestTracker>,
+      mainWindow: MainWindow,
+    ): void {
+      tracker.request(webContentsId, mainWindow, () => {
+        emitIpcPayload({
+          channel: BB_DESKTOP_CLOSE_WINDOW_REQUEST_CHANNEL,
+          payload: null,
+        });
+      });
+      tracker.respond(webContentsId, lastCloseResponse(), mainWindow);
+    }
+
+    it("closes only the focused pane while several panes are open, then the window", () => {
+      const renderer = mountRenderer({ paneCount: 2, sideTabOpen: false });
+      const tracker = createCloseWindowRequestTracker(
+        CLOSE_WINDOW_REQUEST_TIMEOUT_MS,
+      );
+      const mainWindow = createMainWindow();
+
+      pressCloseShortcut(tracker, mainWindow);
+      expect(renderer.closedPaneCount).toBe(1);
+      expect(lastCloseResponse()).toBe(true);
+      expect(mainWindow.closeCount).toBe(0);
+
+      pressCloseShortcut(tracker, mainWindow);
+      expect(renderer.closedPaneCount).toBe(1);
+      expect(lastCloseResponse()).toBe(false);
+      expect(mainWindow.closeCount).toBe(1);
+    });
+
+    it("closes the window when a single pane is open", () => {
+      const renderer = mountRenderer({ paneCount: 1, sideTabOpen: false });
+      const tracker = createCloseWindowRequestTracker(
+        CLOSE_WINDOW_REQUEST_TIMEOUT_MS,
+      );
+      const mainWindow = createMainWindow();
+
+      pressCloseShortcut(tracker, mainWindow);
+
+      expect(renderer.closedPaneCount).toBe(0);
+      expect(mainWindow.closeCount).toBe(1);
+    });
+
+    it("closes the focused pane's side tab before the pane or the window", () => {
+      const renderer = mountRenderer({ paneCount: 2, sideTabOpen: true });
+      const tracker = createCloseWindowRequestTracker(
+        CLOSE_WINDOW_REQUEST_TIMEOUT_MS,
+      );
+      const mainWindow = createMainWindow();
+
+      pressCloseShortcut(tracker, mainWindow);
+      expect(renderer.closedSideTabCount).toBe(1);
+      expect(renderer.closedPaneCount).toBe(0);
+      expect(mainWindow.closeCount).toBe(0);
+
+      pressCloseShortcut(tracker, mainWindow);
+      expect(renderer.closedPaneCount).toBe(1);
+      expect(mainWindow.closeCount).toBe(0);
+    });
+
+    it("decides from the renderer's pane state, not the split navigation flag sent to main", () => {
+      const multiPane = mountRenderer({ paneCount: 2, sideTabOpen: false });
+      api.setSplitNavigationEnabled?.(false);
+      const tracker = createCloseWindowRequestTracker(
+        CLOSE_WINDOW_REQUEST_TIMEOUT_MS,
+      );
+      const mainWindow = createMainWindow();
+
+      pressCloseShortcut(tracker, mainWindow);
+
+      expect(multiPane.closedPaneCount).toBe(1);
+      expect(mainWindow.closeCount).toBe(0);
+    });
+
+    it("keeps closing the window for a web app whose command listener returns nothing", () => {
+      api.onAppCommand?.(
+        (() => undefined) as unknown as (command: AppCommandId) => boolean,
+      );
+      const tracker = createCloseWindowRequestTracker(
+        CLOSE_WINDOW_REQUEST_TIMEOUT_MS,
+      );
+      const mainWindow = createMainWindow();
+
+      pressCloseShortcut(tracker, mainWindow);
+
+      expect(lastCloseResponse()).toBe(false);
+      expect(mainWindow.closeCount).toBe(1);
+    });
+
+    it("closes the window when the renderer does not answer in time", () => {
+      vi.useFakeTimers();
+      const tracker = createCloseWindowRequestTracker(
+        CLOSE_WINDOW_REQUEST_TIMEOUT_MS,
+      );
+      const mainWindow = createMainWindow();
+
+      tracker.request(webContentsId, mainWindow, () => undefined);
+      vi.advanceTimersByTime(CLOSE_WINDOW_REQUEST_TIMEOUT_MS - 1);
+      expect(mainWindow.closeCount).toBe(0);
+      vi.advanceTimersByTime(1);
+      expect(mainWindow.closeCount).toBe(1);
+    });
+
+    it("cancels the timeout once the renderer answers", () => {
+      vi.useFakeTimers();
+      mountRenderer({ paneCount: 2, sideTabOpen: false });
+      const tracker = createCloseWindowRequestTracker(
+        CLOSE_WINDOW_REQUEST_TIMEOUT_MS,
+      );
+      const mainWindow = createMainWindow();
+
+      pressCloseShortcut(tracker, mainWindow);
+      vi.advanceTimersByTime(CLOSE_WINDOW_REQUEST_TIMEOUT_MS * 2);
+
+      expect(mainWindow.closeCount).toBe(0);
     });
   });
 });
