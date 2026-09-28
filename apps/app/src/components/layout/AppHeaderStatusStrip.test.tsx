@@ -179,25 +179,35 @@ describe("AppHeaderStatusStrip", () => {
     expect(totalOccupied).toBeLessThanOrEqual(400);
   });
 
-  it("clamps the gap along with each contribution's budget when available width is smaller than the gap itself", () => {
-    stubResizeObserver();
-    registerStatus("account-pool");
-    registerStatus("other-plugin");
-    render(tree());
+  it.each([
+    { availableWidth: 0, expectedRenderedGapPx: 0 },
+    { availableWidth: 4, expectedRenderedGapPx: 4 },
+    { availableWidth: 8, expectedRenderedGapPx: 8 },
+  ])(
+    "renders an actual gap of $expectedRenderedGapPx px, not a fixed 8px, when available width is $availableWidth px",
+    ({ availableWidth, expectedRenderedGapPx }) => {
+      stubResizeObserver();
+      registerStatus("account-pool");
+      registerStatus("other-plugin");
+      render(tree());
 
-    resizeStrip(4);
+      resizeStrip(availableWidth);
 
-    const fixtures = screen.getAllByTestId("status-fixture");
-    const perContributionWidth = Number(
-      fixtures[0]?.textContent?.split("/")[0],
-    );
-    const contributionCount = fixtures.length;
-    const clampedGapWidth = Math.min(8 * (contributionCount - 1), 4);
-    const totalOccupied =
-      perContributionWidth * contributionCount + clampedGapWidth;
-    expect(totalOccupied).toBeLessThanOrEqual(4);
-    expect(perContributionWidth).toBe(0);
-  });
+      const strip = screen.getByTestId("app-header-status-strip");
+      const renderedGapPx = Number(strip.style.gap.replace("px", ""));
+      expect(renderedGapPx).toBe(expectedRenderedGapPx);
+
+      const fixtures = screen.getAllByTestId("status-fixture");
+      const perContributionWidth = Number(
+        fixtures[0]?.textContent?.split("/")[0],
+      );
+      const contributionCount = fixtures.length;
+      const totalOccupied =
+        perContributionWidth * contributionCount +
+        renderedGapPx * (contributionCount - 1);
+      expect(totalOccupied).toBeLessThanOrEqual(availableWidth);
+    },
+  );
 
   it("labels each contribution's wrapper region with its registration title", () => {
     stubResizeObserver();
