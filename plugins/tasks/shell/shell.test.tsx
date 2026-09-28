@@ -949,6 +949,69 @@ describe("tasks app shell", () => {
     });
   });
 
+  it("opens a task beside the list instead of replacing it", async () => {
+    const task = {
+      ...pagerTask("TSK-4", "todo", 1),
+      description: "",
+      labelIds: [],
+    };
+    const slot = renderSlot(
+      app.navPanels[0]!,
+      { subPath: "task/TSK-4" },
+      {
+        rpc: seededRpc({
+          getTaskByKey: () => ({ task }),
+          listTasks: () => ({ tasks: [task] }),
+          listLabels: () => ({ labels: [] }),
+          listAttachments: () => ({ attachments: [] }),
+          listTaskThreads: () => ({ taskThreads: [] }),
+          listComments: () => ({ comments: [] }),
+        }),
+      },
+    );
+    // The list (browse route defaults to "all" with no prior navigation)
+    // and the task detail both render at once.
+    await slot.findByRole("textbox", { name: "Task title" });
+    expect(slot.getByRole("button", { name: /Sort/ })).toBeDefined();
+    expect(
+      slot.getByRole("button", { name: "Close task detail" }),
+    ).toBeDefined();
+  });
+
+  it("keeps the last browse route visible beside the task column and closes it via the close button", async () => {
+    const task = {
+      ...pagerTask("TSK-4", "todo", 1),
+      description: "",
+      labelIds: [],
+    };
+    const rpc = seededRpc({
+      getTaskByKey: () => ({ task }),
+      listTasks: () => ({ tasks: [task] }),
+      listLabels: () => ({ labels: [] }),
+      listAttachments: () => ({ attachments: [] }),
+      listTaskThreads: () => ({ taskThreads: [] }),
+      listComments: () => ({ comments: [] }),
+    });
+    const Panel = app.navPanels[0]!.component;
+    const slot = renderSlot(
+      app.navPanels[0]!,
+      { subPath: `${PROJECT_ID}?view=board` },
+      { rpc },
+    );
+    await slot.findByText("Backlog");
+
+    slot.lifecycle.rerender(<Panel subPath="task/TSK-4" />);
+    await slot.findByRole("textbox", { name: "Task title" });
+    expect(slot.getByText("Backlog")).toBeDefined();
+
+    fireEvent.click(slot.getByRole("button", { name: "Close task detail" }));
+    expect(slot.navigateCalls).toContainEqual({
+      method: "toPluginPanel",
+      path: "tasks",
+      options: { subPath: `${PROJECT_ID}?view=board` },
+    });
+  });
+
   it("renders right-panel navigation and routes through the plugin panel", async () => {
     const slot = renderSlot(
       navigationRegistration,

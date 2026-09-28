@@ -22,6 +22,8 @@ import { Icon } from "@/components/ui/icon";
 import { TasksRefreshProvider } from "./refresh.js";
 
 const BOARD_MIN_WIDTH = 448;
+const DETAIL_SPLIT_MIN_WIDTH = 768;
+const DETAIL_COLUMN_WIDTH = "26rem";
 
 function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
@@ -40,11 +42,13 @@ function hasOpenOverlay(): boolean {
   );
 }
 
-function RouteOutlet({
+type BrowseRoute = Exclude<ResolvedTasksRoute, { kind: "task" }>;
+
+function BrowseRouteOutlet({
   route,
   boardUsable,
 }: {
-  route: ResolvedTasksRoute;
+  route: BrowseRoute;
   boardUsable: boolean;
 }) {
   switch (route.kind) {
@@ -54,8 +58,6 @@ function RouteOutlet({
       return <ListView projectId={null} activeOnly />;
     case "manage":
       return <ManagePanel />;
-    case "task":
-      return <DetailView taskKey={route.taskKey} />;
     case "project":
       return route.view === "board" && boardUsable ? (
         <BoardView projectId={route.projectId} />
@@ -87,23 +89,38 @@ function TasksAppShellContent({ subPath }: PluginNavPanelProps) {
   const [newTaskOpen, setNewTaskOpen] = useState(false);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
 
-  const mainRef = useRef<HTMLElement>(null);
-  const [boardUsable, setBoardUsable] = useState(true);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [detailSplitFits, setDetailSplitFits] = useState(true);
   useEffect(() => {
-    const main = mainRef.current;
-    if (!main || typeof ResizeObserver === "undefined") return;
+    const root = rootRef.current;
+    if (!root || typeof ResizeObserver === "undefined") return;
     const update = () => {
-      const mainWidth = main.clientWidth;
-      setBoardUsable(!(mainWidth > 0 && mainWidth < BOARD_MIN_WIDTH));
+      const rootWidth = root.clientWidth;
+      setDetailSplitFits(!(rootWidth > 0 && rootWidth < DETAIL_SPLIT_MIN_WIDTH));
     };
     update();
     const observer = new ResizeObserver(update);
-    observer.observe(main);
+    observer.observe(root);
+    return () => observer.disconnect();
+  }, []);
+
+  const browsePaneRef = useRef<HTMLDivElement>(null);
+  const [boardUsable, setBoardUsable] = useState(true);
+  useEffect(() => {
+    const browsePane = browsePaneRef.current;
+    if (!browsePane || typeof ResizeObserver === "undefined") return;
+    const update = () => {
+      const paneWidth = browsePane.clientWidth;
+      setBoardUsable(!(paneWidth > 0 && paneWidth < BOARD_MIN_WIDTH));
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(browsePane);
     return () => observer.disconnect();
   }, []);
   const projects = useProjects();
 
-  const lastBrowseRouteRef = useRef<TasksRoute | null>(null);
+  const lastBrowseRouteRef = useRef<BrowseRoute | null>(null);
   useEffect(() => {
     if (route.kind !== "task") lastBrowseRouteRef.current = route;
     // oxlint-disable-next-line react/exhaustive-deps
@@ -111,6 +128,9 @@ function TasksAppShellContent({ subPath }: PluginNavPanelProps) {
   const backFromTask = () =>
     navigation.go(lastBrowseRouteRef.current ?? { kind: "all" });
   const onTaskRoute = route.kind === "task";
+  const browseRoute: BrowseRoute =
+    route.kind === "task" ? (lastBrowseRouteRef.current ?? { kind: "all" }) : route;
+  const showBrowsePane = !onTaskRoute || detailSplitFits;
   const backRef = useRef(backFromTask);
   backRef.current = backFromTask;
   useEffect(() => {
@@ -143,8 +163,11 @@ function TasksAppShellContent({ subPath }: PluginNavPanelProps) {
   }, []);
 
   return (
-    <div className="relative flex h-full min-h-0 bg-background text-foreground">
-      <main ref={mainRef} className="@container flex min-w-0 flex-1 flex-col">
+    <div
+      ref={rootRef}
+      className="relative flex h-full min-h-0 bg-background text-foreground"
+    >
+      <main className="@container flex min-w-0 flex-1 flex-col">
         <TasksTopbar
           route={route}
           projects={projects.data}
@@ -162,21 +185,37 @@ function TasksAppShellContent({ subPath }: PluginNavPanelProps) {
           onNewTask={() => setNewTaskOpen(true)}
           onBack={backFromTask}
         />
-        <div className="min-h-0 flex-1 overflow-auto">
-          {noProjects && route.kind !== "task" && route.kind !== "manage" ? (
-            <EmptyState
-              icon="ListTodo"
-              title="No projects yet"
-              description="Create a project to start tracking tasks and dispatching work to agents."
-              action={
-                <Button size="sm" onClick={() => setNewProjectOpen(true)}>
-                  <Icon name="Plus" className="size-3.5" />
-                  New project
-                </Button>
+        <div className="flex min-h-0 flex-1">
+          {showBrowsePane && (
+            <div ref={browsePaneRef} className="min-h-0 flex-1 overflow-auto">
+              {noProjects && browseRoute.kind !== "manage" ? (
+                <EmptyState
+                  icon="ListTodo"
+                  title="No projects yet"
+                  description="Create a project to start tracking tasks and dispatching work to agents."
+                  action={
+                    <Button size="sm" onClick={() => setNewProjectOpen(true)}>
+                      <Icon name="Plus" className="size-3.5" />
+                      New project
+                    </Button>
+                  }
+                />
+              ) : (
+                <BrowseRouteOutlet route={browseRoute} boardUsable={boardUsable} />
+              )}
+            </div>
+          )}
+          {onTaskRoute && (
+            <div
+              className={
+                detailSplitFits
+                  ? "min-h-0 flex-none overflow-hidden border-l border-border"
+                  : "min-h-0 flex-1 overflow-hidden"
               }
-            />
-          ) : (
-            <RouteOutlet route={route} boardUsable={boardUsable} />
+              style={detailSplitFits ? { width: DETAIL_COLUMN_WIDTH } : undefined}
+            >
+              <DetailView taskKey={route.taskKey} onClose={backFromTask} />
+            </div>
           )}
         </div>
       </main>

@@ -34,6 +34,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 interface DetailViewProps {
   taskKey: string;
+  onClose?: () => void;
+  closeLabel?: string;
 }
 
 const DESCRIPTION_SAVE_DELAY_MS = 800;
@@ -503,7 +505,7 @@ function TaskDetail({ task }: { task: Task }) {
   );
 }
 
-export function DetailView({ taskKey }: DetailViewProps) {
+function DetailViewBody({ taskKey }: { taskKey: string }) {
   const query = useTasksQuery(
     async (rpc) => (await rpc.call("getTaskByKey", { taskKey })).task,
     ["tasks:changed"],
@@ -528,4 +530,33 @@ export function DetailView({ taskKey }: DetailViewProps) {
     );
   }
   return <TaskDetail task={query.data} />;
+}
+
+/**
+ * Shared task detail renderer. Mounted directly (no header) when the host
+ * already provides back/close chrome, or with `onClose` when the host needs
+ * this component to supply its own close affordance (e.g. a side column or
+ * a panel tab).
+ */
+export function DetailView({ taskKey, onClose, closeLabel }: DetailViewProps) {
+  if (onClose === undefined) {
+    return <DetailViewBody taskKey={taskKey} />;
+  }
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex shrink-0 items-center justify-end border-b border-border px-2 py-1.5">
+        <button
+          type="button"
+          aria-label={closeLabel ?? "Close task detail"}
+          className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground"
+          onClick={onClose}
+        >
+          <Icon name="X" className="size-4" />
+        </button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-auto">
+        <DetailViewBody taskKey={taskKey} />
+      </div>
+    </div>
+  );
 }
