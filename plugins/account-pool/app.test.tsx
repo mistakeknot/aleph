@@ -99,6 +99,7 @@ function status(accounts: AccountSummary[] = [account()]): PoolStatus {
     ],
     accounts,
     routing: { claude: true, codex: true },
+    activeAccountIds: { claude: null, codex: null },
     parent: null,
   };
 }
@@ -926,6 +927,58 @@ describe("Account Pool header status", () => {
     expect(await slot.findByText("bypassed")).toBeTruthy();
   });
 
+  it("discards a stale bypass response after navigating to a different thread", async () => {
+    const threadOne = deferred<{ threadId: string; bypassed: boolean }>();
+    const threadTwo = deferred<{ threadId: string; bypassed: boolean }>();
+    const bypassCalls: string[] = [];
+    const openSettings = vi.fn();
+    const Component = app.appHeaderStatuses[0]!.component;
+    const slot = renderSlot(
+      app.appHeaderStatuses[0]!,
+      {
+        threadId: "thread-1",
+        projectId: null,
+        isCompactViewport: false,
+        availableWidth: 600,
+        openSettings,
+      },
+      {
+        rpc: {
+          "status.get": () => status([account()]),
+          "config.get": () => config(),
+          "bypass.get": (input: unknown) => {
+            const { threadId } = input as { threadId: string };
+            bypassCalls.push(threadId);
+            return threadId === "thread-1"
+              ? threadOne.promise
+              : threadTwo.promise;
+          },
+        },
+        openUrl: () => true,
+      },
+    );
+    await waitFor(() => expect(bypassCalls).toContain("thread-1"));
+
+    slot.lifecycle.rerender(
+      <Component
+        threadId="thread-2"
+        projectId={null}
+        isCompactViewport={false}
+        availableWidth={600}
+        openSettings={openSettings}
+      />,
+    );
+    await waitFor(() => expect(bypassCalls).toContain("thread-2"));
+
+    await act(async () => {
+      threadTwo.resolve({ threadId: "thread-2", bypassed: false });
+      threadOne.resolve({ threadId: "thread-1", bypassed: true });
+      await Promise.resolve();
+    });
+
+    expect(slot.queryByText("bypassed")).toBeNull();
+  });
+
   it("opens settings on click", async () => {
     const slot = renderHeaderStatus([account({ fiveHourUtilization: 0.4 })]);
     const button = await slot.findByTestId("account-pool-header-status");
@@ -940,6 +993,69 @@ describe("Account Pool header status", () => {
         codexAccount(0.9),
       ],
       { isCompactViewport: true },
+    );
+    expect(await slot.findByText("90%")).toBeTruthy();
+    expect(slot.queryByText("40%")).toBeNull();
+  });
+
+  it("excludes a routing-disabled provider from the compact-viewport worst percent", async () => {
+    const slot = renderSlot(
+      app.appHeaderStatuses[0]!,
+      {
+        threadId: null,
+        projectId: null,
+        isCompactViewport: true,
+        availableWidth: 600,
+        openSettings: vi.fn(),
+      },
+      {
+        rpc: {
+          "status.get": () => ({
+            ...status([
+              account({ provider: "claude", fiveHourUtilization: 0.4 }),
+              codexAccount(0.9),
+            ]),
+            routing: { claude: true, codex: false },
+          }),
+          "config.get": () => config(),
+          "bypass.get": () => ({ threadId: "", bypassed: false }),
+        },
+        openUrl: () => true,
+      },
+    );
+    expect(await slot.findByText("40%")).toBeTruthy();
+    expect(slot.queryByText("90%")).toBeNull();
+  });
+
+  it("shows the persisted active account's percent instead of the first ready account", async () => {
+    const active = account({
+      id: "33333333-3333-4333-8333-333333333333",
+      provider: "claude",
+      fiveHourUtilization: 0.9,
+    });
+    const slot = renderSlot(
+      app.appHeaderStatuses[0]!,
+      {
+        threadId: null,
+        projectId: null,
+        isCompactViewport: false,
+        availableWidth: 600,
+        openSettings: vi.fn(),
+      },
+      {
+        rpc: {
+          "status.get": () => ({
+            ...status([
+              account({ provider: "claude", fiveHourUtilization: 0.4 }),
+              active,
+            ]),
+            activeAccountIds: { claude: active.id, codex: null },
+          }),
+          "config.get": () => config(),
+          "bypass.get": () => ({ threadId: "", bypassed: false }),
+        },
+        openUrl: () => true,
+      },
     );
     expect(await slot.findByText("90%")).toBeTruthy();
     expect(slot.queryByText("40%")).toBeNull();

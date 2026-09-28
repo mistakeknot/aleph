@@ -57,7 +57,7 @@ vi.mock("@bb/shared-ui/hooks/use-compact-viewport", () => ({
 }));
 
 vi.mock("@/components/layout/AppHeaderStatusStrip", () => ({
-  AppHeaderStatusStrip: () => null,
+  AppHeaderStatusStrip: () => <span data-testid="app-header-status-strip" />,
 }));
 
 const THREAD_ID = "thr_header";
@@ -690,5 +690,50 @@ describe("ThreadDetailHeader", () => {
     fireEvent.pointerDown(input, { button: 0 });
 
     expect(beginPaneDrag).not.toHaveBeenCalled();
+  });
+
+  it("mounts the header status strip for the focused pane", () => {
+    render(
+      <PaneContext.Provider value={{ ...PANE_CONTEXT, isFocused: true }}>
+        <ThreadDetailHeader
+          actionsMenu={null}
+          childPillLabel={null}
+          isSecondaryPanelOpen={false}
+          onOpenThreadGitAction={vi.fn()}
+          onToggleSecondaryPanel={vi.fn()}
+          threadHeaderGitActions={[]}
+          threadId={THREAD_ID}
+          threadTitle="Focused pane"
+        />
+      </PaneContext.Provider>,
+    );
+
+    expect(screen.queryByTestId("app-header-status-strip")).not.toBeNull();
+  });
+
+  it("does not mount the header status strip for an unfocused split pane, even in the top row", () => {
+    render(
+      <PaneContext.Provider
+        value={{
+          ...PANE_CONTEXT,
+          isFocused: false,
+          isSplitPane: true,
+          isTopRow: true,
+        }}
+      >
+        <ThreadDetailHeader
+          actionsMenu={null}
+          childPillLabel={null}
+          isSecondaryPanelOpen={false}
+          onOpenThreadGitAction={vi.fn()}
+          onToggleSecondaryPanel={vi.fn()}
+          threadHeaderGitActions={[]}
+          threadId={THREAD_ID}
+          threadTitle="Unfocused pane"
+        />
+      </PaneContext.Provider>,
+    );
+
+    expect(screen.queryByTestId("app-header-status-strip")).toBeNull();
   });
 });

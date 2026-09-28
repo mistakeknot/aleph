@@ -15,6 +15,7 @@ export function AppHeaderStatusStrip({
   isCompactViewport: boolean;
 }) {
   const { appHeaderStatuses } = usePluginSlots();
+  const hasStatuses = appHeaderStatuses.length > 0;
   const containerRef = useRef<HTMLDivElement>(null);
   const [availableWidth, setAvailableWidth] = useState(0);
   const navigate = useNavigate();
@@ -26,6 +27,7 @@ export function AppHeaderStatusStrip({
   );
 
   useLayoutEffect(() => {
+    if (!hasStatuses) return;
     const element = containerRef.current;
     if (element === null) return;
     const measure = (width: number) => {
@@ -38,16 +40,20 @@ export function AppHeaderStatusStrip({
     });
     observer.observe(element);
     return () => observer.disconnect();
-  }, []);
+  }, [hasStatuses]);
 
-  if (appHeaderStatuses.length === 0) return null;
+  if (!hasStatuses) return null;
+
+  const perContributionWidth = Math.floor(
+    availableWidth / appHeaderStatuses.length,
+  );
 
   return (
     <div
       ref={containerRef}
       data-testid="app-header-status-strip"
       className={cn(
-        "flex min-w-0 shrink items-center justify-end gap-2 overflow-hidden",
+        "flex min-w-0 flex-1 shrink items-center justify-end gap-2 overflow-hidden",
         isCompactViewport ? "max-w-[40%]" : "max-w-[60%]",
       )}
     >
@@ -58,13 +64,19 @@ export function AppHeaderStatusStrip({
           slotKind="appHeaderStatus"
           slotId={status.id}
         >
-          <status.component
-            threadId={threadId}
-            projectId={projectId}
-            isCompactViewport={isCompactViewport}
-            availableWidth={availableWidth}
-            openSettings={openSettingsFor(status.pluginId)}
-          />
+          <div
+            role="group"
+            aria-label={status.title}
+            className="flex min-w-0 items-center"
+          >
+            <status.component
+              threadId={threadId}
+              projectId={projectId}
+              isCompactViewport={isCompactViewport}
+              availableWidth={perContributionWidth}
+              openSettings={openSettingsFor(status.pluginId)}
+            />
+          </div>
         </PluginSlotMount>
       ))}
     </div>

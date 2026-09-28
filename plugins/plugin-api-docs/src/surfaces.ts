@@ -214,6 +214,24 @@ export const SURFACE_GROUPS: SurfaceGroup[] = [
         experimental: true,
       },
       {
+        id: "app-header-status",
+        title: "App header status strip",
+        summary:
+          "Adds a compact status chip to the app header's center, sharing width with breadcrumbs and the thread title. With this, a plugin can:",
+        bullets: [
+          "Render once per window regardless of split panes, not once per pane",
+          "Receive the thread and project the focused pane shows, or null off a thread route",
+          "Receive this contribution's own share of the strip's available width, and a compact-viewport flag, so it can collapse before it would overflow",
+          "Open its own configuration route in Tools when the chip is clicked",
+        ],
+        apiSymbols: [
+          "PluginAppHeaderStatusRegistration",
+          "PluginAppHeaderStatusProps",
+        ],
+        firstParty: ["Account Pooler"],
+        experimental: true,
+      },
+      {
         id: "timeline-renderers",
         title: "Timeline entry content",
         summary:

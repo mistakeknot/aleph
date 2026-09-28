@@ -463,6 +463,15 @@ export class AccountPoolHub {
     const accounts = (await this.options.accounts.list()).sort(
       (left, right) => left.priority - right.priority,
     );
+    const activeAccountId = (provider: PoolProvider): string | null => {
+      const accountId = this.activeAccounts.get(provider)?.accountId ?? null;
+      if (accountId === null) return null;
+      return accounts.some(
+        (account) => account.id === accountId && account.provider === provider,
+      )
+        ? accountId
+        : null;
+    };
     return {
       route: ROUTE,
       enabledAccountCount: accounts.filter((account) => account.enabled).length,
@@ -480,6 +489,10 @@ export class AccountPoolHub {
           status: accountStatus(account, quota, settings.switchThreshold, now),
         };
       }),
+      activeAccountIds: {
+        claude: activeAccountId("claude"),
+        codex: activeAccountId("codex"),
+      },
     };
   }
 

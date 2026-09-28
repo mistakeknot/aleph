@@ -421,12 +421,13 @@ export interface PluginAppHeaderStatusProps {
    */
   isCompactViewport: boolean;
   /**
-   * Width in px currently available to the whole strip (every
-   * contribution combined), updated as the window resizes or breadcrumbs and
-   * the thread title change length. The strip's contributions collapse
-   * first, before breadcrumbs or the thread title give up space, so measure
-   * your rendered width against this budget and switch to a narrower
-   * presentation rather than overflowing.
+   * Width in px allocated to this contribution: the strip's available
+   * width divided evenly across every current contribution, updated as the
+   * window resizes, other contributions register or unregister, or
+   * breadcrumbs and the thread title change length. The strip's
+   * contributions collapse first, before breadcrumbs or the thread title
+   * give up space, so measure your rendered width against this budget and
+   * switch to a narrower presentation rather than overflowing.
    */
   availableWidth: number;
   /** Navigate to this plugin's detail page in Tools, where settingsSection slots render. */

@@ -201,7 +201,7 @@ export function ThreadDetailHeader({
           {actionsMenu(usesResponsiveActionOverflow)}
         </span>
       )}
-      {isTopRow ? (
+      {isFocused ? (
         <AppHeaderStatusStrip
           threadId={threadId}
           projectId={projectId ?? null}

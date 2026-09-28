@@ -362,7 +362,13 @@ function activeAccountFor(
   const providerAccounts = status.accounts.filter(
     (account) => account.provider === provider,
   );
+  const activeAccountId = status.activeAccountIds[provider];
+  const active =
+    activeAccountId === null
+      ? undefined
+      : providerAccounts.find((account) => account.id === activeAccountId);
   return (
+    active ??
     providerAccounts.find((account) => account.status === "ready") ??
     providerAccounts.find((account) => account.status !== "disabled") ??
     providerAccounts[0] ??
@@ -1987,6 +1993,8 @@ function AccountPoolHeaderStatus({
   const [config, setConfig] = useState<AccountPoolConfig | null>(null);
   const [bypassed, setBypassed] = useState(false);
   const mounted = useRef(true);
+  const currentThreadId = useRef(threadId);
+  currentThreadId.current = threadId;
   const refresh = useCallback(async () => {
     try {
       const next = await rpc.call("status.get", null);
@@ -2011,7 +2019,8 @@ function AccountPoolHeaderStatus({
     }
     try {
       const next = await rpc.call("bypass.get", { threadId });
-      if (mounted.current) setBypassed(next.bypassed);
+      if (mounted.current && currentThreadId.current === threadId)
+        setBypassed(next.bypassed);
     } catch {
       return;
     }
@@ -2055,7 +2064,11 @@ function AccountPoolHeaderStatus({
     provider: (typeof PROVIDERS)[number];
     slot: QuotaSlot;
   } | null>((current, summary) => {
-    if (summary.slot === null || summary.slot.utilization === null)
+    if (
+      !summary.routingOn ||
+      summary.slot === null ||
+      summary.slot.utilization === null
+    )
       return current;
     if (
       current === null ||

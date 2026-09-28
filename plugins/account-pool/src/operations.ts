@@ -265,6 +265,7 @@ export class PoolOperations {
     bypassed: boolean;
   }> {
     await this.routing.setBypassed(threadId, bypassed);
+    this.onAccountsChanged();
     return { threadId, bypassed };
   }
 
