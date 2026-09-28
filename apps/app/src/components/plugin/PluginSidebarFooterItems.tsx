@@ -174,8 +174,54 @@ export function usePluginSidebarFooterDisclosure() {
       event.preventDefault();
       dismiss();
     };
+    const panelId = footerDisclosureId(pinnedItem);
+    const triggerId = footerTriggerId(pinnedItem);
+    const isOwnedByPanel = (owner: Element | null) => {
+      if (owner === null) return false;
+      const panel = document.getElementById(panelId);
+      return panel?.contains(owner) === true || owner.id === triggerId;
+    };
+    const isOwnPopup = (popup: Element) => {
+      const labelledBy = popup.getAttribute("aria-labelledby");
+      if (labelledBy !== null)
+        return labelledBy
+          .split(/\s+/u)
+          .some((id) => isOwnedByPanel(document.getElementById(id)));
+      const id = popup.id;
+      if (id === "") return false;
+      return [...document.querySelectorAll("[aria-describedby]")].some(
+        (element) =>
+          element
+            .getAttribute("aria-describedby")
+            ?.split(/\s+/u)
+            .includes(id) === true && isOwnedByPanel(element),
+      );
+    };
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) {
+        dismiss();
+        return;
+      }
+      if (
+        document.getElementById(panelId)?.contains(target) === true ||
+        document.getElementById(triggerId)?.contains(target) === true
+      )
+        return;
+      const wrapper = target.closest("[data-radix-popper-content-wrapper]");
+      const popup =
+        target.closest('[role="menu"], [role="tooltip"]') ??
+        wrapper?.querySelector('[role="menu"], [role="tooltip"]') ??
+        null;
+      if (popup !== null && isOwnPopup(popup)) return;
+      dismiss();
+    };
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("pointerdown", onPointerDown);
+    };
   }, [pinnedItem, dismiss]);
 
   return {
@@ -192,10 +238,12 @@ export function PluginSidebarFooterDisclosure({
   item,
   onDismiss,
   hoverPreview,
+  pinned,
 }: {
   item: PluginSidebarFooterItemSlot | null;
   onDismiss: () => void;
   hoverPreview?: FooterHoverPreview;
+  pinned: boolean;
 }) {
   const contentRef = useRef<HTMLDivElement | null>(null);
   const [contentHeight, setContentHeight] = useState<number | null>(null);
@@ -219,7 +267,13 @@ export function PluginSidebarFooterDisclosure({
       id={footerDisclosureId(item)}
       aria-label={item.label}
       data-testid={`plugin-sidebar-footer-disclosure-${item.pluginId}-${item.id}`}
-      className="overflow-hidden rounded-lg border border-sidebar-border bg-sidebar-accent/50 transition-[height] duration-200 ease-out motion-reduce:transition-none"
+      data-pinned={pinned}
+      className={cn(
+        "overflow-hidden rounded-lg border bg-sidebar-accent/50 transition-[height] duration-200 ease-out motion-reduce:transition-none",
+        pinned
+          ? "border-sidebar-ring ring-1 ring-sidebar-ring/40"
+          : "border-sidebar-border",
+      )}
       style={{ height: contentHeight ?? undefined }}
       onPointerEnter={(event) => {
         if (event.pointerType === "mouse") hoverPreview?.onPanelEnter();
@@ -228,7 +282,7 @@ export function PluginSidebarFooterDisclosure({
         if (event.pointerType === "mouse") hoverPreview?.onPanelLeave();
       }}
     >
-      <div ref={contentRef} className="max-h-80 overflow-auto">
+      <div ref={contentRef} className="max-h-96 overflow-auto">
         <PluginSlotMount
           pluginId={item.pluginId}
           slotKind="experimental_sidebarFooter"
@@ -376,7 +430,7 @@ export function PluginSidebarFooterItems({
                     className={cn(
                       SIDEBAR_FOOTER_ACTION_CLASS,
                       active &&
-                        "bg-sidebar-accent text-sidebar-accent-foreground [&>[data-icon-root]]:opacity-100",
+                        "bg-sidebar-accent text-sidebar-accent-foreground ring-1 ring-inset ring-sidebar-ring [&>[data-icon-root]]:opacity-100",
                     )}
                     data-testid={
                       item.kind === "plugin"
@@ -389,6 +443,7 @@ export function PluginSidebarFooterItems({
                     item.slot.kind === "disclosure"
                       ? {
                           "aria-expanded": active,
+                          "aria-pressed": active,
                           "aria-controls": footerDisclosureId(item.slot),
                         }
                       : {})}

@@ -122,3 +122,48 @@ export function describeUsageBurn(burn: UsageBurn): string {
         : `runs out in ${formatUsageDuration(burn.runsOutInMs)}`;
   return `Burning ${rate}%/hr · ${outlook}`;
 }
+
+interface ExhaustionSortable {
+  usage: {
+    status: string;
+    windows?: readonly {
+      kind?: "five-hour" | "daily" | "weekly" | "custom";
+      usedPercent: number;
+      resetsAt: string | null;
+    }[];
+  } | null;
+}
+
+function exhaustionKey(
+  account: ExhaustionSortable,
+  now: number,
+): { runsOutInMs: number; remainingPercent: number } {
+  let runsOutInMs = Number.POSITIVE_INFINITY;
+  let remainingPercent = 100;
+  const windows =
+    account.usage?.status === "ok" ? (account.usage.windows ?? []) : [];
+  for (const window of windows) {
+    const burn = usageBurnRate(window, now);
+    if (window.usedPercent >= 100) runsOutInMs = 0;
+    else if (burn?.runsOutInMs != null)
+      runsOutInMs = Math.min(runsOutInMs, burn.runsOutInMs);
+    remainingPercent = Math.min(remainingPercent, 100 - window.usedPercent);
+  }
+  return { runsOutInMs, remainingPercent };
+}
+
+export function sortAccountsByExhaustion<T extends ExhaustionSortable>(
+  accounts: readonly T[],
+  now: number,
+): T[] {
+  return accounts
+    .map((account) => ({ account, key: exhaustionKey(account, now) }))
+    .sort((a, b) =>
+      a.key.runsOutInMs !== b.key.runsOutInMs
+        ? a.key.runsOutInMs < b.key.runsOutInMs
+          ? -1
+          : 1
+        : a.key.remainingPercent - b.key.remainingPercent,
+    )
+    .map(({ account }) => account);
+}

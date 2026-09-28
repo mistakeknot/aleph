@@ -224,6 +224,7 @@ export function AppSidebar({
           item={pluginSidebarFooter.activeItem}
           onDismiss={pluginSidebarFooter.dismiss}
           hoverPreview={pluginSidebarFooter.hoverPreview}
+          pinned={pluginSidebarFooter.activeKey !== null}
         />
         <SidebarMenu className="flex-row flex-wrap-reverse items-center gap-1">
           <PluginSidebarFooterItems

@@ -28,7 +28,8 @@ type ScenarioName =
   | "offline"
   | "authentication"
   | "missingProvider"
-  | "failedRefresh";
+  | "failedRefresh"
+  | "crowded";
 
 function futureIso(hours: number): string {
   return new Date(Date.now() + hours * 60 * 60_000).toISOString();
@@ -132,6 +133,70 @@ const healthyPool = machine("source:account-pool", "Account Pooler", [
     }),
   ),
 ]);
+function claudeMeasured(email: string, plan: string): ProviderUsage {
+  return {
+    status: "ok",
+    accountEmail: email,
+    planLabel: plan,
+    windows: [
+      {
+        kind: "five-hour",
+        label: "Five-hour limit",
+        usedPercent: 0,
+        resetsAt: futureIso(0.01),
+        cost: null,
+      },
+      {
+        kind: "weekly",
+        label: "Weekly limit",
+        usedPercent: 10,
+        resetsAt: futureIso(100),
+        cost: null,
+      },
+      {
+        kind: "weekly",
+        label: "Weekly · Fable",
+        usedPercent: 0,
+        resetsAt: futureIso(100),
+        cost: null,
+      },
+    ],
+  };
+}
+
+const crowdedPool = machine(
+  "source:account-pool",
+  "Account Pooler",
+  [
+    provider(
+      "codex-one",
+      "codex",
+      measured("someone.r.qvs@gmail.com", 35, "Pro", {
+        usedPercent: 12,
+        resetsInHours: 4,
+      }),
+    ),
+    provider(
+      "claude-one",
+      "claude-code",
+      claudeMeasured("kardrouth@gmail.com", "Max (20x)"),
+    ),
+    provider(
+      "claude-two",
+      "claude-code",
+      claudeMeasured("someone.r.qvs@gmail.com", "Max (20x)"),
+    ),
+    provider(
+      "claude-three",
+      "claude-code",
+      claudeMeasured("takeknot@vibeworks.net", "Max (20x)"),
+    ),
+  ].map((account) => ({
+    ...account,
+    accountLabel:
+      account.usage?.status === "ok" ? account.usage.accountEmail : null,
+  })),
+);
 const healthyMachine = machine("host-m4", "Michael-M4", [
   provider("local-codex", "codex", measured("local@example.com", 17, "Pro")),
 ]);
@@ -166,6 +231,7 @@ const scenarios: Record<Exclude<ScenarioName, "loading">, UsageSnapshot> = {
       ]),
     ],
   },
+  crowded: { machines: [crowdedPool] },
   failedRefresh: {
     machines: [
       machine("source:account-pool", "Account Pooler", [
@@ -223,6 +289,7 @@ const descriptions: Record<ScenarioName, string> = {
   offline: "The selected persistent machine is currently disconnected.",
   authentication: "Signed-out and expired accounts remain distinct.",
   missingProvider: "The selected machine does not have the provider installed.",
+  crowded: "Four accounts across Claude Code and Codex at the sidebar width.",
   failedRefresh:
     "The latest refresh failed while cached measurements remain visible.",
 };
@@ -235,6 +302,7 @@ const storyRows: readonly { label: string; scenario: ScenarioName }[] = [
   { label: "authentication", scenario: "authentication" },
   { label: "missing provider", scenario: "missingProvider" },
   { label: "failed refresh", scenario: "failedRefresh" },
+  { label: "crowded", scenario: "crowded" },
 ];
 
 function ScenarioRows({

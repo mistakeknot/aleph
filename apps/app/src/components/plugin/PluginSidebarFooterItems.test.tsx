@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { SIDEBAR_FOOTER_MORE_ID } from "@/components/sidebar/sidebarFooterPreferences";
 import {
   act,
   cleanup,
@@ -90,6 +91,7 @@ function FooterHarness() {
         item={disclosure.activeItem}
         onDismiss={disclosure.dismiss}
         hoverPreview={disclosure.hoverPreview}
+        pinned={disclosure.activeKey !== null}
       />
       <SidebarMenu>
         <PluginSidebarFooterItems
@@ -340,6 +342,188 @@ describe("PluginSidebarFooterItems", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  describe("pinned versus hover presentation", () => {
+    function registerUsage() {
+      setPluginSlotRegistrations(
+        "usage-plugin",
+        collectPluginAppRegistrations(
+          definePluginApp((app) => {
+            app.experimental_sidebarFooter.register({
+              kind: "disclosure",
+              id: "usage",
+              label: "Provider usage",
+              icon: "ChartColumn",
+              component: UsageDisclosure,
+            });
+          }),
+        ),
+      );
+    }
+    const panelId = "plugin-sidebar-footer-disclosure-usage-plugin-usage";
+
+    it("marks only a pinned disclosure and its trigger as pinned", () => {
+      vi.useFakeTimers();
+      try {
+        registerUsage();
+        renderWithProviders(<FooterHarness />);
+        const trigger = screen.getByRole("button", { name: "Provider usage" });
+        expect(trigger.getAttribute("aria-pressed")).toBe("false");
+
+        fireEvent.pointerOver(trigger, { pointerType: "mouse" });
+        act(() => vi.advanceTimersByTime(300));
+        const panel = screen.getByTestId(panelId);
+        expect(panel.getAttribute("data-pinned")).toBe("false");
+        expect(trigger.getAttribute("aria-pressed")).toBe("false");
+
+        fireEvent.click(trigger);
+        expect(screen.getByTestId(panelId).getAttribute("data-pinned")).toBe(
+          "true",
+        );
+        expect(trigger.getAttribute("aria-pressed")).toBe("true");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("dismisses a pinned disclosure on a click outside it", () => {
+      registerUsage();
+      renderWithProviders(
+        <>
+          <FooterHarness />
+          <button type="button">Elsewhere</button>
+        </>,
+      );
+      const trigger = screen.getByRole("button", { name: "Provider usage" });
+      fireEvent.click(trigger);
+      expect(screen.getByText("Provider usage content")).toBeDefined();
+
+      fireEvent.pointerDown(screen.getByText("Provider usage content"));
+      expect(screen.getByText("Provider usage content")).toBeDefined();
+
+      fireEvent.pointerDown(screen.getByRole("button", { name: "Elsewhere" }));
+      expect(screen.queryByText("Provider usage content")).toBeNull();
+      expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    });
+
+    function appendPopup(
+      role: "menu" | "tooltip",
+      link: Record<string, string>,
+    ): HTMLElement {
+      const popup = document.createElement("div");
+      popup.setAttribute("role", role);
+      for (const [name, value] of Object.entries(link))
+        popup.setAttribute(name, value);
+      document.body.append(popup);
+      return popup;
+    }
+
+    it("does not dismiss a pinned disclosure for its own trigger or popups it opened", () => {
+      registerUsage();
+      renderWithProviders(<FooterHarness />);
+      const trigger = screen.getByRole("button", { name: "Provider usage" });
+      fireEvent.click(trigger);
+      const inner = screen.getByText("Provider usage content");
+      inner.id = "panel-inner-trigger";
+      inner.setAttribute("aria-describedby", "own-tip");
+
+      const ownMenu = appendPopup("menu", {
+        "aria-labelledby": "panel-inner-trigger",
+      });
+      const ownTip = appendPopup("tooltip", { id: "own-tip" });
+      fireEvent.pointerDown(ownMenu);
+      fireEvent.pointerDown(ownTip);
+      fireEvent.pointerDown(trigger);
+      expect(screen.getByText("Provider usage content")).toBeDefined();
+      ownMenu.remove();
+      ownTip.remove();
+    });
+
+    it("dismisses a pinned disclosure on a click in an unrelated menu or tooltip", () => {
+      registerUsage();
+      renderWithProviders(
+        <>
+          <FooterHarness />
+          <button type="button" id="unrelated-trigger">
+            Unrelated
+          </button>
+        </>,
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Provider usage" }));
+      const menu = appendPopup("menu", {
+        "aria-labelledby": "unrelated-trigger",
+      });
+      fireEvent.pointerDown(menu);
+      expect(screen.queryByText("Provider usage content")).toBeNull();
+      menu.remove();
+
+      fireEvent.click(screen.getByRole("button", { name: "Provider usage" }));
+      const bare = appendPopup("tooltip", {});
+      fireEvent.pointerDown(bare);
+      expect(screen.queryByText("Provider usage content")).toBeNull();
+      bare.remove();
+    });
+
+    it("dismisses a pinned disclosure when another footer item is pressed", () => {
+      setPluginSlotRegistrations(
+        "usage-plugin",
+        collectPluginAppRegistrations(
+          definePluginApp((app) => {
+            app.experimental_sidebarFooter.register({
+              kind: "disclosure",
+              id: "usage",
+              label: "Provider usage",
+              icon: "ChartColumn",
+              component: UsageDisclosure,
+            });
+            app.experimental_sidebarFooter.register({
+              kind: "disclosure",
+              id: "other",
+              label: "Other item",
+              icon: "Bot",
+              component: () => <p>Other content</p>,
+            });
+          }),
+        ),
+      );
+      renderWithProviders(<FooterHarness />);
+      fireEvent.click(screen.getByRole("button", { name: "Provider usage" }));
+      expect(screen.getByText("Provider usage content")).toBeDefined();
+      fireEvent.pointerDown(screen.getByRole("button", { name: "Other item" }));
+      expect(screen.queryByText("Provider usage content")).toBeNull();
+    });
+
+    it("dismisses a pinned disclosure on a click in the More menu", () => {
+      registerUsage();
+      renderWithProviders(<FooterHarness />);
+      fireEvent.click(screen.getByRole("button", { name: "Provider usage" }));
+      const more = document.createElement("button");
+      more.id = SIDEBAR_FOOTER_MORE_ID;
+      document.body.append(more);
+      const menu = appendPopup("menu", { "aria-labelledby": more.id });
+      fireEvent.pointerDown(menu);
+      expect(screen.queryByText("Provider usage content")).toBeNull();
+      menu.remove();
+      more.remove();
+    });
+
+    it("ignores outside clicks while only previewing", () => {
+      vi.useFakeTimers();
+      try {
+        registerUsage();
+        renderWithProviders(<FooterHarness />);
+        fireEvent.pointerOver(
+          screen.getByRole("button", { name: "Provider usage" }),
+          { pointerType: "mouse" },
+        );
+        act(() => vi.advanceTimersByTime(300));
+        fireEvent.pointerDown(document.body);
+        expect(screen.getByText("Provider usage content")).toBeDefined();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   describe("hover preview focus", () => {

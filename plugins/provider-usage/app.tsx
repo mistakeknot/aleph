@@ -30,6 +30,7 @@ import {
   formatUsdCents,
   usageBarColorClass,
   usageBurnRate,
+  sortAccountsByExhaustion,
   usageProjectedPercent,
 } from "./usage-format.js";
 import {
@@ -79,6 +80,27 @@ let storeSnapshot: UsageStoreSnapshot = {
 };
 let activeRefreshCount = 0;
 let lastMachineId: string | null = null;
+
+const SORT_MODE_STORAGE_KEY = "bb:provider-usage:sort-mode";
+type SortMode = "exhaustion" | "provider";
+
+function readSortMode(): SortMode {
+  try {
+    return window.localStorage.getItem(SORT_MODE_STORAGE_KEY) === "provider"
+      ? "provider"
+      : "exhaustion";
+  } catch {
+    return "exhaustion";
+  }
+}
+
+function writeSortMode(mode: SortMode): void {
+  try {
+    window.localStorage.setItem(SORT_MODE_STORAGE_KEY, mode);
+  } catch {
+    return;
+  }
+}
 
 function updateStore(next: UsageStoreSnapshot): void {
   storeSnapshot = next;
@@ -250,7 +272,7 @@ function UsageWindow({
         <div
           tabIndex={0}
           role="group"
-          className="col-span-full grid grid-cols-subgrid items-center rounded-sm py-0.5 text-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+          className="col-span-full grid grid-cols-subgrid items-center rounded-sm py-px text-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
           aria-label={
             `${window.label}: ${value}. ${reset ?? "Reset time not reported"}` +
             (burnSummary === null ? "" : `. ${burnSummary}`)
@@ -286,7 +308,7 @@ function UsageWindow({
           </span>
           <span
             aria-hidden="true"
-            className="text-right tabular-nums text-subtle-foreground"
+            className="hidden text-right tabular-nums text-subtle-foreground @[16rem]:block"
           >
             {burn === null || burn.percentPerHour <= 0
               ? "—"
@@ -296,7 +318,9 @@ function UsageWindow({
             aria-hidden="true"
             className={
               "text-right tabular-nums " +
-              (runsOut === null ? "text-subtle-foreground" : "text-warning-text")
+              (runsOut === null
+                ? "text-subtle-foreground"
+                : "text-warning-text")
             }
           >
             {runsOut === null ? (countdown ?? "—") : "out " + runsOut}
@@ -334,7 +358,7 @@ function ProviderUsageBody({
           No usage limits reported for this plan.
         </p>
       ) : (
-        <div className="grid grid-cols-[max-content_minmax(0,1fr)_max-content_max-content_max-content] gap-x-2 gap-y-0.5">
+        <div className="grid grid-cols-[minmax(0,max-content)_minmax(1.25rem,1fr)_max-content_max-content] gap-x-1.5 @[16rem]:grid-cols-[minmax(0,max-content)_minmax(1.25rem,1fr)_max-content_max-content_max-content]">
           {usage.windows.map((window) => (
             <UsageWindow key={window.label} window={window} now={now} />
           ))}
@@ -436,11 +460,13 @@ function AccountUsage({
   account,
   machineError,
   now,
+  showProvider = false,
   snapshot,
 }: {
   account: UsageProvider;
   machineError: string | null;
   now: number;
+  showProvider?: boolean;
   snapshot: UsageStoreSnapshot;
 }) {
   const email =
@@ -455,12 +481,26 @@ function AccountUsage({
   return (
     <AccountContainer
       aria-label={account.accountLabel ?? undefined}
-      className="py-1.5 first:pt-0 last:pb-0"
+      className="py-1 first:pt-0 last:pb-0"
     >
       {account.accountLabel === null &&
       email === null &&
-      planLabel === null ? null : (
+      planLabel === null &&
+      !showProvider ? null : (
         <div className="flex min-w-0 items-start gap-2">
+          {showProvider ? (
+            <span
+              title={account.displayName}
+              className="mt-px flex size-4 shrink-0 items-center justify-center"
+            >
+              <ProviderIcon
+                providerKind="agent"
+                provider={account}
+                fallback="Bot"
+                className="size-3.5"
+              />
+            </span>
+          ) : null}
           <div className="min-w-0 flex-1">
             {account.accountLabel === null ? null : (
               <h3
@@ -486,7 +526,7 @@ function AccountUsage({
           )}
         </div>
       )}
-      <div className="mt-1">
+      <div className="mt-0.5">
         {account.usage === null && snapshot.isRefreshing ? (
           <p className="text-xs text-muted-foreground">
             {usageFeedbackMessages.loading}
@@ -546,6 +586,19 @@ export function ProviderUsageStatusContent({
     }
     return [...groups.values()];
   }, [activeMachine]);
+  const [sortMode, setSortMode] = useState<SortMode>(readSortMode);
+  const chooseSortMode = useCallback((mode: SortMode) => {
+    writeSortMode(mode);
+    setSortMode(mode);
+  }, []);
+  const sortedAccounts = useMemo(
+    () =>
+      sortAccountsByExhaustion(
+        providers.flatMap((provider) => provider.accounts),
+        now,
+      ),
+    [providers, now],
+  );
   const hasUsage = hasReportedUsage(
     providers.flatMap((provider) => provider.accounts),
   );
@@ -609,7 +662,7 @@ export function ProviderUsageStatusContent({
 
   return (
     <TooltipProvider delayDuration={150}>
-      <div className="flex max-h-80 flex-col">
+      <div className="flex max-h-96 flex-col">
         <div
           data-provider-usage-header=""
           className="flex h-10 min-w-0 shrink-0 items-center gap-1 border-b border-sidebar-border px-1.5"
@@ -621,6 +674,28 @@ export function ProviderUsageStatusContent({
               onSelect={selectMachine}
             />
           </div>
+          <button
+            type="button"
+            aria-label="Sort accounts by soonest to run out"
+            aria-pressed={sortMode === "exhaustion"}
+            title={
+              sortMode === "exhaustion"
+                ? "Sorted by soonest to run out. Click to group by provider."
+                : "Grouped by provider. Click to sort by soonest to run out."
+            }
+            className={cn(
+              "flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
+              sortMode === "exhaustion" &&
+                "bg-sidebar-accent text-sidebar-foreground",
+            )}
+            onClick={() =>
+              chooseSortMode(
+                sortMode === "exhaustion" ? "provider" : "exhaustion",
+              )
+            }
+          >
+            <Icon name="ArrowUpDown" aria-hidden="true" className="size-3.5" />
+          </button>
           <button
             type="button"
             aria-label="Reload provider usage"
@@ -669,7 +744,7 @@ export function ProviderUsageStatusContent({
               : activeMachine.displayName + " usage"
           }
           role="region"
-          className="min-h-0 overflow-y-auto p-2.5"
+          className="@container min-h-0 overflow-y-auto overflow-x-hidden p-2"
         >
           {feedback === null ? null : (
             <UsageFeedback
@@ -679,64 +754,78 @@ export function ProviderUsageStatusContent({
             />
           )}
           <div className="divide-y divide-sidebar-border">
-            {providers.map((provider) => {
-              const tones = provider.accounts.map(providerUsageTone);
-              const tone = tones.includes("critical")
-                ? "critical"
-                : tones.includes("warning")
-                  ? "warning"
-                  : null;
-              return (
-                <section
-                  key={provider.id}
-                  aria-label={provider.displayName}
-                  data-provider-usage-provider={provider.id}
-                  className="py-2 first:pt-0 last:pb-0"
-                >
-                  <h2
-                    title={
-                      tone === null
-                        ? provider.displayName
-                        : `${provider.displayName}: an account usage window is at least ${tone === "critical" ? "95" : "80"}% used.`
-                    }
-                    className="mb-1 flex min-w-0 items-center gap-1.5 text-xs font-medium text-sidebar-foreground"
-                  >
-                    <span className="relative flex size-4 shrink-0 items-center justify-center">
-                      <ProviderIcon
-                        providerKind="agent"
-                        provider={provider}
-                        fallback="Bot"
-                        className="size-3.5"
-                      />
-                      {tone === null ? null : (
-                        <span
-                          aria-hidden="true"
-                          data-provider-usage-tone={tone}
-                          className={cn(
-                            "absolute -right-0.5 -top-0.5 size-1.5 rounded-full ring-2 ring-sidebar-accent",
-                            tone === "critical"
-                              ? "bg-destructive"
-                              : "bg-warning",
+            {sortMode === "exhaustion"
+              ? sortedAccounts.map((account) => (
+                  <AccountUsage
+                    key={account.id}
+                    account={account}
+                    machineError={activeMachine?.error ?? null}
+                    now={now}
+                    showProvider
+                    snapshot={snapshot}
+                  />
+                ))
+              : null}
+            {sortMode === "provider"
+              ? providers.map((provider) => {
+                  const tones = provider.accounts.map(providerUsageTone);
+                  const tone = tones.includes("critical")
+                    ? "critical"
+                    : tones.includes("warning")
+                      ? "warning"
+                      : null;
+                  return (
+                    <section
+                      key={provider.id}
+                      aria-label={provider.displayName}
+                      data-provider-usage-provider={provider.id}
+                      className="py-1.5 first:pt-0 last:pb-0"
+                    >
+                      <h2
+                        title={
+                          tone === null
+                            ? provider.displayName
+                            : `${provider.displayName}: an account usage window is at least ${tone === "critical" ? "95" : "80"}% used.`
+                        }
+                        className="mb-0.5 flex min-w-0 items-center gap-1.5 text-xs font-medium text-sidebar-foreground"
+                      >
+                        <span className="relative flex size-4 shrink-0 items-center justify-center">
+                          <ProviderIcon
+                            providerKind="agent"
+                            provider={provider}
+                            fallback="Bot"
+                            className="size-3.5"
+                          />
+                          {tone === null ? null : (
+                            <span
+                              aria-hidden="true"
+                              data-provider-usage-tone={tone}
+                              className={cn(
+                                "absolute -right-0.5 -top-0.5 size-1.5 rounded-full ring-2 ring-sidebar-accent",
+                                tone === "critical"
+                                  ? "bg-destructive"
+                                  : "bg-warning",
+                              )}
+                            />
                           )}
-                        />
-                      )}
-                    </span>
-                    <span className="truncate">{provider.displayName}</span>
-                  </h2>
-                  <div className="divide-y divide-sidebar-border/60">
-                    {provider.accounts.map((account) => (
-                      <AccountUsage
-                        key={account.id}
-                        account={account}
-                        machineError={activeMachine?.error ?? null}
-                        now={now}
-                        snapshot={snapshot}
-                      />
-                    ))}
-                  </div>
-                </section>
-              );
-            })}
+                        </span>
+                        <span className="truncate">{provider.displayName}</span>
+                      </h2>
+                      <div className="divide-y divide-sidebar-border/60">
+                        {provider.accounts.map((account) => (
+                          <AccountUsage
+                            key={account.id}
+                            account={account}
+                            machineError={activeMachine?.error ?? null}
+                            now={now}
+                            snapshot={snapshot}
+                          />
+                        ))}
+                      </div>
+                    </section>
+                  );
+                })
+              : null}
           </div>
         </div>
       </div>
