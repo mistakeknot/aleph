@@ -94,6 +94,7 @@ export function createDesktopReleaseConfig(channel) {
       appId: "dev.bb.desktop",
       applicationName: "Aleph",
       artifactName: "Aleph-${version}-${arch}.${ext}",
+      copyrightHolder: "General Systems Ventures",
       iconFileName: "icon.png",
       // Differs from stable so the renamed binary doesn't collide with a
       // stock bb AppImage extracted on the same PATH.
