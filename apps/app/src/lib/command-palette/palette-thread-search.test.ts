@@ -98,7 +98,7 @@ describe("buildPaletteThreadSearchRows", () => {
     expect(result.rows[20]).toMatchObject({ threadId: "archived", lifecycle: "archived" });
   });
 
-  it("keeps saved-message snippets in the owning thread result without inventing an event anchor", () => {
+  it("keeps saved-message snippets in the owning thread result", () => {
     const result = build({
       lifecycles: ["active"],
       searchResponse: {
@@ -113,7 +113,7 @@ describe("buildPaletteThreadSearchRows", () => {
       },
     });
     expect(result.rows).toHaveLength(1);
-    expect(result.rows[0]).toMatchObject({ threadId: "saved", lifecycle: "active", primaryText: "matching saved message", messageSeq: null });
+    expect(result.rows[0]).toMatchObject({ threadId: "saved", lifecycle: "active", primaryText: "matching saved message" });
   });
 
   it("preserves active and archived server matches in their ranked order", () => {
@@ -179,8 +179,48 @@ describe("buildPaletteThreadSearchRows", () => {
       secondaryTitle: "Original title",
       projectName: "Palette project",
       relativeTime: "just now",
-      messageSeq: 42,
       highlightRanges: [{ start: 4, end: 12 }],
+    });
+  });
+
+  it("shows a title match as its title even when a message also matched", () => {
+    const thread = makeThread("vizier", {
+      title: "Masaq' | vizier",
+      titleFallback: "Can we have this thread be the vizier thread",
+    });
+    const result = build({
+      query: "masaq",
+      searchResponse: {
+        active: {
+          total: 1,
+          results: [
+            {
+              thread,
+              matches: [
+                {
+                  sourceKind: "title",
+                  text: "Masaq' | vizier",
+                  highlightRanges: [{ start: 0, end: 5 }],
+                  sourceSeq: null,
+                },
+                {
+                  sourceKind: "assistant_message",
+                  text: "tell the masaq vizier",
+                  highlightRanges: [{ start: 9, end: 14 }],
+                  sourceSeq: 7,
+                },
+              ],
+            },
+          ],
+        },
+        archived: { results: [], total: 0 },
+      },
+    });
+
+    expect(result.rows[0]).toMatchObject({
+      primaryText: "Masaq' | vizier",
+      highlightRanges: [{ start: 0, end: 5 }],
+      secondaryTitle: null,
     });
   });
 

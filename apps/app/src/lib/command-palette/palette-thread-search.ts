@@ -24,7 +24,6 @@ export interface PaletteThreadSearchRow {
   projectId: string;
   threadId: string;
   thread: ThreadListEntry;
-  messageSeq: number | null;
 }
 
 interface BuildPaletteThreadSearchRowsArgs {
@@ -85,8 +84,11 @@ function serverRow(
   const titleMatch = matches.find(
     (match) => isTitleMatch(match) && match.text === title,
   );
-  const snippetMatch = matches.find((match) => !isTitleMatch(match));
-  const primaryMatch = snippetMatch ?? titleMatch;
+  const snippetMatch =
+    titleMatch === undefined
+      ? matches.find((match) => !isTitleMatch(match))
+      : undefined;
+  const primaryMatch = titleMatch ?? snippetMatch;
   return {
     id: `${lifecycle}:${thread.id}`,
     lifecycle,
@@ -98,7 +100,6 @@ function serverRow(
     projectId: thread.projectId,
     threadId: thread.id,
     thread,
-    messageSeq: snippetMatch?.sourceSeq ?? null,
   };
 }
 

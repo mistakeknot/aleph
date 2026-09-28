@@ -538,6 +538,73 @@ describe("thread search data", () => {
     }
   });
 
+  it("ranks apostrophe titles as name matches and treats a titled thread's hidden fallback as body text", () => {
+    const { db, project } = setup();
+    try {
+      const vizier = createThread(db, noopNotifier, {
+        projectId: project.id,
+        providerId: "codex",
+        title: "Masaq' | vizier",
+        titleFallback: "Can we have this thread be the vizier thread",
+      });
+      const planning = createThread(db, noopNotifier, {
+        projectId: project.id,
+        providerId: "codex",
+        title: "Masaq' planning notes for the long running vizier thread",
+      });
+      const fallbackOnly = createThread(db, noopNotifier, {
+        projectId: project.id,
+        providerId: "codex",
+        title: "Clavain | coordinator",
+        titleFallback: "masaq",
+      });
+      pinThread(db, noopNotifier, { threadId: fallbackOnly.id });
+      const bodyOnly = createThread(db, noopNotifier, {
+        projectId: project.id,
+        providerId: "codex",
+        title: "After Them | coordinator",
+      });
+      upsertThreadSearchSegments(db, {
+        segments: [
+          {
+            threadId: bodyOnly.id,
+            sourceKind: "user_message",
+            sourceKey: "event:1",
+            sourceSeq: 1,
+            text: "masaq",
+          },
+        ],
+      });
+
+      for (const query of ["masaq", "Masaq'", "masaq vizier"]) {
+        const ids = searchThreadsWithPendingInteractionState(db, {
+          query,
+          limitPerGroup: 20,
+        }).active.results.map((result) => result.thread.id);
+        expect(ids.slice(0, 2)).toEqual([vizier.id, planning.id]);
+      }
+      const results = searchThreadsWithPendingInteractionState(db, {
+        query: "masaq",
+        limitPerGroup: 20,
+      });
+      expect(results.active.results.map((result) => result.thread.id)).toEqual([
+        vizier.id,
+        planning.id,
+        fallbackOnly.id,
+        bodyOnly.id,
+      ]);
+      expect(results.active.results[0]?.matches).toContainEqual(
+        expect.objectContaining({
+          sourceKind: "title",
+          text: "Masaq' | vizier",
+          highlightRanges: [{ start: 0, end: 5 }],
+        }),
+      );
+    } finally {
+      closeConnection(db);
+    }
+  });
+
   it("leads each group with the strongest learned thread that matches the query", () => {
     const { db, project } = setup();
     try {

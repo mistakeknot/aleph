@@ -564,7 +564,7 @@ describe("CommandPalette", () => {
     expect(screen.queryByRole("button", { name: "Open in split" })).toBeNull();
   });
 
-  it("preserves archived message anchors for split opening", async () => {
+  it("opens an archived message match in a split at the latest message", async () => {
     modeState.searchResponse = {
       active: { total: 0, results: [] },
       archived: {
@@ -591,11 +591,9 @@ describe("CommandPalette", () => {
     fireEvent.keyDown(searchField(), { key: "Enter", metaKey: true });
     await waitFor(() => expect(openThreadInSplitMock).toHaveBeenCalledTimes(1));
     expect(openThreadInSplitMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        threadId: "archived-message",
-        state: { searchMessageSeq: 42, searchThreadId: "archived-message" },
-      }),
+      expect.objectContaining({ threadId: "archived-message" }),
     );
+    expect(openThreadInSplitMock.mock.calls[0]?.[0]).not.toHaveProperty("state");
     expect(routeNavigateMock).not.toHaveBeenCalled();
   });
 
@@ -1585,7 +1583,7 @@ describe("CommandPalette", () => {
     expect(within(row).queryByRole("img")).toBeNull();
   });
 
-  it("opens an archived message match with its anchor", async () => {
+  it("opens an archived message match at the latest message rather than the match", async () => {
     modeState.searchResponse = {
       active: { total: 0, results: [] },
       archived: {
@@ -1636,14 +1634,9 @@ describe("CommandPalette", () => {
     expect(projectIcon?.nextSibling?.textContent).toBe("Palette project · ");
     fireEvent.keyDown(input, { key: "Enter" });
 
-    const state = {
-      searchMessageSeq: 42,
-      searchThreadId: "archived-message",
-    };
     await waitFor(() => expect(screen.queryByRole("combobox")).toBeNull());
     expect(routeNavigateMock).toHaveBeenCalledWith(
       "/projects/project-1/threads/archived-message",
-      { state },
     );
   });
 

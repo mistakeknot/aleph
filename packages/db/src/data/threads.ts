@@ -997,9 +997,14 @@ function listThreadSearchMatchRows(
         s.thread_id AS threadId,
         ${tokenIndex} AS tokenIndex,
         MIN(thread_search_segments_fts.rank) AS tokenRank,
-        MAX(CASE WHEN s.source_kind IN ('title', 'title_fallback') THEN 1 ELSE 0 END) AS tokenMatchedTitle
+        MAX(CASE
+          WHEN s.source_kind = 'title' THEN 1
+          WHEN s.source_kind = 'title_fallback' AND TRIM(COALESCE(t.title, '')) = '' THEN 1
+          ELSE 0
+        END) AS tokenMatchedTitle
       FROM thread_search_segments_fts
       JOIN thread_search_segments AS s ON s.rowid = thread_search_segments_fts.rowid
+      JOIN threads AS t ON t.id = s.thread_id
       WHERE thread_search_segments_fts MATCH ${matchQuery}
       GROUP BY s.thread_id
     `,
@@ -1023,9 +1028,9 @@ function listThreadSearchMatchRows(
       SELECT
         token_matches.threadId AS threadId,
         MIN(token_matches.tokenRank) AS bestRank,
-        -- Every query token matched somewhere in the title (not just the
-        -- message body), so this thread ranks as a quick-switcher-style
-        -- name match rather than a plain content match.
+        -- Every query token matched the displayed title (the fallback only
+        -- counts for untitled threads), so this thread ranks as a
+        -- quick-switcher-style name match rather than a plain content match.
         MIN(token_matches.tokenMatchedTitle) AS titleMatch,
         MAX(t.updated_at) AS threadUpdatedAt,
         MAX(t.archived_at IS NOT NULL) AS archived,
