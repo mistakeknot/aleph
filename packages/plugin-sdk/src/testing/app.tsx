@@ -22,6 +22,7 @@ import {
   type ExperimentalAppOverlayRegistration,
   type ExperimentalQuestionFormHost,
   type PluginAppDefinition,
+  type PluginAppHeaderStatusRegistration,
   type PluginAppSetup,
   type PluginCodeThemeState,
   type PluginContentScriptDisposer,
@@ -1173,6 +1174,7 @@ export interface CapturedPluginApp {
   homepageSections: PluginHomepageSectionRegistration[];
   settingsSections: PluginSettingsSectionRegistration[];
   appOverlays: ExperimentalAppOverlayRegistration[];
+  appHeaderStatuses: PluginAppHeaderStatusRegistration[];
   navPanels: PluginNavPanelRegistration[];
   threadPanelActions: PluginThreadPanelActionRegistration[];
   newThreadPanelActions: PluginNewThreadPanelActionRegistration[];
