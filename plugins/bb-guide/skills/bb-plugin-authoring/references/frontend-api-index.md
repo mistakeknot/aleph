@@ -117,6 +117,7 @@ Read the installed SDK declarations for the exact current signatures.
 - `ExperimentalSidebarHeaderProps`
 - `PluginThreadListProps`
 - `PluginThreadHeaderActionProps`
+- `PluginAppHeaderStatusProps`
 - `ExperimentalPluginBrowserToolbarActionProps`
 - `ExperimentalPluginBrowserPage`
 - `ExperimentalPluginBrowserPageEvaluateOptions`
@@ -182,6 +183,7 @@ Read the installed SDK declarations for the exact current signatures.
 - `PluginBoundThreadsArea`
 - `PluginBrowserBbSdk`
 - `PluginThreadHeaderActionRegistration`
+- `PluginAppHeaderStatusRegistration`
 - `ExperimentalPluginBrowserToolbarActionRegistration`
 - `PluginSidebarSplitPane`
 - `PluginSidebarSplitLayout`

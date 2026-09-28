@@ -425,12 +425,6 @@ export function useMarkThreadRead() {
   });
 }
 
-/**
- * Records that the user picked a thread after typing a search query, so the
- * Cmd+K palette can learn to float it to the top for matching queries next
- * time. Fire-and-forget: no thread list state changes, so there's nothing to
- * optimistically update or roll back.
- */
 export function useRecordThreadSearchSelection() {
   return useMutation({
     meta: {

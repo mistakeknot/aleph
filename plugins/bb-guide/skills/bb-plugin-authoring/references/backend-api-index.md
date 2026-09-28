@@ -119,6 +119,8 @@ Read the installed declarations for exact current signatures.
 - `PluginAppComposer`
 - `PluginAppContentScripts`
 - `PluginAppDefinition`
+- `PluginAppHeaderStatusProps`
+- `PluginAppHeaderStatusRegistration`
 - `PluginAppSetup`
 - `PluginAppSlots`
 - `PluginBackground`
