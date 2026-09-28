@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.43.4+aleph.0.4.2
+
+### Tasks
+
+- **A task opens beside the list.** Opening a task on the Tasks board or
+  list shows its details in a column to the right, and the list or board
+  stays visible so you can move between neighboring tasks. Close the column
+  with Esc or its close button. In a narrow window the task fills the width
+  as before.
+- **Task links in chat open in the side panel.** Clicking a task link in an
+  agent's message opens the task in the thread's side panel instead of
+  navigating away from the conversation. Cmd-click and other modified
+  clicks still open the link normally.
+
+### Account Pooler
+
+- **Account usage in the top header bar.** The header shows a chip for each
+  pooled provider (Claude, Codex) with the active account, how much of its
+  tightest limit is used, colored by how close it is, and when that limit
+  resets. In a narrow window each chip shrinks to its icon.
+
 ## 0.43.4+aleph.0.4.1
 
 Aleph 0.4.1 is the first release under Aleph's own version number. Earlier

@@ -1,6 +1,6 @@
 {
   "name": "bb-app",
-  "version": "0.43.4+aleph.0.4.1",
+  "version": "0.43.4+aleph.0.4.2",
   "description": "bb app launcher for npx",
   "keywords": [
     "bb",
