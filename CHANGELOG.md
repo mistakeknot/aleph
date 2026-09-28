@@ -21,6 +21,15 @@
   tightest limit is used, colored by how close it is, and when that limit
   resets. In a narrow window each chip shrinks to its icon.
 
+### Quick switcher
+
+- **Cmd-K ranks threads by the title you see.** A thread whose title
+  matches your search shows its highlighted title instead of a message
+  snippet, and ranks above threads that match only in their messages. A
+  titled thread's first prompt no longer counts as a title match.
+- **Threads open at the latest message.** Picking a thread from Cmd-K opens
+  it at the bottom, even when the match was in an earlier message.
+
 ### Desktop app
 
 - **Cmd-W closes the focused pane.** With the thread view split into panes,
