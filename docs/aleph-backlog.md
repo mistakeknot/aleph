@@ -7,23 +7,23 @@ This file is maintained by hand. Items are ranked by expected usage saved
 or quality gained, judged from the [observed waste](aleph-vision.md#where-the-usage-went).
 None of these estimates has been measured yet, which is why the first item
 is a baseline. Each item gives one line on why and links to the journey or
-vision section it serves. Items marked *building block* extend something
+vision section it serves. Items marked _building block_ extend something
 `0.43.4+aleph.1` already ships. Everything else is new work.
 
 ## P0: largest savings, or protects everything else
 
-- **Waste baseline and live receipt canary.** *Building block: attempt
-  receipts.* Without numbers, no other item can show that it saved
+- **Waste baseline and live receipt canary.** _Building block: attempt
+  receipts._ Without numbers, no other item can show that it saved
   anything.
   → [Usage per outcome](cujs/aleph-06-usage-per-outcome.md)
 - **Structural DONE/BLOCKED-only wakes.** The most frequent waste: one
   test run caused 5–6 empty coordinator wakes, and every child of every
   project pays this.
   → [Multi-day project](cujs/aleph-01-multi-day-coordinator.md)
-- **Wait out transient "no eligible account" refusals.** *Building block:
-  Account Pooler.* A 429 killed two review threads. Each dead thread loses
+- **Wait out transient "no eligible account" refusals.** _Building block:
+  Account Pooler._ A 429 killed two review threads. Each dead thread loses
   everything it had spent.
-  → [No dead jobs](cujs/aleph-04-no-dead-jobs.md)
+  → [Your own accounts, budgeted](cujs/aleph-04-no-dead-jobs.md)
 - **Stop the in-app update prompt from installing plain upstream over
   Aleph.** One click removes every building block at once.
   → [Upstream update](cujs/aleph-07-upstream-update.md)
@@ -34,7 +34,7 @@ vision section it serves. Items marked *building block* extend something
   the wrong condition cost about 7 hours and a maintenance window.
   → [Multi-day project](cujs/aleph-01-multi-day-coordinator.md)
 - **Enforced review bounds: pinned commit, two rounds, then the
-  operator.** *Building block: thread-bound availability.* One change took
+  operator.** _Building block: thread-bound availability._ One change took
   four rounds, and other reviews ran on a moving target or were re-run
   after routing changed.
   → [Cheapest adequate model](cujs/aleph-03-cheapest-adequate-model.md)
@@ -42,17 +42,17 @@ vision section it serves. Items marked *building block* extend something
   coordinator's context, which is the scarcest resource over a multi-day
   project.
   → [Structured results](cujs/aleph-02-structured-child-results.md)
-- **Usage per outcome view.** *Building block: attempt receipts.* Turns
+- **Usage per outcome view.** _Building block: attempt receipts._ Turns
   the baseline into something the operator can act on each week.
   → [Usage per outcome](cujs/aleph-06-usage-per-outcome.md)
-- **Coordinator checkpoints, checked against live state.** *Building
-  block: switch-in-place.* Rotation now costs a re-derivation and risks
+- **Coordinator checkpoints, checked against live state.** _Building
+  block: switch-in-place._ Rotation now costs a re-derivation and risks
   acting on a stale handoff.
   → [Rotation](cujs/aleph-05-coordinator-rotation.md)
-- **Live Codex `bb pool exec` canary; confirm the pooled Claude
-  config-directory fix at the next switch.** *Building block: `bb pool
-  exec`.* Both are carried but not yet verified with real runs.
-  → [No dead jobs](cujs/aleph-04-no-dead-jobs.md)
+- **Live Codex `bb pool exec` canary; confirm the budgeted Claude
+  config-directory fix at the next switch.** _Building block: `bb pool
+exec`._ Both are carried but not yet verified with real runs.
+  → [Your own accounts, budgeted](cujs/aleph-04-no-dead-jobs.md)
 
 ## P2: moderate savings, or keeps the fork cheap
 
@@ -60,9 +60,11 @@ vision section it serves. Items marked *building block* extend something
   expensive verification.** Environment failures each cost a full rebuild
   cycle before the real result.
   → [Structured results](cujs/aleph-02-structured-child-results.md)
-- **Capacity forecast and proposed reroutes.** A provider-wide weekly
-  cliff killed a producer mid-task. Seeing it coming lets work move first.
-  → [No dead jobs](cujs/aleph-04-no-dead-jobs.md)
+- **Usage forecast and proposed pauses or reroutes.** The operator's
+  accounts for one provider all reached their weekly limits and a producer
+  died mid-task. Seeing it coming lets the operator pause or move work
+  first.
+  → [Your own accounts, budgeted](cujs/aleph-04-no-dead-jobs.md)
 - **Update automation: range and overlap report, merge-and-qualify,
   switch runbook with a remote-access canary.** Hand merging is what makes
   a fork fall behind, and the building blocks go with it.
@@ -83,8 +85,8 @@ vision section it serves. Items marked *building block* extend something
 - **Stop runs by ID only.** A pattern-matched stop command killed a fresh
   review; thread-level stops already exist upstream.
   → [Cheapest adequate model](cujs/aleph-03-cheapest-adequate-model.md)
-- **CLI surface for switch-in-place.** Coordinators rotate and reroute
-  through the CLI, not the model picker.
+- **CLI surface for switch-in-place.** Coordinators rotate and switch
+  provider through the CLI, not the model picker.
   → [Rotation](cujs/aleph-05-coordinator-rotation.md)
 - **Show Aleph's changelog in What's New.** The operator sees upstream's
   notes and not what Aleph changed.

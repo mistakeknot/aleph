@@ -14,7 +14,7 @@ fields:
       - { path: "docs/aleph-personas.md:12", scope: project }
   pain:
     state: confirmed
-    value: "Coordinator sessions lose usage to wake storms, stuck waits, unbounded reviews, and jobs dying on an exhausted account instead of buying project progress"
+    value: "Coordinator sessions lose usage to wake storms, stuck waits, unbounded reviews, and jobs dying on an unplanned refusal instead of buying project progress"
     evidence:
       - { path: "MISSION.md:5", scope: project }
   cuj:
@@ -41,7 +41,7 @@ decisions: []
 Aleph is mk's fork of bb, built to make long-running, multi-provider
 coordinator sessions spend their usage on project progress instead of
 losing it to wake storms, stuck waits, unbounded review loops, and jobs
-that die on one exhausted account.
+that die on an unplanned refusal.
 
 The coordinator agent — the long-lived thread that plans a project,
 starts child threads, waits for them, and passes decisions to the
@@ -49,7 +49,7 @@ operator — is who this is for. In observed operation, a single child
 caused 5-6 coordinator wakes with nothing actionable, and a wait on the
 wrong condition (a process exit instead of a real outcome) stalled a
 maintenance window for about 7 hours. Aleph's fork carries the
-orchestration pieces bb doesn't have yet — pooled capacity, structured
+orchestration pieces bb doesn't have yet — budgeted accounts, structured
 returns, bounded review, receipts — to close that gap, and folds each
 piece back upstream when it can.
 

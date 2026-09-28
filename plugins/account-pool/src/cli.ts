@@ -38,9 +38,9 @@ import type { ClaudeOAuthLogin } from "./oauth-login.js";
 import type { CodexDeviceLogin } from "./codex-device-login.js";
 
 const DESCRIPTION = [
-  "Accounts run sequentially by priority, then order added. The current fallback stays active until unavailable.",
+  "Your own accounts are used one after another by priority, then order added. Work moves to the next of your accounts only when the current one is unavailable or at its threshold; this does not change any account's limits.",
   "When this bb server runs inside another bb server's thread, parent proxy routes its pooled traffic through that parent; isolate neutralises the inherited routing.",
-  "Reorder includes every account for the provider and changes the next failover sequence; existing conversations stay pinned.",
+  "Reorder includes every account for the provider and changes which of your accounts is used next; existing conversations stay pinned.",
 ].join("\n");
 
 const JSON_OPTION = {
@@ -384,7 +384,7 @@ export function registerPoolCli(
               placeholder: "n",
               aliases: ["order"],
               description:
-                "Failover position; lower numbers run first, ties keep the order added",
+                "Position in your account order; lower numbers are used first, ties keep the order added",
             },
             json: JSON_OPTION,
           },
@@ -627,7 +627,7 @@ export function registerPoolCli(
             }),
         }),
         "account priority": cliCommand({
-          summary: "Set an account's position in the failover priority order",
+          summary: "Set an account's position in your account order",
           positionals: [
             ACCOUNT_ID_POSITIONAL,
             {
@@ -668,7 +668,8 @@ export function registerPoolCli(
             }),
         }),
         "account reorder": cliCommand({
-          summary: "Set the complete failover order for one provider",
+          summary:
+            "Set the complete order in which one provider's accounts are used",
           description:
             "List every account for the provider, including disabled ones, in the order they should be tried.",
           positionals: [

@@ -16,53 +16,53 @@ depends on Aleph staying installed and current. The
 
 `0.43.4+aleph.1` ships the first building blocks:
 
-- `bb pool exec`: scripted runs use the account pool and report whether
-  they ran pooled.
-- Thread-bound availability: cross-provider borrowing is decided per
-  thread and fails closed.
+- `bb pool exec`: scripted runs use the operator's own accounts under
+  their budget and report whether they ran budgeted.
+- Thread-bound availability: cross-provider use is decided per thread and
+  fails closed.
 - Attempt receipts: account, model and usage per budgeted run.
-- Pooled Claude isolated from caller settings; switching a thread's
+- Budgeted Claude isolated from caller settings; switching a thread's
   provider in place; provider icons.
 
 The rest is convention: DONE/BLOCKED returns, the two-round review cap
 and "no status-only wakes" are prompt rules. Nothing is measured yet. The
-live receipt and Codex pool canaries are deferred, and upstream's in-app
+live receipt and Codex `bb pool exec` canaries are deferred, and upstream's in-app
 update can still replace Aleph.
 
 ## Now
 
-| Outcome | Serves | Done when |
-|---|---|---|
-| Outcome tag and inheritance | [Usage per outcome](cujs/aleph-06-usage-per-outcome.md#what-an-outcome-is) | Work is declared as an outcome at dispatch, and turns, children, pooled runs and receipts inherit its ID; untagged usage lands in `unattributed` |
-| A waste baseline | [Usage per outcome](cujs/aleph-06-usage-per-outcome.md) | Wakes per task, retries, review rounds and duplicate runs are counted over one real project; the live receipt canary passes |
-| Wakes only for news | [Multi-day project](cujs/aleph-01-multi-day-coordinator.md) | A child's non-final turns don't wake its parent; BLOCKED always does |
-| Transient refusals don't kill threads | [No dead jobs](cujs/aleph-04-no-dead-jobs.md) | A "no eligible account" 429 leads to a bounded wait, not a failed thread; the live Codex pool canary passes |
-| Aleph can't be replaced by one click | [Upstream update](cujs/aleph-07-upstream-update.md) | The in-app update prompt doesn't install plain upstream over Aleph |
+| Outcome                               | Serves                                                                     | Done when                                                                                                                                          |
+| ------------------------------------- | -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Outcome tag and inheritance           | [Usage per outcome](cujs/aleph-06-usage-per-outcome.md#what-an-outcome-is) | Work is declared as an outcome at dispatch, and turns, children, budgeted runs and receipts inherit its ID; untagged usage lands in `unattributed` |
+| A waste baseline                      | [Usage per outcome](cujs/aleph-06-usage-per-outcome.md)                    | Wakes per task, retries, review rounds and duplicate runs are counted over one real project; the live receipt canary passes                        |
+| Wakes only for news                   | [Multi-day project](cujs/aleph-01-multi-day-coordinator.md)                | A child's non-final turns don't wake its parent; BLOCKED always does                                                                               |
+| Transient refusals don't kill threads | [Your own accounts, budgeted](cujs/aleph-04-no-dead-jobs.md)               | A "no eligible account" 429 leads to a bounded wait, not a failed thread; the live Codex `bb pool exec` canary passes                              |
+| Aleph can't be replaced by one click  | [Upstream update](cujs/aleph-07-upstream-update.md)                        | The in-app update prompt doesn't install plain upstream over Aleph                                                                                 |
 
 ## Next
 
-| Outcome | Serves |
-|---|---|
-| Waits on outcomes, with deadlines that become BLOCKED | [Multi-day project](cujs/aleph-01-multi-day-coordinator.md) |
-| Capped, structured returns checked by bb, with failures classified as environment or real | [Structured results](cujs/aleph-02-structured-child-results.md) |
-| Reviews pinned to a commit and capped at two rounds, enforced instead of prompted; read-only reviewers | [Cheapest adequate model](cujs/aleph-03-cheapest-adequate-model.md) |
-| Usage rolled up per outcome, visible to the operator | [Usage per outcome](cujs/aleph-06-usage-per-outcome.md) |
-| Checkpoints for coordinator rotation, checked against live state | [Rotation](cujs/aleph-05-coordinator-rotation.md) |
+| Outcome                                                                                                               | Serves                                                                                                              |
+| --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Waits on outcomes, with deadlines that become BLOCKED                                                                 | [Multi-day project](cujs/aleph-01-multi-day-coordinator.md)                                                         |
+| Capped, structured returns checked by bb, with failures classified as environment or real                             | [Structured results](cujs/aleph-02-structured-child-results.md)                                                     |
+| Reviews pinned to a commit and capped at two rounds, enforced instead of prompted; read-only reviewers                | [Cheapest adequate model](cujs/aleph-03-cheapest-adequate-model.md)                                                 |
+| Usage rolled up per outcome, visible to the operator                                                                  | [Usage per outcome](cujs/aleph-06-usage-per-outcome.md)                                                             |
+| Checkpoints for coordinator rotation, checked against live state                                                      | [Rotation](cujs/aleph-05-coordinator-rotation.md)                                                                   |
 | Update automation: range and overlap report, merge-and-qualify, switch runbook; Aleph builds ordered in update checks | [Upstream update](cujs/aleph-07-upstream-update.md), [remote access](cujs/aleph-08-remote-access-across-upgrade.md) |
 
 ## Later
 
-| Outcome | Serves |
-|---|---|
-| Model choice per task class, tuned from outcome data | [Cheapest adequate model](cujs/aleph-03-cheapest-adequate-model.md) |
-| Capacity forecast across providers, with reroutes proposed before a cliff | [No dead jobs](cujs/aleph-04-no-dead-jobs.md) |
-| Environment preflight before expensive verification | [Structured results](cujs/aleph-02-structured-child-results.md) |
-| Offer building blocks upstream when maintainers want them | [Vision](aleph-vision.md#the-diff-gets-smaller) |
-| Revise personas and journeys after working sessions with the operator | [Personas](aleph-personas.md) |
+| Outcome                                                                                      | Serves                                                              |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Model choice per task class, tuned from outcome data                                         | [Cheapest adequate model](cujs/aleph-03-cheapest-adequate-model.md) |
+| Usage forecast per provider, with a pause or reroute proposed to the operator before a limit | [Your own accounts, budgeted](cujs/aleph-04-no-dead-jobs.md)        |
+| Environment preflight before expensive verification                                          | [Structured results](cujs/aleph-02-structured-child-results.md)     |
+| Offer building blocks upstream when maintainers want them                                    | [Vision](aleph-vision.md#the-diff-gets-smaller)                     |
+| Revise personas and journeys after working sessions with the operator                        | [Personas](aleph-personas.md)                                       |
 
 ## Decisions
 
-- **What an outcome is** *(provisional, pending operator confirmation)*:
+- **What an outcome is** _(provisional, pending operator confirmation)_:
   a declared bb-native unit with an ID, a kind, an acceptance test and
   optionally an external reference. Usage is inherited from parent to
   child, and an outcome counts only when accepted on evidence. The
@@ -74,7 +74,7 @@ update can still replace Aleph.
 - Where should holding back child turns live, and would upstream want a
   general version of it?
 - Can ordinary thread turns produce receipts, or only budgeted dispatch?
-- Should pooled runs work from machines other than the primary one?
+- Should budgeted runs work from machines other than the primary one?
 
 ## Keeping this current
 
