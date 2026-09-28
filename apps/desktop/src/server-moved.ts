@@ -302,8 +302,8 @@ export function formatServerMovedNotice(
   move: DesktopServerMove,
 ): ServerMovedNotice {
   return {
-    detail: "bb now opens there. This computer stays connected.",
-    message: `Your bb server moved to ${move.toHostName}`,
+    detail: "Aleph now opens there. This computer stays connected.",
+    message: `Your Aleph server moved to ${move.toHostName}`,
   };
 }
 

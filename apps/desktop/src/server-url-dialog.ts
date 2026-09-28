@@ -69,7 +69,7 @@ ${DESKTOP_DIALOG_BASE_CSS}
 </head>
 <body>
   <h1>${initialUrl === null ? "Add Server" : "Set Server URL"}</h1>
-  <p>${initialUrl === null ? "Save another bb server to the Server menu." : "Edit this saved server. Leave empty to remove it."}</p>
+  <p>${initialUrl === null ? "Save another Aleph server to the Server menu." : "Edit this saved server. Leave empty to remove it."}</p>
   <form>
     <input name="url" type="text" placeholder="https://example.com:38886" value="${escapeHtmlText(initialUrl ?? "")}" autocomplete="off" spellcheck="false">
     <div data-error></div>

@@ -57,9 +57,9 @@ describe("loadRemoteServerPage", () => {
 
     expect(harness.shownErrors).toHaveLength(1);
     const view = harness.shownErrors[0];
-    expect(view?.title).toBe("Could not reach this bb server");
+    expect(view?.title).toBe("Could not reach this Aleph server");
     expect(view?.details).toBe(
-      "The bb server at http://bb-host.tailnet.ts.net:38886 did not answer. Check that the machine is awake and reachable.",
+      "The Aleph server at http://bb-host.tailnet.ts.net:38886 did not answer. Check that the machine is awake and reachable.",
     );
     expect(view?.actions.map((action) => action.id)).toEqual([
       "retry",
@@ -112,10 +112,10 @@ describe("describeServerUrl", () => {
   it("names only the origin", () => {
     expect(
       describeServerUrl("http://user:pw@host.ts.net:38886/app?token=x#y"),
-    ).toBe("the bb server at http://host.ts.net:38886");
+    ).toBe("the Aleph server at http://host.ts.net:38886");
   });
 
   it("falls back to a generic label for an unparseable URL", () => {
-    expect(describeServerUrl("not a url")).toBe("the saved bb server");
+    expect(describeServerUrl("not a url")).toBe("the saved Aleph server");
   });
 });
