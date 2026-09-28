@@ -108,6 +108,10 @@ import {
   useRewriteLocalhostLinksPreference,
 } from "@/lib/localhost-link-rewrite-preference";
 import { resolveRouteHref } from "@/lib/route-paths";
+import {
+  isMarkdownTaskSchemeHref,
+  parseMarkdownTaskLinkHref,
+} from "@/lib/task-link";
 import { cn } from "@bb/shared-ui/lib/utils";
 import remarkDirective from "remark-directive";
 import { PromptMentionPill } from "@/components/thread/timeline/ConversationMessageMentions.js";
@@ -461,6 +465,17 @@ const areMarkdownPreviewPropsEqual: MarkdownPreviewPropsEqual = (
     previous: previous.linkRouting,
   });
 
+function isPlainMarkdownAnchorClick(event: MarkdownAnchorEvent): boolean {
+  return (
+    !event.defaultPrevented &&
+    event.button === 0 &&
+    !event.altKey &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.shiftKey
+  );
+}
+
 function isMarkdownAppRouteHref({ href }: IsMarkdownAppRouteHrefArgs): boolean {
   if (!href || typeof window === "undefined") {
     return false;
@@ -514,11 +529,24 @@ function resolveMarkdownLocalFileTarget(
       };
 }
 
+function preserveMarkdownTaskSchemeUrlTransform(
+  fallbackUrlTransform: UrlTransform | undefined,
+): UrlTransform {
+  return (value, key, node) => {
+    if (key === "href" && isMarkdownTaskSchemeHref(value)) {
+      return value;
+    }
+    return (fallbackUrlTransform ?? defaultUrlTransform)(value, key, node);
+  };
+}
+
 function buildLocalAwareUrlTransform({
   fallbackUrlTransform,
   localFileRouting,
   localImageRouting,
 }: BuildLocalAwareUrlTransformArgs): UrlTransform {
+  const resolvedFallback =
+    preserveMarkdownTaskSchemeUrlTransform(fallbackUrlTransform);
   return (value, key, node) => {
     if (key === "href" && localFileRouting !== undefined) {
       const localFile = resolveMarkdownLocalFileTarget(
@@ -545,7 +573,7 @@ function buildLocalAwareUrlTransform({
       }
     }
 
-    return (fallbackUrlTransform ?? defaultUrlTransform)(value, key, node);
+    return resolvedFallback(value, key, node);
   };
 }
 
@@ -596,6 +624,7 @@ function MarkdownAnchor({
     href,
   });
   const isAppRouteHref = isMarkdownAppRouteHref({ href: rewrittenHref });
+  const taskLink = parseMarkdownTaskLinkHref(rewrittenHref);
   const localFileLink =
     !isAppRouteHref && localFileRouting
       ? parseLocalFileHref({
@@ -614,6 +643,17 @@ function MarkdownAnchor({
       if (onOpenLocalFileLink(localFileLink)) {
         event.preventDefault();
       }
+      return;
+    }
+
+    if (
+      taskLink &&
+      isPlainMarkdownAnchorClick(event) &&
+      linkRouting?.onOpenLink &&
+      rewrittenHref &&
+      linkRouting.onOpenLink({ href: rewrittenHref })
+    ) {
+      event.preventDefault();
       return;
     }
 
@@ -1754,7 +1794,7 @@ function MarkdownPreviewComponent({
             localFileRouting,
             localImageRouting,
           })
-        : urlTransform,
+        : preserveMarkdownTaskSchemeUrlTransform(urlTransform),
     [localFileRouting, localImageRouting, urlTransform],
   );
 

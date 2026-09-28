@@ -466,6 +466,72 @@ describe("MarkdownPreview", () => {
     ).toBe(href);
   });
 
+  it("routes a plain click on a task app-route link through onOpenLink", () => {
+    const onOpenLink = vi.fn(() => true);
+    const href = "/plugins/tasks/tasks/task/MSQ-22";
+
+    render(
+      <MarkdownPreview
+        content={`Open [MSQ-22](${href}).`}
+        linkRouting={{ onOpenLink }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("link", { name: "MSQ-22" }));
+
+    expect(onOpenLink).toHaveBeenCalledExactlyOnceWith({ href });
+  });
+
+  it("routes a plain click on a bbtask:// link through onOpenLink", () => {
+    const onOpenLink = vi.fn(() => true);
+    const href = "bbtask://MSQ-22";
+
+    render(
+      <MarkdownPreview
+        content={`Open [MSQ-22](${href}).`}
+        linkRouting={{ onOpenLink }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("link", { name: "MSQ-22" }));
+
+    expect(onOpenLink).toHaveBeenCalledExactlyOnceWith({ href });
+  });
+
+  it("leaves a cmd-clicked task link to native new-tab navigation", () => {
+    const onOpenLink = vi.fn(() => true);
+    const href = "/plugins/tasks/tasks/task/MSQ-22";
+
+    render(
+      <MarkdownPreview
+        content={`Open [MSQ-22](${href}).`}
+        linkRouting={{ onOpenLink }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("link", { name: "MSQ-22" }), {
+      metaKey: true,
+    });
+
+    expect(onOpenLink).not.toHaveBeenCalled();
+  });
+
+  it("falls back to native navigation when onOpenLink declines a task link", () => {
+    const onOpenLink = vi.fn(() => false);
+    const href = "/plugins/tasks/tasks/task/MSQ-22";
+
+    render(
+      <MarkdownPreview
+        content={`Open [MSQ-22](${href}).`}
+        linkRouting={{ onOpenLink }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("link", { name: "MSQ-22" }));
+
+    expect(onOpenLink).toHaveBeenCalledExactlyOnceWith({ href });
+  });
+
   it("rewrites localhost link hrefs without changing the visible text", () => {
     const displayedText = "http://127.0.0.1:5173";
 

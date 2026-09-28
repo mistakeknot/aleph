@@ -532,12 +532,6 @@ function DetailViewBody({ taskKey }: { taskKey: string }) {
   return <TaskDetail task={query.data} />;
 }
 
-/**
- * Shared task detail renderer. Mounted directly (no header) when the host
- * already provides back/close chrome, or with `onClose` when the host needs
- * this component to supply its own close affordance (e.g. a side column or
- * a panel tab).
- */
 export function DetailView({ taskKey, onClose, closeLabel }: DetailViewProps) {
   if (onClose === undefined) {
     return <DetailViewBody taskKey={taskKey} />;

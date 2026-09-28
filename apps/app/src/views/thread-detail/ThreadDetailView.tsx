@@ -194,6 +194,7 @@ import {
   SIDE_CHAT_PLUGIN_ID,
   SIDE_CHAT_PLUGIN_PANEL_ACTION_ID,
 } from "@/lib/side-chat-plugin";
+import { buildTaskLinkPluginPanelRequest } from "@/lib/task-link";
 import { RightPanelFileTabIcon } from "@/components/secondary-panel/RightPanelFileTabIcon";
 import { COARSE_POINTER_COMPACT_ICON_SIZE_CLASS } from "@bb/shared-ui/coarse-pointer-sizing";
 import { PluginIcon } from "@/components/plugin/PluginIcon";
@@ -2153,8 +2154,14 @@ function ThreadDetailViewInternal(props: ThreadRoutePathArgs) {
     ],
   );
   const handleOpenTimelineLink = useCallback<ThreadTimelineLinkHandler>(
-    ({ href }) => handleOpenUrlByPreference(href),
-    [handleOpenUrlByPreference],
+    ({ href }) => {
+      const pluginPanelRequest = buildTaskLinkPluginPanelRequest(href);
+      if (pluginPanelRequest !== null) {
+        return handleOpenTimelinePluginPanel(pluginPanelRequest);
+      }
+      return handleOpenUrlByPreference(href);
+    },
+    [handleOpenTimelinePluginPanel, handleOpenUrlByPreference],
   );
   const handleTimelineTitleAction = useCallback<TimelineTitleActionResolver>(
     (action) => {
