@@ -1286,7 +1286,7 @@ async function authenticateConnectTarget(
       cachedFailure ?? {
         code: "network",
         detail:
-          "the local bb server is unavailable, and this app has no stored bb Connect credential",
+          "the local Aleph server is unavailable, and this app has no stored bb Connect credential",
         ok: false,
       }
     );
@@ -1650,7 +1650,7 @@ async function runStartupAction(
       actions: [],
       details: error instanceof Error ? error.message : String(error),
       logs: "",
-      title: "Could not open bb",
+      title: "Could not open Aleph",
     });
   } finally {
     startupActionPending = false;
@@ -1766,7 +1766,7 @@ async function loadServerMovedView(
       ? "The old copy on this computer is locked after the move."
       : "The old copy on this computer was deleted.",
     logs: "",
-    title: `bb moved to ${move.toHostName}`,
+    title: `Aleph moved to ${move.toHostName}`,
   });
 }
 
@@ -1801,10 +1801,10 @@ async function applyServerTarget(): Promise<void> {
           { id: "choose-server", label: "Choose server…" },
         ],
         details:
-          `Could not connect to the local bb server on ${process.platform === "darwin" ? "this Mac" : "this computer"}. ` +
-          "Check that the port is free or that a compatible bb server is running.",
+          `Could not connect to the local Aleph server on ${process.platform === "darwin" ? "this Mac" : "this computer"}. ` +
+          "Check that the port is free or that a compatible Aleph server is running.",
         logs: "",
-        title: "Could not connect to bb server",
+        title: "Could not connect to Aleph server",
       });
       refreshApplicationMenu();
       return;
@@ -2026,7 +2026,7 @@ async function loadLogViewerWindow(
     minHeight: 520,
     minWidth: 840,
     show: false,
-    title: "bb - Server & Daemon Logs",
+    title: "Aleph - Server & Daemon Logs",
     titleBarStyle: "default",
     webPreferences: {
       contextIsolation: true,
@@ -2131,8 +2131,8 @@ async function loadLoadingView(): Promise<void> {
     url: createLocalViewUrl({
       viewModel: {
         kind: "loading",
-        message: "Starting local services and opening the bb workspace.",
-        title: "Opening bb",
+        message: "Starting local services and opening the Aleph workspace.",
+        title: "Opening Aleph",
       },
     }),
   });
@@ -2469,7 +2469,7 @@ async function spawnOwnedRuntime(
       )}.`,
       logs: bbProcess.logs.text(),
       actions: [],
-      title: "bb stopped",
+      title: "Aleph stopped",
     });
   });
   return { bbProcess, runtime };
@@ -2502,7 +2502,7 @@ async function startOwnedRuntime(
       )}.`,
       logs: bbProcess.logs.text(),
       actions: [],
-      title: "Could not start bb",
+      title: "Could not start Aleph",
     });
     setCurrentRuntime(null);
     return null;
@@ -2515,11 +2515,11 @@ async function startOwnedRuntime(
   await loadStartupError({
     details:
       raceResult.result.kind === "incompatible"
-        ? `Port ${args.serverUrl} is responding, but it does not look like bb: ${raceResult.result.reason}.`
-        : `Timed out waiting for bb at ${args.serverUrl}: ${raceResult.result.reason}.`,
+        ? `Port ${args.serverUrl} is responding, but it does not look like Aleph: ${raceResult.result.reason}.`
+        : `Timed out waiting for Aleph at ${args.serverUrl}: ${raceResult.result.reason}.`,
     logs: bbProcess.logs.text(),
     actions: [],
-    title: "Could not start bb",
+    title: "Could not start Aleph",
   });
   await stopOwnedRuntime();
   return null;
@@ -2598,40 +2598,40 @@ async function decideOnExistingServer(
   if (stopResult.kind === "unverified") {
     await loadStartupError({
       details:
-        `The bb at ${probe.serverUrl} records process ${String(stopResult.pid)}, but that ` +
-        "process no longer matches the record. bb did not stop it. Stop it yourself, then open bb again.",
+        `The Aleph at ${probe.serverUrl} records process ${String(stopResult.pid)}, but that ` +
+        "process no longer matches the record. Aleph did not stop it. Stop it yourself, then open Aleph again.",
       logs: "",
       actions: [],
-      title: "Could not stop the running bb",
+      title: "Could not stop the running Aleph",
     });
     return "quit";
   }
   if (stopResult.kind === "still-running") {
     await loadStartupError({
-      details: `bb could not stop process ${String(stopResult.pid)}, even after SIGKILL.`,
+      details: `Aleph could not stop process ${String(stopResult.pid)}, even after SIGKILL.`,
       logs: "",
       actions: [],
-      title: "Could not stop the running bb",
+      title: "Could not stop the running Aleph",
     });
     return "quit";
   }
   if (stopResult.kind === "replaced") {
     await loadStartupError({
       details:
-        `Another bb started at ${probe.serverUrl} while the question was open, so bb stopped nothing. ` +
-        "Open bb again to see the copy that runs now.",
+        `Another Aleph started at ${probe.serverUrl} while the question was open, so Aleph stopped nothing. ` +
+        "Open Aleph again to see the copy that runs now.",
       logs: "",
       actions: [],
-      title: "Could not stop the running bb",
+      title: "Could not stop the running Aleph",
     });
     return "quit";
   }
   if (!(await waitForServerToStop(probe.serverUrl))) {
     await loadStartupError({
-      details: `The bb at ${probe.serverUrl} stopped, but the address is still in use.`,
+      details: `The Aleph at ${probe.serverUrl} stopped, but the address is still in use.`,
       logs: "",
       actions: [],
-      title: "Could not stop the running bb",
+      title: "Could not stop the running Aleph",
     });
     return "quit";
   }
@@ -2684,7 +2684,7 @@ async function initializeRuntime(args: InitializeRuntimeArgs): Promise<void> {
 
   if (existingProbe.kind === "incompatible") {
     await loadStartupError({
-      details: `Port ${args.serverUrl} is already in use, but it is not a compatible bb server: ${existingProbe.reason}.`,
+      details: `Port ${args.serverUrl} is already in use, but it is not a compatible Aleph server: ${existingProbe.reason}.`,
       logs: "",
       actions: [],
       title: "Port conflict",
@@ -3216,6 +3216,6 @@ void runDesktopApp().catch((error) => {
     details: message,
     logs: "",
     actions: [],
-    title: "Could not open bb",
+    title: "Could not open Aleph",
   });
 });
