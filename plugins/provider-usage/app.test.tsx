@@ -20,6 +20,7 @@ afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  window.localStorage.clear();
 });
 
 function threadOnMachine(
@@ -71,6 +72,7 @@ function threadOnMachine(
 
 describe("provider usage footer disclosure", () => {
   it("aggregates every machine and keeps machine and provider selection local to the card", async () => {
+    window.localStorage.setItem("bb:provider-usage:sort-mode", "provider");
     const pooledAccounts: UsageProvider[] = (
       [
         ["codex", "Codex", "team@example.com", 46],
@@ -715,5 +717,113 @@ describe("provider usage panel layout", () => {
       view.container.querySelector("[data-provider-usage-header]")!
         .parentElement!.className,
     ).toContain("max-h-96");
+  });
+
+  describe("sort order", () => {
+    const HOUR = 60 * 60_000;
+
+    function account(
+      providerId: string,
+      displayName: string,
+      email: string,
+      usedPercent: number,
+      resetsInMs: number | null,
+      kind: "five-hour" | "weekly" = "weekly",
+    ): UsageProvider {
+      return {
+        ...claudeAccount(email),
+        providerId,
+        displayName,
+        usage: {
+          status: "ok",
+          accountEmail: email,
+          planLabel: null,
+          windows: [
+            {
+              kind,
+              label: "Weekly limit",
+              usedPercent,
+              resetsAt:
+                resetsInMs === null
+                  ? null
+                  : new Date(Date.now() + resetsInMs).toISOString(),
+              cost: null,
+            },
+          ],
+        },
+      };
+    }
+
+    function renderAccounts(accounts: UsageProvider[]) {
+      return render(
+        <ProviderUsageStatusContent
+          dismiss={vi.fn()}
+          snapshot={{
+            data: {
+              machines: [
+                {
+                  id: "source:pool",
+                  displayName: "Account Pooler",
+                  status: "connected",
+                  providers: accounts,
+                  error: null,
+                },
+              ],
+            },
+            error: null,
+            isRefreshing: false,
+          }}
+          threadMachineId={null}
+          refreshEnabled={false}
+        />,
+      );
+    }
+
+    const mixed = () => [
+      account("claude-code", "Claude Code", "slow@x.com", 40, 6 * 24 * HOUR),
+      account("codex", "Codex", "none-high@x.com", 90, null),
+      account("codex", "Codex", "fast@x.com", 50, 6 * 24 * HOUR),
+      account("claude-code", "Claude Code", "none-low@x.com", 10, null),
+      account("claude-code", "Claude Code", "faster@x.com", 80, 6 * 24 * HOUR),
+    ];
+
+    function order(view: ReturnType<typeof render>): string[] {
+      return view
+        .getAllByRole("heading", { level: 3 })
+        .map((heading) => heading.textContent ?? "");
+    }
+
+    it("defaults to soonest-to-run-out across providers, with unprojected accounts last by lowest remaining", () => {
+      const view = renderAccounts(mixed());
+      expect(order(view)).toEqual([
+        "faster@x.com",
+        "fast@x.com",
+        "slow@x.com",
+        "none-high@x.com",
+        "none-low@x.com",
+      ]);
+      expect(view.queryAllByRole("heading", { level: 2 })).toHaveLength(0);
+    });
+
+    it("persists the chosen grouping and restores it on the next mount", () => {
+      const first = renderAccounts(mixed());
+      fireEvent.click(
+        first.getByRole("button", { name: /sort accounts by soonest/iu }),
+      );
+      expect(window.localStorage.getItem("bb:provider-usage:sort-mode")).toBe(
+        "provider",
+      );
+      expect(first.getAllByRole("heading", { level: 2 })).toHaveLength(2);
+      first.unmount();
+      const second = renderAccounts(mixed());
+      expect(second.getAllByRole("heading", { level: 2 })).toHaveLength(2);
+      fireEvent.click(
+        second.getByRole("button", { name: /sort accounts by soonest/iu }),
+      );
+      expect(window.localStorage.getItem("bb:provider-usage:sort-mode")).toBe(
+        "exhaustion",
+      );
+      expect(order(second)[0]).toBe("faster@x.com");
+    });
   });
 });

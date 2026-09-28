@@ -87,9 +87,9 @@ describe("describeUsageBurn", () => {
     expect(describeUsageBurn({ percentPerHour: 0, runsOutInMs: null })).toBe(
       "No usage yet this window",
     );
-    expect(
-      describeUsageBurn({ percentPerHour: 0.04, runsOutInMs: null }),
-    ).toBe("Burning <0.1%/hr · lasts until reset");
+    expect(describeUsageBurn({ percentPerHour: 0.04, runsOutInMs: null })).toBe(
+      "Burning <0.1%/hr · lasts until reset",
+    );
     expect(describeUsageBurn({ percentPerHour: 26, runsOutInMs: 0 })).toBe(
       "Burning 26%/hr · limit reached",
     );
