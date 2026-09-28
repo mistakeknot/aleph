@@ -9,6 +9,7 @@ import type {
   ExperimentalSidebarFooterDisclosureRegistration,
   ExperimentalSidebarFooterItemRegistration,
   PluginAppDefinition,
+  PluginAppHeaderStatusRegistration,
   PluginContentScriptRegistration,
   PluginDiffRendererRegistration,
   PluginEnvironmentProviderInputsRegistration,
@@ -351,6 +352,7 @@ export interface CollectedPluginAppRegistrations {
   experimentalSidebarHeaders: ExperimentalSidebarHeaderRegistration[];
   threadLists: PluginThreadListRegistration[];
   threadHeaderActions: PluginThreadHeaderActionRegistration[];
+  appHeaderStatuses: PluginAppHeaderStatusRegistration[];
   browserToolbarActions: ExperimentalPluginBrowserToolbarActionRegistration[];
   fileOpeners: PluginFileOpenerRegistration[];
   sourceCodeRenderers: PluginSourceCodeRendererRegistration[];
@@ -477,6 +479,7 @@ export function collectPluginAppRegistrations(
     experimentalSidebarHeaders: [],
     threadLists: [],
     threadHeaderActions: [],
+    appHeaderStatuses: [],
     browserToolbarActions: [],
     fileOpeners: [],
     sourceCodeRenderers: [],
@@ -506,6 +509,7 @@ export function collectPluginAppRegistrations(
     sidebarHeader: new Set<string>(),
     threadList: new Set<string>(),
     threadHeaderAction: new Set<string>(),
+    appHeaderStatus: new Set<string>(),
     browserToolbarAction: new Set<string>(),
     fileOpener: new Set<string>(),
     sourceCodeRenderer: new Set<string>(),
@@ -776,6 +780,15 @@ export function collectPluginAppRegistrations(
           title: requireNonEmptyString(kind, "title", registration.title),
           component: requireComponent(kind, registration.component),
         });
+      },
+      experimental_appHeaderStatus(registration) {
+        collected.appHeaderStatuses.push(
+          collectTitledComponent(
+            "slots.experimental_appHeaderStatus",
+            seenIds.appHeaderStatus,
+            registration,
+          ),
+        );
       },
       experimental_browserToolbarAction(registration) {
         const kind = "slots.experimental_browserToolbarAction";

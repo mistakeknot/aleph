@@ -23,6 +23,9 @@ function PanelComponent(_props: PluginNavPanelProps) {
 function DirectiveComponent(_props: PluginMessageDirectiveProps) {
   return null;
 }
+function HeaderStatusComponent() {
+  return null;
+}
 
 afterEach(() => {
   resetPluginSlotStoreForTest();
@@ -195,6 +198,45 @@ describe("plugin slot store", () => {
       { pluginId: "alpha", id: "inline-vis", generation: 1 },
       { pluginId: "alpha", id: "chart", generation: 1 },
       { pluginId: "zeta", id: "z-vis", generation: 1 },
+    ]);
+  });
+
+  it("flattens appHeaderStatuses sorted by plugin id with generation metadata", () => {
+    setPluginSlotRegistrations(
+      "zeta",
+      registrationSet({
+        appHeaderStatuses: [
+          {
+            id: "quota",
+            title: "Zeta status",
+            component: HeaderStatusComponent,
+          },
+        ],
+      }),
+    );
+    setPluginSlotRegistrations(
+      "alpha",
+      registrationSet({
+        appHeaderStatuses: [
+          {
+            id: "quota",
+            title: "Alpha status",
+            component: HeaderStatusComponent,
+          },
+        ],
+      }),
+    );
+
+    const snapshot = getPluginSlotSnapshot();
+    expect(
+      snapshot.appHeaderStatuses.map((status) => ({
+        pluginId: status.pluginId,
+        id: status.id,
+        generation: status.generation,
+      })),
+    ).toEqual([
+      { pluginId: "alpha", id: "quota", generation: 1 },
+      { pluginId: "zeta", id: "quota", generation: 1 },
     ]);
   });
 

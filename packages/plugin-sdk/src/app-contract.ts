@@ -403,6 +403,51 @@ export interface PluginThreadHeaderActionProps {
   isCompactViewport: boolean;
 }
 
+/**
+ * Props passed to an `experimental_appHeaderStatus` component, rendered in
+ * the header bar's center, sharing width with breadcrumbs and the thread
+ * title. The host renders each contribution once per window regardless of
+ * split panes — never once per pane — so keep state in the component, not a
+ * module-level singleton keyed by thread.
+ */
+export interface PluginAppHeaderStatusProps {
+  /** The thread the focused pane shows, or null off a thread route. */
+  threadId: string | null;
+  /** The project the focused pane shows, or null when none is selected. */
+  projectId: string | null;
+  /**
+   * True on phone-width viewports and coarse pointers. Collapse to a single
+   * icon-sized control when it is true — the strip has little room.
+   */
+  isCompactViewport: boolean;
+  /**
+   * Width in px allocated to this contribution: the strip's available
+   * width divided evenly across every current contribution, updated as the
+   * window resizes, other contributions register or unregister, or
+   * breadcrumbs and the thread title change length. The strip's
+   * contributions collapse first, before breadcrumbs or the thread title
+   * give up space, so measure your rendered width against this budget and
+   * switch to a narrower presentation rather than overflowing.
+   */
+  availableWidth: number;
+  /** Navigate to this plugin's detail page in Tools, where settingsSection slots render. */
+  openSettings(): void;
+}
+
+/**
+ * Render one compact status chip in the header bar's center (see
+ * {@link PluginAppHeaderStatusProps}). Many plugins can contribute; the host
+ * shows them in ascending plugin id order, then registration order, and
+ * collapses the strip before it displaces breadcrumbs or the thread title.
+ */
+export interface PluginAppHeaderStatusRegistration {
+  /** Unique within the plugin; letters, digits, `-`, `_`. */
+  id: string;
+  /** Names the region the host wraps around your component. */
+  title: string;
+  component: ComponentType<PluginAppHeaderStatusProps>;
+}
+
 /** JavaScript world a Browser page expression runs in. */
 export type ExperimentalPluginBrowserPageWorld = "isolated" | "main";
 
@@ -2052,6 +2097,15 @@ export interface PluginAppSlots {
    */
   experimental_threadHeaderAction(
     registration: PluginThreadHeaderActionRegistration,
+  ): void;
+  /**
+   * Render a compact status chip in the header bar's center, alongside
+   * breadcrumbs and the thread title (see
+   * {@link PluginAppHeaderStatusRegistration}). Experimental: see
+   * docs/api_to_audit.md.
+   */
+  experimental_appHeaderStatus(
+    registration: PluginAppHeaderStatusRegistration,
   ): void;
   /** Render a component beside each Browser tab's address bar. */
   experimental_browserToolbarAction(

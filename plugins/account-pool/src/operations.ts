@@ -265,7 +265,15 @@ export class PoolOperations {
     bypassed: boolean;
   }> {
     await this.routing.setBypassed(threadId, bypassed);
+    this.onAccountsChanged();
     return { threadId, bypassed };
+  }
+
+  async getBypass(threadId: string): Promise<{
+    threadId: string;
+    bypassed: boolean;
+  }> {
+    return { threadId, bypassed: await this.routing.isBypassed(threadId) };
   }
 
   async hasUsableEnabledAccount(provider: PoolProvider): Promise<boolean> {

@@ -99,6 +99,7 @@ function status(accounts: AccountSummary[] = [account()]): PoolStatus {
     ],
     accounts,
     routing: { claude: true, codex: true },
+    activeAccountIds: { claude: null, codex: null },
     parent: null,
   };
 }
@@ -788,4 +789,359 @@ describe("Account Pool settings", () => {
       ).toEqual(["Reorder First", "Reorder Second"]);
     },
   );
+});
+
+function renderHeaderStatus(
+  accounts: AccountSummary[],
+  overrides: {
+    threadId?: string | null;
+    isCompactViewport?: boolean;
+    availableWidth?: number;
+    configOverrides?: Partial<AccountPoolConfig>;
+    extraRpc?: Record<string, () => object | null | Promise<object | null>>;
+  } = {},
+) {
+  const openSettings = vi.fn();
+  const slot = renderSlot(
+    app.appHeaderStatuses[0]!,
+    {
+      threadId: overrides.threadId ?? null,
+      projectId: null,
+      isCompactViewport: overrides.isCompactViewport ?? false,
+      availableWidth: overrides.availableWidth ?? 600,
+      openSettings,
+    },
+    {
+      rpc: {
+        "status.get": () => status(accounts),
+        "config.get": () => config(overrides.configOverrides),
+        "bypass.get": () => ({
+          threadId: overrides.threadId ?? "",
+          bypassed: false,
+        }),
+        ...overrides.extraRpc,
+      },
+      openUrl: () => true,
+    },
+  );
+  return { ...slot, openSettings };
+}
+
+function codexAccount(
+  utilization: number,
+  overrides: Partial<AccountSummary> = {},
+) {
+  return account({
+    id: "22222222-2222-4222-8222-222222222222",
+    provider: "codex",
+    codexAccountId: "chatgpt-account",
+    limitWindows: [
+      {
+        slot: "primary",
+        windowMinutes: 10_080,
+        utilization,
+        resetAt: null,
+        status: null,
+        observedAt: 1,
+        source: "usage",
+      },
+    ],
+    ...overrides,
+  });
+}
+
+describe("Account Pool header status", () => {
+  it("shows one chip per provider with the tightest window's percent", async () => {
+    const slot = renderHeaderStatus([
+      account({ provider: "claude", fiveHourUtilization: 0.4 }),
+      codexAccount(0.1),
+    ]);
+    expect(await slot.findByText("40%")).toBeTruthy();
+    expect(slot.getByText("10%")).toBeTruthy();
+  });
+
+  it("renders the default tone below the switch threshold", async () => {
+    const slot = renderHeaderStatus([account({ fiveHourUtilization: 0.5 })], {
+      configOverrides: { switchThreshold: 0.9 },
+    });
+    const percent = await slot.findByText("50%");
+    expect(percent.className).toContain("text-foreground");
+  });
+
+  it("renders the warning tone at threshold minus 0.1", async () => {
+    const slot = renderHeaderStatus([account({ fiveHourUtilization: 0.8 })], {
+      configOverrides: { switchThreshold: 0.9 },
+    });
+    const percent = await slot.findByText("80%");
+    expect(percent.className).toContain("text-warning-text");
+  });
+
+  it("renders the destructive tone at full utilization", async () => {
+    const slot = renderHeaderStatus([account({ fiveHourUtilization: 1 })], {
+      configOverrides: { switchThreshold: 0.9 },
+    });
+    const percent = await slot.findByText("100%");
+    expect(percent.className).toContain("text-destructive-text");
+  });
+
+  it("renders the destructive tone when the window is rejected", async () => {
+    const slot = renderHeaderStatus([
+      account({ fiveHourUtilization: 0.2, fiveHourStatus: "rejected" }),
+    ]);
+    const percent = await slot.findByText("20%");
+    expect(percent.className).toContain("text-destructive-text");
+  });
+
+  it("says off when routing is disabled for a provider", async () => {
+    const slot = renderSlot(
+      app.appHeaderStatuses[0]!,
+      {
+        threadId: null,
+        projectId: null,
+        isCompactViewport: false,
+        availableWidth: 600,
+        openSettings: vi.fn(),
+      },
+      {
+        rpc: {
+          "status.get": () => ({
+            ...status([account()]),
+            routing: { claude: false, codex: true },
+          }),
+          "config.get": () => config(),
+          "bypass.get": () => ({ threadId: "", bypassed: false }),
+        },
+        openUrl: () => true,
+      },
+    );
+    expect(await slot.findByText("off")).toBeTruthy();
+  });
+
+  it("shows a bypassed badge for the current thread", async () => {
+    const slot = renderHeaderStatus([account()], {
+      threadId: "thread-1",
+      extraRpc: {
+        "bypass.get": () => ({ threadId: "thread-1", bypassed: true }),
+      },
+    });
+    expect(await slot.findByText("bypassed")).toBeTruthy();
+  });
+
+  it("discards a stale bypass response after navigating to a different thread", async () => {
+    const threadOne = deferred<{ threadId: string; bypassed: boolean }>();
+    const threadTwo = deferred<{ threadId: string; bypassed: boolean }>();
+    const bypassCalls: string[] = [];
+    const openSettings = vi.fn();
+    const Component = app.appHeaderStatuses[0]!.component;
+    const slot = renderSlot(
+      app.appHeaderStatuses[0]!,
+      {
+        threadId: "thread-1",
+        projectId: null,
+        isCompactViewport: false,
+        availableWidth: 600,
+        openSettings,
+      },
+      {
+        rpc: {
+          "status.get": () => status([account()]),
+          "config.get": () => config(),
+          "bypass.get": (input: unknown) => {
+            const { threadId } = input as { threadId: string };
+            bypassCalls.push(threadId);
+            return threadId === "thread-1"
+              ? threadOne.promise
+              : threadTwo.promise;
+          },
+        },
+        openUrl: () => true,
+      },
+    );
+    await waitFor(() => expect(bypassCalls).toContain("thread-1"));
+
+    slot.lifecycle.rerender(
+      <Component
+        threadId="thread-2"
+        projectId={null}
+        isCompactViewport={false}
+        availableWidth={600}
+        openSettings={openSettings}
+      />,
+    );
+    await waitFor(() => expect(bypassCalls).toContain("thread-2"));
+
+    await act(async () => {
+      threadTwo.resolve({ threadId: "thread-2", bypassed: false });
+      threadOne.resolve({ threadId: "thread-1", bypassed: true });
+      await Promise.resolve();
+    });
+
+    expect(slot.queryByText("bypassed")).toBeNull();
+  });
+
+  it("discards a stale response for the same thread after navigating away and back", async () => {
+    const calls: ReturnType<
+      typeof deferred<{ threadId: string; bypassed: boolean }>
+    >[] = [];
+    const openSettings = vi.fn();
+    const Component = app.appHeaderStatuses[0]!.component;
+    const slot = renderSlot(
+      app.appHeaderStatuses[0]!,
+      {
+        threadId: "thread-1",
+        projectId: null,
+        isCompactViewport: false,
+        availableWidth: 600,
+        openSettings,
+      },
+      {
+        rpc: {
+          "status.get": () => status([account()]),
+          "config.get": () => config(),
+          "bypass.get": () => {
+            const call = deferred<{ threadId: string; bypassed: boolean }>();
+            calls.push(call);
+            return call.promise;
+          },
+        },
+        openUrl: () => true,
+      },
+    );
+    await waitFor(() => expect(calls).toHaveLength(1));
+    const originalThreadOneCall = calls[0]!;
+
+    slot.lifecycle.rerender(
+      <Component
+        threadId="thread-2"
+        projectId={null}
+        isCompactViewport={false}
+        availableWidth={600}
+        openSettings={openSettings}
+      />,
+    );
+    await waitFor(() => expect(calls).toHaveLength(2));
+
+    slot.lifecycle.rerender(
+      <Component
+        threadId="thread-1"
+        projectId={null}
+        isCompactViewport={false}
+        availableWidth={600}
+        openSettings={openSettings}
+      />,
+    );
+    expect(slot.queryByText("bypassed")).toBeNull();
+    await waitFor(() => expect(calls).toHaveLength(3));
+    const newestThreadOneCall = calls[2]!;
+
+    await act(async () => {
+      newestThreadOneCall.resolve({ threadId: "thread-1", bypassed: true });
+      await Promise.resolve();
+    });
+    expect(await slot.findByText("bypassed")).toBeTruthy();
+
+    await act(async () => {
+      originalThreadOneCall.resolve({ threadId: "thread-1", bypassed: false });
+      await Promise.resolve();
+    });
+    expect(await slot.findByText("bypassed")).toBeTruthy();
+  });
+
+  it("opens settings on click", async () => {
+    const slot = renderHeaderStatus([account({ fiveHourUtilization: 0.4 })]);
+    const button = await slot.findByTestId("account-pool-header-status");
+    fireEvent.click(button);
+    expect(slot.openSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it("collapses to a single icon and the worst percent on a compact viewport", async () => {
+    const slot = renderHeaderStatus(
+      [
+        account({ provider: "claude", fiveHourUtilization: 0.4 }),
+        codexAccount(0.9),
+      ],
+      { isCompactViewport: true },
+    );
+    expect(await slot.findByText("90%")).toBeTruthy();
+    expect(slot.queryByText("40%")).toBeNull();
+  });
+
+  it("excludes a routing-disabled provider from the compact-viewport worst percent", async () => {
+    const slot = renderSlot(
+      app.appHeaderStatuses[0]!,
+      {
+        threadId: null,
+        projectId: null,
+        isCompactViewport: true,
+        availableWidth: 600,
+        openSettings: vi.fn(),
+      },
+      {
+        rpc: {
+          "status.get": () => ({
+            ...status([
+              account({ provider: "claude", fiveHourUtilization: 0.4 }),
+              codexAccount(0.9),
+            ]),
+            routing: { claude: true, codex: false },
+          }),
+          "config.get": () => config(),
+          "bypass.get": () => ({ threadId: "", bypassed: false }),
+        },
+        openUrl: () => true,
+      },
+    );
+    expect(await slot.findByText("40%")).toBeTruthy();
+    expect(slot.queryByText("90%")).toBeNull();
+  });
+
+  it("shows the persisted active account's percent instead of the first ready account", async () => {
+    const active = account({
+      id: "33333333-3333-4333-8333-333333333333",
+      provider: "claude",
+      fiveHourUtilization: 0.9,
+    });
+    const slot = renderSlot(
+      app.appHeaderStatuses[0]!,
+      {
+        threadId: null,
+        projectId: null,
+        isCompactViewport: false,
+        availableWidth: 600,
+        openSettings: vi.fn(),
+      },
+      {
+        rpc: {
+          "status.get": () => ({
+            ...status([
+              account({ provider: "claude", fiveHourUtilization: 0.4 }),
+              active,
+            ]),
+            activeAccountIds: { claude: active.id, codex: null },
+          }),
+          "config.get": () => config(),
+          "bypass.get": () => ({ threadId: "", bypassed: false }),
+        },
+        openUrl: () => true,
+      },
+    );
+    expect(await slot.findByText("90%")).toBeTruthy();
+    expect(slot.queryByText("40%")).toBeNull();
+  });
+
+  it("collapses to a single icon when available width is too narrow", async () => {
+    const slot = renderHeaderStatus([account({ fiveHourUtilization: 0.4 })], {
+      availableWidth: 150,
+    });
+    expect(await slot.findByText("40%")).toBeTruthy();
+    expect(slot.queryByText(/^Claude$/)).toBeNull();
+  });
+
+  it("does not collapse when available width is ample", async () => {
+    const slot = renderHeaderStatus([account({ fiveHourUtilization: 0.4 })], {
+      availableWidth: 600,
+    });
+    expect(await slot.findByText("40%")).toBeTruthy();
+    expect(slot.getByText(/^Claude$/)).toBeTruthy();
+  });
 });

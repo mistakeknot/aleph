@@ -2535,6 +2535,7 @@ function ThreadDetailViewInternal(props: ThreadRoutePathArgs) {
           projectId={thread.projectId}
         />
       }
+      projectId={thread.projectId}
       threadHeaderGitActions={
         executionUnavailable ? [] : gitActions.threadHeaderGitActions
       }

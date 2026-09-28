@@ -35,6 +35,7 @@ import {
   resolveToolsBreadcrumbs,
 } from "@/components/tools/tools-navigation";
 import { AppBreadcrumbs } from "./AppBreadcrumbs";
+import { AppHeaderStatusStrip } from "./AppHeaderStatusStrip";
 import { resourceRouteLabelAtom } from "./resourceRouteLabelAtom";
 import { AppPageHeader, HEADER_ICON_BUTTON_CLASS } from "./AppPageHeader";
 import { stripProjectThreads } from "@/hooks/queries/project-queries";
@@ -314,6 +315,7 @@ function AppHeader({
   pluginPanelSubPath,
   meta,
 }: AppHeaderProps) {
+  const isCompactViewport = useIsCompactViewport();
   const headerBreadcrumbs = meta.breadcrumbs;
   const headerTitle =
     headerBreadcrumbs || usesProjectChromeStyle ? undefined : meta.title;
@@ -366,7 +368,18 @@ function AppHeader({
     </>
   ) : null;
 
-  return <AppPageHeader center={center} actions={actions} />;
+  const combinedCenter = (
+    <>
+      {center}
+      <AppHeaderStatusStrip
+        threadId={null}
+        projectId={projectId ?? null}
+        isCompactViewport={isCompactViewport}
+      />
+    </>
+  );
+
+  return <AppPageHeader center={combinedCenter} actions={actions} />;
 }
 
 interface AppLayoutProps {

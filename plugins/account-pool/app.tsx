@@ -28,6 +28,7 @@ import {
   useBbNavigate,
   useRealtime,
   useRpc,
+  type PluginAppHeaderStatusProps,
 } from "@get-bb/plugin-sdk/app";
 import { Button } from "@/components/ui/button";
 import {
@@ -50,6 +51,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "@/components/ui/hover-card";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -293,19 +299,27 @@ type QuotaSlot = {
   label: string;
   utilization: number | null;
   status: string | null;
+  resetAt: number | null;
 };
 
 function quotaSlots(account: AccountSummary): QuotaSlot[] {
   if (account.provider === "codex") {
     if (account.limitWindows.length === 0)
       return [
-        { key: "primary", label: "LIMIT", utilization: null, status: null },
+        {
+          key: "primary",
+          label: "LIMIT",
+          utilization: null,
+          status: null,
+          resetAt: null,
+        },
       ];
     return account.limitWindows.map((window) => ({
       key: window.slot,
       label: windowShortLabel(window),
       utilization: window.utilization,
       status: window.status,
+      resetAt: window.resetAt,
     }));
   }
   return [
@@ -314,20 +328,52 @@ function quotaSlots(account: AccountSummary): QuotaSlot[] {
       label: "5H",
       utilization: account.fiveHourUtilization,
       status: account.fiveHourStatus,
+      resetAt: account.fiveHourResetAt,
     },
     {
       key: "seven-day",
       label: "7D",
       utilization: account.sevenDayUtilization,
       status: account.sevenDayStatus,
+      resetAt: account.sevenDayResetAt,
     },
     {
       key: "fable",
       label: "FABLE",
       utilization: account.familyWeekly.fable?.utilization ?? null,
       status: account.familyWeekly.fable?.status ?? null,
+      resetAt: account.familyWeekly.fable?.resetAt ?? null,
     },
   ];
+}
+
+function tightestQuotaSlot(account: AccountSummary): QuotaSlot | null {
+  const slots = quotaSlots(account).filter((slot) => slot.utilization !== null);
+  if (slots.length === 0) return null;
+  return slots.reduce((tightest, slot) =>
+    (slot.utilization ?? 0) > (tightest.utilization ?? 0) ? slot : tightest,
+  );
+}
+
+function activeAccountFor(
+  status: PoolStatus,
+  provider: PoolProvider,
+): AccountSummary | null {
+  const providerAccounts = status.accounts.filter(
+    (account) => account.provider === provider,
+  );
+  const activeAccountId = status.activeAccountIds[provider];
+  const active =
+    activeAccountId === null
+      ? undefined
+      : providerAccounts.find((account) => account.id === activeAccountId);
+  return (
+    active ??
+    providerAccounts.find((account) => account.status === "ready") ??
+    providerAccounts.find((account) => account.status !== "disabled") ??
+    providerAccounts[0] ??
+    null
+  );
 }
 
 function quotaToneClass(slot: QuotaSlot, threshold: number): string {
@@ -1847,9 +1893,284 @@ function LoginDialog({
   );
 }
 
+function shortResetLabel(resetAt: number | null): string | null {
+  if (resetAt === null) return null;
+  const minutes = Math.max(1, Math.round((resetAt - Date.now()) / 60_000));
+  if (minutes < 60) return `${minutes}m`;
+  if (minutes < 1_440) return `${Math.floor(minutes / 60)}h`;
+  return `${Math.round(minutes / 1_440)}d`;
+}
+
+type ProviderHeaderSummary = {
+  provider: (typeof PROVIDERS)[number];
+  routingOn: boolean;
+  account: AccountSummary | null;
+  slot: QuotaSlot | null;
+};
+
+function AccountPoolHeaderDetail({
+  status,
+  providerSummaries,
+  threshold,
+}: {
+  status: PoolStatus;
+  providerSummaries: ProviderHeaderSummary[];
+  threshold: number;
+}) {
+  return (
+    <div className="space-y-3">
+      {providerSummaries.map(({ provider, routingOn, account }) => {
+        const accounts = status.accounts.filter(
+          (candidate) => candidate.provider === provider.id,
+        );
+        return (
+          <div key={provider.id}>
+            <div className="flex items-center justify-between gap-2">
+              <h4 className="text-xs font-semibold text-foreground">
+                {provider.title}
+              </h4>
+              {!routingOn ? (
+                <span className="text-2xs text-subtle-foreground/75">
+                  Routing off
+                </span>
+              ) : null}
+            </div>
+            {accounts.length === 0 ? (
+              <p className="mt-1 text-2xs text-subtle-foreground/75">
+                No accounts connected.
+              </p>
+            ) : (
+              <ul className="mt-1 space-y-1">
+                {accounts.map((candidate) => (
+                  <li
+                    key={candidate.id}
+                    className="flex items-center justify-between gap-2 text-2xs"
+                  >
+                    <span
+                      className={cn(
+                        "truncate",
+                        candidate.id === account?.id
+                          ? "font-semibold text-foreground"
+                          : "text-subtle-foreground/75",
+                      )}
+                    >
+                      {candidate.label}
+                    </span>
+                    <span className="flex shrink-0 gap-1.5 tabular-nums">
+                      {quotaSlots(candidate)
+                        .filter((slot) => slot.utilization !== null)
+                        .map((slot) => (
+                          <span
+                            key={slot.key}
+                            className={quotaToneClass(slot, threshold)}
+                          >
+                            {slot.label} {percent(slot.utilization)}
+                            {slot.resetAt === null
+                              ? ""
+                              : ` · ${resetLabel(slot.resetAt)}`}
+                          </span>
+                        ))}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function AccountPoolHeaderStatus({
+  threadId,
+  isCompactViewport,
+  availableWidth,
+  openSettings,
+}: PluginAppHeaderStatusProps) {
+  const rpc = useRpc<typeof accountPoolRpcContract>();
+  const [status, setStatus] = useState<PoolStatus | null>(readCachedStatus);
+  const [config, setConfig] = useState<AccountPoolConfig | null>(null);
+  const [bypassed, setBypassed] = useState(false);
+  const mounted = useRef(true);
+  const bypassGeneration = useRef(0);
+  const refresh = useCallback(async () => {
+    try {
+      const next = await rpc.call("status.get", null);
+      writeCachedStatus(next);
+      if (mounted.current) setStatus(next);
+    } catch {
+      return;
+    }
+  }, [rpc]);
+  const refreshConfig = useCallback(async () => {
+    try {
+      const next = await rpc.call("config.get", null);
+      if (mounted.current) setConfig(next);
+    } catch {
+      return;
+    }
+  }, [rpc]);
+  const refreshBypass = useCallback(async () => {
+    const generation = ++bypassGeneration.current;
+    if (threadId === null) {
+      if (mounted.current && bypassGeneration.current === generation)
+        setBypassed(false);
+      return;
+    }
+    try {
+      const next = await rpc.call("bypass.get", { threadId });
+      if (mounted.current && bypassGeneration.current === generation)
+        setBypassed(next.bypassed);
+    } catch {
+      return;
+    }
+  }, [rpc, threadId]);
+  useEffect(() => {
+    mounted.current = true;
+    void refresh();
+    void refreshConfig();
+    return () => {
+      mounted.current = false;
+    };
+  }, [refresh, refreshConfig]);
+  useEffect(() => {
+    setBypassed(false);
+    void refreshBypass();
+  }, [refreshBypass]);
+  useRealtime(ACCOUNT_POOL_ACCOUNTS_CHANGED, () => {
+    void refresh();
+    void refreshBypass();
+  });
+  useRealtime(ACCOUNT_POOL_CONFIG_CHANGED, () => {
+    void refreshConfig();
+  });
+
+  if (status === null) return null;
+  const threshold =
+    config?.switchThreshold ?? DEFAULT_ACCOUNT_POOL_CONFIG.switchThreshold;
+
+  const providerSummaries: ProviderHeaderSummary[] = PROVIDERS.map(
+    (provider) => {
+      const account = activeAccountFor(status, provider.id);
+      return {
+        provider,
+        routingOn: status.routing[provider.id],
+        account,
+        slot: account === null ? null : tightestQuotaSlot(account),
+      };
+    },
+  );
+
+  const worst = providerSummaries.reduce<{
+    provider: (typeof PROVIDERS)[number];
+    slot: QuotaSlot;
+  } | null>((current, summary) => {
+    if (
+      !summary.routingOn ||
+      summary.slot === null ||
+      summary.slot.utilization === null
+    )
+      return current;
+    if (
+      current === null ||
+      (summary.slot.utilization ?? 0) > (current.slot.utilization ?? 0)
+    )
+      return { provider: summary.provider, slot: summary.slot };
+    return current;
+  }, null);
+
+  const collapseToIcon = isCompactViewport || availableWidth < 200;
+
+  const trigger = collapseToIcon ? (
+    <button
+      type="button"
+      onClick={openSettings}
+      aria-label="Account Pooler status"
+      data-testid="account-pool-header-status"
+      className="flex items-center gap-1 rounded px-1.5 py-1 text-xs font-semibold hover:bg-state-hover"
+    >
+      <Icon name="Zap" className="size-3.5 text-subtle-foreground/75" />
+      <span
+        className={
+          worst === null
+            ? "text-subtle-foreground/75"
+            : quotaToneClass(worst.slot, threshold)
+        }
+      >
+        {worst === null ? "—" : percent(worst.slot.utilization)}
+      </span>
+    </button>
+  ) : (
+    <button
+      type="button"
+      onClick={openSettings}
+      aria-label="Account Pooler status"
+      data-testid="account-pool-header-status"
+      className="flex items-center gap-3 rounded px-1.5 py-1 text-xs hover:bg-state-hover"
+    >
+      {providerSummaries.map(({ provider, routingOn, account, slot }) => (
+        <span key={provider.id} className="flex items-center gap-1">
+          <span className="font-medium text-subtle-foreground/75">
+            {provider.title}
+          </span>
+          {!routingOn ? (
+            <span className="text-subtle-foreground/75">off</span>
+          ) : account === null ? (
+            <span className="text-subtle-foreground/75">none</span>
+          ) : slot === null ? (
+            <span className="text-subtle-foreground/75">—</span>
+          ) : (
+            <>
+              <span
+                className={cn("font-semibold", quotaToneClass(slot, threshold))}
+              >
+                {percent(slot.utilization)}
+              </span>
+              {shortResetLabel(slot.resetAt) === null ? null : (
+                <span className="text-subtle-foreground/75">
+                  {shortResetLabel(slot.resetAt)}
+                </span>
+              )}
+            </>
+          )}
+        </span>
+      ))}
+      {bypassed ? (
+        <span className="rounded bg-state-hover px-1 text-2xs text-subtle-foreground/75">
+          bypassed
+        </span>
+      ) : null}
+    </button>
+  );
+
+  return (
+    <HoverCard openDelay={200}>
+      <HoverCardTrigger asChild>{trigger}</HoverCardTrigger>
+      <HoverCardContent className="w-72">
+        <AccountPoolHeaderDetail
+          status={status}
+          providerSummaries={providerSummaries}
+          threshold={threshold}
+        />
+        {bypassed ? (
+          <p className="mt-2 text-2xs text-subtle-foreground/75">
+            This thread bypasses the Account Pooler.
+          </p>
+        ) : null}
+      </HoverCardContent>
+    </HoverCard>
+  );
+}
+
 export default definePluginApp((app) => {
   app.slots.settingsSection({
     id: "accounts",
     component: AccountPoolSettings,
+  });
+  app.slots.experimental_appHeaderStatus({
+    id: "quota",
+    title: "Account Pooler status",
+    component: AccountPoolHeaderStatus,
   });
 });

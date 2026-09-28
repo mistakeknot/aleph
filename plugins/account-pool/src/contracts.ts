@@ -241,6 +241,12 @@ export const statusSchema = z
     hosts: z.array(hubTokenSummarySchema),
     accounts: z.array(accountSummarySchema),
     routing: z.object({ claude: z.boolean(), codex: z.boolean() }).strict(),
+    activeAccountIds: z
+      .object({
+        claude: z.string().uuid().nullable(),
+        codex: z.string().uuid().nullable(),
+      })
+      .strict(),
     parent: z
       .object({
         baseUrl: z.string(),
@@ -343,4 +349,8 @@ export const tokenRotateInputSchema = z
 
 export const bypassInputSchema = z
   .object({ threadId: z.string().min(1), bypassed: z.boolean() })
+  .strict();
+
+export const bypassQueryInputSchema = z
+  .object({ threadId: z.string().min(1) })
   .strict();
