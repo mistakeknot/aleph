@@ -26,23 +26,23 @@ having. Unbounded or mis-targeted review isn't.
 
 ### Current State vs. Planned
 
-| Capability | Status |
-|---|---|
-| Thread-bound availability: may *this* thread use each provider's pool | **Shipped** |
-| Ownership checked; 403 on refusal, 503 when unknown, never cached | **Shipped** |
-| Reviewer run on the other provider's pool with `bb pool exec` | **Shipped** |
-| Provider icons show which provider each thread uses | **Shipped** |
-| Review pinned to a commit; at most two rounds, then a human | **Convention** (prompt) |
-| Model choice per task class against a quality bar | **Planned** |
-| Enforced read-only reviewer runs | **Planned** |
-| Stop a run by its ID, never by matching a command line | **Planned** (upstream `bb thread stop` covers threads) |
+| Capability                                                            | Status                                                 |
+| --------------------------------------------------------------------- | ------------------------------------------------------ |
+| Thread-bound availability: may _this_ thread use each provider's pool | **Shipped**                                            |
+| Ownership checked; 403 on refusal, 503 when unknown, never cached     | **Shipped**                                            |
+| Reviewer run on the other provider's pool with `bb pool exec`         | **Shipped**                                            |
+| Provider icons show which provider each thread uses                   | **Shipped**                                            |
+| Review pinned to a commit; at most two rounds, then a human           | **Convention** (prompt)                                |
+| Model choice per task class against a quality bar                     | **Planned**                                            |
+| Enforced read-only reviewer runs                                      | **Planned**                                            |
+| Stop a run by its ID, never by matching a command line                | **Planned** (upstream `bb thread stop` covers threads) |
 
 ## The Journey
 
 The coordinator has a task. It chooses a model for the task class:
 routine edits and mechanical checks go to a cheaper model, and planning,
 difficult debugging and foundational changes go to a frontier model.
-*Planned:* bb records that choice and its outcome, so the rule can be
+_Planned:_ bb records that choice and its outcome, so the rule can be
 tuned from evidence rather than habit.
 
 When the change is ready and independence matters, the coordinator asks
@@ -67,16 +67,16 @@ the stop can't hit anything else.
 
 ## Success Signals
 
-| Signal | Type | Status | Assertion |
-|---|---|---|---|
-| Borrowing is per thread | measurable | active | Availability response names the requested thread ID; otherwise it isn't used as permission |
-| Unknown or unowned is refused | measurable | active | Unowned thread → 403; failed ownership lookup → 503; responses are not cached |
-| Review is independent | observable | active | The reviewer's pooled-transport marker names a different provider from the producer's |
-| Review has a fixed target | observable | active | Every review names one commit SHA; findings refer to that SHA |
-| Review is bounded | measurable | active | No change goes past two review rounds without an operator decision |
-| No duplicate reviews | measurable | planned | Reviews per change per commit ≤ 1, excluding deliberate re-reviews |
-| Reviewer changes nothing | observable | planned | Working tree and branch unchanged after a review run; enforced, not only instructed |
-| Model fits task | qualitative | planned | Rework rate for cheaper-model tasks stays at or below the frontier rate for the same task class |
+| Signal                        | Type        | Status  | Assertion                                                                                       |
+| ----------------------------- | ----------- | ------- | ----------------------------------------------------------------------------------------------- |
+| Borrowing is per thread       | measurable  | active  | Availability response names the requested thread ID; otherwise it isn't used as permission      |
+| Unknown or unowned is refused | measurable  | active  | Unowned thread → 403; failed ownership lookup → 503; responses are not cached                   |
+| Review is independent         | observable  | active  | The reviewer's pooled-transport marker names a different provider from the producer's           |
+| Review has a fixed target     | observable  | active  | Every review names one commit SHA; findings refer to that SHA                                   |
+| Review is bounded             | measurable  | active  | No change goes past two review rounds without an operator decision                              |
+| No duplicate reviews          | measurable  | planned | Reviews per change per commit ≤ 1, excluding deliberate re-reviews                              |
+| Reviewer changes nothing      | observable  | planned | Working tree and branch unchanged after a review run; enforced, not only instructed             |
+| Model fits task               | qualitative | planned | Rework rate for cheaper-model tasks stays at or below the frontier rate for the same task class |
 
 ## Known Friction Points
 

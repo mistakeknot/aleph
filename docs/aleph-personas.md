@@ -15,6 +15,7 @@ them, checks their evidence, and passes decisions to the operator. It
 works through bb's threads and CLI.
 
 **Goals**
+
 - Keep the project moving with as few of its own turns as possible.
 - Hear from children only when they're DONE, BLOCKED or need a decision.
 - Send each piece of work to the cheapest model that can do it well, and
@@ -22,6 +23,7 @@ works through bb's threads and CLI.
 - Survive its own context limits by rotating from a checkpoint.
 
 **Frustrations**
+
 - Woken 5–6 times by a single child's progress updates during one test
   run, with nothing to act on.
 - A wait on the wrong condition (a process exit) never ended, and hours
@@ -49,6 +51,7 @@ server from a browser somewhere else. They hold several subscription
 accounts per provider and pay for all of them.
 
 **Goals**
+
 - Turn their accounts' usage into finished, reviewed work.
 - Make decisions when a coordinator brings one, and otherwise stay out of
   the way.
@@ -57,6 +60,7 @@ accounts per provider and pay for all of them.
 - Get upstream bb improvements without losing anything they rely on.
 
 **Frustrations**
+
 - Status-only messages from coordinators that need no decision.
 - Weekly limits reached early because of wasted wakes and repeated
   reviews.
@@ -78,11 +82,13 @@ reviews one bounded piece of work. It may use the other provider's model
 so the review is independent.
 
 **Goals**
+
 - Get capacity when it starts, and survive transient refusals.
 - Know the end state, the target commit and the round limit.
 - Return once, with a capped, structured result.
 
 **Frustrations**
+
 - Killed by a transient account refusal partway through.
 - Reviewing a branch that changed underneath it.
 - Stopped by a command that matched the wrong process.
@@ -98,12 +104,12 @@ whether any failure was real or came from the environment.
 
 ## Waste by persona
 
-| Waste pattern | Coordinator | Operator | Worker/reviewer | Journey |
-|---|---|---|---|---|
-| Wake storms, status churn | ● | ● | | [01 multi-day project](cujs/aleph-01-multi-day-coordinator.md) |
-| Wrong wait conditions | ● | ● | | [01 multi-day project](cujs/aleph-01-multi-day-coordinator.md) |
-| Long or unstructured returns, environment failures | ● | | ● | [02 structured results](cujs/aleph-02-structured-child-results.md) |
-| Unbounded or mis-targeted review | ● | ● | ● | [03 cheapest adequate model](cujs/aleph-03-cheapest-adequate-model.md) |
-| Capacity cliffs, transient refusals | ● | ● | ● | [04 no dead jobs](cujs/aleph-04-no-dead-jobs.md) |
-| Context-heavy coordinators | ● | | | [05 rotation](cujs/aleph-05-coordinator-rotation.md) |
-| Unmeasured usage | | ● | | [06 usage per outcome](cujs/aleph-06-usage-per-outcome.md) |
+| Waste pattern                                      | Coordinator | Operator | Worker/reviewer | Journey                                                                |
+| -------------------------------------------------- | ----------- | -------- | --------------- | ---------------------------------------------------------------------- |
+| Wake storms, status churn                          | ●           | ●        |                 | [01 multi-day project](cujs/aleph-01-multi-day-coordinator.md)         |
+| Wrong wait conditions                              | ●           | ●        |                 | [01 multi-day project](cujs/aleph-01-multi-day-coordinator.md)         |
+| Long or unstructured returns, environment failures | ●           |          | ●               | [02 structured results](cujs/aleph-02-structured-child-results.md)     |
+| Unbounded or mis-targeted review                   | ●           | ●        | ●               | [03 cheapest adequate model](cujs/aleph-03-cheapest-adequate-model.md) |
+| Capacity cliffs, transient refusals                | ●           | ●        | ●               | [04 no dead jobs](cujs/aleph-04-no-dead-jobs.md)                       |
+| Context-heavy coordinators                         | ●           |          |                 | [05 rotation](cujs/aleph-05-coordinator-rotation.md)                   |
+| Unmeasured usage                                   |             | ●        |                 | [06 usage per outcome](cujs/aleph-06-usage-per-outcome.md)             |

@@ -28,16 +28,16 @@ providers turns into project output and quality.
 
 Over two days of real coordinator operation, these patterns showed up:
 
-| Pattern | What happened | What it cost |
-|---|---|---|
-| **Wake storms** | Children ended a turn for every progress update, and each turn end woke the coordinator | One long test run caused 5–6 coordinator wakes with nothing to act on |
-| **Wrong wait conditions** | A coordinator waited for a CI virtual machine process to exit before rebuilding; an idle process lingered | The wait never ended; a maintenance window was missed; about 7 hours lost |
-| **Unbounded review** | One change went through 4 independent review rounds with an escalation, and reviews were re-run after the reviewer-routing rules changed | Repeated full reviews for one change |
-| **Duplicate and orphaned work** | Reviews started against a branch the producer was still pushing to; a stop command matched its own shell and killed a fresh review | Reviews of the wrong target and killed work, both redone |
-| **Capacity cliffs** | Every account for one provider hit its weekly limit at once; transient "no eligible account" refusals killed two review threads; scripted jobs skipped the pool | A producer died mid-task and had to move provider; jobs failed while other accounts had headroom |
-| **Status churn** | Coordinators passed status-only messages to each other and to the operator | Tokens and attention with no decision attached |
-| **Context-heavy coordinators** | Long sessions filled up, compacted or rotated, then re-derived state, sometimes from stale handoffs | Paying twice for the same understanding, plus corrections |
-| **Verification in the wrong place** | Build checks failed on environment problems (missing native modules or type declarations, machine load) | A full rebuild cycle before the real result each time |
+| Pattern                             | What happened                                                                                                                                                   | What it cost                                                                                     |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| **Wake storms**                     | Children ended a turn for every progress update, and each turn end woke the coordinator                                                                         | One long test run caused 5–6 coordinator wakes with nothing to act on                            |
+| **Wrong wait conditions**           | A coordinator waited for a CI virtual machine process to exit before rebuilding; an idle process lingered                                                       | The wait never ended; a maintenance window was missed; about 7 hours lost                        |
+| **Unbounded review**                | One change went through 4 independent review rounds with an escalation, and reviews were re-run after the reviewer-routing rules changed                        | Repeated full reviews for one change                                                             |
+| **Duplicate and orphaned work**     | Reviews started against a branch the producer was still pushing to; a stop command matched its own shell and killed a fresh review                              | Reviews of the wrong target and killed work, both redone                                         |
+| **Capacity cliffs**                 | Every account for one provider hit its weekly limit at once; transient "no eligible account" refusals killed two review threads; scripted jobs skipped the pool | A producer died mid-task and had to move provider; jobs failed while other accounts had headroom |
+| **Status churn**                    | Coordinators passed status-only messages to each other and to the operator                                                                                      | Tokens and attention with no decision attached                                                   |
+| **Context-heavy coordinators**      | Long sessions filled up, compacted or rotated, then re-derived state, sometimes from stale handoffs                                                             | Paying twice for the same understanding, plus corrections                                        |
+| **Verification in the wrong place** | Build checks failed on environment problems (missing native modules or type declarations, machine load)                                                         | A full rebuild cycle before the real result each time                                            |
 
 Some of these are now handled by rules the operator gives in prompts: return
 only DONE or BLOCKED, at most two review rounds and then a human decision,
@@ -61,14 +61,14 @@ following them every time. Aleph's job is to build them into bb.
 `0.43.4+aleph.1` (upstream bb 0.43.4 plus main through `fdd3de3`) ships
 the first pieces. [FORK.md](../FORK.md) has the details.
 
-| Shipped | What it gives the mission |
-|---|---|
-| `bb pool exec` for Codex and Claude | Scripted and supervised runs use the account pool instead of one login, and say whether they really ran pooled |
-| Thread-bound availability | Borrowing another provider's pool, for example for an independent review, is decided per thread and fails closed |
-| Attempt receipts for budgeted dispatch | A sealed record of account, model and usage per run; the basis for measuring usage per outcome |
-| Pooled Claude isolated from caller settings | Pooled runs behave the same wherever they're started |
-| Switch a thread's provider in place | Work can move provider after a capacity cliff without losing its place in the thread tree |
-| Provider icons in the thread list | The operator can see which provider each thread is using |
+| Shipped                                     | What it gives the mission                                                                                        |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `bb pool exec` for Codex and Claude         | Scripted and supervised runs use the account pool instead of one login, and say whether they really ran pooled   |
+| Thread-bound availability                   | Borrowing another provider's pool, for example for an independent review, is decided per thread and fails closed |
+| Attempt receipts for budgeted dispatch      | A sealed record of account, model and usage per run; the basis for measuring usage per outcome                   |
+| Pooled Claude isolated from caller settings | Pooled runs behave the same wherever they're started                                                             |
+| Switch a thread's provider in place         | Work can move provider after a capacity cliff without losing its place in the thread tree                        |
+| Provider icons in the thread list           | The operator can see which provider each thread is using                                                         |
 
 From upstream bb, Aleph also relies on `bb thread wait` and
 `bb thread output`, the concurrency limit, thread compaction, and the

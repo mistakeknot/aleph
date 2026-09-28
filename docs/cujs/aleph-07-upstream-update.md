@@ -8,7 +8,7 @@ bead: none
 
 # Update Aleph to a new upstream release
 
-*Supporting journey.* It keeps the orchestration pieces behind the other
+_Supporting journey._ It keeps the orchestration pieces behind the other
 journeys current and safe to change.
 
 ## Why This Journey Matters
@@ -26,16 +26,16 @@ work. The journey has to be cheap enough to repeat and safe enough to trust.
 
 ### Current State vs. Planned
 
-| Capability | Status |
-|---|---|
-| Upstream merged (not rebased), with conflicts recorded in the merge commit | **Shipped** (manual) |
-| Version set to `<upstream>+aleph.<n>` in both version files, checked for lockstep | **Shipped** (manual; `bump-version` refuses build metadata) |
-| Changelog entry naming the upstream commit included | **Shipped** (manual) |
-| Credential-free release check run twice at the exact SHA on fresh machines by the fork's CI | **Shipped** |
-| Script that computes the upstream range and its overlap with carried patches | **Planned** |
-| Merge-and-qualify pipeline | **Planned** |
-| Switch runbook script: drain, snapshot, switch, canary, rollback | **Planned** |
-| `bump-version` accepts `+aleph.<n>`; update checks order Aleph builds | **Planned** |
+| Capability                                                                                  | Status                                                      |
+| ------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| Upstream merged (not rebased), with conflicts recorded in the merge commit                  | **Shipped** (manual)                                        |
+| Version set to `<upstream>+aleph.<n>` in both version files, checked for lockstep           | **Shipped** (manual; `bump-version` refuses build metadata) |
+| Changelog entry naming the upstream commit included                                         | **Shipped** (manual)                                        |
+| Credential-free release check run twice at the exact SHA on fresh machines by the fork's CI | **Shipped**                                                 |
+| Script that computes the upstream range and its overlap with carried patches                | **Planned**                                                 |
+| Merge-and-qualify pipeline                                                                  | **Planned**                                                 |
+| Switch runbook script: drain, snapshot, switch, canary, rollback                            | **Planned**                                                 |
+| `bump-version` accepts `+aleph.<n>`; update checks order Aleph builds                       | **Planned**                                                 |
 
 ## The Journey
 
@@ -93,31 +93,31 @@ a protocol-bumping release.
 
 ## Success Signals
 
-| Signal | Type | Status | Assertion |
-|---|---|---|---|
-| Carried patches survive the merge | measurable | active | `git log --no-merges <upstream main>..HEAD` lists every carried patch named in FORK.md |
-| Version files agree | measurable | active | The version lockstep check passes for both version files |
-| Qualified at the exact commit | measurable | active | Two passing release-check runs on fresh machines at the SHA that will be installed; none at a different SHA counts |
-| Changelog names the upstream base | observable | active | The new `CHANGELOG.md` entry names the upstream release and main commit |
-| Overlaps are known before merging | measurable | planned | The range script's report lists every upstream commit touching a file that a carried patch touches |
-| No work is lost at the switch | observable | planned | Running-turn count is 0 when the snapshot is taken; queued messages start after the switch |
-| Rollback is ready before install | observable | planned | A snapshot and the previous build exist and are recorded before the new build is installed |
-| Carried features present after switch | observable | active | Canary sees provider icons, pooled runs and remote access working on the new build |
-| One decision per release | qualitative | planned | The operator's only action is approve or decline on a single summary |
+| Signal                                | Type        | Status  | Assertion                                                                                                          |
+| ------------------------------------- | ----------- | ------- | ------------------------------------------------------------------------------------------------------------------ |
+| Carried patches survive the merge     | measurable  | active  | `git log --no-merges <upstream main>..HEAD` lists every carried patch named in FORK.md                             |
+| Version files agree                   | measurable  | active  | The version lockstep check passes for both version files                                                           |
+| Qualified at the exact commit         | measurable  | active  | Two passing release-check runs on fresh machines at the SHA that will be installed; none at a different SHA counts |
+| Changelog names the upstream base     | observable  | active  | The new `CHANGELOG.md` entry names the upstream release and main commit                                            |
+| Overlaps are known before merging     | measurable  | planned | The range script's report lists every upstream commit touching a file that a carried patch touches                 |
+| No work is lost at the switch         | observable  | planned | Running-turn count is 0 when the snapshot is taken; queued messages start after the switch                         |
+| Rollback is ready before install      | observable  | planned | A snapshot and the previous build exist and are recorded before the new build is installed                         |
+| Carried features present after switch | observable  | active  | Canary sees provider icons, pooled runs and remote access working on the new build                                 |
+| One decision per release              | qualitative | planned | The operator's only action is approve or decline on a single summary                                               |
 
 ## Known Friction Points
 
 - **Everything before the switch is manual.** Range, merge, version and
-  changelog are done by hand or by an agent following notes. *Planned: the
-  three update-automation scripts.*
+  changelog are done by hand or by an agent following notes. _Planned: the
+  three update-automation scripts._
 - **`bump-version` refuses `+aleph.<n>`.** Versions are set directly in both
-  files. *Planned: teach it build metadata.*
+  files. _Planned: teach it build metadata._
 - **Update checks don't order Aleph builds.** `0.43.4+aleph.2` isn't offered
-  over `0.43.4+aleph.1`. *Planned.*
+  over `0.43.4+aleph.1`. _Planned._
 - **The in-app update prompt can install plain upstream over Aleph.** A
-  single click replaces the fork. *Planned: offer "merge into Aleph"
-  instead.*
-- **What's New shows upstream's changelog, not Aleph's.** *Planned.*
+  single click replaces the fork. _Planned: offer "merge into Aleph"
+  instead._
+- **What's New shows upstream's changelog, not Aleph's.** _Planned._
 - **Live canaries depend on provider capacity.** Canaries that need a model
   run can be blocked when accounts are exhausted, as happened for
   `0.43.4+aleph.1`.
