@@ -48,7 +48,7 @@ export type BbDesktopWindowStateChangeHandler = (
 ) => void;
 export type BbDesktopZoomChangeHandler = (zoomFactor: number) => void;
 export type BbDesktopOpenNewTabHandler = () => void;
-export type BbDesktopAppCommandHandler = (command: AppCommandId) => void;
+export type BbDesktopAppCommandHandler = (command: AppCommandId) => boolean;
 export type BbDesktopCloseWindowRequestHandler = () => boolean;
 
 export interface BbDesktopApi extends BbDesktopInfo {

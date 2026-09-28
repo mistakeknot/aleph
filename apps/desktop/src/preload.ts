@@ -494,6 +494,11 @@ ipcRenderer.on(BB_DESKTOP_CLOSE_WINDOW_REQUEST_CHANNEL, () => {
   for (const listener of closeWindowRequestListeners) {
     handled = listener() || handled;
   }
+  if (!handled) {
+    for (const listener of appCommandListeners) {
+      handled = listener("pane.close") === true || handled;
+    }
+  }
   ipcRenderer.send(BB_DESKTOP_CLOSE_WINDOW_RESPONSE_CHANNEL, handled);
 });
 

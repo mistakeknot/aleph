@@ -384,9 +384,7 @@ export function AppCommandProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const desktop = getBbDesktopInfo();
     if (!desktop?.onAppCommand) return;
-    return desktop.onAppCommand((command) => {
-      dispatch(command, null);
-    });
+    return desktop.onAppCommand((command) => dispatch(command, null));
   }, [dispatch]);
 
   const value = useMemo<AppCommandProviderValue>(

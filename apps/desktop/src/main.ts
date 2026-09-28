@@ -252,6 +252,7 @@ import {
 import { parseDesktopSystemConfig } from "./desktop-system-config.js";
 import { ensurePackagedUserShellPath } from "./desktop-shell-path.js";
 import { resolveDesktopReloadShortcut } from "./desktop-reload-shortcut.js";
+import { createCloseWindowRequestTracker } from "./desktop-close-window-request.js";
 import {
   createLogTailer,
   createLogLineBuffer,
@@ -692,27 +693,21 @@ function shouldEnableServerDaemonLogsMenu(): boolean {
   );
 }
 
-const pendingCloseWindowRequests = new Map<number, NodeJS.Timeout>();
+const closeWindowRequests = createCloseWindowRequestTracker(
+  CLOSE_WINDOW_REQUEST_TIMEOUT_MS,
+);
 
 function requestRendererWindowClose(browserWindow: BrowserWindow): void {
-  const webContentsId = browserWindow.webContents.id;
-  const pending = pendingCloseWindowRequests.get(webContentsId);
-  if (pending !== undefined) {
-    clearTimeout(pending);
-  }
-  pendingCloseWindowRequests.set(
-    webContentsId,
-    setTimeout(() => {
-      pendingCloseWindowRequests.delete(webContentsId);
-      if (!browserWindow.isDestroyed()) {
-        browserWindow.close();
-      }
-    }, CLOSE_WINDOW_REQUEST_TIMEOUT_MS),
-  );
-  sendToApplicationRenderer(
+  closeWindowRequests.request(
+    browserWindow.webContents.id,
     browserWindow,
-    BB_DESKTOP_CLOSE_WINDOW_REQUEST_CHANNEL,
-    null,
+    () => {
+      sendToApplicationRenderer(
+        browserWindow,
+        BB_DESKTOP_CLOSE_WINDOW_REQUEST_CHANNEL,
+        null,
+      );
+    },
   );
 }
 
@@ -2351,14 +2346,11 @@ function registerDesktopUpdateIpc(): void {
   });
 
   ipcMain.on(BB_DESKTOP_CLOSE_WINDOW_RESPONSE_CHANNEL, (event, payload) => {
-    const pending = pendingCloseWindowRequests.get(event.sender.id);
-    if (pending !== undefined) {
-      clearTimeout(pending);
-      pendingCloseWindowRequests.delete(event.sender.id);
-    }
-    if (payload === false) {
-      resolveApplicationWindow(event.sender)?.close();
-    }
+    closeWindowRequests.respond(
+      event.sender.id,
+      payload,
+      resolveApplicationWindow(event.sender),
+    );
   });
   ipcMain.on(
     BB_DESKTOP_OPEN_EXTERNAL_URL_CHANNEL,
