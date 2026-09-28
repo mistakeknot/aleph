@@ -54,7 +54,8 @@ bb pool exec --stdin-file <path> -- claude --print …
 The host checks the arguments, pins the provider and starts the
 child with the machine token in its environment only. stderr begins with
 `bb-pool-exec: transport=pooled provider=claude`, and the Account Pooler sends the
-request to the operator's account that is budgeted for it. If the Account
+request to one of the operator's own accounts, in priority order, skipping any
+account at its threshold. If the Account
 Pooler is unavailable before dispatch, the command fails with no marker and can be retried safely. If
 contact is lost after dispatch, the marker reads
 `transport=pool-unconfirmed`. `bb pool exec` never retries; recording the run
@@ -68,7 +69,10 @@ _Planned:_ when the operator's accounts for a provider are heading for
 their weekly limits, the coordinator hears about it in advance, with the
 remaining quota for each provider. It proposes a next step to the
 operator: pause this work until the reset, or move it to the other
-provider. Nothing is switched or retried to get past a limit.
+provider. The Account Pooler uses only the operator's own accounts within
+each account's own limits. It does not add capacity or hide usage, and it
+moves work to another of the operator's accounts when one is at its
+threshold.
 
 If a thread's provider does reach its limits mid-task, the operator switches the
 provider in place from the model picker. The new thread takes over the

@@ -20,7 +20,7 @@ works through bb's threads and CLI.
 - Hear from children only when they're DONE, BLOCKED or need a decision.
 - Send each piece of work to the cheapest model that can do it well, and
   get an independent review when it matters.
-- Survive its own context limits by handing off from a checkpoint.
+- Survive its own context limits by rotating from a checkpoint.
 
 **Frustrations**
 
@@ -32,7 +32,7 @@ works through bb's threads and CLI.
   be redone after routing rules changed underneath them.
 - A child died on a transient "no eligible account" refusal, or when the
   operator's accounts for one provider all reached their limits together.
-- After compaction or a restart, it re-derives state and sometimes trusts a
+- After compaction or rotation, it re-derives state and sometimes trusts a
   stale handoff.
 
 **Context.** Its budget is its own context and tokens. Every message it
@@ -41,7 +41,7 @@ to be able to prove what it did.
 
 **Success looks like:** a multi-day project where it wakes about once per
 finished child, every child's return fits one screen, no child dies on
-a refusal it should have waited out, and a handoff starts from a checkpoint
+a refusal it should have waited out, and rotation starts from a checkpoint
 in one turn.
 
 ## 2. The solo operator
@@ -112,5 +112,5 @@ whether any failure was real or came from the environment.
 | Long or unstructured returns, environment failures | ●           |          | ●               | [02 structured results](cujs/aleph-02-structured-child-results.md)     |
 | Unbounded or mis-targeted review                   | ●           | ●        | ●               | [03 cheapest adequate model](cujs/aleph-03-cheapest-adequate-model.md) |
 | Unplanned limits, transient refusals               | ●           | ●        | ●               | [04 your own accounts, budgeted](cujs/aleph-04-no-dead-jobs.md)        |
-| Context-heavy coordinators                         | ●           |          |                 | [05 coordinator handoff](cujs/aleph-05-coordinator-rotation.md)        |
+| Context-heavy coordinators                         | ●           |          |                 | [05 rotation](cujs/aleph-05-coordinator-rotation.md)                   |
 | Unmeasured usage                                   |             | ●        |                 | [06 usage per outcome](cujs/aleph-06-usage-per-outcome.md)             |

@@ -46,7 +46,8 @@ The operator's own accounts for several providers each have limits that
 are a budget to plan around. Work should use the account budgeted for it,
 wait out transient refusals instead of dying, and surface an approaching
 limit early enough for the operator to pause or move work. Nothing here
-extends a plan's limits or shares them beyond their owner.
+adds capacity, hides usage or shares accounts beyond their owner; work moves
+to another of the owner's own accounts only when one is at its threshold.
 
 ### 6. Fail closed on credentials and accounting
 
@@ -59,7 +60,7 @@ arguments, files or logs.
 
 ### 7. Coordinators are finite; state lives outside them
 
-Long sessions fill their context and eventually compact or
+Long sessions fill their context and eventually compact, rotate or
 restart. Each time, the next session should be able to start from a
 checkpoint (goals, decisions, open work, evidence) without re-deriving
 state or trusting a stale handoff. If a fact matters, it lives in an

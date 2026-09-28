@@ -7,7 +7,7 @@
 
 The goal is to make coordinator sessions spend their usage on project
 progress. The order is: measure the waste, remove the largest sources
-(wake storms and dead jobs), then bound review and returns, then handoff
+(wake storms and dead jobs), then bound review and returns, then rotation
 and routing. Fork maintenance runs alongside, because every other item
 depends on Aleph staying installed and current. The
 [backlog](aleph-backlog.md) ranks individual items by expected savings.
@@ -47,7 +47,7 @@ update can still replace Aleph.
 | Capped, structured returns checked by bb, with failures classified as environment or real                             | [Structured results](cujs/aleph-02-structured-child-results.md)                                                     |
 | Reviews pinned to a commit and capped at two rounds, enforced instead of prompted; read-only reviewers                | [Cheapest adequate model](cujs/aleph-03-cheapest-adequate-model.md)                                                 |
 | Usage rolled up per outcome, visible to the operator                                                                  | [Usage per outcome](cujs/aleph-06-usage-per-outcome.md)                                                             |
-| Checkpoints for coordinator handoff, checked against live state                                                       | [Handoff](cujs/aleph-05-coordinator-rotation.md)                                                                    |
+| Checkpoints for coordinator rotation, checked against live state                                                      | [Rotation](cujs/aleph-05-coordinator-rotation.md)                                                                   |
 | Update automation: range and overlap report, merge-and-qualify, switch runbook; Aleph builds ordered in update checks | [Upstream update](cujs/aleph-07-upstream-update.md), [remote access](cujs/aleph-08-remote-access-across-upgrade.md) |
 
 ## Later

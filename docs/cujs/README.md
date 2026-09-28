@@ -16,7 +16,7 @@ after working sessions with the operator.
 | 02  | [Children return capped, structured results](aleph-02-structured-child-results.md)                                   | Worker/reviewer agent, coordinator agent                 | p1          |
 | 03  | [Route work to the cheapest adequate model, with bounded cross-provider review](aleph-03-cheapest-adequate-model.md) | Coordinator agent, reviewer agent                        | p1          |
 | 04  | [Your own accounts, budgeted](aleph-04-no-dead-jobs.md)                                                              | Coordinator agent, scheduled job, worker agent, operator | p0          |
-| 05  | [Hand off a coordinator cleanly from a checkpoint](aleph-05-coordinator-rotation.md)                                 | Coordinator agent, operator                              | p1          |
+| 05  | [Rotate a coordinator cleanly from a checkpoint](aleph-05-coordinator-rotation.md)                                   | Coordinator agent, operator                              | p1          |
 | 06  | [The operator sees usage per outcome](aleph-06-usage-per-outcome.md)                                                 | Operator, coordinator agent                              | p1          |
 | 07  | [Update Aleph to a new upstream release](aleph-07-upstream-update.md) _(supporting)_                                 | Operator, coordinator agent                              | p1          |
 | 08  | [Reach the server remotely across an upgrade](aleph-08-remote-access-across-upgrade.md) _(supporting)_               | Operator                                                 | p1          |

@@ -1502,8 +1502,9 @@ function AccountPoolSettings() {
             }
           >
             <p className="text-sm text-muted-foreground">
-              Lower numbers come first in the failover order. Ties follow the
-              order accounts were added. Existing conversations stay pinned.
+              Lower numbers are used first. Ties follow the order accounts were
+              added. Work moves to the next of your accounts only when one
+              reaches its threshold. Existing conversations stay pinned.
             </p>
             <Input
               type="number"

@@ -36,7 +36,7 @@ Over two days of real coordinator operation, these patterns showed up:
 | **Duplicate and orphaned work**     | Reviews started against a branch the producer was still pushing to; a stop command matched its own shell and killed a fresh review                                                                  | Reviews of the wrong target and killed work, both redone                                     |
 | **Unplanned refusals**              | The operator's own accounts for one provider all reached their weekly limits together; transient "no eligible account" refusals killed two review threads; scripted jobs skipped the budgeted route | A producer died mid-task and had to move provider; jobs failed instead of waiting or pausing |
 | **Status churn**                    | Coordinators passed status-only messages to each other and to the operator                                                                                                                          | Tokens and attention with no decision attached                                               |
-| **Context-heavy coordinators**      | Long sessions filled up, compacted or restarted, then re-derived state, sometimes from stale handoffs                                                                                               | Paying twice for the same understanding, plus corrections                                    |
+| **Context-heavy coordinators**      | Long sessions filled up, compacted or rotated, then re-derived state, sometimes from stale handoffs                                                                                                 | Paying twice for the same understanding, plus corrections                                    |
 | **Verification in the wrong place** | Build checks failed on environment problems (missing native modules or type declarations, machine load)                                                                                             | A full rebuild cycle before the real result each time                                        |
 
 Some of these are now handled by rules the operator gives in prompts: return
@@ -53,7 +53,7 @@ following them every time. Aleph's job is to build them into bb.
 - Each of the operator's own accounts is budgeted and its usage forecast,
   so no job dies without a plan to wait, pause or ask the operator.
 - Child returns are capped and structured.
-- Long coordinator sessions hand off cleanly from checkpoints.
+- Long coordinator sessions rotate cleanly from checkpoints.
 - Waste is measured: usage per outcome, wakes per task, retries.
 
 ## Where Aleph is now: the first building blocks
@@ -75,7 +75,7 @@ From upstream bb, Aleph also relies on `bb thread wait` and
 Account Pooler's recheck of an account's reported limits before it refuses a request.
 
 Not yet: DONE/BLOCKED as a structural rule, capped returns, outcome waits
-with deadlines, bounded review, checkpoints for handoff, usage
+with deadlines, bounded review, checkpoints for rotation, usage
 forecasts, and any measure of usage per outcome. The live receipt canary
 and a live Codex run through `bb pool exec` were deferred because no
 budgeted account had quota available.
@@ -115,15 +115,16 @@ review is per thread, pinned to a commit and limited in rounds. Journey:
 Transient refusals are waited out, an approaching weekly limit is
 forecast so the operator can decide whether to pause or move work, and
 every scripted run goes through the operator's budgeted accounts. Each
-account is used for its owner's own work; nothing here extends a plan's
-limits. Journey:
+account is used for its owner's own work. Nothing here adds capacity or
+hides usage; work moves to another of the operator's own accounts only
+when one is at its threshold. Journey:
 [your own accounts, budgeted](cujs/aleph-04-no-dead-jobs.md).
 
-### Coordinators hand off cleanly
+### Coordinators rotate cleanly
 
 A coordinator can hand off to a fresh session from a checkpoint without
 re-deriving state. Journey:
-[hand off a coordinator from a checkpoint](cujs/aleph-05-coordinator-rotation.md).
+[rotate a coordinator from a checkpoint](cujs/aleph-05-coordinator-rotation.md).
 
 ### The fork stays current and safe (supporting)
 

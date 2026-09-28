@@ -13,7 +13,7 @@ bead: none
 A child's final message is the coordinator's input, and the coordinator
 pays for all of it. Long narrative returns, pasted logs and repeated
 context fill a coordinator's window over a multi-day project and bring
-compaction or a restart sooner. A return that doesn't state its evidence
+compaction or rotation sooner. A return that doesn't state its evidence
 makes the coordinator check the work again. One that doesn't say what
 kind of failure happened can send the coordinator after the wrong problem.
 

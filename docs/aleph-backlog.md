@@ -46,9 +46,9 @@ vision section it serves. Items marked _building block_ extend something
   the baseline into something the operator can act on each week.
   → [Usage per outcome](cujs/aleph-06-usage-per-outcome.md)
 - **Coordinator checkpoints, checked against live state.** _Building
-  block: switch-in-place._ A handoff now costs a re-derivation and risks
-  acting on a stale one.
-  → [Handoff](cujs/aleph-05-coordinator-rotation.md)
+  block: switch-in-place._ Rotation now costs a re-derivation and risks
+  acting on a stale handoff.
+  → [Rotation](cujs/aleph-05-coordinator-rotation.md)
 - **Live Codex `bb pool exec` canary; confirm the budgeted Claude
   config-directory fix at the next switch.** _Building block: `bb pool
 exec`._ Both are carried but not yet verified with real runs.
@@ -85,9 +85,9 @@ exec`._ Both are carried but not yet verified with real runs.
 - **Stop runs by ID only.** A pattern-matched stop command killed a fresh
   review; thread-level stops already exist upstream.
   → [Cheapest adequate model](cujs/aleph-03-cheapest-adequate-model.md)
-- **CLI surface for switch-in-place.** Coordinators hand off and switch
+- **CLI surface for switch-in-place.** Coordinators rotate and switch
   provider through the CLI, not the model picker.
-  → [Handoff](cujs/aleph-05-coordinator-rotation.md)
+  → [Rotation](cujs/aleph-05-coordinator-rotation.md)
 - **Show Aleph's changelog in What's New.** The operator sees upstream's
   notes and not what Aleph changed.
   → [Vision: the fork stays current](aleph-vision.md#the-fork-stays-current-and-safe-supporting)
