@@ -40,6 +40,6 @@ is `'["active"]'`. Archived results load in pages; use Show more at the end
 of the list. The same preference is available through `setPreference` RPC.
 
 Organize → Rows → Provider icons toggles the icon before each thread title.
-`showProviderIcons` defaults to `false`; use
-`bb thread-list prefs set showProviderIcons true` to show them. Unknown
+`showProviderIcons` defaults to `true`; use
+`bb thread-list prefs set showProviderIcons false` to hide them. Unknown
 provider ids have no icon.

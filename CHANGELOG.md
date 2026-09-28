@@ -1,8 +1,8 @@
 # Changelog
 
-## 0.44.0+aleph.0.4.2
+## 0.44.0+aleph.0.5.0
 
-Aleph 0.4.2 syncs to upstream bb 0.44.0 (`desktop-v0.44.0`, commit
+Aleph 0.5.0 syncs to upstream bb 0.44.0 (`desktop-v0.44.0`, commit
 `0baa605b3`).
 
 ### Highlights
