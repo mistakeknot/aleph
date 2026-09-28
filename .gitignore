@@ -98,3 +98,5 @@ provider-recordings/raw/
 
 /plugins/.bundled-stage-*/
 /plugins/*/.bundled-runtime/
+
+/.clavain/
