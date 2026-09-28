@@ -179,11 +179,7 @@ export function usePluginSidebarFooterDisclosure() {
     const isOwnedByPanel = (owner: Element | null) => {
       if (owner === null) return false;
       const panel = document.getElementById(panelId);
-      return (
-        panel?.contains(owner) === true ||
-        owner.id === triggerId ||
-        owner.id === SIDEBAR_FOOTER_MORE_ID
-      );
+      return panel?.contains(owner) === true || owner.id === triggerId;
     };
     const isOwnPopup = (popup: Element) => {
       const labelledBy = popup.getAttribute("aria-labelledby");
@@ -209,7 +205,7 @@ export function usePluginSidebarFooterDisclosure() {
       }
       if (
         document.getElementById(panelId)?.contains(target) === true ||
-        target.closest("[data-footer-item]") !== null
+        document.getElementById(triggerId)?.contains(target) === true
       )
         return;
       const wrapper = target.closest("[data-radix-popper-content-wrapper]");

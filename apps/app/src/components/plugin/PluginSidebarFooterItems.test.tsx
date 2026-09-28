@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { SIDEBAR_FOOTER_MORE_ID } from "@/components/sidebar/sidebarFooterPreferences";
 import {
   act,
   cleanup,
@@ -462,6 +463,49 @@ describe("PluginSidebarFooterItems", () => {
       fireEvent.pointerDown(bare);
       expect(screen.queryByText("Provider usage content")).toBeNull();
       bare.remove();
+    });
+
+    it("dismisses a pinned disclosure when another footer item is pressed", () => {
+      setPluginSlotRegistrations(
+        "usage-plugin",
+        collectPluginAppRegistrations(
+          definePluginApp((app) => {
+            app.experimental_sidebarFooter.register({
+              kind: "disclosure",
+              id: "usage",
+              label: "Provider usage",
+              icon: "ChartColumn",
+              component: UsageDisclosure,
+            });
+            app.experimental_sidebarFooter.register({
+              kind: "disclosure",
+              id: "other",
+              label: "Other item",
+              icon: "Bot",
+              component: () => <p>Other content</p>,
+            });
+          }),
+        ),
+      );
+      renderWithProviders(<FooterHarness />);
+      fireEvent.click(screen.getByRole("button", { name: "Provider usage" }));
+      expect(screen.getByText("Provider usage content")).toBeDefined();
+      fireEvent.pointerDown(screen.getByRole("button", { name: "Other item" }));
+      expect(screen.queryByText("Provider usage content")).toBeNull();
+    });
+
+    it("dismisses a pinned disclosure on a click in the More menu", () => {
+      registerUsage();
+      renderWithProviders(<FooterHarness />);
+      fireEvent.click(screen.getByRole("button", { name: "Provider usage" }));
+      const more = document.createElement("button");
+      more.id = SIDEBAR_FOOTER_MORE_ID;
+      document.body.append(more);
+      const menu = appendPopup("menu", { "aria-labelledby": more.id });
+      fireEvent.pointerDown(menu);
+      expect(screen.queryByText("Provider usage content")).toBeNull();
+      menu.remove();
+      more.remove();
     });
 
     it("ignores outside clicks while only previewing", () => {
