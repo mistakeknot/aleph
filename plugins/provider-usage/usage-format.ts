@@ -144,7 +144,8 @@ function exhaustionKey(
     account.usage?.status === "ok" ? (account.usage.windows ?? []) : [];
   for (const window of windows) {
     const burn = usageBurnRate(window, now);
-    if (burn?.runsOutInMs != null && burn.runsOutInMs > 0)
+    if (window.usedPercent >= 100) runsOutInMs = 0;
+    else if (burn?.runsOutInMs != null)
       runsOutInMs = Math.min(runsOutInMs, burn.runsOutInMs);
     remainingPercent = Math.min(remainingPercent, 100 - window.usedPercent);
   }

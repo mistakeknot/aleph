@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   describeUsageBurn,
+  sortAccountsByExhaustion,
   formatUsageBurnRate,
   usageBurnRate,
   usageProjectedPercent,
@@ -136,5 +137,41 @@ describe("usageProjectedPercent", () => {
         NOW,
       ),
     ).toBeNull();
+  });
+});
+
+describe("sortAccountsByExhaustion", () => {
+  function account(
+    name: string,
+    usedPercent: number,
+    resetsAt: string | null,
+    kind: "five-hour" | "weekly" = "weekly",
+  ) {
+    return {
+      name,
+      usage: {
+        status: "ok",
+        windows: [{ kind, usedPercent, resetsAt }],
+      },
+    };
+  }
+  const names = (accounts: { name: string }[]) => accounts.map((a) => a.name);
+
+  it("puts an already exhausted account before one projected to run out soon", () => {
+    const exhausted = account("exhausted", 100, resetIn(2 * HOUR), "five-hour");
+    const soon = account("six-hours", 80, resetIn(6 * 24 * HOUR));
+    expect(names(sortAccountsByExhaustion([soon, exhausted], NOW))).toEqual([
+      "exhausted",
+      "six-hours",
+    ]);
+  });
+
+  it("puts an exhausted account before accounts with no projection", () => {
+    const exhausted = account("exhausted", 100, resetIn(2 * HOUR), "five-hour");
+    const none = account("none", 5, null);
+    expect(names(sortAccountsByExhaustion([none, exhausted], NOW))).toEqual([
+      "exhausted",
+      "none",
+    ]);
   });
 });
