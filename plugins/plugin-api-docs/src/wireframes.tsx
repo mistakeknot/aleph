@@ -51,6 +51,7 @@ export const APP_SHELL_MARKS = [
   "thread-list",
   "sidebar-footer",
   "thread-header",
+  "app-header-status",
   "timeline-renderers",
   "message-directives",
   "message-actions",
@@ -691,7 +692,9 @@ export type AppShellRightPanelTab =
   | "code-renderers";
 
 function RightPanelTabLaneBadges({ mobile }: { mobile: boolean }) {
-  const clipTo = mobile ? '[data-guide-fixture="right-panel-tab-strip"]' : undefined;
+  const clipTo = mobile
+    ? '[data-guide-fixture="right-panel-tab-strip"]'
+    : undefined;
   return (
     <>
       <MeasuredBadge
@@ -1035,10 +1038,7 @@ export function AppShellWireframe({
         </>
       ) : null}
       {scene === "desktop" || scene === "panel" ? (
-        <RightPanelTabLaneBadges
-          key={rightPanelTab}
-          mobile={mobile}
-        />
+        <RightPanelTabLaneBadges key={rightPanelTab} mobile={mobile} />
       ) : null}
       <AppShellWireframeBody
         scene={scene}
@@ -1063,7 +1063,9 @@ function AppShellWireframeBody({
   const contentScripts = useEngagement("content-scripts");
   const messageActionsSelected = expandedId === "message-actions";
   const messageActionRowVisible =
-    scene === "conversation" || assistantMessageHovered || messageActionsSelected;
+    scene === "conversation" ||
+    assistantMessageHovered ||
+    messageActionsSelected;
 
   if (scene === "navigation") {
     return (
@@ -1134,13 +1136,19 @@ function AppShellWireframeBody({
 
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="flex h-12 items-center gap-2 border-b border-border-hairline px-4">
-            {mobile ? (
-              <MiniIcon icon="PanelLeft" className="size-5" />
-            ) : null}
+            {mobile ? <MiniIcon icon="PanelLeft" className="size-5" /> : null}
             <span className="truncate text-foreground">
               Fix flaky checkout tests
             </span>
             <MiniIcon icon="MoreHorizontal" className="size-3.5" />
+            <Mark
+              id="app-header-status"
+              label="Plugin app-header-status chip, sharing width with the thread title"
+              className="flex h-6.5 items-center gap-1 rounded-full px-2"
+              showChip={false}
+            >
+              <PluginGlyph className="size-3.5" />
+            </Mark>
             <span className="flex-1" />
             <Mark
               id="thread-header"
@@ -1150,9 +1158,7 @@ function AppShellWireframeBody({
             >
               <PluginGlyph className="size-3.5" />
             </Mark>
-            {mobile ? (
-              <MiniIcon icon="PanelRight" className="size-5" />
-            ) : null}
+            {mobile ? <MiniIcon icon="PanelRight" className="size-5" /> : null}
           </div>
 
           <div
@@ -1692,7 +1698,12 @@ function StaticEmbeddedComposer({ mobile = false }: { mobile?: boolean }) {
   const actions = useEngagement("composer-actions");
   return (
     <div data-guide-fixture="embedded-composer" className="space-y-2">
-      <div className={cn("relative flex flex-col rounded-xl border border-border bg-background px-2 pb-2 pt-7 shadow-lift", mobile ? "min-h-48 gap-7" : "h-36")}>
+      <div
+        className={cn(
+          "relative flex flex-col rounded-xl border border-border bg-background px-2 pb-2 pt-7 shadow-lift",
+          mobile ? "min-h-48 gap-7" : "h-36",
+        )}
+      >
         {plus.outlined ? (
           <div
             aria-hidden

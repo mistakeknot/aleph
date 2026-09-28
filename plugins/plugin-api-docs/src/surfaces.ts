@@ -228,7 +228,7 @@ export const SURFACE_GROUPS: SurfaceGroup[] = [
           "PluginAppHeaderStatusRegistration",
           "PluginAppHeaderStatusProps",
         ],
-        firstParty: ["Account Pooler"],
+        firstParty: ["Account Pooler [Experimental]"],
         experimental: true,
       },
       {
