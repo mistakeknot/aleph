@@ -251,8 +251,8 @@ describe("applyServerMove", () => {
     });
     expect(stores.notices).toEqual([
       {
-        detail: "bb now opens there. This computer stays connected.",
-        message: "Your bb server moved to Studio desktop",
+        detail: "Aleph now opens there. This computer stays connected.",
+        message: "Your Aleph server moved to Studio desktop",
       },
     ]);
 

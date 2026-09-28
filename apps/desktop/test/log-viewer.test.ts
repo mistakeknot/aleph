@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   createLogLineBuffer,
   createLogTailer,
+  createLogViewerViewUrl,
   formatLogLine,
   resolveCurrentLogFile,
   type LogTailer,
@@ -132,6 +133,15 @@ describe("formatLogLine", () => {
 });
 
 describe("log viewer", () => {
+  it("titles the log window for Aleph", () => {
+    const url = createLogViewerViewUrl({ logDir: "/tmp/logs" });
+    const html = decodeURIComponent(
+      url.slice("data:text/html;charset=utf-8,".length),
+    );
+
+    expect(html).toContain("<title>Aleph - Server & Daemon Logs</title>");
+  });
+
   it("selects the newest matching server log file", async () => {
     const tempDir = await createTempDir();
     const firstServerLog = join(tempDir.path, "server.1.log");

@@ -18,7 +18,7 @@ const localViewTestCases: LocalViewTestCase[] = [
     viewModel: {
       kind: "loading",
       message: "Starting local services.",
-      title: "Opening bb",
+      title: "Opening Aleph",
     },
   },
   {
@@ -28,7 +28,7 @@ const localViewTestCases: LocalViewTestCase[] = [
       details: "The local service failed to start.",
       kind: "error",
       logText: "Failed to bind port",
-      title: "Could not open bb",
+      title: "Could not open Aleph",
     },
   },
 ];
@@ -59,6 +59,15 @@ describe("local desktop views", () => {
     },
   );
 
+  it.each(localViewTestCases)(
+    "titles the $label view document for Aleph",
+    (testCase) => {
+      const html = decodeLocalViewHtml({ viewModel: testCase.viewModel });
+
+      expect(html).toContain("<title>Aleph</title>");
+    },
+  );
+
   it("renders startup error logs without terminal control sequences", () => {
     const html = decodeLocalViewHtml({
       viewModel: {
@@ -67,7 +76,7 @@ describe("local desktop views", () => {
         kind: "error",
         logText:
           "\x1b[2K  \x1b[2m○\x1b[0m  Starting server\r\x1b[2K  \x1b[32m✓\x1b[0m  Server listening\nError: listen EADDRINUSE",
-        title: "Could not open bb",
+        title: "Could not open Aleph",
       },
     });
 
@@ -98,7 +107,7 @@ describe("local desktop views", () => {
         details: "The desktop process could not continue.",
         kind: "error",
         logText: "",
-        title: "Could not open bb",
+        title: "Could not open Aleph",
       },
     });
 

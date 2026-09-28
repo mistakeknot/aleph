@@ -117,12 +117,12 @@ function isAllowedPopupNavigationUrl(url: string): boolean {
 
 function popupWindowTitle(url: string | null): string {
   if (url === null || url === "about:blank" || url.length === 0) {
-    return "bb browser popup";
+    return "Aleph browser popup";
   }
   try {
-    return `bb browser — ${new URL(url).origin}`;
+    return `Aleph browser — ${new URL(url).origin}`;
   } catch {
-    return "bb browser popup";
+    return "Aleph browser popup";
   }
 }
 

@@ -192,9 +192,9 @@ describe("keepMovedMachineConnected", () => {
     expect(harness.events).toEqual(["stop", "install", "stop", "install"]);
     expect(harness.notices).toEqual([
       {
-        detail: `bb couldn't install the background service that keeps this computer connected and up to date: Node.js 20.18.1 is too old. bb tries again the next time it opens. The installer log is ${join(dir, "install-machine-service.log")}.`,
+        detail: `Aleph couldn't install the background service that keeps this computer connected and up to date: Node.js 20.18.1 is too old. Aleph tries again the next time it opens. The installer log is ${join(dir, "install-machine-service.log")}.`,
         message:
-          "This computer stays connected to Studio desktop only while bb is open",
+          "This computer stays connected to Studio desktop only while Aleph is open",
       },
     ]);
   });
