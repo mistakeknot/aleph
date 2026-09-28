@@ -217,7 +217,7 @@ function FooterPreview({ scenario }: { scenario: ScenarioName }) {
 }
 
 const descriptions: Record<ScenarioName, string> = {
-  healthy: "Multiple pooled accounts with provider grouping and quota badges.",
+  healthy: "Multiple accounts with provider grouping and quota badges.",
   emptyPool: "Account Pooler is enabled and selectable but has no accounts.",
   loading: "The initial usage request has not completed.",
   offline: "The selected persistent machine is currently disconnected.",

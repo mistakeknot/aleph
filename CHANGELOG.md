@@ -27,7 +27,7 @@ Aleph 0.5.0 syncs to upstream bb 0.44.0 (`desktop-v0.44.0`, commit
 ### Account Pooler
 
 - **Account usage in the top header bar.** The header shows a chip for each
-  pooled provider (Claude, Codex) with the active account, how much of its
+  provider (Claude, Codex) with the active account, how much of its
   tightest limit is used, colored by how close it is, and when that limit
   resets. In a narrow window each chip shrinks to its icon.
 
@@ -111,7 +111,7 @@ releases were numbered by build: aleph.4 counts as Aleph 0.4.0.
 ### Provider usage
 
 - **The Provider usage card shows every provider at once.** Claude Code,
-  Codex and any other provider on the selected machine or account pool are
+  Codex and any other provider on the selected machine are
   listed together, one section per provider with each account's limits,
   instead of one provider tab at a time.
 - **Hover a limit to see its burn rate.** Hovering or focusing a usage bar
@@ -227,7 +227,7 @@ Upstream main after 0.43.4 includes the Account Pooler recheck of exhausted acco
 
 - **Thread-bound availability.** `GET /api/v1/plugins/account-pool/http/availability?threadId=<id>` reports whether one thread may use each provider's pool. The thread's current environment must belong to the calling machine, which must still be enrolled. Ownership refusals return 403, failed ownership lookups return 503, and responses are never cached. This replaces the earlier thread check, which followed the routing rules without checking ownership.
 - **Run agents through the pool with `bb pool exec`.** Scheduled or supervised processes on the server's primary machine can run `bb pool exec -- codex exec …` or `bb pool exec -- claude --print …`. Only an allowlist of arguments is accepted; configuration overrides, profiles, provider selectors, and unknown options are rejected. The machine token reaches only the child's environment and is never printed. Output begins with a `bb-pool-exec: transport=pooled` line on stderr, or `pool-unconfirmed` when the pooled route could not be confirmed. `--stdin-file` reads a prompt from a private directory on the host, `~/.local/state/bb-account-pool/exec-input` by default.
-- **Attempt receipts for budgeted dispatch.** A dispatcher can begin an attempt under `/api/v1/plugins/account-pool/http/receipts`, run one Codex or Claude process with a scoped token, and finalize it for a sealed record of every upstream request and account hop. Receipts use the machine's own authentication and never accept machine or account IDs from callers. Hubs that cannot issue receipts, including nested hubs using a parent pool, return 503 when an attempt begins, so a dispatcher can stop before spending model quota.
+- **Attempt receipts for budgeted dispatch.** A dispatcher can begin an attempt under `/api/v1/plugins/account-pool/http/receipts`, run one Codex or Claude process with a scoped token, and finalize it for a sealed record of every upstream request with its account. Receipts use the machine's own authentication and never accept machine or account IDs from callers. Hubs that cannot issue receipts, including nested hubs using a parent Account Pooler, return 503 when an attempt begins, so a dispatcher can stop before spending model quota.
 
 ### Thread list and panes
 

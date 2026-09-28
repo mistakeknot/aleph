@@ -181,7 +181,7 @@ describe("Account Pool parent banner", () => {
     ).toBeTruthy();
     expect(
       slot.getByText(
-        /Claude and Codex requests are sent to the pool on 127\.0\.0\.1:25231\. Accounts on this server are not used/,
+        /Claude and Codex requests are sent to the Account Pooler on 127\.0\.0\.1:25231\. Accounts on this server are not used/,
       ),
     ).toBeTruthy();
   });
@@ -194,7 +194,7 @@ describe("Account Pool parent banner", () => {
     });
     expect(
       await slot.findByText(
-        /Claude requests are sent to the pool on .*Codex has no accounts there, so those requests fall back/,
+        /Claude requests are sent to the Account Pooler on .*Codex has no accounts there, so those requests fall back/,
       ),
     ).toBeTruthy();
   });
@@ -224,7 +224,7 @@ describe("Account Pool settings", () => {
     expect(slot.getByText("refreshing usage…")).toBeTruthy();
     expect(slot.getByText(/· refreshing…$/)).toBeTruthy();
     expect(slot.queryByText("Loading…")).toBeNull();
-    expect(slot.queryByText("No accounts in the pool")).toBeNull();
+    expect(slot.queryByText("No accounts added")).toBeNull();
     live.resolve(status([account({ fiveHourUtilization: 0.6 })]));
     expect(await slot.findByText("60%")).toBeTruthy();
     expect(slot.queryByText("refreshing usage…")).toBeNull();

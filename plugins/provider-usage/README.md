@@ -1,7 +1,7 @@
 # Provider usage
 
 Shows usage from enabled usage-source plugins in the sidebar. Provider tabs
-use provider names and icons, with pooled accounts stacked under each provider.
+use provider names and icons, with each provider's accounts stacked under it.
 The card lists account metadata cheaply, then fetches only the selected provider’s accounts. Unopened tabs have no quota badge until measured. Shared sources such as Account Pooler are selected by default; an explicit
 machine selection shows that machine’s local usage instead.
 

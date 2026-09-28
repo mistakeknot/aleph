@@ -177,7 +177,7 @@ Beyond upstream, Aleph carries:
 
 - **Account Pooler 0.1.2.** Thread availability bound to the thread's owning
   machine (403 on refusal, 503 on failed lookups, no caching); `bb pool exec`
-  for Codex and Claude, with an argument allowlist, the pooled-transport marker
+  for Codex and Claude, with an argument allowlist, the transport marker
   and a host-private stdin directory; and attempt receipts for budgeted
   dispatch. Its contract is `plugins/account-pool/RECEIPTS.md`.
 - **Thread list.** Provider icons with brand, monochrome, theme or custom

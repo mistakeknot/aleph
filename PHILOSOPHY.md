@@ -40,26 +40,26 @@ thread must be allowed to borrow it, and the review has a fixed target
 commit and a fixed number of rounds (two by default). After that, the
 disagreement goes to the operator.
 
-### 5. Capacity is a pool, not a login
+### 5. Your own accounts, budgeted
 
-Accounts for several providers hit their limits at different times, and
-sometimes all at once. Work should draw from the pool, wait out transient
-refusals instead of dying, and surface a provider-wide cliff early enough
-to reroute. No job should fail on one exhausted account while another has
-headroom.
+The operator's own accounts for several providers each have limits that
+are a budget to plan around. Work should use the account budgeted for it,
+wait out transient refusals instead of dying, and surface an approaching
+limit early enough for the operator to pause or move work. Nothing here
+extends a plan's limits or shares them beyond their owner.
 
 ### 6. Fail closed on credentials and accounting
 
 When Aleph can't tell whether something is allowed or what it will cost,
 it refuses. If ownership can't be checked, the answer is 503, not
-permission. A run whose pooled route is unconfirmed is never replayed. A
+permission. A run whose budgeted route is unconfirmed is never replayed. A
 budgeted run that can't get a receipt stops before it spends quota.
 Credentials stay in the child process environment and never appear in
 arguments, files or logs.
 
 ### 7. Coordinators are finite; state lives outside them
 
-Long sessions fill their context and eventually compact, rotate or
+Long sessions fill their context and eventually compact or
 restart. Each time, the next session should be able to start from a
 checkpoint (goals, decisions, open work, evidence) without re-deriving
 state or trusting a stale handoff. If a fact matters, it lives in an

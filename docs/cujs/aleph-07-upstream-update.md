@@ -69,7 +69,7 @@ On approval, the switch runs in order. It drains new work by setting the
 concurrency limit to 0, waits for running turns to finish, takes a quiesced
 snapshot of the server's data, installs the qualified build, and runs a
 canary. The canary opens the app remotely, starts a thread, and checks that
-the carried features are present (pooled runs, thread-bound
+the carried features are present (budgeted runs, thread-bound
 availability, receipts, provider switching). If the canary fails, the switch rolls back
 to the snapshot and the previous build. If it passes, the limit is restored
 and queued work continues.
@@ -102,7 +102,7 @@ a protocol-bumping release.
 | Overlaps are known before merging     | measurable  | planned | The range script's report lists every upstream commit touching a file that a carried patch touches                 |
 | No work is lost at the switch         | observable  | planned | Running-turn count is 0 when the snapshot is taken; queued messages start after the switch                         |
 | Rollback is ready before install      | observable  | planned | A snapshot and the previous build exist and are recorded before the new build is installed                         |
-| Carried features present after switch | observable  | active  | Canary sees provider icons, pooled runs and remote access working on the new build                                 |
+| Carried features present after switch | observable  | active  | Canary sees provider icons, budgeted runs and remote access working on the new build                               |
 | One decision per release              | qualitative | planned | The operator's only action is approve or decline on a single summary                                               |
 
 ## Known Friction Points
@@ -118,6 +118,6 @@ a protocol-bumping release.
   single click replaces the fork. _Planned: offer "merge into Aleph"
   instead._
 - **What's New shows upstream's changelog, not Aleph's.** _Planned._
-- **Live canaries depend on provider capacity.** Canaries that need a model
-  run can be blocked when accounts are exhausted, as happened for
+- **Live canaries depend on available quota.** Canaries that need a model
+  run can be blocked when the operator's accounts have no quota left, as happened for
   `0.43.4+aleph.1`.
