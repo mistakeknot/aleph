@@ -8,6 +8,7 @@ import {
   type BbPluginApi,
   type ExperimentalAppOverlayProps,
   type PluginAppBuilder,
+  type PluginAppHeaderStatusProps,
   type PluginAppSlots,
   type PluginContentScriptContext,
   type PluginContentScriptRegistration,
@@ -239,9 +240,7 @@ const THREAD_EVENT_PAYLOAD_FIELDS = {
     "attemptNumber",
   ],
 } as const satisfies {
-  [
-    E in keyof PluginThreadEventPayloads
-  ]: readonly (keyof PluginThreadEventPayloads[E])[];
+  [E in keyof PluginThreadEventPayloads]: readonly (keyof PluginThreadEventPayloads[E])[];
 };
 
 type MissingThreadEventField = {
@@ -268,6 +267,7 @@ type SlotPropsByName = {
   experimental_sidebarHeader: ExperimentalSidebarHeaderProps;
   experimental_threadList: PluginThreadListProps;
   experimental_threadHeaderAction: PluginThreadHeaderActionProps;
+  experimental_appHeaderStatus: PluginAppHeaderStatusProps;
   experimental_browserToolbarAction: ExperimentalPluginBrowserToolbarActionProps;
   fileOpener: PluginFileOpenerProps;
   experimental_sourceCodeRenderer: PluginSourceCodeRendererProps;
@@ -358,6 +358,13 @@ const FRONTEND_SLOT_PROP_FIELDS = {
     "threadId",
     "projectId",
     "isCompactViewport",
+  ],
+  experimental_appHeaderStatus: [
+    "threadId",
+    "projectId",
+    "isCompactViewport",
+    "availableWidth",
+    "openSettings",
   ],
   experimental_browserToolbarAction: [
     "threadId",

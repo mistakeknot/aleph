@@ -174,7 +174,14 @@ describe("sidebar header controls", () => {
     await openMenu("Review");
     expect(
       screen.getAllByRole("menuitem").map((item) => item.textContent),
-    ).toEqual(["New section", "Organize", "Sort by", "Filter", "Rename", "Remove"]);
+    ).toEqual([
+      "New section",
+      "Organize",
+      "Sort by",
+      "Filter",
+      "Rename",
+      "Remove",
+    ]);
     expect(screen.getAllByRole("separator")).toHaveLength(3);
     fireEvent.click(screen.getByRole("menuitem", { name: "New section" }));
     expect(newSection).toHaveBeenCalledOnce();
@@ -390,7 +397,9 @@ it.each([false, true])(
   async (compact) => {
     const { store } = setup("Pinned", false, "project", compact);
     if (compact) {
-      fireEvent.click(screen.getByRole("button", { name: /^Pinned actions(?:;|$)/ }));
+      fireEvent.click(
+        screen.getByRole("button", { name: /^Pinned actions(?:;|$)/ }),
+      );
       fireEvent.click(await screen.findByRole("menuitem", { name: "Filter" }));
     } else {
       await openMenu();

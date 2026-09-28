@@ -4,15 +4,19 @@ type ReleaseMeta = {
 };
 
 export const RELEASE_META: Record<string, ReleaseMeta> = {
-  "0.43.4+aleph.0.4.2": {
+  "0.44.0+aleph.0.5.0": {
     date: "September 28, 2026",
     headline:
-      "Aleph 0.4.2: task details beside the list, account usage in the header, and Cmd-W closes the focused pane",
+      "Aleph 0.5.0: synced to upstream bb 0.44.0, task details beside the list, account usage in the header, and Cmd-W closes the focused pane",
   },
   "0.43.4+aleph.0.4.1": {
     date: "September 27, 2026",
     headline:
       "Aleph 0.4.1: a new app icon, and provider usage on hover with burn rates inline",
+  },
+  "0.44.0": {
+    date: "September 25, 2026",
+    headline: "Diff filtering, safer archiving, and plugin safe mode",
   },
   "0.43.4+aleph.4": {
     date: "September 27, 2026",
