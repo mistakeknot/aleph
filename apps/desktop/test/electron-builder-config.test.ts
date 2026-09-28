@@ -635,9 +635,10 @@ describe("electron-builder signing config", () => {
       BB_DESKTOP_RELEASE_CHANNEL: "aleph",
     });
 
-    expect(config.copyright).toBe(
-      `Copyright © ${new Date().getFullYear()} General Systems Ventures`,
+    expect(config.copyright).toMatch(
+      /^Copyright © \d{4} General Systems Ventures$/,
     );
+    expect(config.copyright).toContain(String(new Date().getFullYear()));
   });
 
   it("derives the aleph channel automatically from this checkout's +aleph package version", async () => {
