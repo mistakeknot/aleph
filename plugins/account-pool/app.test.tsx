@@ -979,6 +979,74 @@ describe("Account Pool header status", () => {
     expect(slot.queryByText("bypassed")).toBeNull();
   });
 
+  it("discards a stale response for the same thread after navigating away and back", async () => {
+    const calls: ReturnType<
+      typeof deferred<{ threadId: string; bypassed: boolean }>
+    >[] = [];
+    const openSettings = vi.fn();
+    const Component = app.appHeaderStatuses[0]!.component;
+    const slot = renderSlot(
+      app.appHeaderStatuses[0]!,
+      {
+        threadId: "thread-1",
+        projectId: null,
+        isCompactViewport: false,
+        availableWidth: 600,
+        openSettings,
+      },
+      {
+        rpc: {
+          "status.get": () => status([account()]),
+          "config.get": () => config(),
+          "bypass.get": () => {
+            const call = deferred<{ threadId: string; bypassed: boolean }>();
+            calls.push(call);
+            return call.promise;
+          },
+        },
+        openUrl: () => true,
+      },
+    );
+    await waitFor(() => expect(calls).toHaveLength(1));
+    const originalThreadOneCall = calls[0]!;
+
+    slot.lifecycle.rerender(
+      <Component
+        threadId="thread-2"
+        projectId={null}
+        isCompactViewport={false}
+        availableWidth={600}
+        openSettings={openSettings}
+      />,
+    );
+    await waitFor(() => expect(calls).toHaveLength(2));
+
+    slot.lifecycle.rerender(
+      <Component
+        threadId="thread-1"
+        projectId={null}
+        isCompactViewport={false}
+        availableWidth={600}
+        openSettings={openSettings}
+      />,
+    );
+    expect(slot.queryByText("bypassed")).toBeNull();
+    await waitFor(() => expect(calls).toHaveLength(3));
+    const newestThreadOneCall = calls[2]!;
+
+    await act(async () => {
+      newestThreadOneCall.resolve({ threadId: "thread-1", bypassed: true });
+      await Promise.resolve();
+    });
+    expect(await slot.findByText("bypassed")).toBeTruthy();
+
+    await act(async () => {
+      originalThreadOneCall.resolve({ threadId: "thread-1", bypassed: false });
+      await Promise.resolve();
+    });
+    expect(await slot.findByText("bypassed")).toBeTruthy();
+  });
+
   it("opens settings on click", async () => {
     const slot = renderHeaderStatus([account({ fiveHourUtilization: 0.4 })]);
     const button = await slot.findByTestId("account-pool-header-status");

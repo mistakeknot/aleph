@@ -5,6 +5,8 @@ import { usePluginSlots } from "@/lib/plugin-slots";
 import { PluginSlotMount } from "@/components/plugin/PluginSlotMount";
 import { getPluginConfigurationRoutePath } from "@/lib/route-paths";
 
+const STRIP_GAP_PX = 8;
+
 export function AppHeaderStatusStrip({
   threadId,
   projectId,
@@ -44,8 +46,10 @@ export function AppHeaderStatusStrip({
 
   if (!hasStatuses) return null;
 
+  const totalGapWidth =
+    STRIP_GAP_PX * Math.max(appHeaderStatuses.length - 1, 0);
   const perContributionWidth = Math.floor(
-    availableWidth / appHeaderStatuses.length,
+    Math.max(availableWidth - totalGapWidth, 0) / appHeaderStatuses.length,
   );
 
   return (

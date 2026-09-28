@@ -145,7 +145,7 @@ describe("AppHeaderStatusStrip", () => {
     expect(screen.getByTestId("status-fixture").textContent).toBe("200/wide");
   });
 
-  it("divides the available width evenly across every current contribution", () => {
+  it("divides the available width evenly across every current contribution, net of the gap between them", () => {
     stubResizeObserver();
     registerStatus("account-pool");
     registerStatus("other-plugin");
@@ -155,8 +155,28 @@ describe("AppHeaderStatusStrip", () => {
 
     const fixtures = screen.getAllByTestId("status-fixture");
     expect(fixtures).toHaveLength(2);
-    expect(fixtures[0]?.textContent).toBe("150/wide");
-    expect(fixtures[1]?.textContent).toBe("150/wide");
+    expect(fixtures[0]?.textContent).toBe("146/wide");
+    expect(fixtures[1]?.textContent).toBe("146/wide");
+  });
+
+  it("advertises a budget each contribution can actually occupy without overflowing the strip", () => {
+    stubResizeObserver();
+    registerStatus("account-pool");
+    registerStatus("other-plugin");
+    render(tree());
+
+    resizeStrip(400);
+
+    const fixtures = screen.getAllByTestId("status-fixture");
+    const perContributionWidth = Number(
+      fixtures[0]?.textContent?.split("/")[0],
+    );
+    const contributionCount = fixtures.length;
+    const gapBetweenContributions = 8;
+    const totalOccupied =
+      perContributionWidth * contributionCount +
+      gapBetweenContributions * (contributionCount - 1);
+    expect(totalOccupied).toBeLessThanOrEqual(400);
   });
 
   it("labels each contribution's wrapper region with its registration title", () => {

@@ -1993,8 +1993,7 @@ function AccountPoolHeaderStatus({
   const [config, setConfig] = useState<AccountPoolConfig | null>(null);
   const [bypassed, setBypassed] = useState(false);
   const mounted = useRef(true);
-  const currentThreadId = useRef(threadId);
-  currentThreadId.current = threadId;
+  const bypassGeneration = useRef(0);
   const refresh = useCallback(async () => {
     try {
       const next = await rpc.call("status.get", null);
@@ -2013,13 +2012,15 @@ function AccountPoolHeaderStatus({
     }
   }, [rpc]);
   const refreshBypass = useCallback(async () => {
+    const generation = ++bypassGeneration.current;
     if (threadId === null) {
-      setBypassed(false);
+      if (mounted.current && bypassGeneration.current === generation)
+        setBypassed(false);
       return;
     }
     try {
       const next = await rpc.call("bypass.get", { threadId });
-      if (mounted.current && currentThreadId.current === threadId)
+      if (mounted.current && bypassGeneration.current === generation)
         setBypassed(next.bypassed);
     } catch {
       return;
@@ -2034,6 +2035,7 @@ function AccountPoolHeaderStatus({
     };
   }, [refresh, refreshConfig]);
   useEffect(() => {
+    setBypassed(false);
     void refreshBypass();
   }, [refreshBypass]);
   useRealtime(ACCOUNT_POOL_ACCOUNTS_CHANGED, () => {
