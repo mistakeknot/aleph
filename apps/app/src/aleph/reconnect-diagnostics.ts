@@ -1,6 +1,7 @@
 import type { QueryClient, QueryKey } from "@tanstack/react-query";
 import type { DiagnosticPayload } from "@/lib/diagnostics";
-import { toDiagnosticId, toDiagnosticName } from "@/lib/diagnostics";
+import { toDiagnosticQueryName } from "@bb/desktop-contract";
+import { toDiagnosticId } from "@/lib/diagnostics";
 
 const MAX_DECISIONS = 200;
 
@@ -36,8 +37,8 @@ export function describeReconnectInvalidation({
       } else {
         skippedCount += 1;
       }
-      const queryName = toDiagnosticName(query.queryKey[0]);
-      if (queryName === null || decisions.length >= MAX_DECISIONS) {
+      const queryName = toDiagnosticQueryName(query.queryKey[0]);
+      if (decisions.length >= MAX_DECISIONS) {
         continue;
       }
       const subject = query.queryKey[1];

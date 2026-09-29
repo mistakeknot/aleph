@@ -2,7 +2,7 @@ import { appendFile, mkdir, open, readdir, rm, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
-  DIAGNOSTIC_CONSOLE_CODE_PATTERN,
+  DIAGNOSTIC_CONSOLE_CODES,
   DIAGNOSTIC_CONSOLE_FALLBACK_CODE,
   bbDesktopDiagnosticEventSchema,
   type BbDesktopDiagnosticEvent,
@@ -37,18 +37,6 @@ export function rendererLogFileName(day: string): string {
 
 export type RendererConsoleLevel = "debug" | "info" | "warning" | "error";
 
-const CONSOLE_ERROR_CLASSES: ReadonlySet<string> = new Set([
-  "AggregateError",
-  "DOMException",
-  "Error",
-  "EvalError",
-  "RangeError",
-  "ReferenceError",
-  "SyntaxError",
-  "TypeError",
-  "URIError",
-]);
-
 export interface RendererConsoleRecord {
   code: string;
   level: "warning" | "error";
@@ -58,12 +46,10 @@ export function classifyRendererConsoleMessage(message: string): string {
   const tokens = message.trimStart().split(/\s+/);
   const first = (tokens[0] === "Uncaught" ? tokens[1] : tokens[0]) ?? "";
   const candidate = first.endsWith(":") ? first.slice(0, -1) : first;
-  if (CONSOLE_ERROR_CLASSES.has(candidate)) {
-    return candidate;
-  }
-  return DIAGNOSTIC_CONSOLE_CODE_PATTERN.test(candidate)
-    ? candidate
-    : DIAGNOSTIC_CONSOLE_FALLBACK_CODE;
+  return (
+    DIAGNOSTIC_CONSOLE_CODES.find((code) => code === candidate) ??
+    DIAGNOSTIC_CONSOLE_FALLBACK_CODE
+  );
 }
 
 export function buildRendererConsoleRecord(args: {

@@ -206,12 +206,16 @@ describe("renderer log redaction", () => {
         message: "Uncaught TypeError: cannot read secret of undefined",
       }),
     ).toEqual({ code: "TypeError", level: "warning" });
-    expect(
-      buildRendererConsoleRecord({
+    for (const message of [
+      "SECRET: attachment",
+      "ERR_CONNECTION_LOST: host private.example",
+      "PASSWORD hunter2",
+    ]) {
+      expect(buildRendererConsoleRecord({ level: "error", message })).toEqual({
+        code: "console_error",
         level: "error",
-        message: "ERR_CONNECTION_LOST: host private.example",
-      }),
-    ).toEqual({ code: "ERR_CONNECTION_LOST", level: "error" });
+      });
+    }
     expect(
       buildRendererConsoleRecord({
         level: "error",
@@ -241,6 +245,7 @@ describe("renderer log redaction", () => {
       { threadId: "thr_abc private prompt" },
       { threadId: "abc" },
       { runtimeStatus: opaque80 },
+      { runtimeStatus: "private_prompt" },
       { runtimeStatus: "has spaces and a message body" },
     ];
     for (const override of bad) {
@@ -259,6 +264,9 @@ describe("renderer log redaction", () => {
       opaque80,
       "Bearer abc",
       "The private prompt says hello",
+      "password",
+      "secret",
+      "private_prompt",
     ]) {
       expect(parseRendererDiagnosticEvent({ ...close, reason })).toBeNull();
     }

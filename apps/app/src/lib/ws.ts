@@ -17,7 +17,8 @@ import type {
   ThreadPaneActionSignal,
 } from "@bb/server-contract";
 import { buildBrowserWebSocketUrl } from "./dev-websocket-url";
-import { emitDiagnostic, toDiagnosticReason } from "./diagnostics";
+import { toDiagnosticCloseReason } from "@bb/desktop-contract";
+import { emitDiagnostic } from "./diagnostics";
 import {
   isDocumentVisible,
   subscribeToDocumentVisibility,
@@ -143,7 +144,7 @@ export class WebSocketManager {
         kind: "socket-close",
         code: event?.code ?? null,
         pongPending: this.pongTimer !== null,
-        reason: toDiagnosticReason(event?.reason),
+        reason: toDiagnosticCloseReason(event?.reason),
         wasClean: event?.wasClean ?? null,
       }));
       if (this.pongTimer !== null) {

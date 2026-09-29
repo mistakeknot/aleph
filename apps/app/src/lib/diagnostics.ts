@@ -1,7 +1,5 @@
 import {
   DIAGNOSTIC_ID_PATTERN,
-  DIAGNOSTIC_NAME_PATTERN,
-  DIAGNOSTIC_REASON_PATTERN,
   type BbDesktopDiagnosticEvent,
 } from "@bb/desktop-contract";
 
@@ -44,12 +42,4 @@ function matching(value: unknown, pattern: RegExp): string | null {
 
 export function toDiagnosticId(value: unknown): string | null {
   return matching(value, DIAGNOSTIC_ID_PATTERN);
-}
-
-export function toDiagnosticName(value: unknown): string | null {
-  return matching(value, DIAGNOSTIC_NAME_PATTERN);
-}
-
-export function toDiagnosticReason(value: unknown): string | null {
-  return matching(value, DIAGNOSTIC_REASON_PATTERN);
 }

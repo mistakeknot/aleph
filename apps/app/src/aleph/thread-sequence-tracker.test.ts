@@ -43,11 +43,13 @@ describe("ThreadSequenceTracker", () => {
   it("reports an older status update arriving after a newer one", () => {
     const tracker = new ThreadSequenceTracker();
     expect(tracker.observe(statusChanged("thr_1", 2000, "active"))).toBeNull();
-    expect(tracker.observe(statusChanged("thr_1", 1500, "idle"))).toMatchObject({
-      anomaly: "out-of-order",
-      deltaMs: -500,
-      threadId: "thr_1",
-    });
+    expect(tracker.observe(statusChanged("thr_1", 1500, "idle"))).toMatchObject(
+      {
+        anomaly: "out-of-order",
+        deltaMs: -500,
+        threadId: "thr_1",
+      },
+    );
   });
 
   it("reports a long silence after a busy status but not after an idle one", () => {
@@ -55,13 +57,21 @@ describe("ThreadSequenceTracker", () => {
     tracker.observe(statusChanged("thr_busy", 1000, "active"));
     expect(
       tracker.observe(
-        statusChanged("thr_busy", 1000 + THREAD_SEQUENCE_LONG_GAP_MS + 1, "idle"),
+        statusChanged(
+          "thr_busy",
+          1000 + THREAD_SEQUENCE_LONG_GAP_MS + 1,
+          "idle",
+        ),
       ),
     ).toMatchObject({ anomaly: "long-gap" });
     tracker.observe(statusChanged("thr_idle", 1000, "idle"));
     expect(
       tracker.observe(
-        statusChanged("thr_idle", 1000 + THREAD_SEQUENCE_LONG_GAP_MS + 1, "active"),
+        statusChanged(
+          "thr_idle",
+          1000 + THREAD_SEQUENCE_LONG_GAP_MS + 1,
+          "active",
+        ),
       ),
     ).toBeNull();
   });

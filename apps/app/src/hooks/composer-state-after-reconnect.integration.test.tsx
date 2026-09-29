@@ -59,7 +59,10 @@ vi.mock("@/lib/sdk", () => ({
 import { sdk } from "@/lib/sdk";
 import { WebSocketManager } from "@/lib/ws";
 import { createRealtimeCacheEffects } from "./realtime-cache-effects";
-import { threadPendingInteractionsQueryKey, threadQueryKey } from "./queries/query-keys";
+import {
+  threadPendingInteractionsQueryKey,
+  threadQueryKey,
+} from "./queries/query-keys";
 import {
   isPendingInteractionStateUnknown,
   useThread,
@@ -182,7 +185,12 @@ describe("composer state after a realtime connection drop", () => {
 
   describe.each([
     { before: "active", after: "idle", during: "mid-turn", expected: "ready" },
-    { before: "idle", after: "active", during: "while idle", expected: "queue" },
+    {
+      before: "idle",
+      after: "active",
+      during: "while idle",
+      expected: "queue",
+    },
   ] as const)("dropped $during", ({ before, after, expected }) => {
     const settledBefore = before === "active" ? "queue" : "ready";
 

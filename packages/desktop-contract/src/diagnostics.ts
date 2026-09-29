@@ -1,14 +1,145 @@
+import { threadStatusValues } from "@bb/domain";
 import { z } from "zod";
 
 export const DIAGNOSTIC_ID_PATTERN = /^[a-z]{2,8}_[A-Za-z0-9]{1,40}$/;
-export const DIAGNOSTIC_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9-]{0,31}$/;
-export const DIAGNOSTIC_REASON_PATTERN = /^[a-z][a-z_-]{0,31}$/;
-export const DIAGNOSTIC_CONSOLE_CODE_PATTERN = /^[A-Z_]{3,40}$/;
+export const DIAGNOSTIC_OTHER = "other";
+
+export const DIAGNOSTIC_QUERY_NAMES = [
+  "hosts",
+  "host",
+  "projects",
+  "sidebarNavigation",
+  "projectPaths",
+  "threads",
+  "threadSearch",
+  "thread",
+  "threadDetailBootstrap",
+  "threadTimeline",
+  "threadConversationOutline",
+  "threadTimelineTurnSummaryDetails",
+  "threadQueuedMessages",
+  "threadPromptHistory",
+  "threadPendingInteractions",
+  "threadDefaultExecutionOptions",
+  "threadStorageFiles",
+  "threadStorageLocation",
+  "threadStoragePaths",
+  "threadStorageFilePreview",
+  "threadHostFilePreview",
+  "terminals",
+  "environment",
+  "environmentWorkStatus",
+  "environmentMergeBaseBranches",
+  "environmentDiffFiles",
+  "environmentFilePreview",
+  "hostPathExistence",
+  "systemProviders",
+  "systemExecutionOptions",
+  "serverMoveStatus",
+  "systemVersion",
+  "systemAppUpdate",
+  "environmentDiffPatch",
+] as const;
+export const DIAGNOSTIC_CLOSE_REASONS = [
+  "normal",
+  "going_away",
+  "tunnel_disconnected",
+  "tunnel_closed",
+  "revoked",
+  "plugin_reloaded",
+  "heartbeat_timeout",
+  "invalid_message",
+  "inactive_session",
+  "unauthorized_session",
+  "send_failed",
+  "client_closing",
+  DIAGNOSTIC_OTHER,
+] as const;
+export const DIAGNOSTIC_RUNTIME_STATUSES = [
+  ...threadStatusValues,
+  "provisioning",
+  "host-reconnecting",
+  "waiting-for-host",
+  DIAGNOSTIC_OTHER,
+] as const;
+export const DIAGNOSTIC_CONSOLE_CODES = [
+  "AggregateError",
+  "DOMException",
+  "Error",
+  "EvalError",
+  "RangeError",
+  "ReferenceError",
+  "SyntaxError",
+  "TypeError",
+  "URIError",
+  "console_error",
+] as const;
 export const DIAGNOSTIC_CONSOLE_FALLBACK_CODE = "console_error";
 
+const CLOSE_REASON_BY_SERVER_TEXT: ReadonlyMap<string, DiagnosticCloseReason> =
+  new Map([
+    ["normal", "normal"],
+    ["going_away", "going_away"],
+    ["tunnel disconnected", "tunnel_disconnected"],
+    ["tunnel closed", "tunnel_closed"],
+    ["revoked by owner", "revoked"],
+    ["Plugin reloaded or disabled", "plugin_reloaded"],
+    ["heartbeat-timeout", "heartbeat_timeout"],
+    ["invalid-message", "invalid_message"],
+    ["inactive-session", "inactive_session"],
+    ["unauthorized-session", "unauthorized_session"],
+    ["send-failed", "send_failed"],
+    ["client closing", "client_closing"],
+  ]);
+
+export type DiagnosticCloseReason = (typeof DIAGNOSTIC_CLOSE_REASONS)[number];
+export type DiagnosticQueryName = (typeof DIAGNOSTIC_QUERY_NAMES)[number];
+export type DiagnosticRuntimeStatus =
+  (typeof DIAGNOSTIC_RUNTIME_STATUSES)[number];
+
+function pickFrom<T extends string>(
+  table: readonly T[],
+  value: unknown,
+  fallback: T,
+): T {
+  return table.find((entry) => entry === value) ?? fallback;
+}
+
+export function toDiagnosticCloseReason(
+  value: unknown,
+): DiagnosticCloseReason | null {
+  if (typeof value !== "string" || value.length === 0) {
+    return null;
+  }
+  return CLOSE_REASON_BY_SERVER_TEXT.get(value) ?? DIAGNOSTIC_OTHER;
+}
+
+export function toDiagnosticQueryName(
+  value: unknown,
+): DiagnosticQueryName | typeof DIAGNOSTIC_OTHER {
+  return (
+    DIAGNOSTIC_QUERY_NAMES.find((name) => name === value) ?? DIAGNOSTIC_OTHER
+  );
+}
+
+export function toDiagnosticRuntimeStatus(
+  value: unknown,
+): DiagnosticRuntimeStatus | null {
+  return value === null || value === undefined
+    ? null
+    : pickFrom(DIAGNOSTIC_RUNTIME_STATUSES, value, DIAGNOSTIC_OTHER);
+}
+
 const diagnosticIdSchema = z.string().regex(DIAGNOSTIC_ID_PATTERN);
-const diagnosticNameSchema = z.string().regex(DIAGNOSTIC_NAME_PATTERN);
-const diagnosticReasonSchema = z.string().regex(DIAGNOSTIC_REASON_PATTERN);
+const diagnosticQueryNameSchema = z.enum([
+  ...DIAGNOSTIC_QUERY_NAMES,
+  DIAGNOSTIC_OTHER,
+]);
+const diagnosticCloseReasonSchema = z.enum(DIAGNOSTIC_CLOSE_REASONS);
+const diagnosticRuntimeStatusSchema = z.enum(DIAGNOSTIC_RUNTIME_STATUSES);
+export const bbDesktopDiagnosticConsoleCodeSchema = z.enum(
+  DIAGNOSTIC_CONSOLE_CODES,
+);
 const diagnosticTimestampSchema = z.number().int().nonnegative();
 const diagnosticCountSchema = z.number().int().nonnegative();
 
@@ -30,7 +161,7 @@ const reconnectDecisionSchema = z.object({
   dataUpdatedAt: diagnosticTimestampSchema,
   fetching: z.boolean(),
   invalidated: z.boolean(),
-  queryName: diagnosticNameSchema,
+  queryName: diagnosticQueryNameSchema,
   subjectId: diagnosticIdSchema.nullable(),
 });
 
@@ -47,7 +178,7 @@ export const bbDesktopDiagnosticEventSchema = z.discriminatedUnion("kind", [
     kind: z.literal("socket-close"),
     code: z.number().int().nullable(),
     pongPending: z.boolean(),
-    reason: diagnosticReasonSchema.nullable(),
+    reason: diagnosticCloseReasonSchema.nullable(),
     wasClean: z.boolean().nullable(),
   }),
   z.object({
@@ -77,7 +208,7 @@ export const bbDesktopDiagnosticEventSchema = z.discriminatedUnion("kind", [
     at: diagnosticTimestampSchema,
     kind: z.literal("composer-send-state"),
     previous: bbDesktopDiagnosticComposerSendStateSchema.nullable(),
-    runtimeStatus: diagnosticReasonSchema.nullable(),
+    runtimeStatus: diagnosticRuntimeStatusSchema.nullable(),
     state: bbDesktopDiagnosticComposerSendStateSchema,
     threadId: diagnosticIdSchema,
   }),

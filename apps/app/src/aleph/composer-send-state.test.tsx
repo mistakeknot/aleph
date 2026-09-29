@@ -107,7 +107,9 @@ describe("useComposerSendStateDiagnostic", () => {
       { initialProps: { threadId: "thr_1" } },
     );
     rerender({ threadId: "thr_2" });
-    expect(composerEvents().map(({ previous, threadId }) => [threadId, previous])).toEqual([
+    expect(
+      composerEvents().map(({ previous, threadId }) => [threadId, previous]),
+    ).toEqual([
       ["thr_1", null],
       ["thr_2", null],
     ]);

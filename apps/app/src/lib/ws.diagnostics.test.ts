@@ -101,27 +101,34 @@ describe("WebSocketManager diagnostics", () => {
     });
   });
 
-  it("drops close reasons that are not a plain lowercase code", () => {
-    const manager = new WebSocketManager({
-      isDocumentVisible: () => true,
-      subscribeToOnline: () => () => {},
-      subscribeToVisibility: () => () => {},
-    });
-    manager.connect();
-    const socket = fakeSocketState.instances[0]!;
-    socket.readyState = 1;
-    socket.onopen?.();
-    socket.onclose?.({
-      code: 1006,
-      reason: "tunnel lost: private prompt says hello",
-      wasClean: false,
-    } as CloseEvent);
-    manager.disconnect();
-    expect(events.find((event) => event.kind === "socket-close")).toMatchObject(
-      {
-        reason: null,
-      },
-    );
+  it("maps close reasons through a fixed table and buckets everything else as other", () => {
+    const table: Array<[string, string | null]> = [
+      ["going_away", "going_away"],
+      ["heartbeat-timeout", "heartbeat_timeout"],
+      ["Plugin reloaded or disabled", "plugin_reloaded"],
+      ["password", "other"],
+      ["secret", "other"],
+      ["private_prompt", "other"],
+      ["tunnel lost: private prompt says hello", "other"],
+      ["", null],
+    ];
+    for (const [reason, expected] of table) {
+      events.length = 0;
+      const manager = new WebSocketManager({
+        isDocumentVisible: () => true,
+        subscribeToOnline: () => () => {},
+        subscribeToVisibility: () => () => {},
+      });
+      manager.connect();
+      const socket = fakeSocketState.instances.at(-1)!;
+      socket.readyState = 1;
+      socket.onopen?.();
+      socket.onclose?.({ code: 1006, reason, wasClean: false } as CloseEvent);
+      manager.disconnect();
+      expect(
+        events.find((event) => event.kind === "socket-close"),
+      ).toMatchObject({ reason: expected });
+    }
   });
 
   it("emits nothing when no listener is registered", () => {
