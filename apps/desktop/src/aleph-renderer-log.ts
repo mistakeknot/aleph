@@ -68,8 +68,6 @@ export function classifyRendererConsolePrefix(
   return CONSOLE_PREFIXES.find(([lead]) => start.startsWith(lead))?.[1] ?? null;
 }
 
-// The category never contains any part of the sourceId: a page script can
-// forge file names with //# sourceURL, so no name is trustworthy.
 export function classifyRendererConsoleSource(
   sourceId: unknown,
   pageUrl: unknown,
