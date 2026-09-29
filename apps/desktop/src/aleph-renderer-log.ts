@@ -4,7 +4,6 @@ import { join } from "node:path";
 import {
   DIAGNOSTIC_CONSOLE_CODES,
   DIAGNOSTIC_CONSOLE_FALLBACK_CODE,
-  DIAGNOSTIC_CONSOLE_ASSET_PATTERN,
   bbDesktopDiagnosticEventSchema,
   type BbDesktopDiagnosticEvent,
   type DiagnosticConsolePrefix,
@@ -43,9 +42,8 @@ export type RendererConsoleLevel = "debug" | "info" | "warning" | "error";
 export interface RendererConsoleRecord {
   code: string;
   level: "warning" | "error";
-  line: number | null;
-  prefix?: DiagnosticConsolePrefix | null;
-  source: string;
+  prefix: DiagnosticConsolePrefix | null;
+  source: DiagnosticConsoleSourceCategory;
 }
 
 const CONSOLE_PREFIXES: ReadonlyArray<
@@ -70,30 +68,26 @@ export function classifyRendererConsolePrefix(
   return CONSOLE_PREFIXES.find(([lead]) => start.startsWith(lead))?.[1] ?? null;
 }
 
-export function sanitizeRendererConsoleSource(
+// The category never contains any part of the sourceId: a page script can
+// forge file names with //# sourceURL, so no name is trustworthy.
+export function classifyRendererConsoleSource(
   sourceId: unknown,
   pageUrl: unknown,
-): { hashedAsset: boolean; source: string } {
-  const category = (
-    source: DiagnosticConsoleSourceCategory,
-  ): { hashedAsset: boolean; source: string } => ({
-    hashedAsset: false,
-    source,
-  });
+): DiagnosticConsoleSourceCategory {
   if (typeof sourceId !== "string" || sourceId === "") {
-    return category("inline");
+    return "inline";
   }
   let source: URL;
   try {
     source = new URL(sourceId);
   } catch {
-    return category("external");
+    return "external";
   }
   if (
     source.protocol === "chrome-extension:" ||
     source.protocol === "devtools:"
   ) {
-    return category("extension");
+    return "extension";
   }
   let page: URL | null = null;
   try {
@@ -106,13 +100,12 @@ export function sanitizeRendererConsoleSource(
     source.origin === "null" ||
     source.origin !== page.origin
   ) {
-    return category("external");
+    return "external";
   }
-  const match = /^\/assets\/([^/]+)$/.exec(source.pathname);
-  const name = match?.[1] ?? "";
-  return DIAGNOSTIC_CONSOLE_ASSET_PATTERN.test(name)
-    ? { hashedAsset: true, source: name }
-    : category("app-other");
+  return source.pathname.startsWith("/assets/") &&
+    source.pathname.endsWith(".js")
+    ? "app-asset"
+    : "app-other";
 }
 
 export function classifyRendererConsoleMessage(message: string): string {
@@ -130,34 +123,15 @@ export function buildRendererConsoleRecord(args: {
   message: string;
   pageUrl?: unknown;
   sourceId?: unknown;
-  lineNumber?: unknown;
 }): RendererConsoleRecord | null {
   if (args.level !== "warning" && args.level !== "error") {
     return null;
   }
-  const code = classifyRendererConsoleMessage(args.message);
-  const { hashedAsset, source } = sanitizeRendererConsoleSource(
-    args.sourceId,
-    args.pageUrl,
-  );
-  const attribution = {
-    line:
-      hashedAsset &&
-      typeof args.lineNumber === "number" &&
-      Number.isInteger(args.lineNumber) &&
-      args.lineNumber >= 0
-        ? args.lineNumber
-        : null,
-    source,
-  };
-  if (code !== DIAGNOSTIC_CONSOLE_FALLBACK_CODE) {
-    return { code, level: args.level, ...attribution };
-  }
   return {
-    code,
+    code: classifyRendererConsoleMessage(args.message),
     level: args.level,
-    ...attribution,
     prefix: classifyRendererConsolePrefix(args.message),
+    source: classifyRendererConsoleSource(args.sourceId, args.pageUrl),
   };
 }
 

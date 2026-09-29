@@ -87,14 +87,12 @@ export const DIAGNOSTIC_CONSOLE_PREFIXES = [
   "vite",
 ] as const;
 export const DIAGNOSTIC_CONSOLE_SOURCE_CATEGORIES = [
+  "app-asset",
   "app-other",
   "extension",
   "inline",
   "external",
 ] as const;
-// Vite hashed chunk names served from /assets/, e.g. index-utyJg6A4.js.
-export const DIAGNOSTIC_CONSOLE_ASSET_PATTERN =
-  /^[A-Za-z0-9_.]{1,40}(-[A-Za-z0-9_.]{1,40}){0,5}-[A-Za-z0-9_-]{8}\.js$/;
 
 const CLOSE_REASON_BY_SERVER_TEXT: ReadonlyMap<string, DiagnosticCloseReason> =
   new Map([
@@ -171,12 +169,8 @@ export const bbDesktopDiagnosticConsoleEntrySchema = z.object({
   code: bbDesktopDiagnosticConsoleCodeSchema,
   count: z.number().int().positive().optional(),
   level: z.enum(["warning", "error"]),
-  line: z.number().int().nonnegative().nullable(),
-  prefix: z.enum(DIAGNOSTIC_CONSOLE_PREFIXES).nullable().optional(),
-  source: z.union([
-    z.string().regex(DIAGNOSTIC_CONSOLE_ASSET_PATTERN),
-    z.enum(DIAGNOSTIC_CONSOLE_SOURCE_CATEGORIES),
-  ]),
+  prefix: z.enum(DIAGNOSTIC_CONSOLE_PREFIXES).nullable(),
+  source: z.enum(DIAGNOSTIC_CONSOLE_SOURCE_CATEGORIES),
 });
 export type BbDesktopDiagnosticConsoleEntry = z.infer<
   typeof bbDesktopDiagnosticConsoleEntrySchema

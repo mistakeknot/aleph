@@ -6,7 +6,6 @@ import {
   utimes,
   writeFile,
 } from "node:fs/promises";
-import { existsSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -200,7 +199,6 @@ describe("renderer log redaction", () => {
       expect(buildRendererConsoleRecord({ level: "error", message })).toEqual({
         code: "console_error",
         level: "error",
-        line: null,
         prefix: null,
         source: "inline",
       });
@@ -213,7 +211,7 @@ describe("renderer log redaction", () => {
     ).toEqual({
       code: "TypeError",
       level: "warning",
-      line: null,
+      prefix: "uncaught",
       source: "inline",
     });
     for (const message of [
@@ -224,7 +222,6 @@ describe("renderer log redaction", () => {
       expect(buildRendererConsoleRecord({ level: "error", message })).toEqual({
         code: "console_error",
         level: "error",
-        line: null,
         prefix: null,
         source: "inline",
       });
@@ -245,7 +242,6 @@ describe("renderer log redaction", () => {
     expect(Object.keys(record ?? {}).sort()).toEqual([
       "code",
       "level",
-      "line",
       "prefix",
       "source",
     ]);
@@ -280,95 +276,63 @@ describe("renderer log redaction", () => {
 
   describe("source attribution", () => {
     const pageUrl = "https://app.example/index.html";
-    const source = (sourceId: unknown, lineNumber: unknown = 7) =>
+    const source = (sourceId: unknown) =>
       buildRendererConsoleRecord({
         level: "error",
-        lineNumber,
         message: "m",
         pageUrl,
         sourceId,
       });
 
-    it("keeps a same-origin hashed asset name and its line", () => {
+    it("uses app-asset for same-origin /assets/ scripts without leaking names", () => {
       for (const name of [
         "index-utyJg6A4.js",
-        "workspace-checkout-display-Cf17AEC5.js",
-        "cytoscape.esm-DMHzoK_X.js",
-        "project-default-execution-options-query--8jca_yV.js",
+        "private-tax-return-ABCDEFGH.js",
+        "sk_live_1234567890-ABCDEFGH.js",
       ]) {
-        expect(
-          source(`https://app.example/assets/${name}?x=1#y`),
-        ).toMatchObject({ line: 7, source: name });
+        const record = source(`https://app.example/assets/${name}?x=1#y`);
+        expect(record?.source).toBe("app-asset");
+        const text = JSON.stringify(record);
+        for (const fragment of ["private", "sk_live", "ABCDEFGH", "utyJg6A4"]) {
+          expect(text).not.toContain(fragment);
+        }
       }
-    });
-
-    it("accepts every real bundle chunk name", () => {
-      const dir =
-        "/home/mk/.bb-machines/autarch.getbb.app/npm/lib/node_modules/bb-app/app/dist/assets";
-      if (!existsSync(dir)) {
-        return;
-      }
-      for (const name of readdirSync(dir).filter((n) => n.endsWith(".js"))) {
-        expect(source(`https://app.example/assets/${name}`)?.source).toBe(name);
-      }
-    });
-
-    it("never writes non-hashed basenames, under any path or origin", () => {
-      for (const sourceId of [
-        "https://app.example/assets/private-tax-return.js",
-        "https://app.example/assets/sk_live_1234567890.js",
-        "https://app.example/x/assets/index-utyJg6A4.js",
-        "https://app.example/private-tax-return.js",
-        "https://evil.example/sk_live_1234567890.js",
-        "file:///Users/mk/private-tax-return.js",
-        "app://bundle/sk_live_1234567890.mjs",
-      ]) {
-        const record = source(sourceId);
-        expect(JSON.stringify(record)).not.toMatch(
-          /private|sk_live|evil|Users/,
-        );
-        expect(record?.line).toBeNull();
-      }
-      expect(
-        source("https://app.example/assets/private-tax-return.js"),
-      ).toMatchObject({ source: "app-other" });
-      expect(source("https://app.example/private-tax-return.js")).toMatchObject(
-        { source: "app-other" },
-      );
     });
 
     it("uses fixed categories for other origins and kinds", () => {
-      expect(
-        source("https://other.example/assets/x-ABCDEFGH.js"),
-      ).toMatchObject({ line: null, source: "external" });
-      expect(source("file:///a/assets/x-ABCDEFGH.js")).toMatchObject({
-        source: "external",
-      });
-      expect(source("not a url")).toMatchObject({ source: "external" });
-      expect(source("chrome-extension://abc/content.js")).toMatchObject({
-        line: null,
-        source: "extension",
-      });
-      expect(source("devtools://devtools/bundled/x.js")).toMatchObject({
-        source: "extension",
-      });
-      expect(source("")).toMatchObject({ line: null, source: "inline" });
-      expect(source(undefined)).toMatchObject({ source: "inline" });
-      expect(source(42)).toMatchObject({ source: "inline" });
+      expect(source("https://app.example/private-tax-return.js")?.source).toBe(
+        "app-other",
+      );
+      expect(source("https://app.example/assets/notes.txt")?.source).toBe(
+        "app-other",
+      );
+      for (const sourceId of [
+        "https://evil.example/assets/sk_live_1234567890-ABCDEFGH.js",
+        "file:///Users/mk/private-tax-return.js",
+        "app://bundle/sk_live_1234567890.mjs",
+        "not a url",
+      ]) {
+        const record = source(sourceId);
+        expect(record?.source).toBe("external");
+        expect(JSON.stringify(record)).not.toMatch(
+          /private|sk_live|evil|Users/,
+        );
+      }
+      expect(source("chrome-extension://abc/content.js")?.source).toBe(
+        "extension",
+      );
+      expect(source("devtools://devtools/bundled/x.js")?.source).toBe(
+        "extension",
+      );
+      for (const sourceId of ["", undefined, 42]) {
+        expect(source(sourceId)?.source).toBe("inline");
+      }
       const noPage = buildRendererConsoleRecord({
         level: "error",
         message: "m",
         sourceId: "https://app.example/assets/x-ABCDEFGH.js",
       });
       expect(noPage?.source).toBe("external");
-    });
-
-    it("keeps line numbers only for hashed assets and valid integers", () => {
-      const asset = "https://app.example/assets/index-utyJg6A4.js";
-      expect(source(asset, 0)?.line).toBe(0);
-      for (const bad of [-1, 1.5, Number.NaN, "3", null]) {
-        expect(source(asset, bad)?.line).toBeNull();
-      }
     });
   });
 
@@ -534,7 +498,6 @@ describe("renderer log redaction", () => {
         for (const message of messages) {
           handler({
             level: "error",
-            lineNumber: 12,
             message,
             sourceId: `https://x/assets/app-AbCd1234.js?auth=${opaque}`,
           });
@@ -548,8 +511,9 @@ describe("renderer log redaction", () => {
       for (const fragment of leakedFragments) {
         expect(text).not.toContain(fragment);
       }
-      expect(text).toContain('"source":"app-AbCd1234.js"');
-      expect(text).toContain('"line":12');
+      expect(text).toContain('"source":"app-asset"');
+      expect(text).not.toContain("AbCd1234");
+      expect(text).not.toContain('"line"');
       expect(text).not.toContain("https://");
       expect(text).not.toContain("auth=");
     });
@@ -570,7 +534,6 @@ describe("renderer log redaction", () => {
         messages.forEach((message, index) => {
           handler({
             level: "error",
-            lineNumber: 40 + index,
             message,
             sourceId: sources[index],
           });
@@ -589,15 +552,14 @@ describe("renderer log redaction", () => {
           count: 1,
           kind: "console",
           level: "error",
-          line: 40,
           prefix: "react-key-warning",
-          source: "index-Ab123456.js",
+          source: "app-asset",
         },
         {
           code: "TypeError",
           kind: "console",
           level: "error",
-          line: null,
+          prefix: "uncaught",
           source: "external",
         },
         {
@@ -605,7 +567,6 @@ describe("renderer log redaction", () => {
           count: 2,
           kind: "console",
           level: "error",
-          line: null,
           prefix: null,
           source: "app-other",
         },
