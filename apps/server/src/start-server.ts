@@ -230,7 +230,6 @@ export async function runServer(serverConfig: ServerConfig): Promise<void> {
 
   const appVersion = createAppVersionService({
     config: runtimeConfig,
-    logger,
   });
   const appUpdateMode = serverConfig.BB_APP_UPDATE_MODE ?? null;
   const appUpdate = createAppUpdateService({

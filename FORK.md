@@ -63,19 +63,18 @@ package version.
 
 ## Updates
 
-An Aleph build never offers an upstream release. `isAlephAppVersion` in
-`packages/config/src/aleph-version.ts` looks for `aleph` in the version's build
-metadata, and when it finds it:
+The server never contacts the npm registry for `bb-app`, which is upstream bb.
+`/api/v1/system/version` always returns `updateChecksDisabled: true`, no
+`latestVersion` and no `upgradeCommand`, whatever the version string is, and an
+in-app npm update is refused with 409 because there is nothing to install.
+`createAppVersionService` in `apps/server` has no fetch path left, so an
+upstream sync that takes upstream's `package.json` version cannot turn it back
+on.
 
-- The server skips its npm lookup of `bb-app`. `/api/v1/system/version` returns
-  `updateChecksDisabled: true` and no `upgradeCommand`, and an in-app npm
-  update is refused with 409 because there is nothing to install.
-- The desktop app turns off both its `desktop-latest` feed check and
-  electron-updater, so it neither shows nor downloads an upstream release.
-
-The guard fails open: a version without the suffix, for example after an
-upstream sync that takes upstream's `package.json` version, turns every update
-path back on. `packages/config/test/aleph-release-version.test.ts` fails when
+The desktop app turns off both its `desktop-latest` feed check and
+electron-updater for Aleph versions, so it neither shows nor downloads an
+upstream release. `isAlephAppVersion` in `packages/config/src/aleph-version.ts`
+guards that path. `packages/config/test/aleph-release-version.test.ts` fails when
 `bb-app`, `@bb/desktop` or the newest `changelog-metadata.ts` release lacks
 `+aleph.X.Y.Z`.
 
