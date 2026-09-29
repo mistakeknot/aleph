@@ -1,6 +1,12 @@
 import { existsSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  exitCodeForLaunchFailure,
+  resolveLaunchVersion,
+  runLaunchGuard,
+} from "@bb/config/launch-guard";
 import { loadHostDaemonStartConfig } from "@bb/config/host-daemon";
 import { loadHostDaemonEntrypointConfig } from "@bb/config/host-daemon-entrypoint";
 import {
@@ -44,12 +50,20 @@ function reportStartupFailure(args: ReportStartupFailureArgs): void {
     args.error instanceof Error
       ? (args.error.stack ?? args.error.message)
       : String(args.error);
-  process.stderr.write(`${message}\n`, () => process.exit(1));
+  process.stderr.write(`${message}\n`, () =>
+    process.exit(exitCodeForLaunchFailure(args.error)),
+  );
 }
 
 async function runHostDaemonEntrypoint(): Promise<void> {
   const hostDaemonEntrypointConfig = loadHostDaemonEntrypointConfig();
   const hostDaemonStartConfig = loadHostDaemonStartConfig({});
+  runLaunchGuard({
+    dataDir: hostDaemonStartConfig.dataDir,
+    homeDir: homedir(),
+    role: "bundled-daemon",
+    version: resolveLaunchVersion(process.env),
+  });
   if (await hasMachineSuspensionMarker(hostDaemonStartConfig.dataDir)) {
     return;
   }

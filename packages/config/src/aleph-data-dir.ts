@@ -1,11 +1,22 @@
 import { existsSync, readFileSync, realpathSync } from "node:fs";
-import { DatabaseSync } from "node:sqlite";
-import { basename, dirname, join, relative, resolve, sep, isAbsolute } from "node:path";
+import { createRequire } from "node:module";
+import type { DatabaseSync } from "node:sqlite";
+import {
+  basename,
+  dirname,
+  join,
+  relative,
+  resolve,
+  sep,
+  isAbsolute,
+} from "node:path";
 import { isAlephAppVersion } from "./aleph-version.js";
 import { formatBbAppRuntimeFilePath } from "./app-runtime-file.js";
 import { resolveDataDirDatabasePath } from "./runtime.js";
 
-export const ALEPH_FORK_MIGRATION_WHENS = [1790349911647, 1790350024036] as const;
+export const ALEPH_FORK_MIGRATION_WHENS = [
+  1790349911647, 1790350024036,
+] as const;
 
 const STOCK_DATA_DIR_NAME = ".bb";
 const DEV_APP_VERSION = "0.0.0-dev";
@@ -55,7 +66,10 @@ function realpathWithMissingTail(path: string): string {
 
 function isInside(args: { child: string; parent: string }): boolean {
   const rel = relative(args.parent, args.child);
-  return rel === "" || (!rel.startsWith(`..${sep}`) && rel !== ".." && !isAbsolute(rel));
+  return (
+    rel === "" ||
+    (!rel.startsWith(`..${sep}`) && rel !== ".." && !isAbsolute(rel))
+  );
 }
 
 function stockDirectories(homeDir: string): string[] {
@@ -69,12 +83,30 @@ function stockDirectories(homeDir: string): string[] {
   ]);
 }
 
+type SqliteModule = typeof import("node:sqlite");
+
+function loadNodeSqlite(): SqliteModule {
+  const originalEmitWarning = process.emitWarning;
+  process.emitWarning = ((warning: string | Error, ...rest: unknown[]) => {
+    const text = typeof warning === "string" ? warning : warning.message;
+    if (text.includes("SQLite")) return;
+    Reflect.apply(originalEmitWarning, process, [warning, ...rest]);
+  }) as typeof process.emitWarning;
+  try {
+    return createRequire(import.meta.url)("node:sqlite");
+  } finally {
+    process.emitWarning = originalEmitWarning;
+  }
+}
+
 function hasStockMigrationHistory(dataDir: string): boolean {
   const databasePath = resolveDataDirDatabasePath({ dataDir });
   if (!existsSync(databasePath)) return false;
   let database: DatabaseSync | null = null;
   try {
-    database = new DatabaseSync(databasePath, { readOnly: true });
+    database = new (loadNodeSqlite().DatabaseSync)(databasePath, {
+      readOnly: true,
+    });
     const rows = database
       .prepare(`SELECT created_at FROM ${MIGRATIONS_TABLE}`)
       .all();
@@ -132,5 +164,6 @@ export function findAlephDataDirRefusal(
 
 export function assertAlephDataDir(args: AlephDataDirCheckArgs): void {
   const refusal = findAlephDataDirRefusal(args);
-  if (refusal !== null) throw new AlephDataDirRefusedError(args.dataDir, refusal);
+  if (refusal !== null)
+    throw new AlephDataDirRefusedError(args.dataDir, refusal);
 }

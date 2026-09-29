@@ -42,7 +42,7 @@ describe("host daemon startup diagnostics", () => {
     const source = await readHostDaemonEntrypoint();
 
     expect(source).toContain(
-      "process.stderr.write(`${message}\\n`, () => process.exit(1));",
+      "process.stderr.write(`${message}\\n`, () =>\n    process.exit(exitCodeForLaunchFailure(args.error)),\n  );",
     );
     expect(source).not.toContain("process.exitCode = 1");
   });

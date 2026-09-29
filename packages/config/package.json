@@ -157,6 +157,11 @@
       "source": "./src/maintenance-fence.ts",
       "types": "./src/maintenance-fence.ts",
       "default": "./src/maintenance-fence.ts"
+    },
+    "./launch-guard": {
+      "source": "./src/launch-guard.ts",
+      "types": "./src/launch-guard.ts",
+      "default": "./src/launch-guard.ts"
     }
   },
   "scripts": {

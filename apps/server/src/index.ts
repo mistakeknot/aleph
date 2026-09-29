@@ -1,4 +1,10 @@
 import { join } from "node:path";
+import { homedir } from "node:os";
+import {
+  exitCodeForLaunchFailure,
+  resolveLaunchVersion,
+  runLaunchGuard,
+} from "@bb/config/launch-guard";
 import { loadServerConfig } from "@bb/config/server";
 import {
   installSafeProcessDiagnostics,
@@ -26,10 +32,16 @@ function reportStartupFailure(error: unknown): void {
   const message =
     error instanceof Error ? (error.stack ?? error.message) : String(error);
   process.stderr.write(`${message}\n`);
-  process.exitCode = 1;
+  process.exitCode = exitCodeForLaunchFailure(error);
 }
 
 async function main(): Promise<void> {
+  runLaunchGuard({
+    dataDir: serverConfig.BB_DATA_DIR,
+    homeDir: homedir(),
+    role: "embedded-server",
+    version: resolveLaunchVersion(process.env),
+  });
   const serverModule = await import("./start-server.js");
   await serverModule.runServer(serverConfig);
 }

@@ -26,7 +26,12 @@ import {
   APP_SURFACE_DESKTOP,
   APP_SURFACE_ENV_NAME,
 } from "@bb/config/app-surface";
+import {
+  exitCodeForLaunchFailure,
+  runLaunchGuard,
+} from "@bb/config/launch-guard";
 import { findMachineServiceFile } from "@bb/config/machine-service";
+import { advanceFenceToProbation } from "@bb/config/maintenance-fence";
 import {
   deriveConnectBaseUrl,
   type ConnectCredential,
@@ -647,7 +652,7 @@ const desktopLogger: DesktopAutoUpdateLogger = {
 function resolveDataDirFromEnv(args: ResolveDataDirFromEnvArgs): string {
   const rawDataDir = args.env.BB_DATA_DIR?.trim();
   if (rawDataDir === undefined || rawDataDir.length === 0) {
-    return join(args.homeDir, ".bb");
+    return join(args.homeDir, ".aleph");
   }
   if (rawDataDir === "~") {
     return args.homeDir;
@@ -2693,6 +2698,31 @@ async function initializeRuntime(args: InitializeRuntimeArgs): Promise<void> {
 }
 
 async function runDesktopApp(): Promise<void> {
+  const fenceDataDir = resolveDataDirFromEnv({
+    env: process.env,
+    homeDir: homedir(),
+  });
+  try {
+    const decision = runLaunchGuard({
+      dataDir: fenceDataDir,
+      homeDir: homedir(),
+      role: "desktop-main",
+      version: app.getVersion(),
+    });
+    if (decision.kind === "advance_to_probation") {
+      await advanceFenceToProbation({
+        dataDir: fenceDataDir,
+        holder: { bundlePath: process.execPath },
+        timeoutMs: 30_000,
+      });
+    }
+  } catch (error) {
+    process.stderr.write(
+      `${error instanceof Error ? error.message : String(error)}\n`,
+    );
+    app.exit(exitCodeForLaunchFailure(error));
+    return;
+  }
   ensurePackagedUserShellPath({
     env: process.env,
     isPackaged: app.isPackaged,
