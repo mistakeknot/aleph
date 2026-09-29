@@ -252,6 +252,8 @@ vi.mock("@/hooks/queries/thread-queries", () => ({
     isError: mocks.pendingInteractionsIsError,
     isFetching: mocks.pendingInteractionsIsFetching,
     isLoading: mocks.pendingInteractionsIsLoading,
+    refetch: async () => undefined,
+    status: mocks.pendingInteractionsIsError ? "error" : "success",
   }),
   getLatestPendingInteraction: (
     interactions: readonly { createdAt: number }[] | undefined,

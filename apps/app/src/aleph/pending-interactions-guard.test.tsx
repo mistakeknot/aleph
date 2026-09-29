@@ -1,5 +1,12 @@
 // @vitest-environment jsdom
 import { act, renderHook } from "@testing-library/react";
+import {
+  onlineManager,
+  QueryClient,
+  QueryClientProvider,
+  useQuery,
+} from "@tanstack/react-query";
+import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { onDiagnostic } from "@/lib/diagnostics";
 import {
@@ -84,7 +91,7 @@ describe("pending-interactions guard", () => {
   describe("usePendingInteractionsGate", () => {
     interface Props {
       hasPendingInteraction: boolean;
-      isError: boolean;
+      status: "error" | "pending" | "success";
       isFetching: boolean;
       threadId: string;
     }
@@ -103,23 +110,23 @@ describe("pending-interactions guard", () => {
     }
     const base: Props = {
       hasPendingInteraction: false,
-      isError: false,
+      status: "success",
       isFetching: false,
       threadId: "thr_a",
     };
 
     it("is verified only after a settled successful result", () => {
-      const view = render({ ...base, isFetching: true });
+      const view = render({ ...base, status: "pending", isFetching: true });
       expect(view.result.current).toEqual({ isUnverified: true, retry: null });
       view.rerender(base);
       expect(view.result.current).toEqual({ isUnverified: false, retry: null });
     });
 
     it("does not treat an error as known and offers a retry", () => {
-      const view = render({ ...base, isError: true });
+      const view = render({ ...base, status: "error" });
       expect(view.result.current.isUnverified).toBe(true);
       expect(view.result.current.retry).not.toBeNull();
-      view.rerender({ ...base, isError: true, isFetching: true });
+      view.rerender({ ...base, status: "error", isFetching: true });
       expect(view.result.current.isUnverified).toBe(true);
       expect(view.result.current.retry).not.toBeNull();
     });
@@ -131,11 +138,16 @@ describe("pending-interactions guard", () => {
           events.push(event.outcome);
         }
       });
-      const view = render({ ...base, isError: true });
+      const view = render({ ...base, status: "error" });
       act(() => view.result.current.retry?.());
       off();
       expect(refetch).toHaveBeenCalledTimes(1);
       expect(events).toEqual(["check-failed", "manual-retry"]);
+    });
+
+    it("stays blocked with no data and no fetch in flight (paused or disabled)", () => {
+      const view = render({ ...base, status: "pending" });
+      expect(view.result.current).toEqual({ isUnverified: true, retry: null });
     });
 
     it("stays verified while a pending interaction is known", () => {
@@ -154,9 +166,9 @@ describe("pending-interactions guard", () => {
           events.push(event.outcome);
         }
       });
-      const view = render({ ...base, isFetching: true });
-      view.rerender({ ...base, isError: true });
-      view.rerender({ ...base, isError: true, isFetching: true });
+      const view = render({ ...base, status: "pending", isFetching: true });
+      view.rerender({ ...base, status: "error" });
+      view.rerender({ ...base, status: "error", isFetching: true });
       view.rerender(base);
       off();
       expect(events).toEqual([
@@ -167,9 +179,131 @@ describe("pending-interactions guard", () => {
     });
 
     it("keeps no state across a thread switch", () => {
-      const view = render({ ...base, isError: true });
+      const view = render({ ...base, status: "error" });
       view.rerender({ ...base, threadId: "thr_b" });
       expect(view.result.current).toEqual({ isUnverified: false, retry: null });
+    });
+  });
+
+  describe("usePendingInteractionsGate with a real query", () => {
+    const wrapperFor = (client: QueryClient) =>
+      function Wrapper({ children }: { children: ReactNode }) {
+        return (
+          <QueryClientProvider client={client}>{children}</QueryClientProvider>
+        );
+      };
+
+    function renderGate(
+      client: QueryClient,
+      initial: {
+        enabled: boolean;
+        queryFn: () => Promise<unknown[]>;
+        threadId: string;
+      },
+    ) {
+      return renderHook(
+        (props: typeof initial) => {
+          const query = useQuery({
+            enabled: props.enabled,
+            queryFn: props.queryFn,
+            queryKey: ["pending-interactions-test", props.threadId],
+          });
+          return usePendingInteractionsGate({
+            hasPendingInteraction: (query.data?.length ?? 0) > 0,
+            query,
+            threadId: props.threadId,
+          });
+        },
+        { initialProps: initial, wrapper: wrapperFor(client) },
+      );
+    }
+
+    async function flush() {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+    }
+
+    function makeClient() {
+      return new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    }
+
+    it("blocks a disabled query with no data, then verifies once enabled and fetched", async () => {
+      const client = makeClient();
+      const queryFn = vi.fn(async () => []);
+      const view = renderGate(client, {
+        enabled: false,
+        queryFn,
+        threadId: "thr_a",
+      });
+      await flush();
+      expect(queryFn).not.toHaveBeenCalled();
+      expect(view.result.current).toEqual({ isUnverified: true, retry: null });
+      view.rerender({ enabled: true, queryFn, threadId: "thr_a" });
+      await flush();
+      expect(view.result.current).toEqual({ isUnverified: false, retry: null });
+    });
+
+    it("blocks a paused initial fetch and resolves when the network resumes", async () => {
+      const client = makeClient();
+      onlineManager.setOnline(false);
+      try {
+        const queryFn = vi.fn(async () => []);
+        const view = renderGate(client, {
+          enabled: true,
+          queryFn,
+          threadId: "thr_a",
+        });
+        await flush();
+        expect(queryFn).not.toHaveBeenCalled();
+        expect(view.result.current.isUnverified).toBe(true);
+        onlineManager.setOnline(true);
+        await flush();
+        expect(view.result.current).toEqual({
+          isUnverified: false,
+          retry: null,
+        });
+      } finally {
+        onlineManager.setOnline(true);
+      }
+    });
+
+    it("blocks a pending first fetch until it succeeds", async () => {
+      const client = makeClient();
+      let resolve: (value: unknown[]) => void = () => {};
+      const view = renderGate(client, {
+        enabled: true,
+        queryFn: () =>
+          new Promise<unknown[]>((r) => {
+            resolve = r;
+          }),
+        threadId: "thr_a",
+      });
+      await flush();
+      expect(view.result.current.isUnverified).toBe(true);
+      await act(async () => {
+        resolve([]);
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(view.result.current.isUnverified).toBe(false);
+    });
+
+    it("blocks again on a thread switch until the new thread's query succeeds", async () => {
+      const client = makeClient();
+      const view = renderGate(client, {
+        enabled: true,
+        queryFn: async () => [],
+        threadId: "thr_a",
+      });
+      await flush();
+      expect(view.result.current.isUnverified).toBe(false);
+      view.rerender({
+        enabled: true,
+        queryFn: () => new Promise<unknown[]>(() => {}),
+        threadId: "thr_b",
+      });
+      await flush();
+      expect(view.result.current.isUnverified).toBe(true);
     });
   });
 

@@ -70,7 +70,7 @@ export function withPendingInteractionsRequestTimeout<T>({
 type GateState = "verified" | "checking" | "failed";
 
 interface PendingInteractionsGateQuery {
-  isError: boolean;
+  status: "error" | "pending" | "success";
   isFetching: boolean;
   refetch: () => Promise<unknown>;
 }
@@ -98,11 +98,11 @@ export function usePendingInteractionsGate({
 }: UsePendingInteractionsGateArgs): PendingInteractionsGate {
   const state: GateState = hasPendingInteraction
     ? "verified"
-    : query.isError
+    : query.status === "error"
       ? "failed"
-      : query.isFetching
-        ? "checking"
-        : "verified";
+      : query.status === "success" && !query.isFetching
+        ? "verified"
+        : "checking";
   const last = useRef<LastGateState | null>(null);
   useEffect(() => {
     const previous = last.current?.threadId === threadId ? last.current : null;
