@@ -1,4 +1,5 @@
 import {
+  ConnectBindingConflictError,
   clearConnectBinding,
   getConnectBinding,
   replaceConnectBinding,
@@ -34,12 +35,13 @@ export function bindConnectRelayIdentity(
     hub: Pick<AppDeps["hub"], "notifyThread">;
   },
   input: ConnectRelayIdentityInput,
+  options: { replaceExisting?: boolean } = {},
 ): ConnectRelayIdentityResult {
   closeRelayFence(deps.db);
-  const expected = observedRelayGeneration(deps.db);
-  if (expected === undefined) {
-    throw new Error("relay binding was not observed by this process");
-  }
+  const expected =
+    options.replaceExisting === true
+      ? undefined
+      : (observedRelayGeneration(deps.db) ?? null);
   const runtime = connectRuntimeForBaseUrl(input.baseUrl);
   const supported =
     runtime !== null && input.serverId !== "" && input.ownerUserId !== "";
@@ -79,12 +81,21 @@ export function markConnectRelayIdentityReconciled(
 ): boolean {
   closeRelayFence(deps.db);
   if (!reconciled) {
-    const result = setConnectBindingReconciled(deps.db, false);
-    observeRelayGeneration(
-      deps.db,
-      result.status === "ok" ? result.generation : null,
-    );
-    return result.status === "ok";
+    try {
+      const result = setConnectBindingReconciled(
+        deps.db,
+        false,
+        observedRelayGeneration(deps.db) ?? null,
+      );
+      observeRelayGeneration(
+        deps.db,
+        result.status === "ok" ? result.generation : null,
+      );
+      return result.status === "ok";
+    } catch (error) {
+      if (error instanceof ConnectBindingConflictError) return false;
+      throw error;
+    }
   }
   const expected = observedRelayGeneration(deps.db);
   if (expected === undefined) {

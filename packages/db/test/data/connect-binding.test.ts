@@ -105,6 +105,27 @@ describe("connect binding reconciliation fence", () => {
       setConnectBindingReconciled(db, true, current.generation),
     ).toMatchObject({ status: "ok" });
   });
+
+  it("adopts a row that matches the requested identity without a write", () => {
+    const db = freshDb();
+    const first = replaceConnectBinding(db, binding);
+    const before = getConnectBinding(db)!;
+    const adopted = replaceConnectBinding(db, binding, Date.now(), "stale");
+    expect(adopted.changed).toBe(false);
+    expect(adopted.generation).toBe(first.generation);
+    expect(getConnectBinding(db)).toEqual(before);
+  });
+
+  it("refuses to clear a bound row unless the expected generation matches", () => {
+    const db = freshDb();
+    replaceConnectBinding(db, binding);
+    const current = getConnectBinding(db)!;
+    expect(() => clearConnectBinding(db, null)).toThrow(
+      ConnectBindingConflictError,
+    );
+    expect(getConnectBinding(db)).toEqual(current);
+    expect(clearConnectBinding(db, current.generation).changed).toBe(true);
+  });
 });
 
 describe("gate assertion uses", () => {

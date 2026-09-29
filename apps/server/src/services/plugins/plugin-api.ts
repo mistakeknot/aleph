@@ -1246,14 +1246,14 @@ export function createPluginApi(options: {
       assertLive();
       requestServerAccessRecheck(options.pluginId);
     },
-    bindRelayIdentity(binding) {
+    bindRelayIdentity(binding, bindOptions) {
       assertLive();
       if (options.relayIdentity === null) {
         throw new Error(
           "bb.experimental_serverAccess.bindRelayIdentity is only available to the built-in Connect plugin",
         );
       }
-      return options.relayIdentity.bind(binding);
+      return options.relayIdentity.bind(binding, bindOptions);
     },
     markRelayIdentityReconciled(reconciled) {
       assertLive();

@@ -3084,8 +3084,22 @@ write cannot leave assertions accepted. The fence is pinned to the binding
 generation that process wrote; assertions need the persisted flag and a
 generation match, so another process changing the shared binding closes this
 one. Bind and reconcile writes compare-and-swap on the generation this process
-last observed (`markRelayIdentityReconciled(false)` observes) and throw if the
-row changed underneath, so a stale process cannot overwrite a newer binding.
+last observed and throw `ConnectBindingConflictError` if the row changed
+underneath, so a stale process cannot overwrite a newer binding.
+
+A process observes a generation only by binding an identity that matches the
+row (adopted without a write) or by writing the row itself.
+`markRelayIdentityReconciled(false)` never adopts a foreign row: against a row
+this process has not observed it leaves the row untouched, stays fenced and
+returns false. A bind for a different identity than a row this process does not
+own throws `ConnectBindingConflictError` and changes nothing, and the same
+holds for the empty identity Connect binds when it has no credential, so a
+process without a stored identity can never clear or replace a bound row. Connect
+reports this as `relayConflict` in its status, stays fenced and retries. Only the
+explicit operator pair and disconnect flows pass `{ replaceExisting: true }` to
+take over or clear a differing binding; the startup and retry cycle and
+credential rejection never do. A restarted process holding the same identity as
+the row adopts it and reconciles normally.
 
 Stabilization requires deciding whether a general plugin-visible identity API
 is needed, and confirming the gate redeem response carries `ownerUserId`.

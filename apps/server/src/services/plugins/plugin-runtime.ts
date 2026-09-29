@@ -1665,7 +1665,7 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
       relayIdentity:
         row.source === "builtin:connect"
           ? {
-              bind: (binding) =>
+              bind: (binding, bindOptions) =>
                 bindConnectRelayIdentity(
                   {
                     db: deps.db,
@@ -1675,6 +1675,7 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
                     },
                   },
                   binding,
+                  bindOptions,
                 ),
               mark: (reconciled) =>
                 markConnectRelayIdentityReconciled({ db: deps.db }, reconciled),

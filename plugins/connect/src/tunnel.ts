@@ -65,11 +65,14 @@ interface ConnectTunnelOptions {
   getLoopbackBaseUrl: () => string;
   log: PluginLogger;
   onStatusChange?: (status: ConnectStatus) => void;
-  bindRelayIdentity?: (binding: {
-    baseUrl: string;
-    ownerUserId: string;
-    serverId: string;
-  }) => void;
+  bindRelayIdentity?: (
+    binding: {
+      baseUrl: string;
+      ownerUserId: string;
+      serverId: string;
+    },
+    options?: { replaceExisting?: boolean },
+  ) => void;
   markRelayIdentityReconciled?: (reconciled: boolean) => boolean;
   hasRelayIdentity?: () => boolean;
 }
@@ -92,6 +95,7 @@ export class ConnectTunnel {
   private shareRetryTimer: ReturnType<typeof setTimeout> | undefined;
   private shareActivationEpoch = 0;
   private relayUnreconciled = false;
+  private relayConflict = false;
   private relayQueue: Promise<unknown> = Promise.resolve();
   private relayReconcileTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -149,6 +153,7 @@ export class ConnectTunnel {
         this.options.markRelayIdentityReconciled?.(true);
       }
       this.relayUnreconciled = false;
+      this.relayConflict = false;
     } catch (error) {
       this.markRelayUnreconciled(error);
       if (credential === null) {
@@ -164,11 +169,18 @@ export class ConnectTunnel {
 
   private markRelayUnreconciled(error: unknown): void {
     this.relayUnreconciled = true;
-    this.options.log.error(
-      `relay identity is not reconciled with the stored credential: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    );
+    if (error instanceof Error && error.name === "ConnectBindingConflictError") {
+      this.relayConflict = true;
+      this.options.log.error(
+        "relay binding belongs to a different Connect identity; leaving it untouched and staying fenced. Re-pair this bb to take it over.",
+      );
+    } else {
+      this.options.log.error(
+        `relay identity is not reconciled with the stored credential: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
     if (this.relayReconcileTimer) return;
     this.relayReconcileTimer = setTimeout(() => {
       this.relayReconcileTimer = undefined;
@@ -220,13 +232,16 @@ export class ConnectTunnel {
       await this.serialize(async () => {
         try {
           this.options.markRelayIdentityReconciled?.(false);
-          this.options.bindRelayIdentity?.({
-            baseUrl,
-            ownerUserId: redeemed.ownerUserId,
-            serverId: redeemed.serverId,
-          });
+          this.options.bindRelayIdentity?.(
+            {
+              baseUrl,
+              ownerUserId: redeemed.ownerUserId,
+              serverId: redeemed.serverId,
+            },
+            { replaceExisting: true },
+          );
         } catch (error) {
-          this.clearRelayIdentity();
+          this.clearRelayIdentity(true);
           this.options.log.warn(
             `pair failed while binding relay identity: ${
               error instanceof Error ? error.message : String(error)
@@ -237,7 +252,7 @@ export class ConnectTunnel {
         try {
           await this.options.store.write(credential, identity);
         } catch (error) {
-          this.clearRelayIdentity();
+          this.clearRelayIdentity(true);
           throw error;
         }
         try {
@@ -245,6 +260,7 @@ export class ConnectTunnel {
             this.options.markRelayIdentityReconciled?.(true);
           }
           this.relayUnreconciled = false;
+          this.relayConflict = false;
         } catch (error) {
           this.markRelayUnreconciled(error);
         }
@@ -260,14 +276,18 @@ export class ConnectTunnel {
     return this.status();
   }
 
-  private clearRelayIdentity(): void {
+  private clearRelayIdentity(explicit: boolean): void {
     try {
       this.options.markRelayIdentityReconciled?.(false);
-      this.options.bindRelayIdentity?.({
-        baseUrl: this.options.defaultBaseUrl,
-        ownerUserId: "",
-        serverId: "",
-      });
+      this.options.bindRelayIdentity?.(
+        {
+          baseUrl: this.options.defaultBaseUrl,
+          ownerUserId: "",
+          serverId: "",
+        },
+        explicit ? { replaceExisting: true } : undefined,
+      );
+      if (explicit) this.relayConflict = false;
     } catch (error) {
       this.markRelayUnreconciled(error);
     }
@@ -277,7 +297,7 @@ export class ConnectTunnel {
     const credential = this.credential;
     this.teardown();
     await this.serialize(async () => {
-      this.clearRelayIdentity();
+      this.clearRelayIdentity(true);
       await this.options.store.clear();
     });
     this.options.shares.clearMachineDeclarations();
@@ -371,6 +391,7 @@ export class ConnectTunnel {
       lastRemoteActivityAt: this.lastRemoteActivityAt,
       relayBinding:
         !this.relayUnreconciled && (this.options.hasRelayIdentity?.() ?? false),
+      relayConflict: this.relayConflict,
       shares,
     };
   }
@@ -488,7 +509,7 @@ export class ConnectTunnel {
     this.teardown();
     this.publish();
     void this.serialize(async () => {
-      this.clearRelayIdentity();
+      this.clearRelayIdentity(false);
       await this.options.store.clear();
     }).catch((error: unknown) => {
       this.options.log.warn(

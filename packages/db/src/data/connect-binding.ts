@@ -137,7 +137,6 @@ export function replaceConnectBinding(
   return db.transaction(
     (tx: DbTransaction) => {
       const current = getConnectBinding(tx);
-      assertExpectedGeneration(current, expectedGeneration);
       if (current !== null && bindingsMatch(current, input)) {
         return {
           cancellations: [],
@@ -145,6 +144,7 @@ export function replaceConnectBinding(
           generation: current.generation,
         };
       }
+      assertExpectedGeneration(current, expectedGeneration);
       const generation = randomUUID();
       const cancellations =
         current === null ? [] : cancelAllHostTargetsInTransaction(tx);

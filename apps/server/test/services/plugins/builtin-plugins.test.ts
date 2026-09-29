@@ -44,6 +44,7 @@ import {
   hasConnectRelayIdentity,
   markConnectRelayIdentityReconciled,
 } from "../../../src/services/relay-management/connect-binding.js";
+import { observeRelayGeneration } from "../../../src/services/relay-management/reconcile-fence.js";
 import { copyPluginRuntime } from "@bb/plugin-build";
 import { testLogger } from "../../helpers/test-app.js";
 import { createNoopTelemetryService } from "../../../src/services/system/telemetry.js";
@@ -779,13 +780,13 @@ describe("builtin plugin reconciliation", () => {
       builtinName: "connect",
     });
     await service.start();
-    replaceConnectBinding(db, {
+    const bound = replaceConnectBinding(db, {
       issuer: "https://getbb.app",
       ownerUserId: "user_owner",
       runtime: "production",
       serverId: "srv_test",
     });
-    markConnectRelayIdentityReconciled({ db }, false);
+    observeRelayGeneration(db, bound.generation);
     markConnectRelayIdentityReconciled({ db }, true);
     expect(hasConnectRelayIdentity({ db })).toBe(true);
 

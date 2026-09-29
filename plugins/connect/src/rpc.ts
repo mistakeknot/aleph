@@ -49,6 +49,7 @@ const connectStatusSchema: z.ZodType<ConnectStatus> = z
     remoteClients: z.number().int(),
     lastRemoteActivityAt: z.number().nullable(),
     relayBinding: z.boolean(),
+    relayConflict: z.boolean(),
     shares: z.array(shareListingSchema),
   })
   .strict();

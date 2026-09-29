@@ -66,8 +66,8 @@ export default async function plugin(bb: BbPluginApi) {
     defaultBaseUrl: resolveDefaultConnectBaseUrl(process.env),
     getLoopbackBaseUrl,
     log: bb.log,
-    bindRelayIdentity: (binding) => {
-      bb.experimental_serverAccess.bindRelayIdentity(binding);
+    bindRelayIdentity: (binding, options) => {
+      bb.experimental_serverAccess.bindRelayIdentity(binding, options);
     },
     markRelayIdentityReconciled: (reconciled) =>
       bb.experimental_serverAccess.markRelayIdentityReconciled(reconciled),

@@ -33,6 +33,7 @@ import {
   markConnectRelayIdentityReconciled,
 } from "../../src/services/relay-management/connect-binding.js";
 import { bindConnectRelayIdentity } from "../../src/services/relay-management/connect-binding.js";
+import { observeRelayGeneration } from "../../src/services/relay-management/reconcile-fence.js";
 import { seedThreadFixture } from "../helpers/seed.js";
 import { initDb } from "../../src/db.js";
 import { withTestHarness, type TestAppHarness } from "../helpers/test-app.js";
@@ -116,7 +117,7 @@ function replaceReconciled(
   input: Parameters<typeof replaceConnectBinding>[1],
 ) {
   const result = replaceConnectBinding(db, input);
-  markConnectRelayIdentityReconciled({ db }, false);
+  observeRelayGeneration(db, result.generation);
   markConnectRelayIdentityReconciled({ db }, true);
   return result;
 }
@@ -786,8 +787,20 @@ describe("relay in-memory reconcile fence", () => {
         serverId: SERVER_ID,
       });
       setConnectBindingReconciled(harness.deps.db, true);
-      markConnectRelayIdentityReconciled({ db: harness.deps.db }, false);
+      expect(
+        markConnectRelayIdentityReconciled({ db: harness.deps.db }, false),
+      ).toBe(false);
       expect((await signed(app, privateKey, "GET", path)).status).toBe(403);
+      expect(
+        bindConnectRelayIdentity(
+          { db: harness.deps.db, hub: { notifyThread: () => {} } },
+          {
+            baseUrl: RELAY_ASSERTION_ISSUERS.production,
+            ownerUserId: OWNER,
+            serverId: SERVER_ID,
+          },
+        ).status,
+      ).toBe("unchanged");
       markConnectRelayIdentityReconciled({ db: harness.deps.db }, true);
       expect((await signed(app, privateKey, "GET", path)).status).toBe(200);
     });

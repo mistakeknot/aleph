@@ -493,12 +493,21 @@ export interface PluginServerAccess {
    * built-in Connect plugin may call it; any other plugin gets an error.
    * A binding that differs from the current one, or an unsupported base URL
    * or missing identity, removes every relay target.
+   *
+   * Without `replaceExisting`, core only adopts a binding that matches the
+   * request or that this process last observed; a binding owned by a
+   * different identity throws a `ConnectBindingConflictError` and stays
+   * untouched. `replaceExisting` is for an explicit operator pair or
+   * disconnect only.
    */
-  bindRelayIdentity(binding: {
-    baseUrl: string;
-    ownerUserId: string;
-    serverId: string;
-  }): { status: "bound" | "unchanged" | "unsupported_runtime" };
+  bindRelayIdentity(
+    binding: {
+      baseUrl: string;
+      ownerUserId: string;
+      serverId: string;
+    },
+    options?: { replaceExisting?: boolean },
+  ): { status: "bound" | "unchanged" | "unsupported_runtime" };
   /**
    * Fence or unfence the current relay binding. While fenced, core rejects
    * every human assertion. A new or changed binding starts fenced; Connect
