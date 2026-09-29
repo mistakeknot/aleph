@@ -6,23 +6,24 @@ import {
 } from "../src/desktop-update-provider.js";
 
 describe("Aleph desktop release identity", () => {
-  it("names the app Aleph while keeping the bb release tag and icon", () => {
+  it("names the app Aleph and carries no upstream update feed", () => {
     const release = createDesktopReleaseInfo("aleph");
 
     expect(release.applicationName).toBe("Aleph");
-    expect(release.releaseTag).toBe("desktop-latest");
     expect(release.iconFileName).toBe("icon.png");
+    expect(JSON.stringify(release)).not.toContain("get-bb");
+    expect("updateReleaseBaseUrl" in release).toBe(false);
   });
 });
 
 describe("Aleph userData path", () => {
-  it("pins Aleph builds to the bb userData folder so existing state survives the rename", () => {
+  it("pins Aleph builds to the Aleph userData folder, separate from stock bb", () => {
     expect(
       resolveDesktopUserDataOverridePath({
         appDataPath: "/Users/mk/Library/Application Support",
         channel: "aleph",
       }),
-    ).toBe(join("/Users/mk/Library/Application Support", "bb"));
+    ).toBe(join("/Users/mk/Library/Application Support", "Aleph"));
   });
 
   it("leaves the stable and nightly channels on their own default userData path", () => {

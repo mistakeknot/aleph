@@ -1,20 +1,7 @@
 import { describe, expect, it } from "vitest";
-import {
-  createDesktopUpdateFeedUrl,
-  resolveDesktopUpdateSupport,
-} from "../src/desktop-update-provider.js";
+import { resolveDesktopUpdateSupport } from "../src/desktop-update-provider.js";
 
-describe("desktop update feed url", () => {
-  it("gives each platform its own feed file inside one release tag", () => {
-    expect(createDesktopUpdateFeedUrl("macos")).toBe(
-      "https://github.com/get-bb/bb/releases/download/desktop-latest/desktop-version.json",
-    );
-    expect(createDesktopUpdateFeedUrl("linux")).toBe(
-      "https://github.com/get-bb/bb/releases/download/desktop-latest/desktop-version-linux.json",
-    );
-  });
-});
-
+const FEED_URL = "https://updates.example.test/desktop-version.json";
 const UPSTREAM_VERSION = "0.43.4";
 const APP_IMAGE_PATH = "/home/user/Apps/bb-0.37.0-x86_64.AppImage";
 const alwaysReplaceable = () => true;
@@ -27,6 +14,7 @@ describe("desktop update support", () => {
         appVersion: UPSTREAM_VERSION,
         canReplaceAppImage: neverReplaceable,
         env: {},
+        feedUrl: FEED_URL,
         platform: "macos",
       }),
     ).toEqual({ autoUpdate: true, versionCheck: true });
@@ -38,6 +26,7 @@ describe("desktop update support", () => {
         appVersion: UPSTREAM_VERSION,
         canReplaceAppImage: alwaysReplaceable,
         env: { APPIMAGE: APP_IMAGE_PATH },
+        feedUrl: FEED_URL,
         platform: "linux",
       }),
     ).toEqual({ autoUpdate: true, versionCheck: true });
@@ -46,6 +35,7 @@ describe("desktop update support", () => {
         appVersion: UPSTREAM_VERSION,
         canReplaceAppImage: alwaysReplaceable,
         env: {},
+        feedUrl: FEED_URL,
         platform: "linux",
       }),
     ).toEqual({ autoUpdate: false, versionCheck: true });
@@ -54,6 +44,7 @@ describe("desktop update support", () => {
         appVersion: UPSTREAM_VERSION,
         canReplaceAppImage: alwaysReplaceable,
         env: { APPIMAGE: "  " },
+        feedUrl: FEED_URL,
         platform: "linux",
       }),
     ).toEqual({ autoUpdate: false, versionCheck: true });
@@ -70,6 +61,7 @@ describe("desktop update support", () => {
           return false;
         },
         env: { APPIMAGE: APP_IMAGE_PATH },
+        feedUrl: FEED_URL,
         platform: "linux",
       }),
     ).toEqual({ autoUpdate: false, versionCheck: true });
@@ -88,11 +80,26 @@ describe("desktop update support", () => {
             return true;
           },
           env: { APPIMAGE: APP_IMAGE_PATH },
+          feedUrl: FEED_URL,
           platform,
         }),
       ).toEqual({ autoUpdate: false, versionCheck: false });
     }
     expect(consulted).toBe(false);
+  });
+
+  it("turns off both update paths when no update feed is configured", () => {
+    for (const platform of ["macos", "linux"] as const) {
+      expect(
+        resolveDesktopUpdateSupport({
+          appVersion: UPSTREAM_VERSION,
+          canReplaceAppImage: alwaysReplaceable,
+          env: { APPIMAGE: APP_IMAGE_PATH },
+          feedUrl: null,
+          platform,
+        }),
+      ).toEqual({ autoUpdate: false, versionCheck: false });
+    }
   });
 
   it("does not consult the filesystem on macOS", () => {
@@ -105,6 +112,7 @@ describe("desktop update support", () => {
         return true;
       },
       env: { APPIMAGE: APP_IMAGE_PATH },
+      feedUrl: FEED_URL,
       platform: "macos",
     });
 

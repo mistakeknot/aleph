@@ -28,11 +28,11 @@ describe("desktop release channel for Aleph builds", () => {
     ).toBe("aleph");
   });
 
-  it("keeps the bb bundle identity but renames the app, artifact, and Linux binary", () => {
+  it("uses the Aleph bundle identity and renames the app, artifact, and Linux binary", () => {
     const config = createDesktopReleaseConfig("aleph");
 
     expect(config).toMatchObject({
-      appId: "dev.bb.desktop",
+      appId: "com.generalsystemsventures.aleph",
       applicationName: "Aleph",
       artifactName: "Aleph-${version}-${arch}.${ext}",
       linuxExecutableName: "aleph",

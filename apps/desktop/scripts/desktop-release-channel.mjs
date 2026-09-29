@@ -87,11 +87,7 @@ export function createDesktopReleaseConfig(channel) {
 
   if (channel === "aleph") {
     return {
-      // Same bundle id as stable: an Aleph build replaces stock bb on a Mac
-      // rather than sitting next to it (see FORK.md), and keeping the id
-      // unchanged preserves Keychain-backed safeStorage secrets and any
-      // already-granted TCC permissions across the rename.
-      appId: "dev.bb.desktop",
+      appId: "com.generalsystemsventures.aleph",
       applicationName: "Aleph",
       artifactName: "Aleph-${version}-${arch}.${ext}",
       iconFileName: "icon.png",
@@ -120,8 +116,4 @@ export function createDesktopReleaseConfig(channel) {
       macos: "latest-mac.yml",
     },
   };
-}
-
-export function createDesktopUpdateReleaseBaseUrl(releaseTag) {
-  return `https://github.com/get-bb/bb/releases/download/${releaseTag}/`;
 }

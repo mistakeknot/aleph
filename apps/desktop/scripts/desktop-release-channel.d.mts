@@ -7,7 +7,10 @@ export interface DesktopUpdateMetadataFileNames {
 }
 
 export interface DesktopReleaseConfig {
-  appId: "dev.bb.desktop" | "dev.bb.desktop.nightly";
+  appId:
+    | "dev.bb.desktop"
+    | "dev.bb.desktop.nightly"
+    | "com.generalsystemsventures.aleph";
   applicationName: "bb" | "bb Nightly" | "Aleph";
   artifactName: string;
   iconFileName: "icon.png" | "icon-nightly.png";
@@ -29,7 +32,3 @@ export function resolveDesktopBuildPlatform(
 export function createDesktopReleaseConfig(
   channel: DesktopReleaseChannel,
 ): DesktopReleaseConfig;
-
-export function createDesktopUpdateReleaseBaseUrl(
-  releaseTag: DesktopReleaseConfig["releaseTag"],
-): string;

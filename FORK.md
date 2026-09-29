@@ -112,7 +112,8 @@ CSC_IDENTITY_AUTO_DISCOVERY=false pnpm --filter @bb/desktop run package
 codesign --force --deep --sign - apps/desktop/release/mac-arm64/Aleph.app
 ```
 
-Do not use `dist` or `desktop:build`; both pass `--publish always`. Before
+`desktop:build` and `dist` pass `--publish never`, and no build config declares
+an update feed. Before
 installing, check that
 `Aleph.app/Contents/Resources/app.asar.unpacked/node_modules/bb-app/package.json`
 has the server's version. Then quit bb. A stock bb may have downloaded an upstream
@@ -121,7 +122,7 @@ update that it installs on quit, so let that finish before the swap. Move the ol
 run `xattr -dr com.apple.quarantine /Applications/Aleph.app`. Enrollment lives in
 `~/.bb`, outside the bundle, so it survives the swap.
 
-Every copy of the app shares the bundle id `dev.bb.desktop` (see below), and
+Every copy of the app shares the bundle id `com.generalsystemsventures.aleph` (see below), and
 `open /Applications/Aleph.app` can launch whichever copy LaunchServices has
 registered for that id, for example the build output. After the swap, unregister
 the other copies, register the installed one, launch it by path, and check which
@@ -135,12 +136,12 @@ LSREG=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchService
 "$LSREG" -f /Applications/Aleph.app
 open /Applications/Aleph.app
 ps -axo comm= | grep -E '/Contents/MacOS/(bb|Aleph)$' | sort -u
-lsappinfo info -only bundlepath -app dev.bb.desktop
+lsappinfo info -only bundlepath -app com.generalsystemsventures.aleph
 ```
 
 Unregister the build output before the swap as well, so nothing launches it
 while `/Applications` is empty. To list every registered copy:
-`"$LSREG" -dump | awk '/^path:/{p=$0} /^identifier: +dev\.bb\.desktop$/{print p}'`. The app can take several seconds to start. The
+`"$LSREG" -dump | awk '/^path:/{p=$0} /^identifier: +com\.generalsystemsventures\.aleph$/{print p}'`. The app can take several seconds to start. The
 `ps` command must then print only `/Applications/Aleph.app/Contents/MacOS/Aleph`,
 and `lsappinfo` must print `/Applications/Aleph.app`. If either shows another
 path, quit that app, unregister its copy, and launch again. To roll back, quit
@@ -157,14 +158,15 @@ version, alongside the existing `"latest"`/`"nightly"` channels, so no build
 flag is needed. Rather than scattering `bb`/`Aleph` string edits, add a new
 channel branch here when something else needs to differ for Aleph builds.
 
-The macOS bundle id (`dev.bb.desktop`) and the userData folder name (`bb`)
-stay the same as stock bb: safeStorage-backed secrets and TCC grants are
-scoped to the bundle id, and an aleph.1/aleph.2 install already used that
-userData folder, so keeping both means an existing install's settings and
-sign-in survive the rename with no migration step. Only `productName`, the
-artifact name, the Linux executable name, and window/menu titles change. The
-CLI command name and host daemon are unaffected; this only renames the
-desktop app.
+The macOS bundle id is `com.generalsystemsventures.aleph` and the userData
+folder is `~/Library/Application Support/Aleph`. Both differ from stock bb,
+so Aleph and stock bb can be installed side by side, and Aleph does not
+inherit stock bb's Keychain-backed safeStorage secrets, TCC grants,
+settings or sign-in. The build carries no update feed and never publishes: no
+`get-bb` release URL appears in the desktop app, and
+`apps/desktop/test/aleph-no-upstream-feed.test.ts` enforces that. The CLI
+command name and host daemon are unaffected; this only renames the desktop
+app.
 
 A Mac can also have an enrolled launchd daemon (`launchctl list | grep
 app.getbb.host-daemon`). That daemon, not the app's, then connects to the

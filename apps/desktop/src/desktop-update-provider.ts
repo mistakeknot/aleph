@@ -1,9 +1,6 @@
 import { join } from "node:path";
 import { isAlephAppVersion } from "@bb/config/app-update";
-import {
-  createBbDesktopVersionFeedFileName,
-  type BbDesktopVersionFeedPlatform,
-} from "@bb/desktop-contract";
+import type { BbDesktopVersionFeedPlatform } from "@bb/desktop-contract";
 
 type DesktopReleaseChannel = "latest" | "nightly" | "aleph";
 
@@ -12,7 +9,6 @@ interface DesktopReleaseInfo {
   channel: DesktopReleaseChannel;
   iconFileName: "icon.png" | "icon-nightly.png";
   releaseTag: "desktop-latest" | "desktop-nightly";
-  updateReleaseBaseUrl: string;
 }
 
 export function createDesktopReleaseInfo(
@@ -31,7 +27,6 @@ export function createDesktopReleaseInfo(
     channel,
     iconFileName: nightly ? "icon-nightly.png" : "icon.png",
     releaseTag,
-    updateReleaseBaseUrl: `https://github.com/get-bb/bb/releases/download/${releaseTag}/`,
   };
 }
 
@@ -61,10 +56,7 @@ export function resolveDesktopUserDataOverridePath(args: {
   if (args.channel !== "aleph") {
     return null;
   }
-  // Aleph builds keep displaying as "Aleph", but userData is keyed by app
-  // name, so pin it to the "bb" folder an existing aleph.1/aleph.2 install
-  // already used to keep settings, sign-in, and local state after upgrading.
-  return join(args.appDataPath, "bb");
+  return join(args.appDataPath, "Aleph");
 }
 
 export const DESKTOP_RELEASE_CHANNEL = resolveBuiltDesktopReleaseChannel(
@@ -73,26 +65,12 @@ export const DESKTOP_RELEASE_CHANNEL = resolveBuiltDesktopReleaseChannel(
 export const DESKTOP_RELEASE_INFO = createDesktopReleaseInfo(
   DESKTOP_RELEASE_CHANNEL,
 );
-const DESKTOP_UPDATE_RELEASE_BASE_URL =
-  DESKTOP_RELEASE_INFO.updateReleaseBaseUrl;
-
-export function createDesktopUpdateFeedUrl(
-  platform: BbDesktopVersionFeedPlatform,
-): string {
-  return `${DESKTOP_UPDATE_RELEASE_BASE_URL}${createBbDesktopVersionFeedFileName(platform)}`;
-}
 
 export interface DesktopAutoUpdateFeedConfig {
   channel: DesktopReleaseChannel;
   provider: "generic";
   url: string;
 }
-
-export const DESKTOP_AUTO_UPDATE_FEED_CONFIG: DesktopAutoUpdateFeedConfig = {
-  channel: DESKTOP_RELEASE_CHANNEL,
-  provider: "generic",
-  url: DESKTOP_UPDATE_RELEASE_BASE_URL,
-};
 
 interface DesktopUpdateSupport {
   autoUpdate: boolean;
@@ -103,13 +81,14 @@ interface ResolveDesktopUpdateSupportArgs {
   appVersion: string;
   canReplaceAppImage: (appImagePath: string) => boolean;
   env: NodeJS.ProcessEnv;
+  feedUrl: string | null;
   platform: BbDesktopVersionFeedPlatform;
 }
 
 export function resolveDesktopUpdateSupport(
   args: ResolveDesktopUpdateSupportArgs,
 ): DesktopUpdateSupport {
-  if (isAlephAppVersion(args.appVersion)) {
+  if (args.feedUrl === null || isAlephAppVersion(args.appVersion)) {
     return { autoUpdate: false, versionCheck: false };
   }
 
