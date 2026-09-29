@@ -22,8 +22,10 @@ import { alias } from "drizzle-orm/sqlite-core";
 import {
   QUEUED_MESSAGE_PLUGIN_WAIT_HOLDER_PREFIX,
   projectAttachmentPaths,
+  relayProvenanceSchema,
 } from "@bb/domain";
 import type {
+  RelayProvenance,
   PermissionMode,
   PromptInput,
   QueuedMessagePayload,
@@ -43,7 +45,10 @@ import type { DbNotifier } from "../notifier.js";
 import {
   environments,
   events,
+  hosts,
   queuedThreadMessages,
+  relayMessages,
+  relayTargets,
   threads,
 } from "../schema.js";
 import {
@@ -70,6 +75,7 @@ export interface CreateQueuedThreadMessageInput {
    * a thread-start has a requester and no message sender.
    */
   requestedBy?: StartedOnBehalfOf | null;
+  relayProvenance?: RelayProvenance | null;
   model: string;
   reasoningLevel: string;
   permissionMode: PermissionMode;
@@ -347,12 +353,94 @@ function queuedMessageGroupingEnvelopeMatches(
 ): boolean {
   return (
     firstQueuedMessage !== null &&
+    firstQueuedMessage.relayProvenance === null &&
+    queuedMessage.relayProvenance === null &&
     queuedMessage.senderThreadId === firstQueuedMessage.senderThreadId &&
     queuedMessage.model === firstQueuedMessage.model &&
     queuedMessage.reasoningLevel === firstQueuedMessage.reasoningLevel &&
     queuedMessage.permissionMode === firstQueuedMessage.permissionMode &&
     queuedMessage.serviceTier === firstQueuedMessage.serviceTier
   );
+}
+
+export const RELAY_REVOKED_AT_CLAIM_REASON = "revoked_at_claim";
+
+function isRelayQueuedMessageAuthorized(
+  tx: DbTransaction,
+  row: QueuedThreadMessageRow,
+): boolean {
+  if (row.relayProvenance === null) return true;
+  let raw: unknown;
+  try {
+    raw = JSON.parse(row.relayProvenance);
+  } catch {
+    return false;
+  }
+  const parsed = relayProvenanceSchema.safeParse(raw);
+  if (!parsed.success) return false;
+  const target = tx
+    .select({ hostId: relayTargets.hostId })
+    .from(relayTargets)
+    .innerJoin(hosts, eq(hosts.id, relayTargets.hostId))
+    .where(
+      and(
+        eq(relayTargets.hostId, parsed.data.hostId),
+        eq(relayTargets.threadId, row.threadId),
+        isNull(hosts.destroyedAt),
+      ),
+    )
+    .get();
+  return target !== undefined;
+}
+
+export function deleteUnclaimedQueuedThreadMessageInTransaction(
+  tx: DbTransaction,
+  row: QueuedThreadMessageRow,
+  now = Date.now(),
+): void {
+  clearPreviousQueuedMessageGroupEdgeInTransaction(tx, row, now);
+  tx.delete(queuedThreadMessages)
+    .where(eq(queuedThreadMessages.id, row.id))
+    .run();
+}
+
+function revokeUnauthorizedRelayQueuedMessagesInTransaction(
+  tx: DbTransaction,
+  threadId: string,
+): boolean {
+  const candidates = tx
+    .select()
+    .from(queuedThreadMessages)
+    .where(
+      and(
+        eq(queuedThreadMessages.threadId, threadId),
+        isNotNull(queuedThreadMessages.relayProvenance),
+        isNull(queuedThreadMessages.claimedAt),
+        isNull(queuedThreadMessages.claimToken),
+      ),
+    )
+    .all();
+  let revoked = false;
+  for (const row of candidates) {
+    if (isRelayQueuedMessageAuthorized(tx, row)) continue;
+    const now = Date.now();
+    deleteUnclaimedQueuedThreadMessageInTransaction(tx, row, now);
+    tx.update(relayMessages)
+      .set({
+        status: "cancelled",
+        cancelReason: RELAY_REVOKED_AT_CLAIM_REASON,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(relayMessages.queuedMessageId, row.id),
+          eq(relayMessages.status, "accepted"),
+        ),
+      )
+      .run();
+    revoked = true;
+  }
+  return revoked;
 }
 
 function isQueuedThreadMessageClaimed(row: QueuedThreadMessageRow): boolean {
@@ -624,6 +712,10 @@ export function createQueuedThreadMessageInTransaction(
       originPluginId: input.originPluginId ?? null,
       requestedByInitiator: input.requestedBy?.initiator ?? null,
       requestedByThreadId: input.requestedBy?.senderThreadId ?? null,
+      relayProvenance:
+        input.relayProvenance == null
+          ? null
+          : JSON.stringify(input.relayProvenance),
       model: input.model,
       reasoningLevel: input.reasoningLevel,
       permissionMode: input.permissionMode,
@@ -930,8 +1022,20 @@ export function claimQueuedThreadMessage(
   notifier: DbNotifier,
   id: string,
 ): ClaimedQueuedThreadMessageRow | null {
+  let revoked: string | null = null;
   const claimedQueuedMessage = db.transaction(
     (tx) => {
+      const before = tx
+        .select({ threadId: queuedThreadMessages.threadId })
+        .from(queuedThreadMessages)
+        .where(eq(queuedThreadMessages.id, id))
+        .get();
+      if (
+        before &&
+        revokeUnauthorizedRelayQueuedMessagesInTransaction(tx, before.threadId)
+      ) {
+        revoked = before.threadId;
+      }
       const existing = tx
         .select()
         .from(queuedThreadMessages)
@@ -968,6 +1072,8 @@ export function claimQueuedThreadMessage(
 
   if (claimedQueuedMessage) {
     notifier.notifyThread(claimedQueuedMessage.threadId, ["queue-changed"]);
+  } else if (revoked !== null) {
+    notifier.notifyThread(revoked, ["queue-changed"]);
   }
   return claimedQueuedMessage;
 }
@@ -1045,8 +1151,16 @@ export function claimQueuedThreadMessageGroup(
   id: string,
   policy: QueuedThreadMessageGroupClaimPolicy,
 ): ClaimedQueuedThreadMessageRow[] | null {
+  let revoked: string | null = null;
   const claimedQueuedMessages = db.transaction(
     (tx) => {
+      const before = getQueuedThreadMessage(tx, id);
+      if (
+        before &&
+        revokeUnauthorizedRelayQueuedMessagesInTransaction(tx, before.threadId)
+      ) {
+        revoked = before.threadId;
+      }
       const existing = getQueuedThreadMessage(tx, id);
       if (!existing || isQueuedThreadMessageClaimed(existing)) {
         return null;
@@ -1089,6 +1203,8 @@ export function claimQueuedThreadMessageGroup(
     notifier.notifyThread(claimedQueuedMessages[0]!.threadId, [
       "queue-changed",
     ]);
+  } else if (revoked !== null) {
+    notifier.notifyThread(revoked, ["queue-changed"]);
   }
   return claimedQueuedMessages;
 }
@@ -1099,8 +1215,13 @@ export function claimNextQueuedThreadMessageGroup(
   threadId: string,
   isGroupEligible?: QueuedThreadMessageGroupEligibility,
 ): ClaimedQueuedThreadMessageRow[] | null {
+  let revoked = false;
   const claimedQueuedMessages = db.transaction(
     (tx) => {
+      revoked = revokeUnauthorizedRelayQueuedMessagesInTransaction(
+        tx,
+        threadId,
+      );
       // The idle drain takes the first group whose EVERY member it may act
       // on. A group with one waiting member is skipped whole — dispatching
       // its drainable tail alone would split a batch the sender composed as
@@ -1133,7 +1254,10 @@ export function claimNextQueuedThreadMessageGroup(
     { behavior: "immediate" },
   );
 
-  if (claimedQueuedMessages && claimedQueuedMessages.length > 0) {
+  if (
+    (claimedQueuedMessages && claimedQueuedMessages.length > 0) ||
+    revoked
+  ) {
     notifier.notifyThread(threadId, ["queue-changed"]);
   }
   return claimedQueuedMessages;

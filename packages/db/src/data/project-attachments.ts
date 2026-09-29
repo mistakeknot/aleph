@@ -41,10 +41,20 @@ export function attachmentUnavailable(path: string): ProjectAttachmentError {
 
 export function recordProjectAttachment(
   db: DbQueryConnection,
-  input: Omit<ProjectAttachmentRow, "id" | "deletionClaimedAt">,
+  input: Omit<
+    ProjectAttachmentRow,
+    "id" | "deletionClaimedAt" | "relayMessageId" | "relayAttemptToken"
+  > &
+    Partial<Pick<ProjectAttachmentRow, "relayMessageId" | "relayAttemptToken">>,
 ): ProjectAttachmentRow {
   db.insert(projectAttachments)
-    .values({ ...input, id: randomUUID(), deletionClaimedAt: null })
+    .values({
+      ...input,
+      id: randomUUID(),
+      deletionClaimedAt: null,
+      relayMessageId: input.relayMessageId ?? null,
+      relayAttemptToken: input.relayAttemptToken ?? null,
+    })
     .onConflictDoNothing({
       target: [projectAttachments.projectId, projectAttachments.storedPath],
     })

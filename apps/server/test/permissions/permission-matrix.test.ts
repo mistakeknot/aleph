@@ -13,13 +13,19 @@ const EXPECTED_ESCALATION = {
   user: "ask",
   agent: "deny",
   system: "deny",
+  relay: "deny",
 } satisfies Record<ThreadTurnInitiator, "ask" | "deny">;
 
 const threadTurnInitiatorValues = threadTurnInitiatorSchema.options;
 
 describe("permission escalation by turn initiator", () => {
   it("covers every initiator", () => {
-    expect(threadTurnInitiatorValues).toEqual(["user", "agent", "system"]);
+    expect(threadTurnInitiatorValues).toEqual([
+      "user",
+      "agent",
+      "system",
+      "relay",
+    ]);
     expect(Object.keys(EXPECTED_ESCALATION)).toHaveLength(
       threadTurnInitiatorValues.length,
     );

@@ -11,6 +11,10 @@ import {
 import { sql } from "drizzle-orm";
 import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 import { threadStatusValues } from "@bb/domain/thread-status";
+import {
+  connectBindingRuntimeValues,
+  relayMessageStatusValues,
+} from "@bb/domain/relay-provenance";
 import { startedOnBehalfOfInitiatorValues } from "@bb/domain/started-on-behalf-of";
 import { threadCreateOriginValues } from "@bb/domain/thread-create-origin";
 import { threadOriginKindValues } from "@bb/domain/thread-origin-kind";
@@ -1030,6 +1034,7 @@ export const queuedThreadMessages = sqliteTable(
     groupWithNext: integer("group_with_next", { mode: "boolean" })
       .notNull()
       .default(false),
+    relayProvenance: text("relay_provenance"),
     // Epoch ms this row is scheduled to attempt dispatch. NULL means "as soon
     // as the other waits clear", which is what an ordinary queued row is.
     sendAt: integer("send_at"),
@@ -1297,8 +1302,14 @@ export const projectAttachments = sqliteTable(
     createdAt: integer("created_at").notNull(),
     readyAt: integer("ready_at"),
     deletionClaimedAt: integer("deletion_claimed_at"),
+    relayMessageId: text("relay_message_id"),
+    relayAttemptToken: text("relay_attempt_token"),
   },
   (table) => [
+    index("project_attachments_relay_attempt_idx").on(
+      table.relayMessageId,
+      table.relayAttemptToken,
+    ),
     uniqueIndex("project_attachments_project_path_idx").on(
       table.projectId,
       table.storedPath,
@@ -1386,6 +1397,139 @@ export const idempotentThreadOperations = sqliteTable(
     uniqueIndex("idempotent_thread_operations_scope_key_idx").on(
       table.scope,
       table.idempotencyKey,
+    ),
+  ],
+);
+
+export const relayTargets = sqliteTable(
+  "relay_targets",
+  {
+    hostId: text("host_id")
+      .notNull()
+      .references(() => hosts.id),
+    threadId: text("thread_id")
+      .notNull()
+      .references(() => threads.id, { onDelete: "cascade" }),
+    createdByUserId: text("created_by_user_id").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.hostId, table.threadId] })],
+);
+
+export const relayMessages = sqliteTable(
+  "relay_messages",
+  {
+    id: text("id").primaryKey(),
+    hostId: text("host_id")
+      .notNull()
+      .references(() => hosts.id),
+    clientMessageId: text("client_message_id").notNull(),
+    clientMessageTime: integer("client_message_time").notNull(),
+    threadId: text("thread_id").notNull(),
+    payloadSha256: text("payload_sha256").notNull(),
+    status: text("status", { enum: relayMessageStatusValues }).notNull(),
+    attempt: integer("attempt").notNull().default(1),
+    leaseToken: text("lease_token"),
+    leaseExpiresAt: integer("lease_expires_at"),
+    cleanupToken: text("cleanup_token"),
+    cleanupExpiresAt: integer("cleanup_expires_at"),
+    queuedMessageId: text("queued_message_id"),
+    cancelReason: text("cancel_reason"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("relay_messages_host_client_message_idx").on(
+      table.hostId,
+      table.clientMessageId,
+    ),
+    index("relay_messages_host_created_idx").on(table.hostId, table.createdAt),
+    index("relay_messages_status_lease_idx").on(
+      table.status,
+      table.leaseExpiresAt,
+    ),
+    index("relay_messages_status_cleanup_idx").on(
+      table.status,
+      table.cleanupExpiresAt,
+    ),
+    check(
+      "relay_messages_status_check",
+      sql`${table.status} IN ('reserved', 'cleaning', 'accepted', 'failed', 'cancelled')`,
+    ),
+    check("relay_messages_attempt_check", sql`${table.attempt} >= 1`),
+    check(
+      "relay_messages_cleanup_claim_check",
+      sql`(${table.status} = 'cleaning') = (${table.cleanupToken} IS NOT NULL AND ${table.cleanupExpiresAt} IS NOT NULL)`,
+    ),
+    check(
+      "relay_messages_cleanup_unset_check",
+      sql`${table.status} = 'cleaning' OR (${table.cleanupToken} IS NULL AND ${table.cleanupExpiresAt} IS NULL)`,
+    ),
+    check(
+      "relay_messages_lease_claim_check",
+      sql`(${table.status} = 'reserved') = (${table.leaseToken} IS NOT NULL AND ${table.leaseExpiresAt} IS NOT NULL)`,
+    ),
+    check(
+      "relay_messages_lease_unset_check",
+      sql`${table.status} = 'reserved' OR (${table.leaseToken} IS NULL AND ${table.leaseExpiresAt} IS NULL)`,
+    ),
+  ],
+);
+
+export const relayUsage = sqliteTable(
+  "relay_usage",
+  {
+    hostId: text("host_id")
+      .notNull()
+      .references(() => hosts.id),
+    hourBucket: integer("hour_bucket").notNull(),
+    reservations: integer("reservations").notNull().default(0),
+    attachmentBytes: integer("attachment_bytes").notNull().default(0),
+  },
+  (table) => [
+    primaryKey({ columns: [table.hostId, table.hourBucket] }),
+    check(
+      "relay_usage_counters_check",
+      sql`${table.reservations} >= 0 AND ${table.attachmentBytes} >= 0`,
+    ),
+  ],
+);
+
+export const attachmentPendingScanCursors = sqliteTable(
+  "attachment_pending_scan_cursors",
+  {
+    projectId: text("project_id")
+      .primaryKey()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    lastName: text("last_name"),
+    updatedAt: integer("updated_at").notNull(),
+  },
+);
+
+export const gateAssertionUses = sqliteTable(
+  "gate_assertion_uses",
+  {
+    jti: text("jti").primaryKey(),
+    expiresAt: integer("expires_at").notNull(),
+  },
+  (table) => [index("gate_assertion_uses_expires_idx").on(table.expiresAt)],
+);
+
+export const connectBinding = sqliteTable(
+  "connect_binding",
+  {
+    id: integer("id").primaryKey(),
+    runtime: text("runtime", { enum: connectBindingRuntimeValues }).notNull(),
+    issuer: text("issuer").notNull(),
+    serverId: text("server_id").notNull(),
+    ownerUserId: text("owner_user_id").notNull(),
+    boundAt: integer("bound_at").notNull(),
+  },
+  (table) => [
+    check("connect_binding_singleton_check", sql`${table.id} = 1`),
+    check(
+      "connect_binding_runtime_check",
+      sql`${table.runtime} IN ('production', 'staging')`,
     ),
   ],
 );
