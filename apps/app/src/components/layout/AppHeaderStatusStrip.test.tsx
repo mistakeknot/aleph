@@ -97,6 +97,17 @@ describe("AppHeaderStatusStrip", () => {
     expect(screen.queryByTestId("app-header-status-strip")).toBeNull();
   });
 
+  it("anchors the capped strip to the right edge beside the header actions", () => {
+    stubResizeObserver();
+    registerStatus();
+    render(tree());
+
+    const strip = screen.getByTestId("app-header-status-strip");
+    expect(strip.className).toContain("ml-auto");
+    expect(strip.className).toContain("justify-end");
+    expect(strip.className).toContain("max-w-[60%]");
+  });
+
   it("measures a genuine width budget rather than its own collapsed content size", () => {
     stubResizeObserver();
     registerStatus();

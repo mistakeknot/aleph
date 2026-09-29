@@ -1895,14 +1895,6 @@ function LoginDialog({
   );
 }
 
-function shortResetLabel(resetAt: number | null): string | null {
-  if (resetAt === null) return null;
-  const minutes = Math.max(1, Math.round((resetAt - Date.now()) / 60_000));
-  if (minutes < 60) return `${minutes}m`;
-  if (minutes < 1_440) return `${Math.floor(minutes / 60)}h`;
-  return `${Math.round(minutes / 1_440)}d`;
-}
-
 type ProviderHeaderSummary = {
   provider: (typeof PROVIDERS)[number];
   routingOn: boolean;
@@ -2064,78 +2056,62 @@ function AccountPoolHeaderStatus({
     },
   );
 
-  const worst = providerSummaries.reduce<{
-    provider: (typeof PROVIDERS)[number];
-    slot: QuotaSlot;
-  } | null>((current, summary) => {
-    if (
-      !summary.routingOn ||
-      summary.slot === null ||
-      summary.slot.utilization === null
-    )
-      return current;
-    if (
-      current === null ||
-      (summary.slot.utilization ?? 0) > (current.slot.utilization ?? 0)
-    )
-      return { provider: summary.provider, slot: summary.slot };
-    return current;
-  }, null);
-
-  const collapseToIcon = isCompactViewport || availableWidth < 200;
+  const issues = providerSummaries.flatMap(
+    ({ provider, routingOn, account }) =>
+      !routingOn
+        ? [{ provider, state: "off" }]
+        : account === null
+          ? [{ provider, state: "none" }]
+          : [],
+  );
+  const stateParts = [
+    ...issues.map(({ provider, state }) => `${provider.title} ${state}`),
+    ...(bypassed ? ["bypassed"] : []),
+  ];
+  const ariaLabel =
+    stateParts.length === 0
+      ? "Account Pooler status: routing on"
+      : `Account Pooler status: ${stateParts.join(", ")}`;
+  const collapseToIcon = isCompactViewport || availableWidth < 260;
 
   const trigger = collapseToIcon ? (
     <button
       type="button"
       onClick={openSettings}
-      aria-label="Account Pooler status"
+      aria-label={ariaLabel}
+      title={ariaLabel}
       data-testid="account-pool-header-status"
       className="flex items-center gap-1 rounded px-1.5 py-1 text-xs font-semibold hover:bg-state-hover"
     >
-      <Icon name="Zap" className="size-3.5 text-subtle-foreground/75" />
-      <span
-        className={
-          worst === null
+      <Icon
+        name="Zap"
+        className={cn(
+          "size-3.5",
+          stateParts.length === 0
             ? "text-subtle-foreground/75"
-            : quotaToneClass(worst.slot, threshold)
-        }
-      >
-        {worst === null ? "—" : percent(worst.slot.utilization)}
-      </span>
+            : "text-warning-text",
+        )}
+      />
+      {stateParts.length === 0 ? null : (
+        <span className="text-warning-text">{stateParts.length}</span>
+      )}
     </button>
   ) : (
     <button
       type="button"
       onClick={openSettings}
-      aria-label="Account Pooler status"
+      aria-label={ariaLabel}
+      title={ariaLabel}
       data-testid="account-pool-header-status"
-      className="flex items-center gap-3 rounded px-1.5 py-1 text-xs hover:bg-state-hover"
+      className="flex items-center gap-2 rounded px-1.5 py-1 text-xs hover:bg-state-hover"
     >
-      {providerSummaries.map(({ provider, routingOn, account, slot }) => (
+      <Icon name="Zap" className="size-3.5 text-subtle-foreground/75" />
+      {issues.map(({ provider, state }) => (
         <span key={provider.id} className="flex items-center gap-1">
           <span className="font-medium text-subtle-foreground/75">
             {provider.title}
           </span>
-          {!routingOn ? (
-            <span className="text-subtle-foreground/75">off</span>
-          ) : account === null ? (
-            <span className="text-subtle-foreground/75">none</span>
-          ) : slot === null ? (
-            <span className="text-subtle-foreground/75">—</span>
-          ) : (
-            <>
-              <span
-                className={cn("font-semibold", quotaToneClass(slot, threshold))}
-              >
-                {percent(slot.utilization)}
-              </span>
-              {shortResetLabel(slot.resetAt) === null ? null : (
-                <span className="text-subtle-foreground/75">
-                  {shortResetLabel(slot.resetAt)}
-                </span>
-              )}
-            </>
-          )}
+          <span className="text-warning-text">{state}</span>
         </span>
       ))}
       {bypassed ? (
