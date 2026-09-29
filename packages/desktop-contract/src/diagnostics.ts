@@ -75,6 +75,19 @@ export const DIAGNOSTIC_CONSOLE_CODES = [
   "console_error",
 ] as const;
 export const DIAGNOSTIC_CONSOLE_FALLBACK_CODE = "console_error";
+export const DIAGNOSTIC_CONSOLE_PREFIXES = [
+  "react-key-warning",
+  "react-update-during-render",
+  "react-max-update-depth",
+  "react-dom-nesting",
+  "react-unmounted-update",
+  "react-warning-other",
+  "uncaught",
+  "unhandled-rejection",
+  "vite",
+] as const;
+export const DIAGNOSTIC_CONSOLE_SOURCE_PATTERN = /^[A-Za-z0-9_.-]{1,80}\.m?js$/;
+export const DIAGNOSTIC_CONSOLE_FINGERPRINT_PATTERN = /^[0-9a-f]{8}$/;
 
 const CLOSE_REASON_BY_SERVER_TEXT: ReadonlyMap<string, DiagnosticCloseReason> =
   new Map([
@@ -92,6 +105,8 @@ const CLOSE_REASON_BY_SERVER_TEXT: ReadonlyMap<string, DiagnosticCloseReason> =
     ["client closing", "client_closing"],
   ]);
 
+export type DiagnosticConsolePrefix =
+  (typeof DIAGNOSTIC_CONSOLE_PREFIXES)[number];
 export type DiagnosticCloseReason = (typeof DIAGNOSTIC_CLOSE_REASONS)[number];
 export type DiagnosticQueryName = (typeof DIAGNOSTIC_QUERY_NAMES)[number];
 export type DiagnosticRuntimeStatus =
@@ -140,6 +155,24 @@ const diagnosticRuntimeStatusSchema = z.enum(DIAGNOSTIC_RUNTIME_STATUSES);
 export const bbDesktopDiagnosticConsoleCodeSchema = z.enum(
   DIAGNOSTIC_CONSOLE_CODES,
 );
+// Written by the main process from Electron console events; never accepted
+// from the renderer, so it is not part of bbDesktopDiagnosticEventSchema.
+export const bbDesktopDiagnosticConsoleEntrySchema = z.object({
+  kind: z.literal("console"),
+  code: bbDesktopDiagnosticConsoleCodeSchema,
+  count: z.number().int().positive().optional(),
+  fingerprint: z
+    .string()
+    .regex(DIAGNOSTIC_CONSOLE_FINGERPRINT_PATTERN)
+    .optional(),
+  level: z.enum(["warning", "error"]),
+  line: z.number().int().nonnegative().nullable(),
+  prefix: z.enum(DIAGNOSTIC_CONSOLE_PREFIXES).nullable().optional(),
+  source: z.string().regex(DIAGNOSTIC_CONSOLE_SOURCE_PATTERN).nullable(),
+});
+export type BbDesktopDiagnosticConsoleEntry = z.infer<
+  typeof bbDesktopDiagnosticConsoleEntrySchema
+>;
 const diagnosticTimestampSchema = z.number().int().nonnegative();
 const diagnosticCountSchema = z.number().int().nonnegative();
 

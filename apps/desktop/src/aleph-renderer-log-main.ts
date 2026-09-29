@@ -20,7 +20,9 @@ export interface AlephRendererLog {
 
 interface ConsoleMessageDetails {
   level: RendererConsoleLevel;
+  lineNumber: number;
   message: string;
+  sourceId: string;
 }
 
 export function registerAlephRendererLog({
@@ -49,7 +51,9 @@ export function registerAlephRendererLog({
         const details: ConsoleMessageDetails = event;
         const record = buildRendererConsoleRecord({
           level: details.level,
+          lineNumber: details.lineNumber,
           message: details.message,
+          sourceId: details.sourceId,
         });
         if (record === null) {
           return;

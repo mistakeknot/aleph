@@ -9,6 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { bbDesktopDiagnosticConsoleEntrySchema } from "@bb/desktop-contract";
 import {
   buildRendererConsoleRecord,
   createRendererLogWriter,
@@ -197,7 +198,11 @@ describe("renderer log redaction", () => {
     for (const message of reviewerStrings) {
       expect(buildRendererConsoleRecord({ level: "error", message })).toEqual({
         code: "console_error",
+        fingerprint: expect.stringMatching(/^[0-9a-f]{8}$/),
         level: "error",
+        line: null,
+        prefix: null,
+        source: null,
       });
     }
     expect(
@@ -205,7 +210,12 @@ describe("renderer log redaction", () => {
         level: "warning",
         message: "Uncaught TypeError: cannot read secret of undefined",
       }),
-    ).toEqual({ code: "TypeError", level: "warning" });
+    ).toEqual({
+      code: "TypeError",
+      level: "warning",
+      line: null,
+      source: null,
+    });
     for (const message of [
       "SECRET: attachment",
       "ERR_CONNECTION_LOST: host private.example",
@@ -213,7 +223,11 @@ describe("renderer log redaction", () => {
     ]) {
       expect(buildRendererConsoleRecord({ level: "error", message })).toEqual({
         code: "console_error",
+        fingerprint: expect.stringMatching(/^[0-9a-f]{8}$/),
         level: "error",
+        line: null,
+        prefix: null,
+        source: null,
       });
     }
     expect(
@@ -222,6 +236,80 @@ describe("renderer log redaction", () => {
         message: `${bearer} ${opaque}`,
       })?.code,
     ).toBe("console_error");
+  });
+
+  it("fingerprints are stable across masked variants and differ across shapes", () => {
+    const fingerprint = (message: string) =>
+      buildRendererConsoleRecord({ level: "error", message })?.fingerprint;
+    expect(
+      fingerprint('Failed to load "a.png" after 3 tries at /x/y/1.ts'),
+    ).toBe(fingerprint('Failed to load "b.png" after 99 tries at /p/q/7.ts'));
+    expect(
+      fingerprint("lookup 3f2a9c1d-1111-2222-3333-444455556666 failed"),
+    ).toBe(fingerprint("lookup 0a0a0a0a-9999-8888-7777-666655554444 failed"));
+    expect(fingerprint("fetch https://a.example/x?y=1 failed")).toBe(
+      fingerprint("fetch https://b.example/z failed"),
+    );
+    expect(fingerprint("boom 1\nsecond line one")).toBe(
+      fingerprint("boom 2\nanother second line"),
+    );
+    expect(fingerprint("boom 1")).not.toBe(fingerprint("different shape 1"));
+    expect(fingerprint("x".repeat(500))).toBe(fingerprint("x".repeat(300)));
+  });
+
+  it("classifies only allowlisted leading patterns as prefixes", () => {
+    const prefix = (message: string) =>
+      buildRendererConsoleRecord({ level: "warning", message })?.prefix;
+    expect(
+      prefix("Warning: Each child in a list should have a unique key"),
+    ).toBe("react-key-warning");
+    expect(
+      prefix("Warning: Cannot update a component (`A`) while rendering"),
+    ).toBe("react-update-during-render");
+    expect(prefix("Maximum update depth exceeded. This can happen")).toBe(
+      "react-max-update-depth",
+    );
+    expect(prefix("Warning: validateDOMNesting(...): <div> in <p>")).toBe(
+      "react-dom-nesting",
+    );
+    expect(
+      prefix("Warning: Can't perform a React state update on an unmounted"),
+    ).toBe("react-unmounted-update");
+    expect(prefix("Warning: something else")).toBe("react-warning-other");
+    expect(prefix("Uncaught (in promise) nope")).toBe("uncaught");
+    expect(prefix("Unhandled promise rejection: x")).toBe(
+      "unhandled-rejection",
+    );
+    expect(prefix("[vite] failed to connect")).toBe("vite");
+    expect(prefix("see Warning: later in the text")).toBeNull();
+  });
+
+  it("gives a null source for non-allowlisted or malformed source ids", () => {
+    const source = (sourceId: unknown) =>
+      buildRendererConsoleRecord({ level: "error", message: "m", sourceId })
+        ?.source;
+    expect(source("https://h/assets/index-Ab12.js?x=1#y")).toBe(
+      "index-Ab12.js",
+    );
+    expect(source("app://bundle/vendor.mjs")).toBe("vendor.mjs");
+    expect(source("https://h/a/app.js.map")).toBeNull();
+    expect(source("https://h/a/page.html")).toBeNull();
+    expect(source("https://h/a/we ird.js")).toBeNull();
+    expect(source(`${"a".repeat(90)}.js`)).toBeNull();
+    expect(source("")).toBeNull();
+    expect(source(undefined)).toBeNull();
+    expect(source(42)).toBeNull();
+  });
+
+  it("keeps line numbers only when they are non-negative integers", () => {
+    const line = (lineNumber: unknown) =>
+      buildRendererConsoleRecord({ level: "error", message: "m", lineNumber })
+        ?.line;
+    expect(line(0)).toBe(0);
+    expect(line(17)).toBe(17);
+    for (const bad of [-1, 1.5, Number.NaN, "3", null, undefined]) {
+      expect(line(bad)).toBeNull();
+    }
   });
 
   it("drops info and debug console messages", () => {
@@ -399,7 +487,87 @@ describe("renderer log redaction", () => {
       for (const fragment of leakedFragments) {
         expect(text).not.toContain(fragment);
       }
-      expect(text).not.toContain("app.js");
+      expect(text).toContain('"source":"app.js"');
+      expect(text).toContain('"line":12');
+      expect(text).not.toContain("https://");
+      expect(text).not.toContain("auth=");
+    });
+
+    it("writes only sanitized attribution for console entries", async () => {
+      const { consoleHandlers, readLog } = setup();
+      const messages = [
+        `Warning: Each child in a list should have a unique "key" prop. Check the render method of \`Row\` at /home/mk/secret-dir/Row.tsx:12 token=${opaque}`,
+        "Uncaught TypeError: cannot read secret of undefined",
+        `something odd ${bearer} in /Users/mk/private-tax-return/app.ts?key=secret`,
+      ];
+      const sources = [
+        "https://host.example/assets/index-Ab12.js?auth=abc#frag",
+        "file:///Users/mk/private-tax-return/main.mjs",
+        "https://host.example/secret-dir/notes.txt",
+      ];
+      for (const handler of consoleHandlers) {
+        messages.forEach((message, index) => {
+          handler({
+            level: "error",
+            lineNumber: 40 + index,
+            message,
+            sourceId: sources[index],
+          });
+        });
+      }
+      const text = await readLog();
+      const entries = text
+        .trim()
+        .split("\n")
+        .map((line) =>
+          bbDesktopDiagnosticConsoleEntrySchema.parse(JSON.parse(line)),
+        );
+      expect(entries).toEqual([
+        {
+          code: "console_error",
+          count: 1,
+          fingerprint: expect.stringMatching(/^[0-9a-f]{8}$/),
+          kind: "console",
+          level: "error",
+          line: 40,
+          prefix: "react-key-warning",
+          source: "index-Ab12.js",
+        },
+        {
+          code: "TypeError",
+          kind: "console",
+          level: "error",
+          line: 41,
+          source: "main.mjs",
+        },
+        {
+          code: "console_error",
+          count: 2,
+          fingerprint: expect.stringMatching(/^[0-9a-f]{8}$/),
+          kind: "console",
+          level: "error",
+          line: 42,
+          prefix: null,
+          source: null,
+        },
+      ]);
+      for (const fragment of [
+        ...leakedFragments,
+        "secret-dir",
+        "private-tax-return",
+        "host.example",
+        "https://",
+        "auth=",
+        "frag",
+        "Row",
+        "/home/",
+        "/Users/",
+        "cannot read",
+        "something odd",
+        "notes.txt",
+      ]) {
+        expect(text).not.toContain(fragment);
+      }
     });
 
     it("rejects untrusted senders, subframes, null and destroyed frames", async () => {
