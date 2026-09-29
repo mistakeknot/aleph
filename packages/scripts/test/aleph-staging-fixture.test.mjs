@@ -78,13 +78,15 @@ describe("staging fixture server", () => {
     );
   });
 
-  it("delays the slow endpoint body by the configured time", async () => {
-    const base = await start({ slowMs: 300 });
+  it("sends slow endpoint headers at once and delays the body", async () => {
+    const base = await start({ slowMs: 600 });
     const startedAt = Date.now();
     const response = await get(`${base}slow`);
+    const headersAt = Date.now() - startedAt;
     expect(response.status).toBe(200);
+    expect(headersAt).toBeLessThan(300);
     await response.text();
-    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(280);
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(580);
   });
 
   it("serves an oversize body with a matching content-length", async () => {

@@ -65,6 +65,7 @@ function sendOversize(request, response, totalBytes) {
 
 function sendSlow(request, response, slowMs) {
   response.writeHead(200, { "content-type": "application/octet-stream" });
+  response.flushHeaders();
   if (request.method === "HEAD") {
     response.end();
     return;
