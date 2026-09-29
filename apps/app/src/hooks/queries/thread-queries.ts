@@ -1,3 +1,4 @@
+import { withPendingInteractionsRequestTimeout } from "@/aleph/pending-interactions-guard";
 import { prependOlderTimelineRows } from "@bb/client-core";
 import {
   useInfiniteQuery,
@@ -9,10 +10,7 @@ import {
 import { useCallback, useMemo } from "react";
 import { COMPACT_VIEWPORT_QUERY } from "@bb/shared-ui/hooks/use-compact-viewport";
 import { getMediaQuerySnapshot } from "@bb/shared-ui/hooks/use-media-query";
-import type {
-  PendingInteraction,
-  ThreadListEntry,
-} from "@bb/domain";
+import type { PendingInteraction, ThreadListEntry } from "@bb/domain";
 import type {
   PromptHistoryResponse,
   ThreadQueuedMessageListResponse,
@@ -793,9 +791,14 @@ export function useThreadPendingInteractions(
   return useQuery<ThreadPendingInteractionsResponse>({
     queryKey: threadPendingInteractionsQueryKey(id),
     queryFn: ({ signal }) =>
-      sdk.threads.interactions.list({
-        threadId: requireThreadId(id, "useThreadPendingInteractions"),
+      withPendingInteractionsRequestTimeout({
+        request: (timeoutSignal) =>
+          sdk.threads.interactions.list({
+            threadId: requireThreadId(id, "useThreadPendingInteractions"),
+            signal: timeoutSignal,
+          }),
         signal,
+        threadId: id,
       }),
     enabled,
     refetchOnMount:

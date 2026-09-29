@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { describeReconnectInvalidation } from "./reconnect-diagnostics";
 
 describe("describeReconnectInvalidation", () => {
-  it("records per-query decisions against the disconnect watermark", () => {
+  it("records per-query decisions against the reconnect-open time", () => {
     const queryClient = new QueryClient();
     queryClient.setQueryData(
       ["thread", "thr_old"],
@@ -20,13 +20,15 @@ describe("describeReconnectInvalidation", () => {
     });
     const payload = describeReconnectInvalidation({
       disconnectedAt: 1000,
+      reconnectedAt: 2000,
       queryClient,
       queryKeys: [["thread"], ["thread-pending-interactions"], ["thread"]],
     });
     expect(payload).toMatchObject({
       disconnectedAt: 1000,
-      invalidatedCount: 2,
-      skippedCount: 1,
+      reconnectedAt: 2000,
+      invalidatedCount: 3,
+      skippedCount: 0,
     });
     expect(payload.decisions).toEqual(
       expect.arrayContaining([
@@ -40,7 +42,7 @@ describe("describeReconnectInvalidation", () => {
         {
           dataUpdatedAt: 1500,
           fetching: false,
-          invalidated: false,
+          invalidated: true,
           queryName: "thread",
           subjectId: "thr_new",
         },
@@ -48,5 +50,21 @@ describe("describeReconnectInvalidation", () => {
     );
     expect(payload.decisions).toHaveLength(3);
     expect(JSON.stringify(payload)).not.toContain("body text");
+  });
+});
+
+describe("describeReconnectInvalidation reconnect-open watermark", () => {
+  it("skips only queries fetched at or after the reconnect-open time", () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(["thread", "thr_outage"], {}, { updatedAt: 1500 });
+    queryClient.setQueryData(["thread", "thr_open"], {}, { updatedAt: 2000 });
+    const payload = describeReconnectInvalidation({
+      disconnectedAt: 1000,
+      queryClient,
+      queryKeys: [["thread"]],
+      reconnectedAt: 2000,
+    });
+    expect(payload.invalidatedCount).toBe(1);
+    expect(payload.skippedCount).toBe(1);
   });
 });

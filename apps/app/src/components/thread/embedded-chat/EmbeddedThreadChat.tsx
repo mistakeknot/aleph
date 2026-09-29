@@ -1,3 +1,4 @@
+import { useGracedPendingInteractionFetching } from "@/aleph/pending-interactions-guard";
 import {
   useCallback,
   useEffect,
@@ -210,7 +211,11 @@ function EmbeddedThreadChatWithComposer({
     activePendingInteraction.payload.kind !== "plugin";
   const pendingInteractionsInitialLoading = isPendingInteractionStateUnknown(
     pendingInteractionsQuery.data,
-    pendingInteractionsQuery.isFetching,
+    useGracedPendingInteractionFetching({
+      hasPendingInteraction: activePendingInteraction !== null,
+      isFetching: pendingInteractionsQuery.isFetching,
+      threadId,
+    }),
   );
   useThreadReadTracking({
     markThreadRead,

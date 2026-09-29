@@ -568,6 +568,7 @@ export function createRealtimeCacheEffects({
         invalidateRealtimeQueriesAfterServerReconnect({
           disconnectedAt: event.disconnectedAt,
           queryClient,
+          reconnectedAt: Date.now(),
         });
         return;
       }

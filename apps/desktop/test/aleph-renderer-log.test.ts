@@ -285,6 +285,7 @@ describe("renderer log redaction", () => {
         disconnectedAt: 1,
         invalidatedCount: 1,
         kind: "reconnect-invalidation",
+        reconnectedAt: 2,
         skippedCount: 0,
       }),
     ).toBeNull();

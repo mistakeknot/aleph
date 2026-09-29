@@ -7,6 +7,7 @@ const MAX_DECISIONS = 200;
 
 interface DescribeReconnectInvalidationArgs {
   disconnectedAt: number;
+  reconnectedAt: number;
   queryClient: QueryClient;
   queryKeys: readonly QueryKey[];
 }
@@ -18,6 +19,7 @@ type ReconnectInvalidationPayload = Extract<
 
 export function describeReconnectInvalidation({
   disconnectedAt,
+  reconnectedAt,
   queryClient,
   queryKeys,
 }: DescribeReconnectInvalidationArgs): ReconnectInvalidationPayload {
@@ -31,7 +33,7 @@ export function describeReconnectInvalidation({
         continue;
       }
       seen.add(query.queryHash);
-      const invalidated = query.state.dataUpdatedAt < disconnectedAt;
+      const invalidated = query.state.dataUpdatedAt < reconnectedAt;
       if (invalidated) {
         invalidatedCount += 1;
       } else {
@@ -55,6 +57,7 @@ export function describeReconnectInvalidation({
     kind: "reconnect-invalidation",
     decisions,
     disconnectedAt,
+    reconnectedAt,
     invalidatedCount,
     skippedCount,
   };

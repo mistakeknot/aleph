@@ -1,6 +1,7 @@
 import type { QueryKey } from "@tanstack/react-query";
 import { emitDiagnostic } from "@/lib/diagnostics";
 import { describeReconnectInvalidation } from "@/aleph/reconnect-diagnostics";
+import { armTrailingRefetchesForInFlightQueries } from "@/aleph/reconnect-trailing-refetch";
 import type { Environment, Host } from "@bb/domain";
 import type { SystemConfigResponse } from "@bb/server-contract";
 import {
@@ -58,24 +59,38 @@ interface SystemExecutionOptionsInvalidationArgs extends QueryClientArg {
 
 interface ServerReconnectInvalidationArgs extends QueryClientArg {
   disconnectedAt: number;
+  reconnectedAt: number;
 }
 
 export function invalidateRealtimeQueriesAfterServerReconnect({
   disconnectedAt,
   queryClient,
+  reconnectedAt,
 }: ServerReconnectInvalidationArgs): void {
   emitDiagnostic(() =>
     describeReconnectInvalidation({
       disconnectedAt,
+      reconnectedAt,
       queryClient,
       queryKeys: getServerReconnectInvalidationQueryKeys(),
     }),
   );
-  for (const queryKey of getServerReconnectInvalidationQueryKeys()) {
+  const queryKeys = getServerReconnectInvalidationQueryKeys();
+  armTrailingRefetchesForInFlightQueries({
+    invalidate: (queryKey) => {
+      void queryClient.invalidateQueries(
+        { exact: true, queryKey },
+        { cancelRefetch: false },
+      );
+    },
+    queryCache: queryClient.getQueryCache(),
+    queryKeys,
+  });
+  for (const queryKey of queryKeys) {
     void queryClient.invalidateQueries(
       {
         queryKey,
-        predicate: (query) => query.state.dataUpdatedAt < disconnectedAt,
+        predicate: (query) => query.state.dataUpdatedAt < reconnectedAt,
       },
       { cancelRefetch: false },
     );

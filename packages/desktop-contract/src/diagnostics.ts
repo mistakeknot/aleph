@@ -192,8 +192,22 @@ export const bbDesktopDiagnosticEventSchema = z.discriminatedUnion("kind", [
     kind: z.literal("reconnect-invalidation"),
     decisions: z.array(reconnectDecisionSchema).max(200),
     disconnectedAt: diagnosticTimestampSchema,
+    reconnectedAt: diagnosticTimestampSchema,
     invalidatedCount: diagnosticCountSchema,
     skippedCount: diagnosticCountSchema,
+  }),
+  z.object({
+    at: diagnosticTimestampSchema,
+    kind: z.literal("reconnect-trailing-refetch"),
+    phase: z.enum(["armed", "fired", "dropped"]),
+    queryName: diagnosticQueryNameSchema,
+    subjectId: diagnosticIdSchema.nullable(),
+  }),
+  z.object({
+    at: diagnosticTimestampSchema,
+    kind: z.literal("pending-interactions-guard"),
+    outcome: z.enum(["request-timeout", "grace-expired"]),
+    threadId: diagnosticIdSchema.nullable(),
   }),
   z.object({
     at: diagnosticTimestampSchema,

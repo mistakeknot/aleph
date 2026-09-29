@@ -57,6 +57,7 @@ vi.mock("@/lib/sdk", () => ({
 }));
 
 import { sdk } from "@/lib/sdk";
+import { useGracedPendingInteractionFetching } from "@/aleph/pending-interactions-guard";
 import { WebSocketManager } from "@/lib/ws";
 import { createRealtimeCacheEffects } from "./realtime-cache-effects";
 import {
@@ -109,6 +110,11 @@ function setup() {
     () => {
       const thread = useThread(THREAD_ID);
       const pendingInteractions = useThreadPendingInteractions(THREAD_ID);
+      const graced = useGracedPendingInteractionFetching({
+        hasPendingInteraction: false,
+        isFetching: pendingInteractions.isFetching,
+        threadId: THREAD_ID,
+      });
       const runtimeDisplayStatus = thread.data?.runtime.displayStatus;
       if (runtimeDisplayStatus === undefined) {
         return "loading-thread";
@@ -118,7 +124,7 @@ function setup() {
         isDefaultExecutionOptionsLoading: false,
         isPendingInteractionsInitialLoading: isPendingInteractionStateUnknown(
           pendingInteractions.data,
-          pendingInteractions.isFetching,
+          graced,
         ),
         isStopRequested: false,
         onStop: () => {},
@@ -208,7 +214,7 @@ describe("composer state after a realtime connection drop", () => {
       ctx.teardown();
     });
 
-    it.fails("recovers when the thread is refetched during the outage, then the state event is missed", async () => {
+    it("recovers when the thread is refetched during the outage, then the state event is missed", async () => {
       serverStatus = before;
       const ctx = setup();
       await waitFor(() => expect(ctx.composerMode()).toBe(settledBefore));
@@ -230,7 +236,7 @@ describe("composer state after a realtime connection drop", () => {
       ctx.teardown();
     });
 
-    it.fails("recovers when a fetch already in flight resolves with a pre-event snapshot after reconnect", async () => {
+    it("recovers when a fetch already in flight resolves with a pre-event snapshot after reconnect", async () => {
       serverStatus = before;
       const ctx = setup();
       await waitFor(() => expect(ctx.composerMode()).toBe(settledBefore));
@@ -265,7 +271,7 @@ describe("composer state after a realtime connection drop", () => {
     });
   });
 
-  it.fails("unblocks the composer after reconnect when a pending-interactions fetch never settles", async () => {
+  it("unblocks the composer after reconnect when a pending-interactions fetch never settles", async () => {
     serverStatus = "idle";
     const ctx = setup();
     await waitFor(() => expect(ctx.composerMode()).toBe("ready"));

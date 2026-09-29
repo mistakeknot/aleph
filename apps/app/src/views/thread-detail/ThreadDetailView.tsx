@@ -1,3 +1,4 @@
+import { useGracedPendingInteractionFetching } from "@/aleph/pending-interactions-guard";
 import {
   useCallback,
   useEffect,
@@ -654,7 +655,12 @@ function ThreadDetailViewInternal(props: ThreadRoutePathArgs) {
   const pendingInteractions = pendingInteractionsQuery.data ?? [];
   const pendingInteractionsInitialLoading = isPendingInteractionStateUnknown(
     pendingInteractionsQuery.data,
-    pendingInteractionsQuery.isFetching,
+    useGracedPendingInteractionFetching({
+      hasPendingInteraction:
+        getLatestPendingInteraction(pendingInteractions) !== null,
+      isFetching: pendingInteractionsQuery.isFetching,
+      threadId: thread?.id ?? "",
+    }),
   );
   const hasPendingInteraction =
     getLatestPendingInteraction(pendingInteractions) !== null;

@@ -195,6 +195,14 @@ Beyond upstream, Aleph carries:
   `ThreadDetailPromptArea.tsx` and `App.tsx`; everything else lives in
   `apps/app/src/aleph/` and `apps/desktop/src/aleph-renderer-log*.ts`.
   Carried commits: see `git log --grep 'mk-h1q8'`.
+- **Composer-stuck fixes (mk-h1q8).** Reconnect invalidation skips only
+  queries fetched at or after the reconnect-open time (was: after the
+  disconnect), in-flight thread-scoped fetches get one trailing refetch when
+  they settle, and `useThreadPendingInteractions` has a 10 s request timeout.
+  `ThreadDetailView.tsx` and `EmbeddedThreadChat.tsx` stop treating an empty
+  pending-interactions fetch as unknown after a 1 s grace window. Logic is in
+  `apps/app/src/aleph/pending-interactions-guard.ts` and
+  `reconnect-trailing-refetch.ts`.
 - **Model picker.** Switching a thread's provider in place when the local
   handoff plugin is running.
 - **No upstream update offers.** See [Updates](#updates).

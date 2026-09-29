@@ -161,6 +161,7 @@ describe("system cache effects", () => {
     invalidateRealtimeQueriesAfterServerReconnect({
       disconnectedAt: afterAllCachedData(),
       queryClient,
+      reconnectedAt: afterAllCachedData(),
     });
 
     expect(queryClient.getQueryState(threadKey)?.isInvalidated).toBe(true);
@@ -213,6 +214,7 @@ describe("system cache effects", () => {
     invalidateRealtimeQueriesAfterServerReconnect({
       disconnectedAt: afterAllCachedData(),
       queryClient,
+      reconnectedAt: afterAllCachedData(),
     });
 
     expect(queryClient.getQueryState(versionKey)?.isInvalidated).toBe(true);
@@ -246,6 +248,7 @@ describe("system cache effects", () => {
     invalidateRealtimeQueriesAfterServerReconnect({
       disconnectedAt: afterAllCachedData(),
       queryClient,
+      reconnectedAt: afterAllCachedData(),
     });
 
     await waitForQueryCalls(activeThreadQueries, 2);
@@ -257,7 +260,7 @@ describe("system cache effects", () => {
     queryClient.clear();
   });
 
-  it("leaves queries fetched after the disconnect watermark alone and keeps in-flight fetches", async () => {
+  it("leaves queries fetched after the reconnect-open time alone and refetches in-flight fetches once after they settle", async () => {
     const queryClient = createCacheEffectQueryClient();
     queryClient.mount();
     const disconnectedAt = Date.now();
@@ -296,6 +299,7 @@ describe("system cache effects", () => {
     invalidateRealtimeQueriesAfterServerReconnect({
       disconnectedAt,
       queryClient,
+      reconnectedAt: disconnectedAt,
     });
 
     expect(queryClient.getQueryState(staleKey)?.isInvalidated).toBe(true);
@@ -305,7 +309,7 @@ describe("system cache effects", () => {
     await vi.waitFor(() =>
       expect(inFlightObserver.getCurrentResult().data).toBe("loaded"),
     );
-    expect(inFlightQueryFn).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(inFlightQueryFn).toHaveBeenCalledTimes(2));
 
     unsubscribeInFlight();
     queryClient.unmount();
@@ -335,6 +339,7 @@ describe("system cache effects", () => {
     invalidateRealtimeQueriesAfterServerReconnect({
       disconnectedAt: Date.now(),
       queryClient,
+      reconnectedAt: Date.now(),
     });
 
     await vi.waitFor(() =>
@@ -407,6 +412,7 @@ describe("system cache effects", () => {
     invalidateRealtimeQueriesAfterServerReconnect({
       disconnectedAt: afterAllCachedData(),
       queryClient,
+      reconnectedAt: afterAllCachedData(),
     });
 
     await vi.waitFor(() => expect(diffFilesQueryFn).toHaveBeenCalledTimes(1));
