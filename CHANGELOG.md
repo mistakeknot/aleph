@@ -11,8 +11,8 @@ base (`desktop-v0.44.0`, commit `0baa605b3`).
   connection to the server dropped and came back, the message box could stay
   disabled until you reloaded. Updates that arrive during the reconnect are
   now picked up, and the composer waits only for a successful check of
-  pending approvals. If that check fails or takes longer than 5 seconds, the
-  composer says so and offers Retry.
+  pending approvals. If that check fails, the composer says so and offers
+  Retry.
 
 ### Desktop
 
