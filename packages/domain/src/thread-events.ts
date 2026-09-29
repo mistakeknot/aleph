@@ -36,7 +36,7 @@ export const systemEventTypeValues = [
   "system/provider-turn-watchdog",
 ] as const;
 
-const threadTurnInitiatorValues = ["user", "agent", "system"] as const;
+const threadTurnInitiatorValues = ["user", "agent", "system", "relay"] as const;
 export const threadTurnInitiatorSchema = z.enum(threadTurnInitiatorValues);
 export type ThreadTurnInitiator = z.infer<typeof threadTurnInitiatorSchema>;
 

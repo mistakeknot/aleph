@@ -19,6 +19,11 @@
       "types": "./src/started-on-behalf-of.ts",
       "default": "./src/started-on-behalf-of.ts"
     },
+    "./relay-provenance": {
+      "source": "./src/relay-provenance.ts",
+      "types": "./src/relay-provenance.ts",
+      "default": "./src/relay-provenance.ts"
+    },
     "./thread-create-origin": {
       "source": "./src/thread-create-origin.ts",
       "types": "./src/thread-create-origin.ts",

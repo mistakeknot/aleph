@@ -545,3 +545,23 @@ export {
 export * from "./project-attachments.js";
 
 export * from "./project-attachment-backfill.js";
+
+export {
+  RELAY_CLEANUP_CLAIM_MS,
+  cancelRelayForHostInTransaction,
+  cancelRelayForHostTargetsInTransaction,
+  cancelRelayForTargetInTransaction,
+  claimRelayAttemptCleanupInTransaction,
+  claimUnownedRelayAttachmentsForDeletionInTransaction,
+  completeRelayAttemptCleanupInTransaction,
+  getRelayMessage,
+  getRelayTarget,
+  insertRelayTarget,
+  takeOverRelayAttemptCleanupInTransaction,
+} from "./relay.js";
+export type {
+  RelayCancellationResult,
+  RelayCleanupClaimOptions,
+  RelayMessageRow,
+  RelayTargetRow,
+} from "./relay.js";

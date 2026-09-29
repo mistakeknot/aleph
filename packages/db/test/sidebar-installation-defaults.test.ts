@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PERSONAL_PROJECT_ID } from "@bb/domain";
+import { dropRelaySchema } from "./helpers/drop-relay-schema.js";
 import {
   createConnection,
   migrate,
@@ -95,6 +96,7 @@ describe.each(["project", "thread", "preference"] as const)(
           db.$client
             .prepare("DROP TABLE IF EXISTS thread_search_learned_selections")
             .run();
+          dropRelaySchema(db);
           db.$client
             .prepare("DELETE FROM __drizzle_migrations WHERE created_at >= ?")
             .run(SIDEBAR_INSTALLATION_DEFAULTS_MIGRATION_TIMESTAMP);
