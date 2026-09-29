@@ -280,13 +280,11 @@ export function createRelayRequestHandler(
   }
 
   async function forwardTargetsRemove(rawBody: string): Promise<RelayReply> {
-    let json: unknown = {};
-    if (rawBody.trim() !== "") {
-      try {
-        json = JSON.parse(rawBody);
-      } catch {
-        return relayError("invalid_request", "Body must be valid JSON");
-      }
+    let json: unknown;
+    try {
+      json = JSON.parse(rawBody);
+    } catch {
+      return relayError("invalid_request", "Body must be valid JSON");
     }
     const parsed = relayTargetsRemoveRequestSchema.safeParse(json);
     if (!parsed.success) {

@@ -28,6 +28,7 @@ import {
   defaultRelayFsOps,
   startRelaySocket,
   type RelayFsOps,
+  type RelaySocketProbe,
   type StartRelaySocketResult,
 } from "./relay-listener.js";
 
@@ -211,6 +212,7 @@ async function startFixture(options: FixtureOptions = {}) {
 async function startRefusing(args: {
   dataDir: string;
   fs?: RelayFsOps;
+  probeSocket?: RelaySocketProbe;
   uid?: number;
   xdgRuntimeDir?: string;
   afterDirectoryChecked?: () => Promise<void>;
@@ -221,6 +223,9 @@ async function startRefusing(args: {
     logger: createLogger(),
     handler: () => undefined,
     ...(args.fs === undefined ? {} : { fs: args.fs }),
+    ...(args.probeSocket === undefined
+      ? {}
+      : { probeSocket: args.probeSocket }),
     ...(args.uid === undefined ? {} : { uid: args.uid }),
     ...(args.xdgRuntimeDir === undefined
       ? {}
@@ -253,6 +258,8 @@ describe("T-SOCK-1 socket and directory permissions", () => {
       relayProtocol: 1,
       socketPath,
       hostId: HOST_ID,
+      instanceId: expect.any(String),
+      pid: process.pid,
     });
     const status = await requestSocket(socketPath, { path: "/v1/status" });
     expect(status).toEqual({
@@ -800,19 +807,13 @@ describe("T-EMR-1 host-scoped targets forwarding (daemon half)", () => {
       threadId: THREAD_ID,
     });
     const all = await postJson(socketPath, "/v1/targets/remove", {});
-    const empty = await requestSocket(socketPath, {
-      method: "POST",
-      path: "/v1/targets/remove",
-      headers: { "content-type": "application/json" },
-    });
 
     expect(one).toEqual({ status: 200, body: { removed: 1, cancelled: 3 } });
     expect(all.status).toBe(200);
-    expect(empty.status).toBe(200);
     const bodies = fetchFn.mock.calls.map(([, init]) =>
       JSON.parse(String(init?.body)),
     );
-    expect(bodies).toEqual([{ threadId: THREAD_ID }, {}, {}]);
+    expect(bodies).toEqual([{ threadId: THREAD_ID }, {}]);
     expect(String(fetchFn.mock.calls[0]?.[0])).toBe(
       "http://server.test/internal/relay/targets/remove",
     );
@@ -858,6 +859,130 @@ describe("T-EMR-1 host-scoped targets forwarding (daemon half)", () => {
 
     expect(result.status).toBe(502);
     expect(JSON.stringify(result.body)).not.toContain("secret");
+  });
+});
+
+describe("POST bodies must be non-empty JSON objects", () => {
+  it.each([["/v1/tell"], ["/v1/targets/remove"]])(
+    "rejects empty, whitespace and null bodies on %s",
+    async (route) => {
+      const { socketPath, fetchFn } = await startFixture();
+
+      for (const body of ["", " ", "\n\t ", "null", "[]", "0", '""']) {
+        const result = await requestSocket(socketPath, {
+          method: "POST",
+          path: route,
+          headers: { "content-type": "application/json" },
+          body,
+        });
+        expect(result.status, JSON.stringify(body)).toBe(400);
+        expect(errorOf(result).code).toBe("invalid_request");
+      }
+      expect(fetchFn).not.toHaveBeenCalled();
+    },
+  );
+
+  it("accepts only an explicit empty object as remove-all", async () => {
+    const fetchFn = vi.fn<FetchFn>(async () =>
+      jsonResponse({ removed: 2, cancelled: 0 }),
+    );
+    const { socketPath } = await startFixture({ fetchFn });
+
+    const result = await postJson(socketPath, "/v1/targets/remove", {});
+
+    expect(result.status).toBe(200);
+    expect(JSON.parse(String(fetchFn.mock.calls[0]?.[1]?.body))).toEqual({});
+  });
+});
+
+describe("live socket and instance ownership", () => {
+  it("refuses to take over a socket served by a live relay and leaves it intact", async () => {
+    const first = await startFixture();
+    const before = await lstat(first.socketPath, { bigint: true });
+
+    const second = await startRefusing({ dataDir: first.dataDir });
+
+    expect(second.reason).toMatch(/already served/);
+    const after = await lstat(first.socketPath, { bigint: true });
+    expect(after.ino).toBe(before.ino);
+    const status = await requestSocket(first.socketPath, {
+      path: "/v1/status",
+    });
+    expect(status.status).toBe(200);
+    expect(
+      JSON.parse(await readFile(path.join(first.dataDir, "relay.json"), "utf8"))
+        .pid,
+    ).toBe(process.pid);
+  });
+
+  it("refuses when liveness cannot be determined", async () => {
+    const dataDir = await makeDataDir();
+    const first = await startFixture({ dataDir });
+    const probeSocket = vi.fn(async () => {
+      throw new Error("boom");
+    });
+
+    const result = await startRefusing({ dataDir, probeSocket });
+
+    expect(result.reason).toBe("relay socket failed to start");
+    expect(probeSocket).toHaveBeenCalledTimes(1);
+    expect((await lstat(first.socketPath)).isSocket()).toBe(true);
+  });
+
+  it("a refused starter does not delete the running instance's discovery file", async () => {
+    const first = await startFixture();
+    const discoveryPath = path.join(first.dataDir, "relay.json");
+    const original = await readFile(discoveryPath, "utf8");
+
+    await startRefusing({ dataDir: first.dataDir });
+
+    expect(await readFile(discoveryPath, "utf8")).toBe(original);
+  });
+
+  it("close does not delete a discovery file written by another instance", async () => {
+    const dataDir = await makeDataDir();
+    const logger = createLogger();
+    const first = await startRelaySocket({
+      dataDir,
+      hostId: HOST_ID,
+      logger,
+      handler: () => undefined,
+    });
+    if (!first.started) {
+      throw new Error("expected start");
+    }
+    const discoveryPath = path.join(dataDir, "relay.json");
+    const foreign = `${JSON.stringify({
+      relayProtocol: 1,
+      socketPath: "/elsewhere.sock",
+      hostId: HOST_ID,
+      instanceId: "someone-else",
+      pid: 1,
+    })}\n`;
+    await writeFile(discoveryPath, foreign, { mode: 0o600 });
+
+    await first.close();
+
+    expect(await readFile(discoveryPath, "utf8")).toBe(foreign);
+  });
+
+  it("close does not delete an unparsable or foreign-owned discovery file", async () => {
+    const dataDir = await makeDataDir();
+    const first = await startRelaySocket({
+      dataDir,
+      hostId: HOST_ID,
+      logger: createLogger(),
+      handler: () => undefined,
+    });
+    if (!first.started) {
+      throw new Error("expected start");
+    }
+    const discoveryPath = path.join(dataDir, "relay.json");
+    await writeFile(discoveryPath, "not json", { mode: 0o600 });
+
+    await first.close();
+
+    expect(await readFile(discoveryPath, "utf8")).toBe("not json");
   });
 });
 

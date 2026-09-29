@@ -1,13 +1,15 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   chmod,
   lstat,
   mkdir,
+  readFile,
   rename,
   rm,
   unlink,
   writeFile,
 } from "node:fs/promises";
+import net from "node:net";
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import { join } from "node:path";
 import { RELAY_PROTOCOL_VERSION } from "@bb/host-daemon-contract/relay";
@@ -39,6 +41,7 @@ export interface RelayFsOps {
   rename(from: string, to: string): Promise<void>;
   writeExclusive(path: string, data: string, mode: number): Promise<void>;
   remove(path: string): Promise<void>;
+  readText(path: string): Promise<string | null>;
 }
 
 function isErrnoCode(error: unknown, code: string): boolean {
@@ -86,7 +89,51 @@ export const defaultRelayFsOps: RelayFsOps = {
   writeExclusive: (path, data, mode) =>
     writeFile(path, data, { mode, flag: "wx" }),
   remove: (path) => rm(path, { force: true }),
+  async readText(path) {
+    try {
+      return await readFile(path, "utf8");
+    } catch (error) {
+      if (isErrnoCode(error, "ENOENT")) {
+        return null;
+      }
+      throw error;
+    }
+  },
 };
+
+const SOCKET_PROBE_TIMEOUT_MS = 1000;
+
+export type RelaySocketProbe = (
+  socketPath: string,
+) => Promise<"live" | "stale">;
+
+export const probeRelaySocket: RelaySocketProbe = (socketPath) =>
+  new Promise((resolve, reject) => {
+    const socket = net.connect(socketPath);
+    const timer = setTimeout(() => {
+      socket.destroy();
+      reject(
+        new RelayRefusal("relay socket did not answer the liveness probe"),
+      );
+    }, SOCKET_PROBE_TIMEOUT_MS);
+    const finish = (result: "live" | "stale" | Error) => {
+      clearTimeout(timer);
+      socket.destroy();
+      if (result instanceof Error) {
+        reject(result);
+      } else {
+        resolve(result);
+      }
+    };
+    socket.once("connect", () => finish("live"));
+    socket.once("error", (error) => {
+      if (isErrnoCode(error, "ECONNREFUSED") || isErrnoCode(error, "ENOENT")) {
+        finish("stale");
+        return;
+      }
+      finish(new RelayRefusal("relay socket liveness could not be determined"));
+    });
+  });
 
 export interface RelaySocketLocation {
   directory: string;
@@ -124,6 +171,7 @@ export interface StartRelaySocketOptions {
   uid?: number;
   xdgRuntimeDir?: string;
   fs?: RelayFsOps;
+  probeSocket?: RelaySocketProbe;
   afterDirectoryChecked?: () => Promise<void>;
 }
 
@@ -170,6 +218,7 @@ async function clearStaleSocket(
   fs: RelayFsOps,
   socketPath: string,
   uid: number,
+  probe: RelaySocketProbe,
 ): Promise<void> {
   const existing = await fs.lstat(socketPath);
   if (existing === null) {
@@ -177,6 +226,9 @@ async function clearStaleSocket(
   }
   if (!existing.isSocket() || existing.uid !== uid) {
     refuse("relay socket path is occupied by something other than our socket");
+  }
+  if ((await probe(socketPath)) === "live") {
+    refuse("relay socket is already served by a running daemon");
   }
   await fs.unlink(socketPath);
 }
@@ -257,11 +309,38 @@ async function verifyBoundSocket(args: {
   }
 }
 
+async function removeOwnDiscoveryFile(
+  fs: RelayFsOps,
+  dataDir: string,
+  instanceId: string,
+): Promise<void> {
+  const finalPath = join(dataDir, DISCOVERY_FILE_NAME);
+  const text = await fs.readText(finalPath).catch(() => null);
+  if (text === null) {
+    return;
+  }
+  let recorded: unknown;
+  try {
+    recorded = JSON.parse(text);
+  } catch {
+    return;
+  }
+  if (
+    typeof recorded === "object" &&
+    recorded !== null &&
+    "instanceId" in recorded &&
+    recorded.instanceId === instanceId
+  ) {
+    await fs.remove(finalPath).catch(() => undefined);
+  }
+}
+
 async function writeDiscoveryFile(args: {
   fs: RelayFsOps;
   dataDir: string;
   socketPath: string;
   hostId: string;
+  instanceId: string;
 }): Promise<string> {
   const finalPath = join(args.dataDir, DISCOVERY_FILE_NAME);
   const tempPath = `${finalPath}.${process.pid}.tmp`;
@@ -272,6 +351,8 @@ async function writeDiscoveryFile(args: {
       relayProtocol: RELAY_PROTOCOL_VERSION,
       socketPath: args.socketPath,
       hostId: args.hostId,
+      instanceId: args.instanceId,
+      pid: process.pid,
     })}\n`,
     SOCKET_MODE,
   );
@@ -300,6 +381,7 @@ export async function startRelaySocket(
     uid,
     xdgRuntimeDir: options.xdgRuntimeDir ?? process.env.XDG_RUNTIME_DIR,
   });
+  const instanceId = randomUUID();
   const server = http.createServer(options.handler);
   server.requestTimeout = SERVER_REQUEST_TIMEOUT_MS;
   server.headersTimeout = SERVER_HEADERS_TIMEOUT_MS;
@@ -310,7 +392,12 @@ export async function startRelaySocket(
 
   try {
     const directoryBefore = await prepareDirectory(fs, location.directory, uid);
-    await clearStaleSocket(fs, location.socketPath, uid);
+    await clearStaleSocket(
+      fs,
+      location.socketPath,
+      uid,
+      options.probeSocket ?? probeRelaySocket,
+    );
     await options.afterDirectoryChecked?.();
     await listenOnSocket(server, location.socketPath);
     await verifyBoundSocket({
@@ -320,11 +407,12 @@ export async function startRelaySocket(
       socketPath: location.socketPath,
       uid,
     });
-    const discoveryPath = await writeDiscoveryFile({
+    await writeDiscoveryFile({
       fs,
       dataDir: options.dataDir,
       socketPath: location.socketPath,
       hostId: options.hostId,
+      instanceId,
     });
     options.logger.info(
       { socketPath: location.socketPath },
@@ -335,14 +423,12 @@ export async function startRelaySocket(
       socketPath: location.socketPath,
       async close() {
         await closeServer(server);
-        await fs.remove(discoveryPath).catch(() => undefined);
+        await removeOwnDiscoveryFile(fs, options.dataDir, instanceId);
       },
     };
   } catch (error) {
     await closeServer(server);
-    await fs
-      .remove(join(options.dataDir, DISCOVERY_FILE_NAME))
-      .catch(() => undefined);
+    await removeOwnDiscoveryFile(fs, options.dataDir, instanceId);
     const reason =
       error instanceof RelayRefusal
         ? error.message
