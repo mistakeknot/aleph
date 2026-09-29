@@ -125,6 +125,9 @@ function requestSocket(
       },
     );
     request.on("error", reject);
+    request.on("socket", (socket) => {
+      socket.on("error", () => undefined);
+    });
     request.end(args.body);
   });
 }

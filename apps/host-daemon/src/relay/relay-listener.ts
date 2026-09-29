@@ -304,6 +304,9 @@ export async function startRelaySocket(
   server.requestTimeout = SERVER_REQUEST_TIMEOUT_MS;
   server.headersTimeout = SERVER_HEADERS_TIMEOUT_MS;
   server.maxConnections = SERVER_MAX_CONNECTIONS;
+  server.on("connection", (socket) => {
+    socket.on("error", () => socket.destroy());
+  });
 
   try {
     const directoryBefore = await prepareDirectory(fs, location.directory, uid);
