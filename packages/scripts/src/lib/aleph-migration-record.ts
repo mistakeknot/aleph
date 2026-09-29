@@ -64,7 +64,14 @@ export interface QualifiedPairEndpoint {
 }
 
 export interface QualifiedPair {
-  evidence: { backCompat: { afterReadyWrite: boolean; fresh: boolean } };
+  evidence: {
+    backCompat: {
+      afterReadyWrite: boolean;
+      fresh: boolean;
+      predecessorRecordSha256: string;
+      successorRecordSha256: string;
+    };
+  };
   predecessor: QualifiedPairEndpoint;
   successor: QualifiedPairEndpoint;
 }
@@ -328,13 +335,33 @@ function parseQualifiedPair(value: unknown, index: number): QualifiedPair {
       `Qualified pair at position ${index} lacks back_compat reverse-test evidence.`,
     );
   }
+  if (
+    typeof backCompat.predecessorRecordSha256 !== "string" ||
+    typeof backCompat.successorRecordSha256 !== "string"
+  ) {
+    throw new Error(
+      `Qualified pair at position ${index} has back_compat evidence without predecessor and successor record hashes.`,
+    );
+  }
+  const predecessor = parseEndpoint(value.predecessor, `${index}.predecessor`);
+  const successor = parseEndpoint(value.successor, `${index}.successor`);
+  if (
+    backCompat.predecessorRecordSha256 !== predecessor.recordSha256 ||
+    backCompat.successorRecordSha256 !== successor.recordSha256
+  ) {
+    throw new Error(
+      `Qualified pair at position ${index}: back_compat evidence record hashes do not match the entry's predecessor and successor.`,
+    );
+  }
   return {
-    predecessor: parseEndpoint(value.predecessor, `${index}.predecessor`),
-    successor: parseEndpoint(value.successor, `${index}.successor`),
+    predecessor,
+    successor,
     evidence: {
       backCompat: {
         fresh: backCompat.fresh,
         afterReadyWrite: backCompat.afterReadyWrite,
+        predecessorRecordSha256: backCompat.predecessorRecordSha256,
+        successorRecordSha256: backCompat.successorRecordSha256,
       },
     },
   };
@@ -375,9 +402,12 @@ export function deriveDelivery({
       reason: "unqualified-difference",
     };
   }
+  const { backCompat } = pair.evidence;
   if (
-    !pair.evidence.backCompat.fresh ||
-    !pair.evidence.backCompat.afterReadyWrite
+    !backCompat.fresh ||
+    !backCompat.afterReadyWrite ||
+    backCompat.predecessorRecordSha256 !== predecessorSha ||
+    backCompat.successorRecordSha256 !== successorSha
   ) {
     return {
       delivery: "manual",
@@ -413,7 +443,14 @@ export function qualifyPair({
   return {
     predecessor: { version: predecessor.version, recordSha256: predecessorSha },
     successor: { version: successor.version, recordSha256: successorSha },
-    evidence: { backCompat: { fresh: true, afterReadyWrite: true } },
+    evidence: {
+      backCompat: {
+        fresh: true,
+        afterReadyWrite: true,
+        predecessorRecordSha256: predecessorSha,
+        successorRecordSha256: successorSha,
+      },
+    },
   };
 }
 

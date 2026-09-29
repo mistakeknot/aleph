@@ -234,6 +234,57 @@ describe("parseQualifiedPairs", () => {
   ])("rejects %s", (_name, value) => {
     expect(() => parseQualifiedPairs(value)).toThrow();
   });
+
+  function pairWithEvidence(backCompat: Record<string, unknown>) {
+    return {
+      schema: 1,
+      pairs: [
+        {
+          predecessor: { version: "0.5.0", recordSha256: "a".repeat(64) },
+          successor: { version: "0.5.1", recordSha256: "b".repeat(64) },
+          evidence: { backCompat },
+        },
+      ],
+    };
+  }
+
+  it("rejects legacy evidence that carries no record hashes", () => {
+    expect(() =>
+      parseQualifiedPairs(
+        pairWithEvidence({ fresh: true, afterReadyWrite: true }),
+      ),
+    ).toThrow(/record hash/u);
+  });
+
+  it.each([
+    ["predecessor", { predecessorRecordSha256: "c".repeat(64) }],
+    ["successor", { successorRecordSha256: "c".repeat(64) }],
+  ])("rejects evidence bound to a different %s hash", (_side, override) => {
+    expect(() =>
+      parseQualifiedPairs(
+        pairWithEvidence({
+          fresh: true,
+          afterReadyWrite: true,
+          predecessorRecordSha256: "a".repeat(64),
+          successorRecordSha256: "b".repeat(64),
+          ...override,
+        }),
+      ),
+    ).toThrow(/do not match/u);
+  });
+
+  it("accepts evidence bound to the entry's own hashes", () => {
+    const parsed = parseQualifiedPairs(
+      pairWithEvidence({
+        fresh: true,
+        afterReadyWrite: true,
+        predecessorRecordSha256: "a".repeat(64),
+        successorRecordSha256: "b".repeat(64),
+      }),
+    );
+
+    expect(parsed.pairs).toHaveLength(1);
+  });
 });
 
 describe("deriveDelivery", () => {
@@ -255,7 +306,14 @@ describe("deriveDelivery", () => {
             version: "0.5.1",
             recordSha256: recordSha256(successor),
           },
-          evidence: { backCompat: { fresh, afterReadyWrite } },
+          evidence: {
+            backCompat: {
+              fresh,
+              afterReadyWrite,
+              predecessorRecordSha256: recordSha256(predecessor),
+              successorRecordSha256: recordSha256(successor),
+            },
+          },
         },
       ],
     };
@@ -322,6 +380,30 @@ describe("deriveDelivery", () => {
         pairs: pairsFor(true, true),
       }).delivery,
     ).toBe("manual");
+  });
+
+  it("ships manual for a changed successor even when a pair carries evidence bound to another record", () => {
+    const changed = cloneRecord(successor);
+    changed.wireContractSha256 = "6".repeat(64);
+    const [pair] = pairsFor(true, true).pairs;
+    if (pair === undefined) throw new Error("missing pair");
+    const forged: QualifiedPairs = {
+      schema: 1,
+      pairs: [
+        {
+          ...pair,
+          successor: { ...pair.successor, recordSha256: recordSha256(changed) },
+        },
+      ],
+    };
+
+    expect(
+      deriveDelivery({ predecessor, successor: changed, pairs: forged }),
+    ).toEqual({
+      delivery: "manual",
+      backCompat: false,
+      reason: "incomplete-back-compat-evidence",
+    });
   });
 
   it("ships manual when there is no predecessor", () => {
@@ -397,7 +479,14 @@ describe("runBackCompatCheck on the actual successor DB", () => {
         recordSha256: recordSha256(predecessor),
       },
       successor: { version: "0.5.1", recordSha256: recordSha256(successor) },
-      evidence: { backCompat: { fresh: true, afterReadyWrite: true } },
+      evidence: {
+        backCompat: {
+          fresh: true,
+          afterReadyWrite: true,
+          predecessorRecordSha256: recordSha256(predecessor),
+          successorRecordSha256: recordSha256(successor),
+        },
+      },
     });
     expect(() =>
       qualifyPair({
