@@ -69,6 +69,7 @@ export default async function plugin(bb: BbPluginApi) {
     bindRelayIdentity: (binding) => {
       bb.experimental_serverAccess.bindRelayIdentity(binding);
     },
+    hasRelayIdentity: () => bb.experimental_serverAccess.hasRelayIdentity(),
     onStatusChange: (status) => {
       bb.realtime.publish(CONNECT_REALTIME_CHANNEL, status);
       recheckServerAccess(status);

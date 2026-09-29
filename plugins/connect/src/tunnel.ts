@@ -69,6 +69,7 @@ interface ConnectTunnelOptions {
     ownerUserId: string;
     serverId: string;
   }) => void;
+  hasRelayIdentity?: () => boolean;
 }
 
 export class ConnectTunnel {
@@ -137,12 +138,27 @@ export class ConnectTunnel {
         handle: redeemed.handle,
         credential: redeemed.credential,
       };
-      await this.options.store.write(credential);
-      this.options.bindRelayIdentity?.({
-        baseUrl,
-        ownerUserId: redeemed.ownerUserId,
-        serverId: redeemed.serverId,
-      });
+      try {
+        this.options.bindRelayIdentity?.({
+          baseUrl,
+          ownerUserId: redeemed.ownerUserId,
+          serverId: redeemed.serverId,
+        });
+      } catch (error) {
+        this.clearRelayIdentity();
+        this.options.log.warn(
+          `pair failed while binding relay identity: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+        throw error;
+      }
+      try {
+        await this.options.store.write(credential);
+      } catch (error) {
+        this.clearRelayIdentity();
+        throw error;
+      }
       this.credential = credential;
       this.lastError = null;
       this.reconnect();
@@ -154,8 +170,25 @@ export class ConnectTunnel {
     return this.status();
   }
 
+  private clearRelayIdentity(): void {
+    try {
+      this.options.bindRelayIdentity?.({
+        baseUrl: this.options.defaultBaseUrl,
+        ownerUserId: "",
+        serverId: "",
+      });
+    } catch (error) {
+      this.options.log.error(
+        `failed to clear the relay identity: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+
   async disconnect(): Promise<ConnectStatus> {
     const credential = this.credential;
+    this.clearRelayIdentity();
     this.teardown();
     await this.options.store.clear();
     this.options.shares.clearMachineDeclarations();
@@ -247,6 +280,7 @@ export class ConnectTunnel {
       since: this.stateSince,
       remoteClients: this.remoteClients,
       lastRemoteActivityAt: this.lastRemoteActivityAt,
+      relayBinding: this.options.hasRelayIdentity?.() ?? false,
       shares,
     };
   }
@@ -357,6 +391,7 @@ export class ConnectTunnel {
       "pairing was revoked; get a new code from the getbb.app dashboard and re-pair";
     this.options.log.warn(this.lastError);
     this.credential = null;
+    this.clearRelayIdentity();
     this.teardown();
     this.publish();
     void this.options.store.clear().catch((error: unknown) => {

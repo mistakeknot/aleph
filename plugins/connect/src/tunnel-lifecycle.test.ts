@@ -48,7 +48,9 @@ vi.mock("ws", async (importOriginal) => {
 import { ConnectTunnel } from "./tunnel.js";
 import { DEFAULT_CONNECT_BASE_URL } from "./redeem.js";
 
-function createTunnelFixture() {
+function createTunnelFixture(
+  extra: Partial<ConstructorParameters<typeof ConnectTunnel>[0]> = {},
+) {
   const fakeHost = createFakePluginHost({
     pluginId: "connect",
     sdk: {
@@ -88,6 +90,7 @@ function createTunnelFixture() {
     getLoopbackBaseUrl: () => "http://127.0.0.1:38886",
     log: pluginBb.log,
     onStatusChange,
+    ...extra,
   });
   return {
     clearCredential,
@@ -97,6 +100,107 @@ function createTunnelFixture() {
     tunnel,
   };
 }
+
+describe("ConnectTunnel pairing relay binding", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function stubRedeem() {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              credential: "bbcred_new",
+              handle: "sawyer",
+              ownerUserId: "user_new",
+              serverId: "srv_new",
+            }),
+            { status: 200 },
+          ),
+      ),
+    );
+  }
+
+  it("fails closed without persisting the credential when binding throws", async () => {
+    stubRedeem();
+    const write = vi.fn(async () => {});
+    const calls: { ownerUserId: string; serverId: string }[] = [];
+    const bindRelayIdentity = vi.fn(
+      (binding: { ownerUserId: string; serverId: string }) => {
+        calls.push(binding);
+        if (calls.length === 1) throw new Error("binding failed");
+      },
+    );
+    const { fakeHost, tunnel } = createTunnelFixture({
+      bindRelayIdentity,
+      store: {
+        read: async () => null,
+        write,
+        clear: async () => {},
+      },
+    });
+    try {
+      await expect(
+        tunnel.pair({ code: "ABCD", baseUrl: "https://getbb.app" }),
+      ).rejects.toThrow("binding failed");
+      expect(write).not.toHaveBeenCalled();
+      expect(tunnel.status().paired).toBe(false);
+      expect(calls).toEqual([
+        {
+          baseUrl: "https://getbb.app",
+          ownerUserId: "user_new",
+          serverId: "srv_new",
+        },
+        { baseUrl: DEFAULT_CONNECT_BASE_URL, ownerUserId: "", serverId: "" },
+      ]);
+    } finally {
+      tunnel.stop();
+      await fakeHost.harness.dispose();
+    }
+  });
+
+  it("clears the binding when persisting the credential fails", async () => {
+    stubRedeem();
+    const calls: { ownerUserId: string }[] = [];
+    const { fakeHost, tunnel } = createTunnelFixture({
+      bindRelayIdentity: (binding) => {
+        calls.push(binding);
+      },
+      store: {
+        read: async () => null,
+        write: async () => {
+          throw new Error("disk full");
+        },
+        clear: async () => {},
+      },
+    });
+    try {
+      await expect(
+        tunnel.pair({ code: "ABCD", baseUrl: "https://getbb.app" }),
+      ).rejects.toThrow("disk full");
+      expect(calls.map((call) => call.ownerUserId)).toEqual(["user_new", ""]);
+      expect(tunnel.status().paired).toBe(false);
+    } finally {
+      tunnel.stop();
+      await fakeHost.harness.dispose();
+    }
+  });
+
+  it("reports relayBinding from the core identity", async () => {
+    const { fakeHost, tunnel } = createTunnelFixture({
+      hasRelayIdentity: () => true,
+    });
+    try {
+      expect(tunnel.status().relayBinding).toBe(true);
+    } finally {
+      tunnel.stop();
+      await fakeHost.harness.dispose();
+    }
+  });
+});
 
 describe("ConnectTunnel socket lifecycle", () => {
   afterEach(() => {

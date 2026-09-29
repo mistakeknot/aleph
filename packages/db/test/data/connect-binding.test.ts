@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   clearConnectBinding,
+  connectBindingsEqual,
   getConnectBinding,
   recordGateAssertionUse,
   replaceConnectBinding,
@@ -34,6 +35,34 @@ describe("connect binding", () => {
     expect(clearConnectBinding(db).changed).toBe(true);
     expect(getConnectBinding(db)).toBeNull();
     expect(clearConnectBinding(db).changed).toBe(false);
+  });
+});
+
+describe("connect binding generation", () => {
+  it("assigns a fresh generation on every replacement, including after clear", () => {
+    const db = freshDb();
+    replaceConnectBinding(db, binding);
+    const first = getConnectBinding(db)!;
+    expect(first.generation).not.toBe("");
+    expect(connectBindingsEqual(first, getConnectBinding(db)!)).toBe(true);
+    replaceConnectBinding(db, { ...binding, ownerUserId: "user_b" });
+    const second = getConnectBinding(db)!;
+    replaceConnectBinding(db, binding);
+    const third = getConnectBinding(db)!;
+    expect(third.generation).not.toBe(first.generation);
+    expect(connectBindingsEqual(first, third)).toBe(false);
+    expect(connectBindingsEqual(first, second)).toBe(false);
+    clearConnectBinding(db);
+    replaceConnectBinding(db, binding);
+    expect(getConnectBinding(db)!.generation).not.toBe(first.generation);
+  });
+
+  it("keeps the generation when the same binding is re-applied", () => {
+    const db = freshDb();
+    replaceConnectBinding(db, binding);
+    const before = getConnectBinding(db)!;
+    replaceConnectBinding(db, binding);
+    expect(getConnectBinding(db)!.generation).toBe(before.generation);
   });
 });
 

@@ -7,6 +7,7 @@ import type { Hono } from "hono";
 import { ApiError } from "../errors.js";
 import {
   RELAY_ASSERTION_KEYS,
+  validateRelayAssertionKeyTable,
   type RelayAssertionKey,
 } from "../services/relay-management/assertion-keys.js";
 import type { HumanAssertionDeps } from "../services/relay-management/human-assertion.js";
@@ -28,9 +29,19 @@ export function registerRelayTargetRoutesWithKeys(
       new ApiError(400, "invalid_request", message),
   });
   const routes = publicApiRoutes.hosts;
+  let acceptedKeys = keys;
+  try {
+    validateRelayAssertionKeyTable(keys, (now ?? Date.now)());
+  } catch (error) {
+    deps.logger.error(
+      { err: error },
+      "Relay assertion key table is invalid; rejecting all human assertions",
+    );
+    acceptedKeys = [];
+  }
   const assertionDeps: HumanAssertionDeps = {
     db: deps.db,
-    keys,
+    keys: acceptedKeys,
     ...(now === undefined ? {} : { now }),
   };
 

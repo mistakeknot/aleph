@@ -1511,6 +1511,7 @@ describe("connect plugin", () => {
       lastError: null,
       remoteClients: 0,
       lastRemoteActivityAt: null,
+      relayBinding: false,
       shares: [],
     });
     expect(status.dashboardUrl).toBe("https://getbb.app/dashboard");
@@ -1580,6 +1581,7 @@ describe("connect plugin", () => {
       since: Date.now(),
       remoteClients: 1,
       lastRemoteActivityAt: null,
+      relayBinding: false,
       shares: [],
     };
     const statusSpy = vi

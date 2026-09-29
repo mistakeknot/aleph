@@ -1,0 +1,1 @@
+ALTER TABLE `connect_binding` ADD `generation` text DEFAULT '' NOT NULL;

@@ -18,6 +18,10 @@ import {
   RELAY_ASSERTION_ISSUERS,
   type RelayAssertionKey,
 } from "../../src/services/relay-management/assertion-keys.js";
+import {
+  addRelayTargetForHuman,
+  listRelayTargetsForHuman,
+} from "../../src/services/relay-management/targets.js";
 import { bindConnectRelayIdentity } from "../../src/services/relay-management/connect-binding.js";
 import { seedThreadFixture } from "../helpers/seed.js";
 import { withTestHarness, type TestAppHarness } from "../helpers/test-app.js";
@@ -418,6 +422,201 @@ describe("connect binding", () => {
       expect(
         getRelayTarget(harness.deps.db, fixture.host.id, fixture.thread.id),
       ).toBeNull();
+    });
+  });
+});
+
+function delayedContext(
+  method: string,
+  path: string,
+  token: string,
+  gate: Promise<void>,
+) {
+  const headers: Record<string, string> = { "x-bb-gate-assertion": token };
+  return {
+    req: {
+      header: (name: string) => headers[name.toLowerCase()],
+      method,
+      url: `http://localhost${path}`,
+      arrayBuffer: async () => {
+        await gate;
+        return new ArrayBuffer(0);
+      },
+    },
+  };
+}
+
+describe("relay target assertion consumption races", () => {
+  it("refuses an assertion verified for one account after a different account re-pairs", async () => {
+    await withTestHarness(async (harness) => {
+      const { key, privateKey } = makeKeys();
+      const fixture = seedThreadFixture(harness);
+      bind(harness);
+      const hostId = fixture.host.id;
+      const path = listPath(hostId);
+      let release: () => void = () => {};
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const pending = listRelayTargetsForHuman(
+        harness.deps,
+        delayedContext(
+          "GET",
+          path,
+          mint(privateKey, baseClaims("GET", path)),
+          gate,
+        ),
+        { db: harness.deps.db, keys: [key], now: () => NOW },
+        hostId,
+      );
+      replaceConnectBinding(harness.deps.db, {
+        issuer: RELAY_ASSERTION_ISSUERS.production,
+        ownerUserId: "user_other",
+        runtime: "production",
+        serverId: SERVER_ID,
+      });
+      release();
+      await expect(pending).rejects.toMatchObject({
+        status: 403,
+        body: { code: "human_session_required" },
+      });
+    });
+  });
+
+  it("refuses an add when the binding was replaced and restored during verification", async () => {
+    await withTestHarness(async (harness) => {
+      const { key, privateKey } = makeKeys();
+      const fixture = seedThreadFixture(harness);
+      bind(harness);
+      const hostId = fixture.host.id;
+      const threadId = fixture.thread.id;
+      const path = `${listPath(hostId)}/${threadId}`;
+      let release: () => void = () => {};
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const pending = addRelayTargetForHuman(
+        harness.deps,
+        delayedContext(
+          "PUT",
+          path,
+          mint(privateKey, baseClaims("PUT", path)),
+          gate,
+        ),
+        { db: harness.deps.db, keys: [key], now: () => NOW },
+        { hostId, threadId },
+      );
+      replaceConnectBinding(harness.deps.db, {
+        issuer: RELAY_ASSERTION_ISSUERS.production,
+        ownerUserId: "user_other",
+        runtime: "production",
+        serverId: SERVER_ID,
+      });
+      bind(harness);
+      release();
+      await expect(pending).rejects.toMatchObject({
+        status: 403,
+        body: { code: "human_session_required" },
+      });
+      expect(getRelayTarget(harness.deps.db, hostId, threadId)).toBeNull();
+    });
+  });
+
+  it("refuses two requests delayed across assertion expiry and does not free the jti", async () => {
+    await withTestHarness(async (harness) => {
+      const { key, privateKey } = makeKeys();
+      const fixture = seedThreadFixture(harness);
+      bind(harness);
+      const hostId = fixture.host.id;
+      const path = listPath(hostId);
+      const claims = baseClaims("GET", path);
+      const token = mint(privateKey, claims);
+      let clock = NOW;
+      let release: () => void = () => {};
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const deps = {
+        db: harness.deps.db,
+        keys: [key],
+        now: () => clock,
+      };
+      const first = listRelayTargetsForHuman(
+        harness.deps,
+        delayedContext("GET", path, token, gate),
+        deps,
+        hostId,
+      );
+      const second = listRelayTargetsForHuman(
+        harness.deps,
+        delayedContext("GET", path, token, gate),
+        deps,
+        hostId,
+      );
+      clock = claims.exp * 1000;
+      release();
+      const settled = await Promise.allSettled([first, second]);
+      for (const result of settled) {
+        expect(result.status).toBe("rejected");
+        expect((result as PromiseRejectedResult).reason).toMatchObject({
+          status: 403,
+          body: { code: "human_session_required" },
+        });
+      }
+    });
+  });
+
+  it("refuses when the signing key expires between verification and consumption", async () => {
+    await withTestHarness(async (harness) => {
+      const { key, privateKey } = makeKeys();
+      const shortKey = { ...key, notAfter: NOW + 10_000 };
+      const fixture = seedThreadFixture(harness);
+      bind(harness);
+      const hostId = fixture.host.id;
+      const path = listPath(hostId);
+      let clock = NOW;
+      let release: () => void = () => {};
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const pending = listRelayTargetsForHuman(
+        harness.deps,
+        delayedContext(
+          "GET",
+          path,
+          mint(privateKey, {
+            ...baseClaims("GET", path),
+            exp: NOW / 1000 + 60,
+          }),
+          gate,
+        ),
+        { db: harness.deps.db, keys: [shortKey], now: () => clock },
+        hostId,
+      );
+      clock = NOW + 20_000;
+      release();
+      await expect(pending).rejects.toMatchObject({
+        status: 403,
+        body: { code: "human_session_required" },
+      });
+    });
+  });
+});
+
+describe("relay assertion key table load", () => {
+  it("rejects every assertion when the key table is invalid", async () => {
+    await withTestHarness(async (harness) => {
+      const { key, privateKey } = makeKeys();
+      const fixture = seedThreadFixture(harness);
+      bind(harness);
+      const app = buildApp(harness, [
+        { ...key, notAfter: key.notBefore + 500 * DAY },
+      ]);
+      const path = listPath(fixture.host.id);
+      const response = await call(app, "GET", path, {
+        "x-bb-gate-assertion": mint(privateKey, baseClaims("GET", path)),
+      });
+      expect(response.status).toBe(403);
     });
   });
 });

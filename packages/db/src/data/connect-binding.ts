@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { eq, lte } from "drizzle-orm";
 import type { ConnectBindingRuntime } from "@bb/domain/relay-provenance";
 import type {
@@ -37,6 +38,19 @@ export function getConnectBinding(
       .from(connectBinding)
       .where(eq(connectBinding.id, CONNECT_BINDING_ROW_ID))
       .get() ?? null
+  );
+}
+
+export function connectBindingsEqual(
+  left: ConnectBindingRow,
+  right: ConnectBindingRow,
+): boolean {
+  return (
+    left.generation === right.generation &&
+    left.runtime === right.runtime &&
+    left.issuer === right.issuer &&
+    left.serverId === right.serverId &&
+    left.ownerUserId === right.ownerUserId
   );
 }
 
@@ -107,6 +121,7 @@ export function replaceConnectBinding(
           serverId: input.serverId,
           ownerUserId: input.ownerUserId,
           boundAt: now,
+          generation: randomUUID(),
         })
         .onConflictDoUpdate({
           target: connectBinding.id,
@@ -116,6 +131,7 @@ export function replaceConnectBinding(
             serverId: input.serverId,
             ownerUserId: input.ownerUserId,
             boundAt: now,
+            generation: randomUUID(),
           },
         })
         .run();

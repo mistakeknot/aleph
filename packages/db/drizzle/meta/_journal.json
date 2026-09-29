@@ -953,6 +953,13 @@
       "when": 1790664893343,
       "tag": "0135_relay_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 136,
+      "version": "6",
+      "when": 1790667021062,
+      "tag": "0136_connect_binding_generation",
+      "breakpoints": true
     }
   ]
 }

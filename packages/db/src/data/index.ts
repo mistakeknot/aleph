@@ -550,6 +550,7 @@ export {
   CONNECT_BINDING_ROW_ID,
   CONNECT_REBIND_CANCEL_REASON,
   clearConnectBinding,
+  connectBindingsEqual,
   getConnectBinding,
   recordGateAssertionUse,
   replaceConnectBinding,

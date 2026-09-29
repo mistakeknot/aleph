@@ -36,6 +36,7 @@ function status(overrides: Partial<ConnectStatus> = {}): ConnectStatus {
     since: 1_700_000_000_000,
     remoteClients: 0,
     lastRemoteActivityAt: null,
+    relayBinding: false,
     shares: [],
     ...overrides,
   };

@@ -1524,6 +1524,7 @@ export const connectBinding = sqliteTable(
     serverId: text("server_id").notNull(),
     ownerUserId: text("owner_user_id").notNull(),
     boundAt: integer("bound_at").notNull(),
+    generation: text("generation").notNull().default(""),
   },
   (table) => [
     check("connect_binding_singleton_check", sql`${table.id} = 1`),

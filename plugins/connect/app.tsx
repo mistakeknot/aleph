@@ -89,6 +89,7 @@ function asStatus(payload: unknown): ConnectStatus | null {
     since?: unknown;
     remoteClients?: unknown;
     lastRemoteActivityAt?: unknown;
+    relayBinding?: unknown;
     shares?: unknown;
   };
   if (
@@ -149,6 +150,7 @@ function asStatus(payload: unknown): ConnectStatus | null {
       typeof record.lastRemoteActivityAt === "number"
         ? record.lastRemoteActivityAt
         : null,
+    relayBinding: record.relayBinding === true,
     shares,
   };
 }

@@ -1,6 +1,8 @@
 import {
   cancelRelayForHostTargetsInTransaction,
   cancelRelayForTargetInTransaction,
+  connectBindingsEqual,
+  getConnectBinding,
   insertRelayTarget,
   isActiveHostId,
   isLiveThreadId,
@@ -36,14 +38,27 @@ function requireHost(tx: DbTransaction, hostId: string): void {
 function consumeAssertion(
   tx: DbTransaction,
   assertion: VerifiedHumanAssertion,
-  now: number,
-): void {
+  nowFn: () => number,
+): number {
+  const now = nowFn();
+  if (
+    now >= assertion.expiresAtMs ||
+    now < assertion.keyNotBefore ||
+    now > assertion.keyNotAfter
+  ) {
+    throw humanSessionRequired();
+  }
+  const current = getConnectBinding(tx);
+  if (current === null || !connectBindingsEqual(current, assertion.binding)) {
+    throw humanSessionRequired();
+  }
   sweepExpiredGateAssertionUses(tx, now);
   const fresh = recordGateAssertionUse(tx, {
     jti: assertion.jti,
     expiresAt: assertion.expiresAtMs,
   });
   if (!fresh) throw humanSessionRequired();
+  return now;
 }
 
 export function notifyRelayCancellation(
@@ -64,7 +79,7 @@ export async function listRelayTargetsForHuman(
   const assertion = await verifyHumanAssertion(context, assertionDeps);
   return deps.db.transaction(
     (tx) => {
-      consumeAssertion(tx, assertion, (assertionDeps.now ?? Date.now)());
+      consumeAssertion(tx, assertion, assertionDeps.now ?? Date.now);
       requireHost(tx, hostId);
       return { targets: listRelayTargetDetailsForHost(tx, hostId) };
     },
@@ -79,10 +94,13 @@ export async function addRelayTargetForHuman(
   args: { hostId: string; threadId: string },
 ): Promise<void> {
   const assertion = await verifyHumanAssertion(context, assertionDeps);
-  const now = (assertionDeps.now ?? Date.now)();
   deps.db.transaction(
     (tx) => {
-      consumeAssertion(tx, assertion, now);
+      const now = consumeAssertion(
+        tx,
+        assertion,
+        assertionDeps.now ?? Date.now,
+      );
       requireHost(tx, args.hostId);
       if (!isLiveThreadId(tx, args.threadId)) {
         throw new ApiError(404, "thread_not_found", "Thread not found");
@@ -107,7 +125,7 @@ export async function removeRelayTargetForHuman(
   const assertion = await verifyHumanAssertion(context, assertionDeps);
   const result = deps.db.transaction(
     (tx) => {
-      consumeAssertion(tx, assertion, (assertionDeps.now ?? Date.now)());
+      consumeAssertion(tx, assertion, assertionDeps.now ?? Date.now);
       requireHost(tx, args.hostId);
       return cancelRelayForTargetInTransaction(
         tx,

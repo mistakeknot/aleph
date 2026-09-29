@@ -24,6 +24,7 @@ export interface ConnectStatus {
   since: number;
   remoteClients: number;
   lastRemoteActivityAt: number | null;
+  relayBinding: boolean;
   shares: ShareListing[];
 }
 

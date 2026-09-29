@@ -60,6 +60,8 @@ export interface VerifiedHumanAssertion {
   binding: ConnectBindingRow;
   expiresAtMs: number;
   jti: string;
+  keyNotAfter: number;
+  keyNotBefore: number;
 }
 
 export interface HumanAssertionDeps {
@@ -181,5 +183,11 @@ export async function verifyHumanAssertion(
 
   if ((await context.req.arrayBuffer()).byteLength !== 0) throw fail();
 
-  return { binding, expiresAtMs: claim.exp * 1000, jti: claim.jti };
+  return {
+    binding,
+    expiresAtMs: claim.exp * 1000,
+    jti: claim.jti,
+    keyNotAfter: key.notAfter,
+    keyNotBefore: key.notBefore,
+  };
 }
