@@ -10,13 +10,13 @@ import {
   RELAY_REQUEST_BODY_MAX_BYTES,
   RELAY_DAEMON_CONCURRENCY,
   classifyRelayParseError,
-  decodeRelayAttachments,
   relayErrorCodeSchema,
   relayTargetsRemoveRequestSchema,
   relayTellRequestSchema,
   type RelayErrorCode,
   type RelayErrorResponse,
 } from "@bb/host-daemon-contract/relay";
+import { decodeRelayAttachments } from "@bb/host-daemon-contract/relay-decode";
 import type { z } from "zod";
 import type { HostDaemonLogger } from "../logger.js";
 import { ServerResponseError, type ServerClient } from "../server-client.js";
