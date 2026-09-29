@@ -11,6 +11,7 @@ import {
   experimental_ProviderIcon as ProviderIcon,
   experimental_useSidebarThreads,
   type ExperimentalSidebarFooterDisclosureProps,
+  type PluginAppHeaderStatusProps,
   useBbContext,
 } from "@get-bb/plugin-sdk/app";
 import { Icon } from "@/components/ui/icon";
@@ -62,6 +63,8 @@ import {
 } from "./usage-feedback.js";
 
 import { UsageSettings } from "./settings.js";
+import { summarizeHeaderQuotas } from "./usage-header.js";
+import { ProviderUsageHeaderQuotas } from "./usage-header-status.js";
 
 export interface UsageStoreSnapshot {
   data: UsageSnapshot | null;
@@ -223,12 +226,16 @@ function formatResetCountdown(resetsAt: string | null): string | null {
   if (remaining <= 0) return "now";
   return formatUsageDuration(remaining);
 }
+type UsageTooltipSide = "top" | "right" | "bottom" | "left";
+
 function UsageWindow({
   window,
   now,
+  tooltipSide,
 }: {
   window: UsageWindowValue;
   now: number;
+  tooltipSide: UsageTooltipSide;
 }) {
   const reset = formatUsageReset(window.resetsAt);
   const countdown = formatResetCountdown(window.resetsAt);
@@ -327,7 +334,7 @@ function UsageWindow({
           </span>
         </div>
       </TooltipTrigger>
-      <TooltipContent side="right" align="start" className="space-y-0.5">
+      <TooltipContent side={tooltipSide} align="start" className="space-y-0.5">
         <p className="font-medium">{window.label}</p>
         <p>
           {value}
@@ -343,9 +350,11 @@ function UsageWindow({
 function ProviderUsageBody({
   provider,
   now,
+  tooltipSide,
 }: {
   provider: UsageProvider;
   now: number;
+  tooltipSide: UsageTooltipSide;
 }) {
   const usage = provider.usage;
   if (usage === null) {
@@ -360,7 +369,12 @@ function ProviderUsageBody({
       ) : (
         <div className="grid grid-cols-[minmax(0,max-content)_minmax(1.25rem,1fr)_max-content_max-content] gap-x-1.5 @[16rem]:grid-cols-[minmax(0,max-content)_minmax(1.25rem,1fr)_max-content_max-content_max-content]">
           {usage.windows.map((window) => (
-            <UsageWindow key={window.label} window={window} now={now} />
+            <UsageWindow
+              key={window.label}
+              window={window}
+              now={now}
+              tooltipSide={tooltipSide}
+            />
           ))}
         </div>
       );
@@ -462,12 +476,14 @@ function AccountUsage({
   now,
   showProvider = false,
   snapshot,
+  tooltipSide,
 }: {
   account: UsageProvider;
   machineError: string | null;
   now: number;
   showProvider?: boolean;
   snapshot: UsageStoreSnapshot;
+  tooltipSide: UsageTooltipSide;
 }) {
   const email =
     account.usage?.status === "ok" &&
@@ -537,7 +553,11 @@ function AccountUsage({
             {usageFeedbackMessages.unavailable}
           </p>
         ) : (
-          <ProviderUsageBody provider={account} now={now} />
+          <ProviderUsageBody
+            provider={account}
+            now={now}
+            tooltipSide={tooltipSide}
+          />
         )}
       </div>
     </AccountContainer>
@@ -549,10 +569,12 @@ export function ProviderUsageStatusContent({
   snapshot,
   threadMachineId,
   refreshEnabled = true,
+  tooltipSide = "right",
 }: ExperimentalSidebarFooterDisclosureProps & {
   snapshot: UsageStoreSnapshot;
   threadMachineId: string | null;
   refreshEnabled?: boolean;
+  tooltipSide?: UsageTooltipSide;
 }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -763,6 +785,7 @@ export function ProviderUsageStatusContent({
                     now={now}
                     showProvider
                     snapshot={snapshot}
+                    tooltipSide={tooltipSide}
                   />
                 ))
               : null}
@@ -819,6 +842,7 @@ export function ProviderUsageStatusContent({
                             machineError={activeMachine?.error ?? null}
                             now={now}
                             snapshot={snapshot}
+                            tooltipSide={tooltipSide}
                           />
                         ))}
                       </div>
@@ -833,20 +857,24 @@ export function ProviderUsageStatusContent({
   );
 }
 
+function useThreadMachineId(): string | null {
+  const { threadId } = useBbContext();
+  const sidebarThreads = experimental_useSidebarThreads();
+  return useMemo(
+    () =>
+      sidebarThreads.threads.find((thread) => thread.id === threadId)?.host
+        ?.id ?? null,
+    [sidebarThreads.threads, threadId],
+  );
+}
+
 function ProviderUsageStatus(props: ExperimentalSidebarFooterDisclosureProps) {
   const snapshot = useSyncExternalStore(
     subscribeStore,
     getStoreSnapshot,
     getStoreSnapshot,
   );
-  const { threadId } = useBbContext();
-  const sidebarThreads = experimental_useSidebarThreads();
-  const threadMachineId = useMemo(
-    () =>
-      sidebarThreads.threads.find((thread) => thread.id === threadId)?.host
-        ?.id ?? null,
-    [sidebarThreads.threads, threadId],
-  );
+  const threadMachineId = useThreadMachineId();
   return (
     <ProviderUsageStatusContent
       {...props}
@@ -856,8 +884,57 @@ function ProviderUsageStatus(props: ExperimentalSidebarFooterDisclosureProps) {
   );
 }
 
+function ProviderUsageHeaderStatus({
+  availableWidth,
+  isCompactViewport,
+}: PluginAppHeaderStatusProps) {
+  const snapshot = useSyncExternalStore(
+    subscribeStore,
+    getStoreSnapshot,
+    getStoreSnapshot,
+  );
+  const threadMachineId = useThreadMachineId();
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const quotas = useMemo(
+    () =>
+      summarizeHeaderQuotas(
+        selectUsageMachine(
+          snapshot.data?.machines ?? [],
+          lastMachineId,
+          threadMachineId,
+        ),
+        now,
+      ),
+    [snapshot.data, threadMachineId, now],
+  );
+  return (
+    <ProviderUsageHeaderQuotas
+      quotas={quotas}
+      availableWidth={availableWidth}
+      isCompactViewport={isCompactViewport}
+      renderPanel={(dismiss) => (
+        <ProviderUsageStatusContent
+          dismiss={dismiss}
+          snapshot={snapshot}
+          threadMachineId={threadMachineId}
+          tooltipSide="left"
+        />
+      )}
+    />
+  );
+}
+
 export default definePluginApp((app) => {
   app.slots.settingsSection({ id: "usage", component: UsageSettings });
+  app.slots.experimental_appHeaderStatus({
+    id: "quota",
+    title: "Provider usage",
+    component: ProviderUsageHeaderStatus,
+  });
   app.experimental_sidebarFooter.register({
     kind: "disclosure",
     id: "usage",

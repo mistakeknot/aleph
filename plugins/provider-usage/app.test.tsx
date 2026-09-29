@@ -668,7 +668,7 @@ describe("provider usage panel layout", () => {
     };
   }
 
-  function renderPanel() {
+  function renderPanel(tooltipSide?: "left" | "bottom") {
     const machine: UsageMachine = {
       id: "source:pool",
       displayName: "Account Pooler",
@@ -689,9 +689,24 @@ describe("provider usage panel layout", () => {
         }}
         threadMachineId={null}
         refreshEnabled={false}
+        tooltipSide={tooltipSide}
       />,
     );
   }
+
+  it.each([
+    [undefined, "right"],
+    ["left" as const, "left"],
+  ])("opens window tooltips on the %s side (%s)", async (side, expected) => {
+    const view = renderPanel(side);
+    fireEvent.click(view.getAllByText("5h")[0]!);
+    const tip = await waitFor(() => {
+      const found = document.querySelector("[data-side]");
+      expect(found).not.toBeNull();
+      return found!;
+    });
+    expect(tip.getAttribute("data-side")).toBe(expected);
+  });
 
   it("never scrolls sideways, so a narrow sidebar cannot clip the left edge", () => {
     const view = renderPanel();

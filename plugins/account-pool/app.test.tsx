@@ -851,45 +851,25 @@ function codexAccount(
 }
 
 describe("Account Pool header status", () => {
-  it("shows one chip per provider with the tightest window's percent", async () => {
+  it("shows only the Zap icon with routing-on state when every provider routes", async () => {
     const slot = renderHeaderStatus([
       account({ provider: "claude", fiveHourUtilization: 0.4 }),
       codexAccount(0.1),
     ]);
-    expect(await slot.findByText("40%")).toBeTruthy();
-    expect(slot.getByText("10%")).toBeTruthy();
+    const button = await slot.findByTestId("account-pool-header-status");
+    expect(button.getAttribute("aria-label")).toBe(
+      "Account Pooler status: routing on",
+    );
+    expect(slot.queryByText("40%")).toBeNull();
+    expect(slot.queryByText("off")).toBeNull();
+    expect(slot.queryByText("none")).toBeNull();
   });
 
-  it("renders the default tone below the switch threshold", async () => {
-    const slot = renderHeaderStatus([account({ fiveHourUtilization: 0.5 })], {
-      configOverrides: { switchThreshold: 0.9 },
-    });
-    const percent = await slot.findByText("50%");
-    expect(percent.className).toContain("text-foreground");
-  });
-
-  it("renders the warning tone at threshold minus 0.1", async () => {
-    const slot = renderHeaderStatus([account({ fiveHourUtilization: 0.8 })], {
-      configOverrides: { switchThreshold: 0.9 },
-    });
-    const percent = await slot.findByText("80%");
-    expect(percent.className).toContain("text-warning-text");
-  });
-
-  it("renders the destructive tone at full utilization", async () => {
-    const slot = renderHeaderStatus([account({ fiveHourUtilization: 1 })], {
-      configOverrides: { switchThreshold: 0.9 },
-    });
-    const percent = await slot.findByText("100%");
-    expect(percent.className).toContain("text-destructive-text");
-  });
-
-  it("renders the destructive tone when the window is rejected", async () => {
-    const slot = renderHeaderStatus([
-      account({ fiveHourUtilization: 0.2, fiveHourStatus: "rejected" }),
-    ]);
-    const percent = await slot.findByText("20%");
-    expect(percent.className).toContain("text-destructive-text");
+  it("says none when a provider has no connected accounts", async () => {
+    const slot = renderHeaderStatus([account({ fiveHourUtilization: 0.4 })]);
+    expect(await slot.findByText("none")).toBeTruthy();
+    const button = slot.getByTestId("account-pool-header-status");
+    expect(button.getAttribute("aria-label")).toContain("Codex none");
   });
 
   it("says off when routing is disabled for a provider", async () => {
@@ -1054,19 +1034,25 @@ describe("Account Pool header status", () => {
     expect(slot.openSettings).toHaveBeenCalledTimes(1);
   });
 
-  it("collapses to a single icon and the worst percent on a compact viewport", async () => {
-    const slot = renderHeaderStatus(
-      [
-        account({ provider: "claude", fiveHourUtilization: 0.4 }),
-        codexAccount(0.9),
-      ],
-      { isCompactViewport: true },
+  it("collapses to the icon and a state count on a compact viewport", async () => {
+    const slot = renderHeaderStatus([account({ fiveHourUtilization: 0.4 })], {
+      isCompactViewport: true,
+      threadId: "thread-1",
+      extraRpc: {
+        "bypass.get": () => ({ threadId: "thread-1", bypassed: true }),
+      },
+    });
+    const button = await slot.findByTestId("account-pool-header-status");
+    await waitFor(() =>
+      expect(button.getAttribute("aria-label")).toBe(
+        "Account Pooler status: Codex none, bypassed",
+      ),
     );
-    expect(await slot.findByText("90%")).toBeTruthy();
-    expect(slot.queryByText("40%")).toBeNull();
+    expect(button.textContent).toBe("2");
+    expect(slot.queryByText(/^Codex$/)).toBeNull();
   });
 
-  it("excludes a routing-disabled provider from the compact-viewport worst percent", async () => {
+  it("keeps routing-off reachable in the collapsed label", async () => {
     const slot = renderSlot(
       app.appHeaderStatuses[0]!,
       {
@@ -1079,10 +1065,7 @@ describe("Account Pool header status", () => {
       {
         rpc: {
           "status.get": () => ({
-            ...status([
-              account({ provider: "claude", fiveHourUtilization: 0.4 }),
-              codexAccount(0.9),
-            ]),
+            ...status([account({ provider: "claude" }), codexAccount(0.9)]),
             routing: { claude: true, codex: false },
           }),
           "config.get": () => config(),
@@ -1091,57 +1074,36 @@ describe("Account Pool header status", () => {
         openUrl: () => true,
       },
     );
-    expect(await slot.findByText("40%")).toBeTruthy();
-    expect(slot.queryByText("90%")).toBeNull();
-  });
-
-  it("shows the persisted active account's percent instead of the first ready account", async () => {
-    const active = account({
-      id: "33333333-3333-4333-8333-333333333333",
-      provider: "claude",
-      fiveHourUtilization: 0.9,
-    });
-    const slot = renderSlot(
-      app.appHeaderStatuses[0]!,
-      {
-        threadId: null,
-        projectId: null,
-        isCompactViewport: false,
-        availableWidth: 600,
-        openSettings: vi.fn(),
-      },
-      {
-        rpc: {
-          "status.get": () => ({
-            ...status([
-              account({ provider: "claude", fiveHourUtilization: 0.4 }),
-              active,
-            ]),
-            activeAccountIds: { claude: active.id, codex: null },
-          }),
-          "config.get": () => config(),
-          "bypass.get": () => ({ threadId: "", bypassed: false }),
-        },
-        openUrl: () => true,
-      },
+    const button = await slot.findByTestId("account-pool-header-status");
+    expect(button.getAttribute("aria-label")).toBe(
+      "Account Pooler status: Codex off",
     );
-    expect(await slot.findByText("90%")).toBeTruthy();
-    expect(slot.queryByText("40%")).toBeNull();
   });
 
-  it("collapses to a single icon when available width is too narrow", async () => {
+  it("collapses when available width is too narrow", async () => {
     const slot = renderHeaderStatus([account({ fiveHourUtilization: 0.4 })], {
       availableWidth: 150,
     });
-    expect(await slot.findByText("40%")).toBeTruthy();
-    expect(slot.queryByText(/^Claude$/)).toBeNull();
+    const button = await slot.findByTestId("account-pool-header-status");
+    expect(button.textContent).toBe("1");
+    expect(slot.queryByText(/^Codex$/)).toBeNull();
   });
 
   it("does not collapse when available width is ample", async () => {
     const slot = renderHeaderStatus([account({ fiveHourUtilization: 0.4 })], {
       availableWidth: 600,
     });
-    expect(await slot.findByText("40%")).toBeTruthy();
-    expect(slot.getByText(/^Claude$/)).toBeTruthy();
+    expect(await slot.findByText("none")).toBeTruthy();
+    expect(slot.getByText(/^Codex$/)).toBeTruthy();
+  });
+
+  it("opens the per-account detail on focus", async () => {
+    const slot = renderHeaderStatus([
+      account({ provider: "claude", fiveHourUtilization: 0.4 }),
+    ]);
+    const button = await slot.findByTestId("account-pool-header-status");
+    fireEvent.focus(button);
+    expect(await slot.findByText("No accounts connected.")).toBeTruthy();
+    expect(slot.getAllByText(/40%/).length).toBeGreaterThan(0);
   });
 });

@@ -59,7 +59,7 @@ export function AppHeaderStatusStrip({
       ref={containerRef}
       data-testid="app-header-status-strip"
       className={cn(
-        "flex min-w-0 flex-1 shrink items-center justify-end overflow-hidden",
+        "ml-auto flex min-w-0 flex-1 shrink items-center justify-end overflow-hidden",
         isCompactViewport ? "max-w-[40%]" : "max-w-[60%]",
       )}
       style={{ gap: `${effectiveGapPx}px` }}

@@ -3451,7 +3451,7 @@ renders no header row today and is out of scope.
 Audit before stabilizing: whether cross-plugin ordering should be explicit
 instead of alphabetical-by-plugin-id, whether the strip's 60%-of-row (40% on
 compact viewports) width cap and the even per-contribution `availableWidth`
-split generalize past the Account Pooler's chips (an uneven or
+split generalize past the Account Pooler chip and Provider Usage quota readout (an uneven or
 priority-weighted split may suit multiple simultaneous contributors
 better), whether `openSettings` should support in-place panels instead of
 always navigating away, and whether root compose should eventually get a
