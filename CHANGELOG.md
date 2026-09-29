@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.44.0+aleph.0.5.1
+
+Aleph 0.5.1 is a patch on Aleph 0.5.0, on the same upstream bb 0.44.0
+base (`desktop-v0.44.0`, commit `0baa605b3`).
+
+### Highlights
+
+- **The composer no longer gets stuck after a reconnect.** When the
+  connection to the server dropped and came back, the message box could stay
+  disabled until you reloaded. Updates that arrive during the reconnect are
+  now picked up, and the composer waits only for a successful check of
+  pending approvals. If that check fails or takes longer than 5 seconds, the
+  composer says so and offers Retry.
+
+### Desktop
+
+- **Renderer diagnostics log.** The Aleph desktop app writes connection,
+  reconnect and composer-state events to
+  `~/Library/Logs/Aleph/aleph-renderer-YYYY-MM-DD.log`, keeping 5 days of
+  files of up to 5 MiB each. It records ids, codes and fixed categories only,
+  never message or console text.
+
 ## 0.44.0+aleph.0.5.0
 
 Aleph 0.5.0 syncs to upstream bb 0.44.0 (`desktop-v0.44.0`, commit
