@@ -840,6 +840,26 @@ function refreshApplicationMenu(): void {
         stateKey: null,
       });
     },
+    goBack() {
+      const browserWindow = getFocusedApplicationWindow();
+      if (browserWindow !== null) {
+        sendToApplicationRenderer(
+          browserWindow,
+          BB_DESKTOP_APP_COMMAND_CHANNEL,
+          "history.back",
+        );
+      }
+    },
+    goForward() {
+      const browserWindow = getFocusedApplicationWindow();
+      if (browserWindow !== null) {
+        sendToApplicationRenderer(
+          browserWindow,
+          BB_DESKTOP_APP_COMMAND_CHANNEL,
+          "history.forward",
+        );
+      }
+    },
     openAbout() {
       void showAboutDialog();
     },

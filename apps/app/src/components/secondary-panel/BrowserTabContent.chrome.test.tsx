@@ -12,12 +12,22 @@ import type {
   BbDesktopBrowserApi,
   BbDesktopBrowserState,
 } from "@bb/desktop-contract";
+import { useEffect } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createBbDesktopApi,
   createNoopDesktopBrowserApi,
 } from "@/test/bb-desktop-test-utils";
+import {
+  AppCommandProvider,
+  useAppCommandRunner,
+  type AppCommandRunner,
+} from "@/components/commands/AppCommandProvider";
 import { BrowserTabContent } from "./BrowserTabContent";
+
+vi.mock("@/hooks/queries/system-queries", () => ({
+  useSystemConfig: () => ({ data: undefined }),
+}));
 
 const desktopInfo = {
   lastCheckedAt: null,
@@ -161,6 +171,57 @@ describe("BrowserTabContent persistent navigation", () => {
     act(() => harness.emitState(browserState({ canGoBack: true })));
     fireEvent.click(screen.getByRole("button", { name: "Go back" }));
     expect(harness.goBack).toHaveBeenCalledWith("browser:test");
+  });
+
+  it("routes browser back and forward commands to the tab only when it can navigate", () => {
+    const harness = createBrowserChromeHarness();
+    const goForward = vi.fn();
+    harness.api.goForward = goForward;
+    const captured: { runner: AppCommandRunner | null } = { runner: null };
+    function Capture() {
+      const runner = useAppCommandRunner();
+      useEffect(() => {
+        captured.runner = runner;
+      }, [runner]);
+      return null;
+    }
+    window.bbDesktop = createBbDesktopApi(desktopInfo, harness.api);
+    render(
+      <AppCommandProvider>
+        <Capture />
+        <BrowserTabContent
+          tabId="browser:test"
+          initialUrl="https://example.com/docs"
+          addressFocusRequest={null}
+          canHandleBrowserCommands
+          canShowNativeBrowserView={false}
+          visibilityCoordinator={null}
+          environmentId={null}
+          threadId="thread-1"
+          onUpdate={() => {}}
+        />
+      </AppCommandProvider>,
+    );
+
+    let handled = true;
+    act(() => {
+      handled = captured.runner?.dispatch("browser.back", null) ?? true;
+    });
+    expect(handled).toBe(false);
+    expect(harness.goBack).not.toHaveBeenCalled();
+
+    act(() =>
+      harness.emitState(browserState({ canGoBack: true, canGoForward: true })),
+    );
+    act(() => {
+      handled = captured.runner?.dispatch("browser.back", null) ?? false;
+    });
+    expect(handled).toBe(true);
+    expect(harness.goBack).toHaveBeenCalledWith("browser:test");
+    act(() => {
+      captured.runner?.dispatch("browser.forward", null);
+    });
+    expect(goForward).toHaveBeenCalledWith("browser:test");
   });
 
   it.each(["Stop", "Take over"])(

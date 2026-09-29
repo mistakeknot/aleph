@@ -431,6 +431,30 @@ uses `Mod+1…9`. The web aliases leave native browser `Mod+1…9` tab switching
 untouched. Previous and next thread use `Mod+Shift+[/]` on desktop and
 `Control+Shift+[/]` on the web.
 
+Navigation history uses `history.back` / `history.forward` with `Mod+[` and
+`Mod+]` (Command on macOS) on desktop only, like Chrome; the desktop Go menu
+has matching Back and Forward items. The web build leaves the chords to the
+browser's own back and forward. Both are ignored while focus is in a text
+input, textarea, contenteditable element (the composer included), or the
+terminal, where `Mod+[` / `Mod+]` may mean outdent or indent. When the
+in-panel browser has focus, the same chords first run `browser.back` /
+`browser.forward` on that page and fall through to app history when the page
+cannot go back or forward. They are ignored while the browser address input or
+a text field inside the page has focus, including fields inside open shadow
+roots and same-origin iframes. The page cannot be inspected inside a
+cross-origin iframe or a closed shadow root, so focus on such an iframe or on a
+custom element (tag name with a hyphen) that exposes no shadow root is treated as
+possible text entry and the chords are ignored. A closed shadow root hosted by a
+non-hyphenated element is undetectable and does not block the chords.
+
+The Go menu items always move app history, because a menu click is an explicit
+request. On Linux and Windows they show the chord with `registerAccelerator:
+false`, so the renderer keydown is the only chord path. macOS ignores
+`registerAccelerator: false`, so the macOS items carry no accelerator at all and
+show the chord in their label text; the renderer keydown, which applies the
+focus rules above, is then the only path a chord takes and one chord can never
+navigate twice. The macOS menu behavior has not been verified on a Mac.
+
 On macOS, right-panel tabs use `panel.previousTab` / `panel.nextTab` with
 `Command+Control+ArrowLeft` / `Command+Control+ArrowRight`. They wrap through visible
 tabs and each pane's New tab button in displayed order across the active

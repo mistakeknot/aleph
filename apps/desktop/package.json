@@ -52,6 +52,7 @@
     "@types/ws": "^8.18.1",
     "electron": "44.3.0",
     "electron-builder": "^26.15.7",
+    "jsdom": "^29.0.1",
     "electron-builder-squirrel-windows": "26.15.7",
     "esbuild": "^0.28.0",
     "rimraf": "^6.1.0",

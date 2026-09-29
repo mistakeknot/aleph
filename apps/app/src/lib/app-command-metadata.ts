@@ -91,6 +91,16 @@ export const APP_COMMAND_GROUPS: readonly AppCommandGroup[] = [
         "Back to app",
         "Return from Settings, Plugins, or Skills to the app.",
       ),
+      command(
+        "history.back",
+        "Back",
+        "Go back to the previous view in navigation history. Ignored while typing, in the terminal, or in the browser panel.",
+      ),
+      command(
+        "history.forward",
+        "Forward",
+        "Go forward to the next view in navigation history. Ignored while typing, in the terminal, or in the browser panel.",
+      ),
       command("settings.open", "Open settings", "Open bb settings."),
       command(
         "settings.openServers",
@@ -298,6 +308,16 @@ export const APP_COMMAND_GROUPS: readonly AppCommandGroup[] = [
         "browser.reload",
         "Reload page",
         "Reload the active embedded browser page.",
+      ),
+      command(
+        "browser.back",
+        "Browser back",
+        "Go back in the embedded browser page while the browser panel is focused.",
+      ),
+      command(
+        "browser.forward",
+        "Browser forward",
+        "Go forward in the embedded browser page while the browser panel is focused.",
       ),
       command(
         "browser.find",
