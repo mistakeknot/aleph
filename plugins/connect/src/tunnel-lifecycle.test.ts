@@ -189,11 +189,141 @@ describe("ConnectTunnel pairing relay binding", () => {
     }
   });
 
+  it("persists the relay identity atomically with the credential", async () => {
+    stubRedeem();
+    const write = vi.fn(async () => {});
+    const { fakeHost, tunnel } = createTunnelFixture({
+      bindRelayIdentity: () => {},
+      store: { read: async () => null, write, clear: async () => {} },
+    });
+    try {
+      await tunnel.pair({ code: "ABCD", baseUrl: "https://getbb.app" });
+      expect(write).toHaveBeenCalledWith(
+        expect.objectContaining({ credential: "bbcred_new" }),
+        {
+          baseUrl: "https://getbb.app",
+          ownerUserId: "user_new",
+          serverId: "srv_new",
+        },
+      );
+    } finally {
+      tunnel.stop();
+      await fakeHost.harness.dispose();
+    }
+  });
+
   it("reports relayBinding from the core identity", async () => {
     const { fakeHost, tunnel } = createTunnelFixture({
       hasRelayIdentity: () => true,
     });
     try {
+      expect(tunnel.status().relayBinding).toBe(true);
+    } finally {
+      tunnel.stop();
+      await fakeHost.harness.dispose();
+    }
+  });
+});
+
+describe("ConnectTunnel startup relay reconciliation", () => {
+  afterEach(() => {
+    fakeWebSockets.instances.length = 0;
+    fakeWebSockets.options.length = 0;
+    vi.useRealTimers();
+  });
+
+  const oldIdentity = {
+    baseUrl: "https://getbb.app",
+    ownerUserId: "user_old",
+    serverId: "srv_old",
+  };
+
+  it("restores the stored identity after a crash between bind and credential write", async () => {
+    const calls: { ownerUserId: string; serverId: string }[] = [];
+    const { fakeHost, tunnel } = createTunnelFixture({
+      bindRelayIdentity: (binding) => {
+        calls.push(binding);
+      },
+      store: {
+        read: async () => ({
+          serverUrl: "https://sawyer.getbb.app",
+          handle: "sawyer",
+          credential: "bbcred_old",
+        }),
+        readRelayIdentity: async () => oldIdentity,
+        write: async () => {},
+        clear: async () => {},
+      },
+    });
+    try {
+      await tunnel.start();
+      expect(calls).toEqual([oldIdentity]);
+    } finally {
+      tunnel.stop();
+      await fakeHost.harness.dispose();
+    }
+  });
+
+  it("clears the binding when the stored credential carries no identity", async () => {
+    const calls: { ownerUserId: string }[] = [];
+    const { fakeHost, tunnel } = createTunnelFixture({
+      bindRelayIdentity: (binding) => {
+        calls.push(binding);
+      },
+      hasRelayIdentity: () => true,
+    });
+    try {
+      await tunnel.start();
+      expect(calls.map((call) => call.ownerUserId)).toEqual([""]);
+    } finally {
+      tunnel.stop();
+      await fakeHost.harness.dispose();
+    }
+  });
+
+  it("clears the binding at startup when no credential is stored", async () => {
+    const calls: { ownerUserId: string }[] = [];
+    const { fakeHost, tunnel } = createTunnelFixture({
+      bindRelayIdentity: (binding) => {
+        calls.push(binding);
+      },
+      store: {
+        read: async () => null,
+        write: async () => {},
+        clear: async () => {},
+      },
+    });
+    try {
+      await tunnel.start();
+      expect(calls.map((call) => call.ownerUserId)).toEqual([""]);
+    } finally {
+      tunnel.stop();
+      await fakeHost.harness.dispose();
+    }
+  });
+
+  it("reports relayBinding false and retries when clearing failed", async () => {
+    vi.useFakeTimers();
+    let failing = true;
+    const calls: { ownerUserId: string }[] = [];
+    const { fakeHost, tunnel } = createTunnelFixture({
+      bindRelayIdentity: (binding) => {
+        calls.push(binding);
+        if (failing) throw new Error("db locked");
+      },
+      hasRelayIdentity: () => true,
+      store: {
+        read: async () => null,
+        write: async () => {},
+        clear: async () => {},
+      },
+    });
+    try {
+      await tunnel.start();
+      expect(tunnel.status().relayBinding).toBe(false);
+      failing = false;
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(calls).toHaveLength(2);
       expect(tunnel.status().relayBinding).toBe(true);
     } finally {
       tunnel.stop();

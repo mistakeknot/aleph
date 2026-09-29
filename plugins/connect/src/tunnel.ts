@@ -40,6 +40,7 @@ const TUNNEL_HANDSHAKE_TIMEOUT_MS = 10_000;
 const TUNNEL_CLOSE_GRACE_MS = 1_000;
 const TUNNEL_CLEAN_CLOSE_CODE = 1000;
 const TUNNEL_REPLACED_RETRY_MS = 5 * 60_000;
+const RELAY_RECONCILE_RETRY_MS = 30_000;
 
 async function notifyCloudOfDisconnect(
   credential: ConnectCredential,
@@ -89,6 +90,8 @@ export class ConnectTunnel {
   private nextRetryAt: number | null = null;
   private shareRetryTimer: ReturnType<typeof setTimeout> | undefined;
   private shareActivationEpoch = 0;
+  private relayUnreconciled = false;
+  private relayReconcileTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(private readonly options: ConnectTunnelOptions) {}
 
@@ -98,6 +101,7 @@ export class ConnectTunnel {
 
   async start(): Promise<void> {
     const stored = await this.options.store.read();
+    await this.reconcileRelayIdentity(stored);
     if (stored) {
       this.credential = stored;
       this.stopped = false;
@@ -105,6 +109,52 @@ export class ConnectTunnel {
     }
     this.startShareActivation();
     this.publish();
+  }
+
+  private async reconcileRelayIdentity(
+    stored: ConnectCredential | null,
+  ): Promise<void> {
+    if (this.options.bindRelayIdentity === undefined) return;
+    if (this.relayReconcileTimer) {
+      clearTimeout(this.relayReconcileTimer);
+      this.relayReconcileTimer = undefined;
+    }
+    try {
+      const identity =
+        stored === null
+          ? null
+          : ((await this.options.store.readRelayIdentity?.()) ?? null);
+      if (identity === null) {
+        this.options.bindRelayIdentity({
+          baseUrl: this.options.defaultBaseUrl,
+          ownerUserId: "",
+          serverId: "",
+        });
+      } else {
+        this.options.bindRelayIdentity(identity);
+      }
+      this.relayUnreconciled = false;
+    } catch (error) {
+      this.markRelayUnreconciled(error);
+    }
+  }
+
+  private markRelayUnreconciled(error: unknown): void {
+    this.relayUnreconciled = true;
+    this.options.log.error(
+      `relay identity is not reconciled with the stored credential: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+    if (this.relayReconcileTimer) return;
+    this.relayReconcileTimer = setTimeout(() => {
+      this.relayReconcileTimer = undefined;
+      void this.options.store
+        .read()
+        .then((stored) => this.reconcileRelayIdentity(stored))
+        .catch((readError: unknown) => this.markRelayUnreconciled(readError))
+        .finally(() => this.publish());
+    }, RELAY_RECONCILE_RETRY_MS);
   }
 
   async pair(args: {
@@ -154,12 +204,22 @@ export class ConnectTunnel {
         throw error;
       }
       try {
-        await this.options.store.write(credential);
+        await this.options.store.write(
+          credential,
+          redeemed.ownerUserId !== "" && redeemed.serverId !== ""
+            ? {
+                baseUrl,
+                ownerUserId: redeemed.ownerUserId,
+                serverId: redeemed.serverId,
+              }
+            : undefined,
+        );
       } catch (error) {
         this.clearRelayIdentity();
         throw error;
       }
       this.credential = credential;
+      this.relayUnreconciled = false;
       this.lastError = null;
       this.reconnect();
       this.startShareActivation();
@@ -178,11 +238,7 @@ export class ConnectTunnel {
         serverId: "",
       });
     } catch (error) {
-      this.options.log.error(
-        `failed to clear the relay identity: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
+      this.markRelayUnreconciled(error);
     }
   }
 
@@ -280,7 +336,8 @@ export class ConnectTunnel {
       since: this.stateSince,
       remoteClients: this.remoteClients,
       lastRemoteActivityAt: this.lastRemoteActivityAt,
-      relayBinding: this.options.hasRelayIdentity?.() ?? false,
+      relayBinding:
+        !this.relayUnreconciled && (this.options.hasRelayIdentity?.() ?? false),
       shares,
     };
   }
@@ -294,6 +351,10 @@ export class ConnectTunnel {
   }
 
   stop(): void {
+    if (this.relayReconcileTimer) {
+      clearTimeout(this.relayReconcileTimer);
+      this.relayReconcileTimer = undefined;
+    }
     this.teardown();
     this.publish();
   }
