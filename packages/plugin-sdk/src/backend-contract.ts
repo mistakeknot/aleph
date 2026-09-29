@@ -497,8 +497,8 @@ export interface PluginServerAccess {
    * Without `replaceExisting`, core only adopts a binding that matches the
    * request or that this process last observed; a binding owned by a
    * different identity throws a `ConnectBindingConflictError` and stays
-   * untouched. `replaceExisting` is for an explicit operator pair or
-   * disconnect only.
+   * untouched. `replaceExisting` is for an explicit operator pair only; unpair and
+   * rollback clear against the generation this process observed.
    */
   bindRelayIdentity(
     binding: {

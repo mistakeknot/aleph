@@ -301,4 +301,170 @@ describe("ConnectTunnel reconcile against a shared relay binding", () => {
       await fakeHost.harness.dispose();
     }
   });
+
+  describe("explicit pair rollback and disconnect", () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    const redeemedA = {
+      credential: "bbcred_a",
+      handle: "sawyer",
+      ownerUserId: "user_a",
+      serverId: "srv_a",
+    };
+
+    function stubRedeem() {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => Response.json(redeemedA)),
+      );
+    }
+
+    function sharedDbs() {
+      const file = join(
+        mkdtempSync(join(tmpdir(), "relay-explicit-")),
+        "bb.db",
+      );
+      initDb(file).$client.close();
+      const hub = new Proxy({}, { get: () => () => {} }) as never;
+      return {
+        dbA: createConnection(file),
+        dbB: createConnection(file),
+        hub,
+      };
+    }
+
+    function tunnelWithWrite(
+      dbA: ReturnType<typeof createConnection>,
+      hub: never,
+      write: () => Promise<void>,
+    ) {
+      return createTunnelFixture({
+        bindRelayIdentity: (binding: never, options: never) => {
+          bindConnectRelayIdentity({ db: dbA, hub }, binding, options);
+        },
+        markRelayIdentityReconciled: (reconciled: boolean) =>
+          markConnectRelayIdentityReconciled({ db: dbA }, reconciled),
+        hasRelayIdentity: () => hasConnectRelayIdentity({ db: dbA }),
+        store: {
+          read: async () => null,
+          readSnapshot: async () => ({ credential: null, relayIdentity: null }),
+          write,
+          clear: async () => {},
+        },
+      });
+    }
+
+    function bindB(dbB: ReturnType<typeof createConnection>, hub: never) {
+      markConnectRelayIdentityReconciled({ db: dbB }, false);
+      bindConnectRelayIdentity({ db: dbB, hub }, identityB, {
+        replaceExisting: true,
+      });
+      markConnectRelayIdentityReconciled({ db: dbB }, true);
+      const fixture = seedThreadFixture({ deps: { db: dbB, hub } });
+      insertRelayTarget(dbB, {
+        createdByUserId: "user_b",
+        hostId: fixture.host.id,
+        threadId: fixture.thread.id,
+      });
+      return fixture;
+    }
+
+    it("does not let A's failed pair write roll back B's newer binding", async () => {
+      stubRedeem();
+      const { dbA, dbB, hub } = sharedDbs();
+      let failWrite: () => void = () => {};
+      let fixture: ReturnType<typeof bindB> | undefined;
+      let inWrite: () => void = () => {};
+      const writing = new Promise<void>((resolve) => {
+        inWrite = resolve;
+      });
+      const { fakeHost, tunnel } = await tunnelWithWrite(
+        dbA,
+        hub,
+        () =>
+          new Promise<void>((_resolve, reject) => {
+            failWrite = () => reject(new Error("write failed"));
+            inWrite();
+          }),
+      );
+      try {
+        const pairing = (
+          tunnel as never as {
+            pair(args: { code: string }): Promise<unknown>;
+          }
+        ).pair({ code: "code" });
+        await writing;
+        fixture = bindB(dbB, hub);
+        const before = getConnectBinding(dbB)!;
+        failWrite();
+        await expect(pairing).rejects.toThrow("write failed");
+        expect(getConnectBinding(dbB)).toEqual(before);
+        expect(
+          getRelayTarget(dbB, fixture.host.id, fixture.thread.id),
+        ).not.toBeNull();
+      } finally {
+        tunnel.stop();
+        await fakeHost.harness.dispose();
+      }
+    });
+
+    it("does not let a stale A disconnect clear B's live binding", async () => {
+      stubRedeem();
+      const { dbA, dbB, hub } = sharedDbs();
+      const { fakeHost, tunnel } = await tunnelWithWrite(
+        dbA,
+        hub,
+        async () => {},
+      );
+      try {
+        await (
+          tunnel as never as {
+            pair(args: { code: string }): Promise<unknown>;
+          }
+        ).pair({ code: "code" });
+        expect(getConnectBinding(dbA)?.serverId).toBe("srv_a");
+        const fixture = bindB(dbB, hub);
+        const before = getConnectBinding(dbB)!;
+        await (
+          tunnel as never as { disconnect(): Promise<unknown> }
+        ).disconnect();
+        expect(getConnectBinding(dbB)).toEqual(before);
+        expect(
+          getRelayTarget(dbB, fixture.host.id, fixture.thread.id),
+        ).not.toBeNull();
+      } finally {
+        tunnel.stop();
+        await fakeHost.harness.dispose();
+      }
+    });
+
+    it("still clears A's own binding on its own pair-write failure and disconnect", async () => {
+      stubRedeem();
+      const { dbA, hub } = sharedDbs();
+      let failing = true;
+      const { fakeHost, tunnel } = await tunnelWithWrite(dbA, hub, async () => {
+        if (failing) throw new Error("write failed");
+      });
+      const api = tunnel as never as {
+        pair(args: { code: string }): Promise<unknown>;
+        disconnect(): Promise<unknown>;
+      };
+      try {
+        await expect(api.pair({ code: "code" })).rejects.toThrow(
+          "write failed",
+        );
+        expect(getConnectBinding(dbA)).toBeNull();
+        failing = false;
+        await api.pair({ code: "code" });
+        expect(getConnectBinding(dbA)?.serverId).toBe("srv_a");
+        await api.disconnect();
+        expect(getConnectBinding(dbA)).toBeNull();
+      } finally {
+        tunnel.stop();
+        await fakeHost.harness.dispose();
+      }
+    });
+  });
 });

@@ -169,7 +169,10 @@ export class ConnectTunnel {
 
   private markRelayUnreconciled(error: unknown): void {
     this.relayUnreconciled = true;
-    if (error instanceof Error && error.name === "ConnectBindingConflictError") {
+    if (
+      error instanceof Error &&
+      error.name === "ConnectBindingConflictError"
+    ) {
       this.relayConflict = true;
       this.options.log.error(
         "relay binding belongs to a different Connect identity; leaving it untouched and staying fenced. Re-pair this bb to take it over.",
@@ -241,7 +244,7 @@ export class ConnectTunnel {
             { replaceExisting: true },
           );
         } catch (error) {
-          this.clearRelayIdentity(true);
+          this.clearRelayIdentity();
           this.options.log.warn(
             `pair failed while binding relay identity: ${
               error instanceof Error ? error.message : String(error)
@@ -252,7 +255,7 @@ export class ConnectTunnel {
         try {
           await this.options.store.write(credential, identity);
         } catch (error) {
-          this.clearRelayIdentity(true);
+          this.clearRelayIdentity();
           throw error;
         }
         try {
@@ -276,18 +279,15 @@ export class ConnectTunnel {
     return this.status();
   }
 
-  private clearRelayIdentity(explicit: boolean): void {
+  private clearRelayIdentity(): void {
     try {
       this.options.markRelayIdentityReconciled?.(false);
-      this.options.bindRelayIdentity?.(
-        {
-          baseUrl: this.options.defaultBaseUrl,
-          ownerUserId: "",
-          serverId: "",
-        },
-        explicit ? { replaceExisting: true } : undefined,
-      );
-      if (explicit) this.relayConflict = false;
+      this.options.bindRelayIdentity?.({
+        baseUrl: this.options.defaultBaseUrl,
+        ownerUserId: "",
+        serverId: "",
+      });
+      this.relayConflict = false;
     } catch (error) {
       this.markRelayUnreconciled(error);
     }
@@ -297,7 +297,7 @@ export class ConnectTunnel {
     const credential = this.credential;
     this.teardown();
     await this.serialize(async () => {
-      this.clearRelayIdentity(true);
+      this.clearRelayIdentity();
       await this.options.store.clear();
     });
     this.options.shares.clearMachineDeclarations();
@@ -509,7 +509,7 @@ export class ConnectTunnel {
     this.teardown();
     this.publish();
     void this.serialize(async () => {
-      this.clearRelayIdentity(false);
+      this.clearRelayIdentity();
       await this.options.store.clear();
     }).catch((error: unknown) => {
       this.options.log.warn(

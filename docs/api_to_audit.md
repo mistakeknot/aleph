@@ -3096,9 +3096,12 @@ own throws `ConnectBindingConflictError` and changes nothing, and the same
 holds for the empty identity Connect binds when it has no credential, so a
 process without a stored identity can never clear or replace a bound row. Connect
 reports this as `relayConflict` in its status, stays fenced and retries. Only the
-explicit operator pair and disconnect flows pass `{ replaceExisting: true }` to
-take over or clear a differing binding; the startup and retry cycle and
-credential rejection never do. A restarted process holding the same identity as
+explicit operator pair passes `{ replaceExisting: true }`, at its bind
+transaction, to take over a differing binding. Pair-failure rollback, disconnect,
+the startup and retry cycle and credential rejection never do: they clear only
+the generation this process installed or observed, so a stale process's
+cleanup or disconnect leaves a newer binding and its relay targets untouched
+and Connect reports the conflict. A restarted process holding the same identity as
 the row adopts it and reconciles normally.
 
 Stabilization requires deciding whether a general plugin-visible identity API
