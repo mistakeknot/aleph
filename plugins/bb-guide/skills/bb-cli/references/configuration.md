@@ -115,6 +115,8 @@ Machine access `machineServerUrl` is the URL reachable by machines; unset uses
 uses the first registered access provider, or direct when none are registered.
 Inspect effective values
 with `bb settings show --json` and change them with `bb settings general`.
+Aleph refuses a `BB_DATA_DIR` that is inside `~/.bb` or the stock bb application-support directory, or that holds a stock bb database or runtime file. While an update holds the maintenance fence, `bb` exits with code 75 and prints the reason; `--help` and `--version` are unaffected.
+
 `BB_DATA_DIR` selects isolated enrollment state. Local machine lifecycle commands
 treat it as an ownership assertion and refuse the default BB installation; see
 thread-creation.md and docs/configuration.md for the directory constraints.

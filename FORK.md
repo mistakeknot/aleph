@@ -238,4 +238,5 @@ outage, not a merge conflict, so nothing else surfaces it beforehand.
 - [Personas](docs/aleph-personas.md): coordinator agents, the operator, and
   worker or reviewer agents.
 - [Critical user journeys](docs/cujs/README.md)
+- [Writer inventory and stock-bb coexistence](docs/aleph-writer-inventory.md)
 - [Roadmap](docs/aleph-roadmap.md) and [backlog](docs/aleph-backlog.md)
