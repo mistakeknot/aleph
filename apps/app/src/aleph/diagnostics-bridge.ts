@@ -6,13 +6,14 @@ import { ThreadSequenceTracker } from "./thread-sequence-tracker";
 
 export function useAlephDiagnostics(): void {
   useEffect(() => {
-    const logDiagnostic = getBbDesktopInfo()?.logDiagnostic;
-    if (logDiagnostic === undefined) {
+    const desktop = getBbDesktopInfo();
+    const logDiagnostic = desktop?.logDiagnostic;
+    if (desktop?.diagnosticsEnabled !== true || logDiagnostic === undefined) {
       return;
     }
     const tracker = new ThreadSequenceTracker();
     const unsubscribeEvents = onDiagnostic((event) => {
-      logDiagnostic(event);
+      logDiagnostic.call(desktop, event);
     });
     const unsubscribeChanged = wsManager.onChanged((message) => {
       emitDiagnostic(() => tracker.observe(message));

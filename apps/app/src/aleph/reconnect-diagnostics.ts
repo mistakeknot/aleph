@@ -1,6 +1,6 @@
 import type { QueryClient, QueryKey } from "@tanstack/react-query";
 import type { DiagnosticPayload } from "@/lib/diagnostics";
-import { toDiagnosticToken } from "@/lib/diagnostics";
+import { toDiagnosticId, toDiagnosticName } from "@/lib/diagnostics";
 
 const MAX_DECISIONS = 200;
 
@@ -36,7 +36,7 @@ export function describeReconnectInvalidation({
       } else {
         skippedCount += 1;
       }
-      const queryName = toDiagnosticToken(String(query.queryKey[0]));
+      const queryName = toDiagnosticName(query.queryKey[0]);
       if (queryName === null || decisions.length >= MAX_DECISIONS) {
         continue;
       }
@@ -46,8 +46,7 @@ export function describeReconnectInvalidation({
         fetching: query.state.fetchStatus === "fetching",
         invalidated,
         queryName,
-        subjectId:
-          typeof subject === "string" ? toDiagnosticToken(subject) : null,
+        subjectId: toDiagnosticId(subject),
       });
     }
   }

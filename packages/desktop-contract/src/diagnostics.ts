@@ -1,10 +1,14 @@
 import { z } from "zod";
 
-const diagnosticTokenSchema = z
-  .string()
-  .min(1)
-  .max(80)
-  .regex(/^[A-Za-z0-9_.:-]+$/);
+export const DIAGNOSTIC_ID_PATTERN = /^[a-z]{2,8}_[A-Za-z0-9]{1,40}$/;
+export const DIAGNOSTIC_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9-]{0,31}$/;
+export const DIAGNOSTIC_REASON_PATTERN = /^[a-z][a-z_-]{0,31}$/;
+export const DIAGNOSTIC_CONSOLE_CODE_PATTERN = /^[A-Z_]{3,40}$/;
+export const DIAGNOSTIC_CONSOLE_FALLBACK_CODE = "console_error";
+
+const diagnosticIdSchema = z.string().regex(DIAGNOSTIC_ID_PATTERN);
+const diagnosticNameSchema = z.string().regex(DIAGNOSTIC_NAME_PATTERN);
+const diagnosticReasonSchema = z.string().regex(DIAGNOSTIC_REASON_PATTERN);
 const diagnosticTimestampSchema = z.number().int().nonnegative();
 const diagnosticCountSchema = z.number().int().nonnegative();
 
@@ -26,8 +30,8 @@ const reconnectDecisionSchema = z.object({
   dataUpdatedAt: diagnosticTimestampSchema,
   fetching: z.boolean(),
   invalidated: z.boolean(),
-  queryName: diagnosticTokenSchema,
-  subjectId: diagnosticTokenSchema.nullable(),
+  queryName: diagnosticNameSchema,
+  subjectId: diagnosticIdSchema.nullable(),
 });
 
 export const bbDesktopDiagnosticEventSchema = z.discriminatedUnion("kind", [
@@ -43,7 +47,7 @@ export const bbDesktopDiagnosticEventSchema = z.discriminatedUnion("kind", [
     kind: z.literal("socket-close"),
     code: z.number().int().nullable(),
     pongPending: z.boolean(),
-    reason: diagnosticTokenSchema.nullable(),
+    reason: diagnosticReasonSchema.nullable(),
     wasClean: z.boolean().nullable(),
   }),
   z.object({
@@ -67,15 +71,15 @@ export const bbDesktopDiagnosticEventSchema = z.discriminatedUnion("kind", [
     deltaMs: z.number().int(),
     previousUpdatedAt: diagnosticTimestampSchema,
     statusUpdatedAt: diagnosticTimestampSchema,
-    threadId: diagnosticTokenSchema,
+    threadId: diagnosticIdSchema,
   }),
   z.object({
     at: diagnosticTimestampSchema,
     kind: z.literal("composer-send-state"),
     previous: bbDesktopDiagnosticComposerSendStateSchema.nullable(),
-    runtimeStatus: diagnosticTokenSchema.nullable(),
+    runtimeStatus: diagnosticReasonSchema.nullable(),
     state: bbDesktopDiagnosticComposerSendStateSchema,
-    threadId: diagnosticTokenSchema,
+    threadId: diagnosticIdSchema,
   }),
 ]);
 export type BbDesktopDiagnosticEvent = z.infer<

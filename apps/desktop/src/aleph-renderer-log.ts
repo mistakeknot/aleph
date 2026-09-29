@@ -1,14 +1,15 @@
-import { appendFile, mkdir, readdir, rm, stat } from "node:fs/promises";
+import { appendFile, mkdir, open, readdir, rm, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
+  DIAGNOSTIC_CONSOLE_CODE_PATTERN,
+  DIAGNOSTIC_CONSOLE_FALLBACK_CODE,
   bbDesktopDiagnosticEventSchema,
   type BbDesktopDiagnosticEvent,
 } from "@bb/desktop-contract";
 
 export const RENDERER_LOG_RETENTION_DAYS = 5;
 export const RENDERER_LOG_MAX_FILE_BYTES = 5 * 1024 * 1024;
-export const RENDERER_CONSOLE_MESSAGE_MAX_CHARS = 200;
 
 const RENDERER_LOG_FILE_PATTERN =
   /^aleph-renderer-(\d{4})-(\d{2})-(\d{2})\.log$/;
@@ -34,53 +35,47 @@ export function rendererLogFileName(day: string): string {
   return `aleph-renderer-${day}.log`;
 }
 
-const SECRET_KEY_ASSIGNMENT =
-  /\b(token|secret|password|passwd|authorization|api[_-]?key|cookie|session)(["']?\s*[:=]\s*)("[^"]*"|'[^']*'|\S+)/gi;
-const CONTENT_KEY_ASSIGNMENT =
-  /\b(body|text|prompt|message|content|attachments?|input|payload)(["']?\s*[:=]\s*).*$/gi;
-const BEARER_TOKEN = /\b(Bearer|Basic)\s+\S+/gi;
-const URL_WITH_QUERY = /(\bhttps?:\/\/[^\s?#"']+)[?#]\S*/gi;
-const PREFIXED_TOKEN =
-  /\b(?:sk|pk|ghp|gho|ghu|ghs|github_pat|xox[a-z]|eyJ)[A-Za-z0-9_-]{6,}[A-Za-z0-9._-]*/g;
-const LONG_OPAQUE_STRING = /[A-Za-z0-9+/=_-]{32,}/g;
-
-export function scrubRendererLogText(text: string): string {
-  const firstLine = text.split(/\r?\n/, 1)[0] ?? "";
-  return firstLine
-    .replace(URL_WITH_QUERY, "$1")
-    .replace(BEARER_TOKEN, "$1 [redacted]")
-    .replace(SECRET_KEY_ASSIGNMENT, "$1$2[redacted]")
-    .replace(CONTENT_KEY_ASSIGNMENT, "$1$2[redacted]")
-    .replace(PREFIXED_TOKEN, "[redacted]")
-    .replace(LONG_OPAQUE_STRING, "[redacted]")
-    .slice(0, RENDERER_CONSOLE_MESSAGE_MAX_CHARS);
-}
-
 export type RendererConsoleLevel = "debug" | "info" | "warning" | "error";
 
+const CONSOLE_ERROR_CLASSES: ReadonlySet<string> = new Set([
+  "AggregateError",
+  "DOMException",
+  "Error",
+  "EvalError",
+  "RangeError",
+  "ReferenceError",
+  "SyntaxError",
+  "TypeError",
+  "URIError",
+]);
+
 export interface RendererConsoleRecord {
-  level: RendererConsoleLevel;
-  line: number;
-  message: string;
-  sourceFile: string;
+  code: string;
+  level: "warning" | "error";
+}
+
+export function classifyRendererConsoleMessage(message: string): string {
+  const tokens = message.trimStart().split(/\s+/);
+  const first = (tokens[0] === "Uncaught" ? tokens[1] : tokens[0]) ?? "";
+  const candidate = first.endsWith(":") ? first.slice(0, -1) : first;
+  if (CONSOLE_ERROR_CLASSES.has(candidate)) {
+    return candidate;
+  }
+  return DIAGNOSTIC_CONSOLE_CODE_PATTERN.test(candidate)
+    ? candidate
+    : DIAGNOSTIC_CONSOLE_FALLBACK_CODE;
 }
 
 export function buildRendererConsoleRecord(args: {
   level: RendererConsoleLevel;
-  line: number;
   message: string;
-  sourceId: string;
 }): RendererConsoleRecord | null {
   if (args.level !== "warning" && args.level !== "error") {
     return null;
   }
-  const withoutQuery = args.sourceId.split(/[?#]/, 1)[0] ?? "";
-  const sourceFile = withoutQuery.slice(withoutQuery.lastIndexOf("/") + 1);
   return {
+    code: classifyRendererConsoleMessage(args.message),
     level: args.level,
-    line: args.line,
-    message: scrubRendererLogText(args.message),
-    sourceFile: scrubRendererLogText(sourceFile),
   };
 }
 
@@ -89,6 +84,26 @@ export function parseRendererDiagnosticEvent(
 ): BbDesktopDiagnosticEvent | null {
   const parsed = bbDesktopDiagnosticEventSchema.safeParse(payload);
   return parsed.success ? parsed.data : null;
+}
+
+const TRUNCATION_MARKER_KIND = "log-truncated";
+const TRUNCATION_MARKER_TAIL_BYTES = 512;
+
+async function endsWithTruncationMarker(
+  file: string,
+  size: number,
+): Promise<boolean> {
+  const handle = await open(file, "r");
+  try {
+    const length = Math.min(size, TRUNCATION_MARKER_TAIL_BYTES);
+    const buffer = Buffer.alloc(length);
+    await handle.read(buffer, 0, length, size - length);
+    return buffer
+      .toString("utf8")
+      .includes(`"kind":"${TRUNCATION_MARKER_KIND}"`);
+  } finally {
+    await handle.close();
+  }
 }
 
 export interface RendererLogWriterOptions {
@@ -136,8 +151,10 @@ export function createRendererLogWriter({
     await mkdir(directory, { recursive: true });
     currentDay = day;
     truncated = false;
+    const file = join(directory, rendererLogFileName(day));
     try {
-      currentBytes = (await stat(join(directory, rendererLogFileName(day)))).size;
+      currentBytes = (await stat(file)).size;
+      truncated = await endsWithTruncationMarker(file, currentBytes);
     } catch {
       currentBytes = 0;
     }
@@ -156,12 +173,14 @@ export function createRendererLogWriter({
     const file = join(directory, rendererLogFileName(day));
     const line = `${JSON.stringify({ t: moment.toISOString(), ...record })}\n`;
     const bytes = Buffer.byteLength(line);
-    if (currentBytes + bytes > maxFileBytes) {
+    const marker = `${JSON.stringify({ t: moment.toISOString(), kind: TRUNCATION_MARKER_KIND, maxFileBytes })}\n`;
+    const markerBytes = Buffer.byteLength(marker);
+    if (currentBytes + bytes > maxFileBytes - markerBytes) {
       truncated = true;
-      await appendFile(
-        file,
-        `${JSON.stringify({ t: moment.toISOString(), kind: "log-truncated", maxFileBytes })}\n`,
-      );
+      if (currentBytes + markerBytes <= maxFileBytes) {
+        await appendFile(file, marker);
+        currentBytes += markerBytes;
+      }
       return;
     }
     await appendFile(file, line);

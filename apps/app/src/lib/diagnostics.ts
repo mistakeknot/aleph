@@ -1,10 +1,18 @@
-import type { BbDesktopDiagnosticEvent } from "@bb/desktop-contract";
+import {
+  DIAGNOSTIC_ID_PATTERN,
+  DIAGNOSTIC_NAME_PATTERN,
+  DIAGNOSTIC_REASON_PATTERN,
+  type BbDesktopDiagnosticEvent,
+} from "@bb/desktop-contract";
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
   ? Omit<T, K>
   : never;
 
-export type DiagnosticPayload = DistributiveOmit<BbDesktopDiagnosticEvent, "at">;
+export type DiagnosticPayload = DistributiveOmit<
+  BbDesktopDiagnosticEvent,
+  "at"
+>;
 type DiagnosticListener = (event: BbDesktopDiagnosticEvent) => void;
 
 const listeners = new Set<DiagnosticListener>();
@@ -30,10 +38,18 @@ export function emitDiagnostic(build: () => DiagnosticPayload | null): void {
   }
 }
 
-export function toDiagnosticToken(value: string | null | undefined): string | null {
-  if (value === undefined || value === null) {
-    return null;
-  }
-  const token = value.replace(/[^A-Za-z0-9_.:-]+/g, "_").slice(0, 80);
-  return token.length > 0 ? token : null;
+function matching(value: unknown, pattern: RegExp): string | null {
+  return typeof value === "string" && pattern.test(value) ? value : null;
+}
+
+export function toDiagnosticId(value: unknown): string | null {
+  return matching(value, DIAGNOSTIC_ID_PATTERN);
+}
+
+export function toDiagnosticName(value: unknown): string | null {
+  return matching(value, DIAGNOSTIC_NAME_PATTERN);
+}
+
+export function toDiagnosticReason(value: unknown): string | null {
+  return matching(value, DIAGNOSTIC_REASON_PATTERN);
 }

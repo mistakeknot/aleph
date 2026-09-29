@@ -68,7 +68,7 @@ describe("WebSocketManager diagnostics", () => {
     vi.setSystemTime(20_000);
     socket.onclose?.({
       code: 1006,
-      reason: "tunnel lost: secret text here",
+      reason: "going_away",
       wasClean: false,
     } as CloseEvent);
     vi.setSystemTime(25_000);
@@ -91,7 +91,7 @@ describe("WebSocketManager diagnostics", () => {
       at: 20_000,
       code: 1006,
       pongPending: false,
-      reason: "tunnel_lost:_secret_text_here",
+      reason: "going_away",
       wasClean: false,
     });
     expect(events[2]).toMatchObject({
@@ -99,6 +99,29 @@ describe("WebSocketManager diagnostics", () => {
       disconnectedAt: 20_000,
       reconnected: true,
     });
+  });
+
+  it("drops close reasons that are not a plain lowercase code", () => {
+    const manager = new WebSocketManager({
+      isDocumentVisible: () => true,
+      subscribeToOnline: () => () => {},
+      subscribeToVisibility: () => () => {},
+    });
+    manager.connect();
+    const socket = fakeSocketState.instances[0]!;
+    socket.readyState = 1;
+    socket.onopen?.();
+    socket.onclose?.({
+      code: 1006,
+      reason: "tunnel lost: private prompt says hello",
+      wasClean: false,
+    } as CloseEvent);
+    manager.disconnect();
+    expect(events.find((event) => event.kind === "socket-close")).toMatchObject(
+      {
+        reason: null,
+      },
+    );
   });
 
   it("emits nothing when no listener is registered", () => {

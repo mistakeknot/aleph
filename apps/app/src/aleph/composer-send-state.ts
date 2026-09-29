@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { FollowUpSubmitMode } from "@bb/client-core";
 import type { BbDesktopDiagnosticComposerSendState } from "@bb/desktop-contract";
-import { emitDiagnostic, toDiagnosticToken } from "@/lib/diagnostics";
+import { emitDiagnostic, toDiagnosticReason } from "@/lib/diagnostics";
 
 interface DescribeComposerSendStateArgs {
   isFollowUpSubmitting: boolean;
@@ -21,8 +21,7 @@ export function describeComposerSendState({
   return submitMode.kind;
 }
 
-interface UseComposerSendStateDiagnosticArgs
-  extends DescribeComposerSendStateArgs {
+interface UseComposerSendStateDiagnosticArgs extends DescribeComposerSendStateArgs {
   runtimeStatus: string | null;
   threadId: string;
 }
@@ -49,7 +48,7 @@ export function useComposerSendStateDiagnostic({
     emitDiagnostic(() => ({
       kind: "composer-send-state",
       previous: previous?.threadId === threadId ? previous.state : null,
-      runtimeStatus: toDiagnosticToken(runtimeStatus),
+      runtimeStatus: toDiagnosticReason(runtimeStatus),
       state,
       threadId,
     }));

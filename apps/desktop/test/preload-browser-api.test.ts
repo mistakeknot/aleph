@@ -10,6 +10,7 @@ import type {
   BbDesktopInfo,
   BbDesktopWindowState,
 } from "@bb/desktop-contract";
+import { BB_DESKTOP_ALEPH_DIAGNOSTIC_CHANNEL } from "../src/aleph-renderer-log-ipc.js";
 import {
   BB_DESKTOP_CHECK_FOR_UPDATES_CHANNEL,
   BB_DESKTOP_GET_INFO_CHANNEL,
@@ -740,5 +741,52 @@ describe("desktop preload browser API", () => {
 
       expect(mainWindow.closeCount).toBe(0);
     });
+  });
+});
+
+describe("desktop preload Aleph diagnostics", () => {
+  const originalChannel = process.env.BB_DESKTOP_RELEASE_CHANNEL;
+
+  afterEach(() => {
+    if (originalChannel === undefined) {
+      delete process.env.BB_DESKTOP_RELEASE_CHANNEL;
+    } else {
+      process.env.BB_DESKTOP_RELEASE_CHANNEL = originalChannel;
+    }
+  });
+
+  it("exposes the enabled flag and sink only on the aleph channel", async () => {
+    process.env.BB_DESKTOP_RELEASE_CHANNEL = "aleph";
+    const api = await loadPreload();
+    expect(api.diagnosticsEnabled).toBe(true);
+    api.logDiagnostic?.({
+      at: 1,
+      kind: "socket-replaced",
+      pongPending: false,
+      readyState: 1,
+    });
+    expect(electronMock.sendCalls).toContainEqual({
+      channel: BB_DESKTOP_ALEPH_DIAGNOSTIC_CHANNEL,
+      payload: {
+        at: 1,
+        kind: "socket-replaced",
+        pongPending: false,
+        readyState: 1,
+      },
+    });
+  });
+
+  it("exposes neither the flag nor the sink on stock builds", async () => {
+    for (const channel of [undefined, "stable", "beta"]) {
+      if (channel === undefined) {
+        delete process.env.BB_DESKTOP_RELEASE_CHANNEL;
+      } else {
+        process.env.BB_DESKTOP_RELEASE_CHANNEL = channel;
+      }
+      const api = await loadPreload();
+      expect(api.diagnosticsEnabled).toBeUndefined();
+      expect(api.logDiagnostic).toBeUndefined();
+      expect("logDiagnostic" in api).toBe(false);
+    }
   });
 });

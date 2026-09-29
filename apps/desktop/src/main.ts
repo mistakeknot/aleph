@@ -2986,7 +2986,10 @@ async function runDesktopApp(): Promise<void> {
   if (process.env.BB_DESKTOP_RELEASE_CHANNEL === "aleph") {
     alephRendererLog = registerAlephRendererLog({
       ipcMain,
-      isApplicationWebContents: (id) => applicationWindowWebContentsIds.has(id),
+      getApplicationMainFrame: (id) =>
+        applicationWindowWebContentsIds.has(id)
+          ? (electronWebContents.fromId(id)?.mainFrame ?? null)
+          : null,
       writer: createRendererLogWriter({
         directory: resolveRendererLogDirectory(
           process.platform,

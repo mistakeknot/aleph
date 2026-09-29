@@ -58,6 +58,7 @@ export interface BbDesktopApi extends BbDesktopInfo {
   getInfo(): Promise<BbDesktopInfo>;
   getWindowState?(): Promise<BbDesktopWindowState>;
   installUpdate(): Promise<void>;
+  diagnosticsEnabled?: boolean;
   logDiagnostic?(event: BbDesktopDiagnosticEvent): void;
   onChange(listener: BbDesktopInfoChangeHandler): BbDesktopInfoUnsubscribe;
   onWindowStateChange?(

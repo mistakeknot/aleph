@@ -382,7 +382,21 @@ const bbBrowserApi: BbDesktopBrowserApi = {
   },
 };
 
+const alephDiagnosticsApi: Pick<
+  BbDesktopApi,
+  "diagnosticsEnabled" | "logDiagnostic"
+> =
+  process.env.BB_DESKTOP_RELEASE_CHANNEL === "aleph"
+    ? {
+        diagnosticsEnabled: true,
+        logDiagnostic(event: BbDesktopDiagnosticEvent): void {
+          ipcRenderer.send(BB_DESKTOP_ALEPH_DIAGNOSTIC_CHANNEL, event);
+        },
+      }
+    : {};
+
 const bbDesktopApi: BbDesktopApi = {
+  ...alephDiagnosticsApi,
   browser: bbBrowserApi,
   get lastCheckedAt() {
     return currentInfo.lastCheckedAt;
@@ -462,9 +476,6 @@ const bbDesktopApi: BbDesktopApi = {
       enabled,
       directionalCommands,
     );
-  },
-  logDiagnostic(event: BbDesktopDiagnosticEvent): void {
-    ipcRenderer.send(BB_DESKTOP_ALEPH_DIAGNOSTIC_CHANNEL, event);
   },
   setTheme(theme: BbDesktopTheme): void {
     ipcRenderer.send(BB_DESKTOP_SET_THEME_CHANNEL, theme);

@@ -1,7 +1,7 @@
 import type { ChangedMessage } from "@bb/server-contract";
 import { shouldQueueFollowUpMessage } from "@bb/client-core";
 import type { DiagnosticPayload } from "@/lib/diagnostics";
-import { toDiagnosticToken } from "@/lib/diagnostics";
+import { toDiagnosticId } from "@/lib/diagnostics";
 
 export const THREAD_SEQUENCE_LONG_GAP_MS = 5 * 60 * 1000;
 
@@ -23,13 +23,16 @@ export class ThreadSequenceTracker {
       return null;
     }
     const statusChange = message.metadata?.statusChange;
-    const threadId = toDiagnosticToken(message.id);
+    const threadId = toDiagnosticId(message.id);
     if (statusChange === undefined || threadId === null) {
       return null;
     }
     const previous = this.lastByThreadId.get(threadId);
     const busy = shouldQueueFollowUpMessage(statusChange.runtime.displayStatus);
-    if (previous === undefined || statusChange.updatedAt >= previous.updatedAt) {
+    if (
+      previous === undefined ||
+      statusChange.updatedAt >= previous.updatedAt
+    ) {
       this.lastByThreadId.set(threadId, {
         busy,
         updatedAt: statusChange.updatedAt,
