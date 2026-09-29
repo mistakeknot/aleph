@@ -163,7 +163,12 @@ export function readMaintenanceFence(dataDir: string): MaintenanceFenceRead {
 }
 
 function refuse(message: string, retryable: boolean): MaintenanceFenceRefusal {
-  return { exitCode: FENCE_REFUSED_EXIT_CODE, kind: "refuse", message, retryable };
+  return {
+    exitCode: FENCE_REFUSED_EXIT_CODE,
+    kind: "refuse",
+    message,
+    retryable,
+  };
 }
 
 function decideForFence(
@@ -171,7 +176,10 @@ function decideForFence(
   identity: FenceIdentity,
 ): MaintenanceFenceDecision {
   if (fence.state === "recovering") {
-    return refuse("Aleph is recovering from a failed update. Try again shortly.", true);
+    return refuse(
+      "Aleph is recovering from a failed update. Try again shortly.",
+      true,
+    );
   }
   if (identity.version === fence.from_version) {
     return refuse(
@@ -182,7 +190,10 @@ function decideForFence(
     );
   }
   if (identity.version !== fence.to_version) {
-    return refuse(`Aleph was updated; open it from ${fence.enrolled_path}`, false);
+    return refuse(
+      `Aleph was updated; open it from ${fence.enrolled_path}`,
+      false,
+    );
   }
   if (fence.state === "installing") {
     return identity.role === "desktop-main"
@@ -213,7 +224,8 @@ export function enforceMaintenanceFence(args: {
   identity: FenceIdentity;
 }): MaintenanceFenceDecision {
   const decision = checkMaintenanceFence(args);
-  if (decision.kind === "refuse") throw new MaintenanceFenceRefusedError(decision);
+  if (decision.kind === "refuse")
+    throw new MaintenanceFenceRefusedError(decision);
   registerFenceIdentity(args.identity);
   return decision;
 }
@@ -256,6 +268,10 @@ export function resetFenceIdentityForTests(): void {
 export function assertFenceAllowsDatabase(databasePath: string): void {
   const dataDir = fenceDirectoryForDatabase(databasePath);
   if (dataDir === null) return;
+  assertFenceAllowsDataDir(dataDir);
+}
+
+export function assertFenceAllowsDataDir(dataDir: string): void {
   const read = readMaintenanceFence(dataDir);
   if (read.status === "absent") return;
   const decision =
@@ -265,7 +281,8 @@ export function assertFenceAllowsDatabase(databasePath: string): void {
           true,
         )
       : checkMaintenanceFence({ dataDir, identity: registeredIdentity });
-  if (decision.kind === "refuse") throw new MaintenanceFenceRefusedError(decision);
+  if (decision.kind === "refuse")
+    throw new MaintenanceFenceRefusedError(decision);
 }
 
 function fenceDirectoryForDatabase(databasePath: string): string | null {

@@ -1,4 +1,10 @@
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -85,7 +91,10 @@ describe("checkMaintenanceFence decision table (plan 7.4)", () => {
   it("allows everything when no fence exists", () => {
     for (const role of ROLES) {
       expect(
-        checkMaintenanceFence({ dataDir, identity: { role, version: "0.5.0" } }),
+        checkMaintenanceFence({
+          dataDir,
+          identity: { role, version: "0.5.0" },
+        }),
       ).toEqual({ kind: "allow" });
     }
   });
@@ -113,7 +122,10 @@ describe("checkMaintenanceFence decision table (plan 7.4)", () => {
     ).toEqual({ kind: "advance_to_probation" });
     for (const role of ROLES.filter((r) => r !== "desktop-main")) {
       expect(
-        checkMaintenanceFence({ dataDir, identity: { role, version: "0.5.1" } }),
+        checkMaintenanceFence({
+          dataDir,
+          identity: { role, version: "0.5.1" },
+        }),
       ).toMatchObject({ kind: "refuse" });
     }
   });
@@ -122,19 +134,34 @@ describe("checkMaintenanceFence decision table (plan 7.4)", () => {
     writeMaintenanceFence({ dataDir, fence: fenceIn("probation") });
     for (const role of ROLES) {
       expect(
-        checkMaintenanceFence({ dataDir, identity: { role, version: "0.5.0" } }),
+        checkMaintenanceFence({
+          dataDir,
+          identity: { role, version: "0.5.0" },
+        }),
       ).toMatchObject({ kind: "refuse" });
     }
-    for (const role of ["desktop-main", "embedded-server", "bundled-daemon", "plugin-worker"] as const) {
+    for (const role of [
+      "desktop-main",
+      "embedded-server",
+      "bundled-daemon",
+      "plugin-worker",
+    ] as const) {
       expect(
-        checkMaintenanceFence({ dataDir, identity: { role, version: "0.5.1" } }),
+        checkMaintenanceFence({
+          dataDir,
+          identity: { role, version: "0.5.1" },
+        }),
       ).toEqual({ kind: "allow" });
     }
     const cli = checkMaintenanceFence({
       dataDir,
       identity: { role: "cli", version: "0.5.1" },
     });
-    expect(cli).toMatchObject({ exitCode: 75, kind: "refuse", retryable: true });
+    expect(cli).toMatchObject({
+      exitCode: 75,
+      kind: "refuse",
+      retryable: true,
+    });
   });
 
   it("recovering: refuses every role and version", () => {
@@ -163,7 +190,10 @@ describe("checkMaintenanceFence decision table (plan 7.4)", () => {
     writeFileSync(formatMaintenanceFencePath(dataDir), "garbage");
     for (const role of ROLES) {
       expect(
-        checkMaintenanceFence({ dataDir, identity: { role, version: "0.5.1" } }),
+        checkMaintenanceFence({
+          dataDir,
+          identity: { role, version: "0.5.1" },
+        }),
       ).toMatchObject({ exitCode: 75, kind: "refuse" });
     }
   });
@@ -192,7 +222,11 @@ describe("advanceFenceToProbation", () => {
       timeoutMs: 100,
     });
     await expect(
-      advanceFenceToProbation({ dataDir, holder: { bundlePath: "/x" }, timeoutMs: 100 }),
+      advanceFenceToProbation({
+        dataDir,
+        holder: { bundlePath: "/x" },
+        timeoutMs: 100,
+      }),
     ).rejects.toBeInstanceOf(FileLockTimeoutError);
     expect(readMaintenanceFence(dataDir)).toMatchObject({
       fence: { state: "installing" },
@@ -203,7 +237,11 @@ describe("advanceFenceToProbation", () => {
   it("refuses to advance a fence that is not installing", async () => {
     writeMaintenanceFence({ dataDir, fence: fenceIn("recovering") });
     await expect(
-      advanceFenceToProbation({ dataDir, holder: { bundlePath: "/x" }, timeoutMs: 100 }),
+      advanceFenceToProbation({
+        dataDir,
+        holder: { bundlePath: "/x" },
+        timeoutMs: 100,
+      }),
     ).rejects.toThrow(/installing/u);
   });
 });
@@ -232,5 +270,41 @@ describe("assertFenceAllowsDatabase (the DB-open backstop)", () => {
     expect(() => assertFenceAllowsDatabase(databasePath())).toThrow(
       MaintenanceFenceRefusedError,
     );
+  });
+});
+
+describe("assertFenceAllowsDataDir", () => {
+  it("refuses an unregistered process while a fence exists", async () => {
+    const { assertFenceAllowsDataDir } =
+      await import("../src/maintenance-fence.js");
+    const dir = mkdtempSync(join(tmpdir(), "aleph-fence-dir-"));
+    try {
+      resetFenceIdentityForTests();
+      expect(() => assertFenceAllowsDataDir(dir)).not.toThrow();
+      writeMaintenanceFence({
+        dataDir: dir,
+        fence: {
+          created_at: "x",
+          enrolled_path: "/Applications/Aleph.app",
+          from_bundle_version: "1",
+          from_cdhash: "a",
+          from_tree_sha256: "b",
+          from_version: "1.0.0",
+          nonce: "n",
+          observation: null,
+          predecessor_path: "/p",
+          state: "probation",
+          to_bundle_version: "2",
+          to_cdhash: "c",
+          to_tree_sha256: "d",
+          to_version: "2.0.0",
+        },
+      });
+      expect(() => assertFenceAllowsDataDir(dir)).toThrow(
+        MaintenanceFenceRefusedError,
+      );
+    } finally {
+      rmSync(dir, { force: true, recursive: true });
+    }
   });
 });

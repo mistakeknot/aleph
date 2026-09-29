@@ -1,3 +1,4 @@
+import { assertFenceAllowsDataDir } from "@bb/config/maintenance-fence";
 import {
   environmentCompositionSchema,
   validateServerAccessProviderDeclaration,
@@ -689,6 +690,7 @@ export function createPluginApi(options: {
       }
       const dir = join(dataDir, "plugins", pluginId);
       mkdirSync(dir, { recursive: true });
+      assertFenceAllowsDataDir(dataDir);
       const database = new Database(join(dir, "data.db"));
       database.pragma("journal_mode = WAL");
       database.pragma("busy_timeout = 5000");

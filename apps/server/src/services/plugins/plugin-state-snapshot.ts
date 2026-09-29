@@ -1,3 +1,4 @@
+import { assertFenceAllowsDataDir } from "@bb/config/maintenance-fence";
 import Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import {
@@ -171,6 +172,7 @@ export async function createPluginStateSnapshotOnDisk(args: {
   try {
     await mkdir(snapshotPath, { recursive: true });
     if (hasDatabase) {
+      assertFenceAllowsDataDir(args.dataDir);
       const database = new Database(sourceDatabasePath);
       try {
         database.pragma("wal_checkpoint(TRUNCATE)");
