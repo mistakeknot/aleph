@@ -97,6 +97,9 @@ function createServerClientFixture(args: CreateServerClientFixtureArgs = {}) {
     callTool: unused,
     registerInteractiveRequest: unused,
     interruptInteractiveRequests: unused,
+    relayTell: unused,
+    relayTargets: unused,
+    relayTargetsRemove: unused,
   } satisfies ServerClient;
 
   return {

@@ -26,6 +26,16 @@ import {
   type HostDaemonToolCallResponse,
   type HostDaemonSkillTree,
 } from "@bb/host-daemon-contract";
+import {
+  relayTargetsRemoveResponseSchema,
+  relayTargetsResponseSchema,
+  relayTellResponseSchema,
+  type RelayTargetsRemoveRequest,
+  type RelayTargetsRemoveResponse,
+  type RelayTargetsResponse,
+  type RelayTellRequest,
+  type RelayTellResponse,
+} from "@bb/host-daemon-contract/relay";
 import { HOST_ARTIFACT_MAX_BYTES } from "@bb/host-daemon-contract/protocol";
 import type { PendingInteractionCreate, ToolCallRequest } from "@bb/domain";
 import type { HostDaemonLogger } from "./logger.js";
@@ -57,6 +67,7 @@ interface ApiErrorResponseBody {
   message: string;
   protocolUpdateRetryRequested: boolean;
   retryable?: boolean;
+  retryAfterMs?: number;
   serverMoved: ServerMovedResponseDetails | null;
 }
 
@@ -66,6 +77,7 @@ interface ServerResponseErrorArgs {
   code: string | null;
   protocolUpdateRetryRequested?: boolean;
   retryable: boolean;
+  retryAfterMs?: number | null;
   serverMoved?: ServerMovedResponseDetails | null;
   status: number;
   statusText: string;
@@ -77,6 +89,7 @@ export class ServerResponseError extends Error {
   readonly code: string | null;
   readonly protocolUpdateRetryRequested: boolean;
   readonly retryable: boolean;
+  readonly retryAfterMs: number | null;
   readonly serverMoved: ServerMovedResponseDetails | null;
   readonly status: number;
   readonly statusText: string;
@@ -93,6 +106,7 @@ export class ServerResponseError extends Error {
     this.protocolUpdateRetryRequested =
       args.protocolUpdateRetryRequested ?? false;
     this.retryable = args.retryable;
+    this.retryAfterMs = args.retryAfterMs ?? null;
     this.serverMoved = args.serverMoved ?? null;
     this.status = args.status;
     this.statusText = args.statusText;
@@ -119,7 +133,8 @@ function parseApiErrorResponseBody(text: string): ApiErrorResponseBody | null {
     return null;
   }
 
-  const record = toJsonRecord(parsed);
+  const outer = toJsonRecord(parsed);
+  const record = toJsonRecord(outer?.error) ?? outer;
   if (
     !record ||
     typeof record.code !== "string" ||
@@ -135,12 +150,20 @@ function parseApiErrorResponseBody(text: string): ApiErrorResponseBody | null {
       ? (serverMovedResponseDetailsSchema.safeParse(details).data ?? null)
       : null;
 
+  const retryAfterMs =
+    typeof record.retryAfterMs === "number" &&
+    Number.isInteger(record.retryAfterMs) &&
+    record.retryAfterMs >= 0
+      ? { retryAfterMs: record.retryAfterMs }
+      : {};
+
   if (typeof record.retryable === "boolean") {
     return {
       code: record.code,
       message: record.message,
       protocolUpdateRetryRequested,
       retryable: record.retryable,
+      ...retryAfterMs,
       serverMoved,
     };
   }
@@ -149,6 +172,7 @@ function parseApiErrorResponseBody(text: string): ApiErrorResponseBody | null {
     code: record.code,
     message: record.message,
     protocolUpdateRetryRequested,
+    ...retryAfterMs,
     serverMoved,
   };
 }
@@ -221,6 +245,15 @@ export interface ServerClient {
     reason: string;
     threadIds: readonly string[];
   }): Promise<HostDaemonInteractiveInterruptResponse>;
+  relayTell(
+    request: RelayTellRequest,
+    signal?: AbortSignal,
+  ): Promise<RelayTellResponse>;
+  relayTargets(signal?: AbortSignal): Promise<RelayTargetsResponse>;
+  relayTargetsRemove(
+    request: RelayTargetsRemoveRequest,
+    signal?: AbortSignal,
+  ): Promise<RelayTargetsRemoveResponse>;
 }
 
 const INTERACTIVE_REQUEST_REGISTRATION_RETRIES = 5;
@@ -449,6 +482,7 @@ export function createServerClient(
       code: body?.code ?? null,
       protocolUpdateRetryRequested: body?.protocolUpdateRetryRequested ?? false,
       retryable: body?.retryable ?? defaultRetryableForStatus(response.status),
+      retryAfterMs: body?.retryAfterMs ?? null,
       serverMoved: body?.serverMoved ?? null,
       status: response.status,
       statusText: response.statusText,
@@ -689,6 +723,53 @@ export function createServerClient(
       return hostDaemonInteractiveInterruptResponseSchema.parse(
         await response.json(),
       );
+    },
+
+    async relayTell(
+      request: RelayTellRequest,
+      signal?: AbortSignal,
+    ): Promise<RelayTellResponse> {
+      const response = await fetchFn(buildInternalUrl("/relay/tell"), {
+        signal,
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify(request),
+      });
+      if (!response.ok) {
+        throw await createResponseError("relay tell", response);
+      }
+      return relayTellResponseSchema.parse(await response.json());
+    },
+
+    async relayTargets(signal?: AbortSignal): Promise<RelayTargetsResponse> {
+      const response = await fetchFn(buildInternalUrl("/relay/targets"), {
+        signal,
+        method: "GET",
+        headers: headers(),
+      });
+      if (!response.ok) {
+        throw await createResponseError("list relay targets", response);
+      }
+      return relayTargetsResponseSchema.parse(await response.json());
+    },
+
+    async relayTargetsRemove(
+      request: RelayTargetsRemoveRequest,
+      signal?: AbortSignal,
+    ): Promise<RelayTargetsRemoveResponse> {
+      const response = await fetchFn(
+        buildInternalUrl("/relay/targets/remove"),
+        {
+          signal,
+          method: "POST",
+          headers: headers(),
+          body: JSON.stringify(request),
+        },
+      );
+      if (!response.ok) {
+        throw await createResponseError("remove relay targets", response);
+      }
+      return relayTargetsRemoveResponseSchema.parse(await response.json());
     },
   };
 }

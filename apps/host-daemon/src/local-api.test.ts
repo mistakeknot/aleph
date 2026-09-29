@@ -195,6 +195,38 @@ describe("local API server", () => {
     expect(await healthResponse.text()).toBe("ok");
   });
 
+  it("exposes no relay routes on the browser-reachable local API (T-BRW-2)", async () => {
+    server = await startLocalApiServer({
+      hostId: "host-1",
+      localApiConfig: createLocalApiConfig(),
+      serverUrl: "http://server.test",
+      serverPort: 3334,
+      devAppPort: 5173,
+      getConnected: () => true,
+    });
+    const base = `http://localhost:${server.port}`;
+
+    for (const route of [
+      "/v1/tell",
+      "/v1/targets",
+      "/v1/targets/remove",
+      "/relay",
+    ]) {
+      for (const method of ["GET", "POST"]) {
+        const response = await fetch(`${base}${route}`, {
+          method,
+          ...(method === "POST"
+            ? {
+                headers: { "content-type": "application/json" },
+                body: "{}",
+              }
+            : {}),
+        });
+        expect(response.status, `${method} ${route}`).toBe(404);
+      }
+    }
+  });
+
   it("explains how to resolve a local API port collision", async () => {
     const occupied = createNetServer();
     await new Promise<void>((resolve, reject) => {

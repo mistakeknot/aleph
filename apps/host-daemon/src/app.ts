@@ -26,6 +26,8 @@ import {
 import { WatchManager } from "./watch-manager.js";
 import { ConnectTunnelClient } from "./connect-tunnel/index.js";
 import { TerminalManager } from "./terminals/terminal-manager.js";
+import { createRelayRequestHandler } from "./relay/relay-handler.js";
+import { startRelaySocket } from "./relay/relay-listener.js";
 import {
   createServerClient,
   ServerResponseError,
@@ -855,6 +857,18 @@ export async function createHostDaemonApp(
   handleServerSessionInvalidated = (args) =>
     connection.handleSessionInvalidated(args);
 
+  const relaySocket = await startRelaySocket({
+    dataDir: options.dataDir,
+    hostId: options.hostId,
+    logger: options.logger,
+    handler: createRelayRequestHandler({
+      hostId: options.hostId,
+      logger: options.logger,
+      isConnected: () => connection.sessionId != null,
+      client: serverClient,
+    }),
+  });
+
   const localApi = options.localApiConfig
     ? await startLocalApiServer({
         dataDir: options.dataDir,
@@ -899,6 +913,9 @@ export async function createHostDaemonApp(
       await pluginHostManager.shutdown();
       await options.closeMachineAuthProxy?.();
       await localApi?.close();
+      if (relaySocket.started) {
+        await relaySocket.close();
+      }
       connectTunnel.shutdown();
       await watchManager.shutdown();
       disposeParcelWatcherBackend();
