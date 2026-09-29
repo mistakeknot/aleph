@@ -184,6 +184,17 @@ Beyond upstream, Aleph carries:
   colors.
 - **Split panes.** Optional composer focus when switching panes with the
   keyboard.
+- **Renderer diagnostics log (mk-h1q8).** Aleph-only file sink
+  `~/Library/Logs/Aleph/aleph-renderer-YYYY-MM-DD.log` (daily, 5 days kept,
+  5 MiB per file), gated on `BB_DESKTOP_RELEASE_CHANNEL=aleph`. Records
+  renderer console warnings and errors, socket open/close/replace,
+  reconnect invalidation decisions, thread sequence anomalies and
+  composer send-state changes as ids and enumerated states only. Shared
+  code carries a sink-less emitter (`apps/app/src/lib/diagnostics.ts`) with
+  call sites in `ws.ts`, `system-cache-effects.ts`,
+  `ThreadDetailPromptArea.tsx` and `App.tsx`; everything else lives in
+  `apps/app/src/aleph/` and `apps/desktop/src/aleph-renderer-log*.ts`.
+  Carried commits: see `git log --grep 'mk-h1q8'`.
 - **Model picker.** Switching a thread's provider in place when the local
   handoff plugin is running.
 - **No upstream update offers.** See [Updates](#updates).

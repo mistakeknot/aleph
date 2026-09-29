@@ -22,6 +22,7 @@ import { useDesktopThemeSync } from "./hooks/useDesktopThemeSync";
 import { usePluginFrontendBoot } from "./hooks/usePluginFrontendBoot";
 import { markRouteContentPainted } from "./lib/route-content-paint";
 import { useRememberPluginNavPanelChrome } from "@/lib/plugin-nav-panel-chrome";
+import { useAlephDiagnostics } from "./aleph/diagnostics-bridge";
 import { useWebSocket } from "./hooks/useWebSocket";
 import {
   AUTH_CALLBACK_ROUTE_PATH,
@@ -420,6 +421,7 @@ function PluginsRoute() {
 
 export function App() {
   useWebSocket();
+  useAlephDiagnostics();
   useDesktopThemeSync();
   useAppTheme();
   useFaviconColorSync();

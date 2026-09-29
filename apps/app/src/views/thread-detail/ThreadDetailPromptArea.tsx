@@ -1,4 +1,5 @@
 import type { MachineRemovalStatus } from "@/lib/machine-removal-display";
+import { useComposerSendStateDiagnostic } from "@/aleph/composer-send-state";
 import { ThreadMachineStatus } from "@/components/promptbox/banner/ThreadMachineStatus";
 import {
   useCallback,
@@ -985,6 +986,12 @@ export function ThreadDetailPromptArea({
     isStopRequested,
     runtimeDisplayStatus,
   ]);
+  useComposerSendStateDiagnostic({
+    isFollowUpSubmitting,
+    runtimeStatus: runtimeDisplayStatus,
+    submitMode,
+    threadId: thread.id,
+  });
   const promptPlaceholder = getFollowUpPromptPlaceholder(
     isStopRequested ? "stopping" : runtimeDisplayStatus,
   );

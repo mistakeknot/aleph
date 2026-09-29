@@ -17,6 +17,7 @@ import type {
   ThreadPaneActionSignal,
 } from "@bb/server-contract";
 import { buildBrowserWebSocketUrl } from "./dev-websocket-url";
+import { emitDiagnostic, toDiagnosticToken } from "./diagnostics";
 import {
   isDocumentVisible,
   subscribeToDocumentVisibility,
@@ -111,6 +112,12 @@ export class WebSocketManager {
       this.disconnectedAt = null;
       this.lastServerActivityAt = Date.now();
       const reconnected = this.hasConnected;
+      emitDiagnostic(() => ({
+        kind: "socket-open",
+        disconnectedAt,
+        reconnected,
+        subscriptionCount: this.subscriptions.size,
+      }));
       this.hasConnected = true;
       this.setConnectionState("connected");
       this.startPingLoop();
@@ -131,7 +138,14 @@ export class WebSocketManager {
       this.handleIncomingMessage(event.data);
     };
 
-    socket.onclose = () => {
+    socket.onclose = (event?: CloseEvent) => {
+      emitDiagnostic(() => ({
+        kind: "socket-close",
+        code: event?.code ?? null,
+        pongPending: this.pongTimer !== null,
+        reason: toDiagnosticToken(event?.reason),
+        wasClean: event?.wasClean ?? null,
+      }));
       if (this.pongTimer !== null) {
         this.replaceSocket(this.lastServerActivityAt);
         return;
@@ -159,6 +173,11 @@ export class WebSocketManager {
     if (!socket) {
       return;
     }
+    emitDiagnostic(() => ({
+      kind: "socket-replaced",
+      pongPending: this.pongTimer !== null,
+      readyState: socket.readyState,
+    }));
     this.markSocketLost(disconnectedAt);
     socket.onopen = null;
     socket.onmessage = null;

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { BbDesktopBrowserApi } from "./browser.js";
+import type { BbDesktopDiagnosticEvent } from "./diagnostics.js";
 import type { BbDesktopWindowFindRequest } from "./find.js";
 import { bbDesktopVersionFeedPlatformSchema } from "./version-feed.js";
 import type { AppCommandId } from "@bb/domain";
@@ -57,6 +58,7 @@ export interface BbDesktopApi extends BbDesktopInfo {
   getInfo(): Promise<BbDesktopInfo>;
   getWindowState?(): Promise<BbDesktopWindowState>;
   installUpdate(): Promise<void>;
+  logDiagnostic?(event: BbDesktopDiagnosticEvent): void;
   onChange(listener: BbDesktopInfoChangeHandler): BbDesktopInfoUnsubscribe;
   onWindowStateChange?(
     listener: BbDesktopWindowStateChangeHandler,

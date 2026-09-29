@@ -222,6 +222,14 @@ import {
   type DesktopBrowserViewManager,
 } from "./desktop-browser-view.js";
 import { resolveDesktopBrowserAppCommand } from "./desktop-browser-shortcuts.js";
+import {
+  createRendererLogWriter,
+  resolveRendererLogDirectory,
+} from "./aleph-renderer-log.js";
+import {
+  registerAlephRendererLog,
+  type AlephRendererLog,
+} from "./aleph-renderer-log-main.js";
 import { registerDesktopBrowserIpc } from "./desktop-browser-main-ipc.js";
 import {
   createDesktopFindViewManager,
@@ -389,6 +397,7 @@ const logViewerCopyRequestSchema = z
 let desktopWindowFactory: DesktopWindowFactory | null = null;
 let desktopBrowserViewManager: DesktopBrowserViewManager | null = null;
 let desktopFindViewManager: DesktopFindViewManager | null = null;
+let alephRendererLog: AlephRendererLog | null = null;
 let desktopBrowserBroker: DesktopBrowserBroker | null = null;
 let desktopBrowserBrokerClient: ReturnType<
   typeof createDesktopBrowserBrokerClient
@@ -1133,6 +1142,7 @@ function registerApplicationWindow(browserWindow: DesktopBrowserWindow): void {
   registerApplicationRendererReloadShortcut(
     (browserWindow as BrowserWindow).webContents,
   );
+  alephRendererLog?.attachConsole((browserWindow as BrowserWindow).webContents);
   registerDesktopContextMenu({ webContents: browserWindow.webContents });
   browserWindow.on("enter-full-screen", () => {
     sendDesktopWindowStateChanged(browserWindow);
@@ -2973,6 +2983,18 @@ async function runDesktopApp(): Promise<void> {
     sendDesktopInfoChanged();
   });
   registerDesktopUpdateIpc();
+  if (process.env.BB_DESKTOP_RELEASE_CHANNEL === "aleph") {
+    alephRendererLog = registerAlephRendererLog({
+      ipcMain,
+      isApplicationWebContents: (id) => applicationWindowWebContentsIds.has(id),
+      writer: createRendererLogWriter({
+        directory: resolveRendererLogDirectory(
+          process.platform,
+          app.getPath("logs"),
+        ),
+      }),
+    });
+  }
   desktopFindViewManager = createDesktopFindViewManager({
     preloadPath: findBarPreloadPath,
   });

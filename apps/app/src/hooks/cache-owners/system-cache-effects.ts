@@ -1,4 +1,6 @@
 import type { QueryKey } from "@tanstack/react-query";
+import { emitDiagnostic } from "@/lib/diagnostics";
+import { describeReconnectInvalidation } from "@/aleph/reconnect-diagnostics";
 import type { Environment, Host } from "@bb/domain";
 import type { SystemConfigResponse } from "@bb/server-contract";
 import {
@@ -62,6 +64,13 @@ export function invalidateRealtimeQueriesAfterServerReconnect({
   disconnectedAt,
   queryClient,
 }: ServerReconnectInvalidationArgs): void {
+  emitDiagnostic(() =>
+    describeReconnectInvalidation({
+      disconnectedAt,
+      queryClient,
+      queryKeys: getServerReconnectInvalidationQueryKeys(),
+    }),
+  );
   for (const queryKey of getServerReconnectInvalidationQueryKeys()) {
     void queryClient.invalidateQueries(
       {

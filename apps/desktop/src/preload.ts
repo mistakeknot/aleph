@@ -35,6 +35,7 @@ import {
   type BbDesktopBrowserUnsubscribe,
   type BbDesktopBrowserViewBounds,
   type BbDesktopCloseWindowRequestHandler,
+  type BbDesktopDiagnosticEvent,
   type BbDesktopInfo,
   type BbDesktopInfoChangeHandler,
   type BbDesktopInfoUnsubscribe,
@@ -100,6 +101,7 @@ import {
   getDesktopVersion,
   resolveBbDesktopPlatform,
 } from "./desktop-platform.js";
+import { BB_DESKTOP_ALEPH_DIAGNOSTIC_CHANNEL } from "./aleph-renderer-log-ipc.js";
 import { STARTUP_ACTION_CHANNEL } from "./local-view.js";
 
 function createInitialDesktopInfo(): BbDesktopInfo {
@@ -460,6 +462,9 @@ const bbDesktopApi: BbDesktopApi = {
       enabled,
       directionalCommands,
     );
+  },
+  logDiagnostic(event: BbDesktopDiagnosticEvent): void {
+    ipcRenderer.send(BB_DESKTOP_ALEPH_DIAGNOSTIC_CHANNEL, event);
   },
   setTheme(theme: BbDesktopTheme): void {
     ipcRenderer.send(BB_DESKTOP_SET_THEME_CHANNEL, theme);
