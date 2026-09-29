@@ -58,6 +58,7 @@ describe("desktop update feed parsing", () => {
       pendingVersion: null,
       platform: "macos",
       updateAvailable: true,
+      updateChecksDisabled: false,
       updateDownloaded: false,
       version: "0.0.1",
     });
@@ -179,6 +180,7 @@ describe("desktop update feed parsing", () => {
       pendingVersion: null,
       platform: "macos",
       updateAvailable: false,
+      updateChecksDisabled: false,
       updateDownloaded: false,
       version: "0.0.2",
     });
@@ -215,6 +217,7 @@ describe("desktop update service", () => {
       pendingVersion: null,
       platform: "macos",
       updateAvailable: true,
+      updateChecksDisabled: false,
       updateDownloaded: false,
       version: "0.0.1",
     });
@@ -229,6 +232,7 @@ describe("desktop update service", () => {
       pendingVersion: null,
       platform: "macos",
       updateAvailable: true,
+      updateChecksDisabled: false,
       updateDownloaded: false,
       version: "0.0.1",
     });
@@ -281,6 +285,7 @@ describe("desktop update service", () => {
         pendingVersion: null,
         platform: "macos",
         updateAvailable: true,
+        updateChecksDisabled: false,
         updateDownloaded: false,
         version: "0.0.1",
       });

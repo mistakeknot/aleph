@@ -68,6 +68,7 @@ const DESKTOP_UPDATE = {
   pendingVersion: "0.39.0",
   platform: "macos" as const,
   updateAvailable: true,
+  updateChecksDisabled: false,
   updateDownloaded: true,
   downloadState: "downloaded" as const,
   version: "0.38.0",
@@ -529,6 +530,7 @@ export function UpdateStates() {
                 ...DESKTOP_UPDATE,
                 downloadState: "downloading",
                 pendingVersion: null,
+                updateChecksDisabled: false,
                 updateDownloaded: false,
               }}
               isDesktop
@@ -564,6 +566,7 @@ export function UpdateStates() {
                 ...DESKTOP_UPDATE,
                 downloadState: "failed",
                 pendingVersion: null,
+                updateChecksDisabled: false,
                 updateDownloaded: false,
               }}
               isDesktop

@@ -2,7 +2,10 @@ import { execFileSync } from "node:child_process";
 import { readFile, rm } from "node:fs/promises";
 import { resolve } from "node:path";
 import { build } from "esbuild";
-import { resolveDesktopReleaseChannel } from "./desktop-release-channel.mjs";
+import {
+  desktopAppVersion,
+  resolveDesktopReleaseChannel,
+} from "./desktop-release-channel.mjs";
 
 const packageRoot = process.cwd();
 const distDir = resolve(packageRoot, "dist");
@@ -61,7 +64,7 @@ function readBuildDate(env) {
 
 await rm(distDir, { force: true, recursive: true });
 
-const desktopVersion = readPackageVersion(
+const desktopPackageVersion = readPackageVersion(
   await readFile(packageJsonPath, "utf8"),
   "apps/desktop/package.json",
 );
@@ -69,9 +72,17 @@ const pluginSdkVersion = readPackageVersion(
   await readFile(pluginSdkPackageJsonPath, "utf8"),
   "packages/plugin-sdk/package.json",
 );
-const desktopReleaseChannel = resolveDesktopReleaseChannel(process.env);
+const desktopReleaseChannel = resolveDesktopReleaseChannel(
+  process.env,
+  desktopPackageVersion,
+);
 const desktopCommit = readBuildCommit(process.env);
 const desktopBuildDate = readBuildDate(process.env);
+
+const desktopVersion = desktopAppVersion(
+  desktopReleaseChannel,
+  desktopPackageVersion,
+);
 
 const commonOptions = {
   bundle: true,

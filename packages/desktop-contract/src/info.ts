@@ -21,6 +21,7 @@ export const bbDesktopInfoSchema = z.object({
   platform: bbDesktopVersionFeedPlatformSchema,
   serverDaemonLogsAvailable: z.boolean().optional(),
   updateAvailable: z.boolean(),
+  updateChecksDisabled: z.boolean(),
   updateDownloaded: z.boolean(),
   version: z.string().min(1),
 });

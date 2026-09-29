@@ -110,6 +110,7 @@ function createInitialDesktopInfo(): BbDesktopInfo {
     pendingVersion: null,
     platform: resolveBbDesktopPlatform(process.platform),
     updateAvailable: false,
+    updateChecksDisabled: process.env.BB_DESKTOP_RELEASE_CHANNEL === "aleph",
     updateDownloaded: false,
     version: getDesktopVersion(process.env.BB_DESKTOP_VERSION),
   };
@@ -397,6 +398,9 @@ const bbDesktopApi: BbDesktopApi = {
   },
   get updateAvailable() {
     return currentInfo.updateAvailable;
+  },
+  get updateChecksDisabled() {
+    return currentInfo.updateChecksDisabled;
   },
   get updateDownloaded() {
     return currentInfo.updateDownloaded;

@@ -20,6 +20,8 @@ export interface DesktopReleaseConfig {
   updateMetadataFileNames: DesktopUpdateMetadataFileNames;
 }
 
+export function readDesktopPackageVersion(packageJsonPath?: string): string;
+
 export function resolveDesktopReleaseChannel(
   env: NodeJS.ProcessEnv,
   packageVersion?: string,
@@ -32,3 +34,23 @@ export function resolveDesktopBuildPlatform(
 export function createDesktopReleaseConfig(
   channel: DesktopReleaseChannel,
 ): DesktopReleaseConfig;
+
+export function alephBundleVersion(version: string, rebuild?: number): string;
+
+export function desktopAppVersion(
+  channel: DesktopReleaseChannel,
+  packageVersion: string,
+): string;
+
+export function alephUpstreamBase(packageVersion: string): string;
+
+export interface AlephBuildLedger {
+  releases: Array<{ bundleVersion: string; rebuild: number; version: string }>;
+}
+
+export function assertBundleVersionFollowsLedger(
+  ledger: AlephBuildLedger,
+  bundleVersion: string,
+): void;
+
+export function parseAlephBuildLedger(text: string): AlephBuildLedger;

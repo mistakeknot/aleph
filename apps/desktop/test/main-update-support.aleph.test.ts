@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 // main.ts runs Electron at import time, so this reads its source instead:
 // resolveDesktopUpdateSupport only turns updates off for an Aleph build when
-// main.ts hands it the running version.
+// main.ts hands it the compiled release channel.
 const mainPath = resolve(__dirname, "../src/main.ts");
 
 function objectArgumentsOf(
@@ -60,22 +60,13 @@ describe("desktop main update wiring", () => {
     true,
   );
 
-  it("passes the running desktop version into resolveDesktopUpdateSupport", () => {
+  it("passes the compiled release channel into resolveDesktopUpdateSupport", () => {
     const calls = objectArgumentsOf(source, "resolveDesktopUpdateSupport");
     expect(calls).toHaveLength(1);
     const [call] = calls;
     if (call === undefined) throw new Error("expected one call");
 
-    const updateServices = objectArgumentsOf(
-      source,
-      "createDesktopUpdateService",
-    );
-    expect(updateServices).toHaveLength(1);
-    const [updateService] = updateServices;
-    if (updateService === undefined) throw new Error("expected one call");
-
-    const runningVersion = propertyText(updateService, "currentVersion");
-    expect(runningVersion).toBe("desktopVersion");
-    expect(propertyText(call, "appVersion")).toBe(runningVersion);
+    expect(propertyText(call, "channel")).toBe("DESKTOP_RELEASE_CHANNEL");
+    expect(propertyText(call, "appVersion")).toBeNull();
   });
 });

@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import {
   access,
   chmod,
@@ -14,6 +15,14 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { z } from "zod";
+import {
+  alephBundleVersion,
+  desktopAppVersion,
+} from "../scripts/desktop-release-channel.mjs";
+import {
+  resolveElectronBuilderConfig,
+  type ElectronBuilderConfigSources,
+} from "../scripts/run-electron-builder.mjs";
 import { describe, expect, it } from "vitest";
 
 const desktopPackageRoot = process.cwd();
@@ -38,6 +47,9 @@ const macConfigSchema = z
   .object({
     entitlements: z.string().min(1),
     entitlementsInherit: z.string().min(1),
+    extendInfo: z
+      .record(z.string(), z.union([z.string(), z.boolean()]))
+      .optional(),
     gatekeeperAssess: z.literal(false),
     hardenedRuntime: z.literal(true),
     icon: z.string().min(1),
@@ -93,6 +105,13 @@ const electronBuilderConfigSchema = z
   .object({
     afterPack: z.string().min(1),
     asarUnpack: z.array(z.string().min(1)),
+    buildVersion: z.string().min(1).optional(),
+    extraMetadata: z
+      .object({
+        AlephUnpublishable: z.boolean().optional(),
+        version: z.string().min(1),
+      })
+      .optional(),
     copyright: z.string().min(1).optional(),
     dmg: z
       .object({
@@ -116,6 +135,7 @@ const electronBuilderConfigSchema = z
 const desktopPackageJsonSchema = z
   .object({
     main: z.literal("dist/main.js"),
+    version: z.string().min(1),
     optionalDependencies: z.record(z.string(), z.string()).optional(),
     type: z.never().optional(),
   })
@@ -168,8 +188,17 @@ type RunNativePrepScript = (
   args?: string[],
 ) => Promise<ScriptRunResult>;
 
+const stockPackageJsonDirectory = mkdtempSync(
+  resolve(tmpdir(), "bb-desktop-stock-package-"),
+);
+const stockPackageJsonPath = resolve(stockPackageJsonDirectory, "package.json");
+writeFileSync(
+  stockPackageJsonPath,
+  JSON.stringify({ name: "@bb/desktop", version: "0.44.0" }),
+);
+
 const createScriptEnvironment: CreateScriptEnvironment = (overrides) => {
-  const env = { ...process.env };
+  const env: NodeJS.ProcessEnv = { ...process.env, ALEPH_BUNDLE_REBUILD: "0" };
 
   for (const key of signingEnvironmentKeys) {
     delete env[key];
@@ -246,6 +275,24 @@ const runNativePrepScript: RunNativePrepScript = async (
     stderr: stderrChunks.join(""),
     stdout: stdoutChunks.join(""),
   };
+};
+
+const resolveInProcess = async (
+  overrides: Record<string, string | undefined>,
+  sources: ElectronBuilderConfigSources,
+) => {
+  const baseConfig: unknown = JSON.parse(
+    await readFile(
+      resolve(desktopPackageRoot, "electron-builder.config.json"),
+      "utf8",
+    ),
+  );
+  const { config } = resolveElectronBuilderConfig(
+    baseConfig,
+    createScriptEnvironment(overrides),
+    sources,
+  );
+  return electronBuilderConfigSchema.parse(config);
 };
 
 const readResolvedConfig: ReadResolvedConfig = async (overrides) => {
@@ -576,17 +623,19 @@ describe("electron-builder signing config", () => {
 
     expect(JSON.parse(configText)).not.toHaveProperty("publish");
     for (const channel of ["latest", "nightly", "aleph"]) {
-      const { config } = await readResolvedConfig({
-        BB_DESKTOP_RELEASE_CHANNEL: channel,
-      });
+      const config = await resolveInProcess(
+        { BB_DESKTOP_RELEASE_CHANNEL: channel },
+        channel === "aleph" ? {} : { packageJsonPath: stockPackageJsonPath },
+      );
       expect(config.publish).toBeUndefined();
     }
   });
 
   it("creates a separate nightly app identity and update feed", async () => {
-    const { config } = await readResolvedConfig({
-      BB_DESKTOP_RELEASE_CHANNEL: "nightly",
-    });
+    const config = await resolveInProcess(
+      { BB_DESKTOP_RELEASE_CHANNEL: "nightly" },
+      { packageJsonPath: stockPackageJsonPath },
+    );
 
     expect(config.appId).toBe("dev.bb.desktop.nightly");
     expect(config.productName).toBe("bb Nightly");
@@ -611,6 +660,221 @@ describe("electron-builder signing config", () => {
     expect(config.productName).toBe("Aleph");
     expect(config.artifactName).toBe("Aleph-${version}-${arch}.${ext}");
     expect(config.linux.executableName).toBe("aleph");
+  });
+
+  it("stamps the Aleph bundle with the plain release, a monotonic CFBundleVersion and the upstream base", async () => {
+    const packageJson = desktopPackageJsonSchema.parse(
+      JSON.parse(
+        await readFile(resolve(desktopPackageRoot, "package.json"), "utf8"),
+      ),
+    );
+    const { config } = await readResolvedConfig({
+      BB_DESKTOP_RELEASE_CHANNEL: "aleph",
+    });
+
+    expect(config.extraMetadata).toEqual({
+      version: desktopAppVersion("aleph", packageJson.version),
+    });
+    expect(config.extraMetadata?.version).toMatch(/^\d+\.\d+\.\d+$/);
+    expect(config.buildVersion).toBe(alephBundleVersion(packageJson.version));
+    expect(config.mac.extendInfo).toEqual({
+      AlephUpstreamBase: packageJson.version.split("+")[0],
+    });
+  });
+
+  it("honors an explicit rebuild counter", async () => {
+    const { config } = await readResolvedConfig({
+      ALEPH_BUNDLE_REBUILD: "2",
+      BB_DESKTOP_RELEASE_CHANNEL: "aleph",
+    });
+
+    expect(Number(config.buildVersion) % 100).toBe(2);
+  });
+
+  it("refuses an Aleph build with no explicit rebuild counter", async () => {
+    const result = await runConfigScript({ ALEPH_BUNDLE_REBUILD: undefined });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("ALEPH_BUNDLE_REBUILD is required");
+  });
+
+  it("lets a local unpublishable Aleph build omit the counter and skip the checked-in ledger", async () => {
+    const { config } = await readResolvedConfig({
+      ALEPH_BUNDLE_REBUILD: undefined,
+      ALEPH_UNPUBLISHABLE_BUILD: "1",
+    });
+
+    expect(config.buildVersion).toBeDefined();
+  });
+
+  it("fails a publishable build whose CFBundleVersion does not exceed the ledger", async () => {
+    const packageJson = desktopPackageJsonSchema.parse(
+      JSON.parse(
+        await readFile(resolve(desktopPackageRoot, "package.json"), "utf8"),
+      ),
+    );
+    const derived = alephBundleVersion(packageJson.version);
+    const equalLedger = resolve(stockPackageJsonDirectory, "equal-ledger.json");
+    const newerLedger = resolve(stockPackageJsonDirectory, "newer-ledger.json");
+    await writeFile(
+      equalLedger,
+      JSON.stringify({
+        releases: [
+          { bundleVersion: derived, rebuild: 0, version: "already-shipped" },
+        ],
+      }),
+    );
+    await writeFile(
+      newerLedger,
+      JSON.stringify({
+        releases: [
+          {
+            bundleVersion: String(Number(derived) + 100),
+            rebuild: 0,
+            version: "newer-release",
+          },
+        ],
+      }),
+    );
+
+    await expect(
+      resolveInProcess({}, { ledgerPath: equalLedger }),
+    ).rejects.toThrow("already ledgered");
+    await expect(
+      resolveInProcess({}, { ledgerPath: newerLedger }),
+    ).rejects.toThrow("is not greater than ledgered");
+  });
+
+  it("accepts a publishable build that exceeds every ledger entry", async () => {
+    const packageJson = desktopPackageJsonSchema.parse(
+      JSON.parse(
+        await readFile(resolve(desktopPackageRoot, "package.json"), "utf8"),
+      ),
+    );
+    const ledgerPath = resolve(stockPackageJsonDirectory, "older-ledger.json");
+    await writeFile(
+      ledgerPath,
+      JSON.stringify({
+        releases: [
+          {
+            bundleVersion: String(
+              Number(alephBundleVersion(packageJson.version)) - 100,
+            ),
+            rebuild: 0,
+            version: "older",
+          },
+        ],
+      }),
+    );
+
+    const config = await resolveInProcess({}, { ledgerPath });
+
+    expect(config.buildVersion).toBe(alephBundleVersion(packageJson.version));
+  });
+
+  it("marks an unpublishable build and configures it differently from a publishable one", async () => {
+    const publishable = await readResolvedConfig({});
+    const unpublishable = await readResolvedConfig({
+      ALEPH_UNPUBLISHABLE_BUILD: "1",
+    });
+
+    expect(unpublishable.config).not.toEqual(publishable.config);
+    expect(unpublishable.config.mac.extendInfo).toMatchObject({
+      AlephUnpublishable: true,
+    });
+    expect(unpublishable.config.extraMetadata).toMatchObject({
+      AlephUnpublishable: true,
+    });
+    expect(unpublishable.config.mac.identity).toBeNull();
+    expect(unpublishable.config.mac.notarize).toBe(false);
+    expect(unpublishable.config.artifactName).toContain("UNPUBLISHABLE");
+    expect(publishable.config.mac.extendInfo).not.toHaveProperty(
+      "AlephUnpublishable",
+    );
+    expect(publishable.config.artifactName).not.toContain("UNPUBLISHABLE");
+  });
+
+  it("refuses an unpublishable build combined with signing credentials", async () => {
+    const result = await runConfigScript({
+      ALEPH_UNPUBLISHABLE_BUILD: "1",
+      CSC_LINK: "x",
+      CSC_KEY_PASSWORD: "x",
+      APPLE_ID: "x",
+      APPLE_APP_SPECIFIC_PASSWORD: "x",
+      APPLE_TEAM_ID: "x",
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("cannot be combined with signing");
+  });
+
+  it("lets no environment variable redirect the ledger or version source on the CLI path", async () => {
+    const ledgerPath = resolve(stockPackageJsonDirectory, "real-ledger.json");
+    const derived = alephBundleVersion(
+      desktopPackageJsonSchema.parse(
+        JSON.parse(
+          await readFile(resolve(desktopPackageRoot, "package.json"), "utf8"),
+        ),
+      ).version,
+    );
+    await writeFile(
+      ledgerPath,
+      JSON.stringify({
+        releases: [
+          { bundleVersion: derived, rebuild: 0, version: "already-shipped" },
+        ],
+      }),
+    );
+
+    for (const vitest of ["true", undefined]) {
+      const ledgerOverride = await runConfigScript({
+        ALEPH_BUILD_LEDGER: ledgerPath,
+        VITEST: vitest,
+      });
+      const packageOverride = await runConfigScript({
+        BB_DESKTOP_PACKAGE_JSON: stockPackageJsonPath,
+        BB_DESKTOP_RELEASE_CHANNEL: "latest",
+        VITEST: vitest,
+      });
+      const unpublishableOverride = await runConfigScript({
+        ALEPH_BUILD_LEDGER: ledgerPath,
+        ALEPH_UNPUBLISHABLE_BUILD: "1",
+        BB_DESKTOP_PACKAGE_JSON: stockPackageJsonPath,
+        VITEST: vitest,
+      });
+
+      expect(ledgerOverride.exitCode).toBe(0);
+      expect(packageOverride.exitCode).toBe(1);
+      expect(packageOverride.stderr).toContain(
+        "contradicts the Aleph package version",
+      );
+      expect(unpublishableOverride.exitCode).toBe(0);
+      expect(JSON.parse(unpublishableOverride.stdout).appId).toBe(
+        "com.generalsystemsventures.aleph",
+      );
+    }
+  });
+
+  it("leaves non-Aleph channels without Aleph bundle keys", async () => {
+    const config = await resolveInProcess(
+      { BB_DESKTOP_RELEASE_CHANNEL: "nightly" },
+      { packageJsonPath: stockPackageJsonPath },
+    );
+
+    expect(config.buildVersion).toBeUndefined();
+    expect(config.extraMetadata).toBeUndefined();
+    expect(config.mac.extendInfo).toBeUndefined();
+  });
+
+  it("refuses a non-Aleph channel on an Aleph package instead of enabling stock identity", async () => {
+    for (const channel of ["latest", "nightly"]) {
+      const result = await runConfigScript({
+        BB_DESKTOP_RELEASE_CHANNEL: channel,
+      });
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("contradicts the Aleph package version");
+    }
   });
 
   it("packages the Aleph build with General Systems Ventures as the Info.plist copyright holder", async () => {

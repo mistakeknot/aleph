@@ -69,6 +69,7 @@ function createBaseInfo(
     pendingVersion: null,
     platform,
     updateAvailable: false,
+    updateChecksDisabled: false,
     updateDownloaded: false,
     version: currentVersion,
   };
@@ -131,6 +132,7 @@ export function parseDesktopVersionFeed(
       pendingVersion: null,
       platform: args.platform,
       updateAvailable: semver.gt(parsedFeedVersion, parsedCurrentVersion),
+      updateChecksDisabled: false,
       updateDownloaded: false,
       version: args.currentVersion,
     },

@@ -8,7 +8,6 @@ import {
 import ReactMarkdown, { type Components } from "react-markdown";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { isAlephAppVersion } from "@bb/config/aleph-version";
 import type { BbDesktopInfo } from "@bb/desktop-contract";
 import type {
   SystemAppUpdateResult,
@@ -772,7 +771,7 @@ export function BbAppUpdateRows({
 }: BbAppUpdateRowsProps) {
   const checksOff =
     desktopInfo !== null
-      ? isAlephAppVersion(desktopInfo.version)
+      ? desktopInfo.updateChecksDisabled
       : systemVersion?.updateChecksDisabled === true;
   const settledStatus = isChecking ? (
     <RowStateControl live state="in-progress" />

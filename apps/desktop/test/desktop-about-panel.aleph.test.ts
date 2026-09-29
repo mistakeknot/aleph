@@ -35,6 +35,7 @@ describe("desktop About version", () => {
 
   it.each([
     ["an older Aleph build number", "aleph", "0.43.4+aleph.4"],
+    ["a plain Aleph release", "aleph", "0.5.0"],
     ["a stock build", "latest", "0.43.4"],
   ] as const)("keeps %s's raw version", (_label, channel, version) => {
     expect(

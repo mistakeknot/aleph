@@ -1,9 +1,16 @@
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  alephBundleVersion,
+  alephUpstreamBase,
+  assertBundleVersionFollowsLedger,
   createDesktopReleaseConfig,
+  desktopAppVersion,
+  parseAlephBuildLedger,
+  readDesktopPackageVersion,
   resolveDesktopReleaseChannel,
 } from "./desktop-release-channel.mjs";
 
@@ -22,6 +29,11 @@ const electronBuilderBin = resolve(
   "node_modules",
   ".bin",
   "electron-builder",
+);
+
+const defaultLedgerPath = resolve(
+  desktopPackageRoot,
+  "aleph-build-ledger.json",
 );
 
 const codeSigningKeys = ["CSC_LINK", "CSC_KEY_PASSWORD"];
@@ -157,11 +169,51 @@ function createSigningPlan(env) {
   };
 }
 
-function resolveElectronBuilderConfig(baseConfig, env) {
+const ALEPH_UNPUBLISHABLE_MARKER = "AlephUnpublishable";
+
+function resolveRebuildCounter(env) {
+  const raw = env.ALEPH_BUNDLE_REBUILD?.trim();
+  if (raw === undefined || raw.length === 0) {
+    if (env.ALEPH_UNPUBLISHABLE_BUILD === "1") {
+      return 0;
+    }
+    throw new Error(
+      "ALEPH_BUNDLE_REBUILD is required for an Aleph build (set ALEPH_UNPUBLISHABLE_BUILD=1 only for a local build that will never be published).",
+    );
+  }
+  if (!/^\d+$/u.test(raw)) {
+    throw new Error(`ALEPH_BUNDLE_REBUILD must be an integer, got ${raw}.`);
+  }
+  return Number(raw);
+}
+
+function resolveAlephBundleStamp(env, sources) {
+  const version = readDesktopPackageVersion(sources.packageJsonPath);
+  const bundleVersion = alephBundleVersion(version, resolveRebuildCounter(env));
+  if (env.ALEPH_UNPUBLISHABLE_BUILD !== "1") {
+    assertBundleVersionFollowsLedger(
+      parseAlephBuildLedger(
+        readFileSync(sources.ledgerPath ?? defaultLedgerPath, "utf8"),
+      ),
+      bundleVersion,
+    );
+  }
+  return {
+    appVersion: desktopAppVersion("aleph", version),
+    bundleVersion,
+    upstreamBase: alephUpstreamBase(version),
+  };
+}
+
+export function resolveElectronBuilderConfig(baseConfig, env, sources = {}) {
   const signingPlan = createSigningPlan(env);
-  const releaseChannel = resolveDesktopReleaseChannel(env);
+  const releaseChannel = resolveDesktopReleaseChannel(
+    env,
+    readDesktopPackageVersion(sources.packageJsonPath),
+  );
   const releaseConfig = createDesktopReleaseConfig(releaseChannel);
   const config = cloneJson(baseConfig);
+  let unpublishableArtifactName = false;
   const mac = {
     ...config.mac,
     icon: releaseConfig.macIconPath,
@@ -183,8 +235,28 @@ function resolveElectronBuilderConfig(baseConfig, env) {
     executableName: releaseConfig.linuxExecutableName,
     icon: "assets/" + releaseConfig.iconFileName,
   };
+  if (releaseChannel === "aleph") {
+    const stamp = resolveAlephBundleStamp(env, sources);
+    config.extraMetadata = { version: stamp.appVersion };
+    config.buildVersion = stamp.bundleVersion;
+    config.mac.extendInfo = { AlephUpstreamBase: stamp.upstreamBase };
+    if (env.ALEPH_UNPUBLISHABLE_BUILD === "1") {
+      if (signingPlan.mode === "environment") {
+        throw new Error(
+          "ALEPH_UNPUBLISHABLE_BUILD=1 cannot be combined with signing credentials.",
+        );
+      }
+      config.mac.extendInfo[ALEPH_UNPUBLISHABLE_MARKER] = true;
+      config.mac.identity = null;
+      config.mac.notarize = false;
+      config.extraMetadata[ALEPH_UNPUBLISHABLE_MARKER] = true;
+      unpublishableArtifactName = true;
+    }
+  }
   config.appId = releaseConfig.appId;
-  config.artifactName = releaseConfig.artifactName;
+  config.artifactName = unpublishableArtifactName
+    ? releaseConfig.artifactName.replace("Aleph-", "Aleph-UNPUBLISHABLE-")
+    : releaseConfig.artifactName;
   config.productName = releaseConfig.applicationName;
   if (releaseConfig.copyrightHolder) {
     config.copyright = `Copyright © ${new Date().getFullYear()} ${releaseConfig.copyrightHolder}`;

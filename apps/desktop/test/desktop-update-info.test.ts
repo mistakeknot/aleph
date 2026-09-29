@@ -9,6 +9,7 @@ function info(overrides: Partial<BbDesktopInfo> = {}): BbDesktopInfo {
     pendingVersion: null,
     platform: "macos",
     updateAvailable: true,
+    updateChecksDisabled: false,
     updateDownloaded: false,
     version: "0.0.31",
     ...overrides,
@@ -30,6 +31,7 @@ describe("mergeDesktopUpdateInfo", () => {
       downloadState: "idle",
       latestVersion: "0.0.32",
       updateAvailable: true,
+      updateChecksDisabled: false,
       updateDownloaded: false,
     });
   });
@@ -43,6 +45,7 @@ describe("mergeDesktopUpdateInfo", () => {
     expect(merged).toMatchObject({
       downloadState: "downloading",
       updateAvailable: true,
+      updateChecksDisabled: false,
       updateDownloaded: false,
     });
   });

@@ -8,6 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   createDesktopReleaseConfig,
+  desktopAppVersion,
   resolveDesktopReleaseChannel,
 } from "./desktop-release-channel.mjs";
 import { createPackagedAppLaunchArguments } from "./packaged-app-launch.mjs";
@@ -119,7 +120,7 @@ async function readDesktopPackageVersion() {
   ) {
     throw new Error("apps/desktop/package.json must define a version");
   }
-  return packageJson.version;
+  return desktopAppVersion(releaseChannel, packageJson.version);
 }
 
 async function startSmokeServer({

@@ -9,6 +9,7 @@ import {
 } from "@bb/desktop-contract";
 import {
   createDesktopReleaseConfig,
+  desktopAppVersion,
   resolveDesktopBuildPlatform,
   resolveDesktopReleaseChannel,
 } from "./desktop-release-channel.mjs";
@@ -56,13 +57,14 @@ function parseJson(text: string): unknown {
 const packageJson = packageJsonSchema.parse(
   parseJson(await readFile(packageJsonPath, "utf8")),
 );
+const appVersion = desktopAppVersion(releaseChannel, packageJson.version);
 const updateMetadata = updateMetadataSchema.parse(
   parseYaml(await readFile(updateMetadataPath, "utf8")),
 );
 
-if (updateMetadata.version !== packageJson.version) {
+if (updateMetadata.version !== appVersion) {
   throw new Error(
-    `${updateMetadataFileName} version ${updateMetadata.version} did not match apps/desktop/package.json version ${packageJson.version}`,
+    `${updateMetadataFileName} version ${updateMetadata.version} did not match the ${releaseChannel} app version ${appVersion} (apps/desktop/package.json ${packageJson.version})`,
   );
 }
 
@@ -73,12 +75,12 @@ const desktopVersionFeed: BbDesktopVersionFeed = {
   path: updateMetadata.path,
   platform: buildPlatform,
   releaseDate: updateMetadata.releaseDate,
-  releaseName: `${releaseConfig.applicationName} desktop ${packageJson.version}`,
+  releaseName: `${releaseConfig.applicationName} desktop ${appVersion}`,
   releaseNotes: null,
   schemaVersion: 1,
   sha512: updateMetadata.sha512,
   stagingPercentage: null,
-  version: packageJson.version,
+  version: appVersion,
 };
 
 const validatedFeed = bbDesktopVersionFeedSchema.parse(desktopVersionFeed);
