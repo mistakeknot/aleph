@@ -68,6 +68,7 @@ const electronMock = vi.hoisted(() => {
     pendingVersion: null,
     platform: "macos",
     updateAvailable: false,
+    updateChecksDisabled: false,
     updateDownloaded: false,
     version: "0.0.0-test",
   };
@@ -541,6 +542,7 @@ describe("desktop preload browser API", () => {
         platform: "macos",
         serverDaemonLogsAvailable: true,
         updateAvailable: false,
+        updateChecksDisabled: false,
         updateDownloaded: false,
         version: "0.0.0-test",
       },

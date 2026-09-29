@@ -1,5 +1,4 @@
 import { join } from "node:path";
-import { isAlephAppVersion } from "@bb/config/app-update";
 import type { BbDesktopVersionFeedPlatform } from "@bb/desktop-contract";
 
 type DesktopReleaseChannel = "latest" | "nightly" | "aleph";
@@ -78,7 +77,7 @@ interface DesktopUpdateSupport {
 }
 
 interface ResolveDesktopUpdateSupportArgs {
-  appVersion: string;
+  channel: DesktopReleaseChannel;
   canReplaceAppImage: (appImagePath: string) => boolean;
   env: NodeJS.ProcessEnv;
   feedUrl: string | null;
@@ -88,7 +87,7 @@ interface ResolveDesktopUpdateSupportArgs {
 export function resolveDesktopUpdateSupport(
   args: ResolveDesktopUpdateSupportArgs,
 ): DesktopUpdateSupport {
-  if (args.feedUrl === null || isAlephAppVersion(args.appVersion)) {
+  if (args.feedUrl === null || args.channel === "aleph") {
     return { autoUpdate: false, versionCheck: false };
   }
 

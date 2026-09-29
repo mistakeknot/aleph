@@ -545,6 +545,7 @@ function getCurrentDesktopInfo(): BbDesktopInfo | null {
   }
   return {
     ...info,
+    updateChecksDisabled: DESKTOP_RELEASE_CHANNEL === "aleph",
     serverDaemonLogsAvailable: shouldEnableServerDaemonLogsMenu(),
   };
 }
@@ -2983,8 +2984,8 @@ async function runDesktopApp(): Promise<void> {
   });
 
   const desktopUpdateSupport = resolveDesktopUpdateSupport({
-    appVersion: desktopVersion,
     canReplaceAppImage,
+    channel: DESKTOP_RELEASE_CHANNEL,
     env: process.env,
     feedUrl: desktopUpdateFeedUrl,
     platform: desktopPlatform,

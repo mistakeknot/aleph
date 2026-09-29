@@ -93,6 +93,7 @@ function createBaseInfo(
     pendingVersion: null,
     platform,
     updateAvailable: false,
+    updateChecksDisabled: false,
     updateDownloaded: false,
     version: currentVersion,
   };

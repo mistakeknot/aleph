@@ -7,6 +7,7 @@ const baseInfo = {
   pendingVersion: null,
   platform: "macos",
   updateAvailable: true,
+  updateChecksDisabled: false,
   updateDownloaded: false,
   version: "0.0.31",
 } as const;

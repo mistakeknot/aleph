@@ -275,6 +275,7 @@ describe("desktop auto-update service", () => {
       pendingVersion: null,
       platform: "macos",
       updateAvailable: true,
+      updateChecksDisabled: false,
       updateDownloaded: false,
       version: "0.0.1",
     });
@@ -288,6 +289,7 @@ describe("desktop auto-update service", () => {
       pendingVersion: "0.0.2",
       platform: "macos",
       updateAvailable: true,
+      updateChecksDisabled: false,
       updateDownloaded: true,
       version: "0.0.1",
     });
@@ -359,6 +361,7 @@ describe("desktop auto-update service", () => {
       pendingVersion: null,
       platform: "macos",
       updateAvailable: true,
+      updateChecksDisabled: false,
       updateDownloaded: false,
       version: "0.0.1",
     });
@@ -388,6 +391,7 @@ describe("desktop auto-update service", () => {
       pendingVersion: null,
       platform: "macos",
       updateAvailable: true,
+      updateChecksDisabled: false,
       updateDownloaded: false,
       version: "0.0.1",
     });
@@ -424,6 +428,7 @@ describe("desktop auto-update service", () => {
       pendingVersion: "0.0.2",
       platform: "macos",
       updateAvailable: true,
+      updateChecksDisabled: false,
       updateDownloaded: true,
       version: "0.0.1",
     });

@@ -186,6 +186,7 @@ describe("PaneMaximizeButton", () => {
       pendingVersion: null,
       platform: "linux",
       updateAvailable: false,
+      updateChecksDisabled: false,
       updateDownloaded: false,
       version: "0.0.0-test",
     };
@@ -210,6 +211,7 @@ describe("PaneMaximizeButton", () => {
       pendingVersion: null,
       platform: "macos",
       updateAvailable: false,
+      updateChecksDisabled: false,
       updateDownloaded: false,
       version: "0.0.0-test",
     };

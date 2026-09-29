@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { resolveDesktopUpdateSupport } from "../src/desktop-update-provider.js";
 
 const FEED_URL = "https://updates.example.test/desktop-version.json";
-const UPSTREAM_VERSION = "0.43.4";
 const APP_IMAGE_PATH = "/home/user/Apps/bb-0.37.0-x86_64.AppImage";
 const alwaysReplaceable = () => true;
 const neverReplaceable = () => false;
@@ -11,7 +10,7 @@ describe("desktop update support", () => {
   it("enables both update paths on macOS", () => {
     expect(
       resolveDesktopUpdateSupport({
-        appVersion: UPSTREAM_VERSION,
+        channel: "latest",
         canReplaceAppImage: neverReplaceable,
         env: {},
         feedUrl: FEED_URL,
@@ -23,7 +22,7 @@ describe("desktop update support", () => {
   it("installs updates on Linux only inside an AppImage", () => {
     expect(
       resolveDesktopUpdateSupport({
-        appVersion: UPSTREAM_VERSION,
+        channel: "latest",
         canReplaceAppImage: alwaysReplaceable,
         env: { APPIMAGE: APP_IMAGE_PATH },
         feedUrl: FEED_URL,
@@ -32,7 +31,7 @@ describe("desktop update support", () => {
     ).toEqual({ autoUpdate: true, versionCheck: true });
     expect(
       resolveDesktopUpdateSupport({
-        appVersion: UPSTREAM_VERSION,
+        channel: "latest",
         canReplaceAppImage: alwaysReplaceable,
         env: {},
         feedUrl: FEED_URL,
@@ -41,7 +40,7 @@ describe("desktop update support", () => {
     ).toEqual({ autoUpdate: false, versionCheck: true });
     expect(
       resolveDesktopUpdateSupport({
-        appVersion: UPSTREAM_VERSION,
+        channel: "latest",
         canReplaceAppImage: alwaysReplaceable,
         env: { APPIMAGE: "  " },
         feedUrl: FEED_URL,
@@ -55,7 +54,7 @@ describe("desktop update support", () => {
 
     expect(
       resolveDesktopUpdateSupport({
-        appVersion: UPSTREAM_VERSION,
+        channel: "latest",
         canReplaceAppImage: (path) => {
           checked.push(path);
           return false;
@@ -74,7 +73,7 @@ describe("desktop update support", () => {
     for (const platform of ["macos", "linux"] as const) {
       expect(
         resolveDesktopUpdateSupport({
-          appVersion: "0.43.4+aleph.1",
+          channel: "aleph",
           canReplaceAppImage: () => {
             consulted = true;
             return true;
@@ -92,7 +91,7 @@ describe("desktop update support", () => {
     for (const platform of ["macos", "linux"] as const) {
       expect(
         resolveDesktopUpdateSupport({
-          appVersion: UPSTREAM_VERSION,
+          channel: "latest",
           canReplaceAppImage: alwaysReplaceable,
           env: { APPIMAGE: APP_IMAGE_PATH },
           feedUrl: null,
@@ -106,7 +105,7 @@ describe("desktop update support", () => {
     let consulted = false;
 
     resolveDesktopUpdateSupport({
-      appVersion: UPSTREAM_VERSION,
+      channel: "latest",
       canReplaceAppImage: () => {
         consulted = true;
         return true;

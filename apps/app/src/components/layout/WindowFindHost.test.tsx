@@ -48,6 +48,7 @@ const desktopInfo = {
   pendingVersion: null,
   platform: "macos" as const,
   updateAvailable: false,
+  updateChecksDisabled: false,
   updateDownloaded: false,
   version: "0.0.0-test",
 };

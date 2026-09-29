@@ -1,4 +1,8 @@
 import {
+  desktopAppVersion,
+  resolveDesktopReleaseChannel,
+} from "../scripts/desktop-release-channel.mjs";
+import {
   execFile,
   spawn,
   type ChildProcessWithoutNullStreams,
@@ -316,7 +320,13 @@ async function readDesktopPackageVersion(): Promise<string> {
     resolve(desktopPackageRoot, "package.json"),
     "utf8",
   );
-  return desktopPackageJsonSchema.parse(JSON.parse(packageJsonText)).version;
+  const packageVersion = desktopPackageJsonSchema.parse(
+    JSON.parse(packageJsonText),
+  ).version;
+  return desktopAppVersion(
+    resolveDesktopReleaseChannel({}, packageVersion),
+    packageVersion,
+  );
 }
 
 describe("desktop build", () => {

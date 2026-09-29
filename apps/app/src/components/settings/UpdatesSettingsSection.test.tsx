@@ -1490,6 +1490,7 @@ The canonical release summary.
       pendingVersion: "0.0.6",
       platform: "macos",
       updateAvailable: true,
+      updateChecksDisabled: false,
       updateDownloaded: true,
       version: "0.0.5",
     };
@@ -1531,6 +1532,7 @@ The canonical release summary.
       pendingVersion: null,
       platform: "macos",
       updateAvailable: true,
+      updateChecksDisabled: false,
       updateDownloaded: false,
       version: "0.0.5",
     };
@@ -1555,6 +1557,7 @@ The canonical release summary.
       pendingVersion: null,
       platform: "macos",
       updateAvailable: true,
+      updateChecksDisabled: false,
       updateDownloaded: false,
       version: "0.0.5",
     };
@@ -1861,6 +1864,7 @@ The canonical release summary.
       pendingVersion: null,
       platform: "macos",
       updateAvailable: false,
+      updateChecksDisabled: false,
       updateDownloaded: false,
       version: "0.0.5",
     };
@@ -2039,8 +2043,9 @@ describe("UpdatesSettingsSection on an Aleph build", () => {
       pendingVersion: null,
       platform: "macos",
       updateAvailable: false,
+      updateChecksDisabled: true,
       updateDownloaded: false,
-      version: "0.43.4+aleph.2",
+      version: "0.5.0",
     };
     useDesktopUpdateInfoMock.mockReturnValue({
       desktopApi: {

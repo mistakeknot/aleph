@@ -18,6 +18,7 @@ describe("desktop info schema", () => {
         pendingVersion: null,
         platform: "macos",
         updateAvailable: true,
+        updateChecksDisabled: false,
         updateDownloaded: false,
         version: "0.0.1",
       }).success,
