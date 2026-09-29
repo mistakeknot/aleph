@@ -118,7 +118,11 @@ export async function verifyHumanAssertion(
   if (getGateAuthKind(context) === "machine") throw fail();
 
   const binding = getConnectBinding(deps.db);
-  if (binding === null || !binding.reconciled || !isRelayFenceOpen(deps.db)) {
+  if (
+    binding === null ||
+    !binding.reconciled ||
+    !isRelayFenceOpen(deps.db, binding.generation)
+  ) {
     throw fail();
   }
 

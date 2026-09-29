@@ -9,7 +9,13 @@ import {
   RELAY_ASSERTION_ISSUERS,
   connectRuntimeForBaseUrl,
 } from "./assertion-keys.js";
-import { closeRelayFence, openRelayFence } from "./reconcile-fence.js";
+import {
+  closeRelayFence,
+  isRelayFenceOpen,
+  observeRelayGeneration,
+  observedRelayGeneration,
+  openRelayFence,
+} from "./reconcile-fence.js";
 import { notifyRelayCancellation } from "./targets.js";
 
 export interface ConnectRelayIdentityInput {
@@ -30,17 +36,27 @@ export function bindConnectRelayIdentity(
   input: ConnectRelayIdentityInput,
 ): ConnectRelayIdentityResult {
   closeRelayFence(deps.db);
+  const expected = observedRelayGeneration(deps.db);
+  if (expected === undefined) {
+    throw new Error("relay binding was not observed by this process");
+  }
   const runtime = connectRuntimeForBaseUrl(input.baseUrl);
   const supported =
     runtime !== null && input.serverId !== "" && input.ownerUserId !== "";
   const result = !supported
-    ? clearConnectBinding(deps.db)
-    : replaceConnectBinding(deps.db, {
-        runtime,
-        issuer: RELAY_ASSERTION_ISSUERS[runtime],
-        serverId: input.serverId,
-        ownerUserId: input.ownerUserId,
-      });
+    ? clearConnectBinding(deps.db, expected)
+    : replaceConnectBinding(
+        deps.db,
+        {
+          runtime,
+          issuer: RELAY_ASSERTION_ISSUERS[runtime],
+          serverId: input.serverId,
+          ownerUserId: input.ownerUserId,
+        },
+        Date.now(),
+        expected,
+      );
+  observeRelayGeneration(deps.db, result.generation);
   for (const cancellation of result.cancellations) {
     notifyRelayCancellation(deps, cancellation);
   }
@@ -49,7 +65,12 @@ export function bindConnectRelayIdentity(
 }
 
 export function hasConnectRelayIdentity(deps: Pick<AppDeps, "db">): boolean {
-  return getConnectBinding(deps.db)?.reconciled === true;
+  const binding = getConnectBinding(deps.db);
+  return (
+    binding !== null &&
+    binding.reconciled &&
+    isRelayFenceOpen(deps.db, binding.generation)
+  );
 }
 
 export function markConnectRelayIdentityReconciled(
@@ -57,9 +78,22 @@ export function markConnectRelayIdentityReconciled(
   reconciled: boolean,
 ): boolean {
   closeRelayFence(deps.db);
-  const exists = setConnectBindingReconciled(deps.db, reconciled);
-  if (reconciled && exists) openRelayFence(deps.db);
-  return exists;
+  if (!reconciled) {
+    const result = setConnectBindingReconciled(deps.db, false);
+    observeRelayGeneration(
+      deps.db,
+      result.status === "ok" ? result.generation : null,
+    );
+    return result.status === "ok";
+  }
+  const expected = observedRelayGeneration(deps.db);
+  if (expected === undefined) {
+    throw new Error("relay binding was not observed by this process");
+  }
+  const result = setConnectBindingReconciled(deps.db, true, expected);
+  if (result.status === "missing") return false;
+  openRelayFence(deps.db, result.generation);
+  return true;
 }
 
 export function closeConnectRelayFence(deps: Pick<AppDeps, "db">): void {

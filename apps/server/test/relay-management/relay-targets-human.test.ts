@@ -5,12 +5,17 @@ import {
   type KeyObject,
 } from "node:crypto";
 import {
+  ConnectBindingConflictError,
   getConnectBinding,
   getRelayTarget,
   insertRelayTarget,
   replaceConnectBinding,
   setConnectBindingReconciled,
 } from "@bb/db";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createConnection } from "@bb/db";
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import { errorToResponse } from "../../src/errors.js";
@@ -23,9 +28,13 @@ import {
   addRelayTargetForHuman,
   listRelayTargetsForHuman,
 } from "../../src/services/relay-management/targets.js";
-import { markConnectRelayIdentityReconciled } from "../../src/services/relay-management/connect-binding.js";
+import {
+  hasConnectRelayIdentity,
+  markConnectRelayIdentityReconciled,
+} from "../../src/services/relay-management/connect-binding.js";
 import { bindConnectRelayIdentity } from "../../src/services/relay-management/connect-binding.js";
 import { seedThreadFixture } from "../helpers/seed.js";
+import { initDb } from "../../src/db.js";
 import { withTestHarness, type TestAppHarness } from "../helpers/test-app.js";
 
 const NOW = Date.UTC(2026, 8, 29, 12, 0, 0);
@@ -107,6 +116,7 @@ function replaceReconciled(
   input: Parameters<typeof replaceConnectBinding>[1],
 ) {
   const result = replaceConnectBinding(db, input);
+  markConnectRelayIdentityReconciled({ db }, false);
   markConnectRelayIdentityReconciled({ db }, true);
   return result;
 }
@@ -381,6 +391,7 @@ describe("connect binding", () => {
     await withTestHarness(async (harness) => {
       const fixture = seedThreadFixture(harness);
       const deps = { db: harness.deps.db, hub: harness.deps.hub };
+      markConnectRelayIdentityReconciled({ db: harness.deps.db }, false);
       const input = {
         baseUrl: "https://getbb.app",
         ownerUserId: OWNER,
@@ -412,6 +423,7 @@ describe("connect binding", () => {
     await withTestHarness(async (harness) => {
       const fixture = seedThreadFixture(harness);
       const deps = { db: harness.deps.db, hub: harness.deps.hub };
+      markConnectRelayIdentityReconciled({ db: harness.deps.db }, false);
       bindConnectRelayIdentity(deps, {
         baseUrl: "https://getbb.app",
         ownerUserId: OWNER,
@@ -677,6 +689,7 @@ describe("relay binding reconciliation fence", () => {
         db: harness.deps.db,
         hub: { notifyThread: () => {} },
       };
+      markConnectRelayIdentityReconciled({ db: harness.deps.db }, false);
       bindConnectRelayIdentity(deps, {
         baseUrl: RELAY_ASSERTION_ISSUERS.production,
         ownerUserId: OWNER,
@@ -737,6 +750,17 @@ describe("relay binding reconciliation fence", () => {
   });
 });
 
+async function signedRequest(
+  app: Hono,
+  privateKey: ReturnType<typeof makeKeys>["privateKey"],
+  method: string,
+  path: string,
+) {
+  return call(app, method, path, {
+    "x-bb-gate-assertion": mint(privateKey, baseClaims(method, path)),
+  });
+}
+
 describe("relay in-memory reconcile fence", () => {
   async function signed(
     app: Hono,
@@ -762,6 +786,7 @@ describe("relay in-memory reconcile fence", () => {
         serverId: SERVER_ID,
       });
       setConnectBindingReconciled(harness.deps.db, true);
+      markConnectRelayIdentityReconciled({ db: harness.deps.db }, false);
       expect((await signed(app, privateKey, "GET", path)).status).toBe(403);
       markConnectRelayIdentityReconciled({ db: harness.deps.db }, true);
       expect((await signed(app, privateKey, "GET", path)).status).toBe(200);
@@ -830,5 +855,69 @@ describe("relay in-memory reconcile fence", () => {
         expect((await signed(app, privateKey, method, path)).status).toBe(200);
       }
     });
+  });
+});
+
+describe("relay fence across processes sharing a database", () => {
+  function twoProcesses() {
+    const file = join(mkdtempSync(join(tmpdir(), "relay-fence-")), "bb.db");
+    initDb(file).$client.close();
+    return { dbA: createConnection(file), dbB: createConnection(file) };
+  }
+
+  const identity = {
+    issuer: RELAY_ASSERTION_ISSUERS.production,
+    ownerUserId: OWNER,
+    runtime: "production" as const,
+    serverId: SERVER_ID,
+  };
+
+  it("rejects assertions in A after B replaces and reconciles the shared binding", async () => {
+    await withTestHarness(async (harness) => {
+      const { dbA, dbB } = twoProcesses();
+      const { key, privateKey } = makeKeys();
+      const app = buildApp({ ...harness, deps: { ...harness.deps, db: dbA } }, [
+        key,
+      ]);
+      replaceReconciled(dbA, identity);
+      const path = listPath("missing-host");
+      expect((await signedRequest(app, privateKey, "GET", path)).status).toBe(
+        404,
+      );
+
+      replaceReconciled(dbB, { ...identity, serverId: "srv_b" });
+      expect(getConnectBinding(dbA)?.reconciled).toBe(true);
+      for (const method of ["GET", "PUT", "DELETE"] as const) {
+        const target =
+          method === "GET" ? path : `${listPath("missing-host")}/thr_x`;
+        expect(
+          (await signedRequest(app, privateKey, method, target)).status,
+        ).toBe(403);
+      }
+    });
+  });
+
+  it("fails A's stale reconcile and bind writes without touching B's binding", async () => {
+    const { dbA, dbB } = twoProcesses();
+    replaceReconciled(dbA, identity);
+    markConnectRelayIdentityReconciled({ db: dbA }, false);
+    replaceReconciled(dbB, { ...identity, serverId: "srv_b" });
+    const bBinding = getConnectBinding(dbB)!;
+
+    expect(() => markConnectRelayIdentityReconciled({ db: dbA }, true)).toThrow(
+      ConnectBindingConflictError,
+    );
+    expect(() =>
+      bindConnectRelayIdentity(
+        { db: dbA, hub: { notifyThread: () => {} } },
+        {
+          baseUrl: RELAY_ASSERTION_ISSUERS.production,
+          ownerUserId: OWNER,
+          serverId: SERVER_ID,
+        },
+      ),
+    ).toThrow(ConnectBindingConflictError);
+    expect(getConnectBinding(dbB)).toEqual(bBinding);
+    expect(hasConnectRelayIdentity({ db: dbA })).toBe(false);
   });
 });

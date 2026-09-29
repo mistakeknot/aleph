@@ -340,6 +340,38 @@ describe("ConnectTunnel startup relay reconciliation", () => {
       await fakeHost.harness.dispose();
     }
   });
+
+  it("keeps relayBinding false and retries when the fence write fails at startup", async () => {
+    vi.useFakeTimers();
+    let failing = true;
+    const marks: boolean[] = [];
+    const binds: string[] = [];
+    const { fakeHost, tunnel } = createTunnelFixture({
+      markRelayIdentityReconciled: (reconciled) => {
+        marks.push(reconciled);
+        if (failing) throw new Error("db locked");
+        return true;
+      },
+      bindRelayIdentity: (binding) => {
+        binds.push(binding.serverId);
+      },
+      hasRelayIdentity: () => !failing,
+    });
+    try {
+      await tunnel.start();
+      expect(marks).toEqual([false]);
+      expect(binds).toEqual([]);
+      expect(tunnel.status().relayBinding).toBe(false);
+      failing = false;
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(marks).toEqual([false, false]);
+      expect(binds).toEqual([""]);
+      expect(tunnel.status().relayBinding).toBe(true);
+    } finally {
+      tunnel.stop();
+      await fakeHost.harness.dispose();
+    }
+  });
 });
 
 describe("ConnectTunnel relay reconcile serialization", () => {

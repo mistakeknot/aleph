@@ -19,6 +19,7 @@ import {
   getPluginSettingsValues,
   listPluginSchedules,
   migrate,
+  replaceConnectBinding,
   setPluginSettingsValues,
   upsertPluginSchedule,
   type DbConnection,
@@ -39,6 +40,10 @@ import {
   OFFICIAL_PLUGINS,
   resolveBuiltinPluginRootPath,
 } from "../../../src/services/plugins/builtin-registry.js";
+import {
+  hasConnectRelayIdentity,
+  markConnectRelayIdentityReconciled,
+} from "../../../src/services/relay-management/connect-binding.js";
 import { copyPluginRuntime } from "@bb/plugin-build";
 import { testLogger } from "../../helpers/test-app.js";
 import { createNoopTelemetryService } from "../../../src/services/system/telemetry.js";
@@ -422,9 +427,10 @@ describe("builtin plugin reconciliation", () => {
     await mkdir(secretsDir, { recursive: true });
     await writeFile(join(secretsDir, "token"), "secret");
 
-    const actual = await vi.importActual<typeof import("node:fs/promises")>(
-      "node:fs/promises",
-    );
+    const actual =
+      await vi.importActual<typeof import("node:fs/promises")>(
+        "node:fs/promises",
+      );
     let failed = false;
     vi.mocked(rm).mockImplementation(async (...args) => {
       if (!failed && args[0] === secretsDir) {
@@ -436,14 +442,16 @@ describe("builtin plugin reconciliation", () => {
     try {
       service = createService({ db, dataDir, includeBuiltin: false });
       await expect(service.start()).rejects.toThrow("secret removal failed");
-      expect(getInstalledPluginRegistration(db, "builtin-fixture")).toBeDefined();
-      expect(await readFile(join(secretsDir, "token"), "utf8")).toBe(
-        "secret",
-      );
+      expect(
+        getInstalledPluginRegistration(db, "builtin-fixture"),
+      ).toBeDefined();
+      expect(await readFile(join(secretsDir, "token"), "utf8")).toBe("secret");
 
       service = createService({ db, dataDir, includeBuiltin: false });
       await service.start();
-      expect(getInstalledPluginRegistration(db, "builtin-fixture")).toBeUndefined();
+      expect(
+        getInstalledPluginRegistration(db, "builtin-fixture"),
+      ).toBeUndefined();
       await expect(stat(secretsDir)).rejects.toThrow();
     } finally {
       vi.mocked(rm).mockImplementation(actual.rm);
@@ -762,6 +770,28 @@ describe("builtin plugin reconciliation", () => {
       },
     ]);
     expect(loadCount()).toBe(1);
+  });
+
+  it("closes the relay fence when the builtin connect plugin stops", async () => {
+    service = createService({
+      db,
+      dataDir: join(workDir, "data"),
+      builtinName: "connect",
+    });
+    await service.start();
+    replaceConnectBinding(db, {
+      issuer: "https://getbb.app",
+      ownerUserId: "user_owner",
+      runtime: "production",
+      serverId: "srv_test",
+    });
+    markConnectRelayIdentityReconciled({ db }, false);
+    markConnectRelayIdentityReconciled({ db }, true);
+    expect(hasConnectRelayIdentity({ db })).toBe(true);
+
+    await service.stop();
+
+    expect(hasConnectRelayIdentity({ db })).toBe(false);
   });
 
   it("loads the real side-chat builtin source", async () => {

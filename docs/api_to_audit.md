@@ -3080,8 +3080,12 @@ Core also keeps a per-process in-memory fence that starts closed at boot and
 opens only after a successful `markRelayIdentityReconciled(true)` in this
 process. It closes before any database access on every binding write, every
 `markRelayIdentityReconciled` call and plugin dispose, so a failing database
-write cannot leave assertions accepted. Assertions need both the persisted flag
-and the in-memory fence.
+write cannot leave assertions accepted. The fence is pinned to the binding
+generation that process wrote; assertions need the persisted flag and a
+generation match, so another process changing the shared binding closes this
+one. Bind and reconcile writes compare-and-swap on the generation this process
+last observed (`markRelayIdentityReconciled(false)` observes) and throw if the
+row changed underneath, so a stale process cannot overwrite a newer binding.
 
 Stabilization requires deciding whether a general plugin-visible identity API
 is needed, and confirming the gate redeem response carries `ownerUserId`.

@@ -27,6 +27,30 @@ export interface ConnectBindingInput {
 export interface ReplaceConnectBindingResult {
   cancellations: RelayCancellationResult[];
   changed: boolean;
+  generation: string | null;
+}
+
+export type ConnectBindingReconcileResult =
+  | { status: "missing" }
+  | { status: "ok"; generation: string };
+
+export class ConnectBindingConflictError extends Error {
+  constructor() {
+    super("connect binding changed under this process");
+    this.name = "ConnectBindingConflictError";
+  }
+}
+
+function assertExpectedGeneration(
+  current: ConnectBindingRow | null,
+  expectedGeneration: string | null | undefined,
+): void {
+  if (
+    expectedGeneration !== undefined &&
+    (current?.generation ?? null) !== expectedGeneration
+  ) {
+    throw new ConnectBindingConflictError();
+  }
 }
 
 export function getConnectBinding(
@@ -85,17 +109,20 @@ function cancelAllHostTargetsInTransaction(
 
 export function clearConnectBinding(
   db: DbConnection,
+  expectedGeneration?: string | null,
 ): ReplaceConnectBindingResult {
   return db.transaction(
     (tx: DbTransaction) => {
-      if (getConnectBinding(tx) === null) {
-        return { cancellations: [], changed: false };
+      const current = getConnectBinding(tx);
+      assertExpectedGeneration(current, expectedGeneration);
+      if (current === null) {
+        return { cancellations: [], changed: false, generation: null };
       }
       const cancellations = cancelAllHostTargetsInTransaction(tx);
       tx.delete(connectBinding)
         .where(eq(connectBinding.id, CONNECT_BINDING_ROW_ID))
         .run();
-      return { cancellations, changed: true };
+      return { cancellations, changed: true, generation: null };
     },
     { behavior: "immediate" },
   );
@@ -105,13 +132,20 @@ export function replaceConnectBinding(
   db: DbConnection,
   input: ConnectBindingInput,
   now: number = Date.now(),
+  expectedGeneration?: string | null,
 ): ReplaceConnectBindingResult {
   return db.transaction(
     (tx: DbTransaction) => {
       const current = getConnectBinding(tx);
+      assertExpectedGeneration(current, expectedGeneration);
       if (current !== null && bindingsMatch(current, input)) {
-        return { cancellations: [], changed: false };
+        return {
+          cancellations: [],
+          changed: false,
+          generation: current.generation,
+        };
       }
+      const generation = randomUUID();
       const cancellations =
         current === null ? [] : cancelAllHostTargetsInTransaction(tx);
       tx.insert(connectBinding)
@@ -122,7 +156,7 @@ export function replaceConnectBinding(
           serverId: input.serverId,
           ownerUserId: input.ownerUserId,
           boundAt: now,
-          generation: randomUUID(),
+          generation,
           reconciled: false,
         })
         .onConflictDoUpdate({
@@ -133,12 +167,12 @@ export function replaceConnectBinding(
             serverId: input.serverId,
             ownerUserId: input.ownerUserId,
             boundAt: now,
-            generation: randomUUID(),
+            generation,
             reconciled: false,
           },
         })
         .run();
-      return { cancellations, changed: true };
+      return { cancellations, changed: true, generation };
     },
     { behavior: "immediate" },
   );
@@ -147,17 +181,22 @@ export function replaceConnectBinding(
 export function setConnectBindingReconciled(
   db: DbConnection,
   reconciled: boolean,
-): boolean {
+  expectedGeneration?: string | null,
+): ConnectBindingReconcileResult {
   return db.transaction(
     (tx: DbTransaction) => {
       const current = getConnectBinding(tx);
-      if (current === null) return false;
-      if (current.reconciled === reconciled) return true;
+      assertExpectedGeneration(current, expectedGeneration);
+      if (current === null) return { status: "missing" };
+      if (current.reconciled === reconciled) {
+        return { status: "ok", generation: current.generation };
+      }
+      const generation = randomUUID();
       tx.update(connectBinding)
-        .set({ reconciled, generation: randomUUID() })
+        .set({ reconciled, generation })
         .where(eq(connectBinding.id, CONNECT_BINDING_ROW_ID))
         .run();
-      return true;
+      return { status: "ok", generation };
     },
     { behavior: "immediate" },
   );

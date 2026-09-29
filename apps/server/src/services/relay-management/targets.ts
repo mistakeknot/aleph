@@ -40,7 +40,7 @@ function consumeAssertion(
   tx: DbTransaction,
   assertion: VerifiedHumanAssertion,
   nowFn: () => number,
-  fenceOpen: () => boolean,
+  fenceOpen: (generation: string) => boolean,
 ): number {
   const now = nowFn();
   if (
@@ -54,7 +54,7 @@ function consumeAssertion(
   if (
     current === null ||
     !current.reconciled ||
-    !fenceOpen() ||
+    !fenceOpen(current.generation) ||
     !connectBindingsEqual(current, assertion.binding)
   ) {
     throw humanSessionRequired();
@@ -86,8 +86,11 @@ export async function listRelayTargetsForHuman(
   const assertion = await verifyHumanAssertion(context, assertionDeps);
   return deps.db.transaction(
     (tx) => {
-      consumeAssertion(tx, assertion, assertionDeps.now ?? Date.now, () =>
-        isRelayFenceOpen(assertionDeps.db),
+      consumeAssertion(
+        tx,
+        assertion,
+        assertionDeps.now ?? Date.now,
+        (generation: string) => isRelayFenceOpen(assertionDeps.db, generation),
       );
       requireHost(tx, hostId);
       return { targets: listRelayTargetDetailsForHost(tx, hostId) };
@@ -109,7 +112,7 @@ export async function addRelayTargetForHuman(
         tx,
         assertion,
         assertionDeps.now ?? Date.now,
-        () => isRelayFenceOpen(assertionDeps.db),
+        (generation: string) => isRelayFenceOpen(assertionDeps.db, generation),
       );
       requireHost(tx, args.hostId);
       if (!isLiveThreadId(tx, args.threadId)) {
@@ -135,8 +138,11 @@ export async function removeRelayTargetForHuman(
   const assertion = await verifyHumanAssertion(context, assertionDeps);
   const result = deps.db.transaction(
     (tx) => {
-      consumeAssertion(tx, assertion, assertionDeps.now ?? Date.now, () =>
-        isRelayFenceOpen(assertionDeps.db),
+      consumeAssertion(
+        tx,
+        assertion,
+        assertionDeps.now ?? Date.now,
+        (generation: string) => isRelayFenceOpen(assertionDeps.db, generation),
       );
       requireHost(tx, args.hostId);
       return cancelRelayForTargetInTransaction(

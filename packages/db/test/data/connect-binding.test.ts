@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  ConnectBindingConflictError,
   clearConnectBinding,
   connectBindingsEqual,
   getConnectBinding,
@@ -70,11 +71,11 @@ describe("connect binding generation", () => {
 describe("connect binding reconciliation fence", () => {
   it("starts fenced, toggles with a new generation, and is fenced again on change", () => {
     const db = freshDb();
-    expect(setConnectBindingReconciled(db, true)).toBe(false);
+    expect(setConnectBindingReconciled(db, true)).toEqual({ status: "missing" });
     replaceConnectBinding(db, binding);
     expect(getConnectBinding(db)!.reconciled).toBe(false);
     const fenced = getConnectBinding(db)!;
-    expect(setConnectBindingReconciled(db, true)).toBe(true);
+    expect(setConnectBindingReconciled(db, true)).toMatchObject({ status: "ok" });
     const open = getConnectBinding(db)!;
     expect(open.reconciled).toBe(true);
     expect(open.generation).not.toBe(fenced.generation);
@@ -83,6 +84,26 @@ describe("connect binding reconciliation fence", () => {
     expect(getConnectBinding(db)!.reconciled).toBe(true);
     replaceConnectBinding(db, { ...binding, serverId: "srv_b" });
     expect(getConnectBinding(db)!.reconciled).toBe(false);
+  });
+
+  it("refuses writes whose expected generation is stale", () => {
+    const db = freshDb();
+    const first = replaceConnectBinding(db, binding);
+    replaceConnectBinding(db, { ...binding, serverId: "srv_b" });
+    const current = getConnectBinding(db)!;
+    expect(() =>
+      setConnectBindingReconciled(db, true, first.generation),
+    ).toThrow(ConnectBindingConflictError);
+    expect(() =>
+      replaceConnectBinding(db, binding, Date.now(), first.generation),
+    ).toThrow(ConnectBindingConflictError);
+    expect(() => clearConnectBinding(db, first.generation)).toThrow(
+      ConnectBindingConflictError,
+    );
+    expect(getConnectBinding(db)).toEqual(current);
+    expect(
+      setConnectBindingReconciled(db, true, current.generation),
+    ).toMatchObject({ status: "ok" });
   });
 });
 

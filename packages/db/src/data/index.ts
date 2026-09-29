@@ -549,6 +549,7 @@ export * from "./project-attachment-backfill.js";
 export {
   CONNECT_BINDING_ROW_ID,
   CONNECT_REBIND_CANCEL_REASON,
+  ConnectBindingConflictError,
   clearConnectBinding,
   connectBindingsEqual,
   setConnectBindingReconciled,
@@ -559,6 +560,7 @@ export {
 } from "./connect-binding.js";
 export type {
   ConnectBindingInput,
+  ConnectBindingReconcileResult,
   ConnectBindingRow,
   ReplaceConnectBindingResult,
 } from "./connect-binding.js";
