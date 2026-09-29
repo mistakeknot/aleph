@@ -71,7 +71,7 @@ type GateState = "verified" | "checking" | "failed";
 
 interface PendingInteractionsGateQuery {
   status: "error" | "pending" | "success";
-  isFetching: boolean;
+  fetchStatus: "fetching" | "idle" | "paused";
   refetch: () => Promise<unknown>;
 }
 
@@ -100,7 +100,7 @@ export function usePendingInteractionsGate({
     ? "verified"
     : query.status === "error"
       ? "failed"
-      : query.status === "success" && !query.isFetching
+      : query.status === "success" && query.fetchStatus === "idle"
         ? "verified"
         : "checking";
   const last = useRef<LastGateState | null>(null);

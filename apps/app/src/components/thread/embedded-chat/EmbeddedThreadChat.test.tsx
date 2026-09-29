@@ -251,6 +251,7 @@ vi.mock("@/hooks/queries/thread-queries", () => ({
     data: mocks.pendingInteractions,
     isError: mocks.pendingInteractionsIsError,
     isFetching: mocks.pendingInteractionsIsFetching,
+    fetchStatus: mocks.pendingInteractionsIsFetching ? "fetching" : "idle",
     isLoading: mocks.pendingInteractionsIsLoading,
     refetch: async () => undefined,
     status: mocks.pendingInteractionsIsError ? "error" : "success",

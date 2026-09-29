@@ -92,7 +92,7 @@ describe("pending-interactions guard", () => {
     interface Props {
       hasPendingInteraction: boolean;
       status: "error" | "pending" | "success";
-      isFetching: boolean;
+      fetchStatus: "fetching" | "idle" | "paused";
       threadId: string;
     }
     const refetch = vi.fn(async () => undefined);
@@ -111,12 +111,16 @@ describe("pending-interactions guard", () => {
     const base: Props = {
       hasPendingInteraction: false,
       status: "success",
-      isFetching: false,
+      fetchStatus: "idle",
       threadId: "thr_a",
     };
 
     it("is verified only after a settled successful result", () => {
-      const view = render({ ...base, status: "pending", isFetching: true });
+      const view = render({
+        ...base,
+        status: "pending",
+        fetchStatus: "fetching",
+      });
       expect(view.result.current).toEqual({ isUnverified: true, retry: null });
       view.rerender(base);
       expect(view.result.current).toEqual({ isUnverified: false, retry: null });
@@ -126,7 +130,7 @@ describe("pending-interactions guard", () => {
       const view = render({ ...base, status: "error" });
       expect(view.result.current.isUnverified).toBe(true);
       expect(view.result.current.retry).not.toBeNull();
-      view.rerender({ ...base, status: "error", isFetching: true });
+      view.rerender({ ...base, status: "error", fetchStatus: "fetching" });
       expect(view.result.current.isUnverified).toBe(true);
       expect(view.result.current.retry).not.toBeNull();
     });
@@ -150,11 +154,18 @@ describe("pending-interactions guard", () => {
       expect(view.result.current).toEqual({ isUnverified: true, retry: null });
     });
 
+    it("blocks a cached success whose refresh is paused", () => {
+      const view = render({ ...base, fetchStatus: "paused" });
+      expect(view.result.current).toEqual({ isUnverified: true, retry: null });
+      view.rerender({ ...base, fetchStatus: "idle" });
+      expect(view.result.current.isUnverified).toBe(false);
+    });
+
     it("stays verified while a pending interaction is known", () => {
       const view = render({
         ...base,
         hasPendingInteraction: true,
-        isFetching: true,
+        fetchStatus: "fetching",
       });
       expect(view.result.current).toEqual({ isUnverified: false, retry: null });
     });
@@ -166,9 +177,13 @@ describe("pending-interactions guard", () => {
           events.push(event.outcome);
         }
       });
-      const view = render({ ...base, status: "pending", isFetching: true });
+      const view = render({
+        ...base,
+        status: "pending",
+        fetchStatus: "fetching",
+      });
       view.rerender({ ...base, status: "error" });
-      view.rerender({ ...base, status: "error", isFetching: true });
+      view.rerender({ ...base, status: "error", fetchStatus: "fetching" });
       view.rerender(base);
       off();
       expect(events).toEqual([
@@ -266,6 +281,31 @@ describe("pending-interactions guard", () => {
       } finally {
         onlineManager.setOnline(true);
       }
+    });
+
+    it("blocks a cached success whose refresh is paused offline", async () => {
+      const client = makeClient();
+      const view = renderGate(client, {
+        enabled: true,
+        queryFn: async () => [],
+        threadId: "thr_a",
+      });
+      await flush();
+      expect(view.result.current.isUnverified).toBe(false);
+      onlineManager.setOnline(false);
+      try {
+        await act(async () => {
+          void client.refetchQueries({
+            queryKey: ["pending-interactions-test", "thr_a"],
+          });
+          await vi.advanceTimersByTimeAsync(0);
+        });
+        expect(view.result.current.isUnverified).toBe(true);
+      } finally {
+        onlineManager.setOnline(true);
+      }
+      await flush();
+      expect(view.result.current.isUnverified).toBe(false);
     });
 
     it("blocks a pending first fetch until it succeeds", async () => {

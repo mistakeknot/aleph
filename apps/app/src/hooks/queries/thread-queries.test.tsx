@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 
+import { onlineManager } from "@tanstack/react-query";
+import { PENDING_INTERACTIONS_REQUEST_TIMEOUT_MS } from "@/aleph/pending-interactions-guard";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PendingInteraction, ThreadListEntry } from "@bb/domain";
@@ -13,6 +15,10 @@ import * as api from "@/lib/api";
 import { sdk } from "@/lib/sdk";
 import { makeThreadListEntry } from "@bb/test-helpers/domain-fixtures";
 import { createQueryClientTestHarness } from "@/test/queryClientTestHarness";
+import {
+  shouldRetryTransientReadQuery,
+  TRANSIENT_READ_RETRY_DELAY_MS,
+} from "./query-helpers";
 import { ARCHIVED_THREADS_PAGE_SIZE } from "./archived-threads-page-size";
 import {
   sidebarNavigationQueryKey,
@@ -453,6 +459,58 @@ describe("useThreadQueuedMessages", () => {
 });
 
 describe("useThreadPendingInteractions", () => {
+  describe("while the browser reports offline", () => {
+    afterEach(() => {
+      onlineManager.setOnline(true);
+      vi.useRealTimers();
+    });
+
+    it("still attempts the first check and verifies on success", async () => {
+      onlineManager.setOnline(false);
+      const { wrapper } = createQueryClientTestHarness();
+      const view = renderHook(() => useThreadPendingInteractions("thread-1"), {
+        wrapper,
+      });
+      await waitFor(() => {
+        expect(view.result.current.isSuccess).toBe(true);
+      });
+      expect(sdk.threads.interactions.list).toHaveBeenCalledTimes(1);
+    });
+
+    it("reaches the error state within the worst case for an unreachable server, and manual refetch works", async () => {
+      onlineManager.setOnline(false);
+      vi.useFakeTimers();
+      vi.mocked(sdk.threads.interactions.list).mockImplementation(
+        () => new Promise<PendingInteraction[]>(() => {}),
+      );
+      const { wrapper } = createQueryClientTestHarness({
+        queries: {
+          retry: shouldRetryTransientReadQuery,
+          retryDelay: TRANSIENT_READ_RETRY_DELAY_MS,
+        },
+      });
+      const view = renderHook(() => useThreadPendingInteractions("thread-1"), {
+        wrapper,
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(
+          3 * PENDING_INTERACTIONS_REQUEST_TIMEOUT_MS +
+            2 * TRANSIENT_READ_RETRY_DELAY_MS +
+            100,
+        );
+      });
+      expect(view.result.current.status).toBe("error");
+      expect(view.result.current.fetchStatus).toBe("idle");
+
+      vi.mocked(sdk.threads.interactions.list).mockResolvedValue([]);
+      await act(async () => {
+        await view.result.current.refetch();
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(view.result.current.status).toBe("success");
+    });
+  });
+
   it("reuses the first owner's fresh baseline when a second owner mounts", async () => {
     const { queryClient, wrapper } = createQueryClientTestHarness();
     const first = renderHook(() => useThreadPendingInteractions("thread-1"), {

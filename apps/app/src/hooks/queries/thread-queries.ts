@@ -804,6 +804,7 @@ export function useThreadPendingInteractions(
         threadId: id,
       }),
     enabled,
+    networkMode: "always",
     refetchInterval: pendingInteractionsRefetchInterval,
     refetchOnMount:
       options?.refetchOnMount ??
