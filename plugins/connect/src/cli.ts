@@ -40,9 +40,25 @@ const JSON_OPTION = {
 
 function formatStatus(status: ConnectStatus): string {
   if (!status.paired) {
-    return "Not paired\nPair from the getbb.app dashboard — run `bb connect` for a how-to.";
+    const warnings = [
+      ...(status.relayRevocationPending
+        ? ["\nwarning: relay revocation pending; retrying every 30s"]
+        : []),
+      ...(status.relayConflict
+        ? [
+            "\nwarning: a relay binding from a different identity remains; `bb connect relay-reset --confirm` clears it",
+          ]
+        : []),
+    ].join("");
+    return `Not paired\nPair from the getbb.app dashboard — run \`bb connect\` for a how-to.${warnings}`;
   }
   const lines = [`${status.handle}  ${status.url}  ${status.state}`];
+  if (status.relayRevocationPending) {
+    lines.push("  warning: relay revocation pending; retrying");
+  }
+  if (status.relayConflict) {
+    lines.push("  warning: relay binding belongs to a different identity");
+  }
   if (status.lastError !== null && status.state !== "connected") {
     lines.push(`  last error: ${status.lastError}`);
   }
@@ -200,9 +216,50 @@ export function registerConnectCli(args: {
           run: (input) =>
             attempt(async () => {
               const status = await tunnel.disconnect();
+              if (status.relayRevocationPending) {
+                return {
+                  exitCode: 1,
+                  stdout: input.options.json
+                    ? asJson(status)
+                    : "Disconnected, but relay access was NOT revoked: clearing this bb's relay binding failed and will be retried every 30 seconds while bb runs. Run `bb connect status` to check.\n",
+                };
+              }
+              if (status.relayConflict) {
+                return {
+                  exitCode: 1,
+                  stdout: input.options.json
+                    ? asJson(status)
+                    : "Disconnected, but the relay binding belongs to a different Connect identity and was left untouched. Run `bb connect relay-reset --confirm` if it is stale.\n",
+                };
+              }
               return {
                 exitCode: 0,
                 stdout: input.options.json ? asJson(status) : "Disconnected\n",
+              };
+            }),
+        }),
+        "relay-reset": cliCommand({
+          summary: "Clear a stale relay binding on this bb",
+          description:
+            "Host-local recovery for an unpaired bb whose relay binding was left behind. Refuses while paired; run `bb connect off` first. Removes the binding and every relay target regardless of which Connect identity owns it.",
+          options: {
+            confirm: {
+              type: "boolean",
+              description: "Required: acknowledge that the binding is removed",
+            },
+            json: JSON_OPTION,
+          },
+          run: (input) =>
+            attempt(async () => {
+              if (input.options.confirm !== true) {
+                return { exitCode: 2, stdout: input.help };
+              }
+              const status = await tunnel.resetRelayBinding();
+              return {
+                exitCode: 0,
+                stdout: input.options.json
+                  ? asJson(status)
+                  : "Relay binding cleared\n",
               };
             }),
         }),

@@ -91,6 +91,7 @@ function asStatus(payload: unknown): ConnectStatus | null {
     lastRemoteActivityAt?: unknown;
     relayBinding?: unknown;
     relayConflict?: unknown;
+    relayRevocationPending?: unknown;
     shares?: unknown;
   };
   if (
@@ -153,6 +154,7 @@ function asStatus(payload: unknown): ConnectStatus | null {
         : null,
     relayBinding: record.relayBinding === true,
     relayConflict: record.relayConflict === true,
+    relayRevocationPending: record.relayRevocationPending === true,
     shares,
   };
 }
@@ -1271,7 +1273,23 @@ function ConnectSettingsSection() {
 
   return (
     <div className="space-y-3">
-      {flash !== null && !status.paired ? (
+      {status.relayRevocationPending ? (
+        <p role="alert" className="text-xs text-destructive-text">
+          Remote access was disconnected, but this bb's relay access has not
+          been revoked yet. It keeps retrying every 30 seconds while bb runs.
+        </p>
+      ) : null}
+      {status.relayConflict ? (
+        <p role="alert" className="text-xs text-destructive-text">
+          A relay binding from a different Connect identity is left in place.
+          Pair again to take it over, or run `bb connect relay-reset --confirm`
+          on this host if it is stale.
+        </p>
+      ) : null}
+      {flash !== null &&
+      !status.paired &&
+      !status.relayRevocationPending &&
+      !status.relayConflict ? (
         <div
           role="status"
           className="flex items-center gap-2 rounded-md border border-border bg-surface-recessed px-3 py-2 text-xs text-foreground"

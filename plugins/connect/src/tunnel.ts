@@ -21,7 +21,11 @@ import {
   type DesktopSession,
   type ListAccountServersResult,
 } from "@bb/connect-client";
-import type { CredentialStore, StoredRelayIdentity } from "./credential.js";
+import type {
+  CredentialStore,
+  PendingRevocation,
+  StoredRelayIdentity,
+} from "./credential.js";
 import { fetchMachineCode, MachineCodeError } from "./machine-code.js";
 import { asConnectPairError, redeemConnectCode } from "./redeem.js";
 import { revokeMachine } from "./revoke-machine.js";
@@ -96,6 +100,8 @@ export class ConnectTunnel {
   private shareActivationEpoch = 0;
   private relayUnreconciled = false;
   private relayConflict = false;
+  private relayRevocationPending = false;
+  private pendingRevocation: PendingRevocation | null = null;
   private relayQueue: Promise<unknown> = Promise.resolve();
   private relayReconcileTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -139,6 +145,20 @@ export class ConnectTunnel {
     }
     let credential: ConnectCredential | null = null;
     try {
+      const pending =
+        this.pendingRevocation ??
+        (await store.readPendingRevocation?.()) ??
+        null;
+      if (pending !== null) {
+        const result = this.revokeRelayBinding(pending.relayIdentity);
+        if (result.status === "failed") {
+          this.pendingRevocation = pending;
+          this.relayRevocationPending = true;
+          throw result.error;
+        }
+        await this.forgetPendingRevocation();
+        if (result.status === "conflict") throw result.error;
+      }
       this.options.markRelayIdentityReconciled?.(false);
       const snapshot = await this.readSnapshot();
       credential = snapshot.credential;
@@ -165,6 +185,84 @@ export class ConnectTunnel {
       }
     }
     return credential;
+  }
+
+  private revokeRelayBinding(
+    identity: StoredRelayIdentity | null,
+  ): { status: "cleared" } | { status: "conflict" | "failed"; error: unknown } {
+    try {
+      this.options.markRelayIdentityReconciled?.(false);
+      if (identity !== null) this.options.bindRelayIdentity?.(identity);
+      this.options.bindRelayIdentity?.({
+        baseUrl: this.options.defaultBaseUrl,
+        ownerUserId: "",
+        serverId: "",
+      });
+      return { status: "cleared" };
+    } catch (error) {
+      return {
+        status:
+          error instanceof Error && error.name === "ConnectBindingConflictError"
+            ? "conflict"
+            : "failed",
+        error,
+      };
+    }
+  }
+
+  private async forgetPendingRevocation(): Promise<void> {
+    await this.options.store.clearPendingRevocation?.();
+    this.pendingRevocation = null;
+    this.relayRevocationPending = false;
+  }
+
+  private async revokeAndForgetCredential(): Promise<void> {
+    const { store } = this.options;
+    const snapshot = await this.readSnapshot();
+    const result = this.revokeRelayBinding(snapshot.relayIdentity);
+    if (result.status === "failed") {
+      const pending = { relayIdentity: snapshot.relayIdentity };
+      await store.writePendingRevocation?.(pending);
+      this.pendingRevocation = pending;
+      this.relayRevocationPending = true;
+      this.markRelayUnreconciled(result.error);
+    } else {
+      await this.forgetPendingRevocation();
+      if (result.status === "conflict") {
+        this.markRelayUnreconciled(result.error);
+      } else {
+        this.relayUnreconciled = false;
+        this.relayConflict = false;
+      }
+    }
+    await store.clear();
+  }
+
+  async resetRelayBinding(): Promise<ConnectStatus> {
+    await this.serialize(async () => {
+      const snapshot = await this.readSnapshot();
+      if (this.credential !== null || snapshot.credential !== null) {
+        throw new Error("relay_reset_requires_disconnect");
+      }
+      if (this.relayReconcileTimer) {
+        clearTimeout(this.relayReconcileTimer);
+        this.relayReconcileTimer = undefined;
+      }
+      this.options.markRelayIdentityReconciled?.(false);
+      this.options.bindRelayIdentity?.(
+        {
+          baseUrl: this.options.defaultBaseUrl,
+          ownerUserId: "",
+          serverId: "",
+        },
+        { replaceExisting: true },
+      );
+      await this.forgetPendingRevocation();
+      this.relayUnreconciled = false;
+      this.relayConflict = false;
+    });
+    this.publish();
+    return this.status();
   }
 
   private markRelayUnreconciled(error: unknown): void {
@@ -259,6 +357,15 @@ export class ConnectTunnel {
           throw error;
         }
         try {
+          await this.forgetPendingRevocation();
+        } catch (error) {
+          this.options.log.warn(
+            `could not forget the superseded relay revocation: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
+        try {
           if (identity !== undefined) {
             this.options.markRelayIdentityReconciled?.(true);
           }
@@ -296,10 +403,7 @@ export class ConnectTunnel {
   async disconnect(): Promise<ConnectStatus> {
     const credential = this.credential;
     this.teardown();
-    await this.serialize(async () => {
-      this.clearRelayIdentity();
-      await this.options.store.clear();
-    });
+    await this.serialize(() => this.revokeAndForgetCredential());
     this.options.shares.clearMachineDeclarations();
     this.credential = null;
     this.lastError = null;
@@ -392,6 +496,7 @@ export class ConnectTunnel {
       relayBinding:
         !this.relayUnreconciled && (this.options.hasRelayIdentity?.() ?? false),
       relayConflict: this.relayConflict,
+      relayRevocationPending: this.relayRevocationPending,
       shares,
     };
   }
@@ -508,16 +613,15 @@ export class ConnectTunnel {
     this.credential = null;
     this.teardown();
     this.publish();
-    void this.serialize(async () => {
-      this.clearRelayIdentity();
-      await this.options.store.clear();
-    }).catch((error: unknown) => {
-      this.options.log.warn(
-        `failed to clear the rejected credential: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-    });
+    void this.serialize(() => this.revokeAndForgetCredential()).catch(
+      (error: unknown) => {
+        this.options.log.warn(
+          `failed to clear the rejected credential: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      },
+    );
   }
 
   private resolveStreamOrigin(target: string | undefined): StreamOriginResult {

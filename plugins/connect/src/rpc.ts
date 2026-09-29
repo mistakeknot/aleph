@@ -50,6 +50,7 @@ const connectStatusSchema: z.ZodType<ConnectStatus> = z
     lastRemoteActivityAt: z.number().nullable(),
     relayBinding: z.boolean(),
     relayConflict: z.boolean(),
+    relayRevocationPending: z.boolean(),
     shares: z.array(shareListingSchema),
   })
   .strict();
@@ -101,6 +102,10 @@ export const connectRpcContract = defineRpcContract({
   pair: { input: pairInputSchema, output: connectStatusSchema },
   status: { input: z.null(), output: connectStatusSchema },
   disconnect: { input: z.null(), output: connectStatusSchema },
+  relayReset: {
+    input: z.object({ confirm: z.literal(true) }).strict(),
+    output: connectStatusSchema,
+  },
   expose: { input: portInputSchema, output: shareListingSchema },
   unexpose: {
     input: portInputSchema,
@@ -167,6 +172,9 @@ export function createRpcHandlers(
     },
     async disconnect() {
       return tunnel.disconnect();
+    },
+    async relayReset() {
+      return tunnel.resetRelayBinding();
     },
     async expose(args) {
       const host =

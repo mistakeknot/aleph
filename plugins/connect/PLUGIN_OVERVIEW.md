@@ -9,7 +9,7 @@ Open your bb from a phone or another computer. After you pair, this bb answers a
 
 ## How it works
 
-Get a pairing code from the getbb.app dashboard and enter it in Settings. You can also run `bb connect --code <code> --server <url>`. The plugin keeps the tunnel open in the background and reconnects after a drop. Disable the plugin to cut all remote access at once. `bb connect off` also disconnects and forgets the pairing.
+Get a pairing code from the getbb.app dashboard and enter it in Settings. You can also run `bb connect --code <code> --server <url>`. The plugin keeps the tunnel open in the background and reconnects after a drop. Disable the plugin to cut all remote access at once. `bb connect off` also disconnects and forgets the pairing. If clearing the relay binding fails it exits 1 and keeps retrying while bb runs. `bb connect relay-reset --confirm` clears a stale relay binding on an unpaired bb.
 
 ## For agents
 

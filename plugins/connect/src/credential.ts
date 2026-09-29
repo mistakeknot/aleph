@@ -4,6 +4,7 @@ import type { PluginKvStorage } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 
 export const CREDENTIAL_KV_KEY = "credential";
+export const REVOCATION_KV_KEY = "relay-revocation";
 
 const relayIdentitySchema = z.object({
   baseUrl: z.string().min(1),
@@ -12,6 +13,12 @@ const relayIdentitySchema = z.object({
 });
 
 export type StoredRelayIdentity = z.infer<typeof relayIdentitySchema>;
+
+const pendingRevocationSchema = z.object({
+  relayIdentity: relayIdentitySchema.nullable(),
+});
+
+export type PendingRevocation = z.infer<typeof pendingRevocationSchema>;
 
 export interface CredentialStore {
   read(): Promise<ConnectCredential | null>;
@@ -24,6 +31,9 @@ export interface CredentialStore {
     relayIdentity?: StoredRelayIdentity,
   ): Promise<void>;
   clear(): Promise<void>;
+  readPendingRevocation?(): Promise<PendingRevocation | null>;
+  writePendingRevocation?(value: PendingRevocation): Promise<void>;
+  clearPendingRevocation?(): Promise<void>;
 }
 
 export function createKvCredentialStore(
@@ -57,6 +67,18 @@ export function createKvCredentialStore(
     },
     async clear() {
       await kv.delete(CREDENTIAL_KV_KEY);
+    },
+    async readPendingRevocation() {
+      const raw = await kv.get<unknown>(REVOCATION_KV_KEY);
+      if (raw === undefined) return null;
+      const parsed = pendingRevocationSchema.safeParse(raw);
+      return parsed.success ? parsed.data : null;
+    },
+    async writePendingRevocation(value) {
+      await kv.set(REVOCATION_KV_KEY, value);
+    },
+    async clearPendingRevocation() {
+      await kv.delete(REVOCATION_KV_KEY);
     },
   };
 }

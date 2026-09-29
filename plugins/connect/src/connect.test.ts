@@ -1513,6 +1513,7 @@ describe("connect plugin", () => {
       lastRemoteActivityAt: null,
       relayBinding: false,
       relayConflict: false,
+      relayRevocationPending: false,
       shares: [],
     });
     expect(status.dashboardUrl).toBe("https://getbb.app/dashboard");
@@ -1584,6 +1585,7 @@ describe("connect plugin", () => {
       lastRemoteActivityAt: null,
       relayBinding: false,
       relayConflict: false,
+      relayRevocationPending: false,
       shares: [],
     };
     const statusSpy = vi
@@ -2650,6 +2652,15 @@ describe("connect CLI", () => {
     const off = await harness.runCli(["off"]);
     expect(off.exitCode).toBe(0);
     expect(off.stdout).toContain("Disconnected");
+  });
+
+  it("`bb connect relay-reset` requires --confirm and refuses nothing when unpaired", async () => {
+    const { harness } = await loadCli();
+    const refused = await harness.runCli(["relay-reset"]);
+    expect(refused.exitCode).toBe(2);
+    const reset = await harness.runCli(["relay-reset", "--confirm"]);
+    expect(reset.exitCode).toBe(0);
+    expect(reset.stdout).toContain("Relay binding cleared");
   });
 
   it("unknown subcommands fail with help", async () => {

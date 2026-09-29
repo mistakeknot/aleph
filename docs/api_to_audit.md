@@ -3104,6 +3104,20 @@ cleanup or disconnect leaves a newer binding and its relay targets untouched
 and Connect reports the conflict. A restarted process holding the same identity as
 the row adopts it and reconciles normally.
 
+Disconnect and credential rejection first try to clear the binding this process
+owns. A conflict (a foreign row) is reported as `relayConflict` and the row is
+left untouched. An operational failure clearing the process's own row is not
+reported as success: Connect persists a pending-revocation record (the identity
+to clear, kept in plugin KV under `relay-revocation`) before it forgets the
+credential, `disconnect` reports `relayRevocationPending`, `bb connect off`
+exits 1 with a warning, and the startup and 30-second cycle retries the clear
+(adopting the row by identity after a restart) until it commits and only then
+forgets the record. An explicit host-local recovery, `bb connect relay-reset
+--confirm` (the `relayReset` RPC with `{ confirm: true }`), covers an unpaired
+bb whose row has no credential and no pending record. It refuses while paired,
+passes `{ replaceExisting: true }`, and removes the binding and every relay
+target. No automatic path and no stale process ever reaches it.
+
 Stabilization requires deciding whether a general plugin-visible identity API
 is needed, and confirming the gate redeem response carries `ownerUserId`.
 
