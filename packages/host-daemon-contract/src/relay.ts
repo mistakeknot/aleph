@@ -1,5 +1,3 @@
-import { Buffer } from "node:buffer";
-import { createHash } from "node:crypto";
 import { z } from "zod";
 
 const KIB = 1024;
@@ -113,7 +111,7 @@ export const relayErrorResponseSchema = z
 export type RelayErrorResponse = z.infer<typeof relayErrorResponseSchema>;
 
 const ULID_PATTERN = /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/u;
-const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/u;
+export const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/u;
 const MIME_TYPE_PATTERN = /^[\w.+-]+\/[\w.+-]+$/u;
 const LABEL_PATTERN = /^[A-Za-z0-9._-]{1,64}$/u;
 
@@ -124,7 +122,7 @@ const relayPayloadTooLargeParams = {
 export const relayUlidSchema = z.string().regex(ULID_PATTERN);
 
 function utf8ByteLength(value: string): number {
-  return Buffer.byteLength(value, "utf8");
+  return new TextEncoder().encode(value).length;
 }
 
 function hasSeparatorOrControlChar(value: string): boolean {
@@ -147,7 +145,7 @@ for (const char of "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz01234567
 }
 const BASE64_PAD_CODE = 0x3d;
 
-function isCanonicalBase64Shape(value: string): boolean {
+export function isCanonicalBase64Shape(value: string): boolean {
   const length = value.length;
   if (length % 4 !== 0) {
     return false;
@@ -286,80 +284,4 @@ export function classifyRelayParseError(
     }
   }
   return "invalid_request";
-}
-
-export interface RelayDecodedAttachment {
-  bytes: Buffer;
-  sizeBytes: number;
-}
-
-export type RelayDecodeResult =
-  | { ok: true; attachments: RelayDecodedAttachment[] }
-  | {
-      ok: false;
-      code: "invalid_request" | "payload_too_large";
-      message: string;
-    };
-
-function decodeFailure(
-  code: "invalid_request" | "payload_too_large",
-  message: string,
-): RelayDecodeResult {
-  return { ok: false, code, message };
-}
-
-export function decodeRelayAttachments(
-  attachments: readonly Pick<RelayAttachment, "contentBase64" | "sha256">[],
-): RelayDecodeResult {
-  if (attachments.length > RELAY_ATTACHMENTS_MAX_COUNT) {
-    return decodeFailure("payload_too_large", "too many attachments");
-  }
-  let totalChars = 0;
-  for (const attachment of attachments) {
-    const chars = attachment.contentBase64.length;
-    if (chars > RELAY_ATTACHMENT_MAX_BASE64_CHARS) {
-      return decodeFailure("payload_too_large", "attachment is too large");
-    }
-    totalChars += chars;
-  }
-  if (totalChars > RELAY_ATTACHMENTS_TOTAL_MAX_BASE64_CHARS) {
-    return decodeFailure("payload_too_large", "attachments are too large");
-  }
-  for (const attachment of attachments) {
-    if (!isCanonicalBase64Shape(attachment.contentBase64)) {
-      return decodeFailure(
-        "invalid_request",
-        "contentBase64 must be canonical base64",
-      );
-    }
-    if (!SHA256_HEX_PATTERN.test(attachment.sha256)) {
-      return decodeFailure("invalid_request", "sha256 must be lowercase hex");
-    }
-  }
-
-  const decoded: RelayDecodedAttachment[] = [];
-  let totalBytes = 0;
-  for (const attachment of attachments) {
-    const bytes = Buffer.from(attachment.contentBase64, "base64");
-    if (bytes.toString("base64") !== attachment.contentBase64) {
-      return decodeFailure(
-        "invalid_request",
-        "contentBase64 is not the canonical encoding of its bytes",
-      );
-    }
-    if (bytes.length > RELAY_ATTACHMENT_MAX_BYTES) {
-      return decodeFailure("payload_too_large", "attachment is too large");
-    }
-    totalBytes += bytes.length;
-    if (totalBytes > RELAY_ATTACHMENTS_TOTAL_MAX_BYTES) {
-      return decodeFailure("payload_too_large", "attachments are too large");
-    }
-    if (
-      createHash("sha256").update(bytes).digest("hex") !== attachment.sha256
-    ) {
-      return decodeFailure("invalid_request", "sha256 does not match content");
-    }
-    decoded.push({ bytes, sizeBytes: bytes.length });
-  }
-  return { ok: true, attachments: decoded };
 }

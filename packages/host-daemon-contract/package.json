@@ -24,6 +24,11 @@
       "types": "./src/relay.ts",
       "default": "./src/relay.ts"
     },
+    "./relay-decode": {
+      "source": "./src/relay-decode.ts",
+      "types": "./src/relay-decode.ts",
+      "default": "./src/relay-decode.ts"
+    },
     "./workspace": {
       "source": "./src/workspace.ts",
       "types": "./src/workspace.ts",

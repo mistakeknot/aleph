@@ -8,12 +8,12 @@ import {
   RELAY_ERROR_HTTP_STATUS,
   RELAY_ERROR_RETRYABLE,
   classifyRelayParseError,
-  decodeRelayAttachments,
   relayTargetsRemoveRequestSchema,
   relayTargetsRemoveResponseSchema,
   relayTargetsResponseSchema,
   relayTellRequestSchema,
 } from "../src/relay.js";
+import { decodeRelayAttachments } from "../src/relay-decode.js";
 
 const VALID_ID = "01J9Z3K8Q4W5X6Y7Z8A9B0C1D2";
 
