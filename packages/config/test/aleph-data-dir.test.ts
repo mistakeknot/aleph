@@ -1,4 +1,11 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -28,7 +35,9 @@ function writeMigrationHistory(dataDir: string, whens: number[]): void {
   );
   for (const when of whens) {
     database
-      .prepare("INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)")
+      .prepare(
+        "INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)",
+      )
       .run(`hash-${String(when)}`, when);
   }
   database.close();
@@ -102,7 +111,11 @@ describe("Aleph data dir refusal (plan 8.2)", () => {
 
   it("refuses a directory whose DB journal lacks either fork migration", () => {
     const [first, second] = ALEPH_FORK_MIGRATION_WHENS;
-    for (const whens of [[1, 2], [1, first], [1, second]]) {
+    for (const whens of [
+      [1, 2],
+      [1, first],
+      [1, second],
+    ]) {
       const dataDir = join(homeDir, `d-${whens.join("-")}`);
       writeMigrationHistory(dataDir, whens);
       expect(findAlephDataDirRefusal({ dataDir, homeDir })).toMatchObject({
@@ -111,14 +124,28 @@ describe("Aleph data dir refusal (plan 8.2)", () => {
     }
   });
 
-  it("accepts a fork DB, an empty DB and an absent DB", () => {
-    const forkDir = join(homeDir, "fork");
-    writeMigrationHistory(forkDir, [1, ...ALEPH_FORK_MIGRATION_WHENS]);
+  it("fails closed on an empty, unreadable or journal-less database", () => {
     const emptyDir = join(homeDir, "empty");
     writeMigrationHistory(emptyDir, []);
+    const garbageDir = join(homeDir, "garbage");
+    mkdirSync(garbageDir);
+    writeFileSync(join(garbageDir, "bb.db"), "not a database");
+    const bareDir = join(homeDir, "bare");
+    mkdirSync(bareDir);
+    new DatabaseSync(join(bareDir, "bb.db")).close();
+    for (const dataDir of [emptyDir, garbageDir, bareDir]) {
+      expect(findAlephDataDirRefusal({ dataDir, homeDir })).toMatchObject({
+        reason: "stock_bb_database",
+      });
+    }
+  });
+
+  it("accepts a fork DB and an absent DB", () => {
+    const forkDir = join(homeDir, "fork");
+    writeMigrationHistory(forkDir, [1, ...ALEPH_FORK_MIGRATION_WHENS]);
     const absentDir = join(homeDir, "absent");
     mkdirSync(absentDir);
-    for (const dataDir of [forkDir, emptyDir, absentDir]) {
+    for (const dataDir of [forkDir, absentDir]) {
       expect(findAlephDataDirRefusal({ dataDir, homeDir })).toBeNull();
     }
   });

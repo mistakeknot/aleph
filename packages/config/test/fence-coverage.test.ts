@@ -9,7 +9,8 @@ const repoRoot = join(
   "..",
   "..",
 );
-const SOURCE_ROOTS = ["apps", "packages", "plugins"];
+const SOURCE_ROOTS = ["apps", "packages", "plugins", "scripts"];
+const SCANNED_EXTENSION_PATTERN = /\.(ts|tsx|mjs|cjs|js)$/u;
 const SKIPPED_SEGMENTS = new Set([
   "node_modules",
   "dist",
@@ -17,7 +18,6 @@ const SKIPPED_SEGMENTS = new Set([
   "test",
   "tests",
   "__tests__",
-  "scripts",
   "testing",
   ".turbo",
 ]);
@@ -40,7 +40,8 @@ function collectSources(dir: string, into: RawOpener[]): void {
       collectSources(path, into);
       continue;
     }
-    if (!/\.(ts|tsx)$/u.test(name) || /\.test\./u.test(name)) continue;
+    if (!SCANNED_EXTENSION_PATTERN.test(name) || /\.test\./u.test(name))
+      continue;
     const source = readFileSync(path, "utf8");
     if (RAW_OPEN_PATTERN.test(source)) {
       into.push({ file: relative(repoRoot, path), source });
@@ -48,14 +49,51 @@ function collectSources(dir: string, into: RawOpener[]): void {
   }
 }
 
-const ALLOWED_UNGUARDED = new Set([
-  "apps/desktop/src/browser-import/cookie-database.ts",
-  "apps/desktop/src/desktop-browser-cdp.ts",
-  "packages/bb-app/src/app-update/npm-revision.ts",
-  "packages/plugin-sdk/src/testing/fake-plugin-host.ts",
-  "packages/provider-bridge-acp/src/bridge/opencode-usage.ts",
-  "packages/provider-bridge-acp/src/bridge/provider-maintenance.ts",
-  "packages/provider-bridge-acp/src/bridge/tool-proxy-mcp.ts",
+const ALLOWED_UNGUARDED = new Map<string, string>([
+  [
+    "apps/desktop/src/browser-import/cookie-database.ts",
+    "reads a copy of a third-party browser cookie database",
+  ],
+  [
+    "apps/desktop/src/desktop-browser-cdp.ts",
+    "opens no Aleph data; browser automation helper",
+  ],
+  [
+    "packages/bb-app/src/app-update/npm-revision.ts",
+    "reads the installed npm package cache, not the Aleph data dir",
+  ],
+  [
+    "packages/provider-bridge-acp/src/bridge/opencode-usage.ts",
+    "reads the third-party opencode usage database read-only",
+  ],
+  [
+    "packages/provider-bridge-acp/src/bridge/provider-maintenance.ts",
+    "operates on provider-owned databases, not the Aleph data dir",
+  ],
+  [
+    "packages/provider-bridge-acp/src/bridge/tool-proxy-mcp.ts",
+    "provider tool proxy over provider-owned state",
+  ],
+  [
+    "apps/server/scripts/benchmark-completed-event-output-migration.mjs",
+    "developer benchmark on a caller-supplied scratch path; createConnection enforces the fence backstop",
+  ],
+  [
+    "apps/server/scripts/benchmark-conversation-outline.ts",
+    "developer benchmark on a caller-supplied scratch path; createConnection enforces the fence backstop",
+  ],
+  [
+    "packages/scripts/src/commands/seed-perf-db.ts",
+    "developer seeding command; opens through createConnection, which enforces the fence backstop",
+  ],
+  [
+    "packages/scripts/src/lib/aleph-migration-record.ts",
+    "migration recording tool; opens through createConnection, which enforces the fence backstop",
+  ],
+  [
+    "apps/desktop/scripts/prepare-native-modules.cjs",
+    "build-time smoke test against an in-memory database",
+  ],
 ]);
 
 describe("maintenance fence coverage", () => {
@@ -69,7 +107,22 @@ describe("maintenance fence coverage", () => {
     expect(files).toContain("apps/server/src/db.ts");
   });
 
-  it("guards every production database open that touches Aleph data", () => {
+  it("scans scripts and non-TypeScript sources", () => {
+    const files = openers.map((entry) => entry.file);
+    expect(files).toContain(
+      "apps/server/scripts/benchmark-completed-event-output-migration.mjs",
+    );
+  });
+
+  it("keeps the unguarded allowlist free of stale entries", () => {
+    const files = new Set(openers.map((entry) => entry.file));
+    const stale = [...ALLOWED_UNGUARDED.keys()].filter(
+      (file) => !files.has(file),
+    );
+    expect(stale).toEqual([]);
+  });
+
+  it("guards or allowlists every scanned raw database open outside test files", () => {
     const unguarded = openers
       .filter((entry) => !FENCE_GUARD_PATTERN.test(entry.source))
       .map((entry) => entry.file)
@@ -99,10 +152,20 @@ describe("launch entry coverage", () => {
     "apps/cli/src/launch-fence.ts",
   ];
   it.each(ENTRIES)("%s runs the launch guard", (entry) => {
-    expect(readFileSync(join(repoRoot, entry), "utf8")).toContain(
-      "runLaunchGuard(",
-    );
+    const source = readFileSync(join(repoRoot, entry), "utf8");
+    expect(source).toMatch(/runLaunchGuard\(|exitOnLaunchRefusal\(/u);
   });
+
+  it.each(["apps/server/src/index.ts", "apps/host-daemon/src/index.ts"])(
+    "%s guards the launch before installing diagnostics",
+    (entry) => {
+      const source = readFileSync(join(repoRoot, entry), "utf8");
+      const guard = source.indexOf("exitOnLaunchRefusal({");
+      const diagnostics = source.indexOf("installSafeProcessDiagnostics(");
+      expect(guard).toBeGreaterThan(-1);
+      expect(diagnostics).toBeGreaterThan(guard);
+    },
+  );
 
   it("runs the CLI launch guard from the CLI entry", () => {
     expect(

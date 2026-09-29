@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { writeMaintenanceFence } from "@bb/config/maintenance-fence";
@@ -10,6 +10,11 @@ describe("evaluateCliLaunchGuard", () => {
   beforeEach(() => {
     home = mkdtempSync(join(tmpdir(), "aleph-cli-fence-"));
     mkdirSync(join(home, ".aleph"));
+    mkdirSync(join(home, "code"));
+    writeFileSync(
+      join(home, "code", "package.json"),
+      JSON.stringify({ name: "bb-app", version: "1.0.0" }),
+    );
   });
   afterEach(() => {
     rmSync(home, { force: true, recursive: true });
@@ -20,7 +25,7 @@ describe("evaluateCliLaunchGuard", () => {
       evaluateCliLaunchGuard({
         env: { BB_DATA_DIR: join(home, ".aleph") },
         homeDir: home,
-        version: "1.0.0",
+        fromDir: join(home, "code"),
       }),
     ).toBeNull();
   });
@@ -48,7 +53,7 @@ describe("evaluateCliLaunchGuard", () => {
     const result = evaluateCliLaunchGuard({
       env: { BB_DATA_DIR: join(home, ".aleph") },
       homeDir: home,
-      version: "1.0.0",
+      fromDir: join(home, "code"),
     });
     expect(result?.exitCode).toBe(75);
     expect(result?.message).toContain("Aleph is updating");
@@ -60,8 +65,18 @@ describe("evaluateCliLaunchGuard", () => {
     const result = evaluateCliLaunchGuard({
       env: { BB_DATA_DIR: stock },
       homeDir: home,
-      version: "1.0.0",
+      fromDir: join(home, "code"),
     });
     expect(result?.exitCode).toBe(1);
+  });
+
+  it("refuses an older binary that presents the target version in its environment", () => {
+    const result = evaluateCliLaunchGuard({
+      env: { BB_APP_VERSION: "2.0.0", BB_DATA_DIR: join(home, ".aleph") },
+      homeDir: home,
+      fromDir: join(home, "code"),
+    });
+    expect(result?.exitCode).toBe(1);
+    expect(result?.message).toContain("does not match");
   });
 });

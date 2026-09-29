@@ -110,11 +110,11 @@ function hasStockMigrationHistory(dataDir: string): boolean {
     const rows = database
       .prepare(`SELECT created_at FROM ${MIGRATIONS_TABLE}`)
       .all();
-    if (rows.length === 0) return false;
+    if (rows.length === 0) return true;
     const applied = new Set(rows.map((row) => Number(row.created_at)));
     return ALEPH_FORK_MIGRATION_WHENS.some((when) => !applied.has(when));
   } catch {
-    return false;
+    return true;
   } finally {
     database?.close();
   }

@@ -4,8 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   exitCodeForLaunchFailure,
-  resolveLaunchVersion,
-  runLaunchGuard,
+  exitOnLaunchRefusal,
 } from "@bb/config/launch-guard";
 import { loadHostDaemonStartConfig } from "@bb/config/host-daemon";
 import { loadHostDaemonEntrypointConfig } from "@bb/config/host-daemon-entrypoint";
@@ -58,12 +57,6 @@ function reportStartupFailure(args: ReportStartupFailureArgs): void {
 async function runHostDaemonEntrypoint(): Promise<void> {
   const hostDaemonEntrypointConfig = loadHostDaemonEntrypointConfig();
   const hostDaemonStartConfig = loadHostDaemonStartConfig({});
-  runLaunchGuard({
-    dataDir: hostDaemonStartConfig.dataDir,
-    homeDir: homedir(),
-    role: "bundled-daemon",
-    version: resolveLaunchVersion(process.env),
-  });
   if (await hasMachineSuspensionMarker(hostDaemonStartConfig.dataDir)) {
     return;
   }
@@ -88,6 +81,13 @@ const isMainModule =
   fileURLToPath(import.meta.url) === entrypointPath;
 
 if (isMainModule) {
+  exitOnLaunchRefusal({
+    dataDir: loadHostDaemonStartConfig({}).dataDir,
+    env: process.env,
+    fromDir: entrypointDir,
+    homeDir: homedir(),
+    role: "bundled-daemon",
+  });
   const diagnosticsLogsDir = resolveDiagnosticsLogsDir();
   installSafeProcessDiagnostics({
     logsDir: diagnosticsLogsDir,

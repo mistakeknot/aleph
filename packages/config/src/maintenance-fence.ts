@@ -9,6 +9,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
+import { alephReleaseIdentity } from "./aleph-version.js";
 import { acquireDataDirLock, type DataDirLockHolder } from "./data-dir-lock.js";
 
 const MAINTENANCE_FENCE_FILE_NAME = "maintenance.json";
@@ -175,13 +176,14 @@ function decideForFence(
   fence: MaintenanceFence,
   identity: FenceIdentity,
 ): MaintenanceFenceDecision {
+  const version = alephReleaseIdentity(identity.version);
   if (fence.state === "recovering") {
     return refuse(
       "Aleph is recovering from a failed update. Try again shortly.",
       true,
     );
   }
-  if (identity.version === fence.from_version) {
+  if (version === alephReleaseIdentity(fence.from_version)) {
     return refuse(
       fence.state === "installing"
         ? "Aleph is updating. Try again once the update finishes."
@@ -189,7 +191,7 @@ function decideForFence(
       fence.state === "installing",
     );
   }
-  if (identity.version !== fence.to_version) {
+  if (version !== alephReleaseIdentity(fence.to_version)) {
     return refuse(
       `Aleph was updated; open it from ${fence.enrolled_path}`,
       false,
