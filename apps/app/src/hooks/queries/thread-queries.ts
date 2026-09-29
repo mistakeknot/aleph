@@ -1,4 +1,7 @@
-import { withPendingInteractionsRequestTimeout } from "@/aleph/pending-interactions-guard";
+import {
+  pendingInteractionsRefetchInterval,
+  withPendingInteractionsRequestTimeout,
+} from "@/aleph/pending-interactions-guard";
 import { prependOlderTimelineRows } from "@bb/client-core";
 import {
   useInfiniteQuery,
@@ -801,6 +804,7 @@ export function useThreadPendingInteractions(
         threadId: id,
       }),
     enabled,
+    refetchInterval: pendingInteractionsRefetchInterval,
     refetchOnMount:
       options?.refetchOnMount ??
       ((query) => (query.getObserversCount() === 1 ? "always" : true)),
@@ -1099,11 +1103,4 @@ export function getLatestPendingInteraction(
       interaction.createdAt > latest.createdAt ? interaction : latest,
     firstInteraction,
   );
-}
-
-export function isPendingInteractionStateUnknown(
-  interactions: readonly PendingInteraction[] | undefined,
-  isFetching: boolean,
-): boolean {
-  return getLatestPendingInteraction(interactions) === null && isFetching;
 }

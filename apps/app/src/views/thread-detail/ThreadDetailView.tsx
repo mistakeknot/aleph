@@ -1,4 +1,4 @@
-import { useGracedPendingInteractionFetching } from "@/aleph/pending-interactions-guard";
+import { usePendingInteractionsGate } from "@/aleph/pending-interactions-guard";
 import {
   useCallback,
   useEffect,
@@ -73,7 +73,6 @@ import {
 import {
   didThreadDetailBootstrapRefreshAfterMount,
   getLatestPendingInteraction,
-  isPendingInteractionStateUnknown,
   useChildThreads,
   useProjectThreadSubset,
   useThread,
@@ -653,15 +652,12 @@ function ThreadDetailViewInternal(props: ThreadRoutePathArgs) {
     },
   );
   const pendingInteractions = pendingInteractionsQuery.data ?? [];
-  const pendingInteractionsInitialLoading = isPendingInteractionStateUnknown(
-    pendingInteractionsQuery.data,
-    useGracedPendingInteractionFetching({
-      hasPendingInteraction:
-        getLatestPendingInteraction(pendingInteractions) !== null,
-      isFetching: pendingInteractionsQuery.isFetching,
-      threadId: thread?.id ?? "",
-    }),
-  );
+  const pendingInteractionsGate = usePendingInteractionsGate({
+    hasPendingInteraction:
+      getLatestPendingInteraction(pendingInteractions) !== null,
+    query: pendingInteractionsQuery,
+    threadId: thread?.id ?? "",
+  });
   const hasPendingInteraction =
     getLatestPendingInteraction(pendingInteractions) !== null;
   const unreadDividerState = useThreadUnreadDividerState({
@@ -2608,7 +2604,8 @@ function ThreadDetailViewInternal(props: ThreadRoutePathArgs) {
         defaultAppSettings.steerActiveThreadOnEnter
       }
       pendingInteractions={pendingInteractions}
-      pendingInteractionsInitialLoading={pendingInteractionsInitialLoading}
+      onRetryPendingInteractions={pendingInteractionsGate.retry}
+      pendingInteractionsInitialLoading={pendingInteractionsGate.isUnverified}
       queuedMessageCount={thread.queuedMessageCount}
       pendingTodos={pendingTodos}
       activePromptMode={activePromptMode}

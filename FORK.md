@@ -198,11 +198,16 @@ Beyond upstream, Aleph carries:
 - **Composer-stuck fixes (mk-h1q8).** Reconnect invalidation skips only
   queries fetched at or after the reconnect-open time (was: after the
   disconnect), in-flight thread-scoped fetches get one trailing refetch when
-  they settle, and `useThreadPendingInteractions` has a 10 s request timeout.
-  `ThreadDetailView.tsx` and `EmbeddedThreadChat.tsx` stop treating an empty
-  pending-interactions fetch as unknown after a 1 s grace window. Logic is in
-  `apps/app/src/aleph/pending-interactions-guard.ts` and
-  `reconnect-trailing-refetch.ts`.
+  they settle. Sending stays blocked until a successful pending-interactions
+  result for the thread: `useThreadPendingInteractions` has a 5 s request
+  timeout classified as a transient read error (2 retries at 250 ms), polls
+  every 5 s while in the error state, and the composer shows a "Couldn't check
+  for pending approvals. Retry" row. Recovery from one hung fetch takes about
+  5.3 s; from fully hung fetches the Retry row appears after about 15.5 s.
+  Logic is in `apps/app/src/aleph/pending-interactions-guard.ts` and
+  `reconnect-trailing-refetch.ts`; shared code touched is the client-core
+  `pending-interactions-check-failed` blocked reason and
+  `onRetryPendingInteractions` argument, and `isTransientReadError`.
 - **Model picker.** Switching a thread's provider in place when the local
   handoff plugin is running.
 - **No upstream update offers.** See [Updates](#updates).

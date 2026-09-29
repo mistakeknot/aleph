@@ -204,6 +204,7 @@ interface ThreadDetailPromptAreaProps {
   pullRequestMergeMethod: PullRequestMergeMethod;
   isEnvironmentActionPending: boolean;
   pendingInteractions: readonly PendingInteraction[];
+  onRetryPendingInteractions: (() => void) | null;
   pendingInteractionsInitialLoading: boolean;
   queuedMessageCount: number;
   onChangedFileClick: (selection: WorkspaceChangedFileSelection) => void;
@@ -418,6 +419,7 @@ export function ThreadDetailPromptArea({
   pullRequestMergeMethod,
   isEnvironmentActionPending,
   pendingInteractions,
+  onRetryPendingInteractions,
   pendingInteractionsInitialLoading,
   queuedMessageCount,
   onChangedFileClick,
@@ -972,6 +974,7 @@ export function ThreadDetailPromptArea({
       isDefaultExecutionOptionsLoading,
       isPendingInteractionsInitialLoading: pendingInteractionsInitialLoading,
       isStopRequested,
+      onRetryPendingInteractions,
       onStop: handleStopThread,
       runtimeDisplayStatus,
     });
@@ -982,6 +985,7 @@ export function ThreadDetailPromptArea({
     isDefaultExecutionOptionsLoading,
     isHandoffSelection,
     modelLoadFailed,
+    onRetryPendingInteractions,
     pendingInteractionsInitialLoading,
     isStopRequested,
     runtimeDisplayStatus,

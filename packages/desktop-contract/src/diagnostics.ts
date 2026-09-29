@@ -148,6 +148,7 @@ export const bbDesktopDiagnosticComposerSendStateSchema = z.enum([
   "queue",
   "queue-while-stopping",
   "blocked-loading-pending-interactions",
+  "blocked-pending-interactions-check-failed",
   "blocked-pending-interaction",
   "blocked-loading-execution-options",
   "blocked-unavailable",
@@ -206,7 +207,13 @@ export const bbDesktopDiagnosticEventSchema = z.discriminatedUnion("kind", [
   z.object({
     at: diagnosticTimestampSchema,
     kind: z.literal("pending-interactions-guard"),
-    outcome: z.enum(["request-timeout", "grace-expired"]),
+    outcome: z.enum([
+      "blocked-unverified",
+      "check-failed",
+      "manual-retry",
+      "request-timeout",
+      "resolved",
+    ]),
     threadId: diagnosticIdSchema.nullable(),
   }),
   z.object({

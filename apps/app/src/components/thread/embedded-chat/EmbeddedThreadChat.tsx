@@ -1,4 +1,4 @@
-import { useGracedPendingInteractionFetching } from "@/aleph/pending-interactions-guard";
+import { usePendingInteractionsGate } from "@/aleph/pending-interactions-guard";
 import {
   useCallback,
   useEffect,
@@ -48,7 +48,6 @@ import {
 import { useThreadCreationOptions } from "@/hooks/useThreadCreationOptions";
 import {
   getLatestPendingInteraction,
-  isPendingInteractionStateUnknown,
   useThread,
   useThreadPendingInteractions,
   useThreadQueuedMessages,
@@ -209,14 +208,11 @@ function EmbeddedThreadChatWithComposer({
   const hasComposerBlockingPendingInteraction =
     activePendingInteraction !== null &&
     activePendingInteraction.payload.kind !== "plugin";
-  const pendingInteractionsInitialLoading = isPendingInteractionStateUnknown(
-    pendingInteractionsQuery.data,
-    useGracedPendingInteractionFetching({
-      hasPendingInteraction: activePendingInteraction !== null,
-      isFetching: pendingInteractionsQuery.isFetching,
-      threadId,
-    }),
-  );
+  const pendingInteractionsGate = usePendingInteractionsGate({
+    hasPendingInteraction: activePendingInteraction !== null,
+    query: pendingInteractionsQuery,
+    threadId,
+  });
   useThreadReadTracking({
     markThreadRead,
     thread: threadQuery.data,
@@ -406,8 +402,10 @@ function EmbeddedThreadChatWithComposer({
         childThreadId: threadId,
         hasPendingInteraction: hasComposerBlockingPendingInteraction,
         isDefaultExecutionOptionsLoading,
-        isPendingInteractionsInitialLoading: pendingInteractionsInitialLoading,
+        isPendingInteractionsInitialLoading:
+          pendingInteractionsGate.isUnverified,
         isStopRequested,
+        onRetryPendingInteractions: pendingInteractionsGate.retry,
         onStop: handleStopThread,
         runtimeDisplayStatus: displayStatus,
       }),
@@ -417,7 +415,7 @@ function EmbeddedThreadChatWithComposer({
       handleStopThread,
       isDefaultExecutionOptionsLoading,
       isStopRequested,
-      pendingInteractionsInitialLoading,
+      pendingInteractionsGate,
       threadId,
     ],
   );

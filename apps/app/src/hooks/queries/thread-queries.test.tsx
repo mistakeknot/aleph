@@ -27,7 +27,6 @@ import { usePaletteRecentArchivedThreads } from "./palette-thread-queries";
 import {
   COMPACT_THREAD_TIMELINE_SEGMENT_LIMIT,
   didThreadDetailBootstrapRefreshAfterMount,
-  isPendingInteractionStateUnknown,
   useArchivedThreads,
   useChildThreads,
   useThread,
@@ -454,11 +453,6 @@ describe("useThreadQueuedMessages", () => {
 });
 
 describe("useThreadPendingInteractions", () => {
-  it("keeps cached empty interactions unknown while their refresh is pending", () => {
-    expect(isPendingInteractionStateUnknown([], true)).toBe(true);
-    expect(isPendingInteractionStateUnknown([], false)).toBe(false);
-  });
-
   it("reuses the first owner's fresh baseline when a second owner mounts", async () => {
     const { queryClient, wrapper } = createQueryClientTestHarness();
     const first = renderHook(() => useThreadPendingInteractions("thread-1"), {
@@ -862,7 +856,8 @@ describe("palette lifecycle queries", () => {
     const archived = makeThreadListEntry({ id: "archived", archivedAt: 1 });
     vi.mocked(sdk.threads.list).mockResolvedValue([archived]);
     const { result, rerender } = renderHook(
-      ({ recent, selected }) => usePaletteRecentArchivedThreads({ enabled: recent && selected }),
+      ({ recent, selected }) =>
+        usePaletteRecentArchivedThreads({ enabled: recent && selected }),
       { wrapper, initialProps: { recent: true, selected: false } },
     );
     expect(sdk.threads.list).not.toHaveBeenCalled();
@@ -871,8 +866,9 @@ describe("palette lifecycle queries", () => {
     rerender({ recent: true, selected: true });
     await waitFor(() => expect(result.current.data).toEqual([archived]));
     expect(sdk.threads.list).toHaveBeenCalledExactlyOnceWith({
-      archived: true, limit: 20, signal: expect.any(AbortSignal),
+      archived: true,
+      limit: 20,
+      signal: expect.any(AbortSignal),
     });
   });
-
 });

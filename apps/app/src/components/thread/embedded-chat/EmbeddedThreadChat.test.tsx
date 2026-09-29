@@ -256,10 +256,6 @@ vi.mock("@/hooks/queries/thread-queries", () => ({
   getLatestPendingInteraction: (
     interactions: readonly { createdAt: number }[] | undefined,
   ) => (interactions && interactions.length > 0 ? interactions[0] : null),
-  isPendingInteractionStateUnknown: (
-    interactions: readonly { createdAt: number }[] | undefined,
-    isFetching: boolean,
-  ) => (!interactions || interactions.length === 0) && isFetching,
 }));
 
 vi.mock(
@@ -655,7 +651,7 @@ describe("EmbeddedThreadChat", () => {
     expect(screen.getByDisplayValue("Keep this draft")).toBe(composer);
   });
 
-  it("keeps the composer available after an interaction check fails, like a normal thread", () => {
+  it("blocks the composer with a retry after an interaction check fails", () => {
     mocks.pendingInteractions = undefined;
     mocks.pendingInteractionsIsError = true;
     mocks.queuedMessages = [{ id: "q1" }];
@@ -664,7 +660,7 @@ describe("EmbeddedThreadChat", () => {
 
     const composer = screen.getByTestId("embedded-chat-composer");
     expect(composer.hidden).toBe(false);
-    expect(composer.dataset.submitMode).toBe("ready");
+    expect(composer.dataset.submitMode).toBe("blocked");
     expect(screen.getByTestId("embedded-chat-queued-messages")).toBeTruthy();
   });
 

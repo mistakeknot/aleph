@@ -263,6 +263,11 @@ function FollowUpPromptBoxWithComposer({
   const isLoadingPendingInteractions =
     submitMode.kind === "blocked" &&
     submitMode.reason === "loading-pending-interactions";
+  const retryPendingInteractions =
+    submitMode.kind === "blocked" &&
+    submitMode.reason === "pending-interactions-check-failed"
+      ? submitMode.onRetry
+      : null;
   const isUnavailable =
     submitMode.kind === "blocked" && submitMode.reason === "unavailable";
   const onStopRuntime =
@@ -752,9 +757,11 @@ function FollowUpPromptBoxWithComposer({
                     ? "Loading models..."
                     : isLoadingPendingInteractions
                       ? "Checking pending interactions..."
-                      : isUnavailable
-                        ? "Unavailable"
-                        : "Submit (Enter)",
+                      : retryPendingInteractions !== null
+                        ? "Couldn't check for pending approvals"
+                        : isUnavailable
+                          ? "Unavailable"
+                          : "Submit (Enter)",
           isRunning: canStopRuntime,
         }}
         typeahead={typeahead}
@@ -810,6 +817,27 @@ function FollowUpPromptBoxWithComposer({
                 aria-label="Exit handoff"
               >
                 <Icon name="X" className="size-3" aria-hidden />
+              </Button>
+            </div>
+          ) : retryPendingInteractions !== null ? (
+            <div
+              role="alert"
+              className="flex min-h-7 items-center gap-1.5 text-xs text-subtle-foreground"
+            >
+              <Icon
+                name="TriangleAlert"
+                className="size-3.5 shrink-0"
+                aria-hidden
+              />
+              <span>Couldn't check for pending approvals.</span>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-6 px-1.5 text-xs"
+                onClick={retryPendingInteractions}
+              >
+                Retry
               </Button>
             </div>
           ) : null

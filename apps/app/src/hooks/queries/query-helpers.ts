@@ -1,4 +1,5 @@
 import { toRecord } from "@bb/core-ui";
+import { PendingInteractionsRequestTimeoutError } from "@/aleph/pending-interactions-guard";
 import { HttpError } from "@/lib/api";
 import { BbHttpError } from "@/lib/sdk";
 
@@ -49,6 +50,9 @@ function normalizeErrorMessage(message: string): string {
 }
 
 export function isTransientReadError(error: unknown): boolean {
+  if (error instanceof PendingInteractionsRequestTimeoutError) {
+    return true;
+  }
   if (toRecord(error)?.name === "AbortError") {
     return true;
   }

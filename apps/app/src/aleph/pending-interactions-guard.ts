@@ -1,14 +1,22 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef } from "react";
 import { emitDiagnostic, toDiagnosticId } from "@/lib/diagnostics";
 
-export const PENDING_INTERACTIONS_REQUEST_TIMEOUT_MS = 10_000;
-export const PENDING_INTERACTIONS_UNKNOWN_GRACE_MS = 1_000;
+export const PENDING_INTERACTIONS_REQUEST_TIMEOUT_MS = 5_000;
+export const PENDING_INTERACTIONS_AUTO_RETRY_INTERVAL_MS = 5_000;
 
 export class PendingInteractionsRequestTimeoutError extends Error {
   constructor() {
     super("Pending interactions request timed out");
     this.name = "PendingInteractionsRequestTimeoutError";
   }
+}
+
+export function pendingInteractionsRefetchInterval(query: {
+  state: { status: string };
+}): number | false {
+  return query.state.status === "error"
+    ? PENDING_INTERACTIONS_AUTO_RETRY_INTERVAL_MS
+    : false;
 }
 
 interface WithRequestTimeoutArgs<T> {
@@ -59,33 +67,73 @@ export function withPendingInteractionsRequestTimeout<T>({
   });
 }
 
-interface UseGracedPendingInteractionFetchingArgs {
-  hasPendingInteraction: boolean;
+type GateState = "verified" | "checking" | "failed";
+
+interface PendingInteractionsGateQuery {
+  isError: boolean;
   isFetching: boolean;
+  refetch: () => Promise<unknown>;
+}
+
+interface UsePendingInteractionsGateArgs {
+  hasPendingInteraction: boolean;
+  query: PendingInteractionsGateQuery;
   threadId: string;
 }
 
-export function useGracedPendingInteractionFetching({
+export interface PendingInteractionsGate {
+  isUnverified: boolean;
+  retry: (() => void) | null;
+}
+
+interface LastGateState {
+  state: GateState;
+  threadId: string;
+}
+
+export function usePendingInteractionsGate({
   hasPendingInteraction,
-  isFetching,
+  query,
   threadId,
-}: UseGracedPendingInteractionFetchingArgs): boolean {
-  const [graceExpired, setGraceExpired] = useState(false);
-  const waiting = isFetching && !hasPendingInteraction;
+}: UsePendingInteractionsGateArgs): PendingInteractionsGate {
+  const state: GateState = hasPendingInteraction
+    ? "verified"
+    : query.isError
+      ? "failed"
+      : query.isFetching
+        ? "checking"
+        : "verified";
+  const last = useRef<LastGateState | null>(null);
   useEffect(() => {
-    if (!waiting) {
-      setGraceExpired(false);
+    const previous = last.current?.threadId === threadId ? last.current : null;
+    last.current = { state, threadId };
+    const previousState = previous?.state ?? "verified";
+    if (previousState === state) {
       return;
     }
-    const timer = setTimeout(() => {
-      setGraceExpired(true);
-      emitDiagnostic(() => ({
-        kind: "pending-interactions-guard",
-        outcome: "grace-expired",
-        threadId: toDiagnosticId(threadId),
-      }));
-    }, PENDING_INTERACTIONS_UNKNOWN_GRACE_MS);
-    return () => clearTimeout(timer);
-  }, [threadId, waiting]);
-  return isFetching && !(waiting && graceExpired);
+    const outcome =
+      state === "verified"
+        ? "resolved"
+        : state === "failed"
+          ? "check-failed"
+          : "blocked-unverified";
+    emitDiagnostic(() => ({
+      kind: "pending-interactions-guard",
+      outcome,
+      threadId: toDiagnosticId(threadId),
+    }));
+  }, [state, threadId]);
+  const refetch = query.refetch;
+  const retry =
+    state === "failed"
+      ? () => {
+          emitDiagnostic(() => ({
+            kind: "pending-interactions-guard",
+            outcome: "manual-retry",
+            threadId: toDiagnosticId(threadId),
+          }));
+          void refetch();
+        }
+      : null;
+  return { isUnverified: state !== "verified", retry };
 }

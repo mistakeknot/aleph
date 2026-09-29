@@ -1,3 +1,4 @@
+import { PendingInteractionsRequestTimeoutError } from "@/aleph/pending-interactions-guard";
 import { describe, expect, it } from "vitest";
 import type { ThreadListEntry, WorkspaceStatus } from "@bb/domain";
 import {
@@ -44,7 +45,11 @@ import {
 import { createQueryClientTestHarness } from "@/test/queryClientTestHarness";
 import { HttpError } from "@/lib/api";
 import { BbHttpError } from "@/lib/sdk";
-import { isTransientReadError, requireEnabledQueryArg } from "./query-helpers";
+import {
+  isTransientReadError,
+  requireEnabledQueryArg,
+  shouldRetryTransientReadQuery,
+} from "./query-helpers";
 
 describe("requireEnabledQueryArg", () => {
   it("returns the value when present", () => {
@@ -661,5 +666,15 @@ describe("optimisticallyInsertThread", () => {
         .getQueryData<ThreadListEntry[]>(forkListKey)
         ?.map((entry) => entry.id),
     ).toEqual(["fork-1"]);
+  });
+});
+
+describe("pending-interactions timeout retry classification", () => {
+  it("retries the timeout error with a bounded attempt count", () => {
+    const error = new PendingInteractionsRequestTimeoutError();
+    expect(isTransientReadError(error)).toBe(true);
+    expect(shouldRetryTransientReadQuery(0, error)).toBe(true);
+    expect(shouldRetryTransientReadQuery(1, error)).toBe(true);
+    expect(shouldRetryTransientReadQuery(2, error)).toBe(false);
   });
 });

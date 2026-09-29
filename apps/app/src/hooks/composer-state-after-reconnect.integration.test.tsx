@@ -57,7 +57,10 @@ vi.mock("@/lib/sdk", () => ({
 }));
 
 import { sdk } from "@/lib/sdk";
-import { useGracedPendingInteractionFetching } from "@/aleph/pending-interactions-guard";
+import {
+  PENDING_INTERACTIONS_REQUEST_TIMEOUT_MS,
+  usePendingInteractionsGate,
+} from "@/aleph/pending-interactions-guard";
 import { WebSocketManager } from "@/lib/ws";
 import { createRealtimeCacheEffects } from "./realtime-cache-effects";
 import {
@@ -65,7 +68,11 @@ import {
   threadQueryKey,
 } from "./queries/query-keys";
 import {
-  isPendingInteractionStateUnknown,
+  shouldRetryTransientReadQuery,
+  TRANSIENT_READ_RETRY_DELAY_MS,
+} from "./queries/query-helpers";
+import {
+  getLatestPendingInteraction,
   useThread,
   useThreadPendingInteractions,
 } from "./queries/thread-queries";
@@ -96,7 +103,12 @@ function currentSocket() {
 
 function setup() {
   const wsManager = new WebSocketManager();
-  const harness = createQueryClientTestHarness();
+  const harness = createQueryClientTestHarness({
+    queries: {
+      retry: shouldRetryTransientReadQuery,
+      retryDelay: TRANSIENT_READ_RETRY_DELAY_MS,
+    },
+  });
   const effects = createRealtimeCacheEffects({
     queryClient: harness.queryClient,
   });
@@ -110,9 +122,11 @@ function setup() {
     () => {
       const thread = useThread(THREAD_ID);
       const pendingInteractions = useThreadPendingInteractions(THREAD_ID);
-      const graced = useGracedPendingInteractionFetching({
-        hasPendingInteraction: false,
-        isFetching: pendingInteractions.isFetching,
+      const hasPendingInteraction =
+        getLatestPendingInteraction(pendingInteractions.data) !== null;
+      const gate = usePendingInteractionsGate({
+        hasPendingInteraction,
+        query: pendingInteractions,
         threadId: THREAD_ID,
       });
       const runtimeDisplayStatus = thread.data?.runtime.displayStatus;
@@ -120,13 +134,11 @@ function setup() {
         return "loading-thread";
       }
       return buildFollowUpSubmitMode({
-        hasPendingInteraction: false,
+        hasPendingInteraction,
         isDefaultExecutionOptionsLoading: false,
-        isPendingInteractionsInitialLoading: isPendingInteractionStateUnknown(
-          pendingInteractions.data,
-          graced,
-        ),
+        isPendingInteractionsInitialLoading: gate.isUnverified,
         isStopRequested: false,
+        onRetryPendingInteractions: gate.retry,
         onStop: () => {},
         runtimeDisplayStatus,
       });
@@ -136,6 +148,7 @@ function setup() {
 
   return {
     ...harness,
+    submitMode: () => view.result.current,
     composerMode: () => {
       const mode = view.result.current;
       return typeof mode === "string" ? mode : mode.kind;
@@ -271,28 +284,116 @@ describe("composer state after a realtime connection drop", () => {
     });
   });
 
-  it("unblocks the composer after reconnect when a pending-interactions fetch never settles", async () => {
-    serverStatus = "idle";
-    const ctx = setup();
-    await waitFor(() => expect(ctx.composerMode()).toBe("ready"));
+  describe("when the pending-interactions request hangs", () => {
+    const RECOVERY_BOUND_MS = 12_000;
+    const TEST_TIMEOUT_MS = 30_000;
+    const pending = {
+      id: "int_1",
+      threadId: THREAD_ID,
+      createdAt: 1,
+    } as unknown as PendingInteraction;
 
-    vi.mocked(sdk.threads.interactions.list).mockImplementation(
-      () => new Promise<PendingInteraction[]>(() => {}),
-    );
-    act(() => {
-      void ctx.queryClient.refetchQueries({
-        queryKey: threadPendingInteractionsQueryKey(THREAD_ID),
+    async function hangFirstRequest(
+      ctx: ReturnType<typeof setup>,
+      retryResult: PendingInteraction[],
+    ) {
+      vi.mocked(sdk.threads.interactions.list)
+        .mockImplementationOnce(
+          () => new Promise<PendingInteraction[]>(() => {}),
+        )
+        .mockResolvedValue(retryResult);
+      act(() => {
+        void ctx.queryClient.refetchQueries({
+          queryKey: threadPendingInteractionsQueryKey(THREAD_ID),
+        });
       });
-    });
-    await waitFor(() => expect(ctx.composerMode()).toBe("blocked"));
+      await waitFor(() => expect(ctx.composerMode()).toBe("blocked"));
+    }
 
-    dropConnection();
-    await sleep(5);
-    restoreConnection();
+    it(
+      "stays blocked while unverified, then enables once the timeout retry succeeds",
+      async () => {
+        serverStatus = "idle";
+        const ctx = setup();
+        await waitFor(() => expect(ctx.composerMode()).toBe("ready"));
 
-    await waitFor(() => expect(ctx.composerMode()).toBe("ready"), {
-      timeout: 1500,
-    });
-    ctx.teardown();
+        await hangFirstRequest(ctx, []);
+        await sleep(PENDING_INTERACTIONS_REQUEST_TIMEOUT_MS - 1_000);
+        expect(ctx.composerMode()).toBe("blocked");
+
+        const startedAt = Date.now();
+        await waitFor(() => expect(ctx.composerMode()).toBe("ready"), {
+          timeout: RECOVERY_BOUND_MS,
+        });
+        expect(Date.now() - startedAt).toBeLessThan(RECOVERY_BOUND_MS);
+        ctx.teardown();
+      },
+      TEST_TIMEOUT_MS,
+    );
+
+    it(
+      "stays blocked when the retry returns a real pending interaction",
+      async () => {
+        serverStatus = "idle";
+        const ctx = setup();
+        await waitFor(() => expect(ctx.composerMode()).toBe("ready"));
+
+        await hangFirstRequest(ctx, [pending]);
+        await waitFor(
+          () =>
+            expect(
+              ctx.queryClient.getQueryData(
+                threadPendingInteractionsQueryKey(THREAD_ID),
+              ),
+            ).toEqual([pending]),
+          { timeout: RECOVERY_BOUND_MS },
+        );
+        expect(ctx.composerMode()).toBe("blocked");
+        ctx.teardown();
+      },
+      TEST_TIMEOUT_MS,
+    );
+
+    it(
+      "shows the retry affordance when every attempt hangs, then recovers on manual retry",
+      async () => {
+        serverStatus = "idle";
+        const ctx = setup();
+        await waitFor(() => expect(ctx.composerMode()).toBe("ready"));
+
+        vi.mocked(sdk.threads.interactions.list).mockImplementation(
+          () => new Promise<PendingInteraction[]>(() => {}),
+        );
+        act(() => {
+          void ctx.queryClient.refetchQueries({
+            queryKey: threadPendingInteractionsQueryKey(THREAD_ID),
+          });
+        });
+        await waitFor(
+          () => {
+            const mode = ctx.submitMode();
+            expect(mode).toMatchObject({
+              kind: "blocked",
+              reason: "pending-interactions-check-failed",
+            });
+          },
+          { timeout: 3 * PENDING_INTERACTIONS_REQUEST_TIMEOUT_MS + 5_000 },
+        );
+
+        vi.mocked(sdk.threads.interactions.list).mockResolvedValue([]);
+        const mode = ctx.submitMode();
+        if (
+          typeof mode === "string" ||
+          mode.kind !== "blocked" ||
+          mode.reason !== "pending-interactions-check-failed"
+        ) {
+          throw new Error("Expected the check-failed blocked mode");
+        }
+        act(() => mode.onRetry());
+        await waitFor(() => expect(ctx.composerMode()).toBe("ready"));
+        ctx.teardown();
+      },
+      TEST_TIMEOUT_MS,
+    );
   });
 });

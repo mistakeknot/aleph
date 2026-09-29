@@ -4,9 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { onDiagnostic } from "@/lib/diagnostics";
 import {
   PENDING_INTERACTIONS_REQUEST_TIMEOUT_MS,
-  PENDING_INTERACTIONS_UNKNOWN_GRACE_MS,
+  PENDING_INTERACTIONS_AUTO_RETRY_INTERVAL_MS,
   PendingInteractionsRequestTimeoutError,
-  useGracedPendingInteractionFetching,
+  pendingInteractionsRefetchInterval,
+  usePendingInteractionsGate,
   withPendingInteractionsRequestTimeout,
 } from "./pending-interactions-guard";
 
@@ -80,47 +81,106 @@ describe("pending-interactions guard", () => {
     });
   });
 
-  describe("useGracedPendingInteractionFetching", () => {
-    function render(initial: {
+  describe("usePendingInteractionsGate", () => {
+    interface Props {
       hasPendingInteraction: boolean;
+      isError: boolean;
       isFetching: boolean;
-    }) {
+      threadId: string;
+    }
+    const refetch = vi.fn(async () => undefined);
+
+    function render(initial: Props) {
       return renderHook(
-        (props: { hasPendingInteraction: boolean; isFetching: boolean }) =>
-          useGracedPendingInteractionFetching({ ...props, threadId: "thr_a" }),
+        ({ threadId, hasPendingInteraction, ...query }: Props) =>
+          usePendingInteractionsGate({
+            hasPendingInteraction,
+            query: { ...query, refetch },
+            threadId,
+          }),
         { initialProps: initial },
       );
     }
+    const base: Props = {
+      hasPendingInteraction: false,
+      isError: false,
+      isFetching: false,
+      threadId: "thr_a",
+    };
 
-    it("reports fetching until the grace window elapses, then stops blocking", () => {
-      const view = render({ hasPendingInteraction: false, isFetching: true });
-      expect(view.result.current).toBe(true);
-      act(() => {
-        vi.advanceTimersByTime(PENDING_INTERACTIONS_UNKNOWN_GRACE_MS - 1);
-      });
-      expect(view.result.current).toBe(true);
-      act(() => {
-        vi.advanceTimersByTime(1);
-      });
-      expect(view.result.current).toBe(false);
+    it("is verified only after a settled successful result", () => {
+      const view = render({ ...base, isFetching: true });
+      expect(view.result.current).toEqual({ isUnverified: true, retry: null });
+      view.rerender(base);
+      expect(view.result.current).toEqual({ isUnverified: false, retry: null });
     });
 
-    it("re-arms the window for the next fetch", () => {
-      const view = render({ hasPendingInteraction: false, isFetching: true });
-      act(() => {
-        vi.advanceTimersByTime(PENDING_INTERACTIONS_UNKNOWN_GRACE_MS);
-      });
-      view.rerender({ hasPendingInteraction: false, isFetching: false });
-      view.rerender({ hasPendingInteraction: false, isFetching: true });
-      expect(view.result.current).toBe(true);
+    it("does not treat an error as known and offers a retry", () => {
+      const view = render({ ...base, isError: true });
+      expect(view.result.current.isUnverified).toBe(true);
+      expect(view.result.current.retry).not.toBeNull();
+      view.rerender({ ...base, isError: true, isFetching: true });
+      expect(view.result.current.isUnverified).toBe(true);
+      expect(view.result.current.retry).not.toBeNull();
     });
 
-    it("never expires while a pending interaction is known", () => {
-      const view = render({ hasPendingInteraction: true, isFetching: true });
-      act(() => {
-        vi.advanceTimersByTime(PENDING_INTERACTIONS_UNKNOWN_GRACE_MS * 5);
+    it("invokes the query refetch on retry and records the manual retry", () => {
+      const events: string[] = [];
+      const off = onDiagnostic((event) => {
+        if (event.kind === "pending-interactions-guard") {
+          events.push(event.outcome);
+        }
       });
-      expect(view.result.current).toBe(true);
+      const view = render({ ...base, isError: true });
+      act(() => view.result.current.retry?.());
+      off();
+      expect(refetch).toHaveBeenCalledTimes(1);
+      expect(events).toEqual(["check-failed", "manual-retry"]);
+    });
+
+    it("stays verified while a pending interaction is known", () => {
+      const view = render({
+        ...base,
+        hasPendingInteraction: true,
+        isFetching: true,
+      });
+      expect(view.result.current).toEqual({ isUnverified: false, retry: null });
+    });
+
+    it("emits blocked-unverified, check-failed and resolved on transitions", () => {
+      const events: string[] = [];
+      const off = onDiagnostic((event) => {
+        if (event.kind === "pending-interactions-guard") {
+          events.push(event.outcome);
+        }
+      });
+      const view = render({ ...base, isFetching: true });
+      view.rerender({ ...base, isError: true });
+      view.rerender({ ...base, isError: true, isFetching: true });
+      view.rerender(base);
+      off();
+      expect(events).toEqual([
+        "blocked-unverified",
+        "check-failed",
+        "resolved",
+      ]);
+    });
+
+    it("keeps no state across a thread switch", () => {
+      const view = render({ ...base, isError: true });
+      view.rerender({ ...base, threadId: "thr_b" });
+      expect(view.result.current).toEqual({ isUnverified: false, retry: null });
+    });
+  });
+
+  describe("pendingInteractionsRefetchInterval", () => {
+    it("polls only while the query is in the error state", () => {
+      expect(
+        pendingInteractionsRefetchInterval({ state: { status: "error" } }),
+      ).toBe(PENDING_INTERACTIONS_AUTO_RETRY_INTERVAL_MS);
+      expect(
+        pendingInteractionsRefetchInterval({ state: { status: "success" } }),
+      ).toBe(false);
     });
   });
 });
