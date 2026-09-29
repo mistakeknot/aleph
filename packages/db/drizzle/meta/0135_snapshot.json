@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "747792e3-0327-4f23-90bc-68917768487b",
+  "id": "c50f8872-1ca5-4d76-82ce-dc413caafb2e",
   "prevId": "91728c5d-e2a4-42e7-b832-93b78163f5e8",
   "tables": {
     "app_settings": {
@@ -551,6 +551,10 @@
         "connect_binding_singleton_check": {
           "name": "connect_binding_singleton_check",
           "value": "\"connect_binding\".\"id\" = 1"
+        },
+        "connect_binding_runtime_check": {
+          "name": "connect_binding_runtime_check",
+          "value": "\"connect_binding\".\"runtime\" IN ('production', 'staging')"
         }
       }
     },
@@ -4162,6 +4166,14 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {
+        "relay_messages_status_check": {
+          "name": "relay_messages_status_check",
+          "value": "\"relay_messages\".\"status\" IN ('reserved', 'cleaning', 'accepted', 'failed', 'cancelled')"
+        },
+        "relay_messages_attempt_check": {
+          "name": "relay_messages_attempt_check",
+          "value": "\"relay_messages\".\"attempt\" >= 1"
+        },
         "relay_messages_cleanup_claim_check": {
           "name": "relay_messages_cleanup_claim_check",
           "value": "(\"relay_messages\".\"status\" = 'cleaning') = (\"relay_messages\".\"cleanup_token\" IS NOT NULL AND \"relay_messages\".\"cleanup_expires_at\" IS NOT NULL)"
@@ -4313,7 +4325,12 @@
         }
       },
       "uniqueConstraints": {},
-      "checkConstraints": {}
+      "checkConstraints": {
+        "relay_usage_counters_check": {
+          "name": "relay_usage_counters_check",
+          "value": "\"relay_usage\".\"reservations\" >= 0 AND \"relay_usage\".\"attachment_bytes\" >= 0"
+        }
+      }
     },
     "retained_event_outputs": {
       "name": "retained_event_outputs",

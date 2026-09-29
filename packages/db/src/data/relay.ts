@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { and, eq, inArray, isNull, notExists, sql } from "drizzle-orm";
 import type { DbQueryConnection, DbTransaction } from "../connection.js";
 import {
@@ -85,7 +84,7 @@ export function claimRelayAttemptCleanupInTransaction(
   const now = options.now ?? Date.now();
   const set: Partial<typeof relayMessages.$inferInsert> = {
     status: "cleaning",
-    cleanupToken: randomUUID(),
+    cleanupToken: row.leaseToken,
     cleanupExpiresAt: now + RELAY_CLEANUP_CLAIM_MS,
     leaseToken: null,
     leaseExpiresAt: null,
@@ -112,13 +111,12 @@ export function claimRelayAttemptCleanupInTransaction(
 
 export function takeOverRelayAttemptCleanupInTransaction(
   tx: DbTransaction,
-  row: Pick<RelayMessageRow, "id" | "cleanupToken">,
+  row: Pick<RelayMessageRow, "id" | "cleanupToken" | "cleanupExpiresAt">,
   options: RelayCleanupClaimOptions = {},
 ): RelayMessageRow | null {
-  if (row.cleanupToken === null) return null;
+  if (row.cleanupToken === null || row.cleanupExpiresAt === null) return null;
   const now = options.now ?? Date.now();
   const set: Partial<typeof relayMessages.$inferInsert> = {
-    cleanupToken: randomUUID(),
     cleanupExpiresAt: now + RELAY_CLEANUP_CLAIM_MS,
     updatedAt: now,
   };
@@ -134,6 +132,7 @@ export function takeOverRelayAttemptCleanupInTransaction(
           eq(relayMessages.id, row.id),
           eq(relayMessages.status, "cleaning"),
           eq(relayMessages.cleanupToken, row.cleanupToken),
+          eq(relayMessages.cleanupExpiresAt, row.cleanupExpiresAt),
           sql`${relayMessages.cleanupExpiresAt} <= ${now}`,
         ),
       )

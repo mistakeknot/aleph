@@ -22,6 +22,7 @@ import {
   cancelRelayForHostTargetsInTransaction,
   cancelRelayForTargetInTransaction,
   claimRelayAttemptCleanupInTransaction,
+  claimUnownedRelayAttachmentsForDeletionInTransaction,
   completeRelayAttemptCleanupInTransaction,
   getRelayMessage,
   insertRelayTarget,
@@ -200,6 +201,38 @@ describe("relay_messages claim-invariant CHECK constraints (T-DB-1)", () => {
     ).toThrow();
   });
 
+  it("rejects an unknown relay_messages status", () => {
+    const { db, host, thread } = setup();
+    let cause: unknown;
+    try {
+      db.run(
+        sql`INSERT INTO relay_messages (id, host_id, client_message_id, client_message_time, thread_id, payload_sha256, status, attempt, created_at, updated_at) VALUES ('x', ${host.id}, 'c', 1, ${thread.id}, 'h', 'unknown', 1, 1, 1)`,
+      );
+    } catch (error) {
+      cause = (error as Error).cause;
+    }
+    expect((cause as Error).message).toMatch(/CHECK constraint failed/);
+  });
+
+  it("rejects attempt 0, negative usage and an unknown binding runtime", () => {
+    const { db, host, thread } = setup();
+    expect(() =>
+      db.run(
+        sql`INSERT INTO relay_messages (id, host_id, client_message_id, client_message_time, thread_id, payload_sha256, status, attempt, created_at, updated_at) VALUES ('x', ${host.id}, 'c', 1, ${thread.id}, 'h', 'accepted', 0, 1, 1)`,
+      ),
+    ).toThrow();
+    expect(() =>
+      db.run(
+        sql`INSERT INTO relay_usage (host_id, hour_bucket, reservations, attachment_bytes) VALUES (${host.id}, 1, -1, 0)`,
+      ),
+    ).toThrow();
+    expect(() =>
+      db.run(
+        sql`INSERT INTO connect_binding (id, runtime, issuer, server_id, owner_user_id, bound_at) VALUES (1, 'dev', 'i', 's', 'u', 1)`,
+      ),
+    ).toThrow();
+  });
+
   it("rejects a second connect_binding row", () => {
     const { db } = setup();
     db.run(
@@ -256,25 +289,27 @@ describe("relay cleanup claim, takeover and completion", () => {
       cleanupExpiresAt: 1_000 + RELAY_CLEANUP_CLAIM_MS,
       cancelReason: null,
     });
-    expect(claimed?.cleanupToken).toBeTruthy();
+    expect(claimed?.cleanupToken).toBe("lease-1");
     expect(
       db.transaction((tx) => claimRelayAttemptCleanupInTransaction(tx, row)),
     ).toBeNull();
   });
 
-  it("takes over only an expired claim and rotates the token", () => {
+  it("takes over only an expired claim and keeps the attempt token", () => {
     const { db, host, thread } = setup();
     insertRelayMessage(db, {
       id: "rm1",
       hostId: host.id,
       threadId: thread.id,
       status: "reserved",
+      leaseToken: "attempt-7",
     });
     const claimed = db.transaction((tx) =>
       claimRelayAttemptCleanupInTransaction(tx, getRelayMessage(db, "rm1")!, {
         now: 1_000,
       }),
     )!;
+    expect(claimed.cleanupToken).toBe("attempt-7");
     expect(
       db.transaction((tx) =>
         takeOverRelayAttemptCleanupInTransaction(tx, claimed, { now: 1_001 }),
@@ -286,8 +321,81 @@ describe("relay cleanup claim, takeover and completion", () => {
       }),
     );
     expect(taken?.status).toBe("cleaning");
-    expect(taken?.cleanupToken).not.toBe(claimed.cleanupToken);
+    expect(taken?.cleanupToken).toBe("attempt-7");
     expect(taken?.cleanupExpiresAt).toBe(1_000 + 2 * RELAY_CLEANUP_CLAIM_MS);
+    expect(
+      db.transaction((tx) =>
+        takeOverRelayAttemptCleanupInTransaction(tx, claimed, {
+          now: 1_000 + RELAY_CLEANUP_CLAIM_MS,
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("finds and cleans the attempt's attachment rows after takeover", () => {
+    const { db, host, thread, project } = setup();
+    insertRelayMessage(db, {
+      id: "rm1",
+      hostId: host.id,
+      threadId: thread.id,
+      status: "reserved",
+      leaseToken: "attempt-1",
+    });
+    const mine = recordProjectAttachment(db, {
+      projectId: project.id,
+      storedPath: "relay/mine.txt",
+      originalName: "mine.txt",
+      mimeType: null,
+      sizeBytes: 1,
+      createdAt: 1,
+      readyAt: null,
+      relayMessageId: "rm1",
+      relayAttemptToken: "attempt-1",
+    });
+    const other = recordProjectAttachment(db, {
+      projectId: project.id,
+      storedPath: "relay/other.txt",
+      originalName: "other.txt",
+      mimeType: null,
+      sizeBytes: 1,
+      createdAt: 1,
+      readyAt: null,
+      relayMessageId: "rm1",
+      relayAttemptToken: "attempt-2",
+    });
+    const claimed = db.transaction((tx) =>
+      claimRelayAttemptCleanupInTransaction(tx, getRelayMessage(db, "rm1")!, {
+        now: 1_000,
+      }),
+    )!;
+    const taken = db.transaction((tx) =>
+      takeOverRelayAttemptCleanupInTransaction(tx, claimed, {
+        now: 1_000 + RELAY_CLEANUP_CLAIM_MS,
+      }),
+    )!;
+    const count = db.transaction((tx) =>
+      claimUnownedRelayAttachmentsForDeletionInTransaction(tx, {
+        relayMessageId: taken.id,
+        relayAttemptToken: taken.cleanupToken!,
+      }),
+    );
+    expect(count).toBe(1);
+    const claimedAt = (id: string) =>
+      db
+        .select()
+        .from(projectAttachments)
+        .where(eq(projectAttachments.id, id))
+        .get()?.deletionClaimedAt;
+    expect(claimedAt(mine.id)).not.toBeNull();
+    expect(claimedAt(other.id)).toBeNull();
+    expect(
+      db.transaction((tx) =>
+        completeRelayAttemptCleanupInTransaction(tx, {
+          id: taken.id,
+          cleanupToken: taken.cleanupToken!,
+        }),
+      )?.status,
+    ).toBe("failed");
   });
 
   it("completes to failed, or to cancelled when a cancel reason is set", () => {

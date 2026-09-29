@@ -1453,6 +1453,11 @@ export const relayMessages = sqliteTable(
       table.cleanupExpiresAt,
     ),
     check(
+      "relay_messages_status_check",
+      sql`${table.status} IN ('reserved', 'cleaning', 'accepted', 'failed', 'cancelled')`,
+    ),
+    check("relay_messages_attempt_check", sql`${table.attempt} >= 1`),
+    check(
       "relay_messages_cleanup_claim_check",
       sql`(${table.status} = 'cleaning') = (${table.cleanupToken} IS NOT NULL AND ${table.cleanupExpiresAt} IS NOT NULL)`,
     ),
@@ -1481,7 +1486,13 @@ export const relayUsage = sqliteTable(
     reservations: integer("reservations").notNull().default(0),
     attachmentBytes: integer("attachment_bytes").notNull().default(0),
   },
-  (table) => [primaryKey({ columns: [table.hostId, table.hourBucket] })],
+  (table) => [
+    primaryKey({ columns: [table.hostId, table.hourBucket] }),
+    check(
+      "relay_usage_counters_check",
+      sql`${table.reservations} >= 0 AND ${table.attachmentBytes} >= 0`,
+    ),
+  ],
 );
 
 export const attachmentPendingScanCursors = sqliteTable(
@@ -1514,5 +1525,11 @@ export const connectBinding = sqliteTable(
     ownerUserId: text("owner_user_id").notNull(),
     boundAt: integer("bound_at").notNull(),
   },
-  (table) => [check("connect_binding_singleton_check", sql`${table.id} = 1`)],
+  (table) => [
+    check("connect_binding_singleton_check", sql`${table.id} = 1`),
+    check(
+      "connect_binding_runtime_check",
+      sql`${table.runtime} IN ('production', 'staging')`,
+    ),
+  ],
 );
