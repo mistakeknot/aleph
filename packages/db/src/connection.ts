@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { assertFenceAllowsDatabase } from "@bb/config/maintenance-fence";
 import { performance } from "node:perf_hooks";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import * as schema from "./schema.js";
@@ -156,6 +157,7 @@ export function createConnection(
   source: string | Buffer = "bb.db",
   options: CreateConnectionOptions = {},
 ) {
+  if (typeof source === "string") assertFenceAllowsDatabase(source);
   const sqlite = new Database(source);
 
   sqlite.pragma("auto_vacuum = INCREMENTAL");

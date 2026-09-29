@@ -142,6 +142,21 @@
       "source": "./src/child-process-exit.ts",
       "types": "./src/child-process-exit.ts",
       "default": "./src/child-process-exit.ts"
+    },
+    "./aleph-data-dir": {
+      "source": "./src/aleph-data-dir.ts",
+      "types": "./src/aleph-data-dir.ts",
+      "default": "./src/aleph-data-dir.ts"
+    },
+    "./data-dir-lock": {
+      "source": "./src/data-dir-lock.ts",
+      "types": "./src/data-dir-lock.ts",
+      "default": "./src/data-dir-lock.ts"
+    },
+    "./maintenance-fence": {
+      "source": "./src/maintenance-fence.ts",
+      "types": "./src/maintenance-fence.ts",
+      "default": "./src/maintenance-fence.ts"
     }
   },
   "scripts": {
