@@ -291,6 +291,26 @@ The plugin SDK version is read from `packages/plugin-sdk/package.json` at build
 time. A checkout with no git metadata reports `Commit: unknown` rather than
 failing the build.
 
+## Aleph build/sign split
+
+The `aleph` channel never signs during the build. `pnpm run desktop:package-unsigned` runs electron-builder with `--publish never`, no identity and no notarization, and refuses to run when any `CSC_*` or `APPLE_*` variable is set or `CSC_IDENTITY_AUTO_DISCOVERY` is not `false`. The unsigned build runs in a credential-free guest and produces a BuildReceipt (`desktop:aleph-build-receipt`: repo ID, source SHA, recipe/lockfile/artifact digests, tool versions).
+
+Signing never runs candidate code. The signer account (`aleph-sign`, plan v8 §9.2) runs a fixed recipe from `mistakeknot/ops`, pinned by digest. The modules in this package (`sign-aleph-release.mjs`, `verify-aleph-release.mjs`, `aleph-build-receipt.mjs`, `aleph-release-policy.mjs`) are libraries consumed by that recipe. Do not run `desktop:aleph-sign` from a candidate checkout on the signer account. The signer refuses to run when it lives inside the candidate app tree or in a checkout that contains the candidate app, and it treats the candidate only as data: it re-hashes the app against the BuildReceipt before any codesign call and deletes any prior `SignedArtifactReceipt.json` at start and on every failure.
+
+What the ops recipe must pin and supply:
+
+- the digest of the ops recipe itself and of the exact copy of these modules it runs (taken from the reviewed source SHA, not from the candidate build);
+- `ALEPH_SIGNER_MODULE_SET_SHA256` for `desktop:aleph-sign`: the digest that `computeSignerModuleSetDigest()` returns for `aleph-build-receipt.mjs`, `aleph-release-policy.mjs`, `sign-aleph-release.mjs` and `verify-aleph-release.mjs`. The signer hashes its own modules and refuses before any `codesign` call when the variable is missing or differs;
+- `ALEPH_APPROVAL_SIGNERS_SHA256` for `desktop:aleph-publish`: the sha256 of the approval allowed-signers file. mk supplies the approver public key out-of-band; the recipe pins the digest of the file that holds it. The tracked `aleph-approval-allowed-signers` is only a placeholder that publish refuses, and a key or signer pinned by a path inside candidate source is not a pin;
+- the candidate `Aleph.app` and its BuildReceipt, transferred as data, with the receipt's source SHA and artifact digest checked against the approved release batch;
+- the keychain path for `aleph-apple.keychain-db` (a path only) and the `aleph-notary` profile name; agents never touch the keychain, `.p8` keys or unlock material, and mk performs the credential steps.
+
+The ops recipe itself is out of scope for this bead. It needs a follow-up bead in `mistakeknot/ops` (`ci/fleet`) that: fetches these modules at a pinned digest, checks the candidate against the BuildReceipt, calls `signAlephRelease` with explicit paths, archives the SignedArtifactReceipt, and carries the D2(a)/D2(b) unlock flow and canary from plan §9.2.
+
+Signing steps performed by `signAlephRelease`: inside-out signing with the explicit `Developer ID Application: General Systems Ventures LLC (W964996768)` identity and hardened runtime; notarization only through `notarytool --keychain-profile aleph-notary`; stapling of the app and DMG; ZIP built from the stapled app; verification; then the SignedArtifactReceipt (no secrets). Any missing identity, wrong team, non-Accepted verdict or verification failure aborts with no receipt. `desktop:aleph-verify -- --app <Aleph.app> --dmg <file> --zip <file>` re-runs the codesign, TeamIdentifier, hardened runtime, entitlement, Gatekeeper and stapler checks.
+
+`desktop:aleph-publish` is the only path to a non-draft release. The approval public key is pinned in `apps/desktop/aleph-approval-allowed-signers` (currently a placeholder that mk must replace; the publisher refuses to run while it is present, and no flag or environment variable overrides it). `ALEPH_PUBLISH_APPROVED=<approval-id>` only names the approval; it is not the trust anchor. The publisher verifies the `ssh-keygen -Y sign -n aleph-approval` signature against the pinned key, `batch_valid_until` and the version/tag/SHA/receipt/digest bindings, then downloads the draft assets and hashes them before un-drafting (a draft with any unapproved asset is refused). After un-drafting it checks the public assets anonymously and re-drafts on any mismatch. If the re-draft fails it exits nonzero naming the exposed assets.
+
 ## macOS signing + notarization
 
 The desktop package is ready for Developer ID signing and Apple notarization.
@@ -427,3 +447,9 @@ desktop session when a machine credential is rejected. Closing the sign-in
 window leaves the error screen available. Fatal errors have no buttons. The renderer sends the chosen
 action on `bb-desktop:startup-action`. The main process accepts only actions
 from the error page that is currently loaded in an app window's main frame.
+
+Trust boundary: these checks only prove the pin the caller supplies. Full closure depends on the ops recipe follow-up (mistakeknot/ops `ci/fleet`) that owns and digest-pins the recipe and supplies both digests from outside candidate source. Until that recipe exists, the environment variables are the only anchor and nothing in this repository can establish it.
+
+Publish binds to GitHub asset IDs: it lists the draft release's assets (id, name, size, digest when the API provides it), downloads each by asset ID, hashes it, and re-fetches the release by ID immediately before un-drafting, refusing when the asset set or metadata changed, an extra asset appeared, or the release's `tag_name` is not the approved tag. The tag is checked at first lookup, on the by-ID re-fetch before un-drafting, and again on a by-ID re-fetch after un-drafting, before the public assets are trusted. It un-drafts that same release ID, then re-checks the public assets anonymously and re-drafts on any mismatch.
+
+Builds marked unpublishable (`AlephUnpublishable=true` in Info.plist or app package metadata, or `UNPUBLISHABLE` in the artifact name) are refused by verify, sign and publish.

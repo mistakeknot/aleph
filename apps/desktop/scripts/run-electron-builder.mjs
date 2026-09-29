@@ -6,6 +6,10 @@ import {
   createDesktopReleaseConfig,
   resolveDesktopReleaseChannel,
 } from "./desktop-release-channel.mjs";
+import {
+  assertCredentialFreeBuildEnvironment,
+  findCredentialEnvKeys,
+} from "./aleph-release-policy.mjs";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const desktopPackageRoot = resolve(scriptDirectory, "..");
@@ -87,7 +91,7 @@ function logSigningPlan(signingPlan) {
     );
   } else {
     logWarning(
-      "macOS signing skipped: CSC_IDENTITY_AUTO_DISCOVERY=false and no signing secrets found. Artifacts will be unsigned.",
+      "macOS signing skipped: no signing identity is used in this build. Artifacts will be unsigned.",
     );
   }
 
@@ -157,9 +161,23 @@ function createSigningPlan(env) {
   };
 }
 
+function createUnsignedSigningPlan() {
+  return {
+    mode: "disabled",
+    identityName: undefined,
+    notarizationEnabled: false,
+  };
+}
+
 function resolveElectronBuilderConfig(baseConfig, env) {
-  const signingPlan = createSigningPlan(env);
   const releaseChannel = resolveDesktopReleaseChannel(env);
+  if (releaseChannel === "aleph") {
+    assertCredentialFreeBuildEnvironment(env);
+  }
+  const signingPlan =
+    releaseChannel === "aleph"
+      ? createUnsignedSigningPlan()
+      : createSigningPlan(env);
   const releaseConfig = createDesktopReleaseConfig(releaseChannel);
   const config = cloneJson(baseConfig);
   const mac = {
@@ -202,6 +220,12 @@ function createElectronBuilderEnv(signingPlan) {
   const childEnv = {
     ...process.env,
   };
+
+  if (signingPlan.mode === "disabled") {
+    for (const key of findCredentialEnvKeys(childEnv)) {
+      delete childEnv[key];
+    }
+  }
 
   childEnv.CSC_IDENTITY_AUTO_DISCOVERY =
     signingPlan.mode !== "disabled" && !signingPlan.identityName

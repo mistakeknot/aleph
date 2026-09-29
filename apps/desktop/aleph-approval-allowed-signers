@@ -1,0 +1,4 @@
+# Pinned public key for aleph release approvals (ssh-keygen -Y sign -n aleph-approval).
+# PLACEHOLDER: mk replaces the line below with the approval PUBLIC key. No key material is committed by agents.
+# publish-release.mjs refuses to run while the placeholder is present and ignores every override.
+aleph-approver namespaces="aleph-approval" PLACEHOLDER-MK-MUST-SUPPLY-PUBLIC-KEY

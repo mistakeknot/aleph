@@ -159,9 +159,11 @@ type CreateScriptEnvironment = (
 ) => NodeJS.ProcessEnv;
 type RunConfigScript = (
   overrides: EnvironmentOverrides,
+  packageVersion?: string,
 ) => Promise<ScriptRunResult>;
 type ReadResolvedConfig = (
   overrides: EnvironmentOverrides,
+  packageVersion?: string,
 ) => Promise<ReadResolvedConfigResult>;
 type RunNativePrepScript = (
   appOutDir: string,
@@ -186,12 +188,40 @@ const createScriptEnvironment: CreateScriptEnvironment = (overrides) => {
   return env;
 };
 
-const runConfigScript: RunConfigScript = async (overrides) => {
+const nonAlephPackageVersion = "0.44.0";
+
+const createPackageRootWithVersion = async (
+  packageVersion: string,
+): Promise<string> => {
+  const root = await mkdtemp(resolve(tmpdir(), "bb-builder-config-"));
+  await cp(resolve(desktopPackageRoot, "scripts"), resolve(root, "scripts"), {
+    recursive: true,
+  });
+  await cp(
+    resolve(desktopPackageRoot, "electron-builder.config.json"),
+    resolve(root, "electron-builder.config.json"),
+  );
+  const packageJson = JSON.parse(
+    await readFile(resolve(desktopPackageRoot, "package.json"), "utf8"),
+  );
+  packageJson.version = packageVersion;
+  await writeFile(
+    resolve(root, "package.json"),
+    `${JSON.stringify(packageJson)}\n`,
+  );
+  return root;
+};
+
+const runConfigScript: RunConfigScript = async (overrides, packageVersion) => {
+  const packageRoot =
+    packageVersion === undefined
+      ? desktopPackageRoot
+      : await createPackageRootWithVersion(packageVersion);
   const child = spawn(
     process.execPath,
     ["scripts/run-electron-builder.mjs", "--print-config"],
     {
-      cwd: desktopPackageRoot,
+      cwd: packageRoot,
       env: createScriptEnvironment(overrides),
     },
   );
@@ -208,6 +238,9 @@ const runConfigScript: RunConfigScript = async (overrides) => {
   const exitCode = await new Promise<number | null>((resolveExitCode) => {
     child.on("close", resolveExitCode);
   });
+  if (packageRoot !== desktopPackageRoot) {
+    await rm(packageRoot, { force: true, recursive: true });
+  }
 
   return {
     exitCode,
@@ -248,8 +281,11 @@ const runNativePrepScript: RunNativePrepScript = async (
   };
 };
 
-const readResolvedConfig: ReadResolvedConfig = async (overrides) => {
-  const result = await runConfigScript(overrides);
+const readResolvedConfig: ReadResolvedConfig = async (
+  overrides,
+  packageVersion,
+) => {
+  const result = await runConfigScript(overrides, packageVersion);
 
   expect(result.exitCode).toBe(0);
   return {
@@ -576,17 +612,19 @@ describe("electron-builder signing config", () => {
 
     expect(JSON.parse(configText)).not.toHaveProperty("publish");
     for (const channel of ["latest", "nightly", "aleph"]) {
-      const { config } = await readResolvedConfig({
-        BB_DESKTOP_RELEASE_CHANNEL: channel,
-      });
+      const { config } = await readResolvedConfig(
+        { BB_DESKTOP_RELEASE_CHANNEL: channel },
+        channel === "aleph" ? undefined : nonAlephPackageVersion,
+      );
       expect(config.publish).toBeUndefined();
     }
   });
 
   it("creates a separate nightly app identity and update feed", async () => {
-    const { config } = await readResolvedConfig({
-      BB_DESKTOP_RELEASE_CHANNEL: "nightly",
-    });
+    const { config } = await readResolvedConfig(
+      { BB_DESKTOP_RELEASE_CHANNEL: "nightly" },
+      nonAlephPackageVersion,
+    );
 
     expect(config.appId).toBe("dev.bb.desktop.nightly");
     expect(config.productName).toBe("bb Nightly");
@@ -642,7 +680,10 @@ describe("electron-builder signing config", () => {
   });
 
   it("signs local builds via keychain auto-discovery when signing secrets are absent", async () => {
-    const { config } = await readResolvedConfig({});
+    const { config } = await readResolvedConfig(
+      { BB_DESKTOP_RELEASE_CHANNEL: "latest" },
+      nonAlephPackageVersion,
+    );
 
     expect(config.mac).not.toHaveProperty("identity");
     expect(config.mac.notarize).toBe(false);
@@ -650,20 +691,28 @@ describe("electron-builder signing config", () => {
   });
 
   it("keeps builds unsigned when keychain auto-discovery is explicitly disabled", async () => {
-    const { config } = await readResolvedConfig({
-      CSC_IDENTITY_AUTO_DISCOVERY: "false",
-    });
+    const { config } = await readResolvedConfig(
+      {
+        BB_DESKTOP_RELEASE_CHANNEL: "latest",
+        CSC_IDENTITY_AUTO_DISCOVERY: "false",
+      },
+      nonAlephPackageVersion,
+    );
 
     expect(config.mac.identity).toBeNull();
     expect(config.mac.notarize).toBe(false);
   });
 
   it("rejects partial signing secret sets", async () => {
-    const partialAppleCredentials = await runConfigScript({
-      APPLE_ID: "sawyer@example.com",
-      CSC_KEY_PASSWORD: "p12-password",
-      CSC_LINK: "base64-p12",
-    });
+    const partialAppleCredentials = await runConfigScript(
+      {
+        BB_DESKTOP_RELEASE_CHANNEL: "latest",
+        APPLE_ID: "sawyer@example.com",
+        CSC_KEY_PASSWORD: "p12-password",
+        CSC_LINK: "base64-p12",
+      },
+      nonAlephPackageVersion,
+    );
 
     expect(partialAppleCredentials.exitCode).toBe(1);
     expect(partialAppleCredentials.stderr).toContain(
@@ -678,19 +727,85 @@ describe("electron-builder signing config", () => {
   });
 
   it("enables app signing and notarization when signing and Apple credentials are complete", async () => {
-    const completeAppleCredentials = await readResolvedConfig({
-      APPLE_APP_SPECIFIC_PASSWORD: "app-password",
-      APPLE_ID: "sawyer@example.com",
-      APPLE_TEAM_ID: "TEAMID1234",
-      CSC_KEY_PASSWORD: "p12-password",
-      CSC_LINK: "base64-p12",
-      CSC_NAME: "Sawyer Hood (TEAMID1234)",
-    });
+    const completeAppleCredentials = await readResolvedConfig(
+      {
+        BB_DESKTOP_RELEASE_CHANNEL: "latest",
+        APPLE_APP_SPECIFIC_PASSWORD: "app-password",
+        APPLE_ID: "sawyer@example.com",
+        APPLE_TEAM_ID: "TEAMID1234",
+        CSC_KEY_PASSWORD: "p12-password",
+        CSC_LINK: "base64-p12",
+        CSC_NAME: "Sawyer Hood (TEAMID1234)",
+      },
+      nonAlephPackageVersion,
+    );
 
     expect(completeAppleCredentials.config.mac.identity).toBe(
       "Sawyer Hood (TEAMID1234)",
     );
     expect(completeAppleCredentials.config.mac.notarize).toBe(true);
     expect(completeAppleCredentials.config.dmg.sign).toBe(false);
+  });
+
+  it("builds the aleph channel unsigned and never notarizes in the build step", async () => {
+    const { config } = await readResolvedConfig({
+      BB_DESKTOP_RELEASE_CHANNEL: "aleph",
+    });
+
+    expect(config.mac.identity).toBeNull();
+    expect(config.mac.notarize).toBe(false);
+    expect(config.mac.hardenedRuntime).toBe(true);
+    expect(config.dmg.sign).toBe(false);
+  });
+
+  it("keeps the aleph build unsigned when the channel is derived from the package version", async () => {
+    const { config } = await readResolvedConfig({});
+
+    expect(config.mac.identity).toBeNull();
+    expect(config.mac.notarize).toBe(false);
+  });
+
+  it.each([
+    "CSC_LINK",
+    "CSC_KEY_PASSWORD",
+    "CSC_NAME",
+    "APPLE_ID",
+    "APPLE_APP_SPECIFIC_PASSWORD",
+    "APPLE_TEAM_ID",
+    "APPLE_API_KEY",
+    "APPLE_KEYCHAIN_PROFILE",
+  ])("refuses an aleph build when %s is present", async (key) => {
+    const result = await runConfigScript({
+      BB_DESKTOP_RELEASE_CHANNEL: "aleph",
+      [key]: "present",
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(
+      "The aleph build runs without signing credentials",
+    );
+    expect(result.stderr).toContain(key);
+    expect(result.stdout).toBe("");
+  });
+
+  it("refuses an aleph build that enables keychain auto-discovery", async () => {
+    const result = await runConfigScript({
+      BB_DESKTOP_RELEASE_CHANNEL: "aleph",
+      CSC_IDENTITY_AUTO_DISCOVERY: "true",
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("CSC_IDENTITY_AUTO_DISCOVERY");
+  });
+
+  it("exposes an unsigned package task that publishes nothing", async () => {
+    const packageJson: { scripts: Record<string, string> } = JSON.parse(
+      await readFile(resolve(desktopPackageRoot, "package.json"), "utf8"),
+    );
+
+    expect(packageJson.scripts["desktop:package-unsigned"]).toContain(
+      "--publish never",
+    );
+    expect(packageJson.scripts["desktop:package-unsigned"]).toContain("--dir");
   });
 });

@@ -13,6 +13,7 @@
     "clean": "rimraf dist release",
     "desktop:build": "pnpm run build && node scripts/run-electron-builder.mjs --mac --arm64 --publish never",
     "desktop:build:linux": "pnpm run build && node scripts/run-electron-builder.mjs --linux --x64 --publish never",
+    "desktop:package-unsigned": "pnpm run build && BB_DESKTOP_RELEASE_CHANNEL=aleph node scripts/run-electron-builder.mjs --mac --dir --arm64 --publish never",
     "desktop:version-feed": "tsx scripts/generate-version-feed.mts",
     "dev": "pnpm run prepare-runtime && pnpm run build && node --conditions=source --import tsx scripts/run-electron-dev.mjs",
     "dist": "pnpm run prepare-runtime && pnpm run desktop:build",
@@ -28,7 +29,11 @@
     "start:linux": "pnpm run package:linux && node scripts/run-packaged-app.mjs",
     "test": "vitest run --config vitest.config.ts",
     "typecheck": "tsc --noEmit",
-    "smoke:browser-broker": "node scripts/smoke-browser-broker.mjs"
+    "smoke:browser-broker": "node scripts/smoke-browser-broker.mjs",
+    "desktop:aleph-build-receipt": "node scripts/aleph-build-receipt.mjs",
+    "desktop:aleph-sign": "node scripts/sign-aleph-release.mjs",
+    "desktop:aleph-verify": "node scripts/verify-aleph-release.mjs",
+    "desktop:aleph-publish": "node scripts/publish-release.mjs"
   },
   "dependencies": {
     "@bb/connect-client": "workspace:*",
