@@ -2903,25 +2903,43 @@ describe("createRealtimeCacheEffects", () => {
   });
 
   it("applies the reconnect watermark from the connected event", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-29T10:00:00.000Z"));
     const { effects, queryClient } = createRealtimeEffectsTestContext();
     const disconnectedAt = Date.now();
+    const reconnectedAt = disconnectedAt + 10;
     const staleKey = threadQueryKey("thr_stale");
+    const betweenKey = threadQueryKey("thr_between");
     const freshKey = threadQueryKey("thr_fresh");
+    const laterKey = threadQueryKey("thr_later");
     queryClient.setQueryData(
       staleKey,
       { id: "thr_stale" },
       { updatedAt: disconnectedAt - 1 },
     );
     queryClient.setQueryData(
+      betweenKey,
+      { id: "thr_between" },
+      { updatedAt: reconnectedAt - 1 },
+    );
+    queryClient.setQueryData(
       freshKey,
       { id: "thr_fresh" },
-      { updatedAt: disconnectedAt + 1 },
+      { updatedAt: reconnectedAt },
+    );
+    queryClient.setQueryData(
+      laterKey,
+      { id: "thr_later" },
+      { updatedAt: reconnectedAt + 1 },
     );
 
+    vi.setSystemTime(reconnectedAt);
     effects.handleConnected({ reconnected: true, disconnectedAt });
 
     expect(queryClient.getQueryState(staleKey)?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(betweenKey)?.isInvalidated).toBe(true);
     expect(queryClient.getQueryState(freshKey)?.isInvalidated).toBe(false);
+    expect(queryClient.getQueryState(laterKey)?.isInvalidated).toBe(false);
     effects.dispose();
   });
 
