@@ -135,6 +135,7 @@ import { HistoryCommandHandlers } from "./HistoryCommandHandlers";
 import { sidebarOpenAtom } from "./sidebar-open-atom";
 import {
   createClassScopedAtom,
+  usePinnedClassWriter,
   useWidthClassTracker,
 } from "@/aleph/layoutProfiles";
 
@@ -735,16 +736,18 @@ function AppLayoutContent({ children }: AppLayoutProps) {
     : "none";
   useFaviconBadge(faviconBadge);
 
+  const sidebarWidthWriter = usePinnedClassWriter(sidebarWidthAtom);
   const handleResizeMouseDown = useCallback(
     (event: SidebarResizeMouseEvent) => {
       event.preventDefault();
+      sidebarWidthWriter.pin();
       setIsSidebarResizing(true);
       startXRef.current = event.clientX;
       startWidthRef.current = store.get(sidebarWidthAtom);
       liveWidthRef.current = startWidthRef.current;
       document.body.classList.add("sidebar-resizing");
     },
-    [store],
+    [sidebarWidthWriter, store],
   );
 
   const finishSidebarResize = useCallback(() => {
@@ -753,13 +756,13 @@ function AppLayoutContent({ children }: AppLayoutProps) {
       animationFrameRef.current = null;
     }
     flushSync(() => {
-      store.set(sidebarWidthAtom, liveWidthRef.current);
+      sidebarWidthWriter.commit(liveWidthRef.current);
       store.set(sidebarLiveWidthAtom, null);
     });
     dispatchBrowserViewBoundsSync();
     setIsSidebarResizing(false);
     resetSidebarResizeDocumentState();
-  }, [store]);
+  }, [sidebarWidthWriter, store]);
 
   useEffect(() => {
     if (!isSidebarResizing) return;

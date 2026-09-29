@@ -12,6 +12,7 @@ import {
   SecondaryPanelWidthPercentAtomContext,
   threadSecondaryPanelResizingAtom,
 } from "./threadSecondaryPanelAtoms";
+import { usePinnedClassWriter } from "@/aleph/layoutProfiles";
 import { usePanelResizeSnap } from "./usePanelResizeSnap";
 
 type SecondaryPanelResizeHandler = (size: number) => void;
@@ -30,6 +31,7 @@ export function useSecondaryPanelResize({
   const widthPercentAtom = useContext(SecondaryPanelWidthPercentAtomContext);
   const persistedWidthPercent = useAtomValue(widthPercentAtom);
   const setPersistedWidthPercent = useSetAtom(widthPercentAtom);
+  const widthWriter = usePinnedClassWriter(widthPercentAtom);
   const setIsResizing = useSetAtom(threadSecondaryPanelResizingAtom);
   const secondaryPanelRef = useRef<HTMLElement>(null!);
   const secondaryResizablePanelRef = useRef<ImperativePanelHandle | null>(null);
@@ -47,16 +49,17 @@ export function useSecondaryPanelResize({
       setIsResizing(isDragging);
       if (isDragging) {
         didPointerResizeRef.current = false;
+        widthWriter.pin();
         return;
       }
       if (
         didPointerResizeRef.current &&
         lastSecondaryPanelSizeRef.current > 0
       ) {
-        setPersistedWidthPercent(lastSecondaryPanelSizeRef.current);
+        widthWriter.commit(lastSecondaryPanelSizeRef.current);
       }
     },
-    [setIsResizing, setPersistedWidthPercent],
+    [setIsResizing, widthWriter],
   );
   const handleSecondaryPanelReset = useCallback(() => {
     setPersistedWidthPercent(RESET);

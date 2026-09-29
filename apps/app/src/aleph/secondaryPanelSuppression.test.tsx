@@ -14,6 +14,7 @@ import {
   useCloseFixedSecondaryPanel,
   useFixedPanelTabsState,
   useOpenFixedSecondaryPanel,
+  useSetFixedRightTerminalActiveTerminal,
   useSetFixedSecondaryPanelTab,
 } from "@/lib/fixed-panel-tabs";
 import { widthClassAtom } from "./layoutProfiles";
@@ -23,14 +24,14 @@ const PANEL_KEY = getFixedPanelTabsStateStorageKey({ threadId: THREAD });
 const SUPPRESSED_KEY = (cls: string) =>
   `aleph.layout.${cls}.secondaryPanelSuppressed`;
 
-function seedOpenPanel() {
+function seedOpenPanel(isOpen = true) {
   const tab = createThreadInfoFixedPanelTab();
   window.localStorage.setItem(
     PANEL_KEY,
     JSON.stringify({
       version: 1,
       lastUsedAt: Date.now(),
-      secondary: { tabs: [tab], activeTabId: tab.id, isOpen: true },
+      secondary: { tabs: [tab], activeTabId: tab.id, isOpen },
     }),
   );
 }
@@ -50,6 +51,7 @@ function setup() {
       close: useCloseFixedSecondaryPanel(THREAD, null),
       open: useOpenFixedSecondaryPanel(THREAD, null),
       setTab: useSetFixedSecondaryPanelTab(THREAD, null),
+      setTerminal: useSetFixedRightTerminalActiveTerminal(THREAD, null),
     }),
     { wrapper },
   );
@@ -127,5 +129,41 @@ describe("width-class secondary panel suppression", () => {
     expect(persistedOpen()).toBe(false);
     expect(hook.result.current.state.secondary.isOpen).toBe(false);
     expect(window.localStorage.getItem(SUPPRESSED_KEY("wide"))).toBeNull();
+  });
+
+  describe("panel stored closed (single-action reveal)", () => {
+    beforeEach(() => {
+      window.localStorage.clear();
+      resetFixedPanelTabsStateForTest();
+      seedOpenPanel(false);
+    });
+
+    it("open / Cmd-J reveals in one action", () => {
+      const { hook, setWidth, persistedOpen, toggle } = setup();
+      setWidth(1000);
+      toggle();
+      expect(hook.result.current.state.secondary.isOpen).toBe(true);
+      expect(persistedOpen()).toBe(true);
+      expect(window.localStorage.getItem(SUPPRESSED_KEY("narrow"))).toBe(
+        "false",
+      );
+    });
+
+    it("set-tab reveals in one action", () => {
+      const { hook, setWidth } = setup();
+      setWidth(1000);
+      act(() => hook.result.current.setTab("git-diff"));
+      expect(hook.result.current.state.secondary.isOpen).toBe(true);
+    });
+
+    it("terminal open reveals in one action", () => {
+      const { hook, setWidth } = setup();
+      setWidth(1500);
+      act(() => hook.result.current.setTerminal("term-1"));
+      expect(hook.result.current.state.secondary.isOpen).toBe(true);
+      expect(window.localStorage.getItem(SUPPRESSED_KEY("medium"))).toBe(
+        "false",
+      );
+    });
   });
 });

@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
   atom,
   useAtomValue,
@@ -133,6 +133,10 @@ export type ClassScopedAtom<T> = WritableAtom<
   void
 >;
 
+export type ClassScopedAtomWithProfiles<T> = ClassScopedAtom<T> & {
+  profileAtoms: Record<WidthClass, ClassScopedAtom<T>>;
+} & ExplicitClassWritable<T>;
+
 // Returns an atom that reads and writes the active width class's profile
 // value. Changing class only changes which stored atom is read; nothing is
 // written to the class being left.
@@ -141,9 +145,7 @@ export function createClassScopedAtom<T>({
   storage,
   defaults,
   legacyWideKey,
-}: ClassScopedAtomOptions<T>): ClassScopedAtom<T> & {
-  profileAtoms: Record<WidthClass, ClassScopedAtom<T>>;
-} {
+}: ClassScopedAtomOptions<T>): ClassScopedAtomWithProfiles<T> {
   const profileAtoms = {} as Record<WidthClass, ClassScopedAtom<T>>;
   for (const widthClass of WIDTH_CLASSES) {
     profileAtoms[widthClass] = atomWithStorage<T>(
@@ -161,7 +163,13 @@ export function createClassScopedAtom<T>({
       set(profileAtoms[get(widthClassAtom)], update);
     },
   );
-  return Object.assign(scoped, { profileAtoms });
+  const writeToClassAtom = atom(
+    null,
+    (_get, set, { widthClass, update }: ClassScopedWrite<T>) => {
+      set(profileAtoms[widthClass], update);
+    },
+  );
+  return Object.assign(scoped, { profileAtoms, writeToClassAtom });
 }
 
 export const SECONDARY_PANEL_SUPPRESSED_DEFAULTS: Record<WidthClass, boolean> =
@@ -219,4 +227,26 @@ export function useSecondaryPanelSuppressionActions(): SecondaryPanelSuppression
     }),
     [isCompactViewport, store],
   );
+}
+
+// Resize drags read a width in one class and persist at mouseup. Pin the class
+// when the drag starts so a class flip mid-drag cannot write to another
+// class's profile.
+export function usePinnedClassWriter<T>(
+  scopedAtom: ClassScopedAtomWithProfiles<T>,
+): { pin: () => void; commit: (value: T) => void } {
+  const store = useStore();
+  const pinnedRef = useRef<WidthClass | null>(null);
+  const pin = useCallback(() => {
+    pinnedRef.current = store.get(widthClassAtom);
+  }, [store]);
+  const commit = useCallback(
+    (value: T) => {
+      const widthClass = pinnedRef.current ?? store.get(widthClassAtom);
+      pinnedRef.current = null;
+      store.set(scopedAtom.writeToClassAtom, { widthClass, update: value });
+    },
+    [scopedAtom, store],
+  );
+  return { pin, commit };
 }

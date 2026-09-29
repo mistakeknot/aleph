@@ -26,6 +26,7 @@ import {
   useAppCommandHandler,
   useAppCommandShortcut,
 } from "@/components/commands/AppCommandProvider";
+import { usePinnedClassWriter } from "@/aleph/layoutProfiles";
 import { secondaryPanelWidthPercentAtom } from "@/components/secondary-panel/threadSecondaryPanelAtoms";
 import {
   SecondaryPanelMinimumContext,
@@ -165,6 +166,7 @@ export function SplitWorkspaceSecondaryPanelHost({
   const isSidebarFramed = useIsSidebarFramed();
 
   const setPanelWidthPercent = useSetAtom(widthPercentAtom);
+  const panelWidthWriter = usePinnedClassWriter(widthPercentAtom);
   const lastEmptyPanelSizeRef = useRef(0);
   const handleEmptyPanelPointerResize = useCallback(
     (leadingFraction: number) => {
@@ -179,9 +181,12 @@ export function SplitWorkspaceSecondaryPanelHost({
     if (size > 0) lastEmptyPanelSizeRef.current = size;
   };
   const handleEmptyPanelDragging = (isDragging: boolean) => {
-    if (isDragging) return;
+    if (isDragging) {
+      panelWidthWriter.pin();
+      return;
+    }
     if (lastEmptyPanelSizeRef.current <= 0) return;
-    setPanelWidthPercent(lastEmptyPanelSizeRef.current);
+    panelWidthWriter.commit(lastEmptyPanelSizeRef.current);
   };
   const emptyPanelHitTargetRef = usePanelResizeSnap({
     onResize: handleEmptyPanelPointerResize,

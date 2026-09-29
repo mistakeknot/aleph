@@ -382,17 +382,19 @@ export function useUpdateFixedPanelTabsState(
       // Aleph: user updates see a width-suppressed panel as closed, so an
       // open request reveals it; per-thread isOpen is never written closed
       // just because the width class hides the panel.
-      const isMasked =
-        clearsSuppression && raw.secondary.isOpen && suppression.isSuppressed();
+      const isSuppressed = clearsSuppression && suppression.isSuppressed();
+      const isMasked = isSuppressed && raw.secondary.isOpen;
       const current = isMasked
         ? { ...raw, secondary: { ...raw.secondary, isOpen: false } }
         : raw;
       let touched = applyFixedPanelTabsUpdate(current, update, now);
       if (touched === null) return;
-      if (isMasked) {
+      if (isSuppressed) {
+        // An explicit update that leaves the panel open reveals it, whether
+        // the per-thread state was open or closed before.
         if (touched.secondary.isOpen) {
           suppression.clear();
-        } else {
+        } else if (isMasked) {
           touched = {
             ...touched,
             secondary: { ...touched.secondary, isOpen: true },

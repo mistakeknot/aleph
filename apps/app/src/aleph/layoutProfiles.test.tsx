@@ -4,11 +4,13 @@ import { act, renderHook } from "@testing-library/react";
 import { createStore, Provider } from "jotai";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { secondaryPanelWidthPercentAtom } from "@/components/secondary-panel/threadSecondaryPanelAtoms";
 import { booleanLocalStorage } from "@/lib/browser-storage";
 import {
   classifyWidth,
   createClassScopedAtom,
   nextWidthClass,
+  usePinnedClassWriter,
   useWidthClassTracker,
   widthClassAtom,
   WIDTH_CLASS_DEBOUNCE_MS,
@@ -143,5 +145,34 @@ describe("layout profiles", () => {
       vi.advanceTimersByTime(WIDTH_CLASS_DEBOUNCE_MS);
     });
     expect(store.get(widthClassAtom)).toBe("narrow");
+  });
+
+  it("a resize drag persists into the class pinned at drag start", () => {
+    const store = createStore();
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <Provider store={store}>{children}</Provider>
+    );
+    window.localStorage.setItem(
+      "aleph.layout.wide.secondaryPanelWidthPercent",
+      "33",
+    );
+    store.set(widthClassAtom, 1000);
+    const { result } = renderHook(
+      () => usePinnedClassWriter(secondaryPanelWidthPercentAtom),
+      { wrapper },
+    );
+    act(() => result.current.pin()); // drag starts in narrow
+    store.set(widthClassAtom, 2200); // class flips mid-drag
+    act(() => result.current.commit(41)); // mouseup
+    expect(
+      window.localStorage.getItem(
+        "aleph.layout.wide.secondaryPanelWidthPercent",
+      ),
+    ).toBe("33");
+    expect(
+      window.localStorage.getItem(
+        "aleph.layout.narrow.secondaryPanelWidthPercent",
+      ),
+    ).toBe("41");
   });
 });
