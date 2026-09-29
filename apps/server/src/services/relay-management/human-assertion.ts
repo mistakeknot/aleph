@@ -14,6 +14,7 @@ import {
   getGateAuthKind,
   type GateAuthHeaderReader,
 } from "../../request-context.js";
+import { isRelayFenceOpen } from "./reconcile-fence.js";
 import type { RelayAssertionKey } from "./assertion-keys.js";
 
 export const GATE_ASSERTION_HEADER_NAME = "x-bb-gate-assertion";
@@ -117,7 +118,9 @@ export async function verifyHumanAssertion(
   if (getGateAuthKind(context) === "machine") throw fail();
 
   const binding = getConnectBinding(deps.db);
-  if (binding === null || !binding.reconciled) throw fail();
+  if (binding === null || !binding.reconciled || !isRelayFenceOpen(deps.db)) {
+    throw fail();
+  }
 
   const token = context.req.header(GATE_ASSERTION_HEADER_NAME);
   if (token === undefined) throw fail();

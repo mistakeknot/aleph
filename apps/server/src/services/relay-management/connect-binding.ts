@@ -9,6 +9,7 @@ import {
   RELAY_ASSERTION_ISSUERS,
   connectRuntimeForBaseUrl,
 } from "./assertion-keys.js";
+import { closeRelayFence, openRelayFence } from "./reconcile-fence.js";
 import { notifyRelayCancellation } from "./targets.js";
 
 export interface ConnectRelayIdentityInput {
@@ -28,6 +29,7 @@ export function bindConnectRelayIdentity(
   },
   input: ConnectRelayIdentityInput,
 ): ConnectRelayIdentityResult {
+  closeRelayFence(deps.db);
   const runtime = connectRuntimeForBaseUrl(input.baseUrl);
   const supported =
     runtime !== null && input.serverId !== "" && input.ownerUserId !== "";
@@ -54,5 +56,12 @@ export function markConnectRelayIdentityReconciled(
   deps: Pick<AppDeps, "db">,
   reconciled: boolean,
 ): boolean {
-  return setConnectBindingReconciled(deps.db, reconciled);
+  closeRelayFence(deps.db);
+  const exists = setConnectBindingReconciled(deps.db, reconciled);
+  if (reconciled && exists) openRelayFence(deps.db);
+  return exists;
+}
+
+export function closeConnectRelayFence(deps: Pick<AppDeps, "db">): void {
+  closeRelayFence(deps.db);
 }

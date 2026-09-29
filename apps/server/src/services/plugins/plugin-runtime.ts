@@ -100,6 +100,7 @@ import type {
 } from "./plugin-service-internal.js";
 import {
   bindConnectRelayIdentity,
+  closeConnectRelayFence,
   hasConnectRelayIdentity,
   markConnectRelayIdentityReconciled,
 } from "../relay-management/connect-binding.js";
@@ -1676,10 +1677,8 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
                   binding,
                 ),
               mark: (reconciled) =>
-                markConnectRelayIdentityReconciled(
-                  { db: deps.db },
-                  reconciled,
-                ),
+                markConnectRelayIdentityReconciled({ db: deps.db }, reconciled),
+              close: () => closeConnectRelayFence({ db: deps.db }),
               has: () => hasConnectRelayIdentity({ db: deps.db }),
             }
           : null,

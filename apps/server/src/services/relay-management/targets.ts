@@ -1,3 +1,4 @@
+import { isRelayFenceOpen } from "./reconcile-fence.js";
 import {
   cancelRelayForHostTargetsInTransaction,
   cancelRelayForTargetInTransaction,
@@ -39,6 +40,7 @@ function consumeAssertion(
   tx: DbTransaction,
   assertion: VerifiedHumanAssertion,
   nowFn: () => number,
+  fenceOpen: () => boolean,
 ): number {
   const now = nowFn();
   if (
@@ -52,7 +54,9 @@ function consumeAssertion(
   if (
     current === null ||
     !current.reconciled ||
-    !connectBindingsEqual(current, assertion.binding)) {
+    !fenceOpen() ||
+    !connectBindingsEqual(current, assertion.binding)
+  ) {
     throw humanSessionRequired();
   }
   sweepExpiredGateAssertionUses(tx, now);
@@ -82,7 +86,9 @@ export async function listRelayTargetsForHuman(
   const assertion = await verifyHumanAssertion(context, assertionDeps);
   return deps.db.transaction(
     (tx) => {
-      consumeAssertion(tx, assertion, assertionDeps.now ?? Date.now);
+      consumeAssertion(tx, assertion, assertionDeps.now ?? Date.now, () =>
+        isRelayFenceOpen(assertionDeps.db),
+      );
       requireHost(tx, hostId);
       return { targets: listRelayTargetDetailsForHost(tx, hostId) };
     },
@@ -103,6 +109,7 @@ export async function addRelayTargetForHuman(
         tx,
         assertion,
         assertionDeps.now ?? Date.now,
+        () => isRelayFenceOpen(assertionDeps.db),
       );
       requireHost(tx, args.hostId);
       if (!isLiveThreadId(tx, args.threadId)) {
@@ -128,7 +135,9 @@ export async function removeRelayTargetForHuman(
   const assertion = await verifyHumanAssertion(context, assertionDeps);
   const result = deps.db.transaction(
     (tx) => {
-      consumeAssertion(tx, assertion, assertionDeps.now ?? Date.now);
+      consumeAssertion(tx, assertion, assertionDeps.now ?? Date.now, () =>
+        isRelayFenceOpen(assertionDeps.db),
+      );
       requireHost(tx, args.hostId);
       return cancelRelayForTargetInTransaction(
         tx,

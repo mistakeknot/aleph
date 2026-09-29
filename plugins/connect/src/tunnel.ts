@@ -242,9 +242,7 @@ export class ConnectTunnel {
         }
         try {
           if (identity !== undefined) {
-            if (this.options.markRelayIdentityReconciled?.(true) === false) {
-              throw new Error("relay binding is missing after pairing");
-            }
+            this.options.markRelayIdentityReconciled?.(true);
           }
           this.relayUnreconciled = false;
         } catch (error) {

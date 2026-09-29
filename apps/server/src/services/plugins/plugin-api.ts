@@ -464,6 +464,7 @@ export function createPluginApi(options: {
   relayIdentity: {
     bind: PluginServerAccess["bindRelayIdentity"];
     mark: PluginServerAccess["markRelayIdentityReconciled"];
+    close: () => void;
     has: PluginServerAccess["hasRelayIdentity"];
   } | null;
   isAgentToolNameTaken: (name: string) => string | undefined;
@@ -553,6 +554,10 @@ export function createPluginApi(options: {
   const pendingAgentToolProblems: string[] = [];
   const pendingSharedPorts = new Map<string, readonly number[]>();
   const disposeHooks: Array<() => void | Promise<void>> = [];
+  if (options.relayIdentity !== null) {
+    const relayIdentity = options.relayIdentity;
+    disposeHooks.push(() => relayIdentity.close());
+  }
   const installHandlers: Array<() => void | Promise<void>> = [];
   const settingsRecord: PluginApiHandle["settings"] = {
     descriptors: {},

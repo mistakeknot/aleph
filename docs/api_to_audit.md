@@ -3076,6 +3076,12 @@ in-flight relay messages. A new or changed binding starts fenced and core
 rejects every human assertion until Connect calls
 `markRelayIdentityReconciled(true)` after the stored credential and binding
 agree; Connect fences again before any step that can leave them disagreeing.
+Core also keeps a per-process in-memory fence that starts closed at boot and
+opens only after a successful `markRelayIdentityReconciled(true)` in this
+process. It closes before any database access on every binding write, every
+`markRelayIdentityReconciled` call and plugin dispose, so a failing database
+write cannot leave assertions accepted. Assertions need both the persisted flag
+and the in-memory fence.
 
 Stabilization requires deciding whether a general plugin-visible identity API
 is needed, and confirming the gate redeem response carries `ownerUserId`.
