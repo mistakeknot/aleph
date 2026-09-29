@@ -78,6 +78,14 @@ function PanedRootComposeView() {
   );
 }
 
+// Aleph: these tests exercise the wide layout, where the right panel is never
+// suppressed by width class (jsdom defaults to a 1024px narrow window).
+Object.defineProperty(window, "innerWidth", {
+  configurable: true,
+  writable: true,
+  value: 1920,
+});
+
 function render(element: ReactNode) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },

@@ -1,14 +1,23 @@
-import { useEffect } from "react";
-import { atom, useSetAtom, type WritableAtom } from "jotai";
+import { useEffect, useMemo } from "react";
+import {
+  atom,
+  useAtomValue,
+  useSetAtom,
+  useStore,
+  type WritableAtom,
+} from "jotai";
 import { atomWithStorage, RESET } from "jotai/utils";
-import type { SyncStorage } from "@/lib/browser-storage";
+import { useIsCompactViewport } from "@bb/shared-ui/hooks/use-compact-viewport";
+import { booleanLocalStorage, type SyncStorage } from "@/lib/browser-storage";
 
 // Aleph: per-window-width layout profiles. Each width class remembers its own
 // sidebar and right-panel layout so shrinking the window on a laptop never
 // overwrites the layout used on a large monitor.
 //
-// The right-panel open state is intentionally not part of a profile: it is
-// persisted per thread (fixed-panel-tabs-state), not in one global atom.
+// The right panel's open state is persisted per thread (fixed-panel-tabs-state)
+// and is never written by a class change. Each class instead stores a
+// "secondaryPanelSuppressed" flag: the panel renders only when the per-thread
+// state is open AND the active class is not suppressed.
 
 export type WidthClass = "narrow" | "medium" | "wide";
 
@@ -104,7 +113,7 @@ interface ClassScopedAtomOptions<T> {
   storage: SyncStorage<T>;
   defaults: Record<WidthClass, T>;
   // Existing global key whose value seeds the wide profile on first run.
-  legacyWideKey: string;
+  legacyWideKey?: string;
 }
 
 function withLegacyFallback<T>(
@@ -140,7 +149,7 @@ export function createClassScopedAtom<T>({
     profileAtoms[widthClass] = atomWithStorage<T>(
       layoutProfileKey(widthClass, field),
       defaults[widthClass],
-      widthClass === "wide"
+      widthClass === "wide" && legacyWideKey !== undefined
         ? withLegacyFallback(storage, legacyWideKey)
         : storage,
       { getOnInit: true },
@@ -153,4 +162,61 @@ export function createClassScopedAtom<T>({
     },
   );
   return Object.assign(scoped, { profileAtoms });
+}
+
+export const SECONDARY_PANEL_SUPPRESSED_DEFAULTS: Record<WidthClass, boolean> =
+  {
+    narrow: true,
+    medium: true,
+    wide: false,
+  };
+
+export const secondaryPanelSuppressedAtom = createClassScopedAtom<boolean>({
+  field: "secondaryPanelSuppressed",
+  storage: booleanLocalStorage,
+  defaults: SECONDARY_PANEL_SUPPRESSED_DEFAULTS,
+});
+
+// True when the active width class hides the right panel. Never applies to
+// the compact (drawer) viewport.
+export function useIsSecondaryPanelSuppressed(): boolean {
+  const suppressed = useAtomValue(secondaryPanelSuppressedAtom);
+  const isCompactViewport = useIsCompactViewport();
+  return suppressed && !isCompactViewport;
+}
+
+export interface SecondaryPanelSuppressionActions {
+  // Whether the active class currently hides the panel (never in compact).
+  isSuppressed: () => boolean;
+  // Show the panel again in the active class.
+  clear: () => void;
+  // Close request: in a suppressed-by-default class, hide the panel by
+  // suppressing it (leaving per-thread state alone) and return true.
+  // Returns false when the caller should close the per-thread state.
+  suppressInsteadOfClose: () => boolean;
+}
+
+export function useSecondaryPanelSuppressionActions(): SecondaryPanelSuppressionActions {
+  const store = useStore();
+  const isCompactViewport = useIsCompactViewport();
+  return useMemo(
+    () => ({
+      isSuppressed: () =>
+        !isCompactViewport && store.get(secondaryPanelSuppressedAtom),
+      clear: () => {
+        if (store.get(secondaryPanelSuppressedAtom)) {
+          store.set(secondaryPanelSuppressedAtom, false);
+        }
+      },
+      suppressInsteadOfClose: () => {
+        if (isCompactViewport) return false;
+        if (!SECONDARY_PANEL_SUPPRESSED_DEFAULTS[store.get(widthClassAtom)]) {
+          return false;
+        }
+        store.set(secondaryPanelSuppressedAtom, true);
+        return true;
+      },
+    }),
+    [isCompactViewport, store],
+  );
 }
