@@ -1,6 +1,11 @@
 import { existsSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  exitCodeForLaunchFailure,
+  exitOnLaunchRefusal,
+} from "@bb/config/launch-guard";
 import { loadHostDaemonStartConfig } from "@bb/config/host-daemon";
 import { loadHostDaemonEntrypointConfig } from "@bb/config/host-daemon-entrypoint";
 import {
@@ -44,7 +49,9 @@ function reportStartupFailure(args: ReportStartupFailureArgs): void {
     args.error instanceof Error
       ? (args.error.stack ?? args.error.message)
       : String(args.error);
-  process.stderr.write(`${message}\n`, () => process.exit(1));
+  process.stderr.write(`${message}\n`, () =>
+    process.exit(exitCodeForLaunchFailure(args.error)),
+  );
 }
 
 async function runHostDaemonEntrypoint(): Promise<void> {
@@ -74,6 +81,13 @@ const isMainModule =
   fileURLToPath(import.meta.url) === entrypointPath;
 
 if (isMainModule) {
+  exitOnLaunchRefusal({
+    dataDir: loadHostDaemonStartConfig({}).dataDir,
+    env: process.env,
+    fromDir: entrypointDir,
+    homeDir: homedir(),
+    role: "bundled-daemon",
+  });
   const diagnosticsLogsDir = resolveDiagnosticsLogsDir();
   installSafeProcessDiagnostics({
     logsDir: diagnosticsLogsDir,

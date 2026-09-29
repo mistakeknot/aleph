@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { mkdir, rm } from "node:fs/promises";
+import { assertFenceAllowsDataDir } from "@bb/config/maintenance-fence";
 import { dirname, join } from "node:path";
 import {
   countAppliedMigrations,
@@ -38,9 +39,11 @@ export interface ServerArchiveExport {
 }
 
 async function snapshotPluginDatabase(
+  dataDir: string,
   sourcePath: string,
   destinationPath: string,
 ): Promise<void> {
+  assertFenceAllowsDataDir(dataDir);
   await mkdir(dirname(destinationPath), { recursive: true });
   const connection = new Database(sourcePath, {
     fileMustExist: true,
@@ -89,7 +92,11 @@ export async function exportServerArchive(
           continue;
         }
         const snapshotPath = join(snapshotDir, ...file.path.split("/"));
-        await snapshotPluginDatabase(file.absolutePath, snapshotPath);
+        await snapshotPluginDatabase(
+          args.dataDir,
+          file.absolutePath,
+          snapshotPath,
+        );
         files.push({ archivePath: file.path, sourcePath: snapshotPath });
       }
     }

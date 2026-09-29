@@ -18,3 +18,11 @@ export function alephReleaseVersion(version: string): string | null {
   const match = /^aleph\.(\d+\.\d+\.\d+)$/u.exec(version.slice(buildStart + 1));
   return match?.[1] ?? null;
 }
+
+export function alephReleaseIdentity(version: string): string {
+  const legacy = alephReleaseVersion(version);
+  if (legacy !== null) {
+    return legacy;
+  }
+  return version.trim();
+}

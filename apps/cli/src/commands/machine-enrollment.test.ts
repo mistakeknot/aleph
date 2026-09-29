@@ -1,4 +1,11 @@
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -177,7 +184,7 @@ describe("machine enroll", () => {
 
   it("uses the default BB data directory only when it already holds this machine", async () => {
     const h = await harness();
-    const defaultDir = join(h.dir, ".bb");
+    const defaultDir = join(h.dir, ".aleph");
     h.env.BB_DATA_DIR = defaultDir;
     await expect(h.run()).rejects.toThrow(
       "cannot use the default BB data directory",

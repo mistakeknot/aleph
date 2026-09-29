@@ -130,6 +130,22 @@ Two things read that file:
 Both confirm that the recorded process really is a bb launcher before they
 signal it, so a stale file left by a crash cannot stop an unrelated process.
 
+## Aleph data directory and maintenance fence
+
+Aleph keeps its state in `~/.aleph`. `BB_DATA_DIR` can still point elsewhere,
+but the desktop app, embedded server, host daemon and `bb` CLI refuse a
+directory that is inside `~/.bb` or `~/Library/Application Support/bb`, holds a
+stock bb database (a journal without migrations 0132 and 0133), or holds a stock
+bb `bb-app-runtime.json`. `bb --help` and `bb --version` skip the check.
+
+While an update is installing, `<data dir>/maintenance.json` holds a durable
+maintenance fence. A refused launch exits with code 75 and prints why. `bb`
+commands exit 75 too, and the message says whether retrying helps.
+
+The desktop app exports its userData directory as `ALEPH_USER_DATA_DIR` so the
+server and daemon can read the `aleph-update-state.json` mirror. See
+[the writer inventory](aleph-writer-inventory.md).
+
 ## In-App Updates
 
 In-app updates are off unless you start bb with `--in-app-updates`:

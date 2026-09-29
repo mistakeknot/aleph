@@ -204,7 +204,20 @@ async function addJsonShapeHelp(): Promise<void> {
   }
 }
 
+const LAUNCH_GUARD_EXEMPT_FLAGS: ReadonlySet<string> = new Set([
+  "--version",
+  "-V",
+  "--help",
+  "-h",
+]);
+
 async function main(): Promise<void> {
+  if (
+    !process.argv.slice(2).some((arg) => LAUNCH_GUARD_EXEMPT_FLAGS.has(arg))
+  ) {
+    const { guardCliLaunch } = await import("./launch-fence.js");
+    guardCliLaunch();
+  }
   const firstArg = process.argv[2];
   const groups = selectCommandGroups(firstArg);
   if (groups.length === 0) {

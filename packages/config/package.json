@@ -142,6 +142,36 @@
       "source": "./src/child-process-exit.ts",
       "types": "./src/child-process-exit.ts",
       "default": "./src/child-process-exit.ts"
+    },
+    "./aleph-data-dir": {
+      "source": "./src/aleph-data-dir.ts",
+      "types": "./src/aleph-data-dir.ts",
+      "default": "./src/aleph-data-dir.ts"
+    },
+    "./data-dir-lock": {
+      "source": "./src/data-dir-lock.ts",
+      "types": "./src/data-dir-lock.ts",
+      "default": "./src/data-dir-lock.ts"
+    },
+    "./maintenance-fence": {
+      "source": "./src/maintenance-fence.ts",
+      "types": "./src/maintenance-fence.ts",
+      "default": "./src/maintenance-fence.ts"
+    },
+    "./launch-guard": {
+      "source": "./src/launch-guard.ts",
+      "types": "./src/launch-guard.ts",
+      "default": "./src/launch-guard.ts"
+    },
+    "./effective-policy": {
+      "source": "./src/effective-policy.ts",
+      "types": "./src/effective-policy.ts",
+      "default": "./src/effective-policy.ts"
+    },
+    "./external-writers": {
+      "source": "./src/external-writers.ts",
+      "types": "./src/external-writers.ts",
+      "default": "./src/external-writers.ts"
     }
   },
   "scripts": {

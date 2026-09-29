@@ -292,7 +292,7 @@ unless `--force` is passed, and bb on that computer starts the old server within
 seconds. It also
 removes `serverUrl`, `serverHeaders`, `machineCredential`, and
 `connectMachineId` from that directory's `config.json`. Both
-default to `BB_DATA_DIR` or `~/.bb` and accept `--data-dir <dir>`; neither
+default to `BB_DATA_DIR` or `~/.aleph` and accept `--data-dir <dir>`; neither
 calls a server. The SDK equivalents are `sdk.experimental_server.checkMove`,
 `startMove`, `moveStatus`, `cancelMove`, and `export`. In the desktop app,
 picking This Mac on macOS or This Computer on Linux after a move shows where
@@ -342,7 +342,7 @@ is paused. `bb machine resume` likewise waits for provider restore and bootstrap
 
 `bb machine enroll --bootstrap-file <path>` or `bb machine enroll --bootstrap-env <NAME>` consumes a versioned private enrollment bundle prepared by core. Supply exactly one source. The environment source is removed from the CLI process environment after reading it; files remain under the caller's ownership. Neither command prints the bundle or credentials.
 
-The CLI refuses another host or server identity in the selected machine directory. Repeating enrollment with the same persisted identity succeeds without exchanging the credential again, including when the original bundle expired. Machine data defaults to `~/.bb-machines/<server-host>`; `BB_DATA_DIR` can select another isolated machine directory, but enrollment refuses the default `~/.bb` directory unless its `host-id` already names this machine.
+The CLI refuses another host or server identity in the selected machine directory. Repeating enrollment with the same persisted identity succeeds without exchanging the credential again, including when the original bundle expired. Machine data defaults to `~/.bb-machines/<server-host>`; `BB_DATA_DIR` can select another isolated machine directory, but enrollment refuses the default `~/.aleph` directory unless its `host-id` already names this machine.
 
 The manual copy command fetches `/install.sh` using a short-lived `X-BB-Enrollment` header. The server supplies the bootstrap only for a pending, unexpired, uncancelled manual enrollment whose credential has not been consumed; downloaded responses are not cached. On an invalid credential, the server returns a shell error that prints the reason when piped to `sh`. The command contains no bootstrap JSON or access-provider credentials.
 

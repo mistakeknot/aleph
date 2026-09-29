@@ -78,7 +78,8 @@ interface ResolvePortFromEnvArgs {
   name: string;
 }
 
-const BB_PROD_DATA_DIR_NAME = ".bb";
+export const ALEPH_DATA_DIR_NAME = ".aleph";
+const BB_PROD_DATA_DIR_NAME = ALEPH_DATA_DIR_NAME;
 const BB_DEV_DATA_ROOT_DIR = ".bb-dev";
 export const BB_PROD_SERVER_PORT = 38886;
 export const BB_PROD_HOST_DAEMON_PORT = 38887;

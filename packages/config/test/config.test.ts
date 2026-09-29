@@ -78,7 +78,7 @@ describe("common config", () => {
         },
         homeDir: "/Users/tester",
       }).BB_DATA_DIR,
-    ).toBe("/Users/tester/.bb");
+    ).toBe("/Users/tester/.aleph");
   });
 
   it("requires repoRoot or BB_DATA_DIR for development data dir resolution", () => {

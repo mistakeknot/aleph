@@ -5,7 +5,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 
 const LOCK_RETRY_MS = 25;
 interface NativeFileLocks {
-  tryLock: (fd: number) => boolean;
+  tryLock: (fd: number, shared: boolean) => boolean;
   unlock: (fd: number) => void;
 }
 
@@ -27,8 +27,13 @@ function loadNativeFileLocks(): NativeFileLocks {
   const tryLock = value.tryLock;
   const unlock = value.unlock;
   loadedNativeFileLocks = {
-    tryLock: (fd) => {
-      const result: unknown = Reflect.apply(tryLock, value, [fd]);
+    tryLock: (fd, shared) => {
+      const result: unknown = Reflect.apply(tryLock, value, [
+        fd,
+        0,
+        0,
+        { shared },
+      ]);
       if (typeof result !== "boolean") {
         throw new Error("Invalid fs-native-extensions lock result");
       }
@@ -47,33 +52,53 @@ export class FileLockTimeoutError extends Error {
   }
 }
 
-export async function withFileLock<T>(args: {
+export interface FileLockHandle {
+  release: () => Promise<void>;
+}
+
+export async function acquireFileLock(args: {
   path: string;
+  shared?: boolean;
   timeoutMs: number;
-  work: () => Promise<T>;
-}): Promise<T> {
+}): Promise<FileLockHandle> {
   const nativeFileLocks = loadNativeFileLocks();
   await mkdir(dirname(args.path), { recursive: true });
   const handle = await open(args.path, "a+", 0o600);
-  let acquired = false;
   try {
     const deadline = performance.now() + args.timeoutMs;
-    for (;;) {
-      if (nativeFileLocks.tryLock(handle.fd)) {
-        acquired = true;
-        break;
-      }
+    while (!nativeFileLocks.tryLock(handle.fd, args.shared === true)) {
       if (performance.now() >= deadline) {
         throw new FileLockTimeoutError(args.path);
       }
       await sleep(LOCK_RETRY_MS);
     }
+  } catch (error) {
+    await handle.close();
+    throw error;
+  }
+  let released = false;
+  return {
+    release: async () => {
+      if (released) return;
+      released = true;
+      try {
+        nativeFileLocks.unlock(handle.fd);
+      } finally {
+        await handle.close();
+      }
+    },
+  };
+}
+
+export async function withFileLock<T>(args: {
+  path: string;
+  timeoutMs: number;
+  work: () => Promise<T>;
+}): Promise<T> {
+  const lock = await acquireFileLock(args);
+  try {
     return await args.work();
   } finally {
-    try {
-      if (acquired) nativeFileLocks.unlock(handle.fd);
-    } finally {
-      await handle.close();
-    }
+    await lock.release();
   }
 }
