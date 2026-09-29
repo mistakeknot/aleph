@@ -24,6 +24,8 @@ function menuArgs(
     accelerators: {
       closeWindowOrSideTab: undefined,
       createNewWindow: undefined,
+      goBack: undefined,
+      goForward: undefined,
       openNewTab: undefined,
       openNewThread: undefined,
       openSettings: undefined,
@@ -32,6 +34,8 @@ function menuArgs(
     closeWindowOrSideTab: () => {},
     connectServersSkipReason: null,
     createNewWindow: () => {},
+    goBack: () => {},
+    goForward: () => {},
     isMac: true,
     openAbout: () => {},
     openNewTab: () => {},
@@ -75,6 +79,63 @@ function findDesktopSettingsServerSubmenu(
 }
 
 describe("application menu", () => {
+  const goAccelerators = {
+    closeWindowOrSideTab: undefined,
+    createNewWindow: undefined,
+    goBack: "CommandOrControl+[",
+    goForward: "CommandOrControl+]",
+    openNewTab: undefined,
+    openNewThread: undefined,
+    openSettings: undefined,
+    reopenClosedTab: undefined,
+  };
+
+  function goItems(isMac: boolean, goBack = vi.fn(), goForward = vi.fn()) {
+    const template = buildApplicationMenuTemplate(
+      menuArgs(() => {}, {
+        accelerators: goAccelerators,
+        goBack,
+        goForward,
+        isMac,
+      }),
+    );
+    return template.find((item) => item.label === "Go")
+      ?.submenu as MenuItemConstructorOptions[];
+  }
+
+  it("adds a Go menu whose items run the history handlers without registering an accelerator on Linux and Windows", () => {
+    const goBack = vi.fn();
+    const goForward = vi.fn();
+    const items = goItems(false, goBack, goForward);
+    const back = items.find((item) => item.label === "Back");
+    const forward = items.find((item) => item.label === "Forward");
+    expect(back?.accelerator).toBe("CommandOrControl+[");
+    expect(forward?.accelerator).toBe("CommandOrControl+]");
+    expect(back?.registerAccelerator).toBe(false);
+    expect(forward?.registerAccelerator).toBe(false);
+    (back?.click as () => void)();
+    expect(goBack).toHaveBeenCalledTimes(1);
+    expect(goForward).not.toHaveBeenCalled();
+    (forward?.click as () => void)();
+    expect(goForward).toHaveBeenCalledTimes(1);
+  });
+
+  it("gives the macOS Go items no accelerator so the renderer keydown is the only chord path", () => {
+    const goBack = vi.fn();
+    const items = goItems(true, goBack);
+    expect(items).toHaveLength(2);
+    for (const item of items) {
+      expect(item.accelerator).toBeUndefined();
+      expect(item.registerAccelerator).toBeUndefined();
+    }
+    expect(items.map((item) => item.label)).toEqual([
+      "Back  \u2318[",
+      "Forward  \u2318]",
+    ]);
+    (items[0]?.click as () => void)();
+    expect(goBack).toHaveBeenCalledTimes(1);
+  });
+
   it("reopens the last closed tab from the File menu", () => {
     const reopenClosedTab = vi.fn();
     const template = buildApplicationMenuTemplate(
@@ -82,6 +143,8 @@ describe("application menu", () => {
         accelerators: {
           closeWindowOrSideTab: undefined,
           createNewWindow: undefined,
+          goBack: undefined,
+          goForward: undefined,
           openNewTab: undefined,
           openNewThread: undefined,
           openSettings: undefined,

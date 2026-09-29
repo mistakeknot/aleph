@@ -827,6 +827,36 @@ export function BrowserTabContent({
     }
   }, [canFindInPage, clearFind, isFindOpen]);
   useAppCommandHandler(
+    "browser.back",
+    () => {
+      if (
+        !canHandleBrowserCommands ||
+        desktopBrowser === null ||
+        !(state?.canGoBack ?? false)
+      ) {
+        return false;
+      }
+      desktopBrowser.goBack(tabId);
+      return true;
+    },
+    100,
+  );
+  useAppCommandHandler(
+    "browser.forward",
+    () => {
+      if (
+        !canHandleBrowserCommands ||
+        desktopBrowser === null ||
+        !(state?.canGoForward ?? false)
+      ) {
+        return false;
+      }
+      desktopBrowser.goForward(tabId);
+      return true;
+    },
+    100,
+  );
+  useAppCommandHandler(
     "browser.reload",
     () => {
       if (!canHandleBrowserCommands || desktopBrowser === null || !hasPage) {
