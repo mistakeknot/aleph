@@ -1282,8 +1282,7 @@ function ConnectSettingsSection() {
       {status.relayConflict ? (
         <p role="alert" className="text-xs text-destructive-text">
           A relay binding from a different Connect identity is left in place.
-          Pair again to take it over, or run `bb connect relay-reset --confirm`
-          on this host if it is stale.
+          Pair again with a new code to take it over.
         </p>
       ) : null}
       {flash !== null &&

@@ -3112,11 +3112,14 @@ to clear, kept in plugin KV under `relay-revocation`) before it forgets the
 credential, `disconnect` reports `relayRevocationPending`, `bb connect off`
 exits 1 with a warning, and the startup and 30-second cycle retries the clear
 (adopting the row by identity after a restart) until it commits and only then
-forgets the record. An explicit host-local recovery, `bb connect relay-reset
---confirm` (the `relayReset` RPC with `{ confirm: true }`), covers an unpaired
-bb whose row has no credential and no pending record. It refuses while paired,
-passes `{ replaceExisting: true }`, and removes the binding and every relay
-target. No automatic path and no stale process ever reaches it.
+forgets the record. The pending record is the only durable authority for a retry: every retry
+re-reads it from KV, and `pair` deletes it (failing the pair if it cannot)
+before it binds anything, so a stale record can never be retried against a
+binding created after it. There is deliberately no reset command or RPC: any
+local caller can reach a plugin RPC, and a reset would clear the global binding
+and every relay target. An orphaned binding is recovered by an explicit
+re-pair (a new Connect code; pair replaces the row at its own bind) or by the
+design's host-key emergency removal.
 
 Stabilization requires deciding whether a general plugin-visible identity API
 is needed, and confirming the gate redeem response carries `ownerUserId`.

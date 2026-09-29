@@ -46,7 +46,7 @@ function formatStatus(status: ConnectStatus): string {
         : []),
       ...(status.relayConflict
         ? [
-            "\nwarning: a relay binding from a different identity remains; `bb connect relay-reset --confirm` clears it",
+            "\nwarning: a relay binding from a different identity remains; pairing again with a new code takes it over",
           ]
         : []),
     ].join("");
@@ -229,37 +229,12 @@ export function registerConnectCli(args: {
                   exitCode: 1,
                   stdout: input.options.json
                     ? asJson(status)
-                    : "Disconnected, but the relay binding belongs to a different Connect identity and was left untouched. Run `bb connect relay-reset --confirm` if it is stale.\n",
+                    : "Disconnected, but the relay binding belongs to a different Connect identity and was left untouched. Pair again with a new code to take it over.\n",
                 };
               }
               return {
                 exitCode: 0,
                 stdout: input.options.json ? asJson(status) : "Disconnected\n",
-              };
-            }),
-        }),
-        "relay-reset": cliCommand({
-          summary: "Clear a stale relay binding on this bb",
-          description:
-            "Host-local recovery for an unpaired bb whose relay binding was left behind. Refuses while paired; run `bb connect off` first. Removes the binding and every relay target regardless of which Connect identity owns it.",
-          options: {
-            confirm: {
-              type: "boolean",
-              description: "Required: acknowledge that the binding is removed",
-            },
-            json: JSON_OPTION,
-          },
-          run: (input) =>
-            attempt(async () => {
-              if (input.options.confirm !== true) {
-                return { exitCode: 2, stdout: input.help };
-              }
-              const status = await tunnel.resetRelayBinding();
-              return {
-                exitCode: 0,
-                stdout: input.options.json
-                  ? asJson(status)
-                  : "Relay binding cleared\n",
               };
             }),
         }),

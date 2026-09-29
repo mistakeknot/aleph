@@ -146,10 +146,13 @@ export class ConnectTunnel {
     let credential: ConnectCredential | null = null;
     try {
       const pending =
-        this.pendingRevocation ??
-        (await store.readPendingRevocation?.()) ??
-        null;
-      if (pending !== null) {
+        store.readPendingRevocation !== undefined
+          ? await store.readPendingRevocation()
+          : this.pendingRevocation;
+      if (pending === null) {
+        this.pendingRevocation = null;
+        this.relayRevocationPending = false;
+      } else {
         const result = this.revokeRelayBinding(pending.relayIdentity);
         if (result.status === "failed") {
           this.pendingRevocation = pending;
@@ -238,33 +241,6 @@ export class ConnectTunnel {
     await store.clear();
   }
 
-  async resetRelayBinding(): Promise<ConnectStatus> {
-    await this.serialize(async () => {
-      const snapshot = await this.readSnapshot();
-      if (this.credential !== null || snapshot.credential !== null) {
-        throw new Error("relay_reset_requires_disconnect");
-      }
-      if (this.relayReconcileTimer) {
-        clearTimeout(this.relayReconcileTimer);
-        this.relayReconcileTimer = undefined;
-      }
-      this.options.markRelayIdentityReconciled?.(false);
-      this.options.bindRelayIdentity?.(
-        {
-          baseUrl: this.options.defaultBaseUrl,
-          ownerUserId: "",
-          serverId: "",
-        },
-        { replaceExisting: true },
-      );
-      await this.forgetPendingRevocation();
-      this.relayUnreconciled = false;
-      this.relayConflict = false;
-    });
-    this.publish();
-    return this.status();
-  }
-
   private markRelayUnreconciled(error: unknown): void {
     this.relayUnreconciled = true;
     if (
@@ -331,6 +307,7 @@ export class ConnectTunnel {
             }
           : undefined;
       await this.serialize(async () => {
+        await this.forgetPendingRevocation();
         try {
           this.options.markRelayIdentityReconciled?.(false);
           this.options.bindRelayIdentity?.(
@@ -355,15 +332,6 @@ export class ConnectTunnel {
         } catch (error) {
           this.clearRelayIdentity();
           throw error;
-        }
-        try {
-          await this.forgetPendingRevocation();
-        } catch (error) {
-          this.options.log.warn(
-            `could not forget the superseded relay revocation: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
-          );
         }
         try {
           if (identity !== undefined) {

@@ -477,7 +477,6 @@ describe("ConnectTunnel reconcile against a shared relay binding", () => {
         relayConflict: boolean;
         paired: boolean;
       }>;
-      resetRelayBinding(): Promise<unknown>;
       start(): Promise<void>;
       status(): {
         relayRevocationPending: boolean;
@@ -563,56 +562,108 @@ describe("ConnectTunnel reconcile against a shared relay binding", () => {
       }
     });
 
-    it("leaves an unobserved no-credential binding until the explicit reset clears it", async () => {
+    it("registers no relay-reset RPC and an unpaired A cannot clear B's binding", async () => {
+      const { connectRpcContract } = await loadConnectModule("rpc");
+      expect(Object.keys(connectRpcContract)).not.toContain("relayReset");
+      stubRedeem();
+      const { dbA, dbB, hub } = sharedDbs();
+      const fixture = bindB(dbB, hub);
+      const before = getConnectBinding(dbB)!;
+      const { fakeHost, tunnel } = await kvTunnel(dbA, hub, new Map(), {
+        on: false,
+      });
+      const api = tunnel as never as FullTunnel;
+      try {
+        await api.start();
+        await api.disconnect();
+        expect(getConnectBinding(dbB)).toEqual(before);
+        expect(
+          getRelayTarget(dbB, fixture.host.id, fixture.thread.id),
+        ).not.toBeNull();
+      } finally {
+        tunnel.stop();
+        await fakeHost.harness.dispose();
+      }
+    });
+
+    it("does not let A's pending revocation clear a same-identity binding B re-paired", async () => {
+      vi.useFakeTimers();
       stubRedeem();
       const { dbA, dbB, hub } = sharedDbs();
       const kv = new Map<string, unknown>();
-      const first = await kvTunnel(dbA, hub, kv, { on: false });
+      const failClear = { on: false };
+      const a = await kvTunnel(dbA, hub, kv, failClear);
+      const b = await kvTunnel(dbB, hub, kv, { on: false });
+      const aApi = a.tunnel as never as FullTunnel;
+      const bApi = b.tunnel as never as FullTunnel;
       try {
-        await (first.tunnel as never as FullTunnel).pair({ code: "code" });
+        await aApi.pair({ code: "code" });
+        failClear.on = true;
+        expect((await aApi.disconnect()).relayRevocationPending).toBe(true);
+        await bApi.pair({ code: "code" });
+        expect(kv.has("relay-revocation")).toBe(false);
+        const fixture = seedThreadFixture({ deps: { db: dbB, hub } });
+        insertRelayTarget(dbB, {
+          createdByUserId: "user_a",
+          hostId: fixture.host.id,
+          threadId: fixture.thread.id,
+        });
+        failClear.on = false;
+        await vi.advanceTimersByTimeAsync(90_000);
+        expect(getConnectBinding(dbB)?.serverId).toBe("srv_a");
+        expect(
+          getRelayTarget(dbB, fixture.host.id, fixture.thread.id),
+        ).not.toBeNull();
+        expect(aApi.status().relayRevocationPending).toBe(false);
+      } finally {
+        a.tunnel.stop();
+        b.tunnel.stop();
+        await a.fakeHost.harness.dispose();
+        await b.fakeHost.harness.dispose();
+      }
+    });
+
+    it("fails pair when the superseded record cannot be forgotten, so it cannot later clear the new binding", async () => {
+      vi.useFakeTimers();
+      stubRedeem();
+      const { dbA, hub } = sharedDbs();
+      class FlakyKv extends Map<string, unknown> {
+        failDelete = false;
+        override delete(key: string): boolean {
+          if (this.failDelete && key === "relay-revocation") {
+            throw new Error("kv unavailable");
+          }
+          return super.delete(key);
+        }
+      }
+      const kv = new FlakyKv();
+      const failClear = { on: false };
+      const { fakeHost, tunnel } = await kvTunnel(dbA, hub, kv, failClear);
+      const api = tunnel as never as FullTunnel;
+      try {
+        await api.pair({ code: "code" });
+        failClear.on = true;
+        expect((await api.disconnect()).relayRevocationPending).toBe(true);
+        failClear.on = false;
+        kv.failDelete = true;
+        await expect(api.pair({ code: "code" })).rejects.toThrow(
+          "kv unavailable",
+        );
+        expect(kv.has("credential")).toBe(false);
+        kv.failDelete = false;
+        await api.pair({ code: "code" });
+        expect(kv.has("relay-revocation")).toBe(false);
         const fixture = seedThreadFixture({ deps: { db: dbA, hub } });
         insertRelayTarget(dbA, {
           createdByUserId: "user_a",
           hostId: fixture.host.id,
           threadId: fixture.thread.id,
         });
-        kv.clear();
-        first.tunnel.stop();
-        const restarted = await kvTunnel(dbB, hub, kv, { on: false });
-        const api = restarted.tunnel as never as FullTunnel;
-        try {
-          await api.start();
-          expect(getConnectBinding(dbB)?.serverId).toBe("srv_a");
-          expect(api.status().relayConflict).toBe(true);
-          await api.resetRelayBinding();
-          expect(getConnectBinding(dbB)).toBeNull();
-          expect(
-            getRelayTarget(dbB, fixture.host.id, fixture.thread.id),
-          ).toBeNull();
-          expect(api.status().relayConflict).toBe(false);
-        } finally {
-          restarted.tunnel.stop();
-          await restarted.fakeHost.harness.dispose();
-        }
-      } finally {
-        first.tunnel.stop();
-        await first.fakeHost.harness.dispose();
-      }
-    });
-
-    it("refuses the explicit reset while paired", async () => {
-      stubRedeem();
-      const { dbA, hub } = sharedDbs();
-      const { fakeHost, tunnel } = await kvTunnel(dbA, hub, new Map(), {
-        on: false,
-      });
-      const api = tunnel as never as FullTunnel;
-      try {
-        await api.pair({ code: "code" });
-        await expect(api.resetRelayBinding()).rejects.toThrow(
-          "relay_reset_requires_disconnect",
-        );
+        await vi.advanceTimersByTimeAsync(90_000);
         expect(getConnectBinding(dbA)?.serverId).toBe("srv_a");
+        expect(
+          getRelayTarget(dbA, fixture.host.id, fixture.thread.id),
+        ).not.toBeNull();
       } finally {
         tunnel.stop();
         await fakeHost.harness.dispose();

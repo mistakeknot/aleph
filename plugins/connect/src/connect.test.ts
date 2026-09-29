@@ -2654,15 +2654,6 @@ describe("connect CLI", () => {
     expect(off.stdout).toContain("Disconnected");
   });
 
-  it("`bb connect relay-reset` requires --confirm and refuses nothing when unpaired", async () => {
-    const { harness } = await loadCli();
-    const refused = await harness.runCli(["relay-reset"]);
-    expect(refused.exitCode).toBe(2);
-    const reset = await harness.runCli(["relay-reset", "--confirm"]);
-    expect(reset.exitCode).toBe(0);
-    expect(reset.stdout).toContain("Relay binding cleared");
-  });
-
   it("unknown subcommands fail with help", async () => {
     const { harness } = await loadCli();
     const result = await harness.runCli(["bogus"]);
