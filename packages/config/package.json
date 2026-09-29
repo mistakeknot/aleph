@@ -167,6 +167,11 @@
       "source": "./src/effective-policy.ts",
       "types": "./src/effective-policy.ts",
       "default": "./src/effective-policy.ts"
+    },
+    "./external-writers": {
+      "source": "./src/external-writers.ts",
+      "types": "./src/external-writers.ts",
+      "default": "./src/external-writers.ts"
     }
   },
   "scripts": {
