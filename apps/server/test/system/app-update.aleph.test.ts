@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   AppUpdateLauncherRequest,
   LauncherAppUpdateStatus,
@@ -50,23 +50,17 @@ class NpmLauncher implements LauncherChannel {
 }
 
 describe("in-app npm updates on an Aleph build", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("refuses with 409 and never asks the launcher to install upstream bb-app", async () => {
-    const npmUrls: string[] = [];
-    const fetchImpl = (async (input: RequestInfo | URL) => {
-      npmUrls.push(String(input));
-      return new Response(JSON.stringify({ version: "0.43.5" }), {
-        headers: { "content-type": "application/json" },
-      });
-    }) as unknown as typeof fetch;
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
     const config = { appVersion: ALEPH_VERSION, isDevelopment: false };
     const launcher = new NpmLauncher();
     const service = createAppUpdateService({
       appSurface: "web",
-      appVersion: createAppVersionService({
-        config,
-        fetchImpl,
-        logger: testLogger,
-      }),
+      appVersion: createAppVersionService({ config }),
       config,
       countRunningThreads: () => 0,
       launcher,
@@ -88,6 +82,6 @@ describe("in-app npm updates on an Aleph build", () => {
     expect(error.status).toBe(409);
     expect(error.body.code).toBe("app_update_unavailable");
     expect(launcher.requests).toEqual([]);
-    expect(npmUrls).toEqual([]);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

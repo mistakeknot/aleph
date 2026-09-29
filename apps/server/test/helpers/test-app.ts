@@ -274,7 +274,6 @@ export async function createTestAppHarness(
     appVersionService ??
     createAppVersionService({
       config,
-      logger,
     });
   const appUpdate =
     appUpdateService ??
