@@ -101,6 +101,7 @@ import type {
 import {
   bindConnectRelayIdentity,
   hasConnectRelayIdentity,
+  markConnectRelayIdentityReconciled,
 } from "../relay-management/connect-binding.js";
 import { createKeyedLock } from "../lib/async-deduper.js";
 import { runEventLoopWork } from "../system/event-loop-work.js";
@@ -1673,6 +1674,11 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
                     },
                   },
                   binding,
+                ),
+              mark: (reconciled) =>
+                markConnectRelayIdentityReconciled(
+                  { db: deps.db },
+                  reconciled,
                 ),
               has: () => hasConnectRelayIdentity({ db: deps.db }),
             }

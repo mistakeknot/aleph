@@ -960,6 +960,13 @@
       "when": 1790667021062,
       "tag": "0136_connect_binding_generation",
       "breakpoints": true
+    },
+    {
+      "idx": 137,
+      "version": "6",
+      "when": 1790667987761,
+      "tag": "0137_connect_binding_reconciled",
+      "breakpoints": true
     }
   ]
 }

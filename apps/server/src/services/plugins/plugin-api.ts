@@ -463,6 +463,7 @@ export function createPluginApi(options: {
   reportNeedsConfiguration: (message: string) => void;
   relayIdentity: {
     bind: PluginServerAccess["bindRelayIdentity"];
+    mark: PluginServerAccess["markRelayIdentityReconciled"];
     has: PluginServerAccess["hasRelayIdentity"];
   } | null;
   isAgentToolNameTaken: (name: string) => string | undefined;
@@ -1248,6 +1249,15 @@ export function createPluginApi(options: {
         );
       }
       return options.relayIdentity.bind(binding);
+    },
+    markRelayIdentityReconciled(reconciled) {
+      assertLive();
+      if (options.relayIdentity === null) {
+        throw new Error(
+          "bb.experimental_serverAccess.markRelayIdentityReconciled is only available to the built-in Connect plugin",
+        );
+      }
+      return options.relayIdentity.mark(reconciled);
     },
     hasRelayIdentity() {
       assertLive();

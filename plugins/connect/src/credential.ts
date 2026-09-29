@@ -15,7 +15,10 @@ export type StoredRelayIdentity = z.infer<typeof relayIdentitySchema>;
 
 export interface CredentialStore {
   read(): Promise<ConnectCredential | null>;
-  readRelayIdentity?(): Promise<StoredRelayIdentity | null>;
+  readSnapshot?(): Promise<{
+    credential: ConnectCredential | null;
+    relayIdentity: StoredRelayIdentity | null;
+  }>;
   write(
     value: ConnectCredential,
     relayIdentity?: StoredRelayIdentity,
@@ -33,13 +36,18 @@ export function createKvCredentialStore(
       const parsed = connectCredentialSchema.safeParse(raw);
       return parsed.success ? parsed.data : null;
     },
-    async readRelayIdentity() {
+    async readSnapshot() {
       const raw = await kv.get<unknown>(CREDENTIAL_KV_KEY);
-      if (typeof raw !== "object" || raw === null) return null;
-      const parsed = relayIdentitySchema.safeParse(
+      if (raw === undefined) return { credential: null, relayIdentity: null };
+      const credential = connectCredentialSchema.safeParse(raw);
+      if (!credential.success) return { credential: null, relayIdentity: null };
+      const identity = relayIdentitySchema.safeParse(
         (raw as { relayIdentity?: unknown }).relayIdentity,
       );
-      return parsed.success ? parsed.data : null;
+      return {
+        credential: credential.data,
+        relayIdentity: identity.success ? identity.data : null,
+      };
     },
     async write(value, relayIdentity) {
       await kv.set(

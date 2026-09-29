@@ -21,7 +21,7 @@ import {
   type DesktopSession,
   type ListAccountServersResult,
 } from "@bb/connect-client";
-import type { CredentialStore } from "./credential.js";
+import type { CredentialStore, StoredRelayIdentity } from "./credential.js";
 import { fetchMachineCode, MachineCodeError } from "./machine-code.js";
 import { asConnectPairError, redeemConnectCode } from "./redeem.js";
 import { revokeMachine } from "./revoke-machine.js";
@@ -70,6 +70,7 @@ interface ConnectTunnelOptions {
     ownerUserId: string;
     serverId: string;
   }) => void;
+  markRelayIdentityReconciled?: (reconciled: boolean) => boolean;
   hasRelayIdentity?: () => boolean;
 }
 
@@ -91,6 +92,7 @@ export class ConnectTunnel {
   private shareRetryTimer: ReturnType<typeof setTimeout> | undefined;
   private shareActivationEpoch = 0;
   private relayUnreconciled = false;
+  private relayQueue: Promise<unknown> = Promise.resolve();
   private relayReconcileTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(private readonly options: ConnectTunnelOptions) {}
@@ -100,8 +102,7 @@ export class ConnectTunnel {
   }
 
   async start(): Promise<void> {
-    const stored = await this.options.store.read();
-    await this.reconcileRelayIdentity(stored);
+    const stored = await this.serialize(() => this.reconcileRelayIdentity());
     if (stored) {
       this.credential = stored;
       this.stopped = false;
@@ -111,32 +112,54 @@ export class ConnectTunnel {
     this.publish();
   }
 
-  private async reconcileRelayIdentity(
-    stored: ConnectCredential | null,
-  ): Promise<void> {
-    if (this.options.bindRelayIdentity === undefined) return;
+  private serialize<T>(task: () => Promise<T>): Promise<T> {
+    const run = this.relayQueue.then(task, task);
+    this.relayQueue = run.catch(() => undefined);
+    return run;
+  }
+
+  private async readSnapshot(): Promise<{
+    credential: ConnectCredential | null;
+    relayIdentity: StoredRelayIdentity | null;
+  }> {
+    const { store } = this.options;
+    if (store.readSnapshot !== undefined) return store.readSnapshot();
+    return { credential: await store.read(), relayIdentity: null };
+  }
+
+  private async reconcileRelayIdentity(): Promise<ConnectCredential | null> {
+    const { store } = this.options;
     if (this.relayReconcileTimer) {
       clearTimeout(this.relayReconcileTimer);
       this.relayReconcileTimer = undefined;
     }
+    let credential: ConnectCredential | null = null;
     try {
-      const identity =
-        stored === null
-          ? null
-          : ((await this.options.store.readRelayIdentity?.()) ?? null);
-      if (identity === null) {
-        this.options.bindRelayIdentity({
+      this.options.markRelayIdentityReconciled?.(false);
+      const snapshot = await this.readSnapshot();
+      credential = snapshot.credential;
+      if (snapshot.credential === null || snapshot.relayIdentity === null) {
+        this.options.bindRelayIdentity?.({
           baseUrl: this.options.defaultBaseUrl,
           ownerUserId: "",
           serverId: "",
         });
       } else {
-        this.options.bindRelayIdentity(identity);
+        this.options.bindRelayIdentity?.(snapshot.relayIdentity);
+        this.options.markRelayIdentityReconciled?.(true);
       }
       this.relayUnreconciled = false;
     } catch (error) {
       this.markRelayUnreconciled(error);
+      if (credential === null) {
+        try {
+          credential = await store.read();
+        } catch {
+          credential = null;
+        }
+      }
     }
+    return credential;
   }
 
   private markRelayUnreconciled(error: unknown): void {
@@ -149,11 +172,9 @@ export class ConnectTunnel {
     if (this.relayReconcileTimer) return;
     this.relayReconcileTimer = setTimeout(() => {
       this.relayReconcileTimer = undefined;
-      void this.options.store
-        .read()
-        .then((stored) => this.reconcileRelayIdentity(stored))
-        .catch((readError: unknown) => this.markRelayUnreconciled(readError))
-        .finally(() => this.publish());
+      void this.serialize(() => this.reconcileRelayIdentity()).finally(() =>
+        this.publish(),
+      );
     }, RELAY_RECONCILE_RETRY_MS);
   }
 
@@ -188,38 +209,49 @@ export class ConnectTunnel {
         handle: redeemed.handle,
         credential: redeemed.credential,
       };
-      try {
-        this.options.bindRelayIdentity?.({
-          baseUrl,
-          ownerUserId: redeemed.ownerUserId,
-          serverId: redeemed.serverId,
-        });
-      } catch (error) {
-        this.clearRelayIdentity();
-        this.options.log.warn(
-          `pair failed while binding relay identity: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        );
-        throw error;
-      }
-      try {
-        await this.options.store.write(
-          credential,
-          redeemed.ownerUserId !== "" && redeemed.serverId !== ""
-            ? {
-                baseUrl,
-                ownerUserId: redeemed.ownerUserId,
-                serverId: redeemed.serverId,
-              }
-            : undefined,
-        );
-      } catch (error) {
-        this.clearRelayIdentity();
-        throw error;
-      }
+      const identity =
+        redeemed.ownerUserId !== "" && redeemed.serverId !== ""
+          ? {
+              baseUrl,
+              ownerUserId: redeemed.ownerUserId,
+              serverId: redeemed.serverId,
+            }
+          : undefined;
+      await this.serialize(async () => {
+        try {
+          this.options.markRelayIdentityReconciled?.(false);
+          this.options.bindRelayIdentity?.({
+            baseUrl,
+            ownerUserId: redeemed.ownerUserId,
+            serverId: redeemed.serverId,
+          });
+        } catch (error) {
+          this.clearRelayIdentity();
+          this.options.log.warn(
+            `pair failed while binding relay identity: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+          throw error;
+        }
+        try {
+          await this.options.store.write(credential, identity);
+        } catch (error) {
+          this.clearRelayIdentity();
+          throw error;
+        }
+        try {
+          if (identity !== undefined) {
+            if (this.options.markRelayIdentityReconciled?.(true) === false) {
+              throw new Error("relay binding is missing after pairing");
+            }
+          }
+          this.relayUnreconciled = false;
+        } catch (error) {
+          this.markRelayUnreconciled(error);
+        }
+      });
       this.credential = credential;
-      this.relayUnreconciled = false;
       this.lastError = null;
       this.reconnect();
       this.startShareActivation();
@@ -232,6 +264,7 @@ export class ConnectTunnel {
 
   private clearRelayIdentity(): void {
     try {
+      this.options.markRelayIdentityReconciled?.(false);
       this.options.bindRelayIdentity?.({
         baseUrl: this.options.defaultBaseUrl,
         ownerUserId: "",
@@ -244,9 +277,11 @@ export class ConnectTunnel {
 
   async disconnect(): Promise<ConnectStatus> {
     const credential = this.credential;
-    this.clearRelayIdentity();
     this.teardown();
-    await this.options.store.clear();
+    await this.serialize(async () => {
+      this.clearRelayIdentity();
+      await this.options.store.clear();
+    });
     this.options.shares.clearMachineDeclarations();
     this.credential = null;
     this.lastError = null;
@@ -452,10 +487,12 @@ export class ConnectTunnel {
       "pairing was revoked; get a new code from the getbb.app dashboard and re-pair";
     this.options.log.warn(this.lastError);
     this.credential = null;
-    this.clearRelayIdentity();
     this.teardown();
     this.publish();
-    void this.options.store.clear().catch((error: unknown) => {
+    void this.serialize(async () => {
+      this.clearRelayIdentity();
+      await this.options.store.clear();
+    }).catch((error: unknown) => {
       this.options.log.warn(
         `failed to clear the rejected credential: ${
           error instanceof Error ? error.message : String(error)

@@ -2,6 +2,7 @@ import {
   clearConnectBinding,
   getConnectBinding,
   replaceConnectBinding,
+  setConnectBindingReconciled,
 } from "@bb/db";
 import type { AppDeps } from "../../types.js";
 import {
@@ -46,5 +47,12 @@ export function bindConnectRelayIdentity(
 }
 
 export function hasConnectRelayIdentity(deps: Pick<AppDeps, "db">): boolean {
-  return getConnectBinding(deps.db) !== null;
+  return getConnectBinding(deps.db)?.reconciled === true;
+}
+
+export function markConnectRelayIdentityReconciled(
+  deps: Pick<AppDeps, "db">,
+  reconciled: boolean,
+): boolean {
+  return setConnectBindingReconciled(deps.db, reconciled);
 }

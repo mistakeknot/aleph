@@ -9,6 +9,7 @@ import {
   getRelayTarget,
   insertRelayTarget,
   replaceConnectBinding,
+  setConnectBindingReconciled,
 } from "@bb/db";
 import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
@@ -100,8 +101,17 @@ function buildApp(harness: Harness, keys: readonly RelayAssertionKey[]) {
   return app;
 }
 
+function replaceReconciled(
+  db: Harness["deps"]["db"],
+  input: Parameters<typeof replaceConnectBinding>[1],
+) {
+  const result = replaceConnectBinding(db, input);
+  setConnectBindingReconciled(db, true);
+  return result;
+}
+
 function bind(harness: Harness) {
-  return replaceConnectBinding(harness.deps.db, {
+  return replaceReconciled(harness.deps.db, {
     issuer: RELAY_ASSERTION_ISSUERS.production,
     ownerUserId: OWNER,
     runtime: "production",
@@ -469,7 +479,7 @@ describe("relay target assertion consumption races", () => {
         { db: harness.deps.db, keys: [key], now: () => NOW },
         hostId,
       );
-      replaceConnectBinding(harness.deps.db, {
+      replaceReconciled(harness.deps.db, {
         issuer: RELAY_ASSERTION_ISSUERS.production,
         ownerUserId: "user_other",
         runtime: "production",
@@ -506,7 +516,7 @@ describe("relay target assertion consumption races", () => {
         { db: harness.deps.db, keys: [key], now: () => NOW },
         { hostId, threadId },
       );
-      replaceConnectBinding(harness.deps.db, {
+      replaceReconciled(harness.deps.db, {
         issuer: RELAY_ASSERTION_ISSUERS.production,
         ownerUserId: "user_other",
         runtime: "production",
@@ -617,6 +627,107 @@ describe("relay assertion key table load", () => {
         "x-bb-gate-assertion": mint(privateKey, baseClaims("GET", path)),
       });
       expect(response.status).toBe(403);
+    });
+  });
+});
+
+describe("relay binding reconciliation fence", () => {
+  it("rejects signed GET, PUT and DELETE while fenced and accepts after reconcile", async () => {
+    await withTestHarness(async (harness) => {
+      const { key, privateKey } = makeKeys();
+      const app = buildApp(harness, [key]);
+      const fixture = seedThreadFixture(harness);
+      const hostId = fixture.host.id;
+      const threadId = fixture.thread.id;
+      const item = `${listPath(hostId)}/${threadId}`;
+      bind(harness);
+      const requests = [
+        ["PUT", item],
+        ["GET", listPath(hostId)],
+        ["DELETE", item],
+      ] as const;
+
+      setConnectBindingReconciled(harness.deps.db, false);
+      for (const [method, path] of requests) {
+        const response = await call(app, method, path, {
+          "x-bb-gate-assertion": mint(privateKey, baseClaims(method, path)),
+        });
+        expect(response.status).toBe(403);
+      }
+      expect(getRelayTarget(harness.deps.db, hostId, threadId)).toBeNull();
+
+      setConnectBindingReconciled(harness.deps.db, true);
+      for (const [method, path] of requests) {
+        const response = await call(app, method, path, {
+          "x-bb-gate-assertion": mint(privateKey, baseClaims(method, path)),
+        });
+        expect(response.status).toBe(200);
+      }
+    });
+  });
+
+  it("starts a new or changed binding fenced, and clearing removes it", async () => {
+    await withTestHarness(async (harness) => {
+      const { key, privateKey } = makeKeys();
+      const app = buildApp(harness, [key]);
+      const fixture = seedThreadFixture(harness);
+      const path = listPath(fixture.host.id);
+      const deps = {
+        db: harness.deps.db,
+        hub: { notifyThread: () => {} },
+      };
+      bindConnectRelayIdentity(deps, {
+        baseUrl: RELAY_ASSERTION_ISSUERS.production,
+        ownerUserId: OWNER,
+        serverId: SERVER_ID,
+      });
+      const fenced = await call(app, "GET", path, {
+        "x-bb-gate-assertion": mint(privateKey, baseClaims("GET", path)),
+      });
+      expect(fenced.status).toBe(403);
+      setConnectBindingReconciled(harness.deps.db, true);
+      const open = await call(app, "GET", path, {
+        "x-bb-gate-assertion": mint(privateKey, baseClaims("GET", path)),
+      });
+      expect(open.status).toBe(200);
+      expect(setConnectBindingReconciled(harness.deps.db, false)).toBe(true);
+      bindConnectRelayIdentity(deps, {
+        baseUrl: RELAY_ASSERTION_ISSUERS.production,
+        ownerUserId: "",
+        serverId: "",
+      });
+      expect(setConnectBindingReconciled(harness.deps.db, true)).toBe(false);
+    });
+  });
+
+  it("refuses an assertion verified before a fence lands during body read", async () => {
+    await withTestHarness(async (harness) => {
+      const { key, privateKey } = makeKeys();
+      const fixture = seedThreadFixture(harness);
+      bind(harness);
+      const hostId = fixture.host.id;
+      const path = listPath(hostId);
+      let release: () => void = () => {};
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const pending = listRelayTargetsForHuman(
+        harness.deps,
+        delayedContext(
+          "GET",
+          path,
+          mint(privateKey, baseClaims("GET", path)),
+          gate,
+        ),
+        { db: harness.deps.db, keys: [key], now: () => NOW },
+        hostId,
+      );
+      setConnectBindingReconciled(harness.deps.db, false);
+      release();
+      await expect(pending).rejects.toMatchObject({
+        status: 403,
+        body: { code: "human_session_required" },
+      });
     });
   });
 });

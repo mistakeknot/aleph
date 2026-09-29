@@ -117,7 +117,7 @@ export async function verifyHumanAssertion(
   if (getGateAuthKind(context) === "machine") throw fail();
 
   const binding = getConnectBinding(deps.db);
-  if (binding === null) throw fail();
+  if (binding === null || !binding.reconciled) throw fail();
 
   const token = context.req.header(GATE_ASSERTION_HEADER_NAME);
   if (token === undefined) throw fail();

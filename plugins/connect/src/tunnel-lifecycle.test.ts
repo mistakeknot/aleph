@@ -232,6 +232,11 @@ describe("ConnectTunnel startup relay reconciliation", () => {
     vi.useRealTimers();
   });
 
+  const oldCredential = {
+    serverUrl: "https://sawyer.getbb.app",
+    handle: "sawyer",
+    credential: "bbcred_old",
+  };
   const oldIdentity = {
     baseUrl: "https://getbb.app",
     ownerUserId: "user_old",
@@ -240,17 +245,21 @@ describe("ConnectTunnel startup relay reconciliation", () => {
 
   it("restores the stored identity after a crash between bind and credential write", async () => {
     const calls: { ownerUserId: string; serverId: string }[] = [];
+    const marks: boolean[] = [];
     const { fakeHost, tunnel } = createTunnelFixture({
       bindRelayIdentity: (binding) => {
         calls.push(binding);
       },
+      markRelayIdentityReconciled: (reconciled) => {
+        marks.push(reconciled);
+        return true;
+      },
       store: {
-        read: async () => ({
-          serverUrl: "https://sawyer.getbb.app",
-          handle: "sawyer",
-          credential: "bbcred_old",
+        read: async () => oldCredential,
+        readSnapshot: async () => ({
+          credential: oldCredential,
+          relayIdentity: oldIdentity,
         }),
-        readRelayIdentity: async () => oldIdentity,
         write: async () => {},
         clear: async () => {},
       },
@@ -258,6 +267,7 @@ describe("ConnectTunnel startup relay reconciliation", () => {
     try {
       await tunnel.start();
       expect(calls).toEqual([oldIdentity]);
+      expect(marks).toEqual([false, true]);
     } finally {
       tunnel.stop();
       await fakeHost.harness.dispose();
@@ -325,6 +335,100 @@ describe("ConnectTunnel startup relay reconciliation", () => {
       await vi.advanceTimersByTimeAsync(30_000);
       expect(calls).toHaveLength(2);
       expect(tunnel.status().relayBinding).toBe(true);
+    } finally {
+      tunnel.stop();
+      await fakeHost.harness.dispose();
+    }
+  });
+});
+
+describe("ConnectTunnel relay reconcile serialization", () => {
+  afterEach(() => {
+    fakeWebSockets.instances.length = 0;
+    fakeWebSockets.options.length = 0;
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("does not rebind a stale identity when pair commits during a retry", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              credential: "bbcred_b",
+              handle: "sawyer",
+              ownerUserId: "user_b",
+              serverId: "srv_b",
+            }),
+            { status: 200 },
+          ),
+      ),
+    );
+    const identityA = {
+      baseUrl: "https://getbb.app",
+      ownerUserId: "user_a",
+      serverId: "srv_a",
+    };
+    const credentialA = {
+      serverUrl: "https://sawyer.getbb.app",
+      handle: "sawyer",
+      credential: "bbcred_a",
+    };
+    let current: {
+      credential: typeof credentialA;
+      identity: typeof identityA;
+    } = { credential: credentialA, identity: identityA };
+    let release: () => void = () => {};
+    let readCount = 0;
+    const bound: string[] = [];
+    let failBind = true;
+    const { fakeHost, tunnel } = createTunnelFixture({
+      bindRelayIdentity: (binding) => {
+        if (failBind) throw new Error("db locked");
+        bound.push(binding.ownerUserId);
+      },
+      markRelayIdentityReconciled: () => true,
+      store: {
+        read: async () => current.credential,
+        readSnapshot: async () => {
+          readCount += 1;
+          const snapshot = {
+            credential: current.credential,
+            relayIdentity: current.identity,
+          };
+          if (readCount === 2) {
+            await new Promise<void>((resolve) => {
+              release = resolve;
+            });
+          }
+          return snapshot;
+        },
+        write: async (credential, identity) => {
+          current = {
+            credential: credential as typeof credentialA,
+            identity: identity as typeof identityA,
+          };
+        },
+        clear: async () => {},
+      },
+    });
+    try {
+      await tunnel.start();
+      failBind = false;
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(readCount).toBe(2);
+      const paired = tunnel.pair({
+        code: "ABCD",
+        baseUrl: "https://getbb.app",
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      release();
+      await paired;
+      expect(bound).toEqual(["user_a", "user_b"]);
+      expect(current.identity.ownerUserId).toBe("user_b");
     } finally {
       tunnel.stop();
       await fakeHost.harness.dispose();

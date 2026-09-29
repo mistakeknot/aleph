@@ -49,7 +49,10 @@ function consumeAssertion(
     throw humanSessionRequired();
   }
   const current = getConnectBinding(tx);
-  if (current === null || !connectBindingsEqual(current, assertion.binding)) {
+  if (
+    current === null ||
+    !current.reconciled ||
+    !connectBindingsEqual(current, assertion.binding)) {
     throw humanSessionRequired();
   }
   sweepExpiredGateAssertionUses(tx, now);

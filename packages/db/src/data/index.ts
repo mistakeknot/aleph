@@ -551,6 +551,7 @@ export {
   CONNECT_REBIND_CANCEL_REASON,
   clearConnectBinding,
   connectBindingsEqual,
+  setConnectBindingReconciled,
   getConnectBinding,
   recordGateAssertionUse,
   replaceConnectBinding,

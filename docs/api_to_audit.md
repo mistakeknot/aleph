@@ -3066,13 +3066,16 @@ each reach the Machines settings section without a manual reload.
 
 ## `bb.experimental_serverAccess.bindRelayIdentity`
 
-`bindRelayIdentity` and `hasRelayIdentity` let the built-in Connect plugin hand
+`bindRelayIdentity`, `markRelayIdentityReconciled` and `hasRelayIdentity` let the built-in Connect plugin hand
 core the paired server id, owner account and runtime so core can verify
 gate-signed human assertions for relay targets. Core maps the base URL to a
 known Connect runtime and issuer. Every other plugin gets an error. A first or
 identical binding cancels nothing; a differing binding, an unsupported base URL
 or a missing identity removes every relay target and cancels their queued and
-in-flight relay messages.
+in-flight relay messages. A new or changed binding starts fenced and core
+rejects every human assertion until Connect calls
+`markRelayIdentityReconciled(true)` after the stored credential and binding
+agree; Connect fences again before any step that can leave them disagreeing.
 
 Stabilization requires deciding whether a general plugin-visible identity API
 is needed, and confirming the gate redeem response carries `ownerUserId`.

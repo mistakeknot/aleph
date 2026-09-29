@@ -499,7 +499,14 @@ export interface PluginServerAccess {
     ownerUserId: string;
     serverId: string;
   }): { status: "bound" | "unchanged" | "unsupported_runtime" };
-  /** Whether core holds a Connect relay binding. Only the built-in Connect plugin may call it. */
+  /**
+   * Fence or unfence the current relay binding. While fenced, core rejects
+   * every human assertion. A new or changed binding starts fenced; Connect
+   * unfences it only after the credential and binding agree. Returns whether a
+   * binding exists. Only the built-in Connect plugin may call it.
+   */
+  markRelayIdentityReconciled(reconciled: boolean): boolean;
+  /** Whether core holds a reconciled Connect relay binding. Only the built-in Connect plugin may call it. */
   hasRelayIdentity(): boolean;
 }
 

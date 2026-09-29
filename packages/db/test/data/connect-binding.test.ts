@@ -5,6 +5,7 @@ import {
   getConnectBinding,
   recordGateAssertionUse,
   replaceConnectBinding,
+  setConnectBindingReconciled,
   sweepExpiredGateAssertionUses,
 } from "../../src/data/connect-binding.js";
 import { createConnection } from "../../src/connection.js";
@@ -63,6 +64,25 @@ describe("connect binding generation", () => {
     const before = getConnectBinding(db)!;
     replaceConnectBinding(db, binding);
     expect(getConnectBinding(db)!.generation).toBe(before.generation);
+  });
+});
+
+describe("connect binding reconciliation fence", () => {
+  it("starts fenced, toggles with a new generation, and is fenced again on change", () => {
+    const db = freshDb();
+    expect(setConnectBindingReconciled(db, true)).toBe(false);
+    replaceConnectBinding(db, binding);
+    expect(getConnectBinding(db)!.reconciled).toBe(false);
+    const fenced = getConnectBinding(db)!;
+    expect(setConnectBindingReconciled(db, true)).toBe(true);
+    const open = getConnectBinding(db)!;
+    expect(open.reconciled).toBe(true);
+    expect(open.generation).not.toBe(fenced.generation);
+    expect(connectBindingsEqual(fenced, open)).toBe(false);
+    replaceConnectBinding(db, binding);
+    expect(getConnectBinding(db)!.reconciled).toBe(true);
+    replaceConnectBinding(db, { ...binding, serverId: "srv_b" });
+    expect(getConnectBinding(db)!.reconciled).toBe(false);
   });
 });
 

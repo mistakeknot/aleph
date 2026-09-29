@@ -1519,6 +1519,10 @@ function createFakePluginHostInternal(
         assertLive();
         return { status: "unsupported_runtime" };
       },
+      markRelayIdentityReconciled() {
+        assertLive();
+        return false;
+      },
       hasRelayIdentity() {
         assertLive();
         return false;

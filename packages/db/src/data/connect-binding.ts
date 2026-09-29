@@ -47,6 +47,7 @@ export function connectBindingsEqual(
 ): boolean {
   return (
     left.generation === right.generation &&
+    left.reconciled === right.reconciled &&
     left.runtime === right.runtime &&
     left.issuer === right.issuer &&
     left.serverId === right.serverId &&
@@ -122,6 +123,7 @@ export function replaceConnectBinding(
           ownerUserId: input.ownerUserId,
           boundAt: now,
           generation: randomUUID(),
+          reconciled: false,
         })
         .onConflictDoUpdate({
           target: connectBinding.id,
@@ -132,10 +134,30 @@ export function replaceConnectBinding(
             ownerUserId: input.ownerUserId,
             boundAt: now,
             generation: randomUUID(),
+            reconciled: false,
           },
         })
         .run();
       return { cancellations, changed: true };
+    },
+    { behavior: "immediate" },
+  );
+}
+
+export function setConnectBindingReconciled(
+  db: DbConnection,
+  reconciled: boolean,
+): boolean {
+  return db.transaction(
+    (tx: DbTransaction) => {
+      const current = getConnectBinding(tx);
+      if (current === null) return false;
+      if (current.reconciled === reconciled) return true;
+      tx.update(connectBinding)
+        .set({ reconciled, generation: randomUUID() })
+        .where(eq(connectBinding.id, CONNECT_BINDING_ROW_ID))
+        .run();
+      return true;
     },
     { behavior: "immediate" },
   );

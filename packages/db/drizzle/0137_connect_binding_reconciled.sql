@@ -1,0 +1,1 @@
+ALTER TABLE `connect_binding` ADD `reconciled` integer DEFAULT false NOT NULL;
