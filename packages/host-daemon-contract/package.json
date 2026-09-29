@@ -19,6 +19,11 @@
       "types": "./src/protocol.ts",
       "default": "./src/protocol.ts"
     },
+    "./relay": {
+      "source": "./src/relay.ts",
+      "types": "./src/relay.ts",
+      "default": "./src/relay.ts"
+    },
     "./workspace": {
       "source": "./src/workspace.ts",
       "types": "./src/workspace.ts",

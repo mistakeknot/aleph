@@ -22,6 +22,13 @@ import {
 import { z } from "zod";
 import type { Endpoint } from "@bb/hono-typed-routes";
 import type {
+  RelayTargetsRemoveRequest,
+  RelayTargetsRemoveResponse,
+  RelayTargetsResponse,
+  RelayTellRequest,
+  RelayTellResponse,
+} from "./relay.js";
+import type {
   HostDaemonOnlineRpcCommandType,
   HostDaemonSettledCommandType,
 } from "./commands.js";
@@ -858,6 +865,19 @@ export const hostDaemonSkillTreeSchema = z
 export type HostDaemonSkillTree = z.infer<typeof hostDaemonSkillTreeSchema>;
 
 export type HostDaemonInternalSchema = {
+  "/relay/tell": {
+    $post: Endpoint<{ json: RelayTellRequest }, RelayTellResponse, 200>;
+  };
+  "/relay/targets": {
+    $get: Endpoint<Record<never, never>, RelayTargetsResponse, 200>;
+  };
+  "/relay/targets/remove": {
+    $post: Endpoint<
+      { json: RelayTargetsRemoveRequest },
+      RelayTargetsRemoveResponse,
+      200
+    >;
+  };
   "/skills/tree/:hash": {
     $get: Endpoint<Record<never, never>, HostDaemonSkillTree, 200>;
   };
