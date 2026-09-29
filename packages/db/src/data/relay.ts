@@ -1,7 +1,10 @@
 import { and, eq, inArray, isNull, notExists, sql } from "drizzle-orm";
 import type { DbQueryConnection, DbTransaction } from "../connection.js";
 import {
+  hosts,
   projectAttachments,
+  projects,
+  threads,
   projectAttachmentThreads,
   queuedThreadMessages,
   relayMessages,
@@ -43,6 +46,80 @@ export function getRelayTarget(
       )
       .get() ?? null
   );
+}
+
+export function listRelayTargetsForHost(
+  db: DbQueryConnection,
+  hostId: string,
+): RelayTargetRow[] {
+  return db
+    .select()
+    .from(relayTargets)
+    .where(eq(relayTargets.hostId, hostId))
+    .orderBy(relayTargets.createdAt, relayTargets.threadId)
+    .all();
+}
+
+export function isActiveHostId(db: DbQueryConnection, hostId: string): boolean {
+  return (
+    db
+      .select({ id: hosts.id })
+      .from(hosts)
+      .where(and(eq(hosts.id, hostId), isNull(hosts.destroyedAt)))
+      .get() !== undefined
+  );
+}
+
+export function isLiveThreadId(
+  db: DbQueryConnection,
+  threadId: string,
+): boolean {
+  return (
+    db
+      .select({ id: threads.id })
+      .from(threads)
+      .innerJoin(projects, eq(projects.id, threads.projectId))
+      .where(
+        and(
+          eq(threads.id, threadId),
+          isNull(threads.deletedAt),
+          isNull(projects.deletedAt),
+        ),
+      )
+      .get() !== undefined
+  );
+}
+
+export interface RelayTargetDetailRow {
+  createdAt: number;
+  projectId: string;
+  threadId: string;
+  threadTitle: string | null;
+}
+
+export function listRelayTargetDetailsForHost(
+  db: DbQueryConnection,
+  hostId: string,
+): RelayTargetDetailRow[] {
+  return db
+    .select({
+      createdAt: relayTargets.createdAt,
+      projectId: threads.projectId,
+      threadId: relayTargets.threadId,
+      title: threads.title,
+      titleFallback: threads.titleFallback,
+    })
+    .from(relayTargets)
+    .innerJoin(threads, eq(threads.id, relayTargets.threadId))
+    .where(and(eq(relayTargets.hostId, hostId), isNull(threads.deletedAt)))
+    .orderBy(relayTargets.createdAt, relayTargets.threadId)
+    .all()
+    .map((row) => ({
+      createdAt: row.createdAt,
+      projectId: row.projectId,
+      threadId: row.threadId,
+      threadTitle: row.title ?? row.titleFallback,
+    }));
 }
 
 export function insertRelayTarget(

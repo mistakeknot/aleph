@@ -70,6 +70,7 @@ import type {
   PluginSettingsValues,
   PluginStatusApi,
   PluginStorage,
+  PluginServerAccess,
   PluginThreadEventHandler,
   PluginThreadEventName,
   PluginUi,
@@ -460,6 +461,10 @@ export function createPluginApi(options: {
   publishSignal: (channel: string, payload: unknown) => void;
   settingsChanged: () => void;
   reportNeedsConfiguration: (message: string) => void;
+  relayIdentity: {
+    bind: PluginServerAccess["bindRelayIdentity"];
+    has: PluginServerAccess["hasRelayIdentity"];
+  } | null;
   isAgentToolNameTaken: (name: string) => string | undefined;
   isEnvironmentProviderIdTaken: (id: string) => string | undefined;
   isMachineProviderIdTaken: (id: string) => string | undefined;
@@ -1214,30 +1219,46 @@ export function createPluginApi(options: {
     },
   };
 
-  const experimental_serverAccess: import("@get-bb/plugin-sdk").PluginServerAccess =
-    {
-      register(declaration) {
-        assertLive();
-        validateServerAccessProviderDeclaration(declaration);
-        if (
-          serverAccessProviders.has(declaration.id) ||
-          listServerAccessProviders().some(
-            (entry) =>
-              entry.provider.id === declaration.id &&
-              entry.pluginId !== pluginId,
-          )
-        ) {
-          throw new Error(
-            `Server access provider "${declaration.id}" is already registered`,
-          );
-        }
-        serverAccessProviders.set(declaration.id, declaration);
-      },
-      recheck() {
-        assertLive();
-        requestServerAccessRecheck(options.pluginId);
-      },
-    };
+  const experimental_serverAccess: PluginServerAccess = {
+    register(declaration) {
+      assertLive();
+      validateServerAccessProviderDeclaration(declaration);
+      if (
+        serverAccessProviders.has(declaration.id) ||
+        listServerAccessProviders().some(
+          (entry) =>
+            entry.provider.id === declaration.id && entry.pluginId !== pluginId,
+        )
+      ) {
+        throw new Error(
+          `Server access provider "${declaration.id}" is already registered`,
+        );
+      }
+      serverAccessProviders.set(declaration.id, declaration);
+    },
+    recheck() {
+      assertLive();
+      requestServerAccessRecheck(options.pluginId);
+    },
+    bindRelayIdentity(binding) {
+      assertLive();
+      if (options.relayIdentity === null) {
+        throw new Error(
+          "bb.experimental_serverAccess.bindRelayIdentity is only available to the built-in Connect plugin",
+        );
+      }
+      return options.relayIdentity.bind(binding);
+    },
+    hasRelayIdentity() {
+      assertLive();
+      if (options.relayIdentity === null) {
+        throw new Error(
+          "bb.experimental_serverAccess.hasRelayIdentity is only available to the built-in Connect plugin",
+        );
+      }
+      return options.relayIdentity.has();
+    },
+  };
 
   const enrollmentApi: MachineEnrollments = {
     clearPending(key) {

@@ -54,6 +54,7 @@ import { registerInternalHostRoutes } from "./internal/hosts.js";
 import { registerInternalInteractiveRequestRoutes } from "./internal/interactive-requests.js";
 import { registerInternalPluginHostArtifactRoutes } from "./internal/plugin-host-artifacts.js";
 import { registerInternalSessionRoutes } from "./internal/session.js";
+import { registerInternalRelayTargetRoutes } from "./internal/relay-targets.js";
 import { registerInternalSkillRoutes } from "./internal/skills.js";
 import { registerInternalToolCallRoutes } from "./internal/tool-calls.js";
 import {
@@ -784,6 +785,7 @@ export function createApp(
     "/internal/session/tool-call",
     "/internal/session/interactive-request",
     "/internal/session/interactive-request/interrupt",
+    "/internal/relay/targets/remove",
   ]) {
     app.use(path, serverMoveWriteFreezeMiddleware(daemonWriteFreezeState));
   }
@@ -841,6 +843,7 @@ export function createApp(
     pending: pendingServerMove,
     serverMove,
   });
+  registerInternalRelayTargetRoutes(internalApi, deps);
   registerInternalSkillRoutes(internalApi, deps);
   registerInternalPluginHostArtifactRoutes(internalApi, deps);
   registerInternalEventRoutes(internalApi, deps);

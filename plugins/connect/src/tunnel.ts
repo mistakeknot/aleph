@@ -64,6 +64,11 @@ interface ConnectTunnelOptions {
   getLoopbackBaseUrl: () => string;
   log: PluginLogger;
   onStatusChange?: (status: ConnectStatus) => void;
+  bindRelayIdentity?: (binding: {
+    baseUrl: string;
+    ownerUserId: string;
+    serverId: string;
+  }) => void;
 }
 
 export class ConnectTunnel {
@@ -133,6 +138,11 @@ export class ConnectTunnel {
         credential: redeemed.credential,
       };
       await this.options.store.write(credential);
+      this.options.bindRelayIdentity?.({
+        baseUrl,
+        ownerUserId: redeemed.ownerUserId,
+        serverId: redeemed.serverId,
+      });
       this.credential = credential;
       this.lastError = null;
       this.reconnect();

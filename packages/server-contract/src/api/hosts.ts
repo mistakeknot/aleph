@@ -116,6 +116,17 @@ export type HostRetryUpdateResponse = z.infer<
   typeof hostRetryUpdateResponseSchema
 >;
 
+export type HostRelayTargetsResponse = {
+  targets: {
+    createdAt: number;
+    projectId: string;
+    threadId: string;
+    threadTitle: string | null;
+  }[];
+};
+
+export type HostRelayTargetResponse = { ok: true };
+
 export const hostPathsExistRequestSchema = pathsExistRequestSchema;
 export type HostPathsExistRequest = PathsExistRequest;
 

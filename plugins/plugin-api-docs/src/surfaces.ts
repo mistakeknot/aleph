@@ -1058,6 +1058,7 @@ export const SURFACE_GROUPS: SurfaceGroup[] = [
         bullets: [
           "Register bb.experimental_serverAccess with picker copy, availability (including an optional public serverUrl), idempotent acquire and release",
           "Call recheck when access is gained or lost; refreshed configuration checks availability for Machines settings, manual setup and creation banners",
+          "Call bindRelayIdentity and hasRelayIdentity (built-in Connect plugin only) to record the paired server and owner account for relay-target human assertions",
           "Return { id, serverUrl, headers? }; machines attach headers to all server requests without provider-specific redemption",
           "Choose a General default; core retains the selection for each machine; automatic selection uses the first registered provider, or direct when none are registered",
           "Use the Server URL reachable by machines setting or BB_EXTERNAL_URL fallback; the URL is not a reachability guarantee",

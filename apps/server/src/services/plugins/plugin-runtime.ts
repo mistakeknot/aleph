@@ -98,6 +98,10 @@ import type {
   PluginWireLookup,
   ServiceRuntime,
 } from "./plugin-service-internal.js";
+import {
+  bindConnectRelayIdentity,
+  hasConnectRelayIdentity,
+} from "../relay-management/connect-binding.js";
 import { createKeyedLock } from "../lib/async-deduper.js";
 import { runEventLoopWork } from "../system/event-loop-work.js";
 import { abortPluginToolCallsForPlugin } from "./plugin-tool-calls.js";
@@ -1656,6 +1660,23 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
       logger: deps.logger,
       db: deps.db,
       dataDir: deps.dataDir,
+      relayIdentity:
+        row.source === "builtin:connect"
+          ? {
+              bind: (binding) =>
+                bindConnectRelayIdentity(
+                  {
+                    db: deps.db,
+                    hub: {
+                      notifyThread: (threadId, kinds) =>
+                        deps.hub.notifyThread?.(threadId, kinds),
+                    },
+                  },
+                  binding,
+                ),
+              has: () => hasConnectRelayIdentity({ db: deps.db }),
+            }
+          : null,
       getSdk: () => boundSdk,
       getMachineEnrollments: () => {
         if (!context.machineEnrollments)

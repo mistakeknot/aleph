@@ -66,6 +66,9 @@ export default async function plugin(bb: BbPluginApi) {
     defaultBaseUrl: resolveDefaultConnectBaseUrl(process.env),
     getLoopbackBaseUrl,
     log: bb.log,
+    bindRelayIdentity: (binding) => {
+      bb.experimental_serverAccess.bindRelayIdentity(binding);
+    },
     onStatusChange: (status) => {
       bb.realtime.publish(CONNECT_REALTIME_CHANNEL, status);
       recheckServerAccess(status);

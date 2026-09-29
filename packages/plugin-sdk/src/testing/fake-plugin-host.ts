@@ -1515,6 +1515,14 @@ function createFakePluginHostInternal(
         assertLive();
         requestedDrains += 1;
       },
+      bindRelayIdentity() {
+        assertLive();
+        return { status: "unsupported_runtime" };
+      },
+      hasRelayIdentity() {
+        assertLive();
+        return false;
+      },
     },
     status,
     server,

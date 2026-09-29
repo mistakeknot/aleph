@@ -51,6 +51,7 @@ import {
 import { getMachineEnrollmentService } from "../services/machines/machine-services.js";
 import { manualHostCommand } from "../services/machines/manual-provider.js";
 import { prepareReconnect } from "../services/machines/reconnect.js";
+import { registerRelayTargetRoutes } from "./relay-targets.js";
 import { emitPluginHostDeleted } from "../services/plugins/plugin-thread-events.js";
 
 const PROVIDER_CLI_INSTALL_TIMEOUT_MS = 15 * 60 * 1000;
@@ -127,6 +128,8 @@ export function registerHostRoutes(
       new ApiError(400, "invalid_request", message),
   });
   const routes = publicApiRoutes.hosts;
+
+  registerRelayTargetRoutes(app, deps);
 
   post(routes.create, async (context, payload) => {
     assertHostManagementAllowed(context);

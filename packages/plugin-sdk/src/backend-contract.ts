@@ -487,6 +487,20 @@ export interface PluginServerAccess {
    * which re-checks availability for Machines settings and creation banners.
    */
   recheck(): void;
+  /**
+   * Record which Connect account and server this install is paired with, so
+   * core can verify gate-signed human assertions for relay targets. Only the
+   * built-in Connect plugin may call it; any other plugin gets an error.
+   * A binding that differs from the current one, or an unsupported base URL
+   * or missing identity, removes every relay target.
+   */
+  bindRelayIdentity(binding: {
+    baseUrl: string;
+    ownerUserId: string;
+    serverId: string;
+  }): { status: "bound" | "unchanged" | "unsupported_runtime" };
+  /** Whether core holds a Connect relay binding. Only the built-in Connect plugin may call it. */
+  hasRelayIdentity(): boolean;
 }
 
 export interface PluginMachines extends MachineBootstrapApi {

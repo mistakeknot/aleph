@@ -36,7 +36,16 @@ export function resolveDefaultConnectBaseUrl(env: NodeJS.ProcessEnv): string {
 interface RedeemedCredential {
   credential: string;
   handle: string;
+  ownerUserId: string;
+  serverId: string;
 }
+
+const redeemResponseSchema = z.object({
+  credential: z.string(),
+  handle: z.string(),
+  ownerUserId: z.string().optional(),
+  serverId: z.string().optional(),
+});
 
 export type ConnectPairErrorCode =
   | "invalid_code"
@@ -94,8 +103,13 @@ export async function redeemConnectCode(args: {
       `Redeem failed (${res.status})${body.error ? `: ${body.error}` : ""}`,
     );
   }
-  const data = (await res.json()) as RedeemedCredential;
-  return { credential: data.credential, handle: data.handle };
+  const data = redeemResponseSchema.parse(await res.json());
+  return {
+    credential: data.credential,
+    handle: data.handle,
+    ownerUserId: data.ownerUserId ?? "",
+    serverId: data.serverId ?? "",
+  };
 }
 
 export async function redeemMachineCode(args: {

@@ -80,6 +80,7 @@ import {
   type EmptyInput,
 } from "@bb/hono-typed-routes";
 import type {
+  PathHostAndThread,
   PathId,
   PathProjectId,
   PathPreviewAndFilePath,
@@ -154,6 +155,8 @@ import type {
   HostProviderCliInstallEvent,
   HostProviderCliInstallRequest,
   HostProviderCliStatusResponse,
+  HostRelayTargetResponse,
+  HostRelayTargetsResponse,
   HostRetryUpdateResponse,
   ProjectAttachmentContentQuery,
   ProjectAttachmentUploadForm,
@@ -912,6 +915,24 @@ export const publicApiRoutes = {
       method: "delete",
       request: noRequest<PathId>(),
       response: jsonResponse<{ ok: true }>(),
+    }),
+    relayTargets: defineRoute({
+      path: "/hosts/:id/relay-targets",
+      method: "get",
+      request: noRequest<PathId>(),
+      response: jsonResponse<HostRelayTargetsResponse>(),
+    }),
+    addRelayTarget: defineRoute({
+      path: "/hosts/:id/relay-targets/:threadId",
+      method: "put",
+      request: noRequest<PathHostAndThread>(),
+      response: jsonResponse<HostRelayTargetResponse>(),
+    }),
+    removeRelayTarget: defineRoute({
+      path: "/hosts/:id/relay-targets/:threadId",
+      method: "delete",
+      request: noRequest<PathHostAndThread>(),
+      response: jsonResponse<HostRelayTargetResponse>(),
     }),
     directory: defineRoute({
       path: "/hosts/:id/directory",

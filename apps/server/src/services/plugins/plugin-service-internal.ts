@@ -91,7 +91,8 @@ export interface PluginServiceDeps {
   hub: Pick<
     NotificationHub,
     "getDaemonSessionIdForHost" | "notifyPluginSignal" | "notifySystem"
-  >;
+  > &
+    Partial<Pick<NotificationHub, "notifyThread">>;
   logger: ServerLogger;
   telemetry: TelemetryService;
   pendingInteractions?: Pick<

@@ -547,6 +547,21 @@ export * from "./project-attachments.js";
 export * from "./project-attachment-backfill.js";
 
 export {
+  CONNECT_BINDING_ROW_ID,
+  CONNECT_REBIND_CANCEL_REASON,
+  clearConnectBinding,
+  getConnectBinding,
+  recordGateAssertionUse,
+  replaceConnectBinding,
+  sweepExpiredGateAssertionUses,
+} from "./connect-binding.js";
+export type {
+  ConnectBindingInput,
+  ConnectBindingRow,
+  ReplaceConnectBindingResult,
+} from "./connect-binding.js";
+
+export {
   RELAY_CLEANUP_CLAIM_MS,
   cancelRelayForHostInTransaction,
   cancelRelayForHostTargetsInTransaction,
@@ -557,11 +572,16 @@ export {
   getRelayMessage,
   getRelayTarget,
   insertRelayTarget,
+  isActiveHostId,
+  isLiveThreadId,
+  listRelayTargetDetailsForHost,
+  listRelayTargetsForHost,
   takeOverRelayAttemptCleanupInTransaction,
 } from "./relay.js";
 export type {
   RelayCancellationResult,
   RelayCleanupClaimOptions,
   RelayMessageRow,
+  RelayTargetDetailRow,
   RelayTargetRow,
 } from "./relay.js";
