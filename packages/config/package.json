@@ -162,6 +162,11 @@
       "source": "./src/launch-guard.ts",
       "types": "./src/launch-guard.ts",
       "default": "./src/launch-guard.ts"
+    },
+    "./effective-policy": {
+      "source": "./src/effective-policy.ts",
+      "types": "./src/effective-policy.ts",
+      "default": "./src/effective-policy.ts"
     }
   },
   "scripts": {

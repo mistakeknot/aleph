@@ -1,3 +1,8 @@
+import {
+  failClosedPolicyVerifier,
+  pluginPolicyDisabledDetail,
+  resolveAlephUserDataDir,
+} from "@bb/config/effective-policy";
 import { operationEnvironment } from "./operation-environment.js";
 import { fork, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -438,6 +443,15 @@ export class PluginHostManager {
       this.retireGeneration(command.pluginId, current.generation);
       await this.stopWorker(current, "host artifact generation replaced");
     }
+
+    const policyDetail = pluginPolicyDisabledDetail({
+      dataDir: this.options.dataDir,
+      pluginId: command.pluginId,
+      readDatabaseCopy: () => null,
+      userDataDir: resolveAlephUserDataDir(process.env),
+      verifier: failClosedPolicyVerifier,
+    });
+    if (policyDetail !== null) throw new Error(policyDetail);
 
     const artifactPath = await this.materializeArtifact(command);
     const dataDir = await ensurePluginProcessDataDir({

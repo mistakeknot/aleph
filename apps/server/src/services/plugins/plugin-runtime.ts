@@ -1,3 +1,8 @@
+import {
+  failClosedPolicyVerifier,
+  pluginPolicyDisabledDetail,
+  resolveAlephUserDataDir,
+} from "@bb/config/effective-policy";
 import type { MachineEnrollmentService } from "../machines/machine-services.js";
 import { AsyncLocalStorage } from "node:async_hooks";
 import {
@@ -1561,6 +1566,22 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
   }
 
   async function loadOne(row: InstalledPluginRow): Promise<string | null> {
+    const policyDetail = row.enabled
+      ? pluginPolicyDisabledDetail({
+          dataDir: deps.dataDir,
+          pluginId: row.id,
+          readDatabaseCopy: () => null,
+          userDataDir: resolveAlephUserDataDir(process.env),
+          verifier: failClosedPolicyVerifier,
+        })
+      : null;
+    if (policyDetail !== null) {
+      await disposeOne(row.id);
+      await populateIdentity(row);
+      setStatus(row.id, "disabled", policyDetail);
+      logger.warn(`plugin ${row.id} not loaded (policy): ${policyDetail}`);
+      return null;
+    }
     const held = await heldDetail(row);
     if (held !== null) {
       await disposeOne(row.id);

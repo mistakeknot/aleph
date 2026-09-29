@@ -26,6 +26,7 @@ import {
   APP_SURFACE_DESKTOP,
   APP_SURFACE_ENV_NAME,
 } from "@bb/config/app-surface";
+import { ALEPH_USER_DATA_DIR_ENV_NAME } from "@bb/config/effective-policy";
 import {
   exitCodeForLaunchFailure,
   runLaunchGuard,
@@ -2743,6 +2744,7 @@ async function runDesktopApp(): Promise<void> {
     }
   }
   app.setName(applicationName);
+  process.env[ALEPH_USER_DATA_DIR_ENV_NAME] = app.getPath("userData");
   installAboutPanel(applicationName);
 
   if (!app.requestSingleInstanceLock()) {
