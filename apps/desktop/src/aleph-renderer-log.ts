@@ -1,14 +1,14 @@
-import { createHash } from "node:crypto";
 import { appendFile, mkdir, open, readdir, rm, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
   DIAGNOSTIC_CONSOLE_CODES,
   DIAGNOSTIC_CONSOLE_FALLBACK_CODE,
-  DIAGNOSTIC_CONSOLE_SOURCE_PATTERN,
+  DIAGNOSTIC_CONSOLE_ASSET_PATTERN,
   bbDesktopDiagnosticEventSchema,
   type BbDesktopDiagnosticEvent,
   type DiagnosticConsolePrefix,
+  type DiagnosticConsoleSourceCategory,
 } from "@bb/desktop-contract";
 
 export const RENDERER_LOG_RETENTION_DAYS = 5;
@@ -42,14 +42,12 @@ export type RendererConsoleLevel = "debug" | "info" | "warning" | "error";
 
 export interface RendererConsoleRecord {
   code: string;
-  fingerprint?: string;
   level: "warning" | "error";
   line: number | null;
   prefix?: DiagnosticConsolePrefix | null;
-  source: string | null;
+  source: string;
 }
 
-const FINGERPRINT_MAX_CHARS = 200;
 const CONSOLE_PREFIXES: ReadonlyArray<
   readonly [string, DiagnosticConsolePrefix]
 > = [
@@ -72,42 +70,49 @@ export function classifyRendererConsolePrefix(
   return CONSOLE_PREFIXES.find(([lead]) => start.startsWith(lead))?.[1] ?? null;
 }
 
-export function maskRendererConsoleMessage(message: string): string {
-  return (
-    message
-      .trimStart()
-      .split(/\r?\n/, 1)[0]
-      ?.replace(/(["'`])(?:(?!\1).)*\1/g, "?")
-      .replace(/\b[a-z][a-z0-9+.-]*:\/\/\S*/gi, "?")
-      .replace(
-        /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi,
-        "?",
-      )
-      .replace(/(?:[A-Za-z]:\\|~?\/)\S*/g, "?")
-      .replace(/[\w.-]+(?:\/[\w.-]+)+/g, "?")
-      .replace(/\b(?:0x)?[0-9a-f]{8,}\b/gi, "?")
-      .replace(/[A-Za-z0-9_-]{20,}/g, "?")
-      .replace(/\d+/g, "?")
-      .slice(0, FINGERPRINT_MAX_CHARS) ?? ""
-  );
-}
-
-export function fingerprintRendererConsoleMessage(message: string): string {
-  return createHash("sha256")
-    .update(maskRendererConsoleMessage(message))
-    .digest("hex")
-    .slice(0, 8);
-}
-
 export function sanitizeRendererConsoleSource(
   sourceId: unknown,
-): string | null {
-  if (typeof sourceId !== "string") {
-    return null;
+  pageUrl: unknown,
+): { hashedAsset: boolean; source: string } {
+  const category = (
+    source: DiagnosticConsoleSourceCategory,
+  ): { hashedAsset: boolean; source: string } => ({
+    hashedAsset: false,
+    source,
+  });
+  if (typeof sourceId !== "string" || sourceId === "") {
+    return category("inline");
   }
-  const withoutQuery = sourceId.split(/[?#]/, 1)[0] ?? "";
-  const name = withoutQuery.split(/[\\/]/).pop() ?? "";
-  return DIAGNOSTIC_CONSOLE_SOURCE_PATTERN.test(name) ? name : null;
+  let source: URL;
+  try {
+    source = new URL(sourceId);
+  } catch {
+    return category("external");
+  }
+  if (
+    source.protocol === "chrome-extension:" ||
+    source.protocol === "devtools:"
+  ) {
+    return category("extension");
+  }
+  let page: URL | null = null;
+  try {
+    page = typeof pageUrl === "string" ? new URL(pageUrl) : null;
+  } catch {
+    page = null;
+  }
+  if (
+    page === null ||
+    source.origin === "null" ||
+    source.origin !== page.origin
+  ) {
+    return category("external");
+  }
+  const match = /^\/assets\/([^/]+)$/.exec(source.pathname);
+  const name = match?.[1] ?? "";
+  return DIAGNOSTIC_CONSOLE_ASSET_PATTERN.test(name)
+    ? { hashedAsset: true, source: name }
+    : category("app-other");
 }
 
 export function classifyRendererConsoleMessage(message: string): string {
@@ -123,6 +128,7 @@ export function classifyRendererConsoleMessage(message: string): string {
 export function buildRendererConsoleRecord(args: {
   level: RendererConsoleLevel;
   message: string;
+  pageUrl?: unknown;
   sourceId?: unknown;
   lineNumber?: unknown;
 }): RendererConsoleRecord | null {
@@ -130,21 +136,25 @@ export function buildRendererConsoleRecord(args: {
     return null;
   }
   const code = classifyRendererConsoleMessage(args.message);
+  const { hashedAsset, source } = sanitizeRendererConsoleSource(
+    args.sourceId,
+    args.pageUrl,
+  );
   const attribution = {
     line:
+      hashedAsset &&
       typeof args.lineNumber === "number" &&
       Number.isInteger(args.lineNumber) &&
       args.lineNumber >= 0
         ? args.lineNumber
         : null,
-    source: sanitizeRendererConsoleSource(args.sourceId),
+    source,
   };
   if (code !== DIAGNOSTIC_CONSOLE_FALLBACK_CODE) {
     return { code, level: args.level, ...attribution };
   }
   return {
     code,
-    fingerprint: fingerprintRendererConsoleMessage(args.message),
     level: args.level,
     ...attribution,
     prefix: classifyRendererConsolePrefix(args.message),

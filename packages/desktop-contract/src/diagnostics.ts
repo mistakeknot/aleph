@@ -86,8 +86,15 @@ export const DIAGNOSTIC_CONSOLE_PREFIXES = [
   "unhandled-rejection",
   "vite",
 ] as const;
-export const DIAGNOSTIC_CONSOLE_SOURCE_PATTERN = /^[A-Za-z0-9_.-]{1,80}\.m?js$/;
-export const DIAGNOSTIC_CONSOLE_FINGERPRINT_PATTERN = /^[0-9a-f]{8}$/;
+export const DIAGNOSTIC_CONSOLE_SOURCE_CATEGORIES = [
+  "app-other",
+  "extension",
+  "inline",
+  "external",
+] as const;
+// Vite hashed chunk names served from /assets/, e.g. index-utyJg6A4.js.
+export const DIAGNOSTIC_CONSOLE_ASSET_PATTERN =
+  /^[A-Za-z0-9_.]{1,40}(-[A-Za-z0-9_.]{1,40}){0,5}-[A-Za-z0-9_-]{8}\.js$/;
 
 const CLOSE_REASON_BY_SERVER_TEXT: ReadonlyMap<string, DiagnosticCloseReason> =
   new Map([
@@ -107,6 +114,8 @@ const CLOSE_REASON_BY_SERVER_TEXT: ReadonlyMap<string, DiagnosticCloseReason> =
 
 export type DiagnosticConsolePrefix =
   (typeof DIAGNOSTIC_CONSOLE_PREFIXES)[number];
+export type DiagnosticConsoleSourceCategory =
+  (typeof DIAGNOSTIC_CONSOLE_SOURCE_CATEGORIES)[number];
 export type DiagnosticCloseReason = (typeof DIAGNOSTIC_CLOSE_REASONS)[number];
 export type DiagnosticQueryName = (typeof DIAGNOSTIC_QUERY_NAMES)[number];
 export type DiagnosticRuntimeStatus =
@@ -161,14 +170,13 @@ export const bbDesktopDiagnosticConsoleEntrySchema = z.object({
   kind: z.literal("console"),
   code: bbDesktopDiagnosticConsoleCodeSchema,
   count: z.number().int().positive().optional(),
-  fingerprint: z
-    .string()
-    .regex(DIAGNOSTIC_CONSOLE_FINGERPRINT_PATTERN)
-    .optional(),
   level: z.enum(["warning", "error"]),
   line: z.number().int().nonnegative().nullable(),
   prefix: z.enum(DIAGNOSTIC_CONSOLE_PREFIXES).nullable().optional(),
-  source: z.string().regex(DIAGNOSTIC_CONSOLE_SOURCE_PATTERN).nullable(),
+  source: z.union([
+    z.string().regex(DIAGNOSTIC_CONSOLE_ASSET_PATTERN),
+    z.enum(DIAGNOSTIC_CONSOLE_SOURCE_CATEGORIES),
+  ]),
 });
 export type BbDesktopDiagnosticConsoleEntry = z.infer<
   typeof bbDesktopDiagnosticConsoleEntrySchema

@@ -6,6 +6,7 @@ import {
   utimes,
   writeFile,
 } from "node:fs/promises";
+import { existsSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -198,11 +199,10 @@ describe("renderer log redaction", () => {
     for (const message of reviewerStrings) {
       expect(buildRendererConsoleRecord({ level: "error", message })).toEqual({
         code: "console_error",
-        fingerprint: expect.stringMatching(/^[0-9a-f]{8}$/),
         level: "error",
         line: null,
         prefix: null,
-        source: null,
+        source: "inline",
       });
     }
     expect(
@@ -214,7 +214,7 @@ describe("renderer log redaction", () => {
       code: "TypeError",
       level: "warning",
       line: null,
-      source: null,
+      source: "inline",
     });
     for (const message of [
       "SECRET: attachment",
@@ -223,11 +223,10 @@ describe("renderer log redaction", () => {
     ]) {
       expect(buildRendererConsoleRecord({ level: "error", message })).toEqual({
         code: "console_error",
-        fingerprint: expect.stringMatching(/^[0-9a-f]{8}$/),
         level: "error",
         line: null,
         prefix: null,
-        source: null,
+        source: "inline",
       });
     }
     expect(
@@ -238,23 +237,18 @@ describe("renderer log redaction", () => {
     ).toBe("console_error");
   });
 
-  it("fingerprints are stable across masked variants and differ across shapes", () => {
-    const fingerprint = (message: string) =>
-      buildRendererConsoleRecord({ level: "error", message })?.fingerprint;
-    expect(
-      fingerprint('Failed to load "a.png" after 3 tries at /x/y/1.ts'),
-    ).toBe(fingerprint('Failed to load "b.png" after 99 tries at /p/q/7.ts'));
-    expect(
-      fingerprint("lookup 3f2a9c1d-1111-2222-3333-444455556666 failed"),
-    ).toBe(fingerprint("lookup 0a0a0a0a-9999-8888-7777-666655554444 failed"));
-    expect(fingerprint("fetch https://a.example/x?y=1 failed")).toBe(
-      fingerprint("fetch https://b.example/z failed"),
-    );
-    expect(fingerprint("boom 1\nsecond line one")).toBe(
-      fingerprint("boom 2\nanother second line"),
-    );
-    expect(fingerprint("boom 1")).not.toBe(fingerprint("different shape 1"));
-    expect(fingerprint("x".repeat(500))).toBe(fingerprint("x".repeat(300)));
+  it("stores nothing derived from message content", () => {
+    const record = buildRendererConsoleRecord({
+      level: "error",
+      message: "The private prompt says hello",
+    });
+    expect(Object.keys(record ?? {}).sort()).toEqual([
+      "code",
+      "level",
+      "line",
+      "prefix",
+      "source",
+    ]);
   });
 
   it("classifies only allowlisted leading patterns as prefixes", () => {
@@ -284,32 +278,98 @@ describe("renderer log redaction", () => {
     expect(prefix("see Warning: later in the text")).toBeNull();
   });
 
-  it("gives a null source for non-allowlisted or malformed source ids", () => {
-    const source = (sourceId: unknown) =>
-      buildRendererConsoleRecord({ level: "error", message: "m", sourceId })
-        ?.source;
-    expect(source("https://h/assets/index-Ab12.js?x=1#y")).toBe(
-      "index-Ab12.js",
-    );
-    expect(source("app://bundle/vendor.mjs")).toBe("vendor.mjs");
-    expect(source("https://h/a/app.js.map")).toBeNull();
-    expect(source("https://h/a/page.html")).toBeNull();
-    expect(source("https://h/a/we ird.js")).toBeNull();
-    expect(source(`${"a".repeat(90)}.js`)).toBeNull();
-    expect(source("")).toBeNull();
-    expect(source(undefined)).toBeNull();
-    expect(source(42)).toBeNull();
-  });
+  describe("source attribution", () => {
+    const pageUrl = "https://app.example/index.html";
+    const source = (sourceId: unknown, lineNumber: unknown = 7) =>
+      buildRendererConsoleRecord({
+        level: "error",
+        lineNumber,
+        message: "m",
+        pageUrl,
+        sourceId,
+      });
 
-  it("keeps line numbers only when they are non-negative integers", () => {
-    const line = (lineNumber: unknown) =>
-      buildRendererConsoleRecord({ level: "error", message: "m", lineNumber })
-        ?.line;
-    expect(line(0)).toBe(0);
-    expect(line(17)).toBe(17);
-    for (const bad of [-1, 1.5, Number.NaN, "3", null, undefined]) {
-      expect(line(bad)).toBeNull();
-    }
+    it("keeps a same-origin hashed asset name and its line", () => {
+      for (const name of [
+        "index-utyJg6A4.js",
+        "workspace-checkout-display-Cf17AEC5.js",
+        "cytoscape.esm-DMHzoK_X.js",
+        "project-default-execution-options-query--8jca_yV.js",
+      ]) {
+        expect(
+          source(`https://app.example/assets/${name}?x=1#y`),
+        ).toMatchObject({ line: 7, source: name });
+      }
+    });
+
+    it("accepts every real bundle chunk name", () => {
+      const dir =
+        "/home/mk/.bb-machines/autarch.getbb.app/npm/lib/node_modules/bb-app/app/dist/assets";
+      if (!existsSync(dir)) {
+        return;
+      }
+      for (const name of readdirSync(dir).filter((n) => n.endsWith(".js"))) {
+        expect(source(`https://app.example/assets/${name}`)?.source).toBe(name);
+      }
+    });
+
+    it("never writes non-hashed basenames, under any path or origin", () => {
+      for (const sourceId of [
+        "https://app.example/assets/private-tax-return.js",
+        "https://app.example/assets/sk_live_1234567890.js",
+        "https://app.example/x/assets/index-utyJg6A4.js",
+        "https://app.example/private-tax-return.js",
+        "https://evil.example/sk_live_1234567890.js",
+        "file:///Users/mk/private-tax-return.js",
+        "app://bundle/sk_live_1234567890.mjs",
+      ]) {
+        const record = source(sourceId);
+        expect(JSON.stringify(record)).not.toMatch(
+          /private|sk_live|evil|Users/,
+        );
+        expect(record?.line).toBeNull();
+      }
+      expect(
+        source("https://app.example/assets/private-tax-return.js"),
+      ).toMatchObject({ source: "app-other" });
+      expect(source("https://app.example/private-tax-return.js")).toMatchObject(
+        { source: "app-other" },
+      );
+    });
+
+    it("uses fixed categories for other origins and kinds", () => {
+      expect(
+        source("https://other.example/assets/x-ABCDEFGH.js"),
+      ).toMatchObject({ line: null, source: "external" });
+      expect(source("file:///a/assets/x-ABCDEFGH.js")).toMatchObject({
+        source: "external",
+      });
+      expect(source("not a url")).toMatchObject({ source: "external" });
+      expect(source("chrome-extension://abc/content.js")).toMatchObject({
+        line: null,
+        source: "extension",
+      });
+      expect(source("devtools://devtools/bundled/x.js")).toMatchObject({
+        source: "extension",
+      });
+      expect(source("")).toMatchObject({ line: null, source: "inline" });
+      expect(source(undefined)).toMatchObject({ source: "inline" });
+      expect(source(42)).toMatchObject({ source: "inline" });
+      const noPage = buildRendererConsoleRecord({
+        level: "error",
+        message: "m",
+        sourceId: "https://app.example/assets/x-ABCDEFGH.js",
+      });
+      expect(noPage?.source).toBe("external");
+    });
+
+    it("keeps line numbers only for hashed assets and valid integers", () => {
+      const asset = "https://app.example/assets/index-utyJg6A4.js";
+      expect(source(asset, 0)?.line).toBe(0);
+      for (const bad of [-1, 1.5, Number.NaN, "3", null]) {
+        expect(source(asset, bad)?.line).toBeNull();
+      }
+    });
   });
 
   it("drops info and debug console messages", () => {
@@ -421,6 +481,7 @@ describe("renderer log redaction", () => {
         writer,
       });
       log.attachConsole({
+        getURL: () => "https://x/index.html",
         on: (_name: string, handler: (event: object) => void) => {
           consoleHandlers.push(handler);
         },
@@ -475,7 +536,7 @@ describe("renderer log redaction", () => {
             level: "error",
             lineNumber: 12,
             message,
-            sourceId: `https://x/app.js?auth=${opaque}`,
+            sourceId: `https://x/assets/app-AbCd1234.js?auth=${opaque}`,
           });
         }
       }
@@ -487,7 +548,7 @@ describe("renderer log redaction", () => {
       for (const fragment of leakedFragments) {
         expect(text).not.toContain(fragment);
       }
-      expect(text).toContain('"source":"app.js"');
+      expect(text).toContain('"source":"app-AbCd1234.js"');
       expect(text).toContain('"line":12');
       expect(text).not.toContain("https://");
       expect(text).not.toContain("auth=");
@@ -501,9 +562,9 @@ describe("renderer log redaction", () => {
         `something odd ${bearer} in /Users/mk/private-tax-return/app.ts?key=secret`,
       ];
       const sources = [
-        "https://host.example/assets/index-Ab12.js?auth=abc#frag",
-        "file:///Users/mk/private-tax-return/main.mjs",
-        "https://host.example/secret-dir/notes.txt",
+        "https://x/assets/index-Ab123456.js?auth=abc#frag",
+        "file:///Users/mk/private-tax-return/main.js",
+        "https://x/secret-dir/notes.txt",
       ];
       for (const handler of consoleHandlers) {
         messages.forEach((message, index) => {
@@ -526,29 +587,27 @@ describe("renderer log redaction", () => {
         {
           code: "console_error",
           count: 1,
-          fingerprint: expect.stringMatching(/^[0-9a-f]{8}$/),
           kind: "console",
           level: "error",
           line: 40,
           prefix: "react-key-warning",
-          source: "index-Ab12.js",
+          source: "index-Ab123456.js",
         },
         {
           code: "TypeError",
           kind: "console",
           level: "error",
-          line: 41,
-          source: "main.mjs",
+          line: null,
+          source: "external",
         },
         {
           code: "console_error",
           count: 2,
-          fingerprint: expect.stringMatching(/^[0-9a-f]{8}$/),
           kind: "console",
           level: "error",
-          line: 42,
+          line: null,
           prefix: null,
-          source: null,
+          source: "app-other",
         },
       ]);
       for (const fragment of [

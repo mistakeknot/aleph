@@ -15,7 +15,7 @@ interface AlephRendererLogArgs {
 }
 
 export interface AlephRendererLog {
-  attachConsole(webContents: Pick<WebContents, "on">): void;
+  attachConsole(webContents: Pick<WebContents, "on" | "getURL">): void;
 }
 
 interface ConsoleMessageDetails {
@@ -53,6 +53,7 @@ export function registerAlephRendererLog({
           level: details.level,
           lineNumber: details.lineNumber,
           message: details.message,
+          pageUrl: webContents.getURL(),
           sourceId: details.sourceId,
         });
         if (record === null) {
