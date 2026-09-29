@@ -248,5 +248,5 @@ export function usePinnedClassWriter<T>(
     },
     [scopedAtom, store],
   );
-  return { pin, commit };
+  return useMemo(() => ({ pin, commit }), [pin, commit]);
 }

@@ -175,4 +175,22 @@ describe("layout profiles", () => {
       ),
     ).toBe("41");
   });
+
+  it("the pinned writer is referentially stable across rerenders", () => {
+    const store = createStore();
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <Provider store={store}>{children}</Provider>
+    );
+    const { result, rerender } = renderHook(
+      () => usePinnedClassWriter(secondaryPanelWidthPercentAtom),
+      { wrapper },
+    );
+    const first = result.current;
+    act(() => first.pin());
+    rerender();
+    rerender();
+    expect(result.current).toBe(first);
+    expect(result.current.pin).toBe(first.pin);
+    expect(result.current.commit).toBe(first.commit);
+  });
 });
