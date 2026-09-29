@@ -19,6 +19,7 @@ const ITEM_KEYS = Array.from({ length: 100 }, (_, index) => `row-${index}`);
 
 let scrollElement: HTMLDivElement;
 let itemHeights = new Map<number, number>();
+let scheduledTimeouts: number[] = [];
 
 function rect(top: number, height: number): DOMRect {
   return {
@@ -89,6 +90,15 @@ function renderWindowedItems(options?: {
 
 beforeEach(() => {
   itemHeights = new Map();
+  scheduledTimeouts = [];
+  const scheduleTimeout = window.setTimeout.bind(window);
+  vi.spyOn(window, "setTimeout").mockImplementation(((
+    ...args: Parameters<typeof window.setTimeout>
+  ) => {
+    const id = scheduleTimeout(...args);
+    scheduledTimeouts.push(id);
+    return id;
+  }) as typeof window.setTimeout);
   scrollElement = document.createElement("div");
   document.body.append(scrollElement);
   Object.defineProperty(scrollElement, "clientWidth", {
@@ -128,6 +138,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
+  for (const id of scheduledTimeouts) window.clearTimeout(id);
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
