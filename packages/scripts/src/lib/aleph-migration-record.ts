@@ -90,10 +90,13 @@ export interface BackCompatCheckResult {
   backCompat: boolean;
   fresh: BackCompatCaseResult;
   predecessorAppliedMigrations: number;
+  predecessorRecordSha256: string;
   successorAppliedMigrations: number;
+  successorRecordSha256: string;
 }
 
 export interface RunBackCompatCheckArgs {
+  includeConnectDb?: boolean;
   predecessorRoot: string;
   successorRoot: string;
   successorSchemaSabotage?: string;
@@ -395,15 +398,21 @@ export function qualifyPair({
       "Refusing to qualify a pair: the reverse back_compat test did not pass both cases.",
     );
   }
+  const predecessorSha = recordSha256(predecessor.record);
+  const successorSha = recordSha256(successor.record);
+  if (check.predecessorRecordSha256 !== predecessorSha) {
+    throw new Error(
+      "Refusing to qualify a pair: the back_compat check was not run against this predecessor record.",
+    );
+  }
+  if (check.successorRecordSha256 !== successorSha) {
+    throw new Error(
+      "Refusing to qualify a pair: the back_compat check was not run against this successor record.",
+    );
+  }
   return {
-    predecessor: {
-      version: predecessor.version,
-      recordSha256: recordSha256(predecessor.record),
-    },
-    successor: {
-      version: successor.version,
-      recordSha256: recordSha256(successor.record),
-    },
+    predecessor: { version: predecessor.version, recordSha256: predecessorSha },
+    successor: { version: successor.version, recordSha256: successorSha },
     evidence: { backCompat: { fresh: true, afterReadyWrite: true } },
   };
 }
@@ -559,6 +568,13 @@ async function runCase(
 export async function runBackCompatCheck(
   args: RunBackCompatCheckArgs,
 ): Promise<BackCompatCheckResult> {
+  const recordArgs = { includeConnectDb: args.includeConnectDb ?? false };
+  const predecessorRecordSha256 = recordSha256(
+    computeMigrationRecord({ ...recordArgs, repoRoot: args.predecessorRoot }),
+  );
+  const successorRecordSha256 = recordSha256(
+    computeMigrationRecord({ ...recordArgs, repoRoot: args.successorRoot }),
+  );
   const fresh = await runCase(args, "fresh");
   const afterReadyWrite = await runCase(args, "after-ready-write");
 
@@ -567,6 +583,8 @@ export async function runBackCompatCheck(
     afterReadyWrite: afterReadyWrite.result,
     backCompat: fresh.result.ok && afterReadyWrite.result.ok,
     predecessorAppliedMigrations: fresh.predecessor.applied,
+    predecessorRecordSha256,
     successorAppliedMigrations: fresh.successor.applied,
+    successorRecordSha256,
   };
 }

@@ -411,4 +411,54 @@ describe("runBackCompatCheck on the actual successor DB", () => {
       }),
     ).toThrow(/back_compat/u);
   }, 120_000);
+  it("binds the reverse-check evidence to the records it was run against", async () => {
+    const predecessorRoot = makePredecessorRoot();
+    const check = await runBackCompatCheck({
+      predecessorRoot,
+      successorRoot: repoRoot,
+      workDir: scratch("aleph-back-compat-bind-"),
+    });
+    const predecessor = computeMigrationRecord({ repoRoot: predecessorRoot });
+    const successor = computeMigrationRecord({ repoRoot });
+
+    expect(check.predecessorRecordSha256).toBe(recordSha256(predecessor));
+    expect(check.successorRecordSha256).toBe(recordSha256(successor));
+
+    const otherSuccessor = cloneRecord(successor);
+    otherSuccessor.hostDaemonProtocolVersion += 1;
+    const otherPredecessor = cloneRecord(predecessor);
+    otherPredecessor.wireContractSha256 = "5".repeat(64);
+
+    expect(() =>
+      qualifyPair({
+        predecessor: { version: "0.5.0", record: predecessor },
+        successor: { version: "0.5.1", record: otherSuccessor },
+        check,
+      }),
+    ).toThrow(/successor/u);
+    expect(() =>
+      qualifyPair({
+        predecessor: { version: "0.5.0", record: otherPredecessor },
+        successor: { version: "0.5.1", record: successor },
+        check,
+      }),
+    ).toThrow(/predecessor/u);
+
+    const qualified = qualifyPair({
+      predecessor: { version: "0.5.0", record: predecessor },
+      successor: { version: "0.5.1", record: successor },
+      check,
+    });
+    expect(
+      deriveDelivery({
+        predecessor,
+        successor: otherSuccessor,
+        pairs: { schema: 1, pairs: [qualified] },
+      }),
+    ).toEqual({
+      delivery: "manual",
+      backCompat: false,
+      reason: "unqualified-difference",
+    });
+  }, 120_000);
 });
