@@ -52,8 +52,9 @@ const useThreadDetailBootstrapMock = vi.hoisted(() =>
   ),
 );
 
-const SIDEBAR_WIDTH_STORAGE_KEY = "bb.sidebar.width";
-const SIDEBAR_OPEN_STORAGE_KEY = "bb.sidebar.open";
+// Aleph: the sidebar width is stored per width class; jsdom (1024px) is "narrow".
+const SIDEBAR_WIDTH_STORAGE_KEY = "aleph.layout.narrow.sidebarWidth";
+const SIDEBAR_OPEN_STORAGE_KEY = "aleph.layout.narrow.sidebarOpen";
 const APP_ROUTE = "/projects/proj_one/threads/thr_one?message=12#event-12";
 const SETTINGS_ROUTE = "/settings/providers/codex?tab=models#preferred";
 const PLUGINS_ROUTE = "/plugins/ui-patterns?tab=settings#source";
