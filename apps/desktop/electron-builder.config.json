@@ -29,13 +29,6 @@
     "package.json",
     "!**/*.map"
   ],
-  "publish": [
-    {
-      "channel": "latest",
-      "provider": "generic",
-      "url": "https://github.com/get-bb/bb/releases/download/desktop-latest/"
-    }
-  ],
   "mac": {
     "category": "public.app-category.developer-tools",
     "minimumSystemVersion": "13.0.0",

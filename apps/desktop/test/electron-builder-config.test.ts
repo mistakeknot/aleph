@@ -15,10 +15,6 @@ import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { z } from "zod";
 import { describe, expect, it } from "vitest";
-import {
-  createDesktopReleaseInfo,
-  DESKTOP_AUTO_UPDATE_FEED_CONFIG,
-} from "../src/desktop-update-provider.js";
 
 const desktopPackageRoot = process.cwd();
 const require = createRequire(resolve(desktopPackageRoot, "package.json"));
@@ -110,15 +106,7 @@ const electronBuilderConfigSchema = z
     appId: z.string().min(1),
     artifactName: z.string().min(1),
     productName: z.string().min(1),
-    publish: z.tuple([
-      z
-        .object({
-          channel: z.enum(["latest", "nightly", "aleph"]),
-          provider: z.literal("generic"),
-          url: z.string().min(1),
-        })
-        .passthrough(),
-    ]),
+    publish: z.undefined(),
     toolsets: z.object({
       appimage: z.literal("1.0.3"),
     }),
@@ -580,24 +568,25 @@ describe("electron-builder signing config", () => {
     }
   });
 
-  it("keeps the updater provider pointed at desktop-latest release assets", async () => {
+  it("declares no update feed in the checked-in config or any channel", async () => {
     const configText = await readFile(
       resolve(desktopPackageRoot, "electron-builder.config.json"),
       "utf8",
     );
-    const config = electronBuilderConfigSchema.parse(JSON.parse(configText));
 
-    expect(config.publish[0]).toMatchObject(DESKTOP_AUTO_UPDATE_FEED_CONFIG);
-    expect(DESKTOP_AUTO_UPDATE_FEED_CONFIG.url).toBe(
-      "https://github.com/get-bb/bb/releases/download/desktop-latest/",
-    );
+    expect(JSON.parse(configText)).not.toHaveProperty("publish");
+    for (const channel of ["latest", "nightly", "aleph"]) {
+      const { config } = await readResolvedConfig({
+        BB_DESKTOP_RELEASE_CHANNEL: channel,
+      });
+      expect(config.publish).toBeUndefined();
+    }
   });
 
   it("creates a separate nightly app identity and update feed", async () => {
     const { config } = await readResolvedConfig({
       BB_DESKTOP_RELEASE_CHANNEL: "nightly",
     });
-    const nightlyRelease = createDesktopReleaseInfo("nightly");
 
     expect(config.appId).toBe("dev.bb.desktop.nightly");
     expect(config.productName).toBe("bb Nightly");
@@ -611,23 +600,17 @@ describe("electron-builder signing config", () => {
     await expect(
       access(resolve(desktopPackageRoot, "assets/icon-nightly.png")),
     ).resolves.toBeUndefined();
-    expect(config.publish[0]).toEqual({
-      channel: "nightly",
-      provider: "generic",
-      url: nightlyRelease.updateReleaseBaseUrl,
-    });
   });
 
-  it("renames the packaged app to Aleph without changing its bundle id", async () => {
+  it("renames the packaged app to Aleph under its own bundle id", async () => {
     const { config } = await readResolvedConfig({
       BB_DESKTOP_RELEASE_CHANNEL: "aleph",
     });
 
-    expect(config.appId).toBe("dev.bb.desktop");
+    expect(config.appId).toBe("com.generalsystemsventures.aleph");
     expect(config.productName).toBe("Aleph");
     expect(config.artifactName).toBe("Aleph-${version}-${arch}.${ext}");
     expect(config.linux.executableName).toBe("aleph");
-    expect(config.publish[0].channel).toBe("aleph");
   });
 
   it("packages the Aleph build with General Systems Ventures as the Info.plist copyright holder", async () => {

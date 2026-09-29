@@ -180,7 +180,6 @@ import {
 } from "./desktop-platform.js";
 import { createDesktopUpdateService } from "./desktop-update-check.js";
 import {
-  createDesktopUpdateFeedUrl,
   DESKTOP_RELEASE_CHANNEL,
   DESKTOP_RELEASE_INFO,
   resolveDesktopUpdateSupport,
@@ -368,7 +367,6 @@ interface ResolveDesktopWindowUrlArgs {
 
 interface ResolveDesktopUpdateFeedUrlArgs {
   env: NodeJS.ProcessEnv;
-  platform: BbDesktopInfo["platform"];
 }
 
 interface SystemConfigRequestArgs {
@@ -485,10 +483,10 @@ function canReplaceAppImage(appImagePath: string): boolean {
 
 function resolveDesktopUpdateFeedUrl(
   args: ResolveDesktopUpdateFeedUrlArgs,
-): string {
+): string | null {
   const rawFeedUrl = args.env.BB_DESKTOP_VERSION_FEED_URL?.trim();
   if (rawFeedUrl === undefined || rawFeedUrl.length === 0) {
-    return createDesktopUpdateFeedUrl(args.platform);
+    return null;
   }
   return rawFeedUrl;
 }
@@ -1749,9 +1747,7 @@ async function selectBuiltinServer(): Promise<void> {
   await applyServerTarget();
 }
 
-async function loadServerMovedView(
-  move: DesktopServerMove,
-): Promise<void> {
+async function loadServerMovedView(move: DesktopServerMove): Promise<void> {
   await loadActionView({
     actions: [
       { id: "open-moved-server", label: `Open ${move.toHostName}` },
@@ -2821,7 +2817,6 @@ async function runDesktopApp(): Promise<void> {
   const desktopPlatform = resolveBbDesktopPlatform(process.platform);
   const desktopUpdateFeedUrl = resolveDesktopUpdateFeedUrl({
     env: process.env,
-    platform: desktopPlatform,
   });
   const userDataPath = app.getPath("userData");
   desktopUserDataPath = userDataPath;
@@ -2939,6 +2934,7 @@ async function runDesktopApp(): Promise<void> {
     appVersion: desktopVersion,
     canReplaceAppImage,
     env: process.env,
+    feedUrl: desktopUpdateFeedUrl,
     platform: desktopPlatform,
   });
   desktopUpdateService = createDesktopUpdateService({
@@ -2960,6 +2956,7 @@ async function runDesktopApp(): Promise<void> {
         env: process.env,
         isPackaged: app.isPackaged,
       }),
+    feedConfig: null,
     forceDevUpdateConfig:
       !app.isPackaged && process.env.BB_DESKTOP_AUTO_UPDATE === "1",
     logger: desktopLogger,

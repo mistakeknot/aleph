@@ -4,7 +4,6 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   createDesktopReleaseConfig,
-  createDesktopUpdateReleaseBaseUrl,
   resolveDesktopReleaseChannel,
 } from "./desktop-release-channel.mjs";
 
@@ -190,13 +189,7 @@ function resolveElectronBuilderConfig(baseConfig, env) {
   if (releaseConfig.copyrightHolder) {
     config.copyright = `Copyright © ${new Date().getFullYear()} ${releaseConfig.copyrightHolder}`;
   }
-  config.publish = [
-    {
-      channel: releaseChannel,
-      provider: "generic",
-      url: createDesktopUpdateReleaseBaseUrl(releaseConfig.releaseTag),
-    },
-  ];
+  delete config.publish;
 
   return {
     config,

@@ -15,10 +15,13 @@ import {
   type DesktopAutoUpdateNotAvailableHandler,
   type DesktopAutoUpdaterAdapter,
 } from "../src/desktop-auto-update.js";
-import {
-  DESKTOP_AUTO_UPDATE_FEED_CONFIG,
-  type DesktopAutoUpdateFeedConfig,
-} from "../src/desktop-update-provider.js";
+import type { DesktopAutoUpdateFeedConfig } from "../src/desktop-update-provider.js";
+
+const TEST_FEED_CONFIG: DesktopAutoUpdateFeedConfig = {
+  channel: "aleph",
+  provider: "generic",
+  url: "https://updates.example.test/aleph/",
+};
 
 const checkedAt = "2026-05-21T00:00:00.000Z";
 
@@ -208,13 +211,14 @@ function createDeferredDownload(): DeferredDownload {
 }
 
 describe("desktop auto-update service", () => {
-  it("configures electron-updater for the desktop-latest GitHub release assets", () => {
+  it("configures electron-updater with the supplied feed", () => {
     const updater = new DesktopAutoUpdaterAdapterStub();
     const messages = createLoggerMessages();
 
     createDesktopAutoUpdateService({
       currentVersion: "0.0.1",
       enabled: true,
+      feedConfig: TEST_FEED_CONFIG,
       forceDevUpdateConfig: false,
       logger: createLogger(messages),
       now: () => Date.parse(checkedAt),
@@ -222,11 +226,29 @@ describe("desktop auto-update service", () => {
       updater,
     });
 
-    expect(updater.feedConfigs).toEqual([DESKTOP_AUTO_UPDATE_FEED_CONFIG]);
+    expect(updater.feedConfigs).toEqual([TEST_FEED_CONFIG]);
     expect(updater.autoDownload).toBe(false);
     expect(updater.autoInstallOnAppQuit).toBe(true);
     expect(updater.forceDevUpdateConfig).toBe(false);
     expect(updater.logger).not.toBeNull();
+  });
+
+  it("stays inert when no update feed is configured", () => {
+    const updater = new DesktopAutoUpdaterAdapterStub();
+
+    createDesktopAutoUpdateService({
+      currentVersion: "0.0.1",
+      enabled: true,
+      feedConfig: null,
+      forceDevUpdateConfig: false,
+      logger: createLogger(createLoggerMessages()),
+      now: () => Date.parse(checkedAt),
+      platform: "macos",
+      updater,
+    });
+
+    expect(updater.feedConfigs).toEqual([]);
+    expect(updater.checkForUpdatesCalls).toBe(0);
   });
 
   it("updates state from updater events and downloads available updates in the background", () => {
@@ -235,6 +257,7 @@ describe("desktop auto-update service", () => {
     const service = createDesktopAutoUpdateService({
       currentVersion: "0.0.1",
       enabled: true,
+      feedConfig: TEST_FEED_CONFIG,
       forceDevUpdateConfig: false,
       logger: createLogger(messages),
       now: () => Date.parse(checkedAt),
@@ -283,6 +306,7 @@ describe("desktop auto-update service", () => {
     createDesktopAutoUpdateService({
       currentVersion: "0.0.1",
       enabled: true,
+      feedConfig: TEST_FEED_CONFIG,
       forceDevUpdateConfig: false,
       logger: createLogger(createLoggerMessages()),
       now: () => Date.parse(checkedAt),
@@ -311,6 +335,7 @@ describe("desktop auto-update service", () => {
     const service = createDesktopAutoUpdateService({
       currentVersion: "0.0.1",
       enabled: true,
+      feedConfig: TEST_FEED_CONFIG,
       forceDevUpdateConfig: false,
       logger: createLogger(messages),
       now: () => Date.parse(checkedAt),
@@ -345,6 +370,7 @@ describe("desktop auto-update service", () => {
     const service = createDesktopAutoUpdateService({
       currentVersion: "0.0.1",
       enabled: true,
+      feedConfig: TEST_FEED_CONFIG,
       forceDevUpdateConfig: false,
       logger: createLogger(createLoggerMessages()),
       now: () => Date.parse(checkedAt),
@@ -374,6 +400,7 @@ describe("desktop auto-update service", () => {
     const service = createDesktopAutoUpdateService({
       currentVersion: "0.0.1",
       enabled: true,
+      feedConfig: TEST_FEED_CONFIG,
       forceDevUpdateConfig: false,
       logger: createLogger(createLoggerMessages()),
       now: () => currentTime,
@@ -411,6 +438,7 @@ describe("desktop auto-update service", () => {
     const service = createDesktopAutoUpdateService({
       currentVersion: "0.0.1",
       enabled,
+      feedConfig: TEST_FEED_CONFIG,
       forceDevUpdateConfig: false,
       logger: createLogger(createLoggerMessages()),
       now: () => Date.parse(checkedAt),
