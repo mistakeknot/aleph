@@ -46,10 +46,10 @@ async function advance(ms: number): Promise<void> {
 
 function renderSearch(initialQuery: string) {
   const { wrapper } = createQueryClientTestHarness();
-  return renderHook(
-    ({ active, query }) => useThreadSearch({ active, query }),
-    { initialProps: { active: true, query: initialQuery }, wrapper },
-  );
+  return renderHook(({ active, query }) => useThreadSearch({ active, query }), {
+    initialProps: { active: true, query: initialQuery },
+    wrapper,
+  });
 }
 
 beforeEach(() => {
