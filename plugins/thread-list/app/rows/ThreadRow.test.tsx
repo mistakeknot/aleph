@@ -26,7 +26,6 @@ import {
   sidebarProviderIconColorsAtom,
   sidebarShowProviderIconsAtom,
 } from "../preferences/atoms.js";
-import { resetPreferencesSyncForTest } from "../preferences/preferences-sync.js";
 import {
   makeProviderInfo,
   makeSidebarThread,
@@ -248,6 +247,8 @@ describe("ThreadRow", () => {
       composerActions: [],
       completedTurnDisplay: "collapse",
     };
+    // Aleph defaults provider icons on; upstream's test assumes off.
+    getDefaultStore().set(sidebarShowProviderIconsAtom, false);
     const slot = renderThreadRow({ providers: [provider] });
     expect(slot.container.querySelector("[data-sidebar-thread-provider]")).toBeNull();
 
@@ -1003,7 +1004,7 @@ describe("ThreadRow", () => {
     });
 
     const mark = screen.getByRole("img", { name: "Claude Code" });
-    expect(mark.getAttribute("data-sidebar-thread-provider-icon")).toBe(
+    expect(mark.getAttribute("data-sidebar-thread-provider")).toBe(
       "claude-code",
     );
     expect(
@@ -1075,7 +1076,7 @@ describe("ThreadRow", () => {
     });
 
     expect(
-      container.querySelector("[data-sidebar-thread-provider-icon]"),
+      container.querySelector("[data-sidebar-thread-provider]"),
     ).toBeNull();
   });
 

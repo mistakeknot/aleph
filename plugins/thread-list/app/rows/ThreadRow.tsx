@@ -10,7 +10,6 @@ import {
   type ReactNode,
 } from "react";
 import { useComposedRefs } from "@radix-ui/react-compose-refs";
-import { useAtomValue } from "jotai";
 import { Icon } from "@/components/ui/icon";
 import {
   Tooltip,

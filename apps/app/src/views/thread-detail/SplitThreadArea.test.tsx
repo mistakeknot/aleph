@@ -812,10 +812,15 @@ function renderSplitArea(options: {
   maximizedPaneId?: string;
   focusComposer?: boolean;
 }) {
-  if (options.focusComposer !== undefined) {
+  // Upstream's tests assume keyboard pane switches always focus the composer;
+  // Aleph makes that opt-in, so default to opted in unless the test passes
+  // `focusComposer` explicitly (an explicit undefined means "never set").
+  const focusComposer =
+    "focusComposer" in options ? options.focusComposer : true;
+  if (focusComposer !== undefined) {
     window.localStorage.setItem(
       "bb.splitLayout.focusComposerOnKeyboardSwitch",
-      String(options.focusComposer),
+      String(focusComposer),
     );
   }
   const store = createStore();

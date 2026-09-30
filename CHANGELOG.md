@@ -4,6 +4,10 @@
 
 Aleph's build on upstream bb 0.44.0. It includes get-bb/bb main through `8c1468561` (`fix: distinguish waiting and failed pull requests (#4539)`), which is 0.44.0 plus later upstream main commits. All Aleph changes from 0.43.4+aleph.1 and 0.43.4+aleph.2 below are carried forward unchanged, including the Account Pooler, provider icons, in-place provider switch, optional pane composer focus, and Thecla as the default theme. See `FORK.md` for the version scheme and carried patches. Upstream's 0.44.0 notes follow.
 
+### Aleph
+
+- **Upstream sync.** Merged get-bb/bb main into the Aleph line. Account Pooler now also sets `_CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL` for Claude Code, and provider icons keep Aleph's per-provider colors and default-on setting on upstream's new markup.
+
 ## 0.44.0
 
 Filter large diffs, recover archived threads more safely, and troubleshoot plugins with safe mode. These notes also cover 0.43.4, which shipped without notes.
