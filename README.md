@@ -14,22 +14,23 @@ The name comes from the Aleph in William Gibson's _Mona Lisa Overdrive_ and
 from Jorge Luis Borges' story "The Aleph" ([FORK.md](FORK.md)).
 
 > [!NOTE]
-> Aleph is a personal fork, not a product. Its
-> [vision](docs/aleph-vision.md#not-goals) lists publishing Aleph or
-> distributing it to other users as a non-goal, and it follows upstream bb
-> instead of competing with it. Most of the [roadmap](docs/aleph-roadmap.md) is
-> goals, not shipped features.
+> Aleph is mk's fork, and it follows upstream bb instead of competing with it.
+> Its [vision](docs/aleph-vision.md#not-goals) treats distributing Aleph as a
+> non-goal today. A public release is planned, and publication needs mk's
+> explicit approval; until that happens Aleph has not been published. Most of
+> the [roadmap](docs/aleph-roadmap.md) is goals, not shipped features.
 
 ## What Aleph adds over bb
 
 Shipped today, from [FORK.md](FORK.md#carried-patches):
 
 - **Account Pooler 0.1.2.** Thread availability bound to the thread's owning
-  machine; `bb pool exec` for Codex and Claude, so scripted runs use the account
-  pool instead of one login; and attempt receipts for budgeted dispatch. The
+  machine; `bb pool exec` for Codex and Claude, so scripted runs draw on a pool of your own
+  accounts, within a budget; and attempt receipts for budgeted dispatch. The
   contract is [`plugins/account-pool/RECEIPTS.md`](plugins/account-pool/RECEIPTS.md).
-- **No upstream update offers.** Aleph builds never offer, download or install
-  an upstream bb release ([Updates](FORK.md#updates)).
+- **No upstream update offers.** Properly versioned Aleph release builds never
+  offer, download or install an upstream bb release
+  ([Updates](FORK.md#updates)).
 - **Model picker.** Switching a thread's provider in place when the local
   handoff plugin is running.
 - **Thread list.** Provider icons with brand, monochrome, theme or custom
@@ -65,7 +66,8 @@ bumped.
 
 ## Installing and running
 
-Aleph is not published. The npm registry drops build metadata, so an Aleph
+Aleph has not been published yet; a public release is planned and needs
+mk's approval. The npm registry drops build metadata, so an Aleph
 version cannot be published under upstream's `bb-app` package, and
 `npx bb-app@latest` and bb's desktop downloads install upstream bb, not Aleph.
 Aleph is built from this repository ([FORK.md](FORK.md#updates)):
