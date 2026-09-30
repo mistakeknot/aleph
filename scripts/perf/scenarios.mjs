@@ -161,6 +161,12 @@ export class Driver {
     await this.session.send("Network.clearBrowserCache");
   }
 
+  async loadApp() {
+    await this.session.send("Page.navigate", { url: `${this.baseUrl}/` });
+    await this.waitTrue(`h.sidebarRows() > 0`, 30000);
+    await this.quiesce({ stableMs: 1000, maxMs: 8000 });
+  }
+
   async goHome() {
     await this.probe(`pushPath("/")`);
     await this.waitTrue(`h.threadId() === null && h.sidebarRows() > 0`);

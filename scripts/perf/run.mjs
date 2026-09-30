@@ -73,6 +73,7 @@ for (let index = 0; index < runs; index += 1) {
         await installProbe(chrome.session);
         const driver = new Driver(chrome.session, server.baseUrl);
         await driver.warmBrowser();
+        if (!wants("startup")) await driver.loadApp();
         if (wants("startup")) {
           await startupScenario(driver, samples, { navigate: "cold" });
         }
@@ -106,6 +107,18 @@ for (let index = 0; index < runs; index += 1) {
 }
 
 const summary = aggregateRuns(runRecords);
+const missingScenarios = args["skip-browser"]
+  ? []
+  : Object.entries({
+      startup: "startup.",
+      cmdk: "cmdk.",
+      switch: "switch.",
+      thread: "thread_open.",
+      composer: "composer.",
+    }).filter(
+      ([name, prefix]) =>
+        wants(name) && !Object.keys(summary).some((key) => key.startsWith(prefix)),
+    );
 const machine = machineInfo();
 const git = gitInfo();
 const result = {
@@ -127,6 +140,11 @@ process.stdout.write(
   `${renderTable(summary, { title: `bb perf "${args.label}" (${runs} runs x ${reps} reps)`, machine: machineLine })}\n`,
 );
 process.stdout.write(`\nresult: ${outFile}\n`);
+
+for (const [name] of missingScenarios) {
+  process.stdout.write(`FAIL scenario ${name} produced no samples\n`);
+  process.exitCode = 1;
+}
 
 if (args.thresholds !== undefined) {
   const thresholds = JSON.parse(readFileSync(args.thresholds, "utf8"));
