@@ -1,0 +1,24 @@
+{
+  "schema": "bb-perf-thresholds-v1",
+  "basis": "Budgets are set at roughly 2x the 2026-09-30 baseline p50 on a shared 32-thread host at load 17-65; tighten once measured on a quiet runner.",
+  "defaults": { "regressionPct": 30, "regressionMinMs": 40 },
+  "metrics": {
+    "cmdk.open_first_ms": { "maxP50Ms": 700, "maxP95Ms": 900 },
+    "cmdk.open_warm_ms": { "maxP50Ms": 120, "maxP95Ms": 400 },
+    "cmdk.keystroke_result_ms": { "maxP50Ms": 400, "maxP95Ms": 700 },
+    "switch.sidebar_click_ms": { "maxP50Ms": 1000, "maxP95Ms": 2000 },
+    "switch.cmdk_enter_ms": { "maxP50Ms": 1500, "maxP95Ms": 3000 },
+    "thread_open.small_ms": { "maxP50Ms": 1500, "maxP95Ms": 2500 },
+    "thread_open.large_ms": { "maxP50Ms": 2000, "maxP95Ms": 3500 },
+    "startup.shell_ms": { "maxP50Ms": 1200, "maxP95Ms": 2400 },
+    "startup.sidebar_rows_ms": { "maxP50Ms": 4400, "maxP95Ms": 8000 },
+    "composer.type_home_ms": { "maxP50Ms": 40, "maxP95Ms": 100 },
+    "composer.type_large_thread_ms": { "maxP50Ms": 40, "maxP95Ms": 100 },
+    "server.sidebar-bootstrap_ms": { "maxP50Ms": 80, "maxP95Ms": 400 },
+    "server.search-1_ms": { "maxP50Ms": 40, "maxP95Ms": 100 },
+    "server.search-2_ms": { "maxP50Ms": 60, "maxP95Ms": 150 },
+    "server.search-3_ms": { "maxP50Ms": 100, "maxP95Ms": 300 },
+    "server.timeline-large_ms": { "maxP50Ms": 40, "maxP95Ms": 200 },
+    "server.thread-detail-large_ms": { "maxP50Ms": 30, "maxP95Ms": 150 }
+  }
+}

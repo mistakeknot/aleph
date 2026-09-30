@@ -169,6 +169,32 @@ payloads. Use it to reproduce performance problems that only appear at scale.
   deletes the database file first. Without `--reset` the fixture appends.
 - Example: `pnpm seed:perf -- --reset --events 400000`.
 
+## UI Performance Harness
+
+`pnpm perf` measures the built app end to end and writes JSON plus a one-page
+table. It needs no extra dependencies: it drives Chrome over CDP with Node's
+global `WebSocket`, seeds a fixture with `seed:perf`, and starts a fresh server
+per run on free ports.
+
+- Build first (`pnpm exec turbo run build --filter=@bb/app --filter=@bb/server
+  --filter=@bb/host-daemon --filter=@bb/bundled-plugins --filter=@get-bb/plugin-sdk`).
+  The harness never builds and never touches `~/.bb`.
+- Flags: `--runs N` (fresh server + browser each, default 5), `--reps N`
+  (repetitions inside a run, default 5), `--label`, `--out <dir>`,
+  `--only startup,cmdk,switch,thread,composer,server`, `--rebuild-seed`,
+  `--skip-browser`, `--skip-server`, `--thresholds <file>` and
+  `--baseline <result.json>` (exit 1 on a budget or regression failure).
+- Env: `BB_PERF_DIR` (cache root, default `~/.cache/bb-perf`), `BB_PERF_TMP`
+  (scratch, defaults under the cache root, never `/tmp`), `BB_PERF_CHROME`.
+- Metrics: `startup.*`, `cmdk.open_*`, `cmdk.keystroke_*`, `switch.*`,
+  `thread_open.*`, `composer.*`, `server.*`. The first `startup` sample per run is
+  a cold browser cache; `startup_warm` is a reload.
+- Timings are wall-clock on a shared machine. Compare runs only with the load
+  average recorded in the result (`runs[].loadAtStart`), and read the spread of
+  `run-p50 range` before believing a delta.
+- Budgets and regression margins live in `scripts/perf/thresholds.json`; the
+  proposed (not enabled) per-build policy is `scripts/perf/MONITORING.md`.
+
 ## Provider Corpus
 
 The provider corpus is a private set of real production threads (307 threads,
