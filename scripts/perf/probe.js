@@ -78,6 +78,12 @@
         "[data-testid=command-palette] [role=option]",
       ).length,
     paletteText,
+    selectedOptionText: () =>
+      document
+        .querySelector("[data-testid=command-palette] [role=option][aria-selected=true]")
+        ?.innerText.replace(/\s+/gu, " ")
+        .trim()
+        .slice(0, 80) ?? null,
     paletteInput: () =>
       document.querySelector("[data-testid=command-palette] input")?.value ??
       null,

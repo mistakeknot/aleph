@@ -39,15 +39,129 @@ export function summarize(values) {
   };
 }
 
+export class Recorder {
+  constructor() {
+    this.samples = {};
+    this.expected = {};
+    this.failures = {};
+  }
+
+  add(name, value, reason = "no value") {
+    this.expected[name] = (this.expected[name] ?? 0) + 1;
+    if (value === null || value === undefined || !Number.isFinite(value)) {
+      this.fail(name, 1, reason, false);
+      return;
+    }
+    (this.samples[name] ??= []).push(value);
+  }
+
+  missing(name, count, reason) {
+    if (count <= 0) return;
+    this.expected[name] = (this.expected[name] ?? 0) + count;
+    this.fail(name, count, reason, false);
+  }
+
+  fail(name, count, reason, countExpected = true) {
+    if (countExpected) {
+      this.expected[name] = (this.expected[name] ?? 0) + count;
+    }
+    const entry = (this.failures[name] ??= { count: 0, reasons: [] });
+    entry.count += count;
+    if (!entry.reasons.includes(reason)) entry.reasons.push(reason);
+  }
+}
+
+export const SCENARIOS = [
+  { name: "startup", prefixes: ["startup.", "startup_warm."], browser: true },
+  { name: "cmdk", prefixes: ["cmdk."], browser: true },
+  { name: "switch", prefixes: ["switch."], browser: true },
+  { name: "thread", prefixes: ["thread_open."], browser: true },
+  { name: "composer", prefixes: ["composer."], browser: true },
+  { name: "server", prefixes: ["server."], browser: false },
+];
+
+export function scenarioOfMetric(name) {
+  return (
+    SCENARIOS.find((scenario) =>
+      scenario.prefixes.some((prefix) => name.startsWith(prefix)),
+    )?.name ?? null
+  );
+}
+
+export function selectScenarios({ only, skipBrowser = false, skipServer = false }) {
+  const known = new Set(SCENARIOS.map((scenario) => scenario.name));
+  const requested = only === undefined || only === null ? null : only.split(",");
+  for (const name of requested ?? []) {
+    if (!known.has(name)) {
+      throw new Error(
+        `unknown scenario "${name}" in --only; expected ${[...known].join(", ")}`,
+      );
+    }
+  }
+  return new Set(
+    SCENARIOS.filter(
+      (scenario) =>
+        (requested === null || requested.includes(scenario.name)) &&
+        !(skipBrowser && scenario.browser) &&
+        !(skipServer && !scenario.browser),
+    ).map((scenario) => scenario.name),
+  );
+}
+
+export function incompleteMetrics(summary, scenarios) {
+  const incomplete = [];
+  for (const [name, stats] of Object.entries(summary)) {
+    if (stats.expected === undefined || stats.n >= stats.expected) continue;
+    const scenario = scenarioOfMetric(name);
+    if (scenarios !== undefined && scenario !== null && !scenarios.has(scenario)) {
+      continue;
+    }
+    incomplete.push({
+      name,
+      expected: stats.expected,
+      n: stats.n,
+      reasons: stats.failureReasons ?? [],
+    });
+  }
+  return incomplete;
+}
+
+export function emptyScenarios(summary, scenarios) {
+  return SCENARIOS.filter(
+    (scenario) =>
+      scenarios.has(scenario.name) &&
+      !Object.entries(summary).some(
+        ([name, stats]) =>
+          stats.n > 0 && scenarioOfMetric(name) === scenario.name,
+      ),
+  ).map((scenario) => scenario.name);
+}
+
 export function aggregateRuns(runs) {
   const names = new Set();
   for (const run of runs) {
     for (const name of Object.keys(run.samples)) names.add(name);
+    for (const name of Object.keys(run.expected ?? {})) names.add(name);
   }
   const summary = {};
   for (const name of [...names].sort()) {
     const pooled = [];
     const runMedians = [];
+    let expected;
+    let failed = 0;
+    const failureReasons = [];
+    for (const run of runs) {
+      if (run.expected?.[name] !== undefined) {
+        expected = (expected ?? 0) + run.expected[name];
+      }
+      const failure = run.failures?.[name];
+      if (failure !== undefined) {
+        failed += failure.count;
+        for (const reason of failure.reasons) {
+          if (!failureReasons.includes(reason)) failureReasons.push(reason);
+        }
+      }
+    }
     for (const run of runs) {
       const values = (run.samples[name] ?? []).filter((value) =>
         Number.isFinite(value),
@@ -64,6 +178,7 @@ export function aggregateRuns(runs) {
       runMedianCv: medianSummary.cv,
       runMedianMin: medianSummary.min,
       runMedianMax: medianSummary.max,
+      ...(expected === undefined ? {} : { expected, failed, failureReasons }),
     };
   }
   return summary;
@@ -85,6 +200,14 @@ export function checkThresholds(summary, thresholds, baselineSummary) {
     if (current === undefined || current.n === 0) {
       failures.push({ name, kind: "missing", message: "no samples recorded" });
       continue;
+    }
+    if (current.expected !== undefined && current.n < current.expected) {
+      const reasons = (current.failureReasons ?? []).join("; ");
+      failures.push({
+        name,
+        kind: "incomplete",
+        message: `${current.n} of ${current.expected} expected samples${reasons === "" ? "" : ` (${reasons})`}`,
+      });
     }
     const entry = { name, p50: current.p50, p95: current.p95 };
     checked.push(entry);

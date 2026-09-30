@@ -10,9 +10,9 @@ const probeSource = readFileSync(
 
 const MOD_CTRL = 2;
 
-function push(samples, name, value) {
-  if (value === null || value === undefined || !Number.isFinite(value)) return;
-  (samples[name] ??= []).push(value);
+function record(recorder, name, result, context) {
+  const reason = result?.timedOut === true ? "timed out" : "no value";
+  recorder.add(name, result?.ms ?? null, context === undefined ? reason : `${reason}: ${context}`);
 }
 
 function keyCode(char) {
@@ -191,7 +191,7 @@ export async function installProbe(session) {
   });
 }
 
-export async function startupScenario(driver, samples, { navigate }) {
+export async function startupScenario(driver, recorder, { navigate }) {
   const label = navigate === "cold" ? "startup" : "startup_warm";
   await driver.session.send("Page.navigate", { url: `${driver.baseUrl}/` });
   const measure = async (name, predicate) => {
@@ -205,23 +205,24 @@ export async function startupScenario(driver, samples, { navigate }) {
     ["rows", "sidebar_rows_ms"],
     ["composer", "composer_ms"],
   ]) {
-    const value = await driver.result(name);
-    push(samples, `${label}.${metric}`, value.ms);
+    record(recorder, `${label}.${metric}`, await driver.result(name));
   }
   const startup = await driver.probe("startup()");
-  push(samples, `${label}.fcp_ms`, startup.fcp);
+  recorder.add(`${label}.fcp_ms`, startup.fcp, "no first-contentful-paint entry");
   await driver.quiesce();
   const settled = await driver.probe("startup()");
-  push(samples, `${label}.load_event_ms`, settled.load);
-  push(samples, `${label}.requests`, settled.requests);
-  push(samples, `${label}.transfer_kb`, settled.transferKb);
+  recorder.add(`${label}.load_event_ms`, settled.load, "no load event entry");
+  recorder.add(`${label}.requests`, settled.requests);
+  recorder.add(`${label}.transfer_kb`, settled.transferKb);
   const bootstrap = await driver.probe(`resource("/api/v1/sidebar-bootstrap")`);
-  if (bootstrap !== null) {
-    push(samples, `${label}.sidebar_bootstrap_ms`, bootstrap.duration);
-  }
+  recorder.add(
+    `${label}.sidebar_bootstrap_ms`,
+    bootstrap?.duration ?? null,
+    "no sidebar-bootstrap resource entry",
+  );
 }
 
-async function openPalette(driver, metric, samples) {
+async function openPalette(driver, metric, recorder) {
   await driver.arm(
     "open",
     `(h) => h.optionCount() > 0 && !/Loading threads/u.test(h.paletteText())`,
@@ -229,7 +230,7 @@ async function openPalette(driver, metric, samples) {
   );
   await driver.chordCtrlK();
   const value = await driver.result("open");
-  if (metric !== null) push(samples, metric, value.ms);
+  if (metric !== null) record(recorder, metric, value);
   return value.ms;
 }
 
@@ -238,18 +239,18 @@ async function closePalette(driver) {
   await driver.waitTrue(`document.querySelector("[data-testid=command-palette]") === null`, 3000);
 }
 
-export async function cmdkScenario(driver, samples, { queries, reps }) {
-  await openPalette(driver, "cmdk.open_first_ms", samples);
+export async function cmdkScenario(driver, recorder, { queries, reps }) {
+  await openPalette(driver, "cmdk.open_first_ms", recorder);
   await closePalette(driver);
   await delay(300);
   for (let index = 0; index < reps; index += 1) {
-    await openPalette(driver, "cmdk.open_warm_ms", samples);
+    await openPalette(driver, "cmdk.open_warm_ms", recorder);
     await closePalette(driver);
     await delay(200);
   }
   for (let index = 0; index < reps; index += 1) {
     const query = queries[index % queries.length];
-    await openPalette(driver, null, samples);
+    await openPalette(driver, null, recorder);
     const head = query.slice(0, -1);
     for (const char of head) {
       await driver.char(char);
@@ -270,36 +271,49 @@ export async function cmdkScenario(driver, samples, { queries, reps }) {
     await driver.char(query.at(-1));
     const rows = await driver.result("rows");
     const result = await driver.result("result");
-    push(samples, "cmdk.keystroke_first_rows_ms", rows.ms);
-    push(samples, "cmdk.keystroke_result_ms", result.ms);
+    record(recorder, "cmdk.keystroke_first_rows_ms", rows);
+    record(recorder, "cmdk.keystroke_result_ms", result);
     await closePalette(driver);
     await delay(300);
   }
 }
 
-export async function switchScenario(driver, samples, { reps }) {
+export async function switchScenario(driver, recorder, { reps }) {
   await driver.goHome();
   for (let index = 0; index < reps; index += 1) {
     await driver.goHome();
     const target = await driver.probe(
       `rect("a[data-sidebar-thread-id]", ${index + 1})`,
     );
-    if (target === null) continue;
+    if (target === null) {
+      recorder.add(
+        "switch.sidebar_click_ms",
+        null,
+        `no sidebar thread row at index ${index + 1}`,
+      );
+      continue;
+    }
     await driver.arm("switch", `(h) => h.threadVisible(null)`, {
       startOn: "click",
       timeoutMs: 15000,
     });
     await driver.click(target.x, target.y);
     const value = await driver.result("switch");
-    push(samples, "switch.sidebar_click_ms", value.ms);
+    record(recorder, "switch.sidebar_click_ms", value);
     await delay(400);
   }
   for (let index = 0; index < reps; index += 1) {
     await driver.goHome();
-    await openPalette(driver, null, samples);
+    await openPalette(driver, null, recorder);
     for (let step = 0; step < index + 6; step += 1) {
       await driver.arrowDown();
       await delay(30);
+    }
+    let selected = await driver.probe("helpers.selectedOptionText()");
+    for (let skip = 0; skip < 3 && /^Show more/u.test(selected ?? ""); skip += 1) {
+      await driver.arrowDown();
+      await delay(30);
+      selected = await driver.probe("helpers.selectedOptionText()");
     }
     await driver.arm("navigate", `(h) => location.pathname !== "/"`, {
       startOn: "keydown",
@@ -314,8 +328,9 @@ export async function switchScenario(driver, samples, { reps }) {
     await driver.enter();
     const navigated = await driver.result("navigate");
     const value = await driver.result("switch");
-    push(samples, "switch.cmdk_enter_navigate_ms", navigated.ms);
-    push(samples, "switch.cmdk_enter_ms", value.ms);
+    const context = `Enter after ${index + 6}+ ArrowDown on ${JSON.stringify(selected)}`;
+    record(recorder, "switch.cmdk_enter_navigate_ms", navigated, context);
+    record(recorder, "switch.cmdk_enter_ms", value, context);
     await delay(400);
   }
 }
@@ -326,28 +341,27 @@ async function openThread(driver, threadId) {
     timeoutMs: 30000,
   });
   await driver.probe(`pushPath(${JSON.stringify(`/threads/${threadId}`)})`);
-  const value = await driver.result("open-thread");
-  return value.ms;
+  return driver.result("open-thread");
 }
 
-export async function threadOpenScenario(driver, samples, { meta, reps }) {
+export async function threadOpenScenario(driver, recorder, { meta, reps }) {
   await driver.goHome();
   for (const thread of meta.small.slice(0, reps)) {
-    push(samples, "thread_open.small_ms", await openThread(driver, thread.id));
+    record(recorder, "thread_open.small_ms", await openThread(driver, thread.id));
     await delay(300);
     await driver.goHome();
   }
   for (const thread of meta.medium) {
-    push(samples, "thread_open.medium_ms", await openThread(driver, thread.id));
+    record(recorder, "thread_open.medium_ms", await openThread(driver, thread.id));
     await delay(300);
     await driver.goHome();
   }
-  push(samples, "thread_open.large_ms", await openThread(driver, meta.large.id));
+  record(recorder, "thread_open.large_ms", await openThread(driver, meta.large.id));
   await driver.quiesce({ stableMs: 1200, maxMs: 10000 });
   await driver.goHome();
   for (let index = 0; index < 2; index += 1) {
-    push(
-      samples,
+    record(
+      recorder,
       "thread_open.large_revisit_ms",
       await openThread(driver, meta.large.id),
     );
@@ -356,28 +370,34 @@ export async function threadOpenScenario(driver, samples, { meta, reps }) {
   }
 }
 
-async function typeInComposer(driver, samples, metric, { count = 40 }) {
+async function typeInComposer(driver, recorder, metric, { count = 40 }) {
   await driver.eval(`document.querySelector(".ProseMirror")?.focus(), true`);
   await driver.probe(`startTyping(".ProseMirror")`);
   const text = "the quick brown fox jumps over a lazy dog again";
-  for (const char of text.slice(0, count)) {
+  const typed = text.slice(0, count);
+  for (const char of typed) {
     await driver.char(char);
     await delay(60);
   }
   await delay(400);
   const { latencies } = await driver.probe("stopTyping()");
-  for (const value of latencies) push(samples, metric, value);
+  for (const value of latencies) recorder.add(metric, value);
+  recorder.missing(
+    metric,
+    typed.length - latencies.length,
+    "keystroke never reflected in the editor",
+  );
   await driver.eval(`(() => { const e = document.querySelector(".ProseMirror"); if (e) { e.focus(); document.execCommand("selectAll"); document.execCommand("delete"); } return true; })()`);
 }
 
-export async function composerScenario(driver, samples, { meta }) {
+export async function composerScenario(driver, recorder, { meta }) {
   await driver.goHome();
   await driver.waitTrue(`document.querySelector(".ProseMirror") !== null`);
-  await typeInComposer(driver, samples, "composer.type_home_ms", {});
+  await typeInComposer(driver, recorder, "composer.type_home_ms", {});
   await openThread(driver, meta.large.id);
   await driver.quiesce({ stableMs: 1200, maxMs: 10000 });
   await driver.waitTrue(`document.querySelector(".ProseMirror") !== null`);
-  await typeInComposer(driver, samples, "composer.type_large_thread_ms", {});
+  await typeInComposer(driver, recorder, "composer.type_large_thread_ms", {});
 }
 
 async function fetchWithReset(url) {
@@ -389,7 +409,7 @@ async function fetchWithReset(url) {
   }
 }
 
-export async function serverScenario(baseUrl, meta, { reps = 30, warmups = 3 } = {}) {
+export async function serverScenario(baseUrl, meta, recorder, { reps = 30, warmups = 3 } = {}) {
   const small = meta.small[0].id;
   const large = meta.large.id;
   const routes = {
@@ -405,9 +425,7 @@ export async function serverScenario(baseUrl, meta, { reps = 30, warmups = 3 } =
     routes[`search-${index + 1}`] =
       `/api/v1/threads/search?limitPerGroup=20&query=${encodeURIComponent(query)}`;
   });
-  const timings = {};
   for (const [name, path] of Object.entries(routes)) {
-    const samples = [];
     for (let index = 0; index < warmups + reps; index += 1) {
       const started = performance.now();
       const response = await fetchWithReset(`${baseUrl}${path}`);
@@ -416,9 +434,7 @@ export async function serverScenario(baseUrl, meta, { reps = 30, warmups = 3 } =
       if (!response.ok) {
         throw new Error(`${path} responded ${response.status}`);
       }
-      if (index >= warmups) samples.push(elapsed);
+      if (index >= warmups) recorder.add(`server.${name}_ms`, elapsed);
     }
-    timings[`server.${name}_ms`] = samples;
   }
-  return timings;
 }

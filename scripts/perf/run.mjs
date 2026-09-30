@@ -11,7 +11,15 @@ import {
   perfTmp,
   startServer,
 } from "./env.mjs";
-import { aggregateRuns, checkThresholds, renderTable } from "./lib.mjs";
+import {
+  aggregateRuns,
+  checkThresholds,
+  emptyScenarios,
+  incompleteMetrics,
+  Recorder,
+  renderTable,
+  selectScenarios,
+} from "./lib.mjs";
 import {
   cmdkScenario,
   Driver,
@@ -40,8 +48,13 @@ const { values: args } = parseArgs({
 
 const runs = Number(args.runs);
 const reps = Number(args.reps);
-const only = args.only === undefined ? null : new Set(args.only.split(","));
-const wants = (name) => only === null || only.has(name);
+const scenarios = selectScenarios({
+  only: args.only,
+  skipBrowser: args["skip-browser"],
+  skipServer: args["skip-server"],
+});
+const wants = (name) => scenarios.has(name);
+const browserScenarios = ["startup", "cmdk", "switch", "thread", "composer"];
 const outDir = resolve(args.out ?? join(perfHome(), "results"));
 mkdirSync(outDir, { recursive: true });
 
@@ -55,19 +68,21 @@ for (let index = 0; index < runs; index += 1) {
   const tmpDir = join(perfTmp(), `run${index}-${process.pid}`);
   mkdirSync(tmpDir, { recursive: true });
   const server = await startServer({ dataDir, tmpDir, label: `run${index}` });
-  const samples = {};
+  const recorder = new Recorder();
   const record = {
     index,
     serverReadyMs: Math.round(server.readyMs),
     loadAtStart,
-    samples,
+    samples: recorder.samples,
+    expected: recorder.expected,
+    failures: recorder.failures,
   };
   try {
-    if (!args["skip-server"] && wants("server")) {
+    if (wants("server")) {
       await new Promise((done) => setTimeout(done, 4000));
-      Object.assign(samples, await serverScenario(server.baseUrl, meta));
+      await serverScenario(server.baseUrl, meta, recorder);
     }
-    if (!args["skip-browser"]) {
+    if (browserScenarios.some(wants)) {
       const chrome = await launchChrome();
       try {
         await installProbe(chrome.session);
@@ -75,23 +90,23 @@ for (let index = 0; index < runs; index += 1) {
         await driver.warmBrowser();
         if (!wants("startup")) await driver.loadApp();
         if (wants("startup")) {
-          await startupScenario(driver, samples, { navigate: "cold" });
+          await startupScenario(driver, recorder, { navigate: "cold" });
         }
         if (wants("cmdk")) {
-          await cmdkScenario(driver, samples, { queries: meta.queries, reps });
+          await cmdkScenario(driver, recorder, { queries: meta.queries, reps });
           await driver.goHome();
         }
         if (wants("switch")) {
-          await switchScenario(driver, samples, { reps });
+          await switchScenario(driver, recorder, { reps });
         }
         if (wants("thread")) {
-          await threadOpenScenario(driver, samples, { meta, reps });
+          await threadOpenScenario(driver, recorder, { meta, reps });
         }
         if (wants("composer")) {
-          await composerScenario(driver, samples, { meta });
+          await composerScenario(driver, recorder, { meta });
         }
         if (wants("startup")) {
-          await startupScenario(driver, samples, { navigate: "warm" });
+          await startupScenario(driver, recorder, { navigate: "warm" });
         }
       } finally {
         await chrome.close();
@@ -107,18 +122,6 @@ for (let index = 0; index < runs; index += 1) {
 }
 
 const summary = aggregateRuns(runRecords);
-const missingScenarios = args["skip-browser"]
-  ? []
-  : Object.entries({
-      startup: "startup.",
-      cmdk: "cmdk.",
-      switch: "switch.",
-      thread: "thread_open.",
-      composer: "composer.",
-    }).filter(
-      ([name, prefix]) =>
-        wants(name) && !Object.keys(summary).some((key) => key.startsWith(prefix)),
-    );
 const machine = machineInfo();
 const git = gitInfo();
 const result = {
@@ -127,7 +130,13 @@ const result = {
   startedAt: new Date().toISOString(),
   machine,
   git,
-  config: { runs, reps, seed: meta.counts, only: args.only ?? null },
+  config: {
+    runs,
+    reps,
+    seed: meta.counts,
+    only: args.only ?? null,
+    scenarios: [...scenarios],
+  },
   runs: runRecords,
   summary,
 };
@@ -141,19 +150,28 @@ process.stdout.write(
 );
 process.stdout.write(`\nresult: ${outFile}\n`);
 
-for (const [name] of missingScenarios) {
+for (const name of emptyScenarios(summary, scenarios)) {
   process.stdout.write(`FAIL scenario ${name} produced no samples\n`);
+  process.exitCode = 1;
+}
+
+for (const metric of incompleteMetrics(summary, scenarios)) {
+  const reasons = metric.reasons.length === 0 ? "" : ` (${metric.reasons.join("; ")})`;
+  process.stdout.write(
+    `FAIL ${metric.name}: ${metric.n} of ${metric.expected} expected samples${reasons}\n`,
+  );
   process.exitCode = 1;
 }
 
 if (args.thresholds !== undefined) {
   const thresholds = JSON.parse(readFileSync(args.thresholds, "utf8"));
-  const baseline =
+  const baselineSummary =
     args.baseline === undefined
       ? undefined
       : JSON.parse(readFileSync(args.baseline, "utf8")).summary;
-  const { failures } = checkThresholds(summary, thresholds, baseline);
+  const { failures } = checkThresholds(summary, thresholds, baselineSummary);
   for (const failure of failures) {
+    if (failure.kind === "incomplete") continue;
     process.stdout.write(`FAIL ${failure.name}: ${failure.message}\n`);
   }
   if (failures.length > 0) process.exitCode = 1;
