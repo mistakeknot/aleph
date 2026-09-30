@@ -301,13 +301,20 @@ export async function switchScenario(driver, samples, { reps }) {
       await driver.arrowDown();
       await delay(30);
     }
+    await driver.arm("navigate", `(h) => location.pathname !== "/"`, {
+      startOn: "keydown",
+      key: "Enter",
+      timeoutMs: 15000,
+    });
     await driver.arm("switch", `(h) => h.threadVisible(null)`, {
       startOn: "keydown",
       key: "Enter",
       timeoutMs: 15000,
     });
     await driver.enter();
+    const navigated = await driver.result("navigate");
     const value = await driver.result("switch");
+    push(samples, "switch.cmdk_enter_navigate_ms", navigated.ms);
     push(samples, "switch.cmdk_enter_ms", value.ms);
     await delay(400);
   }
