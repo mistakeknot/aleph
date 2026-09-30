@@ -183,12 +183,18 @@ per run on free ports.
   (repetitions inside a run, default 5), `--label`, `--out <dir>`,
   `--only startup,cmdk,switch,thread,composer,server`, `--rebuild-seed`,
   `--skip-browser`, `--skip-server`, `--thresholds <file>` and
-  `--baseline <result.json>` (exit 1 on a budget or regression failure).
+  `--baseline <result.json>` (exit 1 on a budget, regression or incomplete-sample
+  failure). `--baseline` alone compares against the baseline with the default
+  `scripts/perf/thresholds.json`; a baseline file that is not a `bb-perf-v1`
+  result is rejected. Thresholds for scenarios `--only` did not select are
+  skipped. Every scenario records failed or timed-out samples, and a metric with
+  fewer samples than requested fails the run.
 - Env: `BB_PERF_DIR` (cache root, default `~/.cache/bb-perf`), `BB_PERF_TMP`
   (scratch, defaults under the cache root, never `/tmp`), `BB_PERF_CHROME`.
 - Metrics: `startup.*`, `cmdk.open_*`, `cmdk.keystroke_*`, `switch.*`,
-  `thread_open.*`, `composer.*`, `server.*`. The first `startup` sample per run is
-  a cold browser cache; `startup_warm` is a reload. `switch.cmdk_enter_navigate_ms`
+  `thread_open.*`, `composer.*`, `server.*` (`server.search-1/2/3` are the first
+  three seeded multi-word queries, not 1, 2 and 3 characters). The first
+  `startup` sample per run is a cold browser cache; `startup_warm` is a reload. `switch.cmdk_enter_navigate_ms`
   is Enter to URL change, `switch.cmdk_enter_ms` is Enter to thread visible.
 - A/B a change: build each variant, copy `apps/app/dist` to a scratch directory
   per variant, then before each run point the `apps/app/dist` symlink at one
