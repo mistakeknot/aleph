@@ -15,10 +15,11 @@
     const startedAt = now();
     const promise = originalFetch(input, init);
     if (url.includes("/api/v1/threads/search")) {
-      const entry = { url, startedAt, headersAt: null, doneAt: null };
+      const entry = { url, startedAt, headersAt: null, doneAt: null, ok: false };
       state.fetches.push(entry);
       promise.then((response) => {
         entry.headersAt = now();
+        entry.ok = response.ok;
         response
           .clone()
           .arrayBuffer()
@@ -87,10 +88,12 @@
     paletteInput: () =>
       document.querySelector("[data-testid=command-palette] input")?.value ??
       null,
-    searchDone: (query) =>
+    searchDone: (query, since) =>
       state.fetches.some(
         (entry) =>
+          entry.ok &&
           entry.doneAt !== null &&
+          entry.startedAt >= since &&
           new URL(entry.url, location.href).searchParams.get("query") === query,
       ),
     threadVisible: (excludeId) => {
@@ -116,7 +119,7 @@
     if (measure.start === null) return;
     let ok = false;
     try {
-      ok = measure.predicate(helpers);
+      ok = measure.predicate(helpers, measure.start);
     } catch {
       ok = false;
     }
@@ -159,7 +162,7 @@
     helpers,
     arm(name, predicateSource, { startOn, key, timeoutMs = 15000 } = {}) {
       const measure = {
-        predicate: new Function("h", `return (${predicateSource})(h);`),
+        predicate: new Function("h", "start", `return (${predicateSource})(h, start);`),
         startOn,
         key,
         timeoutMs,

@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import vm from "node:vm";
 import { describe, expect, it } from "vitest";
 import {
   aggregateRuns,
@@ -300,5 +301,78 @@ describe("perf harness baseline flag", () => {
       scenarios: new Set(["cmdk"]),
     });
     expect(failures.map((failure) => failure.kind)).toContain("regression-p50");
+  });
+});
+
+describe("perf probe search completion", () => {
+  function loadProbe() {
+    const fetches = [];
+    const window = {
+      __perf: undefined,
+      fetch: (url) => {
+        const entry = { resolve: null };
+        const promise = new Promise((resolve) => {
+          entry.resolve = resolve;
+        });
+        fetches.push(entry);
+        return promise;
+      },
+      addEventListener: () => {},
+      requestAnimationFrame: () => 0,
+    };
+    let clock = 0;
+    const context = vm.createContext({
+      window,
+      document: {},
+      location: { href: "http://localhost/" },
+      performance: { now: () => clock },
+      requestAnimationFrame: () => 0,
+      setInterval: () => 0,
+      MutationObserver: class {
+        observe() {}
+      },
+      URL,
+      Map,
+    });
+    vm.runInContext(readFileSync(join(perfDir, "probe.js"), "utf8"), context);
+    return {
+      helpers: window.__perf.helpers,
+      fetch: (url) => window.fetch(url),
+      fetches,
+      setClock: (value) => {
+        clock = value;
+      },
+    };
+  }
+
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+  const searchUrl = "/api/v1/threads/search?query=alpha+beta";
+  const response = (ok) => ({
+    ok,
+    clone: () => ({ arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)) }),
+  });
+
+  it("ignores a completed request that started before the measurement", async () => {
+    const probe = loadProbe();
+    probe.setClock(10);
+    probe.fetch(searchUrl);
+    probe.fetches[0].resolve(response(true));
+    await settle();
+    expect(probe.helpers.searchDone("alpha beta", 0)).toBe(true);
+    expect(probe.helpers.searchDone("alpha beta", 50)).toBe(false);
+  });
+
+  it("requires a finished, successful request for the exact query", async () => {
+    const probe = loadProbe();
+    probe.setClock(100);
+    probe.fetch(searchUrl);
+    probe.fetch("/api/v1/threads/search?query=alpha+beta");
+    probe.fetches[0].resolve(response(false));
+    await settle();
+    expect(probe.helpers.searchDone("alpha beta", 50)).toBe(false);
+    expect(probe.helpers.searchDone("alpha", 50)).toBe(false);
+    probe.fetches[1].resolve(response(true));
+    await settle();
+    expect(probe.helpers.searchDone("alpha beta", 50)).toBe(true);
   });
 });

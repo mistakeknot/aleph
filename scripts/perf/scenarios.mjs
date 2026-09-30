@@ -265,14 +265,22 @@ export async function cmdkScenario(driver, recorder, { queries, reps }) {
     );
     await driver.arm(
       "result",
-      `(h) => h.paletteInput() === ${quote} && h.searchDone(${quote}) && h.optionCount() > 0 && !/Searching threads|Type at least/u.test(h.paletteText())`,
+      `(h, start) => h.paletteInput() === ${quote} && h.searchDone(${quote}, start) && h.optionCount() > 0 && !/Searching threads|Type at least/u.test(h.paletteText())`,
       { startOn: "keydown", timeoutMs: 10000 },
     );
     await driver.char(query.at(-1));
     const rows = await driver.result("rows");
     const result = await driver.result("result");
     record(recorder, "cmdk.keystroke_first_rows_ms", rows);
-    record(recorder, "cmdk.keystroke_result_ms", result);
+    if (result.ms === null && rows.ms !== null) {
+      recorder.add(
+        "cmdk.keystroke_result_ms",
+        null,
+        "rows appeared without a search request started after the keystroke (cached result)",
+      );
+    } else {
+      record(recorder, "cmdk.keystroke_result_ms", result);
+    }
     await closePalette(driver);
     await delay(300);
   }
