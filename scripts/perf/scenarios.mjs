@@ -234,18 +234,25 @@ async function openPalette(driver, metric, recorder) {
   return value.ms;
 }
 
-async function closePalette(driver) {
-  await driver.escape();
-  await driver.waitTrue(`document.querySelector("[data-testid=command-palette]") === null`, 3000);
+async function closePalette(driver, recorder) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await driver.escape();
+    const closed = await driver.waitTrue(
+      `document.querySelector("[data-testid=command-palette]") === null`,
+      attempt === 0 ? 1000 : 3000,
+    );
+    if (closed.ms !== null) return;
+  }
+  recorder.fail("cmdk.palette_close", 1, "palette still open after 3 Escape presses");
 }
 
 export async function cmdkScenario(driver, recorder, { queries, reps }) {
   await openPalette(driver, "cmdk.open_first_ms", recorder);
-  await closePalette(driver);
+  await closePalette(driver, recorder);
   await delay(300);
   for (let index = 0; index < reps; index += 1) {
     await openPalette(driver, "cmdk.open_warm_ms", recorder);
-    await closePalette(driver);
+    await closePalette(driver, recorder);
     await delay(200);
   }
   for (let index = 0; index < reps; index += 1) {
@@ -281,7 +288,7 @@ export async function cmdkScenario(driver, recorder, { queries, reps }) {
     } else {
       record(recorder, "cmdk.keystroke_result_ms", result);
     }
-    await closePalette(driver);
+    await closePalette(driver, recorder);
     await delay(300);
   }
 }
@@ -305,9 +312,18 @@ export async function switchScenario(driver, recorder, { reps }) {
       startOn: "click",
       timeoutMs: 15000,
     });
+    const hit = await driver.eval(
+      `(() => { const node = document.elementFromPoint(${target.x}, ${target.y}); return node?.closest("a[data-sidebar-thread-id]")?.dataset.sidebarThreadId ?? (node === null ? null : node.tagName + " in " + (node.closest("[data-testid]")?.dataset.testid ?? "no test id")); })()`,
+    );
     await driver.click(target.x, target.y);
     const value = await driver.result("switch");
-    record(recorder, "switch.sidebar_click_ms", value);
+    const landed = value?.ms == null ? await driver.eval("location.pathname") : null;
+    record(
+      recorder,
+      "switch.sidebar_click_ms",
+      value,
+      `click on sidebar row ${index + 1} (${target.id}) hit ${JSON.stringify(hit)}, path after timeout ${JSON.stringify(landed)}`,
+    );
     await delay(400);
   }
   for (let index = 0; index < reps; index += 1) {
