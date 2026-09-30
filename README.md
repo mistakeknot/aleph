@@ -1,208 +1,128 @@
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/e40bda56-54a4-47f8-a417-6bbadf2e5b40">
-    <source media="(prefers-color-scheme: light)" srcset="https://github.com/user-attachments/assets/4d9d02fb-c179-449b-a38a-041955143232">
-    <img alt="bb" src="https://github.com/user-attachments/assets/4d9d02fb-c179-449b-a38a-041955143232" width="128">
-  </picture>
-</p>
+# Aleph
 
-# bb
+Aleph is mk's fork of [bb](https://github.com/get-bb/bb), an agentic IDE for
+running coding-agent threads across machines and providers. Aleph is for
+long-running coordinator sessions: a coordinator thread runs a project for
+days, starts child threads for implementation and review, and hands decisions
+to a human operator. Aleph's [mission](MISSION.md) is to make those sessions
+spend their usage on project progress. Across several providers and many
+accounts, every token should buy output or quality, and none should be lost to
+wake storms, stuck waits, unbounded reviews or jobs dying on an exhausted
+login.
 
-[![npm version](https://img.shields.io/npm/v/bb-app.svg)](https://www.npmjs.com/package/bb-app)
-[![Join Discord](https://img.shields.io/badge/Discord-Join%20server-5865F2?logo=discord&logoColor=white)](https://discord.gg/kvBU6tJhcJ)
-
-bb is an agentic IDE that builds itself. It can control, customize, and automate
-itself, laying the groundwork for your own software factory.
-
-Every surface — the desktop app, web app, CLI, and HTTP API — is a first-class
-way to drive bb. Work runs in threads you can follow live, steer at any point,
-or hand off to another agent.
+The name comes from the Aleph in William Gibson's _Mona Lisa Overdrive_ and
+from Jorge Luis Borges' story "The Aleph" ([FORK.md](FORK.md)).
 
 > [!NOTE]
-> bb is in active development. Core architecture is stable, but workflows
-> and surfaces are still evolving.
+> Aleph is a personal fork, not a product. Its
+> [vision](docs/aleph-vision.md#not-goals) lists publishing Aleph or
+> distributing it to other users as a non-goal, and it follows upstream bb
+> instead of competing with it. Most of the [roadmap](docs/aleph-roadmap.md) is
+> goals, not shipped features.
 
-<p align="center">
-  <img alt="bb desktop app showing a code review thread, dispatch panel, and task board" src="assets/app-screenshot.png" width="800">
-</p>
+## What Aleph adds over bb
 
-## Use bb
+Shipped today, from [FORK.md](FORK.md#carried-patches):
 
-### Download the desktop app
+- **Account Pooler 0.1.2.** Thread availability bound to the thread's owning
+  machine; `bb pool exec` for Codex and Claude, so scripted runs use the account
+  pool instead of one login; and attempt receipts for budgeted dispatch. The
+  contract is [`plugins/account-pool/RECEIPTS.md`](plugins/account-pool/RECEIPTS.md).
+- **No upstream update offers.** Aleph builds never offer, download or install
+  an upstream bb release ([Updates](FORK.md#updates)).
+- **Model picker.** Switching a thread's provider in place when the local
+  handoff plugin is running.
+- **Thread list.** Provider icons with brand, monochrome, theme or custom
+  colors.
+- **Split panes.** Optional composer focus when switching panes with the
+  keyboard.
+- **Thecla theme,** the default for new installs.
+- **Release qualification** in the fork's own CI
+  (`scripts/ci-zklw-release-check.sh`).
 
-The recommended way to start using bb is the desktop app:
+The [changelog](CHANGELOG.md) covers each Aleph release, including the desktop
+app icon and Aleph version in the About panel, and Provider usage panel changes
+in `0.43.4+aleph.0.4.1`.
 
-**[Download the latest desktop app](https://github.com/get-bb/bb/releases/tag/desktop-latest)**
+Not built yet: DONE/BLOCKED as a structural rule, capped returns, outcome waits
+with deadlines, bounded review, checkpoints for coordinator rotation, capacity
+forecasts, and any measure of usage per outcome. See the
+[vision](docs/aleph-vision.md), [roadmap](docs/aleph-roadmap.md) and
+[philosophy](PHILOSOPHY.md).
 
-The desktop app supports macOS on Apple Silicon (arm64). The Linux x64 AppImage
-is alpha: expect problems, and please report them. Intel Mac users should run bb
-with `npx` instead. On Windows, run bb inside
-[WSL2 (Windows Subsystem for Linux)](https://learn.microsoft.com/windows/wsl/install):
-install WSL2 first, then run the same `npx` command below from your WSL2 (Linux)
-shell. Native Windows PowerShell and CMD are not supported.
+## Names and versions
 
-Early adopters can install
-**[bb Nightly](https://github.com/get-bb/bb/releases/tag/desktop-nightly)**
-alongside the stable desktop app. It has a separate application identity,
-yellow icon, and auto-update feed.
+Aleph keeps bb's package names (`bb-app`, `@bb/desktop`, plugin packages) and
+command names (`bb`, `bb-app`) so upstream merges stay clean and bb's
+documentation still applies. Aleph's changes are the patches listed above, the
+version, and the desktop app's name ("Aleph").
 
-### Or run it anywhere with npx
+Aleph releases are named `aleph-X.Y.Z`, for example `aleph-0.4.1`. The package
+version keeps the upstream bb release it is based on and carries the Aleph
+version as build metadata: `0.43.4+aleph.0.4.1` is Aleph 0.4.1 on upstream bb
+0.43.4. [FORK.md](FORK.md#versions) explains how versions are ordered and
+bumped.
+
+## Installing and running
+
+Aleph is not published. The npm registry drops build metadata, so an Aleph
+version cannot be published under upstream's `bb-app` package, and
+`npx bb-app@latest` and bb's desktop downloads install upstream bb, not Aleph.
+Aleph is built from this repository ([FORK.md](FORK.md#updates)):
+
+- **Server.** Install `bb-app` from an `npm pack` of this checkout, or run from
+  source. A server started from a source checkout with `--in-app-updates` can
+  fast-forward to this repository's `origin/main` from Settings → Updates.
+- **macOS desktop app.** Build it from source; the steps are in
+  [Build the macOS desktop app](FORK.md#build-the-macos-desktop-app).
+- **Other machines.** Enrolled machines running a launchd or systemd daemon do
+  not follow the server automatically; see
+  [Updating Aleph](FORK.md#updates).
+
+Building needs Node 22.19 or later and pnpm 9.15.0. To run a production-mode
+build from a source checkout:
 
 ```bash
-npx bb-app@latest
+pnpm install --frozen-lockfile
+pnpm start
 ```
 
-Then open `http://localhost:38886`.
-
-To run the newest automated build instead:
-
-```bash
-npx bb-app@nightly
-```
-
-npm 12 and later block dependency install scripts by default. bb needs those
-scripts to build its native add-ons. If your npm version is 12 or later, allow
-the scripts for the install:
-
-```bash
-npx --allow-scripts=better-sqlite3,node-pty,@parcel/watcher bb-app@latest
-```
-
-Or set the policy once for all global installs:
-
-```bash
-npm config set allow-scripts=better-sqlite3,node-pty,@parcel/watcher --location=user
-```
-
-bb uses the provider CLI you already have authenticated.
-
-For install requirements, provider setup, configuration, and package-focused
-docs, start with
-[`packages/bb-app`](./packages/bb-app/README.md).
+Provider setup, configuration and requirements are the same as bb's; start with
+[`packages/bb-app`](./packages/bb-app/README.md) and
+[Configuration](docs/configuration.md). bb uses the provider CLI you already
+have authenticated.
 
 ### Telemetry
 
-Production runs (the desktop app and `npx bb-app`) send anonymous usage
-telemetry (app starts, thread creation counts, user message counts, and plugin
-installs) to help us understand adoption. Identification is a random per-install
-id stored in your data dir — no user, host, project, workspace, or message
-content is ever attached. Plugin install events name only public plugins
-(bundled plugins and `bb-community` marketplace entries); installs from a local
-path, a private git or npm source, or a third-party marketplace report no name. Development/source runs never send. Opt out any run with
-`BB_TELEMETRY=false`. See
+Production runs send anonymous usage telemetry, inherited from upstream. Opt
+out with `BB_TELEMETRY=false`. Development and source-checkout worktree runs
+never send. See
 [`apps/server/src/services/system/telemetry.ts`](./apps/server/src/services/system/telemetry.ts).
 
 ## Development
-
-Use the development loop when working on bb itself:
 
 ```bash
 pnpm dev
 ```
 
-That starts the Vite app and proxies API and WebSocket traffic to a separate
+This starts the Vite app and proxies API and WebSocket traffic to a separate
 dev server. The launcher prints the actual ports at startup. Each checkout gets
-a data directory under
-`~/.bb-dev/<checkout-instance>/` and deterministic high ports derived from the
-checkout path. The checkout instance id is the sanitized path to the checkout,
-relative to your home directory, plus a short hash suffix. Separate worktrees
-can run alongside each other and the packaged `npx bb-app@latest` instance.
+a data directory under `~/.bb-dev/<checkout-instance>/` and deterministic high
+ports derived from the checkout path, so separate worktrees can run alongside
+each other.
 
-To test the production bundle and serving path without switching to production
-data or ports, use:
+To test the production bundle and serving path with checkout-specific data and
+ports, use `pnpm start:worktree`. It has no hot reload; rerun it after source
+changes.
 
-```bash
-pnpm start:worktree
-```
-
-This builds the same optimized frontend and runtime artifacts as `pnpm start`,
-then serves the app from the BB server on the checkout-specific dev server port.
-It keeps the normal checkout-specific dev data directory and host-daemon port.
-There is no Vite dev server or hot reload in this mode; rerun the command after
-source changes. As with `pnpm dev`, worktree starts do not send telemetry.
-
-For the Electron desktop shell, keep `pnpm dev` running and start the desktop
-package in a second terminal:
-
-```bash
-pnpm exec turbo run dev --filter=@bb/desktop
-```
-
-The desktop shell connects to this checkout's running dev app. Stop each command
-with Ctrl-C in its terminal.
-
-To use the dev app from another machine over Tailscale, run `pnpm dev`, note the
-printed app port, and publish the loopback Vite listener:
-
-```bash
-tailscale serve --bg --https=443 http://127.0.0.1:<app-port>
-```
-
-Then open `https://<machine>.<tailnet>.ts.net`. Source dev binds both the Vite
-app and main server to loopback by default; Vite continues to proxy API and
-WebSocket traffic.
-
-For direct access at `http://<tailscale-ip>:<app-port>` instead, run:
-
-```bash
-pnpm dev:remote
-```
-
-This binds the Vite app and main server to all IPv4 interfaces. The remote
-browser must be able to reach both the printed app and server ports for realtime
-updates. The server API is unauthenticated and permits command execution and
-file reads, so use this only behind a trusted network boundary and restrict the
-ports to Tailscale traffic with the host firewall when the LAN is not trusted.
-
-To access the production-style worktree server directly from another machine,
-run:
-
-```bash
-pnpm start:worktree-remote
-```
-
-This uses the same checkout-specific data directory and ports as
-`pnpm start:worktree`, but binds its single server listener to all IPv4
-interfaces. The server API is unauthenticated and permits command execution and
-file reads, so use it only behind a trusted network boundary and restrict the
-port to Tailscale traffic with the host firewall when the LAN is not trusted.
-
-To use the component storybook from another machine, run:
-
-```bash
-pnpm storybook
-```
-
-Ladle binds to all interfaces and configures its HMR WebSocket to use the
-browser's current host instead of `localhost`. Do not run `pnpm storybook` on an
-untrusted network.
-
-Development behavior is intentionally split:
-
-- the app hot reloads itself
-- the server does not hot reload
-- the host daemon does not hot reload
-
-When you want the server and host daemon to pick up the latest build output, use:
+The app hot reloads itself. The server and host daemon do not; rebuild and
+restart them with:
 
 ```bash
 pnpm dev:restart
 pnpm dev:restart-server
 pnpm dev:restart-host-daemon
 ```
-
-These rebuild first, then restart only the targeted stateful services.
-
-To run a production-mode build from a source checkout:
-
-```bash
-pnpm start
-```
-
-That builds only the app, server, and host-daemon runtime artifacts, then runs
-the launcher directly against those workspace outputs. Use the `bb-app`
-tarball smoke task when validating the published `npx bb-app@latest` package
-layout.
 
 ```bash
 pnpm bb --help            # built CLI, targets the default/prod instance
@@ -214,88 +134,59 @@ pnpm reset:dev            # clear this checkout's dev state
 pnpm reset:all            # clear both production and dev states
 ```
 
-These reset commands prompt for confirmation before deleting anything.
+The reset commands prompt for confirmation before deleting anything.
 
-## Repository Overview
+`pnpm dev:remote`, `pnpm start:worktree-remote` and `pnpm storybook` bind to
+all interfaces. The server API is unauthenticated and permits command execution
+and file reads, so use them only behind a trusted network boundary.
 
-See [Repository overview](docs/repository-overview.md) for the monorepo package and app map.
+For the rest of the development workflow, see [AGENTS.md](AGENTS.md) and
+[Worktrees and setup scripts](docs/worktrees.md).
 
-## System Overview
+Aleph-specific tooling: `node scripts/bump-version.mjs --patch|--minor` bumps
+the Aleph version ([FORK.md](FORK.md#versions)).
 
-See [System overview](docs/system-overview.md) for runtime architecture, data model, and component boundaries.
+## Documentation
 
-## Further Reading
+Aleph:
 
-- [Vision](docs/VISION.md)
+- [Mission](MISSION.md), [philosophy](PHILOSOPHY.md), [vision](docs/aleph-vision.md)
+- [Personas](docs/aleph-personas.md), [critical user journeys](docs/cujs/README.md)
+- [Roadmap](docs/aleph-roadmap.md) and [backlog](docs/aleph-backlog.md)
+- [FORK.md](FORK.md): what the fork carries, versions, updates, migrations
+- [Changelog](CHANGELOG.md)
+
+Inherited from bb:
+
+- [Repository overview](docs/repository-overview.md)
+- [System overview](docs/system-overview.md)
+- [bb vision](docs/VISION.md)
 - [Platform support](docs/platform-support.md)
 - [Configuration](docs/configuration.md)
 - [Using bb on multiple devices](docs/multiple-devices.md)
-- [Worktrees and setup scripts](docs/worktrees.md)
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
+Aleph is maintained by mk. [CONTRIBUTING.md](CONTRIBUTING.md) is upstream bb's
+guide and its approval process refers to bb's community, so it does not describe
+this repository. Follow upstream's conventions for patches, including CLI parity
+and the plugin API rules in [AGENTS.md](AGENTS.md), so they stay upstreamable.
 
 ## Troubleshooting
 
 ### `Could not locate the bindings file`
 
-bb uses native add-ons, for example `better-sqlite3` and `@parcel/watcher`. npm
-downloads or builds those binaries in a package install script. If npm does not
-run install scripts, the binaries are absent. bb then stops at startup with this
-error:
-
-```
-Error: Could not locate the bindings file. Tried:
- → .../node_modules/better-sqlite3/build/better_sqlite3.node
-```
-
-There are two usual causes.
-
-The first cause is npm 12 or later. Since npm 12, npm blocks dependency install
-scripts by default and prints
-`npm warn install-scripts N packages had install scripts blocked`. Name bb's
-native add-ons in `--allow-scripts` to let this one command run their install
-scripts:
-
-```bash
-npx --allow-scripts=better-sqlite3,node-pty,@parcel/watcher bb-app@latest
-```
-
-For a permanent install with the same setting, use:
-
-```bash
-npm install -g --allow-scripts=better-sqlite3,node-pty,@parcel/watcher bb-app
-bb-app
-```
-
-To allow them for all global installs on this machine, run
-`npm config set allow-scripts=better-sqlite3,node-pty,@parcel/watcher --location=user`.
-npm 10 and 11 accept or ignore the flag, so it is safe on every supported Node.
-
-The second cause is `ignore-scripts=true` in your `~/.npmrc`. Set the
-`npm_config_ignore_scripts` environment variable to let this one command run its
-install scripts:
-
-```bash
-npm_config_ignore_scripts=false npx bb-app@latest
-```
-
-For a permanent install with the same setting, use:
-
-```bash
-npm_config_ignore_scripts=false npm install -g bb-app
-bb-app
-```
-
-The environment variable applies to that one command only. Keep
-`ignore-scripts=true` in your `~/.npmrc` if you want it for security.
-
-The same error has other causes. A Node.js major-version change after the
-install causes it. A copy of `node_modules` from a different operating system,
-CPU architecture, or libc variant also causes it. To recover, install the
-package again, or run `npm rebuild better-sqlite3`.
+bb uses native add-ons such as `better-sqlite3`, `node-pty` and
+`@parcel/watcher`. If dependency install scripts did not run, the binaries are
+absent and the server stops at startup with this error. Causes include npm 12 or
+later blocking install scripts by default, `ignore-scripts=true` in `~/.npmrc`,
+a Node.js major-version change after install, and a `node_modules` copied from a
+different operating system, architecture or libc. Reinstall with scripts
+allowed, or run `npm rebuild better-sqlite3`.
 
 ## Acknowledgements
 
-<a href="https://blacksmith.sh"><img src="assets/blacksmith-ci.png" alt="CI powered by Blacksmith" width="400"></a>
+Aleph is built on [bb](https://github.com/get-bb/bb) by the bb maintainers and
+contributors; most of the code is theirs. Aleph merges upstream into the fork
+and follows upstream's direction ([vision](docs/aleph-vision.md#relationship-to-upstream-bb)).
+The [MIT license](LICENSE) is upstream's.
