@@ -102,7 +102,7 @@ export const THREAD_LIST_STALE_TIME_MS = 10_000;
 const THREAD_SEARCH_STALE_TIME_MS = 10_000;
 const THREAD_DETAIL_STALE_TIME_MS = 5_000;
 const THREAD_MENTION_CANDIDATE_LIMIT = 200;
-const THREAD_SEARCH_DEBOUNCE_MS = 150;
+const THREAD_SEARCH_DEBOUNCE_MS = 60;
 export const THREAD_SEARCH_LIMIT_PER_GROUP = 20;
 const THREAD_SEARCH_MIN_NON_WHITESPACE_CHARS = 2;
 
@@ -623,7 +623,11 @@ export function useThreadSearch({
   limitPerGroup = THREAD_SEARCH_LIMIT_PER_GROUP,
   query,
 }: UseThreadSearchArgs): UseThreadSearchResult {
-  const debouncedRawQuery = useDebouncedValue(query, THREAD_SEARCH_DEBOUNCE_MS);
+  const debouncedRawQuery = useDebouncedValue(query, (settledQuery) =>
+    hasThreadSearchableQuery(settledQuery.trim())
+      ? THREAD_SEARCH_DEBOUNCE_MS
+      : 0,
+  );
   const trimmedQuery = query.trim();
   const debouncedQuery = debouncedRawQuery.trim();
   const liveQueryIsSearchable = hasThreadSearchableQuery(trimmedQuery);
