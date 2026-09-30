@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { launchChrome } from "./cdp.mjs";
 import {
@@ -13,11 +14,13 @@ import {
 } from "./env.mjs";
 import {
   aggregateRuns,
+  baselineSummaryOf,
   checkThresholds,
   emptyScenarios,
   incompleteMetrics,
   Recorder,
   renderTable,
+  resolveThresholdsPath,
   selectScenarios,
 } from "./lib.mjs";
 import {
@@ -55,6 +58,21 @@ const scenarios = selectScenarios({
 });
 const wants = (name) => scenarios.has(name);
 const browserScenarios = ["startup", "cmdk", "switch", "thread", "composer"];
+const thresholdsPath = resolveThresholdsPath(
+  args,
+  join(dirname(fileURLToPath(import.meta.url)), "thresholds.json"),
+);
+const thresholds =
+  thresholdsPath === undefined
+    ? undefined
+    : JSON.parse(readFileSync(thresholdsPath, "utf8"));
+const baselineSummary =
+  args.baseline === undefined
+    ? undefined
+    : baselineSummaryOf(
+        JSON.parse(readFileSync(args.baseline, "utf8")),
+        args.baseline,
+      );
 const outDir = resolve(args.out ?? join(perfHome(), "results"));
 mkdirSync(outDir, { recursive: true });
 
@@ -163,12 +181,7 @@ for (const metric of incompleteMetrics(summary, scenarios)) {
   process.exitCode = 1;
 }
 
-if (args.thresholds !== undefined) {
-  const thresholds = JSON.parse(readFileSync(args.thresholds, "utf8"));
-  const baselineSummary =
-    args.baseline === undefined
-      ? undefined
-      : JSON.parse(readFileSync(args.baseline, "utf8")).summary;
+if (thresholds !== undefined) {
   const { failures, skipped } = checkThresholds(summary, thresholds, baselineSummary, {
     scenarios,
   });

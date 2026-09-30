@@ -4,12 +4,14 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   aggregateRuns,
+  baselineSummaryOf,
   checkThresholds,
   emptyScenarios,
   incompleteMetrics,
   percentile,
   Recorder,
   renderTable,
+  resolveThresholdsPath,
   scenarioOfMetric,
   selectScenarios,
   summarize,
@@ -262,5 +264,41 @@ describe("perf harness scenario scoping", () => {
       { scenarios: new Set(["cmdk", "switch"]) },
     );
     expect(failures.map((failure) => failure.name)).toEqual(["switch.click_ms"]);
+  });
+});
+
+describe("perf harness baseline flag", () => {
+  it("uses the default thresholds when only --baseline is given", () => {
+    expect(resolveThresholdsPath({ baseline: "b.json" }, "default.json")).toBe(
+      "default.json",
+    );
+    expect(
+      resolveThresholdsPath({ baseline: "b.json", thresholds: "t.json" }, "default.json"),
+    ).toBe("t.json");
+    expect(resolveThresholdsPath({}, "default.json")).toBeUndefined();
+  });
+
+  it("rejects a baseline file without a perf summary", () => {
+    expect(baselineSummaryOf({ schema: "bb-perf-v1", summary: { a: 1 } }, "b.json")).toEqual({
+      a: 1,
+    });
+    expect(() => baselineSummaryOf({ summary: {} }, "b.json")).toThrow(/bb-perf-v1/u);
+    expect(() => baselineSummaryOf({ schema: "bb-perf-v1" }, "b.json")).toThrow(/summary/u);
+  });
+
+  it("flags a regression against the shipped baseline under default thresholds", () => {
+    const thresholds = JSON.parse(readFileSync(join(perfDir, "thresholds.json"), "utf8"));
+    const baseline = baselineSummaryOf(
+      JSON.parse(
+        readFileSync(join(perfDir, "baselines/2026-09-30-baseline.json"), "utf8"),
+      ),
+      "baseline",
+    );
+    const current = structuredClone(baseline);
+    current["cmdk.open_warm_ms"].p50 += 60;
+    const { failures } = checkThresholds(current, thresholds, baseline, {
+      scenarios: new Set(["cmdk"]),
+    });
+    expect(failures.map((failure) => failure.kind)).toContain("regression-p50");
   });
 });

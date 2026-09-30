@@ -108,6 +108,23 @@ export function selectScenarios({ only, skipBrowser = false, skipServer = false 
   );
 }
 
+export function resolveThresholdsPath({ thresholds, baseline }, defaultPath) {
+  if (thresholds !== undefined) return thresholds;
+  return baseline === undefined ? undefined : defaultPath;
+}
+
+export function baselineSummaryOf(parsed, path) {
+  const summary = parsed?.summary;
+  if (
+    parsed?.schema !== "bb-perf-v1" ||
+    summary === null ||
+    typeof summary !== "object"
+  ) {
+    throw new Error(`${path} is not a bb-perf-v1 result with a summary`);
+  }
+  return summary;
+}
+
 export function incompleteMetrics(summary, scenarios) {
   const incomplete = [];
   for (const [name, stats] of Object.entries(summary)) {
