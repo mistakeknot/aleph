@@ -17,7 +17,7 @@ describe("experiments", () => {
 
       const experiments = {
         ...defaultExperiments,
-        mobileApp: true,
+        changelogPreview: true,
       };
       setExperiments(db, experiments);
       db.$client
@@ -37,7 +37,7 @@ describe("experiments", () => {
       ).toEqual([
         "changelogPreview",
         "futureExperiment",
-        "mobileApp",
+        "legacyJitiPluginLoader",
         "serverMove",
         "sidebarProgressiveDisclosure",
       ]);

@@ -1,3 +1,4 @@
+import { MobileAppSection } from "@/components/settings/MobileAppSection";
 import { MachineEnvironmentSettings } from "@/components/settings/MachineEnvironmentSettings";
 import { MachineAccessSettings } from "@/components/settings/MachineAccessSettings";
 import { useMemo, useRef, useState, type ReactNode } from "react";
@@ -696,145 +697,154 @@ export function AppearanceSettingsSection({
     onAppearanceThemeChange(themeId);
   };
   return (
-    <SettingsSection title="Appearance">
-      <div className="space-y-5">
-        <SidebarThreadListSetting />
-        <SidebarNavigationSetting />
-        <SidebarHeaderSetting />
-        <CodeRendererSettings />
-        <SettingsWithControl label="Theme">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="outline"
-                size="sm"
-                className={SETTINGS_DROPDOWN_TRIGGER_CLASS}
-                aria-label="Theme"
-              >
-                {THEME_PREFERENCE_LABELS[themePreference]}
-                <Icon
-                  name="ChevronDown"
-                  className="size-3.5 text-muted-foreground"
-                />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="end"
-              className={SETTINGS_DROPDOWN_CONTENT_CLASS}
-            >
-              {THEME_PREFERENCE_OPTIONS.map((option) => (
-                <DropdownMenuItem
-                  key={option.value}
-                  onSelect={() => onThemePreferenceChange(option.value)}
+    <div className="space-y-6">
+      <SettingsSection title="Appearance">
+        <div className="space-y-5">
+          <SettingsWithControl label="Theme">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className={SETTINGS_DROPDOWN_TRIGGER_CLASS}
+                  aria-label="Theme"
                 >
-                  {option.label}
+                  {THEME_PREFERENCE_LABELS[themePreference]}
                   <Icon
-                    name="Check"
-                    className={cn(
-                      "ml-auto",
-                      themePreference !== option.value && "opacity-0",
-                      COARSE_POINTER_ICON_SIZE_CLASS,
-                    )}
+                    name="ChevronDown"
+                    className="size-3.5 text-muted-foreground"
                   />
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </SettingsWithControl>
-
-        <SettingsWithControl
-          label="Palette"
-          description={PALETTE_SETTING_DESCRIPTION}
-        >
-          <DropdownMenu
-            onOpenChange={(open) => {
-              if (open) {
-                paletteSelectedRef.current = false;
-                onAppearanceThemePrefetch([
-                  ...builtInThemes.map((entry) => entry.id),
-                  ...customThemes,
-                  ...pluginThemes.map((theme) => theme.id),
-                ]);
-                return;
-              }
-              previewPalette(null);
-            }}
-          >
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="outline"
-                size="sm"
-                className={SETTINGS_DROPDOWN_TRIGGER_CLASS}
-                aria-label="Palette"
-                disabled={appearanceDisabled}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                className={SETTINGS_DROPDOWN_CONTENT_CLASS}
               >
-                <span className="min-w-0 truncate">
-                  {appPaletteLabel(appearance, pluginThemes)}
-                </span>
-                <Icon
-                  name="ChevronDown"
-                  className="size-3.5 text-muted-foreground"
-                />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="end"
-              className={SETTINGS_DROPDOWN_CONTENT_CLASS}
-            >
-              {builtInThemes.map((entry) => (
-                <PaletteMenuItem
-                  key={entry.id}
-                  themeId={entry.id}
-                  active={appearance.themeId === entry.id}
-                  onPreview={previewPalette}
-                  onSelect={selectPalette}
-                >
-                  {entry.name}
-                </PaletteMenuItem>
-              ))}
-              {customThemes.map((name) => (
-                <PaletteMenuItem
-                  key={`custom:${name}`}
-                  themeId={name}
-                  active={appearance.themeId === name}
-                  onPreview={previewPalette}
-                  onSelect={selectPalette}
-                >
-                  {name}
-                </PaletteMenuItem>
-              ))}
-              {pluginThemes.map((theme) => (
-                <PaletteMenuItem
-                  key={theme.id}
-                  themeId={theme.id}
-                  active={appearance.themeId === theme.id}
-                  onPreview={previewPalette}
-                  onSelect={selectPalette}
-                >
-                  {theme.name}
-                  <span className="text-muted-foreground">
-                    ({theme.pluginId})
-                  </span>
-                </PaletteMenuItem>
-              ))}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={onCreatePalette}>
-                <Icon name="Plus" className={COARSE_POINTER_ICON_SIZE_CLASS} />
-                Create
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </SettingsWithControl>
+                {THEME_PREFERENCE_OPTIONS.map((option) => (
+                  <DropdownMenuItem
+                    key={option.value}
+                    onSelect={() => onThemePreferenceChange(option.value)}
+                  >
+                    {option.label}
+                    <Icon
+                      name="Check"
+                      className={cn(
+                        "ml-auto",
+                        themePreference !== option.value && "opacity-0",
+                        COARSE_POINTER_ICON_SIZE_CLASS,
+                      )}
+                    />
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </SettingsWithControl>
 
-        <FaviconColorSettingsControl
-          disabled={appearanceDisabled}
-          faviconColor={faviconColor}
-          onFaviconColorChange={onFaviconColorChange}
-        />
-        <SplitDimmingSetting />
-        <SidebarFooterSettings />
-      </div>
-    </SettingsSection>
+          <SettingsWithControl
+            label="Palette"
+            description={PALETTE_SETTING_DESCRIPTION}
+          >
+            <DropdownMenu
+              onOpenChange={(open) => {
+                if (open) {
+                  paletteSelectedRef.current = false;
+                  onAppearanceThemePrefetch([
+                    ...builtInThemes.map((entry) => entry.id),
+                    ...customThemes,
+                    ...pluginThemes.map((theme) => theme.id),
+                  ]);
+                  return;
+                }
+                previewPalette(null);
+              }}
+            >
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className={SETTINGS_DROPDOWN_TRIGGER_CLASS}
+                  aria-label="Palette"
+                  disabled={appearanceDisabled}
+                >
+                  <span className="min-w-0 truncate">
+                    {appPaletteLabel(appearance, pluginThemes)}
+                  </span>
+                  <Icon
+                    name="ChevronDown"
+                    className="size-3.5 text-muted-foreground"
+                  />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                className={SETTINGS_DROPDOWN_CONTENT_CLASS}
+              >
+                {builtInThemes.map((entry) => (
+                  <PaletteMenuItem
+                    key={entry.id}
+                    themeId={entry.id}
+                    active={appearance.themeId === entry.id}
+                    onPreview={previewPalette}
+                    onSelect={selectPalette}
+                  >
+                    {entry.name}
+                  </PaletteMenuItem>
+                ))}
+                {customThemes.map((name) => (
+                  <PaletteMenuItem
+                    key={`custom:${name}`}
+                    themeId={name}
+                    active={appearance.themeId === name}
+                    onPreview={previewPalette}
+                    onSelect={selectPalette}
+                  >
+                    {name}
+                  </PaletteMenuItem>
+                ))}
+                {pluginThemes.map((theme) => (
+                  <PaletteMenuItem
+                    key={theme.id}
+                    themeId={theme.id}
+                    active={appearance.themeId === theme.id}
+                    onPreview={previewPalette}
+                    onSelect={selectPalette}
+                  >
+                    {theme.name}
+                    <span className="text-muted-foreground">
+                      ({theme.pluginId})
+                    </span>
+                  </PaletteMenuItem>
+                ))}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={onCreatePalette}>
+                  <Icon
+                    name="Plus"
+                    className={COARSE_POINTER_ICON_SIZE_CLASS}
+                  />
+                  Create
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </SettingsWithControl>
+
+          <FaviconColorSettingsControl
+            disabled={appearanceDisabled}
+            faviconColor={faviconColor}
+            onFaviconColorChange={onFaviconColorChange}
+          />
+          <SplitDimmingSetting />
+        </div>
+      </SettingsSection>
+      <SettingsSection title="Interface">
+        <div className="space-y-5">
+          <SidebarThreadListSetting />
+          <SidebarNavigationSetting />
+          <SidebarHeaderSetting />
+          <CodeRendererSettings />
+          <SidebarFooterSettings />
+        </div>
+      </SettingsSection>
+    </div>
   );
 }
 
@@ -1042,10 +1052,10 @@ const EXPERIMENT_DEFINITIONS: Record<
     description:
       "Show the latest release notes as a compact preview on the Updates page.",
   },
-  mobileApp: {
-    label: "Mobile app",
+  legacyJitiPluginLoader: {
+    label: "Legacy plugin loader (JITI)",
     description:
-      "Pair the bb mobile app over bb connect: shows Add mobile device under Remote access and enables bb connect machine-code.",
+      "Load plugin server code with the legacy JITI runtime. Takes effect the next time a plugin loads.",
   },
   serverMove: {
     label: "Server move",
@@ -1064,32 +1074,34 @@ export function ExperimentsSettingsSection({
   onExperimentChange,
 }: ExperimentsSettingsSectionProps) {
   return (
-    <SettingsSection
-      title="Experiments"
-      description="Early features that are off by default. Opt in to try them."
-    >
-      <div className="space-y-5">
-        {experimentKeys.map((experimentKey) => {
-          const definition = EXPERIMENT_DEFINITIONS[experimentKey];
-          return (
-            <SettingsWithControl
-              key={experimentKey}
-              label={definition.label}
-              description={definition.description}
-            >
-              <Switch
-                checked={experiments[experimentKey]}
-                disabled={disabled}
-                onCheckedChange={(enabled) =>
-                  onExperimentChange(experimentKey, enabled)
-                }
-                aria-label={definition.label}
-              />
-            </SettingsWithControl>
-          );
-        })}
-      </div>
-    </SettingsSection>
+    <>
+      <SettingsSection
+        title="Experiments"
+        description="Early features that are off by default. Opt in to try them."
+      >
+        <div className="space-y-5">
+          {experimentKeys.map((experimentKey) => {
+            const definition = EXPERIMENT_DEFINITIONS[experimentKey];
+            return (
+              <SettingsWithControl
+                key={experimentKey}
+                label={definition.label}
+                description={definition.description}
+              >
+                <Switch
+                  checked={experiments[experimentKey]}
+                  disabled={disabled}
+                  onCheckedChange={(enabled) =>
+                    onExperimentChange(experimentKey, enabled)
+                  }
+                  aria-label={definition.label}
+                />
+              </SettingsWithControl>
+            );
+          })}
+        </div>
+      </SettingsSection>
+    </>
   );
 }
 
@@ -1240,6 +1252,8 @@ export function SettingsView() {
         showChangelogPreview={experiments.changelogPreview}
       />
     );
+  } else if (activeSection === "mobile") {
+    content = <MobileAppSection />;
   } else if (activeSection === "experiments") {
     content = (
       <ExperimentsSettingsSection

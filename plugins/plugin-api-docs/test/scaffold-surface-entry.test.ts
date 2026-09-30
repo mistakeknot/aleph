@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   buildSurfaceEntryScaffold,
   classifyFixtureFidelity,
-  fixtureResponsiveStrategy,
   parseScaffoldArgs,
   renderSurfaceEntryScaffold,
 } from "../scripts/scaffold-surface-entry.mjs";
@@ -60,32 +59,6 @@ describe("surface-entry scaffold", () => {
     expect(classifyFixtureFidelity(traits)).toBe(expected);
   });
 
-  it("derives fidelity from spatial ownership and observable behavior", () => {
-    expect(
-      classifyFixtureFidelity({
-        spatialOwner: false,
-        transient: false,
-        outcome: false,
-        replacement: false,
-      }),
-    ).toBe("none");
-    expect(
-      classifyFixtureFidelity({
-        spatialOwner: true,
-        transient: false,
-        outcome: false,
-        replacement: false,
-      }),
-    ).toBe("anchor");
-  });
-
-  it("uses one responsive rule for every generated spatial fixture", () => {
-    expect(fixtureResponsiveStrategy({ spatialOwner: true })).toBe(
-      "scale-together",
-    );
-    expect(fixtureResponsiveStrategy({ spatialOwner: false })).toBe("reflow");
-  });
-
   it("generates the representative command-palette flow deterministically", () => {
     const first = parseScaffoldArgs([
       "--id",
@@ -100,6 +73,8 @@ describe("surface-entry scaffold", () => {
       "apps/app/src/components/commands/CommandPalette.test.tsx",
       "--source",
       "apps/app/src/components/commands/CommandPalette.tsx",
+      "--source",
+      "apps/app/src/components/commands/CommandPaletteBody.tsx",
       "--source",
       "apps/app/src/components/commands/PaletteShell.tsx",
       "--api-symbol",
@@ -116,6 +91,8 @@ describe("surface-entry scaffold", () => {
       "PluginCommandContext",
       "--source",
       "apps/app/src/components/commands/CommandPalette.tsx",
+      "--source",
+      "apps/app/src/components/commands/CommandPaletteBody.tsx",
       "--source",
       "apps/app/src/components/commands/PaletteShell.tsx",
       "--source",
@@ -156,6 +133,10 @@ describe("surface-entry scaffold", () => {
           },
           {
             path: "apps/app/src/components/commands/CommandPalette.tsx",
+            anchors: ["TODO: Add a stable source anchor"],
+          },
+          {
+            path: "apps/app/src/components/commands/CommandPaletteBody.tsx",
             anchors: ["TODO: Add a stable source anchor"],
           },
           {

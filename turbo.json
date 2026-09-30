@@ -301,6 +301,9 @@
       "persistent": true,
       "passThroughEnv": ["*"]
     },
+    "@bb/mobile#theme:generate": {
+      "cache": false
+    },
     "@bb/mobile#test": {
       "dependsOn": ["//#ensure-native-modules", "topo"],
       "inputs": [
@@ -313,6 +316,15 @@
     "@bb/mobile#dev": {
       "cache": false,
       "persistent": true,
+      "passThroughEnv": ["*"]
+    },
+    "@bb/mobile#build:android:local": {
+      "cache": false,
+      "outputs": ["build-output/**"],
+      "passThroughEnv": ["*"]
+    },
+    "@bb/mobile#e2e:android": {
+      "cache": false,
       "passThroughEnv": ["*"]
     },
     "storybook": {
@@ -537,6 +549,12 @@
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/.github/actions/setup-workspace/**",
+        "$TURBO_ROOT$/.github/actions/setup-workspace-tools/**",
+        "$TURBO_ROOT$/.github/actions/cache-workspace/**",
+        "$TURBO_ROOT$/.github/workflows/ci.yml",
+        "$TURBO_ROOT$/.github/workflows/ci-cache-maintenance.yml",
+        "$TURBO_ROOT$/scripts/lib/**",
+        "$TURBO_ROOT$/scripts/forkable-plugins.json",
         "$TURBO_ROOT$/.github/APPROVED_CONTRIBUTORS",
         "$TURBO_ROOT$/.github/workflows/approve-contributor.yml",
         "$TURBO_ROOT$/.github/workflows/pr-gate.yml",
@@ -583,6 +601,11 @@
         "UPDATE_PARITY_ROW_COUNTS",
         "UPDATE_TRANSCRIPT_EXPECTATIONS"
       ]
+    },
+    "@bb/desktop#test": {
+      "dependsOn": ["//#ensure-native-modules", "topo"],
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/vitest.shared.ts"],
+      "passThroughEnv": ["DISPLAY"]
     },
     // plugin-scaffold-external packs @get-bb/plugin-sdk (prepack rebuilds its
     // dist), so the SDK build is a dependency.
@@ -999,6 +1022,12 @@
     "bb-plugin-connect#typecheck": {
       "dependsOn": ["@get-bb/plugin-sdk#build:types", "topo"]
     },
+    "bb-plugin-bb-account#typecheck": {
+      "dependsOn": ["@get-bb/plugin-sdk#build:types", "topo"]
+    },
+    "bb-plugin-bb-ai#typecheck": {
+      "dependsOn": ["@get-bb/plugin-sdk#build:types", "topo"]
+    },
     "bb-plugin-bb-guide#typecheck": {
       "dependsOn": ["@get-bb/plugin-sdk#build:types", "topo"]
     },
@@ -1223,14 +1252,14 @@
         "$TURBO_ROOT$/packages/plugin-registry/flavors/**"
       ]
     },
-    "bb-plugin-provider-usage#typecheck": {
+    "bb-plugin-bb--provider-usage#typecheck": {
       "dependsOn": ["@get-bb/plugin-sdk#build:types", "topo"],
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/packages/plugin-registry/flavors/**"
       ]
     },
-    "bb-plugin-provider-usage#test": {
+    "bb-plugin-bb--provider-usage#test": {
       "dependsOn": [
         "//#ensure-native-modules",
         "@get-bb/plugin-sdk#build",

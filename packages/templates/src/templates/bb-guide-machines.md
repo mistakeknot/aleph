@@ -230,7 +230,7 @@ checkouts stay on the machines that own them.
     --data-dir <dir>                      Target data directory
   bb server unlock                        Let this computer's old copy start again
     --force                               Skip the new-server health check
-  bb server allow-connect                 Turn bb connect on for an imported copy
+  bb server allow-connect                 Turn bb connect and bb account on for an imported copy
   bb server delete-old-copy               Delete the old copy a move left here
   bb server install-machine-service       Keep this computer connected after a move
 
@@ -265,10 +265,13 @@ until then bb refuses to start a server on that directory. Stop the original
 server before starting the imported one; two servers holding the same bb
 connect credential take each other's tunnel.
 
-An imported server starts with bb connect off (`server-connect-hold.json`).
+An imported server starts with bb connect and bb account off
+(`server-connect-hold.json`), so the copy can't take the original server's
+tunnel or use its getbb.app account.
 `bb server allow-connect [--data-dir <dir>] [--yes] [--json]` removes the hold
 once the original server is stopped (`--json` prints `dataDir` and
-`connectHoldRemoved`); bb connect starts the next time that server starts.
+`connectHoldRemoved`); bb connect and bb account start the next time that
+server starts.
 
 After a move, the old computer's data directory keeps `server-moved.json`, so
 bb there refuses to start the old server and runs as a regular machine.
@@ -294,7 +297,10 @@ removes `serverUrl`, `serverHeaders`, `machineCredential`, and
 `connectMachineId` from that directory's `config.json`. Both
 default to `BB_DATA_DIR` or `~/.bb` and accept `--data-dir <dir>`; neither
 calls a server. The SDK equivalents are `sdk.experimental_server.checkMove`,
-`startMove`, `moveStatus`, `cancelMove`, and `export`.
+`startMove`, `moveStatus`, `cancelMove`, and `export`. In the desktop app,
+picking This Mac on macOS or This Computer on Linux after a move shows where
+the server went, with actions to open the moved server or choose another server.
+It leaves the old copy locked and its machine service in place.
 
 ## Local daemon lifecycle
 
@@ -341,7 +347,7 @@ is paused. `bb machine resume` likewise waits for provider restore and bootstrap
 
 The CLI refuses another host or server identity in the selected machine directory. Repeating enrollment with the same persisted identity succeeds without exchanging the credential again, including when the original bundle expired. Machine data defaults to `~/.bb-machines/<server-host>`; `BB_DATA_DIR` can select another isolated machine directory, but enrollment refuses the default `~/.bb` directory unless its `host-id` already names this machine.
 
-The manual copy command fetches `/install.sh` using a short-lived `X-BB-Enrollment` header. The server supplies the bootstrap only for a pending, unexpired, uncancelled manual enrollment whose credential has not been consumed; downloaded responses are not cached. The command contains no bootstrap JSON or access-provider credentials.
+The manual copy command fetches `/install.sh` using a short-lived `X-BB-Enrollment` header. The server supplies the bootstrap only for a pending, unexpired, uncancelled manual enrollment whose credential has not been consumed; downloaded responses are not cached. On an invalid credential, the server returns a shell error that prints the reason when piped to `sh`. The command contains no bootstrap JSON or access-provider credentials.
 
 The installer accepts `--bootstrap-env <NAME>` and uses the same enrollment command. It installs a private CLI and supplies `~/.local/bin/bb` without replacing an existing path. Non-login transports can use `command -v bb` with `~/.local/bin/bb` as a fallback. Linux machines without a systemd user session run a detached daemon; systemd and launchd machines receive a persistent service.
 
@@ -483,3 +489,7 @@ Progress and failures appear in the thread's provisioning details. If cloning
 fails, the machine remains available for retry or explicit removal.
 `--new-machine <id>` requires an explicit `--environment-provider <id>`; machine
 providers do not implicitly choose an environment.
+
+`bb machine show` includes `threadStorageRootPath` from the latest daemon session
+without waking the machine. It works offline and with no live threads; the path
+is null before the first session. Reading details does not create directories.

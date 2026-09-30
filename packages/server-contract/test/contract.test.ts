@@ -49,9 +49,21 @@ interface OptionalServerFieldGroup {
   reason: string;
 }
 
-const OPTIONAL_SERVER_FIELD_GROUP_LIMIT = 45;
+const OPTIONAL_SERVER_FIELD_GROUP_LIMIT = 46;
 
 const OPTIONAL_SERVER_FIELD_GROUPS: readonly OptionalServerFieldGroup[] = [
+  {
+    reason:
+      "Older parent notices have no per-child outcomes. New notices omit interruption details for completed, failed, or unclassified turns; a recorded host-connection-loss cause is optional even when the interruption reason is known.",
+    fields: [
+      "threadTimelineResponseSchema.delta.upsertRows.systemMessageSubject.outcomes",
+      "threadTimelineResponseSchema.delta.upsertRows.systemMessageSubject.outcomes.interruption",
+      "threadTimelineResponseSchema.delta.upsertRows.systemMessageSubject.outcomes.interruption.cause",
+      "threadTimelineResponseSchema.rows.systemMessageSubject.outcomes",
+      "threadTimelineResponseSchema.rows.systemMessageSubject.outcomes.interruption",
+      "threadTimelineResponseSchema.rows.systemMessageSubject.outcomes.interruption.cause",
+    ],
+  },
   {
     reason:
       "A submitted plugin form leaves on its row only what the plugin's describeSubmission returned, and the whole description is absent when the plugin declares no describeSubmission or when that call throws or times out. Within one, an absent title means the presentation's completed label stands, an absent detail means the title is the whole row, and an absent payload means the row renders without handing anything to the plugin's own timeline renderer. bb never stores the form's payload or the submitted value, so these fields are the entire record of what happened.",
@@ -366,6 +378,7 @@ const OPTIONAL_SERVER_FIELD_GROUPS: readonly OptionalServerFieldGroup[] = [
       "Thread creation may omit root-thread presentation and execution fields so the server can resolve project/provider defaults.",
     fields: [
       "createThreadRequestSchema.sectionId",
+      "createThreadRequestSchema.pinned",
       "createThreadRequestSchema.model",
       "createThreadRequestSchema.parentThreadId",
       "createThreadRequestSchema.providerId",
@@ -502,6 +515,7 @@ const OPTIONAL_SERVER_FIELD_GROUPS: readonly OptionalServerFieldGroup[] = [
     fields: [
       "threadListQuerySchema.archived",
       "threadListQuerySchema.environmentId",
+      "threadListQuerySchema.hostId",
       "threadListQuerySchema.sectionId",
       "threadListQuerySchema.limit",
       "threadListQuerySchema.hasParent",
@@ -1206,7 +1220,6 @@ describe("server-contract canonical schemas", () => {
           updatedAt: 2,
           runtime: {
             displayStatus: "idle",
-            hostReconnectGraceExpiresAt: null,
           },
           activity: {
             activeWorkflowCount: 0,

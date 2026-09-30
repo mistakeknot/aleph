@@ -2,12 +2,16 @@
 
 import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { DndContext, useDraggable } from "@dnd-kit/core";
+import { CompactViewportOverrideProvider } from "@/components/ui/hooks/use-compact-viewport";
+import { useSidebarReorderDnd } from "../dnd/useSidebarReorderDnd.js";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type {
   PluginSidebarProject,
   PluginSidebarSplitLayout,
   PluginSidebarThread,
   PluginSidebarThreadRowStatus,
+  PluginProvidersState,
 } from "@get-bb/plugin-sdk/app";
 import {
   installTestPluginRuntime,
@@ -34,6 +38,11 @@ import {
 } from "./sidebarRowClasses.js";
 import type { ThreadSectionMoveDestination } from "./ThreadSectionMoveProvider.js";
 import type { ThreadRowOptions } from "./ThreadRow.js";
+import {
+  preferenceValueAtom,
+  resetPreferencesSyncForTest,
+} from "../preferences/preferences-sync.js";
+import { CustomizeRowActionsContext } from "../list/customizeRowActionsContext.js";
 
 installTestPluginRuntime();
 const { ThreadSectionMoveProvider } = await import(
@@ -74,6 +83,7 @@ interface HarnessProps {
   isActive?: boolean;
   options?: ThreadRowOptions;
   onRowEvent?: () => void;
+  onCustomizeRowActions?: (threadId: string) => void;
   sectionDestinations?: readonly ThreadSectionMoveDestination[];
 }
 
@@ -83,6 +93,7 @@ function ThreadRowHarness({
   isActive = false,
   options = DEFAULT_OPTIONS,
   onRowEvent,
+  onCustomizeRowActions,
   sectionDestinations,
 }: HarnessProps) {
   const row = (
@@ -96,15 +107,17 @@ function ThreadRowHarness({
   );
   return (
     <TooltipProvider>
-      <div onPointerDown={onRowEvent} onKeyDown={onRowEvent} onClick={onRowEvent}>
-        {sectionDestinations ? (
-          <ThreadSectionMoveProvider destinations={sectionDestinations}>
-            {row}
-          </ThreadSectionMoveProvider>
-        ) : (
-          row
-        )}
-      </div>
+      <CustomizeRowActionsContext.Provider value={onCustomizeRowActions ?? null}>
+        <div onPointerDown={onRowEvent} onKeyDown={onRowEvent} onClick={onRowEvent}>
+          {sectionDestinations ? (
+            <ThreadSectionMoveProvider destinations={sectionDestinations}>
+              {row}
+            </ThreadSectionMoveProvider>
+          ) : (
+            row
+          )}
+        </div>
+      </CustomizeRowActionsContext.Provider>
     </TooltipProvider>
   );
 }
@@ -214,6 +227,52 @@ afterEach(() => {
 });
 
 describe("ThreadRow", () => {
+  it("keeps the registered provider icon visible during inline rename when enabled", async () => {
+    const provider: PluginProvidersState["providers"][number] = {
+      id: "provider-test",
+      pluginId: "provider-test",
+      displayName: "Test Provider",
+      logoUrl: "/provider-test.svg",
+      available: true,
+      maintenance: { health: false, usage: false, installation: false },
+      capabilities: {
+        supportsThreadArchive: true,
+        supportsThreadRename: true,
+        supportsServiceTier: false,
+        supportsNativeUserQuestion: false,
+        supportsFork: true,
+        supportsSessionRewind: false,
+        modelCatalogScope: "workspace",
+        permissionModes: ["accept-edits", "auto", "full"],
+      },
+      composerActions: [],
+      completedTurnDisplay: "collapse",
+    };
+    const slot = renderThreadRow({ providers: [provider] });
+    expect(slot.container.querySelector("[data-sidebar-thread-provider]")).toBeNull();
+
+    act(() => getDefaultStore().set(sidebarShowProviderIconsAtom, true));
+    expect(screen.getByRole("img", { name: "Test Provider" })).toBeTruthy();
+    expect(slot.container.querySelector('[data-provider-logo="/provider-test.svg"]')).toBeTruthy();
+
+    fireEvent.doubleClick(screen.getByText("Thread"));
+    const input = await screen.findByRole("textbox", { name: "Thread name" });
+    expect(screen.getByRole("img", { name: "Test Provider" })).toBeTruthy();
+    fireEvent.change(input, { target: { value: "Scratch name" } });
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(screen.queryByRole("textbox", { name: "Thread name" })).toBeNull();
+    expect(screen.getByRole("img", { name: "Test Provider" })).toBeTruthy();
+    expect(slot.inspection.sidebarActionCalls).toEqual([]);
+
+    slot.rerenderThreadRow(createThread({ providerId: "missing" }));
+    expect(screen.queryByRole("img", { name: "Test Provider" })).toBeNull();
+    expect(slot.container.querySelector("[data-sidebar-thread-provider]")).toBeNull();
+
+    slot.rerenderThreadRow(createThread());
+    act(() => getDefaultStore().set(sidebarShowProviderIconsAtom, false));
+    expect(slot.container.querySelector("[data-sidebar-thread-provider]")).toBeNull();
+  });
+
   it("links the row to the thread href and leaves a plain click to the host", () => {
     const slot = renderThreadRow({ thread: createThread({ href: "/projects/proj_test/threads/thr_test" }) });
     const link = screen.getByRole("link", { name: "Open Thread" });
@@ -298,6 +357,57 @@ describe("ThreadRow", () => {
     ]);
   });
 
+  it("shows the configured row actions in order and reserves their width", () => {
+    getDefaultStore().set(preferenceValueAtom("rowActions"), [
+      "pin",
+      "copyLink",
+      "archive",
+    ]);
+    const slot = renderThreadRow();
+    const controls = document.querySelector("[data-sidebar-row-controls]");
+    expect(
+      Array.from(controls?.querySelectorAll("button") ?? []).map((button) =>
+        button.getAttribute("aria-label"),
+      ),
+    ).toEqual(["Pin", "Copy thread link", "Archive thread", "Thread actions"]);
+    expect(
+      document
+        .querySelector<HTMLElement>(".bb-sidebar-hover-actions-inset")
+        ?.style.getPropertyValue("--bb-sidebar-hover-actions-inset"),
+    ).toBe("calc(var(--spacing) * 22.5)");
+    fireEvent.click(screen.getByRole("button", { name: "Pin" }));
+    expect(slot.inspection.sidebarActionCalls).toEqual([
+      { method: "setPinned", threadId: "thr_test", pinned: true },
+    ]);
+  });
+
+  it("shows only the actions menu when every row action is turned off", () => {
+    getDefaultStore().set(preferenceValueAtom("rowActions"), []);
+    renderThreadRow();
+    expect(screen.queryByRole("button", { name: "Archive thread" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Thread actions" })).toBeTruthy();
+    expect(
+      document
+        .querySelector<HTMLElement>(".bb-sidebar-hover-actions-inset")
+        ?.style.getPropertyValue("--bb-sidebar-hover-actions-inset"),
+    ).toBe("calc(var(--spacing) * 0)");
+  });
+
+  it.each([[[]], [["pin", "copyLink", "archive"]]] as const)(
+    "reserves one action for an archived row whatever the row actions (%j)",
+    (rowActions) => {
+      getDefaultStore().set(preferenceValueAtom("rowActions"), [...rowActions]);
+      renderThreadRow({
+        thread: createThread({ archivedAt: 1, isArchived: true }),
+      });
+      expect(
+        document
+          .querySelector<HTMLElement>(".bb-sidebar-hover-actions-inset")
+          ?.style.getPropertyValue("--bb-sidebar-hover-actions-inset"),
+      ).toBe("calc(var(--spacing) * 7.5)");
+    },
+  );
+
   it.each([
     { item: "Mark read", thread: createThread(), call: { method: "setRead", threadId: "thr_test", read: true } },
     { item: "Mark unread", thread: createThread({ lastReadAt: 5, latestAttentionAt: 1 }), call: { method: "setRead", threadId: "thr_test", read: false } },
@@ -311,6 +421,74 @@ describe("ThreadRow", () => {
     await waitFor(() =>
       expect(slot.inspection.sidebarActionCalls).toEqual([call]),
     );
+  });
+
+  it("drops split and move from the row when they are unavailable", async () => {
+    const { visibleThreadRowActions } = await import("./ThreadActionsMenu.js");
+    expect(
+      visibleThreadRowActions(["split", "move", "archive"], { split: false, move: false }),
+    ).toEqual(["archive"]);
+    expect(
+      visibleThreadRowActions(["split", "move", "archive"], { split: true, move: true }),
+    ).toEqual(["split", "move", "archive"]);
+  });
+
+  it("offers Move only on rows that can move", () => {
+    const destinations = [
+      { label: "Planning", sectionId: "sec_planning" },
+      { label: "Threads", sectionId: null },
+    ];
+    getDefaultStore().set(preferenceValueAtom("rowActions"), ["move", "archive"]);
+    renderThreadRow({ sectionDestinations: destinations });
+    expect(screen.getByRole("button", { name: "Move to section" })).toBeTruthy();
+    cleanup();
+    renderThreadRow({
+      thread: createThread({ parentThreadId: "thr_parent" }),
+      sectionDestinations: destinations,
+    });
+    expect(screen.queryByRole("button", { name: "Move to section" })).toBeNull();
+    expect(
+      document
+        .querySelector<HTMLElement>(".bb-sidebar-hover-actions-inset")
+        ?.style.getPropertyValue("--bb-sidebar-hover-actions-inset"),
+    ).toBe("calc(var(--spacing) * 7.5)");
+  });
+
+  it("orders the actions menu like the row actions, with customize before archive", async () => {
+    const customize = vi.fn();
+    renderThreadRow({
+      onCustomizeRowActions: customize,
+      sectionDestinations: [
+        { label: "Planning", sectionId: "sec_planning" },
+        { label: "Threads", sectionId: null },
+      ],
+    });
+    openActionsMenu();
+    const menu = await screen.findByRole("menu");
+    expect(
+      Array.from(menu.children).map((element) =>
+        element.getAttribute("role") === "separator"
+          ? "---"
+          : element.textContent?.trim(),
+      ),
+    ).toEqual([
+      "Open in split",
+      "---",
+      "Copy thread link",
+      "Mark read",
+      "Pin",
+      "Move to section",
+      "Rename",
+      "---",
+      "Customize row actions",
+      "---",
+      "Archive",
+      "Delete",
+    ]);
+    fireEvent.click(
+      screen.getByRole("menuitem", { name: "Customize row actions" }),
+    );
+    expect(customize).toHaveBeenCalledWith("thr_test");
   });
 
   it("asks the host to confirm deletion from the menu", async () => {
@@ -436,6 +614,24 @@ describe("ThreadRow", () => {
     const input = await screen.findByRole("textbox", { name: "Thread name" });
     expect(input).toHaveProperty("value", "Thread");
     expect(slot.inspection.sidebarActionCalls).toEqual([]);
+  });
+
+  it("does not select a menu item when the opening right click is released over it", async () => {
+    const slot = renderThreadRow();
+    fireEvent.contextMenu(screen.getByRole("link", { name: "Open Thread" }));
+    const pin = await screen.findByRole("menuitem", { name: "Pin" });
+
+    fireEvent.pointerUp(pin, { button: 2, pointerType: "mouse" });
+
+    expect(slot.inspection.sidebarActionCalls).toEqual([]);
+    expect(screen.getByRole("menuitem", { name: "Pin" })).toBe(pin);
+
+    fireEvent.click(pin);
+    await waitFor(() =>
+      expect(slot.inspection.sidebarActionCalls).toEqual([
+        { method: "setPinned", threadId: "thr_test", pinned: true },
+      ]),
+    );
   });
 
   const splitWorkingCases: Array<{
@@ -1078,7 +1274,16 @@ describe("ThreadRow", () => {
       expect(
         titleContainer?.classList.contains("bb-sidebar-hover-actions-inset"),
       ).toBe(false);
-      expect(titleContainer?.classList.contains("pr-7.5")).toBe(true);
+      expect(
+        titleContainer?.classList.contains(
+          "pr-(--bb-sidebar-hover-actions-inset)",
+        ),
+      ).toBe(true);
+      expect(
+        titleContainer?.style.getPropertyValue(
+          "--bb-sidebar-hover-actions-inset",
+        ),
+      ).toBe("calc(var(--spacing) * 7.5)");
       expect(
         titleContainer?.classList.contains("max-md:pointer-coarse:pr-0"),
       ).toBe(true);
@@ -1521,6 +1726,7 @@ describe("ThreadRow", () => {
             "aria-describedby": "thread-sortable",
           },
           disabled: false,
+          isDragging: false,
           listeners: { onPointerDown },
           setActivatorNodeRef: vi.fn(),
         },
@@ -1533,6 +1739,114 @@ describe("ThreadRow", () => {
     );
 
     expect(onPointerDown).not.toHaveBeenCalled();
+  });
+
+  it.each(["timer", "native context menu"])(
+    "restores the row when %s opens its menu and still allows deliberate dragging",
+    async (trigger) => {
+      const onDragStart = vi.fn();
+      const thread = createThread();
+      function DraggableThread() {
+        const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+          id: thread.id,
+        });
+        return (
+          <ThreadRowHarness
+            thread={thread}
+            options={{
+              ...DEFAULT_OPTIONS,
+              dragBindings: {
+                attributes,
+                listeners,
+                setActivatorNodeRef: setNodeRef,
+                isDragging,
+                disabled: false,
+              },
+            }}
+          />
+        );
+      }
+      function Harness() {
+        const { dndContextProps } = useSidebarReorderDnd({
+          onDragStart,
+          onDragEnd: vi.fn(),
+        });
+        return (
+          <CompactViewportOverrideProvider isCompactViewport>
+            <DndContext {...dndContextProps}>
+              <DraggableThread />
+            </DndContext>
+          </CompactViewportOverrideProvider>
+        );
+      }
+      const slot = renderSlot(
+        { component: Harness },
+        {},
+        {
+          sidebarThreads: { threads: [thread], projects: [] },
+        },
+      );
+      const link = screen.getByRole("link", { name: "Open Thread" });
+      expect(link).toHaveProperty("draggable", false);
+      fireEvent.pointerDown(link, {
+        pointerId: 1,
+        pointerType: "touch",
+        isPrimary: true,
+        clientX: 10,
+        clientY: 10,
+      });
+      fireEvent.touchStart(link, { touches: [{ clientX: 10, clientY: 10 }] });
+      if (trigger === "native context menu") fireEvent.contextMenu(link);
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 550)));
+      expect(
+        slot.container.querySelector("[data-sidebar-touch-armed=true]"),
+      ).not.toBeNull();
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 250)));
+      expect(
+        document.querySelector(
+          '[data-persistent-drawer-content][data-state="open"]',
+        ),
+      ).not.toBeNull();
+      expect(
+        slot.container.querySelector("[data-sidebar-touch-armed-chip]"),
+      ).toBeNull();
+      expect(onDragStart).not.toHaveBeenCalled();
+      fireEvent.touchMove(link, { touches: [{ clientX: 26, clientY: 10 }] });
+      await waitFor(() => expect(onDragStart).toHaveBeenCalledTimes(1));
+      expect(
+        document.querySelector(
+          '[data-persistent-drawer-content][data-state="open"]',
+        ),
+      ).toBeNull();
+      fireEvent.touchEnd(link, { touches: [] });
+    },
+  );
+
+  it("starts touch reordering from the thread row", () => {
+    const onTouchStart = vi.fn();
+    renderThreadRow({
+      options: {
+        ...DEFAULT_OPTIONS,
+        dragBindings: {
+          attributes: {
+            role: "button",
+            tabIndex: 0,
+            "aria-disabled": false,
+            "aria-pressed": undefined,
+            "aria-roledescription": "sortable",
+            "aria-describedby": "thread-sortable",
+          },
+          disabled: false,
+          isDragging: false,
+          listeners: { onTouchStart },
+          setActivatorNodeRef: vi.fn(),
+        },
+      },
+    });
+
+    fireEvent.touchStart(screen.getByRole("link", { name: "Open Thread" }));
+    expect(onTouchStart).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "Reorder Thread" })).toBeNull();
   });
 
   it("suppresses the click that follows a drag and drops the suppression afterwards", () => {

@@ -160,6 +160,7 @@ export function useSidebarThreads(
         experimental_archived: archiveState,
         status: query.isError ? "error" : "loading",
         threads: EMPTY_THREADS,
+        experimental_hosts: hosts ?? [],
         projects: EMPTY_PROJECTS,
         sections: EMPTY_SECTIONS,
       };
@@ -184,6 +185,7 @@ export function useSidebarThreads(
       threads: [...selected.values()].map((thread) =>
         toPluginSidebarThreadCached(thread, hostNamesById, titleResources),
       ),
+      experimental_hosts: hosts ?? [],
       projects: allProjects.map((project) => ({
         id: project.id,
         name: project.name,
@@ -196,6 +198,7 @@ export function useSidebarThreads(
   }, [
     data,
     hostNamesById,
+    hosts,
     query.isError,
     titleResources,
     active,
@@ -310,12 +313,20 @@ export function useSidebarThreadActions(): PluginSidebarThreadActions {
           setRootComposeProjectId(projectId);
         }
         const state = {
+          placement: options?.experimental_placement ?? {
+            sectionId: options?.sectionId ?? null,
+            pinned: false,
+          },
           ...(options?.focusPrompt ? { focusPrompt: true } : {}),
           ...(options?.sectionId !== undefined
             ? { sectionId: options.sectionId }
             : {}),
           ...(options?.environmentId !== undefined
             ? { reuseEnvironmentId: options.environmentId }
+            : {}),
+          ...(typeof options?.hostId === "string" &&
+          options.hostId.trim().length > 0
+            ? { newEnvironmentHostId: options.hostId.trim() }
             : {}),
         };
         navigate(
@@ -429,6 +440,13 @@ export function useSidebarThreadPullRequest(
               url: pullRequest.url,
               state: pullRequest.state,
               attention: pullRequest.attention,
+              experimental_autoMerge: pullRequest.autoMerge,
+              experimental_inMergeQueue: pullRequest.inMergeQueue,
+              experimental_checks: { state: pullRequest.checks.state },
+              experimental_review: { state: pullRequest.review.state },
+              experimental_mergeability: {
+                state: pullRequest.mergeability.state,
+              },
             },
     }),
     [environmentId, pullRequest, query.isPending],

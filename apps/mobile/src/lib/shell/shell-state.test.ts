@@ -14,7 +14,7 @@ const AUTHENTICATED: SessionState = {
   expiresAt: 1_000,
 };
 
-const BASE = { storeReady: true, hasAnyProfile: true };
+const BASE = { storeReady: true, hasAnyProfile: true, requiresSession: false };
 
 describe("resolveShellScreenState", () => {
   it("sends a phone with no server to the add-server screen", () => {
@@ -23,6 +23,7 @@ describe("resolveShellScreenState", () => {
         storeReady: true,
         hasAnyProfile: false,
         hasProfile: false,
+        requiresSession: false,
         session: IDLE,
         load: { kind: "loading" },
       }),
@@ -35,11 +36,24 @@ describe("resolveShellScreenState", () => {
         storeReady: false,
         hasAnyProfile: false,
         hasProfile: false,
+        requiresSession: false,
         session: IDLE,
         load: { kind: "loading" },
       }).kind,
     ).toBe("loading");
   });
+  it("keeps a bb connect profile off the page until its session starts", () => {
+    expect(
+      resolveShellScreenState({
+        ...BASE,
+        hasProfile: true,
+        requiresSession: true,
+        session: IDLE,
+        load: { kind: "loading" },
+      }),
+    ).toEqual({ kind: "loading", message: "Signing in" });
+  });
+
   it("shows the page once a Direct profile is loaded", () => {
     expect(
       resolveShellScreenState({
@@ -48,7 +62,7 @@ describe("resolveShellScreenState", () => {
         session: IDLE,
         load: READY,
       }),
-    ).toEqual({ kind: "webview" });
+    ).toEqual({ kind: "webview", serverErrorStatus: null });
   });
 
   it("asks for re-pairing when the gate rejected the credential", () => {
@@ -60,8 +74,9 @@ describe("resolveShellScreenState", () => {
     });
     expect(state).toEqual({
       kind: "error",
-      title: "This server needs pairing again",
-      detail: "credential revoked",
+      title: "Could not sign in",
+      detail:
+        "bb connect could not renew this phone’s sign-in. Pair again to reconnect.",
       action: "re-pair",
     });
   });
@@ -93,16 +108,15 @@ describe("resolveShellScreenState", () => {
     });
   });
 
-  it("reports an error status from the server", () => {
-    const state = resolveShellScreenState({
-      ...BASE,
-      hasProfile: true,
-      session: AUTHENTICATED,
-      load: { kind: "http-error", status: 502 },
-    });
-    expect(state.kind).toBe("error");
-    if (state.kind !== "error") throw new Error("unreachable");
-    expect(state.detail).toBe("HTTP 502");
+  it("shows the server's own error page instead of replacing it", () => {
+    expect(
+      resolveShellScreenState({
+        ...BASE,
+        hasProfile: true,
+        session: AUTHENTICATED,
+        load: { kind: "http-error", status: 503 },
+      }),
+    ).toEqual({ kind: "webview", serverErrorStatus: 503 });
   });
 
   it("keeps the WebView mounted while a load is in flight", () => {
@@ -113,7 +127,7 @@ describe("resolveShellScreenState", () => {
         session: AUTHENTICATED,
         load: { kind: "loading" },
       }),
-    ).toEqual({ kind: "webview" });
+    ).toEqual({ kind: "webview", serverErrorStatus: null });
   });
 
   it("waits for the profile and for the first session mint", () => {
@@ -175,10 +189,11 @@ describe("shouldReloadForSession", () => {
     ).toBe(true);
   });
 
-  it("reloads on the first successful mint", () => {
+  it("does not reload on the first mint, since the page only mounts after it", () => {
     expect(
       shouldReloadForSession({ status: "authenticating" }, AUTHENTICATED),
-    ).toBe(true);
+    ).toBe(false);
+    expect(shouldReloadForSession(IDLE, AUTHENTICATED)).toBe(false);
   });
 
   it("does not reload on an unchanged session or a failure", () => {

@@ -138,6 +138,7 @@ const CACHE_OWNER_QUERY_KEY_IMPORTS: CacheOwnerQueryKeyImportRegistry = {
     "allPluginListQueryKeyPrefix",
     "pluginListQueryKey",
     "pluginMarketplacesQueryKey",
+    "pluginSafeModeQueryKey",
     "pluginSettingsViewQueryKey",
   ],
   "hooks/cache-owners/realtime-cache-registry.ts": [
@@ -164,6 +165,7 @@ const CACHE_OWNER_QUERY_KEY_IMPORTS: CacheOwnerQueryKeyImportRegistry = {
     "environmentPullRequestQueryKey",
     "environmentWorkStatusQueryKeyPrefix",
     "hostsQueryKey",
+    "pluginSafeModeQueryKey",
     "serverMoveStatusQueryKey",
     "sidebarNavigationQueryKey",
     "systemAiServicesQueryKey",
@@ -217,6 +219,7 @@ const CACHE_OWNER_QUERY_KEY_IMPORTS: CacheOwnerQueryKeyImportRegistry = {
     "serverMoveStatusQueryKey",
     "sidebarNavigationQueryKey",
     "systemConfigQueryKey",
+    "systemProviderCatalogQueryKey",
     "threadPromptHistoryQueryKeyPrefix",
     "threadSearchQueryKeyPrefix",
     "threadsQueryKey",
@@ -249,6 +252,7 @@ const CACHE_OWNER_QUERY_KEY_IMPORTS: CacheOwnerQueryKeyImportRegistry = {
   "hooks/cache-owners/thread-tabs-cache-owner.ts": ["threadTabsQueryKey"],
   "hooks/cache-owners/ui-preferences-cache-owner.ts": ["uiPreferencesQueryKey"],
   "hooks/cache-owners/thread-runtime-cache-owner.ts": [
+    "environmentQueryKey",
     "projectPromptHistoryQueryKey",
     "projectSourceBranchesQueryKeyPrefix",
     "threadPromptHistoryQueryKey",

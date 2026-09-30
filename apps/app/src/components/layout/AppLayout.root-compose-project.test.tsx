@@ -36,7 +36,7 @@ vi.mock("@/hooks/queries/system-queries", () => ({
     data: {
       experiments: {
         changelogPreview: false,
-        mobileApp: false,
+        legacyJitiPluginLoader: false,
         serverMove: false,
         sidebarProgressiveDisclosure: false,
       },
@@ -47,6 +47,10 @@ vi.mock("@/hooks/queries/system-queries", () => ({
 vi.mock("@/hooks/useHostDaemon", () => ({
   useHostDaemon: () => ({ hasDaemon: false }),
   useLocalHostDaemonAccess: () => ({ accessState: "unavailable" }),
+}));
+
+vi.mock("@/hooks/usePluginSafeModeCommands", () => ({
+  usePluginSafeModeCommands: () => undefined,
 }));
 
 vi.mock("@/components/project/ProjectActionsProvider", () => ({

@@ -223,7 +223,7 @@ describe("codex turn lifecycle translation", () => {
     }
   });
 
-  it("translates a failed turn/completed without claiming a fork checkpoint", () => {
+  it("preserves the checkpoint after a failed turn so the next message can be edited", () => {
     const harness = createHarness();
     const events = harness.translate(
       codexEvent("turn/completed", {
@@ -245,9 +245,9 @@ describe("codex turn lifecycle translation", () => {
         scope: turnScope(harness.turnId("turn-1")),
         status: "failed",
         error: { message: "rate limited" },
+        providerCheckpointId: "turn-1",
       }),
     );
-    expect(events[0]).not.toHaveProperty("providerCheckpointId");
   });
 
   it("stamps the codex turn id as providerCheckpointId on completed turns", () => {
@@ -2451,13 +2451,9 @@ describe("codex account rate-limit translation", () => {
     });
   });
 
-  it("hydrates and preserves rate-limit buckets by limit id", () => {
+  it("recovers and preserves rate-limit buckets by limit id", () => {
     const harness = createHarness();
-    const [rateLimitRead] = harness.translator.buildPostInitializeRequests();
-    if (rateLimitRead === undefined) {
-      throw new Error("Expected a Codex rate-limit hydration request");
-    }
-    rateLimitRead.onResult({
+    harness.translator.recoverRateLimits({
       rateLimits: {
         limitId: "codex",
         primary: {
@@ -2601,24 +2597,16 @@ describe("codex account rate-limit translation", () => {
     });
   });
 
-  it("hydrates Codex rate limits before merging truly sparse rolling updates", () => {
+  it("recovers Codex rate limits before merging truly sparse rolling updates", () => {
     const harness = createHarness();
-    const requests = harness.translator.buildPostInitializeRequests();
-    expect(requests).toHaveLength(1);
-    const [rateLimitRead] = requests;
-    if (rateLimitRead === undefined) {
-      throw new Error("Expected a Codex rate-limit hydration request");
-    }
-    expect(rateLimitRead).toMatchObject({
-      plan: { kind: "request", method: "account/rateLimits/read" },
-      required: false,
-    });
-    rateLimitRead.onResult({
+    harness.translator.recoverRateLimits({
+      rateLimitsByLimitId: null,
       rateLimits: {
         limitId: "codex",
         limitName: "Codex",
         primary: {
           usedPercent: 20,
+          windowDurationMins: null,
           resetsAt: 1_781_120_400,
         },
         secondary: {

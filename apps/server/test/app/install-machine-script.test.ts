@@ -350,6 +350,47 @@ exec '${process.execPath}' "$@"
     );
   });
 
+  it("starts an owned daemon that has no service under launcher supervision", () => {
+    const fixture = createFixture();
+    mkdirSync(join(fixture.homeDir, ".bb-machines", "owned"), {
+      recursive: true,
+    });
+    const dataDir = realpathSync(
+      join(fixture.homeDir, ".bb-machines", "owned"),
+    );
+    writeJoinedState({ ...fixture, dataDir });
+    writeFileSync(join(dataDir, "host-daemon-port"), "40000\n");
+    const invocationPath = join(dataDir, "invocation");
+    mkdirSync(join(dataDir, "npm", "bin"), { recursive: true });
+    writeExecutable(
+      join(dataDir, "npm", "bin", "bb-app"),
+      createEnrollingBbAppScript({ hostId: "host-test", invocationPath }),
+    );
+    const daemonPidPath = join(dataDir, "install-daemon.pid");
+
+    const started = runScript(
+      ["--start", "--host-id", "host-test", "--data-dir", dataDir],
+      fixture,
+    );
+
+    try {
+      expect(started.status, started.stderr).toBe(0);
+      expect(readFileSync(invocationPath, "utf8").trim().split("\n")).toEqual([
+        "host-daemon",
+        "--auto-update",
+        "--supervise",
+        "--host-daemon-port",
+        "40000",
+        "--server-url",
+        "https://machine.getbb.app",
+      ]);
+    } finally {
+      if (existsSync(daemonPidPath)) {
+        process.kill(Number(readFileSync(daemonPidPath, "utf8")), "SIGTERM");
+      }
+    }
+  });
+
   it("stops and uninstalls an owned Linux service through installer flags", () => {
     const fixture = createFixture();
     mkdirSync(join(fixture.homeDir, ".bb-machines", "owned"), {
@@ -726,6 +767,7 @@ fs.writeFileSync(path.join(process.env.BB_DATA_DIR, "config.json"), JSON.stringi
     expect(readFileSync(invocationPath, "utf8").trim().split("\n")).toEqual([
       "host-daemon",
       "--auto-update",
+      "--supervise",
       "--host-daemon-port",
       selectedPort,
       "--server-url",
@@ -759,6 +801,7 @@ fs.writeFileSync(path.join(process.env.BB_DATA_DIR, "config.json"), JSON.stringi
       expect(readFileSync(invocationPath, "utf8").trim().split("\n")).toEqual([
         "host-daemon",
         "--auto-update",
+        "--supervise",
         "--host-daemon-port",
         readFileSync(join(fixture.dataDir, "host-daemon-port"), "utf8").trim(),
         "--server-url",
@@ -1412,7 +1455,7 @@ fi
     ).toBe("start\nstart\n");
   });
 
-  it("replaces a matching legacy macOS launch agent with exactly one host service", () => {
+  it("replaces a legacy macOS launch agent even when its port differs", () => {
     const fixture = createFixture();
     writeJoinedState(fixture);
     writeServerInstallTools(fixture, 200);
@@ -1423,11 +1466,20 @@ fi
       serviceDir,
       "app.getbb.host-daemon.machine-getbb-app.plist",
     );
+    const unrelatedServiceFile = join(
+      serviceDir,
+      "app.getbb.host-daemon.other-getbb-app.plist",
+    );
     writeFileSync(join(fixture.dataDir, "host-daemon-port"), "45123\n");
+    writeFileSync(
+      unrelatedServiceFile,
+      "<plist><dict><key>BB_DATA_DIR</key><string>/other/machine</string></dict></plist>\n",
+    );
     writeFileSync(
       legacyServiceFile,
       `<plist><dict>
-<key>ProgramArguments</key><array><string>host-daemon</string><string>--host-daemon-port</string><string>45123</string></array>
+<key>Label</key><string>app.getbb.host-daemon.machine-getbb-app</string>
+<key>ProgramArguments</key><array><string>host-daemon</string><string>--host-daemon-port</string><string>45122</string></array>
 <key>EnvironmentVariables</key><dict><key>BB_DATA_DIR</key><string>${fixture.dataDir}</string></dict>
 </dict></plist>
 `,
@@ -1436,6 +1488,7 @@ fi
       join(fixture.binDir, "launchctl"),
       `#!/bin/sh
 printf '%s\n' "$*" >>"${join(fixture.dataDir, "launchctl.log")}"
+if [ "$1" = print ]; then exit 1; fi
 if [ "$1" = bootstrap ]; then
   BB_DATA_DIR="${fixture.dataDir}" "${join(fixture.dataDir, "npm/bin/bb-app")}" host-daemon --host-daemon-port 45123 --server-url https://machine.getbb.app >/dev/null 2>&1 &
   echo $! >"${join(fixture.dataDir, "service-daemon.pid")}"
@@ -1447,17 +1500,62 @@ fi
 
     expect(result.status, result.stderr).toBe(0);
     expect(existsSync(legacyServiceFile)).toBe(false);
+    expect(existsSync(unrelatedServiceFile)).toBe(true);
     expect(
       readdirSync(serviceDir).filter((file) => file.endsWith(".plist")),
-    ).toEqual(["app.getbb.host-daemon.machine-getbb-app-host-test.plist"]);
+    ).toEqual([
+      "app.getbb.host-daemon.machine-getbb-app-host-test.plist",
+      "app.getbb.host-daemon.other-getbb-app.plist",
+    ]);
     const serviceFile = join(
       serviceDir,
       "app.getbb.host-daemon.machine-getbb-app-host-test.plist",
     );
     const domain = `gui/${process.getuid?.()}`;
     expect(readFileSync(join(fixture.dataDir, "launchctl.log"), "utf8")).toBe(
-      `bootout ${domain} ${legacyServiceFile}\nbootout ${domain} ${serviceFile}\nbootstrap ${domain} ${serviceFile}\n`,
+      `bootout ${domain} ${legacyServiceFile}\nprint ${domain}/app.getbb.host-daemon.machine-getbb-app\nbootout ${domain} ${serviceFile}\nbootstrap ${domain} ${serviceFile}\n`,
     );
+  });
+
+  it("keeps an existing launch agent if launchctl cannot stop it", () => {
+    const fixture = createFixture();
+    writeJoinedState(fixture);
+    writeServerInstallTools(fixture, 200);
+    writeExecutable(join(fixture.binDir, "uname"), "#!/bin/sh\necho Darwin\n");
+    const serviceDir = join(fixture.homeDir, "Library/LaunchAgents");
+    mkdirSync(serviceDir, { recursive: true });
+    const existingServiceFile = join(
+      serviceDir,
+      "app.getbb.host-daemon.machine-getbb-app.plist",
+    );
+    writeFileSync(
+      existingServiceFile,
+      `<plist><dict>
+<key>Label</key><string>app.getbb.host-daemon.machine-getbb-app</string>
+<key>EnvironmentVariables</key><dict><key>BB_DATA_DIR</key><string>${fixture.dataDir}</string></dict>
+</dict></plist>
+`,
+    );
+    writeExecutable(
+      join(fixture.binDir, "launchctl"),
+      '#!/bin/sh\nif [ "$1" = bootout ]; then exit 1; fi\n',
+    );
+
+    const result = runScript(BOOTSTRAP_ARGS, fixture);
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(
+      "Could not stop the existing bb launch agent app.getbb.host-daemon.machine-getbb-app.",
+    );
+    expect(existsSync(existingServiceFile)).toBe(true);
+    expect(
+      existsSync(
+        join(
+          serviceDir,
+          "app.getbb.host-daemon.machine-getbb-app-host-test.plist",
+        ),
+      ),
+    ).toBe(false);
   });
 
   it("reports launchctl bootstrap failures", () => {
@@ -1505,7 +1603,7 @@ printf '%s\n' "$*" >>"${join(fixture.dataDir, "launchctl.log")}"
       "The bb host-daemon launch agent started but did not connect to https://machine.getbb.app.",
     );
     expect(result.stderr).toContain(
-      `See ${fixture.dataDir}/logs/launchd.log for the daemon error.`,
+      `See ${fixture.dataDir}/logs/host-daemon-stdio.log for the startup error and ${fixture.dataDir}/logs/launchd.log for launch agent output.`,
     );
     expect(result.stdout).toContain(
       "Still waiting for the launch agent (60/60 checks)",

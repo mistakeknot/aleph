@@ -704,6 +704,16 @@
     background-color: color-mix(in oklab, var(--foreground) 40%, transparent);
   }
 
+  @media (hover: none) and (pointer: coarse) {
+    .thread-scrollbar {
+      scrollbar-width: none;
+    }
+
+    .thread-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+  }
+
   [data-vaul-drawer-direction] [data-sidebar="content"] {
     scrollbar-color: transparent transparent;
   }

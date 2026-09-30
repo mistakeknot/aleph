@@ -90,7 +90,10 @@ collapsed groups) live in the plugin and sync to every window:
 `bb thread-list prefs list [--json]`, `prefs get <key>`,
 `prefs set <key> <value>`, and `prefs reset <key>`. `set` takes JSON; a bare
 word is a string. On first load the plugin copies non-default `sidebar.*`
-values from `bb settings ui` once. The `threadLifecycles` preference defaults
+values from `bb settings ui` once. `showProviderIcons` defaults to `false`;
+Organize → Rows → Provider icons toggles the icon before each title, and
+`bb thread-list prefs set showProviderIcons true` turns it on from the CLI.
+The `threadLifecycles` preference defaults
 to `["active"]`; `bb thread-list prefs set threadLifecycles '["archived"]'`
 shows archived threads, and `'["active","archived"]'` shows both.
 
@@ -124,6 +127,13 @@ Settings → General also includes `streamerMode`, which defaults to false. Turn
 it on to hide every `customModels` entry from `~/.bb/config.json` in all model
 lists (pickers, `bb provider models`, and the SDK) during a screen share. The
 entries stay in the config file.
+
+Settings → Providers includes `allowFastServiceTier`, which defaults to true.
+Set it to false with `bb settings general allowFastServiceTier false` to hide
+Fast mode and run new turns at the default service tier. This also applies to
+explicit fast requests, saved project defaults, automations, and messages queued
+before the setting changed. Turn it back on to choose fast again; project
+defaults saved while it was off retain the default tier.
 
 Settings → General includes `managedBranchPrefix`, which defaults to
 `bb/`. bb puts it in front of every branch name it creates for a worktree, so
@@ -167,6 +177,10 @@ the same per-provider switch.
 
 The default-off `changelogPreview` experiment shows the latest release notes
 as a compact, dismissible card on Settings → Updates.
+The default-off `legacyJitiPluginLoader` experiment restores the previous JITI
+loader the next time a plugin loads. Toggling it does not disturb running
+plugin instances. Enable it with
+`bb settings experiment legacyJitiPluginLoader true`.
 Message editing is available for eligible, accepted
 root user messages in Codex, Claude Code, and Pi threads, including failed or
 incomplete turns. Opening the editor is
@@ -212,8 +226,8 @@ same resolved bindings. The complete default table is in docs/configuration.md.
 
   bb settings keyboard list
   bb settings keyboard hints <true|false>
-  bb settings keyboard set <command> <shortcut|disabled>
-  bb settings keyboard reset [command]
+  bb settings keyboard set <command> <shortcut|disabled> [--platform mac|windows|linux]
+  bb settings keyboard reset [command] [--platform mac|windows|linux]
 
 On macOS, right-panel tabs use `panel.previousTab` / `panel.nextTab` with
 `Command+Control+ArrowLeft` / `Command+Control+ArrowRight`. They wrap through visible
@@ -225,7 +239,7 @@ move through search, enabled actions, and recent items in displayed order.
 Search results replace actions and recents while searching. Enter activates
 the focused item.
 Chat splits use `pane.focus.left` / `right` / `up` / `down` with
-`Command+Shift+ArrowLeft` / `ArrowRight` / `ArrowUp` / `ArrowDown` on macOS. These move
+`Command+Control+Shift+ArrowLeft` / `ArrowRight` / `ArrowUp` / `ArrowDown` on macOS. These move
 spatially to the adjacent chat pane, including stacked splits, and stop at the
 layout edge. The initially unassigned `pane.focus.previous` / `pane.focus.next`
 commands still cycle in reading order. On Windows/Linux, these arrow navigation
@@ -233,6 +247,17 @@ commands start unassigned to preserve native Control-arrow editing shortcuts.
 Rebind any of these commands in Settings → Keyboard, via
 `bb settings keyboard set <command> <shortcut|disabled>`, or SDK
 `system.updateKeyboardSettings`; read bindings with `system.config`.
+Use `bb settings keyboard reset <command>` to adopt the current default.
+Overrides can specify `platform: "mac"`, `"windows"`, or `"linux"`; omission applies
+on all platforms. A platform-specific override takes precedence over a general one,
+including when disabled. UI edits and clears apply only to the current platform;
+UI resets remove overrides for the current platform so web and desktop each use
+their own defaults. Shared overrides become explicit bindings on the other platforms
+to preserve their behavior. Explicit overrides remain resettable even when they match
+a default shortcut.
+CLI `set` and `reset` accept `--platform mac|windows|linux`; scoped operations retain
+other platforms. Unscoped `set` updates the general override; unscoped `reset`
+clears all scopes for the selected command (or every command if omitted).
 
 Plugin commands use `plugin:<plugin-id>/<command-id>` as their stable binding
 ID. For example: `bb settings keyboard set plugin:example/open-issue Mod+Shift+I`.
@@ -249,6 +274,11 @@ plugin frontend runs. CLI/SDK callers should clear conflicting explicit
 bindings in the same update; plugin defaults yield to explicit bindings.
 
 Push notifications
+
+Android source builds accept `GOOGLE_SERVICES_JSON` (path to Firebase Android
+configuration), with `apps/mobile/google-services.json` as a local fallback.
+It is optional for building the app, required for Android push delivery.
+See `apps/mobile/README.md` for EAS file variables, signing, and Play uploads.
 
 The built-in Push notifications plugin sends mobile updates through Expo and
 system notifications to connected web and desktop clients. Web tabs or desktop
@@ -307,10 +337,12 @@ an upgrade uploads the old browser-stored layout once.
   bb settings ui set <key> <value> [--json]
   bb settings ui reset <key> [--json]
 
-The sidebar thread list uses an explicit plugin selection and defaults to the bundled
-Thread list plugin (`thread-list/thread-list`). Existing `__automatic__` and
-`__builtin__` selections resolve to that default; other plugin selections are preserved.
-Use `bb settings ui reset sidebar.threadListProvider` to restore the default, or
+The sidebar thread list defaults to `__automatic__`: the first installed thread list
+plugin other than the bundled Thread list plugin (`thread-list/thread-list`), or the
+bundled plugin when there is none. Installing a thread list plugin therefore switches
+to it. Legacy `__builtin__` selections resolve to the bundled plugin; other plugin
+selections are preserved.
+Use `bb settings ui reset sidebar.threadListProvider` to restore Automatic, or
 `bb settings ui set sidebar.threadListProvider <plugin-id>/<slot-id>` to select
 another plugin. The SDK exposes the same setting through `uiPreferences`.
 
@@ -385,7 +417,7 @@ appears only when hidden actions are available and links back to customization.
 Preferences survive plugin reloads and temporarily unavailable plugins; new items
 are visible by default. Example:
 
-  bb settings ui set sidebar.hiddenFooterItems '["plugin:provider-usage/usage"]'
+  bb settings ui set sidebar.hiddenFooterItems '["plugin:bb--provider-usage/usage"]'
   bb settings ui reset sidebar.hiddenFooterItems
 
 Client-local UI preferences
@@ -394,7 +426,10 @@ Some Settings values live only in the current browser/client. Sidebar width
 and open state stay local because they depend on the window size. The Voice Input
 microphone picker stores the selected browser MediaDevices device id in
 localStorage as `bb.voiceInput.audioInputDeviceId`; it does not have a `bb`
-command and does not change the server-side transcription model.
+command and does not change the server-side transcription model. When the preferred
+microphone is disconnected, recording falls back to the system default (including
+the sole available microphone). The saved preference is used again when it
+reconnects. Select System default to follow system microphone changes.
 
 Anonymous usage telemetry can be disabled in Settings → General → Privacy & diagnostics → Share anonymous usage data,
 or with `bb settings general telemetryEnabled false`. The saved server-wide preference
@@ -405,3 +440,18 @@ always disables telemetry, even when the saved preference is enabled.
 ### Automatic composer focus on pane selection
 
 Settings → Keyboard → Pane navigation offers **Focus composer when switching panes with keyboard**. It defaults to off. When enabled, next, previous and numbered split-pane commands focus the destination chat composer; pointer selection and the separate Focus composer shortcut keep their existing behavior. This preference is saved in this browser or desktop app, not synchronized with server keyboard settings, and is not changed by Reset all shortcuts. Enable it separately in each client.
+
+Mobile app downloads are always available in Settings → Mobile (`/settings/mobile`).
+**Join iOS TestFlight** opens https://testflight.apple.com/join/T9MayTMb.
+**Download Android APK** downloads directly from the public `get-bb/bb` GitHub
+`android-testing` release's `bb-android.apk` asset. The APK does not pass through
+the bb server or bb connect. No experiment or Android developer tools are needed.
+Pair either app through Settings → Mobile → **Add mobile device**.
+
+Use `bb settings mobile-app --json` or SDK `system.mobileAppDownloads()` to get
+both public links. Add `--details --json` or call `system.mobileAppReleases()`
+(GET `/api/v1/system/mobile-app-releases`) for Android version/build, size, and
+upload date. The server fetches only public metadata, caches it for five minutes,
+and returns `android: null` if unavailable or inconsistent. Download links remain
+usable during metadata failures. iOS version and release date are shown in TestFlight.
+Publish updates with **Mobile Android (EAS)**, profile `preview`, **publish** on.

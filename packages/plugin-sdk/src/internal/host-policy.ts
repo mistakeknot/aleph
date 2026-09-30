@@ -60,6 +60,7 @@ import type {
 } from "../backend-contract.js";
 import type { JsonValue } from "../json-value.js";
 import type {
+  ExperimentalPluginRpcHandlerContext,
   PluginRpcError,
   PluginRpcMethodContract,
   PluginRpcValidationIssue,
@@ -2391,6 +2392,9 @@ export interface NormalizedPluginEnvironmentProvider {
     PluginEnvironmentProviderDeclaration["experimental_existingPath"]
   > | null;
   create: PluginEnvironmentProviderDeclaration["create"];
+  restore: NonNullable<
+    PluginEnvironmentProviderDeclaration["restore"]
+  > | null;
   remove: PluginEnvironmentProviderDeclaration["remove"];
   policy: import("../environment-provider.js").PluginEnvironmentProviderPolicy;
 }
@@ -2541,6 +2545,12 @@ export function validatePluginEnvironmentProviderDeclaration(
     declaration.experimental_existingPath,
     "experimental_existingPath",
   );
+  assertOptionalFunction(
+    "environment provider",
+    id,
+    declaration.restore,
+    "a restore",
+  );
   return {
     id,
     displayName,
@@ -2553,6 +2563,7 @@ export function validatePluginEnvironmentProviderDeclaration(
     validate: declaration.validate ?? null,
     experimental_existingPath: declaration.experimental_existingPath ?? null,
     create: declaration.create,
+    restore: declaration.restore ?? null,
     remove: declaration.remove,
     policy: environmentProviderPolicySchema.parse(declaration.policy ?? {}),
   };
@@ -2848,7 +2859,10 @@ type RpcRegistrationRecord = {
   publication: ReturnType<typeof publishRpcMethod>;
   inputSchema: StandardSchemaV1;
   outputSchema: StandardSchemaV1;
-  handler: (input: unknown) => unknown;
+  handler: (
+    input: unknown,
+    context: ExperimentalPluginRpcHandlerContext,
+  ) => unknown;
 };
 
 export function normalizeRpcRegistration(

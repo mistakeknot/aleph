@@ -15,7 +15,7 @@ import { terminalWebSocketQuerySchema } from "@bb/server-contract";
 import { compress } from "hono/compress";
 import { cors } from "hono/cors";
 import type { ServerAppDeps } from "./types.js";
-import { ApiError, errorToResponse } from "./errors.js";
+import { ApiError, createServerErrorHandler } from "./errors.js";
 import { registerEnvironmentRoutes } from "./routes/environments.js";
 import { registerFileRoutes } from "./routes/files.js";
 import { registerHostRoutes } from "./routes/hosts.js";
@@ -511,7 +511,7 @@ export function createApp(
       await compressApiJson(context, next);
     });
   });
-  app.onError((error) => errorToResponse(error, deps.logger));
+  app.onError(createServerErrorHandler(deps.logger));
   app.get("/health", async (context) => {
     const serverMove = await readServerMoveHealth({
       dataDir: deps.config.dataDir,
@@ -540,12 +540,12 @@ export function createApp(
       } catch (error) {
         deps.logger.warn({ error }, "Could not refresh machine access");
         return new Response(
-          "Could not refresh machine access. Run the command again, or generate a new one in bb.\n",
+          "echo 'Could not refresh machine access. Run the command again, or generate a new one in bb.' >&2\nexit 1\n",
           {
             status: 503,
             headers: {
               "cache-control": "no-store",
-              "content-type": "text/plain",
+              "content-type": "text/x-shellscript; charset=utf-8",
             },
           },
         );
@@ -553,12 +553,12 @@ export function createApp(
     }
     if (credential !== undefined && bootstrap === null) {
       return new Response(
-        "Enrollment is expired or unavailable. Generate a new command in bb.\n",
+        "echo 'This enrollment command has already been used, replaced, or expired. Generate a new command in bb.' >&2\nexit 1\n",
         {
           status: 403,
           headers: {
             "cache-control": "no-store",
-            "content-type": "text/plain",
+            "content-type": "text/x-shellscript; charset=utf-8",
           },
         },
       );

@@ -1,4 +1,8 @@
 import {
+  ThreadCreationPlacementScope,
+  useThreadCreationPlacement,
+} from "./ThreadCreationPlacement.js";
+import {
   ThreadListVisibility,
   ThreadListMore,
   ThreadListVisibilityGroupScope,
@@ -9,7 +13,10 @@ import {
   SidebarHeaderControls,
   SidebarSectionMenuItems,
 } from "./SidebarHeaderControls.js";
-import { SidebarRowControls, SidebarControlButton } from "../rows/SidebarRowControls.js";
+import {
+  SidebarRowControls,
+  SidebarControlButton,
+} from "../rows/SidebarRowControls.js";
 import {
   SIDEBAR_CONTROL_BUTTON_CLASS,
   SIDEBAR_CONTROL_PAIR_SIZE_CLASS,
@@ -58,7 +65,10 @@ import {
   ConfirmDeleteDialogContent,
 } from "../ui/ConfirmDeleteDialog.js";
 import { getMutationErrorMessage } from "../ui/mutation-errors.js";
-import { useSidebarRename, useSidebarRenameState } from "../rows/SidebarInlineRename.js";
+import {
+  useSidebarRename,
+  useSidebarRenameState,
+} from "../rows/SidebarInlineRename.js";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -169,8 +179,7 @@ import {
 import { SectionThreadDndProvider } from "../dnd/SectionThreadDndContext.js";
 import {
   useSidebarThreadDragOverlayModifiers,
-  SIDEBAR_THREAD_DRAG_CHIP_CLASS,
-  SIDEBAR_THREAD_DRAG_CHIP_STYLE,
+  SidebarThreadDragChip,
 } from "../dnd/sidebarThreadDragChip.js";
 
 const SIDEBAR_STICKY_PARENT_DEPTH_CAP = 4;
@@ -845,8 +854,7 @@ function EnvironmentThreadGroupHeader({
     ) ?? UNNAMED_ENVIRONMENT_LABEL;
   const sdk = useSdk();
   const updateEnvironment = useCallback(
-    (name: string | null) =>
-      sdk.environments.update({ environmentId, name }),
+    (name: string | null) => sdk.environments.update({ environmentId, name }),
     [environmentId, sdk],
   );
   const rename = useSidebarRename({
@@ -1038,6 +1046,8 @@ const EnvironmentThreadGroupRow = memo(function EnvironmentThreadGroupRow({
     nodeDepth,
     variant,
   });
+  const depthAdjustment = rowDepth > 0 ? 1 : 0;
+  const groupDepth = rowDepth - depthAdjustment;
   const parentLineDepth =
     nodeDepth > 0
       ? getThreadRowDepth({
@@ -1047,7 +1057,12 @@ const EnvironmentThreadGroupRow = memo(function EnvironmentThreadGroupRow({
         })
       : undefined;
   const sidebarActions = experimental_useSidebarThreadActions();
-  const representativeSectionId = representativeThread.sectionId;
+  const sectionWhenUnpinned = nodes.every(
+    (node) => node.thread.sectionId === representativeThread.sectionId,
+  )
+    ? representativeThread.sectionId
+    : null;
+  const { sectionId, pinned } = useThreadCreationPlacement(sectionWhenUnpinned);
   const threads = useMemo(() => nodes.map((node) => node.thread), [nodes]);
   const { archiveThreadsPending, onArchiveThreads } =
     useArchiveEnvironmentThreadGroupAction({
@@ -1061,16 +1076,15 @@ const EnvironmentThreadGroupRow = memo(function EnvironmentThreadGroupRow({
     sidebarActions.openNewThread({
       projectId,
       environmentId,
-      ...(representativeSectionId === null
-        ? {}
-        : { sectionId: representativeSectionId }),
+      experimental_placement: { sectionId, pinned },
       focusPrompt: true,
     });
   }, [
     environmentId,
     onProjectSelect,
     projectId,
-    representativeSectionId,
+    sectionId,
+    pinned,
     sidebarActions,
   ]);
   const nodeItems = useMemo<ProjectThreadItem[]>(
@@ -1097,7 +1111,7 @@ const EnvironmentThreadGroupRow = memo(function EnvironmentThreadGroupRow({
           environmentId={environmentId}
           environmentProviderId={environmentProviderId}
           representativeThread={representativeThread}
-          rowDepth={rowDepth}
+          rowDepth={groupDepth}
           stickyLevel={getThreadNodeStickyLevel({
             depthOffset,
             node: representativeNode,
@@ -1112,7 +1126,7 @@ const EnvironmentThreadGroupRow = memo(function EnvironmentThreadGroupRow({
         />
         {!isCollapsed ? (
           <div className="relative space-y-px">
-            <ThreadTreeGroupLine parentRowDepth={rowDepth} />
+            <ThreadTreeGroupLine parentRowDepth={groupDepth} />
             <SidebarWindowedItems
               itemKeys={itemKeys}
               estimateRows={estimateRows}
@@ -1129,7 +1143,7 @@ const EnvironmentThreadGroupRow = memo(function EnvironmentThreadGroupRow({
                     projectId={projectId}
                     item={nodeItems[index]}
                     sectionDnd={sectionDnd}
-                    depthOffset={depthOffset + 1}
+                    depthOffset={depthOffset + 1 - depthAdjustment}
                     isEnvGrouped
                     selectedThreadId={selectedThreadId}
                     collapsedThreadIds={collapsedThreadIds}
@@ -1319,9 +1333,7 @@ export function NestDropPreviewRow({
         "pointer-events-none overflow-hidden text-sidebar-foreground opacity-50",
       )}
     >
-      <span className="min-w-0 flex-1 truncate">
-        {thread.displayTitle}
-      </span>
+      <span className="min-w-0 flex-1 truncate">{thread.displayTitle}</span>
     </div>
   );
 }
@@ -1349,18 +1361,7 @@ export function SectionThreadDragOverlay({
 }: {
   thread: SidebarThread;
 }) {
-  return (
-    <div
-      aria-hidden="true"
-      data-sidebar-section-drag-overlay="true"
-      style={SIDEBAR_THREAD_DRAG_CHIP_STYLE}
-      className={SIDEBAR_THREAD_DRAG_CHIP_CLASS}
-    >
-      <span className="min-w-0 flex-1 truncate">
-        {thread.displayTitle}
-      </span>
-    </div>
-  );
+  return <SidebarThreadDragChip title={thread.displayTitle} />;
 }
 
 const SectionTreeItemRow = memo(function SectionTreeItemRow({
@@ -1406,7 +1407,10 @@ const SectionTreeItemRow = memo(function SectionTreeItemRow({
         }),
       );
       try {
-        const result = await sdk.threadSections.update({ id: section.id, name });
+        const result = await sdk.threadSections.update({
+          id: section.id,
+          name,
+        });
         setSectionNameOverrides((current) =>
           new Map(current).set(section.id, {
             previousName,
@@ -1548,7 +1552,9 @@ const SectionTreeItemRow = memo(function SectionTreeItemRow({
         sectionRef={sortableRef}
         sectionStyle={sortableStyle}
       >
-        {childrenArea}
+        <ThreadCreationPlacementScope group={`section:${section.id}`}>
+          {childrenArea}
+        </ThreadCreationPlacementScope>
       </TopLevelSidebarSection>
     );
   }
@@ -1586,7 +1592,9 @@ const SectionTreeItemRow = memo(function SectionTreeItemRow({
         onToggleCollapsed={handleToggleCollapsed}
         stickyLevel={stickyLevel}
       />
-      {childrenArea}
+      <ThreadCreationPlacementScope group={`section:${section.id}`}>
+        {childrenArea}
+      </ThreadCreationPlacementScope>
     </SidebarStickyGroup>
   );
 });
@@ -2110,13 +2118,9 @@ export const ChronologicalSectionThreadSections = memo(
         groupThreadsByEnvironment,
       ],
     );
-    const persistedSectionItems = rootItems.filter(
-      (item) => item.kind === "section",
-    );
     const sectionDnd = useSectionThreadDnd({
       containerId: CHRONOLOGICAL_CONTAINER_ID,
-      enabled:
-        topLevelSectionOrder.length > 1 || persistedSectionItems.length > 0,
+      enabled: true,
       rootItems,
       topLevelSectionOrder,
       onTopLevelSectionOrderChange,

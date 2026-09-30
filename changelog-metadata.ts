@@ -4,6 +4,14 @@ type ReleaseMeta = {
 };
 
 export const RELEASE_META: Record<string, ReleaseMeta> = {
+  "0.44.0+aleph.1": {
+    date: "September 30, 2026",
+    headline: "Aleph: upstream bb 0.44.0, plus Thecla as the default theme",
+  },
+  "0.44.0": {
+    date: "September 25, 2026",
+    headline: "Diff filtering, safer archiving, and plugin safe mode",
+  },
   "0.43.4+aleph.2": {
     date: "September 24, 2026",
     headline: "Aleph: Thecla as the default theme",

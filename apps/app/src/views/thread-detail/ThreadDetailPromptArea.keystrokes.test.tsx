@@ -18,12 +18,21 @@ import {
   within,
 } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import {
   PluginComposerHostScopeProvider,
   usePluginComposerHost,
   usePluginComposerHostDraft,
 } from "@/components/plugin/plugin-composer-host";
+import { LazyQueuedMessagesList } from "@/components/promptbox/banner/LazyQueuedMessagesList";
 import { getPromptDraftAccessor } from "@/hooks/usePromptDraftStorage";
 import { ThreadDetailPromptArea } from "./ThreadDetailPromptArea";
 
@@ -236,6 +245,11 @@ vi.mock("@/hooks/mutations/thread-runtime-mutations", () => {
 });
 
 vi.mock("@/hooks/mutations/thread-state-mutations", () => ({
+  useRestoreThreadEnvironment: () => ({
+    isPending: false,
+    mutate: vi.fn(),
+    variables: null,
+  }),
   useUnarchiveThread: () => ({
     isPending: false,
     mutate: vi.fn(),
@@ -371,6 +385,7 @@ function buildPromptArea({
         childThreadsSection={null}
         composerFocusRequestNonce={0}
         contextBannerMergeBase={null}
+        canRestoreEnvironment={false}
         environmentGoneStatus={null}
         goal={null}
         modelFallback={null}
@@ -410,6 +425,8 @@ function getBottomComposerInput(): HTMLInputElement {
 
 let threadCounter = 0;
 let threadId = "";
+
+beforeAll(() => LazyQueuedMessagesList.preload());
 
 beforeEach(() => {
   threadCounter += 1;

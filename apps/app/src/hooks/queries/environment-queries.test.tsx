@@ -36,6 +36,8 @@ const pullRequestFixture: ThreadPullRequest = {
   baseRefName: "main",
   headRefName: "bb/pr-refresh",
   updatedAt: "2026-06-16T12:30:00Z",
+  autoMerge: false,
+  inMergeQueue: false,
   checks: {
     state: "passing",
     totalCount: 1,
@@ -134,6 +136,26 @@ describe("useEnvironmentPullRequest", () => {
         attention: "none",
       }),
     ).toBe(ACTIVE_PULL_REQUEST_REFETCH_MS);
+  });
+
+  it.each([
+    { autoMerge: true, inMergeQueue: false },
+    { autoMerge: false, inMergeQueue: true },
+  ])("keeps polling automated merges after checks pass: %j", (automation) => {
+    expect(
+      getEnvironmentPullRequestRefetchInterval({
+        ...pullRequestFixture,
+        ...automation,
+      }),
+    ).toBe(ACTIVE_PULL_REQUEST_REFETCH_MS);
+    expect(
+      getEnvironmentPullRequestRefetchInterval({
+        ...pullRequestFixture,
+        ...automation,
+        state: "merged",
+        attention: "merged",
+      }),
+    ).toBe(false);
   });
 
   it("does not poll draft or settled pull requests", () => {

@@ -9,10 +9,13 @@ import {
 import {
   machineEnvironmentReplaceSchema,
   setAiServiceSelectionRequestSchema,
+  systemProviderEnabledRequestSchema,
   testAiServiceRequestSchema,
   type MachineEnvironmentReplace,
   type SetAiServiceSelectionRequest,
   type SystemAiServicesResponse,
+  type SystemProviderCatalogEntry,
+  type SystemProviderEnabledRequest,
   type TestAiServiceRequest,
   type TestAiServiceResponse,
 } from "./api/system.js";
@@ -195,6 +198,7 @@ import type {
   SystemAttentionResponse,
   SystemConfigReloadResponse,
   SystemConfigResponse,
+  SystemMobileAppReleasesResponse,
   SystemCliSkillsStatusQuery,
   SystemCliSkillsStatusResponse,
   SystemInstallCliSkillsRequest,
@@ -844,7 +848,12 @@ export const publicApiRoutes = {
       path: "/hosts/:id",
       method: "get",
       request: noRequest<PathId>(),
-      response: jsonResponse<Host & { connectMachineId: string | null }>(),
+      response: jsonResponse<
+        Host & {
+          connectMachineId: string | null;
+          threadStorageRootPath: string | null;
+        }
+      >(),
     }),
     enrollmentCommand: defineRoute({
       path: "/hosts/:id/enrollment-command",
@@ -1072,6 +1081,12 @@ export const publicApiRoutes = {
   },
 
   environments: {
+    cleanup: defineRoute({
+      path: "/environments/:id/cleanup",
+      method: "post",
+      request: noRequest<PathId>(),
+      response: jsonResponse<{ ok: true }>(),
+    }),
     list: defineRoute({
       path: "/environments",
       method: "get",
@@ -1190,6 +1205,12 @@ export const publicApiRoutes = {
   },
 
   threadSections: {
+    list: defineRoute({
+      path: "/thread-sections",
+      method: "get",
+      request: noRequest<EmptyInput>(),
+      response: jsonResponse<ThreadSectionResponse[]>(),
+    }),
     create: defineRoute({
       path: "/thread-sections",
       method: "post",
@@ -1563,6 +1584,21 @@ export const publicApiRoutes = {
       request: noRequest<PathId>(),
       response: jsonResponse<{ ok: true }>(),
     }),
+    /**
+     * Ask the environment provider to restore a thread's destroyed environment
+     * and attach the result; the provider decides what restoring means, such
+     * as checking the recorded branch out again. Sends to such a thread fail
+     * until this runs. Answers
+     * the thread as it now stands — `starting`, with provisioning underway —
+     * and starts no turn: the thread settles back to `idle` once the workspace
+     * is ready. Refused unless `canRestoreEnvironment` is true.
+     */
+    restoreEnvironment: defineRoute({
+      path: "/threads/:id/restore-environment",
+      method: "post",
+      request: noRequest<PathId>(),
+      response: jsonResponse<ThreadResponse>(),
+    }),
     read: defineRoute({
       path: "/threads/:id/read",
       method: "post",
@@ -1747,6 +1783,12 @@ export const publicApiRoutes = {
       request: noRequest(),
       response: jsonResponse<SystemAttentionResponse>(),
     }),
+    mobileAppReleases: defineRoute({
+      path: "/system/mobile-app-releases",
+      method: "get",
+      request: noRequest(),
+      response: jsonResponse<SystemMobileAppReleasesResponse>(),
+    }),
     config: defineRoute({
       path: "/system/config",
       method: "get",
@@ -1904,6 +1946,20 @@ export const publicApiRoutes = {
         systemProvidersQuerySchema,
       ),
       response: jsonResponse<SystemProviderInfo[]>(),
+    }),
+    providerCatalog: defineRoute({
+      path: "/system/providers/catalog",
+      method: "get",
+      request: noRequest(),
+      response: jsonResponse<SystemProviderCatalogEntry[]>(),
+    }),
+    providerEnabled: defineRoute({
+      path: "/system/providers/:id/enabled",
+      method: "put",
+      request: jsonRequest<PathId, SystemProviderEnabledRequest>(
+        systemProviderEnabledRequestSchema,
+      ),
+      response: jsonResponse<SystemProviderCatalogEntry[]>(),
     }),
     providerLogo: defineRoute({
       path: "/system/providers/:id/logo",

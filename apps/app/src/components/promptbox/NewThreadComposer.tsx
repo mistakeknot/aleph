@@ -1,3 +1,4 @@
+import { createCoreComposerActions } from "@/lib/plugin-composer-handle";
 import { usePendingAttachmentUploads } from "./usePendingAttachmentUploads";
 import { useInitialPromptDraft } from "./mentions/initial-prompt-draft";
 import { ProviderRequirementBanner } from "./banner/ProviderRequirementBanner";
@@ -52,10 +53,12 @@ import {
   NewThreadPromptBox,
   type NewThreadPromptBoxProps,
 } from "@/components/promptbox/NewThreadPromptBox";
-import { withAppPromptActions } from "@/components/promptbox/PromptBoxActionsMenu";
 import { buildProviderPromptActionProps } from "@bb/client-core";
 import type { PromptMentionLinkResolver } from "@/components/promptbox/editor/prompt-mention-link";
-import { type PluginComposerHost } from "@/components/plugin/plugin-composer-host";
+import {
+  type PluginComposerHost,
+  useComposerHostSelection,
+} from "@/components/plugin/plugin-composer-host";
 import type { ExperimentalComposerSubmitOptions } from "@get-bb/plugin-sdk";
 import {
   readExecutionSelection,
@@ -114,6 +117,7 @@ import { sdk } from "@/lib/sdk";
 import {
   buildReuseThreadOptions,
   resolveHostEnvironmentProvider,
+  resolveNewThreadHostEnvironmentProvider,
   resolveRootComposeEffectiveEnvironmentValue,
   type SeededReuseEnvironment,
 } from "@/views/root-compose-environment-selection";
@@ -219,6 +223,8 @@ export interface NewThreadComposerState {
   textEffects: NewThreadPromptBoxProps["textEffects"];
   isSubmitting: boolean;
   seedEnvironmentSelectionValue: (value: string) => void;
+  hostSelectionReady: boolean;
+  selectHostForNewEnvironment: (hostId: string) => void;
   setEnvironmentSelectionValue: (
     value: string,
     providerHostId?: string | null,
@@ -672,7 +678,11 @@ export function NewThreadComposer({
         threads: [],
       },
     ];
-  }, [seededReuseEnvironmentRow, threadDerivedReuseOptions, worktreeHostNameById]);
+  }, [
+    seededReuseEnvironmentRow,
+    threadDerivedReuseOptions,
+    worktreeHostNameById,
+  ]);
   const { value: storedMachineId, setValue: setStoredMachineId } =
     usePromptBoxMachinePreference(projectId);
   const [activeSeedSignature, setActiveSeedSignature] = useState(seedSignature);
@@ -1020,6 +1030,27 @@ export function NewThreadComposer({
       selectedEnvironmentProvider,
     ],
   );
+  const selectHostForNewEnvironment = useCallback(
+    (hostId: string) => {
+      if (!knownHostIds.has(hostId)) return;
+      const currentProviderId =
+        parsedEnvironment?.type === "provider"
+          ? parsedEnvironment.environmentProviderId
+          : null;
+      const provider = resolveNewThreadHostEnvironmentProvider({
+        currentProviderId,
+        providers: environmentProvidersByHostId.get(hostId) ?? [],
+      });
+      if (provider === null) return;
+      changeEnvironment(encodeProviderValue(provider.id), hostId);
+    },
+    [
+      changeEnvironment,
+      environmentProvidersByHostId,
+      knownHostIds,
+      parsedEnvironment,
+    ],
+  );
   const selectedMachineProvider =
     providerMachine?.type === "new"
       ? machineProviders?.find(
@@ -1344,7 +1375,13 @@ export function NewThreadComposer({
         setIsUploading(pendingUploadCountRef.current > 0);
       }
     },
-    [projectId, promptDraft, uploadPromptAttachment, startUploads, finishUploads],
+    [
+      projectId,
+      promptDraft,
+      uploadPromptAttachment,
+      startUploads,
+      finishUploads,
+    ],
   );
   const changeProject = useCallback(
     async (nextProjectId: string | null): Promise<ProjectChangeOutcome> => {
@@ -1448,10 +1485,7 @@ export function NewThreadComposer({
     () => buildProviderPromptActionProps(selectedProviderComposerActions),
     [selectedProviderComposerActions],
   );
-  const promptActions = useMemo(
-    () => withAppPromptActions(providerPromptActions.promptActions),
-    [providerPromptActions.promptActions],
-  );
+  const { promptActions } = providerPromptActions;
   const commandSuggestions = useCommandSuggestions({
     projectId,
     providerId: selectedProviderId,
@@ -1707,6 +1741,34 @@ export function NewThreadComposer({
       changeServiceTier: handleServiceTierChange,
       changePermissionMode: handlePermissionChange,
     }));
+  const composerSelection = useMemo(
+    () => ({
+      projectId,
+      ...(submissionEnvironment === null
+        ? {}
+        : { environment: submissionEnvironment }),
+      ...readExecutionSelection({
+        selectedProviderId,
+        selectedThreadModel,
+        reasoningLevel,
+        serviceTier,
+        supportsServiceTier,
+        permissionMode,
+      }),
+    }),
+    [
+      permissionMode,
+      projectId,
+      reasoningLevel,
+      selectedProviderId,
+      selectedThreadModel,
+      serviceTier,
+      submissionEnvironment,
+      supportsServiceTier,
+    ],
+  );
+  const { getSelection, subscribeSelection } =
+    useComposerHostSelection(promptDraft.storageKey, composerSelection);
   const pendingSelectionRef = useRef<Promise<unknown>>(Promise.resolve());
   const applySelection = useCallback(
     async (
@@ -1798,6 +1860,8 @@ export function NewThreadComposer({
       textEffectKey: promptDraft.storageKey,
       getCurrent: promptDraft.getCurrent,
       subscribeDraft: promptDraft.subscribe,
+      getSelection,
+      subscribeSelection,
       setDraft: promptDraft.setDraft,
       focus: focusPromptBox,
       submit: submitProgrammaticallyThroughRef,
@@ -1805,14 +1869,22 @@ export function NewThreadComposer({
     }),
     [
       focusPromptBox,
+      getSelection,
       projectId,
       promptDraft.getCurrent,
       promptDraft.setDraft,
       promptDraft.storageKey,
       promptDraft.subscribe,
       setSelection,
+      subscribeSelection,
       submitProgrammaticallyThroughRef,
     ],
+  );
+
+  const restoreHistoryDraft = useCallback(
+    (draft: PromptDraftState) =>
+      createCoreComposerActions(pluginComposerHost).restoreDraft(draft),
+    [pluginComposerHost],
   );
 
   const renderPromptBox = useCallback(
@@ -1839,7 +1911,7 @@ export function NewThreadComposer({
           history={{
             currentDraft,
             entries: promptHistoryDrafts,
-            onSelectEntry: promptDraft.setDraft,
+            onSelectEntry: restoreHistoryDraft,
             resetKey: projectId,
           }}
           typeahead={{
@@ -2038,6 +2110,7 @@ export function NewThreadComposer({
       promptBoxFocusRequest,
       promptDraft,
       promptHistoryDrafts,
+      restoreHistoryDraft,
       promptMentions,
       pluginComposerHost,
       providerOptions,
@@ -2089,6 +2162,12 @@ export function NewThreadComposer({
         textEffects,
         isSubmitting,
         seedEnvironmentSelectionValue: setCreationEnvironmentSelectionValue,
+        hostSelectionReady:
+          sidebarNavigationSettled &&
+          !hostsQuery.isPending &&
+          registeredEnvironmentProviders !== undefined &&
+          projectEnvironmentProviders !== undefined,
+        selectHostForNewEnvironment,
         setEnvironmentSelectionValue: changeEnvironment,
         setProviderModelReasoning,
         setPermissionMode,

@@ -3,7 +3,11 @@ import { getThreadRoutePath } from "@bb/client-core";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState, type AppStateStatus } from "react-native";
-import { useProfiles, useRealtimeConnectionState } from "@/app-shell";
+import {
+  useAppRevealed,
+  useProfiles,
+  useRealtimeConnectionState,
+} from "@/app-shell";
 import {
   parsePushNotificationData,
   resolvePushTargetProfile,
@@ -158,7 +162,9 @@ function FirstRunPrompt({
   const store = getPushStore();
   const notifications = getPushNotificationsModule();
   const [presentedFor, setPresentedFor] = useState<string | null>(null);
+  const revealed = useAppRevealed();
   const shouldAsk =
+    revealed &&
     available &&
     !prompted &&
     connected &&
@@ -180,14 +186,16 @@ function FirstRunPrompt({
 
   return (
     <ActionSheet
+      presentation="prompt"
       controller={sheet}
       title="Get notified when a thread needs you?"
+      cancelLabel={process.env.EXPO_OS === "ios" ? "Cancel" : null}
       message="bb can send a push notification when a thread finishes, hits an error, or is waiting for your input. You can change this per server in Settings."
       actions={[
         {
           key: "enable",
           label: "Turn on notifications",
-          icon: "Zap",
+          icon: "Bell",
           onPress: () => {
             if (!profile) return;
             void controller.setEnabled(profile, true).then((outcome) => {

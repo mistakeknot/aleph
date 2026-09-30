@@ -86,6 +86,7 @@ import {
 } from "@/lib/bb-desktop";
 import { useDesktopWindowState } from "@/hooks/useDesktopWindowState";
 import { useDataDirectoryCommand } from "@/hooks/useDataDirectoryCommand";
+import { usePluginSafeModeCommands } from "@/hooks/usePluginSafeModeCommands";
 import { useServerDaemonLogsCommand } from "@/hooks/useServerDaemonLogsCommand";
 import {
   getLegacyProjectComposeRoutePath,
@@ -376,13 +377,13 @@ export function AppLayout({ children }: AppLayoutProps) {
   const quickCreateProject = useQuickCreateProjectController();
   const isCompactViewport = useIsCompactViewport();
   const store = useStore();
-  const contentShellRef = useRef<HTMLDivElement>(null);
+  const [contentShell, setContentShell] = useState<HTMLDivElement | null>(null);
   const restoreIOSViewportOnKeyboardDismissal = useMemo(
     () => shouldRestoreIOSViewportOnKeyboardDismissal(navigator),
     [],
   );
   useMobileVisualViewportHeight(
-    contentShellRef,
+    contentShell,
     isCompactViewport,
     restoreIOSViewportOnKeyboardDismissal,
   );
@@ -465,6 +466,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   });
   useServerDaemonLogsCommand();
   useDataDirectoryCommand();
+  usePluginSafeModeCommands();
   const archivedSectionId = isArchivedView
     ? new URLSearchParams(location.search).get("sectionId")
     : null;
@@ -783,7 +785,7 @@ export function AppLayout({ children }: AppLayoutProps) {
                 />
                 <SidebarInset>
                   <div
-                    ref={contentShellRef}
+                    ref={setContentShell}
                     data-testid="app-layout-content-shell"
                     className="relative flex h-full min-h-0 min-w-0 w-full flex-col pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[var(--bb-safe-area-bottom,env(safe-area-inset-bottom))] pl-[env(safe-area-inset-left)]"
                   >

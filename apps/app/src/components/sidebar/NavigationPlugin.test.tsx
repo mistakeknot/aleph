@@ -309,20 +309,7 @@ async function openCustomizeFromContextMenu(
 }
 
 beforeAll(async () => {
-  render(
-    <SidebarVisibilityCustomize
-      items={[]}
-      listLabel="Preloaded editor"
-      onDone={() => {}}
-      onReorder={() => {}}
-      onVisibleChange={() => {}}
-      title="Preloaded editor"
-      variant="card"
-      visibleIds={[]}
-    />,
-  );
-  await screen.findByRole("list", { name: "Preloaded editor" });
-  cleanup();
+  await SidebarVisibilityCustomize.preload();
 });
 
 beforeEach(async () => {
@@ -513,6 +500,7 @@ describe("Navigation plugin in the sidebar navigation region", () => {
         ...(compactViewport ? [] : [["Open in split", "Columns2"]]),
         ["View details", "Info"],
         ["Hide from sidebar", "EyeOff"],
+        ["Customize sidebar", "FilterHorizontal"],
         ["Disable", "Unavailable"],
       ] as const;
       const expectFocusedMenu = (menu: HTMLElement) => {
@@ -521,7 +509,7 @@ describe("Navigation plugin in the sidebar navigation region", () => {
             .getAllByRole("menuitem")
             .map((item) => item.textContent?.trim()),
         ).toEqual(expected.map(([label]) => label));
-        expect(within(menu).getAllByRole("separator")).toHaveLength(1);
+        expect(within(menu).getAllByRole("separator")).toHaveLength(2);
         for (const [label, icon] of expected) {
           const iconElement = within(menu)
             .getByRole("menuitem", { name: label })
@@ -1047,6 +1035,18 @@ describe("Navigation plugin in the sidebar navigation region", () => {
     expect(visibleRowKeys()).toEqual(DEFAULT_VISIBLE_HOST_KEYS);
     expect(document.activeElement).toBe(
       screen.getByRole("button", { name: "New thread" }),
+    );
+  });
+
+  it("focuses the More popover itself instead of its first row on open", async () => {
+    renderNavigation();
+
+    await openMoreMenu();
+
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole("dialog", { name: "More sidebar navigation" }),
+      ),
     );
   });
 

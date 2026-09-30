@@ -17,6 +17,7 @@ import {
   type PluginSourceIntent,
 } from "@bb/db";
 import {
+  BUILTIN_PLUGIN_ID_PREFIX,
   BUNDLED_PLUGINS,
   builtinPluginSource,
   type BundledPluginRegistration,
@@ -39,7 +40,10 @@ import {
 } from "./install-sources.js";
 import { gitRefNameForRow, gitSelectorForRow } from "./git-source-intent.js";
 import { readPluginManifest, type PluginManifest } from "./manifest.js";
-import { forgetMutableRoot } from "./plugin-runtime.js";
+import {
+  forgetMutableRoot,
+  type SafeModeActivationRefusalArgs,
+} from "./plugin-runtime.js";
 import type {
   InstallRegistrationIdentity,
   RegisterInstalledArgs,
@@ -94,11 +98,15 @@ interface PluginRegistrationContext {
   notifyPluginsChanged: () => void;
   list: () => InstalledPlugin[];
   runInstallHandlers: (id: string) => Promise<void>;
+  safeModeActivationRefusal: (
+    args: SafeModeActivationRefusalArgs,
+  ) => string | null;
 }
 
 export function createPluginRegistration(context: PluginRegistrationContext) {
   const {
     deps,
+    safeModeActivationRefusal,
     bundledPlugins,
     withLifecycleLock,
     disposeOne,
@@ -120,7 +128,12 @@ export function createPluginRegistration(context: PluginRegistrationContext) {
 
   function refuseBuiltinShadow(pluginId: string): void {
     const bundledName = bundledPluginNamesById.get(pluginId);
-    if (bundledName === undefined) return;
+    if (bundledName === undefined) {
+      if (!pluginId.startsWith(BUILTIN_PLUGIN_ID_PREFIX)) return;
+      throw new Error(
+        `install refused: plugin ids starting with "${BUILTIN_PLUGIN_ID_PREFIX}" are reserved for plugins bundled with bb; rename the package so its id "${pluginId}" does not start with "${BUILTIN_PLUGIN_ID_PREFIX}"`,
+      );
+    }
     throw new Error(
       `install refused: plugin id "${pluginId}" is reserved by the bundled plugin "${bundledName}"; install "builtin:${bundledName}" instead`,
     );
@@ -312,6 +325,14 @@ export function createPluginRegistration(context: PluginRegistrationContext) {
   ): Promise<InstalledPlugin> {
     const initialManifest =
       args.preparedManifest ?? (await readPluginManifest(args.rootDir));
+    const safeModeRefusal = safeModeActivationRefusal({
+      pluginId: initialManifest.id,
+      provenance: args.provenance.kind,
+      builtinName:
+        args.sourceIntent.kind === "builtin" ? args.sourceIntent.name : null,
+      action: "install",
+    });
+    if (safeModeRefusal !== null) throw new Error(safeModeRefusal);
     assertInstallRegistrationAvailable(
       getInstalledPlugin(deps.db, initialManifest.id),
       args,

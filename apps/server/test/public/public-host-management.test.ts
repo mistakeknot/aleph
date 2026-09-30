@@ -1,10 +1,15 @@
+import { createBbSdk } from "@bb/sdk/core";
+import { createHttpTransport } from "@bb/sdk/node";
+import { spawnSync } from "node:child_process";
 import {
   getEnvironment,
   getHost,
   hosts,
+  hostDaemonSessions,
   getSessionById,
   getStoredProviderModelCatalog,
   getThread,
+  listStoredTurnCompletedKeys,
   replaceStoredProviderModelCatalog,
   updateHost,
 } from "@bb/db";
@@ -29,7 +34,9 @@ import {
   seedProjectWithSource,
   seedSession,
   seedThread,
+  seedTurnStarted,
 } from "../helpers/seed.js";
+import { installMachineProvider } from "../helpers/machine-provider.js";
 import { withTestHarness } from "../helpers/test-app.js";
 
 const API = "/api/v1";
@@ -60,6 +67,51 @@ function requestJoinCode(app: {
 }
 
 describe("public host management", () => {
+  it("reads machine paths after an offline session without requiring threads", async () => {
+    await withTestHarness(async (harness) => {
+      const host = seedHost(harness.deps, { id: "host_paths" });
+      const response = await harness.app.request(`${API}/hosts/${host.id}`);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        threadStorageRootPath: null,
+      });
+      const session = seedSession(harness.deps, host.id);
+      harness.hub.unregisterDaemon(session.id);
+      harness.db
+        .update(hostDaemonSessions)
+        .set({
+          status: "closed",
+          updatedAt: 1,
+          createdAt: 1,
+        })
+        .where(eq(hostDaemonSessions.id, session.id))
+        .run();
+      const latest = seedSession(harness.deps, host.id, {
+        instanceId: "instance-2",
+      });
+      harness.hub.unregisterDaemon(latest.id);
+      harness.db
+        .update(hostDaemonSessions)
+        .set({
+          status: "closed",
+          dataDir: "/tmp/new-machine-data",
+        })
+        .where(eq(hostDaemonSessions.id, latest.id))
+        .run();
+      const sdk = createBbSdk({
+        transport: createHttpTransport({
+          baseUrl: "http://localhost",
+          runtime: "node",
+          fetch: async (input, init) =>
+            harness.app.fetch(new Request(input, init)),
+        }),
+      });
+      await expect(sdk.hosts.get({ hostId: host.id })).resolves.toMatchObject({
+        threadStorageRootPath: "/tmp/new-machine-data/thread-storage",
+      });
+    });
+  });
+
   it("reconnects a machine by re-enrolling it, replacing access only when the installer runs", async () => {
     await withTestHarness(async (harness) => {
       const host = seedHost(harness.deps, { id: "host_reconnect" });
@@ -165,6 +217,14 @@ describe("public host management", () => {
         headers: { "X-BB-Enrollment": credential },
       });
       expect(reused.status).toBe(403);
+      expect(reused.headers.get("content-type")).toContain("text/x-shellscript");
+      const errorScript = spawnSync("sh", ["-c", await reused.text()], {
+        encoding: "utf8",
+      });
+      expect(errorScript.status).toBe(1);
+      expect(errorScript.stderr).toContain(
+        "already been used, replaced, or expired",
+      );
     });
   });
 
@@ -405,6 +465,30 @@ describe("public host management", () => {
     });
   });
 
+  it("filters the host list by type and rejects unknown types", async () => {
+    await withTestHarness(async (harness) => {
+      const persistent = seedHost(harness.deps, { id: "host_persistent" });
+      const ephemeral = seedHost(harness.deps, { id: "host_ephemeral" });
+      updateHost(harness.db, harness.hub, ephemeral.id, { type: "ephemeral" });
+
+      const listIds = async (query: string) => {
+        const response = await harness.app.request(`${API}/hosts${query}`);
+        expect(response.status).toBe(200);
+        return z
+          .array(z.object({ id: z.string() }))
+          .parse(await readJson(response))
+          .map((host) => host.id);
+      };
+
+      expect(await listIds("")).toEqual([persistent.id, ephemeral.id]);
+      expect(await listIds("?type=persistent")).toEqual([persistent.id]);
+      expect(await listIds("?type=ephemeral")).toEqual([ephemeral.id]);
+      expect(
+        (await harness.app.request(`${API}/hosts?type=sandbox`)).status,
+      ).toBe(400);
+    });
+  });
+
   it("stores a permission ceiling for a session-gated request", async () => {
     await withTestHarness(async (harness) => {
       const host = seedHost(harness.deps, { id: "host_ceiling" });
@@ -583,7 +667,13 @@ describe("public host management", () => {
         id: environment.id,
         hostId: host.id,
       });
-      expect(getThread(harness.db, activeThread.id)?.status).toBe("error");
+      expect(getThread(harness.db, activeThread.id)?.status).toBe("idle");
+      const environmentRead = await harness.app.request(
+        `${API}/environments/${environment.id}`,
+      );
+      expect(await readJson(environmentRead)).toMatchObject({
+        hostLifecycle: "removed",
+      });
 
       const staleEnrollResponse = await harness.app.request(
         "/internal/hosts/enroll",
@@ -609,6 +699,83 @@ describe("public host management", () => {
     });
   });
 
+  it.each([
+    { type: "ephemeral", status: "idle" },
+    { type: "ephemeral", status: "active" },
+    { type: "ephemeral", status: "stopping" },
+    { type: "persistent", status: "idle" },
+    { type: "persistent", status: "active" },
+    { type: "persistent", status: "stopping" },
+  ] as const)(
+    "removes a $type machine retaining its $status thread",
+    async ({ type, status }) => {
+      await withTestHarness(async (harness) => {
+        const remove = vi.fn(async () => ({ status: "removed" as const }));
+        installMachineProvider({ ephemeral: type === "ephemeral", remove });
+        const primary = seedHost(harness.deps, { id: "host_primary" });
+        seedPrimaryHost(harness.deps, primary.id);
+        const host = seedHost(harness.deps, { id: "host_sandbox" });
+        updateHost(harness.db, harness.hub, host.id, {
+          machineProviderId: "test-machine",
+          phase: "active",
+          resource: { allocation: "sandbox" },
+          type,
+        });
+        const { project } = seedProjectWithSource(harness.deps, {
+          hostId: host.id,
+        });
+        const environment = seedEnvironment(harness.deps, {
+          hostId: host.id,
+          projectId: project.id,
+        });
+        const thread = seedThread(harness.deps, {
+          environmentId: environment.id,
+          projectId: project.id,
+          status,
+          title: "Hidden workflow worker",
+          visibility: "hidden",
+        });
+
+        if (status !== "idle") {
+          seedTurnStarted(harness.deps, {
+            environmentId: environment.id,
+            threadId: thread.id,
+            turnId: "turn_removal",
+          });
+        }
+
+        const removed = await harness.app.request(`${API}/hosts/${host.id}`, {
+          method: "DELETE",
+        });
+
+        expect(removed.status).toBe(200);
+        expect(await readJson(removed)).toEqual({ ok: true });
+        expect(remove).toHaveBeenCalledOnce();
+        expect(getHost(harness.db, host.id)?.phase).toBe("destroyed");
+        expect(getEnvironment(harness.db, environment.id)?.status).toBe(
+          "destroyed",
+        );
+        const environmentRead = await harness.app.request(
+          `${API}/environments/${environment.id}`,
+        );
+        expect(await readJson(environmentRead)).toMatchObject({
+          hostLifecycle: "removed",
+        });
+        expect(getThread(harness.db, thread.id)).toMatchObject({
+          archivedAt: null,
+          status: "idle",
+        });
+        if (status !== "idle") {
+          expect(
+            listStoredTurnCompletedKeys(harness.db, {
+              keys: [{ threadId: thread.id, turnId: "turn_removal" }],
+            }),
+          ).toEqual([{ threadId: thread.id, turnId: "turn_removal" }]);
+        }
+      });
+    },
+  );
+
   it("deletes a removed host's stored provider model catalogs", async () => {
     await withTestHarness(async (harness) => {
       const primary = seedHost(harness.deps, { id: "host_primary" });
@@ -632,6 +799,29 @@ describe("public host management", () => {
 
       expect(response.status).toBe(200);
       expect(getStoredProviderModelCatalog(harness.db, key)).toBeNull();
+    });
+  });
+
+  it("announces a removed host to plugins", async () => {
+    await withTestHarness(async (harness) => {
+      const primary = seedHost(harness.deps, { id: "host_primary" });
+      seedPrimaryHost(harness.deps, primary.id);
+      const host = seedHost(harness.deps, { id: "host_remove_announced" });
+      const announced = vi.spyOn(
+        harness.pluginService.events,
+        "emitHostDeleted",
+      );
+
+      const response = await harness.app.request(`${API}/hosts/${host.id}`, {
+        method: "DELETE",
+      });
+
+      expect(response.status).toBe(200);
+      expect(announced).toHaveBeenCalledOnce();
+      expect(announced.mock.calls[0]?.[0]).toMatchObject({
+        id: host.id,
+        destroyedAt: expect.any(Number),
+      });
     });
   });
 
@@ -692,6 +882,7 @@ describe("public host management", () => {
         "revokeMachine",
         revokeRecord,
         { machineId: "machine-cloud-remove" },
+        { kind: "client" },
       );
     });
   }, 30_000);

@@ -13,16 +13,19 @@ every window and client sees the same value.
 
 ## Sidebar preferences
 
-The sidebar thread list uses an explicit plugin selection and defaults to the bundled
-Thread list plugin (`thread-list/thread-list`). Existing `__automatic__` and
-`__builtin__` selections resolve to that default; other plugin selections are preserved.
-Use `bb settings ui reset sidebar.threadListProvider` to restore the default, or
+The sidebar thread list defaults to `__automatic__`: the first installed thread list
+plugin other than the bundled Thread list plugin (`thread-list/thread-list`), or the
+bundled plugin when there is none. Installing a thread list plugin therefore switches
+to it. Legacy `__builtin__` selections resolve to the bundled plugin; other plugin
+selections are preserved.
+Use `bb settings ui reset sidebar.threadListProvider` to restore Automatic, or
 `bb settings ui set sidebar.threadListProvider <plugin-id>/<slot-id>` to select
 another plugin. The SDK exposes the same setting through `uiPreferences`.
 
 The sidebar navigation works the same way: `sidebar.navigationProvider` defaults
-to the bundled Navigation plugin (`navigation/navigation`), and legacy
-`__automatic__` and `__builtin__` selections resolve to it. Navigation order and
+to `__automatic__`, which prefers an installed navigation plugin over the bundled
+Navigation plugin (`navigation/navigation`), and legacy `__builtin__` selections
+resolve to the bundled plugin. Navigation order and
 visibility stay in `sidebar.pluginPanelOrder` and `sidebar.visiblePluginPanels`,
 so they carry over between navigation plugins.
 
@@ -123,6 +126,16 @@ so they carry over between navigation plugins.
   provider default, and the next send records that default. Select the custom
   model again after you turn streamer mode off.
 
+## Fast service tier
+
+- `allowFastServiceTier` defaults to true. Set it with
+  `bb settings general allowFastServiceTier <true|false|on|off>` or use the
+  switch in Settings → Providers.
+- When disabled, new turns use the default tier even if a request, project
+  default, automation, or queued message selected fast. The app hides Fast mode.
+  Turn it on to choose fast again; project defaults saved while it was off
+  retain the default tier.
+
 ## New branch prefix
 
 - `managedBranchPrefix` defaults to `bb/`. Set it with
@@ -173,10 +186,8 @@ so they carry over between navigation plugins.
 
 ## Mobile app
 
-- The `mobileApp` experiment defaults to false while the bb mobile app is in
-  early access.
-- Enable it with `bb settings experiment mobileApp true`. It shows the
-  **Add mobile device** card under Settings → Remote access.
+- Downloads are available in Settings → Mobile without opting in.
+- Pair your phone under Settings → Mobile → **Add mobile device**.
 
 ## Changelog preview
 
@@ -184,6 +195,13 @@ so they carry over between navigation plugins.
 - Enable it with `bb settings experiment changelogPreview true` to show the
   latest release notes on Settings → Updates.
 
+## Legacy plugin loader
+
+- The `legacyJitiPluginLoader` experiment defaults to false.
+- Enable it with `bb settings experiment legacyJitiPluginLoader true`.
+- Running plugins are unchanged when it is toggled. The selected loader applies
+  the next time a plugin is installed, reloaded, enabled, updated, or loaded
+  after a server restart.
 
 ## Sidebar progressive disclosure
 
@@ -227,10 +245,17 @@ Changes apply to new turns, setup commands and terminals.
 Sidebar footer actions use `sidebar.footerOrder` and `sidebar.hiddenFooterItems`.
 Both are string lists shared across clients. Keys are `builtin:settings`,
 `builtin:report-bug`, or `plugin:<encoded pluginId>/<encoded registrationId>`.
-Right-click Hide moves an action into More; Settings → Appearance → Sidebar footer
-restores visibility and drag-reorders actions. CLI example:
-`bb settings ui set sidebar.hiddenFooterItems '["plugin:provider-usage/usage"]'`.
-Use `bb settings ui reset sidebar.hiddenFooterItems` to show everything again.
+The footer shows as many icons as fit the sidebar's width. More is always
+available and holds hidden actions plus actions that don't fit; apart from
+Customize's minus, width overflow never changes saved visibility. More →
+Customize footer replaces the footer row with Footer and More menu zones: minus
+removes an icon and keeps current overflow hidden so its slot stays empty, plus
+adds a More item while the footer has room, and drag reorders within a zone. More → Hide footer
+hides every action, and Show footer shows them again.
+Right-click an action for Hide from footer or Customize footer.
+Settings → Appearance → Sidebar footer edits the same preferences. CLI example:
+`bb settings ui set sidebar.hiddenFooterItems '["plugin:bb--provider-usage/usage"]'`.
+Use `bb settings ui reset sidebar.hiddenFooterItems` to restore the default footer.
 
 Disable anonymous usage telemetry with `bb settings general telemetryEnabled false`
 or Settings → General → Privacy & diagnostics → Share anonymous usage data. This server-wide preference
@@ -239,3 +264,18 @@ applies immediately and persists across restarts. `BB_TELEMETRY=false` overrides
 ### Automatic composer focus on pane selection
 
 Settings → Keyboard → Pane navigation offers **Focus composer when switching panes with keyboard**. It defaults to off. When enabled, next, previous and numbered split-pane commands focus the destination chat composer; pointer selection and the separate Focus composer shortcut keep their existing behavior. This preference is saved in this browser or desktop app, not synchronized with server keyboard settings, and is not changed by Reset all shortcuts. Enable it separately in each client.
+
+Mobile app downloads are always available in Settings → Mobile (`/settings/mobile`).
+**Join iOS TestFlight** opens https://testflight.apple.com/join/T9MayTMb.
+**Download Android APK** downloads directly from the public `get-bb/bb` GitHub
+`android-testing` release's `bb-android.apk` asset. The APK does not pass through
+the bb server or its remote-access tunnel. No experiment or Android developer tools are needed.
+Pair either app through Settings → Mobile → **Add mobile device**.
+
+Use `bb settings mobile-app --json` or SDK `system.mobileAppDownloads()` to get
+both public links. Add `--details --json` or call `system.mobileAppReleases()`
+(GET `/api/v1/system/mobile-app-releases`) for Android version/build, size, and
+upload date. The server fetches only public metadata, caches it for five minutes,
+and returns `android: null` if unavailable or inconsistent. Download links remain
+usable during metadata failures. iOS version and release date are shown in TestFlight.
+Publish updates with **Mobile Android (EAS)**, profile `preview`, **publish** on.

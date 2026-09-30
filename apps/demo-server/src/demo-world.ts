@@ -51,7 +51,7 @@ import {
 const SYSTEM_CONFIG = systemConfigResponseSchema.parse({
   ...configFixture,
   generalSettings: defaultAppSettings,
-  experiments: { ...defaultExperiments, mobileApp: true },
+  experiments: { ...defaultExperiments },
   appearance: defaultAppTheme,
   featureFlags: defaultFeatureFlags,
   serverUrl: "https://demo.invalid",
@@ -258,6 +258,7 @@ export class DemoWorld {
       case "child-summary":
         return json({
           nonDeletedChildCount: 0,
+          unarchivedDescendantCount: 0,
         } satisfies ThreadChildSummaryResponse);
       default:
         return null;

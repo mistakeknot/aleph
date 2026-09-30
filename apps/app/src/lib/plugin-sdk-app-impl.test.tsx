@@ -1,13 +1,25 @@
 // @vitest-environment jsdom
 
+import { LazyMarkdownHtml } from "@/components/ui/lazy-markdown-html";
+
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  beforeAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import { PluginSlotMount } from "@/components/plugin/PluginSlotMount";
 import { ThreadTimelineNavigationProvider } from "@/components/thread/timeline/ThreadTimelineNavigationContext";
 import { pluginSdkAppImplementation } from "./plugin-sdk-app-impl";
 import { resetDeprecatedAliasWarningsForTests } from "./plugin-sdk-deprecated-aliases";
 import { AppNavigationHostProvider } from "./app-navigation-host";
+
+beforeAll(() => LazyMarkdownHtml.preload());
 
 afterEach(cleanup);
 
@@ -173,7 +185,7 @@ describe("plugin SDK Markdown", () => {
             };
       const props = {
         content:
-          "[Sibling](sibling.md#L2-L4) ![Chart](../chart%20one.svg) [Parent](../summary.md) [Missing](missing.md) [Web](https://example.com)",
+          '[Sibling](sibling.md#L2-L4) ![Chart](../chart%20one.svg) [Parent](../summary.md) [Missing](missing.md) [Web](https://example.com)\n\n<video src="../clip.mp4" controls title="Clip"></video>',
         experimental_document: { target, rootPath, threadId: "thr_document" },
       };
       render(
@@ -201,6 +213,9 @@ describe("plugin SDK Markdown", () => {
         screen.getByRole("img", { name: "Chart" }).getAttribute("src"),
       ).toBe(
         `/api/v1/threads/thr_document/${kind === "workspace" ? "worktree" : kind}/files/reports/chart%20one.svg`,
+      );
+      expect(screen.getByLabelText("Clip").getAttribute("src")).toBe(
+        `/api/v1/threads/thr_document/${kind === "workspace" ? "worktree" : kind}/files/reports/clip.mp4`,
       );
       fireEvent.click(screen.getByRole("link", { name: "Parent" }));
       expect(openFilePreview).toHaveBeenLastCalledWith({
