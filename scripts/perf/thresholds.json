@@ -5,7 +5,7 @@
   "metrics": {
     "cmdk.open_first_ms": { "maxP50Ms": 700, "maxP95Ms": 900 },
     "cmdk.open_warm_ms": { "maxP50Ms": 120, "maxP95Ms": 400 },
-    "cmdk.keystroke_result_ms": { "maxP50Ms": 400, "maxP95Ms": 700 },
+    "cmdk.keystroke_result_ms": { "maxP50Ms": 250, "maxP95Ms": 450 },
     "switch.sidebar_click_ms": { "maxP50Ms": 1000, "maxP95Ms": 2000 },
     "switch.cmdk_enter_ms": { "maxP50Ms": 1500, "maxP95Ms": 3000 },
     "thread_open.small_ms": { "maxP50Ms": 1500, "maxP95Ms": 2500 },

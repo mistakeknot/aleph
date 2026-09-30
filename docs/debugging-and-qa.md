@@ -188,7 +188,12 @@ per run on free ports.
   (scratch, defaults under the cache root, never `/tmp`), `BB_PERF_CHROME`.
 - Metrics: `startup.*`, `cmdk.open_*`, `cmdk.keystroke_*`, `switch.*`,
   `thread_open.*`, `composer.*`, `server.*`. The first `startup` sample per run is
-  a cold browser cache; `startup_warm` is a reload.
+  a cold browser cache; `startup_warm` is a reload. `switch.cmdk_enter_navigate_ms`
+  is Enter to URL change, `switch.cmdk_enter_ms` is Enter to thread visible.
+- A/B a change: build each variant, copy `apps/app/dist` to a scratch directory
+  per variant, then before each run point the `apps/app/dist` symlink at one
+  variant and run `pnpm perf -- --only cmdk --runs 3 --label <variant>`.
+  Interleave variants across rounds so machine load hits both.
 - Timings are wall-clock on a shared machine. Compare runs only with the load
   average recorded in the result (`runs[].loadAtStart`), and read the spread of
   `run-p50 range` before believing a delta.
