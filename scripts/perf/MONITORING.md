@@ -54,8 +54,22 @@ rewritten. Read them with these corrections.
   so the cause of each shortfall cannot be confirmed from it. With the current
   harness, palette-switch iteration 0 pressed Enter on a "Show more" row, which
   does not navigate, and the timed-out sample was silently dropped. That is
-  fixed, and the harness now records every missing sample and fails the run. A
-  sidebar-click shortfall did not reproduce (10 of 10 samples).
+  fixed, and the harness now records every missing sample and fails the run.
+  A sidebar-click shortfall reproduced only when `cmdk` ran before `switch`
+  (see the next item) and did not with `--only switch` (10 of 10 samples, twice).
+- **`cmdk.open_warm_ms` (and the cmdk scenario) reopened a palette that never
+  closed.** The palette opens in thread-search mode and the first Escape only
+  leaves that mode, so `closePalette` left it open and ignored its own timeout.
+  The next Ctrl+K then measured an already-open palette, which is why the
+  baseline's `cmdk.open_warm_ms` p50 is 23 ms. Its overlay also covered the
+  sidebar, so the first sidebar click of `switch` timed out when `cmdk` ran
+  first. `closePalette` now presses Escape until the palette is gone (recording
+  a failure otherwise). With it fixed, `cmdk.open_warm_ms` was 99.8 ms p50 (2
+  runs x 5 reps, load average 25-50), so treat the baseline's warm-open figure
+  and the 120 ms p50 budget derived from it as unverified, and re-baseline
+  `cmdk.*` and `switch.sidebar_click_ms` on a quiet host. Whether this is also
+  the cause of the baseline's 20-of-25 `switch.sidebar_click_ms` samples cannot
+  be confirmed from that file.
 - **Search completion was looser than it looked.** `probe.js` `searchDone`
   accepted any completed request for the query, including one that finished
   before the measurement started. It now requires a successful request that
