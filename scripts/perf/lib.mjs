@@ -192,10 +192,21 @@ export function summarizeRouteTimings(timingsByRoute) {
   return result;
 }
 
-export function checkThresholds(summary, thresholds, baselineSummary) {
+export function checkThresholds(
+  summary,
+  thresholds,
+  baselineSummary,
+  { scenarios } = {},
+) {
   const failures = [];
   const checked = [];
+  const skipped = [];
   for (const [name, rule] of Object.entries(thresholds.metrics)) {
+    const scenario = scenarioOfMetric(name);
+    if (scenarios !== undefined && scenario !== null && !scenarios.has(scenario)) {
+      skipped.push(name);
+      continue;
+    }
     const current = summary[name];
     if (current === undefined || current.n === 0) {
       failures.push({ name, kind: "missing", message: "no samples recorded" });
@@ -241,7 +252,7 @@ export function checkThresholds(summary, thresholds, baselineSummary) {
       }
     }
   }
-  return { failures, checked };
+  return { failures, checked, skipped };
 }
 
 function cell(value) {

@@ -222,4 +222,45 @@ describe("perf harness scenario scoping", () => {
     expect(selectScenarios({}).size).toBe(6);
     expect(() => selectScenarios({ only: "cmdk,nope" })).toThrow(/unknown scenario "nope"/u);
   });
+
+  it("lets the documented smoke selection pass the shipped thresholds", () => {
+    const thresholds = JSON.parse(readFileSync(join(perfDir, "thresholds.json"), "utf8"));
+    const scenarios = selectScenarios({ only: "server,cmdk,switch" });
+    const summary = {};
+    for (const name of Object.keys(thresholds.metrics)) {
+      if (scenarios.has(scenarioOfMetric(name))) {
+        summary[name] = { n: 5, expected: 5, p50: 1, p95: 1 };
+      }
+    }
+    const scoped = checkThresholds(summary, thresholds, undefined, { scenarios });
+    expect(scoped.failures).toEqual([]);
+    expect(scoped.skipped).toEqual(
+      expect.arrayContaining([
+        "startup.shell_ms",
+        "thread_open.large_ms",
+        "composer.type_home_ms",
+      ]),
+    );
+    expect(scoped.checked.length).toBeGreaterThan(0);
+    const unscoped = checkThresholds(summary, thresholds);
+    expect(unscoped.failures.every((failure) => failure.kind === "missing")).toBe(true);
+    expect(unscoped.failures.length).toBeGreaterThan(0);
+  });
+
+  it("still fails a selected scenario's metric that has no samples", () => {
+    const thresholds = {
+      defaults: { regressionPct: 25, regressionMinMs: 30 },
+      metrics: {
+        "cmdk.open_ms": { maxP50Ms: 500 },
+        "switch.click_ms": { maxP50Ms: 500 },
+      },
+    };
+    const { failures } = checkThresholds(
+      { "cmdk.open_ms": { n: 1, p50: 1, p95: 1 } },
+      thresholds,
+      undefined,
+      { scenarios: new Set(["cmdk", "switch"]) },
+    );
+    expect(failures.map((failure) => failure.name)).toEqual(["switch.click_ms"]);
+  });
 });

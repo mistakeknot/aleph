@@ -169,7 +169,14 @@ if (args.thresholds !== undefined) {
     args.baseline === undefined
       ? undefined
       : JSON.parse(readFileSync(args.baseline, "utf8")).summary;
-  const { failures } = checkThresholds(summary, thresholds, baselineSummary);
+  const { failures, skipped } = checkThresholds(summary, thresholds, baselineSummary, {
+    scenarios,
+  });
+  if (skipped.length > 0) {
+    process.stdout.write(
+      `thresholds: skipped ${skipped.length} metric(s) from scenarios not run\n`,
+    );
+  }
   for (const failure of failures) {
     if (failure.kind === "incomplete") continue;
     process.stdout.write(`FAIL ${failure.name}: ${failure.message}\n`);
