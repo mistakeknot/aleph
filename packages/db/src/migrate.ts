@@ -1544,6 +1544,64 @@ function validateAppliedMigrationHistory(
   );
 }
 
+const DRIZZLE_ROLLBACK_FAILURE_PATTERN =
+  /cannot rollback - no transaction is active/u;
+
+function isDrizzleRollbackFailure(error: unknown): boolean {
+  for (let current: unknown = error; current instanceof Error; ) {
+    if (DRIZZLE_ROLLBACK_FAILURE_PATTERN.test(current.message)) return true;
+    current = current.cause;
+  }
+  return false;
+}
+
+function runDrizzleMigrateSurfacingFirstError(
+  db: DbConnection,
+  migrationsFolder: string,
+): void {
+  const sqlite = db.$client;
+  const originalPrepare = sqlite.prepare;
+  let firstStatementError: unknown = null;
+  sqlite.prepare = function prepareRecordingFirstError(
+    this: typeof sqlite,
+    ...args: Parameters<typeof originalPrepare>
+  ) {
+    const statement = originalPrepare.apply(this, args);
+    const originalRun = statement.run;
+    statement.run = function runRecordingFirstError(
+      this: typeof statement,
+      ...runArgs: Parameters<typeof originalRun>
+    ) {
+      try {
+        return Reflect.apply(originalRun, this, runArgs) as ReturnType<
+          typeof originalRun
+        >;
+      } catch (error) {
+        firstStatementError ??= error;
+        throw error;
+      }
+    } as typeof originalRun;
+    return statement;
+  } as typeof originalPrepare;
+  try {
+    drizzleMigrate(db, { migrationsFolder });
+  } catch (error) {
+    if (firstStatementError !== null && isDrizzleRollbackFailure(error)) {
+      const detail =
+        firstStatementError instanceof Error
+          ? firstStatementError.message
+          : String(firstStatementError);
+      throw new Error(
+        `Database migration failed and SQLite had already rolled the transaction back, so drizzle's ROLLBACK also failed. Underlying error: ${detail}`,
+        { cause: firstStatementError },
+      );
+    }
+    throw error;
+  } finally {
+    sqlite.prepare = originalPrepare;
+  }
+}
+
 export function migrate(db: DbConnection, options: MigrateOptions = {}): void {
   const migrationsFolder = resolveMigrationsFolder();
   const sqlite = db.$client;
@@ -1585,7 +1643,7 @@ export function migrate(db: DbConnection, options: MigrateOptions = {}): void {
     const stagedThreadStorageDeletedAt =
       stageExistingThreadStorageDeletedAtColumn(db, migrationsFolder);
     try {
-      drizzleMigrate(db, { migrationsFolder });
+      runDrizzleMigrateSurfacingFirstError(db, migrationsFolder);
     } finally {
       if (stagedConnectMachineId) restoreStagedConnectMachineIdColumn(db);
       if (stagedThreadStorageDeletedAt)
