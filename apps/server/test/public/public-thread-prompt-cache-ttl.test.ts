@@ -273,6 +273,19 @@ describe("per-thread prompt cache TTL", () => {
         expect(
           threadResponseSchema.parse(await readJson(overridden)).promptCacheTtl,
         ).toBe("5m");
+
+        const emptyBag = await postFork(harness, {
+          sourceThreadId: source.id,
+          providerOptions: {},
+        });
+        expect(emptyBag.status).toBe(201);
+        const emptyBagFork = threadResponseSchema.parse(
+          await readJson(emptyBag),
+        );
+        expect(emptyBagFork.promptCacheTtl).toBe("1h");
+        expect(getThread(harness.db, emptyBagFork.id)?.promptCacheTtl).toBe(
+          "1h",
+        );
       });
     });
 
