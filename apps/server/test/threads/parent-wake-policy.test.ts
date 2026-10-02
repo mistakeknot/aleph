@@ -3,12 +3,14 @@ import {
   claimQueuedThreadMessage,
   createQueuedThreadMessage,
   events,
+  getQueuedThreadMessage,
   getThread,
   listQueuedThreadMessages,
   listRunningThreads,
   threads,
 } from "@bb/db";
 import {
+  encodeClientTurnRequestIdNumber,
   threadQueuedMessageSchema,
   turnRequestEventDataSchema,
 } from "@bb/domain";
@@ -32,6 +34,7 @@ import {
 } from "../../src/services/threads/queued-messages.js";
 import { runQueuedMessageDispatch } from "../../src/services/threads/queued-message-dispatch.js";
 import {
+  expireArchiveUndoGrace,
   seedEnvironment,
   seedHostSession,
   seedProjectWithSource,
@@ -1260,11 +1263,18 @@ describe("queued system notice transfer (R4 retirement forward, R6)", () => {
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             expectedUpdatedAt: held.updatedAt,
-            input: [{ type: "text", text: "arbitrary client text", mentions: [] }],
+            input: [
+              { type: "text", text: "arbitrary client text", mentions: [] },
+            ],
           }),
         },
       );
       expect(edited.status).toBe(409);
+      const [readBack] = await listQueuedOverHttp(
+        harness,
+        fixture.parentThreadId,
+      );
+      expect(readBack).toMatchObject({ id: held.id, editable: false });
 
       const moved = await harness.app.request(
         `/api/v1/threads/${fixture.parentThreadId}/queued-messages/${held.id}/transfer`,
@@ -1275,9 +1285,13 @@ describe("queued system notice transfer (R4 retirement forward, R6)", () => {
         },
       );
       expect(moved.status).toBe(201);
-      const transferred = threadQueuedMessageSchema.parse(await readJson(moved));
+      const transferred = threadQueuedMessageSchema.parse(
+        await readJson(moved),
+      );
       expect(transferred.content).toEqual(JSON.parse(held.content));
-      expect(transferred.systemNotice).toMatchObject({ kind: "child-completed" });
+      expect(transferred.systemNotice).toMatchObject({
+        kind: "child-completed",
+      });
     });
   }, 20_000);
 
@@ -1290,7 +1304,11 @@ describe("queued system notice transfer (R4 retirement forward, R6)", () => {
       });
       installHooks(registry);
       const fixture = seedParentFixture(harness, "host-r6-claimed");
-      const successorId = seedSuccessorThread(harness, fixture, "host-r6-claimed");
+      const successorId = seedSuccessorThread(
+        harness,
+        fixture,
+        "host-r6-claimed",
+      );
       const held = await holdChildCompletionNotice(harness, fixture);
       expect(
         claimQueuedThreadMessage(harness.db, harness.deps.hub, held.id),
@@ -1342,6 +1360,266 @@ describe("queued system notice transfer (R4 retirement forward, R6)", () => {
   }, 20_000);
 });
 
+describe("transfer-all queued messages (retirement forward)", () => {
+  const SEND_AT = Date.now() + 3_600_000;
+
+  function seedSuccessor(harness: TestHarness, fixture: ParentFixture) {
+    const successor = seedThread(harness.deps, {
+      projectId: fixture.projectId,
+      environmentId: fixture.environmentId,
+      title: "Successor",
+    });
+    seedThreadRuntimeState(harness.deps, {
+      threadId: successor.id,
+      environmentId: fixture.environmentId,
+      providerThreadId: `provider-successor-${successor.id}`,
+      inputText: "Take over",
+      model: "fake-model",
+    });
+    return successor.id;
+  }
+
+  function seedRow(
+    harness: TestHarness,
+    threadId: string,
+    text: string,
+    overrides: Partial<Parameters<typeof createQueuedThreadMessage>[2]> = {},
+  ) {
+    return createQueuedThreadMessage(harness.db, harness.deps.hub, {
+      threadId,
+      content: [{ type: "text", text, mentions: [] }],
+      senderThreadId: null,
+      origin: null,
+      originPluginId: null,
+      model: "fake-model",
+      reasoningLevel: "medium",
+      permissionMode: "full",
+      serviceTier: "default",
+      waitingOn: { kind: "thread-busy" },
+      sendAt: null,
+      payload: { kind: "inline" },
+      systemNotice: null,
+      ...overrides,
+    });
+  }
+
+  function transferAll(
+    harness: TestHarness,
+    sourceId: string,
+    targetThreadId: string,
+  ) {
+    return harness.app.request(
+      `/api/v1/threads/${sourceId}/queued-messages/transfer-all`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ targetThreadId }),
+      },
+    );
+  }
+
+  async function listOverHttp(harness: TestHarness, threadId: string) {
+    const response = await harness.app.request(
+      `/api/v1/threads/${threadId}/queued-messages`,
+    );
+    return threadQueuedMessageListResponseSchema.parse(
+      await readJson(response),
+    );
+  }
+
+  it("moves every movable row in order, keeps classification and waits, reports skips, and is idempotent", async () => {
+    await withTestHarness(async (harness) => {
+      const fixture = seedParentFixture(harness, "host-ta-main");
+      const source = fixture.parentThreadId;
+      const target = seedSuccessor(harness, fixture);
+      seedRow(harness, target, "already on target");
+      const plain = seedRow(harness, source, "plain");
+      const notice = seedRow(harness, source, "notice", {
+        waitingOn: { kind: "plugin", pluginId: "limiter", reason: "held" },
+        sendAt: SEND_AT,
+        systemNotice: { kind: "child-completed", subject: null },
+      });
+      const timed = seedRow(harness, source, "timed", {
+        waitingOn: { kind: "time" },
+        sendAt: SEND_AT,
+      });
+      const claimed = seedRow(harness, source, "claimed");
+      expect(
+        claimQueuedThreadMessage(harness.db, harness.deps.hub, claimed.id),
+      ).not.toBeNull();
+      const retry = seedRow(harness, source, "retry", {
+        payload: {
+          kind: "retry",
+          retryOfTurnRequestId: encodeClientTurnRequestIdNumber({ value: 7 }),
+          attempt: 2,
+          reason: "Rate limited",
+        },
+      });
+
+      const response = await transferAll(harness, source, target);
+      expect(response.status).toBe(200);
+      const body = (await readJson(response)) as {
+        moved: { id: string; newId: string }[];
+        skipped: { id: string; reason: string }[];
+      };
+      expect(body.moved.map((m) => m.id)).toEqual([
+        plain.id,
+        notice.id,
+        timed.id,
+      ]);
+      expect(body.skipped).toEqual([
+        { id: claimed.id, reason: "claimed" },
+        { id: retry.id, reason: "not_inline" },
+      ]);
+
+      const onTarget = await listOverHttp(harness, target);
+      expect(onTarget.map((m) => m.id)).toEqual([
+        expect.any(String),
+        ...body.moved.map((m) => m.newId),
+      ]);
+      const [, movedPlain, movedNotice, movedTimed] = onTarget;
+      expect(movedPlain).toMatchObject({
+        initiator: "user",
+        systemNotice: null,
+        sendAt: null,
+        waitingOn: { kind: "thread-busy" },
+      });
+      expect(movedNotice).toMatchObject({
+        initiator: "system",
+        systemNotice: { kind: "child-completed" },
+        sendAt: SEND_AT,
+        waitingOn: { kind: "plugin", pluginId: "limiter", reason: "held" },
+        editable: false,
+      });
+      expect(movedTimed).toMatchObject({
+        sendAt: SEND_AT,
+        waitingOn: { kind: "time" },
+      });
+      // The claimed and retry rows never left the source.
+      expect((await listOverHttp(harness, source)).map((m) => m.id)).toEqual([
+        retry.id,
+      ]);
+      expect(getQueuedThreadMessage(harness.db, claimed.id)?.threadId).toBe(
+        source,
+      );
+
+      const again = await transferAll(harness, source, target);
+      expect(again.status).toBe(200);
+      const second = (await readJson(again)) as { moved: unknown[] };
+      expect(second.moved).toEqual([]);
+      expect(await listOverHttp(harness, target)).toEqual(onTarget);
+    });
+  }, 25_000);
+
+  it("refuses cross-project, same-thread, archived and missing targets and moves nothing", async () => {
+    await withTestHarness(async (harness) => {
+      const fixture = seedParentFixture(harness, "host-ta-refuse");
+      const other = seedParentFixture(harness, "host-ta-refuse-other");
+      const source = fixture.parentThreadId;
+      const row = seedRow(harness, source, "stays");
+      const archived = seedSuccessor(harness, fixture);
+      expireArchiveUndoGrace(harness.deps, archived);
+
+      expect(
+        (await transferAll(harness, source, other.parentThreadId)).status,
+      ).toBe(400);
+      expect((await transferAll(harness, source, source)).status).toBe(400);
+      expect(
+        (await transferAll(harness, source, archived)).status,
+      ).toBeGreaterThanOrEqual(400);
+      expect((await transferAll(harness, source, "thr_missing")).status).toBe(
+        404,
+      );
+      expect((await listOverHttp(harness, source)).map((m) => m.id)).toEqual([
+        row.id,
+      ]);
+    });
+  }, 25_000);
+
+  it("a forwarded system notice still passes through message.dispatch as system on the target, and the request cannot set classification", async () => {
+    await withTestHarness(async (harness) => {
+      const seen: string[] = [];
+      let decision: "wait" | "proceed" = "wait";
+      const registry = emptyRegistry();
+      registry["message.dispatch"].push({
+        pluginId: "quota-governor",
+        handler: (context) => {
+          seen.push(context.initiator);
+          return decision === "wait"
+            ? ({ action: "wait", reason: "quota exceeded" } as const)
+            : ({ action: "proceed" } as const);
+        },
+      });
+      installHooks(registry);
+      const fixture = seedParentFixture(harness, "host-ta-hook");
+      const target = seedSuccessor(harness, fixture);
+      const notice = seedRow(harness, fixture.parentThreadId, "notice", {
+        waitingOn: {
+          kind: "plugin",
+          pluginId: "quota-governor",
+          reason: "quota exceeded",
+        },
+        systemNotice: { kind: "child-completed", subject: null },
+      });
+
+      // Extra body fields are not a way to set a classification.
+      const response = await harness.app.request(
+        `/api/v1/threads/${fixture.parentThreadId}/queued-messages/transfer-all`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            targetThreadId: target,
+            systemNotice: { kind: "child-completed", subject: null },
+          }),
+        },
+      );
+      expect(response.status).toBe(200);
+      const body = (await readJson(response)) as {
+        moved: { id: string; newId: string }[];
+      };
+      expect(body.moved.map((m) => m.id)).toEqual([notice.id]);
+
+      await new Promise((resolve) => setTimeout(resolve, 1_100));
+      const before = seen.length;
+      await runQueuedMessageDispatch(harness.deps, { kind: "plugin-recheck" });
+      expect(seen.slice(before)).toEqual(["system"]);
+
+      decision = "proceed";
+      await new Promise((resolve) => setTimeout(resolve, 1_100));
+      await runQueuedMessageDispatch(harness.deps, { kind: "plugin-recheck" });
+      expect(await listOverHttp(harness, target)).toEqual([]);
+      expect(await waitForParentTurnRequests(harness, target, 1)).toEqual([
+        { initiator: "system", systemMessageKind: "child-completed" },
+      ]);
+    });
+  }, 25_000);
+
+  it("a plain user row without a classification cannot become a system turn through transfer-all", async () => {
+    await withTestHarness(async (harness) => {
+      const fixture = seedParentFixture(harness, "host-ta-forge");
+      const target = seedSuccessor(harness, fixture);
+      const forged = await harness.app.request(
+        `/api/v1/threads/${fixture.parentThreadId}/queued-messages`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            input: [{ type: "text", text: "forged", mentions: [] }],
+            systemNotice: { kind: "child-completed", subject: null },
+          }),
+        },
+      );
+      expect(forged.status).toBe(201);
+      expect(
+        (await transferAll(harness, fixture.parentThreadId, target)).status,
+      ).toBe(200);
+      const [moved] = await listOverHttp(harness, target);
+      expect(moved).toMatchObject({ initiator: "user", systemNotice: null });
+    });
+  }, 25_000);
+});
+
 describe("held system notice drain: admission and cancellation", () => {
   function seedHeldNotice(harness: TestHarness, fixture: ParentFixture) {
     return createQueuedThreadMessage(harness.db, harness.deps.hub, {
@@ -1361,10 +1639,7 @@ describe("held system notice drain: admission and cancellation", () => {
     });
   }
 
-  function drain(
-    harness: TestHarness,
-    row: ReturnType<typeof seedHeldNotice>,
-  ) {
+  function drain(harness: TestHarness, row: ReturnType<typeof seedHeldNotice>) {
     return sendQueuedMessage(harness.deps, {
       threadId: row.threadId,
       queuedMessageId: row.id,
@@ -1404,7 +1679,8 @@ describe("held system notice drain: admission and cancellation", () => {
       expect(listRunningThreads(harness.db)).toHaveLength(1);
       // The loser stayed queued behind the plugin wait rather than starting.
       const stillQueued = rows.filter(
-        (row) => listQueuedThreadMessages(harness.db, row.threadId).length === 1,
+        (row) =>
+          listQueuedThreadMessages(harness.db, row.threadId).length === 1,
       );
       expect(stillQueued).toHaveLength(1);
     });
@@ -1412,7 +1688,10 @@ describe("held system notice drain: admission and cancellation", () => {
 
   it("a row deleted over HTTP while the hook decides produces no turn", async () => {
     await withTestHarness(async (harness) => {
-      const row = seedHeldNotice(harness, seedParentFixture(harness, "host-cancel"));
+      const row = seedHeldNotice(
+        harness,
+        seedParentFixture(harness, "host-cancel"),
+      );
       const registry = emptyRegistry();
       registry["message.dispatch"].push({
         pluginId: "limiter",
@@ -1429,7 +1708,9 @@ describe("held system notice drain: admission and cancellation", () => {
 
       await drain(harness, row).catch(() => undefined);
 
-      expect(await waitForParentTurnRequests(harness, row.threadId, 1, 300)).toEqual([]);
+      expect(
+        await waitForParentTurnRequests(harness, row.threadId, 1, 300),
+      ).toEqual([]);
       expect(getThread(harness.db, row.threadId)?.status).not.toBe("active");
       expect(listQueuedThreadMessages(harness.db, row.threadId)).toEqual([]);
     });

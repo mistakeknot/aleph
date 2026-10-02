@@ -46,6 +46,7 @@ import { validatePromptAttachmentReferences } from "../../services/projects/atta
 import {
   createQueuedMessageForThread,
   sendQueuedMessageNow,
+  transferAllQueuedMessages,
   transferQueuedMessage,
 } from "../../services/threads/queued-messages.js";
 import {
@@ -274,6 +275,14 @@ export function registerThreadActionRoutes(app: Hono, deps: AppDeps): void {
       threadId: context.req.param("id"),
     });
     return context.json({ ok: true, ...result });
+  });
+
+  post(routes.transferAllQueuedMessages, async (context, payload) => {
+    const sourceThread = requirePublicThread(deps.db, context.req.param("id"));
+    const targetThread = requirePublicThread(deps.db, payload.targetThreadId);
+    return context.json(
+      await transferAllQueuedMessages(deps, { sourceThread, targetThread }),
+    );
   });
 
   post(routes.transferQueuedMessage, async (context, payload) => {

@@ -2239,6 +2239,48 @@ export function transferQueuedThreadMessageInTransaction(
   return { kind: "transferred", queuedMessage };
 }
 
+export type TransferAllSkipReason = "claimed" | "not_inline";
+
+export interface TransferAllQueuedThreadMessagesResult {
+  moved: { id: string; queuedMessage: QueuedThreadMessageRow }[];
+  skipped: { id: string; reason: TransferAllSkipReason }[];
+}
+
+/**
+ * Move every unclaimed inline queued row of `sourceThreadId` to the target in
+ * source order, inside the caller's transaction. A row that cannot move (claimed
+ * by a drain, or a retry row) stays on the source and is reported with a reason;
+ * it never aborts the rest. Each move is the single-row transfer, so the same
+ * columns are preserved and the same ones re-derived.
+ */
+export function transferAllQueuedThreadMessagesInTransaction(
+  tx: DbTransaction,
+  args: Omit<TransferQueuedThreadMessageInTransactionArgs, "queuedMessageId">,
+): TransferAllQueuedThreadMessagesResult {
+  const rows = tx
+    .select({ id: queuedThreadMessages.id })
+    .from(queuedThreadMessages)
+    .where(eq(queuedThreadMessages.threadId, args.sourceThreadId))
+    .orderBy(asc(queuedThreadMessages.sortKey), asc(queuedThreadMessages.id))
+    .all();
+  const result: TransferAllQueuedThreadMessagesResult = {
+    moved: [],
+    skipped: [],
+  };
+  for (const { id } of rows) {
+    const transferred = transferQueuedThreadMessageInTransaction(tx, {
+      ...args,
+      queuedMessageId: id,
+    });
+    if (transferred.kind === "transferred") {
+      result.moved.push({ id, queuedMessage: transferred.queuedMessage });
+    } else if (transferred.kind !== "not_found") {
+      result.skipped.push({ id, reason: transferred.kind });
+    }
+  }
+  return result;
+}
+
 export function deleteQueuedThreadMessage(
   db: DbConnection,
   notifier: DbNotifier,

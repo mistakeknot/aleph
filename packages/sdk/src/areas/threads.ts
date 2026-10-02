@@ -65,6 +65,8 @@ import type {
   SendMessageRequest,
   SendMessageResponse,
   SendQueuedMessageRequest,
+  TransferAllQueuedMessagesRequest,
+  TransferAllQueuedMessagesResponse,
   TransferQueuedMessageRequest,
   SetQueuedMessageGroupBoundaryRequest,
   ThreadEventsQuery,
@@ -346,6 +348,14 @@ export interface ThreadQueuedMessageSendArgs
 export interface ThreadQueuedMessageTransferArgs
   extends ThreadQueuedMessageTargetArgs, TransferQueuedMessageRequest {}
 
+/** `threadId` is the source thread; every movable queued row goes to `targetThreadId`. */
+export interface ThreadQueuedMessageTransferAllArgs extends TransferAllQueuedMessagesRequest {
+  threadId: string;
+}
+
+export type ThreadQueuedMessageTransferAllResult =
+  TransferAllQueuedMessagesResponse;
+
 export interface ThreadQueuedMessageReorderArgs
   extends ThreadQueuedMessageTargetArgs, ReorderQueuedMessageRequest {}
 
@@ -566,6 +576,9 @@ export interface ThreadQueuedMessagesArea {
   transfer(
     args: ThreadQueuedMessageTransferArgs,
   ): Promise<ThreadQueuedMessageTransferResult>;
+  transferAll(
+    args: ThreadQueuedMessageTransferAllArgs,
+  ): Promise<ThreadQueuedMessageTransferAllResult>;
   update(
     args: ThreadQueuedMessageUpdateArgs,
   ): Promise<ThreadQueuedMessageUpdateResult>;
@@ -1118,6 +1131,16 @@ export function createThreadsArea(args: CreateSdkAreaArgs): ThreadsArea {
               input.expectedGroupedPrefixQueuedMessageIds,
             groupBoundaryQueuedMessageId: input.groupBoundaryQueuedMessageId,
           },
+        }),
+      );
+    },
+    async transferAll(input) {
+      return transport.readJson(
+        transport.api.v1.threads[":id"]["queued-messages"][
+          "transfer-all"
+        ].$post({
+          param: { id: input.threadId },
+          json: { targetThreadId: input.targetThreadId },
         }),
       );
     },

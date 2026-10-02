@@ -523,6 +523,31 @@ export function registerOrganizationCommands(
       ),
     );
   queue
+    .command("transfer-all <threadId> <targetThreadId>")
+    .description(
+      "Move every unclaimed queued message to another thread in the same project in one transaction, keeping system notices, schedules and waits; claimed and retry rows stay and are reported",
+    )
+    .option("--json", "Print machine-readable JSON output")
+    .action(
+      action(
+        async (threadId: string, targetThreadId: string, opts: JsonOptions) => {
+          const result = await createCliBbSdk(
+            getUrl(),
+          ).threads.queuedMessages.transferAll({ threadId, targetThreadId });
+          if (outputJson(opts, result)) return;
+          console.log(
+            `Moved ${result.moved.length} queued message(s) to ${targetThreadId}; ${result.skipped.length} left on ${threadId}`,
+          );
+          for (const row of result.moved) {
+            console.log(`  ${row.id} -> ${row.newId}`);
+          }
+          for (const row of result.skipped) {
+            console.log(`  ${row.id} skipped (${row.reason})`);
+          }
+        },
+      ),
+    );
+  queue
     .command("reorder <threadId> <messageId>")
     .description("Move a queued message between adjacent messages")
     .option("--after <id>", "Previous queued message, or omit for the start")
