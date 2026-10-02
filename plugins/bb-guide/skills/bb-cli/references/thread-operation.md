@@ -60,6 +60,16 @@
   and `Send at` columns. Several queued rows on one thread are normal. The SDK
   equivalents are `threads.queue.list` (cross-thread) and
   `threads.queuedMessages.list/send/update/delete` (one thread).
+- `bb thread queue transfer <thread-id> <message-id> <target-thread-id>` moves
+  one unclaimed queued row to another thread in the same project in a single
+  transaction, keeping its system-notice classification, `sendAt` and plugin or
+  time wait (thread-bound waits are re-derived for the target). Claimed,
+  in-flight and retry rows are refused (409). SDK:
+  `threads.queuedMessages.transfer`. Transfer is the only way to preserve that
+  metadata: create strips `systemNotice`, `waitingOn` and `sendAt`, and system
+  notice content cannot be edited. A plugin that must park rows (compact, fresh
+  start, abort, retirement) should transfer the original rows out and back, not
+  delete and recreate them.
 - Failed queue rows show the failure reason and an exact recovery command.
   Use `bb thread queue send <thread-id> <message-id>` to retry immediately,
   including after automatic retries are exhausted. Editing does not clear a
