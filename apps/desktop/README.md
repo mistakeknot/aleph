@@ -362,10 +362,20 @@ the filter is scoped to the overlay's own `webContents.id`, and nothing else may
 register a `webRequest.onBeforeRequest` listener on that session (Electron keeps
 one per session). Plugin lookups use `net.fetch` (session cookies for same-origin
 requests) with `redirect: "error"`, a 5 s deadline, a 1 MiB body cap and a check
-that the response URL is on the app origin; everything fails closed.
+that the response did not redirect. Electron 44's `net.fetch` returns responses
+with `url === ""`, so the requested URL (built from the revalidated app origin and
+sent with `redirect: "error"`) is the provenance; a non-empty `response.url` must
+still match that origin. Everything fails closed. `pnpm smoke:overlay-registry`
+exercises this against the real `net.fetch` and a local server (valid, foreign
+plugin, redirect, oversized, stalled); it skips when Electron cannot start
+headless.
 Operations carry a generation token: dispose, hide, Escape, blur, a second
 toggle, an app-origin change or a changed target during an await abort the
 pending show.
+
+Known exception: `about:blank` and `srcdoc` frames still commit, because they
+inherit the parent's origin and never issue a network request the filter or
+`will-frame-navigate` can veto. They carry no external content of their own.
 
 Known follow-ups, not implemented here: an oversized or non-atomic
 `overlay-settings.json` read/write; a caller or settings UI for

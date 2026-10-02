@@ -29,24 +29,16 @@ type BeforeRequestListener = NonNullable<
 
 let nextContentsId = 1;
 
-function createFakeWebContents(): OverlayWebContents & {
-  beforeRequest(details: {
-    resourceType: string;
-    url: string;
-    webContentsId?: number;
-  }): { cancel?: boolean };
-  emit(eventName: string, ...args: unknown[]): void;
-  loadURL: ReturnType<typeof vi.fn>;
-  openHandler: (() => { action: "deny" }) | null;
-} {
-  const listeners = new Map<string, Listener[]>();
+// Like Electron's default session: one webRequest listener, shared by every
+// webContents that uses it. Setting a listener replaces the previous one.
+function createFakeSession() {
   let requestListener: BeforeRequestListener | null = null;
-  const contents = {
+  return {
     beforeRequest(details: {
       resourceType: string;
       url: string;
       webContentsId?: number;
-    }) {
+    }): { cancel?: boolean } {
       let response: { cancel?: boolean } | null = null;
       if (requestListener === null) {
         throw new Error("no webRequest listener installed");
@@ -59,14 +51,34 @@ function createFakeWebContents(): OverlayWebContents & {
       }
       return response as { cancel?: boolean };
     },
-    id: nextContentsId++,
-    session: {
-      webRequest: {
-        onBeforeRequest(listener: BeforeRequestListener | null) {
-          requestListener = listener;
-        },
+    webRequest: {
+      onBeforeRequest(listener: BeforeRequestListener | null) {
+        requestListener = listener;
       },
     },
+  };
+}
+
+type FakeSession = ReturnType<typeof createFakeSession>;
+
+function createFakeWebContents(
+  session: FakeSession = createFakeSession(),
+): OverlayWebContents & {
+  beforeRequest(details: {
+    resourceType: string;
+    url: string;
+    webContentsId?: number;
+  }): { cancel?: boolean };
+  emit(eventName: string, ...args: unknown[]): void;
+  loadURL: ReturnType<typeof vi.fn>;
+  openHandler: (() => { action: "deny" }) | null;
+} {
+  const listeners = new Map<string, Listener[]>();
+  const contents = {
+    beforeRequest: (details: Parameters<FakeSession["beforeRequest"]>[0]) =>
+      session.beforeRequest(details),
+    id: nextContentsId++,
+    session,
     emit(eventName: string, ...args: unknown[]) {
       for (const listener of listeners.get(eventName) ?? []) {
         (listener as (...rest: unknown[]) => void)(...args);
@@ -85,8 +97,8 @@ function createFakeWebContents(): OverlayWebContents & {
   return contents as never;
 }
 
-function createFakeWindow() {
-  const webContents = createFakeWebContents();
+function createFakeWindow(session?: FakeSession) {
+  const webContents = createFakeWebContents(session);
   const listeners = new Map<string, Listener[]>();
   let visible = false;
   let destroyed = false;
@@ -128,9 +140,11 @@ interface HarnessOptions {
   settings?: { accelerator?: string; target?: unknown };
   allowedRoutes?: string[];
   registry?: OverlayPluginRegistry;
+  session?: FakeSession;
 }
 
 function createHarness(options: HarnessOptions = {}) {
+  const session = options.session ?? createFakeSession();
   const created: ReturnType<typeof createFakeWindow>[] = [];
   const createdOptions: BrowserWindowConstructorOptions[] = [];
   const handlers = new Map<
@@ -196,7 +210,7 @@ function createHarness(options: HarnessOptions = {}) {
   const controller = createOverlayController({
     createWindow(windowOptions) {
       createdOptions.push(windowOptions);
-      const fake = createFakeWindow();
+      const fake = createFakeWindow(session);
       created.push(fake);
       return fake.window;
     },
@@ -238,6 +252,7 @@ function createHarness(options: HarnessOptions = {}) {
     },
     ipcMain,
     reports,
+    session,
     settingsStore,
     shortcuts,
   };
@@ -771,7 +786,10 @@ describe("overlay frame protection", () => {
   });
 
   it("leaves subresources and other webContents on the shared session alone", async () => {
-    const { contents } = await opened();
+    const { contents, h } = await opened();
+    // A second webContents on the very same session, as the main window is.
+    const other = createFakeWebContents(h.session);
+    expect(other.session).toBe(contents.session);
     expect(
       contents.beforeRequest({
         resourceType: "xhr",
@@ -780,12 +798,19 @@ describe("overlay frame protection", () => {
       }),
     ).toEqual({});
     expect(
-      contents.beforeRequest({
+      other.beforeRequest({
         resourceType: "mainFrame",
         url: "https://elsewhere.example/",
-        webContentsId: contents.id + 100,
+        webContentsId: other.id,
       }),
     ).toEqual({});
+    expect(
+      other.beforeRequest({
+        resourceType: "subFrame",
+        url: "https://evil.example/",
+        webContentsId: contents.id,
+      }),
+    ).toEqual({ cancel: true });
   });
 
   it("releases the session filter on dispose", async () => {
@@ -796,6 +821,37 @@ describe("overlay frame protection", () => {
         resourceType: "subFrame",
         url: "https://evil.example/",
         webContentsId: contents.id,
+      }),
+    ).toThrow("no webRequest listener");
+  });
+
+  it("does not remove a filter it no longer owns when disposed", async () => {
+    const session = createFakeSession();
+    const first = createHarness({ session });
+    await first.controller.start();
+    await first.controller.toggle();
+    const second = createHarness({ session });
+    await second.controller.start();
+    await second.controller.toggle();
+    const secondContents = second.created[0]?.webContents;
+    if (secondContents === undefined) {
+      throw new Error("no overlay");
+    }
+    // The first controller's release must leave the second one's filter alone.
+    first.controller.dispose();
+    expect(
+      session.beforeRequest({
+        resourceType: "subFrame",
+        url: "https://evil.example/",
+        webContentsId: secondContents.id,
+      }),
+    ).toEqual({ cancel: true });
+    second.controller.dispose();
+    expect(() =>
+      session.beforeRequest({
+        resourceType: "subFrame",
+        url: "https://evil.example/",
+        webContentsId: secondContents.id,
       }),
     ).toThrow("no webRequest listener");
   });
@@ -1003,9 +1059,9 @@ describe("server plugin registry hardening", () => {
     over: { redirected?: boolean; url?: string; status?: number } = {},
   ): Response {
     const res = new Response(text, { status: over.status ?? 200 });
-    Object.defineProperty(res, "url", {
-      value: over.url ?? `${APP_ORIGIN}/api/v1/plugins`,
-    });
+    // Electron's net.fetch (44.x) builds the Response without URL metadata, so
+    // a successful response has url "" by default.
+    Object.defineProperty(res, "url", { value: over.url ?? "" });
     Object.defineProperty(res, "redirected", {
       value: over.redirected ?? false,
     });
@@ -1033,6 +1089,24 @@ describe("server plugin registry hardening", () => {
     expect(init.signal).toBeInstanceOf(AbortSignal);
   });
 
+  it("accepts a successful response with an empty url, as real net.fetch returns", async () => {
+    expect(
+      await registryWith(() =>
+        Promise.resolve(response(body)),
+      ).isPanelRouteAvailable(request),
+    ).toBe(true);
+  });
+
+  it("accepts a non-empty url that matches the requested origin", async () => {
+    expect(
+      await registryWith(() =>
+        Promise.resolve(
+          response(body, { url: `${APP_ORIGIN}/api/v1/plugins` }),
+        ),
+      ).isPanelRouteAvailable(request),
+    ).toBe(true);
+  });
+
   it("refuses a redirected response and a response from another origin", async () => {
     expect(
       await registryWith(() =>
@@ -1048,9 +1122,39 @@ describe("server plugin registry hardening", () => {
     ).toBe(false);
     expect(
       await registryWith(() =>
-        Promise.resolve(response(body, { url: "" })),
+        Promise.resolve(response(body, { url: "not a url" })),
       ).isPanelRouteAvailable(request),
     ).toBe(false);
+  });
+
+  it("does not leak abort listeners across many body chunks", async () => {
+    const signal = AbortSignal.timeout(5_000);
+    const add = vi.spyOn(signal, "addEventListener");
+    const remove = vi.spyOn(signal, "removeEventListener");
+    const spy = vi.spyOn(AbortSignal, "timeout").mockReturnValue(signal);
+    const chunks = new ReadableStream<Uint8Array>({
+      start(controller) {
+        const encoded = new TextEncoder().encode(body);
+        for (const byte of encoded) {
+          controller.enqueue(Uint8Array.of(byte));
+        }
+        controller.close();
+      },
+    });
+    try {
+      expect(
+        await registryWith(() =>
+          Promise.resolve(response(chunks)),
+        ).isPanelRouteAvailable(request),
+      ).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
+    const abortAdds = add.mock.calls.filter(([type]) => type === "abort");
+    expect(abortAdds).toHaveLength(1);
+    expect(remove.mock.calls.filter(([type]) => type === "abort")).toHaveLength(
+      1,
+    );
   });
 
   it("fails closed when the request exceeds the deadline", async () => {
