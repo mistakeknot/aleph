@@ -67,7 +67,11 @@ import {
 import { recoverThreadModelOverride } from "./thread-execution-override.js";
 import { requireReadyThreadEnvironment } from "./thread-turn-dispatch.js";
 import { resolvePermissionEscalation } from "./thread-runtime-config.js";
-import { hasMessageDispatchHooks } from "./dispatch-hooks.js";
+import {
+  hasMessageDispatchHooks,
+  noteDispatchRequeued,
+} from "./dispatch-hooks.js";
+import { checkParentThreadHeld } from "./parent-wake-policy.js";
 import { attemptDispatch } from "./dispatch-attempt.js";
 import { deliverParentSystemMessage } from "./parent-system-messages.js";
 import {
@@ -75,6 +79,7 @@ import {
   createQueuedMessageClaimLostError,
   QUEUED_MESSAGE_AUTO_SEND_PAUSED_CODE,
   QUEUED_MESSAGE_CLAIM_LOST_CODE,
+  recordQueuedMessageWait,
   settleQueueRowDispatched,
 } from "./queue-waits.js";
 import { recordQueuedMessageDrainFailure } from "./queue-drain-failure.js";
@@ -617,11 +622,14 @@ async function sendClaimedQueuedMessageForIdleProviderThread(
 /**
  * Delivers a claimed row that is one of core's own system notices.
  *
- * Such a row is not a user dispatch and does not go through the checkpoint:
- * it is an `initiator: "system"` turn with its own taxonomy and its own
- * dispatch path, and the only reason it was on the queue at all is that the
- * queue is where a blocked dispatch waits. Null when the row is an ordinary
- * message, which is every row but these.
+ * Such a row is not a user dispatch and does not go through the checkpoint's
+ * core waits: it is an `initiator: "system"` turn with its own taxonomy and
+ * its own dispatch path, and the only reason it was on the queue at all is
+ * that the queue is where a blocked dispatch waits. It does still pass the
+ * `message.dispatch` plugin pass (as a system initiator) on every drain, so a
+ * plugin's `wait` keeps holding the row across rechecks; Send-now overrides it
+ * like any other plugin wait. Null when the row is an ordinary message, which
+ * is every row but these.
  */
 async function sendClaimedSystemNotice(
   deps: LoggedPendingInteractionWorkSessionDeps,
@@ -635,6 +643,42 @@ async function sendClaimedSystemNotice(
     JSON.parse(lead.systemNotice),
   );
   const queuedMessage = toThreadQueuedMessage(lead);
+  if (!args.sendNow) {
+    const held = await checkParentThreadHeld(deps, {
+      input: queuedMessage.content,
+      parentThread: args.thread,
+      queuedMessages: args.queuedMessages.map(toThreadQueuedMessage),
+    });
+    if (held.held) {
+      noteDispatchRequeued(args.thread.id);
+      const execution = await buildExecutionOptions(
+        deps,
+        {},
+        { threadId: args.thread.id },
+      );
+      recordQueuedMessageWait(deps, {
+        thread: args.thread,
+        message: {
+          input: queuedMessage.content,
+          execution,
+          senderThreadId: null,
+          origin: null,
+          originPluginId: null,
+          requestedBy: null,
+          payload: queuedMessage.payload,
+          systemNotice: notice,
+        },
+        waitingOn: {
+          kind: "plugin",
+          pluginId: held.pluginId,
+          reason: held.reason,
+        },
+        sendAt: held.sendAt,
+        claimed: args.queuedMessages,
+      });
+      return queuedMessage;
+    }
+  }
   const delivered = await deliverParentSystemMessage(deps, {
     input: queuedMessage.content,
     parentThread: args.thread,
