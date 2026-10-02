@@ -140,9 +140,9 @@ describe("timeline build coalescer", () => {
     harness.coalescer.invalidateThread("thread-1");
     expect(harness.coalescer.size).toBe(0);
     expect(harness.coalescer.bytes).toBe(0);
-    expect(harness.refreshes).toEqual(["thread-1"]);
+    expect(harness.refreshes).toEqual([]);
     harness.advance(1_000);
-    expect(harness.refreshes).toEqual(["thread-1"]);
+    expect(harness.refreshes).toEqual([]);
     const fresh = harness.serve(11);
     expect(fresh.stale).toBe(false);
     expect(fresh.response.maxSeq).toBe(11);
@@ -194,6 +194,29 @@ describe("timeline build coalescer", () => {
     expect(harness.coalescer.bytes).toBeGreaterThan(
       JSON.stringify({ maxSeq: 1, rows: [text] }).length,
     );
+  });
+
+  it("deduplicates refreshes per thread within one removal pass", () => {
+    const harness = createHarness({ maxBytes: 60 });
+    for (const key of ["a", "b"]) {
+      harness.serve(10, { paramsKey: key });
+      harness.advance(1);
+      expect(harness.serve(11, { paramsKey: key }).stale).toBe(true);
+    }
+    expect(harness.coalescer.size).toBe(2);
+    harness.coalescer.serve({
+      build: () =>
+        ({
+          maxSeq: 10,
+          rows: ["x".repeat(20)],
+        }) as unknown as ThreadTimelineResponse,
+      coalesce: false,
+      maxSeq: 10,
+      paramsKey: "big",
+      threadId: "thread-c",
+    });
+    expect(harness.coalescer.size).toBe(1);
+    expect(harness.refreshes).toEqual(["thread-1"]);
   });
 
   it("invalidates only the named thread", () => {

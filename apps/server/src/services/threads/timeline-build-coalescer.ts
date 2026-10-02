@@ -81,7 +81,7 @@ export function createTimelineBuildCoalescer(
     );
   }
 
-  function remove(paramsKey: string): void {
+  function remove(paramsKey: string, refreshThreads: Set<string> | null): void {
     const entry = entries.get(paramsKey);
     if (entry === undefined) return;
     entries.delete(paramsKey);
@@ -89,20 +89,29 @@ export function createTimelineBuildCoalescer(
     if (entry.cancelTrailing !== null) {
       entry.cancelTrailing();
       entry.cancelTrailing = null;
-      options.onTrailingRefresh(entry.threadId);
+      refreshThreads?.add(entry.threadId);
+    }
+  }
+
+  function flush(refreshThreads: Set<string>): void {
+    for (const threadId of refreshThreads) {
+      options.onTrailingRefresh(threadId);
     }
   }
 
   function store(paramsKey: string, entry: CoalescerEntry): void {
-    remove(paramsKey);
-    if (entry.bytes > maxBytes) return;
-    entries.set(paramsKey, entry);
-    totalBytes += entry.bytes;
-    while (entries.size > maxEntries || totalBytes > maxBytes) {
-      const oldest = entries.keys().next().value;
-      if (oldest === undefined) break;
-      remove(oldest);
+    const refreshThreads = new Set<string>();
+    remove(paramsKey, refreshThreads);
+    if (entry.bytes <= maxBytes) {
+      entries.set(paramsKey, entry);
+      totalBytes += entry.bytes;
+      while (entries.size > maxEntries || totalBytes > maxBytes) {
+        const oldest = entries.keys().next().value;
+        if (oldest === undefined) break;
+        remove(oldest, refreshThreads);
+      }
     }
+    flush(refreshThreads);
   }
 
   function touch(paramsKey: string, entry: CoalescerEntry): void {
@@ -116,7 +125,7 @@ export function createTimelineBuildCoalescer(
     },
     invalidateThread(threadId) {
       for (const [paramsKey, entry] of [...entries]) {
-        if (entry.threadId === threadId) remove(paramsKey);
+        if (entry.threadId === threadId) remove(paramsKey, null);
       }
     },
     serve(args) {

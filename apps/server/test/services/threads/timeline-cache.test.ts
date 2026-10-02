@@ -50,6 +50,8 @@ const latestPage: ThreadTimelinePageRequest = {
 
 const baseKeyArgs: ThreadTimelineCacheKeyArgs = {
   threadName: "Thread",
+  workspaceRoot: null,
+  planCommand: "null",
   threadId: "thr_x",
   maxSeq: 10,
   status: "idle",
@@ -131,6 +133,8 @@ describe("buildThreadTimelineCacheKey", () => {
     const base = buildThreadTimelineCacheKey(baseKeyArgs);
     const variants: ThreadTimelineCacheKeyArgs[] = [
       { ...baseKeyArgs, threadName: "Renamed" },
+      { ...baseKeyArgs, workspaceRoot: "/moved" },
+      { ...baseKeyArgs, planCommand: '{"name":"plan"}' },
       { ...baseKeyArgs, maxSeq: 11 },
       { ...baseKeyArgs, status: "active" },
       { ...baseKeyArgs, environmentId: "env_1" },
