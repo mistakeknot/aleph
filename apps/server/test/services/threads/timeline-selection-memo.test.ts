@@ -713,7 +713,7 @@ describe("latest timeline selection memo", () => {
     expect(rebuilt).toBeGreaterThan(SEEDS * 15);
   }, 120_000);
 
-  it("reuses the selection for root deltas and rebuilds for lifecycle rows", () => {
+  it("reuses the selection for root deltas and item lifecycle rows and rebuilds for other rows", () => {
     withTestThread((testThread) => {
       const args = latestArgs("default");
       append(testThread, [
@@ -748,7 +748,11 @@ describe("latest timeline selection memo", () => {
         }),
       ]);
       const lifecycle = expectWarmEqualsCold(testThread, args, "lifecycle");
-      expect(selectionWasReused(lifecycle.profile)).toBe(false);
+      expect(selectionWasReused(lifecycle.profile)).toBe(true);
+
+      append(testThread, [agentToolCall("item/started", "turn-1", "agent-9")]);
+      const toolStart = expectWarmEqualsCold(testThread, args, "tool start");
+      expect(selectionWasReused(toolStart.profile)).toBe(false);
 
       append(testThread, [
         deltaRow(
