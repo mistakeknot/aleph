@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { ThreadTimelineResponse } from "@bb/server-contract";
-import { createTimelineBuildCoalescer } from "../../../src/services/threads/timeline-build-coalescer.js";
+import {
+  createTimelineBuildCoalescer,
+  shouldDropTimelineSnapshots,
+} from "../../../src/services/threads/timeline-build-coalescer.js";
 
 interface Harness {
   advance(ms: number): void;
@@ -240,5 +243,22 @@ describe("timeline build coalescer", () => {
     bytes.serve(10);
     expect(bytes.coalescer.size).toBe(0);
     expect(bytes.coalescer.bytes).toBe(0);
+  });
+
+  it("keeps stale-serve refresh obligations through archive changes", () => {
+    expect(shouldDropTimelineSnapshots(["archived-changed"])).toBe(false);
+    expect(shouldDropTimelineSnapshots(["history-rewritten"])).toBe(true);
+    expect(shouldDropTimelineSnapshots(["thread-deleted"])).toBe(true);
+    const harness = createHarness();
+    harness.serve(10);
+    harness.advance(1);
+    expect(harness.serve(11).stale).toBe(true);
+    for (const changes of [["archived-changed"], ["status-changed"]] as const) {
+      if (shouldDropTimelineSnapshots(changes)) {
+        harness.coalescer.invalidateThread("thread-1");
+      }
+    }
+    harness.advance(1_000);
+    expect(harness.refreshes).toEqual(["thread-1"]);
   });
 });

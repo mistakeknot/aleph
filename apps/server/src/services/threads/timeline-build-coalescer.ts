@@ -1,3 +1,4 @@
+import type { ThreadChangeKind } from "@bb/domain";
 import type { ThreadTimelineResponse } from "@bb/server-contract";
 
 const DEFAULT_MAX_ENTRIES = 64;
@@ -172,4 +173,12 @@ export function createTimelineBuildCoalescer(
       return entries.size;
     },
   };
+}
+
+export function shouldDropTimelineSnapshots(
+  changes: readonly ThreadChangeKind[],
+): boolean {
+  return (
+    changes.includes("history-rewritten") || changes.includes("thread-deleted")
+  );
 }
