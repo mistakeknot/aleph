@@ -2864,7 +2864,10 @@ async function runDesktopApp(): Promise<void> {
     ipcMain,
     preloadPath: resolvedOverlayPreloadPath,
     registry: createServerPluginRegistry({
-      fetchImpl: fetch,
+      // net.fetch carries the session's cookies for same-origin requests; the
+      // registry refuses redirects, so they never follow off the app origin.
+      fetchImpl: (input, init) =>
+        net.fetch(input instanceof URL ? input.href : input, init),
       getAppOrigin: getOverlayAppOrigin,
     }),
     report(message) {

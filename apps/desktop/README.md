@@ -346,6 +346,30 @@ itself, and accepts the call only from the overlay's main frame while it is on t
 app origin. The overlay denies `window.open` and webviews and blocks navigation
 (including redirects) off the app origin or outside `/plugins/`.
 
+Frame and request protection: `will-navigate`/`will-redirect` cover only the main
+frame, so the overlay also listens to `will-frame-navigate` (subframe
+navigations) and installs a `webRequest.onBeforeRequest` filter that cancels any
+`mainFrame`/`subFrame` request, including every redirect hop and direct
+`<iframe src>` loads, that is off the app origin or outside `/plugins/`.
+`will-frame-navigate` is not emitted for `loadURL` or redirects, which is why the
+filter is authoritative. The overlay deliberately shares the default session
+(the panel needs the app's cookies; a separate partition would sign it out), so
+the filter is scoped to the overlay's own `webContents.id`, and nothing else may
+register a `webRequest.onBeforeRequest` listener on that session (Electron keeps
+one per session). Plugin lookups use `net.fetch` (session cookies for same-origin
+requests) with `redirect: "error"`, a 5 s deadline, a 1 MiB body cap and a check
+that the response URL is on the app origin; everything fails closed.
+Operations carry a generation token: dispose, hide, Escape, blur, a second
+toggle, an app-origin change or a changed target during an await abort the
+pending show.
+
+Known follow-ups, not implemented here: an oversized or non-atomic
+`overlay-settings.json` read/write; a caller or settings UI for
+`OverlayController.rebind`; and verification in real Electron of `alwaysOnTop`,
+the global shortcut on Wayland, and focus/blur behavior. The fakes in
+`test/overlay-window.test.ts` model Electron's documented event shapes, not its
+runtime.
+
 The server does not publish panel route ids, so the main process cannot confirm a
 panel exists; an unknown panel id on an installed plugin loads the app's own
 not-found view inside the overlay.
