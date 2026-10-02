@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.44.0+aleph.0.5.2
+
+Aleph 0.5.2 is a patch on Aleph 0.5.1, on the same upstream bb 0.44.0
+base (`desktop-v0.44.0`, commit `0baa605b3`).
+
+### Highlights
+
+- **Busy threads no longer stall the server.** A thread with a long open
+  turn rebuilt its latest timeline page on every new event, and each rebuild
+  held up every other request: task comments, the thread list, other
+  threads. The server now reuses the previous page while a turn streams and
+  builds a busy thread's page at most a few times a second, then sends one
+  refresh with the final state.
+
+### Tasks
+
+- **Comments post at once.** Adding a comment returns as soon as it is
+  saved. Delivering it to the thread's agent happens afterwards.
+  `bb tasks comment --notify` still waits for delivery.
+
 ## 0.44.0+aleph.0.5.1
 
 Aleph 0.5.1 is a patch on Aleph 0.5.0, on the same upstream bb 0.44.0
