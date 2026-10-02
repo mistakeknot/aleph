@@ -34,6 +34,7 @@ import {
   uploadClientAttachmentInputs,
   PERMISSION_MODE_HELP,
   PLAN_HELP,
+  parsePromptCacheTtl,
   parseServiceTier,
 } from "./helpers.js";
 import { SEND_AT_HELP, parseSendAt } from "./send-time.js";
@@ -58,6 +59,7 @@ interface ThreadSpawnCommandOptions {
   title?: string;
   lifecycleOwnerThread?: string;
   serviceTier?: string;
+  promptCacheTtl?: string;
   permissionMode?: string;
   plan?: boolean;
   parentSelf?: boolean;
@@ -364,6 +366,10 @@ export function registerSpawnCommand(
     )
     .option("--title <title>", "Thread title")
     .option("--service-tier <tier>", "Service tier: fast or default")
+    .option(
+      "--prompt-cache-ttl <ttl>",
+      "Claude Code prompt-cache TTL for the thread's whole life: 5m or 1h",
+    )
     .option("--permission-mode <mode>", PERMISSION_MODE_HELP)
     .option("--plan", PLAN_HELP)
     .option(
@@ -535,6 +541,7 @@ export function registerSpawnCommand(
             });
         const reasoningLevel = parseReasoningLevel(opts.reasoningLevel);
         const serviceTier = parseServiceTier(opts.serviceTier);
+        const promptCacheTtl = parsePromptCacheTtl(opts.promptCacheTtl);
         const permissionMode = parsePermissionMode(opts.permissionMode);
         const visibility =
           opts.visibility === undefined
@@ -583,6 +590,7 @@ export function registerSpawnCommand(
             ...(reasoningLevel ? { reasoningLevel } : {}),
             ...(opts.title ? { title: opts.title } : {}),
             ...(serviceTier ? { serviceTier } : {}),
+            ...(promptCacheTtl ? { providerOptions: { promptCacheTtl } } : {}),
             ...(permissionMode ? { permissionMode } : {}),
             ...(visibility ? { visibility } : {}),
             environment,

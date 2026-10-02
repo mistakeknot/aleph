@@ -175,6 +175,7 @@ function toPublicThread(thread: Thread): Thread {
     lifecycleOwnerThreadId: thread.lifecycleOwnerThreadId,
     originKind: thread.originKind,
     originPluginId: thread.originPluginId,
+    promptCacheTtl: thread.promptCacheTtl,
     visibility: thread.visibility,
     archivedAt: thread.archivedAt,
     pinnedAt: thread.pinnedAt,

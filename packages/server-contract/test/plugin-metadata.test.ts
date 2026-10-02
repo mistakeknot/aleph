@@ -194,4 +194,42 @@ describe("plugin metadata contracts", () => {
       issuesOf(threadPluginMetadataQuerySchema.safeParse({ pluginId: "../x" })),
     ).toEqual([{ message: PLUGIN_ID_MESSAGE, path: ["pluginId"] }]);
   });
+
+  it("keeps a valid promptCacheTtl on create and fork", () => {
+    for (const promptCacheTtl of ["5m", "1h"] as const) {
+      expect(
+        createThreadRequestSchema.parse({
+          ...createBase,
+          providerOptions: { promptCacheTtl },
+        }).providerOptions,
+      ).toEqual({ promptCacheTtl });
+      expect(
+        forkThreadRequestSchema.parse({
+          ...forkBase,
+          providerOptions: { promptCacheTtl },
+        }).providerOptions,
+      ).toEqual({ promptCacheTtl });
+    }
+    expect(
+      createThreadRequestSchema.parse(createBase).providerOptions,
+    ).toBeUndefined();
+  });
+
+  it("rejects an invalid promptCacheTtl or unknown provider option", () => {
+    for (const providerOptions of [
+      { promptCacheTtl: "2h" },
+      { promptCacheTtl: 3600 },
+      { promptCacheTtl: null },
+      { promptCacheTtl: "1h", other: true },
+    ]) {
+      expect(
+        createThreadRequestSchema.safeParse({ ...createBase, providerOptions })
+          .success,
+      ).toBe(false);
+      expect(
+        forkThreadRequestSchema.safeParse({ ...forkBase, providerOptions })
+          .success,
+      ).toBe(false);
+    }
+  });
 });

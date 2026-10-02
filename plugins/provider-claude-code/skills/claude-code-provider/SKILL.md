@@ -19,6 +19,11 @@ with `bb plugin config provider-claude-code set <key> <value>`.
   subscription accounts need usage credits. It is billed at premium rates.
   The provider passes the selection as a session-scoped SDK setting, so it
   does not change the user's Claude defaults.
+- Pass `--prompt-cache-ttl 5m|1h` to `bb thread spawn` to request a prompt-cache
+  TTL for that thread. It is stored on the thread (`promptCacheTtl` on the
+  thread read), applies from the first session, survives resume, and a fork
+  inherits it unless the fork request sets `providerOptions.promptCacheTtl`.
+  Threads without it keep the provider default. Other values are rejected.
 - bb passes only `BB_CLAUDE_CODE_EXECUTABLE` and `CLAUDE_CODE_OAUTH_TOKEN` to
   the CLI. Mint the token with `claude setup-token` for machines with no
   interactive login.

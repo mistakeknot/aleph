@@ -92,6 +92,9 @@ export default function plugin(bb: BbPluginApi) {
         providerSubagentsEnabled: context.settings.subagentsDisabled !== true,
         workflowsEnabled: context.settings.workflowsDisabled !== true,
         chromeEnabled: context.settings.chromeEnabled === true,
+        ...(context.promptCacheTtl !== undefined
+          ? { promptCacheTtl: context.promptCacheTtl }
+          : {}),
         ...(context.promptMode === "plan"
           ? { claudeCodePermissionMode: "plan" }
           : {}),

@@ -19,6 +19,7 @@ import {
 } from "drizzle-orm";
 import type {
   JsonObject,
+  PromptCacheTtl,
   ReasoningLevel,
   ThreadChangeKind,
   ThreadLifecycleEvent,
@@ -279,6 +280,7 @@ export interface CreateThreadInput {
   originPluginId?: string | null;
   pluginMetadata?: { pluginId: string; metadata: JsonObject } | null;
   startupContext?: string;
+  promptCacheTtl?: PromptCacheTtl | null;
   visibility?: ThreadVisibility;
 }
 
@@ -338,6 +340,7 @@ export function createThread(
           lifecycleOwnerThreadId: input.lifecycleOwnerThreadId ?? null,
           originKind,
           originPluginId: input.originPluginId ?? null,
+          promptCacheTtl: input.promptCacheTtl ?? null,
           visibility,
           lastReadAt: now,
           latestAttentionAt: now,

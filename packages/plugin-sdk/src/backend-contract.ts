@@ -1365,6 +1365,12 @@ export interface PluginProviderOptionsContext {
    */
   promptMode?: "plan";
   /**
+   * The prompt-cache TTL the client requested for this thread at creation
+   * (`providerOptions.promptCacheTtl`). Absent when none was requested, so a
+   * provider that honours it must leave its own default in place.
+   */
+  promptCacheTtl?: "5m" | "1h";
+  /**
    * This plugin's own settings values (`bb.settings.define`), read at call
    * time. Secret settings are omitted — provider options ride the daemon
    * wire and are persisted with the session, so a secret must never be

@@ -28,6 +28,7 @@ import type {
   EnvironmentProviderSelection,
   EnvironmentStatus,
   PermissionMode,
+  PromptCacheTtl,
   PromptInput,
   QueuedMessageWaitingOn,
   RecordedPermissionMode,
@@ -202,6 +203,7 @@ export function seedThread(
     lifecycleOwnerThreadId?: string | null;
     originKind?: ThreadOriginKind | null;
     originPluginId?: string | null;
+    promptCacheTtl?: PromptCacheTtl | null;
     titleFallback?: string | null;
     visibility?: ThreadVisibility;
   },
@@ -218,6 +220,7 @@ export function seedThread(
     lifecycleOwnerThreadId: args.lifecycleOwnerThreadId ?? null,
     originKind: args.originKind ?? null,
     originPluginId: args.originPluginId ?? null,
+    promptCacheTtl: args.promptCacheTtl ?? null,
     visibility: args.visibility ?? "visible",
   });
 }

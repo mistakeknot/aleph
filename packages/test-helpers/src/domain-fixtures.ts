@@ -131,6 +131,7 @@ export function makeThread(overrides: Partial<Thread> = {}): Thread {
     sourceThreadId: null,
     originKind: null,
     originPluginId: null,
+    promptCacheTtl: null,
     visibility: "visible",
     archivedAt: null,
     pinnedAt: null,

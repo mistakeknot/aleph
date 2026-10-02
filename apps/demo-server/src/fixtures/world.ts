@@ -55,6 +55,7 @@ export function threadListEntry(
     lifecycleOwnerThreadId: null,
     originKind: null,
     originPluginId: null,
+    promptCacheTtl: null,
     visibility: "visible",
     archivedAt: null,
     pinnedAt: null,

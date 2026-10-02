@@ -363,7 +363,7 @@ const OPTIONAL_SERVER_FIELD_GROUPS: readonly OptionalServerFieldGroup[] = [
   },
   {
     reason:
-      "Thread creation may omit root-thread presentation and execution fields so the server can resolve project/provider defaults.",
+      "Thread creation may omit root-thread presentation and execution fields so the server can resolve project/provider defaults; omitting providerOptions.promptCacheTtl keeps the provider default (a fork inherits the source's value).",
     fields: [
       "createThreadRequestSchema.sectionId",
       "createThreadRequestSchema.model",
@@ -371,10 +371,14 @@ const OPTIONAL_SERVER_FIELD_GROUPS: readonly OptionalServerFieldGroup[] = [
       "createThreadRequestSchema.providerId",
       "createThreadRequestSchema.permissionMode",
       "createThreadRequestSchema.reasoningLevel",
+      "createThreadRequestSchema.providerOptions",
+      "createThreadRequestSchema.providerOptions.promptCacheTtl",
       "createThreadRequestSchema.serviceTier",
       "createThreadRequestSchema.sourceSeqEnd",
       "createThreadRequestSchema.sourceThreadId",
       "createThreadRequestSchema.title",
+      "forkThreadRequestSchema.providerOptions",
+      "forkThreadRequestSchema.providerOptions.promptCacheTtl",
     ],
   },
   {
@@ -1196,6 +1200,7 @@ describe("server-contract canonical schemas", () => {
           lifecycleOwnerThreadId: null,
           originKind: null,
           originPluginId: null,
+          promptCacheTtl: null,
           visibility: "visible",
           archivedAt: null,
           pinnedAt: null,

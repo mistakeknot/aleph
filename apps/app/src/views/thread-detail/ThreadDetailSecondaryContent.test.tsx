@@ -237,6 +237,7 @@ function makeThread(): ThreadDetailSecondaryContentProps["metadata"]["thread"] {
     sourceThreadId: null,
     originKind: null,
     originPluginId: null,
+    promptCacheTtl: null,
     visibility: "visible",
     status: "idle",
     stopRequestedAt: null,

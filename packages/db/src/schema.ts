@@ -24,6 +24,7 @@ import type {
   PermissionMode,
   PromptHistoryScope,
   ProjectSourceType,
+  PromptCacheTtl,
   QueuedMessagePayloadKind,
   QueuedMessageWaitHolder,
   ReasoningLevel,
@@ -639,6 +640,8 @@ export const threads = sqliteTable(
       enum: threadOriginKindValues,
     }),
     originPluginId: text("origin_plugin_id"),
+    // Prompt-cache TTL requested at creation; NULL means none was requested.
+    promptCacheTtl: text("prompt_cache_ttl").$type<PromptCacheTtl>(),
     /**
      * Null on every ordinary thread: the fence is opt-in. A non-null value
      * admits this thread as a provisional successor at that epoch, with no

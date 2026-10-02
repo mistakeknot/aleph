@@ -117,6 +117,7 @@ export function makeThread(overrides: MakeThreadArgs): Thread {
     sourceThreadId: null,
     originKind: null,
     originPluginId: null,
+    promptCacheTtl: null,
     visibility: "visible",
     archivedAt: null,
     pinnedAt: null,

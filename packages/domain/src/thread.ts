@@ -11,6 +11,7 @@ import {
   promptInputSchema,
   permissionModeSchema,
   reasoningLevelSchema,
+  promptCacheTtlSchema,
   serviceTierSchema,
 } from "./shared-types.js";
 import { threadStatusSchema, threadStatusValues } from "./thread-status.js";
@@ -407,6 +408,12 @@ export const threadSchema = z.object({
   sourceThreadId: z.string().nullable(),
   originKind: threadOriginKindSchema.nullable(),
   originPluginId: z.string().nullable(),
+  /**
+   * Prompt-cache TTL requested for this thread's provider sessions, or null
+   * when none was requested (the provider default applies). Set at creation
+   * and kept for the thread's life, so every session and turn uses it.
+   */
+  promptCacheTtl: promptCacheTtlSchema.nullable(),
   visibility: threadVisibilitySchema,
   archivedAt: z.number().nullable(),
   pinnedAt: z.number().nullable(),

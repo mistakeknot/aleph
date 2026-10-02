@@ -17,6 +17,19 @@ export type ReasoningLevel = z.infer<typeof reasoningLevelSchema>;
 export const serviceTierSchema = z.enum(["fast", "default"]);
 export type ServiceTier = z.infer<typeof serviceTierSchema>;
 
+export const promptCacheTtlSchema = z.enum(["5m", "1h"]);
+export type PromptCacheTtl = z.infer<typeof promptCacheTtlSchema>;
+
+/**
+ * The only provider options a client may set on a thread. Strict on purpose:
+ * an unknown key is a 400, never silently dropped or passed through to the
+ * provider.
+ */
+export const threadProviderOptionsSchema = z
+  .object({ promptCacheTtl: promptCacheTtlSchema.optional() })
+  .strict();
+export type ThreadProviderOptions = z.infer<typeof threadProviderOptionsSchema>;
+
 export const instructionModeValues = ["append", "replace"] as const;
 export const instructionModeSchema = z.enum(instructionModeValues);
 export type InstructionMode = z.infer<typeof instructionModeSchema>;

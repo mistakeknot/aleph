@@ -202,12 +202,21 @@ function toRuntimeExecutionOptions(
     input: args.input,
     providerId: args.providerId,
   });
+  // Read from the thread row, not the request: a resume or later turn carries
+  // no creation request, and the TTL must hold for the thread's whole life.
+  const promptCacheTtl =
+    args.deps.db
+      .select({ promptCacheTtl: threads.promptCacheTtl })
+      .from(threads)
+      .where(eq(threads.id, args.threadId))
+      .get()?.promptCacheTtl ?? null;
   const providerOptions =
     args.deps.providerRegistry.get(args.providerId)?.deriveProviderOptions({
       threadId: args.threadId,
       projectId: args.projectId,
       model: args.execution.model,
       permissionMode,
+      ...(promptCacheTtl !== null ? { promptCacheTtl } : {}),
       ...(promptMode !== undefined ? { promptMode } : {}),
     }) ?? {};
   const base = {

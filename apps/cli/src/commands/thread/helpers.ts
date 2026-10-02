@@ -5,6 +5,8 @@ import {
   createBuiltinPlanCommandTextInput,
   permissionModeInputSchema,
   type PermissionMode,
+  type PromptCacheTtl,
+  promptCacheTtlSchema,
   type PromptInput,
   serviceTierSchema,
   type ServiceTier,
@@ -24,6 +26,7 @@ export const DEFAULT_THREAD_WAIT_TIMEOUT_SECONDS =
   DEFAULT_THREAD_WAIT_TIMEOUT_MS / 1000;
 
 const SERVICE_TIERS: ServiceTier[] = ["fast", "default"];
+const PROMPT_CACHE_TTLS: PromptCacheTtl[] = ["5m", "1h"];
 export const PERMISSION_MODE_HELP =
   "Permission mode: accept-edits, auto, or full";
 export const PLAN_HELP =
@@ -176,6 +179,19 @@ export function parseServiceTier(
   }
   throw new Error(
     `Invalid service tier '${value}'. Expected ${joinValues(SERVICE_TIERS)}.`,
+  );
+}
+
+export function parsePromptCacheTtl(
+  value: string | undefined,
+): PromptCacheTtl | undefined {
+  if (value === undefined) return undefined;
+  const parsed = promptCacheTtlSchema.safeParse(value);
+  if (parsed.success) {
+    return parsed.data;
+  }
+  throw new Error(
+    `Invalid prompt cache TTL '${value}'. Expected ${joinValues(PROMPT_CACHE_TTLS)}.`,
   );
 }
 

@@ -101,6 +101,12 @@ export async function createThreadForkFromRequest(
         : {}),
       projectId: sourceThread.projectId,
       providerId: sourceThread.providerId,
+      // A fork keeps the source's prompt-cache TTL unless the request names one.
+      ...(request.providerOptions !== undefined
+        ? { providerOptions: request.providerOptions }
+        : sourceThread.promptCacheTtl !== null
+          ? { providerOptions: { promptCacheTtl: sourceThread.promptCacheTtl } }
+          : {}),
       ...(request.sourceSeqEnd === undefined
         ? {}
         : { sourceSeqEnd: request.sourceSeqEnd }),

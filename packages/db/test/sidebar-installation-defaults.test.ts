@@ -82,6 +82,7 @@ describe.each(["project", "thread", "preference"] as const)(
           for (const column of [
             "provisional_fence_epoch",
             "provisional_fence_verified_epoch",
+            "prompt_cache_ttl",
           ]) {
             if (
               db.$client

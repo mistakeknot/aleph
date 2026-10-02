@@ -57,6 +57,58 @@ describe("bb thread spawn command output", () => {
     });
   });
 
+  it("bb thread spawn --prompt-cache-ttl sends providerOptions and rejects other values", async () => {
+    const post = vi.fn(async ({ json }: { json: unknown }) => {
+      createThreadRequestSchema.parse(json);
+      return fixtures.makeThread({
+        id: "thread-with-ttl",
+        projectId: "proj-1",
+        providerId: "claude-code",
+        promptCacheTtl: "1h",
+      });
+    });
+    stubServerApi({ "v1.threads.$post": post });
+
+    await runCommand(
+      [
+        "thread",
+        "spawn",
+        "--project",
+        "proj-1",
+        "--provider",
+        "claude-code",
+        "--prompt",
+        "hello",
+        "--prompt-cache-ttl",
+        "1h",
+      ],
+      register,
+    );
+    expect(post).toHaveBeenCalledWith({
+      json: expect.objectContaining({
+        providerOptions: { promptCacheTtl: "1h" },
+      }),
+    });
+
+    post.mockClear();
+    await expect(
+      runCommand(
+        [
+          "thread",
+          "spawn",
+          "--project",
+          "proj-1",
+          "--prompt",
+          "hello",
+          "--prompt-cache-ttl",
+          "2h",
+        ],
+        register,
+      ),
+    ).rejects.toThrow("process.exit:1");
+    expect(post).not.toHaveBeenCalled();
+  });
+
   it("bb thread spawn --prompt-file sends shell-active text untouched", async () => {
     const dir = await mkdtemp(join(tmpdir(), "bb-spawn-prompt-"));
     const path = join(dir, "prompt.md");
