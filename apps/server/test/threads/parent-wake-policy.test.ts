@@ -11,6 +11,7 @@ import type { PluginHookName } from "@get-bb/plugin-sdk";
 import { queueChildThreadTurnNotificationBestEffort } from "../../src/services/threads/child-thread-notifications.js";
 import { appendClientTurnEvent } from "../../src/services/threads/thread-events.js";
 import { clearDeliveredChildOutputForTesting } from "../../src/services/threads/parent-wake-policy.js";
+import { runQueuedMessageDispatch } from "../../src/services/threads/queued-message-dispatch.js";
 import {
   seedEnvironment,
   seedHostSession,
@@ -239,6 +240,22 @@ async function waitForParentTurnRequests(
       }));
     }
     await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
+async function waitForQueuedParentNotice(
+  harness: TestHarness,
+  parentThreadId: string,
+  timeoutMs = 6_000,
+) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const [row] = listQueuedThreadMessages(harness.db, parentThreadId);
+    if (row) return row;
+    if (Date.now() > deadline) {
+      throw new Error("parent notice was never queued");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
   }
 }
 
@@ -725,6 +742,97 @@ describe("parent wake policy", () => {
       expect(systemNotice?.kind).toBe("child-completed");
     });
   }, 10_000);
+
+  it("R4: a held system notice goes back through message.dispatch as system on every recheck, and releases once the hook proceeds", async () => {
+    await withTestHarness(async (harness) => {
+      const seen: { initiator: string; queuedMessageCount: number }[] = [];
+      let decision: "wait" | "proceed" = "wait";
+      const registry = emptyRegistry();
+      registry["message.dispatch"].push({
+        pluginId: "quota-governor",
+        handler: (context) => {
+          seen.push({
+            initiator: context.initiator,
+            queuedMessageCount: context.queuedMessages.length,
+          });
+          return decision === "wait"
+            ? ({ action: "wait", reason: "quota exceeded" } as const)
+            : ({ action: "proceed" } as const);
+        },
+      });
+      installHooks(registry);
+
+      const fixture = seedParentFixture(harness, "host-r4-recheck");
+      const child = seedThread(harness.deps, {
+        projectId: fixture.projectId,
+        title: "Worker",
+        parentThreadId: fixture.parentThreadId,
+      });
+      seedChildTurnRequest(harness, {
+        childThreadId: child.id,
+        turnId: "turn-1",
+        initiator: "user",
+        senderThreadId: null,
+      });
+      seedChildFinalOutput(harness, {
+        childThreadId: child.id,
+        turnId: "turn-1",
+        text: "Held result",
+      });
+
+      // A real child completion to an idle parent: the first pass holds it.
+      await queueChildThreadTurnNotificationBestEffort(harness.deps, {
+        childThread: child,
+        parentThreadId: fixture.parentThreadId,
+        turnId: "turn-1",
+        turnStatus: "completed",
+      });
+      const held = await waitForQueuedParentNotice(
+        harness,
+        fixture.parentThreadId,
+      );
+      expect(seen.at(0)).toEqual({ initiator: "system", queuedMessageCount: 0 });
+
+      // The hook still says wait: the recheck must ask it again as a system
+      // initiator, see the queued row, and leave it held and undelivered.
+      const passesBeforeRecheck = seen.length;
+      await runQueuedMessageDispatch(harness.deps, { kind: "plugin-recheck" });
+      expect(seen.slice(passesBeforeRecheck)).toEqual([
+        { initiator: "system", queuedMessageCount: 1 },
+      ]);
+      const stillHeld = listQueuedThreadMessages(
+        harness.db,
+        fixture.parentThreadId,
+      );
+      expect(stillHeld.map((row) => row.id)).toEqual([held.id]);
+      expect(
+        await waitForParentTurnRequests(
+          harness,
+          fixture.parentThreadId,
+          1,
+          200,
+        ),
+      ).toHaveLength(0);
+
+      // The hook proceeds: the same recheck now releases the notice. A re-queue
+      // starts a one-second per-thread pacing window, so wait it out.
+      decision = "proceed";
+      await new Promise((resolve) => setTimeout(resolve, 1_100));
+      await runQueuedMessageDispatch(harness.deps, { kind: "plugin-recheck" });
+      expect(seen.at(-1)?.initiator).toBe("system");
+      expect(
+        listQueuedThreadMessages(harness.db, fixture.parentThreadId),
+      ).toHaveLength(0);
+      const stamped = await waitForParentTurnRequests(
+        harness,
+        fixture.parentThreadId,
+        1,
+      );
+      expect(stamped).toEqual([
+        { initiator: "system", systemMessageKind: "child-completed" },
+      ]);
+    });
+  }, 15_000);
 
   it("R2: a throwing message.dispatch hook queues the notice durably instead of dropping it", async () => {
     await withTestHarness(async (harness) => {

@@ -22,7 +22,7 @@ import { requirePublicProject } from "../lib/entity-lookup.js";
 import { toThreadResponseFromThread } from "./thread-runtime-display.js";
 import { buildExecutionOptions } from "./thread-commands.js";
 import type { LoggedPendingInteractionWorkSessionDeps } from "../../types.js";
-import type { PromptInput, Thread } from "@bb/domain";
+import type { PromptInput, Thread, ThreadQueuedMessage } from "@bb/domain";
 
 const parentWakeNotifySettingValues = ["all", "changed", "quiet"] as const;
 export const parentWakeNotifySettingSchema = z.enum(
@@ -192,7 +192,12 @@ export type ParentThreadHeldResult =
  */
 export async function checkParentThreadHeld(
   deps: LoggedPendingInteractionWorkSessionDeps,
-  args: { input: PromptInput[]; parentThread: Thread },
+  args: {
+    input: PromptInput[];
+    parentThread: Thread;
+    /** The claimed row(s) when this is a drain re-check of a queued notice. */
+    queuedMessages?: ThreadQueuedMessage[];
+  },
 ): Promise<ParentThreadHeldResult> {
   if (!hasMessageDispatchHooks()) {
     return { held: false };
@@ -231,7 +236,7 @@ export async function checkParentThreadHeld(
     originPluginId: null,
     startedOnBehalfOf: null,
     parentThreadId: parentThread.parentThreadId,
-    queuedMessages: [],
+    queuedMessages: args.queuedMessages ?? [],
     pluginSubmission: null,
   });
   if (outcome.kind === "proceed") {
