@@ -357,9 +357,19 @@ Queued messages:
   bb thread queue create <thread-id> <message>
   bb thread queue update <thread-id> <message-id> <message> [--file <path>] [--image <path>]
   bb thread queue send <thread-id> <message-id> [--mode auto|steer]
+  bb thread queue transfer <thread-id> <message-id> <target-thread-id>
+  bb thread queue transfer-all <thread-id> <target-thread-id>
   bb thread queue reorder <thread-id> <message-id> [--after <id>] [--before <id>]
   bb thread queue group <thread-id> <boundary-id> --prefix <comma-separated-ids>
   bb thread queue delete <thread-id> <message-id>
+
+  `transfer` moves one unclaimed queued message to another thread in the same
+  project, keeping its system-notice classification, `sendAt` and plugin or time
+  wait; `transfer-all` moves every movable one in order in a single transaction
+  and reports skipped rows. A claimed (in-flight) row is refused with 409; a
+  retry row or other non-inline payload is refused with 400. A held system
+  notice's content cannot be edited (409) and reads `editable: false`. Create
+  never accepts `systemNotice`, `waitingOn` or `sendAt`.
 
   The `Sender` column identifies agent threads and system notices; user messages
   leave it blank. The SDK and `--json` include `initiator` and `senderThreadId`.
