@@ -219,6 +219,8 @@ export type UpdateQueuedThreadMessageResult =
   | { kind: "updated"; queuedMessage: QueuedThreadMessageRow }
   | { kind: "not_found" }
   | { kind: "claimed" }
+  /** The row is a core system notice; its content is core-authored. */
+  | { kind: "system_notice" }
   | { kind: "stale" };
 
 export type ReleaseQueuedMessageClaimArgs =
@@ -707,6 +709,13 @@ export function updateQueuedThreadMessage(
       }
       if (isQueuedThreadMessageClaimed(existing)) {
         return { kind: "claimed" };
+      }
+      if (existing.systemNotice !== null) {
+        // The classification is what makes the row an `initiator: "system"`
+        // turn, and transfer carries it along. A client-edited body under it
+        // would be arbitrary client text delivered as core's own words, so a
+        // system notice's content is not editable (delete it instead).
+        return { kind: "system_notice" };
       }
       if (existing.updatedAt !== input.expectedUpdatedAt) {
         return { kind: "stale" };
