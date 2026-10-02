@@ -1,5 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import {
+  claimQueuedThreadMessage,
   createQueuedThreadMessage,
   events,
   getThread,
@@ -1240,7 +1241,77 @@ describe("queued system notice transfer (R4 retirement forward, R6)", () => {
     });
   });
 
-  it("refuses to transfer across projects, to the same thread, or a claimed row", async () => {
+  it("a client cannot edit a held system notice's content, so transfer cannot launder client text into a system turn", async () => {
+    await withTestHarness(async (harness) => {
+      const registry = emptyRegistry();
+      registry["message.dispatch"].push({
+        pluginId: "quota-governor",
+        handler: () => ({ action: "wait", reason: "quota exceeded" }) as const,
+      });
+      installHooks(registry);
+      const fixture = seedParentFixture(harness, "host-r6-edit");
+      const successorId = seedSuccessorThread(harness, fixture, "host-r6-edit");
+      const held = await holdChildCompletionNotice(harness, fixture);
+
+      const edited = await harness.app.request(
+        `/api/v1/threads/${fixture.parentThreadId}/queued-messages/${held.id}`,
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            expectedUpdatedAt: held.updatedAt,
+            input: [{ type: "text", text: "arbitrary client text", mentions: [] }],
+          }),
+        },
+      );
+      expect(edited.status).toBe(409);
+
+      const moved = await harness.app.request(
+        `/api/v1/threads/${fixture.parentThreadId}/queued-messages/${held.id}/transfer`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ targetThreadId: successorId }),
+        },
+      );
+      expect(moved.status).toBe(201);
+      const transferred = threadQueuedMessageSchema.parse(await readJson(moved));
+      expect(transferred.content).toEqual(JSON.parse(held.content));
+      expect(transferred.systemNotice).toMatchObject({ kind: "child-completed" });
+    });
+  }, 20_000);
+
+  it("refuses to transfer a claimed (in-flight) row", async () => {
+    await withTestHarness(async (harness) => {
+      const registry = emptyRegistry();
+      registry["message.dispatch"].push({
+        pluginId: "quota-governor",
+        handler: () => ({ action: "wait", reason: "quota exceeded" }) as const,
+      });
+      installHooks(registry);
+      const fixture = seedParentFixture(harness, "host-r6-claimed");
+      const successorId = seedSuccessorThread(harness, fixture, "host-r6-claimed");
+      const held = await holdChildCompletionNotice(harness, fixture);
+      expect(
+        claimQueuedThreadMessage(harness.db, harness.deps.hub, held.id),
+      ).not.toBeNull();
+
+      const moved = await harness.app.request(
+        `/api/v1/threads/${fixture.parentThreadId}/queued-messages/${held.id}/transfer`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ targetThreadId: successorId }),
+        },
+      );
+      expect(moved.status).toBe(409);
+      expect(
+        (await listQueuedOverHttp(harness, successorId)).map((m) => m.id),
+      ).toEqual([]);
+    });
+  }, 20_000);
+
+  it("refuses to transfer across projects or to the same thread", async () => {
     await withTestHarness(async (harness) => {
       const registry = emptyRegistry();
       registry["message.dispatch"].push({
