@@ -428,6 +428,7 @@ function buildOptimisticQueuedMessage({
     groupWithNext: false,
     sendAt: scheduledSendAt,
     waitingOn: scheduledSendAt === null ? null : { kind: "time" },
+    systemNotice: null,
     failureReason: null,
     payload: { kind: "inline" },
     editable: true,

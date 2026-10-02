@@ -478,10 +478,7 @@ function resolveQueuedThreadMessageNeighbor(
     return false;
   }
 
-  const neighbor = getQueuedThreadMessage(
-    db,
-    args.neighborQueuedMessageId,
-  );
+  const neighbor = getQueuedThreadMessage(db, args.neighborQueuedMessageId);
   if (
     !neighbor ||
     neighbor.threadId !== args.threadId ||
@@ -909,10 +906,7 @@ export function listIdleThreadsWithQueuedMessages(
           notExists(manuallyStoppedQueuePauseQuery(db, threads.id)),
           notOrdinaryTurnEndQueuedThreadMessage(),
         ),
-        or(
-          isNull(threads.environmentId),
-          ne(environments.status, "destroyed"),
-        ),
+        or(isNull(threads.environmentId), ne(environments.status, "destroyed")),
         // Only rows an idle thread actually unblocks. A thread whose only
         // queued row is waiting on a clock or a plugin is not a drain
         // candidate, and listing it would re-run the whole send pipeline
@@ -1152,10 +1146,7 @@ export function reorderQueuedThreadMessage({
   try {
     result = db.transaction(
       (tx): ReorderQueuedThreadMessageResult => {
-        const movedQueuedMessage = getQueuedThreadMessage(
-          tx,
-          queuedMessageId,
-        );
+        const movedQueuedMessage = getQueuedThreadMessage(tx, queuedMessageId);
         if (!movedQueuedMessage || movedQueuedMessage.threadId !== threadId) {
           return { kind: "not_found" };
         }
@@ -1885,7 +1876,10 @@ export function listRetryableFailedQueuedThreadMessages(
         ),
       ),
     )
-    .orderBy(asc(queuedThreadMessages.nextAttemptAt), asc(queuedThreadMessages.id))
+    .orderBy(
+      asc(queuedThreadMessages.nextAttemptAt),
+      asc(queuedThreadMessages.id),
+    )
     .all();
 }
 
@@ -2135,6 +2129,75 @@ export function listThreadIdsWithHostOfflineQueueWaits(
     )
     .all()
     .map((row) => row.threadId);
+}
+
+export interface TransferQueuedThreadMessageInTransactionArgs {
+  queuedMessageId: string;
+  sourceThreadId: string;
+  targetThreadId: string;
+  /**
+   * The wait the target row starts with, derived from the source row inside
+   * the same transaction so it cannot go stale between the read and the write.
+   */
+  resolveWaitingOn: (
+    source: QueuedThreadMessageRow,
+  ) => QueuedMessageWaitingOn | null;
+}
+
+export type TransferQueuedThreadMessageResult =
+  | { kind: "transferred"; queuedMessage: QueuedThreadMessageRow }
+  | { kind: "not_found" }
+  | { kind: "claimed" }
+  | { kind: "not_inline" };
+
+/**
+ * Move one unclaimed queued row to another thread, copying the server-written
+ * columns a client cannot supply on create (`systemNotice`, `sendAt`, the plugin
+ * wait) and deleting the source row in the same transaction, so the message
+ * exists on exactly one thread at every instant.
+ */
+export function transferQueuedThreadMessageInTransaction(
+  tx: DbTransaction,
+  args: TransferQueuedThreadMessageInTransactionArgs,
+): TransferQueuedThreadMessageResult {
+  const source = getQueuedThreadMessage(tx, args.queuedMessageId);
+  if (!source || source.threadId !== args.sourceThreadId) {
+    return { kind: "not_found" };
+  }
+  if (source.claimedAt !== null) return { kind: "claimed" };
+  // A retry row names a turn request that only exists on its own thread.
+  if (source.payloadKind !== "inline") return { kind: "not_inline" };
+  const queuedMessage = createQueuedThreadMessageInTransaction(tx, {
+    threadId: args.targetThreadId,
+    content: JSON.parse(source.content) as PromptInput[],
+    senderThreadId: source.senderThreadId,
+    origin: source.origin,
+    originPluginId: source.originPluginId,
+    requestedBy:
+      source.requestedByInitiator !== null &&
+      source.requestedByThreadId !== null
+        ? {
+            initiator: source.requestedByInitiator,
+            senderThreadId: source.requestedByThreadId,
+          }
+        : null,
+    model: source.model,
+    reasoningLevel: source.reasoningLevel,
+    permissionMode: source.permissionMode,
+    serviceTier: source.serviceTier,
+    waitingOn: args.resolveWaitingOn(source),
+    sendAt: source.sendAt,
+    payload: { kind: "inline" },
+    systemNotice:
+      source.systemNotice === null
+        ? null
+        : (JSON.parse(source.systemNotice) as QueuedMessageSystemNotice),
+  });
+  clearPreviousQueuedMessageGroupEdgeInTransaction(tx, source);
+  tx.delete(queuedThreadMessages)
+    .where(eq(queuedThreadMessages.id, source.id))
+    .run();
+  return { kind: "transferred", queuedMessage };
 }
 
 export function deleteQueuedThreadMessage(

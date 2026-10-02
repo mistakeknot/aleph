@@ -454,6 +454,7 @@ type ExpectedThreadQueuedMessagesKey =
   | "reorder"
   | "send"
   | "setGroupBoundary"
+  | "transfer"
   | "update";
 type ExpectedThreadTabsKey = "get" | "update";
 type ExpectedTerminalsKey =

@@ -12,6 +12,7 @@ import {
   isThreadQueueAutoSendPaused,
   releaseQueuedMessageClaim,
   releaseStaleQueuedMessageClaims,
+  transferQueuedThreadMessageInTransaction,
   type DbQueryConnection,
   type QueuedThreadMessageGroupClaimPolicy,
   type QueuedThreadMessageGroupEligibility,
@@ -290,6 +291,99 @@ export async function createQueuedMessageForThread(
     });
   }
   return toThreadQueuedMessage(queuedMessage);
+}
+
+export interface TransferQueuedMessageArgs {
+  queuedMessageId: string;
+  sourceThread: Thread;
+  targetThread: Thread;
+}
+
+/**
+ * Move a queued row to another thread, keeping the columns create cannot take
+ * from a client: `systemNotice`, `sendAt` and a plugin or time wait.
+ *
+ * This is the one way those survive a move (a rotation retirement forwarding a
+ * thread's pending rows to its successor). It deliberately is not a create
+ * option: the public create route cannot tell a plugin from any other client,
+ * so accepting `systemNotice` there would let any caller forge a system
+ * initiator. Here the classification is only ever copied from a row core
+ * already wrote. A wait about the SOURCE thread (busy, stopping, interaction,
+ * provisioning, host-offline, turn-starting) does not describe the target, so
+ * it is re-derived the way create derives it.
+ */
+export async function transferQueuedMessage(
+  deps: AppDeps,
+  args: TransferQueuedMessageArgs,
+): Promise<ThreadQueuedMessage> {
+  const { queuedMessageId, sourceThread, targetThread } = args;
+  if (sourceThread.id === targetThread.id) {
+    throw new ApiError(
+      400,
+      "invalid_request",
+      "Queued message is already on that thread",
+    );
+  }
+  if (sourceThread.projectId !== targetThread.projectId) {
+    throw new ApiError(
+      400,
+      "invalid_request",
+      "Queued messages can only be transferred within a project",
+    );
+  }
+  ensureThreadQueueIsWritable(targetThread);
+  const result = deps.db.transaction(
+    (tx) => {
+      const currentTarget = getThread(tx, targetThread.id);
+      if (!currentTarget) {
+        throw new ApiError(404, "thread_not_found", "Thread not found");
+      }
+      admitQueuedMessage(tx, currentTarget);
+      const transferred = transferQueuedThreadMessageInTransaction(tx, {
+        queuedMessageId,
+        sourceThreadId: sourceThread.id,
+        targetThreadId: targetThread.id,
+        resolveWaitingOn: (source) => {
+          const waitingOn = parseStoredQueuedThreadMessageWaitingOn(source);
+          if (waitingOn?.kind === "plugin" || waitingOn?.kind === "time") {
+            return waitingOn;
+          }
+          return currentTarget.status === "stopping"
+            ? { kind: "stopping" }
+            : { kind: "thread-busy" };
+        },
+      });
+      return { currentTarget, transferred };
+    },
+    { behavior: "immediate" },
+  );
+  const { currentTarget, transferred } = result;
+  if (transferred.kind === "not_found") {
+    throw new ApiError(404, "invalid_request", "Queued message not found");
+  }
+  if (transferred.kind === "claimed") {
+    throw new ApiError(
+      409,
+      "invalid_request",
+      "Queued message is already being sent",
+    );
+  }
+  if (transferred.kind === "not_inline") {
+    throw new ApiError(
+      400,
+      "invalid_request",
+      "Only inline queued messages can be transferred",
+    );
+  }
+  deps.hub.notifyThread(sourceThread.id, ["queue-changed"]);
+  deps.hub.notifyThread(targetThread.id, ["queue-changed"]);
+  if (currentTarget.status === "idle") {
+    requestQueuedMessageDispatch(deps, {
+      kind: "thread-ready",
+      threadId: targetThread.id,
+    });
+  }
+  return toThreadQueuedMessage(transferred.queuedMessage);
 }
 
 function isQueuedMessageAutoSendCandidate(

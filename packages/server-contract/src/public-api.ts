@@ -190,6 +190,7 @@ import type {
   SendMessageResponse,
   SetQueuedMessageGroupBoundaryRequest,
   SendQueuedMessageRequest,
+  TransferQueuedMessageRequest,
   SendQueuedMessageResponse,
   SidebarBootstrapResponse,
   SystemAttentionResponse,
@@ -358,6 +359,7 @@ import {
   editMessageRequestSchema,
   setQueuedMessageGroupBoundaryRequestSchema,
   sendQueuedMessageRequestSchema,
+  transferQueuedMessageRequestSchema,
   systemExecutionOptionsQuerySchema,
   systemEnvironmentProvidersQuerySchema,
   systemProvidersQuerySchema,
@@ -1415,6 +1417,15 @@ export const publicApiRoutes = {
         SendQueuedMessageRequest
       >(sendQueuedMessageRequestSchema),
       response: jsonResponse<SendQueuedMessageResponse>(),
+    }),
+    transferQueuedMessage: defineRoute({
+      path: "/threads/:id/queued-messages/:queuedMessageId/transfer",
+      method: "post",
+      request: jsonRequest<
+        PathThreadAndQueuedMessage,
+        TransferQueuedMessageRequest
+      >(transferQueuedMessageRequestSchema),
+      response: jsonResponse<ThreadQueuedMessage>({ status: 201 }),
     }),
     reorderQueuedMessage: defineRoute({
       path: "/threads/:id/queued-messages/:queuedMessageId/order",
