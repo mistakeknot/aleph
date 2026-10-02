@@ -7,6 +7,7 @@ import {
   BrowserWindow,
   clipboard,
   dialog,
+  globalShortcut,
   ipcMain,
   Menu,
   nativeImage,
@@ -131,6 +132,13 @@ import {
   type ServerTargetStore,
 } from "./server-target.js";
 import { openServerUrlDialog } from "./server-url-dialog.js";
+import {
+  createOverlayController,
+  type OverlayController,
+} from "./overlay-window.js";
+import { parseOverlayAppOrigin } from "./overlay-panel.js";
+import { createServerPluginRegistry } from "./overlay-registry.js";
+import { createOverlaySettingsStore } from "./overlay-settings.js";
 import {
   createConnectServerSync,
   type ConnectAccountServer,
@@ -446,6 +454,7 @@ let movedMachineConnection: Promise<void> | null = null;
 let localServerMove: DesktopServerMove | null = null;
 let serverMovedWatcher: ServerMovedWatcher | null = null;
 let serverUrlDialogPreloadPath: string | null = null;
+let overlayController: OverlayController | null = null;
 let existingServerDialogPreloadPath: string | null = null;
 
 function resolveDesktopServerUrl(args: ResolveDesktopServerUrlArgs): string {
@@ -2824,6 +2833,11 @@ async function runDesktopApp(): Promise<void> {
     "dist",
     "server-url-dialog-preload.cjs",
   );
+  const resolvedOverlayPreloadPath = join(
+    paths.appPath,
+    "dist",
+    "overlay-preload.cjs",
+  );
   const serverUrl = resolveDesktopServerUrl({ env: process.env });
   builtinServerUrl = serverUrl;
   desktopBridgePath = bridgePath;
@@ -2844,6 +2858,10 @@ async function runDesktopApp(): Promise<void> {
   assertPathExists({
     label: "log viewer preload script",
     path: resolvedLogViewerPreloadPath,
+  });
+  assertPathExists({
+    label: "overlay preload script",
+    path: resolvedOverlayPreloadPath,
   });
   assertPathExists({ label: "preload script", path: preloadPath });
   assertPathExists({
@@ -3172,6 +3190,34 @@ async function runDesktopApp(): Promise<void> {
     },
   };
   logViewerPreloadPath = resolvedLogViewerPreloadPath;
+  const getOverlayAppOrigin = (): string | null =>
+    bbAppLoaded ? parseOverlayAppOrigin(currentWindowUrl) : null;
+  const overlaySettingsStore = createOverlaySettingsStore({
+    storagePath: join(userDataPath, "overlay-settings.json"),
+  });
+  await overlaySettingsStore.load();
+  overlayController = createOverlayController({
+    createWindow(options) {
+      return new BrowserWindow(options);
+    },
+    getAppOrigin: getOverlayAppOrigin,
+    globalShortcut,
+    ipcMain,
+    preloadPath: resolvedOverlayPreloadPath,
+    registry: createServerPluginRegistry({
+      fetchImpl: fetch,
+      getAppOrigin: getOverlayAppOrigin,
+    }),
+    report(message) {
+      desktopLogger.warn(`Overlay: ${message}`);
+    },
+    settingsStore: overlaySettingsStore,
+  });
+  await overlayController.start();
+  app.on("will-quit", () => {
+    overlayController?.dispose();
+    overlayController = null;
+  });
   serverUrlDialogPreloadPath = resolvedServerUrlDialogPreloadPath;
   existingServerDialogPreloadPath = resolvedExistingServerDialogPreloadPath;
   desktopWindowFactory = createDesktopWindowFactory({

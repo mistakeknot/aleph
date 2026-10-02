@@ -316,6 +316,44 @@ binaries from `desktop-latest`. If only some required signing secrets are set,
 the workflow fails before packaging so a misconfigured release cannot silently
 produce unsigned or signed-but-not-notarized artifacts.
 
+## Summoned overlay
+
+A global shortcut toggles a frameless, always-on-top window that shows one
+installed plugin's panel route (`/plugins/<pluginId>/<panelId>`) on the app's own
+origin. Desktop only; the web build has no equivalent.
+
+Settings live in `overlay-settings.json` under the Electron user data directory:
+
+```json
+{
+  "accelerator": "CommandOrControl+Shift+Space",
+  "target": { "pluginId": "autarch", "panelId": "overlay" }
+}
+```
+
+- `accelerator` needs at least one modifier and exactly one key. An invalid
+  value falls back to the default. If another application owns the shortcut,
+  registration fails, the desktop log records it, and the app keeps running.
+  `OverlayController.rebind` unregisters the old accelerator, registers the new
+  one, restores the old one on failure, and persists only on success.
+- `target` is the panel shown on toggle. With no target, the toggle logs that
+  nothing is configured and shows nothing.
+- Escape and losing focus hide the overlay. The shortcut is unregistered on
+  `will-quit`.
+
+Trust boundary: the overlay window uses `contextIsolation`, `sandbox` and no
+Node integration. Its preload exposes one method,
+`bbOverlay.openPanel({ pluginId, panelId })`. The main process validates both ids
+against a strict grammar, asks the app server (`/api/v1/plugins`) whether the
+plugin is installed, enabled and has a compatible app bundle, builds the URL
+itself, and accepts the call only from the overlay's main frame while it is on the
+app origin. The overlay denies `window.open` and webviews and blocks navigation
+(including redirects) off the app origin or outside `/plugins/`.
+
+The server does not publish panel route ids, so the main process cannot confirm a
+panel exists; an unknown panel id on an installed plugin loads the app's own
+not-found view inside the overlay.
+
 ## Auto-update
 
 The renderer update toast keeps using `desktop-version.json` as the lightweight
