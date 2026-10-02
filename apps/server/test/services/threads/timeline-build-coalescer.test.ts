@@ -140,12 +140,60 @@ describe("timeline build coalescer", () => {
     harness.coalescer.invalidateThread("thread-1");
     expect(harness.coalescer.size).toBe(0);
     expect(harness.coalescer.bytes).toBe(0);
+    expect(harness.refreshes).toEqual(["thread-1"]);
     harness.advance(1_000);
-    expect(harness.refreshes).toEqual([]);
-    harness.advance(1);
+    expect(harness.refreshes).toEqual(["thread-1"]);
     const fresh = harness.serve(11);
     expect(fresh.stale).toBe(false);
     expect(fresh.response.maxSeq).toBe(11);
+  });
+
+  it("fires the refresh immediately when a stale snapshot is evicted", () => {
+    const harness = createHarness({ maxEntries: 2 });
+    harness.serve(10, { paramsKey: "a", threadId: "thread-a" });
+    harness.advance(1);
+    expect(
+      harness.serve(11, { paramsKey: "a", threadId: "thread-a" }).stale,
+    ).toBe(true);
+    expect(harness.refreshes).toEqual([]);
+    harness.serve(10, { paramsKey: "b", threadId: "thread-b" });
+    harness.serve(10, { paramsKey: "c", threadId: "thread-c" });
+    expect(harness.refreshes).toEqual(["thread-a"]);
+    harness.advance(1_000);
+    expect(harness.refreshes).toEqual(["thread-a"]);
+  });
+
+  it("fires the refresh immediately when a stale snapshot is replaced", () => {
+    const harness = createHarness();
+    harness.serve(10);
+    harness.advance(1);
+    expect(harness.serve(11).stale).toBe(true);
+    expect(harness.refreshes).toEqual([]);
+    harness.advance(1);
+    const fresh = harness.serve(12, { coalesce: false });
+    expect(fresh.response.maxSeq).toBe(12);
+    expect(harness.refreshes).toEqual(["thread-1"]);
+    harness.advance(1_000);
+    expect(harness.refreshes).toEqual(["thread-1"]);
+  });
+
+  it("counts bytes as UTF-8 bytes", () => {
+    const harness = createHarness();
+    const text = "é".repeat(100);
+    harness.coalescer.serve({
+      build: () =>
+        ({ maxSeq: 1, rows: [text] }) as unknown as ThreadTimelineResponse,
+      coalesce: false,
+      maxSeq: 1,
+      paramsKey: "utf8",
+      threadId: "thread-1",
+    });
+    expect(harness.coalescer.bytes).toBe(
+      Buffer.byteLength(JSON.stringify({ maxSeq: 1, rows: [text] }), "utf8"),
+    );
+    expect(harness.coalescer.bytes).toBeGreaterThan(
+      JSON.stringify({ maxSeq: 1, rows: [text] }).length,
+    );
   });
 
   it("invalidates only the named thread", () => {

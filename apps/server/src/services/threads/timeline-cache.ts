@@ -73,6 +73,7 @@ export interface ThreadTimelineCacheKeyArgs {
   maxSeq: number;
   status: ThreadStatus;
   environmentId: string | null;
+  threadName: string;
   providerDisplayName?: string;
   page: ThreadTimelinePageRequest;
   includeNestedRows: boolean;
@@ -94,6 +95,7 @@ export function buildThreadTimelineParamsKey(
     args.threadId,
     args.status,
     args.environmentId ?? "-",
+    JSON.stringify(args.threadName),
     args.providerDisplayName ?? "-",
     pageKeyPart(args.page),
     args.includeNestedRows ? "1" : "0",

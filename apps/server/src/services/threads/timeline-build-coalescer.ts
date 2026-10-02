@@ -84,9 +84,13 @@ export function createTimelineBuildCoalescer(
   function remove(paramsKey: string): void {
     const entry = entries.get(paramsKey);
     if (entry === undefined) return;
-    entry.cancelTrailing?.();
     entries.delete(paramsKey);
     totalBytes -= entry.bytes;
+    if (entry.cancelTrailing !== null) {
+      entry.cancelTrailing();
+      entry.cancelTrailing = null;
+      options.onTrailingRefresh(entry.threadId);
+    }
   }
 
   function store(paramsKey: string, entry: CoalescerEntry): void {
@@ -147,7 +151,7 @@ export function createTimelineBuildCoalescer(
       store(args.paramsKey, {
         buildMs: finishedAt - startedAt,
         builtAt: finishedAt,
-        bytes: JSON.stringify(response).length,
+        bytes: Buffer.byteLength(JSON.stringify(response), "utf8"),
         cancelTrailing: null,
         maxSeq: args.maxSeq,
         response,
