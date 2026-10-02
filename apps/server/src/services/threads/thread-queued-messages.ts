@@ -213,8 +213,12 @@ export function toThreadQueuedMessage(
     failureReason: row.failureReason,
     payload: toQueuedMessagePayload(row),
     // An `inline` draft stops being editable the moment the drain claims it:
-    // the row is on its way to a provider and a rewrite would be lost.
-    editable: row.payloadKind === "inline" && row.claimedAt === null,
+    // the row is on its way to a provider and a rewrite would be lost. A held
+    // system notice is never editable: update rejects it (409).
+    editable:
+      row.payloadKind === "inline" &&
+      row.claimedAt === null &&
+      row.systemNotice === null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   });
