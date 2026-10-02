@@ -1,5 +1,12 @@
 import { and, eq } from "drizzle-orm";
-import { events, listQueuedThreadMessages, threads } from "@bb/db";
+import {
+  createQueuedThreadMessage,
+  events,
+  getThread,
+  listQueuedThreadMessages,
+  listRunningThreads,
+  threads,
+} from "@bb/db";
 import {
   threadQueuedMessageSchema,
   turnRequestEventDataSchema,
@@ -18,6 +25,10 @@ import type { PluginHookName } from "@get-bb/plugin-sdk";
 import { queueChildThreadTurnNotificationBestEffort } from "../../src/services/threads/child-thread-notifications.js";
 import { appendClientTurnEvent } from "../../src/services/threads/thread-events.js";
 import { clearDeliveredChildOutputForTesting } from "../../src/services/threads/parent-wake-policy.js";
+import {
+  createAutomaticQueuedMessageGroupEligibility,
+  sendQueuedMessage,
+} from "../../src/services/threads/queued-messages.js";
 import { runQueuedMessageDispatch } from "../../src/services/threads/queued-message-dispatch.js";
 import {
   seedEnvironment,
@@ -1256,6 +1267,100 @@ describe("queued system notice transfer (R4 retirement forward, R6)", () => {
           (m) => m.id,
         ),
       ).toEqual([held.id]);
+    });
+  }, 20_000);
+});
+
+describe("held system notice drain: admission and cancellation", () => {
+  function seedHeldNotice(harness: TestHarness, fixture: ParentFixture) {
+    return createQueuedThreadMessage(harness.db, harness.deps.hub, {
+      threadId: fixture.parentThreadId,
+      content: [{ type: "text", text: "notice", mentions: [] }],
+      senderThreadId: null,
+      origin: null,
+      originPluginId: null,
+      model: "fake-model",
+      reasoningLevel: "medium",
+      permissionMode: "full",
+      serviceTier: "default",
+      waitingOn: { kind: "plugin", pluginId: "limiter", reason: "held" },
+      sendAt: null,
+      payload: { kind: "inline" },
+      systemNotice: { kind: "child-completed", subject: null },
+    });
+  }
+
+  function drain(
+    harness: TestHarness,
+    row: ReturnType<typeof seedHeldNotice>,
+  ) {
+    return sendQueuedMessage(harness.deps, {
+      threadId: row.threadId,
+      queuedMessageId: row.id,
+      mode: "auto",
+      claimPolicy: {
+        kind: "automatic",
+        retryingFailure: false,
+        isGroupEligible: createAutomaticQueuedMessageGroupEligibility(
+          harness.deps,
+          {
+            now: Date.now(),
+            retryingFailure: false,
+            thread: getThread(harness.db, row.threadId)!,
+          },
+        ),
+      },
+    });
+  }
+
+  it("commits the notice's admission before the evaluation lock releases, so a concurrency limit of one holds", async () => {
+    await withTestHarness(async (harness) => {
+      const rows = ["host-adm-a", "host-adm-b"].map((hostId) =>
+        seedHeldNotice(harness, seedParentFixture(harness, hostId)),
+      );
+      const registry = emptyRegistry();
+      registry["message.dispatch"].push({
+        pluginId: "limiter",
+        handler: () =>
+          listRunningThreads(harness.db).length === 0
+            ? ({ action: "proceed" } as const)
+            : ({ action: "wait", reason: "capacity" } as const),
+      });
+      installHooks(registry);
+
+      await Promise.all(rows.map((row) => drain(harness, row)));
+
+      expect(listRunningThreads(harness.db)).toHaveLength(1);
+      // The loser stayed queued behind the plugin wait rather than starting.
+      const stillQueued = rows.filter(
+        (row) => listQueuedThreadMessages(harness.db, row.threadId).length === 1,
+      );
+      expect(stillQueued).toHaveLength(1);
+    });
+  }, 20_000);
+
+  it("a row deleted over HTTP while the hook decides produces no turn", async () => {
+    await withTestHarness(async (harness) => {
+      const row = seedHeldNotice(harness, seedParentFixture(harness, "host-cancel"));
+      const registry = emptyRegistry();
+      registry["message.dispatch"].push({
+        pluginId: "limiter",
+        handler: async () => {
+          const response = await harness.app.request(
+            `/api/v1/threads/${row.threadId}/queued-messages/${row.id}`,
+            { method: "DELETE" },
+          );
+          expect(response.status).toBe(200);
+          return { action: "proceed" } as const;
+        },
+      });
+      installHooks(registry);
+
+      await drain(harness, row).catch(() => undefined);
+
+      expect(await waitForParentTurnRequests(harness, row.threadId, 1, 300)).toEqual([]);
+      expect(getThread(harness.db, row.threadId)?.status).not.toBe("active");
+      expect(listQueuedThreadMessages(harness.db, row.threadId)).toEqual([]);
     });
   }, 20_000);
 });

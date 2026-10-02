@@ -1,7 +1,9 @@
 import {
+  deleteClaimedQueuedThreadMessageBatchInTransaction,
   getEnvironment,
   getThread,
   requireThreadLifecycleEventApplied,
+  type ClaimedQueuedThreadMessageRow,
   type DbTransaction,
 } from "@bb/db";
 import type {
@@ -49,6 +51,7 @@ import {
   LIVE_DAEMON_COMMAND_TIMEOUT_MS,
   startLiveHostCommand,
 } from "../hosts/live-command.js";
+import { createQueuedMessageClaimLostError } from "./queue-waits.js";
 import { queueInputForStartingTurn } from "./thread-turn-starting.js";
 import {
   ThreadContextClearInProgressError,
@@ -116,7 +119,40 @@ interface RenderedParentSystemSlotParts {
   suffix: string;
 }
 
+/**
+ * The claimed queue row(s) a delivery is spending, when the notice being
+ * delivered is itself a queued row (a drain re-delivering it).
+ *
+ * The claim is validated and consumed INSIDE the same transaction that appends
+ * the turn request, so a row deleted while a `message.dispatch` hook was
+ * deciding cannot produce a turn: the consume finds it gone, throws claim-lost,
+ * and the append rolls back. `state` records what became of the claim, because
+ * one path (a turn that is still starting) keeps the row and re-queues it
+ * instead of consuming it, and the caller must not then delete it.
+ */
+export interface ParentSystemClaim {
+  rows: readonly ClaimedQueuedThreadMessageRow[];
+  state: "held" | "consumed" | "requeued";
+}
+
+function consumeParentSystemClaimInTransaction(
+  tx: DbTransaction,
+  claim: ParentSystemClaim | undefined,
+): void {
+  if (claim === undefined) {
+    return;
+  }
+  const consumed = deleteClaimedQueuedThreadMessageBatchInTransaction(tx, {
+    queuedMessages: claim.rows,
+  });
+  if (!consumed) {
+    throw createQueuedMessageClaimLostError();
+  }
+  claim.state = "consumed";
+}
+
 interface QueueReadyParentSystemMessageArgs extends ParentSystemMessageTaxonomy {
+  claim?: ParentSystemClaim;
   environment: ReadyThreadEnvironment;
   execution: ResolvedThreadExecutionOptions;
   input: PromptInput[];
@@ -254,6 +290,7 @@ function queueActiveParentSystemMessageInTransaction(
   }
 
   const expectedSteerTurnId = getActiveTurnId({ db: tx }, args.thread.id);
+  consumeParentSystemClaimInTransaction(tx, args.claim);
   const request = appendClientTurnEventInTransaction(tx, {
     ...parentSystemTurnRequestFields(args),
     target: {
@@ -280,7 +317,7 @@ async function queueActiveParentSystemMessage(
   const expectedSteerTurnId = getActiveTurnId(deps, args.thread.id);
   if (expectedSteerTurnId === null) {
     const outcome = queueInputForStartingTurn(deps, {
-      claimed: null,
+      claimed: args.claim?.rows ?? null,
       input: {
         input: args.input,
         execution: args.execution,
@@ -296,7 +333,13 @@ async function queueActiveParentSystemMessage(
       },
       threadId: args.thread.id,
     });
-    if (outcome.kind === "queued") return true;
+    if (outcome.kind === "queued") {
+      if (args.claim !== undefined) {
+        // The claimed row itself now carries the wait; nothing was consumed.
+        args.claim.state = "requeued";
+      }
+      return true;
+    }
     if (outcome.kind === "dispatched") return false;
     if (outcome.kind === "retry") {
       const currentThread = outcome.thread;
@@ -401,6 +444,7 @@ async function queueReadyParentSystemMessage(
       ensureThreadCanStartRequest(
         requireParentWritableInTransaction(tx, args.thread.id),
       );
+      consumeParentSystemClaimInTransaction(tx, args.claim);
       appendPreparedClientTurnRequestedEventWithNotificationInTransaction(tx, {
         ...parentSystemTurnRequestFields(args),
         target: { kind: "new-turn" },
@@ -454,7 +498,11 @@ async function queueReadyParentSystemMessage(
  */
 async function checkParentThreadHeldTolerantly(
   deps: LoggedPendingInteractionWorkSessionDeps,
-  args: { input: PromptInput[]; parentThread: Thread },
+  args: {
+    continueAfterHooks?: () => Promise<void>;
+    input: PromptInput[];
+    parentThread: Thread;
+  },
 ): Promise<ParentThreadHeldResult> {
   try {
     return await checkParentThreadHeld(deps, args);
@@ -489,22 +537,45 @@ export async function queueParentSystemMessage(
     deps.pendingInteractions.hasTurnBoundPendingThreadInteraction(
       parentThread.id,
     );
+  // Delivery is the hook pass's `continueAfterHooks`, so it commits before the
+  // evaluation lock releases (a concurrency-limiting hook's next pass must see
+  // this turn as running). Its outcome is captured rather than thrown: the
+  // tolerant check below treats a throw as a failed hook, which a delivery
+  // failure is not.
+  const delivery: {
+    result: { delivered: boolean } | { error: unknown } | null;
+  } = { result: null };
+  const deliverNow = async (): Promise<void> => {
+    try {
+      delivery.result = {
+        delivered: await deliverParentSystemMessage(deps, {
+          input: args.input,
+          parentThread,
+          systemMessageKind: args.systemMessageKind,
+          systemMessageSubject: args.systemMessageSubject,
+        }),
+      };
+    } catch (error) {
+      delivery.result = { error };
+    }
+  };
   const held = hasPendingInteraction
     ? ({ held: false } as const)
     : await checkParentThreadHeldTolerantly(deps, {
+        continueAfterHooks: deliverNow,
         input: args.input,
         parentThread,
       });
   if (!hasPendingInteraction && !held.held) {
-    try {
-      return await deliverParentSystemMessage(deps, {
-        input: args.input,
-        parentThread,
-        systemMessageKind: args.systemMessageKind,
-        systemMessageSubject: args.systemMessageSubject,
-      });
-    } catch (error) {
-      if (!(error instanceof ThreadContextClearInProgressError)) throw error;
+    if (delivery.result === null) {
+      await deliverNow();
+    }
+    const outcome = delivery.result!;
+    if ("delivered" in outcome) {
+      return outcome.delivered;
+    }
+    if (!(outcome.error instanceof ThreadContextClearInProgressError)) {
+      throw outcome.error;
     }
   }
 
@@ -561,6 +632,8 @@ export async function queueParentSystemMessage(
 }
 
 interface DeliverParentSystemMessageArgs extends ParentSystemMessageTaxonomy {
+  /** Set when delivering a claimed queue row; see {@link ParentSystemClaim}. */
+  claim?: ParentSystemClaim;
   input: PromptInput[];
   parentThread: Thread;
 }
@@ -618,6 +691,8 @@ async function deliverParentSystemMessageToWritableParent(
   );
   if (
     await dispatchTurnDuringReprovision({
+      beforeRequestAppendInTransaction: ({ tx }) =>
+        consumeParentSystemClaimInTransaction(tx, args.claim),
       deps,
       environment,
       execution,
@@ -639,6 +714,7 @@ async function deliverParentSystemMessageToWritableParent(
     getEnvironment(deps.db, environment.id) ?? environment,
   );
   return await queueReadyParentSystemMessage(deps, {
+    ...(args.claim !== undefined ? { claim: args.claim } : {}),
     thread: parentThread,
     input: args.input,
     execution,

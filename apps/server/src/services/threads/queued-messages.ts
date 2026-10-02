@@ -74,7 +74,10 @@ import {
 } from "./dispatch-hooks.js";
 import { checkParentThreadHeld } from "./parent-wake-policy.js";
 import { attemptDispatch } from "./dispatch-attempt.js";
-import { deliverParentSystemMessage } from "./parent-system-messages.js";
+import {
+  deliverParentSystemMessage,
+  type ParentSystemClaim,
+} from "./parent-system-messages.js";
 import {
   createQueuedMessageAutoSendPausedError,
   createQueuedMessageClaimLostError,
@@ -737,11 +740,28 @@ async function sendClaimedSystemNotice(
     JSON.parse(lead.systemNotice),
   );
   const queuedMessage = toThreadQueuedMessage(lead);
+  const claim: ParentSystemClaim = { rows: args.queuedMessages, state: "held" };
+  let delivered: boolean | null = null;
+  const deliver = async (): Promise<void> => {
+    delivered = await deliverParentSystemMessage(deps, {
+      claim,
+      input: queuedMessage.content,
+      parentThread: args.thread,
+      systemMessageKind: notice.kind,
+      systemMessageSubject: notice.subject,
+    });
+  };
   if (!args.sendNow) {
+    // Delivery runs as the hook pass's `continueAfterHooks`, so it commits
+    // (claim consumed, turn requested, thread flipped to running) before the
+    // evaluation lock releases: a concurrency-limiting hook's next pass sees
+    // this notice's turn as running. It is not run when the pass holds the
+    // row, nor when no hook is registered, which the fallthrough below covers.
     const held = await checkParentThreadHeld(deps, {
       input: queuedMessage.content,
       parentThread: args.thread,
       queuedMessages: args.queuedMessages.map(toThreadQueuedMessage),
+      continueAfterHooks: deliver,
     });
     if (held.held) {
       noteDispatchRequeued(args.thread.id);
@@ -773,27 +793,20 @@ async function sendClaimedSystemNotice(
       return queuedMessage;
     }
   }
-  const delivered = await deliverParentSystemMessage(deps, {
-    input: queuedMessage.content,
-    parentThread: args.thread,
-    systemMessageKind: notice.kind,
-    systemMessageSubject: notice.subject,
-  });
+  if (delivered === null) {
+    await deliver();
+  }
   if (!delivered) {
     // The thread changed under the drain. Leave the row claimed-and-released
     // by the caller's error path rather than consuming a notice nobody got.
     throw createQueuedMessageClaimLostError();
   }
-  const consumed = deps.db.transaction(
-    (tx) =>
-      deleteClaimedQueuedThreadMessageBatchInTransaction(tx, {
-        queuedMessages: args.queuedMessages,
-      }),
-    { behavior: "immediate" },
-  );
-  if (!consumed) {
-    throw createQueuedMessageClaimLostError();
+  if (claim.state === "requeued") {
+    // The turn is still starting: the claimed row itself was put back on the
+    // queue with that wait, so it neither dispatched nor needs deleting.
+    return queuedMessage;
   }
+  // Delivery consumed the claim in the transaction that appended the turn.
   settleQueueRowDispatched({ row: lead });
   return queuedMessage;
 }
