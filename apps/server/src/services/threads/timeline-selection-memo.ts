@@ -1,5 +1,5 @@
 import { THREAD_TIMELINE_EXCLUDED_EVENT_TYPES } from "@bb/thread-view";
-import type { ThreadEventType } from "@bb/domain";
+import type { ThreadEventItemType, ThreadEventType } from "@bb/domain";
 import {
   findTimelineWindowBudgetFloorSequence,
   getDatabaseDataVersion,
@@ -87,6 +87,19 @@ const APPENDABLE_EVENT_TYPES: ReadonlySet<ThreadEventType> = new Set([
   "item/plan/delta",
   "item/toolCall/progress",
   "item/mcpToolCall/progress",
+]);
+
+const APPENDABLE_ITEM_LIFECYCLE_TYPES: ReadonlySet<ThreadEventType> = new Set([
+  "item/started",
+  "item/completed",
+]);
+
+const APPENDABLE_ITEM_KINDS: ReadonlySet<ThreadEventItemType> = new Set([
+  "agentMessage",
+  "commandExecution",
+  "fileChange",
+  "fileRead",
+  "reasoning",
 ]);
 
 const IGNORABLE_EVENT_TYPES: ReadonlySet<ThreadEventType> = new Set(
@@ -194,13 +207,20 @@ function isAppendableRow(
   row: StoredEventRow,
   appendableTurnIds: ReadonlySet<string>,
 ): boolean {
+  if (
+    row.scopeKind !== "turn" ||
+    row.turnId === null ||
+    !appendableTurnIds.has(row.turnId) ||
+    row.parentToolCallId !== null
+  ) {
+    return false;
+  }
+  if (row.itemKind === null) {
+    return APPENDABLE_EVENT_TYPES.has(row.type);
+  }
   return (
-    APPENDABLE_EVENT_TYPES.has(row.type) &&
-    row.scopeKind === "turn" &&
-    row.turnId !== null &&
-    appendableTurnIds.has(row.turnId) &&
-    row.parentToolCallId === null &&
-    row.itemKind === null
+    APPENDABLE_ITEM_LIFECYCLE_TYPES.has(row.type) &&
+    APPENDABLE_ITEM_KINDS.has(row.itemKind)
   );
 }
 

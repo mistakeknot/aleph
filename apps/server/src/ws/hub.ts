@@ -832,6 +832,24 @@ export class NotificationHub implements DbNotifier {
     }
   }
 
+  notifyThreadTimelineRefresh(threadId: string): void {
+    const payload = serializeServerMessage({
+      type: "changed",
+      entity: "thread",
+      id: threadId,
+      changes: ["events-appended"],
+    });
+    if (payload === null) {
+      return;
+    }
+    const detailSockets = this.clientSocketsByKey.get(
+      subscriptionKey({ kind: "thread-detail", threadId }),
+    );
+    if (detailSockets) {
+      this.notifyClientsByKeySet(detailSockets, payload);
+    }
+  }
+
   notifyThreadOpen(
     thread: { projectId: string; threadId: string },
     request: { split: ThreadOpenSplit; file: ThreadOpenFile | null },
