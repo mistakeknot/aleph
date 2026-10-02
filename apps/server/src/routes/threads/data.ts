@@ -449,6 +449,7 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
       threadId: thread.id,
       status: thread.status,
       environmentId: thread.environmentId,
+      threadName: thread.title ?? thread.titleFallback ?? "",
       providerDisplayName,
       page,
       includeNestedRows,
