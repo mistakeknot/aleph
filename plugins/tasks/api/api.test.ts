@@ -134,8 +134,10 @@ describe("Tasks RPC domain API", () => {
       }),
     );
 
-    expect(result.comment.notifiedCount).toBe(1);
-    expect(store.tasks.getComment(result.comment.id)?.notifiedCount).toBe(1);
+    expect(result.comment.notifiedCount).toBe(0);
+    await vi.waitFor(() =>
+      expect(store.tasks.getComment(result.comment.id)?.notifiedCount).toBe(1),
+    );
     expect(harness.sdk.callsTo("threads.send")).toEqual([
       [expect.objectContaining({ threadId: "thr_two" })],
     ]);
@@ -143,6 +145,111 @@ describe("Tasks RPC domain API", () => {
       channel: "comments:changed",
       payload: { taskId: task.id },
     });
+    await harness.dispose();
+  });
+
+  it("returns the comment without waiting for notification delivery", async () => {
+    let releaseSend!: () => void;
+    const sendGate = new Promise<void>((resolve) => {
+      releaseSend = resolve;
+    });
+    const { bb, harness } = createFakePluginHost({
+      pluginId: "tasks",
+      sdk: {
+        threads: {
+          get: async ({ threadId }) =>
+            makeThreadResponse({ id: threadId, status: "active" }),
+          send: async () => sendGate,
+        },
+      },
+    });
+    const store = createStore(bb);
+    registerTasksApi(bb, store);
+    const project = store.tasks.createProject({
+      name: "Notifications",
+      prefix: "NTF",
+      color: "blue",
+    });
+    const task = store.tasks.createTask({
+      projectId: project.id,
+      title: "Slow delivery",
+    });
+    store.tasks.createComment({
+      taskId: task.id,
+      kind: "agent",
+      authorName: "Agent",
+      threadId: "thr_slow",
+      body: "Reply",
+    });
+
+    const result = tasksRpcContract.createComment.output.parse(
+      await harness.callRpc("createComment", {
+        taskId: task.id,
+        body: "Does not block.",
+        notify: true,
+      }),
+    );
+
+    expect(result.comment.notifiedCount).toBe(0);
+    expect(store.tasks.getComment(result.comment.id)?.notifiedCount).toBe(0);
+    const signalsBeforeDelivery = harness.realtimeSignals.length;
+
+    releaseSend();
+    await vi.waitFor(() =>
+      expect(store.tasks.getComment(result.comment.id)?.notifiedCount).toBe(1),
+    );
+    expect(harness.realtimeSignals.length).toBe(signalsBeforeDelivery + 1);
+    expect(harness.realtimeSignals.at(-1)).toEqual({
+      channel: "comments:changed",
+      payload: { taskId: task.id },
+    });
+    await harness.dispose();
+  });
+
+  it("keeps the comment at zero notifications when delivery fails", async () => {
+    const { bb, harness } = createFakePluginHost({
+      pluginId: "tasks",
+      sdk: {
+        threads: {
+          get: async ({ threadId }) =>
+            makeThreadResponse({ id: threadId, status: "active" }),
+          send: async () => {
+            throw new Error("send_failed");
+          },
+        },
+      },
+    });
+    const store = createStore(bb);
+    registerTasksApi(bb, store);
+    const project = store.tasks.createProject({
+      name: "Notifications",
+      prefix: "NTF",
+      color: "blue",
+    });
+    const task = store.tasks.createTask({
+      projectId: project.id,
+      title: "Failing delivery",
+    });
+    store.tasks.createComment({
+      taskId: task.id,
+      kind: "agent",
+      authorName: "Agent",
+      threadId: "thr_fail",
+      body: "Reply",
+    });
+
+    const result = tasksRpcContract.createComment.output.parse(
+      await harness.callRpc("createComment", {
+        taskId: task.id,
+        body: "Will not arrive.",
+        notify: true,
+      }),
+    );
+
+    await vi.waitFor(() =>
+      expect(harness.sdk.callsTo("threads.send")).toHaveLength(1),
+    );
+    expect(store.tasks.getComment(result.comment.id)?.notifiedCount).toBe(0);
     await harness.dispose();
   });
 
@@ -570,6 +677,7 @@ describe("Tasks RPC domain API", () => {
       threadId: "thr_worker",
       body: "Reporting progress.",
       notify: true,
+      awaitDelivery: true,
     });
 
     expect(quietResult.comment.notifiedCount).toBe(0);
