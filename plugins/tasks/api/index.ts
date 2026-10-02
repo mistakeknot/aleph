@@ -13,6 +13,7 @@ import {
 } from "../attachments";
 import { deliverCommentToLatestAgent } from "../steer";
 import { displayName } from "../shared/display-name";
+import { errorMessage } from "../shared/errors";
 import { isSideChatShapedThread } from "../shared/side-chat";
 import {
   tasksRpcContract,
@@ -410,6 +411,7 @@ interface CreateCommentInput {
   threadId: string | null;
   body: string;
   notify: boolean;
+  awaitDelivery: boolean;
 }
 
 export async function createComment(
@@ -417,7 +419,7 @@ export async function createComment(
   store: TasksApiStore,
   input: CreateCommentInput,
 ): Promise<StoredComment> {
-  let comment = store.transaction(() =>
+  const comment = store.transaction(() =>
     store.tasks.createComment({
       taskId: input.taskId,
       kind: input.kind,
@@ -429,20 +431,40 @@ export async function createComment(
     }),
   );
 
-  if (input.notify) {
+  publishCommentsChanged(bb, input.taskId);
+  if (!input.notify) return comment;
+  const delivery = notifyLatestAgent(bb, store, comment);
+  if (!input.awaitDelivery) {
+    void delivery;
+    return comment;
+  }
+  return (await delivery) ?? comment;
+}
+
+async function notifyLatestAgent(
+  bb: BbPluginApi,
+  store: TasksApiStore,
+  comment: StoredComment,
+): Promise<StoredComment | null> {
+  try {
     const notifiedCount = await deliverCommentToLatestAgent(bb, store.tasks, {
       taskId: comment.taskId,
       commentId: comment.id,
       body: comment.body,
       authorName: comment.authorName,
     });
-    comment = store.transaction(() =>
+    if (notifiedCount === 0) return null;
+    const updated = store.transaction(() =>
       store.tasks.updateComment(comment.id, { notifiedCount }),
     );
+    publishCommentsChanged(bb, comment.taskId);
+    return updated;
+  } catch (error) {
+    bb.log.warn(
+      `failed to deliver comment ${comment.id}: ${errorMessage(error)}`,
+    );
+    return null;
   }
-
-  publishCommentsChanged(bb, input.taskId);
-  return comment;
 }
 
 interface TaskPullRequestsResult {
@@ -834,6 +856,7 @@ export function registerHandlers(
         threadId: null,
         body: input.body,
         notify: input.notify,
+        awaitDelivery: false,
       });
       return { comment };
     },

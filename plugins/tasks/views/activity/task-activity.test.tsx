@@ -300,6 +300,7 @@ async function renderComposerWithTask(options?: {
         threadId: null,
         body: request.body,
         notify: request.notify,
+        awaitDelivery: false,
       }),
     };
   });
