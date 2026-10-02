@@ -12,6 +12,7 @@ import {
   getLatestThreadSequence,
   getLatestStoredConversationOutlineSequence,
   listQueuedThreadMessages,
+  getEnvironment,
 } from "@bb/db";
 import type { Hono } from "hono";
 import {
@@ -445,7 +446,17 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
       threadId: thread.id,
     });
     const eventBudget = deps.config.featureFlags.timelineWindowEventBudget;
+    const planCommand = resolveProviderPlanCommand(
+      deps.providerRegistry,
+      thread.providerId,
+    );
+    const workspaceRoot =
+      thread.environmentId === null
+        ? null
+        : (getEnvironment(deps.db, thread.environmentId)?.path ?? null);
     const keyArgs = {
+      planCommand: JSON.stringify(planCommand),
+      workspaceRoot,
       threadId: thread.id,
       status: thread.status,
       environmentId: thread.environmentId,
@@ -475,10 +486,7 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
               maxSeq,
               page,
               providerDisplayName,
-              planCommand: resolveProviderPlanCommand(
-                deps.providerRegistry,
-                thread.providerId,
-              ),
+              planCommand,
               summaryOnly,
             },
           );

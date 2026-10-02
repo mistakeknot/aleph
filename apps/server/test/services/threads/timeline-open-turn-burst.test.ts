@@ -143,6 +143,7 @@ interface BurstResult {
   fullRebuilds: number;
   maxBuildMs: number;
   projectionMs: number;
+  serializeMs: number;
   served: number;
   staleServed: number;
   totalBuildMs: number;
@@ -158,6 +159,7 @@ function runBurst(coalesce: boolean): BurstResult {
     fullRebuilds: 0,
     maxBuildMs: 0,
     projectionMs: 0,
+    serializeMs: 0,
     served: 0,
     staleServed: 0,
     totalBuildMs: 0,
@@ -234,7 +236,10 @@ function runBurst(coalesce: boolean): BurstResult {
       ...buildArgs,
       db: testThread.coldDb,
     });
-    expect(JSON.stringify(settled)).toBe(JSON.stringify(cold.response));
+    const serializeStart = performance.now();
+    const serialized = JSON.stringify(settled);
+    result.serializeMs = performance.now() - serializeStart;
+    expect(serialized).toBe(JSON.stringify(cold.response));
   });
   return result;
 }
@@ -247,6 +252,7 @@ function summarize(result: BurstResult): Record<string, number> {
     fullRebuilds: result.fullRebuilds,
     maxBuildMs: Math.round(result.maxBuildMs),
     projectionMs: Math.round(result.projectionMs),
+    serializeMs: Math.round(result.serializeMs * 10) / 10,
     staleServed: result.staleServed,
     totalBuildMs: Math.round(result.totalBuildMs),
   };
