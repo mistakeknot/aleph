@@ -83,6 +83,24 @@ describe("bb thread organization commands", () => {
     });
   });
 
+  it("transfers a queued message to another thread", async () => {
+    const transfer = vi.fn(async () => queuedMessage({ id: "queued-2" }));
+    stubServerApi({
+      "v1.threads.:id.queued-messages.:queuedMessageId.transfer.$post":
+        transfer,
+    });
+
+    await runCommand(
+      ["thread", "queue", "transfer", "thread-1", "queued-1", "thread-2"],
+      register,
+    );
+
+    expect(transfer).toHaveBeenCalledWith({
+      param: { id: "thread-1", queuedMessageId: "queued-1" },
+      json: { targetThreadId: "thread-2" },
+    });
+  });
+
   it("shows agent and system senders in queued message rows", async () => {
     const list = vi.fn(async () => [
       queuedMessage({ id: "queued-user" }),
