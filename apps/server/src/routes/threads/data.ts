@@ -1,7 +1,10 @@
 import { extractThreadContextWindowUsage } from "@bb/thread-view";
 import { clearTimelineOrderingContextCache } from "../../services/threads/timeline-context-order.js";
 import path from "node:path";
-import { createTimelineBuildCoalescer } from "../../services/threads/timeline-build-coalescer.js";
+import {
+  createTimelineBuildCoalescer,
+  shouldDropTimelineSnapshots,
+} from "../../services/threads/timeline-build-coalescer.js";
 import {
   getAppSettings,
   getThreadPluginMetadata,
@@ -343,7 +346,9 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
       clearTimelineOrderingContextCache(deps.db);
       timelineCache.invalidateThread(message.id);
       timelineLatestRowsCache.invalidateThread(message.id);
-      timelineBuildCoalescer.invalidateThread(message.id);
+      if (shouldDropTimelineSnapshots(message.changes)) {
+        timelineBuildCoalescer.invalidateThread(message.id);
+      }
     } else if (
       message.changes.includes("thread-deleted") ||
       message.changes.includes("archived-changed")
