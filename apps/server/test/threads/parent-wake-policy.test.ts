@@ -1,6 +1,13 @@
 import { and, eq } from "drizzle-orm";
 import { events, listQueuedThreadMessages, threads } from "@bb/db";
-import { turnRequestEventDataSchema } from "@bb/domain";
+import {
+  threadQueuedMessageSchema,
+  turnRequestEventDataSchema,
+} from "@bb/domain";
+import {
+  createQueuedMessageRequestSchema,
+  threadQueuedMessageListResponseSchema,
+} from "@bb/server-contract";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   invokePluginInline,
@@ -20,6 +27,7 @@ import {
   seedThreadRuntimeState,
 } from "../helpers/seed.js";
 import { createTestAppHarness, withTestHarness } from "../helpers/test-app.js";
+import { readJson } from "../helpers/json.js";
 
 type TestHarness = Awaited<ReturnType<typeof createTestAppHarness>>;
 
@@ -791,7 +799,10 @@ describe("parent wake policy", () => {
         harness,
         fixture.parentThreadId,
       );
-      expect(seen.at(0)).toEqual({ initiator: "system", queuedMessageCount: 0 });
+      expect(seen.at(0)).toEqual({
+        initiator: "system",
+        queuedMessageCount: 0,
+      });
 
       // The hook still says wait: the recheck must ask it again as a system
       // initiator, see the queued row, and leave it held and undelivered.
@@ -1003,6 +1014,248 @@ describe("parent wake policy", () => {
         fixture.parentThreadId,
       );
       expect(wokeAgain).toBe(true);
+    });
+  }, 20_000);
+});
+
+describe("queued system notice transfer (R4 retirement forward, R6)", () => {
+  const HELD_UNTIL = Date.now() + 3_600_000;
+
+  function seedSuccessorThread(
+    harness: TestHarness,
+    fixture: ParentFixture,
+    hostId: string,
+  ): string {
+    const successor = seedThread(harness.deps, {
+      projectId: fixture.projectId,
+      environmentId: fixture.environmentId,
+      title: "Successor",
+    });
+    seedThreadRuntimeState(harness.deps, {
+      threadId: successor.id,
+      environmentId: fixture.environmentId,
+      providerThreadId: `provider-${hostId}-successor`,
+      inputText: "Take over",
+      model: "fake-model",
+    });
+    return successor.id;
+  }
+
+  async function holdChildCompletionNotice(
+    harness: TestHarness,
+    fixture: ParentFixture,
+  ) {
+    const child = seedThread(harness.deps, {
+      projectId: fixture.projectId,
+      title: "Worker",
+      parentThreadId: fixture.parentThreadId,
+    });
+    seedChildTurnRequest(harness, {
+      childThreadId: child.id,
+      turnId: "turn-1",
+      initiator: "user",
+      senderThreadId: null,
+    });
+    seedChildFinalOutput(harness, {
+      childThreadId: child.id,
+      turnId: "turn-1",
+      text: "Held result",
+    });
+    await queueChildThreadTurnNotificationBestEffort(harness.deps, {
+      childThread: child,
+      parentThreadId: fixture.parentThreadId,
+      turnId: "turn-1",
+      turnStatus: "completed",
+    });
+    return waitForQueuedParentNotice(harness, fixture.parentThreadId);
+  }
+
+  async function listQueuedOverHttp(harness: TestHarness, threadId: string) {
+    const response = await harness.app.request(
+      `/api/v1/threads/${threadId}/queued-messages`,
+    );
+    expect(response.status).toBe(200);
+    return threadQueuedMessageListResponseSchema.parse(
+      await readJson(response),
+    );
+  }
+
+  it("reads systemNotice and waitingOn, and a transfer keeps systemNotice, waitingOn and sendAt", async () => {
+    await withTestHarness(async (harness) => {
+      const registry = emptyRegistry();
+      registry["message.dispatch"].push({
+        pluginId: "quota-governor",
+        handler: () =>
+          ({
+            action: "wait",
+            reason: "quota exceeded",
+            sendAt: HELD_UNTIL,
+          }) as const,
+      });
+      installHooks(registry);
+      const fixture = seedParentFixture(harness, "host-r6-transfer");
+      const successorId = seedSuccessorThread(
+        harness,
+        fixture,
+        "host-r6-transfer",
+      );
+      const held = await holdChildCompletionNotice(harness, fixture);
+
+      const [read] = await listQueuedOverHttp(harness, fixture.parentThreadId);
+      expect(read).toMatchObject({
+        id: held.id,
+        initiator: "system",
+        sendAt: HELD_UNTIL,
+        systemNotice: { kind: "child-completed" },
+        waitingOn: {
+          kind: "plugin",
+          pluginId: "quota-governor",
+          reason: "quota exceeded",
+        },
+      });
+
+      const response = await harness.app.request(
+        `/api/v1/threads/${fixture.parentThreadId}/queued-messages/${held.id}/transfer`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ targetThreadId: successorId }),
+        },
+      );
+      expect(response.status).toBe(201);
+      const moved = threadQueuedMessageSchema.parse(await readJson(response));
+      expect(moved).toMatchObject({
+        threadId: successorId,
+        initiator: "system",
+        sendAt: HELD_UNTIL,
+        systemNotice: read!.systemNotice,
+        waitingOn: read!.waitingOn,
+        content: read!.content,
+      });
+      expect(moved.id).not.toBe(held.id);
+      expect(await listQueuedOverHttp(harness, fixture.parentThreadId)).toEqual(
+        [],
+      );
+      expect(await listQueuedOverHttp(harness, successorId)).toEqual([moved]);
+    });
+  }, 20_000);
+
+  it("a forwarded system notice still goes through message.dispatch as system on the successor, then delivers", async () => {
+    await withTestHarness(async (harness) => {
+      const seen: { initiator: string; queuedMessageCount: number }[] = [];
+      let decision: "wait" | "proceed" = "wait";
+      const registry = emptyRegistry();
+      registry["message.dispatch"].push({
+        pluginId: "quota-governor",
+        handler: (context) => {
+          seen.push({
+            initiator: context.initiator,
+            queuedMessageCount: context.queuedMessages.length,
+          });
+          return decision === "wait"
+            ? ({ action: "wait", reason: "quota exceeded" } as const)
+            : ({ action: "proceed" } as const);
+        },
+      });
+      installHooks(registry);
+      const fixture = seedParentFixture(harness, "host-r4-forward");
+      const successorId = seedSuccessorThread(
+        harness,
+        fixture,
+        "host-r4-forward",
+      );
+      const held = await holdChildCompletionNotice(harness, fixture);
+      const response = await harness.app.request(
+        `/api/v1/threads/${fixture.parentThreadId}/queued-messages/${held.id}/transfer`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ targetThreadId: successorId }),
+        },
+      );
+      expect(response.status).toBe(201);
+      const moved = threadQueuedMessageSchema.parse(await readJson(response));
+
+      // Let any thread-ready drain the transfer triggered settle, then recheck.
+      await new Promise((resolve) => setTimeout(resolve, 1_100));
+      const before = seen.length;
+      await runQueuedMessageDispatch(harness.deps, { kind: "plugin-recheck" });
+      expect(seen.slice(before)).toEqual([
+        { initiator: "system", queuedMessageCount: 1 },
+      ]);
+      expect(
+        (await listQueuedOverHttp(harness, successorId)).map((m) => m.id),
+      ).toEqual([moved.id]);
+
+      decision = "proceed";
+      await new Promise((resolve) => setTimeout(resolve, 1_100));
+      await runQueuedMessageDispatch(harness.deps, { kind: "plugin-recheck" });
+      expect(await listQueuedOverHttp(harness, successorId)).toEqual([]);
+      expect(await waitForParentTurnRequests(harness, successorId, 1)).toEqual([
+        { initiator: "system", systemMessageKind: "child-completed" },
+      ]);
+    });
+  }, 25_000);
+
+  it("create cannot forge system classification: the request schema drops it and the route ignores it", async () => {
+    await withTestHarness(async (harness) => {
+      const forged = {
+        input: [{ type: "text", text: "forged", mentions: [] }],
+        systemNotice: { kind: "child-completed", subject: null },
+        waitingOn: { kind: "plugin", pluginId: "x", reason: "y" },
+        sendAt: HELD_UNTIL,
+      };
+      expect(createQueuedMessageRequestSchema.parse(forged)).toEqual({
+        input: forged.input,
+      });
+
+      const fixture = seedParentFixture(harness, "host-r6-forge");
+      const response = await harness.app.request(
+        `/api/v1/threads/${fixture.parentThreadId}/queued-messages`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(forged),
+        },
+      );
+      expect(response.status).toBe(201);
+      const created = threadQueuedMessageSchema.parse(await readJson(response));
+      expect(created).toMatchObject({
+        initiator: "user",
+        systemNotice: null,
+        sendAt: null,
+        waitingOn: { kind: "thread-busy" },
+      });
+    });
+  });
+
+  it("refuses to transfer across projects, to the same thread, or a claimed row", async () => {
+    await withTestHarness(async (harness) => {
+      const registry = emptyRegistry();
+      registry["message.dispatch"].push({
+        pluginId: "quota-governor",
+        handler: () => ({ action: "wait", reason: "quota exceeded" }) as const,
+      });
+      installHooks(registry);
+      const fixture = seedParentFixture(harness, "host-r6-refuse");
+      const other = seedParentFixture(harness, "host-r6-refuse-other");
+      const held = await holdChildCompletionNotice(harness, fixture);
+      const transfer = (targetThreadId: string) =>
+        harness.app.request(
+          `/api/v1/threads/${fixture.parentThreadId}/queued-messages/${held.id}/transfer`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ targetThreadId }),
+          },
+        );
+      expect((await transfer(other.parentThreadId)).status).toBe(400);
+      expect((await transfer(fixture.parentThreadId)).status).toBe(400);
+      expect(
+        (await listQueuedOverHttp(harness, fixture.parentThreadId)).map(
+          (m) => m.id,
+        ),
+      ).toEqual([held.id]);
     });
   }, 20_000);
 });

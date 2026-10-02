@@ -65,6 +65,7 @@ import type {
   SendMessageRequest,
   SendMessageResponse,
   SendQueuedMessageRequest,
+  TransferQueuedMessageRequest,
   SetQueuedMessageGroupBoundaryRequest,
   ThreadEventsQuery,
   ThreadEventWaitQuery,
@@ -209,6 +210,7 @@ export type ThreadQueuedMessageUpdateResult = ThreadQueuedMessage;
 export type ThreadQueuedMessageDeleteResult = { ok: true };
 export type ThreadQueuedMessageReorderResult = ThreadQueuedMessageListResponse;
 export type ThreadQueuedMessageSendResult = SendQueuedMessageResponse;
+export type ThreadQueuedMessageTransferResult = ThreadQueuedMessage;
 export type ThreadQueuedMessageGroupBoundaryResult =
   ThreadQueuedMessageListResponse;
 export type ThreadQueueListResult = ThreadQueuedMessageListResponse;
@@ -336,6 +338,13 @@ export interface ThreadQueuedMessageTargetArgs {
 
 export interface ThreadQueuedMessageSendArgs
   extends ThreadQueuedMessageTargetArgs, SendQueuedMessageRequest {}
+
+/**
+ * `threadId` is the source thread; `targetThreadId` receives the row. The row
+ * keeps its `systemNotice`, `waitingOn` and `sendAt`, which create cannot set.
+ */
+export interface ThreadQueuedMessageTransferArgs
+  extends ThreadQueuedMessageTargetArgs, TransferQueuedMessageRequest {}
 
 export interface ThreadQueuedMessageReorderArgs
   extends ThreadQueuedMessageTargetArgs, ReorderQueuedMessageRequest {}
@@ -554,6 +563,9 @@ export interface ThreadQueuedMessagesArea {
   setGroupBoundary(
     args: ThreadQueuedMessageGroupBoundaryArgs,
   ): Promise<ThreadQueuedMessageGroupBoundaryResult>;
+  transfer(
+    args: ThreadQueuedMessageTransferArgs,
+  ): Promise<ThreadQueuedMessageTransferResult>;
   update(
     args: ThreadQueuedMessageUpdateArgs,
   ): Promise<ThreadQueuedMessageUpdateResult>;
@@ -1106,6 +1118,19 @@ export function createThreadsArea(args: CreateSdkAreaArgs): ThreadsArea {
               input.expectedGroupedPrefixQueuedMessageIds,
             groupBoundaryQueuedMessageId: input.groupBoundaryQueuedMessageId,
           },
+        }),
+      );
+    },
+    async transfer(input) {
+      return transport.readJson(
+        transport.api.v1.threads[":id"]["queued-messages"][
+          ":queuedMessageId"
+        ].transfer.$post({
+          param: {
+            id: input.threadId,
+            queuedMessageId: input.queuedMessageId,
+          },
+          json: { targetThreadId: input.targetThreadId },
         }),
       );
     },

@@ -1,5 +1,6 @@
 import {
   promptInputSchema,
+  queuedMessageSystemNoticeSchema,
   queuedMessageWaitingOnSchema,
   threadQueuedMessageSchema,
 } from "@bb/domain";
@@ -8,6 +9,7 @@ import type {
   PromptInput,
   QueuedMessagePayload,
   QueuedMessagePayloadKind,
+  QueuedMessageSystemNotice,
   QueuedMessageWaitingOn,
   StartedOnBehalfOf,
   StartedOnBehalfOfInitiator,
@@ -98,6 +100,31 @@ export function parseStoredQueuedThreadMessageWaitingOn(
   return parsed.data;
 }
 
+export function parseStoredQueuedThreadMessageSystemNotice(
+  row: Pick<StoredQueuedThreadMessageRow, "id" | "threadId" | "systemNotice">,
+): QueuedMessageSystemNotice | null {
+  if (row.systemNotice === null) return null;
+  let notice: unknown;
+  try {
+    notice = JSON.parse(row.systemNotice);
+  } catch {
+    throw new ApiError(
+      500,
+      "internal_error",
+      `Stored queued message ${row.id} for thread ${row.threadId} has a malformed system notice`,
+    );
+  }
+  const parsed = queuedMessageSystemNoticeSchema.safeParse(notice);
+  if (!parsed.success) {
+    throw new ApiError(
+      500,
+      "internal_error",
+      `Stored queued message ${row.id} for thread ${row.threadId} has a malformed system notice`,
+    );
+  }
+  return parsed.data;
+}
+
 /**
  * The requester a queued dispatch was written with, so a drained re-attempt
  * resolves the same author its first attempt did. The two columns are written
@@ -182,6 +209,7 @@ export function toThreadQueuedMessage(
     groupWithNext: row.groupWithNext,
     sendAt: row.sendAt,
     waitingOn: parseStoredQueuedThreadMessageWaitingOn(row),
+    systemNotice: parseStoredQueuedThreadMessageSystemNotice(row),
     failureReason: row.failureReason,
     payload: toQueuedMessagePayload(row),
     // An `inline` draft stops being editable the moment the drain claims it:

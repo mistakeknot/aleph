@@ -214,6 +214,7 @@ export function makeThreadQueuedMessage(
     groupWithNext: false,
     sendAt: null,
     waitingOn: null,
+    systemNotice: null,
     failureReason: null,
     payload: { kind: "inline" },
     editable: true,
