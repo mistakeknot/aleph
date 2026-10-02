@@ -186,6 +186,7 @@ move and downloads the new server's bb-app package for its service.
 - `bb thread queue send`
 - `bb thread queue delete`
 - `bb thread queue transfer`
+- `bb thread queue transfer-all`
 - `bb thread queue reorder`
 - `bb thread queue group`
 - `bb thread tabs`
