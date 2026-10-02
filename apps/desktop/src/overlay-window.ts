@@ -38,6 +38,8 @@ interface OverlayFrameNavigationEvent extends OverlayNavigationEvent {
   url: string;
 }
 
+const filterOwners = new WeakMap<object, symbol>();
+
 export interface OverlayBeforeRequestDetails {
   resourceType: string;
   url: string;
@@ -270,7 +272,9 @@ export function createOverlayController(
     // nothing else in the app may register one on the default session.
     const overlaySession = created.webContents.session;
     const contentsId = created.webContents.id;
-    overlaySession.webRequest.onBeforeRequest((details, callback) => {
+    const requestFilter: Parameters<
+      typeof overlaySession.webRequest.onBeforeRequest
+    >[0] = (details, callback) => {
       if (
         details.webContentsId !== contentsId ||
         !FRAME_RESOURCE_TYPES.has(details.resourceType)
@@ -284,8 +288,18 @@ export function createOverlayController(
           url: details.url,
         }),
       });
-    });
+    };
+    const ownershipToken = Symbol("overlay-request-filter");
+    overlaySession.webRequest.onBeforeRequest(requestFilter);
+    filterOwners.set(overlaySession, ownershipToken);
+    // Electron keeps one listener per session and has no remove-by-reference,
+    // so only clear it while it is still ours. A later registration on the
+    // same session takes ownership and makes this release a no-op.
     const releaseSession = (): void => {
+      if (filterOwners.get(overlaySession) !== ownershipToken) {
+        return;
+      }
+      filterOwners.delete(overlaySession);
       try {
         overlaySession.webRequest.onBeforeRequest(null);
       } catch {

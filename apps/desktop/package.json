@@ -23,6 +23,7 @@
     "smoke:appimage-lifecycle": "node scripts/smoke-linux-appimage-lifecycle.mjs",
     "smoke:packaged": "node scripts/smoke-packaged-app.mjs",
     "smoke:packaged-npm": "node scripts/smoke-packaged-npm.mjs",
+    "smoke:overlay-registry": "node scripts/smoke-overlay-registry.mjs",
     "smoke:browser-cdp": "node scripts/smoke-browser-cdp.mjs",
     "start": "pnpm run package && node scripts/run-packaged-app.mjs",
     "start:linux": "pnpm run package:linux && node scripts/run-packaged-app.mjs",

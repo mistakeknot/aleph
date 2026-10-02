@@ -24,22 +24,35 @@ interface CreateServerPluginRegistryArgs {
   timeoutMs?: number;
 }
 
-function rejectOnAbort(signal: AbortSignal): Promise<never> {
-  return new Promise((_resolve, reject) => {
-    const fail = (): void =>
-      reject(new Error("Plugin registry request timed out."));
-    if (signal.aborted) {
-      fail();
-      return;
-    }
-    signal.addEventListener("abort", fail, { once: true });
+interface AbortWatch {
+  aborted: Promise<never>;
+  dispose(): void;
+}
+
+// One abort listener per watch, removed by dispose(); callers race it against
+// as many reads as they need without accumulating listeners on the signal.
+function watchAbort(signal: AbortSignal): AbortWatch {
+  let fail = (): void => undefined;
+  const aborted = new Promise<never>((_resolve, reject) => {
+    fail = () => reject(new Error("Plugin registry request timed out."));
   });
+  // Never an unhandled rejection when the watch is disposed without a race.
+  aborted.catch(() => undefined);
+  if (signal.aborted) {
+    fail();
+  } else {
+    signal.addEventListener("abort", fail, { once: true });
+  }
+  return {
+    aborted,
+    dispose: () => signal.removeEventListener("abort", fail),
+  };
 }
 
 async function readCappedText(
   response: Response,
   maxBytes: number,
-  signal: AbortSignal,
+  watch: AbortWatch,
 ): Promise<string | null> {
   const declared = Number(response.headers.get("content-length"));
   if (Number.isFinite(declared) && declared > maxBytes) {
@@ -54,7 +67,7 @@ async function readCappedText(
   let text = "";
   try {
     for (;;) {
-      const chunk = await Promise.race([reader.read(), rejectOnAbort(signal)]);
+      const chunk = await Promise.race([reader.read(), watch.aborted]);
       if (chunk.done) {
         return text + decoder.decode();
       }
@@ -66,6 +79,28 @@ async function readCappedText(
     }
   } finally {
     void reader.cancel().catch(() => undefined);
+  }
+}
+
+// Electron's net.fetch builds the Response without URL metadata, so a
+// successful response has url === "". The requested URL, derived from the
+// revalidated app origin and sent with redirect: "error", is then the
+// provenance. A present url must still match the requested origin.
+function isResponseFromOrigin(response: Response, origin: string): boolean {
+  if (response.redirected) {
+    return false;
+  }
+  const url: unknown = response.url;
+  if (url === undefined || url === null || url === "") {
+    return true;
+  }
+  if (typeof url !== "string") {
+    return false;
+  }
+  try {
+    return new URL(url).origin === origin;
+  } catch {
+    return false;
   }
 }
 
@@ -82,22 +117,22 @@ export function createServerPluginRegistry(
       }
       const requestUrl = `${appOrigin}/api/v1/plugins`;
       const signal = AbortSignal.timeout(timeoutMs);
+      const watch = watchAbort(signal);
       try {
         // redirect: "error" keeps any credentials attached by the fetch
         // implementation (Electron's net.fetch uses the session cookies) from
         // ever following a redirect off the app origin. Fail closed on all.
         const response = await Promise.race([
           args.fetchImpl(requestUrl, { redirect: "error", signal }),
-          rejectOnAbort(signal),
+          watch.aborted,
         ]);
         if (
           !response.ok ||
-          response.redirected ||
-          new URL(response.url).origin !== appOrigin
+          !isResponseFromOrigin(response, new URL(requestUrl).origin)
         ) {
           return false;
         }
-        const text = await readCappedText(response, maxBytes, signal);
+        const text = await readCappedText(response, maxBytes, watch);
         if (text === null) {
           return false;
         }
@@ -116,6 +151,8 @@ export function createServerPluginRegistry(
         );
       } catch {
         return false;
+      } finally {
+        watch.dispose();
       }
     },
   };
