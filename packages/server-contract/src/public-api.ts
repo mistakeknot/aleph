@@ -190,6 +190,8 @@ import type {
   SendMessageResponse,
   SetQueuedMessageGroupBoundaryRequest,
   SendQueuedMessageRequest,
+  TransferAllQueuedMessagesRequest,
+  TransferAllQueuedMessagesResponse,
   TransferQueuedMessageRequest,
   SendQueuedMessageResponse,
   SidebarBootstrapResponse,
@@ -359,6 +361,7 @@ import {
   editMessageRequestSchema,
   setQueuedMessageGroupBoundaryRequestSchema,
   sendQueuedMessageRequestSchema,
+  transferAllQueuedMessagesRequestSchema,
   transferQueuedMessageRequestSchema,
   systemExecutionOptionsQuerySchema,
   systemEnvironmentProvidersQuerySchema,
@@ -1426,6 +1429,19 @@ export const publicApiRoutes = {
         TransferQueuedMessageRequest
       >(transferQueuedMessageRequestSchema),
       response: jsonResponse<ThreadQueuedMessage>({ status: 201 }),
+    }),
+    /**
+     * Move every unclaimed inline queued row to another thread in one
+     * transaction (a retirement forwarding its pending rows). Rows that cannot
+     * move are reported, not failed; calling again after success moves nothing.
+     */
+    transferAllQueuedMessages: defineRoute({
+      path: "/threads/:id/queued-messages/transfer-all",
+      method: "post",
+      request: jsonRequest<PathId, TransferAllQueuedMessagesRequest>(
+        transferAllQueuedMessagesRequestSchema,
+      ),
+      response: jsonResponse<TransferAllQueuedMessagesResponse>(),
     }),
     reorderQueuedMessage: defineRoute({
       path: "/threads/:id/queued-messages/:queuedMessageId/order",

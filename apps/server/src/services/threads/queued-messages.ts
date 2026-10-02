@@ -12,6 +12,7 @@ import {
   isThreadQueueAutoSendPaused,
   releaseQueuedMessageClaim,
   releaseStaleQueuedMessageClaims,
+  transferAllQueuedThreadMessagesInTransaction,
   transferQueuedThreadMessageInTransaction,
   type DbQueryConnection,
   type QueuedThreadMessageGroupClaimPolicy,
@@ -32,6 +33,7 @@ import type {
   CreateQueuedMessageRequest,
   SendMessageRequest,
   SendQueuedMessageMode,
+  TransferAllQueuedMessagesResponse,
 } from "@bb/server-contract";
 import type {
   AppDeps,
@@ -387,6 +389,83 @@ export async function transferQueuedMessage(
     });
   }
   return toThreadQueuedMessage(transferred.queuedMessage);
+}
+
+export interface TransferAllQueuedMessagesArgs {
+  sourceThread: Thread;
+  targetThread: Thread;
+}
+
+/**
+ * Bulk form of {@link transferQueuedMessage}: every unclaimed inline row moves
+ * to the target in source order in one transaction, with the same preservation
+ * and refusal rules. Rows that cannot move stay on the source and are reported
+ * with a reason. An empty or fully-skipped source is a success that moves
+ * nothing, so a caller can safely repeat the call after an ambiguous response.
+ * Like the single-row form it only ever copies classification from rows core
+ * already wrote; there is no input that sets one.
+ */
+export async function transferAllQueuedMessages(
+  deps: AppDeps,
+  args: TransferAllQueuedMessagesArgs,
+): Promise<TransferAllQueuedMessagesResponse> {
+  const { sourceThread, targetThread } = args;
+  if (sourceThread.id === targetThread.id) {
+    throw new ApiError(
+      400,
+      "invalid_request",
+      "Queued messages are already on that thread",
+    );
+  }
+  if (sourceThread.projectId !== targetThread.projectId) {
+    throw new ApiError(
+      400,
+      "invalid_request",
+      "Queued messages can only be transferred within a project",
+    );
+  }
+  ensureThreadQueueIsWritable(targetThread);
+  const { currentTarget, transferred } = deps.db.transaction(
+    (tx) => {
+      const currentTarget = getThread(tx, targetThread.id);
+      if (!currentTarget) {
+        throw new ApiError(404, "thread_not_found", "Thread not found");
+      }
+      admitQueuedMessage(tx, currentTarget);
+      const transferred = transferAllQueuedThreadMessagesInTransaction(tx, {
+        sourceThreadId: sourceThread.id,
+        targetThreadId: targetThread.id,
+        resolveWaitingOn: (source) => {
+          const waitingOn = parseStoredQueuedThreadMessageWaitingOn(source);
+          if (waitingOn?.kind === "plugin" || waitingOn?.kind === "time") {
+            return waitingOn;
+          }
+          return currentTarget.status === "stopping"
+            ? { kind: "stopping" }
+            : { kind: "thread-busy" };
+        },
+      });
+      return { currentTarget, transferred };
+    },
+    { behavior: "immediate" },
+  );
+  if (transferred.moved.length > 0) {
+    deps.hub.notifyThread(sourceThread.id, ["queue-changed"]);
+    deps.hub.notifyThread(targetThread.id, ["queue-changed"]);
+    if (currentTarget.status === "idle") {
+      requestQueuedMessageDispatch(deps, {
+        kind: "thread-ready",
+        threadId: targetThread.id,
+      });
+    }
+  }
+  return {
+    moved: transferred.moved.map((row) => ({
+      id: row.id,
+      newId: row.queuedMessage.id,
+    })),
+    skipped: transferred.skipped,
+  };
 }
 
 function isQueuedMessageAutoSendCandidate(
