@@ -327,7 +327,7 @@ Settings live in `overlay-settings.json` under the Electron user data directory:
 ```json
 {
   "accelerator": "CommandOrControl+Shift+Space",
-  "target": { "pluginId": "autarch", "panelId": "overlay" }
+  "target": { "pluginId": "autarch", "panelId": "home-overlay" }
 }
 ```
 
