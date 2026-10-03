@@ -22,6 +22,8 @@ import {
   createQueuedThreadMessage,
   QueuedMessageThreadUnavailableError,
 } from "@bb/db";
+import { emitPluginMessageQueued } from "../plugins/plugin-thread-events.js";
+import { toThreadQueuedMessage } from "./thread-queued-messages.js";
 import {
   addRequestIdToTurnSubmitCommandPayload,
   buildExecutionOptions,
@@ -587,7 +589,7 @@ export async function queueParentSystemMessage(
     },
   );
   try {
-    createQueuedThreadMessage(deps.db, deps.hub, {
+    const queuedRow = createQueuedThreadMessage(deps.db, deps.hub, {
       threadId: parentThread.id,
       content: args.input,
       senderThreadId: null,
@@ -609,6 +611,7 @@ export async function queueParentSystemMessage(
         subject: args.systemMessageSubject,
       },
     });
+    emitPluginMessageQueued(toThreadQueuedMessage(queuedRow));
   } catch (error) {
     if (!(error instanceof QueuedMessageThreadUnavailableError)) throw error;
     deps.logger.warn(
