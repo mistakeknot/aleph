@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { convertLegacyStoredThreadEvent } from "./legacy-thread-events.js";
+import { redactEventDataForType } from "./provider-env-redaction.js";
 import { threadEventSchema, threadEventTypeSchema } from "./provider-event.js";
 import {
   systemMessageKindSchema,
@@ -126,9 +127,13 @@ export function parseStoredThreadEvent(
     { type: args.type, data: args.data },
     { turnId: getThreadEventScopeTurnId(scope) ?? null },
   );
-  const eventData = storedTurnRequestTypeSet.has(stored.type)
-    ? storedTurnRequestEventDataSchema.parse(stored.data)
-    : stored.data;
+  // Rows recorded before write-time redaction still hold plaintext values.
+  const eventData = redactEventDataForType(
+    stored.type,
+    storedTurnRequestTypeSet.has(stored.type)
+      ? storedTurnRequestEventDataSchema.parse(stored.data)
+      : stored.data,
+  );
 
   return threadEventSchema.parse({
     ...omitStoredScopeFields(eventData),

@@ -49,6 +49,7 @@ import {
   clientTurnRequestIdSchema,
   getThreadEventScopeTurnId,
   parseStoredThreadEvent,
+  redactEventDataJsonForType,
   systemThreadInterruptedReasonSchema,
   threadEventTypeValues,
 } from "@bb/domain";
@@ -428,7 +429,7 @@ function insertStoredEventRow(
   const id = createEventId();
   const prepared = prepareCompletedEventOutputData({
     createdAt: args.createdAt,
-    data: args.data,
+    data: redactEventDataJsonForType(args.type, args.data),
     itemKind: args.itemKind,
     type: args.type,
   });
@@ -1454,8 +1455,7 @@ export function listEvents(db: DbConnection, options: ListEventsOptions) {
         sql`${events.threadId} = ${threadId} AND ${events.sequence} > ${afterSequence}`,
       )
       .orderBy(events.sequence);
-    if (limit) return q.limit(limit).all();
-    return q.all();
+    return redactListedEventRows(limit ? q.limit(limit).all() : q.all());
   }
 
   const q = db
@@ -1463,8 +1463,17 @@ export function listEvents(db: DbConnection, options: ListEventsOptions) {
     .from(events)
     .where(eq(events.threadId, threadId))
     .orderBy(events.sequence);
-  if (limit) return q.limit(limit).all();
-  return q.all();
+  return redactListedEventRows(limit ? q.limit(limit).all() : q.all());
+}
+
+function redactListedEventRows<TRow extends { data: string; type: string }>(
+  rows: TRow[],
+): TRow[] {
+  return rows.map((row) =>
+    row.type === "provider.env-resolved"
+      ? { ...row, data: redactEventDataJsonForType(row.type, row.data) }
+      : row,
+  );
 }
 
 export function listStoredEventRows(

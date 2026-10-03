@@ -3,6 +3,7 @@ import path from "node:path";
 import { z } from "zod";
 import {
   normalizeProviderThreadNameEvent,
+  redactProviderEnvResolvedData,
   toProviderExternalThreadName,
 } from "@bb/domain";
 import type { DynamicTool, InstructionMode, ThreadEvent } from "@bb/domain";
@@ -1169,7 +1170,10 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
       type: "provider.env-resolved",
       threadId: args.threadId,
       providerThreadId: args.providerThreadId,
-      entries: args.entries,
+      // Entries hold the resolved launch env (pool tokens included); only the
+      // redacted form may leave the runtime.
+      entries: redactProviderEnvResolvedData({ entries: args.entries })
+        .entries,
       scope: { kind: "thread" },
     });
     for (const contribution of args.droppedContributions) {

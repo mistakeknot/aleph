@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 import {
   LOCAL_AGENT_TASK_TYPE,
@@ -73,6 +74,7 @@ import type {
 } from "../../src/data/events.js";
 import { upsertHost } from "../../src/data/hosts.js";
 import type { DbConnection } from "../../src/connection.js";
+import { events } from "../../src/schema.js";
 import { createMigratedConnection } from "../helpers/migrated-connection.js";
 
 function setup() {
@@ -6425,5 +6427,48 @@ describe("stored provider thread identity ownership", () => {
       new Map(),
     );
     db.$client.close();
+  });
+});
+
+describe("provider.env-resolved redaction at record and list time", () => {
+  const POOL_TOKEN = "synthetic-pool-token-0000";
+
+  it("never stores secret env values and redacts legacy rows on list", () => {
+    const { db, thread } = setup();
+    const data = JSON.stringify({
+      entries: [
+        { name: "CODEX_POOL_AUTH_TOKEN", source: "shell", value: POOL_TOKEN },
+        { name: "PATH", source: "shell", value: "/usr/bin" },
+      ],
+    });
+    insertEvents(db, noopNotifier, [
+      {
+        threadId: thread.id,
+        environmentId: null,
+        providerThreadId: "provider-session",
+        scope: threadScope(),
+        sequence: 1,
+        type: "provider.env-resolved",
+        itemId: null,
+        itemKind: null,
+        parentToolCallId: null,
+        data,
+      },
+    ]);
+    const readStored = () =>
+      db
+        .select({ data: events.data })
+        .from(events)
+        .where(eq(events.threadId, thread.id))
+        .get()?.data;
+    expect(readStored()).not.toContain(POOL_TOKEN);
+    expect(readStored()).toContain("CODEX_POOL_AUTH_TOKEN");
+
+    // Simulate a row written before the record-time fix.
+    db.update(events).set({ data }).where(eq(events.threadId, thread.id)).run();
+    expect(readStored()).toContain(POOL_TOKEN);
+    expect(
+      JSON.stringify(listEvents(db, { threadId: thread.id })),
+    ).not.toContain(POOL_TOKEN);
   });
 });
