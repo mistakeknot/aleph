@@ -3,7 +3,7 @@ import path from "node:path";
 import { z } from "zod";
 import {
   normalizeProviderThreadNameEvent,
-  redactEventDataForType,
+  redactThreadEventPayload,
   redactProviderEnvResolvedData,
   toProviderExternalThreadName,
 } from "@bb/domain";
@@ -259,7 +259,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
   // sanitized before it leaves the runtime. The provider's own launch env is
   // never touched.
   const emitEvent = (event: ThreadEvent): void => {
-    options.onEvent(redactEventDataForType(event.type, event));
+    options.onEvent(redactThreadEventPayload(event));
   };
   const additionalWorkspaceWriteRoots =
     options.additionalWorkspaceWriteRoots ?? [];
