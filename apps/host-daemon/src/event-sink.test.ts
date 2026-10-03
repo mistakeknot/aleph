@@ -1,4 +1,8 @@
-import { threadScope, turnScope } from "@bb/domain";
+import {
+  threadEventSchema,
+  threadScope,
+  turnScope,
+} from "@bb/domain";
 import { describe, expect, it, vi } from "vitest";
 import { createEventSink, type CreateEventSinkOptions } from "./event-sink.js";
 import { ServerResponseError } from "./server-client.js";
@@ -415,5 +419,58 @@ describe("event sink", () => {
 
     expect(JSON.stringify(postEvents.mock.calls)).not.toContain(secret);
     expect(JSON.stringify(postEvents.mock.calls)).toContain("[redacted]");
+  });
+
+  it("keeps required envelope fields and schema validity when payload limits trip", async () => {
+    const secret = "synthetic-review-token-1234";
+    const postEvents = acceptingPostEvents();
+    const sink = createEventSink({
+      isSessionOpen: () => true,
+      logger: createLogger(),
+      postEvents,
+    });
+    let deep: unknown = secret;
+    for (let index = 0; index < 200; index += 1) deep = { child: deep };
+    const base = {
+      type: "item/completed",
+      threadId: "thr_1",
+      providerThreadId: "synthetic-provider",
+      scope: turnScope("synthetic-turn"),
+      item: {
+        type: "toolCall",
+        id: "synthetic-tool",
+        tool: "probe",
+        status: "completed",
+      },
+    };
+    const events = [
+      { ...base, item: { ...base.item, result: deep } },
+      {
+        ...base,
+        item: {
+          ...base.item,
+          result: Array.from({ length: 250_000 }, () => ({ ok: true })),
+        },
+      },
+      {
+        ...base,
+        item: {
+          ...base.item,
+          result: { headers: [["Authorization", `Bearer ${secret}`]] },
+        },
+      },
+    ].map((event) => threadEventSchema.parse(event));
+    for (const event of events) {
+      sink.emit({ threadId: "thr_1", event });
+    }
+    await sink.flush();
+
+    const posted = postEvents.mock.calls.flatMap(([batch]) => batch);
+    expect(posted).toHaveLength(3);
+    for (const entry of posted) {
+      expect(threadEventSchema.safeParse(entry.event).success).toBe(true);
+      expect(entry.event.scope).toEqual(turnScope("synthetic-turn"));
+    }
+    expect(JSON.stringify(posted)).not.toContain(secret);
   });
 });

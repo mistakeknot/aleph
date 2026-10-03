@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { threadEventSchema } from "@bb/domain";
 import type { ThreadEvent, ToolCallResponse } from "@bb/domain";
 import { createProviderForId } from "./provider-registry.js";
 import {
@@ -478,6 +479,10 @@ describe("createAgentRuntime tool calls", () => {
     expect(errors.length).toBeGreaterThan(0);
     expect(JSON.stringify(events)).not.toContain(secret);
     expect(JSON.stringify(errors)).toContain("[redacted]");
+    // Redaction must never invalidate an event for the host-daemon schema.
+    for (const event of events) {
+      expect(threadEventSchema.safeParse(event).success).toBe(true);
+    }
     await runtime.shutdown();
   });
 });

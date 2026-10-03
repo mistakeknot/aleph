@@ -6557,4 +6557,34 @@ describe("provider.env-resolved redaction at record and list time", () => {
       ),
     ).not.toContain(secret);
   });
+  it("inserts and lists adversarial large payloads within the time bound", () => {
+    const { db, thread } = setup();
+    const hostile = [
+      ["provider/warning", "token ".repeat(64_000)],
+      ["item/completed", "token ".repeat(64_000)],
+      ["item/agentMessage/delta", "token ".repeat(64_000)],
+      ["provider/error", '"'.repeat(300_000)],
+      ["provider/error", "token.".repeat(64_000)],
+    ] as const;
+    const start = performance.now();
+    insertEvents(
+      db,
+      noopNotifier,
+      hostile.map(([type, text], index) => ({
+        threadId: thread.id,
+        environmentId: null,
+        providerThreadId: "provider-session",
+        scope: threadScope(),
+        sequence: index + 1,
+        type,
+        itemId: null,
+        itemKind: null,
+        parentToolCallId: null,
+        data: JSON.stringify({ delta: text, message: text }),
+      })),
+    );
+    listEvents(db, { threadId: thread.id });
+    expect(performance.now() - start).toBeLessThan(1500);
+  });
+
 });

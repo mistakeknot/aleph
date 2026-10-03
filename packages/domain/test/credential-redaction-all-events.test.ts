@@ -118,13 +118,15 @@ describe("all-event-type credential redaction", () => {
   it("redacts env/headers maps in content-bearing event types without touching text", () => {
     const data = {
       text: "the token budget is exhausted: key: value",
-      item: { env: { API_TOKEN: SECRET }, accessToken: SECRET },
+      item: { env: { API_TOKEN: SECRET }, accessToken: "customer-field" },
       tokenUsage: { inputTokens: 5, model: "m" },
     };
     const out = redactEventDataForType("item/completed", data);
     expect(JSON.stringify(out)).not.toContain(SECRET);
     expect(out.text).toBe(data.text);
     expect(out.tokenUsage).toEqual(data.tokenUsage);
+    // Secret-named keys outside credential containers are tool data.
+    expect(out.item.accessToken).toBe("customer-field");
   });
 
   it("cross-references a leaked secret into other strings of the payload", () => {
@@ -191,8 +193,8 @@ describe("all-event-type credential redaction", () => {
     );
     for (const raw of [
       JSON.stringify({ env: { API_TOKEN: SECRET } }),
-      JSON.stringify({ item: { accessToken: SECRET } }),
-      `{"\\u0061ccessToken":"${SECRET}"}`,
+      JSON.stringify({ item: { headers: { Authorization: SECRET } } }),
+      `{"\\u0065nv":{"API_TOKEN":"${SECRET}"}}`,
     ]) {
       expect(redactEventDataJsonForType("item/completed", raw)).not.toContain(
         SECRET,
