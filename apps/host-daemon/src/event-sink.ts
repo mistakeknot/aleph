@@ -1,3 +1,4 @@
+import { redactEventDataForType } from "@bb/domain";
 import type { ThreadEvent } from "@bb/domain";
 import type {
   HostDaemonEventBatchResponse,
@@ -251,7 +252,7 @@ export function createEventSink(options: CreateEventSinkOptions): EventSink {
       }
       queue.push({
         threadId: input.threadId,
-        event: input.event,
+        event: redactEventDataForType(input.event.type, input.event),
       });
       maybeLogQueuePressure();
       scheduleFlush(

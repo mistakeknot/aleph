@@ -1,4 +1,5 @@
 import { closeSync, mkdirSync, openSync, writeSync } from "node:fs";
+import { redactCredentialsInJsonLine } from "@bb/domain";
 import { join, resolve } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import type { Readable, Writable } from "node:stream";
@@ -179,7 +180,8 @@ export function createBridgeRecorder(args: { dir: string }): BridgeRecorder {
       run,
       seq,
       dir: recordArgs.direction,
-      line: recordArgs.line,
+      // Launch requests carry options.envVars (pool tokens); redact by key.
+      line: redactCredentialsInJsonLine(recordArgs.line),
     };
     try {
       writeSync(

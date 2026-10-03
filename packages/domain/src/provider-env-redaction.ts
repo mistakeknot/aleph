@@ -1,5 +1,14 @@
 /**
- * Redaction for `provider.env-resolved` event payloads.
+ * Credential redaction for event payloads.
+ *
+ * Every event type is covered by a generic deep walk
+ * (`sanitizeCredentialsDeep`): values under secret-named keys, children of
+ * env/envVars/headers maps and `{name, value}` pairs with secret names are
+ * replaced, and (for diagnostic-style types) secret-looking strings are
+ * scrubbed. Content-bearing types (messages, tool output) only get the
+ * key/container based rules so user-visible text stays intact.
+ *
+ * Original doc for `provider.env-resolved`:
  *
  * The event records the environment a provider session was launched with so
  * operators can debug resolution. That environment carries credentials (the
@@ -30,15 +39,31 @@ const SECRET_ENV_NAME_PATTERN =
 const MIN_CROSS_REFERENCE_SECRET_LENGTH = 8;
 
 export function isSecretEnvName(name: string): boolean {
-  return (
-    KNOWN_SECRET_ENV_NAMES.has(name) || SECRET_ENV_NAME_PATTERN.test(name)
-  );
+  return KNOWN_SECRET_ENV_NAMES.has(name) || SECRET_ENV_NAME_PATTERN.test(name);
 }
 
+const SECRET_WORDS =
+  "token|secret|key|password|passwd|passphrase|credential|auth|cookie|signature";
 const URL_USERINFO_PATTERN = /(\b[a-z][a-z0-9+.-]*:\/\/)[^\s/@]+@/gi;
 const BEARER_PATTERN = /\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/gi;
-const SECRET_ASSIGNMENT_PATTERN =
-  /((?:^|[\s?&;,'"])-{0,2}[\w.-]*(?:token|secret|key|password|passwd|credential|auth)[\w.-]*\s*[=:]\s*)[^\s&;,'"]+/gi;
+/** `Authorization: ...`, `Cookie: a=b; c=d` etc.: redact to end of line. */
+const SECRET_HEADER_PATTERN =
+  /((?:^|[\s,;{(\\"'])(?:proxy-)?(?:authorization|cookie|set-cookie|x-api-key|x-auth-token|x-access-token)\s*:)(?![ \t]*\[redacted\])([ \t]*)[^\r\n"']+/gi;
+/** `"apiKey": "x"` / escaped `\"apiKey\":\"x\"` inside embedded JSON. */
+const JSON_SECRET_PAIR_PATTERN = new RegExp(
+  `(\\\\*"[\\w.-]*(?:${SECRET_WORDS})[\\w.-]*\\\\*"\\s*:\\s*)(\\\\*"(?:[^"\\\\]|\\\\[^"])*\\\\*"|[^\\s,}\\]]+)`,
+  "gi",
+);
+/** `--api-key X` / `--token X` (flag-style, space separated). */
+const SECRET_FLAG_PATTERN = new RegExp(
+  `((?:^|[\\s'"])-{1,2}[\\w.-]*(?:${SECRET_WORDS})[\\w.-]*\\s+)(?!-)("[^"]*"|'[^']*'|[^\\s&;,'"]+)`,
+  "gi",
+);
+/** `NAME=value`, `NAME: value`, `--flag="value"`, `KEY='value'`, `?sig=value`. */
+const SECRET_ASSIGNMENT_PATTERN = new RegExp(
+  `((?:^|[\\s?&;,'"({\\[])-{0,2}[\\w.-]*(?:${SECRET_WORDS}|sig)[\\w.-]*\\s*[=:])(?!\\s*\\[redacted\\])(\\s*)("[^"]*"|'[^']*'|[^\\s&;,'"]+)`,
+  "gi",
+);
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -46,15 +71,19 @@ function escapeRegExp(value: string): string {
 
 function scrubSecretShapes(text: string): string {
   return text
+    .replace(SECRET_HEADER_PATTERN, `$1$2${REDACTED_ENV_VALUE}`)
+    .replace(JSON_SECRET_PAIR_PATTERN, (_m, key: string, value: string) =>
+      value.trim().startsWith("\\") || key.includes("\\")
+        ? `${key}\\"${REDACTED_ENV_VALUE}\\"`
+        : `${key}"${REDACTED_ENV_VALUE}"`,
+    )
     .replace(URL_USERINFO_PATTERN, `$1${REDACTED_ENV_VALUE}@`)
     .replace(BEARER_PATTERN, `$1 ${REDACTED_ENV_VALUE}`)
-    .replace(SECRET_ASSIGNMENT_PATTERN, `$1${REDACTED_ENV_VALUE}`);
+    .replace(SECRET_FLAG_PATTERN, `$1${REDACTED_ENV_VALUE}`)
+    .replace(SECRET_ASSIGNMENT_PATTERN, `$1$2${REDACTED_ENV_VALUE}`);
 }
 
-function scrubKnownSecrets(
-  text: string,
-  secretPattern: RegExp | null,
-): string {
+function scrubKnownSecrets(text: string, secretPattern: RegExp | null): string {
   const scrubbed = secretPattern
     ? text.replace(secretPattern, REDACTED_ENV_VALUE)
     : text;
@@ -120,14 +149,210 @@ export function redactProviderEnvResolvedData<T extends object>(data: T): T {
   return record as T;
 }
 
-/** Applies the event-type specific redaction to a stored/emitted payload. */
+// ---------------------------------------------------------------------------
+// Generic deep sanitizer
+// ---------------------------------------------------------------------------
+
+const MAX_SANITIZE_DEPTH = 64;
+const MAX_SANITIZE_NODES = 200_000;
+
+/** Keys whose child entries are named env vars / HTTP headers. */
+const ENV_CONTAINER_KEYS: ReadonlySet<string> = new Set([
+  "env",
+  "envvars",
+  "environment",
+  "headers",
+  "requestheaders",
+  "responseheaders",
+  "httpheaders",
+  "extraheaders",
+]);
+
+const SECRET_KEY_PATTERN =
+  /(token|secret|password|passwd|passphrase|credentials?|apikey|privatekey|authorization|cookie)$|^(auth|bearer|signature|sig)$/;
+
+/** Conservative raw-JSON precheck for key/container based redaction. */
+const KEY_REDACTION_PRECHECK =
+  /\\u|\\?"(?:[^"\\]*(?:token|secret|passw|passphrase|credential|api[-_. ]?key|private[-_. ]?key|authorization|cookie|auth|bearer|signature)[^"\\]*|sig|env|env[-_. ]?vars|environment|(?:request|response|http|extra)?[-_. ]?headers)\\?"\s*:/i;
+
+function normalizeKey(key: string): string {
+  return key.toLowerCase().replace(/[-_.\s]/g, "");
+}
+
+/** Whether a payload key (not an env name) holds a secret value. */
+function isSecretPayloadKey(key: string): boolean {
+  return SECRET_KEY_PATTERN.test(normalizeKey(key));
+}
+
+/** Types whose string fields are diagnostics rather than user content. */
+function isFreeTextScrubType(type: string): boolean {
+  return (
+    type.startsWith("provider/") ||
+    type.startsWith("provider.") ||
+    type.startsWith("client/") ||
+    (type.startsWith("system/") && type !== "system/manager/user_message") ||
+    type === "turn/completed"
+  );
+}
+
+interface SanitizeState {
+  freeText: boolean;
+  changed: boolean;
+  nodes: number;
+  secrets: Set<string>;
+}
+
+type WalkMode = "plain" | "env" | "force";
+
+function redactLeaf(state: SanitizeState, original: string): string {
+  if (original === REDACTED_ENV_VALUE) {
+    return original;
+  }
+  state.changed = true;
+  if (original.length >= MIN_CROSS_REFERENCE_SECRET_LENGTH) {
+    state.secrets.add(original);
+  }
+  return REDACTED_ENV_VALUE;
+}
+
+function walkSanitize(
+  value: unknown,
+  state: SanitizeState,
+  depth: number,
+  mode: WalkMode,
+): unknown {
+  if (typeof value === "string") {
+    if (mode === "force") {
+      return redactLeaf(state, value);
+    }
+    if (!state.freeText) {
+      return value;
+    }
+    const scrubbed = scrubSecretShapes(value);
+    if (scrubbed !== value) {
+      state.changed = true;
+    }
+    return scrubbed;
+  }
+  if (typeof value !== "object" || value === null) {
+    return value;
+  }
+  state.nodes += 1;
+  if (depth > MAX_SANITIZE_DEPTH || state.nodes > MAX_SANITIZE_NODES) {
+    // Fail closed on pathological payloads.
+    state.changed = true;
+    return REDACTED_ENV_VALUE;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) =>
+      walkSanitize(item, state, depth + 1, mode === "env" ? "plain" : mode),
+    );
+  }
+  const record = value as Record<string, unknown>;
+  const next: Record<string, unknown> = {};
+  const pairName =
+    typeof record.name === "string" &&
+    typeof record.value === "string" &&
+    (state.freeText || mode === "env") &&
+    isSecretEnvName(record.name);
+  for (const [key, child] of Object.entries(record)) {
+    if (pairName && key === "value") {
+      next[key] = redactLeaf(state, child as string);
+      continue;
+    }
+    if (mode === "env" && typeof child === "string" && isSecretEnvName(key)) {
+      next[key] = redactLeaf(state, child);
+      continue;
+    }
+    if (mode !== "force" && isSecretPayloadKey(key)) {
+      if (typeof child === "string") {
+        next[key] = redactLeaf(state, child);
+        continue;
+      }
+      if (isRecord(child) || Array.isArray(child)) {
+        next[key] = walkSanitize(child, state, depth + 1, "force");
+        continue;
+      }
+    }
+    const childMode: WalkMode =
+      mode === "force"
+        ? "force"
+        : ENV_CONTAINER_KEYS.has(normalizeKey(key)) && isRecord(child)
+          ? "env"
+          : "plain";
+    next[key] = walkSanitize(child, state, depth + 1, childMode);
+  }
+  return next;
+}
+
+function scrubKnownSecretsDeep(
+  value: unknown,
+  pattern: RegExp,
+  depth: number,
+): unknown {
+  if (typeof value === "string") {
+    return value === REDACTED_ENV_VALUE
+      ? value
+      : value.replace(pattern, REDACTED_ENV_VALUE);
+  }
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    depth > MAX_SANITIZE_DEPTH
+  ) {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => scrubKnownSecretsDeep(item, pattern, depth + 1));
+  }
+  return Object.fromEntries(
+    Object.entries(value).map(([key, child]) => [
+      key,
+      scrubKnownSecretsDeep(child, pattern, depth + 1),
+    ]),
+  );
+}
+
+/**
+ * Deep-copies `value` with credentials replaced. Returns the input itself
+ * when nothing needed redaction. `freeText` additionally scrubs
+ * secret-looking substrings (bearer tokens, `--api-key X`, embedded JSON,
+ * cookie headers, ...) out of every string.
+ */
+export function sanitizeCredentialsDeep<T>(
+  value: T,
+  options: { freeText: boolean },
+): T {
+  const state: SanitizeState = {
+    freeText: options.freeText,
+    changed: false,
+    nodes: 0,
+    secrets: new Set(),
+  };
+  let result = walkSanitize(value, state, 0, "plain");
+  if (state.secrets.size > 0) {
+    const pattern = new RegExp(
+      [...state.secrets]
+        .sort((a, b) => b.length - a.length)
+        .map(escapeRegExp)
+        .join("|"),
+      "g",
+    );
+    result = scrubKnownSecretsDeep(result, pattern, 0);
+  }
+  return state.changed ? (result as T) : value;
+}
+
+/** Applies credential redaction to a stored/emitted payload of any type. */
 export function redactEventDataForType<T extends object>(
   type: string,
   data: T,
 ): T {
-  return type === "provider.env-resolved"
-    ? redactProviderEnvResolvedData(data)
-    : data;
+  const base =
+    type === "provider.env-resolved"
+      ? redactProviderEnvResolvedData(data)
+      : data;
+  return sanitizeCredentialsDeep(base, { freeText: isFreeTextScrubType(type) });
 }
 
 /**
@@ -135,7 +360,9 @@ export function redactEventDataForType<T extends object>(
  * or non-object payloads are returned unchanged.
  */
 export function redactEventDataJsonForType(type: string, json: string): string {
-  if (type !== "provider.env-resolved") {
+  // Hot write path (output deltas, tool output): skip the parse when the raw
+  // text has no secret-named key, env/header container or escaped key.
+  if (!isFreeTextScrubType(type) && !KEY_REDACTION_PRECHECK.test(json)) {
     return json;
   }
   let parsed: unknown;
@@ -147,5 +374,22 @@ export function redactEventDataJsonForType(type: string, json: string): string {
   if (!isRecord(parsed)) {
     return json;
   }
-  return JSON.stringify(redactProviderEnvResolvedData(parsed));
+  const redacted = redactEventDataForType(type, parsed);
+  return redacted === parsed ? json : JSON.stringify(redacted);
+}
+
+/**
+ * Key/container based redaction of one serialized JSON line (no free-text
+ * scrubbing, so recorded provider output stays faithful). Non-JSON lines are
+ * returned unchanged.
+ */
+export function redactCredentialsInJsonLine(line: string): string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(line);
+  } catch {
+    return line;
+  }
+  const redacted = sanitizeCredentialsDeep(parsed, { freeText: false });
+  return redacted === parsed ? line : JSON.stringify(redacted);
 }

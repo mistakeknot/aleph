@@ -3,6 +3,7 @@ import path from "node:path";
 import { z } from "zod";
 import {
   normalizeProviderThreadNameEvent,
+  redactEventDataForType,
   redactProviderEnvResolvedData,
   toProviderExternalThreadName,
 } from "@bb/domain";
@@ -253,6 +254,13 @@ function resolveThreadStoragePath(
 }
 
 export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
+  // Single runtime emit boundary: provider-supplied diagnostics (warnings,
+  // errors, raw wrappers) can echo launch credentials, so every event is
+  // sanitized before it leaves the runtime. The provider's own launch env is
+  // never touched.
+  const emitEvent = (event: ThreadEvent): void => {
+    options.onEvent(redactEventDataForType(event.type, event));
+  };
   const additionalWorkspaceWriteRoots =
     options.additionalWorkspaceWriteRoots ?? [];
   const skillRoots = options.skillRoots ?? [];
@@ -293,7 +301,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
         continue;
       }
       entry.watchdogFired = true;
-      options.onEvent({
+      emitEvent({
         type: "system/error",
         threadId,
         scope: { kind: "thread" },
@@ -1166,7 +1174,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
     providerThreadId: string;
     threadId: string;
   }): void {
-    options.onEvent({
+    emitEvent({
       type: "provider.env-resolved",
       threadId: args.threadId,
       providerThreadId: args.providerThreadId,
@@ -1177,7 +1185,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
       scope: { kind: "thread" },
     });
     for (const contribution of args.droppedContributions) {
-      options.onEvent({
+      emitEvent({
         type: "provider/warning",
         threadId: args.threadId,
         providerThreadId: args.providerThreadId,
@@ -1268,7 +1276,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
       turnState.observe(normalizedEvent);
       backgroundWorkState.observe(normalizedEvent);
       observeProviderSessionIdleState(normalizedEvent);
-      options.onEvent(normalizedEvent);
+      emitEvent(normalizedEvent);
       threadGoalState.observe(normalizedEvent);
     }
   }

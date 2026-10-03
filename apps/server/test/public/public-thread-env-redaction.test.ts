@@ -76,3 +76,83 @@ describe("provider.env-resolved is redacted on every read path", () => {
     });
   });
 });
+
+describe("other event types are redacted on every read path", () => {
+  const SECRET = "synthetic-review-token-1234";
+  const legacyRows: Array<[string, Record<string, unknown>]> = [
+    [
+      "provider/warning",
+      {
+        category: "config",
+        summary: "x",
+        details: `Authorization: Bearer ${SECRET}`,
+      },
+    ],
+    ["provider/error", { message: `failed --api-key ${SECRET}` }],
+    [
+      "client/thread/start",
+      {
+        direction: "outbound",
+        source: "spawn",
+        initiator: "user",
+        request: {
+          method: "thread/start",
+          params: {
+            options: { envVars: { CODEX_POOL_AUTH_TOKEN: SECRET } },
+          },
+        },
+      },
+    ],
+    [
+      "provider/unhandled",
+      {
+        providerId: "fake",
+        rawType: "x",
+        rawEvent: {
+          jsonrpc: "2.0",
+          method: "x",
+          params: { env: { SOME_SECRET: SECRET } },
+        },
+      },
+    ],
+  ];
+
+  it("redacts legacy plaintext rows of warning/error/start/unhandled events", async () => {
+    await withTestHarness({ isDevelopment: true }, async (harness) => {
+      const { thread } = seedThreadFixture(harness);
+      setAppSettings(harness.db, {
+        ...defaultAppSettings,
+        showDiagnosticEvents: true,
+      });
+      legacyRows.forEach(([type, data], index) => {
+        seedEvent(harness.deps, {
+          threadId: thread.id,
+          providerThreadId: "provider-session",
+          scope: threadScope(),
+          sequence: index + 1,
+          type,
+          data: { ...data },
+        } as never);
+        harness.db.run(
+          sql`UPDATE events SET data = ${JSON.stringify(data)} WHERE thread_id = ${thread.id} AND sequence = ${index + 1}`,
+        );
+      });
+
+      for (const path of [
+        `events`,
+        `events?afterSeq=1&beforeSeq=5&limit=3&order=desc`,
+        ...legacyRows.map(
+          ([type]) =>
+            `events/wait?type=${encodeURIComponent(type)}&afterSeq=0&waitMs=0`,
+        ),
+        `timeline`,
+      ]) {
+        const res = await harness.app.request(
+          `/api/v1/threads/${thread.id}/${path}`,
+        );
+        expect(res.status, path).toBe(200);
+        expect(JSON.stringify(await readJson(res)), path).not.toContain(SECRET);
+      }
+    });
+  });
+});
