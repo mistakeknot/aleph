@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   encodeClientTurnRequestIdNumber,
   threadScope,
@@ -26,6 +26,36 @@ import {
   buildRouteTimelinePage,
   latestTimelinePage,
 } from "../provider-corpus/corpus-harness.js";
+
+const coalescerClock = vi.hoisted(() => ({ frozen: false, now: 0 }));
+
+vi.mock(
+  "../../src/services/threads/timeline-build-coalescer.js",
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import("../../src/services/threads/timeline-build-coalescer.js")
+      >();
+    return {
+      ...actual,
+      createTimelineBuildCoalescer: (
+        options: Parameters<typeof actual.createTimelineBuildCoalescer>[0],
+      ) =>
+        actual.createTimelineBuildCoalescer({
+          ...options,
+          minBuildMs: 0,
+          now: () =>
+            coalescerClock.frozen
+              ? coalescerClock.now
+              : (coalescerClock.now += 1_000),
+        }),
+    };
+  },
+);
+
+afterEach(() => {
+  coalescerClock.frozen = false;
+});
 
 async function getTimeline(
   harness: TestAppHarness,
@@ -337,6 +367,63 @@ describe("GET /threads/:id/timeline?afterSequence (row-patch delta)", () => {
       expect(
         countTimelineSelectionMemoEntries(harness.deps.db),
       ).toBeGreaterThan(0);
+    });
+  });
+
+  it("a coalesced streaming tick serves the last snapshot, pushes a trailing refresh, then merges to a cold window", async () => {
+    await withTestHarness(async (harness) => {
+      const { environment, thread } = seedThreadFixture(harness, {
+        thread: { status: "active" },
+      });
+      const turn = {
+        threadId: thread.id,
+        environmentId: environment.id,
+        providerThreadId: "p1",
+        scope: turnScope("turn-1"),
+      } as const;
+      seedThreadRuntimeState(harness.deps, turn);
+      seedTurnStarted(harness.deps, { ...turn, turnId: "turn-1" });
+      seedEvent(harness.deps, {
+        ...turn,
+        sequence: 4,
+        type: "turn/input/accepted",
+        data: {
+          clientRequestId: encodeClientTurnRequestIdNumber({ value: 1 }),
+        },
+      });
+      seedEvent(harness.deps, {
+        ...turn,
+        sequence: 5,
+        type: "item/started",
+        data: { item: { type: "agentMessage", id: "assistant-1", text: "" } },
+      });
+      const before = await getTimeline(harness, thread.id);
+      const refresh = vi.spyOn(harness.deps.hub, "notifyThreadTimelineRefresh");
+      coalescerClock.frozen = true;
+      seedEvent(harness.deps, {
+        ...turn,
+        sequence: before.maxSeq + 1,
+        type: "item/agentMessage/delta",
+        data: { itemId: "assistant-1", delta: "Roses are red\n" },
+      });
+
+      const stale = await getTimeline(harness, thread.id, before.maxSeq);
+      expect(stale.maxSeq).toBe(before.maxSeq);
+      expect(stale.delta).toBeDefined();
+      expect(applyTimelineDelta(before.rows, stale.delta!)).toEqual(
+        before.rows,
+      );
+      await vi.waitFor(() => expect(refresh).toHaveBeenCalledWith(thread.id), {
+        timeout: 2_000,
+      });
+
+      coalescerClock.frozen = false;
+      const tick = await getTimeline(harness, thread.id, before.maxSeq);
+      expect(tick.maxSeq).toBe(before.maxSeq + 1);
+      expect(tick.delta).toBeDefined();
+      const merged = applyTimelineDelta(before.rows, tick.delta!) ?? [];
+      expect(merged).toEqual(buildColdLatestRows(harness, thread));
+      expect(assistantText(merged)).toBe("Roses are red\n");
     });
   });
 
