@@ -310,12 +310,13 @@ describe("createAgentRuntime lifecycle", () => {
           {
             name: "AUTH_PROXY_URL",
             source: { plugin: "env-test" },
-            value: "http://127.0.0.1:3334/plugins/env-test/auth",
+            value: "[redacted]",
             reason: "Use the authenticated server proxy",
           },
         ]),
       });
-      expect(JSON.stringify(events)).toContain("/plugins/env-test/auth");
+      // The provider still receives the real value; only the event is redacted.
+      expect(JSON.stringify(events)).not.toContain("/plugins/env-test/auth");
 
       await runtime.runTurn({
         clientRequestId: "creq_222222224c",
@@ -327,6 +328,57 @@ describe("createAgentRuntime lifecycle", () => {
       expect(
         events.filter((event) => event.type === "provider.env-resolved"),
       ).toHaveLength(1);
+
+      await runtime.shutdown();
+    });
+
+    it("keeps pool credentials out of the provider.env-resolved event", async () => {
+      const record = createScriptedEchoRequestRecord();
+      const events: ThreadEvent[] = [];
+      const runtime = createScriptedEchoRuntime({
+        runtime: {
+          workspacePath: tmpDir,
+          threadStorageRootPath: join(tmpDir, "thread-storage"),
+          env: record.env,
+          shellEnv: {
+            PATH: "/usr/bin",
+            CODEX_POOL_AUTH_TOKEN: "synthetic-pool-token-0000",
+          },
+          onEvent: (event) => events.push(event),
+        },
+      });
+
+      await runtime.startThread({
+        environmentId: "env-1",
+        threadId: "t1",
+        projectId: "p1",
+        providerId: "fake",
+        contributedEnv: [],
+        options: fullRuntimeOptions,
+      });
+
+      expect(record.last("thread/start")?.params).toEqual(
+        expect.objectContaining({
+          options: expect.objectContaining({
+            envVars: expect.objectContaining({
+              CODEX_POOL_AUTH_TOKEN: "synthetic-pool-token-0000",
+            }),
+          }),
+        }),
+      );
+      const resolved = events.find(
+        (event) => event.type === "provider.env-resolved",
+      );
+      expect(resolved).toMatchObject({
+        entries: expect.arrayContaining([
+          {
+            name: "CODEX_POOL_AUTH_TOKEN",
+            source: "shell",
+            value: "[redacted]",
+          },
+        ]),
+      });
+      expect(JSON.stringify(events)).not.toContain("synthetic-pool-token-0000");
 
       await runtime.shutdown();
     });
