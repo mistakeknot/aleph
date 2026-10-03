@@ -19,6 +19,8 @@ import type { HostDaemonCommand } from "@bb/host-daemon-contract";
 import type { LoggedPendingInteractionWorkSessionDeps } from "../../types.js";
 import { requireThreadEnvironment } from "../lib/entity-lookup.js";
 import { createQueuedThreadMessage } from "@bb/db";
+import { emitPluginMessageQueued } from "../plugins/plugin-thread-events.js";
+import { toThreadQueuedMessage } from "./thread-queued-messages.js";
 import {
   addRequestIdToTurnSubmitCommandPayload,
   buildExecutionOptions,
@@ -567,7 +569,7 @@ export async function queueParentSystemMessage(
       threadId: parentThread.id,
     },
   );
-  createQueuedThreadMessage(deps.db, deps.hub, {
+  const queuedRow = createQueuedThreadMessage(deps.db, deps.hub, {
     threadId: parentThread.id,
     content: args.input,
     senderThreadId: null,
@@ -589,6 +591,10 @@ export async function queueParentSystemMessage(
       subject: args.systemMessageSubject,
     },
   });
+  // The DB helper only announces queue-changed. A plugin waiter learns of a
+  // new row through `message.queued` (as for every row recordQueuedMessageWait
+  // writes), so without this a held notice stalls until an unrelated recheck.
+  emitPluginMessageQueued(toThreadQueuedMessage(queuedRow));
   if (!hasPendingInteraction && !held.held) {
     requestQueuedMessageDispatch(deps, {
       kind: "thread-ready",

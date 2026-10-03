@@ -89,6 +89,7 @@ import {
   settleQueueRowDispatched,
 } from "./queue-waits.js";
 import { recordQueuedMessageDrainFailure } from "./queue-drain-failure.js";
+import { emitPluginMessageQueued } from "../plugins/plugin-thread-events.js";
 import {
   appendPluginMentionContext,
   captureUserMessageSentTelemetry,
@@ -223,6 +224,17 @@ function admitQueuedMessage(
     throwThreadEnvironmentUnavailable(goneDetails);
   }
   return { hasProviderSession };
+}
+
+/**
+ * A transferred row is a new row (new id) the plugin that holds it has never
+ * been told about, so a plugin- or time-held one is announced like any row
+ * that newly lands held. Rows with an ordinary thread-busy wait are not held.
+ */
+function emitQueuedIfHeld(entry: ThreadQueuedMessage): void {
+  if (entry.waitingOn?.kind === "plugin" || entry.waitingOn?.kind === "time") {
+    emitPluginMessageQueued(entry);
+  }
 }
 
 export async function createQueuedMessageForThread(
@@ -382,13 +394,15 @@ export async function transferQueuedMessage(
   }
   deps.hub.notifyThread(sourceThread.id, ["queue-changed"]);
   deps.hub.notifyThread(targetThread.id, ["queue-changed"]);
+  const movedEntry = toThreadQueuedMessage(transferred.queuedMessage);
+  emitQueuedIfHeld(movedEntry);
   if (currentTarget.status === "idle") {
     requestQueuedMessageDispatch(deps, {
       kind: "thread-ready",
       threadId: targetThread.id,
     });
   }
-  return toThreadQueuedMessage(transferred.queuedMessage);
+  return movedEntry;
 }
 
 export interface TransferAllQueuedMessagesArgs {
@@ -452,6 +466,9 @@ export async function transferAllQueuedMessages(
   if (transferred.moved.length > 0) {
     deps.hub.notifyThread(sourceThread.id, ["queue-changed"]);
     deps.hub.notifyThread(targetThread.id, ["queue-changed"]);
+    for (const row of transferred.moved) {
+      emitQueuedIfHeld(toThreadQueuedMessage(row.queuedMessage));
+    }
     if (currentTarget.status === "idle") {
       requestQueuedMessageDispatch(deps, {
         kind: "thread-ready",

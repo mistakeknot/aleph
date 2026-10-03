@@ -14,6 +14,7 @@ import {
   threadQueuedMessageSchema,
   turnRequestEventDataSchema,
 } from "@bb/domain";
+import type { ThreadQueuedMessage } from "@bb/domain";
 import {
   createQueuedMessageRequestSchema,
   threadQueuedMessageListResponseSchema,
@@ -41,6 +42,7 @@ import {
   seedThread,
   seedThreadRuntimeState,
 } from "../helpers/seed.js";
+import { setPluginThreadEventEmitter } from "../../src/services/plugins/plugin-thread-events.js";
 import { createTestAppHarness, withTestHarness } from "../helpers/test-app.js";
 import { readJson } from "../helpers/json.js";
 
@@ -61,9 +63,33 @@ function installHooks(registry: HookRegistry): void {
 }
 
 afterEach(() => {
+  setPluginThreadEventEmitter(undefined);
   setPluginHookProvider(undefined);
   clearDeliveredChildOutputForTesting();
 });
+
+/** Records `message.queued` through the very bridge createApp registers. */
+function recordQueuedEvents(): ThreadQueuedMessage[] {
+  const queuedEvents: ThreadQueuedMessage[] = [];
+  setPluginThreadEventEmitter({
+    emitThreadEvents: () => {},
+    emitTerminalInput: () => {},
+    emitHostDeleted: () => {},
+    emitThreadCreated: () => {},
+    emitThreadActive: () => {},
+    emitThreadIdle: () => {},
+    emitThreadFailed: () => {},
+    emitThreadArchived: () => {},
+    emitThreadDeleted: () => {},
+    emitInteractionPending: () => {},
+    emitMessageQueued: (entry) => queuedEvents.push(entry),
+    emitMessageDispatched: () => {},
+    emitMessageCancelled: () => {},
+    emitThreadUnarchived: () => {},
+    emitTurnFailed: () => {},
+  });
+  return queuedEvents;
+}
 
 interface ParentFixture {
   environmentId: string;
@@ -766,6 +792,59 @@ describe("parent wake policy", () => {
     });
   }, 10_000);
 
+  it("R4: the first held child notice announces message.queued without any recheck", async () => {
+    await withTestHarness(async (harness) => {
+      const queuedEvents = recordQueuedEvents();
+      const registry = emptyRegistry();
+      registry["message.dispatch"].push({
+        pluginId: "quota-governor",
+        handler: () => ({ action: "wait", reason: "quota exceeded" }) as const,
+      });
+      installHooks(registry);
+
+      const fixture = seedParentFixture(harness, "host-r4-queued-event");
+      const child = seedThread(harness.deps, {
+        projectId: fixture.projectId,
+        title: "Worker",
+        parentThreadId: fixture.parentThreadId,
+      });
+      seedChildTurnRequest(harness, {
+        childThreadId: child.id,
+        turnId: "turn-1",
+        initiator: "user",
+        senderThreadId: null,
+      });
+      seedChildFinalOutput(harness, {
+        childThreadId: child.id,
+        turnId: "turn-1",
+        text: "Held result",
+      });
+
+      await queueChildThreadTurnNotificationBestEffort(harness.deps, {
+        childThread: child,
+        parentThreadId: fixture.parentThreadId,
+        turnId: "turn-1",
+        turnStatus: "completed",
+      });
+      const held = await waitForQueuedParentNotice(
+        harness,
+        fixture.parentThreadId,
+      );
+
+      expect(queuedEvents).toHaveLength(1);
+      expect(queuedEvents[0]).toMatchObject({
+        id: held.id,
+        threadId: fixture.parentThreadId,
+        waitingOn: {
+          kind: "plugin",
+          pluginId: "quota-governor",
+          reason: "quota exceeded",
+        },
+        systemNotice: { kind: "child-completed" },
+      });
+    });
+  }, 10_000);
+
   it("R4: a held system notice goes back through message.dispatch as system on every recheck, and releases once the hook proceeds", async () => {
     await withTestHarness(async (harness) => {
       const seen: { initiator: string; queuedMessageCount: number }[] = [];
@@ -1155,6 +1234,45 @@ describe("queued system notice transfer (R4 retirement forward, R6)", () => {
     });
   }, 20_000);
 
+  it("a transferred held notice announces message.queued for its new row", async () => {
+    await withTestHarness(async (harness) => {
+      const registry = emptyRegistry();
+      registry["message.dispatch"].push({
+        pluginId: "quota-governor",
+        handler: () =>
+          ({
+            action: "wait",
+            reason: "quota exceeded",
+            sendAt: HELD_UNTIL,
+          }) as const,
+      });
+      installHooks(registry);
+      const fixture = seedParentFixture(harness, "host-r4-transfer-event");
+      const successorId = seedSuccessorThread(
+        harness,
+        fixture,
+        "host-r4-transfer-event",
+      );
+      const held = await holdChildCompletionNotice(harness, fixture);
+      const queuedEvents = recordQueuedEvents();
+      const response = await harness.app.request(
+        `/api/v1/threads/${fixture.parentThreadId}/queued-messages/${held.id}/transfer`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ targetThreadId: successorId }),
+        },
+      );
+      expect(response.status).toBe(201);
+      const moved = threadQueuedMessageSchema.parse(await readJson(response));
+      expect(queuedEvents.map((entry) => entry.id)).toEqual([moved.id]);
+      expect(queuedEvents[0]).toMatchObject({
+        threadId: successorId,
+        waitingOn: { kind: "plugin", pluginId: "quota-governor" },
+      });
+    });
+  }, 20_000);
+
   it("a forwarded system notice still goes through message.dispatch as system on the successor, then delivers", async () => {
     await withTestHarness(async (harness) => {
       const seen: { initiator: string; queuedMessageCount: number }[] = [];
@@ -1510,6 +1628,30 @@ describe("transfer-all queued messages (retirement forward)", () => {
       expect(await listOverHttp(harness, target)).toEqual(onTarget);
     });
   }, 25_000);
+
+  it("announces message.queued only for moved rows that land held", async () => {
+    await withTestHarness(async (harness) => {
+      const fixture = seedParentFixture(harness, "host-r4-all-event");
+      const targetId = seedSuccessor(harness, fixture);
+      seedRow(harness, fixture.parentThreadId, "plain");
+      seedRow(harness, fixture.parentThreadId, "held", {
+        waitingOn: { kind: "plugin", pluginId: "quota-governor", reason: "q" },
+        sendAt: SEND_AT,
+      });
+      const queuedEvents = recordQueuedEvents();
+      const response = await transferAll(
+        harness,
+        fixture.parentThreadId,
+        targetId,
+      );
+      expect(response.status).toBe(200);
+      expect(queuedEvents).toHaveLength(1);
+      expect(queuedEvents[0]).toMatchObject({
+        threadId: targetId,
+        waitingOn: { kind: "plugin", pluginId: "quota-governor" },
+      });
+    });
+  }, 20_000);
 
   it("refuses cross-project, same-thread, archived and missing targets and moves nothing", async () => {
     await withTestHarness(async (harness) => {
