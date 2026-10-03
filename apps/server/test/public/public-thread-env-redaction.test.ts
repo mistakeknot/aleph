@@ -350,3 +350,163 @@ describe("round 4 public event regressions", () => {
     }
   }
 });
+
+describe("round 5 public event regressions", () => {
+  const secret = "synthetic-review-token-1234";
+  const token = `${secret}bbbbbbbbsynthetic-middle-ccccccccsynthetic-tail`;
+  const presentation = {
+    label: { pending: "Working", completed: "Done" },
+    icon: { glyph: "x" },
+  };
+  const detail = `abcdefgh${"x".repeat(272)}`;
+  const cases = [
+    {
+      name: "client turn start params",
+      type: "client/turn/start",
+      data: {
+        direction: "outbound",
+        source: "tell",
+        initiator: "user",
+        request: {
+          method: "turn/start",
+          params: {
+            authorization: `Bearer ${secret}`,
+            input: [{ type: "text", text: "safe authored prompt" }],
+          },
+        },
+      },
+      keep: "safe authored prompt",
+    },
+    {
+      name: "overlapping matcher prefix",
+      type: "item/completed",
+      data: {
+        item: {
+          type: "toolCall",
+          id: "synthetic-tool",
+          tool: "probe",
+          status: "completed",
+          result: {
+            env: {
+              API_KEY: token,
+              SECRET_A: "aaaaaaaa",
+              SECRET_B: "bbbbbbbb",
+              SECRET_C: "cccccccc",
+            },
+            echo: `aaaaaaaa${token}`,
+          },
+        },
+      },
+    },
+    {
+      name: "free-form extension payload kind",
+      type: "thread/extensionState/updated",
+      data: {
+        kind: "synthetic/state",
+        payload: { env: { API_KEY: secret }, kind: secret },
+      },
+    },
+    {
+      name: "free-form operation status",
+      type: "system/operation",
+      data: {
+        operation: "probe",
+        operationId: "synthetic-operation",
+        status: secret,
+        message: "safe",
+        metadata: { env: { API_KEY: secret } },
+      },
+    },
+    {
+      name: "cookie marker prefix",
+      type: "provider/warning",
+      data: { category: "config", details: `Cookie: [redacted]; sid=${secret}` },
+    },
+    {
+      name: "authorization escaped internal quotes",
+      type: "provider/warning",
+      data: {
+        category: "config",
+        details: `Authorization: Digest username="a\\"b\\"c", response="${secret}"`,
+      },
+    },
+    {
+      name: "bounded presentation detail",
+      type: "item/completed",
+      data: {
+        item: {
+          type: "toolCall",
+          id: "synthetic-tool",
+          tool: "probe",
+          status: "completed",
+          result: { env: { API_KEY: "abcdefgh" } },
+          presentation: { ...presentation, detail },
+        },
+      },
+      seed: {
+        item: {
+          type: "toolCall",
+          id: "synthetic-tool",
+          tool: "probe",
+          status: "completed",
+          result: { env: { API_KEY: "abcdefgh" } },
+          presentation: { ...presentation, detail: "safe" },
+        },
+      },
+      forbid: "abcdefgh",
+    },
+  ] as Array<{
+    name: string;
+    type: string;
+    data: unknown;
+    seed?: unknown;
+    keep?: string;
+    forbid?: string;
+  }>;
+  for (const mode of ["insert", "legacy-read"]) {
+    for (const c of cases) {
+      it(`${mode}: ${c.name}`, async () => {
+        await withTestHarness({ isDevelopment: true }, async (harness) => {
+          const { thread } = seedThreadFixture(harness);
+          setAppSettings(harness.db, {
+            ...defaultAppSettings,
+            showDiagnosticEvents: true,
+          });
+          seedTurnStarted(harness.deps, {
+            threadId: thread.id,
+            turnId: "synthetic-turn",
+            sequence: 1,
+          });
+          seedEvent(harness.deps, {
+            threadId: thread.id,
+            providerThreadId: "synthetic-provider",
+            scope: c.type.startsWith("item/")
+              ? turnScope("synthetic-turn")
+              : threadScope(),
+            sequence: 2,
+            type: c.type,
+            data: mode === "legacy-read" && c.seed ? c.seed : c.data,
+          } as never);
+          if (mode === "legacy-read") {
+            harness.db.run(
+              sql`UPDATE events SET data = ${JSON.stringify(c.data)} WHERE thread_id = ${thread.id} AND sequence = 2`,
+            );
+          }
+          const res = await harness.app.request(
+            `/api/v1/threads/${thread.id}/events`,
+          );
+          expect(res.status).toBe(200);
+          const body = await res.text();
+          expect(body).not.toContain(c.forbid ?? secret);
+          if (c.keep) {
+            expect(body).toContain(c.keep);
+          }
+          if (c.name.includes("overlapping")) {
+            expect(body).not.toContain("synthetic-middle");
+            expect(body).not.toContain("synthetic-tail");
+          }
+        });
+      });
+    }
+  }
+});

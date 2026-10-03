@@ -557,4 +557,62 @@ describe("event sink", () => {
     }
     expect(JSON.stringify(posted)).not.toContain(secret);
   });
+
+  it("keeps schema-constrained fields valid after redaction", async () => {
+    const postEvents = vi.fn<CreateEventSinkOptions["postEvents"]>(
+      async (events) => ({
+        acceptedEvents: events.map((event, eventIndex) => ({
+          eventIndex,
+          sequence: eventIndex + 1,
+          threadId: event.threadId,
+        })),
+        rejectedEvents: [],
+      }),
+    );
+    const sink = createEventSink({
+      isSessionOpen: () => true,
+      logger: { debug: vi.fn(), error: vi.fn(), warn: vi.fn() },
+      postEvents,
+    });
+    const presentation = {
+      label: { pending: "Working", completed: "Done" },
+      icon: { glyph: "x" },
+    };
+    const items = [
+      {
+        type: "toolCall",
+        id: "synthetic-tool",
+        tool: "probe",
+        status: "completed",
+        result: { env: { API_KEY: "abcdefgh" } },
+        presentation: { ...presentation, detail: `abcdefgh${"x".repeat(272)}` },
+      },
+      {
+        type: "extension",
+        id: "synthetic-item",
+        kind: "synthetic/state",
+        status: "completed",
+        payload: { env: { API_KEY: "synthetic/state" } },
+        presentation,
+      },
+    ];
+    for (const item of items) {
+      sink.emit({
+        threadId: "thr_1",
+        event: threadEventSchema.parse({
+          type: "item/completed",
+          threadId: "thr_1",
+          providerThreadId: "synthetic-provider",
+          scope: turnScope("synthetic-turn"),
+          item,
+        }),
+      });
+    }
+    await sink.flush();
+    const posted = postEvents.mock.calls.flatMap(([batch]) => batch);
+    expect(posted).toHaveLength(2);
+    for (const entry of posted) {
+      expect(threadEventSchema.safeParse(entry.event).success).toBe(true);
+    }
+  });
 });

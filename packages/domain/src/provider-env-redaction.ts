@@ -33,9 +33,11 @@
 import type { ThreadEventType } from "./provider-event.js";
 import {
   STRUCTURAL_ARRAY_KEY,
-  getStructuralRoot,
+  enterStructural,
   isStructuralTerminal,
+  repairSchemaViolations,
   stepStructural,
+  structuralFrontierForType,
   type StructuralNode,
 } from "./thread-event-structure.js";
 
@@ -78,7 +80,7 @@ const STRONG_BEARER_PATTERN = /\b(Bearer)\s+[A-Za-z0-9._~+/=-]{16,}/gi;
  * segments, escaped quotes (embedded JSON text) and unterminated quotes.
  */
 const SECRET_HEADER_NAME_PATTERN =
-  /((?:^|[\s,;{(\\"'])(?:proxy-)?(?:authorization|cookie|set-cookie|x-api-key|x-auth-token|x-access-token)\s*:)(?![ \t]*\[redacted\])([ \t]*)/gi;
+  /((?:^|[\s,;{(\\"'])(?:proxy-)?(?:authorization|cookie|set-cookie|x-api-key|x-auth-token|x-access-token)\s*:)([ \t]*)/gi;
 /** Opening of an embedded JSON pair: `"apiKey":` / `\"apiKey\":` / `"apiKey":`. */
 const JSON_KEY_PATTERN =
   /(?<!\\)(\\*"(?:[\w.-]|\\u[0-9a-fA-F]{4})+\\*"\s*:\s*)/g;
@@ -91,7 +93,7 @@ const SECRET_FLAG_PATTERN =
   /(?<=^|[\s'"])(-{1,2}[\w.-]+\s+)(?!-)("[^"]*"|'[^']*'|[^\s&;,'"]+)/g;
 /** `NAME=value`, `NAME: value`, `--flag="value"`, `KEY='value'`, `?sig=value`. */
 const SECRET_ASSIGNMENT_PATTERN =
-  /(?<=^|[\s?&;,'"({\[])(-{0,2}[\w.-]+\s*[=:])(?!\s*\[redacted\])(\s*)("[^"]*"|'[^']*'|[^\s&;,'"]+)/g;
+  /(?<=^|[\s?&;,'"({\[])(-{0,2}[\w.-]+\s*[=:])(?!\s*\[redacted\](?![^\s&;,'"]))(\s*)("[^"]*"|'[^']*'|[^\s&;,'"]+)/g;
 
 const SECRET_TEXT_KEY_PATTERN =
   /token|secret|passw|passphrase|credential|cookie|signature|authoriz|authentic|key|bearer/i;
@@ -180,29 +182,43 @@ function isLineBreak(code: number): boolean {
   return code === 10 || code === 13;
 }
 
-/** End of a plain quoted segment; the end of the line when unterminated. */
+/**
+ * End of a plain quoted segment; the end of the line when unterminated. A
+ * quote preceded by an odd number of backslashes is a quoted-pair inside the
+ * value (`"a\"b"`), not the end of the segment.
+ */
 function findPlainQuoteEnd(text: string, from: number, quote: number): number {
+  let backslashes = 0;
   for (let i = from; i < text.length; i += 1) {
     const code = text.charCodeAt(i);
     if (isLineBreak(code)) {
       return i;
     }
-    if (code === quote) {
+    if (code === BACKSLASH) {
+      backslashes += 1;
+      continue;
+    }
+    if (code === quote && backslashes % 2 === 0) {
       return i + 1;
     }
+    backslashes = 0;
   }
   return text.length;
 }
 
 /**
  * End of an escaped quoted segment (`\"...\"` inside embedded JSON text).
- * A bare quote or the end of the line ends an unterminated segment, so the
- * quote that closes the surrounding JSON string is left alone.
+ * `openBackslashes` is the serialization depth of the opening quote: the
+ * closing quote carries the same number of backslashes, while a quoted-pair
+ * inside the value (`\\\"`) carries more and does not end the segment. A quote
+ * with fewer backslashes (a bare quote closing the surrounding JSON string) or
+ * the end of the line ends an unterminated segment and is left alone.
  */
 function findEscapedQuoteEnd(
   text: string,
   from: number,
   quote: number,
+  openBackslashes: number,
 ): number {
   let backslashes = 0;
   for (let i = from; i < text.length; i += 1) {
@@ -215,7 +231,12 @@ function findEscapedQuoteEnd(
       continue;
     }
     if (code === quote) {
-      return backslashes > 0 ? i + 1 : i;
+      if (backslashes === openBackslashes) {
+        return i + 1;
+      }
+      if (backslashes < openBackslashes) {
+        return i - backslashes;
+      }
     }
     backslashes = 0;
   }
@@ -247,7 +268,7 @@ function scanHeaderValueEnd(text: string, start: number): number {
         if (!opensSegment) {
           break;
         }
-        i = findEscapedQuoteEnd(text, j + 1, next);
+        i = findEscapedQuoteEnd(text, j + 1, next, j - i);
         opensSegment = false;
         continue;
       }
@@ -355,7 +376,6 @@ class SecretMatcher {
   private readonly goto = new Map<number, number>();
   private readonly fail: number[] = [0];
   private readonly best: number[] = [0];
-  private readonly maxLength: number;
   private readonly minLength: number;
 
   private constructor(secrets: readonly string[]) {
@@ -386,7 +406,6 @@ class SecretMatcher {
       terminal[node] = secret.length;
     }
     this.minLength = minLength;
-    this.maxLength = maxLength;
 
     // Failure links in nondecreasing depth order (counting sort by depth).
     const counts = new Array<number>(maxLength + 2).fill(0);
@@ -441,11 +460,13 @@ class SecretMatcher {
     if (text.length < this.minLength) {
       return text;
     }
+    // Pass 1: the union of every match, as disjoint intervals. A later (longer)
+    // match can reach back across earlier ones, so nothing is rendered until
+    // the whole text has been scanned; the stack merges backwards in
+    // amortized constant time.
+    const starts: number[] = [];
+    const ends: number[] = [];
     let state = 0;
-    let out = "";
-    let last = 0;
-    let intervalStart = -1;
-    let intervalEnd = -1;
     for (let i = 0; i < text.length; i += 1) {
       const code = text.charCodeAt(i);
       for (;;) {
@@ -460,34 +481,29 @@ class SecretMatcher {
         state = this.fail[state]!;
       }
       const length = this.best[state]!;
-      if (length > 0) {
-        const start = i + 1 - length;
-        if (intervalStart >= 0 && start < intervalEnd) {
-          intervalStart = Math.min(intervalStart, start);
-          intervalEnd = i + 1;
-        } else {
-          if (intervalStart >= 0) {
-            out += text.slice(last, intervalStart) + REDACTED_ENV_VALUE;
-            last = intervalEnd;
-          }
-          intervalStart = start;
-          intervalEnd = i + 1;
-        }
-      } else if (
-        intervalStart >= 0 &&
-        i + 2 - this.maxLength >= intervalEnd
-      ) {
-        // No later match can reach back into this interval any more.
-        out += text.slice(last, intervalStart) + REDACTED_ENV_VALUE;
-        last = intervalEnd;
-        intervalStart = -1;
+      if (length === 0) {
+        continue;
       }
+      let start = i + 1 - length;
+      while (ends.length > 0 && ends[ends.length - 1]! > start) {
+        start = Math.min(start, starts[starts.length - 1]!);
+        starts.pop();
+        ends.pop();
+      }
+      starts.push(start);
+      ends.push(i + 1);
     }
-    if (intervalStart >= 0) {
-      out += text.slice(last, intervalStart) + REDACTED_ENV_VALUE;
-      last = intervalEnd;
+    if (starts.length === 0) {
+      return text;
     }
-    return last === 0 && out === "" ? text : out + text.slice(last);
+    // Pass 2: render.
+    let out = "";
+    let last = 0;
+    for (let k = 0; k < starts.length; k += 1) {
+      out += text.slice(last, starts[k]) + REDACTED_ENV_VALUE;
+      last = ends[k]!;
+    }
+    return out + text.slice(last);
   }
 }
 
@@ -692,6 +708,59 @@ const AUTHORED_ITEM_TYPES: ReadonlySet<string> = new Set([
   "planSteps",
 ]);
 
+const TURN_PARAMS_TYPES: ReadonlySet<string> = new Set([
+  "client/turn/start",
+  "client/turn/requested",
+]);
+
+/**
+ * Subtree overrides for whole-type policies that are wrong for some fields:
+ * - turn requests: `request.params` is a free-form provider call; only real
+ *   prompt text (`input[*].text` of a text part) is authored.
+ * - item events: an item's `error` is provider diagnostics, and an image
+ *   `url` may carry a credential in its query (unlike prompt text).
+ */
+function ruleForType(type: string): CredentialPolicyRule | null {
+  if (TURN_PARAMS_TYPES.has(type)) {
+    return (path, parent) => {
+      if (path.length === 2 && path[0] === "request" && path[1] === "params") {
+        return POLICIES.diagnostic;
+      }
+      if (
+        path.length === 5 &&
+        path[0] === "request" &&
+        path[1] === "params" &&
+        path[2] === "input" &&
+        path[3] === "*" &&
+        path[4] === "text" &&
+        parent?.type === "text"
+      ) {
+        return POLICIES.authored;
+      }
+      return null;
+    };
+  }
+  if (policyNameForType(type) === "wrapper") {
+    return (path, parent) => {
+      if (path.length === 2 && path[0] === "item" && path[1] === "error") {
+        return POLICIES.diagnostic;
+      }
+      if (
+        path.length === 4 &&
+        path[0] === "item" &&
+        path[1] === "content" &&
+        path[2] === "*" &&
+        path[3] === "url" &&
+        parent?.type === "image"
+      ) {
+        return POLICIES.tool;
+      }
+      return null;
+    };
+  }
+  return null;
+}
+
 function policyNameForType(type: string): CredentialPolicyName {
   const known = (EVENT_TYPE_POLICIES as Record<string, CredentialPolicyName>)[
     type
@@ -731,12 +800,50 @@ export function policyForEvent(
     : POLICIES.tool;
 }
 
+/**
+ * Overrides the policy for one subtree. Called when the walk enters a child
+ * (`path` includes it; array indices are `*`), with the child's parent.
+ */
+export type CredentialPolicyRule = (
+  path: readonly string[],
+  parent: Record<string, unknown> | null,
+) => CredentialRedactionPolicy | null;
+
 interface SanitizeState {
   keys: CredentialKeyScope;
   text: CredentialTextScrub;
   envelopeKeys: ReadonlySet<string> | null;
   changed: boolean;
   secrets: Set<string>;
+  rule: CredentialPolicyRule | null;
+  path: string[];
+}
+
+/** Walks one child, applying a policy override for its subtree if a rule has one. */
+function walkChild(
+  state: SanitizeState,
+  segment: string,
+  parent: Record<string, unknown> | null,
+  walk: () => unknown,
+): unknown {
+  if (state.rule === null) {
+    return walk();
+  }
+  state.path.push(segment);
+  const override = state.rule(state.path, parent);
+  let result: unknown;
+  if (override === null) {
+    result = walk();
+  } else {
+    const { keys, text } = state;
+    state.keys = override.keys;
+    state.text = override.text;
+    result = walk();
+    state.keys = keys;
+    state.text = text;
+  }
+  state.path.pop();
+  return result;
 }
 
 type WalkMode = "plain" | "env" | "envList" | "force";
@@ -834,11 +941,13 @@ function walkSanitize(
       return value.map((item) => sanitizeEnvListItem(item, state, depth + 1));
     }
     return value.map((item) =>
-      walkSanitize(
-        item,
-        state,
-        depth + 1,
-        mode === "force" ? "force" : "plain",
+      walkChild(state, STRUCTURAL_ARRAY_KEY, null, () =>
+        walkSanitize(
+          item,
+          state,
+          depth + 1,
+          mode === "force" ? "force" : "plain",
+        ),
       ),
     );
   }
@@ -886,7 +995,9 @@ function walkSanitize(
         childMode = "env";
       }
     }
-    next[key] = walkSanitize(child, state, depth + 1, childMode);
+    next[key] = walkChild(state, key, record, () =>
+      walkSanitize(child, state, depth + 1, childMode),
+    );
   }
   return next;
 }
@@ -930,12 +1041,13 @@ function scrubKnownSecretsDeep(
       scrubKnownSecretsDeep(item, matcher, items, depth + 1),
     );
   }
+  const entered = frontier === null ? null : enterStructural(frontier, value);
   const out: Record<string, unknown> = {};
   for (const [key, child] of Object.entries(value)) {
     out[key] = scrubKnownSecretsDeep(
       child,
       matcher,
-      frontier === null ? null : stepStructural(frontier, key),
+      entered === null ? null : stepStructural(entered, key),
       depth + 1,
     );
   }
@@ -948,8 +1060,14 @@ export interface SanitizeCredentialsOptions {
   keys?: CredentialKeyScope;
   /** Top-level fields copied through untouched (full events only). */
   envelopeKeys?: ReadonlySet<string>;
-  /** Payload follows thread event schemas: keep their control fields intact. */
-  structural?: boolean;
+  /**
+   * Payload of an event of this type: keep the control fields its schema
+   * constrains intact, and keep the result schema-valid (full events carry
+   * their own `type`, data-only payloads do not).
+   */
+  structural?: { type: string; fullEvent: boolean };
+  /** Per-subtree policy overrides (see `CredentialPolicyRule`). */
+  rule?: CredentialPolicyRule;
 }
 
 /**
@@ -971,6 +1089,8 @@ export function sanitizeCredentialsDeep<T>(
     envelopeKeys: options.envelopeKeys ?? null,
     changed: false,
     secrets: new Set(),
+    rule: options.rule ?? null,
+    path: [],
   };
   let result = walkSanitize(value, state, 0, "plain");
   if (state.secrets.size > 0) {
@@ -980,7 +1100,7 @@ export function sanitizeCredentialsDeep<T>(
     result = scrubKnownSecretsDeep(
       result,
       matcher,
-      options.structural ? [getStructuralRoot()] : null,
+      options.structural ? structuralFrontierForType(options.structural.type) : null,
       0,
     );
     if (state.envelopeKeys !== null && isRecord(value) && isRecord(result)) {
@@ -991,7 +1111,18 @@ export function sanitizeCredentialsDeep<T>(
       }
     }
   }
-  return state.changed ? (result as T) : value;
+  if (!state.changed) {
+    return value;
+  }
+  if (options.structural && isRecord(result)) {
+    return repairSchemaViolations(
+      options.structural.type,
+      value,
+      result,
+      options.structural.fullEvent,
+    ) as T;
+  }
+  return result as T;
 }
 
 function sanitizeForType<T extends object>(
@@ -1004,10 +1135,12 @@ function sanitizeForType<T extends object>(
       ? redactProviderEnvResolvedData(data)
       : data;
   const policy = policyForEvent(type, data);
+  const rule = ruleForType(type);
   return sanitizeCredentialsDeep(base, {
     freeText: policy.text,
     keys: policy.keys,
-    structural: true,
+    structural: { type, fullEvent: envelopeKeys !== null },
+    ...(rule ? { rule } : {}),
     ...(envelopeKeys ? { envelopeKeys } : {}),
   });
 }
