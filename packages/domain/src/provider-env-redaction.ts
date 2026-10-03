@@ -71,7 +71,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * input untouched when it has no `entries` array.
  */
 export function redactProviderEnvResolvedData<T extends object>(data: T): T {
-  const record: Record<string, unknown> = { ...data };
+  const record = { ...data } as Record<string, unknown>;
   const entries = record.entries;
   if (!Array.isArray(entries)) {
     return data;
