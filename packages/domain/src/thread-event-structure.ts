@@ -23,6 +23,8 @@ export interface StructuralNode {
    * entered, so one event type's constraints never apply to another's fields.
    */
   variants: Map<string, Map<string, StructuralNode>>;
+  /** Closed string constants (enum / literal values) allowed at this position. */
+  constants: Set<string>;
 }
 
 /** Child key that matches any array index or record key. */
@@ -62,7 +64,12 @@ function childOf(node: StructuralNode, key: string): StructuralNode {
 }
 
 function newNode(): StructuralNode {
-  return { children: new Map(), terminal: false, variants: new Map() };
+  return {
+    children: new Map(),
+    terminal: false,
+    variants: new Map(),
+    constants: new Set(),
+  };
 }
 
 function variantOf(
@@ -96,9 +103,9 @@ function discriminatorValues(option: unknown, discriminator: string): string[] {
     );
   }
   if (field?.type === "enum") {
-    return Object.values((field.entries ?? {}) as Record<string, unknown>).filter(
-      (value): value is string => typeof value === "string",
-    );
+    return Object.values(
+      (field.entries ?? {}) as Record<string, unknown>,
+    ).filter((value): value is string => typeof value === "string");
   }
   return [];
 }
@@ -186,20 +193,33 @@ function visit(
     visit(inner, node, key, seen, depth + 1);
   } else if (type === "enum") {
     node.terminal = true;
+    for (const value of Object.values(
+      (def.entries ?? {}) as Record<string, unknown>,
+    )) {
+      if (typeof value === "string") {
+        node.constants.add(value);
+      }
+    }
   } else if (type === "literal") {
-    if ((def.values ?? []).some((value) => typeof value === "string")) {
+    const strings = (def.values ?? []).filter(
+      (value): value is string => typeof value === "string",
+    );
+    if (strings.length > 0) {
       node.terminal = true;
+      for (const value of strings) {
+        node.constants.add(value);
+      }
     }
   } else if (type === "string") {
-    // Format checks and custom refinements (`.refine(isExtensionKind)`) make
-    // the string a dispatch/identity value, not prose. Length limits do not:
-    // bounded prose is redacted and then length-repaired (see
-    // `repairSchemaViolations`).
-    const formatChecked = (def.checks ?? []).some((check) => {
-      const kind = check._zod?.def?.check;
-      return kind === "string_format" || kind === "custom";
-    });
-    if (formatChecked || isIdLikeKey(key)) {
+    // Only identity and routing values are structural: ids, and extension
+    // kinds (`.refine(isExtensionKind)` on a `kind` key). Content constraints
+    // (nonblank text, URL format, length limits) do not make a string
+    // structural: such prose is redacted and then repaired to a placeholder
+    // that satisfies the constraint (see `repairSchemaViolations`).
+    const customChecked = (def.checks ?? []).some(
+      (check) => check._zod?.def?.check === "custom",
+    );
+    if (isIdLikeKey(key) || (customChecked && key === "kind")) {
       node.terminal = true;
     }
   }
@@ -244,7 +264,7 @@ export function enterStructural(
       const variant =
         typeof actual === "string" &&
         Object.prototype.hasOwnProperty.call(
-          (value as Record<string, unknown>),
+          value as Record<string, unknown>,
           discriminator,
         )
           ? byValue.get(actual)
@@ -331,6 +351,27 @@ export function listStructuralPaths(
   return [...new Set(out)].sort();
 }
 
+/**
+ * Frontier at `path` of a payload (`root`) of an event of `type`, following the
+ * discriminated-union branches the value itself selects.
+ */
+export function structuralFrontierAt(
+  type: string,
+  root: unknown,
+  path: readonly PropertyKey[],
+): StructuralNode[] {
+  let frontier = structuralFrontierForType(type);
+  let current = root;
+  for (const key of path) {
+    frontier = stepStructural(enterStructural(frontier, current), String(key));
+    current =
+      typeof current === "object" && current !== null
+        ? (current as Record<PropertyKey, unknown>)[key]
+        : undefined;
+  }
+  return frontier;
+}
+
 // ---------------------------------------------------------------------------
 // Schema repair
 // ---------------------------------------------------------------------------
@@ -375,7 +416,7 @@ function getAt(root: unknown, path: readonly PropertyKey[]): unknown {
 function setAt(
   root: unknown,
   path: readonly PropertyKey[],
-  value: string,
+  value: unknown,
 ): void {
   const parent = getAt(root, path.slice(0, -1));
   const last = path[path.length - 1];
@@ -384,112 +425,203 @@ function setAt(
   }
 }
 
-const MAX_REPAIR_PASSES = 4;
-const PAD_CHARACTER = ".";
-
-/**
- * Makes redaction schema-safe. Redacting changes string lengths and can
- * rewrite a value a schema constrains (enum, format, refinement, length); the
- * redacted copy is validated against `threadEventSchema` and every string it
- * broke is repaired in place: a length violation by truncating or padding the
- * redacted text (the secret stays gone), any other violation by restoring the
- * original value (a constrained dispatch value is not prose). Only strings the
- * redaction itself changed are touched, so events that were not valid to begin
- * with are never "repaired" into something else.
- *
- * `sanitized` must be a private copy: it is edited in place. Returns it.
- */
 const REPAIR_SCOPES = [
   { kind: "thread" },
   { kind: "turn", turnId: "repair" },
 ] as const;
 
+const MAX_LADDER_PASSES = 12;
+const PAD_CHARACTER = ".";
+const PLACEHOLDER = "[redacted]";
+const URL_PLACEHOLDER = "https://redacted.invalid/";
+
+/** Issues of the best-matching envelope, or `null` when `value` is valid. */
+function validationIssues(
+  type: string,
+  value: unknown,
+  isFullEvent: boolean,
+): IssueLike[] | null {
+  // Data-only payloads get a synthetic envelope; the scope kind depends on the
+  // event type, so take whichever one leaves fewer issues.
+  const candidates = isFullEvent
+    ? [value]
+    : REPAIR_SCOPES.map((scope) => ({
+        type,
+        threadId: "thr_repair",
+        providerThreadId: "repair",
+        scope,
+        ...(value as Record<string, unknown>),
+      }));
+  let issues: IssueLike[] | null = null;
+  for (const candidate of candidates) {
+    const parsed = threadEventSchema.safeParse(candidate);
+    if (parsed.success) {
+      return null;
+    }
+    const found: IssueLike[] = [];
+    leafIssues(parsed.error.issues as unknown as IssueLike[], found);
+    if (issues === null || found.length < issues.length) {
+      issues = found;
+    }
+  }
+  return issues;
+}
+
+function sameValue(a: unknown, b: unknown): boolean {
+  if (typeof a === "string" || typeof b === "string") {
+    return a === b;
+  }
+  try {
+    return JSON.stringify(a) === JSON.stringify(b);
+  } catch {
+    return false;
+  }
+}
+
+function fitLength(text: string, issues: readonly IssueLike[]): string {
+  let next = text;
+  for (const issue of issues) {
+    if (issue.origin !== "string") {
+      continue;
+    }
+    if (issue.code === "too_big" && issue.maximum !== undefined) {
+      next = next.slice(0, Number(issue.maximum));
+    } else if (issue.code === "too_small" && issue.minimum !== undefined) {
+      next = next.padEnd(Number(issue.minimum), PAD_CHARACTER);
+    }
+  }
+  return next;
+}
+
+/**
+ * Makes redaction schema-safe, failing closed. Redacting changes string
+ * lengths and can rewrite a value a schema constrains (format, refinement,
+ * length, size of a container); the redacted copy is validated against
+ * `threadEventSchema` and every position it broke is repaired in place with a
+ * value derived from the *redacted* copy or a fixed placeholder, never from the
+ * original text:
+ *
+ * - string: length-fitted redacted text, then a placeholder (plain, URL, then
+ *   unique per path) fitted to the length bounds; a closed schema constant
+ *   (enum/literal) that redaction rewrote is restored, as constants carry no
+ *   secret;
+ * - container (object/array refinements such as a byte-size limit): every
+ *   non-structural string under it masked, then the container emptied.
+ *
+ * When a path stays invalid, the whole event's free text is masked (`maskAt`
+ * at the root) and repaired again. Only an event that was valid before
+ * redaction is repaired that way; positions the redaction left untouched on an
+ * already-invalid event are never "repaired" into something else.
+ *
+ * `sanitized` must be a private copy: it is edited in place (the root is
+ * replaced only by the whole-event mask). Returns the repaired value.
+ */
 export function repairSchemaViolations<T extends object>(
   type: string,
   original: unknown,
   sanitized: T,
   isFullEvent: boolean,
+  maskAt: (root: unknown, path: readonly PropertyKey[]) => unknown,
 ): T {
-  const lengthRepaired = new Set<string>();
-  for (let pass = 0; pass < MAX_REPAIR_PASSES; pass += 1) {
-    // Data-only payloads get a synthetic envelope; the scope kind depends on
-    // the event type, so take whichever one leaves fewer issues.
-    const candidates = isFullEvent
-      ? [sanitized]
-      : REPAIR_SCOPES.map((scope) => ({
-          type,
-          threadId: "thr_repair",
-          providerThreadId: "repair",
-          scope,
-          ...(sanitized as Record<string, unknown>),
-        }));
-    let issues: IssueLike[] | null = null;
-    for (const candidate of candidates) {
-      const parsed = threadEventSchema.safeParse(candidate);
-      if (parsed.success) {
-        return sanitized;
-      }
-      const found: IssueLike[] = [];
-      leafIssues(parsed.error.issues as unknown as IssueLike[], found);
-      if (issues === null || found.length < issues.length) {
-        issues = found;
-      }
-    }
-    if (issues === null) {
-      return sanitized;
-    }
+  let originalValid: boolean | null = null;
+  const wasValid = (): boolean => {
+    originalValid ??= validationIssues(type, original, isFullEvent) === null;
+    return originalValid;
+  };
+  const touched = (root: unknown, path: readonly PropertyKey[]): boolean =>
+    !sameValue(getAt(original, path), getAt(root, path)) || wasValid();
 
-    const byPath = new Map<
-      string,
-      { path: PropertyKey[]; issues: IssueLike[] }
-    >();
-    for (const issue of issues) {
-      const path = issue.path ?? [];
-      if (path.length === 0) {
-        continue;
+  const ladder = (start: unknown): unknown => {
+    let root = start;
+    const attempts = new Map<string, number>();
+    for (let pass = 0; pass < MAX_LADDER_PASSES; pass += 1) {
+      const issues = validationIssues(type, root, isFullEvent);
+      if (issues === null) {
+        return root;
       }
-      const before = getAt(original, path);
-      const after = getAt(sanitized, path);
-      if (
-        typeof before !== "string" ||
-        typeof after !== "string" ||
-        before === after
-      ) {
-        continue;
+      const byPath = new Map<
+        string,
+        { path: PropertyKey[]; issues: IssueLike[] }
+      >();
+      for (const issue of issues) {
+        const path = issue.path ?? [];
+        if (path.length === 0 || !touched(root, path)) {
+          continue;
+        }
+        const id = JSON.stringify(path.map(String));
+        const entry = byPath.get(id) ?? { path: [...path], issues: [] };
+        entry.issues.push(issue);
+        byPath.set(id, entry);
       }
-      const id = JSON.stringify(path.map(String));
-      const entry = byPath.get(id) ?? { path: [...path], issues: [] };
-      entry.issues.push(issue);
-      byPath.set(id, entry);
-    }
-    if (byPath.size === 0) {
-      return sanitized;
-    }
-    for (const [id, { path, issues: pathIssues }] of byPath) {
-      const before = getAt(original, path) as string;
-      const after = getAt(sanitized, path) as string;
-      const lengthOnly =
-        !lengthRepaired.has(id) &&
-        pathIssues.every(
-          (issue) =>
-            issue.origin === "string" &&
-            (issue.code === "too_big" || issue.code === "too_small"),
-        );
-      if (!lengthOnly) {
-        setAt(sanitized, path, before);
-        continue;
+      if (byPath.size === 0) {
+        return root;
       }
-      lengthRepaired.add(id);
-      let next = after;
-      for (const issue of pathIssues) {
-        if (issue.code === "too_big" && issue.maximum !== undefined) {
-          next = next.slice(0, Number(issue.maximum));
-        } else if (issue.code === "too_small" && issue.minimum !== undefined) {
-          next = next.padEnd(Number(issue.minimum), PAD_CHARACTER);
+      let progressed = false;
+      for (const [id, { path, issues: pathIssues }] of byPath) {
+        const after = getAt(root, path);
+        const candidates: unknown[] = [];
+        if (typeof after === "string") {
+          const before = getAt(original, path);
+          const constants = structuralFrontierAt(type, root, path).flatMap(
+            (node) => [...node.constants],
+          );
+          if (typeof before === "string" && constants.includes(before)) {
+            candidates.push(before);
+          }
+          const lengthOnly = pathIssues.every(
+            (issue) =>
+              issue.origin === "string" &&
+              (issue.code === "too_big" || issue.code === "too_small"),
+          );
+          if (lengthOnly) {
+            candidates.push(fitLength(after, pathIssues));
+          }
+          for (const placeholder of [
+            PLACEHOLDER,
+            URL_PLACEHOLDER,
+            `[redacted:${path.join(".")}]`,
+            "",
+          ]) {
+            candidates.push(fitLength(placeholder, pathIssues));
+          }
+        } else if (typeof after === "object" && after !== null) {
+          candidates.push(maskAt(root, path));
+          candidates.push(Array.isArray(after) ? [] : {});
+        }
+        const attempt = attempts.get(id) ?? 0;
+        const next = candidates.filter(
+          (candidate, index) =>
+            candidates.findIndex((other) => sameValue(other, candidate)) ===
+            index,
+        )[attempt];
+        attempts.set(id, attempt + 1);
+        if (next !== undefined && !sameValue(next, after)) {
+          setAt(root, path, next);
+          progressed = true;
+        } else if (next !== undefined) {
+          // Same value as now: skip to the next candidate on the next pass.
+          progressed = true;
         }
       }
-      setAt(sanitized, path, next);
+      if (!progressed) {
+        return root;
+      }
     }
+    return root;
+  };
+
+  let root: unknown = ladder(sanitized);
+  const remaining = validationIssues(type, root, isFullEvent);
+  if (remaining === null) {
+    return root as T;
   }
-  return sanitized;
+  const failClosed = remaining.some((issue) => {
+    const path = issue.path ?? [];
+    return path.length === 0 || touched(root, path);
+  });
+  if (!failClosed) {
+    return root as T;
+  }
+  root = maskAt(root, []);
+  return ladder(root) as T;
 }

@@ -615,4 +615,99 @@ describe("event sink", () => {
       expect(threadEventSchema.safeParse(entry.event).success).toBe(true);
     }
   });
+
+  it("redacts round-6 surfaces and keeps the events schema-valid", async () => {
+    const secret = "synthetic-review-token-1234";
+    const postEvents = vi.fn<CreateEventSinkOptions["postEvents"]>(
+      async (events) => ({
+        acceptedEvents: events.map((event, eventIndex) => ({
+          eventIndex,
+          sequence: eventIndex + 1,
+          threadId: event.threadId,
+        })),
+        rejectedEvents: [],
+      }),
+    );
+    const sink = createEventSink({
+      isSessionOpen: () => true,
+      logger: { debug: vi.fn(), error: vi.fn(), warn: vi.fn() },
+      postEvents,
+    });
+    const events = [
+      {
+        type: "provider/warning",
+        category: "config",
+        details: `Cookie: prefix\\"${secret}`,
+        scope: threadScope(),
+      },
+      {
+        type: "item/completed",
+        scope: turnScope("synthetic-turn"),
+        item: {
+          type: "userMessage",
+          id: "synthetic-message",
+          content: [
+            { type: "image", url: `https://example.invalid/i?token=${secret}` },
+          ],
+        },
+      },
+      {
+        type: "item/backgroundTask/progress",
+        scope: threadScope(),
+        item: {
+          type: "backgroundTask",
+          id: "synthetic-task",
+          taskType: "local_agent",
+          description: "synthetic",
+          status: "failed",
+          taskStatus: "failed",
+          skipTranscript: false,
+          error: `launch failed api_key=${secret}`,
+        },
+      },
+      {
+        type: "system/interaction/lifecycle",
+        scope: turnScope("synthetic-turn"),
+        interaction: {
+          id: "synthetic-i",
+          status: "resolved",
+          statusReason: null,
+          origin: {
+            kind: "plugin",
+            pluginId: "synthetic-p",
+            rendererId: "synthetic-r",
+          },
+          payload: { kind: "plugin", title: "Synthetic" },
+          resolution: {
+            kind: "plugin_submitted",
+            description: {
+              payload: {
+                env: { API_KEY: "abcdefgh" },
+                echo: "abcdefgh".repeat(8000),
+              },
+            },
+          },
+        },
+      },
+    ];
+    for (const event of events) {
+      sink.emit({
+        threadId: "thr_1",
+        event: threadEventSchema.parse({
+          threadId: "thr_1",
+          providerThreadId: "synthetic-provider",
+          ...event,
+        }),
+      });
+    }
+    await sink.flush();
+    const posted = postEvents.mock.calls.flatMap(([batch]) => batch);
+    expect(posted).toHaveLength(events.length);
+    const text = JSON.stringify(posted);
+    expect(text).not.toContain(secret);
+    expect(text).not.toContain("abcdefgh");
+    for (const entry of posted) {
+      expect(threadEventSchema.safeParse(entry.event).success).toBe(true);
+    }
+  });
 });
