@@ -394,4 +394,26 @@ describe("event sink", () => {
       }
     }).not.toThrow();
   });
+
+  it("redacts credentials in diagnostics before queueing and posting", async () => {
+    const secret = "synthetic-review-token-1234";
+    const postEvents = acceptingPostEvents();
+    const sink = createEventSink({
+      isSessionOpen: () => true,
+      logger: createLogger(),
+      postEvents,
+    });
+
+    sink.emit({
+      threadId: "thr_1",
+      event: {
+        ...systemErrorEvent("thr_1"),
+        message: `Authorization: Bearer ${secret}`,
+      },
+    });
+    await sink.flush();
+
+    expect(JSON.stringify(postEvents.mock.calls)).not.toContain(secret);
+    expect(JSON.stringify(postEvents.mock.calls)).toContain("[redacted]");
+  });
 });

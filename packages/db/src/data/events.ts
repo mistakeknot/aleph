@@ -1469,11 +1469,10 @@ export function listEvents(db: DbConnection, options: ListEventsOptions) {
 function redactListedEventRows<TRow extends { data: string; type: string }>(
   rows: TRow[],
 ): TRow[] {
-  return rows.map((row) =>
-    row.type === "provider.env-resolved"
-      ? { ...row, data: redactEventDataJsonForType(row.type, row.data) }
-      : row,
-  );
+  return rows.map((row) => {
+    const data = redactEventDataJsonForType(row.type, row.data);
+    return data === row.data ? row : { ...row, data };
+  });
 }
 
 export function listStoredEventRows(

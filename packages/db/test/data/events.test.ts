@@ -1669,11 +1669,7 @@ describe("events", () => {
         sequenceStart: 0,
         threadId: thread.id,
       }),
-    ).toEqual([
-      { sequence: 7 },
-      { sequence: 6 },
-      { sequence: 5 },
-    ]);
+    ).toEqual([{ sequence: 7 }, { sequence: 6 }, { sequence: 5 }]);
   });
 
   it("keeps window-hint lookup bounded as request history grows", () => {
@@ -1682,11 +1678,18 @@ describe("events", () => {
       const statement = db.$client.prepare(
         "INSERT INTO events (id, thread_id, scope_kind, sequence, type, data, created_at) VALUES (?, ?, 'thread', ?, 'client/turn/requested', ?, 0)",
       );
-      const payload = JSON.stringify({ input: [{ type: "text", text: "x".repeat(2_000) }] });
+      const payload = JSON.stringify({
+        input: [{ type: "text", text: "x".repeat(2_000) }],
+      });
       const seed = (start: number, end: number): void => {
         db.$client.transaction(() => {
           for (let sequence = start; sequence <= end; sequence += 1) {
-            statement.run(`request-${sequence}`, thread.id, sequence, sequence % 20 === 0 ? "{}" : payload);
+            statement.run(
+              `request-${sequence}`,
+              thread.id,
+              sequence,
+              sequence % 20 === 0 ? "{}" : payload,
+            );
           }
         })();
       };
@@ -1778,7 +1781,12 @@ describe("events", () => {
         sequenceStart: 0,
         threadId: thread.id,
       }),
-    ).toEqual([{ sequence: 9 }, { sequence: 6 }, { sequence: 2 }, { sequence: 1 }]);
+    ).toEqual([
+      { sequence: 9 },
+      { sequence: 6 },
+      { sequence: 2 },
+      { sequence: 1 },
+    ]);
     expect(
       listTimelineWindowHintsDescending(db, {
         beforeSequence: 100,
@@ -6470,5 +6478,83 @@ describe("provider.env-resolved redaction at record and list time", () => {
     expect(
       JSON.stringify(listEvents(db, { threadId: thread.id })),
     ).not.toContain(POOL_TOKEN);
+  });
+
+  it("redacts credentials in every event type at record and list time", () => {
+    const secret = "synthetic-review-token-1234";
+    const { db, thread } = setup();
+    const payloads: Array<[InsertEventInput["type"], Record<string, unknown>]> =
+      [
+        [
+          "provider/warning",
+          {
+            category: "config",
+            summary: "x",
+            details: `Authorization: Bearer ${secret}`,
+          },
+        ],
+        ["provider/error", { message: `retry --api-key ${secret}` }],
+        [
+          "client/thread/start",
+          {
+            request: {
+              params: {
+                options: { envVars: { CODEX_POOL_AUTH_TOKEN: secret } },
+              },
+            },
+          },
+        ],
+        [
+          "provider/unhandled",
+          { rawEvent: { params: { env: { MY_SECRET: secret, HOME: "/h" } } } },
+        ],
+      ];
+    insertEvents(
+      db,
+      noopNotifier,
+      payloads.map(([type, data], index) => ({
+        threadId: thread.id,
+        environmentId: null,
+        providerThreadId: "provider-session",
+        scope: threadScope(),
+        sequence: index + 1,
+        type,
+        itemId: null,
+        itemKind: null,
+        parentToolCallId: null,
+        data: JSON.stringify(data),
+      })),
+    );
+    const readStored = () =>
+      JSON.stringify(
+        db
+          .select({ data: events.data })
+          .from(events)
+          .where(eq(events.threadId, thread.id))
+          .all(),
+      );
+    expect(readStored()).not.toContain(secret);
+    expect(readStored()).toContain("HOME");
+
+    // Rows written before the fix hold plaintext.
+    payloads.forEach(([, data], index) => {
+      db.update(events)
+        .set({ data: JSON.stringify(data) })
+        .where(eq(events.sequence, index + 1))
+        .run();
+    });
+    expect(readStored()).toContain(secret);
+    expect(
+      JSON.stringify(listEvents(db, { threadId: thread.id })),
+    ).not.toContain(secret);
+    expect(
+      JSON.stringify(
+        listEvents(db, {
+          threadId: thread.id,
+          afterSequence: 1,
+          limit: 2,
+        } as never),
+      ),
+    ).not.toContain(secret);
   });
 });

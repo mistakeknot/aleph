@@ -441,4 +441,43 @@ describe("createAgentRuntime tool calls", () => {
     );
     await runtime.shutdown();
   });
+
+  it("redacts credentials echoed in provider diagnostics at the emit boundary", async () => {
+    const secret = "synthetic-review-token-1234";
+    const events: ThreadEvent[] = [];
+    const runtime = createScriptedEchoRuntime({
+      runtime: {
+        workspacePath: tmpDir,
+        onEvent: (e) => events.push(e),
+        onToolCall: async () => {
+          throw new Error(`upstream said Authorization: Bearer ${secret}`);
+        },
+      },
+    });
+
+    await runtime.startThread({
+      environmentId: "env-1",
+      threadId: "t1",
+      projectId: "p1",
+      providerId: "fake",
+      options: fullRuntimeOptions,
+    });
+    await runtime.runTurn({
+      clientRequestId: "creq_2222222244",
+      threadId: "t1",
+      input: [promptTextInput({ text: "call_tool:failing_tool" })],
+      options: fullRuntimeOptions,
+    });
+    await waitForThreadTurnCompleted({
+      events,
+      providerId: "fake",
+      runtime,
+      threadId: "t1",
+    });
+    const errors = events.filter((event) => event.type === "provider/error");
+    expect(errors.length).toBeGreaterThan(0);
+    expect(JSON.stringify(events)).not.toContain(secret);
+    expect(JSON.stringify(errors)).toContain("[redacted]");
+    await runtime.shutdown();
+  });
 });
