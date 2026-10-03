@@ -446,6 +446,77 @@ describe("events", () => {
     ).not.toContain(secret);
   });
 
+  it("redacts round-6 surfaces at insert and on list", () => {
+    const { db, thread } = setup();
+    const secret = "synthetic-review-token-1234";
+    const rows: {
+      type: "provider/warning" | "item/completed" | "item/backgroundTask/progress";
+      data: unknown;
+    }[] = [
+      {
+        type: "provider/warning",
+        data: { category: "config", details: `Cookie: prefix\\"${secret}` },
+      },
+      {
+        type: "item/completed",
+        data: {
+          item: {
+            type: "userMessage",
+            id: "synthetic-message",
+            content: [
+              {
+                type: "image",
+                url: `https://example.invalid/i?token=${secret}`,
+              },
+            ],
+          },
+        },
+      },
+      {
+        type: "item/backgroundTask/progress",
+        data: {
+          item: {
+            type: "backgroundTask",
+            id: "synthetic-task",
+            taskType: "local_agent",
+            description: "synthetic",
+            status: "failed",
+            taskStatus: "failed",
+            skipTranscript: false,
+            error: `launch failed api_key=${secret}`,
+          },
+        },
+      },
+    ];
+    insertEvents(
+      db,
+      noopNotifier,
+      rows.map((row, index) => ({
+        threadId: thread.id,
+        sequence: index + 1,
+        type: row.type,
+        ...threadEventFields,
+        data: JSON.stringify(row.data),
+      })),
+    );
+    const stored = db.all<{ data: string }>(
+      sql`SELECT data FROM events WHERE thread_id = ${thread.id}`,
+    );
+    expect(stored).toHaveLength(rows.length);
+    for (const row of stored) {
+      expect(row.data).not.toContain(secret);
+    }
+    // Legacy plaintext rows (written before write-time redaction).
+    rows.forEach((row, index) => {
+      db.run(
+        sql`UPDATE events SET data = ${JSON.stringify(row.data)} WHERE thread_id = ${thread.id} AND sequence = ${index + 1}`,
+      );
+    });
+    expect(
+      JSON.stringify(listEvents(db, { threadId: thread.id })),
+    ).not.toContain(secret);
+  });
+
   it("stores derived item columns when provided", () => {
     const { db, thread } = setup();
 

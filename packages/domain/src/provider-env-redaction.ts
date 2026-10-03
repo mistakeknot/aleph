@@ -36,6 +36,7 @@ import {
   enterStructural,
   isStructuralTerminal,
   repairSchemaViolations,
+  structuralFrontierAt,
   stepStructural,
   structuralFrontierForType,
   type StructuralNode,
@@ -243,14 +244,28 @@ function findEscapedQuoteEnd(
   return text.length;
 }
 
+/** The quote that opens the string a header sits in (`depth` = its backslashes). */
+interface HeaderOpener {
+  quote: number;
+  depth: number;
+}
+
 /**
  * End of a header value starting at `start`: to the end of the line, except
  * that a quote which does not open a quoted segment (right after `=` or at
- * the start of the value) ends it, as the closing quote of the surrounding
- * string or shell quoting. Unterminated quoted segments run to the end of
- * the line.
+ * the start of the value) may end it as the closing quote of the surrounding
+ * string or shell quoting, but only a quote that matches `opener`, the quote
+ * that opens that surrounding string: same kind and at most as many
+ * backslashes. Any other quote (an escaped quote inside an unquoted value,
+ * `prefix\"tail`) is value content, and with no known opener everything to
+ * the end of the line is. Unterminated quoted segments run to the end of the
+ * line.
  */
-function scanHeaderValueEnd(text: string, start: number): number {
+function scanHeaderValueEnd(
+  text: string,
+  start: number,
+  opener: HeaderOpener | null,
+): number {
   let i = start;
   let opensSegment = true;
   while (i < text.length) {
@@ -265,11 +280,15 @@ function scanHeaderValueEnd(text: string, start: number): number {
       }
       const next = j < text.length ? text.charCodeAt(j) : -1;
       if (next === DOUBLE_QUOTE || next === SINGLE_QUOTE) {
-        if (!opensSegment) {
+        if (opensSegment) {
+          i = findEscapedQuoteEnd(text, j + 1, next, j - i);
+          opensSegment = false;
+          continue;
+        }
+        if (opener !== null && next === opener.quote && j - i <= opener.depth) {
           break;
         }
-        i = findEscapedQuoteEnd(text, j + 1, next, j - i);
-        opensSegment = false;
+        i = j + 1;
         continue;
       }
       i = j;
@@ -277,11 +296,15 @@ function scanHeaderValueEnd(text: string, start: number): number {
       continue;
     }
     if (code === DOUBLE_QUOTE || code === SINGLE_QUOTE) {
-      if (!opensSegment) {
+      if (opensSegment) {
+        i = findPlainQuoteEnd(text, i + 1, code);
+        opensSegment = false;
+        continue;
+      }
+      if (opener !== null && code === opener.quote && opener.depth >= 0) {
         break;
       }
-      i = findPlainQuoteEnd(text, i + 1, code);
-      opensSegment = false;
+      i += 1;
       continue;
     }
     opensSegment = code === EQUALS || (opensSegment && (code === 32 || code === 9));
@@ -295,10 +318,32 @@ function scrubSecretHeaders(text: string): string {
   pattern.lastIndex = 0;
   let out = "";
   let last = 0;
+  // Last quote seen on the current line before the scan position: the quote
+  // that opens the string a header sits in. Advanced monotonically (linear).
+  let opener: HeaderOpener | null = null;
+  let scanned = 0;
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(text)) !== null) {
+    const nameStart =
+      match.index + (/^[\s,;{(\\"']/.test(match[0]) ? 1 : 0);
+    while (scanned < nameStart) {
+      const code = text.charCodeAt(scanned);
+      if (isLineBreak(code)) {
+        opener = null;
+        scanned += 1;
+      } else if (code === DOUBLE_QUOTE || code === SINGLE_QUOTE) {
+        let depth = 0;
+        for (let k = scanned - 1; k >= 0 && text.charCodeAt(k) === BACKSLASH; k -= 1) {
+          depth += 1;
+        }
+        opener = { quote: code, depth };
+        scanned += 1;
+      } else {
+        scanned += 1;
+      }
+    }
     const valueStart = match.index + match[0].length;
-    const valueEnd = scanHeaderValueEnd(text, valueStart);
+    const valueEnd = scanHeaderValueEnd(text, valueStart, opener);
     if (valueEnd === valueStart) {
       continue;
     }
@@ -342,6 +387,26 @@ function scrubToolText(text: string): string {
   return scrubSecretHeaders(text)
     .replace(URL_USERINFO_PATTERN, `$1${REDACTED_ENV_VALUE}@`)
     .replace(STRONG_BEARER_PATTERN, `$1 ${REDACTED_ENV_VALUE}`);
+}
+
+const URL_PARAM_PATTERN = /([?&#;])([^=&#;\s"'<>]{1,200})=([^&#;\s"'<>]*)/g;
+
+/** `scrubToolText` plus credential parameters of a URL's query/fragment. */
+function scrubUrlText(text: string): string {
+  return scrubToolText(text).replace(
+    URL_PARAM_PATTERN,
+    (whole, sep: string, key: string, value: string) => {
+      let name = key;
+      try {
+        name = decodeURIComponent(key);
+      } catch {
+        // malformed escape: judge the raw key
+      }
+      return value === REDACTED_ENV_VALUE || !isSecretTextKey(name)
+        ? whole
+        : `${sep}${key}=${REDACTED_ENV_VALUE}`;
+    },
+  );
 }
 
 function scrubSecretShapes(text: string): string {
@@ -609,7 +674,7 @@ function isSecretPayloadKey(key: string): boolean {
 }
 
 export type CredentialKeyScope = "anywhere" | "containers";
-export type CredentialTextScrub = "full" | "tool" | "none";
+export type CredentialTextScrub = "full" | "tool" | "url" | "none";
 
 export interface CredentialRedactionPolicy {
   keys: CredentialKeyScope;
@@ -633,6 +698,12 @@ const POLICIES: Record<
   diagnostic: { keys: "anywhere", text: "full" },
   tool: { keys: "containers", text: "tool" },
   authored: { keys: "containers", text: "none" },
+};
+
+/** A URL field: tool scrub plus credential query/fragment parameters. */
+const URL_POLICY: CredentialRedactionPolicy = {
+  keys: "containers",
+  text: "url",
 };
 
 /**
@@ -713,16 +784,43 @@ const TURN_PARAMS_TYPES: ReadonlySet<string> = new Set([
   "client/turn/requested",
 ]);
 
+/** Item-carrying events outside the `wrapper` types. */
+const ITEM_EVENT_TYPES: ReadonlySet<string> = new Set([
+  "item/backgroundTask/progress",
+  "item/backgroundTask/completed",
+  "item/delegation/progress",
+  "item/delegation/completed",
+  "item/mcpToolCall/progress",
+  "item/toolCall/progress",
+]);
+
 /**
  * Subtree overrides for whole-type policies that are wrong for some fields:
  * - turn requests: `request.params` is a free-form provider call; only real
- *   prompt text (`input[*].text` of a text part) is authored.
- * - item events: an item's `error` is provider diagnostics, and an image
+ *   prompt text (`input[*].text` of a text part) is authored. An image `url`
+ *   may carry a credential in its query (`input`, `inputGroups`, and the
+ *   copy under `request.params`).
+ * - item events: an item's `error` (and a workflow agent's, nested in a
+ *   background-task snapshot) is provider diagnostics, and an image/fetch
  *   `url` may carry a credential in its query (unlike prompt text).
  */
 function ruleForType(type: string): CredentialPolicyRule | null {
   if (TURN_PARAMS_TYPES.has(type)) {
     return (path, parent) => {
+      const last = path[path.length - 1];
+      if (last === "url" && parent?.type === "image") {
+        const head = path[0];
+        if (
+          (head === "input" && path.length === 3) ||
+          (head === "inputGroups" && path.length === 4) ||
+          (head === "request" &&
+            path[1] === "params" &&
+            path[2] === "input" &&
+            path.length === 5)
+        ) {
+          return URL_POLICY;
+        }
+      }
       if (path.length === 2 && path[0] === "request" && path[1] === "params") {
         return POLICIES.diagnostic;
       }
@@ -740,20 +838,34 @@ function ruleForType(type: string): CredentialPolicyRule | null {
       return null;
     };
   }
-  if (policyNameForType(type) === "wrapper") {
+  if (policyNameForType(type) === "wrapper" || ITEM_EVENT_TYPES.has(type)) {
     return (path, parent) => {
-      if (path.length === 2 && path[0] === "item" && path[1] === "error") {
+      if (path[0] !== "item") {
+        return null;
+      }
+      if (path.length === 2 && path[1] === "error") {
+        return POLICIES.diagnostic;
+      }
+      if (
+        path.length === 5 &&
+        path[1] === "workflow" &&
+        path[2] === "agents" &&
+        path[3] === "*" &&
+        path[4] === "error"
+      ) {
         return POLICIES.diagnostic;
       }
       if (
         path.length === 4 &&
-        path[0] === "item" &&
         path[1] === "content" &&
         path[2] === "*" &&
         path[3] === "url" &&
         parent?.type === "image"
       ) {
-        return POLICIES.tool;
+        return URL_POLICY;
+      }
+      if (path.length === 2 && path[1] === "url") {
+        return URL_POLICY;
       }
       return null;
     };
@@ -864,7 +976,11 @@ function scrubText(state: SanitizeState, value: string): string {
     return value;
   }
   const scrubbed =
-    state.text === "full" ? scrubSecretShapes(value) : scrubToolText(value);
+    state.text === "full"
+      ? scrubSecretShapes(value)
+      : state.text === "url"
+        ? scrubUrlText(value)
+        : scrubToolText(value);
   if (scrubbed !== value) {
     state.changed = true;
   }
@@ -1068,6 +1184,12 @@ export interface SanitizeCredentialsOptions {
   structural?: { type: string; fullEvent: boolean };
   /** Per-subtree policy overrides (see `CredentialPolicyRule`). */
   rule?: CredentialPolicyRule;
+  /**
+   * The payload before any earlier redaction step produced `value` (the
+   * env-resolved base): schema repair compares against it, not against the
+   * already-redacted `value`.
+   */
+  original?: unknown;
 }
 
 /**
@@ -1111,15 +1233,40 @@ export function sanitizeCredentialsDeep<T>(
       }
     }
   }
-  if (!state.changed) {
+  const original = options.original === undefined ? value : options.original;
+  if (!state.changed && original === value) {
     return value;
   }
   if (options.structural && isRecord(result)) {
+    const { type, fullEvent } = options.structural;
+    const maskAt = (root: unknown, path: readonly PropertyKey[]): unknown => {
+      let subtree = root;
+      for (const key of path) {
+        subtree = isContainer(subtree)
+          ? (subtree as Record<PropertyKey, unknown>)[key]
+          : undefined;
+      }
+      const masked = scrubKnownSecretsDeep(
+        subtree,
+        null,
+        structuralFrontierAt(type, root, path),
+        0,
+      );
+      if (path.length === 0 && isRecord(masked) && isRecord(original)) {
+        for (const key of state.envelopeKeys ?? []) {
+          if (key in original) {
+            masked[key] = original[key];
+          }
+        }
+      }
+      return masked;
+    };
     return repairSchemaViolations(
-      options.structural.type,
-      value,
+      type,
+      original,
       result,
-      options.structural.fullEvent,
+      fullEvent,
+      maskAt,
     ) as T;
   }
   return result as T;
@@ -1137,6 +1284,7 @@ function sanitizeForType<T extends object>(
   const policy = policyForEvent(type, data);
   const rule = ruleForType(type);
   return sanitizeCredentialsDeep(base, {
+    original: data,
     freeText: policy.text,
     keys: policy.keys,
     structural: { type, fullEvent: envelopeKeys !== null },

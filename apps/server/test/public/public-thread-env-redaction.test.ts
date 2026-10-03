@@ -510,3 +510,177 @@ describe("round 5 public event regressions", () => {
     }
   }
 });
+
+describe("round 6 public event regressions", () => {
+  const secret = "synthetic-review-token-1234";
+  const tail = "synthetic-tail-credential-1234";
+  const task = {
+    type: "backgroundTask",
+    id: "synthetic-task",
+    taskType: "local_agent",
+    description: "synthetic",
+    status: "failed",
+    taskStatus: "failed",
+    skipTranscript: false,
+  };
+  const interaction = (description: unknown) => ({
+    interaction: {
+      id: "synthetic-i",
+      status: "resolved",
+      statusReason: null,
+      origin: {
+        kind: "plugin",
+        pluginId: "synthetic-p",
+        rendererId: "synthetic-r",
+      },
+      payload: { kind: "plugin", title: "Synthetic" },
+      resolution: { kind: "plugin_submitted", description },
+    },
+  });
+  const cases = [
+    ...[
+      "Cookie",
+      "Set-Cookie",
+      "Authorization",
+      "Proxy-Authorization",
+      "X-Api-Key",
+      "X-Auth-Token",
+      "X-Access-Token",
+    ].map((name) => ({
+      name: `unquoted escaped ${name}`,
+      type: "provider/warning",
+      data: { category: "config", details: `${name}: prefix\\"${tail}` },
+      forbid: tail,
+    })),
+    {
+      name: "wrapped image query token",
+      type: "item/completed",
+      data: {
+        item: {
+          type: "userMessage",
+          id: "synthetic-message",
+          content: [
+            { type: "image", url: `https://example.invalid/img?token=${secret}` },
+          ],
+        },
+      },
+    },
+    ...["item/backgroundTask/progress", "item/backgroundTask/completed"].map(
+      (type) => ({
+        name: `${type} diagnostic error`,
+        type,
+        data: { item: { ...task, error: `launch failed api_key=${secret}` } },
+      }),
+    ),
+    {
+      name: "workflow agent error",
+      type: "item/backgroundTask/progress",
+      data: {
+        item: {
+          ...task,
+          workflow: {
+            phases: [],
+            agents: [
+              {
+                index: 1,
+                label: "synthetic",
+                state: "failed",
+                model: "synthetic",
+                attempt: 1,
+                cached: false,
+                lastProgressAt: 1,
+                error: `agent died: api_key=${secret}`,
+              },
+            ],
+          },
+        },
+      },
+    },
+    {
+      name: "question prose echo",
+      type: "system/userQuestion/lifecycle",
+      data: {
+        interactionId: "synthetic-i",
+        providerId: "synthetic-p",
+        providerRequestId: "synthetic-r",
+        status: "resolved",
+        statusReason: null,
+        resolution: {
+          kind: "user_answer",
+          answers: { authorization: { selected: [secret], freeText: secret } },
+        },
+        payload: {
+          kind: "user_question",
+          questions: [
+            {
+              id: "authorization",
+              prompt: secret,
+              shortLabel: secret,
+              multiSelect: false,
+              allowFreeText: true,
+            },
+          ],
+        },
+      },
+    },
+    {
+      name: "payload size constraint after redaction",
+      type: "system/interaction/lifecycle",
+      data: interaction({
+        payload: {
+          env: { API_KEY: "abcdefgh" },
+          echo: "abcdefgh".repeat(8000),
+        },
+      }),
+      seed: interaction({
+        payload: { env: { API_KEY: "abcdefgh" }, echo: "safe" },
+      }),
+      forbid: "abcdefgh",
+    },
+  ] as Array<{
+    name: string;
+    type: string;
+    data: unknown;
+    seed?: unknown;
+    forbid?: string;
+  }>;
+  for (const mode of ["insert", "legacy-read"]) {
+    for (const c of cases) {
+      it(`${mode}: ${c.name}`, async () => {
+        await withTestHarness({ isDevelopment: true }, async (harness) => {
+          const { thread } = seedThreadFixture(harness);
+          setAppSettings(harness.db, {
+            ...defaultAppSettings,
+            showDiagnosticEvents: true,
+          });
+          seedTurnStarted(harness.deps, {
+            threadId: thread.id,
+            turnId: "synthetic-turn",
+            sequence: 1,
+          });
+          seedEvent(harness.deps, {
+            threadId: thread.id,
+            providerThreadId: "synthetic-provider",
+            scope:
+              c.type === "item/completed" || c.type.startsWith("system/")
+                ? turnScope("synthetic-turn")
+                : threadScope(),
+            sequence: 2,
+            type: c.type,
+            data: mode === "legacy-read" && c.seed ? c.seed : c.data,
+          } as never);
+          if (mode === "legacy-read") {
+            harness.db.run(
+              sql`UPDATE events SET data = ${JSON.stringify(c.data)} WHERE thread_id = ${thread.id} AND sequence = 2`,
+            );
+          }
+          const res = await harness.app.request(
+            `/api/v1/threads/${thread.id}/events`,
+          );
+          expect(res.status).toBe(200);
+          expect(await res.text()).not.toContain(c.forbid ?? secret);
+        });
+      });
+    }
+  }
+});
