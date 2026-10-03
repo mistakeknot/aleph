@@ -1,9 +1,18 @@
 import { sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { setAppSettings } from "@bb/db";
-import { defaultAppSettings, threadScope, turnScope } from "@bb/domain";
+import {
+  defaultAppSettings,
+  encodeClientTurnRequestIdNumber,
+  threadScope,
+  turnScope,
+} from "@bb/domain";
 import { readJson } from "../helpers/json.js";
-import { seedEvent, seedThreadFixture } from "../helpers/seed.js";
+import {
+  seedEvent,
+  seedThreadFixture,
+  seedTurnStarted,
+} from "../helpers/seed.js";
 import { withTestHarness } from "../helpers/test-app.js";
 
 const POOL_TOKEN = "synthetic-pool-token-0000";
@@ -232,4 +241,112 @@ describe("round-3 redaction policy on every read path", () => {
       expect(PROMPT).toContain("PLACEHOLDER");
     });
   });
+});
+
+describe("round 4 public event regressions", () => {
+  const secret = "synthetic-review-token-1234";
+  const authored = [
+    "Explain",
+    "Authorization:",
+    "Bearer",
+    "PLACEHOLDER_CREDENTIAL_EXAMPLE",
+  ].join(" ");
+  const env = Object.fromEntries(
+    Array.from({ length: 256 }, (_, i) => [
+      `SECRET_${i}`,
+      `synthetic-decoy-${String(i).padStart(4, "0")}-${"x".repeat(30)}`,
+    ]),
+  ) as Record<string, string>;
+  env.API_KEY = secret;
+  const cases = [
+    {
+      name: "257-secret overflow echo",
+      type: "item/completed",
+      data: {
+        item: {
+          type: "toolCall",
+          id: "synthetic-tool",
+          tool: "probe",
+          status: "completed",
+          result: { env, echo: secret },
+        },
+      },
+    },
+    {
+      name: "rejected-turn diagnostic",
+      type: "client/turn/rejected",
+      data: {
+        requestId: encodeClientTurnRequestIdNumber({ value: 501 }),
+        reason: "launch_failed",
+        message: `Authorization: Bearer ${secret}`,
+      },
+    },
+    {
+      name: "escaped quoted cookie",
+      type: "provider/warning",
+      data: {
+        category: "config",
+        details: `raw {"header":"Cookie: sid=\\"${secret}\\"; other=2"}`,
+      },
+    },
+    {
+      name: "unterminated quoted cookie",
+      type: "provider/warning",
+      data: { category: "config", details: `Cookie: sid="${secret}` },
+    },
+    {
+      name: "authored completed user message",
+      type: "item/completed",
+      data: {
+        item: {
+          type: "userMessage",
+          id: "synthetic-message",
+          content: [{ type: "text", text: authored }],
+        },
+      },
+    },
+  ];
+  for (const mode of ["insert", "legacy-read"]) {
+    for (const c of cases) {
+      it(`${mode}: ${c.name}`, async () => {
+        await withTestHarness({ isDevelopment: true }, async (harness) => {
+          const { thread } = seedThreadFixture(harness);
+          setAppSettings(harness.db, {
+            ...defaultAppSettings,
+            showDiagnosticEvents: true,
+          });
+          seedTurnStarted(harness.deps, {
+            threadId: thread.id,
+            turnId: "synthetic-turn",
+            sequence: 1,
+          });
+          seedEvent(harness.deps, {
+            threadId: thread.id,
+            providerThreadId: "synthetic-provider",
+            scope: c.type.startsWith("item/")
+              ? turnScope("synthetic-turn")
+              : threadScope(),
+            sequence: 2,
+            type: c.type,
+            data: c.data,
+          } as never);
+          if (mode === "legacy-read") {
+            harness.db.run(
+              sql`UPDATE events SET data = ${JSON.stringify(c.data)} WHERE thread_id = ${thread.id} AND sequence = 2`,
+            );
+          }
+          const res = await harness.app.request(
+            `/api/v1/threads/${thread.id}/events`,
+          );
+          expect(res.status).toBe(200);
+          const body = await res.text();
+          if (c.name.startsWith("authored")) {
+            expect(body).toContain(authored);
+          } else {
+            expect(body).not.toContain(secret);
+          }
+        });
+      });
+    }
+  }
 });

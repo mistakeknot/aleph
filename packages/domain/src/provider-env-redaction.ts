@@ -30,6 +30,15 @@
  * useful, only values are replaced.
  */
 
+import type { ThreadEventType } from "./provider-event.js";
+import {
+  STRUCTURAL_ARRAY_KEY,
+  getStructuralRoot,
+  isStructuralTerminal,
+  stepStructural,
+  type StructuralNode,
+} from "./thread-event-structure.js";
+
 export const REDACTED_ENV_VALUE = "[redacted]";
 
 /** Env names that are always secret, regardless of the name patterns below. */
@@ -64,12 +73,12 @@ const BEARER_PATTERN = /\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/gi;
 /** Tool text: only a bearer token that is clearly a credential, not prose. */
 const STRONG_BEARER_PATTERN = /\b(Bearer)\s+[A-Za-z0-9._~+/=-]{16,}/gi;
 /**
- * `Authorization: ...`, `Cookie: a=b; c="d"` etc.: redact to end of line. A
- * quoted segment is only consumed right after `=` so a closing quote of the
- * surrounding string/shell quoting still ends the value.
+ * Names of credential headers: `Authorization:`, `Cookie:`, ... The value is
+ * scanned in code (`scanHeaderValueEnd`) because it can contain quoted
+ * segments, escaped quotes (embedded JSON text) and unterminated quotes.
  */
-const SECRET_HEADER_PATTERN =
-  /((?:^|[\s,;{(\\"'])(?:proxy-)?(?:authorization|cookie|set-cookie|x-api-key|x-auth-token|x-access-token)\s*:)(?![ \t]*\[redacted\])([ \t]*)(?:(?:"[^"\r\n]*"|'[^'\r\n]*')(?:=\s*"[^"\r\n]*"|=\s*'[^'\r\n]*'|[^\r\n"'])*|(?:=\s*"[^"\r\n]*"|=\s*'[^'\r\n]*'|[^\r\n"'])+)/gi;
+const SECRET_HEADER_NAME_PATTERN =
+  /((?:^|[\s,;{(\\"'])(?:proxy-)?(?:authorization|cookie|set-cookie|x-api-key|x-auth-token|x-access-token)\s*:)(?![ \t]*\[redacted\])([ \t]*)/gi;
 /** Opening of an embedded JSON pair: `"apiKey":` / `\"apiKey\":` / `"apiKey":`. */
 const JSON_KEY_PATTERN =
   /(?<!\\)(\\*"(?:[\w.-]|\\u[0-9a-fA-F]{4})+\\*"\s*:\s*)/g;
@@ -162,6 +171,125 @@ function matchSticky(pattern: RegExp, text: string, pos: number): number {
   return match === null ? -1 : pos + match[0].length;
 }
 
+const BACKSLASH = 92;
+const DOUBLE_QUOTE = 34;
+const SINGLE_QUOTE = 39;
+const EQUALS = 61;
+
+function isLineBreak(code: number): boolean {
+  return code === 10 || code === 13;
+}
+
+/** End of a plain quoted segment; the end of the line when unterminated. */
+function findPlainQuoteEnd(text: string, from: number, quote: number): number {
+  for (let i = from; i < text.length; i += 1) {
+    const code = text.charCodeAt(i);
+    if (isLineBreak(code)) {
+      return i;
+    }
+    if (code === quote) {
+      return i + 1;
+    }
+  }
+  return text.length;
+}
+
+/**
+ * End of an escaped quoted segment (`\"...\"` inside embedded JSON text).
+ * A bare quote or the end of the line ends an unterminated segment, so the
+ * quote that closes the surrounding JSON string is left alone.
+ */
+function findEscapedQuoteEnd(
+  text: string,
+  from: number,
+  quote: number,
+): number {
+  let backslashes = 0;
+  for (let i = from; i < text.length; i += 1) {
+    const code = text.charCodeAt(i);
+    if (isLineBreak(code)) {
+      return i;
+    }
+    if (code === BACKSLASH) {
+      backslashes += 1;
+      continue;
+    }
+    if (code === quote) {
+      return backslashes > 0 ? i + 1 : i;
+    }
+    backslashes = 0;
+  }
+  return text.length;
+}
+
+/**
+ * End of a header value starting at `start`: to the end of the line, except
+ * that a quote which does not open a quoted segment (right after `=` or at
+ * the start of the value) ends it, as the closing quote of the surrounding
+ * string or shell quoting. Unterminated quoted segments run to the end of
+ * the line.
+ */
+function scanHeaderValueEnd(text: string, start: number): number {
+  let i = start;
+  let opensSegment = true;
+  while (i < text.length) {
+    const code = text.charCodeAt(i);
+    if (isLineBreak(code)) {
+      break;
+    }
+    if (code === BACKSLASH) {
+      let j = i;
+      while (j < text.length && text.charCodeAt(j) === BACKSLASH) {
+        j += 1;
+      }
+      const next = j < text.length ? text.charCodeAt(j) : -1;
+      if (next === DOUBLE_QUOTE || next === SINGLE_QUOTE) {
+        if (!opensSegment) {
+          break;
+        }
+        i = findEscapedQuoteEnd(text, j + 1, next);
+        opensSegment = false;
+        continue;
+      }
+      i = j;
+      opensSegment = false;
+      continue;
+    }
+    if (code === DOUBLE_QUOTE || code === SINGLE_QUOTE) {
+      if (!opensSegment) {
+        break;
+      }
+      i = findPlainQuoteEnd(text, i + 1, code);
+      opensSegment = false;
+      continue;
+    }
+    opensSegment = code === EQUALS || (opensSegment && (code === 32 || code === 9));
+    i += 1;
+  }
+  return i;
+}
+
+function scrubSecretHeaders(text: string): string {
+  const pattern = SECRET_HEADER_NAME_PATTERN;
+  pattern.lastIndex = 0;
+  let out = "";
+  let last = 0;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(text)) !== null) {
+    const valueStart = match.index + match[0].length;
+    const valueEnd = scanHeaderValueEnd(text, valueStart);
+    if (valueEnd === valueStart) {
+      continue;
+    }
+    out +=
+      text.slice(last, valueStart) + REDACTED_ENV_VALUE;
+    last = valueEnd;
+    pattern.lastIndex = valueEnd;
+  }
+  pattern.lastIndex = 0;
+  return out + text.slice(last);
+}
+
 function scrubJsonSecretPairs(text: string): string {
   JSON_KEY_PATTERN.lastIndex = 0;
   let out = "";
@@ -190,8 +318,7 @@ function scrubJsonSecretPairs(text: string): string {
 }
 
 function scrubToolText(text: string): string {
-  return text
-    .replace(SECRET_HEADER_PATTERN, `$1$2${REDACTED_ENV_VALUE}`)
+  return scrubSecretHeaders(text)
     .replace(URL_USERINFO_PATTERN, `$1${REDACTED_ENV_VALUE}@`)
     .replace(STRONG_BEARER_PATTERN, `$1 ${REDACTED_ENV_VALUE}`);
 }
@@ -200,7 +327,7 @@ function scrubSecretShapes(text: string): string {
   return replaceScanning(
     replaceScanning(
       scrubJsonSecretPairs(
-        text.replace(SECRET_HEADER_PATTERN, `$1$2${REDACTED_ENV_VALUE}`),
+        scrubSecretHeaders(text),
       )
         .replace(URL_USERINFO_PATTERN, `$1${REDACTED_ENV_VALUE}@`)
         .replace(BEARER_PATTERN, `$1 ${REDACTED_ENV_VALUE}`),
@@ -216,15 +343,156 @@ function scrubSecretShapes(text: string): string {
   );
 }
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/** Secrets beyond this many characters fail closed (see `SecretMatcher`). */
+const MAX_CROSS_REFERENCE_SECRET_CHARS = 4 * 1024 * 1024;
+
+/**
+ * Replaces every occurrence of any known secret in a string, in one linear
+ * pass (Aho-Corasick), for any number of secrets. Overlapping occurrences are
+ * merged into a single replacement, so no part of a secret survives.
+ */
+class SecretMatcher {
+  private readonly goto = new Map<number, number>();
+  private readonly fail: number[] = [0];
+  private readonly best: number[] = [0];
+  private readonly maxLength: number;
+  private readonly minLength: number;
+
+  private constructor(secrets: readonly string[]) {
+    const terminal: number[] = [0];
+    const parent: number[] = [0];
+    const edge: number[] = [0];
+    const depth: number[] = [0];
+    let minLength = Infinity;
+    let maxLength = 0;
+    for (const secret of secrets) {
+      minLength = Math.min(minLength, secret.length);
+      maxLength = Math.max(maxLength, secret.length);
+      let node = 0;
+      for (let i = 0; i < secret.length; i += 1) {
+        const code = secret.charCodeAt(i);
+        const key = node * 65536 + code;
+        let next = this.goto.get(key);
+        if (next === undefined) {
+          next = terminal.length;
+          this.goto.set(key, next);
+          terminal.push(0);
+          parent.push(node);
+          edge.push(code);
+          depth.push(depth[node]! + 1);
+        }
+        node = next;
+      }
+      terminal[node] = secret.length;
+    }
+    this.minLength = minLength;
+    this.maxLength = maxLength;
+
+    // Failure links in nondecreasing depth order (counting sort by depth).
+    const counts = new Array<number>(maxLength + 2).fill(0);
+    for (let node = 1; node < terminal.length; node += 1) {
+      counts[depth[node]! + 1]! += 1;
+    }
+    for (let d = 1; d < counts.length; d += 1) {
+      counts[d]! += counts[d - 1]!;
+    }
+    const order = new Array<number>(terminal.length - 1);
+    for (let node = 1; node < terminal.length; node += 1) {
+      order[counts[depth[node]!]!++] = node;
+    }
+    this.fail = new Array<number>(terminal.length).fill(0);
+    this.best = new Array<number>(terminal.length).fill(0);
+    for (const node of order) {
+      const code = edge[node]!;
+      let link = 0;
+      if (parent[node] !== 0) {
+        let candidate = this.fail[parent[node]!]!;
+        for (;;) {
+          const next = this.goto.get(candidate * 65536 + code);
+          if (next !== undefined && next !== node) {
+            link = next;
+            break;
+          }
+          if (candidate === 0) {
+            break;
+          }
+          candidate = this.fail[candidate]!;
+        }
+      }
+      this.fail[node] = link;
+      this.best[node] = terminal[node]! > 0 ? terminal[node]! : this.best[link]!;
+    }
+  }
+
+  /** `null` when the secrets are too large to index (callers fail closed). */
+  static create(secrets: Iterable<string>): SecretMatcher | null {
+    const unique = [...new Set(secrets)].filter((secret) => secret.length > 0);
+    let total = 0;
+    for (const secret of unique) {
+      total += secret.length;
+      if (total > MAX_CROSS_REFERENCE_SECRET_CHARS) {
+        return null;
+      }
+    }
+    return unique.length === 0 ? null : new SecretMatcher(unique);
+  }
+
+  scrub(text: string): string {
+    if (text.length < this.minLength) {
+      return text;
+    }
+    let state = 0;
+    let out = "";
+    let last = 0;
+    let intervalStart = -1;
+    let intervalEnd = -1;
+    for (let i = 0; i < text.length; i += 1) {
+      const code = text.charCodeAt(i);
+      for (;;) {
+        const next = this.goto.get(state * 65536 + code);
+        if (next !== undefined) {
+          state = next;
+          break;
+        }
+        if (state === 0) {
+          break;
+        }
+        state = this.fail[state]!;
+      }
+      const length = this.best[state]!;
+      if (length > 0) {
+        const start = i + 1 - length;
+        if (intervalStart >= 0 && start < intervalEnd) {
+          intervalStart = Math.min(intervalStart, start);
+          intervalEnd = i + 1;
+        } else {
+          if (intervalStart >= 0) {
+            out += text.slice(last, intervalStart) + REDACTED_ENV_VALUE;
+            last = intervalEnd;
+          }
+          intervalStart = start;
+          intervalEnd = i + 1;
+        }
+      } else if (
+        intervalStart >= 0 &&
+        i + 2 - this.maxLength >= intervalEnd
+      ) {
+        // No later match can reach back into this interval any more.
+        out += text.slice(last, intervalStart) + REDACTED_ENV_VALUE;
+        last = intervalEnd;
+        intervalStart = -1;
+      }
+    }
+    if (intervalStart >= 0) {
+      out += text.slice(last, intervalStart) + REDACTED_ENV_VALUE;
+      last = intervalEnd;
+    }
+    return last === 0 && out === "" ? text : out + text.slice(last);
+  }
 }
 
-function scrubKnownSecrets(text: string, secretPattern: RegExp | null): string {
-  const scrubbed = secretPattern
-    ? text.replace(secretPattern, REDACTED_ENV_VALUE)
-    : text;
-  return scrubSecretShapes(scrubbed);
+function scrubKnownSecrets(text: string, matcher: SecretMatcher | null): string {
+  return scrubSecretShapes(matcher ? matcher.scrub(text) : text);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -256,16 +524,8 @@ export function redactProviderEnvResolvedData<T extends object>(data: T): T {
       secretValues.push(entry.value);
     }
   }
-  const secretPattern =
-    secretValues.length === 0
-      ? null
-      : new RegExp(
-          [...new Set(secretValues)]
-            .sort((a, b) => b.length - a.length)
-            .map(escapeRegExp)
-            .join("|"),
-          "g",
-        );
+  const matcher = SecretMatcher.create(secretValues);
+  const failClosed = matcher === null && secretValues.length > 0;
 
   record.entries = entries.map((entry) => {
     if (!isRecord(entry)) {
@@ -274,12 +534,14 @@ export function redactProviderEnvResolvedData<T extends object>(data: T): T {
     const next: Record<string, unknown> = { ...entry };
     if (typeof entry.value === "string") {
       next.value =
-        typeof entry.name === "string" && isSecretEnvName(entry.name)
+        failClosed || (typeof entry.name === "string" && isSecretEnvName(entry.name))
           ? REDACTED_ENV_VALUE
-          : scrubKnownSecrets(entry.value, secretPattern);
+          : scrubKnownSecrets(entry.value, matcher);
     }
     if (typeof entry.reason === "string") {
-      next.reason = scrubKnownSecrets(entry.reason, secretPattern);
+      next.reason = failClosed
+        ? REDACTED_ENV_VALUE
+        : scrubKnownSecrets(entry.reason, matcher);
     }
     return next;
   });
@@ -292,8 +554,6 @@ export function redactProviderEnvResolvedData<T extends object>(data: T): T {
 
 /** Only payload subtrees nested deeper than this are replaced wholesale. */
 const MAX_SANITIZE_DEPTH = 64;
-/** Cross-reference at most this many distinct leaked secrets per payload. */
-const MAX_CROSS_REFERENCE_SECRETS = 256;
 
 /** Keys whose child entries are named env vars / HTTP headers. */
 const ENV_CONTAINER_KEYS: ReadonlySet<string> = new Set([
@@ -340,24 +600,135 @@ export interface CredentialRedactionPolicy {
   text: CredentialTextScrub;
 }
 
-const AUTHORED_ITEM_TYPE_PATTERN =
-  /^item\/(agentMessage|userMessage|reasoning|plan)(\/|$)/;
+/**
+ * Named redaction policies (what each means is in the file header).
+ * `wrapper` events carry one item whose own type picks the policy.
+ */
+export type CredentialPolicyName =
+  | "diagnostic"
+  | "tool"
+  | "authored"
+  | "wrapper";
 
-/** Which redaction rules apply to an event type (see file header). */
-export function policyForType(type: string): CredentialRedactionPolicy {
+const POLICIES: Record<
+  Exclude<CredentialPolicyName, "wrapper">,
+  CredentialRedactionPolicy
+> = {
+  diagnostic: { keys: "anywhere", text: "full" },
+  tool: { keys: "containers", text: "tool" },
+  authored: { keys: "containers", text: "none" },
+};
+
+/**
+ * Policy of every thread event type. Typed over `ThreadEventType`, so adding
+ * an event type fails to compile until it is classified here (and a test
+ * checks the runtime union too).
+ *
+ * - diagnostic: errors, warnings, provider/system/lifecycle records and
+ *   rejected-turn reasons: free text is operator/provider generated and can
+ *   echo credentials.
+ * - tool: tool/command/file output and progress.
+ * - authored: prompts, assistant text, plans, reasoning, names, goals and
+ *   structured records without free text: text is never scrubbed.
+ * - wrapper: `item/started` / `item/completed` choose by `item.type`.
+ */
+export const EVENT_TYPE_POLICIES = {
+  "thread/started": "authored",
+  "thread/identity": "authored",
+  "turn/started": "authored",
+  "turn/completed": "diagnostic",
+  "turn/input/accepted": "authored",
+  "thread/name/updated": "authored",
+  "thread/compacted": "authored",
+  "thread/context/cleared": "authored",
+  "thread/goal/updated": "authored",
+  "thread/goal/cleared": "authored",
+  "item/started": "wrapper",
+  "item/completed": "wrapper",
+  "item/agentMessage/delta": "authored",
+  "item/commandExecution/outputDelta": "tool",
+  "item/fileChange/outputDelta": "tool",
+  "item/reasoning/summaryTextDelta": "authored",
+  "item/reasoning/textDelta": "authored",
+  "item/plan/delta": "authored",
+  "item/mcpToolCall/progress": "tool",
+  "item/toolCall/progress": "tool",
+  "item/backgroundTask/progress": "tool",
+  "item/backgroundTask/completed": "tool",
+  "item/delegation/progress": "tool",
+  "item/delegation/completed": "tool",
+  "thread/tokenUsage/updated": "authored",
+  "thread/contextWindowUsage/updated": "authored",
+  "turn/plan/updated": "authored",
+  "turn/diff/updated": "tool",
+  "provider/error": "diagnostic",
+  "provider/rateLimits/updated": "diagnostic",
+  "provider.env-resolved": "diagnostic",
+  "thread/extensionState/updated": "tool",
+  "provider/warning": "diagnostic",
+  "provider/modelFallback": "diagnostic",
+  "provider/unhandled": "diagnostic",
+  "client/thread/start": "diagnostic",
+  "client/turn/requested": "authored",
+  "client/turn/rejected": "diagnostic",
+  "client/turn/start": "authored",
+  "system/error": "diagnostic",
+  "system/manager/user_message": "authored",
+  "system/thread/interrupted": "diagnostic",
+  "system/operation": "diagnostic",
+  "system/interaction/lifecycle": "diagnostic",
+  "system/permissionGrant/lifecycle": "diagnostic",
+  "system/userQuestion/lifecycle": "diagnostic",
+  "system/thread-provisioning": "diagnostic",
+  "system/provider-turn-watchdog": "diagnostic",
+} as const satisfies Record<ThreadEventType, CredentialPolicyName>;
+
+/** Wrapped item types holding authored content; every other kind is a tool. */
+const AUTHORED_ITEM_TYPES: ReadonlySet<string> = new Set([
+  "userMessage",
+  "agentMessage",
+  "reasoning",
+  "plan",
+  "planSteps",
+]);
+
+function policyNameForType(type: string): CredentialPolicyName {
+  const known = (EVENT_TYPE_POLICIES as Record<string, CredentialPolicyName>)[
+    type
+  ];
+  // Own-property check: `type` is data and could be `constructor`.
   if (
-    type.startsWith("provider/") ||
-    type.startsWith("provider.") ||
-    type === "client/thread/start" ||
-    (type.startsWith("system/") && type !== "system/manager/user_message") ||
-    type === "turn/completed"
+    known !== undefined &&
+    Object.prototype.hasOwnProperty.call(EVENT_TYPE_POLICIES, type)
   ) {
-    return { keys: "anywhere", text: "full" };
+    return known;
   }
-  if (type.startsWith("item/") && !AUTHORED_ITEM_TYPE_PATTERN.test(type)) {
-    return { keys: "containers", text: "tool" };
+  // Unclassified (legacy or future) types fail toward scrubbing.
+  return "tool";
+}
+
+/**
+ * Which redaction rules apply to an event type. For `wrapper` types this is
+ * the tool policy; use `policyForEvent` when the payload is at hand.
+ */
+export function policyForType(type: string): CredentialRedactionPolicy {
+  const name = policyNameForType(type);
+  return POLICIES[name === "wrapper" ? "tool" : name];
+}
+
+/** Like `policyForType`, picking the wrapped item's policy for wrappers. */
+export function policyForEvent(
+  type: string,
+  data: unknown,
+): CredentialRedactionPolicy {
+  if (policyNameForType(type) !== "wrapper") {
+    return policyForType(type);
   }
-  return { keys: "containers", text: "none" };
+  const item = isRecord(data) ? data.item : undefined;
+  const itemType = isRecord(item) ? item.type : undefined;
+  return typeof itemType === "string" && AUTHORED_ITEM_TYPES.has(itemType)
+    ? POLICIES.authored
+    : POLICIES.tool;
 }
 
 interface SanitizeState {
@@ -524,15 +895,26 @@ function isContainer(value: unknown): value is object {
   return typeof value === "object" && value !== null;
 }
 
+/**
+ * Replaces echoes of known secrets in every string. `frontier` tracks the
+ * schema-structural positions (enums, discriminators, ids, ...) which are
+ * never rewritten, so the event stays valid; `null` means no schema applies.
+ * `matcher === null` fails closed: every non-structural string is replaced.
+ */
 function scrubKnownSecretsDeep(
   value: unknown,
-  pattern: RegExp,
+  matcher: SecretMatcher | null,
+  frontier: readonly StructuralNode[] | null,
   depth: number,
 ): unknown {
   if (typeof value === "string") {
-    return value === REDACTED_ENV_VALUE
-      ? value
-      : value.replace(pattern, REDACTED_ENV_VALUE);
+    if (
+      value === REDACTED_ENV_VALUE ||
+      (frontier !== null && isStructuralTerminal(frontier))
+    ) {
+      return value;
+    }
+    return matcher === null ? REDACTED_ENV_VALUE : matcher.scrub(value);
   }
   if (
     typeof value !== "object" ||
@@ -542,11 +924,20 @@ function scrubKnownSecretsDeep(
     return value;
   }
   if (Array.isArray(value)) {
-    return value.map((item) => scrubKnownSecretsDeep(item, pattern, depth + 1));
+    const items =
+      frontier === null ? null : stepStructural(frontier, STRUCTURAL_ARRAY_KEY);
+    return value.map((item) =>
+      scrubKnownSecretsDeep(item, matcher, items, depth + 1),
+    );
   }
   const out: Record<string, unknown> = {};
   for (const [key, child] of Object.entries(value)) {
-    out[key] = scrubKnownSecretsDeep(child, pattern, depth + 1);
+    out[key] = scrubKnownSecretsDeep(
+      child,
+      matcher,
+      frontier === null ? null : stepStructural(frontier, key),
+      depth + 1,
+    );
   }
   return out;
 }
@@ -557,6 +948,8 @@ export interface SanitizeCredentialsOptions {
   keys?: CredentialKeyScope;
   /** Top-level fields copied through untouched (full events only). */
   envelopeKeys?: ReadonlySet<string>;
+  /** Payload follows thread event schemas: keep their control fields intact. */
+  structural?: boolean;
 }
 
 /**
@@ -581,11 +974,15 @@ export function sanitizeCredentialsDeep<T>(
   };
   let result = walkSanitize(value, state, 0, "plain");
   if (state.secrets.size > 0) {
-    const secrets = [...state.secrets]
-      .sort((a, b) => b.length - a.length)
-      .slice(0, MAX_CROSS_REFERENCE_SECRETS);
-    const pattern = new RegExp(secrets.map(escapeRegExp).join("|"), "g");
-    result = scrubKnownSecretsDeep(result, pattern, 0);
+    // Every collected secret is matched (no cap); a secret set too large to
+    // index fails closed by replacing all non-structural strings.
+    const matcher = SecretMatcher.create(state.secrets);
+    result = scrubKnownSecretsDeep(
+      result,
+      matcher,
+      options.structural ? [getStructuralRoot()] : null,
+      0,
+    );
     if (state.envelopeKeys !== null && isRecord(value) && isRecord(result)) {
       for (const key of state.envelopeKeys) {
         if (key in value) {
@@ -606,10 +1003,11 @@ function sanitizeForType<T extends object>(
     type === "provider.env-resolved"
       ? redactProviderEnvResolvedData(data)
       : data;
-  const policy = policyForType(type);
+  const policy = policyForEvent(type, data);
   return sanitizeCredentialsDeep(base, {
     freeText: policy.text,
     keys: policy.keys,
+    structural: true,
     ...(envelopeKeys ? { envelopeKeys } : {}),
   });
 }
