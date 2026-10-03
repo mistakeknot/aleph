@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 import {
   LOCAL_AGENT_TASK_TYPE,
@@ -390,6 +390,60 @@ describe("events", () => {
     });
     const all = listEvents(db, { threadId: thread.id });
     expect(all).toHaveLength(2);
+  });
+
+  it("redacts every collected secret at insert and on list, even past 256 secrets", () => {
+    const { db, thread } = setup();
+    const secret = "synthetic-review-token-1234";
+    const env: Record<string, string> = Object.fromEntries(
+      Array.from({ length: 256 }, (_, i) => [
+        `SECRET_${i}`,
+        `synthetic-decoy-${String(i).padStart(4, "0")}-${"x".repeat(30)}`,
+      ]),
+    );
+    env.API_KEY = secret;
+    const data = JSON.stringify({
+      item: {
+        type: "toolCall",
+        id: "synthetic-tool",
+        tool: "probe",
+        status: "completed",
+        result: { env, echo: secret },
+      },
+    });
+    insertEvents(db, noopNotifier, [
+      {
+        threadId: thread.id,
+        sequence: 1,
+        type: "client/turn/rejected",
+        ...threadEventFields,
+        data: JSON.stringify({
+          requestId: encodeClientTurnRequestIdNumber({ value: 501 }),
+          reason: "launch_failed",
+          message: `Authorization: Bearer ${secret}`,
+        }),
+      },
+      {
+        threadId: thread.id,
+        sequence: 2,
+        type: "system/error",
+        ...threadEventFields,
+        data: JSON.stringify({ message: `Cookie: sid="${secret}` }),
+      },
+    ]);
+    const stored = db.all<{ data: string }>(
+      sql`SELECT data FROM events WHERE thread_id = ${thread.id}`,
+    );
+    for (const row of stored) {
+      expect(row.data).not.toContain(secret);
+    }
+    // Legacy plaintext row (written before write-time redaction).
+    db.run(
+      sql`UPDATE events SET data = ${data} WHERE thread_id = ${thread.id} AND sequence = 2`,
+    );
+    expect(
+      JSON.stringify(listEvents(db, { threadId: thread.id })),
+    ).not.toContain(secret);
   });
 
   it("stores derived item columns when provided", () => {
@@ -6586,5 +6640,4 @@ describe("provider.env-resolved redaction at record and list time", () => {
     listEvents(db, { threadId: thread.id });
     expect(performance.now() - start).toBeLessThan(1500);
   });
-
 });

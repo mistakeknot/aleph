@@ -1,4 +1,5 @@
 import {
+  encodeClientTurnRequestIdNumber,
   threadEventSchema,
   threadScope,
   turnScope,
@@ -419,6 +420,89 @@ describe("event sink", () => {
 
     expect(JSON.stringify(postEvents.mock.calls)).not.toContain(secret);
     expect(JSON.stringify(postEvents.mock.calls)).toContain("[redacted]");
+  });
+
+  it.each(["completed", "toolCall", "synthetic-tool"])(
+    "keeps the event schema-valid when a secret equals %s",
+    async (value) => {
+      const postEvents = acceptingPostEvents();
+      const sink = createEventSink({
+        isSessionOpen: () => true,
+        logger: createLogger(),
+        postEvents,
+      });
+      const event = threadEventSchema.parse({
+        type: "item/completed",
+        threadId: "thr_1",
+        providerThreadId: "synthetic-provider",
+        scope: turnScope("synthetic-turn"),
+        item: {
+          type: "toolCall",
+          id: "synthetic-tool",
+          tool: "probe",
+          status: "completed",
+          result: { env: { API_KEY: value }, echo: value },
+        },
+      });
+      sink.emit({ threadId: "thr_1", event });
+      await sink.flush();
+
+      const posted = postEvents.mock.calls[0]?.[0][0] as
+        | { event?: unknown }
+        | undefined;
+      const postedEvent = (posted?.event ?? posted) as {
+        item: { status: string; type: string };
+      };
+      expect(threadEventSchema.safeParse(postedEvent).success).toBe(true);
+      expect(postedEvent.item.status).toBe("completed");
+      expect(postedEvent.item.type).toBe("toolCall");
+      expect(JSON.stringify(postedEvent)).not.toContain(`"echo":"${value}"`);
+    },
+  );
+
+  it("keeps authored completed messages and redacts rejected-turn diagnostics", async () => {
+    const secret = "synthetic-review-token-1234";
+    const postEvents = acceptingPostEvents();
+    const sink = createEventSink({
+      isSessionOpen: () => true,
+      logger: createLogger(),
+      postEvents,
+    });
+    const authored = [
+      "Explain",
+      "Authorization:",
+      "Bearer",
+      "PLACEHOLDER_CREDENTIAL_EXAMPLE",
+    ].join(" ");
+    sink.emit({
+      threadId: "thr_1",
+      event: threadEventSchema.parse({
+        type: "item/completed",
+        threadId: "thr_1",
+        providerThreadId: "synthetic-provider",
+        scope: turnScope("synthetic-turn"),
+        item: {
+          type: "userMessage",
+          id: "synthetic-message",
+          content: [{ type: "text", text: authored }],
+        },
+      }),
+    });
+    sink.emit({
+      threadId: "thr_1",
+      event: {
+        type: "client/turn/rejected",
+        threadId: "thr_1",
+        scope: threadScope(),
+        requestId: encodeClientTurnRequestIdNumber({ value: 501 }),
+        reason: "launch_failed",
+        message: `Authorization: Bearer ${secret}`,
+      } as never,
+    });
+    await sink.flush();
+    const text = JSON.stringify(postEvents.mock.calls);
+    expect(text).toContain(authored);
+    expect(text).not.toContain(secret);
   });
 
   it("keeps required envelope fields and schema validity when payload limits trip", async () => {
