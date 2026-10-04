@@ -81,7 +81,7 @@ const META = {
 
 interface Case {
   name: string;
-  type: string;
+  type: "item/completed" | "item/commandExecution/outputDelta";
   data: (token: string) => Record<string, unknown>;
   read: (event: unknown) => string;
 }

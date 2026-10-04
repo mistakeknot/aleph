@@ -75,6 +75,19 @@ function hex(bytes: Uint8Array): string {
   return out;
 }
 
+/**
+ * The secret with each unpaired UTF-16 surrogate replaced by U+FFFD, which is
+ * what every UTF-8 encoder (TextEncoder, URL serializers) emits for it.
+ * `encodeURIComponent` throws on such input, so URL forms are derived from
+ * this; the raw secret stays registered as its own variant.
+ */
+function wellFormed(text: string): string {
+  return text.replace(
+    /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g,
+    "\ufffd",
+  );
+}
+
 function jsonEscaped(text: string): string {
   return JSON.stringify(text).slice(1, -1);
 }
@@ -118,7 +131,10 @@ export function expandSecretVariants(secret: string): string[] | null {
   if (secret.length < MIN_EXPANDED_SECRET_LENGTH) {
     return [secret];
   }
+  // Malformed UTF-16 is valid in a JS string: raw and JSON (which escapes a
+  // lone surrogate) stay exact; URL/bytes forms use the U+FFFD substitution.
   const bytes = new TextEncoder().encode(secret);
+  const urlSource = wellFormed(secret);
   const out = new Set<string>([secret]);
   const add = (variant: string): void => {
     if (variant.length >= MIN_EXPANDED_SECRET_LENGTH) {
@@ -127,7 +143,7 @@ export function expandSecretVariants(secret: string): string[] | null {
   };
 
   // URL: component encoding, form encoding (+), lowercase escapes, all bytes.
-  const component = encodeURIComponent(secret);
+  const component = encodeURIComponent(urlSource);
   add(component);
   add(component.replace(/%20/g, "+"));
   add(component.replace(/%[0-9A-F]{2}/g, (m) => m.toLowerCase()));
