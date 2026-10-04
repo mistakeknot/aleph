@@ -450,7 +450,10 @@ describe("events", () => {
     const { db, thread } = setup();
     const secret = "synthetic-review-token-1234";
     const rows: {
-      type: "provider/warning" | "item/completed" | "item/backgroundTask/progress";
+      type:
+        | "provider/warning"
+        | "item/completed"
+        | "item/backgroundTask/progress";
       data: unknown;
     }[] = [
       {
@@ -6696,7 +6699,10 @@ describe("provider.env-resolved redaction at record and list time", () => {
       [
         ["item/completed", image(`//example.invalid/img?sig=${sig}`)],
         ["item/completed", image(`data:text/plain,x#sig=${sig}`)],
-        ["item/completed", image(`https://example.invalid/i?token=a'${sig}&ok=1`)],
+        [
+          "item/completed",
+          image(`https://example.invalid/i?token=a'${sig}&ok=1`),
+        ],
         [
           "client/turn/start",
           {
@@ -6742,6 +6748,29 @@ describe("provider.env-resolved redaction at record and list time", () => {
     const url = `https://example.invalid/?${"a=1?".repeat(4000)}%20`;
     const payloads: Array<[InsertEventInput["type"], Record<string, unknown>]> =
       [
+        ...[
+          "Cookie",
+          "Set-Cookie",
+          "Authorization",
+          "Proxy-Authorization",
+          "X-Api-Key",
+          "X-Auth-Token",
+          "X-Access-Token",
+        ].flatMap((name) =>
+          ["s", "t", "d", "m", "ll", "re", "ve"].flatMap((suffix) =>
+            ["x", "it", "é", "日", "_", "\u{10400}"].flatMap((prefix) =>
+              ["'", "\\'", "\\\\'", "\\\\\\'"].map(
+                (q): [InsertEventInput["type"], Record<string, unknown>] => [
+                  "provider/warning",
+                  {
+                    category: "config",
+                    details: `${prefix}${q}${suffix}!${q}; ${name}: prefix${q}${tail}`,
+                  },
+                ],
+              ),
+            ),
+          ),
+        ),
         ...["Cookie", "Authorization", "X-Api-Key"].flatMap((name) =>
           ['"', "'", '\\"', '\\\\"'].map(
             (q): [InsertEventInput["type"], Record<string, unknown>] => [
