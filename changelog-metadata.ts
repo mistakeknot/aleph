@@ -4,6 +4,11 @@ type ReleaseMeta = {
 };
 
 export const RELEASE_META: Record<string, ReleaseMeta> = {
+  "0.44.0+aleph.0.5.3": {
+    date: "October 3, 2026",
+    headline:
+      "Aleph 0.5.3: secrets in resolved provider environments are redacted from thread events",
+  },
   "0.44.0+aleph.0.5.2": {
     date: "October 1, 2026",
     headline:

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.44.0+aleph.0.5.3
+
+Aleph 0.5.3 is a patch on Aleph 0.5.2, on the same upstream bb 0.44.0
+base (`desktop-v0.44.0`, commit `0baa605b3`).
+
+### Security
+
+- **Secrets in provider environments no longer reach thread events.** Values
+  from a resolved provider environment, and common vendor token shapes, are
+  redacted when events are recorded, emitted and read. Known residual cases
+  are listed in `docs/credential-redaction-residuals.md`.
+
 ## 0.44.0+aleph.0.5.2
 
 Aleph 0.5.2 is a patch on Aleph 0.5.1, on the same upstream bb 0.44.0
