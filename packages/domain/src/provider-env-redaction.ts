@@ -314,9 +314,6 @@ function scanHeaderValueEnd(
   return i;
 }
 
-/** The text after an apostrophe in `it's`, `don't`, `we'll`, `they've`. */
-const CONTRACTION_SUFFIX_PATTERN = /^(?:[stdm]|ll|re|ve)(?![\p{L}\p{N}_])/iu;
-
 /** ASCII alphanumerics, `_` and every non-ASCII code unit (conservatively). */
 function isWordCode(code: number): boolean {
   return (
@@ -365,23 +362,14 @@ function scrubSecretHeaders(text: string): string {
         const wordBefore = isWordCode(
           scanned > depth ? text.charCodeAt(scanned - depth - 1) : -1,
         );
-        // An English contraction (`it's`, `don't`, `we'll`) neither opens
-        // nor closes a string; any other word-adjacent quote is doubtful.
-        const inWord =
-          code === SINGLE_QUOTE &&
-          wordBefore &&
-          CONTRACTION_SUFFIX_PATTERN.test(
-            text.slice(scanned + 1, scanned + 4),
-          );
         if (opener === null) {
-          if (inWord) {
-            // contraction: ignored
-          } else if (wordBefore) {
+          if (wordBefore) {
+            // No contraction exception: `it's` and `x's!'` look alike.
             doubtful = true;
           } else if (!doubtful) {
             opener = { quote: code, depth };
           }
-        } else if (code === opener.quote && depth <= opener.depth && !inWord) {
+        } else if (code === opener.quote && depth <= opener.depth) {
           // Closes the open string (fewer backslashes: it ended earlier).
           opener = null;
         }
@@ -795,12 +783,7 @@ function isSecretPayloadKey(key: string): boolean {
 }
 
 export type CredentialKeyScope = "anywhere" | "containers";
-export type CredentialTextScrub =
-  | "full"
-  | "fullUrl"
-  | "tool"
-  | "url"
-  | "none";
+export type CredentialTextScrub = "full" | "fullUrl" | "tool" | "url" | "none";
 
 export interface CredentialRedactionPolicy {
   keys: CredentialKeyScope;

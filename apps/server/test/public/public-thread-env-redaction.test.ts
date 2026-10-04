@@ -420,7 +420,10 @@ describe("round 5 public event regressions", () => {
     {
       name: "cookie marker prefix",
       type: "provider/warning",
-      data: { category: "config", details: `Cookie: [redacted]; sid=${secret}` },
+      data: {
+        category: "config",
+        details: `Cookie: [redacted]; sid=${secret}`,
+      },
     },
     {
       name: "authorization escaped internal quotes",
@@ -586,7 +589,10 @@ describe("round 6 public event regressions", () => {
           type: "userMessage",
           id: "synthetic-message",
           content: [
-            { type: "image", url: "//example.invalid/img?sig=synthtail-123456789xyz" },
+            {
+              type: "image",
+              url: "//example.invalid/img?sig=synthtail-123456789xyz",
+            },
           ],
         },
       },
@@ -603,7 +609,12 @@ describe("round 6 public event regressions", () => {
           method: "turn/start",
           params: {
             inputGroups: [
-              [{ type: "image", url: `https://example.invalid/i?%74oken=${tail}` }],
+              [
+                {
+                  type: "image",
+                  url: `https://example.invalid/i?%74oken=${tail}`,
+                },
+              ],
             ],
           },
         },
@@ -618,7 +629,10 @@ describe("round 6 public event regressions", () => {
           type: "userMessage",
           id: "synthetic-message",
           content: [
-            { type: "image", url: `https://example.invalid/img?token=${secret}` },
+            {
+              type: "image",
+              url: `https://example.invalid/img?token=${secret}`,
+            },
           ],
         },
       },
@@ -755,6 +769,28 @@ describe("round 8 public event regressions", () => {
           details: `x${q}!${q}; ${name}: prefix${q}${tail}`,
         },
       })),
+    ),
+    ...[
+      "Cookie",
+      "Set-Cookie",
+      "Authorization",
+      "Proxy-Authorization",
+      "X-Api-Key",
+      "X-Auth-Token",
+      "X-Access-Token",
+    ].flatMap((name) =>
+      ["s", "t", "d", "m", "ll", "re", "ve"].flatMap((suffix) =>
+        ["x", "it", "é", "日", "_", "\u{10400}"].flatMap((prefix) =>
+          ["'", "\\'", "\\\\'", "\\\\\\'"].map((q) => ({
+            name: `${name} after ${prefix}${q}${suffix}!${q}`,
+            type: "provider/warning",
+            data: {
+              category: "config",
+              details: `${prefix}${q}${suffix}!${q}; ${name}: prefix${q}${tail}`,
+            },
+          })),
+        ),
+      ),
     ),
     {
       name: "underscore and non-ASCII word characters",

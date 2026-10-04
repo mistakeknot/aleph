@@ -90,7 +90,6 @@ describe("round 8: an ignored quote never makes its partner an opener", () => {
   it("keeps text after a genuinely enclosing quote", () => {
     for (const [text, rest] of [
       [`earlier "ok" then curl -H 'Cookie: sid=${TAIL}' next`, "next"],
-      [`it's said "Authorization: Bearer ${TAIL}" next`, "next"],
       [`x ${bs(1)}"Cookie: sid=${TAIL}${bs(1)}" next`, "next"],
       [`a 'b' c "X-Api-Key: ${TAIL}" next`, "next"],
     ] as const) {
