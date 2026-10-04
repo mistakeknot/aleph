@@ -71,7 +71,7 @@ export function isSecretEnvName(name: string): boolean {
  * what made the earlier alternation-around-a-word patterns quadratic.
  */
 const URL_USERINFO_PATTERN =
-  /(?<![a-z0-9+.-])([a-z][a-z0-9+.-]*:\/\/)[^\s/@]+@/gi;
+  /(?<![a-z0-9+.-])([a-z][a-z0-9+.-]*:\/\/)[^\s/]+@/gi;
 const BEARER_PATTERN = /\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/gi;
 /** Tool text: only a bearer token that is clearly a credential, not prose. */
 const STRONG_BEARER_PATTERN = /\b(Bearer)\s+[A-Za-z0-9._~+/=-]{16,}/gi;
@@ -85,16 +85,19 @@ const SECRET_HEADER_NAME_PATTERN =
 /** Opening of an embedded JSON pair: `"apiKey":` / `\"apiKey\":` / `"apiKey":`. */
 const JSON_KEY_PATTERN =
   /(?<!\\)(\\*"(?:[\w.-]|\\u[0-9a-fA-F]{4})+\\*"\s*:\s*)/g;
-const JSON_PLAIN_VALUE_PATTERN = /"(?:[^"\\]|\\.)*"|[^\s,}\]]+/y;
+const JSON_STRING_PATTERN = /"(?:[^"\\]|\\.)*"/y;
 const JSON_ESCAPED_QUOTE_PATTERN = /\\+"/y;
-const JSON_ESCAPED_CLOSE_PATTERN = /(?<!\\)\\+"/g;
 const JSON_SCALAR_VALUE_PATTERN = /[^\s,}\]]+/y;
-/** `--api-key X` / `--token X` (flag-style, space separated). */
-const SECRET_FLAG_PATTERN =
-  /(?<=^|[\s'"])(-{1,2}[\w.-]+\s+)(?!-)("[^"]*"|'[^']*'|[^\s&;,'"]+)/g;
+/**
+ * `--api-key X` / `--token X` (flag-style, space separated). The pattern only
+ * finds the prefix; the value is a shell word scanned in code
+ * (`scanSecretWordEnd`), because it can be quoted, hold escaped quotes and be
+ * made of adjacent quoted fragments (`prefix'tail'`).
+ */
+const SECRET_FLAG_PATTERN = /(?<=^|[\s'"])(-{1,2}[\w.-]+\s+)(?!-)(?=[^\s&;,])/g;
 /** `NAME=value`, `NAME: value`, `--flag="value"`, `KEY='value'`, `?sig=value`. */
 const SECRET_ASSIGNMENT_PATTERN =
-  /(?<=^|[\s?&;,'"({\[])(-{0,2}[\w.-]+\s*[=:])(?!\s*\[redacted\](?![^\s&;,'"]))(\s*)("[^"]*"|'[^']*'|[^\s&;,'"]+)/g;
+  /(?<=^|[\s?&;,'"({\[=])(-{0,2}[\w.-]+\s*[=:])(?!\s*\[redacted\](?![^\s&;,'"]))(\s*)(?=[^\s&;,])/g;
 
 const SECRET_TEXT_KEY_PATTERN =
   /token|secret|passw|passphrase|credential|cookie|signature|authoriz|authentic|key|bearer/i;
@@ -124,48 +127,29 @@ function isSecretTextKey(rawKey: string): boolean {
 }
 
 /**
- * Linear replace loop: `replacer` returns the replacement or `null` to skip
- * (not a credential), in which case scanning resumes right after the match
- * prefix (`m[1]`) so nested matches are still found.
+ * End index of the JSON value starting at `pos`. A string whose end cannot be
+ * established (unterminated, or an escaped string with no closing quote) runs
+ * to the end of the line.
  */
-function replaceScanning(
-  text: string,
-  pattern: RegExp,
-  replacer: (match: RegExpExecArray) => string | null,
-): string {
-  pattern.lastIndex = 0;
-  let out = "";
-  let last = 0;
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(text)) !== null) {
-    const replacement = replacer(match);
-    if (replacement === null) {
-      pattern.lastIndex = match.index + Math.max(1, match[1]?.length ?? 1);
-      continue;
-    }
-    out += text.slice(last, match.index) + replacement;
-    last = match.index + match[0].length;
-    if (match[0].length === 0) {
-      pattern.lastIndex += 1;
-    }
-  }
-  pattern.lastIndex = 0;
-  return out + text.slice(last);
-}
-
-/** End index of the JSON value starting at `pos`, or -1 when there is none. */
 function findJsonValueEnd(text: string, pos: number, escaped: boolean): number {
   if (escaped) {
     JSON_ESCAPED_QUOTE_PATTERN.lastIndex = pos;
-    if (JSON_ESCAPED_QUOTE_PATTERN.exec(text) === null) {
+    const open = JSON_ESCAPED_QUOTE_PATTERN.exec(text);
+    if (open === null) {
       return matchSticky(JSON_SCALAR_VALUE_PATTERN, text, pos);
     }
-    JSON_ESCAPED_CLOSE_PATTERN.lastIndex = text.indexOf('"', pos) + 1;
-    const close = JSON_ESCAPED_CLOSE_PATTERN.exec(text);
-    JSON_ESCAPED_CLOSE_PATTERN.lastIndex = 0;
-    return close === null ? -1 : close.index + close[0].length;
+    return findEscapedQuoteEnd(
+      text,
+      pos + open[0].length,
+      DOUBLE_QUOTE,
+      open[0].length - 1,
+    );
   }
-  return matchSticky(JSON_PLAIN_VALUE_PATTERN, text, pos);
+  if (text.charCodeAt(pos) === DOUBLE_QUOTE) {
+    const end = matchSticky(JSON_STRING_PATTERN, text, pos);
+    return end < 0 ? findLineEnd(text, pos) : end;
+  }
+  return matchSticky(JSON_SCALAR_VALUE_PATTERN, text, pos);
 }
 
 function matchSticky(pattern: RegExp, text: string, pos: number): number {
@@ -181,6 +165,14 @@ const EQUALS = 61;
 
 function isLineBreak(code: number): boolean {
   return code === 10 || code === 13;
+}
+
+function findLineEnd(text: string, from: number): number {
+  let i = from;
+  while (i < text.length && !isLineBreak(text.charCodeAt(i))) {
+    i += 1;
+  }
+  return i;
 }
 
 /**
@@ -325,65 +317,252 @@ function isWordCode(code: number): boolean {
   );
 }
 
-function scrubSecretHeaders(text: string): string {
-  const pattern = SECRET_HEADER_NAME_PATTERN;
-  pattern.lastIndex = 0;
-  let out = "";
-  let last = 0;
-  // The quote that is open at the scan position on the current line, i.e. the
-  // one that opens the string a header sits in (null when none is open: a
-  // quote that was opened and closed earlier says nothing about the header).
-  // Advanced monotonically (linear).
-  let opener: HeaderOpener | null = null;
-  // A quote was seen word-adjacent with no string open on this line
-  // (`x"!"`, `5"`, `-H"`, `users'`). Such a quote may open a string (shell
-  // concatenation) or not, so whether any later quote opens or closes one is
-  // unknown: no quote is trusted to enclose a header for the rest of the line
-  // and the header value runs to the end of the line (fail closed).
-  let doubtful = false;
-  let scanned = 0;
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(text)) !== null) {
-    const nameStart = match.index + (/^[\s,;{(\\"']/.test(match[0]) ? 1 : 0);
-    while (scanned < nameStart) {
-      const code = text.charCodeAt(scanned);
+/**
+ * Which quote is open at a scan position on the current line, i.e. the one
+ * that opens the string a secret sits in (`opener` is null when none is open:
+ * a quote that was opened and closed earlier says nothing about the secret).
+ * Advanced monotonically (linear).
+ *
+ * A quote was seen word-adjacent with no string open on this line (`x"!"`,
+ * `5"`, `-H"`, `users'`). Such a quote may open a string (shell concatenation)
+ * or not, so whether any later quote opens or closes one is unknown: no quote
+ * is trusted to enclose a secret for the rest of the line (`doubtful`), and the
+ * value runs to the end of the line (fail closed).
+ */
+class QuoteTracker {
+  opener: HeaderOpener | null = null;
+  private doubtful = false;
+  private scanned = 0;
+
+  advanceTo(text: string, position: number): void {
+    while (this.scanned < position) {
+      const code = text.charCodeAt(this.scanned);
       if (isLineBreak(code)) {
-        opener = null;
-        doubtful = false;
+        this.opener = null;
+        this.doubtful = false;
       } else if (code === DOUBLE_QUOTE || code === SINGLE_QUOTE) {
         let depth = 0;
         for (
-          let k = scanned - 1;
+          let k = this.scanned - 1;
           k >= 0 && text.charCodeAt(k) === BACKSLASH;
           k -= 1
         ) {
           depth += 1;
         }
         const wordBefore = isWordCode(
-          scanned > depth ? text.charCodeAt(scanned - depth - 1) : -1,
+          this.scanned > depth ? text.charCodeAt(this.scanned - depth - 1) : -1,
         );
-        if (opener === null) {
+        if (this.opener === null) {
           if (wordBefore) {
             // No contraction exception: `it's` and `x's!'` look alike.
-            doubtful = true;
-          } else if (!doubtful) {
-            opener = { quote: code, depth };
+            this.doubtful = true;
+          } else if (!this.doubtful) {
+            this.opener = { quote: code, depth };
           }
-        } else if (code === opener.quote && depth <= opener.depth) {
+        } else if (code === this.opener.quote && depth <= this.opener.depth) {
           // Closes the open string (fewer backslashes: it ended earlier).
-          opener = null;
+          this.opener = null;
         }
       }
-      scanned += 1;
+      this.scanned += 1;
     }
+  }
+}
+
+function scrubSecretHeaders(text: string): string {
+  const pattern = SECRET_HEADER_NAME_PATTERN;
+  pattern.lastIndex = 0;
+  let out = "";
+  let last = 0;
+  const quotes = new QuoteTracker();
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(text)) !== null) {
+    quotes.advanceTo(
+      text,
+      match.index + (/^[\s,;{(\\"']/.test(match[0]) ? 1 : 0),
+    );
     const valueStart = match.index + match[0].length;
-    const valueEnd = scanHeaderValueEnd(text, valueStart, opener);
+    const valueEnd = scanHeaderValueEnd(text, valueStart, quotes.opener);
     if (valueEnd === valueStart) {
       continue;
     }
     out += text.slice(last, valueStart) + REDACTED_ENV_VALUE;
     last = valueEnd;
     pattern.lastIndex = valueEnd;
+  }
+  pattern.lastIndex = 0;
+  return out + text.slice(last);
+}
+
+function isWordBreakCode(code: number, char: string): boolean {
+  return (
+    code === 38 || // &
+    code === 59 || // ;
+    code === 44 || // ,
+    (code <= 32
+      ? code === 32 || (code >= 9 && code <= 13)
+      : code >= 160 && /\s/.test(char))
+  );
+}
+
+/**
+ * End of a secret flag/assignment/bearer value starting at `start`: the shell
+ * word it belongs to, i.e. everything up to unquoted whitespace, `&`, `;` or
+ * `,`, where every quoted fragment is part of the word (`prefix'tail'`,
+ * `"a"'b'`, `"a\"b"`). Same fail-closed rule as headers: a quote that is not
+ * the start of the value may close the string the secret sits in only when it
+ * matches `opener`; any other quote opens a further fragment of the value, and
+ * a fragment whose end cannot be found runs to the end of its line. A quote
+ * that opens the value itself may span lines when it is closed later.
+ *
+ * `noClose` remembers quote kinds with no closing quote left in the text, so
+ * unterminated quotes cost one scan to the end of the text in total.
+ */
+function scanSecretWordEnd(
+  text: string,
+  start: number,
+  opener: HeaderOpener | null,
+  opensSegment: boolean,
+  noClose: Set<number>,
+): number {
+  let i = start;
+  const atValueStart = opensSegment ? start : -1;
+  while (i < text.length) {
+    const code = text.charCodeAt(i);
+    if (isWordBreakCode(code, text[i] ?? "")) {
+      break;
+    }
+    if (code === BACKSLASH) {
+      let j = i;
+      while (j < text.length && text.charCodeAt(j) === BACKSLASH) {
+        j += 1;
+      }
+      const next = j < text.length ? text.charCodeAt(j) : -1;
+      if (next === DOUBLE_QUOTE || next === SINGLE_QUOTE) {
+        if (
+          !opensSegment &&
+          opener !== null &&
+          next === opener.quote &&
+          j - i <= opener.depth
+        ) {
+          break;
+        }
+        i = findEscapedQuoteEnd(text, j + 1, next, j - i);
+      } else {
+        i = j;
+      }
+      opensSegment = false;
+      continue;
+    }
+    if (code === DOUBLE_QUOTE || code === SINGLE_QUOTE) {
+      if (
+        !opensSegment &&
+        opener !== null &&
+        code === opener.quote &&
+        opener.depth >= 0
+      ) {
+        break;
+      }
+      i =
+        i === atValueStart
+          ? findOpeningQuoteEnd(text, i + 1, code, noClose)
+          : findPlainQuoteEnd(text, i + 1, code);
+      opensSegment = false;
+      continue;
+    }
+    opensSegment = code === EQUALS;
+    i += 1;
+  }
+  return i;
+}
+
+/** Closing quote of a value-opening quote, possibly on a later line. */
+function findOpeningQuoteEnd(
+  text: string,
+  from: number,
+  quote: number,
+  noClose: Set<number>,
+): number {
+  if (!noClose.has(quote)) {
+    let backslashes = 0;
+    for (let i = from; i < text.length; i += 1) {
+      const code = text.charCodeAt(i);
+      if (code === BACKSLASH) {
+        backslashes += 1;
+        continue;
+      }
+      if (code === quote && backslashes % 2 === 0) {
+        return i + 1;
+      }
+      backslashes = 0;
+    }
+    noClose.add(quote);
+  }
+  return findLineEnd(text, from);
+}
+
+/**
+ * Replaces the value of every secret-named match of `pattern` (which matches
+ * the prefix up to the value) with the redaction marker. `isSecret` is checked
+ * first so non-secret names never cost a value scan; they resume scanning
+ * right after the prefix so nested matches are still found.
+ */
+function scrubSecretWords(
+  text: string,
+  pattern: RegExp,
+  isSecret: (match: RegExpExecArray) => boolean,
+  render: (match: RegExpExecArray) => string,
+): string {
+  pattern.lastIndex = 0;
+  let out = "";
+  let last = 0;
+  const quotes = new QuoteTracker();
+  const noClose = new Set<number>();
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(text)) !== null) {
+    if (!isSecret(match)) {
+      pattern.lastIndex = match.index + Math.max(1, match[1]?.length ?? 1);
+      continue;
+    }
+    quotes.advanceTo(text, match.index);
+    const valueStart = match.index + match[0].length;
+    const valueEnd = scanSecretWordEnd(
+      text,
+      valueStart,
+      quotes.opener,
+      true,
+      noClose,
+    );
+    out += text.slice(last, match.index) + render(match);
+    last = valueEnd;
+    pattern.lastIndex = valueEnd;
+  }
+  pattern.lastIndex = 0;
+  return out + text.slice(last);
+}
+
+/**
+ * `Bearer`/`Basic` followed by token characters. A quote right after those
+ * characters is not part of the token alphabet but may belong to the credential
+ * (`Bearer prefix'tail'`), so the same word scan decides how far it goes.
+ */
+function scrubBearerText(text: string, pattern: RegExp): string {
+  pattern.lastIndex = 0;
+  let out = "";
+  let last = 0;
+  const quotes = new QuoteTracker();
+  const noClose = new Set<number>();
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(text)) !== null) {
+    let end = match.index + match[0].length;
+    const next = text.charCodeAt(end);
+    if (next === DOUBLE_QUOTE || next === SINGLE_QUOTE || next === BACKSLASH) {
+      quotes.advanceTo(text, match.index);
+      end = scanSecretWordEnd(text, end, quotes.opener, false, noClose);
+    }
+    out += text.slice(last, match.index) + `${match[1]} ${REDACTED_ENV_VALUE}`;
+    last = end;
+    pattern.lastIndex = end;
   }
   pattern.lastIndex = 0;
   return out + text.slice(last);
@@ -417,9 +596,13 @@ function scrubJsonSecretPairs(text: string): string {
 }
 
 function scrubToolText(text: string): string {
-  return scrubSecretHeaders(text)
-    .replace(URL_USERINFO_PATTERN, `$1${REDACTED_ENV_VALUE}@`)
-    .replace(STRONG_BEARER_PATTERN, `$1 ${REDACTED_ENV_VALUE}`);
+  return scrubBearerText(
+    scrubSecretHeaders(text).replace(
+      URL_USERINFO_PATTERN,
+      `$1${REDACTED_ENV_VALUE}@`,
+    ),
+    STRONG_BEARER_PATTERN,
+  );
 }
 
 /** `?key=` / `&key=` / `#key=` / `;key=`: the start of a URL parameter. */
@@ -516,20 +699,22 @@ function scrubUrlText(text: string): string {
 }
 
 function scrubSecretShapes(text: string): string {
-  return replaceScanning(
-    replaceScanning(
-      scrubJsonSecretPairs(scrubSecretHeaders(text))
-        .replace(URL_USERINFO_PATTERN, `$1${REDACTED_ENV_VALUE}@`)
-        .replace(BEARER_PATTERN, `$1 ${REDACTED_ENV_VALUE}`),
+  return scrubSecretWords(
+    scrubSecretWords(
+      scrubBearerText(
+        scrubJsonSecretPairs(scrubSecretHeaders(text)).replace(
+          URL_USERINFO_PATTERN,
+          `$1${REDACTED_ENV_VALUE}@`,
+        ),
+        BEARER_PATTERN,
+      ),
       SECRET_FLAG_PATTERN,
-      (m) =>
-        isSecretTextKey(m[1] ?? "") ? `${m[1]}${REDACTED_ENV_VALUE}` : null,
+      (m) => isSecretTextKey(m[1] ?? ""),
+      (m) => `${m[1]}${REDACTED_ENV_VALUE}`,
     ),
     SECRET_ASSIGNMENT_PATTERN,
-    (m) =>
-      isSecretTextKey((m[1] ?? "").replace(/\s*[=:]$/, ""))
-        ? `${m[1]}${m[2]}${REDACTED_ENV_VALUE}`
-        : null,
+    (m) => isSecretTextKey((m[1] ?? "").replace(/\s*[=:]$/, "")),
+    (m) => `${m[1]}${m[2]}${REDACTED_ENV_VALUE}`,
   );
 }
 
