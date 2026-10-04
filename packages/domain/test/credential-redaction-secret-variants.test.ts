@@ -8,6 +8,20 @@ import {
   expandSecretVariants,
 } from "../src/secret-variants.js";
 
+// Node's Buffer is the independent oracle (the package has no node typings).
+interface Buf {
+  toString(encoding?: "base64" | "hex" | "utf8"): string;
+  [index: number]: number;
+  length: number;
+  [Symbol.iterator](): Iterator<number>;
+}
+const Buffer = (
+  globalThis as unknown as {
+    Buffer: { from(text: string, encoding: "utf8"): Buf };
+  }
+).Buffer;
+type Buffer = Buf;
+
 // Synthetic, with characters every transform has to touch.
 const SECRET = "synth S3cr'et\"$x/+=é?&-9Zq";
 
@@ -17,10 +31,9 @@ function scrub(details: string, secret = SECRET): string {
     details,
     token: secret,
   }) as { details: string };
-  expect(
-    redactEventDataForType("provider/warning", out),
-    "idempotent",
-  ).toEqual(out);
+  expect(redactEventDataForType("provider/warning", out), "idempotent").toEqual(
+    out,
+  );
   return out.details;
 }
 
@@ -32,8 +45,9 @@ const ECHOES: Record<string, string> = {
   raw: SECRET,
   "percent (component)": encodeURIComponent(SECRET),
   "percent (form +)": encodeURIComponent(SECRET).replace(/%20/g, "+"),
-  "percent (lowercase)": encodeURIComponent(SECRET).replace(/%[0-9A-F]{2}/g, (m) =>
-    m.toLowerCase(),
+  "percent (lowercase)": encodeURIComponent(SECRET).replace(
+    /%[0-9A-F]{2}/g,
+    (m) => m.toLowerCase(),
   ),
   "percent (every byte)": [...bytes]
     .map((b) => "%" + b.toString(16).toUpperCase().padStart(2, "0"))
@@ -42,8 +56,11 @@ const ECHOES: Record<string, string> = {
   "base64 unpadded": bytes.toString("base64").replace(/=+$/, ""),
   "base64url padded": b64url(bytes),
   "base64url unpadded": b64url(bytes).replace(/=+$/, ""),
-  "json": JSON.stringify(SECRET).slice(1, -1),
-  "json twice": JSON.stringify(JSON.stringify(SECRET).slice(1, -1)).slice(1, -1),
+  json: JSON.stringify(SECRET).slice(1, -1),
+  "json twice": JSON.stringify(JSON.stringify(SECRET).slice(1, -1)).slice(
+    1,
+    -1,
+  ),
   "json ascii": SECRET.replace(
     /[^\x20-\x7e]/g,
     (c) => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0"),
@@ -53,7 +70,7 @@ const ECHOES: Record<string, string> = {
   "shell single quoted": `'${SECRET.replace(/'/g, "'\\''")}'`,
   "shell double quoted": `"${SECRET.replace(/[\\"$`]/g, "\\$&")}"`,
   hex: bytes.toString("hex"),
-  "HEX": bytes.toString("hex").toUpperCase(),
+  HEX: bytes.toString("hex").toUpperCase(),
 };
 
 describe("known-secret variant expansion", () => {
@@ -114,9 +131,7 @@ describe("known-secret variant expansion", () => {
       for (const v of variants) {
         total += v.length;
       }
-      expect(total).toBeLessThanOrEqual(
-        MAX_VARIANT_EXPANSION * secret.length,
-      );
+      expect(total).toBeLessThanOrEqual(MAX_VARIANT_EXPANSION * secret.length);
     }
   });
 
@@ -150,7 +165,9 @@ describe("known-secret variant expansion", () => {
       { length: 300 },
       (_, i) => `synthetic-secret-${i}-${"k".repeat(20)}`,
     );
-    const env = Object.fromEntries(secrets.map((s, i) => [`API_TOKEN_${i}`, s]));
+    const env = Object.fromEntries(
+      secrets.map((s, i) => [`API_TOKEN_${i}`, s]),
+    );
     const text = "ordinary words and numbers 12345 ".repeat(40_000);
     const time = (n: number) => {
       const t = performance.now();

@@ -32,6 +32,7 @@
 
 import type { ThreadEventType } from "./provider-event.js";
 import { expandSecretVariants } from "./secret-variants.js";
+import { scrubVendorTokens } from "./vendor-token-patterns.js";
 import {
   STRUCTURAL_ARRAY_KEY,
   enterStructural,
@@ -598,7 +599,7 @@ function scrubJsonSecretPairs(text: string): string {
 
 function scrubToolText(text: string): string {
   return scrubBearerText(
-    scrubSecretHeaders(text).replace(
+    scrubVendorTokens(scrubSecretHeaders(text), REDACTED_ENV_VALUE).replace(
       URL_USERINFO_PATTERN,
       `$1${REDACTED_ENV_VALUE}@`,
     ),
@@ -703,10 +704,9 @@ function scrubSecretShapes(text: string): string {
   return scrubSecretWords(
     scrubSecretWords(
       scrubBearerText(
-        scrubJsonSecretPairs(scrubSecretHeaders(text)).replace(
-          URL_USERINFO_PATTERN,
-          `$1${REDACTED_ENV_VALUE}@`,
-        ),
+        scrubJsonSecretPairs(
+          scrubVendorTokens(scrubSecretHeaders(text), REDACTED_ENV_VALUE),
+        ).replace(URL_USERINFO_PATTERN, `$1${REDACTED_ENV_VALUE}@`),
         BEARER_PATTERN,
       ),
       SECRET_FLAG_PATTERN,
