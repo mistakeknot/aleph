@@ -860,3 +860,118 @@ describe("round 8 public event regressions", () => {
     }
   }
 });
+
+describe("round 10 public event regressions", () => {
+  const tail = "synthtail-123456789xyz";
+  const bs = (n: number) => "\\".repeat(n);
+  const names = ["token", "password", "apiKey", "api-key", "secret", "sig"];
+  const cases: Array<{ name: string; data: unknown }> = [
+    ...names.flatMap((name) =>
+      ["'", '"'].flatMap((quote) =>
+        [0, 1, 2, 3].flatMap((depth) => {
+          const q = bs(depth) + quote;
+          const inner = bs(depth + 1) + quote;
+          return [
+            `--${name}=prefix${q}${tail}${q}`,
+            `--${name} prefix${q}${tail}`,
+            `${name.toUpperCase()}=${q}prefix${q}${q}${tail}${q}`,
+            `${name}: ${q}prefix${inner}${tail}${q}`,
+            `run Bearer prefix${q}${tail}${q}`,
+            `docker run --env=${name.toUpperCase()}=prefix${q}${tail}${q}`,
+          ].map((details) => ({
+            name: details,
+            data: { category: "config", details },
+          }));
+        }),
+      ),
+    ),
+    {
+      name: "userinfo with an @ in the password",
+      data: {
+        category: "config",
+        details: `https://user:prefix@${tail}@host.example/x`,
+      },
+    },
+    {
+      name: "unterminated json string",
+      data: { category: "config", details: `{"token": "prefix ${tail}` },
+    },
+    {
+      name: "escaped json value with a deeper escaped quote",
+      data: {
+        category: "config",
+        details: `{\\"token\\":\\"prefix\\\\\\"${tail}\\"}`,
+      },
+    },
+  ];
+  for (const mode of ["insert", "legacy-read"]) {
+    for (const c of cases) {
+      it(`${mode}: ${c.name}`, async () => {
+        await withTestHarness({ isDevelopment: true }, async (harness) => {
+          const { thread } = seedThreadFixture(harness);
+          setAppSettings(harness.db, {
+            ...defaultAppSettings,
+            showDiagnosticEvents: true,
+          });
+          seedTurnStarted(harness.deps, {
+            threadId: thread.id,
+            turnId: "synthetic-turn",
+            sequence: 1,
+          });
+          seedEvent(harness.deps, {
+            threadId: thread.id,
+            providerThreadId: "synthetic-provider",
+            scope: threadScope(),
+            sequence: 2,
+            type: "provider/warning",
+            data: c.data,
+          } as never);
+          if (mode === "legacy-read") {
+            harness.db.run(
+              sql`UPDATE events SET data = ${JSON.stringify(c.data)} WHERE thread_id = ${thread.id} AND sequence = 2`,
+            );
+          }
+          const res = await harness.app.request(
+            `/api/v1/threads/${thread.id}/events`,
+          );
+          const body = await res.text();
+          expect(res.status).toBe(200);
+          expect(body).not.toContain(tail);
+          expect(body).not.toContain("prefix");
+        });
+      });
+    }
+  }
+
+  it("keeps text after a genuinely enclosing quote", async () => {
+    await withTestHarness({ isDevelopment: true }, async (harness) => {
+      const { thread } = seedThreadFixture(harness);
+      setAppSettings(harness.db, {
+        ...defaultAppSettings,
+        showDiagnosticEvents: true,
+      });
+      seedTurnStarted(harness.deps, {
+        threadId: thread.id,
+        turnId: "synthetic-turn",
+        sequence: 1,
+      });
+      seedEvent(harness.deps, {
+        threadId: thread.id,
+        providerThreadId: "synthetic-provider",
+        scope: threadScope(),
+        sequence: 2,
+        type: "provider/warning",
+        data: {
+          category: "config",
+          details: `bash -c 'run --token=prefix${tail}' NEXT-MARKER`,
+        },
+      } as never);
+      const res = await harness.app.request(
+        `/api/v1/threads/${thread.id}/events`,
+      );
+      const body = await res.text();
+      expect(body).not.toContain(tail);
+      expect(body).toContain("NEXT-MARKER");
+    });
+  });
+});

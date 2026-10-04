@@ -6821,6 +6821,68 @@ describe("provider.env-resolved redaction at record and list time", () => {
     expect(elapsed).toBeLessThan(2000);
   });
 
+  it("masks whole shell-word secret values at insert and list time (round 10)", () => {
+    const { db, thread } = setup();
+    const tail = "synthtail-123456789xyz";
+    const bs = (n: number) => "\\".repeat(n);
+    const texts: string[] = [];
+    for (const name of ["token", "password", "apiKey", "secret", "sig"]) {
+      for (const quote of ["'", '"']) {
+        for (const depth of [0, 1, 2, 3]) {
+          const q = bs(depth) + quote;
+          texts.push(
+            `--${name}=prefix${q}${tail}${q}`,
+            `--${name} prefix${q}${tail}`,
+            `${name.toUpperCase()}=${q}prefix${q}${q}${tail}${q}`,
+            `${name}: ${q}prefix${bs(depth + 1)}${quote}${tail}${q}`,
+            `run Bearer prefix${q}${tail}${q}`,
+          );
+        }
+      }
+    }
+    texts.push(
+      `https://user:prefix@${tail}@host.example/x`,
+      `{"token": "prefix ${tail}`,
+    );
+    insertEvents(
+      db,
+      noopNotifier,
+      texts.map((details, index) => ({
+        threadId: thread.id,
+        environmentId: null,
+        providerThreadId: "provider-session",
+        scope: threadScope(),
+        sequence: index + 1,
+        type: "provider/warning" as const,
+        itemId: null,
+        itemKind: null,
+        parentToolCallId: null,
+        data: JSON.stringify({ category: "config", details }),
+      })),
+    );
+    const stored = JSON.stringify(
+      db
+        .select({ data: events.data })
+        .from(events)
+        .where(eq(events.threadId, thread.id))
+        .all(),
+    );
+    expect(stored).not.toContain(tail);
+    expect(stored).not.toContain("prefix");
+    const listed = JSON.stringify(listEvents(db, { threadId: thread.id }));
+    expect(listed).not.toContain(tail);
+    expect(listed).not.toContain("prefix");
+    // Legacy rows: plaintext written straight into the table is masked on read.
+    texts.forEach((details, index) => {
+      db.run(
+        sql`UPDATE events SET data = ${JSON.stringify({ category: "config", details })} WHERE thread_id = ${thread.id} AND sequence = ${index + 1}`,
+      );
+    });
+    const legacy = JSON.stringify(listEvents(db, { threadId: thread.id }));
+    expect(legacy).not.toContain(tail);
+    expect(legacy).not.toContain("prefix");
+  });
+
   it("inserts and lists adversarial large payloads within the time bound", () => {
     const { db, thread } = setup();
     const hostile = [
