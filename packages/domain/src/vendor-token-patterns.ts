@@ -123,6 +123,17 @@ export const VENDOR_TOKEN_PATTERNS: readonly VendorTokenPattern[] = [
   },
 ];
 
+/**
+ * Linear literal-anchor precheck: true whenever some pattern above could
+ * match, so a caller may skip scrubbing (or parsing) text it rejects. Every
+ * pattern starts with one of these fixed literals; the tests assert a sample
+ * of every pattern passes, so a new pattern must add its anchor here. Tokens
+ * contain no JSON-escaped characters before their anchor, so the check is the
+ * same on serialized JSON.
+ */
+export const VENDOR_TOKEN_PRECHECK =
+  /gh[pousr]_|github_pat_|sk-|xox[bpeos]-|xapp-|[sr]k_|A3T|AKIA|ASIA|ABIA|ACCA|AIza|npm_|pypi-|SG\.|SK|gl(?:pat|dt|rt|ft|oas|soat|ptt)-|v1\.0-|dop_v1_|shpat_|tskey-|-----BEGIN/;
+
 /** Replaces every prefixed vendor token in `text` with `replacement`. */
 export function scrubVendorTokens(text: string, replacement: string): string {
   let out = text;

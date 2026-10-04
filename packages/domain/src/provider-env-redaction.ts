@@ -45,7 +45,10 @@
 
 import type { ThreadEventType } from "./provider-event.js";
 import { expandSecretVariants } from "./secret-variants.js";
-import { scrubVendorTokens } from "./vendor-token-patterns.js";
+import {
+  VENDOR_TOKEN_PRECHECK,
+  scrubVendorTokens,
+} from "./vendor-token-patterns.js";
 import {
   STRUCTURAL_ARRAY_KEY,
   enterStructural,
@@ -1676,6 +1679,7 @@ export function redactEventDataJsonForType(type: string, json: string): string {
   if (
     policyForType(type).keys === "containers" &&
     !JSON_PRECHECK_PATTERN.test(json) &&
+    !VENDOR_TOKEN_PRECHECK.test(json) &&
     !(hasUrlFieldRule(type) && json.includes("="))
   ) {
     return json;
