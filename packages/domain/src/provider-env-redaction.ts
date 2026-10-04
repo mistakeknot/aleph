@@ -31,6 +31,7 @@
  */
 
 import type { ThreadEventType } from "./provider-event.js";
+import { expandSecretVariants } from "./secret-variants.js";
 import {
   STRUCTURAL_ARRAY_KEY,
   enterStructural,
@@ -718,7 +719,12 @@ function scrubSecretShapes(text: string): string {
   );
 }
 
-/** Secrets beyond this many characters fail closed (see `SecretMatcher`). */
+/**
+ * Ceiling on the characters indexed by one matcher (every secret plus all of
+ * its encoded variants, see `expandSecretVariants`). Beyond it, or when one
+ * secret is too long to expand, `SecretMatcher.create` returns `null` and
+ * callers fail closed. Memory is bounded by this constant.
+ */
 const MAX_CROSS_REFERENCE_SECRET_CHARS = 4 * 1024 * 1024;
 
 /**
@@ -798,17 +804,35 @@ class SecretMatcher {
     }
   }
 
-  /** `null` when the secrets are too large to index (callers fail closed). */
+  /**
+   * Indexes every secret and its encoded variants. `null` when the secrets
+   * are too large to index (callers fail closed) or none are given.
+   */
   static create(secrets: Iterable<string>): SecretMatcher | null {
     const unique = [...new Set(secrets)].filter((secret) => secret.length > 0);
+    const patterns = new Set<string>();
     let total = 0;
     for (const secret of unique) {
+      // Cheap pre-check before expanding: raw characters alone are bounded.
       total += secret.length;
       if (total > MAX_CROSS_REFERENCE_SECRET_CHARS) {
         return null;
       }
+      const variants = expandSecretVariants(secret);
+      if (variants === null) {
+        return null;
+      }
+      for (const variant of variants) {
+        if (!patterns.has(variant)) {
+          patterns.add(variant);
+          total += variant.length;
+        }
+      }
+      if (total > MAX_CROSS_REFERENCE_SECRET_CHARS) {
+        return null;
+      }
     }
-    return unique.length === 0 ? null : new SecretMatcher(unique);
+    return patterns.size === 0 ? null : new SecretMatcher([...patterns]);
   }
 
   scrub(text: string): string {
@@ -1527,14 +1551,19 @@ export function sanitizeCredentialsDeep<T>(
     // Every collected secret is matched (no cap); a secret set too large to
     // index fails closed by replacing all non-structural strings.
     const matcher = SecretMatcher.create(state.secrets);
-    result = scrubKnownSecretsDeep(
-      result,
-      matcher,
-      options.structural
-        ? structuralFrontierForType(options.structural.type)
-        : null,
+    const frontier = options.structural
+      ? structuralFrontierForType(options.structural.type)
+      : null;
+    // Match echoes (and their encoded variants) in the ORIGINAL text first:
+    // the shape scrubbers below may rewrite part of a word and break the
+    // literal match. `state.changed` is already set by the first walk.
+    result = walkSanitize(
+      scrubKnownSecretsDeep(value, matcher, frontier, 0),
+      state,
       0,
+      "plain",
     );
+    result = scrubKnownSecretsDeep(result, matcher, frontier, 0);
     if (state.envelopeKeys !== null && isRecord(value) && isRecord(result)) {
       for (const key of state.envelopeKeys) {
         if (key in value) {
