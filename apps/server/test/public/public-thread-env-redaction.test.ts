@@ -742,3 +742,85 @@ describe("round 6 public event regressions", () => {
     }
   }
 });
+
+describe("round 8 public event regressions", () => {
+  const tail = "synthtail-123456789xyz";
+  const cases: Array<{ name: string; type: string; data: unknown }> = [
+    ...["Cookie", "Set-Cookie", "Authorization", "X-Api-Key"].flatMap((name) =>
+      ['"', "'", '\\"', '\\\\"', '\\\\\\\\\\"'].map((q) => ({
+        name: `${name} after x${q}!${q}`,
+        type: "provider/warning",
+        data: {
+          category: "config",
+          details: `x${q}!${q}; ${name}: prefix${q}${tail}`,
+        },
+      })),
+    ),
+    {
+      name: "underscore and non-ASCII word characters",
+      type: "provider/warning",
+      data: {
+        category: "config",
+        details: `_"!" é'!'; Cookie: prefix"${tail}`,
+      },
+    },
+    {
+      name: "16 KB image url with a trailing escape",
+      type: "item/completed",
+      data: {
+        item: {
+          type: "userMessage",
+          id: "synthetic-message",
+          content: [
+            {
+              type: "image",
+              url: `https://example.invalid/?${"a=1?".repeat(4000)}%20`,
+            },
+          ],
+        },
+      },
+    },
+  ];
+  for (const mode of ["insert", "legacy-read"]) {
+    for (const c of cases) {
+      it(`${mode}: ${c.name}`, async () => {
+        await withTestHarness({ isDevelopment: true }, async (harness) => {
+          const { thread } = seedThreadFixture(harness);
+          setAppSettings(harness.db, {
+            ...defaultAppSettings,
+            showDiagnosticEvents: true,
+          });
+          seedTurnStarted(harness.deps, {
+            threadId: thread.id,
+            turnId: "synthetic-turn",
+            sequence: 1,
+          });
+          seedEvent(harness.deps, {
+            threadId: thread.id,
+            providerThreadId: "synthetic-provider",
+            scope:
+              c.type === "item/completed"
+                ? turnScope("synthetic-turn")
+                : threadScope(),
+            sequence: 2,
+            type: c.type,
+            data: c.data,
+          } as never);
+          if (mode === "legacy-read") {
+            harness.db.run(
+              sql`UPDATE events SET data = ${JSON.stringify(c.data)} WHERE thread_id = ${thread.id} AND sequence = 2`,
+            );
+          }
+          const start = performance.now();
+          const res = await harness.app.request(
+            `/api/v1/threads/${thread.id}/events`,
+          );
+          const body = await res.text();
+          expect(res.status).toBe(200);
+          expect(body).not.toContain(tail);
+          expect(performance.now() - start).toBeLessThan(3000);
+        });
+      });
+    }
+  }
+});

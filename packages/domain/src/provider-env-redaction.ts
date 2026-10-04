@@ -314,11 +314,17 @@ function scanHeaderValueEnd(
   return i;
 }
 
+/** The text after an apostrophe in `it's`, `don't`, `we'll`, `they've`. */
+const CONTRACTION_SUFFIX_PATTERN = /^(?:[stdm]|ll|re|ve)(?![\p{L}\p{N}_])/iu;
+
+/** ASCII alphanumerics, `_` and every non-ASCII code unit (conservatively). */
 function isWordCode(code: number): boolean {
   return (
     (code >= 48 && code <= 57) ||
     (code >= 65 && code <= 90) ||
-    (code >= 97 && code <= 122)
+    code === 95 ||
+    (code >= 97 && code <= 122) ||
+    code >= 128
   );
 }
 
@@ -332,6 +338,12 @@ function scrubSecretHeaders(text: string): string {
   // quote that was opened and closed earlier says nothing about the header).
   // Advanced monotonically (linear).
   let opener: HeaderOpener | null = null;
+  // A quote was seen word-adjacent with no string open on this line
+  // (`x"!"`, `5"`, `-H"`, `users'`). Such a quote may open a string (shell
+  // concatenation) or not, so whether any later quote opens or closes one is
+  // unknown: no quote is trusted to enclose a header for the rest of the line
+  // and the header value runs to the end of the line (fail closed).
+  let doubtful = false;
   let scanned = 0;
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(text)) !== null) {
@@ -340,7 +352,7 @@ function scrubSecretHeaders(text: string): string {
       const code = text.charCodeAt(scanned);
       if (isLineBreak(code)) {
         opener = null;
-        scanned += 1;
+        doubtful = false;
       } else if (code === DOUBLE_QUOTE || code === SINGLE_QUOTE) {
         let depth = 0;
         for (
@@ -350,32 +362,31 @@ function scrubSecretHeaders(text: string): string {
         ) {
           depth += 1;
         }
-        // A quote right after a word character (`5" pipe`, `-H"`, `it's`)
-        // is not evidence of a string: it never opens one, and an
-        // apostrophe inside a word never closes one.
         const wordBefore = isWordCode(
           scanned > depth ? text.charCodeAt(scanned - depth - 1) : -1,
         );
+        // An English contraction (`it's`, `don't`, `we'll`) neither opens
+        // nor closes a string; any other word-adjacent quote is doubtful.
+        const inWord =
+          code === SINGLE_QUOTE &&
+          wordBefore &&
+          CONTRACTION_SUFFIX_PATTERN.test(
+            text.slice(scanned + 1, scanned + 4),
+          );
         if (opener === null) {
-          if (!wordBefore) {
+          if (inWord) {
+            // contraction: ignored
+          } else if (wordBefore) {
+            doubtful = true;
+          } else if (!doubtful) {
             opener = { quote: code, depth };
           }
-        } else if (
-          code === opener.quote &&
-          depth <= opener.depth &&
-          !(
-            code === SINGLE_QUOTE &&
-            wordBefore &&
-            isWordCode(text.charCodeAt(scanned + 1))
-          )
-        ) {
+        } else if (code === opener.quote && depth <= opener.depth && !inWord) {
           // Closes the open string (fewer backslashes: it ended earlier).
           opener = null;
         }
-        scanned += 1;
-      } else {
-        scanned += 1;
       }
+      scanned += 1;
     }
     const valueStart = match.index + match[0].length;
     const valueEnd = scanHeaderValueEnd(text, valueStart, opener);
@@ -429,12 +440,26 @@ const URL_PARAM_START_PATTERN = /[?&#;]([^=&#;\s"'<>]{1,200})=/g;
 /** Nested (percent-encoded) URLs are decoded this many levels deep. */
 const MAX_URL_PARAM_NESTING = 3;
 
+/**
+ * Percent-decodes every well-formed escape and leaves anything else literal
+ * (a malformed escape or invalid UTF-8 never blocks decoding the rest), in
+ * one linear pass. The result is never longer than the input.
+ */
 function decodeUrlComponent(raw: string): string {
-  try {
-    return decodeURIComponent(raw);
-  } catch {
-    return raw; // malformed escape: judge the raw text
+  if (!raw.includes("%")) {
+    return raw;
   }
+  return raw.replace(/(?:%[0-9a-fA-F]{2})+/g, (run) => {
+    try {
+      return decodeURIComponent(run);
+    } catch {
+      const bytes = new Uint8Array(run.length / 3);
+      for (let i = 0; i < bytes.length; i += 1) {
+        bytes[i] = Number.parseInt(run.slice(i * 3 + 1, i * 3 + 3), 16);
+      }
+      return new TextDecoder().decode(bytes);
+    }
+  });
 }
 
 /**
@@ -447,32 +472,51 @@ function decodeUrlComponent(raw: string): string {
  * `next=https%3A%2F%2F...%3Ftoken%3D...` URL) is masked whole. Scanning
  * continues inside non-credential values, so a `;` or `?` separated
  * credential after them is still found.
+ *
+ * Linear time: the text is cut into `&` segments, each looked at once. The
+ * nested check decodes and rescans only the tail of a segment from its first
+ * non-credential parameter, once per segment (every later parameter's value
+ * is a suffix of it, and decoding is per escape, so nothing a later start
+ * would find is lost). Segments are disjoint and a decoded tail is never
+ * longer than its source, so each nesting level costs at most one pass over
+ * the text and the total is bounded by `MAX_URL_PARAM_NESTING + 1` passes.
  */
 function scrubUrlParams(text: string, nesting = 0): string {
   let out = "";
   let last = 0;
+  let segmentEnd = -1; // end of the `&` segment being scanned
+  let segmentChecked = false; // nested check done for this segment
   for (const match of text.matchAll(URL_PARAM_START_PATTERN)) {
     if (match.index < last) {
       continue; // inside a value that was already masked
     }
-    const key = match[1] ?? "";
     const valueStart = match.index + match[0].length;
-    let valueEnd = text.indexOf("&", valueStart);
-    if (valueEnd < 0) {
-      valueEnd = text.length;
+    if (match.index >= segmentEnd) {
+      segmentEnd = text.indexOf("&", valueStart);
+      if (segmentEnd < 0) {
+        segmentEnd = text.length;
+      }
+      segmentChecked = false;
     }
-    const value = text.slice(valueStart, valueEnd);
-    if (value === REDACTED_ENV_VALUE) {
+    if (
+      segmentEnd - valueStart === REDACTED_ENV_VALUE.length &&
+      text.startsWith(REDACTED_ENV_VALUE, valueStart)
+    ) {
       continue;
     }
-    let secret = isSecretTextKey(decodeUrlComponent(key));
-    if (!secret && nesting < MAX_URL_PARAM_NESTING && value.includes("%")) {
-      const decoded = decodeUrlComponent(value);
-      secret = decoded !== value && scrubUrlParams(decoded, nesting + 1) !== decoded;
+    let secret = isSecretTextKey(decodeUrlComponent(match[1] ?? ""));
+    if (!secret && !segmentChecked && nesting < MAX_URL_PARAM_NESTING) {
+      segmentChecked = true;
+      const value = text.slice(valueStart, segmentEnd);
+      if (value.includes("%")) {
+        const decoded = decodeUrlComponent(value);
+        secret =
+          decoded !== value && scrubUrlParams(decoded, nesting + 1) !== decoded;
+      }
     }
     if (secret) {
       out += text.slice(last, valueStart) + REDACTED_ENV_VALUE;
-      last = valueEnd;
+      last = segmentEnd;
     }
   }
   return out + text.slice(last);

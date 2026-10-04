@@ -6736,6 +6736,62 @@ describe("provider.env-resolved redaction at record and list time", () => {
     expect(stored).toContain("ok=1");
   });
 
+  it("redacts a header after a closed word-adjacent quote pair, and bounds the URL scan, in the stored row", () => {
+    const tail = "synthtail-123456789xyz";
+    const { db, thread } = setup();
+    const url = `https://example.invalid/?${"a=1?".repeat(4000)}%20`;
+    const payloads: Array<[InsertEventInput["type"], Record<string, unknown>]> =
+      [
+        ...["Cookie", "Authorization", "X-Api-Key"].flatMap((name) =>
+          ['"', "'", '\\"', '\\\\"'].map(
+            (q): [InsertEventInput["type"], Record<string, unknown>] => [
+              "provider/warning",
+              {
+                category: "config",
+                details: `x${q}!${q}; ${name}: prefix${q}${tail}`,
+              },
+            ],
+          ),
+        ),
+        [
+          "item/completed",
+          {
+            item: {
+              type: "userMessage",
+              id: "synthetic",
+              content: [{ type: "image", url }],
+            },
+          },
+        ],
+      ];
+    const start = performance.now();
+    insertEvents(
+      db,
+      noopNotifier,
+      payloads.map(([type, data], index) => ({
+        threadId: thread.id,
+        environmentId: null,
+        providerThreadId: "provider-session",
+        scope: threadScope(),
+        sequence: index + 1,
+        type,
+        itemId: null,
+        itemKind: null,
+        parentToolCallId: null,
+        data: JSON.stringify(data),
+      })),
+    );
+    const elapsed = performance.now() - start;
+    const rows = db
+      .select({ data: events.data })
+      .from(events)
+      .where(eq(events.threadId, thread.id))
+      .all();
+    expect(JSON.stringify(rows)).not.toContain(tail);
+    expect(JSON.stringify(rows)).toContain(url.slice(0, 200));
+    expect(elapsed).toBeLessThan(2000);
+  });
+
   it("inserts and lists adversarial large payloads within the time bound", () => {
     const { db, thread } = setup();
     const hostile = [
