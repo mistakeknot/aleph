@@ -7,22 +7,29 @@
  * Adapted from the gitleaks default rules (config/gitleaks.toml).
  *   Source:  https://github.com/gitleaks/gitleaks
  *   Commit:  b58d3f102cf3a2c84cb7f923d05c25c9b1aed84b (2026-07-22)
- *   Licence: MIT, Copyright (c) 2019 Zachary Rice
+ *   Licence: MIT (full upstream notice below, unmodified)
+ *
+ * MIT License
+ *
+ * Copyright (c) 2019 Zachary Rice
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of the gitleaks software and associated documentation files (the
- * "Software"), to deal in the Software without restriction, including without
- * limitation the rights to use, copy, modify, merge, publish, distribute,
- * sublicense, and/or sell copies of the Software, subject to the following
- * conditions: the above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software. THE
- * SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
  * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
  *
  * Changes from gitleaks: translated from Go regexps to JavaScript; the
  * trailing delimiter group is dropped (the whole token is replaced, and a
