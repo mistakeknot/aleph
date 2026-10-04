@@ -553,6 +553,64 @@ describe("round 6 public event regressions", () => {
       forbid: tail,
     })),
     {
+      name: "closed quote before an escaped-quote header",
+      type: "provider/warning",
+      data: {
+        category: "config",
+        details: `earlier \\"ok\\"; Cookie: prefix\\"${tail}`,
+      },
+      forbid: tail,
+    },
+    {
+      name: "image url with an apostrophe in the credential",
+      type: "item/completed",
+      data: {
+        item: {
+          type: "userMessage",
+          id: "synthetic-message",
+          content: [
+            {
+              type: "image",
+              url: `https://example.invalid/img?token=prefix'${tail}&ok=1`,
+            },
+          ],
+        },
+      },
+      forbid: tail,
+    },
+    {
+      name: "scheme-less signed image url",
+      type: "item/completed",
+      data: {
+        item: {
+          type: "userMessage",
+          id: "synthetic-message",
+          content: [
+            { type: "image", url: "//example.invalid/img?sig=synthtail-123456789xyz" },
+          ],
+        },
+      },
+      forbid: "synthtail-123456789xyz",
+    },
+    {
+      name: "nested request params image url",
+      type: "client/turn/start",
+      data: {
+        direction: "outbound",
+        source: "tell",
+        initiator: "user",
+        request: {
+          method: "turn/start",
+          params: {
+            inputGroups: [
+              [{ type: "image", url: `https://example.invalid/i?%74oken=${tail}` }],
+            ],
+          },
+        },
+      },
+      forbid: tail,
+    },
+    {
       name: "wrapped image query token",
       type: "item/completed",
       data: {

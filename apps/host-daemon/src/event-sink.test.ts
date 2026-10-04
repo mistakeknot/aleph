@@ -710,4 +710,75 @@ describe("event sink", () => {
       expect(threadEventSchema.safeParse(entry.event).success).toBe(true);
     }
   });
+  it("redacts round-7 surfaces and keeps the events schema-valid", async () => {
+    const tail = "synthetic-tail-credential-1234";
+    const postEvents = vi.fn<CreateEventSinkOptions["postEvents"]>(
+      async (events) => ({
+        acceptedEvents: events.map((event, eventIndex) => ({
+          eventIndex,
+          sequence: eventIndex + 1,
+          threadId: event.threadId,
+        })),
+        rejectedEvents: [],
+      }),
+    );
+    const sink = createEventSink({
+      isSessionOpen: () => true,
+      logger: { debug: vi.fn(), error: vi.fn(), warn: vi.fn() },
+      postEvents,
+    });
+    const events = [
+      {
+        type: "provider/warning",
+        category: "config",
+        details: `earlier \\"ok\\"; Cookie: prefix\\"${tail}`,
+        scope: threadScope(),
+      },
+      {
+        type: "item/completed",
+        scope: turnScope("synthetic-turn"),
+        item: {
+          type: "userMessage",
+          id: "synthetic-message",
+          content: [
+            { type: "image", url: `https://example.invalid/i?token=a'${tail}&ok=1` },
+            { type: "image", url: `//example.invalid/i?sig=${tail}` },
+          ],
+        },
+      },
+      {
+        type: "client/turn/start",
+        scope: threadScope(),
+        direction: "outbound",
+        source: "tell",
+        initiator: "user",
+        request: {
+          method: "turn/start",
+          params: {
+            inputGroups: [
+              [{ type: "image", url: `https://example.invalid/i?%74oken=${tail}` }],
+            ],
+          },
+        },
+      },
+    ];
+    for (const event of events) {
+      sink.emit({
+        threadId: "thr_1",
+        event: threadEventSchema.parse({
+          threadId: "thr_1",
+          providerThreadId: "synthetic-provider",
+          ...event,
+        }),
+      });
+    }
+    await sink.flush();
+    const posted = postEvents.mock.calls.flatMap(([batch]) => batch);
+    expect(posted).toHaveLength(events.length);
+    expect(JSON.stringify(posted)).not.toContain(tail);
+    expect(JSON.stringify(posted)).toContain("ok=1");
+    for (const entry of posted) {
+      expect(threadEventSchema.safeParse(entry.event).success).toBe(true);
+    }
+  });
 });

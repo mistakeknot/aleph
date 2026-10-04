@@ -307,10 +307,19 @@ function scanHeaderValueEnd(
       i += 1;
       continue;
     }
-    opensSegment = code === EQUALS || (opensSegment && (code === 32 || code === 9));
+    opensSegment =
+      code === EQUALS || (opensSegment && (code === 32 || code === 9));
     i += 1;
   }
   return i;
+}
+
+function isWordCode(code: number): boolean {
+  return (
+    (code >= 48 && code <= 57) ||
+    (code >= 65 && code <= 90) ||
+    (code >= 97 && code <= 122)
+  );
 }
 
 function scrubSecretHeaders(text: string): string {
@@ -318,14 +327,15 @@ function scrubSecretHeaders(text: string): string {
   pattern.lastIndex = 0;
   let out = "";
   let last = 0;
-  // Last quote seen on the current line before the scan position: the quote
-  // that opens the string a header sits in. Advanced monotonically (linear).
+  // The quote that is open at the scan position on the current line, i.e. the
+  // one that opens the string a header sits in (null when none is open: a
+  // quote that was opened and closed earlier says nothing about the header).
+  // Advanced monotonically (linear).
   let opener: HeaderOpener | null = null;
   let scanned = 0;
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(text)) !== null) {
-    const nameStart =
-      match.index + (/^[\s,;{(\\"']/.test(match[0]) ? 1 : 0);
+    const nameStart = match.index + (/^[\s,;{(\\"']/.test(match[0]) ? 1 : 0);
     while (scanned < nameStart) {
       const code = text.charCodeAt(scanned);
       if (isLineBreak(code)) {
@@ -333,10 +343,35 @@ function scrubSecretHeaders(text: string): string {
         scanned += 1;
       } else if (code === DOUBLE_QUOTE || code === SINGLE_QUOTE) {
         let depth = 0;
-        for (let k = scanned - 1; k >= 0 && text.charCodeAt(k) === BACKSLASH; k -= 1) {
+        for (
+          let k = scanned - 1;
+          k >= 0 && text.charCodeAt(k) === BACKSLASH;
+          k -= 1
+        ) {
           depth += 1;
         }
-        opener = { quote: code, depth };
+        // A quote right after a word character (`5" pipe`, `-H"`, `it's`)
+        // is not evidence of a string: it never opens one, and an
+        // apostrophe inside a word never closes one.
+        const wordBefore = isWordCode(
+          scanned > depth ? text.charCodeAt(scanned - depth - 1) : -1,
+        );
+        if (opener === null) {
+          if (!wordBefore) {
+            opener = { quote: code, depth };
+          }
+        } else if (
+          code === opener.quote &&
+          depth <= opener.depth &&
+          !(
+            code === SINGLE_QUOTE &&
+            wordBefore &&
+            isWordCode(text.charCodeAt(scanned + 1))
+          )
+        ) {
+          // Closes the open string (fewer backslashes: it ended earlier).
+          opener = null;
+        }
         scanned += 1;
       } else {
         scanned += 1;
@@ -347,8 +382,7 @@ function scrubSecretHeaders(text: string): string {
     if (valueEnd === valueStart) {
       continue;
     }
-    out +=
-      text.slice(last, valueStart) + REDACTED_ENV_VALUE;
+    out += text.slice(last, valueStart) + REDACTED_ENV_VALUE;
     last = valueEnd;
     pattern.lastIndex = valueEnd;
   }
@@ -389,32 +423,70 @@ function scrubToolText(text: string): string {
     .replace(STRONG_BEARER_PATTERN, `$1 ${REDACTED_ENV_VALUE}`);
 }
 
-const URL_PARAM_PATTERN = /([?&#;])([^=&#;\s"'<>]{1,200})=([^&#;\s"'<>]*)/g;
+/** `?key=` / `&key=` / `#key=` / `;key=`: the start of a URL parameter. */
+const URL_PARAM_START_PATTERN = /[?&#;]([^=&#;\s"'<>]{1,200})=/g;
+
+/** Nested (percent-encoded) URLs are decoded this many levels deep. */
+const MAX_URL_PARAM_NESTING = 3;
+
+function decodeUrlComponent(raw: string): string {
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw; // malformed escape: judge the raw text
+  }
+}
+
+/**
+ * Masks the value of every credential parameter in text that is a URL field.
+ * Inside a URL field a value runs to the next `&`: quotes, whitespace, `<`,
+ * `>`, `;` and `#` are all legal value content (an apostrophe is common in
+ * query strings), so none of them ends a credential, and masking more than
+ * the credential only loses unrelated parameters after it. A parameter whose
+ * percent-decoded value itself holds a credential parameter (a nested
+ * `next=https%3A%2F%2F...%3Ftoken%3D...` URL) is masked whole. Scanning
+ * continues inside non-credential values, so a `;` or `?` separated
+ * credential after them is still found.
+ */
+function scrubUrlParams(text: string, nesting = 0): string {
+  let out = "";
+  let last = 0;
+  for (const match of text.matchAll(URL_PARAM_START_PATTERN)) {
+    if (match.index < last) {
+      continue; // inside a value that was already masked
+    }
+    const key = match[1] ?? "";
+    const valueStart = match.index + match[0].length;
+    let valueEnd = text.indexOf("&", valueStart);
+    if (valueEnd < 0) {
+      valueEnd = text.length;
+    }
+    const value = text.slice(valueStart, valueEnd);
+    if (value === REDACTED_ENV_VALUE) {
+      continue;
+    }
+    let secret = isSecretTextKey(decodeUrlComponent(key));
+    if (!secret && nesting < MAX_URL_PARAM_NESTING && value.includes("%")) {
+      const decoded = decodeUrlComponent(value);
+      secret = decoded !== value && scrubUrlParams(decoded, nesting + 1) !== decoded;
+    }
+    if (secret) {
+      out += text.slice(last, valueStart) + REDACTED_ENV_VALUE;
+      last = valueEnd;
+    }
+  }
+  return out + text.slice(last);
+}
 
 /** `scrubToolText` plus credential parameters of a URL's query/fragment. */
 function scrubUrlText(text: string): string {
-  return scrubToolText(text).replace(
-    URL_PARAM_PATTERN,
-    (whole, sep: string, key: string, value: string) => {
-      let name = key;
-      try {
-        name = decodeURIComponent(key);
-      } catch {
-        // malformed escape: judge the raw key
-      }
-      return value === REDACTED_ENV_VALUE || !isSecretTextKey(name)
-        ? whole
-        : `${sep}${key}=${REDACTED_ENV_VALUE}`;
-    },
-  );
+  return scrubUrlParams(scrubToolText(text));
 }
 
 function scrubSecretShapes(text: string): string {
   return replaceScanning(
     replaceScanning(
-      scrubJsonSecretPairs(
-        scrubSecretHeaders(text),
-      )
+      scrubJsonSecretPairs(scrubSecretHeaders(text))
         .replace(URL_USERINFO_PATTERN, `$1${REDACTED_ENV_VALUE}@`)
         .replace(BEARER_PATTERN, `$1 ${REDACTED_ENV_VALUE}`),
       SECRET_FLAG_PATTERN,
@@ -504,7 +576,8 @@ class SecretMatcher {
         }
       }
       this.fail[node] = link;
-      this.best[node] = terminal[node]! > 0 ? terminal[node]! : this.best[link]!;
+      this.best[node] =
+        terminal[node]! > 0 ? terminal[node]! : this.best[link]!;
     }
   }
 
@@ -572,7 +645,10 @@ class SecretMatcher {
   }
 }
 
-function scrubKnownSecrets(text: string, matcher: SecretMatcher | null): string {
+function scrubKnownSecrets(
+  text: string,
+  matcher: SecretMatcher | null,
+): string {
   return scrubSecretShapes(matcher ? matcher.scrub(text) : text);
 }
 
@@ -615,7 +691,8 @@ export function redactProviderEnvResolvedData<T extends object>(data: T): T {
     const next: Record<string, unknown> = { ...entry };
     if (typeof entry.value === "string") {
       next.value =
-        failClosed || (typeof entry.name === "string" && isSecretEnvName(entry.name))
+        failClosed ||
+        (typeof entry.name === "string" && isSecretEnvName(entry.name))
           ? REDACTED_ENV_VALUE
           : scrubKnownSecrets(entry.value, matcher);
     }
@@ -674,7 +751,12 @@ function isSecretPayloadKey(key: string): boolean {
 }
 
 export type CredentialKeyScope = "anywhere" | "containers";
-export type CredentialTextScrub = "full" | "tool" | "url" | "none";
+export type CredentialTextScrub =
+  | "full"
+  | "fullUrl"
+  | "tool"
+  | "url"
+  | "none";
 
 export interface CredentialRedactionPolicy {
   keys: CredentialKeyScope;
@@ -705,6 +787,21 @@ const URL_POLICY: CredentialRedactionPolicy = {
   keys: "containers",
   text: "url",
 };
+
+/** A URL field inside diagnostics: the full scrub plus URL parameters. */
+const URL_FULL_POLICY: CredentialRedactionPolicy = {
+  keys: "anywhere",
+  text: "fullUrl",
+};
+
+/** Whether a payload key (or the key of an array of values) names a URL. */
+function isUrlFieldPath(path: readonly string[]): boolean {
+  let last = path[path.length - 1];
+  if (last === STRUCTURAL_ARRAY_KEY_SEGMENT && path.length > 1) {
+    last = path[path.length - 2];
+  }
+  return last !== undefined && URL_FIELD_KEY_PATTERN.test(normalizeKey(last));
+}
 
 /**
  * Policy of every thread event type. Typed over `ThreadEventType`, so adding
@@ -779,6 +876,9 @@ const AUTHORED_ITEM_TYPES: ReadonlySet<string> = new Set([
   "planSteps",
 ]);
 
+const STRUCTURAL_ARRAY_KEY_SEGMENT = "*";
+const URL_FIELD_KEY_PATTERN = /(url|uri|href)s?$/;
+
 const TURN_PARAMS_TYPES: ReadonlySet<string> = new Set([
   "client/turn/start",
   "client/turn/requested",
@@ -807,19 +907,13 @@ const ITEM_EVENT_TYPES: ReadonlySet<string> = new Set([
 function ruleForType(type: string): CredentialPolicyRule | null {
   if (TURN_PARAMS_TYPES.has(type)) {
     return (path, parent) => {
-      const last = path[path.length - 1];
-      if (last === "url" && parent?.type === "image") {
-        const head = path[0];
-        if (
-          (head === "input" && path.length === 3) ||
-          (head === "inputGroups" && path.length === 4) ||
-          (head === "request" &&
-            path[1] === "params" &&
-            path[2] === "input" &&
-            path.length === 5)
-        ) {
-          return URL_POLICY;
-        }
+      // A URL field at any depth (`input`, `inputGroups`, and any copy or
+      // nesting under the free-form `request.params`) may carry a credential
+      // in its query. Authored prompt text is not a URL field.
+      if (isUrlFieldPath(path)) {
+        return path[0] === "request" && path[1] === "params"
+          ? URL_FULL_POLICY
+          : URL_POLICY;
       }
       if (path.length === 2 && path[0] === "request" && path[1] === "params") {
         return POLICIES.diagnostic;
@@ -839,7 +933,7 @@ function ruleForType(type: string): CredentialPolicyRule | null {
     };
   }
   if (policyNameForType(type) === "wrapper" || ITEM_EVENT_TYPES.has(type)) {
-    return (path, parent) => {
+    return (path) => {
       if (path[0] !== "item") {
         return null;
       }
@@ -855,22 +949,22 @@ function ruleForType(type: string): CredentialPolicyRule | null {
       ) {
         return POLICIES.diagnostic;
       }
-      if (
-        path.length === 4 &&
-        path[1] === "content" &&
-        path[2] === "*" &&
-        path[3] === "url" &&
-        parent?.type === "image"
-      ) {
-        return URL_POLICY;
-      }
-      if (path.length === 2 && path[1] === "url") {
-        return URL_POLICY;
+      // A URL field at any depth (image `content`, a fetch `url`, nested
+      // results) may carry a credential in its query; inside a diagnostic
+      // subtree it keeps the full scrub as well.
+      if (isUrlFieldPath(path)) {
+        return path[1] === "error" || path[1] === "workflow"
+          ? URL_FULL_POLICY
+          : URL_POLICY;
       }
       return null;
     };
   }
   return null;
+}
+
+function hasUrlFieldRule(type: string): boolean {
+  return ruleForType(type) !== null;
 }
 
 function policyNameForType(type: string): CredentialPolicyName {
@@ -978,9 +1072,11 @@ function scrubText(state: SanitizeState, value: string): string {
   const scrubbed =
     state.text === "full"
       ? scrubSecretShapes(value)
-      : state.text === "url"
-        ? scrubUrlText(value)
-        : scrubToolText(value);
+      : state.text === "fullUrl"
+        ? scrubUrlParams(scrubSecretShapes(value))
+        : state.text === "url"
+          ? scrubUrlText(value)
+          : scrubToolText(value);
   if (scrubbed !== value) {
     state.changed = true;
   }
@@ -1222,7 +1318,9 @@ export function sanitizeCredentialsDeep<T>(
     result = scrubKnownSecretsDeep(
       result,
       matcher,
-      options.structural ? structuralFrontierForType(options.structural.type) : null,
+      options.structural
+        ? structuralFrontierForType(options.structural.type)
+        : null,
       0,
     );
     if (state.envelopeKeys !== null && isRecord(value) && isRecord(result)) {
@@ -1319,9 +1417,12 @@ export function redactThreadEventPayload<T extends { type: string }>(
 export function redactEventDataJsonForType(type: string, json: string): string {
   // Hot write path (output deltas, tool output): skip the parse when the raw
   // text mentions nothing credential-shaped at all.
+  // Types with URL field overrides also parse when the text has a `=`: a
+  // signed URL (`?sig=...`) needs no credential-looking word or `://`.
   if (
     policyForType(type).keys === "containers" &&
-    !JSON_PRECHECK_PATTERN.test(json)
+    !JSON_PRECHECK_PATTERN.test(json) &&
+    !(hasUrlFieldRule(type) && json.includes("="))
   ) {
     return json;
   }

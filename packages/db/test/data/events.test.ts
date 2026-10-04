@@ -6682,6 +6682,60 @@ describe("provider.env-resolved redaction at record and list time", () => {
       ),
     ).not.toContain(secret);
   });
+  it("redacts signed URLs without a scheme, and URL values with quote characters, in the stored row", () => {
+    const sig = "synthtail-123456789xyz";
+    const { db, thread } = setup();
+    const image = (url: string) => ({
+      item: {
+        type: "userMessage",
+        id: "synthetic",
+        content: [{ type: "image", url }],
+      },
+    });
+    const payloads: Array<[InsertEventInput["type"], Record<string, unknown>]> =
+      [
+        ["item/completed", image(`//example.invalid/img?sig=${sig}`)],
+        ["item/completed", image(`data:text/plain,x#sig=${sig}`)],
+        ["item/completed", image(`https://example.invalid/i?token=a'${sig}&ok=1`)],
+        [
+          "client/turn/start",
+          {
+            request: {
+              method: "turn/start",
+              params: {
+                inputGroups: [[{ type: "image", url: `/i?%74oken=${sig}` }]],
+              },
+            },
+          },
+        ],
+      ];
+    insertEvents(
+      db,
+      noopNotifier,
+      payloads.map(([type, data], index) => ({
+        threadId: thread.id,
+        environmentId: null,
+        providerThreadId: "provider-session",
+        scope: threadScope(),
+        sequence: index + 1,
+        type,
+        itemId: null,
+        itemKind: null,
+        parentToolCallId: null,
+        data: JSON.stringify(data),
+      })),
+    );
+    const stored = JSON.stringify(
+      db
+        .select({ data: events.data })
+        .from(events)
+        .where(eq(events.threadId, thread.id))
+        .all(),
+    );
+    expect(stored).not.toContain(sig);
+    expect(stored).toContain("ok=1");
+  });
+
   it("inserts and lists adversarial large payloads within the time bound", () => {
     const { db, thread } = setup();
     const hostile = [
