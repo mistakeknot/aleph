@@ -28,6 +28,19 @@
  *
  * The sanitizer is pure and idempotent; key names are kept so the event stays
  * useful, only values are replaced.
+ *
+ * What this does NOT catch (full text: docs/credential-redaction-residuals.md):
+ * - secrets we do not hold, in a format with no vendored prefix and no
+ *   recognised flag/assignment/header/JSON/URL context;
+ * - split, truncated or oddly encoded echoes of a secret (a secret broken by
+ *   quotes such as `prefix"x"SUFFIX`, cut in half, ANSI-C `$'..'`, `\xNN`,
+ *   double encodings, anything shorter than 8 characters);
+ * - the round-10 repro shapes when the secret is not known: quote
+ *   continuation (`'prefix'SUFFIX`), marker-prefixed values
+ *   (`TOKEN=[redacted]'SUFFIX'`), escaped delimiters (`prefix\ SUFFIX`) and
+ *   quote-split URL userinfo with whitespace. With the secret known, only the
+ *   quote-split forms (secret not literal in the text) stay open.
+ * The shell-quoting heuristics are frozen by decision (mk-3aoo q181).
  */
 
 import type { ThreadEventType } from "./provider-event.js";
