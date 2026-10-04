@@ -24,7 +24,9 @@ interface Repro {
   text: string;
   /** What the secret really is (what a shell or URL parser would see). */
   secret: string;
-  /** Known-secret layer alone removes the tail (before variant expansion). */
+  /** Tail removed by the known-secret layer at fe42a2321 (raw match only). */
+  before: boolean;
+  /** Tail removed now (variant expansion, known secrets matched first). */
   caught: boolean;
 }
 
@@ -33,48 +35,56 @@ const REPROS: Repro[] = [
     name: "P2-1 quote continuation (header)",
     text: `curl -H 'Cookie: ${HEAD}'${TAIL}`,
     secret: `${HEAD}${TAIL}`,
+    before: false,
     caught: false,
   },
   {
     name: "P2-1 quote continuation (flag)",
     text: `bash -c 'run --token=${HEAD}'${TAIL}`,
     secret: `${HEAD}${TAIL}`,
+    before: false,
     caught: false,
   },
   {
     name: "P2-2 marker prefix (assignment)",
     text: `TOKEN=[redacted]'${TAIL}'`,
     secret: TAIL,
+    before: true,
     caught: true,
   },
   {
     name: "P2-2 marker prefix (flag)",
     text: `--token=[redacted]"${TAIL}"`,
     secret: TAIL,
+    before: true,
     caught: true,
   },
   {
     name: "P2-3 escaped space delimiter",
     text: `--token=${HEAD}\\ ${TAIL}`,
     secret: `${HEAD} ${TAIL}`,
-    caught: false,
+    before: false,
+    caught: true,
   },
   {
     name: "P2-3 escaped comma delimiter",
     text: `TOKEN=${HEAD}\\,${TAIL}`,
     secret: `${HEAD},${TAIL}`,
-    caught: false,
+    before: false,
+    caught: true,
   },
   {
     name: "P2-4 URL userinfo, quote-split with whitespace",
     text: `https://user:${HEAD}' ${TAIL}'@host.example/x`,
     secret: `${HEAD} ${TAIL}`,
+    before: false,
     caught: false,
   },
   {
     name: "P2-4 URL userinfo, fully quoted with whitespace",
     text: `'https://user:${HEAD} ${TAIL}@host.example/x'`,
     secret: `${HEAD} ${TAIL}`,
+    before: true,
     caught: true,
   },
 ];
