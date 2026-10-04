@@ -20,7 +20,7 @@ export const MIN_EXPANDED_SECRET_LENGTH = 8;
 /** Longer secrets are refused by the caller (fail closed), not truncated. */
 export const MAX_EXPANDABLE_SECRET_CHARS = 64 * 1024;
 
-/** Hard ceiling on strings returned per secret (the transforms give <= 22). */
+/** Hard ceiling on strings returned per secret (the transforms give <= 26). */
 export const MAX_VARIANTS_PER_SECRET = 32;
 
 /** Worst case total variant length relative to the secret (JSON twice, ...). */
@@ -90,6 +90,37 @@ function wellFormed(text: string): string {
 
 function jsonEscaped(text: string): string {
   return JSON.stringify(text).slice(1, -1);
+}
+
+/**
+ * `ensure_ascii` serialization contents: the JSON-escaped text with every
+ * remaining character outside printable ASCII written as `\uXXXX` per UTF-16
+ * code unit (astral characters become surrogate pairs). Built from
+ * `jsonEscaped`, so quotes, backslashes and control characters keep their
+ * short escapes and the two transforms compose as a real serializer's do.
+ * `keepDel` leaves DEL (0x7f) raw, as strict ASCII-range serializers do.
+ */
+function jsonAsciiEscaped(
+  text: string,
+  upper: boolean,
+  keepDel: boolean,
+): string {
+  let escaped = jsonEscaped(text);
+  if (upper) {
+    // JSON.stringify writes its own \u escapes (control characters, lone
+    // surrogates) in lowercase; `\\` pairs are consumed first so a literal
+    // backslash before "u" is never mistaken for one.
+    escaped = escaped.replace(/\\(?:u[0-9a-f]{4}|[^])/g, (m) =>
+      m[1] === "u" ? "\\u" + m.slice(2).toUpperCase() : m,
+    );
+  }
+  return escaped.replace(/[^\x20-\x7e]/g, (ch) => {
+    if (keepDel && ch === "\x7f") {
+      return ch;
+    }
+    const hex = ch.charCodeAt(0).toString(16).padStart(4, "0");
+    return "\\u" + (upper ? hex.toUpperCase() : hex);
+  });
 }
 
 function percentAllBytes(bytes: Uint8Array): string {
@@ -168,6 +199,11 @@ export function expandSecretVariants(secret: string): string[] | null {
       (ch) => "\\u" + ch.charCodeAt(0).toString(16).padStart(4, "0"),
     ),
   );
+
+  for (const upper of [false, true]) {
+    add(jsonAsciiEscaped(secret, upper, false));
+    add(jsonAsciiEscaped(secret, upper, true));
+  }
 
   // Shell: backslash escapes and the contents of '...' and "..." words.
   add(shellBackslashEscaped(secret));
