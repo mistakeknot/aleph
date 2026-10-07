@@ -87,7 +87,9 @@ Updating Aleph means installing a newer Aleph build by hand:
 
 - **Server.** Install `bb-app` from `npm pack`. A server started from a source
   checkout with `--in-app-updates` can instead fast-forward to Aleph's
-  `origin/main` from Settings → Updates.
+  `origin/main` from Settings → Updates. That path is outside the signed update
+  channel and checks nothing about the commit it installs (see
+  [Signed update channel](#signed-update-channel)).
 - **Macs running the desktop app.** Build and install the desktop app (below).
 - **Machines enrolled with a launchd or systemd daemon.** These do not follow
   the server. A daemon updates itself only when the server speaks a newer
@@ -97,6 +99,109 @@ Updating Aleph means installing a newer Aleph build by hand:
   the server's own `bb-app`. If that download fails, it falls back to a `bb-app`
   already on the machine's PATH, or to upstream from npm, so check the version
   it reports.
+
+### Signed update channel
+
+A maintainer who wants clients to take Aleph releases without trusting the
+network or the git remote publishes a signed release manifest. The code that
+reads, verifies and orders manifests is in `packages/config/src`:
+`aleph-manifest.ts`, `aleph-manifest-signature.ts`, `aleph-manifest-floor.ts`
+and `aleph-update-select.ts`. It is library code. Fetching a manifest, staging
+a release and switching a running install to it belong to the service that
+embeds it, and this document does not describe that service.
+
+**The manifest.** A manifest is one canonical JSON document with schema
+`aleph-manifest/2`. Canonical JSON means keys sorted at every level, no
+insignificant whitespace, and only safe integers as numbers. The parser rejects
+any document whose bytes differ from its canonical form, so the signed bytes
+and the parsed value cannot disagree. A manifest carries:
+
+- `channel`, a short lowercase name. A client never accepts a manifest that
+  switches channel.
+- `sequence`, a positive integer that rises with each publication, and
+  `previous_digest`, the SHA-256 of the preceding manifest's bytes.
+  `previous_digest` is null for sequence 1 and only then.
+- `issued_at` and `expires_at`, UTC timestamps. `expires_at` must be later than
+  `issued_at` and at most 35 days after it.
+- `signer_fingerprint`, the `SHA256:` fingerprint of the key that signed it.
+- `releases`, one entry per Aleph release, and `revocations`.
+
+A release entry names the Aleph release (`aleph`, as in `0.5.3`), the full
+package `version`, the `upstream_base` that version must start with, the source
+commit, the build recipe and toolchain, the host-daemon protocol version, the
+database migrations the release applies (each with a tag, a `when` value and a
+SHA-256), the qualification result, a review receipt, and its artifacts. A
+release needs at least one artifact. The `linux-x64-closure` artifact must have
+the digest of the qualified archive. The `darwin-arm64` artifact carries the
+digest of its build receipt and is marked `maintainer-receipt`. The
+qualification result records at least two build jobs, the archive and extracted
+tree digests, the Node ABI, the glibc version and the binaries the release must
+provide.
+
+**Signature.** The signature is an OpenSSH `SSHSIG` over the manifest bytes in
+the `aleph-update-manifest` namespace. Only `ed25519-sk` security key
+signatures are accepted, and each must carry both the user-presence and the
+user-verification flags. Verification runs `ssh-keygen -Y verify` against an
+`allowed_signers` file whose lines each pin one security key, with
+`valid-after` and an optional `valid-before` date. The signing key's
+fingerprint must equal the manifest's `signer_fingerprint`. A missing
+`ssh-keygen` is an error, never a pass.
+
+**Replay floor.** A client keeps the highest manifest it has accepted, as a
+floor, in a state directory. It starts from a floor pinned in the client and
+uses the stored one unless that is lower. A manifest is refused when:
+
+- its sequence is below the floor, or equals the floor's with a different
+  digest, which is flagged for escalation because two manifests claim one
+  sequence;
+- it was issued before the floor's `issued_at`, or more than five minutes in
+  the future;
+- the client's clock is earlier than the floor's `issued_at`;
+- it has expired, or its validity exceeds 35 days;
+- it is a higher sequence that does not follow from the last accepted
+  manifest: a different channel, a `previous_digest` that does not match when
+  the sequence advances by one, a release removed or changed, a revocation
+  removed or changed, a new revocation not introduced at the right sequence, or
+  a revoked release returning as a new entry.
+
+An accepted manifest replaces the stored one by writing a temporary file,
+syncing it, renaming it into place and syncing the directory, under a lock so
+two processes cannot interleave. A state file that is unreadable or disagrees
+with its cached manifest stops the client rather than resetting the floor.
+Passing `persist: false` to `acceptManifest` runs every check without
+recording anything, which is what a dry check should use. Because manifests
+expire, an offline client acts on its last manifest for at most 35 days.
+
+**Release order and selection.** Aleph releases are ordered by the numeric
+`X.Y.Z` of their Aleph version, never by the upstream semver, which ignores
+build metadata (see [Versions](#versions)). Each part is at most four digits
+with no leading zeros. `selectAlephUpdate` takes the installed version, the
+manifest's releases and revocations, and the artifact key the platform installs.
+It returns the highest release that is newer than the installed one, is not
+revoked, and offers that artifact, together with one of five states:
+
+- `up-to-date`: nothing newer is eligible.
+- `available`: a newer release exists and has the same migration list as the
+  installed one.
+- `migration-required`: a newer release exists but its migrations differ, so
+  it needs a reviewed procedure instead of a plain swap.
+- `installed-revoked`: the installed release is revoked. The target, if any,
+  is the newest eligible release.
+- `not-comparable`: the installed version has no Aleph release, or its release
+  is absent from the manifest or inconsistent with its entry. No target is
+  offered.
+
+A manifest that lists a release twice, or carries a migration without a tag, a
+`when` value and a SHA-256, is an error.
+
+**What this does not cover.** The signature shows that the holder of a pinned
+security key published the manifest, not that its contents are safe, and the
+floor stops replay of older manifests, not use of a compromised key. The
+fast-forward updater for source checkouts described above does not use the
+manifest: it fetches `origin/main` and installs whatever commit it finds, with
+no signature or qualification check, and Aleph builds started from a source
+checkout with `--in-app-updates` still offer it. On a server that follows the
+signed channel, leave `--in-app-updates` off for source checkouts.
 
 ### Build the macOS desktop app
 
