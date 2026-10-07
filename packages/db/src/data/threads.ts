@@ -1,3 +1,4 @@
+import { prepareCachedQuery } from "../connection.js";
 import { copyProjectAttachmentOwnership } from "./project-attachments.js";
 import { deleteThreadSearchLearnedSelections } from "./thread-search-learned-selections.js";
 import {
@@ -14,6 +15,7 @@ import {
   lt,
   ne,
   or,
+  placeholder,
   sql,
   type SQL,
 } from "drizzle-orm";
@@ -392,8 +394,15 @@ export function createThread(
   return thread;
 }
 
+const prepareGetThread = (db: DbQueryConnection) =>
+  db
+    .select()
+    .from(threads)
+    .where(eq(threads.id, placeholder("id")))
+    .prepare();
+
 export function getThread(db: ThreadWriteConnection, id: string) {
-  return db.select().from(threads).where(eq(threads.id, id)).get() ?? null;
+  return prepareCachedQuery(db, prepareGetThread).get({ id }) ?? null;
 }
 
 export interface ThreadMentionRow {
