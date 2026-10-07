@@ -130,6 +130,9 @@ move and downloads the new server's bb-app package for its service.
 - `bb updates app status`
 - `bb updates app apply`
 - `bb updates app dismiss`
+- `bb updates aleph`
+- `bb updates aleph status`
+- `bb updates aleph run`
 
 ## terminal
 

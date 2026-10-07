@@ -1,0 +1,28 @@
+{
+  "schema": "aleph-update-instance-grammar/1",
+  "unit_template": "aleph-update@{instance}.service",
+  "fields": {
+    "version": "(0|[1-9][0-9]{0,3})\\.(0|[1-9][0-9]{0,3})\\.(0|[1-9][0-9]{0,3})",
+    "digest": "[0-9a-f]{64}",
+    "consent": "[ni]",
+    "nonce": "[0-9a-f]{32}"
+  },
+  "operations": {
+    "update": {
+      "layout": ["update", "version", "digest", "consent", "nonce"],
+      "server": true
+    },
+    "rollback": {
+      "layout": ["rollback", "version:from", "version:to", "consent", "nonce"],
+      "server": true
+    },
+    "recover": {
+      "layout": ["recover", "nonce"],
+      "server": true
+    },
+    "adopt": {
+      "layout": ["adopt", "version", "digest", "consent", "nonce"],
+      "server": false
+    }
+  }
+}

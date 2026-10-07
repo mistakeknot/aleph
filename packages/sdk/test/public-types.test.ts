@@ -352,6 +352,8 @@ type ExpectedStatusKey = "get";
 
 type ExpectedSystemKey =
   | "acknowledgeAppUpdate"
+  | "alephUpdateRun"
+  | "alephUpdateStatus"
   | "appUpdate"
   | "applyAppUpdate"
   | "setMachineEnvironmentVariable"

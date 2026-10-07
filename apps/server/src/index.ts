@@ -31,7 +31,11 @@ function reportStartupFailure(error: unknown): void {
 
 async function main(): Promise<void> {
   const serverModule = await import("./start-server.js");
-  await serverModule.runServer(serverConfig);
+  const { createAlephUpdateNotifyFromEnv } =
+    await import("./services/system/aleph-update-notify-command.js");
+  await serverModule.runServer(serverConfig, {
+    alephUpdateNotify: createAlephUpdateNotifyFromEnv(process.env),
+  });
 }
 
 void main().catch(reportStartupFailure);

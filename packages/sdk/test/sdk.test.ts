@@ -790,6 +790,49 @@ describe("@bb/sdk", () => {
     ]);
   });
 
+  it("reads Aleph update status and a run by nonce without mutating", async () => {
+    const status = {
+      activeThreadCount: 0,
+      capability: "command-only" as const,
+      detail: null,
+      floor: null,
+      installed: null,
+      predecessor: null,
+      selection: "manifest-missing" as const,
+      target: null,
+    };
+    const run = {
+      detail: null,
+      nonce: "a".repeat(32),
+      state: "running" as const,
+    };
+    const queue = createFetchQueue([{ body: status }, { body: run }]);
+    const sdk = createBbSdk({
+      transport: createHttpTransport({
+        baseUrl: "http://bb.test",
+        fetch: queue.fetch,
+        runtime: "node",
+      }),
+    });
+
+    await expect(sdk.system.alephUpdateStatus()).resolves.toEqual(status);
+    await expect(
+      sdk.system.alephUpdateRun({ nonce: "a".repeat(32) }),
+    ).resolves.toEqual(run);
+    expect(queue.requests).toEqual([
+      {
+        bodyText: undefined,
+        method: "GET",
+        url: "http://bb.test/api/v1/system/aleph-update",
+      },
+      {
+        bodyText: undefined,
+        method: "GET",
+        url: `http://bb.test/api/v1/system/aleph-update/runs/${"a".repeat(32)}`,
+      },
+    ]);
+  });
+
   it("lists environment providers as an array for a project and machine", async () => {
     const providers = [
       {

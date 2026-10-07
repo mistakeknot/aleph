@@ -81,6 +81,7 @@ import {
 } from "@bb/hono-typed-routes";
 import type {
   PathId,
+  PathNonce,
   PathProjectId,
   PathPreviewAndFilePath,
   PathThreadAndFilePath,
@@ -211,6 +212,11 @@ import type {
   SystemAppUpdateAcknowledgeRequest,
   SystemAppUpdateApplyRequest,
   SystemAppUpdateQuery,
+  SystemAlephRecoverRequest,
+  SystemAlephRollbackRequest,
+  SystemAlephUpdateRequest,
+  SystemAlephUpdateRun,
+  SystemAlephUpdateStatus,
   SystemAppUpdateStatus,
   SystemVersionQuery,
   SystemVersionResponse,
@@ -363,6 +369,9 @@ import {
   systemProvidersQuerySchema,
   systemUsageLimitsQuerySchema,
   systemVersionQuerySchema,
+  systemAlephRecoverRequestSchema,
+  systemAlephRollbackRequestSchema,
+  systemAlephUpdateRequestSchema,
   systemAppUpdateAcknowledgeRequestSchema,
   systemAppUpdateApplyRequestSchema,
   systemAppUpdateQuerySchema,
@@ -1998,6 +2007,42 @@ export const publicApiRoutes = {
         systemAppUpdateApplyRequestSchema,
       ),
       response: jsonResponse<SystemAppUpdateStatus>(),
+    }),
+    alephUpdate: defineRoute({
+      path: "/system/aleph-update",
+      method: "get",
+      request: noRequest(),
+      response: jsonResponse<SystemAlephUpdateStatus>(),
+    }),
+    alephUpdateStart: defineRoute({
+      path: "/system/aleph-update/update",
+      method: "post",
+      request: jsonRequest<EmptyInput, SystemAlephUpdateRequest>(
+        systemAlephUpdateRequestSchema,
+      ),
+      response: jsonResponse<SystemAlephUpdateRun>(),
+    }),
+    alephUpdateRollback: defineRoute({
+      path: "/system/aleph-update/rollback",
+      method: "post",
+      request: jsonRequest<EmptyInput, SystemAlephRollbackRequest>(
+        systemAlephRollbackRequestSchema,
+      ),
+      response: jsonResponse<SystemAlephUpdateRun>(),
+    }),
+    alephUpdateRecover: defineRoute({
+      path: "/system/aleph-update/recover",
+      method: "post",
+      request: jsonRequest<EmptyInput, SystemAlephRecoverRequest>(
+        systemAlephRecoverRequestSchema,
+      ),
+      response: jsonResponse<SystemAlephUpdateRun>(),
+    }),
+    alephUpdateRun: defineRoute({
+      path: "/system/aleph-update/runs/:nonce",
+      method: "get",
+      request: noRequest<PathNonce>(),
+      response: jsonResponse<SystemAlephUpdateRun>(),
     }),
     acknowledgeAppUpdate: defineRoute({
       path: "/system/app-update/acknowledge",

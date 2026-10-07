@@ -113,6 +113,11 @@
       "types": "./src/aleph-update-select.ts",
       "default": "./src/aleph-update-select.ts"
     },
+    "./aleph-update-instance": {
+      "source": "./src/aleph-update-instance.ts",
+      "types": "./src/aleph-update-instance.ts",
+      "default": "./src/aleph-update-instance.ts"
+    },
     "./aleph-version": {
       "source": "./src/aleph-version.ts",
       "types": "./src/aleph-version.ts",
