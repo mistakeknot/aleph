@@ -25,7 +25,7 @@ import { useSystemConfig } from "@/hooks/queries/system-queries";
 import { getBbDesktopInfo } from "@/lib/bb-desktop";
 import {
   browserPlatform,
-  isEditableKeyboardTarget,
+  isEditableCommandTarget,
   matchesAppCommandContext,
   presentAppShortcut,
   type AppShortcutPresentation,
@@ -85,6 +85,13 @@ const EMPTY_CONTEXT: AppCommandContext = {
   splitActive: false,
   webSurface: false,
   macPlatform: false,
+};
+
+const APP_COMMAND_FALLBACKS: Partial<
+  Record<KeyboardCommandId, KeyboardCommandId>
+> = {
+  "browser.back": "history.back",
+  "browser.forward": "history.forward",
 };
 
 const OPEN_MODAL_SELECTOR = [
@@ -240,11 +247,14 @@ export function AppCommandProvider({ children }: { children: ReactNode }) {
   );
 
   const currentContext = useCallback(
-    (target: EventTarget | null): AppCommandContext => {
+    (
+      target: EventTarget | null,
+      origin: EventTarget | null = target,
+    ): AppCommandContext => {
       const next = { ...EMPTY_CONTEXT };
       next.mainSurface = true;
       next.modalOpen = hasOpenModal();
-      next.editableFocus = isEditableKeyboardTarget(target);
+      next.editableFocus = isEditableCommandTarget(target, origin);
       next.terminalFocus =
         target instanceof HTMLElement &&
         target.closest("[data-app-terminal]") !== null;
@@ -341,9 +351,12 @@ export function AppCommandProvider({ children }: { children: ReactNode }) {
           continue;
         }
         if (!matchesAppShortcut(event, binding.shortcut, isMac)) continue;
-        context ??= currentContext(event.target);
+        context ??= currentContext(
+          event.target,
+          event.composedPath()[0] ?? event.target,
+        );
         if (!matchesAppCommandContext(binding, context)) continue;
-        if (!dispatch(binding.command, event.target)) return false;
+        if (!dispatch(binding.command, event.target)) continue;
         clearShortcutHintHoldRef.current();
         event.preventDefault();
         event.stopPropagation();
@@ -385,7 +398,9 @@ export function AppCommandProvider({ children }: { children: ReactNode }) {
     const desktop = getBbDesktopInfo();
     if (!desktop?.onAppCommand) return;
     return desktop.onAppCommand((command) => {
-      dispatch(command, null);
+      if (dispatch(command, null)) return true;
+      const fallback = APP_COMMAND_FALLBACKS[command];
+      return fallback !== undefined && dispatch(fallback, null);
     });
   }, [dispatch]);
 

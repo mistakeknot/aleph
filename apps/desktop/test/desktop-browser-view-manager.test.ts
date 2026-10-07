@@ -32,6 +32,7 @@ import {
   type DesktopBrowserHostWindow,
 } from "../src/desktop-browser-view.js";
 import {
+  BB_DESKTOP_BROWSER_EDITABLE_FOCUS_CHANNEL,
   BB_DESKTOP_BROWSER_GUEST_MESSAGE_CHANNEL,
   BB_DESKTOP_BROWSER_PAGE_MESSAGE_CHANNEL,
   BB_DESKTOP_BROWSER_PAGE_WORLD_ID,
@@ -2616,6 +2617,77 @@ describe("DesktopBrowserViewManager", () => {
     expect(dispatchAppCommand).toHaveBeenCalledTimes(1);
   });
 
+  it.each([{ isComposing: true }, { isAutoRepeat: true }, { type: "keyUp" }])(
+    "ignores browser back while the key event is %o",
+    (modifiers) => {
+      const dispatchAppCommand = vi.fn();
+      const manager = createDesktopBrowserViewManager({
+        dispatchAppCommand,
+        focusHostWebContents: vi.fn(),
+        pagePreloadPath: "/app/dist/browser-page-preload.cjs",
+        partition: "persist:test",
+        resolveAppCommand: (input) =>
+          input.key === "[" && input.metaKey ? ("browser.back" as const) : null,
+      });
+      const hostWindow = new FakeHostWindow({
+        contentBounds: { width: 700, height: 450 },
+        webContentsId: 50,
+      });
+      attachBrowserTab({
+        manager,
+        hostWindow,
+        tabId: "browser:a",
+        url: "https://example.com",
+      });
+      const webContents = requireFakeView(0).webContents;
+
+      expect(
+        webContents.emitBeforeInput({ key: "[", meta: true, ...modifiers }),
+      ).toBe(false);
+      expect(dispatchAppCommand).not.toHaveBeenCalled();
+      expect(webContents.emitBeforeInput({ key: "[", meta: true })).toBe(true);
+      expect(dispatchAppCommand).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("lets browser back and forward reach a focused editable page field but still handles them elsewhere", () => {
+    const dispatchAppCommand = vi.fn();
+    const manager = createDesktopBrowserViewManager({
+      dispatchAppCommand,
+      focusHostWebContents: vi.fn(),
+      pagePreloadPath: "/app/dist/browser-page-preload.cjs",
+      partition: "persist:test",
+      resolveAppCommand: (input) =>
+        input.key === "[" && input.metaKey ? ("browser.back" as const) : null,
+    });
+    const hostWindow = new FakeHostWindow({
+      contentBounds: { width: 700, height: 450 },
+      webContentsId: 50,
+    });
+    attachBrowserTab({
+      manager,
+      hostWindow,
+      tabId: "browser:a",
+      url: "https://example.com",
+    });
+    const webContents = requireFakeView(0).webContents;
+
+    webContents.emitIpc(BB_DESKTOP_BROWSER_EDITABLE_FOCUS_CHANNEL, true);
+    expect(webContents.emitBeforeInput({ key: "[", meta: true })).toBe(false);
+    expect(dispatchAppCommand).not.toHaveBeenCalled();
+
+    webContents.emitIpc(BB_DESKTOP_BROWSER_EDITABLE_FOCUS_CHANNEL, false);
+    expect(webContents.emitBeforeInput({ key: "[", meta: true })).toBe(true);
+    expect(dispatchAppCommand).toHaveBeenCalledWith({
+      command: "browser.back",
+      hostWebContentsId: 50,
+    });
+
+    webContents.emitIpc(BB_DESKTOP_BROWSER_EDITABLE_FOCUS_CHANNEL, true);
+    webContents.emitDidNavigate("https://example.com/next");
+    expect(webContents.emitBeforeInput({ key: "[", meta: true })).toBe(true);
+  });
+
   it.each([
     "browser.find",
     "panel.previousTab",
@@ -2666,47 +2738,76 @@ describe("DesktopBrowserViewManager", () => {
         dispatchAppCommand,
         focusHostWebContents,
         partition: "persist:test",
-        resolveAppCommand: (input, hostWebContentsId) => resolveDesktopBrowserAppCommand({
-          input,
-          isMac: true,
-          splitNavigationEnabled: splitNavigationEnabled && hostWebContentsId === 51,
-          keybindings: [{
-            command,
-            desktopOnly: false,
-            shortcut: {
-              key: "ArrowRight", mod: true, control: true,
-              meta: false, alt: false, shift: false,
-            },
-            when: { all: ["mainSurface", "splitActive"], none: ["modalOpen"] },
-          }],
-        }),
+        resolveAppCommand: (input, hostWebContentsId) =>
+          resolveDesktopBrowserAppCommand({
+            input,
+            isMac: true,
+            splitNavigationEnabled:
+              splitNavigationEnabled && hostWebContentsId === 51,
+            keybindings: [
+              {
+                command,
+                desktopOnly: false,
+                shortcut: {
+                  key: "ArrowRight",
+                  mod: true,
+                  control: true,
+                  meta: false,
+                  alt: false,
+                  shift: false,
+                },
+                when: {
+                  all: ["mainSurface", "splitActive"],
+                  none: ["modalOpen"],
+                },
+              },
+            ],
+          }),
       });
       const hostWindow = new FakeHostWindow({
         contentBounds: { width: 700, height: 450 },
         webContentsId: 51,
       });
       attachBrowserTab({
-        manager, hostWindow, tabId: "browser:a", url: "https://example.com",
+        manager,
+        hostWindow,
+        tabId: "browser:a",
+        url: "https://example.com",
       });
       const webContents = requireFakeView(0).webContents;
 
-      expect(webContents.emitBeforeInput({
-        key: "ArrowRight", meta: true, control: true,
-      })).toBe(false);
+      expect(
+        webContents.emitBeforeInput({
+          key: "ArrowRight",
+          meta: true,
+          control: true,
+        }),
+      ).toBe(false);
       expect(focusHostWebContents).not.toHaveBeenCalled();
       expect(dispatchAppCommand).not.toHaveBeenCalled();
 
       splitNavigationEnabled = true;
-      expect(webContents.emitBeforeInput({
-        key: "ArrowRight", meta: true, control: true,
-      })).toBe(true);
+      expect(
+        webContents.emitBeforeInput({
+          key: "ArrowRight",
+          meta: true,
+          control: true,
+        }),
+      ).toBe(true);
       expect(focusHostWebContents).toHaveBeenCalledWith(51);
-      expect(dispatchAppCommand).toHaveBeenCalledWith({ command, hostWebContentsId: 51 });
+      expect(dispatchAppCommand).toHaveBeenCalledWith({
+        command,
+        hostWebContentsId: 51,
+      });
 
       splitNavigationEnabled = false;
-      expect(webContents.emitBeforeInput({
-        key: "ArrowRight", meta: true, control: true,
-      })).toBe(false);
+      expect(
+        webContents.emitBeforeInput({
+          key: "ArrowRight",
+          meta: true,
+          control: true,
+        }),
+      ).toBe(false);
       expect(focusHostWebContents).toHaveBeenCalledTimes(1);
       expect(dispatchAppCommand).toHaveBeenCalledTimes(1);
     },

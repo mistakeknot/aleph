@@ -31,6 +31,8 @@ describe("desktop menu shortcuts", () => {
     expect(DEFAULT_APPLICATION_MENU_ACCELERATORS).toEqual({
       closeWindowOrSideTab: "CommandOrControl+W",
       createNewWindow: "CommandOrControl+Shift+N",
+      goBack: "CommandOrControl+[",
+      goForward: "CommandOrControl+]",
       openNewTab: "CommandOrControl+T",
       openNewThread: "CommandOrControl+N",
       openSettings: "CommandOrControl+,",
@@ -62,5 +64,21 @@ describe("desktop menu shortcuts", () => {
     expect(accelerators.openSettings).toBe("CommandOrControl+,");
     expect(accelerators.reopenClosedTab).toBe("CommandOrControl+Shift+T");
     expect(accelerators.openNewTab).toBeUndefined();
+  });
+
+  it("resolves history accelerators and drops them when unbound", () => {
+    expect(
+      resolveApplicationMenuAccelerators([
+        binding("history.back", "[", { mod: true }),
+        binding("history.forward", "]", { mod: true }),
+      ]),
+    ).toMatchObject({
+      goBack: "CommandOrControl+[",
+      goForward: "CommandOrControl+]",
+    });
+    expect(resolveApplicationMenuAccelerators([])).toMatchObject({
+      goBack: undefined,
+      goForward: undefined,
+    });
   });
 });

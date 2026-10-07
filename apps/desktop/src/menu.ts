@@ -61,6 +61,8 @@ export interface InstallApplicationMenuArgs {
   zoomFocusedPage(command: BbDesktopZoomCommand): void;
   closeWindowOrSideTab(browserWindow: BaseWindow | undefined): void;
   createNewWindow(): void;
+  goBack(): void;
+  goForward(): void;
   openServerDaemonLogs(): void;
   selectServer(serverId: string): void;
   setServerUrl(): void;
@@ -291,6 +293,23 @@ export function buildApplicationMenuTemplate(
       ],
     },
     {
+      label: "Go",
+      submenu: [
+        {
+          ...goMenuShortcut(args, "Back", args.accelerators.goBack),
+          click() {
+            args.goBack();
+          },
+        },
+        {
+          ...goMenuShortcut(args, "Forward", args.accelerators.goForward),
+          click() {
+            args.goForward();
+          },
+        },
+      ],
+    },
+    {
       label: "Window",
       submenu: [
         { role: "minimize" },
@@ -320,4 +339,38 @@ export function installApplicationMenu(args: InstallApplicationMenuArgs): void {
     }
   }
   Menu.setApplicationMenu(menu);
+}
+
+const MAC_ACCELERATOR_GLYPHS: Record<string, string> = {
+  cmdorctrl: "\u2318",
+  commandorcontrol: "\u2318",
+  command: "\u2318",
+  cmd: "\u2318",
+  control: "\u2303",
+  ctrl: "\u2303",
+  alt: "\u2325",
+  option: "\u2325",
+  shift: "\u21E7",
+};
+
+function formatMacAccelerator(accelerator: string): string {
+  return accelerator
+    .split("+")
+    .map((part) => MAC_ACCELERATOR_GLYPHS[part.toLowerCase()] ?? part)
+    .join("");
+}
+
+function goMenuShortcut(
+  args: { isMac: boolean },
+  label: string,
+  accelerator: string | undefined,
+): Pick<
+  MenuItemConstructorOptions,
+  "accelerator" | "label" | "registerAccelerator"
+> {
+  if (accelerator === undefined) return { label };
+  if (args.isMac) {
+    return { label: `${label}  ${formatMacAccelerator(accelerator)}` };
+  }
+  return { accelerator, label, registerAccelerator: false };
 }

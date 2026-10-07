@@ -613,6 +613,9 @@ importers:
       esbuild:
         specifier: ^0.28.0
         version: 0.28.1
+      jsdom:
+        specifier: ^29.0.1
+        version: 29.0.1(@noble/hashes@2.4.0)
       rimraf:
         specifier: ^6.1.0
         version: 6.1.3
