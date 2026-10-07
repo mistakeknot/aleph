@@ -113,6 +113,21 @@
       "types": "./src/aleph-version.ts",
       "default": "./src/aleph-version.ts"
     },
+    "./aleph-manifest": {
+      "source": "./src/aleph-manifest.ts",
+      "types": "./src/aleph-manifest.ts",
+      "default": "./src/aleph-manifest.ts"
+    },
+    "./aleph-manifest-floor": {
+      "source": "./src/aleph-manifest-floor.ts",
+      "types": "./src/aleph-manifest-floor.ts",
+      "default": "./src/aleph-manifest-floor.ts"
+    },
+    "./aleph-manifest-signature": {
+      "source": "./src/aleph-manifest-signature.ts",
+      "types": "./src/aleph-manifest-signature.ts",
+      "default": "./src/aleph-manifest-signature.ts"
+    },
     "./app-surface": {
       "source": "./src/app-surface.ts",
       "types": "./src/app-surface.ts",
