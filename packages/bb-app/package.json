@@ -53,6 +53,7 @@
     "host-daemon/dist/daemon-bundle.mjs",
     "server/dist",
     "README.md",
+    "npm-shrinkwrap.json",
     "!**/*.map"
   ],
   "publishConfig": {
