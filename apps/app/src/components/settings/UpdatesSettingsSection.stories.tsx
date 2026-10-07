@@ -1,6 +1,10 @@
 import type { ReactNode } from "react";
 import type { Host } from "@bb/domain";
-import type { SystemAppUpdateStatus } from "@bb/server-contract";
+import type {
+  AlephUpdateSelection,
+  SystemAlephUpdateStatus,
+  SystemAppUpdateStatus,
+} from "@bb/server-contract";
 import { UPDATE_ACTION_ICON } from "@bb/domain/update-state";
 import {
   HOST_DAEMON_PROTOCOL_VERSION,
@@ -18,6 +22,7 @@ import {
   StoryStateGroup as Group,
   StoryStates as Story,
 } from "../../../.ladle/story-states";
+import { AlephUpdateRowView } from "./AlephUpdateRow";
 import {
   BbAppUpdateRows,
   BbDaemonUpdateRow,
@@ -726,6 +731,118 @@ export function NoUpdatesAvailable() {
   return (
     <StoryPage>
       <StoryMachineSection machine={workstation} app />
+    </StoryPage>
+  );
+}
+
+const ALEPH_SELECTIONS: readonly AlephUpdateSelection[] = [
+  "up-to-date",
+  "available",
+  "migration-required",
+  "installed-revoked",
+  "not-comparable",
+  "manifest-invalid",
+  "manifest-expired",
+  "manifest-missing",
+  "recovery-required",
+  "recovering",
+];
+
+function alephStatus(
+  overrides: Partial<SystemAlephUpdateStatus>,
+): SystemAlephUpdateStatus {
+  return {
+    activeThreadCount: 0,
+    capability: "startable",
+    detail: null,
+    floor: null,
+    installed: { aleph: "0.5.3", version: "0.44.0+aleph.0.5.3" },
+    predecessor: { aleph: "0.5.2", version: "0.44.0+aleph.0.5.2" },
+    selection: "up-to-date",
+    target: {
+      aleph: "0.5.4",
+      manifestDigest: "a".repeat(64),
+      version: "0.44.0+aleph.0.5.4",
+    },
+    ...overrides,
+  };
+}
+
+const IDLE_REQUEST = {
+  failure: null,
+  finished: null,
+  pending: null,
+  runState: null,
+  unknownMessage: null,
+};
+
+export function AlephUpdateStates() {
+  return (
+    <StoryPage>
+      {ALEPH_SELECTIONS.map((selection) => (
+        <AlephUpdateRowView
+          key={selection}
+          name="bb server"
+          status={alephStatus({ selection })}
+          request={IDLE_REQUEST}
+          onUpdate={noop}
+          onRollback={noop}
+          onRecover={noop}
+          onDismiss={noop}
+        />
+      ))}
+      {(["absent", "command-only", "startable"] as const).map((capability) => (
+        <AlephUpdateRowView
+          key={capability}
+          name="bb server"
+          status={alephStatus({ capability, selection: "available" })}
+          request={IDLE_REQUEST}
+          onUpdate={noop}
+          onRollback={noop}
+          onRecover={noop}
+          onDismiss={noop}
+        />
+      ))}
+      <AlephUpdateRowView
+        name="bb server"
+        status={alephStatus({ activeThreadCount: 2, selection: "available" })}
+        request={IDLE_REQUEST}
+        onUpdate={noop}
+        onRollback={noop}
+        onRecover={noop}
+        onDismiss={noop}
+      />
+      <AlephUpdateRowView
+        name="bb server"
+        status={alephStatus({ selection: "available" })}
+        request={{
+          ...IDLE_REQUEST,
+          pending: {
+            nonce: "a".repeat(32),
+            operation: "update",
+            body: {},
+            sentAt: 0,
+            resent: false,
+          },
+          runState: "running",
+        }}
+        onUpdate={noop}
+        onRollback={noop}
+        onRecover={noop}
+        onDismiss={noop}
+      />
+      <AlephUpdateRowView
+        name="bb server"
+        status={alephStatus({ selection: "available" })}
+        request={{
+          ...IDLE_REQUEST,
+          unknownMessage: `Outcome unknown: run \`aleph-update status ${"a".repeat(32)}\` (root shell)`,
+        }}
+        onUpdate={noop}
+        onRollback={noop}
+        onRecover={noop}
+        onDismiss={noop}
+      />
     </StoryPage>
   );
 }

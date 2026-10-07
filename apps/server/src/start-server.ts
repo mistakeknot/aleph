@@ -17,6 +17,11 @@ import { SkillTreeRegistry } from "./services/skills/injected-skills.js";
 import { PluginHostArtifactRegistry } from "./services/plugins/plugin-host-artifact-registry.js";
 import { createProviderNativeRootsCache } from "./services/providers/native-roots.js";
 import { createAiServiceRegistry } from "./services/ai/ai-service-registry.js";
+import { isAlephAppVersion } from "@bb/config/app-update";
+import {
+  DEFAULT_ALEPH_UPDATE_PATHS,
+  createAlephUpdateService,
+} from "./services/system/aleph-update.js";
 import { createAppUpdateService } from "./services/system/app-update.js";
 import { createAppVersionService } from "./services/system/app-version.js";
 import { createLauncherChannel } from "./services/system/launcher-channel.js";
@@ -243,6 +248,17 @@ export async function runServer(serverConfig: ServerConfig): Promise<void> {
     mode: appUpdateMode,
     notifyChanged: () => hub.notifySystem(["app-update-changed"]),
   });
+  const alephUpdate = isAlephAppVersion(runtimeConfig.appVersion)
+    ? createAlephUpdateService({
+        appVersion: runtimeConfig.appVersion,
+        countRunningThreads: () => listRunningThreads(db).length,
+        logger,
+        paths: {
+          ...DEFAULT_ALEPH_UPDATE_PATHS,
+          floorStateDir: join(serverConfig.BB_DATA_DIR, "aleph-update"),
+        },
+      })
+    : null;
   const {
     app,
     closeWebSockets,
@@ -252,6 +268,7 @@ export async function runServer(serverConfig: ServerConfig): Promise<void> {
     serverMove,
   } = createApp(
     {
+      alephUpdate,
       appUpdate,
       appVersion,
       bbAppManagedConfig,

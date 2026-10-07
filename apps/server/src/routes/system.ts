@@ -41,7 +41,10 @@ import {
   hashedAssetCacheControl,
   pluginImageResponse,
 } from "./plugin-image-response.js";
-import { effectivePort } from "../browser-request-guard.js";
+import {
+  browserRequestProblem,
+  effectivePort,
+} from "../browser-request-guard.js";
 import {
   getEnvironmentProvider,
   listEnvironmentCompositions,
@@ -52,6 +55,7 @@ import {
   listMachineProviders,
 } from "../services/plugins/plugin-machine-provider-registry.js";
 import type { ServerAppDeps, ServerRuntimeConfig } from "../types.js";
+import type { AlephUpdateService } from "../services/system/aleph-update.js";
 import type { PluginService } from "../services/plugins/plugin-service.js";
 import { ApiError } from "../errors.js";
 import {
@@ -691,12 +695,96 @@ export function registerSystemRoutes(
     );
   });
 
+  get(routes.alephUpdate, async (context) =>
+    context.json(await requireAlephUpdate(deps).getStatus()),
+  );
+
+  get(routes.alephUpdateRun, async (context) =>
+    context.json(
+      await requireAlephUpdate(deps).getRun(context.req.param("nonce")),
+    ),
+  );
+
+  post(routes.alephUpdateStart, async (context, body) => {
+    assertAlephOwnerSession(context, deps);
+    const { confirm: _confirm, ...request } = body;
+    return context.json(
+      await requireAlephUpdate(deps).start({ ...request, operation: "update" }),
+    );
+  });
+
+  post(routes.alephUpdateRollback, async (context, body) => {
+    assertAlephOwnerSession(context, deps);
+    const { confirm: _confirm, ...request } = body;
+    return context.json(
+      await requireAlephUpdate(deps).start({
+        ...request,
+        operation: "rollback",
+      }),
+    );
+  });
+
+  post(routes.alephUpdateRecover, async (context, body) => {
+    assertAlephOwnerSession(context, deps);
+    const { confirm: _confirm, ...request } = body;
+    return context.json(
+      await requireAlephUpdate(deps).start({
+        ...request,
+        operation: "recover",
+      }),
+    );
+  });
+
   post(routes.acknowledgeAppUpdate, async (context, body) => {
     assertAppUpdateAllowed(context);
     return context.json(
       await deps.appUpdate.acknowledgeResult({ id: body.id }),
     );
   });
+}
+
+function requireAlephUpdate(deps: ServerAppDeps): AlephUpdateService {
+  if (deps.alephUpdate === null) {
+    throw new ApiError(
+      404,
+      "aleph_update_unavailable",
+      "This build does not use the Aleph update channel",
+    );
+  }
+  return deps.alephUpdate;
+}
+
+type AlephGuardContext = Parameters<typeof getGateAuthKind>[0] &
+  Parameters<typeof browserRequestProblem>[0];
+
+export function assertAlephOwnerSession(
+  context: AlephGuardContext,
+  deps: Pick<ServerAppDeps, "config">,
+): void {
+  if (getGateAuthKind(context) !== "session") {
+    throw new ApiError(
+      403,
+      "forbidden",
+      "Only the signed-in owner can run Aleph updates",
+    );
+  }
+  if (
+    context.req.header("origin") === undefined ||
+    browserRequestProblem(context, deps) !== null
+  ) {
+    throw new ApiError(
+      403,
+      "forbidden",
+      "Aleph updates must come from the app origin",
+    );
+  }
+  if (context.req.header("x-aleph-update") !== "1") {
+    throw new ApiError(
+      403,
+      "forbidden",
+      "Aleph updates need the x-aleph-update header",
+    );
+  }
 }
 
 function assertAppUpdateAllowed(

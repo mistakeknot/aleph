@@ -2,6 +2,7 @@ export const THREAD_EVENT_LIST_PAGE_SIZE = 100;
 
 export type PathId = { param: { id: string } };
 export type PathProjectId = { param: { id: string } };
+export type PathNonce = { param: { nonce: string } };
 export type PathThreadAndQueuedMessage = {
   param: { id: string; queuedMessageId: string };
 };

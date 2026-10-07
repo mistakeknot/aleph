@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   APP_UPDATE_RESTART_EXIT_CODE,
+  isAlephAppVersion,
   mutateAppUpdateState,
   readAppUpdateState,
   serverToLauncherMessageSchema,
@@ -170,6 +171,14 @@ export function createLauncherAppUpdateController(
     lastResult = state.lastResult;
   };
 
+  const assertGenericUpdateAllowed = (): void => {
+    if (isAlephAppVersion(args.current.version)) {
+      throw new Error(
+        "This Aleph build is updated through the Aleph update channel, not the generic updater.",
+      );
+    }
+  };
+
   const stageTarget = async (
     target: AppUpdateTarget,
     output: string[],
@@ -193,12 +202,14 @@ export function createLauncherAppUpdateController(
     if (args.repoRoot === null) {
       throw new Error("This bb is not running from a source checkout.");
     }
+    assertGenericUpdateAllowed();
     setStep("Checking origin/main");
     const check = await inspectSourceCheckout({
       fetch: true,
       repoRoot: args.repoRoot,
       runner: args.runner,
     });
+    assertGenericUpdateAllowed();
     if (check.blocked !== null) throw new Error(check.blocked.message);
     if (check.incoming === null || check.incoming.commit !== target.commit) {
       throw new Error(
@@ -294,6 +305,7 @@ export function createLauncherAppUpdateController(
   ): Promise<unknown> => {
     switch (request.type) {
       case "check-source": {
+        assertGenericUpdateAllowed();
         if (args.mode !== "source" || args.repoRoot === null) {
           throw new Error("This bb is not running from a source checkout.");
         }
@@ -304,6 +316,7 @@ export function createLauncherAppUpdateController(
         });
       }
       case "apply": {
+        assertGenericUpdateAllowed();
         if (request.target.kind !== args.mode) {
           throw new Error(
             `This bb updates through ${args.mode}, not ${request.target.kind}.`,
