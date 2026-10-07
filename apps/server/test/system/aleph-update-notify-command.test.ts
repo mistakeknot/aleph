@@ -113,11 +113,28 @@ describe("Aleph update documentation", () => {
 
   it.each([
     "docs/configuration.md",
+    "plugins/bb-guide/skills/bb-cli/references/configuration.md",
     "packages/templates/src/templates/bb-guide-machines.md",
   ])("documents the notice command in %s", async (path) => {
     const text = await read(path);
     expect(text).toContain(ALEPH_UPDATE_NOTIFY_COMMAND_ENV);
     expect(text).toContain("512");
+  });
+
+  it("documents the notice command contract in the bb-cli skill reference", async () => {
+    const text = await read(
+      "plugins/bb-guide/skills/bb-cli/references/configuration.md",
+    );
+    for (const phrase of [
+      "JSON array of strings",
+      "without a shell",
+      "512 bytes",
+      "five seconds",
+      "`PATH`, `HOME`, and `LANG`",
+      "notices are disabled",
+    ]) {
+      expect(text).toContain(phrase);
+    }
   });
 
   it("documents the read-only Aleph commands in the guide and skill index", async () => {
