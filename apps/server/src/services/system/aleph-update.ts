@@ -88,6 +88,7 @@ export interface AlephUpdateAuditRecord {
   nonce: string;
   operation: AlephUpdateOperation["operation"];
   outcome:
+    | "requested"
     | "started"
     | "existing"
     | "command-only"
@@ -123,6 +124,9 @@ interface CreateAlephUpdateServiceArgs {
   platform?: NodeJS.Platform;
   system?: AlephUpdateSystem;
 }
+
+const AUDIT_RETRY_MS = 5_000;
+const AUDIT_OUTBOX_LIMIT = 1_000;
 
 interface RootState {
   installed: AlephUpdateRelease | null;
@@ -554,23 +558,87 @@ export function createAlephUpdateService(
     };
   }
 
-  async function record(
+  const outbox: AlephUpdateAuditRecord[] = [];
+  let outboxTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function flushOutbox(): boolean {
+    while (outbox.length > 0) {
+      const next = outbox[0] as AlephUpdateAuditRecord;
+      try {
+        args.audit?.(next);
+      } catch {
+        return false;
+      }
+      outbox.shift();
+    }
+    return true;
+  }
+
+  function scheduleOutboxFlush(): void {
+    if (outboxTimer !== null || outbox.length === 0) return;
+    outboxTimer = setTimeout(() => {
+      outboxTimer = null;
+      if (!flushOutbox()) scheduleOutboxFlush();
+    }, AUDIT_RETRY_MS);
+    outboxTimer.unref();
+  }
+
+  function auditEntry(
     operation: AlephUpdateOperation,
     instance: string | null,
     outcome: AlephUpdateAuditRecord["outcome"],
-  ): Promise<void> {
-    const entry: AlephUpdateAuditRecord = {
+  ): AlephUpdateAuditRecord {
+    return {
       instance,
       nonce: operation.nonce,
       operation: operation.operation,
       outcome,
     };
+  }
+
+  function requireAudit(entry: AlephUpdateAuditRecord): void {
     args.logger.info(entry, "aleph update request");
     try {
+      if (!flushOutbox()) throw new Error("audit outbox is not draining");
       args.audit?.(entry);
     } catch (error) {
-      args.logger.warn({ err: error }, "aleph update audit sink failed");
+      args.logger.error({ err: error }, "aleph update audit sink failed");
+      throw new ApiError(
+        503,
+        "aleph_update_audit_unavailable",
+        "The update request could not be recorded, so nothing was started. Try again shortly.",
+      );
     }
+  }
+
+  function deferAudit(entry: AlephUpdateAuditRecord): void {
+    args.logger.info(entry, "aleph update request");
+    if (outbox.length === 0) {
+      try {
+        args.audit?.(entry);
+        return;
+      } catch (error) {
+        args.logger.warn(
+          { err: error },
+          "aleph update audit sink failed; row queued for retry",
+        );
+      }
+    }
+    if (outbox.length >= AUDIT_OUTBOX_LIMIT) {
+      args.logger.error(
+        { nonce: entry.nonce },
+        "aleph update audit outbox full; dropping oldest row",
+      );
+      outbox.shift();
+    }
+    outbox.push(entry);
+    scheduleOutboxFlush();
+  }
+
+  async function notice(
+    operation: AlephUpdateOperation,
+    outcome: AlephUpdateAuditRecord["outcome"],
+  ): Promise<void> {
     try {
       await args.notify?.(
         `Aleph ${operation.operation} request ${operation.nonce}: ${outcome}`,
@@ -578,6 +646,24 @@ export function createAlephUpdateService(
     } catch (error) {
       args.logger.warn({ err: error }, "aleph update notice failed");
     }
+  }
+
+  async function record(
+    operation: AlephUpdateOperation,
+    instance: string | null,
+    outcome: AlephUpdateAuditRecord["outcome"],
+  ): Promise<void> {
+    requireAudit(auditEntry(operation, instance, outcome));
+    await notice(operation, outcome);
+  }
+
+  async function recordAfterStart(
+    operation: AlephUpdateOperation,
+    instance: string,
+    outcome: AlephUpdateAuditRecord["outcome"],
+  ): Promise<void> {
+    deferAudit(auditEntry(operation, instance, outcome));
+    await notice(operation, outcome);
   }
 
   async function start(
@@ -618,9 +704,10 @@ export function createAlephUpdateService(
         { details: { command } },
       );
     }
+    requireAudit(auditEntry(operation, instance, "requested"));
     const result = await system.startUnit(alephInstanceUnit(instance));
     if (result === "denied") {
-      await record(operation, instance, "denied");
+      await recordAfterStart(operation, instance, "denied");
       throw new ApiError(
         409,
         "aleph_update_start_denied",
@@ -629,14 +716,14 @@ export function createAlephUpdateService(
       );
     }
     if (result === "failed") {
-      await record(operation, instance, "failed");
+      await recordAfterStart(operation, instance, "failed");
       throw new ApiError(
         502,
         "aleph_update_start_failed",
         "The update helper could not be started.",
       );
     }
-    await record(operation, instance, "started");
+    await recordAfterStart(operation, instance, "started");
     return { detail: null, nonce: operation.nonce, state: "queued" };
   }
 

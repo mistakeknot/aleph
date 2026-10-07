@@ -9,6 +9,8 @@ export interface AlephPendingRequest {
   sentAt: number;
   resent: boolean;
   manualCommand?: string;
+  elapsedMs?: number;
+  seenAt?: number;
 }
 
 export interface AlephNonceStorage {
@@ -60,13 +62,26 @@ export function alephOutcomeUnknownMessage(nonce: string): string {
   return `Outcome unknown: run \`aleph-update status ${nonce}\` (root shell)`;
 }
 
+function isNonNegativeNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
 function parsePending(raw: string | null): AlephPendingRequest | null {
   if (raw === null) return null;
   try {
     const value: unknown = JSON.parse(raw);
     if (typeof value !== "object" || value === null) return null;
     const record = value as Record<string, unknown>;
-    const { nonce, operation, body, sentAt, resent, manualCommand } = record;
+    const {
+      nonce,
+      operation,
+      body,
+      sentAt,
+      resent,
+      manualCommand,
+      elapsedMs,
+      seenAt,
+    } = record;
     if (
       typeof nonce !== "string" ||
       !/^[0-9a-f]{32}$/u.test(nonce) ||
@@ -77,7 +92,9 @@ function parsePending(raw: string | null): AlephPendingRequest | null {
       body === null ||
       typeof sentAt !== "number" ||
       typeof resent !== "boolean" ||
-      (manualCommand !== undefined && typeof manualCommand !== "string")
+      (manualCommand !== undefined && typeof manualCommand !== "string") ||
+      (elapsedMs !== undefined && !isNonNegativeNumber(elapsedMs)) ||
+      (seenAt !== undefined && typeof seenAt !== "number")
     ) {
       return null;
     }
@@ -88,6 +105,8 @@ function parsePending(raw: string | null): AlephPendingRequest | null {
       sentAt,
       resent,
       ...(manualCommand === undefined ? {} : { manualCommand }),
+      ...(elapsedMs === undefined ? {} : { elapsedMs }),
+      ...(seenAt === undefined ? {} : { seenAt }),
     };
   } catch {
     return null;
@@ -130,19 +149,37 @@ export function createAlephNonceStore(
       write(manual);
       return manual;
     },
+    recordElapsed(elapsedMs: number, seenAt: number) {
+      const existing = read();
+      if (existing !== null) write({ ...existing, elapsedMs, seenAt });
+    },
     resolve() {
       storage.removeItem(STORAGE_KEY);
     },
   };
 }
 
+export function alephElapsedMs(
+  pending: AlephPendingRequest,
+  wallNow: number,
+): number {
+  const recorded = pending.elapsedMs ?? 0;
+  const seenAt = pending.seenAt ?? pending.sentAt;
+  return Math.max(
+    recorded + Math.max(0, wallNow - seenAt),
+    wallNow - pending.sentAt,
+    0,
+  );
+}
+
 export function evaluateAlephPending(
   pending: AlephPendingRequest,
   state: SystemAlephUpdateRun["state"],
   now: number,
+  elapsedMs?: number,
 ): AlephPendingAction {
   if (TERMINAL_STATES.has(state)) return "resolved";
-  const elapsed = now - pending.sentAt;
+  const elapsed = elapsedMs ?? now - pending.sentAt;
   if (elapsed >= ALEPH_NONCE_UNKNOWN_MS) return "outcome-unknown";
   if (
     state === "not-found" &&

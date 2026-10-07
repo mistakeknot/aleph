@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -112,5 +112,14 @@ describe("aleph update service composition", () => {
   it("defaults the notice sink to a no-op without failing requests", async () => {
     const run = await compose().start(UPDATE);
     expect(run.state).toBe("running");
+  });
+
+  it("refuses the request when the audit file cannot be written", async () => {
+    await mkdir(join(dataDir, "aleph-update", "audit.jsonl"), {
+      recursive: true,
+    });
+    await expect(compose().start(UPDATE)).rejects.toMatchObject({
+      status: 503,
+    });
   });
 });

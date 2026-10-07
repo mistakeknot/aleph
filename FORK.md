@@ -98,6 +98,21 @@ Updating Aleph means installing a newer Aleph build by hand:
   already on the machine's PATH, or to upstream from npm, so check the version
   it reports.
 
+### Update request notices and audit
+
+Every Aleph update request POST writes a row to `aleph-update/audit.jsonl` in
+the server data directory, holding the time, instance, nonce, operation and
+outcome. The server writes a `requested` row before it starts anything and
+refuses the request with 503 when it cannot, so no update starts unrecorded.
+The outcome row after the start is queued and retried if the write fails.
+
+Set `ALEPH_UPDATE_NOTIFY_COMMAND` to a JSON array, for example
+`["/usr/local/bin/notify-admin"]`, to be told about each request. The server
+runs that fixed argv without a shell, sends one line of at most 512 bytes on
+stdin (`Aleph update request <nonce>: <outcome>`) and kills the command after
+five seconds. When it is unset, empty or not a non-empty string array, no
+notice is sent.
+
 ### Build the macOS desktop app
 
 A desktop app's local host daemon runs the `bb-app` bundled inside the app. A

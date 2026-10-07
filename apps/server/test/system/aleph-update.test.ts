@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   AlephManifestError,
   canonicalJson,
@@ -92,6 +92,7 @@ function installedState(
 function rig(
   options: {
     appVersion?: string;
+    auditSink?: (record: AlephUpdateAuditRecord) => void;
     capability?: "absent" | "command-only" | "startable";
     manifest?: AlephManifest;
     state?: Record<string, unknown> | null;
@@ -142,7 +143,7 @@ function rig(
       return { manifest: accepted, persisted: true };
     },
     appVersion: options.appVersion ?? "0.44.0+aleph.0.5.3",
-    audit: (record) => audit.push(record),
+    audit: options.auditSink ?? ((record) => void audit.push(record)),
     countRunningThreads: () => options.threads ?? 0,
     logger: testLogger,
     notify: async (message) => {
@@ -374,8 +375,8 @@ describe("aleph update service start", () => {
         version: "0.5.4",
       })}.service`,
     ]);
-    expect(audit).toHaveLength(1);
-    expect(audit[0]).toMatchObject({
+    expect(audit.map((row) => row.outcome)).toEqual(["requested", "started"]);
+    expect(audit[1]).toMatchObject({
       nonce: NONCE,
       operation: "update",
       outcome: "started",
@@ -477,13 +478,67 @@ describe("aleph update service start", () => {
       "declared startable but start was denied: polkit rule missing or mismatched",
     );
     expect(failure.body.details.command).toContain(NONCE);
-    expect(audit[0]?.outcome).toBe("denied");
+    expect(audit.map((row) => row.outcome)).toEqual(["requested", "denied"]);
   });
 
   it("surfaces a failed start", async () => {
     const { service, system } = rig();
     system.startResult = "failed";
     await expect(service.start(UPDATE)).rejects.toMatchObject({ status: 502 });
+  });
+
+  it("refuses and starts nothing when the audit row cannot be written", async () => {
+    const { service, system } = rig({
+      auditSink: () => {
+        throw new Error("disk full");
+      },
+    });
+    const failure = await service.start(UPDATE).catch((error) => error);
+    expect(failure).toBeInstanceOf(ApiError);
+    expect(failure.status).toBe(503);
+    expect(system.started).toEqual([]);
+  });
+
+  it("refuses an existing-run answer when the audit row cannot be written", async () => {
+    const { service, system } = rig({
+      auditSink: () => {
+        throw new Error("disk full");
+      },
+    });
+    putRun(system, 5, NONCE, {
+      started: {
+        invocation_id: "inv",
+        counter: 5,
+        op: "update",
+        from: "0.5.3",
+        to: "0.5.4",
+      },
+    });
+    await expect(service.start(UPDATE)).rejects.toMatchObject({ status: 503 });
+  });
+
+  it("keeps an outcome row that failed after the unit started and delivers it later", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const rows: AlephUpdateAuditRecord[] = [];
+      let failing = false;
+      const { service, system } = rig({
+        auditSink: (record) => {
+          if (failing) throw new Error("disk full");
+          rows.push(record);
+          if (record.outcome === "requested") failing = true;
+        },
+      });
+      const run = await service.start(UPDATE);
+      expect(run.state).toBe("queued");
+      expect(system.started).toHaveLength(1);
+      expect(rows.map((row) => row.outcome)).toEqual(["requested"]);
+      failing = false;
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(rows.map((row) => row.outcome)).toEqual(["requested", "started"]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("does not let a failing notice break the start", async () => {

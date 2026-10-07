@@ -6,6 +6,7 @@ import { alephErrorCommand, postAlephUpdate } from "@/lib/aleph-update-api";
 import {
   ALEPH_MANUAL_ERROR_CODES,
   ALEPH_NONCE_UNKNOWN_MS,
+  alephElapsedMs,
   alephOutcomeUnknownMessage,
   createAlephNonceStore,
   isAlephAmbiguousStatus,
@@ -70,6 +71,13 @@ export function useAlephUpdateRequest(): AlephRequestState {
   const [unknownMessage, setUnknownMessage] = useState<string | null>(null);
   const run = useAlephUpdateRun(pending?.nonce ?? null);
   const sending = useRef(false);
+  const elapsed = useRef<{ nonce: string; ms: number } | null>(null);
+
+  const elapsedNow = useCallback((request: AlephPendingRequest) => {
+    const wall = alephElapsedMs(request, Date.now());
+    const tracked = elapsed.current;
+    return tracked?.nonce === request.nonce ? Math.max(tracked.ms, wall) : wall;
+  }, []);
 
   const send = useCallback(
     async (request: AlephPendingRequest) => {
@@ -125,7 +133,12 @@ export function useAlephUpdateRequest(): AlephRequestState {
 
   useEffect(() => {
     if (pending === null || run.data === undefined) return;
-    const action = evaluateAlephPending(pending, run.data.state, Date.now());
+    const action = evaluateAlephPending(
+      pending,
+      run.data.state,
+      Date.now(),
+      elapsedNow(pending),
+    );
     if (action === "resolved") {
       store.resolve();
       setPending(null);
@@ -140,24 +153,46 @@ export function useAlephUpdateRequest(): AlephRequestState {
     } else if (action === "outcome-unknown") {
       setUnknownMessage(alephOutcomeUnknownMessage(pending.nonce));
     }
-  }, [pending, queryClient, run.data, run.dataUpdatedAt, send, store]);
+  }, [
+    elapsedNow,
+    pending,
+    queryClient,
+    run.data,
+    run.dataUpdatedAt,
+    send,
+    store,
+  ]);
 
   const pendingNonce = pending?.nonce ?? null;
-  const pendingSentAt = pending?.sentAt ?? null;
   useEffect(() => {
-    if (pendingNonce === null || pendingSentAt === null) return;
-    const deadline = pendingSentAt + ALEPH_NONCE_UNKNOWN_MS;
+    if (pendingNonce === null) return;
+    const stored = store.read();
+    if (stored === null || stored.nonce !== pendingNonce) return;
+    let ms = elapsedNow(stored);
+    let last = performance.now();
+    elapsed.current = { nonce: pendingNonce, ms };
     const check = () => {
-      if (Date.now() < deadline) return false;
+      const mono = performance.now();
+      ms = Math.max(
+        ms + Math.max(mono - last, UNKNOWN_TICK_MS),
+        elapsedNow(stored),
+      );
+      last = mono;
+      elapsed.current = { nonce: pendingNonce, ms };
+      store.recordElapsed(ms, Date.now());
+      if (ms < ALEPH_NONCE_UNKNOWN_MS) return false;
       setUnknownMessage(alephOutcomeUnknownMessage(pendingNonce));
       return true;
     };
-    if (check()) return;
+    if (ms >= ALEPH_NONCE_UNKNOWN_MS) {
+      setUnknownMessage(alephOutcomeUnknownMessage(pendingNonce));
+      return;
+    }
     const timer = setInterval(() => {
       if (check()) clearInterval(timer);
     }, UNKNOWN_TICK_MS);
     return () => clearInterval(timer);
-  }, [pendingNonce, pendingSentAt]);
+  }, [elapsedNow, pendingNonce, store]);
 
   return {
     dismiss,

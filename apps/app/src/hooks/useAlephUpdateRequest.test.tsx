@@ -217,6 +217,70 @@ describe("useAlephUpdateRequest", () => {
     );
   });
 
+  it("still warns at 55 minutes of elapsed time after the wall clock moves back a day", async () => {
+    vi.useFakeTimers({
+      toFake: [
+        "Date",
+        "setInterval",
+        "clearInterval",
+        "setTimeout",
+        "clearTimeout",
+      ],
+    });
+    api.postAlephUpdate.mockRejectedValue(new TypeError("network down"));
+    api.fetchAlephUpdateRun.mockRejectedValue(
+      new TypeError("server unreachable"),
+    );
+    const { result } = renderHook(() => useAlephUpdateRequest(), { wrapper });
+    act(() => result.current.submit("update", BODY));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    const nonce = result.current.pending?.nonce;
+    await act(async () => {
+      vi.setSystemTime(Date.now() - 24 * 60 * 60_000);
+      await vi.advanceTimersByTimeAsync(56 * 60_000);
+    });
+    expect(result.current.pending?.nonce).toBe(nonce);
+    expect(result.current.unknownMessage).toBe(
+      `Outcome unknown: run \`aleph-update status ${nonce}\` (root shell)`,
+    );
+  });
+
+  it("keeps elapsed progress across a reload that follows a backward clock change", async () => {
+    vi.useFakeTimers({
+      toFake: [
+        "Date",
+        "setInterval",
+        "clearInterval",
+        "setTimeout",
+        "clearTimeout",
+      ],
+    });
+    api.postAlephUpdate.mockRejectedValue(new TypeError("network down"));
+    api.fetchAlephUpdateRun.mockRejectedValue(
+      new TypeError("server unreachable"),
+    );
+    const first = renderHook(() => useAlephUpdateRequest(), { wrapper });
+    act(() => first.result.current.submit("update", BODY));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    const nonce = first.result.current.pending?.nonce;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(54 * 60_000);
+    });
+    expect(first.result.current.unknownMessage).toBeNull();
+    first.unmount();
+    vi.setSystemTime(Date.now() - 24 * 60 * 60_000);
+    const second = renderHook(() => useAlephUpdateRequest(), { wrapper });
+    expect(second.result.current.pending?.nonce).toBe(nonce);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2 * 60_000);
+    });
+    expect(second.result.current.unknownMessage).toContain("Outcome unknown");
+  });
+
   it("shows outcome unknown for a stored request past 55 minutes after reload while the server is unreachable", async () => {
     window.localStorage.setItem(
       "aleph-update-pending",
