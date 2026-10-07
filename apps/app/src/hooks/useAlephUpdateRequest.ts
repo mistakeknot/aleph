@@ -4,8 +4,11 @@ import { BbHttpError } from "@bb/sdk/browser";
 import type { SystemAlephUpdateRun } from "@bb/server-contract";
 import { alephErrorCommand, postAlephUpdate } from "@/lib/aleph-update-api";
 import {
+  ALEPH_MANUAL_ERROR_CODES,
+  ALEPH_NONCE_UNKNOWN_MS,
   alephOutcomeUnknownMessage,
   createAlephNonceStore,
+  isAlephAmbiguousStatus,
   evaluateAlephPending,
   type AlephPendingRequest,
   type AlephUpdateOperation,
@@ -38,6 +41,8 @@ function failureFrom(error: unknown): AlephRequestFailure {
   };
 }
 
+const UNKNOWN_TICK_MS = 1_000;
+
 export function useAlephUpdateRequest(): AlephRequestState {
   const queryClient = useQueryClient();
   const store = useMemo(
@@ -52,7 +57,15 @@ export function useAlephUpdateRequest(): AlephRequestState {
   const [pending, setPending] = useState<AlephPendingRequest | null>(() =>
     store.read(),
   );
-  const [failure, setFailure] = useState<AlephRequestFailure | null>(null);
+  const [failure, setFailure] = useState<AlephRequestFailure | null>(() => {
+    const stored = store.read();
+    return stored?.manualCommand === undefined
+      ? null
+      : {
+          command: stored.manualCommand,
+          message: "Run the command from a root shell to start the update",
+        };
+  });
   const [finished, setFinished] = useState<SystemAlephUpdateRun | null>(null);
   const [unknownMessage, setUnknownMessage] = useState<string | null>(null);
   const run = useAlephUpdateRun(pending?.nonce ?? null);
@@ -68,10 +81,20 @@ export function useAlephUpdateRequest(): AlephRequestState {
           nonce: request.nonce,
         });
       } catch (error) {
-        if (error instanceof BbHttpError) {
+        if (!(error instanceof BbHttpError)) return;
+        const failed = failureFrom(error);
+        if (
+          error.code !== null &&
+          ALEPH_MANUAL_ERROR_CODES.has(error.code) &&
+          failed.command !== null
+        ) {
+          const manual = store.markManual(failed.command);
+          if (manual !== null) setPending(manual);
+          setFailure(failed);
+        } else if (!isAlephAmbiguousStatus(error.status)) {
           store.resolve();
           setPending(null);
-          setFailure(failureFrom(error));
+          setFailure(failed);
         }
       } finally {
         sending.current = false;
@@ -106,6 +129,7 @@ export function useAlephUpdateRequest(): AlephRequestState {
     if (action === "resolved") {
       store.resolve();
       setPending(null);
+      setUnknownMessage(null);
       setFinished(run.data);
       invalidateAlephUpdateStatus({ queryClient });
     } else if (action === "resend") {
@@ -117,6 +141,23 @@ export function useAlephUpdateRequest(): AlephRequestState {
       setUnknownMessage(alephOutcomeUnknownMessage(pending.nonce));
     }
   }, [pending, queryClient, run.data, run.dataUpdatedAt, send, store]);
+
+  const pendingNonce = pending?.nonce ?? null;
+  const pendingSentAt = pending?.sentAt ?? null;
+  useEffect(() => {
+    if (pendingNonce === null || pendingSentAt === null) return;
+    const deadline = pendingSentAt + ALEPH_NONCE_UNKNOWN_MS;
+    const check = () => {
+      if (Date.now() < deadline) return false;
+      setUnknownMessage(alephOutcomeUnknownMessage(pendingNonce));
+      return true;
+    };
+    if (check()) return;
+    const timer = setInterval(() => {
+      if (check()) clearInterval(timer);
+    }, UNKNOWN_TICK_MS);
+    return () => clearInterval(timer);
+  }, [pendingNonce, pendingSentAt]);
 
   return {
     dismiss,

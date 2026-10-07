@@ -19,9 +19,9 @@ import { createProviderNativeRootsCache } from "./services/providers/native-root
 import { createAiServiceRegistry } from "./services/ai/ai-service-registry.js";
 import { isAlephAppVersion } from "@bb/config/app-update";
 import {
-  DEFAULT_ALEPH_UPDATE_PATHS,
-  createAlephUpdateService,
-} from "./services/system/aleph-update.js";
+  createServerAlephUpdateService,
+  type AlephUpdateNoticeSink,
+} from "./services/system/aleph-update-composition.js";
 import { createAppUpdateService } from "./services/system/app-update.js";
 import { createAppVersionService } from "./services/system/app-version.js";
 import { createLauncherChannel } from "./services/system/launcher-channel.js";
@@ -99,7 +99,14 @@ export function startServerPlugins(
     });
 }
 
-export async function runServer(serverConfig: ServerConfig): Promise<void> {
+export interface RunServerOptions {
+  alephUpdateNotify?: AlephUpdateNoticeSink;
+}
+
+export async function runServer(
+  serverConfig: ServerConfig,
+  options: RunServerOptions = {},
+): Promise<void> {
   const logger = createLogger({
     component: "server",
     dataDir: serverConfig.BB_DATA_DIR,
@@ -249,14 +256,14 @@ export async function runServer(serverConfig: ServerConfig): Promise<void> {
     notifyChanged: () => hub.notifySystem(["app-update-changed"]),
   });
   const alephUpdate = isAlephAppVersion(runtimeConfig.appVersion)
-    ? createAlephUpdateService({
+    ? createServerAlephUpdateService({
         appVersion: runtimeConfig.appVersion,
         countRunningThreads: () => listRunningThreads(db).length,
+        dataDir: serverConfig.BB_DATA_DIR,
         logger,
-        paths: {
-          ...DEFAULT_ALEPH_UPDATE_PATHS,
-          floorStateDir: join(serverConfig.BB_DATA_DIR, "aleph-update"),
-        },
+        ...(options.alephUpdateNotify === undefined
+          ? {}
+          : { notify: options.alephUpdateNotify }),
       })
     : null;
   const {

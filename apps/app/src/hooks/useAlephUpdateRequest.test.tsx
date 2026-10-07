@@ -84,28 +84,158 @@ describe("useAlephUpdateRequest", () => {
     expect(window.localStorage.getItem("aleph-update-pending")).toBeNull();
   });
 
-  it("clears the nonce and surfaces the command on a definitive refusal", async () => {
+  it("clears the nonce on a definitive refusal that started nothing", async () => {
     api.postAlephUpdate.mockRejectedValue(
       new BbHttpError({
-        body: { details: { command: "systemctl start --no-block unit" } },
-        code: "aleph_update_command_only",
-        message: "start it from a root shell",
-        status: 409,
+        body: null,
+        code: "invalid_request",
+        message: "refused",
+        status: 400,
       }),
     );
-    api.fetchAlephUpdateRun.mockResolvedValue({
-      detail: null,
-      nonce: "x",
-      state: "not-found",
-    });
     const { result } = renderHook(() => useAlephUpdateRequest(), { wrapper });
     act(() => result.current.submit("update", BODY));
     await waitFor(() => expect(result.current.failure).not.toBeNull());
-    expect(result.current.failure?.command).toBe(
-      "systemctl start --no-block unit",
-    );
     expect(result.current.pending).toBeNull();
     expect(window.localStorage.getItem("aleph-update-pending")).toBeNull();
+  });
+
+  it.each([502, 503, 504])(
+    "keeps the nonce and keeps polling after an ambiguous HTTP %i",
+    async (status) => {
+      api.postAlephUpdate.mockRejectedValue(
+        new BbHttpError({
+          body: null,
+          code: null,
+          message: "gateway lost response",
+          status,
+        }),
+      );
+      api.fetchAlephUpdateRun.mockResolvedValue({
+        detail: null,
+        nonce: "x",
+        state: "running",
+      });
+      const { result } = renderHook(() => useAlephUpdateRequest(), { wrapper });
+      act(() => result.current.submit("update", BODY));
+      await waitFor(() => expect(result.current.runState).toBe("running"));
+      expect(result.current.pending).not.toBeNull();
+      expect(
+        window.localStorage.getItem("aleph-update-pending"),
+      ).not.toBeNull();
+      expect(api.postAlephUpdate).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each(["aleph_update_command_only", "aleph_update_start_denied"])(
+    "keeps tracking the manual command nonce on %s, without resending, and resumes after reload",
+    async (code) => {
+      vi.useFakeTimers({
+        toFake: [
+          "Date",
+          "setInterval",
+          "clearInterval",
+          "setTimeout",
+          "clearTimeout",
+        ],
+      });
+      api.postAlephUpdate.mockRejectedValue(
+        new BbHttpError({
+          body: { details: { command: "systemctl start --no-block unit" } },
+          code,
+          message: "start it from a root shell",
+          status: 409,
+        }),
+      );
+      api.fetchAlephUpdateRun.mockResolvedValue({
+        detail: null,
+        nonce: "x",
+        state: "not-found",
+      });
+      const first = renderHook(() => useAlephUpdateRequest(), { wrapper });
+      act(() => first.result.current.submit("update", BODY));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      const nonce = first.result.current.pending?.nonce;
+      expect(first.result.current.failure?.command).toBe(
+        "systemctl start --no-block unit",
+      );
+      expect(nonce).toMatch(/^[0-9a-f]{32}$/u);
+      expect(api.fetchAlephUpdateRun).toHaveBeenCalled();
+
+      await act(async () => {
+        vi.setSystemTime(Date.now() + 61_000);
+        await vi.advanceTimersByTimeAsync(2_100);
+      });
+      expect(api.postAlephUpdate).toHaveBeenCalledTimes(1);
+      first.unmount();
+
+      api.fetchAlephUpdateRun.mockResolvedValue({
+        detail: null,
+        nonce: "x",
+        state: "running",
+      });
+      const second = renderHook(() => useAlephUpdateRequest(), { wrapper });
+      expect(second.result.current.pending?.nonce).toBe(nonce);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_100);
+      });
+      expect(second.result.current.runState).toBe("running");
+      expect(api.postAlephUpdate).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("shows outcome unknown after 55 minutes with every run lookup unreachable", async () => {
+    vi.useFakeTimers({
+      toFake: [
+        "Date",
+        "setInterval",
+        "clearInterval",
+        "setTimeout",
+        "clearTimeout",
+      ],
+    });
+    api.postAlephUpdate.mockRejectedValue(new TypeError("network down"));
+    api.fetchAlephUpdateRun.mockRejectedValue(
+      new TypeError("server unreachable"),
+    );
+    const { result } = renderHook(() => useAlephUpdateRequest(), { wrapper });
+    act(() => result.current.submit("update", BODY));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    const nonce = result.current.pending?.nonce;
+    expect(result.current.unknownMessage).toBeNull();
+    await act(async () => {
+      vi.setSystemTime(Date.now() + 56 * 60_000);
+      await vi.advanceTimersByTimeAsync(2_100);
+    });
+    expect(result.current.pending?.nonce).toBe(nonce);
+    expect(result.current.unknownMessage).toBe(
+      `Outcome unknown: run \`aleph-update status ${nonce}\` (root shell)`,
+    );
+  });
+
+  it("shows outcome unknown for a stored request past 55 minutes after reload while the server is unreachable", async () => {
+    window.localStorage.setItem(
+      "aleph-update-pending",
+      JSON.stringify({
+        nonce: "9".repeat(32),
+        operation: "update",
+        body: BODY,
+        sentAt: Date.now() - 56 * 60_000,
+        resent: true,
+      }),
+    );
+    api.fetchAlephUpdateRun.mockRejectedValue(
+      new TypeError("server unreachable"),
+    );
+    const { result } = renderHook(() => useAlephUpdateRequest(), { wrapper });
+    await waitFor(() =>
+      expect(result.current.unknownMessage).toContain("Outcome unknown"),
+    );
+    expect(result.current.pending?.nonce).toBe("9".repeat(32));
   });
 
   it("keeps the nonce on a network failure, resends the identical body once after 60 seconds, then reports unknown at 55 minutes", async () => {

@@ -8,6 +8,7 @@ export interface AlephPendingRequest {
   body: Record<string, unknown>;
   sentAt: number;
   resent: boolean;
+  manualCommand?: string;
 }
 
 export interface AlephNonceStorage {
@@ -24,6 +25,15 @@ export type AlephPendingAction =
 
 export const ALEPH_NONCE_RESEND_MS = 60 * 1000;
 export const ALEPH_NONCE_UNKNOWN_MS = 55 * 60 * 1000;
+
+export const ALEPH_MANUAL_ERROR_CODES: ReadonlySet<string> = new Set([
+  "aleph_update_command_only",
+  "aleph_update_start_denied",
+]);
+
+export function isAlephAmbiguousStatus(status: number): boolean {
+  return status >= 500 || status === 408;
+}
 
 const STORAGE_KEY = "aleph-update-pending";
 
@@ -56,7 +66,7 @@ function parsePending(raw: string | null): AlephPendingRequest | null {
     const value: unknown = JSON.parse(raw);
     if (typeof value !== "object" || value === null) return null;
     const record = value as Record<string, unknown>;
-    const { nonce, operation, body, sentAt, resent } = record;
+    const { nonce, operation, body, sentAt, resent, manualCommand } = record;
     if (
       typeof nonce !== "string" ||
       !/^[0-9a-f]{32}$/u.test(nonce) ||
@@ -66,7 +76,8 @@ function parsePending(raw: string | null): AlephPendingRequest | null {
       typeof body !== "object" ||
       body === null ||
       typeof sentAt !== "number" ||
-      typeof resent !== "boolean"
+      typeof resent !== "boolean" ||
+      (manualCommand !== undefined && typeof manualCommand !== "string")
     ) {
       return null;
     }
@@ -76,6 +87,7 @@ function parsePending(raw: string | null): AlephPendingRequest | null {
       body: body as Record<string, unknown>,
       sentAt,
       resent,
+      ...(manualCommand === undefined ? {} : { manualCommand }),
     };
   } catch {
     return null;
@@ -110,6 +122,13 @@ export function createAlephNonceStore(
     markResent() {
       const existing = read();
       if (existing !== null) write({ ...existing, resent: true });
+    },
+    markManual(command: string): AlephPendingRequest | null {
+      const existing = read();
+      if (existing === null) return null;
+      const manual = { ...existing, manualCommand: command, resent: true };
+      write(manual);
+      return manual;
     },
     resolve() {
       storage.removeItem(STORAGE_KEY);
