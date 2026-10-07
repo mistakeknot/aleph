@@ -106,3 +106,32 @@ describe("aleph update notify command", () => {
     expect(Date.now() - started).toBeLessThan(5_000);
   });
 });
+
+describe("Aleph update documentation", () => {
+  const root = new URL("../../../../", import.meta.url);
+  const read = (path: string) => readFile(new URL(path, root), "utf8");
+
+  it.each([
+    "docs/configuration.md",
+    "packages/templates/src/templates/bb-guide-machines.md",
+  ])("documents the notice command in %s", async (path) => {
+    const text = await read(path);
+    expect(text).toContain(ALEPH_UPDATE_NOTIFY_COMMAND_ENV);
+    expect(text).toContain("512");
+  });
+
+  it("documents the read-only Aleph commands in the guide and skill index", async () => {
+    expect(
+      await read("packages/templates/src/templates/bb-guide-machines.md"),
+    ).toContain("bb updates aleph run");
+    expect(
+      await read("plugins/bb-guide/skills/bb-cli/references/command-index.md"),
+    ).toContain("bb updates aleph run");
+  });
+
+  it("no longer sends Aleph users to the suppressed source updater", async () => {
+    const text = await read("FORK.md");
+    expect(text).not.toContain("can instead fast-forward");
+    expect(text).toContain("generic source updater is suppressed");
+  });
+});

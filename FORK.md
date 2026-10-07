@@ -83,11 +83,17 @@ Settings → Updates and `bb updates` show "Update checks off" for the bb app
 instead of "Up to date", because nothing was checked. Neither says whether a
 newer Aleph build exists.
 
-Updating Aleph means installing a newer Aleph build by hand:
+Updating Aleph follows the signed release channel, or a newer Aleph build
+installed by hand:
 
-- **Server.** Install `bb-app` from `npm pack`. A server started from a source
-  checkout with `--in-app-updates` can instead fast-forward to Aleph's
-  `origin/main` from Settings → Updates.
+- **Server.** Where the signed update service is installed, the signed channel
+  offers the update in Settings → Updates, signed in as the owner. Without it,
+  the row shows the command to run from a root shell, and `bb updates aleph`
+  and `bb updates aleph run <nonce>` report the same status read-only. Otherwise
+  install `bb-app` from `npm pack`. The generic source updater is suppressed on
+  an Aleph build: a source checkout started with `--in-app-updates` neither
+  offers nor applies a fast-forward to `origin/main`, and the launcher refuses
+  it, so update a source checkout by hand and restart.
 - **Macs running the desktop app.** Build and install the desktop app (below).
 - **Machines enrolled with a launchd or systemd daemon.** These do not follow
   the server. A daemon updates itself only when the server speaks a newer

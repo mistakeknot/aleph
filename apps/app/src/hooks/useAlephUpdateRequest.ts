@@ -71,7 +71,10 @@ export function useAlephUpdateRequest(): AlephRequestState {
   const [finished, setFinished] = useState<SystemAlephUpdateRun | null>(null);
   const [unknownMessage, setUnknownMessage] = useState<string | null>(null);
   const run = useAlephUpdateRun(pending?.nonce ?? null);
+  const [dismissedNonce, setDismissedNonce] = useState<string | null>(null);
   const sending = useRef(false);
+  const pendingRef = useRef(pending);
+  pendingRef.current = pending;
   const elapsed = useRef<{ nonce: string; ms: number } | null>(null);
 
   const elapsedNow = useCallback((request: AlephPendingRequest) => {
@@ -114,6 +117,7 @@ export function useAlephUpdateRequest(): AlephRequestState {
 
   const submit = useCallback(
     (operation: AlephUpdateOperation, body: Record<string, unknown>) => {
+      if (pendingRef.current !== null) return;
       setFailure(null);
       setFinished(null);
       setUnknownMessage(null);
@@ -125,12 +129,11 @@ export function useAlephUpdateRequest(): AlephRequestState {
   );
 
   const dismiss = useCallback(() => {
-    store.resolve();
-    setPending(null);
+    setDismissedNonce(pendingRef.current?.nonce ?? null);
     setFinished(null);
     setUnknownMessage(null);
     setFailure(null);
-  }, [store]);
+  }, []);
 
   useEffect(() => {
     if (pending === null || run.data === undefined) return;
@@ -204,6 +207,9 @@ export function useAlephUpdateRequest(): AlephRequestState {
     pending,
     runState: run.data?.state ?? null,
     submit,
-    unknownMessage,
+    unknownMessage:
+      dismissedNonce !== null && dismissedNonce === pending?.nonce
+        ? null
+        : unknownMessage,
   };
 }

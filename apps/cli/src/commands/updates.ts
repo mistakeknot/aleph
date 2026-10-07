@@ -6,11 +6,14 @@ import {
 } from "@bb/domain/update-state";
 import type {
   HostProviderCliStatusResponse,
+  SystemAlephUpdateRun,
+  SystemAlephUpdateStatus,
   SystemAppUpdateResult,
   SystemAppUpdateRevision,
   SystemAppUpdateStatus,
   SystemVersionResponse,
 } from "@bb/server-contract";
+import { BbHttpError } from "@bb/sdk";
 import { action, CliExitError } from "../action.js";
 import { createCliBbSdk } from "../client.js";
 import { columnWidths, printBorderlessTable } from "../table.js";
@@ -214,6 +217,97 @@ async function readAppUpdateStatus(
   } catch {
     return null;
   }
+}
+
+const ALEPH_UNAVAILABLE_MESSAGE =
+  "This bb build does not use the Aleph update channel.";
+
+function isAlephUnavailable(error: unknown): boolean {
+  return error instanceof BbHttpError && error.status === 404;
+}
+
+async function readAlephUpdateStatus(
+  sdk: CliSdk,
+): Promise<SystemAlephUpdateStatus | null> {
+  try {
+    return await sdk.system.alephUpdateStatus();
+  } catch {
+    return null;
+  }
+}
+
+function printAlephUpdateStatus(status: SystemAlephUpdateStatus): void {
+  const installed = status.installed?.aleph ?? "unknown";
+  console.log(`Installed: ${installed}`);
+  if (status.target !== null) {
+    console.log(
+      `Target: ${status.target.aleph} (manifest ${status.target.manifestDigest})`,
+    );
+  }
+  if (status.predecessor !== null) {
+    console.log(`Predecessor: ${status.predecessor.aleph}`);
+  }
+  console.log(`Selection: ${status.selection}`);
+  console.log(`Capability: ${status.capability}`);
+  console.log(`Running threads: ${String(status.activeThreadCount)}`);
+  if (status.detail !== null) console.log(status.detail);
+}
+
+function printAlephUpdateRun(run: SystemAlephUpdateRun): void {
+  console.log(`Run ${run.nonce}: ${run.state}`);
+  if (run.detail !== null) console.log(run.detail);
+}
+
+function registerAlephUpdateCommands(
+  updates: Command,
+  getUrl: () => string,
+): void {
+  const aleph = updates
+    .command("aleph")
+    .description("Inspect the signed Aleph update channel (read only)");
+
+  aleph
+    .command("status", { isDefault: true })
+    .description("Show the Aleph update selection, capability, and target")
+    .option("--json", "Print machine-readable JSON output")
+    .action(
+      action(async (opts: AppUpdateStatusOptions) => {
+        const sdk = createCliBbSdk(getUrl());
+        let status: SystemAlephUpdateStatus;
+        try {
+          status = await sdk.system.alephUpdateStatus();
+        } catch (error) {
+          if (!isAlephUnavailable(error)) throw error;
+          if (outputJson(opts, { supported: false })) return;
+          console.log(ALEPH_UNAVAILABLE_MESSAGE);
+          return;
+        }
+        if (outputJson(opts, status)) return;
+        printAlephUpdateStatus(status);
+      }),
+    );
+
+  aleph
+    .command("run")
+    .description("Show the outcome of an Aleph update request by its nonce")
+    .argument("<nonce>", "The 32-character request nonce")
+    .option("--json", "Print machine-readable JSON output")
+    .action(
+      action(async (nonce: string, opts: AppUpdateStatusOptions) => {
+        const sdk = createCliBbSdk(getUrl());
+        let run: SystemAlephUpdateRun;
+        try {
+          run = await sdk.system.alephUpdateRun({ nonce });
+        } catch (error) {
+          if (!isAlephUnavailable(error)) throw error;
+          if (outputJson(opts, { supported: false })) return;
+          console.log(ALEPH_UNAVAILABLE_MESSAGE);
+          return;
+        }
+        if (outputJson(opts, run)) return;
+        printAlephUpdateRun(run);
+      }),
+    );
 }
 
 function appRowFromStatus(args: {
@@ -457,6 +551,7 @@ export function registerUpdatesCommands(
     .command("updates")
     .description("Inspect and apply bb and provider CLI updates");
   registerAppUpdateCommands(updates, getUrl);
+  registerAlephUpdateCommands(updates, getUrl);
 
   updates
     .command("status", { isDefault: true })
@@ -466,9 +561,10 @@ export function registerUpdatesCommands(
     .action(
       action(async (opts: UpdatesCommandOptions) => {
         const sdk = createCliBbSdk(getUrl());
-        const [version, appUpdate, hosts] = await Promise.all([
+        const [version, appUpdate, alephUpdate, hosts] = await Promise.all([
           sdk.system.version(),
           readAppUpdateStatus(sdk, false),
+          readAlephUpdateStatus(sdk),
           sdk.hosts.list(),
         ]);
         const entries = await collectMachineUpdates(
@@ -479,6 +575,7 @@ export function registerUpdatesCommands(
           outputJson(opts, {
             app: version,
             appUpdate,
+            alephUpdate,
             machines: entries.map((entry) => ({
               host: entry.host,
               providerStatus: entry.providerStatus,

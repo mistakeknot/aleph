@@ -406,4 +406,97 @@ describe("useAlephUpdateRequest", () => {
     await waitFor(() => expect(result.current.runState).toBe("running"));
     expect(api.postAlephUpdate).not.toHaveBeenCalled();
   });
+
+  describe("dismissing an outcome-unknown warning", () => {
+    const NONCE = "9".repeat(32);
+
+    function storeStale() {
+      window.localStorage.setItem(
+        "aleph-update-pending",
+        JSON.stringify({
+          nonce: NONCE,
+          operation: "update",
+          body: BODY,
+          sentAt: Date.now() - 56 * 60_000,
+          resent: true,
+        }),
+      );
+      api.fetchAlephUpdateRun.mockResolvedValue({
+        detail: null,
+        nonce: NONCE,
+        state: "running",
+      });
+    }
+
+    it("hides the warning but keeps tracking the original nonce", async () => {
+      storeStale();
+      const { result } = renderHook(() => useAlephUpdateRequest(), { wrapper });
+      await waitFor(() =>
+        expect(result.current.unknownMessage).toContain("Outcome unknown"),
+      );
+      act(() => result.current.dismiss());
+      expect(result.current.unknownMessage).toBeNull();
+      expect(result.current.pending?.nonce).toBe(NONCE);
+      expect(
+        JSON.parse(window.localStorage.getItem("aleph-update-pending") ?? "null")
+          .nonce,
+      ).toBe(NONCE);
+      await waitFor(() => expect(result.current.runState).toBe("running"));
+      expect(result.current.unknownMessage).toBeNull();
+    });
+
+    it("refuses a new press until the original nonce resolves", async () => {
+      storeStale();
+      const { result } = renderHook(() => useAlephUpdateRequest(), { wrapper });
+      await waitFor(() =>
+        expect(result.current.unknownMessage).toContain("Outcome unknown"),
+      );
+      act(() => result.current.dismiss());
+      act(() => result.current.submit("update", BODY));
+      expect(api.postAlephUpdate).not.toHaveBeenCalled();
+      expect(result.current.pending?.nonce).toBe(NONCE);
+    });
+
+    it("still tracks the original nonce after a reload", async () => {
+      storeStale();
+      const first = renderHook(() => useAlephUpdateRequest(), { wrapper });
+      await waitFor(() =>
+        expect(first.result.current.unknownMessage).toContain("Outcome unknown"),
+      );
+      act(() => first.result.current.dismiss());
+      first.unmount();
+      const second = renderHook(() => useAlephUpdateRequest(), { wrapper });
+      expect(second.result.current.pending?.nonce).toBe(NONCE);
+      act(() => second.result.current.submit("update", BODY));
+      expect(api.postAlephUpdate).not.toHaveBeenCalled();
+    });
+
+    it("accepts a new press once the original nonce reaches an outcome", async () => {
+      storeStale();
+      const { result } = renderHook(() => useAlephUpdateRequest(), { wrapper });
+      await waitFor(() =>
+        expect(result.current.unknownMessage).toContain("Outcome unknown"),
+      );
+      act(() => result.current.dismiss());
+      api.fetchAlephUpdateRun.mockResolvedValue({
+        detail: null,
+        nonce: NONCE,
+        state: "succeeded",
+      });
+      await waitFor(() => expect(result.current.pending).toBeNull(), {
+        timeout: 5_000,
+      });
+      api.postAlephUpdate.mockResolvedValue({
+        detail: null,
+        nonce: "x",
+        state: "queued",
+      });
+      act(() => result.current.submit("update", BODY));
+      await waitFor(() => expect(api.postAlephUpdate).toHaveBeenCalledTimes(1));
+      expect(api.postAlephUpdate.mock.calls[0]?.[1]).not.toHaveProperty(
+        "nonce",
+        NONCE,
+      );
+    });
+  });
 });

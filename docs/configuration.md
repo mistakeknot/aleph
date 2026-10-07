@@ -179,6 +179,25 @@ which interrupts running threads; the app and CLI ask first.
 `BB_APP_UPDATE_MODE` is an internal marker the launcher passes to its server
 child; do not set it yourself.
 
+An Aleph build does not use the generic updater above: it offers and applies no
+in-app npm or source update. Its updates follow the signed Aleph channel and are
+started from Settings → Updates by the signed-in owner. `bb updates aleph` and
+`bb updates aleph run <nonce>` read the status and a request's outcome; neither
+starts, rolls back, or recovers anything. A build without the Aleph channel
+answers 404, which the CLI reports as an unsupported build.
+
+`ALEPH_UPDATE_NOTIFY_COMMAND` names the command an Aleph server runs to tell
+you about each update request. Set it to a JSON array of strings with no empty
+element, for example `["/usr/local/bin/notify-admin"]`. The server runs that
+argv without a shell, writes one line of at most 512 bytes to its stdin
+(`Aleph update request <nonce>: <outcome>`), discards its output, and kills it
+after five seconds. The command sees only `PATH`, `HOME`, and `LANG` from the
+server's environment, so pass anything else through the command itself. A
+request refused because its audit row could not be written still sends a
+notice, with the outcome `audit-unavailable`. When the variable is unset, empty,
+not valid JSON, or not a non-empty array of non-empty strings, notices are
+disabled and nothing is sent or logged, so check it first if you expect them.
+
 ## Common Keys
 
 | Key                            | Command                                            | When to set             | Used for                                                                                                                                                                                                                                                                                                                                                                                                       |
