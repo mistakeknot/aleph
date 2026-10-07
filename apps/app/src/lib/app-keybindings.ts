@@ -1,5 +1,6 @@
 import type { AppCommandContext, AppKeybinding, AppShortcut } from "@bb/domain";
 import { isMacKeyboardPlatform } from "@bb/domain";
+import { elementHasEditableFocus } from "@bb/domain/editable-focus";
 
 export interface AppShortcutPresentation {
   ariaKeyshortcuts: string;
@@ -23,6 +24,17 @@ export function isEditableKeyboardTarget(target: EventTarget | null): boolean {
   }
   return (
     target.closest('[contenteditable]:not([contenteditable="false"])') !== null
+  );
+}
+
+export function isEditableCommandTarget(
+  target: EventTarget | null,
+  origin: EventTarget | null = target,
+): boolean {
+  if (isEditableKeyboardTarget(target)) return true;
+  return [origin, target].some(
+    (candidate) =>
+      candidate instanceof Element && elementHasEditableFocus(candidate),
   );
 }
 

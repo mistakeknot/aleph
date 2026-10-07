@@ -8,7 +8,7 @@ import {
 import {
   activeSameOriginFrameWindows,
   hasEditableFocus,
-} from "./editable-focus.js";
+} from "@bb/domain/editable-focus";
 
 contextBridge.exposeInIsolatedWorld(
   BB_DESKTOP_BROWSER_PAGE_WORLD_ID,

@@ -17,6 +17,8 @@ import {
   type AppCommandRunner,
   useAppCommandHandler,
 } from "@/components/commands/AppCommandProvider";
+import { SidebarHistoryNavigationControls } from "@/components/sidebar/SidebarHistoryNavigationControls";
+import { resetAppRouteHistoryForTest } from "@/lib/app-route-history";
 import { HistoryNavigationCommandHandler } from "./HistoryNavigationCommandHandler";
 
 function historyBinding(
@@ -107,6 +109,7 @@ function renderHarness(extra?: React.ReactNode) {
       <AppCommandProvider>
         <HistoryNavigationCommandHandler />
         <Location />
+        <Nav to="/a" />
         <Nav to="/b" />
         <Nav to="/c" />
         <input aria-label="composer" />
@@ -121,12 +124,18 @@ function renderHarness(extra?: React.ReactNode) {
   );
 }
 
-function press(target: Element | Window, key: string): KeyboardEvent {
+function press(
+  target: Element | Window,
+  key: string,
+  init: KeyboardEventInit = {},
+): KeyboardEvent {
   const event = new KeyboardEvent("keydown", {
     bubbles: true,
     cancelable: true,
+    composed: true,
     ctrlKey: true,
     key,
+    ...init,
   });
   act(() => {
     target.dispatchEvent(event);
@@ -140,6 +149,9 @@ function location(): string {
 
 afterEach(() => {
   cleanup();
+  document.body.replaceChildren();
+  resetAppRouteHistoryForTest();
+  vi.restoreAllMocks();
   testState.keybindings = [];
   testState.desktop = false;
   testState.onAppCommand = null;
@@ -325,5 +337,264 @@ describe("HistoryNavigationCommandHandler", () => {
     );
     act(() => testState.onAppCommand?.("browser.back"));
     expect(calls).toEqual(["browser.back"]);
+  });
+
+  it("skips adjacent duplicate entries exactly like the sidebar buttons", () => {
+    useHistoryBindings();
+    renderHarness(<SidebarHistoryNavigationControls />);
+    fireEvent.click(screen.getByRole("button", { name: "/b" }));
+    fireEvent.click(screen.getByRole("button", { name: "/b" }));
+    fireEvent.click(screen.getByRole("button", { name: "/c" }));
+    expect(location()).toBe("/c");
+
+    press(window, "[");
+    expect(location()).toBe("/b");
+    press(window, "[");
+    expect(location()).toBe("/a");
+    press(window, "]");
+    expect(location()).toBe("/b");
+    press(window, "]");
+    expect(location()).toBe("/c");
+
+    fireEvent.click(screen.getByLabelText("Go back"));
+    fireEvent.click(screen.getByLabelText("Go back"));
+    expect(location()).toBe("/a");
+  });
+
+  it("skips adjacent duplicate entries for menu-dispatched commands", () => {
+    useHistoryBindings();
+    const captured: { runner: AppCommandRunner | null } = { runner: null };
+    function Capture() {
+      const runner = useAppCommandRunner();
+      useEffect(() => {
+        captured.runner = runner;
+      }, [runner]);
+      return null;
+    }
+    renderHarness(<Capture />);
+    fireEvent.click(screen.getByRole("button", { name: "/b" }));
+    fireEvent.click(screen.getByRole("button", { name: "/b" }));
+    fireEvent.click(screen.getByRole("button", { name: "/c" }));
+
+    act(() => {
+      captured.runner?.dispatch("history.back", null);
+    });
+    act(() => {
+      captured.runner?.dispatch("history.back", null);
+    });
+    expect(location()).toBe("/a");
+    act(() => {
+      captured.runner?.dispatch("history.forward", null);
+    });
+    act(() => {
+      captured.runner?.dispatch("history.forward", null);
+    });
+    expect(location()).toBe("/c");
+  });
+
+  it("does not consume the chord at the last entry", () => {
+    useHistoryBindings();
+    renderHarness();
+    fireEvent.click(screen.getByRole("button", { name: "/b" }));
+    const event = press(window, "]");
+    expect(event.defaultPrevented).toBe(false);
+    expect(location()).toBe("/b");
+  });
+
+  it("does not consume the chord when every earlier entry is the current route", () => {
+    useHistoryBindings();
+    renderHarness();
+    fireEvent.click(screen.getByRole("button", { name: "/a" }));
+    expect(location()).toBe("/a");
+    expect(press(window, "[").defaultPrevented).toBe(false);
+  });
+
+  it("mirrors the buttons' disabled state at a restored history entry", () => {
+    useHistoryBindings();
+    render(
+      <MemoryRouter initialEntries={["/a", "/b", "/c"]} initialIndex={2}>
+        <AppCommandProvider>
+          <HistoryNavigationCommandHandler />
+          <SidebarHistoryNavigationControls />
+          <Location />
+        </AppCommandProvider>
+      </MemoryRouter>,
+    );
+    expect(screen.getByLabelText<HTMLButtonElement>("Go back").disabled).toBe(
+      true,
+    );
+    expect(press(window, "[").defaultPrevented).toBe(false);
+    expect(location()).toBe("/c");
+  });
+
+  it("ignores composing and repeated chords", () => {
+    useHistoryBindings();
+    renderHarness();
+    fireEvent.click(screen.getByRole("button", { name: "/b" }));
+
+    expect(press(window, "[", { isComposing: true }).defaultPrevented).toBe(
+      false,
+    );
+    expect(location()).toBe("/b");
+    expect(press(window, "[", { repeat: true }).defaultPrevented).toBe(false);
+    expect(location()).toBe("/b");
+  });
+
+  it("does not resolve shortcut lookups for composing or repeated chords", () => {
+    useHistoryBindings();
+    const captured: { runner: AppCommandRunner | null } = { runner: null };
+    function Capture() {
+      const runner = useAppCommandRunner();
+      useEffect(() => {
+        captured.runner = runner;
+      }, [runner]);
+      return null;
+    }
+    renderHarness(<Capture />);
+    const chord = (init: KeyboardEventInit) =>
+      new KeyboardEvent("keydown", { ctrlKey: true, key: "[", ...init });
+
+    expect(
+      captured.runner?.getShortcutCommand(chord({}), ["history.back"]),
+    ).toBe("history.back");
+    expect(
+      captured.runner?.getShortcutCommand(chord({ isComposing: true }), [
+        "history.back",
+      ]),
+    ).toBeNull();
+    expect(
+      captured.runner?.getShortcutCommand(chord({ repeat: true }), [
+        "history.back",
+      ]),
+    ).toBeNull();
+  });
+
+  describe("shadow-root editors", () => {
+    function attachShadowContent(hostTag: string, innerTag: string) {
+      const host = document.createElement(hostTag);
+      document.body.appendChild(host);
+      const inner = document.createElement(innerTag);
+      host.attachShadow({ mode: "open" }).appendChild(inner);
+      return { host, inner };
+    }
+
+    it.each(["div", "x-editor"])(
+      "leaves the chord alone for an input inside an open shadow root on <%s>",
+      (hostTag) => {
+        useHistoryBindings();
+        renderHarness();
+        fireEvent.click(screen.getByRole("button", { name: "/b" }));
+        const { inner } = attachShadowContent(hostTag, "input");
+        inner.focus();
+
+        const event = press(inner, "[");
+        expect(event.defaultPrevented).toBe(false);
+        expect(location()).toBe("/b");
+      },
+    );
+
+    it("reads the editor from the event path when document focus is elsewhere", () => {
+      useHistoryBindings();
+      renderHarness();
+      fireEvent.click(screen.getByRole("button", { name: "/b" }));
+      const { inner } = attachShadowContent("div", "input");
+
+      expect(press(inner, "[").defaultPrevented).toBe(false);
+      expect(location()).toBe("/b");
+    });
+
+    it("still navigates from a non-editable control inside a shadow root", () => {
+      useHistoryBindings();
+      renderHarness();
+      fireEvent.click(screen.getByRole("button", { name: "/b" }));
+      const { inner } = attachShadowContent("div", "button");
+      inner.focus();
+
+      expect(press(inner, "[").defaultPrevented).toBe(true);
+      expect(location()).toBe("/a");
+    });
+
+    it("leaves the chord alone for a focused custom element it cannot inspect", () => {
+      useHistoryBindings();
+      renderHarness();
+      fireEvent.click(screen.getByRole("button", { name: "/b" }));
+      const host = document.createElement("x-opaque");
+      host.tabIndex = 0;
+      document.body.appendChild(host);
+      host.focus();
+
+      expect(press(host, "[").defaultPrevented).toBe(false);
+      expect(location()).toBe("/b");
+    });
+  });
+
+  describe("default desktop-only bindings", () => {
+    function useDefaultHistoryBindings() {
+      const when = {
+        all: ["mainSurface"],
+        none: ["modalOpen", "editableFocus", "terminalFocus"],
+      };
+      const shortcut = (key: string) => ({
+        key,
+        mod: true,
+        meta: false,
+        control: false,
+        alt: false,
+        shift: false,
+      });
+      testState.keybindings = [
+        {
+          command: "history.back",
+          desktopOnly: true,
+          shortcut: shortcut("["),
+          when,
+        },
+        {
+          command: "history.forward",
+          desktopOnly: true,
+          shortcut: shortcut("]"),
+          when,
+        },
+      ];
+    }
+
+    it("navigates with the platform modifier on desktop", () => {
+      useDefaultHistoryBindings();
+      testState.desktop = true;
+      vi.spyOn(navigator, "platform", "get").mockReturnValue("Linux x86_64");
+      renderHarness();
+      fireEvent.click(screen.getByRole("button", { name: "/b" }));
+
+      expect(press(window, "[").defaultPrevented).toBe(true);
+      expect(location()).toBe("/a");
+      expect(
+        press(window, "[", { ctrlKey: false, metaKey: true }).defaultPrevented,
+      ).toBe(false);
+    });
+
+    it("uses Cmd on macOS", () => {
+      useDefaultHistoryBindings();
+      testState.desktop = true;
+      vi.spyOn(navigator, "platform", "get").mockReturnValue("MacIntel");
+      renderHarness();
+      fireEvent.click(screen.getByRole("button", { name: "/b" }));
+
+      expect(press(window, "[").defaultPrevented).toBe(false);
+      expect(
+        press(window, "[", { ctrlKey: false, metaKey: true }).defaultPrevented,
+      ).toBe(true);
+      expect(location()).toBe("/a");
+    });
+
+    it("is inert in the web app", () => {
+      useDefaultHistoryBindings();
+      testState.desktop = false;
+      vi.spyOn(navigator, "platform", "get").mockReturnValue("Linux x86_64");
+      renderHarness();
+      fireEvent.click(screen.getByRole("button", { name: "/b" }));
+
+      expect(press(window, "[").defaultPrevented).toBe(false);
+      expect(location()).toBe("/b");
+    });
   });
 });

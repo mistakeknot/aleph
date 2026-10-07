@@ -61,7 +61,11 @@ function frameDocument(frame: Element): Document | null {
 }
 
 export function hasEditableFocus(doc: Document): boolean {
-  let element: Element | null = doc.activeElement;
+  return elementHasEditableFocus(doc.activeElement);
+}
+
+export function elementHasEditableFocus(start: Element | null): boolean {
+  let element: Element | null = start;
   while (element !== null) {
     const shadowActive: Element | null =
       element.shadowRoot?.activeElement ?? null;

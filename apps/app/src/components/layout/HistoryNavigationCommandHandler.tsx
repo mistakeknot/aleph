@@ -1,21 +1,19 @@
-import { useLocation, useNavigate } from "react-router-dom";
 import { useAppCommandHandler } from "@/components/commands/AppCommandProvider";
-
-const FIRST_HISTORY_ENTRY_KEY = "default";
+import { useRouteStateHistoryNavigation } from "@/lib/app-route-history";
 
 export function HistoryNavigationCommandHandler() {
-  const navigate = useNavigate();
-  const location = useLocation();
-  const canGoBack = location.key !== FIRST_HISTORY_ENTRY_KEY;
+  const { canGoBack, canGoForward, goBack, goForward } =
+    useRouteStateHistoryNavigation();
 
   useAppCommandHandler("history.back", () => {
     if (!canGoBack) return false;
-    void navigate(-1);
+    goBack();
     return true;
   });
 
   useAppCommandHandler("history.forward", () => {
-    void navigate(1);
+    if (!canGoForward) return false;
+    goForward();
     return true;
   });
 

@@ -2617,6 +2617,39 @@ describe("DesktopBrowserViewManager", () => {
     expect(dispatchAppCommand).toHaveBeenCalledTimes(1);
   });
 
+  it.each([{ isComposing: true }, { isAutoRepeat: true }, { type: "keyUp" }])(
+    "ignores browser back while the key event is %o",
+    (modifiers) => {
+      const dispatchAppCommand = vi.fn();
+      const manager = createDesktopBrowserViewManager({
+        dispatchAppCommand,
+        focusHostWebContents: vi.fn(),
+        pagePreloadPath: "/app/dist/browser-page-preload.cjs",
+        partition: "persist:test",
+        resolveAppCommand: (input) =>
+          input.key === "[" && input.metaKey ? ("browser.back" as const) : null,
+      });
+      const hostWindow = new FakeHostWindow({
+        contentBounds: { width: 700, height: 450 },
+        webContentsId: 50,
+      });
+      attachBrowserTab({
+        manager,
+        hostWindow,
+        tabId: "browser:a",
+        url: "https://example.com",
+      });
+      const webContents = requireFakeView(0).webContents;
+
+      expect(
+        webContents.emitBeforeInput({ key: "[", meta: true, ...modifiers }),
+      ).toBe(false);
+      expect(dispatchAppCommand).not.toHaveBeenCalled();
+      expect(webContents.emitBeforeInput({ key: "[", meta: true })).toBe(true);
+      expect(dispatchAppCommand).toHaveBeenCalledTimes(1);
+    },
+  );
+
   it("lets browser back and forward reach a focused editable page field but still handles them elsewhere", () => {
     const dispatchAppCommand = vi.fn();
     const manager = createDesktopBrowserViewManager({

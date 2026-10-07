@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
-import { hasEditableFocus } from "../src/editable-focus.js";
+import {
+  activeSameOriginFrameWindows,
+  hasEditableFocus,
+} from "@bb/domain/editable-focus";
 
 afterEach(() => {
   document.body.replaceChildren();
@@ -199,5 +202,40 @@ describe("hasEditableFocus", () => {
     });
     frame.focus();
     expect(hasEditableFocus(document)).toBe(true);
+  });
+});
+
+describe("activeSameOriginFrameWindows", () => {
+  it("is empty when no frame is focused", () => {
+    append(document.body, "iframe");
+    expect(activeSameOriginFrameWindows(document)).toEqual([]);
+  });
+
+  it("lists the focused same-origin frame window", () => {
+    const frame = append(document.body, "iframe");
+    frame.focus();
+    expect(activeSameOriginFrameWindows(document)).toEqual([
+      frame.contentWindow,
+    ]);
+  });
+
+  it("lists nested frame windows outermost first", () => {
+    const outer = append(document.body, "iframe");
+    const outerDocument = outer.contentDocument;
+    if (outerDocument === null) throw new Error("expected same-origin frame");
+    const inner = append(outerDocument.body, "iframe");
+    outer.focus();
+    inner.focus();
+    expect(activeSameOriginFrameWindows(document)).toEqual([
+      outer.contentWindow,
+      inner.contentWindow,
+    ]);
+  });
+
+  it("stops at a frame whose document cannot be inspected", () => {
+    const frame = append(document.body, "iframe");
+    Object.defineProperty(frame, "contentDocument", { get: () => null });
+    frame.focus();
+    expect(activeSameOriginFrameWindows(document)).toEqual([]);
   });
 });

@@ -25,7 +25,7 @@ import { useSystemConfig } from "@/hooks/queries/system-queries";
 import { getBbDesktopInfo } from "@/lib/bb-desktop";
 import {
   browserPlatform,
-  isEditableKeyboardTarget,
+  isEditableCommandTarget,
   matchesAppCommandContext,
   presentAppShortcut,
   type AppShortcutPresentation,
@@ -247,11 +247,14 @@ export function AppCommandProvider({ children }: { children: ReactNode }) {
   );
 
   const currentContext = useCallback(
-    (target: EventTarget | null): AppCommandContext => {
+    (
+      target: EventTarget | null,
+      origin: EventTarget | null = target,
+    ): AppCommandContext => {
       const next = { ...EMPTY_CONTEXT };
       next.mainSurface = true;
       next.modalOpen = hasOpenModal();
-      next.editableFocus = isEditableKeyboardTarget(target);
+      next.editableFocus = isEditableCommandTarget(target, origin);
       next.terminalFocus =
         target instanceof HTMLElement &&
         target.closest("[data-app-terminal]") !== null;
@@ -348,7 +351,10 @@ export function AppCommandProvider({ children }: { children: ReactNode }) {
           continue;
         }
         if (!matchesAppShortcut(event, binding.shortcut, isMac)) continue;
-        context ??= currentContext(event.target);
+        context ??= currentContext(
+          event.target,
+          event.composedPath()[0] ?? event.target,
+        );
         if (!matchesAppCommandContext(binding, context)) continue;
         if (!dispatch(binding.command, event.target)) continue;
         clearShortcutHintHoldRef.current();
