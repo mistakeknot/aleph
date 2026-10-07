@@ -103,6 +103,50 @@ describe("app keybindings", () => {
     }
   });
 
+  it("binds Cmd/Ctrl-[ and ] to history on desktop only and never inside editable text", () => {
+    for (const [command, browserCommand, key] of [
+      ["history.back", "browser.back", "["],
+      ["history.forward", "browser.forward", "]"],
+    ] as const) {
+      const history = DEFAULT_APP_KEYBINDINGS.filter(
+        (item) => item.command === command,
+      );
+      expect(history).toHaveLength(1);
+      expect(history[0]).toMatchObject({
+        desktopOnly: true,
+        shortcut: { key, mod: true, control: false, shift: false, alt: false },
+        when: { all: ["mainSurface"] },
+      });
+      expect(history[0]?.when.none).toEqual(
+        expect.arrayContaining(["modalOpen", "editableFocus", "terminalFocus"]),
+      );
+      expect(history[0]?.when.none).not.toContain("browserFocus");
+      const browser = DEFAULT_APP_KEYBINDINGS.filter(
+        (item) => item.command === browserCommand,
+      );
+      expect(browser).toHaveLength(1);
+      expect(browser[0]).toMatchObject({
+        desktopOnly: true,
+        shortcut: { key, mod: true, control: false, shift: false, alt: false },
+        when: { all: ["mainSurface", "browserFocus"] },
+      });
+      expect(browser[0]?.when.none).toEqual(
+        expect.arrayContaining(["modalOpen", "editableFocus"]),
+      );
+      expect(DEFAULT_APP_KEYBINDINGS.indexOf(browser[0]!)).toBeGreaterThan(
+        DEFAULT_APP_KEYBINDINGS.indexOf(history[0]!),
+      );
+    }
+    const web = applyAppKeybindingOverrides(DEFAULT_APP_KEYBINDINGS, []).filter(
+      (binding) =>
+        isAppKeybindingAvailableForClient(binding, {
+          isDesktop: false,
+          isMac: true,
+        }) && binding.command.startsWith("history."),
+    );
+    expect(web).toEqual([]);
+  });
+
   it("preserves non-Mac Ctrl arrow editing while keeping navigation rebindable", () => {
     const defaults = applyAppKeybindingOverrides(DEFAULT_APP_KEYBINDINGS, []);
     const client = { isDesktop: false, isMac: false };
@@ -177,9 +221,16 @@ describe("app keybindings", () => {
       (paneCommand, index) =>
         commandPair(paneCommand, THREAD_JUMP_APP_COMMAND_IDS[index]),
     );
-    const allowedCollisions = DEFAULT_KEYBINDING_CLIENTS.flatMap((client) =>
-      intentionalCommandPairs.map((pair) => `${client.name}:${pair}`),
-    );
+    const browserHistoryPairs = [
+      commandPair("browser.back", "history.back"),
+      commandPair("browser.forward", "history.forward"),
+    ];
+    const allowedCollisions = DEFAULT_KEYBINDING_CLIENTS.flatMap((client) => [
+      ...intentionalCommandPairs.map((pair) => `${client.name}:${pair}`),
+      ...(client.isDesktop
+        ? browserHistoryPairs.map((pair) => `${client.name}:${pair}`)
+        : []),
+    ]);
     expect([...actualCollisions].sort()).toEqual(allowedCollisions.sort());
   });
 
@@ -587,6 +638,8 @@ describe("app keybindings", () => {
           .map((binding) => binding.command),
       ).toEqual([
         "thread.new",
+        "history.back",
+        "history.forward",
         "thread.previous",
         "thread.next",
         ...THREAD_JUMP_APP_COMMAND_IDS,
@@ -595,6 +648,8 @@ describe("app keybindings", () => {
         "browser.focusLocation",
         "browser.reload",
         "browser.find",
+        "browser.back",
+        "browser.forward",
         "window.find",
         "window.new",
       ]);

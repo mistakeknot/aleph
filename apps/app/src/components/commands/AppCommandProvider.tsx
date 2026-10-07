@@ -87,6 +87,13 @@ const EMPTY_CONTEXT: AppCommandContext = {
   macPlatform: false,
 };
 
+const APP_COMMAND_FALLBACKS: Partial<
+  Record<KeyboardCommandId, KeyboardCommandId>
+> = {
+  "browser.back": "history.back",
+  "browser.forward": "history.forward",
+};
+
 const OPEN_MODAL_SELECTOR = [
   '[aria-modal="true"]:not([inert]):not([inert] *):not([data-state="closed"])',
   '[role="dialog"][data-state="open"]:not([inert]):not([inert] *)',
@@ -343,7 +350,7 @@ export function AppCommandProvider({ children }: { children: ReactNode }) {
         if (!matchesAppShortcut(event, binding.shortcut, isMac)) continue;
         context ??= currentContext(event.target);
         if (!matchesAppCommandContext(binding, context)) continue;
-        if (!dispatch(binding.command, event.target)) return false;
+        if (!dispatch(binding.command, event.target)) continue;
         clearShortcutHintHoldRef.current();
         event.preventDefault();
         event.stopPropagation();
@@ -385,7 +392,9 @@ export function AppCommandProvider({ children }: { children: ReactNode }) {
     const desktop = getBbDesktopInfo();
     if (!desktop?.onAppCommand) return;
     return desktop.onAppCommand((command) => {
-      dispatch(command, null);
+      if (dispatch(command, null)) return true;
+      const fallback = APP_COMMAND_FALLBACKS[command];
+      return fallback !== undefined && dispatch(fallback, null);
     });
   }, [dispatch]);
 

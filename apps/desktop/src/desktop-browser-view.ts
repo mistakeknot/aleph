@@ -43,6 +43,7 @@ import {
 } from "@bb/domain";
 import {
   BB_DESKTOP_BROWSER_FIND_RESULT_CHANNEL,
+  BB_DESKTOP_BROWSER_EDITABLE_FOCUS_CHANNEL,
   BB_DESKTOP_BROWSER_GUEST_MESSAGE_CHANNEL,
   BB_DESKTOP_BROWSER_PAGE_BRIDGE_KEY,
   BB_DESKTOP_BROWSER_PAGE_MESSAGE_CHANNEL,
@@ -188,6 +189,7 @@ interface BrowserViewEntry {
   rendererRecoveryState: "healthy" | "pending" | "blocked";
   rendererRecoveryTimer: ReturnType<typeof setTimeout> | null;
   suppressNextFocusNotification: boolean;
+  pageEditableFocus: boolean;
   visible: boolean;
   activeFindRequestId: number | null;
 }
@@ -662,11 +664,20 @@ export function createDesktopBrowserViewManager(
         destroyEntry(hostWindow, key);
       }
     });
+    webContents.on("did-navigate", () => {
+      entry.pageEditableFocus = false;
+    });
     webContents.on("did-navigate", notifyAutomationTabs);
     webContents.on("did-navigate-in-page", notifyAutomationTabs);
     webContents.on("page-title-updated", notifyAutomationTabs);
 
     if (pagePreloadPath !== null) {
+      webContents.ipc.on(
+        BB_DESKTOP_BROWSER_EDITABLE_FOCUS_CHANNEL,
+        (_event, editable: unknown) => {
+          entry.pageEditableFocus = editable === true;
+        },
+      );
       webContents.ipc.on(
         BB_DESKTOP_BROWSER_GUEST_MESSAGE_CHANNEL,
         (_event, payload: unknown) => {
@@ -715,6 +726,12 @@ export function createDesktopBrowserViewManager(
         hostWindow.webContents.id,
       );
       if (command === null) return;
+      if (
+        entry.pageEditableFocus &&
+        (command === "browser.back" || command === "browser.forward")
+      ) {
+        return;
+      }
       event.preventDefault();
       if (
         command === "browser.focusLocation" ||
@@ -896,6 +913,7 @@ export function createDesktopBrowserViewManager(
       rendererRecoveryState: "healthy",
       rendererRecoveryTimer: null,
       suppressNextFocusNotification: false,
+      pageEditableFocus: false,
       visible: false,
       activeFindRequestId: null,
     };

@@ -54,6 +54,7 @@
     "electron-builder": "^26.15.7",
     "electron-builder-squirrel-windows": "26.15.7",
     "esbuild": "^0.28.0",
+    "jsdom": "^29.0.1",
     "rimraf": "^6.1.0",
     "tsx": "^4.23.1",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
