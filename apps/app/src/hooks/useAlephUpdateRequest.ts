@@ -6,6 +6,7 @@ import { alephErrorCommand, postAlephUpdate } from "@/lib/aleph-update-api";
 import {
   ALEPH_MANUAL_ERROR_CODES,
   ALEPH_NONCE_UNKNOWN_MS,
+  alephClockWentBackward,
   alephElapsedMs,
   alephOutcomeUnknownMessage,
   createAlephNonceStore,
@@ -168,7 +169,9 @@ export function useAlephUpdateRequest(): AlephRequestState {
     if (pendingNonce === null) return;
     const stored = store.read();
     if (stored === null || stored.nonce !== pendingNonce) return;
-    let ms = elapsedNow(stored);
+    let ms = alephClockWentBackward(stored, Date.now())
+      ? ALEPH_NONCE_UNKNOWN_MS
+      : elapsedNow(stored);
     let last = performance.now();
     elapsed.current = { nonce: pendingNonce, ms };
     const check = () => {

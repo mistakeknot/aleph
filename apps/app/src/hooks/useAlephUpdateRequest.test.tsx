@@ -281,6 +281,41 @@ describe("useAlephUpdateRequest", () => {
     expect(second.result.current.unknownMessage).toContain("Outcome unknown");
   });
 
+  it("shows outcome unknown at once when the wall clock went backward across an offline reload", async () => {
+    vi.useFakeTimers({
+      toFake: [
+        "Date",
+        "setInterval",
+        "clearInterval",
+        "setTimeout",
+        "clearTimeout",
+      ],
+    });
+    api.postAlephUpdate.mockRejectedValue(new TypeError("network down"));
+    api.fetchAlephUpdateRun.mockRejectedValue(
+      new TypeError("server unreachable"),
+    );
+    const first = renderHook(() => useAlephUpdateRequest(), { wrapper });
+    act(() => first.result.current.submit("update", BODY));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    const nonce = first.result.current.pending?.nonce;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(20 * 60_000);
+    });
+    expect(first.result.current.unknownMessage).toBeNull();
+    first.unmount();
+    vi.setSystemTime(Date.now() + 2 * 60 * 60_000);
+    vi.setSystemTime(Date.now() - 26 * 60 * 60_000);
+    const second = renderHook(() => useAlephUpdateRequest(), { wrapper });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(second.result.current.pending?.nonce).toBe(nonce);
+    expect(second.result.current.unknownMessage).toContain("Outcome unknown");
+  });
+
   it("shows outcome unknown for a stored request past 55 minutes after reload while the server is unreachable", async () => {
     window.localStorage.setItem(
       "aleph-update-pending",

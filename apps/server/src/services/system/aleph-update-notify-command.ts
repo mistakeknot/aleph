@@ -4,6 +4,16 @@ import type { AlephUpdateNoticeSink } from "./aleph-update-composition.js";
 export const ALEPH_UPDATE_NOTIFY_COMMAND_ENV = "ALEPH_UPDATE_NOTIFY_COMMAND";
 export const ALEPH_UPDATE_NOTIFY_MAX_BYTES = 512;
 const DEFAULT_TIMEOUT_MS = 5_000;
+const CHILD_ENV_ALLOWLIST = ["HOME", "LANG", "PATH"] as const;
+
+function childEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const child: NodeJS.ProcessEnv = {};
+  for (const key of CHILD_ENV_ALLOWLIST) {
+    const value = env[key];
+    if (value !== undefined) child[key] = value;
+  }
+  return child;
+}
 
 function parseArgv(value: string | undefined): string[] | null {
   if (value === undefined || value.trim() === "") return null;
@@ -40,6 +50,7 @@ export function createAlephUpdateNotifyFromEnv(
   return (message) =>
     new Promise<void>((resolve, reject) => {
       const child = spawn(file, rest, {
+        env: childEnvironment(env),
         killSignal: "SIGKILL",
         shell: false,
         stdio: ["pipe", "ignore", "ignore"],

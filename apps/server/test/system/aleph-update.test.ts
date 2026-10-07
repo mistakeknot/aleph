@@ -95,6 +95,7 @@ function rig(
     auditSink?: (record: AlephUpdateAuditRecord) => void;
     capability?: "absent" | "command-only" | "startable";
     manifest?: AlephManifest;
+    notifySink?: (message: string) => Promise<void>;
     state?: Record<string, unknown> | null;
     threads?: number;
   } = {},
@@ -146,9 +147,11 @@ function rig(
     audit: options.auditSink ?? ((record) => void audit.push(record)),
     countRunningThreads: () => options.threads ?? 0,
     logger: testLogger,
-    notify: async (message) => {
-      notices.push(message);
-    },
+    notify:
+      options.notifySink ??
+      (async (message) => {
+        notices.push(message);
+      }),
     now: () => NOW,
     paths: {
       configDir: CONFIG,
@@ -496,6 +499,52 @@ describe("aleph update service start", () => {
     const failure = await service.start(UPDATE).catch((error) => error);
     expect(failure).toBeInstanceOf(ApiError);
     expect(failure.status).toBe(503);
+    expect(system.started).toEqual([]);
+  });
+
+  it("still sends a notice when the audit row cannot be written before the start", async () => {
+    const { notices, service, system } = rig({
+      auditSink: () => {
+        throw new Error("disk full");
+      },
+    });
+    await expect(service.start(UPDATE)).rejects.toMatchObject({ status: 503 });
+    expect(system.started).toEqual([]);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toContain(NONCE);
+    expect(notices[0]).toContain("audit-unavailable");
+  });
+
+  it("still sends a notice when the audit row cannot be written for an existing run", async () => {
+    const { notices, service, system } = rig({
+      auditSink: () => {
+        throw new Error("disk full");
+      },
+    });
+    putRun(system, 5, NONCE, {
+      started: {
+        invocation_id: "inv",
+        counter: 5,
+        op: "update",
+        from: "0.5.3",
+        to: "0.5.4",
+      },
+    });
+    await expect(service.start(UPDATE)).rejects.toMatchObject({ status: 503 });
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toContain("audit-unavailable");
+  });
+
+  it("keeps the 503 when the notice also fails on audit rejection", async () => {
+    const { service, system } = rig({
+      auditSink: () => {
+        throw new Error("disk full");
+      },
+      notifySink: async () => {
+        throw new Error("notice down");
+      },
+    });
+    await expect(service.start(UPDATE)).rejects.toMatchObject({ status: 503 });
     expect(system.started).toEqual([]);
   });
 

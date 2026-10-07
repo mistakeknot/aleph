@@ -637,7 +637,7 @@ export function createAlephUpdateService(
 
   async function notice(
     operation: AlephUpdateOperation,
-    outcome: AlephUpdateAuditRecord["outcome"],
+    outcome: string,
   ): Promise<void> {
     try {
       await args.notify?.(
@@ -648,12 +648,27 @@ export function createAlephUpdateService(
     }
   }
 
+  async function requireAuditWithNotice(
+    operation: AlephUpdateOperation,
+    entry: AlephUpdateAuditRecord,
+  ): Promise<void> {
+    try {
+      requireAudit(entry);
+    } catch (error) {
+      await notice(operation, "audit-unavailable");
+      throw error;
+    }
+  }
+
   async function record(
     operation: AlephUpdateOperation,
     instance: string | null,
     outcome: AlephUpdateAuditRecord["outcome"],
   ): Promise<void> {
-    requireAudit(auditEntry(operation, instance, outcome));
+    await requireAuditWithNotice(
+      operation,
+      auditEntry(operation, instance, outcome),
+    );
     await notice(operation, outcome);
   }
 
@@ -704,7 +719,10 @@ export function createAlephUpdateService(
         { details: { command } },
       );
     }
-    requireAudit(auditEntry(operation, instance, "requested"));
+    await requireAuditWithNotice(
+      operation,
+      auditEntry(operation, instance, "requested"),
+    );
     const result = await system.startUnit(alephInstanceUnit(instance));
     if (result === "denied") {
       await recordAfterStart(operation, instance, "denied");

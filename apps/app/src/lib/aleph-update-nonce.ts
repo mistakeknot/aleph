@@ -172,6 +172,13 @@ export function alephElapsedMs(
   );
 }
 
+export function alephClockWentBackward(
+  pending: AlephPendingRequest,
+  wallNow: number,
+): boolean {
+  return wallNow < (pending.seenAt ?? pending.sentAt);
+}
+
 export function evaluateAlephPending(
   pending: AlephPendingRequest,
   state: SystemAlephUpdateRun["state"],
