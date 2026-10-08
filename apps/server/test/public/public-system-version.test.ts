@@ -39,7 +39,8 @@ describe("GET /api/v1/system/version", () => {
         expect(body.latestVersion).toBeNull();
         expect(body.queueRetirement).toEqual({
           version: 1,
-          guarantees: ["G1", "G2"],
+          guarantees: ["G1", "G2", "G3"],
+          retire: { maxHops: 1 },
         });
       },
     );

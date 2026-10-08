@@ -44,6 +44,7 @@ import {
   environments,
   events,
   queuedThreadMessages,
+  threadRedirects,
   threads,
 } from "../schema.js";
 import {
@@ -55,6 +56,9 @@ import { queryInSqliteVariableBatches } from "./events.js";
 
 export interface CreateQueuedThreadMessageInput {
   threadId: string;
+  originId?: string;
+  sortKey?: string;
+  threadVerified?: boolean;
   content: PromptInput[];
   senderThreadId?: string | null;
   /**
@@ -391,7 +395,7 @@ export function listQueuedThreadMessages(
     .all();
 }
 
-function getLastQueuedThreadMessage(
+export function getLastQueuedThreadMessage(
   db: DbQueryConnection,
   threadId: string,
 ): QueuedThreadMessageRow | null {
@@ -629,7 +633,9 @@ export function createQueuedThreadMessageInTransaction(
   tx: DbTransaction,
   input: CreateQueuedThreadMessageInput,
 ) {
-  assertThreadAcceptsQueuedMessage(tx, input.threadId);
+  if (!input.threadVerified) {
+    assertThreadAcceptsQueuedMessage(tx, input.threadId);
+  }
   const now = Date.now();
   acquireProjectAttachmentOwnership(
     tx,
@@ -637,14 +643,20 @@ export function createQueuedThreadMessageInTransaction(
     projectAttachmentPaths(input.content),
   );
   const id = createQueuedThreadMessageId();
-  const lastQueuedMessage = getLastQueuedThreadMessage(tx, input.threadId);
-  const sortKey = lastQueuedMessage
-    ? createOrderKeyAfter({ previousKey: lastQueuedMessage.sortKey })
-    : createOrderKeyBetween({ previousKey: null, nextKey: null });
-  return tx
+  const originId = input.originId ?? id;
+  const lastQueuedMessage = input.sortKey
+    ? null
+    : getLastQueuedThreadMessage(tx, input.threadId);
+  const sortKey =
+    input.sortKey ??
+    (lastQueuedMessage
+      ? createOrderKeyAfter({ previousKey: lastQueuedMessage.sortKey })
+      : createOrderKeyBetween({ previousKey: null, nextKey: null }));
+  const row = tx
     .insert(queuedThreadMessages)
     .values({
       id,
+      originId,
       threadId: input.threadId,
       content: JSON.stringify(input.content),
       senderThreadId: input.senderThreadId ?? null,
@@ -680,6 +692,12 @@ export function createQueuedThreadMessageInTransaction(
     })
     .returning()
     .get();
+  if (row.originId !== originId) {
+    throw new Error(
+      `Queued message ${id} was stored with origin ${String(row.originId)} instead of ${originId}`,
+    );
+  }
+  return row;
 }
 
 export function createQueuedThreadMessage(
@@ -2169,9 +2187,35 @@ export interface TransferQueuedThreadMessageInTransactionArgs {
   queuedMessageId: string;
   sourceThreadId: string;
   targetThreadId: string;
+  sortKey?: string;
+  groupEdgeAlreadyCleared?: boolean;
+  sourceRow?: QueuedThreadMessageRow;
+  targetVerified?: boolean;
   resolveWaitingOn: (
     source: QueuedThreadMessageRow,
   ) => QueuedMessageWaitingOn | null;
+}
+
+export class TransferTargetRetiredError extends Error {
+  constructor(readonly threadId: string) {
+    super(`Thread ${threadId} has been retired`);
+    this.name = "TransferTargetRetiredError";
+  }
+}
+
+export function isThreadRetired(tx: DbQueryConnection, threadId: string) {
+  return (
+    tx
+      .select({ sourceThreadId: threadRedirects.sourceThreadId })
+      .from(threadRedirects)
+      .where(
+        and(
+          eq(threadRedirects.sourceThreadId, threadId),
+          isNotNull(threadRedirects.successorThreadId),
+        ),
+      )
+      .get() !== undefined
+  );
 }
 
 export type TransferQueuedThreadMessageResult =
@@ -2184,13 +2228,26 @@ export function transferQueuedThreadMessageInTransaction(
   tx: DbTransaction,
   args: TransferQueuedThreadMessageInTransactionArgs,
 ): TransferQueuedThreadMessageResult {
-  const source = getQueuedThreadMessage(tx, args.queuedMessageId);
+  const source =
+    args.sourceRow ?? getQueuedThreadMessage(tx, args.queuedMessageId);
   if (!source || source.threadId !== args.sourceThreadId) {
     return { kind: "not_found" };
   }
   if (source.claimedAt !== null) return { kind: "claimed" };
   if (source.payloadKind !== "inline") return { kind: "not_inline" };
+  if (!args.targetVerified && isThreadRetired(tx, args.targetThreadId)) {
+    throw new TransferTargetRetiredError(args.targetThreadId);
+  }
+  if (!args.groupEdgeAlreadyCleared) {
+    clearPreviousQueuedMessageGroupEdgeInTransaction(tx, source);
+  }
+  tx.delete(queuedThreadMessages)
+    .where(eq(queuedThreadMessages.id, source.id))
+    .run();
   const queuedMessage = createQueuedThreadMessageInTransaction(tx, {
+    originId: source.originId ?? source.id,
+    sortKey: args.sortKey,
+    threadVerified: args.targetVerified,
     threadId: args.targetThreadId,
     content: JSON.parse(source.content) as PromptInput[],
     senderThreadId: source.senderThreadId,
@@ -2216,10 +2273,6 @@ export function transferQueuedThreadMessageInTransaction(
         ? null
         : (JSON.parse(source.systemNotice) as QueuedMessageSystemNotice),
   });
-  clearPreviousQueuedMessageGroupEdgeInTransaction(tx, source);
-  tx.delete(queuedThreadMessages)
-    .where(eq(queuedThreadMessages.id, source.id))
-    .run();
   return { kind: "transferred", queuedMessage };
 }
 

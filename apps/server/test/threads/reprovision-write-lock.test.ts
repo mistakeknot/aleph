@@ -30,11 +30,11 @@ const EXECUTION = {
   source: "client/turn/requested",
 } satisfies ResolvedThreadExecutionOptions;
 
-const cleanups: Array<() => void> = [];
+const cleanups: Array<() => void | Promise<void>> = [];
 
-afterEach(() => {
+afterEach(async () => {
   while (cleanups.length > 0) {
-    cleanups.pop()?.();
+    await cleanups.pop()?.();
   }
 });
 
@@ -52,6 +52,7 @@ function openFileBackedDeps() {
 
 async function seedReprovisionFixture() {
   const harness = await createTestAppHarness();
+  cleanups.push(() => harness.cleanup());
   const { db, dbPath } = openFileBackedDeps();
   const deps = { db, hub: harness.deps.hub };
   const { host } = seedHostSession(deps, { id: "host-reprovision-lock" });
@@ -75,7 +76,9 @@ async function seedReprovisionFixture() {
   });
   const second = new Database(dbPath);
   second.pragma("busy_timeout = 0");
-  cleanups.push(() => second.close());
+  cleanups.push(() => {
+    second.close();
+  });
   const row = getEnvironment(db, environment.id);
   if (row === null || row.environmentProviderSelection === null) {
     throw new Error("expected a reprovisionable environment");

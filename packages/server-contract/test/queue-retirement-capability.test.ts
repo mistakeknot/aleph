@@ -22,7 +22,7 @@ describe("queue retirement capability", () => {
     expect(hasQueueRetirementGuarantee(parsed, "G1")).toBe(false);
   });
 
-  it("reads the advertised G1 and G2 guarantees from a current server", () => {
+  it("reads the advertised G1, G2 and G3 guarantees and the single-hop limit from a current server", () => {
     const parsed = systemVersionResponseSchema.parse({
       ...oldServerResponse,
       queueRetirement: QUEUE_RETIREMENT_CAPABILITY,
@@ -30,10 +30,21 @@ describe("queue retirement capability", () => {
 
     expect(parsed.queueRetirement).toEqual({
       version: 1,
-      guarantees: ["G1", "G2"],
+      guarantees: ["G1", "G2", "G3"],
+      retire: { maxHops: 1 },
     });
     expect(hasQueueRetirementGuarantee(parsed, "G1")).toBe(true);
     expect(hasQueueRetirementGuarantee(parsed, "G2")).toBe(true);
+    expect(hasQueueRetirementGuarantee(parsed, "G3")).toBe(true);
+  });
+
+  it("parses an advertisement without the retire limit", () => {
+    const parsed = systemVersionResponseSchema.parse({
+      ...oldServerResponse,
+      queueRetirement: { version: 1, guarantees: ["G1", "G2"] },
+    });
+
+    expect(parsed.queueRetirement?.retire).toBeUndefined();
   });
 
   it("tolerates guarantees advertised by a future server", () => {

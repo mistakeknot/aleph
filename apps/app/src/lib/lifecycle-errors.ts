@@ -293,6 +293,66 @@ function describeThreadNotWritable({
         title: "Thread starting",
         body: "The thread is still starting.",
       });
+    case "self_transfer":
+      return warning({
+        operation,
+        title: "Cannot move to itself",
+        body: "A thread cannot move its queue to itself.",
+      });
+    case "unknown_thread":
+      return errorDescription({
+        operation,
+        title: "Thread not found",
+        body: "The target thread does not exist.",
+      });
+    case "source_deleted":
+      return errorDescription({
+        operation,
+        title: "Thread deleted",
+        body: "This thread was deleted.",
+      });
+    case "already_retired":
+      return info({
+        operation,
+        title: "Queue already moved",
+        body: "This thread's queue was already moved.",
+      });
+    case "source_is_retire_target":
+      return warning({
+        operation,
+        title: "Cannot move queue",
+        body: "Another thread's queue was moved into this thread.",
+      });
+    case "target_retired":
+      return warning({
+        operation,
+        title: "Target thread retired",
+        body: "The target thread's queue was moved elsewhere.",
+      });
+    case "thread_not_writable":
+      return warning({
+        operation,
+        title: "Thread not writable",
+        body: "The thread cannot accept messages.",
+      });
+    case "transfer_retire_disabled":
+      return warning({
+        operation,
+        title: "Queue move disabled",
+        body: "Moving queues is currently disabled.",
+      });
+    case "source_has_claims":
+      return warning({
+        operation,
+        title: "Messages in flight",
+        body: "Messages are being delivered; try again shortly.",
+      });
+    case "attachment_unavailable":
+      return errorDescription({
+        operation,
+        title: "Attachment unavailable",
+        body: "An attachment could not be moved.",
+      });
     default:
       return assertNever(details.reason);
   }

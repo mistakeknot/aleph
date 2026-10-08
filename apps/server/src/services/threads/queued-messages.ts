@@ -3,8 +3,10 @@ import {
   claimQueuedThreadMessageGroup,
   createQueuedThreadMessageInTransaction,
   deleteClaimedQueuedThreadMessageBatchInTransaction,
+  drainTransferEvents,
   getEnvironment,
   getHost,
+  getTransferOperation,
   getQueuedThreadMessage,
   getStoredProviderSession,
   getThread,
@@ -12,9 +14,13 @@ import {
   isThreadQueueAutoSendPaused,
   releaseQueuedMessageClaim,
   releaseStaleQueuedMessageClaims,
+  sweepTransferOperations,
+  retireQueuedThreadMessages,
+  TransferTargetRetiredError,
   transferAllQueuedThreadMessagesInTransaction,
   transferQueuedThreadMessageInTransaction,
   type DbQueryConnection,
+  type RetireResult,
   type QueuedThreadMessageGroupClaimPolicy,
   type QueuedThreadMessageGroupEligibility,
 } from "@bb/db";
@@ -105,6 +111,7 @@ import {
   goneThreadEnvironmentDetails,
   threadEnvironmentUnavailableDetails,
   throwThreadEnvironmentUnavailable,
+  throwThreadNotWritable,
 } from "../lib/lifecycle-api-errors.js";
 import { validatePromptAttachmentReferences } from "../projects/attachments.js";
 import { requestQueuedMessageDispatch } from "./queued-message-dispatch.js";
@@ -305,6 +312,111 @@ export async function createQueuedMessageForThread(
   return toThreadQueuedMessage(queuedMessage);
 }
 
+function mapTargetRetired<T>(targetThread: Thread, run: () => T): T {
+  try {
+    return run();
+  } catch (error) {
+    if (error instanceof TransferTargetRetiredError) {
+      throwThreadNotWritable(
+        targetThread,
+        "target_retired",
+        "Target thread has been retired",
+      );
+    }
+    throw error;
+  }
+}
+
+export interface RetireThreadArgs {
+  sourceThreadId: string;
+  targetThreadId: string;
+  operationKey: string;
+}
+
+export async function retireThread(
+  deps: AppDeps,
+  args: RetireThreadArgs,
+): Promise<RetireResult> {
+  const source = getThread(deps.db, args.sourceThreadId);
+  const target = getThread(deps.db, args.targetThreadId);
+  const project = source ?? target;
+  if (!project) {
+    throwThreadNotWritable(
+      { archivedAt: null, deletedAt: null, status: "idle" },
+      "unknown_thread",
+      "Thread not found",
+    );
+  }
+  const outcome = retireQueuedThreadMessages(deps.db, {
+    projectId: project.projectId,
+    sourceThreadId: args.sourceThreadId,
+    targetThreadId: args.targetThreadId,
+    operationKey: args.operationKey,
+    retireEnabled: process.env.ALEPH_TRANSFER_RETIRE !== "off",
+    admitTarget: (tx) => {
+      const currentTarget = getThread(tx, args.targetThreadId);
+      if (currentTarget) admitQueuedMessage(tx, currentTarget);
+    },
+    resolveWaitingOn: (row) => {
+      const waitingOn = parseStoredQueuedThreadMessageWaitingOn(row);
+      if (waitingOn?.kind === "plugin" || waitingOn?.kind === "time") {
+        return waitingOn;
+      }
+      return target?.status === "stopping"
+        ? { kind: "stopping" }
+        : { kind: "thread-busy" };
+    },
+  });
+  if (outcome.kind === "idempotency_conflict") {
+    throw new ApiError(
+      409,
+      "idempotency_conflict",
+      "Operation key was already used for a different request",
+    );
+  }
+  if (outcome.kind === "refused" || outcome.kind === "source_has_claims") {
+    throwThreadNotWritable(
+      target ?? project,
+      outcome.kind === "refused" ? outcome.reason : "source_has_claims",
+      "Thread cannot be retired",
+    );
+  }
+  if (outcome.kind === "replayed") {
+    drainTransferLedger(deps);
+    return outcome.result;
+  }
+  drainTransferLedger(deps);
+  if (target?.status === "idle") {
+    requestQueuedMessageDispatch(deps, {
+      kind: "thread-ready",
+      threadId: args.targetThreadId,
+    });
+  }
+  return outcome.result;
+}
+
+export function drainTransferLedger(deps: Pick<AppDeps, "db" | "hub">): void {
+  let drained: number;
+  do {
+    drained = drainTransferEvents(deps.db, (events) => {
+      const notified = new Set<string>();
+      for (const event of events) {
+        if (event.payload.kind === "moved" && event.payload.rowId) {
+          const row = getQueuedThreadMessage(deps.db, event.payload.rowId);
+          if (row) emitQueuedIfHeld(toThreadQueuedMessage(row));
+        }
+        if (notified.has(event.opId)) continue;
+        notified.add(event.opId);
+        const operation = getTransferOperation(deps.db, event.opId);
+        if (!operation) continue;
+        deps.hub.notifyThread(operation.sourceThreadId, ["queue-changed"]);
+        deps.hub.notifyThread(operation.targetThreadId, ["queue-changed"]);
+      }
+    });
+  } while (drained > 0);
+  sweepTransferOperations(deps.db);
+}
+
 export interface TransferQueuedMessageArgs {
   queuedMessageId: string;
   sourceThread: Thread;
@@ -331,30 +443,32 @@ export async function transferQueuedMessage(
     );
   }
   ensureThreadQueueIsWritable(targetThread);
-  const result = deps.db.transaction(
-    (tx) => {
-      const currentTarget = getThread(tx, targetThread.id);
-      if (!currentTarget) {
-        throw new ApiError(404, "thread_not_found", "Thread not found");
-      }
-      admitQueuedMessage(tx, currentTarget);
-      const transferred = transferQueuedThreadMessageInTransaction(tx, {
-        queuedMessageId,
-        sourceThreadId: sourceThread.id,
-        targetThreadId: targetThread.id,
-        resolveWaitingOn: (source) => {
-          const waitingOn = parseStoredQueuedThreadMessageWaitingOn(source);
-          if (waitingOn?.kind === "plugin" || waitingOn?.kind === "time") {
-            return waitingOn;
-          }
-          return currentTarget.status === "stopping"
-            ? { kind: "stopping" }
-            : { kind: "thread-busy" };
-        },
-      });
-      return { currentTarget, transferred };
-    },
-    { behavior: "immediate" },
+  const result = mapTargetRetired(targetThread, () =>
+    deps.db.transaction(
+      (tx) => {
+        const currentTarget = getThread(tx, targetThread.id);
+        if (!currentTarget) {
+          throw new ApiError(404, "thread_not_found", "Thread not found");
+        }
+        admitQueuedMessage(tx, currentTarget);
+        const transferred = transferQueuedThreadMessageInTransaction(tx, {
+          queuedMessageId,
+          sourceThreadId: sourceThread.id,
+          targetThreadId: targetThread.id,
+          resolveWaitingOn: (source) => {
+            const waitingOn = parseStoredQueuedThreadMessageWaitingOn(source);
+            if (waitingOn?.kind === "plugin" || waitingOn?.kind === "time") {
+              return waitingOn;
+            }
+            return currentTarget.status === "stopping"
+              ? { kind: "stopping" }
+              : { kind: "thread-busy" };
+          },
+        });
+        return { currentTarget, transferred };
+      },
+      { behavior: "immediate" },
+    ),
   );
   const { currentTarget, transferred } = result;
   if (transferred.kind === "not_found") {
@@ -412,29 +526,31 @@ export async function transferAllQueuedMessages(
     );
   }
   ensureThreadQueueIsWritable(targetThread);
-  const { currentTarget, transferred } = deps.db.transaction(
-    (tx) => {
-      const currentTarget = getThread(tx, targetThread.id);
-      if (!currentTarget) {
-        throw new ApiError(404, "thread_not_found", "Thread not found");
-      }
-      admitQueuedMessage(tx, currentTarget);
-      const transferred = transferAllQueuedThreadMessagesInTransaction(tx, {
-        sourceThreadId: sourceThread.id,
-        targetThreadId: targetThread.id,
-        resolveWaitingOn: (source) => {
-          const waitingOn = parseStoredQueuedThreadMessageWaitingOn(source);
-          if (waitingOn?.kind === "plugin" || waitingOn?.kind === "time") {
-            return waitingOn;
-          }
-          return currentTarget.status === "stopping"
-            ? { kind: "stopping" }
-            : { kind: "thread-busy" };
-        },
-      });
-      return { currentTarget, transferred };
-    },
-    { behavior: "immediate" },
+  const { currentTarget, transferred } = mapTargetRetired(targetThread, () =>
+    deps.db.transaction(
+      (tx) => {
+        const currentTarget = getThread(tx, targetThread.id);
+        if (!currentTarget) {
+          throw new ApiError(404, "thread_not_found", "Thread not found");
+        }
+        admitQueuedMessage(tx, currentTarget);
+        const transferred = transferAllQueuedThreadMessagesInTransaction(tx, {
+          sourceThreadId: sourceThread.id,
+          targetThreadId: targetThread.id,
+          resolveWaitingOn: (source) => {
+            const waitingOn = parseStoredQueuedThreadMessageWaitingOn(source);
+            if (waitingOn?.kind === "plugin" || waitingOn?.kind === "time") {
+              return waitingOn;
+            }
+            return currentTarget.status === "stopping"
+              ? { kind: "stopping" }
+              : { kind: "thread-busy" };
+          },
+        });
+        return { currentTarget, transferred };
+      },
+      { behavior: "immediate" },
+    ),
   );
   if (transferred.moved.length > 0) {
     deps.hub.notifyThread(sourceThread.id, ["queue-changed"]);

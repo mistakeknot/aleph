@@ -193,7 +193,11 @@ export const SYSTEM_VERSION: SystemVersionResponse = {
   updateAvailable: false,
   isDevelopment: false,
   upgradeCommand: "npx bb-app@latest",
-  queueRetirement: { version: 1, guarantees: ["G1", "G2"] },
+  queueRetirement: {
+    version: 1,
+    guarantees: ["G1", "G2", "G3"],
+    retire: { maxHops: 1 },
+  },
 };
 
 export const PLUGIN_CONTRIBUTIONS = { cliCommands: [], mentionProviders: [] };
