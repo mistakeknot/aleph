@@ -645,7 +645,7 @@ describe("replay and authorization (T-RP1)", () => {
   });
 });
 
-describe("outbox (T-O1, T-O2)", () => {
+describe("outbox ledger (T-O1/T-O2 transport not covered)", () => {
   it("appends one event per entry insert and per state change", () => {
     const fixture = setup();
     enqueue(fixture.db, fixture.source.id, "a");
