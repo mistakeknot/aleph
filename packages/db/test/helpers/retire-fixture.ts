@@ -9,6 +9,7 @@ import {
   releaseQueuedMessageClaim,
 } from "../../src/data/queued-thread-messages.js";
 import {
+  abortTransferOperation,
   getTransferOperation,
   retireQueuedThreadMessages,
 } from "../../src/data/transfer-operations.js";
@@ -99,4 +100,19 @@ export function allRows(fixture: Fixture, threadId: string) {
     .where(eq(queuedThreadMessages.threadId, threadId))
     .orderBy(asc(queuedThreadMessages.sortKey), asc(queuedThreadMessages.id))
     .all();
+}
+
+export function abort(
+  fixture: Fixture,
+  operationId: string,
+  overrides: Partial<Parameters<typeof abortTransferOperation>[1]> = {},
+) {
+  return abortTransferOperation(fixture.db, {
+    projectId: fixture.project.id,
+    operationId,
+    expectedRetirementOperationId: operationId,
+    operationKey: "abort-1",
+    resolveWaitingOn,
+    ...overrides,
+  });
 }
