@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { archiveThread } from "../../src/data/threads.js";
+import { archiveThread, deleteThread } from "../../src/data/threads.js";
 import { noopNotifier } from "../../src/notifier.js";
 import { createQueuedThreadMessage } from "../../src/data/queued-thread-messages.js";
+import { recordProjectAttachment } from "../../src/data/project-attachments.js";
 import { chooseRestoreKey } from "../../src/data/transfer-operations.js";
 import {
   createOrderKeyAfter,
@@ -25,10 +26,15 @@ function retired(f: Fixture) {
   return outcome.operationId;
 }
 
-function post(f: Fixture, threadId: string, text: string) {
+function post(
+  f: Fixture,
+  threadId: string,
+  text: string,
+  content = [{ type: "text", text, mentions: [] }] as never,
+) {
   return createQueuedThreadMessage(f.db, noopNotifier, {
     threadId,
-    content: [{ type: "text", text, mentions: [] }],
+    content,
     model: "gpt-5",
     reasoningLevel: "medium",
     permissionMode: "full",
@@ -365,5 +371,93 @@ describe("restore keys (T-K1, T-K2)", () => {
         placed.push(key);
       });
     }
+  });
+});
+
+describe("attachment ownership at every landing (T-AT1)", () => {
+  function attach(f: Fixture) {
+    recordProjectAttachment(f.db, {
+      projectId: f.project.id,
+      storedPath: "uploads/a.pdf",
+      originalName: "a.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 1,
+      createdAt: 1,
+      readyAt: 1,
+    });
+    return [{ type: "localFile", path: "uploads/a.pdf" }] as never;
+  }
+  const owners = (f: Fixture) =>
+    (
+      f.db.$client
+        .prepare("SELECT thread_id FROM project_attachment_threads")
+        .all() as { thread_id: string }[]
+    )
+      .map((row) => row.thread_id)
+      .sort();
+  const unowned = (f: Fixture) =>
+    f.db.$client
+      .prepare(
+        "SELECT count(*) AS n FROM project_attachments a WHERE NOT EXISTS (SELECT 1 FROM project_attachment_threads t WHERE t.attachment_id = a.id)",
+      )
+      .get() as { n: number };
+
+  it("keeps the source as an owner after abort and then deleting the target", () => {
+    const f = setup();
+    enqueue(f.db, f.source.id, "a", { content: attach(f) });
+    const x = retired(f);
+    f.db.$client
+      .prepare("DELETE FROM project_attachment_threads WHERE thread_id = ?")
+      .run(f.source.id);
+    expect(abort(f, x).kind).toBe("aborted");
+    expect(owners(f)).toContain(f.source.id);
+    deleteThread(f.db, noopNotifier, f.target.id);
+    expect(owners(f)).toEqual([f.source.id]);
+    expect(unowned(f)).toEqual({ n: 0 });
+  });
+
+  it("gives the source ownership for a redirected arrival returned by abort", () => {
+    const f = setup();
+    const content = attach(f);
+    enqueue(f.db, f.source.id, "a");
+    const x = retired(f);
+    post(f, f.source.id, "late", content);
+    f.db.$client
+      .prepare("DELETE FROM project_attachment_threads WHERE thread_id = ?")
+      .run(f.source.id);
+    expect(abort(f, x).kind).toBe("aborted");
+    deleteThread(f.db, noopNotifier, f.target.id);
+    expect(owners(f)).toEqual([f.source.id]);
+    expect(unowned(f)).toEqual({ n: 0 });
+  });
+
+  it("leaves the target as owner after a slot fill and deleting the source", () => {
+    const f = setup();
+    const a = enqueue(f.db, f.source.id, "a", { content: attach(f) });
+    const claimed = claim(f, a.id);
+    retired(f);
+    release(f, a.id, claimed.claimToken);
+    deleteThread(f.db, noopNotifier, f.source.id);
+    expect(owners(f)).toEqual([f.target.id]);
+    expect(unowned(f)).toEqual({ n: 0 });
+  });
+
+  it("refuses the whole abort when a returning attachment is claimed for deletion", () => {
+    const f = setup();
+    enqueue(f.db, f.source.id, "a", { content: attach(f) });
+    const x = retired(f);
+    f.db.$client
+      .prepare("UPDATE project_attachments SET deletion_claimed_at = 1")
+      .run();
+    f.db.$client
+      .prepare("DELETE FROM project_attachment_threads WHERE thread_id = ?")
+      .run(f.source.id);
+    expect(abort(f, x)).toEqual({
+      kind: "refused",
+      reason: "attachment_unavailable",
+    });
+    expect(allRows(f, f.source.id)).toEqual([]);
+    expect(allRows(f, f.target.id)).toHaveLength(1);
+    expect(redirectCount(f)).toBe(1);
   });
 });

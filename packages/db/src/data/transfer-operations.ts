@@ -24,6 +24,7 @@ import {
   createQueuedThreadMessageInTransaction,
   getLastQueuedThreadMessage,
   isThreadRetired,
+  sweepStaleQueuedMessageClaims,
   transferQueuedThreadMessageInTransaction,
 } from "./queued-thread-messages.js";
 import {
@@ -518,7 +519,8 @@ export type AbortRefusalReason =
   | "stale_abort"
   | "successor_retired"
   | "claims_pending"
-  | "restore_key_exhausted";
+  | "restore_key_exhausted"
+  | "attachment_unavailable";
 
 export interface AbortResult {
   operationId: string;
@@ -902,6 +904,74 @@ export function abortTransferOperation(
     if (error instanceof AbortRolledBack) {
       return { kind: "refused", reason: error.reason };
     }
+    if (error instanceof ProjectAttachmentError) {
+      return { kind: "refused", reason: "attachment_unavailable" };
+    }
     throw error;
   }
+}
+
+export function releaseAllWorkerClaimsOffline(db: DbConnection): {
+  released: number;
+  threadIds: string[];
+} {
+  return sweepStaleQueuedMessageClaims(db, {
+    claimedBefore: Number.MAX_SAFE_INTEGER,
+    protectedClaimTokens: [],
+  });
+}
+
+export interface DowngradeReadiness {
+  slots: number;
+  pendingEntries: number;
+  unemittedEvents: number;
+  redirects: number;
+  nullOrigins: number;
+  unackedReceipts: number;
+  ready: boolean;
+}
+
+function countRows(db: DbConnection, query: string): number {
+  const row = db.$client.prepare(query).get() as { n: number };
+  return row.n;
+}
+
+export function getDowngradeReadiness(db: DbConnection): DowngradeReadiness {
+  const slots = countRows(
+    db,
+    "SELECT count(*) AS n FROM queued_thread_messages WHERE forward_source_row_id IS NOT NULL",
+  );
+  const pendingEntries = countRows(
+    db,
+    "SELECT count(*) AS n FROM transfer_entries WHERE state = 'pending'",
+  );
+  const unemittedEvents = countRows(
+    db,
+    "SELECT count(*) AS n FROM transfer_events WHERE emitted_at IS NULL",
+  );
+  const redirects = countRows(db, "SELECT count(*) AS n FROM thread_redirects");
+  const nullOrigins = countRows(
+    db,
+    "SELECT count(*) AS n FROM queued_thread_messages WHERE origin_id IS NULL",
+  );
+  const unackedReceipts = countRows(
+    db,
+    "SELECT count(*) AS n FROM transfer_operations WHERE acked_at IS NULL",
+  );
+  return {
+    slots,
+    pendingEntries,
+    unemittedEvents,
+    redirects,
+    nullOrigins,
+    unackedReceipts,
+    ready:
+      slots +
+        pendingEntries +
+        unemittedEvents +
+        redirects +
+        nullOrigins +
+        unackedReceipts ===
+      0,
+  };
 }
