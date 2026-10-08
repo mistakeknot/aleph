@@ -641,6 +641,19 @@ function assertThreadAcceptsQueuedMessage(
   }
 }
 
+export function getRedirectSuccessorThreadId(
+  db: DbQueryConnection,
+  sourceThreadId: string,
+): string | null {
+  return (
+    db
+      .select({ successorThreadId: threadRedirects.successorThreadId })
+      .from(threadRedirects)
+      .where(eq(threadRedirects.sourceThreadId, sourceThreadId))
+      .get()?.successorThreadId ?? null
+  );
+}
+
 function resolveRedirectedCreate(
   tx: DbTransaction,
   input: CreateQueuedThreadMessageInput,

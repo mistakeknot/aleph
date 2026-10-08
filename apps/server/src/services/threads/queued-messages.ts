@@ -16,6 +16,7 @@ import {
   isOrdinaryTurnEndQueuedMessage,
   isThreadQueueAutoSendPaused,
   releaseQueuedMessageClaim,
+  getRedirectSuccessorThreadId,
   releaseStaleQueuedMessageClaims,
   sweepTransferOperations,
   retireQueuedThreadMessages,
@@ -742,15 +743,29 @@ function formatQueuedMessageInputForSender(
   });
 }
 
-function releaseQueuedMessageClaims(
-  deps: Pick<AppDeps, "db" | "hub">,
+async function releaseQueuedMessageClaims(
+  deps: LoggedPendingInteractionWorkSessionDeps,
   queuedMessages: readonly ClaimedQueuedMessage[],
-): void {
+): Promise<void> {
+  const threadIds = new Set<string>();
   for (const queuedMessage of queuedMessages) {
     releaseQueuedMessageClaim(deps.db, deps.hub, {
       id: queuedMessage.id,
       claimToken: queuedMessage.claimToken,
     });
+    threadIds.add(queuedMessage.threadId);
+  }
+  await drainTransferLedger(deps);
+  for (const threadId of [...threadIds]) {
+    const successorId = getRedirectSuccessorThreadId(deps.db, threadId);
+    if (successorId !== null) {
+      threadIds.add(successorId);
+    }
+  }
+  for (const threadId of threadIds) {
+    if (getThread(deps.db, threadId)?.status === "idle") {
+      requestQueuedMessageDispatch(deps, { kind: "thread-ready", threadId });
+    }
   }
 }
 
@@ -1216,7 +1231,7 @@ export async function sendQueuedMessage(
         queuedMessages.some(isOrdinaryTurnEndQueuedMessage) &&
         isThreadQueueAutoSendPaused(deps.db, thread.id)))
   ) {
-    releaseQueuedMessageClaims(deps, queuedMessages);
+    await releaseQueuedMessageClaims(deps, queuedMessages);
     return toThreadQueuedMessage(queuedMessages[0]!);
   }
   try {
@@ -1229,7 +1244,7 @@ export async function sendQueuedMessage(
       }),
     );
   } catch (error) {
-    releaseQueuedMessageClaims(deps, queuedMessages);
+    await releaseQueuedMessageClaims(deps, queuedMessages);
     if (
       isQueuedMessageAutoSendPausedError(error) ||
       error instanceof ThreadContextClearInProgressError
@@ -1297,7 +1312,7 @@ export async function sendNextQueuedMessageIfPresent(
     !isQueuedMessageAutoSendCandidate(thread) ||
     isManualCompactionActive(deps, thread)
   ) {
-    releaseQueuedMessageClaims(deps, nextQueuedMessages);
+    await releaseQueuedMessageClaims(deps, nextQueuedMessages);
     return false;
   }
 
@@ -1311,7 +1326,7 @@ export async function sendNextQueuedMessageIfPresent(
       }),
     );
   } catch (error) {
-    releaseQueuedMessageClaims(deps, nextQueuedMessages);
+    await releaseQueuedMessageClaims(deps, nextQueuedMessages);
     if (
       isQueuedMessageClaimLostError(error) ||
       isQueuedMessageAutoSendPausedError(error) ||

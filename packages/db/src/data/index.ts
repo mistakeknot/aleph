@@ -485,6 +485,7 @@ export {
   requeueClaimedQueuedThreadMessages,
   setQueuedThreadMessageFailureReason,
   setQueuedThreadMessageWaitingOn,
+  getRedirectSuccessorThreadId,
   releaseStaleQueuedMessageClaims,
   reorderQueuedThreadMessage,
   setQueuedThreadMessageGroupBoundary,
