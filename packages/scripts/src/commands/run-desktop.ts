@@ -120,7 +120,9 @@ function formatConfig(
     return `${prefix} Packaged desktop app with its installed data directory and ports`;
   }
   if (desktopUserDataDir === undefined) {
-    throw new Error("[desktop:worktree] Electron user data directory is missing");
+    throw new Error(
+      "[desktop:worktree] Electron user data directory is missing",
+    );
   }
   return [
     `${prefix} Instance ${config.instanceId}`,

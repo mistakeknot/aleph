@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   QUEUE_RETIREMENT_CAPABILITY,
+  buildQueueRetirementCapability,
   hasQueueRetirementGuarantee,
   systemVersionResponseSchema,
 } from "@bb/server-contract";
@@ -30,7 +31,7 @@ describe("queue retirement capability", () => {
 
     expect(parsed.queueRetirement).toEqual({
       version: 1,
-      guarantees: ["G1", "G2", "G3"],
+      guarantees: ["G1", "G2", "G3", "G4", "G5", "G6"],
       retire: { maxHops: 1 },
     });
     expect(hasQueueRetirementGuarantee(parsed, "G1")).toBe(true);
@@ -86,5 +87,20 @@ describe("queue retirement capability", () => {
         queueRetirement: QUEUE_RETIREMENT_CAPABILITY,
       }).success,
     ).toBe(true);
+  });
+});
+
+describe("buildQueueRetirementCapability", () => {
+  it("advertises G6 only when user posts are redirected", () => {
+    expect(buildQueueRetirementCapability("redirect").guarantees).toContain(
+      "G6",
+    );
+    expect(buildQueueRetirementCapability("refuse").guarantees).toEqual([
+      "G1",
+      "G2",
+      "G3",
+      "G4",
+      "G5",
+    ]);
   });
 });

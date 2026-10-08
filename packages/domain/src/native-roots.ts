@@ -166,8 +166,12 @@ export const providerNativeRootsSchema = z
 export type ProviderNativeRoots = z.infer<typeof providerNativeRootsSchema>;
 
 export const EMPTY_PROVIDER_NATIVE_ROOTS: ProviderNativeRoots = Object.freeze({
-  user: Object.freeze([]) as readonly ProviderNativeRoot[] as ProviderNativeRoot[],
-  project: Object.freeze([]) as readonly ProviderNativeRoot[] as ProviderNativeRoot[],
+  user: Object.freeze(
+    [],
+  ) as readonly ProviderNativeRoot[] as ProviderNativeRoot[],
+  project: Object.freeze(
+    [],
+  ) as readonly ProviderNativeRoot[] as ProviderNativeRoot[],
 });
 
 /** Fill an input-form entry's defaults. */
@@ -369,8 +373,12 @@ export type ProviderResolvedNativeRoots = z.infer<
 
 export const EMPTY_PROVIDER_RESOLVED_NATIVE_ROOTS: ProviderResolvedNativeRoots =
   Object.freeze({
-    skills: Object.freeze([]) as readonly ProviderResolvedNativeRoot[] as ProviderResolvedNativeRoot[],
-    commands: Object.freeze([]) as readonly ProviderResolvedNativeRoot[] as ProviderResolvedNativeRoot[],
+    skills: Object.freeze(
+      [],
+    ) as readonly ProviderResolvedNativeRoot[] as ProviderResolvedNativeRoot[],
+    commands: Object.freeze(
+      [],
+    ) as readonly ProviderResolvedNativeRoot[] as ProviderResolvedNativeRoot[],
   });
 
 /**

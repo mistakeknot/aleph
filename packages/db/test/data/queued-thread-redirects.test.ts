@@ -182,4 +182,33 @@ describe("ingress resolver (G6)", () => {
       QueuedMessageThreadUnavailableError,
     );
   });
+
+  it("refuses a user post with already_retired when posts are not redirected", () => {
+    const f = setup();
+    enqueue(f.db, f.source.id, "a");
+    const outcome = retire(f);
+    if (outcome.kind !== "retired") throw new Error(outcome.kind);
+    let error: unknown;
+    try {
+      createQueuedThreadMessage(f.db, noopNotifier, {
+        threadId: f.source.id,
+        retiredPosts: "refuse",
+        content: [{ type: "text", text: "late", mentions: [] }],
+        model: "gpt-5",
+        reasoningLevel: "medium",
+        permissionMode: "full",
+        serviceTier: "default",
+        waitingOn: null,
+        sendAt: null,
+        payload: { kind: "inline" },
+        systemNotice: null,
+      });
+    } catch (caught) {
+      error = caught;
+    }
+    expect((error as QueuedMessageThreadUnavailableError).reason).toBe(
+      "already_retired",
+    );
+    expect(allRows(f, f.target.id)).toHaveLength(1);
+  });
 });

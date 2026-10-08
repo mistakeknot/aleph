@@ -60,7 +60,7 @@ describe("createAppVersionService", () => {
       upgradeCommand: "npx bb-app@latest",
       queueRetirement: {
         version: 1,
-        guarantees: ["G1", "G2", "G3"],
+        guarantees: ["G1", "G2", "G3", "G4", "G5", "G6"],
         retire: { maxHops: 1 },
       },
     });
@@ -168,7 +168,7 @@ describe("createAppVersionService", () => {
       upgradeCommand: "npx bb-app@latest",
       queueRetirement: {
         version: 1,
-        guarantees: ["G1", "G2", "G3"],
+        guarantees: ["G1", "G2", "G3", "G4", "G5", "G6"],
         retire: { maxHops: 1 },
       },
     });

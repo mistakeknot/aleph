@@ -1,3 +1,4 @@
+import { retiredUserPostsMode } from "./retired-user-posts.js";
 import {
   clearQueuedThreadMessageWaitingOn,
   createQueuedThreadMessageInTransaction,
@@ -156,6 +157,7 @@ function createQueuedRowOrRefuse(
         return createQueuedThreadMessageInTransaction(tx, {
           threadId: args.thread.id,
           content: args.message.input,
+          retiredPosts: retiredUserPostsMode(),
           senderThreadId: args.message.senderThreadId,
           origin: args.message.origin,
           originPluginId: args.message.originPluginId,

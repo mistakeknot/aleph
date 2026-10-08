@@ -1,8 +1,9 @@
 import semver from "semver";
+import { retiredUserPostsMode } from "../threads/retired-user-posts.js";
 import { z } from "zod";
 import { isAlephAppVersion, isNightlyAppVersion } from "@bb/config/app-update";
 import {
-  QUEUE_RETIREMENT_CAPABILITY,
+  buildQueueRetirementCapability,
   type SystemVersionResponse,
 } from "@bb/server-contract";
 import type { ServerLogger, ServerRuntimeConfig } from "../../types.js";
@@ -167,7 +168,7 @@ export function createAppVersionService(
         updateAvailable: false,
         isDevelopment: config.isDevelopment,
         upgradeCommand: `npx bb-app@${distTag}`,
-        queueRetirement: QUEUE_RETIREMENT_CAPABILITY,
+        queueRetirement: buildQueueRetirementCapability(retiredUserPostsMode()),
       };
 
       if (isAlephAppVersion(config.appVersion)) {

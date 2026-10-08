@@ -1,3 +1,4 @@
+import { retiredUserPostsMode } from "./retired-user-posts.js";
 import {
   claimNextQueuedThreadMessageGroup,
   claimQueuedThreadMessageGroup,
@@ -274,6 +275,7 @@ export async function createQueuedMessageForThread(
           threadId: thread.id,
           content: payload.input,
           senderThreadId,
+          retiredPosts: retiredUserPostsMode(),
           model: execution.model,
           reasoningLevel: execution.reasoningLevel,
           permissionMode: execution.permissionMode,

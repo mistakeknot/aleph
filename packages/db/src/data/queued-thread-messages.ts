@@ -62,6 +62,7 @@ export interface CreateQueuedThreadMessageInput {
   id?: string;
   originId?: string;
   redirect?: "direct";
+  retiredPosts?: "redirect" | "refuse";
   sortKey?: string;
   threadVerified?: boolean;
   slotForSourceRowId?: string;
@@ -610,7 +611,8 @@ export type QueuedMessageThreadUnavailableReason =
   | "archived"
   | "deleted"
   | "retired_no_successor"
-  | "redirect_depth_exceeded";
+  | "redirect_depth_exceeded"
+  | "already_retired";
 
 export class QueuedMessageThreadUnavailableError extends Error {
   constructor(
@@ -653,6 +655,12 @@ function resolveRedirectedCreate(
     throw new QueuedMessageThreadUnavailableError(
       input.threadId,
       "retired_no_successor",
+    );
+  }
+  if (input.retiredPosts === "refuse") {
+    throw new QueuedMessageThreadUnavailableError(
+      input.threadId,
+      "already_retired",
     );
   }
   const successorRedirect = tx
