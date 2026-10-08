@@ -219,6 +219,8 @@ export type DispatchAttemptSource =
 
 export interface DispatchAttemptArgs {
   thread: Thread;
+  /** The thread the caller addressed, when ingress redirected to `thread`. */
+  requestedThreadId?: string;
   payload: SendMessageRequest & { inputGroups?: PromptInput[][] };
   source: DispatchAttemptSource;
   /**
@@ -373,6 +375,7 @@ async function runDispatchAttempt(
   ): DispatchAttemptOutcome => {
     const entry = recordQueuedMessageWait(deps, {
       thread,
+      requestedThreadId: args.requestedThreadId,
       message: queuedMessage,
       waitingOn,
       sendAt,

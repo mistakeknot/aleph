@@ -83,6 +83,12 @@ export interface QueuedDispatchMessage {
 
 export interface RecordQueuedMessageWaitArgs {
   thread: Thread;
+  /**
+   * The thread the arrival was addressed to when that differs from `thread`
+   * because ingress already redirected it. A new row is inserted against this
+   * id so the store records the redirected arrival under its retirement.
+   */
+  requestedThreadId?: string;
   message: QueuedDispatchMessage;
   waitingOn: QueuedMessageWaitingOn;
   /**
@@ -146,6 +152,13 @@ export function recordQueuedMessageWait(
   if (row.threadId !== args.thread.id) {
     deps.hub.notifyThread(row.threadId, ["queue-changed"]);
   }
+  if (
+    args.requestedThreadId !== undefined &&
+    args.requestedThreadId !== args.thread.id &&
+    args.requestedThreadId !== row.threadId
+  ) {
+    deps.hub.notifyThread(args.requestedThreadId, ["queue-changed"]);
+  }
   return entry;
 }
 
@@ -158,7 +171,7 @@ function createQueuedRowOrRefuse(
       (tx) => {
         assertThreadHostAcceptsWork(tx, args.thread);
         return createQueuedThreadMessageInTransaction(tx, {
-          threadId: args.thread.id,
+          threadId: args.requestedThreadId ?? args.thread.id,
           content: args.message.input,
           retiredPosts: retiredUserPostsMode(),
           senderThreadId: args.message.senderThreadId,

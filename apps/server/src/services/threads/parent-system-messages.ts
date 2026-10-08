@@ -607,7 +607,7 @@ async function queueParentSystemMessageToResolvedParent(
   );
   try {
     const queuedRow = createQueuedThreadMessage(deps.db, deps.hub, {
-      threadId: parentThread.id,
+      threadId: requestedParent.id,
       content: args.input,
       senderThreadId: null,
       origin: null,

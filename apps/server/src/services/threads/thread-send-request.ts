@@ -18,6 +18,7 @@ import { throwThreadNotWritable } from "../lib/lifecycle-api-errors.js";
 interface AcceptThreadSendRequestArgs {
   payload: SendMessageRequest;
   thread: Thread;
+  requestedThreadId?: string;
 }
 
 export async function acceptThreadSendRequest(
@@ -36,6 +37,7 @@ export async function acceptThreadSendRequest(
       return await acceptResolvedThreadSendRequest(deps, {
         payload: args.payload,
         thread: resolution.thread,
+        requestedThreadId: thread.id,
       });
     } catch (error) {
       if (!(error instanceof RetirementAppearedError) || attempt > 0) {
@@ -66,6 +68,7 @@ async function acceptResolvedThreadSendRequest(
 
   const outcome = await attemptDispatch(deps, {
     thread: args.thread,
+    requestedThreadId: args.requestedThreadId,
     payload: args.payload,
     source: { kind: "inline" },
     queuePayload: { kind: "inline" },
