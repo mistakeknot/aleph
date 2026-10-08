@@ -1,6 +1,7 @@
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
+  createDesktopAutoUpdateFeedConfig,
   createDesktopReleaseInfo,
   resolveDesktopUserDataOverridePath,
 } from "../src/desktop-update-provider.js";
@@ -12,6 +13,32 @@ describe("Aleph desktop release identity", () => {
     expect(release.applicationName).toBe("Aleph");
     expect(release.releaseTag).toBe("desktop-latest");
     expect(release.iconFileName).toBe("icon.png");
+  });
+
+  it("has no upstream update feed for any aleph-channel path", () => {
+    const release = createDesktopReleaseInfo("aleph");
+
+    expect(release.updateReleaseBaseUrl).toBeNull();
+    expect(
+      createDesktopAutoUpdateFeedConfig("aleph", release.updateReleaseBaseUrl),
+    ).toBeNull();
+  });
+
+  it("keeps the stable and nightly update feeds", () => {
+    for (const channel of ["latest", "nightly"] as const) {
+      const release = createDesktopReleaseInfo(channel);
+
+      expect(
+        createDesktopAutoUpdateFeedConfig(
+          channel,
+          release.updateReleaseBaseUrl,
+        ),
+      ).toEqual({
+        channel,
+        provider: "generic",
+        url: `https://github.com/get-bb/bb/releases/download/${release.releaseTag}/`,
+      });
+    }
   });
 });
 
@@ -38,5 +65,22 @@ describe("Aleph userData path", () => {
         channel: "nightly",
       }),
     ).toBeNull();
+  });
+});
+
+describe("Aleph-channel module state", () => {
+  it("resolves no feed URL and no auto-update feed config for a built aleph channel", async () => {
+    vi.stubEnv("BB_DESKTOP_RELEASE_CHANNEL", "aleph");
+    vi.resetModules();
+    try {
+      const provider = await import("../src/desktop-update-provider.js");
+
+      expect(provider.DESKTOP_AUTO_UPDATE_FEED_CONFIG).toBeNull();
+      expect(provider.createDesktopUpdateFeedUrl("macos")).toBeNull();
+      expect(provider.createDesktopUpdateFeedUrl("linux")).toBeNull();
+    } finally {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    }
   });
 });

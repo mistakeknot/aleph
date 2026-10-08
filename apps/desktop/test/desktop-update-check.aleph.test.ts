@@ -1,6 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { BbDesktopVersionFeed } from "@bb/desktop-contract";
-import { parseDesktopVersionFeed } from "../src/desktop-update-check.js";
+import {
+  createDesktopUpdateService,
+  parseDesktopVersionFeed,
+} from "../src/desktop-update-check.js";
 
 function feedText(version: string): string {
   const feed: BbDesktopVersionFeed = {
@@ -49,5 +52,24 @@ describe("feed parsing of Aleph build-metadata versions", () => {
 
   it("does not order Aleph builds of the same upstream release", () => {
     expect(updateAvailable("0.43.4+aleph.2")).toBe(false);
+  });
+});
+
+describe("update service without a feed", () => {
+  it("never fetches when the channel has no feed, even if enabled", async () => {
+    const fetchImpl = vi.fn(async () => new Response("{}"));
+    const service = createDesktopUpdateService({
+      channel: "latest",
+      currentVersion: "0.45.0+aleph.0.6.0",
+      enabled: true,
+      feedUrl: null,
+      fetchImpl,
+      logger: { warn: () => {} },
+      platform: "macos",
+    });
+
+    await service.checkForUpdates();
+
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 });

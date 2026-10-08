@@ -285,7 +285,7 @@ export function createDesktopAutoUpdateService(
     });
   }
 
-  if (args.enabled) {
+  if (args.enabled && DESKTOP_AUTO_UPDATE_FEED_CONFIG !== null) {
     args.updater.setLogger(args.logger);
     args.updater.setFeedURL(DESKTOP_AUTO_UPDATE_FEED_CONFIG);
     args.updater.setAutoDownload(false);

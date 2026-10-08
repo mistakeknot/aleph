@@ -494,7 +494,7 @@ function canReplaceAppImage(appImagePath: string): boolean {
 
 function resolveDesktopUpdateFeedUrl(
   args: ResolveDesktopUpdateFeedUrlArgs,
-): string {
+): string | null {
   const rawFeedUrl = args.env.BB_DESKTOP_VERSION_FEED_URL?.trim();
   if (rawFeedUrl === undefined || rawFeedUrl.length === 0) {
     return createDesktopUpdateFeedUrl(args.platform);

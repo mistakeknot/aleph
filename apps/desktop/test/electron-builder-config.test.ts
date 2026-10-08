@@ -558,8 +558,9 @@ describe("electron-builder signing config", () => {
   it("keeps the updater provider pointed at desktop-latest release assets", async () => {
     const config = await readStaticConfig();
 
-    expect(config.publish[0]).toMatchObject(DESKTOP_AUTO_UPDATE_FEED_CONFIG);
-    expect(DESKTOP_AUTO_UPDATE_FEED_CONFIG.url).toBe(
+    expect(DESKTOP_AUTO_UPDATE_FEED_CONFIG).not.toBeNull();
+    expect(config.publish[0]).toMatchObject(DESKTOP_AUTO_UPDATE_FEED_CONFIG!);
+    expect(DESKTOP_AUTO_UPDATE_FEED_CONFIG?.url).toBe(
       "https://github.com/get-bb/bb/releases/download/desktop-latest/",
     );
   });

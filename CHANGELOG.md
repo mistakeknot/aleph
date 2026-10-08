@@ -20,6 +20,9 @@ Aleph 0.6.0 syncs the fork to upstream bb 0.45.0 (`desktop-v0.45.0`, commit
 
 ### Aleph
 
+- **No upstream update feed.** The Aleph channel no longer builds the
+  upstream release feed URL, and the desktop auto-updater is never pointed at
+  it. Update checks were already off for `+aleph` versions.
 - **History shortcuts.** Cmd-[ and Cmd-] navigation and the Go menu are
   carried onto the 0.45 pane-focus and keybinding changes.
 - **Comments post at once** now uses upstream's implementation of the same
