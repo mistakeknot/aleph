@@ -6,8 +6,11 @@ import {
   createConnection,
   createProject,
   createQueuedThreadMessage,
+  abortTransferOperation,
+  claimQueuedThreadMessage,
   createThread,
   getTransferOperation,
+  releaseQueuedMessageClaim,
   migrate,
   retireQueuedThreadMessages,
   upsertHost,
@@ -210,5 +213,156 @@ describe("transfer event delivery on the real plugin runtime", () => {
     } as never);
     await drainTransferLedger(deps);
     expect(unemitted()).toBe(0);
+  });
+
+  it("delivers forwarded and returned records for a claimed held row with stable event ids", async () => {
+    const db = createConnection(":memory:");
+    migrate(db);
+    const host = upsertHost(db, noopNotifier, { name: "claimed-delivery" });
+    const { project } = createProject(db, noopNotifier, {
+      name: "claimed-delivery",
+      source: { type: "local_path", hostId: host.id, path: "/tmp/claimed" },
+    });
+    const source = createThread(db, noopNotifier, {
+      projectId: project.id,
+      providerId: "codex",
+    });
+    const target = createThread(db, noopNotifier, {
+      projectId: project.id,
+      providerId: "codex",
+    });
+    const row = createQueuedThreadMessage(db, noopNotifier, {
+      threadId: source.id,
+      content: textInput("held"),
+      model: "gpt-5",
+      reasoningLevel: "medium",
+      permissionMode: "full",
+      serviceTier: "default",
+      waitingOn: heldWait,
+      sendAt: null,
+      payload: { kind: "inline" },
+      systemNotice: null,
+    });
+    const claimed = claimQueuedThreadMessage(db, noopNotifier, row.id);
+    if (!claimed) throw new Error("claim failed");
+    const retired = retireQueuedThreadMessages(db, {
+      projectId: project.id,
+      sourceThreadId: source.id,
+      targetThreadId: target.id,
+      operationKey: "claimed-key",
+      retireEnabled: true,
+      resolveWaitingOn: () => heldWait,
+    });
+    if (retired.kind !== "retired") throw new Error(retired.kind);
+    const runtime = await createRuntime(db);
+    const received: Parameters<Handler>[0][] = [];
+    installHandler(runtime, (payload) => {
+      received.push(payload);
+    });
+    const deps = { db, hub: { notifyThread: () => 0 } } as never;
+    await drainTransferLedger(deps);
+    releaseQueuedMessageClaim(db, noopNotifier, {
+      id: row.id,
+      claimToken: claimed.claimToken,
+    });
+    await drainTransferLedger(deps);
+    const aborted = abortTransferOperation(db, {
+      projectId: project.id,
+      operationId: retired.operationId,
+      expectedRetirementOperationId: retired.operationId,
+      operationKey: "abort-claimed",
+      resolveWaitingOn: () => heldWait,
+    });
+    expect(aborted.kind).toBe("aborted");
+    await drainTransferLedger(deps);
+
+    const delivered = received.map((payload) => ({
+      kind: payload.transfer?.kind,
+      state: payload.transfer?.state,
+      eventId: payload.transfer?.eventId,
+      rowId: payload.entry.id,
+    }));
+    expect(delivered).toEqual([
+      expect.objectContaining({ kind: "slot", state: "forwarded" }),
+      expect.objectContaining({ kind: "returned", state: "terminal" }),
+    ]);
+    expect(new Set(delivered.map((entry) => entry.eventId)).size).toBe(2);
+    expect(
+      (
+        db.$client
+          .prepare(
+            "SELECT COUNT(*) AS n FROM transfer_events WHERE emitted_at IS NULL",
+          )
+          .get() as { n: number }
+      ).n,
+    ).toBe(0);
+  });
+
+  it("keeps a forwarded record unstamped until its handler succeeds", async () => {
+    const db = createConnection(":memory:");
+    migrate(db);
+    const host = upsertHost(db, noopNotifier, { name: "retry-delivery" });
+    const { project } = createProject(db, noopNotifier, {
+      name: "retry-delivery",
+      source: { type: "local_path", hostId: host.id, path: "/tmp/retry" },
+    });
+    const source = createThread(db, noopNotifier, {
+      projectId: project.id,
+      providerId: "codex",
+    });
+    const target = createThread(db, noopNotifier, {
+      projectId: project.id,
+      providerId: "codex",
+    });
+    const row = createQueuedThreadMessage(db, noopNotifier, {
+      threadId: source.id,
+      content: textInput("held"),
+      model: "gpt-5",
+      reasoningLevel: "medium",
+      permissionMode: "full",
+      serviceTier: "default",
+      waitingOn: heldWait,
+      sendAt: null,
+      payload: { kind: "inline" },
+      systemNotice: null,
+    });
+    const claimed = claimQueuedThreadMessage(db, noopNotifier, row.id);
+    if (!claimed) throw new Error("claim failed");
+    const retired = retireQueuedThreadMessages(db, {
+      projectId: project.id,
+      sourceThreadId: source.id,
+      targetThreadId: target.id,
+      operationKey: "retry-key",
+      retireEnabled: true,
+      resolveWaitingOn: () => heldWait,
+    });
+    if (retired.kind !== "retired") throw new Error(retired.kind);
+    releaseQueuedMessageClaim(db, noopNotifier, {
+      id: row.id,
+      claimToken: claimed.claimToken,
+    });
+    const runtime = await createRuntime(db);
+    const eventIds: unknown[] = [];
+    let failing = true;
+    installHandler(runtime, (payload) => {
+      eventIds.push(payload.transfer?.eventId);
+      if (failing) throw new Error("consumer unavailable");
+    });
+    const deps = { db, hub: { notifyThread: () => 0 } } as never;
+    await drainTransferLedger(deps);
+    const unstamped = () =>
+      (
+        db.$client
+          .prepare(
+            "SELECT COUNT(*) AS n FROM transfer_events WHERE emitted_at IS NULL",
+          )
+          .get() as { n: number }
+      ).n;
+    expect(unstamped()).toBeGreaterThan(0);
+    failing = false;
+    await drainTransferLedger(deps);
+    expect(unstamped()).toBe(0);
+    expect(new Set(eventIds).size).toBe(1);
+    expect(eventIds.length).toBeGreaterThan(1);
   });
 });

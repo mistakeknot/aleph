@@ -494,6 +494,11 @@ export async function abortRetirement(
   return outcome.result;
 }
 
+function carriesLandedRow(payload: { kind: string; state: string }): boolean {
+  if (payload.kind === "moved" || payload.kind === "returned") return true;
+  return payload.kind === "slot" && payload.state === "forwarded";
+}
+
 export async function drainTransferLedger(
   deps: Pick<AppDeps, "db" | "hub">,
 ): Promise<void> {
@@ -503,7 +508,7 @@ export async function drainTransferLedger(
     const notified = new Set<string>();
     for (const event of listUnemittedTransferEvents(deps.db)) {
       let delivered = true;
-      if (event.payload.kind === "moved" && event.payload.rowId) {
+      if (event.payload.rowId && carriesLandedRow(event.payload)) {
         const row = getQueuedThreadMessage(deps.db, event.payload.rowId);
         const entry = row ? toThreadQueuedMessage(row) : null;
         if (
