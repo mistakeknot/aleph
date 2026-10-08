@@ -32,9 +32,37 @@ ones fire when a dispatch is queued behind a wait, when a queued row's waits
 all clear and it dispatches, when the queued row is cancelled, or when a queue
 transfer record is delivered. Every listener sees every queued row, so a plugin
 that only wants its own filters on
-`entry.waitingOn?.kind === "plugin" && entry.waitingOn.pluginId === bb.pluginId`.
+`entry?.waitingOn?.kind === "plugin" && entry.waitingOn.pluginId === bb.pluginId`.
+In `message.transferred`, `entry` can be `null`, so the optional chain on `entry` is required there.
 `message.queued` fires again when a row's wait is rewritten, because a row that
 moved from one wait to another is news to whoever was waiting on the old one.
+
+`message.transferred` announces one durable fact of a queue transfer (a thread's
+queue retired onto a successor thread, or an abort giving rows back). `entry` is
+the `ThreadQueuedMessage` that landed, or `null` when the fact has no landed row:
+a `slot` fact that is still `pending` or `terminal`, a `redirected` arrival, a
+`residual`, a `not_forwardable` row, or a `moved`/`returned`/forwarded `slot`
+fact whose landed row no longer exists. `transfer` (`PluginMessageTransfer`)
+carries `eventId` (stable and unique per fact: use it to deduplicate),
+`operationId`, `entryId`, `kind`, `state`, `rowId` (the landed row, or `null`),
+`sourceRowId` and `originId`. Delivery is at-least-once: core awaits every
+listener and records the fact as delivered only after all of them settled, so a
+listener that throws or rejects makes core deliver the same fact again later,
+including to listeners that already handled it successfully. Handle each
+`transfer.eventId` idempotently. A landed row held by a plugin or a time wait
+also fires `message.queued` with the same `transfer`, so a listener holding rows
+sees the move as a re-queue.
+
+```ts
+const handled = new Set<number>();
+bb.events.on("message.transferred", async ({ entry, transfer }) => {
+  if (handled.has(transfer.eventId)) return;
+  if (entry?.waitingOn?.kind === "plugin" && entry.waitingOn.pluginId === bb.pluginId) {
+    await adoptHeldMessage(entry, transfer.originId);
+  }
+  handled.add(transfer.eventId);
+});
+```
 
 `message.cancelled` fires when the user removes a queued row before it ever
 dispatched — the only signal for that removal. A plugin holding external

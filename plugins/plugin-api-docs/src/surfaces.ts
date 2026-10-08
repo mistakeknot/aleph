@@ -868,6 +868,7 @@ export const SURFACE_GROUPS: SurfaceGroup[] = [
         bullets: [
           "Subscribe to threads being created, going active or idle, failing, being archived or unarchived, or being deleted",
           "Subscribe to messages being queued behind a wait, dispatching when it clears, or being cancelled before dispatch",
+          "Subscribe to message.transferred, the at-least-once record of a queue transfer between threads, with a stable transfer.eventId and a null entry when no row landed",
           "Subscribe when a thread receives a pending interaction",
           "Observe debounced experimental_thread.events notifications with the latest sequence and current thread, or experimental_terminal.input without keystroke contents",
           "Observe experimental_host.deleted when a machine is removed, to drop state kept for that machine",
@@ -877,6 +878,7 @@ export const SURFACE_GROUPS: SurfaceGroup[] = [
         apiSymbols: [
           "PluginEvents",
           "PluginThreadEventPayloads",
+          "PluginMessageTransfer",
           "PluginTurnFailedEvent",
         ],
         firstParty: [
