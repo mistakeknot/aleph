@@ -460,16 +460,25 @@ function assertStoredTurnStartedForEvents(
   }
 }
 
+interface AppendThreadEventOptions {
+  beforeAppendInTransaction?: (tx: DbTransaction) => void;
+}
+
 export function appendThreadEvent<TType extends ThreadEventType>(
   deps: Pick<AppDeps, "db" | "hub">,
   args: AppendThreadEventArgs<TType>,
+  options?: AppendThreadEventOptions,
 ): number;
 export function appendThreadEvent(
   deps: Pick<AppDeps, "db" | "hub">,
   args: AppendThreadEventArgs,
+  options?: AppendThreadEventOptions,
 ): number {
   const result = deps.db.transaction(
-    (tx) => appendThreadEventInTransactionWithAttention(tx, args),
+    (tx) => {
+      options?.beforeAppendInTransaction?.(tx);
+      return appendThreadEventInTransactionWithAttention(tx, args);
+    },
     { behavior: "immediate" },
   );
   deps.hub.notifyThread(

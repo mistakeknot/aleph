@@ -598,8 +598,6 @@ async function runDispatchAttempt(
 
   // --- 2. dispatch --------------------------------------------------------
 
-  assertDestinationCurrent?.(deps.db);
-
   if (firstDispatch) {
     const admission = admitted.value;
     if (admission === null) {
@@ -615,6 +613,8 @@ async function runDispatchAttempt(
     await launchAdmittedThread(deps, admission);
     return { kind: "dispatched" };
   }
+
+  assertDestinationCurrent?.(deps.db);
 
   const environment = await requireThreadCommandEnvironment(deps, { thread });
   try {

@@ -1,4 +1,4 @@
-import { createEventId, getThread } from "@bb/db";
+import { createEventId, getThread, type DbTransaction } from "@bb/db";
 import {
   THREAD_CONTEXT_CLEAR_OPERATION,
   threadScope,
@@ -18,6 +18,7 @@ export async function clearThreadContext(
   args: {
     environment: Pick<Environment, "hostId" | "id">;
     thread: Thread;
+    assertDestinationCurrent?: (tx: DbTransaction) => void;
   },
 ): Promise<void> {
   await withThreadContextClearGuard(args.thread.id, async () => {
@@ -58,19 +59,23 @@ export async function clearThreadContext(
       );
     }
 
-    appendThreadEvent(deps, {
-      threadId: releasedThread.id,
-      environmentId: releasedThread.environmentId,
-      type: "system/operation",
-      scope: threadScope(),
-      data: {
-        operation: THREAD_CONTEXT_CLEAR_OPERATION,
-        operationId: createEventId(),
-        status: "completed",
-        message:
-          "Earlier chat is hidden from the active timeline. Durable history and workspace are unchanged.",
+    appendThreadEvent(
+      deps,
+      {
+        threadId: releasedThread.id,
+        environmentId: releasedThread.environmentId,
+        type: "system/operation",
+        scope: threadScope(),
+        data: {
+          operation: THREAD_CONTEXT_CLEAR_OPERATION,
+          operationId: createEventId(),
+          status: "completed",
+          message:
+            "Earlier chat is hidden from the active timeline. Durable history and workspace are unchanged.",
+        },
       },
-    });
+      { beforeAppendInTransaction: args.assertDestinationCurrent },
+    );
     deps.hub.notifyThread(
       releasedThread.id,
       ["history-rewritten", "status-changed"],

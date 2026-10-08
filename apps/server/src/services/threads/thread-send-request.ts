@@ -64,6 +64,7 @@ async function acceptResolvedThreadSendRequest(
     await sendThreadMessage(deps, {
       environment,
       payload: args.payload,
+      requestedThreadId: args.requestedThreadId ?? args.thread.id,
       thread: args.thread,
       trigger: "user",
     });
