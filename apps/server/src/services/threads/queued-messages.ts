@@ -3,7 +3,8 @@ import {
   claimQueuedThreadMessageGroup,
   createQueuedThreadMessageInTransaction,
   deleteClaimedQueuedThreadMessageBatchInTransaction,
-  drainTransferEvents,
+  listUnemittedTransferEvents,
+  markTransferEventEmitted,
   getEnvironment,
   getHost,
   getTransferOperation,
@@ -95,7 +96,10 @@ import {
   settleQueueRowDispatched,
 } from "./queue-waits.js";
 import { recordQueuedMessageDrainFailure } from "./queue-drain-failure.js";
-import { emitPluginMessageQueued } from "../plugins/plugin-thread-events.js";
+import {
+  deliverPluginMessageQueuedTransfer,
+  emitPluginMessageQueued,
+} from "../plugins/plugin-thread-events.js";
 import {
   appendPluginMentionContext,
   captureUserMessageSentTelemetry,
@@ -374,18 +378,18 @@ export async function retireThread(
       "Operation key was already used for a different request",
     );
   }
-  if (outcome.kind === "refused" || outcome.kind === "source_has_claims") {
+  if (outcome.kind === "refused") {
     throwThreadNotWritable(
       target ?? project,
-      outcome.kind === "refused" ? outcome.reason : "source_has_claims",
+      outcome.reason,
       "Thread cannot be retired",
     );
   }
   if (outcome.kind === "replayed") {
-    drainTransferLedger(deps);
+    await drainTransferLedger(deps);
     return outcome.result;
   }
-  drainTransferLedger(deps);
+  await drainTransferLedger(deps);
   if (target?.status === "idle") {
     requestQueuedMessageDispatch(deps, {
       kind: "thread-ready",
@@ -395,25 +399,46 @@ export async function retireThread(
   return outcome.result;
 }
 
-export function drainTransferLedger(deps: Pick<AppDeps, "db" | "hub">): void {
-  let drained: number;
+export async function drainTransferLedger(
+  deps: Pick<AppDeps, "db" | "hub">,
+): Promise<void> {
+  let progressed: boolean;
   do {
-    drained = drainTransferEvents(deps.db, (events) => {
-      const notified = new Set<string>();
-      for (const event of events) {
-        if (event.payload.kind === "moved" && event.payload.rowId) {
-          const row = getQueuedThreadMessage(deps.db, event.payload.rowId);
-          if (row) emitQueuedIfHeld(toThreadQueuedMessage(row));
+    progressed = false;
+    const notified = new Set<string>();
+    for (const event of listUnemittedTransferEvents(deps.db)) {
+      let delivered = true;
+      if (event.payload.kind === "moved" && event.payload.rowId) {
+        const row = getQueuedThreadMessage(deps.db, event.payload.rowId);
+        const entry = row ? toThreadQueuedMessage(row) : null;
+        if (
+          entry &&
+          (entry.waitingOn?.kind === "plugin" ||
+            entry.waitingOn?.kind === "time")
+        ) {
+          delivered = await deliverPluginMessageQueuedTransfer(entry, {
+            eventId: event.eventId,
+            operationId: event.opId,
+            entryId: event.entryId,
+            kind: event.payload.kind,
+            state: event.payload.state,
+            rowId: event.payload.rowId,
+            sourceRowId: event.payload.sourceId,
+            originId: event.payload.origin,
+          });
         }
-        if (notified.has(event.opId)) continue;
-        notified.add(event.opId);
-        const operation = getTransferOperation(deps.db, event.opId);
-        if (!operation) continue;
-        deps.hub.notifyThread(operation.sourceThreadId, ["queue-changed"]);
-        deps.hub.notifyThread(operation.targetThreadId, ["queue-changed"]);
       }
-    });
-  } while (drained > 0);
+      if (!delivered) continue;
+      markTransferEventEmitted(deps.db, event.eventId);
+      progressed = true;
+      if (notified.has(event.opId)) continue;
+      notified.add(event.opId);
+      const operation = getTransferOperation(deps.db, event.opId);
+      if (!operation) continue;
+      deps.hub.notifyThread(operation.sourceThreadId, ["queue-changed"]);
+      deps.hub.notifyThread(operation.targetThreadId, ["queue-changed"]);
+    }
+  } while (progressed);
   sweepTransferOperations(deps.db);
 }
 

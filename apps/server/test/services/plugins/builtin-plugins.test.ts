@@ -422,9 +422,10 @@ describe("builtin plugin reconciliation", () => {
     await mkdir(secretsDir, { recursive: true });
     await writeFile(join(secretsDir, "token"), "secret");
 
-    const actual = await vi.importActual<typeof import("node:fs/promises")>(
-      "node:fs/promises",
-    );
+    const actual =
+      await vi.importActual<typeof import("node:fs/promises")>(
+        "node:fs/promises",
+      );
     let failed = false;
     vi.mocked(rm).mockImplementation(async (...args) => {
       if (!failed && args[0] === secretsDir) {
@@ -436,14 +437,16 @@ describe("builtin plugin reconciliation", () => {
     try {
       service = createService({ db, dataDir, includeBuiltin: false });
       await expect(service.start()).rejects.toThrow("secret removal failed");
-      expect(getInstalledPluginRegistration(db, "builtin-fixture")).toBeDefined();
-      expect(await readFile(join(secretsDir, "token"), "utf8")).toBe(
-        "secret",
-      );
+      expect(
+        getInstalledPluginRegistration(db, "builtin-fixture"),
+      ).toBeDefined();
+      expect(await readFile(join(secretsDir, "token"), "utf8")).toBe("secret");
 
       service = createService({ db, dataDir, includeBuiltin: false });
       await service.start();
-      expect(getInstalledPluginRegistration(db, "builtin-fixture")).toBeUndefined();
+      expect(
+        getInstalledPluginRegistration(db, "builtin-fixture"),
+      ).toBeUndefined();
       await expect(stat(secretsDir)).rejects.toThrow();
     } finally {
       vi.mocked(rm).mockImplementation(actual.rm);

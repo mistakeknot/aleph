@@ -1,5 +1,9 @@
 import { sql } from "drizzle-orm";
-import { listEvents, listQueuedThreadMessages, markThreadDeleted } from "@bb/db";
+import {
+  listEvents,
+  listQueuedThreadMessages,
+  markThreadDeleted,
+} from "@bb/db";
 import { describe, expect, it } from "vitest";
 import { deliverLegacyDeferredThreadMessages } from "../../src/services/threads/legacy-deferred-messages.js";
 import { toThreadQueuedMessage } from "../../src/services/threads/thread-queued-messages.js";
@@ -95,9 +99,7 @@ describe("deliverLegacyDeferredThreadMessages", () => {
         payload: {
           kind: "send",
           request: {
-            input: [
-              { type: "text", text: "The held follow-up", mentions: [] },
-            ],
+            input: [{ type: "text", text: "The held follow-up", mentions: [] }],
             // A mode value today's schema does not know: the message must
             // survive it, since the words are what the migration protects.
             mode: "defer-legacy",

@@ -51,7 +51,8 @@ describe("PluginThreadTitle", () => {
       >
         <PluginThreadTitle threadId="thr_1" />
       </ThreadTitleMentionResourcesProvider>,
-      { wrapper },    );
+      { wrapper },
+    );
     expect(screen.getByText("Triage")).toBeTruthy();
     expect(screen.getByText("Slop Cop")).toBeTruthy();
     expect(screen.queryByText(/@section/)).toBeNull();
@@ -72,7 +73,8 @@ describe("PluginThreadTitle", () => {
         <PluginThreadTitle threadId="thr_2" />
         <PluginThreadTitle threadId="thr_missing" />
       </>,
-      { wrapper },    );
+      { wrapper },
+    );
     expect(screen.getByText("Untitled work")).toBeTruthy();
     expect(container.textContent).toBe("Untitled work");
   });
@@ -80,14 +82,17 @@ describe("PluginThreadTitle", () => {
     const { wrapper, queryClient } = createQueryClientTestHarness();
     queryClient.setQueryData(archivedThreadsListQueryKey({}), {
       pageParams: [0],
-      pages: [[makeThreadListEntry({
-        id: "thr_archived",
-        title: "Archived investigation",
-        archivedAt: 42,
-      })]],
+      pages: [
+        [
+          makeThreadListEntry({
+            id: "thr_archived",
+            title: "Archived investigation",
+            archivedAt: 42,
+          }),
+        ],
+      ],
     });
     render(<PluginThreadTitle threadId="thr_archived" />, { wrapper });
     expect(screen.getByText("Archived investigation")).toBeTruthy();
   });
-
 });

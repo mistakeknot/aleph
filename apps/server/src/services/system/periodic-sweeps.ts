@@ -624,7 +624,7 @@ export async function runStartupRecoverySweep(
   deps: LoggedPendingInteractionWorkSessionDeps,
 ): Promise<void> {
   await deliverLegacyDeferredThreadMessages(deps);
-  drainTransferLedger(deps);
+  await drainTransferLedger(deps);
   await runEnvironmentProvisioningSweep(deps);
   await runThreadLifecycleSweep(deps);
 }

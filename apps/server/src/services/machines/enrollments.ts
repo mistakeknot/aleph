@@ -257,9 +257,7 @@ export function createMachineEnrollmentService(
     )
       return null;
     const bootstrap = entry.bootstrap;
-    if (
-      !(await hasUnusedEnrollmentCredential(host.id, bootstrap.credential))
-    )
+    if (!(await hasUnusedEnrollmentCredential(host.id, bootstrap.credential)))
       return null;
     if (pending.get(request.hostId) !== entry) return null;
     return bootstrap;

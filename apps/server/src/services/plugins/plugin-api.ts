@@ -136,6 +136,7 @@ export type {
   PluginCliCommandInfo,
   PluginCliContext,
   PluginMentionTrigger,
+  PluginMessageTransfer,
   PluginThreadEventName,
   PluginThreadEventPayloads,
 } from "@get-bb/plugin-sdk";

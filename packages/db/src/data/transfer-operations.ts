@@ -513,6 +513,44 @@ export function drainTransferEvents(
   return rows.length;
 }
 
+export function listUnemittedTransferEvents(
+  db: DbConnection,
+  limit = 500,
+): TransferEventRecord[] {
+  return db
+    .select()
+    .from(transferEvents)
+    .where(isNull(transferEvents.emittedAt))
+    .orderBy(asc(transferEvents.eventId))
+    .limit(limit)
+    .all()
+    .map((row) => ({
+      eventId: row.eventId,
+      opId: row.opId,
+      entryId: row.entryId,
+      state: row.state,
+      payload: JSON.parse(row.payload) as TransferEventRecord["payload"],
+    }));
+}
+
+export function markTransferEventEmitted(
+  db: DbConnection,
+  eventId: number,
+): boolean {
+  return (
+    db
+      .update(transferEvents)
+      .set({ emittedAt: Date.now() })
+      .where(
+        and(
+          eq(transferEvents.eventId, eventId),
+          isNull(transferEvents.emittedAt),
+        ),
+      )
+      .run().changes > 0
+  );
+}
+
 export type AbortRefusalReason =
   | "unknown_operation"
   | "already_aborted"

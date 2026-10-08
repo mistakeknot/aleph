@@ -554,7 +554,9 @@ describe("PluginsOverview", () => {
     installFetch();
     const { wrapper: QueryClientWrapper } = createQueryClientTestHarness();
     render(
-      <MemoryRouter initialEntries={["/plugins?view=browse&query=GitHub&sort=name"]}>
+      <MemoryRouter
+        initialEntries={["/plugins?view=browse&query=GitHub&sort=name"]}
+      >
         <QueryClientWrapper>
           <LocationPath />
           <Routes>
@@ -574,13 +576,14 @@ describe("PluginsOverview", () => {
     fireEvent.click(screen.getByRole("button", { name: "Install GitHub" }));
 
     await waitFor(() => {
-      expect(screen.queryByRole("heading", { name: "Install GitHub?" })).toBeNull();
+      expect(
+        screen.queryByRole("heading", { name: "Install GitHub?" }),
+      ).toBeNull();
     });
     expect(screen.getByTestId("location-path").textContent).toBe("/plugins");
-    expect(screen.getByRole("textbox", { name: "Search plugins" })).toHaveProperty(
-      "value",
-      "GitHub",
-    );
+    expect(
+      screen.getByRole("textbox", { name: "Search plugins" }),
+    ).toHaveProperty("value", "GitHub");
   });
 
   it("loads more installed plugins as the scroll sentinel is reached", async () => {

@@ -64,9 +64,7 @@ describe("windowPaletteThreadSearchText", () => {
     });
 
     expect(highlightedText(result)).toEqual(["first", "second"]);
-    expect(result.highlightRanges[0]?.start).toBe(
-      result.text.indexOf("first"),
-    );
+    expect(result.highlightRanges[0]?.start).toBe(result.text.indexOf("first"));
     expect(result.highlightRanges[1]?.start).toBe(
       result.text.indexOf("second"),
     );
@@ -129,9 +127,7 @@ describe("windowPaletteThreadSearchText", () => {
     const matchStart = text.indexOf(match);
     const result = windowPaletteThreadSearchText({
       text,
-      highlightRanges: [
-        { start: matchStart, end: matchStart + match.length },
-      ],
+      highlightRanges: [{ start: matchStart, end: matchStart + match.length }],
     });
 
     expect(highlightedText(result)).toEqual([match]);

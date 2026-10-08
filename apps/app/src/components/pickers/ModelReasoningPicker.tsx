@@ -161,12 +161,10 @@ export function buildModelNavRows({
   isSearching: boolean;
   showMoreModels: boolean;
 }): ModelNavRow[] {
-  const rows: ModelNavRow[] = modelOptions.map(
-    (option): ModelNavRow => ({
-      kind: "model",
-      option,
-    }),
-  );
+  const rows: ModelNavRow[] = modelOptions.map((option): ModelNavRow => ({
+    kind: "model",
+    option,
+  }));
   if (moreModelOptions.length === 0) return rows;
 
   if (isSearching) {

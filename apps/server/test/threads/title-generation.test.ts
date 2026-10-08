@@ -101,9 +101,9 @@ describe("thread title generation", () => {
     expect(sanitizeGeneratedTitle("修复分叉后侧边栏徽章")).toBe(
       "修复分叉后侧边栏徽章",
     );
-    expect(sanitizeGeneratedTitle("포크 후 사이드바 스레드 행의 배지 조사")).toBe(
-      "포크 후 사이드바 스레드 행의 배지 조사",
-    );
+    expect(
+      sanitizeGeneratedTitle("포크 후 사이드바 스레드 행의 배지 조사"),
+    ).toBe("포크 후 사이드바 스레드 행의 배지 조사");
   });
 
   it("bounds unspaced generated titles instead of passing them through", () => {
@@ -165,7 +165,9 @@ describe("thread title generation", () => {
   it("elides long latin fallbacks at eighty characters", () => {
     const input = [textInput("word ".repeat(40).trim())];
 
-    expect(deriveTitleFallback(input)).toBe(`${"word ".repeat(40).trim().slice(0, 77)}...`);
+    expect(deriveTitleFallback(input)).toBe(
+      `${"word ".repeat(40).trim().slice(0, 77)}...`,
+    );
   });
 
   it("elides wide-script fallbacks by display width, not code units", () => {

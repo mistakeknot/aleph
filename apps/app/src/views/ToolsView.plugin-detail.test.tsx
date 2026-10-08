@@ -2453,7 +2453,9 @@ describe("plugin detail source and settings", () => {
       { wrapper },
     );
 
-    expect(await screen.findByRole("heading", { name: "Details" })).toBeTruthy();
+    expect(
+      await screen.findByRole("heading", { name: "Details" }),
+    ).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Configuration" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "GitHub settings" }));
     expect(await screen.findByLabelText("Repository")).toHaveProperty(
@@ -2464,10 +2466,10 @@ describe("plugin detail source and settings", () => {
       "?view=installed&configure=github",
     );
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "Plugin details" }),
-    );
-    expect(await screen.findByRole("heading", { name: "Details" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Plugin details" }));
+    expect(
+      await screen.findByRole("heading", { name: "Details" }),
+    ).toBeTruthy();
     expect(screen.getByTestId("route-search").textContent).toBe(
       "?view=installed",
     );
@@ -2597,21 +2599,21 @@ describe("plugin detail source and settings", () => {
       { wrapper },
     );
 
-    expect(await screen.findByRole("heading", { name: "Details" })).toBeTruthy();
+    expect(
+      await screen.findByRole("heading", { name: "Details" }),
+    ).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "GitHub settings" }));
     expect(await screen.findByLabelText("Repository")).toHaveProperty(
       "value",
       "get-bb/bb",
     );
     expect(screen.getByTestId("route-path").textContent).toBe("/threads/thr_1");
-    expect(screen.getByTestId("route-search").textContent).toBe(
-      "?panel=files",
-    );
+    expect(screen.getByTestId("route-search").textContent).toBe("?panel=files");
 
     fireEvent.click(screen.getByRole("button", { name: "Plugin details" }));
-    expect(await screen.findByRole("heading", { name: "Details" })).toBeTruthy();
-    expect(screen.getByTestId("route-search").textContent).toBe(
-      "?panel=files",
-    );
+    expect(
+      await screen.findByRole("heading", { name: "Details" }),
+    ).toBeTruthy();
+    expect(screen.getByTestId("route-search").textContent).toBe("?panel=files");
   });
 });

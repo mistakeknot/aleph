@@ -91,7 +91,9 @@ const PLUGIN_CATEGORY_ICONS: Record<string, string> = {
 export function pluginCatalogCategoryIconName(
   categoryId: string | undefined,
 ): string | undefined {
-  return categoryId === undefined ? undefined : PLUGIN_CATEGORY_ICONS[categoryId];
+  return categoryId === undefined
+    ? undefined
+    : PLUGIN_CATEGORY_ICONS[categoryId];
 }
 
 export function PluginCategoryIcon({

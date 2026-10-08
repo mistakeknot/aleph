@@ -235,7 +235,10 @@ describe("getEnvironmentWorkspaceSummaryDisplay", () => {
         providerLookup: worktreeProviderLookup,
         hasMultipleMachines: true,
       }),
-    ).toMatchObject({ label: "Environment unavailable", compactLabel: "Environment unavailable" });
+    ).toMatchObject({
+      label: "Environment unavailable",
+      compactLabel: "Environment unavailable",
+    });
   });
   it.each([
     {

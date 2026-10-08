@@ -84,6 +84,7 @@ function recordQueuedEvents(): ThreadQueuedMessage[] {
     emitMessageQueued: (entry) => queuedEvents.push(entry),
     emitMessageDispatched: () => {},
     emitMessageCancelled: () => {},
+    deliverMessageQueuedTransfer: async () => true,
     emitThreadUnarchived: () => {},
     emitTurnFailed: () => {},
   });

@@ -179,7 +179,9 @@ function createQueuedRowOrRefuse(
         error.reason,
         error.reason === "archived"
           ? "Thread is archived"
-          : "Thread is deleted",
+          : error.reason === "deleted"
+            ? "Thread is deleted"
+            : "Thread is retired",
       );
     }
     throw error;

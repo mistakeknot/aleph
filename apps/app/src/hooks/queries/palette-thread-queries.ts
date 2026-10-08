@@ -8,7 +8,11 @@ import {
   THREAD_SEARCH_LIMIT_PER_GROUP,
 } from "./thread-queries";
 
-export function usePaletteRecentArchivedThreads({ enabled }: { enabled: boolean }) {
+export function usePaletteRecentArchivedThreads({
+  enabled,
+}: {
+  enabled: boolean;
+}) {
   useThreadListRealtimeSubscription({ enabled });
   const filters = {
     archived: true,

@@ -583,7 +583,9 @@ describe("BrowsePluginsTab", () => {
   });
 
   it("uses the shared error state and retries catalog searches", async () => {
-    const warning = vi.spyOn(appToast, "warning").mockReturnValue("catalog-error");
+    const warning = vi
+      .spyOn(appToast, "warning")
+      .mockReturnValue("catalog-error");
     let searchAttempts = 0;
     vi.stubGlobal(
       "fetch",
@@ -619,7 +621,9 @@ describe("BrowsePluginsTab", () => {
   });
 
   it("notifies once while saved results remain available after failed refreshes", async () => {
-    const warning = vi.spyOn(appToast, "warning").mockReturnValue("catalog-error");
+    const warning = vi
+      .spyOn(appToast, "warning")
+      .mockReturnValue("catalog-error");
     let unavailable = false;
     let description = MEMORY_ENTRY.description;
     vi.stubGlobal(
@@ -628,7 +632,10 @@ describe("BrowsePluginsTab", () => {
         if (String(input).startsWith("/api/v1/plugin-catalog/search")) {
           return unavailable
             ? jsonResponse({ error: "unavailable" }, 503)
-            : jsonResponse({ results: [{ ...MEMORY_ENTRY, description }], collections: [] });
+            : jsonResponse({
+                results: [{ ...MEMORY_ENTRY, description }],
+                collections: [],
+              });
         }
         return jsonResponse({ error: "not found" }, 404);
       }),

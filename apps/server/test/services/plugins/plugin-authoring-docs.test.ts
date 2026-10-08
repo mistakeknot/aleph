@@ -226,7 +226,7 @@ const THREAD_EVENT_PAYLOAD_FIELDS = {
   "thread.unarchived": ["thread"],
   "thread.deleted": ["thread"],
   "interaction.pending": ["thread", "interaction"],
-  "message.queued": ["entry"],
+  "message.queued": ["entry", "transfer"],
   "message.dispatched": ["entry"],
   "message.cancelled": ["entry"],
   "turn.failed": [

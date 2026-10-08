@@ -74,10 +74,7 @@ function mapRpcError(error: unknown): Error {
     }
     return new Error(failure.data.error);
   }
-  return new PushRpcError(
-    failure.data.error.code,
-    failure.data.error.message,
-  );
+  return new PushRpcError(failure.data.error.code, failure.data.error.message);
 }
 
 function isMissingSubscriptionError(error: Error): boolean {

@@ -41,7 +41,9 @@ describe("ThreadLifecycleFilter", () => {
       } else {
         fireEvent.keyDown(trigger, { key: "Enter" });
       }
-      expect(screen.queryByRole("menuitemcheckbox", { name: "Drafts" })).toBeNull();
+      expect(
+        screen.queryByRole("menuitemcheckbox", { name: "Drafts" }),
+      ).toBeNull();
       const active = await screen.findByRole("menuitemcheckbox", {
         name: "Active",
       });
@@ -57,12 +59,16 @@ describe("ThreadLifecycleFilter", () => {
       expect(active.getAttribute("aria-checked")).toBe("true");
       fireEvent.keyDown(active, { key: "Enter" });
       expect(active.getAttribute("aria-checked")).toBe("true");
-      fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Archived" }));
+      fireEvent.click(
+        screen.getByRole("menuitemcheckbox", { name: "Archived" }),
+      );
       await waitFor(() =>
         expect(active.getAttribute("aria-disabled")).not.toBe("true"),
       );
       fireEvent.click(active);
-      const archived = screen.getByRole("menuitemcheckbox", { name: "Archived" });
+      const archived = screen.getByRole("menuitemcheckbox", {
+        name: "Archived",
+      });
       expect(archived.getAttribute("aria-checked")).toBe("true");
       expect(archived.getAttribute("aria-disabled")).not.toBe("true");
       expect(archived.hasAttribute("data-disabled")).toBe(false);

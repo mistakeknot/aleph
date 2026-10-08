@@ -39,7 +39,14 @@ export const threadNotWritableReasonSchema = z.enum([
   "target_retired",
   "thread_not_writable",
   "transfer_retire_disabled",
-  "source_has_claims",
+  "retired_no_successor",
+  "redirect_depth_exceeded",
+  "unknown_operation",
+  "already_aborted",
+  "stale_abort",
+  "successor_retired",
+  "claims_pending",
+  "restore_key_exhausted",
   "attachment_unavailable",
 ]);
 export type ThreadNotWritableReason = z.infer<

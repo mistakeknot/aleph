@@ -1986,9 +1986,9 @@ describe("TunnelDO restarts after its tunnel socket vanishes", () => {
   it("restarts an object from before the open and close records that still lists its server, once", async () => {
     const { state, dob } = await loaded({ serverId: "srv" });
 
-    await expect(dob.fetch(new Request("https://do.internal/"))).rejects.toThrow(
-      "tunnel socket disappeared",
-    );
+    await expect(
+      dob.fetch(new Request("https://do.internal/")),
+    ).rejects.toThrow("tunnel socket disappeared");
     expect(state.api.abort).toHaveBeenCalledTimes(1);
 
     const restarted = mockDoState(Object.fromEntries(state.durable));

@@ -497,6 +497,8 @@ export {
 export {
   ackTransferOperation,
   drainTransferEvents,
+  listUnemittedTransferEvents,
+  markTransferEventEmitted,
   getTransferOperation,
   retireQueuedThreadMessages,
   sweepTransferOperations,

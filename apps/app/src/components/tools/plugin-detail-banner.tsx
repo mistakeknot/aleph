@@ -51,9 +51,7 @@ export function PluginBannerBar({
           )}
         </p>
         {action ? (
-          <span className="flex shrink-0 items-center">
-            {action}
-          </span>
+          <span className="flex shrink-0 items-center">{action}</span>
         ) : null}
       </div>
     </div>

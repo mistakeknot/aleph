@@ -42,9 +42,9 @@ describe("browser-local thread filters", () => {
       '["active","archived","unknown"]',
     ]) {
       window.localStorage.setItem(sidebarKey, value);
-      expect(createStore().get(createThreadArchiveFilterAtom(sidebarKey))).toEqual([
-        "active",
-      ]);
+      expect(
+        createStore().get(createThreadArchiveFilterAtom(sidebarKey)),
+      ).toEqual(["active"]);
     }
   });
 });

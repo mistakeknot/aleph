@@ -382,9 +382,9 @@ describe("buildPluginApp", () => {
     expect(css).toContain(".rounded-md");
 
     (globalThis as { __bbPluginRuntime?: unknown }).__bbPluginRuntime = {
-      react: createRequire(new URL("../../../app/package.json", import.meta.url))(
-        "react",
-      ),
+      react: createRequire(
+        new URL("../../../app/package.json", import.meta.url),
+      )("react"),
       reactDom: {},
       jsxRuntime: { jsx: () => ({}), jsxs: () => ({}), Fragment: {} },
       classVarianceAuthority: { cva: () => () => "" },
