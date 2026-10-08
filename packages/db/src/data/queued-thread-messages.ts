@@ -59,6 +59,7 @@ export interface CreateQueuedThreadMessageInput {
   originId?: string;
   sortKey?: string;
   threadVerified?: boolean;
+  slotForSourceRowId?: string;
   content: PromptInput[];
   senderThreadId?: string | null;
   /**
@@ -684,8 +685,12 @@ export function createQueuedThreadMessageInTransaction(
         input.payload.kind === "retry" ? input.payload.attempt : null,
       retryReason: input.payload.kind === "retry" ? input.payload.reason : null,
       groupWithNext: false,
-      claimedAt: null,
-      claimToken: null,
+      claimedAt: input.slotForSourceRowId === undefined ? null : now,
+      claimToken:
+        input.slotForSourceRowId === undefined
+          ? null
+          : `slot:${input.slotForSourceRowId}`,
+      forwardSourceRowId: input.slotForSourceRowId ?? null,
       sortKey,
       createdAt: now,
       updatedAt: now,

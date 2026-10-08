@@ -877,7 +877,9 @@ describe("slow query index plans", () => {
       params: captured[0]!.params,
       sql: captured[0]!.sql,
     });
-    expect(details).toContain("USING INDEX environments_provider_lifecycle_idx");
+    expect(details).toContain(
+      "USING INDEX environments_provider_lifecycle_idx",
+    );
     expect(details).not.toContain("SCAN environments");
     db.$client.close();
   });

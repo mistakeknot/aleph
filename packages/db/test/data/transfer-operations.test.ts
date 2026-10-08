@@ -342,38 +342,29 @@ describe("retire, moves only (G3 behavior; v4 T-T/T-C/T-I/T-R0 definitions are s
     ).toEqual(before);
   });
 
-  it("refuses with source_has_claims and writes nothing, burning no key", () => {
+  it("forwards a claimed inline row through a slot instead of refusing", () => {
     const fixture = setup();
     const { db, source, target } = fixture;
     enqueue(db, source.id, "a");
     const claimed = enqueue(db, source.id, "b");
     claimQueuedThreadMessage(db, noopNotifier, claimed.id);
     const outcome = retire(fixture);
-    expect(outcome).toMatchObject({ kind: "source_has_claims" });
-    expect(texts(db, target.id)).toEqual([]);
-    expect(
-      db.$client
-        .prepare(
-          "SELECT COUNT(*) AS n FROM queued_thread_messages WHERE thread_id = ?",
-        )
-        .get(source.id),
-    ).toEqual({ n: 2 });
-    expect(
-      db.$client.prepare("SELECT COUNT(*) AS n FROM transfer_operations").get(),
-    ).toEqual({ n: 0 });
-    expect(
-      db.$client.prepare("SELECT COUNT(*) AS n FROM thread_redirects").get(),
-    ).toEqual({ n: 0 });
+    if (outcome.kind !== "retired") throw new Error(outcome.kind);
+    expect(outcome.result.moved).toHaveLength(1);
+    expect(outcome.result.pending).toEqual([
+      { id: claimed.id, originId: claimed.id },
+    ]);
+    expect(texts(db, target.id)).toHaveLength(1);
     expect(
       db.$client
         .prepare(
           "SELECT COUNT(*) AS n FROM queued_thread_messages WHERE forward_source_row_id IS NOT NULL",
         )
         .get(),
-    ).toEqual({ n: 0 });
+    ).toEqual({ n: 1 });
   });
 
-  it("refuses with source_has_claims when only a non-inline row is claimed", () => {
+  it("forwards a claimed non-inline row as not forwardable, never a slot", () => {
     const fixture = setup();
     const { db, source, target } = fixture;
     enqueue(db, source.id, "a");
@@ -386,12 +377,20 @@ describe("retire, moves only (G3 behavior; v4 T-T/T-C/T-I/T-R0 definitions are s
       },
     });
     claimQueuedThreadMessage(db, noopNotifier, retry.id);
-    expect(retire(fixture)).toMatchObject({ kind: "source_has_claims" });
-    expect(texts(db, target.id)).toEqual([]);
-    const remaining = db.$client
-      .prepare("SELECT COUNT(*) AS n FROM queued_thread_messages WHERE thread_id = ?")
-      .get(source.id) as { n: number };
-    expect(remaining.n).toBe(2);
+    const outcome = retire(fixture);
+    if (outcome.kind !== "retired") throw new Error(outcome.kind);
+    expect(outcome.result.notForwardable).toEqual([
+      { id: retry.id, originId: retry.id },
+    ]);
+    expect(outcome.result.pending).toEqual([]);
+    expect(texts(db, target.id)).toHaveLength(1);
+    expect(
+      db.$client
+        .prepare(
+          "SELECT COUNT(*) AS n FROM queued_thread_messages WHERE forward_source_row_id IS NOT NULL",
+        )
+        .get(),
+    ).toEqual({ n: 0 });
   });
 
   it("holds the writer reservation from the first statement, excluding a second connection", () => {
@@ -771,6 +770,8 @@ describe("GET, ack and sweep", () => {
       .prepare("UPDATE transfer_entries SET state = 'terminal'")
       .run();
     drainTransferEvents(fixture.db, () => undefined);
+    expect(sweepTransferOperations(fixture.db)).toBe(0);
+    fixture.db.$client.prepare("DELETE FROM thread_redirects").run();
     expect(sweepTransferOperations(fixture.db)).toBe(1);
     expect(getTransferOperation(fixture.db, outcome.operationId)).toBeNull();
     expect(

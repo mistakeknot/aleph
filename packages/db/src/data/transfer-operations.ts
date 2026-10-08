@@ -1,7 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
 import { and, asc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { ProjectAttachmentError } from "@bb/domain";
-import type { QueuedMessageWaitingOn } from "@bb/domain";
+import type {
+  PromptInput,
+  QueuedMessageSystemNotice,
+  QueuedMessageWaitingOn,
+} from "@bb/domain";
 import type {
   DbConnection,
   DbQueryConnection,
@@ -17,6 +21,7 @@ import {
 } from "../schema.js";
 import {
   QueuedMessageThreadUnavailableError,
+  createQueuedThreadMessageInTransaction,
   getLastQueuedThreadMessage,
   isThreadRetired,
   transferQueuedThreadMessageInTransaction,
@@ -63,7 +68,6 @@ export type RetireQueuedThreadMessagesOutcome =
     }
   | { kind: "replayed"; operationId: string; result: RetireResult }
   | { kind: "refused"; reason: RetireRefusalReason }
-  | { kind: "source_has_claims" }
   | { kind: "idempotency_conflict" };
 
 class RetireRolledBack extends Error {
@@ -175,10 +179,6 @@ export function retireQueuedThreadMessages(
             asc(queuedThreadMessages.id),
           )
           .all();
-        if (rows.some((row) => row.claimedAt !== null)) {
-          return { kind: "source_has_claims" };
-        }
-
         const now = Date.now();
         const operationId = `top_${randomUUID()}`;
         tx.insert(transferOperations)
@@ -242,6 +242,54 @@ export function retireQueuedThreadMessages(
             result.notForwardable.push({ id: row.id, originId });
             continue;
           }
+          if (row.claimedAt !== null) {
+            const slot = createQueuedThreadMessageInTransaction(tx, {
+              originId,
+              sortKey: targetKeys[nextKeyIndex++],
+              threadVerified: true,
+              threadId: args.targetThreadId,
+              slotForSourceRowId: row.id,
+              content: JSON.parse(row.content) as PromptInput[],
+              senderThreadId: row.senderThreadId,
+              origin: row.origin,
+              originPluginId: row.originPluginId,
+              requestedBy:
+                row.requestedByInitiator !== null &&
+                row.requestedByThreadId !== null
+                  ? {
+                      initiator: row.requestedByInitiator,
+                      senderThreadId: row.requestedByThreadId,
+                    }
+                  : null,
+              model: row.model,
+              reasoningLevel: row.reasoningLevel,
+              permissionMode: row.permissionMode,
+              serviceTier: row.serviceTier,
+              waitingOn: null,
+              sendAt: row.sendAt,
+              payload: { kind: "inline" },
+              systemNotice:
+                row.systemNotice === null
+                  ? null
+                  : (JSON.parse(row.systemNotice) as QueuedMessageSystemNotice),
+            });
+            tx.insert(transferEntries)
+              .values({
+                id: `tent_${randomUUID()}`,
+                opId: operationId,
+                kind: "slot",
+                originId,
+                sourceRowId: row.id,
+                sourceSortKey: row.sortKey,
+                targetRowId: slot.id,
+                detail: null,
+                state: "pending",
+                updatedAt: now,
+              })
+              .run();
+            result.pending.push({ id: row.id, originId });
+            continue;
+          }
           const transferred = transferQueuedThreadMessageInTransaction(tx, {
             queuedMessageId: row.id,
             sourceThreadId: args.sourceThreadId,
@@ -276,6 +324,13 @@ export function retireQueuedThreadMessages(
           });
           movedRows.push(transferred.queuedMessage);
         }
+        tx.insert(threadRedirects)
+          .values({
+            sourceThreadId: args.sourceThreadId,
+            successorThreadId: args.targetThreadId,
+            opId: operationId,
+          })
+          .run();
         tx.update(transferOperations)
           .set({ resultJson: JSON.stringify(result) })
           .where(eq(transferOperations.id, operationId))
