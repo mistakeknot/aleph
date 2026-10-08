@@ -4,7 +4,7 @@ import { noopNotifier } from "../../src/notifier.js";
 import {
   getQueuedThreadMessage,
 } from "../../src/data/queued-thread-messages.js";
-import { allRows, claim, enqueue, entries, release, retire, setup } from "../helpers/retire-fixture.js";
+import { abort, allRows, claim, enqueue, entries, release, retire, setup } from "../helpers/retire-fixture.js";
 import type { Fixture } from "../helpers/retire-fixture.js";
 
 describe("slots at retire (G4)", () => {
@@ -204,5 +204,33 @@ describe("soft delete settlement (T-S1..S4)", () => {
     release(f, a.id, claimed.claimToken);
     expect(entries(f, outcome.operationId)[0]?.state).toBe("forwarded");
     expect(allRows(f, f.target.id)).toHaveLength(1);
+  });
+  it("T-S3 soft-deleting either thread after an abort touches no settled state", () => {
+    const f = setup();
+    const a = enqueue(f.db, f.source.id, "a");
+    const op = retire(f);
+    if (op.kind !== "retired") throw new Error(op.kind);
+    expect(abort(f, op.operationId).kind).toBe("aborted");
+    softDelete(f, f.target.id);
+    softDelete(f, f.source.id);
+    expect(
+      f.db.$client.prepare("SELECT count(*) AS n FROM thread_redirects").get(),
+    ).toEqual({ n: 0 });
+    expect(getQueuedThreadMessage(f.db, a.id)).toBeNull();
+  });
+
+  it("T-S4 soft-deleting both threads of one tree settles the slot once", () => {
+    const f = setup();
+    const a = enqueue(f.db, f.source.id, "a");
+    claim(f, a.id);
+    const outcome = retire(f);
+    if (outcome.kind !== "retired") throw new Error(outcome.kind);
+    softDelete(f, f.source.id);
+    softDelete(f, f.target.id);
+    const states = entries(f, outcome.operationId).map((entry) => entry.state);
+    expect(states).toHaveLength(1);
+    expect(["target_deleted", "left_source"]).toContain(states[0]);
+    expect(getQueuedThreadMessage(f.db, a.id)).toBeNull();
+    expect(allRows(f, f.target.id)).toEqual([]);
   });
 });

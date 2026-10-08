@@ -1,4 +1,15 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { createConnection } from "../../src/index.js";
+import { noopNotifier } from "../../src/notifier.js";
+import {
+  abortTransferOperation,
+  retireQueuedThreadMessages,
+} from "../../src/data/transfer-operations.js";
+import { claimQueuedThreadMessage } from "../../src/data/queued-thread-messages.js";
+import { resolveWaitingOn } from "../helpers/retire-fixture.js";
 import {
   getQueuedThreadMessage,
   releaseQueuedMessageClaim,
@@ -172,4 +183,79 @@ describe("transactional sweep (T-RC4, T-RC5)", () => {
       new Set([f.source.id, f.target.id, bulk.id]),
     );
   }, 60_000);
+  it("T-RC4 a second connection's retire, claim, release and abort block while the sweep runs", () => {
+    const f = setup();
+    const a = enqueue(f.db, f.source.id, "a");
+    const claimedA = claim(f, a.id);
+    const op = retire(f);
+    if (op.kind !== "retired") throw new Error(op.kind);
+    const free = enqueue(f.db, f.source.id, "free");
+    ageClaims(f);
+    const dir = mkdtempSync(join(tmpdir(), "rc4-"));
+    const file = join(dir, "bb.db");
+    f.db.$client.pragma("wal_checkpoint(TRUNCATE)");
+    writeFileSync(file, f.db.$client.serialize());
+    const first = createConnection(file);
+    const second = createConnection(file);
+    second.$client.pragma("busy_timeout = 0");
+    second.$client.function("probe_second", () => 1);
+    const outcomes: Record<string, string> = {};
+    const attempt = (name: string, run: () => unknown) => {
+      try {
+        run();
+        outcomes[name] = "ran";
+      } catch (error) {
+        outcomes[name] = (error as { code?: string }).code ?? String(error);
+      }
+    };
+    first.$client.function("probe_second", () => {
+      attempt("retire", () =>
+        retireQueuedThreadMessages(second, {
+          projectId: f.project.id,
+          sourceThreadId: f.source.id,
+          targetThreadId: f.target.id,
+          operationKey: "second-retire",
+          retireEnabled: true,
+          resolveWaitingOn,
+        }),
+      );
+      attempt("claim", () =>
+        claimQueuedThreadMessage(second, noopNotifier, free.id),
+      );
+      attempt("release", () =>
+        releaseQueuedMessageClaim(second, noopNotifier, {
+          id: a.id,
+          claimToken: claimedA.claimToken,
+        }),
+      );
+      attempt("abort", () =>
+        abortTransferOperation(second, {
+          projectId: f.project.id,
+          operationId: op.operationId,
+          expectedRetirementOperationId: op.operationId,
+          operationKey: "second-abort",
+          resolveWaitingOn,
+        }),
+      );
+      return 1;
+    });
+    first.$client.exec(
+      `CREATE TRIGGER probe_sweep BEFORE UPDATE OF claimed_at ON queued_thread_messages
+       WHEN NEW.claimed_at IS NULL AND OLD.forward_source_row_id IS NULL
+       BEGIN SELECT probe_second(); END`,
+    );
+    try {
+      releaseStaleQueuedMessageClaims(first, noopNotifier, sweepArgs());
+    } finally {
+      first.$client.close();
+      second.$client.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+    expect(outcomes).toEqual({
+      retire: "SQLITE_BUSY",
+      claim: "SQLITE_BUSY",
+      release: "SQLITE_BUSY",
+      abort: "SQLITE_BUSY",
+    });
+  });
 });
