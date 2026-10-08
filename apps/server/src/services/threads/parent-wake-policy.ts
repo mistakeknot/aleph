@@ -195,14 +195,7 @@ export async function checkParentThreadHeld(
   args: {
     input: PromptInput[];
     parentThread: Thread;
-    /** The claimed row(s) when this is a drain re-check of a queued notice. */
     queuedMessages?: ThreadQueuedMessage[];
-    /**
-     * Runs inside the hook evaluation lock when (and only when) the pass
-     * clears, exactly as an ordinary dispatch's does: the caller commits its
-     * admission here so the next pass reads a database that already contains
-     * it. Not called when no hook is registered or the thread is held.
-     */
     continueAfterHooks?: () => Promise<void>;
   },
 ): Promise<ParentThreadHeldResult> {

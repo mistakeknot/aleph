@@ -403,9 +403,7 @@ export type TransferAllQueuedMessagesRequest = z.infer<
 >;
 
 export const transferAllQueuedMessagesResponseSchema = z.object({
-  /** Source row id to the row it became on the target, in source order. */
   moved: z.array(z.object({ id: z.string(), newId: z.string() })),
-  /** Rows left on the source: `claimed` (a drain holds it) or `not_inline`. */
   skipped: z.array(
     z.object({ id: z.string(), reason: z.enum(["claimed", "not_inline"]) }),
   ),

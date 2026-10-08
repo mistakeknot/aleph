@@ -367,12 +367,6 @@ export const threadQueuedMessageSchema = z.object({
    * typed carry no reason at all, and inventing one for them would be a lie.
    */
   waitingOn: queuedMessageWaitingOnSchema.nullable(),
-  /**
-   * Which of core's own system notices this row is, or null for every other
-   * row. Read-only: no request schema accepts it, so a client cannot forge the
-   * classification. It is only ever copied from an existing server-written row,
-   * by the queued-message transfer.
-   */
   systemNotice: queuedMessageSystemNoticeSchema.nullable(),
   /**
    * Why this row's last DRAIN attempt failed outright, or null when it has not

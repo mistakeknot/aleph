@@ -121,17 +121,6 @@ interface RenderedParentSystemSlotParts {
   suffix: string;
 }
 
-/**
- * The claimed queue row(s) a delivery is spending, when the notice being
- * delivered is itself a queued row (a drain re-delivering it).
- *
- * The claim is validated and consumed INSIDE the same transaction that appends
- * the turn request, so a row deleted while a `message.dispatch` hook was
- * deciding cannot produce a turn: the consume finds it gone, throws claim-lost,
- * and the append rolls back. `state` records what became of the claim, because
- * one path (a turn that is still starting) keeps the row and re-queues it
- * instead of consuming it, and the caller must not then delete it.
- */
 export interface ParentSystemClaim {
   rows: readonly ClaimedQueuedThreadMessageRow[];
   state: "held" | "consumed" | "requeued";
@@ -337,7 +326,6 @@ async function queueActiveParentSystemMessage(
     });
     if (outcome.kind === "queued") {
       if (args.claim !== undefined) {
-        // The claimed row itself now carries the wait; nothing was consumed.
         args.claim.state = "requeued";
       }
       return true;
@@ -539,11 +527,6 @@ export async function queueParentSystemMessage(
     deps.pendingInteractions.hasTurnBoundPendingThreadInteraction(
       parentThread.id,
     );
-  // Delivery is the hook pass's `continueAfterHooks`, so it commits before the
-  // evaluation lock releases (a concurrency-limiting hook's next pass must see
-  // this turn as running). Its outcome is captured rather than thrown: the
-  // tolerant check below treats a throw as a failed hook, which a delivery
-  // failure is not.
   const delivery: {
     result: { delivered: boolean } | { error: unknown } | null;
   } = { result: null };
@@ -635,7 +618,6 @@ export async function queueParentSystemMessage(
 }
 
 interface DeliverParentSystemMessageArgs extends ParentSystemMessageTaxonomy {
-  /** Set when delivering a claimed queue row; see {@link ParentSystemClaim}. */
   claim?: ParentSystemClaim;
   input: PromptInput[];
   parentThread: Thread;

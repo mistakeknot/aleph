@@ -341,14 +341,9 @@ export interface ThreadQueuedMessageTargetArgs {
 export interface ThreadQueuedMessageSendArgs
   extends ThreadQueuedMessageTargetArgs, SendQueuedMessageRequest {}
 
-/**
- * `threadId` is the source thread; `targetThreadId` receives the row. The row
- * keeps its `systemNotice`, `waitingOn` and `sendAt`, which create cannot set.
- */
 export interface ThreadQueuedMessageTransferArgs
   extends ThreadQueuedMessageTargetArgs, TransferQueuedMessageRequest {}
 
-/** `threadId` is the source thread; every movable queued row goes to `targetThreadId`. */
 export interface ThreadQueuedMessageTransferAllArgs extends TransferAllQueuedMessagesRequest {
   threadId: string;
 }

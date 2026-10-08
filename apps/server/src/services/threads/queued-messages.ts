@@ -226,11 +226,6 @@ function admitQueuedMessage(
   return { hasProviderSession };
 }
 
-/**
- * A transferred row is a new row (new id) the plugin that holds it has never
- * been told about, so a plugin- or time-held one is announced like any row
- * that newly lands held. Rows with an ordinary thread-busy wait are not held.
- */
 function emitQueuedIfHeld(entry: ThreadQueuedMessage): void {
   if (entry.waitingOn?.kind === "plugin" || entry.waitingOn?.kind === "time") {
     emitPluginMessageQueued(entry);
@@ -316,19 +311,6 @@ export interface TransferQueuedMessageArgs {
   targetThread: Thread;
 }
 
-/**
- * Move a queued row to another thread, keeping the columns create cannot take
- * from a client: `systemNotice`, `sendAt` and a plugin or time wait.
- *
- * This is the one way those survive a move (a rotation retirement forwarding a
- * thread's pending rows to its successor). It deliberately is not a create
- * option: the public create route cannot tell a plugin from any other client,
- * so accepting `systemNotice` there would let any caller forge a system
- * initiator. Here the classification is only ever copied from a row core
- * already wrote. A wait about the SOURCE thread (busy, stopping, interaction,
- * provisioning, host-offline, turn-starting) does not describe the target, so
- * it is re-derived the way create derives it.
- */
 export async function transferQueuedMessage(
   deps: AppDeps,
   args: TransferQueuedMessageArgs,
@@ -410,15 +392,6 @@ export interface TransferAllQueuedMessagesArgs {
   targetThread: Thread;
 }
 
-/**
- * Bulk form of {@link transferQueuedMessage}: every unclaimed inline row moves
- * to the target in source order in one transaction, with the same preservation
- * and refusal rules. Rows that cannot move stay on the source and are reported
- * with a reason. An empty or fully-skipped source is a success that moves
- * nothing, so a caller can safely repeat the call after an ambiguous response.
- * Like the single-row form it only ever copies classification from rows core
- * already wrote; there is no input that sets one.
- */
 export async function transferAllQueuedMessages(
   deps: AppDeps,
   args: TransferAllQueuedMessagesArgs,
@@ -848,11 +821,6 @@ async function sendClaimedSystemNotice(
     });
   };
   if (!args.sendNow) {
-    // Delivery runs as the hook pass's `continueAfterHooks`, so it commits
-    // (claim consumed, turn requested, thread flipped to running) before the
-    // evaluation lock releases: a concurrency-limiting hook's next pass sees
-    // this notice's turn as running. It is not run when the pass holds the
-    // row, nor when no hook is registered, which the fallthrough below covers.
     const held = await checkParentThreadHeld(deps, {
       input: queuedMessage.content,
       parentThread: args.thread,
@@ -898,11 +866,8 @@ async function sendClaimedSystemNotice(
     throw createQueuedMessageClaimLostError();
   }
   if (claim.state === "requeued") {
-    // The turn is still starting: the claimed row itself was put back on the
-    // queue with that wait, so it neither dispatched nor needs deleting.
     return queuedMessage;
   }
-  // Delivery consumed the claim in the transaction that appended the turn.
   settleQueueRowDispatched({ row: lead });
   return queuedMessage;
 }

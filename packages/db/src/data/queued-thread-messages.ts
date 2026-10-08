@@ -219,7 +219,6 @@ export type UpdateQueuedThreadMessageResult =
   | { kind: "updated"; queuedMessage: QueuedThreadMessageRow }
   | { kind: "not_found" }
   | { kind: "claimed" }
-  /** The row is a core system notice; its content is core-authored. */
   | { kind: "system_notice" }
   | { kind: "stale" };
 
@@ -711,10 +710,6 @@ export function updateQueuedThreadMessage(
         return { kind: "claimed" };
       }
       if (existing.systemNotice !== null) {
-        // The classification is what makes the row an `initiator: "system"`
-        // turn, and transfer carries it along. A client-edited body under it
-        // would be arbitrary client text delivered as core's own words, so a
-        // system notice's content is not editable (delete it instead).
         return { kind: "system_notice" };
       }
       if (existing.updatedAt !== input.expectedUpdatedAt) {
@@ -2174,10 +2169,6 @@ export interface TransferQueuedThreadMessageInTransactionArgs {
   queuedMessageId: string;
   sourceThreadId: string;
   targetThreadId: string;
-  /**
-   * The wait the target row starts with, derived from the source row inside
-   * the same transaction so it cannot go stale between the read and the write.
-   */
   resolveWaitingOn: (
     source: QueuedThreadMessageRow,
   ) => QueuedMessageWaitingOn | null;
@@ -2189,12 +2180,6 @@ export type TransferQueuedThreadMessageResult =
   | { kind: "claimed" }
   | { kind: "not_inline" };
 
-/**
- * Move one unclaimed queued row to another thread, copying the server-written
- * columns a client cannot supply on create (`systemNotice`, `sendAt`, the plugin
- * wait) and deleting the source row in the same transaction, so the message
- * exists on exactly one thread at every instant.
- */
 export function transferQueuedThreadMessageInTransaction(
   tx: DbTransaction,
   args: TransferQueuedThreadMessageInTransactionArgs,
@@ -2204,7 +2189,6 @@ export function transferQueuedThreadMessageInTransaction(
     return { kind: "not_found" };
   }
   if (source.claimedAt !== null) return { kind: "claimed" };
-  // A retry row names a turn request that only exists on its own thread.
   if (source.payloadKind !== "inline") return { kind: "not_inline" };
   const queuedMessage = createQueuedThreadMessageInTransaction(tx, {
     threadId: args.targetThreadId,
@@ -2246,13 +2230,6 @@ export interface TransferAllQueuedThreadMessagesResult {
   skipped: { id: string; reason: TransferAllSkipReason }[];
 }
 
-/**
- * Move every unclaimed inline queued row of `sourceThreadId` to the target in
- * source order, inside the caller's transaction. A row that cannot move (claimed
- * by a drain, or a retry row) stays on the source and is reported with a reason;
- * it never aborts the rest. Each move is the single-row transfer, so the same
- * columns are preserved and the same ones re-derived.
- */
 export function transferAllQueuedThreadMessagesInTransaction(
   tx: DbTransaction,
   args: Omit<TransferQueuedThreadMessageInTransactionArgs, "queuedMessageId">,

@@ -68,7 +68,6 @@ afterEach(() => {
   clearDeliveredChildOutputForTesting();
 });
 
-/** Records `message.queued` through the very bridge createApp registers. */
 function recordQueuedEvents(): ThreadQueuedMessage[] {
   const queuedEvents: ThreadQueuedMessage[] = [];
   setPluginThreadEventEmitter({
@@ -882,7 +881,6 @@ describe("parent wake policy", () => {
         text: "Held result",
       });
 
-      // A real child completion to an idle parent: the first pass holds it.
       await queueChildThreadTurnNotificationBestEffort(harness.deps, {
         childThread: child,
         parentThreadId: fixture.parentThreadId,
@@ -898,8 +896,6 @@ describe("parent wake policy", () => {
         queuedMessageCount: 0,
       });
 
-      // The hook still says wait: the recheck must ask it again as a system
-      // initiator, see the queued row, and leave it held and undelivered.
       const passesBeforeRecheck = seen.length;
       await runQueuedMessageDispatch(harness.deps, { kind: "plugin-recheck" });
       expect(seen.slice(passesBeforeRecheck)).toEqual([
@@ -919,8 +915,6 @@ describe("parent wake policy", () => {
         ),
       ).toHaveLength(0);
 
-      // The hook proceeds: the same recheck now releases the notice. A re-queue
-      // starts a one-second per-thread pacing window, so wait it out.
       decision = "proceed";
       await new Promise((resolve) => setTimeout(resolve, 1_100));
       await runQueuedMessageDispatch(harness.deps, { kind: "plugin-recheck" });
@@ -1309,7 +1303,6 @@ describe("queued system notice transfer (R4 retirement forward, R6)", () => {
       expect(response.status).toBe(201);
       const moved = threadQueuedMessageSchema.parse(await readJson(response));
 
-      // Let any thread-ready drain the transfer triggered settle, then recheck.
       await new Promise((resolve) => setTimeout(resolve, 1_100));
       const before = seen.length;
       await runQueuedMessageDispatch(harness.deps, { kind: "plugin-recheck" });
@@ -1613,7 +1606,6 @@ describe("transfer-all queued messages (retirement forward)", () => {
         sendAt: SEND_AT,
         waitingOn: { kind: "time" },
       });
-      // The claimed and retry rows never left the source.
       expect((await listOverHttp(harness, source)).map((m) => m.id)).toEqual([
         retry.id,
       ]);
@@ -1704,7 +1696,6 @@ describe("transfer-all queued messages (retirement forward)", () => {
         systemNotice: { kind: "child-completed", subject: null },
       });
 
-      // Extra body fields are not a way to set a classification.
       const response = await harness.app.request(
         `/api/v1/threads/${fixture.parentThreadId}/queued-messages/transfer-all`,
         {
@@ -1819,7 +1810,6 @@ describe("held system notice drain: admission and cancellation", () => {
       await Promise.all(rows.map((row) => drain(harness, row)));
 
       expect(listRunningThreads(harness.db)).toHaveLength(1);
-      // The loser stayed queued behind the plugin wait rather than starting.
       const stillQueued = rows.filter(
         (row) =>
           listQueuedThreadMessages(harness.db, row.threadId).length === 1,
