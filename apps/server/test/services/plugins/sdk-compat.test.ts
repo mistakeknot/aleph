@@ -32,4 +32,16 @@ describe("isPluginSdkRangeSatisfied", () => {
     expect(isPluginSdkRangeSatisfied(PLUGIN_SDK_VERSION)).toBe(true);
     expect(isPluginSdkRangeSatisfied("*")).toBe(true);
   });
+
+  it("treats the message.transferred event as unavailable on a runtime older than 0.5.27", () => {
+    const requiredByTransferEvent = ">=0.5.27";
+    expect(isPluginSdkRangeSatisfied(requiredByTransferEvent, "0.5.26")).toBe(
+      false,
+    );
+    expect(isPluginSdkRangeSatisfied(requiredByTransferEvent, "0.5.27")).toBe(
+      true,
+    );
+    expect(isPluginSdkRangeSatisfied(requiredByTransferEvent)).toBe(true);
+    expect(semver.gt(PLUGIN_SDK_VERSION, "0.5.26")).toBe(true);
+  });
 });
