@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.45.0+aleph.0.6.0
+
+Aleph 0.6.0 syncs the fork to upstream bb 0.45.0 (`desktop-v0.45.0`, commit
+`129f62177`) and keeps every Aleph change from 0.5.3.
+
+### Highlights
+
+- **Windows.** Upstream adds a native Windows desktop app and installer,
+  Windows machine enrollment, and Windows terminals, paths and provider CLI
+  discovery.
+- **Faster timelines and a lighter database.** Conversation outlines project
+  incrementally, root timeline ordering is reused while child threads stream,
+  and daemon authentication, liveness and watch-set refreshes read and write
+  the database less.
+- **Safer defaults.** Upstream's DNS-rebinding guard for the app server and
+  fixes for Claude Code permission handling (plan approval, `permissions.ask`
+  commands, "Allow for session") are included.
+
+### Aleph
+
+- **No upstream update feed.** The Aleph channel no longer builds the
+  upstream release feed URL, and the desktop auto-updater is never pointed at
+  it. Update checks were already off for `+aleph` versions.
+- **History shortcuts.** Cmd-[ and Cmd-] navigation and the Go menu are
+  carried onto the 0.45 pane-focus and keybinding changes.
+- **Comments post at once** now uses upstream's implementation of the same
+  behavior; `bb tasks comment --notify` still waits for delivery.
+
+### Upgrading
+
+- Server and host daemon speak a newer protocol (219 to 227). Update both
+  together.
+- The keybinding and desktop APIs take `platform` instead of `isMac`.
+
 ## 0.44.0+aleph.0.5.3
 
 Aleph 0.5.3 is a patch on Aleph 0.5.2, on the same upstream bb 0.44.0

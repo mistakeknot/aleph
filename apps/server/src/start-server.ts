@@ -6,7 +6,11 @@ import type { ServerConfig } from "@bb/config/server";
 import { isLoopbackHostname } from "@bb/config/loopback";
 import { toOptionalString } from "@bb/config/strings";
 import { createLogger } from "@bb/logger";
-import { getAppSettings, listRunningThreads } from "@bb/db";
+import {
+  getAppSettings,
+  getDisabledProviderIds,
+  listRunningThreads,
+} from "@bb/db";
 import { initDb } from "./db.js";
 import { createApp } from "./server.js";
 import { PendingInteractionLifecycle } from "./services/interactions/pending-interactions.js";
@@ -42,6 +46,7 @@ import { TerminalSessionLifecycle } from "./services/terminals/terminal-session-
 import { createLifecycleDedupers } from "./lifecycle-dedupers.js";
 import type { ServerLogger, ServerRuntimeConfig } from "./types.js";
 import { NotificationHub } from "./ws/hub.js";
+import { startDaemonLivenessChecks } from "./ws/daemon-protocol.js";
 import { WatchInterestCoordinator } from "./ws/watch-interests.js";
 import { WorkspaceReadCaches } from "./services/environments/workspace-read-cache.js";
 import { HostSharedPortCoordinator } from "./ws/host-shared-ports.js";
@@ -174,6 +179,7 @@ export async function runServer(
       const settings = getAppSettings(db);
       return {
         providerOrder: settings.providerOrder,
+        disabledProviderIds: getDisabledProviderIds(db),
         defaultProviderId: settings.defaultProviderId,
       };
     },
@@ -311,16 +317,39 @@ export async function runServer(
   );
   disconnectImportedDaemonSessions(
     {
+      config: runtimeConfig,
       db,
       hub,
+      lifecycleDedupers,
       logger,
+      machineAuth,
       pendingInteractions,
       providerRegistry,
+      pluginHostArtifacts,
+      aiServices,
+      skillTreeRegistry,
+      telemetry,
       terminalSessions,
     },
     { sessions: serverImport.importedDaemonSessions },
   );
   const eventLoopStallMonitor = startEventLoopStallMonitor({ logger });
+  const stopDaemonLivenessChecks = startDaemonLivenessChecks({
+    config: runtimeConfig,
+    db,
+    hub,
+    lifecycleDedupers,
+    logger,
+    machineAuth,
+    pendingInteractions,
+    providerRegistry,
+    pluginHostArtifacts,
+    aiServices,
+    sharedPorts,
+    skillTreeRegistry,
+    telemetry,
+    terminalSessions,
+  });
 
   const sweepDeps = {
     config: runtimeConfig,
@@ -420,6 +449,7 @@ export async function runServer(
       appUpdate.dispose();
       providerModelCatalogPrewarm?.stop();
       eventLoopStallMonitor.stop();
+      stopDaemonLivenessChecks();
       if (sweepInterval !== null) {
         clearInterval(sweepInterval);
       }

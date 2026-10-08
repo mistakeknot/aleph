@@ -1,5 +1,6 @@
 import type { AppCommandContext, AppKeybinding, AppShortcut } from "@bb/domain";
 import { isMacKeyboardPlatform } from "@bb/domain";
+import { elementHasEditableFocus } from "@bb/domain/editable-focus";
 
 export interface AppShortcutPresentation {
   ariaKeyshortcuts: string;
@@ -23,6 +24,17 @@ export function isEditableKeyboardTarget(target: EventTarget | null): boolean {
   }
   return (
     target.closest('[contenteditable]:not([contenteditable="false"])') !== null
+  );
+}
+
+export function isEditableCommandTarget(
+  target: EventTarget | null,
+  origin: EventTarget | null = target,
+): boolean {
+  if (isEditableKeyboardTarget(target)) return true;
+  return [origin, target].some(
+    (candidate) =>
+      candidate instanceof Element && elementHasEditableFocus(candidate),
   );
 }
 
@@ -100,4 +112,37 @@ export function presentAppShortcut(
     ariaKeyshortcuts: formatAppShortcutAria(shortcut, platform),
     label: formatAppShortcut(shortcut, platform),
   };
+}
+
+export function appShortcutMatchesQuery(
+  shortcut: AppShortcut,
+  platform: string,
+  query: string,
+): boolean {
+  const tokens = query
+    .toLowerCase()
+    .split(/[\s+]+/u)
+    .filter((token) => token.length > 0);
+  if (query.trimEnd().endsWith("+")) tokens.push("+");
+  if (tokens.length === 0) return false;
+  const useMetaForMod = isMacKeyboardPlatform(platform);
+  const modifiers = new Set<string>();
+  if (shortcut.mod) modifiers.add("mod");
+  if (shortcut.meta || (shortcut.mod && useMetaForMod)) {
+    modifiers.add("cmd");
+    modifiers.add("command");
+    modifiers.add("meta");
+  }
+  if (shortcut.control || (shortcut.mod && !useMetaForMod)) {
+    modifiers.add("ctrl");
+    modifiers.add("control");
+  }
+  if (shortcut.alt) {
+    modifiers.add("alt");
+    modifiers.add("opt");
+    modifiers.add("option");
+  }
+  if (shortcut.shift) modifiers.add("shift");
+  const key = shortcut.key.toLowerCase();
+  return tokens.every((token) => modifiers.has(token) || key.includes(token));
 }

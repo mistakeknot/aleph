@@ -256,6 +256,7 @@ async function startIntegrationServer(
     notifyChanged: () => hub.notifySystem(["app-update-changed"]),
   });
   const serverDeps = {
+    alephUpdate: null,
     appUpdate,
     appVersion,
     bbAppManagedConfig,

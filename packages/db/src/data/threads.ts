@@ -271,6 +271,7 @@ export interface CreateThreadInput {
   title?: string | null;
   titleFallback?: string | null;
   sectionId?: string | null;
+  pinned?: boolean;
   status?: ThreadStatus;
   parentThreadId?: string | null;
   lifecycleOwnerThreadId?: string | null;
@@ -328,6 +329,13 @@ export function createThread(
           title: input.title ?? null,
           titleFallback: input.titleFallback ?? null,
           sectionId: input.sectionId ?? null,
+          pinnedAt: input.pinned ? now : null,
+          pinSortKey: input.pinned
+            ? createOrderKeyBetween({
+                previousKey: null,
+                nextKey: getFirstPinnedThread(tx)?.pinSortKey ?? null,
+              })
+            : null,
           status: input.status ?? "starting",
           startupContext: input.startupContext ?? null,
           parentThreadId:
@@ -1593,6 +1601,21 @@ export function listThreadEnvironmentAssignmentsOnHost(
     .all();
 }
 
+export function listExistingThreadIds(
+  db: DbQueryConnection,
+  threadIds: string[],
+): string[] {
+  if (threadIds.length === 0) {
+    return [];
+  }
+  return db
+    .select({ id: threads.id })
+    .from(threads)
+    .where(inArray(threads.id, threadIds))
+    .all()
+    .map((row) => row.id);
+}
+
 export function listHostThreadIds(
   db: DbConnection,
   args: ListHostThreadIdsArgs,
@@ -2157,12 +2180,12 @@ export function markThreadDeleted(
 
 export function markThreadStorageDeleted(
   db: ThreadWriteConnection,
-  args: { threadId: string; deletedAt?: number },
+  args: { threadId: string },
 ) {
   return (
     db
       .update(threads)
-      .set({ storageDeletedAt: args.deletedAt ?? Date.now() })
+      .set({ storageDeletedAt: Date.now() })
       .where(eq(threads.id, args.threadId))
       .returning()
       .get() ?? null
@@ -2214,7 +2237,7 @@ export function unarchiveThread(
       return tx
         .update(threads)
         .set({ archivedAt: null, updatedAt: now })
-        .where(eq(threads.id, id))
+        .where(and(eq(threads.id, id), isNotNull(threads.archivedAt)))
         .returning()
         .get();
     },

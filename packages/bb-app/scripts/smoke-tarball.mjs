@@ -12,7 +12,7 @@ import {
 } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseSmokeArgs, resolveInstalledPrefix } from "./installed-prefix.mjs";
 import { createManagedProcessStop } from "./managed-process.mjs";
@@ -124,8 +124,46 @@ function waitForProcessExit(childProcess) {
   });
 }
 
+function resolveLaunch(command, args) {
+  if (
+    process.platform === "win32" &&
+    (command === "npm" || command === "npx")
+  ) {
+    return {
+      command: process.execPath,
+      args: [
+        join(
+          dirname(process.execPath),
+          "node_modules",
+          "npm",
+          "bin",
+          `${command}-cli.js`,
+        ),
+        ...args,
+      ],
+    };
+  }
+  if (
+    process.platform === "win32" &&
+    basename(dirname(command)) === ".bin" &&
+    extname(command) === ""
+  ) {
+    const commandLine = [`${command}.cmd`, ...args]
+      .map((part) => `"${part}"`)
+      .join(" ");
+    return {
+      command: process.env.ComSpec ?? "cmd.exe",
+      args: ["/d", "/s", "/c", `"${commandLine}"`],
+      windowsVerbatimArguments: true,
+    };
+  }
+  return { command, args };
+}
+
 async function runCommand({ args, command, cwd = tempRoot, env = {}, label }) {
-  const childProcess = spawn(command, args, {
+  const launch = resolveLaunch(command, args);
+  const childProcess = spawn(launch.command, launch.args, {
+    windowsVerbatimArguments: launch.windowsVerbatimArguments === true,
     cwd,
     env: {
       ...process.env,
@@ -146,7 +184,9 @@ async function runCommand({ args, command, cwd = tempRoot, env = {}, label }) {
 
 function spawnManagedProcess({ args, command, env = {}, label }) {
   const detached = process.platform !== "win32";
-  const childProcess = spawn(command, args, {
+  const launch = resolveLaunch(command, args);
+  const childProcess = spawn(launch.command, launch.args, {
+    windowsVerbatimArguments: launch.windowsVerbatimArguments === true,
     cwd: tempRoot,
     detached,
     env: {
@@ -1276,5 +1316,10 @@ try {
     );
   }
 } finally {
-  await rm(tempRoot, { force: true, recursive: true });
+  await rm(tempRoot, {
+    force: true,
+    maxRetries: 20,
+    recursive: true,
+    retryDelay: 250,
+  });
 }

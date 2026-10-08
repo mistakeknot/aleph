@@ -292,6 +292,18 @@ printf '%s' '${artifactStatus}'
   );
 }
 
+function writeUnreachableUserBus(fixture: Fixture, init: string): void {
+  writeExecutable(join(fixture.binDir, "uname"), "#!/bin/sh\necho Linux\n");
+  writeExecutable(join(fixture.binDir, "id"), "#!/bin/sh\necho 1000\n");
+  writeExecutable(join(fixture.binDir, "ps"), `#!/bin/sh\necho ${init}\n`);
+  writeExecutable(
+    join(fixture.binDir, "systemd-detect-virt"),
+    "#!/bin/sh\nexit 1\n",
+  );
+  writeExecutable(join(fixture.binDir, "systemctl"), "#!/bin/sh\nexit 1\n");
+  writeExecutable(join(fixture.binDir, "loginctl"), "#!/bin/sh\nexit 1\n");
+}
+
 afterEach(() => {
   for (const directory of createdDirectories.splice(0)) {
     try {
@@ -304,7 +316,9 @@ afterEach(() => {
   }
 });
 
-describe("machine install script", () => {
+const describeOnPosix = process.platform === "win32" ? describe.skip : describe;
+
+describeOnPosix("machine install script", { timeout: 15_000 }, () => {
   it.each([
     { uid: 0, unset: true },
     { uid: 501, unset: true },
@@ -348,6 +362,47 @@ exec '${process.execPath}' "$@"
     expect(result.stderr).toContain(
       "Usage: install.sh --bootstrap-env <NAME> [--host-daemon-port <port>]",
     );
+  });
+
+  it("starts an owned daemon that has no service under launcher supervision", () => {
+    const fixture = createFixture();
+    mkdirSync(join(fixture.homeDir, ".bb-machines", "owned"), {
+      recursive: true,
+    });
+    const dataDir = realpathSync(
+      join(fixture.homeDir, ".bb-machines", "owned"),
+    );
+    writeJoinedState({ ...fixture, dataDir });
+    writeFileSync(join(dataDir, "host-daemon-port"), "40000\n");
+    const invocationPath = join(dataDir, "invocation");
+    mkdirSync(join(dataDir, "npm", "bin"), { recursive: true });
+    writeExecutable(
+      join(dataDir, "npm", "bin", "bb-app"),
+      createEnrollingBbAppScript({ hostId: "host-test", invocationPath }),
+    );
+    const daemonPidPath = join(dataDir, "install-daemon.pid");
+
+    const started = runScript(
+      ["--start", "--host-id", "host-test", "--data-dir", dataDir],
+      fixture,
+    );
+
+    try {
+      expect(started.status, started.stderr).toBe(0);
+      expect(readFileSync(invocationPath, "utf8").trim().split("\n")).toEqual([
+        "host-daemon",
+        "--auto-update",
+        "--supervise",
+        "--host-daemon-port",
+        "40000",
+        "--server-url",
+        "https://machine.getbb.app",
+      ]);
+    } finally {
+      if (existsSync(daemonPidPath)) {
+        process.kill(Number(readFileSync(daemonPidPath, "utf8")), "SIGTERM");
+      }
+    }
   });
 
   it("stops and uninstalls an owned Linux service through installer flags", () => {
@@ -726,6 +781,7 @@ fs.writeFileSync(path.join(process.env.BB_DATA_DIR, "config.json"), JSON.stringi
     expect(readFileSync(invocationPath, "utf8").trim().split("\n")).toEqual([
       "host-daemon",
       "--auto-update",
+      "--supervise",
       "--host-daemon-port",
       selectedPort,
       "--server-url",
@@ -759,6 +815,7 @@ fs.writeFileSync(path.join(process.env.BB_DATA_DIR, "config.json"), JSON.stringi
       expect(readFileSync(invocationPath, "utf8").trim().split("\n")).toEqual([
         "host-daemon",
         "--auto-update",
+        "--supervise",
         "--host-daemon-port",
         readFileSync(join(fixture.dataDir, "host-daemon-port"), "utf8").trim(),
         "--server-url",
@@ -1317,7 +1374,7 @@ setInterval(() => {}, 1000);
       "Still waiting for the host daemon (60/60 checks)",
     );
     expect(result.stderr).toContain("The bb host daemon did not connect");
-  }, 15_000);
+  });
 
   it("starts a fresh macOS launch agent once and replaces it with one new process", () => {
     const fixture = createFixture();
@@ -1495,7 +1552,7 @@ fi
     );
     writeExecutable(
       join(fixture.binDir, "launchctl"),
-      "#!/bin/sh\nif [ \"$1\" = bootout ]; then exit 1; fi\n",
+      '#!/bin/sh\nif [ "$1" = bootout ]; then exit 1; fi\n',
     );
 
     const result = runScript(BOOTSTRAP_ARGS, fixture);
@@ -1565,7 +1622,7 @@ printf '%s\n' "$*" >>"${join(fixture.dataDir, "launchctl.log")}"
     expect(result.stdout).toContain(
       "Still waiting for the launch agent (60/60 checks)",
     );
-  }, 15_000);
+  });
 
   it("restarts an active Linux systemd user unit after replacing it", () => {
     const fixture = createFixture();
@@ -1608,9 +1665,128 @@ fi
     expect(unit).toContain(
       `Environment="BB_APP_NPM_PREFIX=${realpathSync(fixture.dataDir)}/npm"`,
     );
+    expect(unit).toContain("After=network-online.target");
+    expect(unit).toContain("Wants=network-online.target");
+    expect(unit).toContain("Restart=always");
+    expect(unit).toContain("RestartSec=2");
+    expect(unit).toContain("WantedBy=default.target");
     expect(readFileSync(join(fixture.dataDir, "systemctl.log"), "utf8")).toBe(
       "--user show-environment\n--user daemon-reload\n--user enable bb-host-daemon-machine-getbb-app-host-test.service\n--user restart bb-host-daemon-machine-getbb-app-host-test.service\n",
     );
+  });
+
+  it("recovers the current user's systemd runtime path when the installer has no session environment", () => {
+    const fixture = createFixture();
+    writeJoinedState(fixture);
+    writeServerInstallTools(fixture, 200);
+    writeExecutable(join(fixture.binDir, "uname"), "#!/bin/sh\necho Linux\n");
+    const runtimeDir = join(fixture.homeDir, "runtime");
+    mkdirSync(runtimeDir);
+    writeExecutable(
+      join(fixture.binDir, "loginctl"),
+      `#!/bin/sh
+printf '%s\\n' "$*" >>"${join(fixture.dataDir, "loginctl.log")}"
+printf '%s\\n' '${runtimeDir}'
+`,
+    );
+    writeExecutable(
+      join(fixture.binDir, "systemctl"),
+      `#!/bin/sh
+printf '%s %s\\n' "$*" "\${XDG_RUNTIME_DIR:-missing}" >>"${join(fixture.dataDir, "systemctl.log")}"
+if [ "$2" = show-environment ] && { [ "\${XDG_RUNTIME_DIR:-}" != '${runtimeDir}' ] || [ -n "\${DBUS_SESSION_BUS_ADDRESS:-}" ]; }; then exit 1; fi
+if [ "$2" = restart ]; then
+  port=$(sed -n '1p' "${join(fixture.dataDir, "host-daemon-port")}")
+  BB_DATA_DIR="${fixture.dataDir}" "${join(fixture.dataDir, "npm/bin/bb-app")}" host-daemon --host-daemon-port "$port" --server-url https://machine.getbb.app >/dev/null 2>&1 &
+  echo $! >"${join(fixture.dataDir, "service-daemon.pid")}"
+fi
+`,
+    );
+
+    const result = runScript(BOOTSTRAP_ARGS, fixture, {
+      XDG_RUNTIME_DIR: undefined,
+      DBUS_SESSION_BUS_ADDRESS: "unix:path=/stale/bus",
+    });
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(readFileSync(join(fixture.dataDir, "loginctl.log"), "utf8")).toBe(
+      `show-user ${process.getuid?.()} --property=RuntimePath --value\n`,
+    );
+    expect(
+      readFileSync(join(fixture.dataDir, "systemctl.log"), "utf8"),
+    ).toContain(
+      `--user enable bb-host-daemon-machine-getbb-app-host-test.service ${runtimeDir}`,
+    );
+  });
+
+  it("fails visibly when the systemd user bus cannot be reached on a systemd host", () => {
+    const fixture = createFixture();
+    writeJoinedState(fixture);
+    writeServerInstallTools(fixture, 200);
+    writeUnreachableUserBus(fixture, "systemd");
+
+    const result = runScript(BOOTSTRAP_ARGS, fixture, {
+      XDG_RUNTIME_DIR: undefined,
+      DBUS_SESSION_BUS_ADDRESS: undefined,
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("systemd user bus is unavailable");
+    expect(result.stderr).toContain("will not start after a reboot");
+    expect(result.stdout).not.toContain(
+      "Installed and started the systemd service",
+    );
+    expect(existsSync(join(fixture.homeDir, ".config/systemd/user"))).toBe(
+      false,
+    );
+    expect(existsSync(join(fixture.dataDir, "install-daemon.pid"))).toBe(false);
+  });
+
+  it("fails before joining when the systemd user bus is unavailable on a systemd host", () => {
+    const fixture = createFixture();
+    const invocationPath = join(fixture.dataDir, "invocation");
+    writeCurlArtifactMock(fixture, 404);
+    writeEnrollingBbApp(fixture, invocationPath);
+    writeUnreachableUserBus(fixture, "systemd");
+
+    const result = runScript(BOOTSTRAP_ARGS, fixture, {
+      XDG_RUNTIME_DIR: undefined,
+      DBUS_SESSION_BUS_ADDRESS: undefined,
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("systemd user bus is unavailable");
+    expect(result.stdout).not.toContain("Joining");
+    expect(existsSync(join(fixture.dataDir, "enrollment-argv"))).toBe(false);
+    expect(existsSync(join(fixture.dataDir, "auth.json"))).toBe(false);
+    expect(existsSync(invocationPath)).toBe(false);
+  });
+
+  it("runs a detached daemon on Linux without systemd as init", () => {
+    const fixture = createFixture();
+    const invocationPath = join(fixture.dataDir, "invocation");
+    writeCurlArtifactMock(fixture, 404);
+    writeEnrollingBbApp(fixture, invocationPath);
+    writeUnreachableUserBus(fixture, "tini");
+
+    const result = runScript(BOOTSTRAP_ARGS, fixture, {
+      XDG_RUNTIME_DIR: undefined,
+      DBUS_SESSION_BUS_ADDRESS: undefined,
+    });
+
+    try {
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout + result.stderr).toContain(
+        "Service installation skipped",
+      );
+      expect(existsSync(join(fixture.homeDir, ".config/systemd/user"))).toBe(
+        false,
+      );
+    } finally {
+      const pidPath = join(fixture.dataDir, "install-daemon.pid");
+      if (existsSync(pidPath)) {
+        process.kill(Number(readFileSync(pidPath, "utf8")), "SIGTERM");
+      }
+    }
   });
 
   it.each([false, true])(

@@ -47,6 +47,7 @@ import {
   type ClientMessage,
 } from "@bb/server-contract";
 import { z } from "zod";
+import { registerDesktopWindowFocusIpc } from "./desktop-window-focus.js";
 import {
   assertPathExists,
   resolveDesktopBridgePath,
@@ -153,10 +154,7 @@ import {
   createConnectSessionRenewal,
   type ConnectSessionRenewal,
 } from "./connect-session-renewal.js";
-import {
-  createDesktopShutdownState,
-  registerDesktopShutdownSignalHandlers,
-} from "./desktop-shutdown.js";
+import { registerDesktopShutdownSignalHandlers } from "./desktop-shutdown.js";
 import {
   createDesktopWindowFactory,
   type DesktopBrowserWindow,
@@ -221,6 +219,7 @@ import {
   createDesktopBrowserViewManager,
   type DesktopBrowserViewManager,
 } from "./desktop-browser-view.js";
+import { removeLegacyAutomationPartitions } from "./desktop-browser-legacy-partitions.js";
 import { resolveDesktopBrowserAppCommand } from "./desktop-browser-shortcuts.js";
 import {
   createRendererLogWriter,
@@ -231,6 +230,7 @@ import {
   type AlephRendererLog,
 } from "./aleph-renderer-log-main.js";
 import { registerDesktopBrowserIpc } from "./desktop-browser-main-ipc.js";
+import { resolveDesktopExternalUrl } from "./desktop-external-url.js";
 import {
   createDesktopFindViewManager,
   type DesktopFindViewManager,
@@ -494,7 +494,7 @@ function canReplaceAppImage(appImagePath: string): boolean {
 
 function resolveDesktopUpdateFeedUrl(
   args: ResolveDesktopUpdateFeedUrlArgs,
-): string {
+): string | null {
   const rawFeedUrl = args.env.BB_DESKTOP_VERSION_FEED_URL?.trim();
   if (rawFeedUrl === undefined || rawFeedUrl.length === 0) {
     return createDesktopUpdateFeedUrl(args.platform);
@@ -698,7 +698,8 @@ function createDesktopPathContext(): DesktopPathContext {
 
 function shouldEnableServerDaemonLogsMenu(): boolean {
   return (
-    process.platform === "darwin" && currentRuntime?.ownership === "spawned"
+    (process.platform === "darwin" || process.platform === "win32") &&
+    currentRuntime?.ownership === "spawned"
   );
 }
 
@@ -844,6 +845,26 @@ function refreshApplicationMenu(): void {
         initialUrl: currentWindowUrl,
         stateKey: null,
       });
+    },
+    goBack() {
+      const browserWindow = getFocusedApplicationWindow();
+      if (browserWindow !== null) {
+        sendToApplicationRenderer(
+          browserWindow,
+          BB_DESKTOP_APP_COMMAND_CHANNEL,
+          "history.back",
+        );
+      }
+    },
+    goForward() {
+      const browserWindow = getFocusedApplicationWindow();
+      if (browserWindow !== null) {
+        sendToApplicationRenderer(
+          browserWindow,
+          BB_DESKTOP_APP_COMMAND_CHANNEL,
+          "history.forward",
+        );
+      }
     },
     openAbout() {
       void showAboutDialog();
@@ -1759,9 +1780,7 @@ async function selectBuiltinServer(): Promise<void> {
   await applyServerTarget();
 }
 
-async function loadServerMovedView(
-  move: DesktopServerMove,
-): Promise<void> {
+async function loadServerMovedView(move: DesktopServerMove): Promise<void> {
   await loadActionView({
     actions: [
       { id: "open-moved-server", label: `Open ${move.toHostName}` },
@@ -2252,6 +2271,7 @@ async function finishQuit(): Promise<void> {
 }
 
 function registerDesktopUpdateIpc(): void {
+  registerDesktopWindowFocusIpc(applicationWindowWebContentsIds);
   ipcMain.on(BB_DESKTOP_ZOOM_COMMAND_CHANNEL, (event, payload: unknown) => {
     const parsed = bbDesktopZoomCommandSchema.safeParse(payload);
     if (parsed.success) {
@@ -2365,19 +2385,10 @@ function registerDesktopUpdateIpc(): void {
   ipcMain.on(
     BB_DESKTOP_OPEN_EXTERNAL_URL_CHANNEL,
     (_event, payload: unknown) => {
-      if (typeof payload !== "string") {
-        return;
+      const url = resolveDesktopExternalUrl(payload);
+      if (url !== null) {
+        void shell.openExternal(url);
       }
-      let parsed: URL;
-      try {
-        parsed = new URL(payload);
-      } catch {
-        return;
-      }
-      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-        return;
-      }
-      void shell.openExternal(parsed.toString());
     },
   );
 }
@@ -2780,7 +2791,6 @@ async function runDesktopApp(): Promise<void> {
     quitApplication() {
       app.quit();
     },
-    state: createDesktopShutdownState(),
     async stopOwnedRuntime() {
       quitting = true;
       await stopOwnedRuntime();
@@ -3015,6 +3025,7 @@ async function runDesktopApp(): Promise<void> {
     }
     desktopFindViewManager?.open(browserWindow, parsed.data);
   });
+  void removeLegacyAutomationPartitions(userDataPath).catch(() => {});
   desktopBrowserViewManager = createDesktopBrowserViewManager({
     pagePreloadPath: browserPagePreloadPath,
     dispatchAppCommand({ command, hostWebContentsId }) {
@@ -3041,7 +3052,7 @@ async function runDesktopApp(): Promise<void> {
     resolveAppCommand(input, hostWebContentsId) {
       return resolveDesktopBrowserAppCommand({
         input,
-        isMac: process.platform === "darwin",
+        platform: process.platform,
         keybindings: currentAppKeybindings,
         splitNavigationEnabled:
           splitNavigationEnabledWebContentsIds.has(hostWebContentsId),
@@ -3094,7 +3105,7 @@ async function runDesktopApp(): Promise<void> {
           sourceId: parsed.data.sourceId,
           sourceProfileDirectory: parsed.data.sourceProfileDirectory,
         },
-        manager.profileSession(parsed.data.profile),
+        manager.session(),
       );
     },
   );

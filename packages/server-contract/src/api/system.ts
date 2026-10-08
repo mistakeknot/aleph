@@ -318,9 +318,6 @@ export const systemAppUpdateBlockedSchema = z.object({
     "fetch-failed",
   ]),
 });
-export type SystemAppUpdateBlocked = z.infer<
-  typeof systemAppUpdateBlockedSchema
->;
 
 export const systemAppUpdateActivitySchema = z.discriminatedUnion("phase", [
   z.object({ phase: z.literal("idle") }),
@@ -651,4 +648,37 @@ export const systemMachineProvidersResponseSchema = z.object({
 });
 export type SystemMachineProvidersResponse = z.infer<
   typeof systemMachineProvidersResponseSchema
+>;
+
+export const androidAppArtifactSchema = z.object({
+  version: z.string().min(1),
+  versionCode: z.number().int().positive(),
+  size: z.number().int().positive(),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/),
+});
+export type AndroidAppArtifact = z.infer<typeof androidAppArtifactSchema>;
+
+export interface SystemMobileAppReleasesResponse {
+  android: (AndroidAppArtifact & { updatedAt: string }) | null;
+}
+
+export const systemProviderCatalogEntrySchema = z.object({
+  id: z.string(),
+  displayName: z.string(),
+  pluginId: z.string(),
+  pluginName: z.string(),
+  pluginEnabled: z.boolean(),
+  enabled: z.boolean(),
+  available: z.boolean(),
+  logoUrl: z.string().nullable(),
+  info: providerInfoSchema.nullable(),
+});
+export type SystemProviderCatalogEntry = z.infer<
+  typeof systemProviderCatalogEntrySchema
+>;
+export const systemProviderEnabledRequestSchema = z
+  .object({ enabled: z.boolean() })
+  .strict();
+export type SystemProviderEnabledRequest = z.infer<
+  typeof systemProviderEnabledRequestSchema
 >;

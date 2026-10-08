@@ -18,12 +18,21 @@ import {
   within,
 } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import {
   PluginComposerHostScopeProvider,
   usePluginComposerHost,
   usePluginComposerHostDraft,
 } from "@/components/plugin/plugin-composer-host";
+import { LazyQueuedMessagesList } from "@/components/promptbox/banner/LazyQueuedMessagesList";
 import { getPromptDraftAccessor } from "@/hooks/usePromptDraftStorage";
 import { ThreadDetailPromptArea } from "./ThreadDetailPromptArea";
 
@@ -143,10 +152,6 @@ vi.mock(
     ),
   }),
 );
-
-vi.mock("@/components/plugin/PluginPendingInteractionComposer", () => ({
-  PluginPendingInteractionComposer: () => null,
-}));
 
 vi.mock("@/components/ui/app-toast", () => ({
   appToast: { error: vi.fn() },
@@ -417,6 +422,8 @@ function getBottomComposerInput(): HTMLInputElement {
 
 let threadCounter = 0;
 let threadId = "";
+
+beforeAll(() => LazyQueuedMessagesList.preload());
 
 beforeEach(() => {
   threadCounter += 1;

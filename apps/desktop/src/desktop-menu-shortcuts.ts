@@ -7,6 +7,8 @@ import {
 export interface ApplicationMenuAccelerators {
   closeWindowOrSideTab: string | undefined;
   createNewWindow: string | undefined;
+  goBack: string | undefined;
+  goForward: string | undefined;
   openNewTab: string | undefined;
   openNewThread: string | undefined;
   openSettings: string | undefined;
@@ -17,6 +19,8 @@ export const DEFAULT_APPLICATION_MENU_ACCELERATORS: ApplicationMenuAccelerators 
   {
     closeWindowOrSideTab: "CommandOrControl+W",
     createNewWindow: "CommandOrControl+Shift+N",
+    goBack: "CommandOrControl+[",
+    goForward: "CommandOrControl+]",
     openNewTab: "CommandOrControl+T",
     openNewThread: "CommandOrControl+N",
     openSettings: "CommandOrControl+,",
@@ -91,6 +95,8 @@ export function resolveApplicationMenuAccelerators(
   return {
     closeWindowOrSideTab: acceleratorForCommand(keybindings, "panel.close"),
     createNewWindow: acceleratorForCommand(keybindings, "window.new"),
+    goBack: acceleratorForCommand(keybindings, "history.back"),
+    goForward: acceleratorForCommand(keybindings, "history.forward"),
     openNewTab: acceleratorForCommand(keybindings, "panel.newTab"),
     openNewThread: acceleratorForCommand(keybindings, "thread.new"),
     openSettings: acceleratorForCommand(keybindings, "settings.open"),

@@ -276,6 +276,15 @@ sort after 0133), or repair an already-shipped mismatch with a shim like the
 existing `repairBranchLocal*` migrations. Skipping this check is a boot
 outage, not a merge conflict, so nothing else surfaces it beforehand.
 
+The fork now owns 0132 to 0134 (0134's `when` is 1790477193524). The 0.45.0
+sync (mk-09dq) brought six upstream migrations whose upstream numbers were
+0132 to 0137 and whose first `when` predated 0134. They were renumbered to
+0135 to 0140 with their SQL unchanged, `0135_thread_drafts`'s `when` moved to
+1790477193525, and their snapshots carry the fork's tables and columns. A host
+that has run 0135 or later cannot go back to a 0.5.x build:
+`validateAppliedMigrationHistory` refuses migrations it does not know, so
+rolling back means restoring a database backup taken before the switch.
+
 ## Project documents
 
 - [Mission](MISSION.md): make long-running, multi-provider coordinator

@@ -106,7 +106,32 @@ const MODELS = [
     reasoning: false,
     contextWindow: 32_000,
   },
+  ...[
+    ["fake-gateway", "vendor/slash-model"],
+    ["fake-gateway", "fake-provider/fake-model"],
+    ["fake-gateway", "vendor/shared-model"],
+    ["other-gateway", "vendor/shared-model"],
+  ].map(([provider, id]) => ({
+    id,
+    name: id,
+    provider,
+    input: ["text"],
+    reasoning: false,
+    contextWindow: 64_000,
+  })),
 ];
+
+function loadAvailableModels() {
+  const modelsPath = process.env.FAKE_PI_MODELS_FILE;
+  if (!modelsPath) return MODELS;
+  try {
+    const parsed = JSON.parse(readFileSync(modelsPath, "utf8"));
+    return Array.isArray(parsed) ? parsed : MODELS;
+  } catch {
+    return MODELS;
+  }
+}
+let availableModels = loadAvailableModels();
 
 let model = MODELS[0];
 const requestedModel = flag("--model");
@@ -127,9 +152,15 @@ if (process.env.FAKE_PI_SPAWN_COUNTER_FILE) {
 const ignoreRequestedModel =
   process.env.FAKE_PI_MISMATCH_FIRST_SPAWN === "1" && spawnIndex === 1;
 if (requestedModel !== undefined && !ignoreRequestedModel) {
-  const [provider, id] = requestedModel.split("/");
+  const requestedProvider = flag("--provider");
+  const candidates = MODELS.filter(
+    (entry) => !requestedProvider || entry.provider === requestedProvider,
+  );
   model =
-    MODELS.find((entry) => entry.provider === provider && entry.id === id) ??
+    candidates.find(
+      (entry) => `${entry.provider}/${entry.id}` === requestedModel,
+    ) ??
+    candidates.find((entry) => entry.id === requestedModel) ??
     MODELS[0];
 }
 let thinkingLevel = flag("--thinking") ?? "medium";
@@ -190,11 +221,30 @@ const scopedModel =
   process.env.FAKE_PI_SCOPE_BY_SPAWN === "1"
     ? MODELS[spawnIndex === 1 ? 0 : 1]
     : undefined;
+const modelRegistry = {
+  async refresh(options) {
+    if (process.env.FAKE_PI_REFRESH_LOG) {
+      appendFileSync(
+        process.env.FAKE_PI_REFRESH_LOG,
+        `${JSON.stringify(options ?? null)}\n`,
+      );
+    }
+    if (process.env.FAKE_PI_REFRESH_FAILURE === "hang") {
+      return new Promise(() => undefined);
+    }
+    if (process.env.FAKE_PI_REFRESH_FAILURE === "reject") {
+      throw new Error("scripted refresh failure");
+    }
+    availableModels = loadAvailableModels();
+    return { aborted: false, errors: new Map() };
+  },
+};
 const extensionContext = {
   cwd: process.cwd(),
   sessionManager: { getLeafId: () => leafId },
   model: scopedModel,
   scopedModels: scopedModel ? [{ model: scopedModel }] : [],
+  ...(process.env.FAKE_PI_NO_MODEL_REGISTRY === "1" ? {} : { modelRegistry }),
 };
 
 async function emitExtensionEvent(type, payload = {}) {
@@ -517,7 +567,7 @@ async function handle(command) {
       });
       return;
     case "get_available_models":
-      respond(id, "get_available_models", { models: MODELS });
+      respond(id, "get_available_models", { models: availableModels });
       if (
         process.env.FAKE_PI_EXIT_AFTER_FIRST_AVAILABLE === "1" &&
         spawnIndex === 1

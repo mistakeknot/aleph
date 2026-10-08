@@ -17,7 +17,6 @@ import { dirname, extname, join, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire, registerHooks } from "node:module";
 import { performance } from "node:perf_hooks";
-import { createJiti } from "jiti";
 import semver from "semver";
 import { HOST_ARTIFACT_MAX_BYTES } from "@bb/host-daemon-contract/protocol";
 import {
@@ -38,7 +37,6 @@ import { PluginHostArtifactRegistry } from "./plugin-host-artifact-registry.js";
 import { getPluginBuildToolchain } from "./build-toolchain.js";
 import { createNodeBbSdk, type BbSdk } from "@bb/sdk";
 import {
-  getExperiments,
   getInstalledPlugin,
   getPluginSafeMode,
   listInstalledPlugins,
@@ -102,6 +100,7 @@ import { createKeyedLock } from "../lib/async-deduper.js";
 import { runEventLoopWork } from "../system/event-loop-work.js";
 import { abortPluginToolCallsForPlugin } from "./plugin-tool-calls.js";
 import { buildCachedPluginServer } from "./plugin-server-cache.js";
+import { createPluginRpcCallerRegistry } from "./plugin-rpc-caller.js";
 
 const serverRuntimeDir = dirname(fileURLToPath(import.meta.url));
 const pluginSdkRuntimePath = join(serverRuntimeDir, "plugin-sdk-runtime.js");
@@ -123,40 +122,14 @@ async function hashFile(
   return { digest: hash.digest("hex"), byteLength };
 }
 
-export function pluginSdkAliasFor(runtimePath: string): Record<string, string> {
-  return {
-    [PLUGIN_SDK_SPECIFIER]: runtimePath,
-    [LEGACY_PLUGIN_SDK_SPECIFIER]: runtimePath,
-  };
-}
-
-export function zodAliasFor(args: {
-  runtimePath: string | undefined;
-  sourceKind: InstalledPluginRow["sourceKind"];
-  serverEntry: string;
-}): Record<string, string> | undefined {
-  if (
-    args.runtimePath === undefined ||
-    args.sourceKind !== "builtin" ||
-    !args.serverEntry.endsWith(`${sep}dist${sep}server.js`)
-  ) {
-    return undefined;
-  }
-  return { [ZOD_SPECIFIER]: args.runtimePath };
-}
-
 const runtimeRequire = createRequire(import.meta.url);
-const pluginSdkAlias: Record<string, string> | undefined = existsSync(
-  pluginSdkRuntimePath,
-)
-  ? pluginSdkAliasFor(pluginSdkRuntimePath)
-  : undefined;
 const pluginSdkRuntimeEntry = existsSync(pluginSdkRuntimePath)
   ? pluginSdkRuntimePath
   : runtimeRequire.resolve(PLUGIN_SDK_SPECIFIER);
 const pluginRuntimeExternalUrls = new Map(
   Object.entries({
-    ...pluginSdkAliasFor(pluginSdkRuntimeEntry),
+    [PLUGIN_SDK_SPECIFIER]: pluginSdkRuntimeEntry,
+    [LEGACY_PLUGIN_SDK_SPECIFIER]: pluginSdkRuntimeEntry,
     "better-sqlite3": runtimeRequire.resolve("better-sqlite3"),
   }).map(([specifier, path]) => [specifier, pathToFileURL(path).href]),
 );
@@ -164,6 +137,17 @@ const pluginRuntimeExternalUrls = new Map(
 const availableZodRuntimePath = existsSync(zodRuntimePath)
   ? zodRuntimePath
   : undefined;
+
+function usesServerZodRuntime(
+  sourceKind: InstalledPluginRow["sourceKind"],
+  serverEntry: string,
+): boolean {
+  return (
+    availableZodRuntimePath !== undefined &&
+    sourceKind === "builtin" &&
+    serverEntry.endsWith(`${sep}dist${sep}server.js`)
+  );
+}
 
 interface MutableRoot {
   id: number;
@@ -384,7 +368,7 @@ export interface SafeModeActivationRefusalArgs {
 const PLUGIN_SAFE_MODE_DETAIL = "safe mode is on";
 
 export interface PluginLoadHold {
-  source: string;
+  sources: readonly string[];
   detail: string;
   isActive(): Promise<boolean>;
 }
@@ -446,6 +430,7 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
   const handlerStats = new Map<string, PluginHandlerStats>();
   let boundSdk: BbSdk | undefined;
   let boundLoopbackBaseUrl: string | undefined;
+  const rpcCallers = createPluginRpcCallerRegistry();
   let loadHold: PluginLoadHold | null = null;
 
   function publishStatus(
@@ -1120,7 +1105,7 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
   type ResolvedServerEntry = {
     path: string;
     digest: string;
-    loader: "jiti" | "cjs" | "esm";
+    loader: "cjs" | "esm";
   };
 
   async function packageScopeIsEsm(
@@ -1143,7 +1128,6 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
   async function resolveServerEntry(
     row: InstalledPluginRow,
     manifest: PluginManifest,
-    legacyJitiPluginLoader: boolean,
   ): Promise<ResolvedServerEntry> {
     async function buildSource(
       serverEntry = manifest.serverEntry,
@@ -1190,11 +1174,7 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
       );
       return { ...built, loader: "cjs" };
     }
-    if (row.sourceKind === "path") {
-      if (!legacyJitiPluginLoader) return buildSource();
-      const { digest } = await hashFile(manifest.serverEntry);
-      return { path: manifest.serverEntry, digest, loader: "jiti" };
-    }
+    if (row.sourceKind === "path") return buildSource();
     if (
       row.sourceKind === "builtin" &&
       !isPackagedBuiltinEntry({
@@ -1204,10 +1184,6 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
         artifact: "server",
       })
     ) {
-      if (legacyJitiPluginLoader) {
-        const { digest } = await hashFile(manifest.serverEntry);
-        return { path: manifest.serverEntry, digest, loader: "jiti" };
-      }
       if (initializedSourceBuiltinIds.has(row.id)) return buildSource();
       initializedSourceBuiltinIds.add(row.id);
       const { digest } = await hashFile(manifest.serverEntry);
@@ -1217,9 +1193,7 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
     try {
       await stat(distJsPath);
     } catch {
-      if (!legacyJitiPluginLoader) return buildSource();
-      const { digest } = await hashFile(manifest.serverEntry);
-      return { path: manifest.serverEntry, digest, loader: "jiti" };
+      return buildSource();
     }
     let meta: { sdkMajor: number; sdkVersion: string } | null = null;
     try {
@@ -1231,14 +1205,9 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
       logger.warn(
         `plugin ${row.id}: ignoring prebuilt dist/server.js (built with SDK ${meta?.sdkVersion ?? "unknown"}, running SDK is ${PLUGIN_SDK_VERSION}) — loading from source`,
       );
-      if (!legacyJitiPluginLoader) return buildSource();
-      const { digest } = await hashFile(manifest.serverEntry);
-      return { path: manifest.serverEntry, digest, loader: "jiti" };
+      return buildSource();
     }
     const { digest } = await hashFile(distJsPath);
-    if (legacyJitiPluginLoader) {
-      return { path: distJsPath, digest, loader: "jiti" };
-    }
     if (await packageScopeIsEsm(distJsPath, row.rootDir)) {
       return { path: distJsPath, digest, loader: "esm" };
     }
@@ -1513,7 +1482,7 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
 
   async function heldDetail(row: InstalledPluginRow): Promise<string | null> {
     const hold = loadHold;
-    if (hold === null || !row.enabled || row.source !== hold.source) {
+    if (hold === null || !row.enabled || !hold.sources.includes(row.source)) {
       return null;
     }
     return (await hold.isActive()) ? hold.detail : null;
@@ -1666,6 +1635,7 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
       },
       getAppUrl: deps.getAppUrl ?? (() => null),
       getLoopbackBaseUrl: () => boundLoopbackBaseUrl,
+      rpcCaller: rpcCallers.issue(row.id),
       publishSignal: (channel, payload) => {
         deps.hub.notifyPluginSignal(row.id, channel, payload);
       },
@@ -1795,14 +1765,7 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
     const rollbackGenerations: Array<() => void> = [];
     const candidateModuleRootUrls = new Set<string>();
     try {
-      const legacyJitiPluginLoader = getExperiments(
-        deps.db,
-      ).legacyJitiPluginLoader;
-      const serverEntry = await resolveServerEntry(
-        row,
-        manifest,
-        legacyJitiPluginLoader,
-      );
+      const serverEntry = await resolveServerEntry(row, manifest);
       if (row.sourceKind === "path" || row.sourceKind === "builtin") {
         const mutation = setMutableRootVersion(
           row.rootDir,
@@ -1813,35 +1776,22 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
         rollbackGenerations.push(mutation.rollback);
         candidateModuleRootUrls.add(mutation.rootUrl);
       }
-      const alias = {
-        ...pluginSdkAlias,
-        ...zodAliasFor({
-          runtimePath: availableZodRuntimePath,
-          sourceKind: row.sourceKind,
-          serverEntry: serverEntry.path,
-        }),
-      };
-      if (alias[ZOD_SPECIFIER] !== undefined) {
+      if (usesServerZodRuntime(row.sourceKind, serverEntry.path)) {
         builtinZodParentUrls.add(pathToFileURL(serverEntry.path).href);
       }
       let mod: { default?: unknown };
-      if (serverEntry.loader === "jiti") {
-        const jiti = createJiti(import.meta.url, {
-          moduleCache: false,
-          ...(Object.keys(alias).length === 0 ? {} : { alias }),
-        });
-        mod = (await jiti.import(serverEntry.path)) as { default?: unknown };
-      } else if (serverEntry.loader === "cjs") {
+      if (serverEntry.loader === "cjs") {
+        const filename = runtimeRequire.resolve(serverEntry.path);
         try {
-          const exported: unknown = runtimeRequire(serverEntry.path);
+          const exported: unknown = runtimeRequire(filename);
           mod =
             typeof exported === "function"
               ? { default: exported }
               : (exported as { default?: unknown });
         } finally {
-          const entry = runtimeRequire.cache[serverEntry.path];
+          const entry = runtimeRequire.cache[filename];
           if (entry !== undefined) detachCommonJsModule(entry);
-          delete runtimeRequire.cache[serverEntry.path];
+          delete runtimeRequire.cache[filename];
         }
       } else {
         const mutation = setMutableRootVersion(
@@ -2088,6 +2038,7 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
     appBundles,
     hostArtifacts,
     bindSdk,
+    resolveRpcCaller: rpcCallers.resolve,
     buildThreadDto,
     builtinSourceWatchers,
     checkEngineRange,

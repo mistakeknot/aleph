@@ -35,11 +35,13 @@ The recommended way to start using bb is the desktop app:
 **[Download the latest desktop app](https://github.com/get-bb/bb/releases/tag/desktop-latest)**
 
 The desktop app supports macOS on Apple Silicon (arm64). The Linux x64 AppImage
-is alpha: expect problems, and please report them. Intel Mac users should run bb
-with `npx` instead. On Windows, run bb inside
+and the Windows x64 installer are alpha: expect problems, and please report
+them. Intel Mac users should run bb with `npx` instead. Native Windows needs
+[Git for Windows](https://git-scm.com/download/win), which bb uses for Git and
+for environment setup scripts. You can also run bb inside
 [WSL2 (Windows Subsystem for Linux)](https://learn.microsoft.com/windows/wsl/install):
-install WSL2 first, then run the same `npx` command below from your WSL2 (Linux)
-shell. Native Windows PowerShell and CMD are not supported.
+install WSL2 first, then run the `npx` command below from your WSL2 (Linux)
+shell.
 
 Early adopters can install
 **[bb Nightly](https://github.com/get-bb/bb/releases/tag/desktop-nightly)**
@@ -131,8 +133,15 @@ pnpm exec turbo run dev --filter=@bb/desktop
 The desktop shell connects to this checkout's running dev app. Stop each command
 with Ctrl-C in its terminal.
 
-To use the dev app from another machine over Tailscale, run `pnpm dev`, note the
-printed app port, and publish the loopback Vite listener:
+To use the dev app from another machine over Tailscale, start it with the
+Tailscale browser origin configured:
+
+```bash
+BB_APP_URL=https://<machine>.<tailnet>.ts.net pnpm dev
+```
+
+Note the printed app port, then publish the loopback Vite listener in another
+terminal:
 
 ```bash
 tailscale serve --bg --https=443 http://127.0.0.1:<app-port>

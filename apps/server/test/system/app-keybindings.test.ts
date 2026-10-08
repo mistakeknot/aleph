@@ -14,10 +14,10 @@ import { readJson } from "../helpers/json.js";
 import { withTestHarness } from "../helpers/test-app.js";
 
 const DEFAULT_KEYBINDING_CLIENTS = [
-  { name: "desktop-mac", isDesktop: true, isMac: true },
-  { name: "desktop-other", isDesktop: true, isMac: false },
-  { name: "web-mac", isDesktop: false, isMac: true },
-  { name: "web-other", isDesktop: false, isMac: false },
+  { name: "desktop-mac", isDesktop: true, isMac: true, platform: "mac" },
+  { name: "desktop-other", isDesktop: true, isMac: false, platform: "linux" },
+  { name: "web-mac", isDesktop: false, isMac: true, platform: "mac" },
+  { name: "web-other", isDesktop: false, isMac: false, platform: "linux" },
 ] as const;
 
 function shortcutIdentity(
@@ -56,6 +56,7 @@ describe("app keybindings", () => {
       const overrides = [
         {
           command: "plugin:example/open",
+          platform: "mac",
           shortcut: {
             key: "i",
             mod: true,
@@ -103,9 +104,53 @@ describe("app keybindings", () => {
     }
   });
 
+  it("binds Cmd/Ctrl-[ and ] to history on desktop only and never inside editable text", () => {
+    for (const [command, browserCommand, key] of [
+      ["history.back", "browser.back", "["],
+      ["history.forward", "browser.forward", "]"],
+    ] as const) {
+      const history = DEFAULT_APP_KEYBINDINGS.filter(
+        (item) => item.command === command,
+      );
+      expect(history).toHaveLength(1);
+      expect(history[0]).toMatchObject({
+        desktopOnly: true,
+        shortcut: { key, mod: true, control: false, shift: false, alt: false },
+        when: { all: ["mainSurface"] },
+      });
+      expect(history[0]?.when.none).toEqual(
+        expect.arrayContaining(["modalOpen", "editableFocus", "terminalFocus"]),
+      );
+      expect(history[0]?.when.none).not.toContain("browserFocus");
+      const browser = DEFAULT_APP_KEYBINDINGS.filter(
+        (item) => item.command === browserCommand,
+      );
+      expect(browser).toHaveLength(1);
+      expect(browser[0]).toMatchObject({
+        desktopOnly: true,
+        shortcut: { key, mod: true, control: false, shift: false, alt: false },
+        when: { all: ["mainSurface", "browserFocus"] },
+      });
+      expect(browser[0]?.when.none).toEqual(
+        expect.arrayContaining(["modalOpen", "editableFocus"]),
+      );
+      expect(DEFAULT_APP_KEYBINDINGS.indexOf(browser[0]!)).toBeGreaterThan(
+        DEFAULT_APP_KEYBINDINGS.indexOf(history[0]!),
+      );
+    }
+    const web = applyAppKeybindingOverrides(DEFAULT_APP_KEYBINDINGS, []).filter(
+      (binding) =>
+        isAppKeybindingAvailableForClient(binding, {
+          isDesktop: false,
+          platform: "mac",
+        }) && binding.command.startsWith("history."),
+    );
+    expect(web).toEqual([]);
+  });
+
   it("preserves non-Mac Ctrl arrow editing while keeping navigation rebindable", () => {
     const defaults = applyAppKeybindingOverrides(DEFAULT_APP_KEYBINDINGS, []);
-    const client = { isDesktop: false, isMac: false };
+    const client = { isDesktop: false, isMac: false, platform: "linux" };
     for (const key of ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]) {
       for (const shiftKey of [false, true]) {
         const input = {
@@ -177,9 +222,16 @@ describe("app keybindings", () => {
       (paneCommand, index) =>
         commandPair(paneCommand, THREAD_JUMP_APP_COMMAND_IDS[index]),
     );
-    const allowedCollisions = DEFAULT_KEYBINDING_CLIENTS.flatMap((client) =>
-      intentionalCommandPairs.map((pair) => `${client.name}:${pair}`),
-    );
+    const browserHistoryPairs = [
+      commandPair("browser.back", "history.back"),
+      commandPair("browser.forward", "history.forward"),
+    ];
+    const allowedCollisions = DEFAULT_KEYBINDING_CLIENTS.flatMap((client) => [
+      ...intentionalCommandPairs.map((pair) => `${client.name}:${pair}`),
+      ...(client.isDesktop
+        ? browserHistoryPairs.map((pair) => `${client.name}:${pair}`)
+        : []),
+    ]);
     expect([...actualCollisions].sort()).toEqual(allowedCollisions.sort());
   });
 
@@ -517,7 +569,7 @@ describe("app keybindings", () => {
           key,
           desktopOnly: false,
           mod: true,
-          control: false,
+          control: true,
           shift: true,
           when: {
             all: ["mainSurface", "splitActive", "macPlatform"],
@@ -587,6 +639,8 @@ describe("app keybindings", () => {
           .map((binding) => binding.command),
       ).toEqual([
         "thread.new",
+        "history.back",
+        "history.forward",
         "thread.previous",
         "thread.next",
         ...THREAD_JUMP_APP_COMMAND_IDS,
@@ -595,6 +649,8 @@ describe("app keybindings", () => {
         "browser.focusLocation",
         "browser.reload",
         "browser.find",
+        "browser.back",
+        "browser.forward",
         "window.find",
         "window.new",
       ]);
@@ -683,42 +739,6 @@ describe("app keybindings", () => {
     });
   });
 
-  it("activates the archive command after assigning a shortcut", async () => {
-    await withTestHarness(async (harness) => {
-      const shortcut = {
-        key: "a",
-        mod: true,
-        meta: false,
-        control: false,
-        alt: false,
-        shift: true,
-      };
-      const response = await harness.app.request("/api/v1/settings/keyboard", {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify([{ command: "thread.archive", shortcut }]),
-      });
-      expect(response.status).toBe(200);
-
-      const configResponse = await harness.app.request("/api/v1/system/config");
-      const config = systemConfigResponseSchema.parse(
-        await readJson(configResponse),
-      );
-      expect(
-        config.keybindings.filter(
-          (binding) => binding.command === "thread.archive",
-        ),
-      ).toEqual([
-        {
-          command: "thread.archive",
-          desktopOnly: false,
-          shortcut,
-          when: { all: ["mainSurface"], none: ["modalOpen"] },
-        },
-      ]);
-    });
-  });
-
   it("uses null overrides to disable a command", async () => {
     await withTestHarness(async (harness) => {
       const response = await harness.app.request("/api/v1/settings/keyboard", {
@@ -786,4 +806,119 @@ describe("app keybindings", () => {
       );
     });
   });
+});
+
+it.each(["left", "right", "up", "down"] as const)(
+  "scopes migrated %s bindings to macOS and resets to the new chord",
+  (direction) => {
+    const command = `pane.focus.${direction}` as const;
+    const key = `Arrow${direction[0].toUpperCase()}${direction.slice(1)}`;
+    const overrides = appKeybindingOverridesSchema.parse([
+      {
+        command,
+        platform: "mac",
+        shortcut: {
+          key,
+          mod: true,
+          meta: false,
+          control: false,
+          alt: false,
+          shift: true,
+        },
+      },
+    ]);
+    const input = {
+      key,
+      code: key,
+      metaKey: true,
+      ctrlKey: false,
+      altKey: false,
+      shiftKey: true,
+    };
+    for (const client of DEFAULT_KEYBINDING_CLIENTS) {
+      const effective = applyAppKeybindingOverrides(
+        DEFAULT_APP_KEYBINDINGS,
+        overrides,
+      ).filter(
+        (binding) =>
+          binding.command === command &&
+          isAppKeybindingAvailableForClient(binding, client),
+      );
+      expect(effective).toHaveLength(client.isMac ? 1 : 0);
+      if (client.isMac)
+        expect(matchesAppShortcut(input, effective[0]!.shortcut, true)).toBe(
+          true,
+        );
+      const reset = applyAppKeybindingOverrides(
+        DEFAULT_APP_KEYBINDINGS,
+        [],
+      ).filter(
+        (binding) =>
+          binding.command === command &&
+          isAppKeybindingAvailableForClient(binding, client),
+      );
+      expect(reset).toHaveLength(client.isMac ? 1 : 0);
+      if (client.isMac) {
+        expect(matchesAppShortcut(input, reset[0]!.shortcut, true)).toBe(false);
+        expect(
+          matchesAppShortcut(
+            { ...input, ctrlKey: true },
+            reset[0]!.shortcut,
+            true,
+          ),
+        ).toBe(true);
+      }
+    }
+  },
+);
+
+it("resolves platform overrides before general bindings regardless of ordering", () => {
+  const base = DEFAULT_APP_KEYBINDINGS.find(
+    (binding) => binding.command === "thread.search",
+  )!;
+  const shortcut = {
+    key: "g",
+    mod: true,
+    meta: false,
+    control: false,
+    alt: false,
+    shift: false,
+  };
+  const overrides = appKeybindingOverridesSchema.parse([
+    { command: "thread.search", shortcut },
+    {
+      command: "thread.search",
+      platform: "windows",
+      shortcut: { ...shortcut, key: "w" },
+    },
+    { command: "thread.search", platform: "linux", shortcut: null },
+  ]);
+  for (const ordered of [overrides, [...overrides].reverse()]) {
+    const bindings = applyAppKeybindingOverrides([base], ordered);
+    for (const [platform, keys] of [
+      ["MacIntel", ["g"]],
+      ["Win32", ["w"]],
+      ["Linux", []],
+    ] as const) {
+      expect(
+        bindings
+          .filter((binding) =>
+            isAppKeybindingAvailableForClient(binding, {
+              isDesktop: false,
+              platform,
+            }),
+          )
+          .map((binding) => binding.shortcut.key),
+      ).toEqual(keys);
+    }
+  }
+  expect(
+    appKeybindingOverridesSchema.safeParse([...overrides, overrides[1]])
+      .success,
+  ).toBe(false);
+  expect(
+    appKeybindingOverridesSchema.safeParse([
+      { command: "thread.search", shortcut, platform: "other" },
+    ]).success,
+  ).toBe(false);
 });

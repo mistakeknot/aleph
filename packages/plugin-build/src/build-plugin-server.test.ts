@@ -12,10 +12,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import {
-  buildPluginServer,
-  PLUGIN_SERVER_EXTERNALS,
-} from "./build-plugin-server.js";
+import { buildPluginServer } from "./build-plugin-server.js";
 import { resolvePluginBuildToolchain } from "./toolchain.js";
 
 function testToolchain() {
@@ -31,11 +28,6 @@ describe("plugin server build", () => {
         .splice(0)
         .map((dir) => rm(dir, { recursive: true, force: true })),
     );
-  });
-
-  it("keeps both the current and the pre-rename SDK specifier external", () => {
-    expect(PLUGIN_SERVER_EXTERNALS).toContain("@get-bb/plugin-sdk");
-    expect(PLUGIN_SERVER_EXTERNALS).toContain("@bb/plugin-sdk");
   });
 
   it("builds a pre-rename source importing bare @bb/plugin-sdk", async () => {
@@ -166,7 +158,7 @@ import { readFileSync } from "fs";
 import { basename } from "path";
 import { spawn } from "child_process";
 import { fileURLToPath } from "node:url";
-export default () => [typeof readFileSync, basename("/a/b"), typeof spawn, fileURLToPath("file:///tmp/test")];
+export default () => [typeof readFileSync, basename("/a/b"), typeof spawn, fileURLToPath(${JSON.stringify(pathToFileURL(resolve("/tmp/test")).href)})];
 `);
       const { jsPath } = await buildPluginServer(
         dir,
@@ -181,7 +173,7 @@ export default () => [typeof readFileSync, basename("/a/b"), typeof spawn, fileU
         "function",
         "b",
         "function",
-        "/tmp/test",
+        resolve("/tmp/test"),
       ]);
     });
 

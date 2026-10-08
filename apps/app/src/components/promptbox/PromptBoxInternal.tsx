@@ -1,3 +1,4 @@
+import { registerPaneComposerFocus } from "@/lib/pane-composer-focus";
 import type { PendingAttachmentUpload } from "./usePendingAttachmentUploads";
 import { registerThreadMentionDropTarget } from "@/lib/thread-mention-drop";
 import type {
@@ -57,7 +58,23 @@ import {
   TooltipTrigger,
 } from "@bb/shared-ui/tooltip";
 import { ComposerActionsSlot } from "@/components/plugin/PluginComposerActions";
-import { useResolvedComposerEditor } from "@/components/plugin/composer-slot-hooks";
+import {
+  useResolvedComposerEditor,
+  useResolvedComposerPopups,
+} from "@/components/plugin/composer-slot-hooks";
+import { PluginComposerPopup } from "@/components/plugin/PluginComposerPopup";
+import { PluginComposerCommands } from "@/components/plugin/PluginComposerCommands";
+import {
+  APP_COMPOSER_SELECTOR,
+  composerOwnsCommand,
+  resolveComposerCommandScope,
+} from "@/lib/composer-command-ownership";
+import {
+  ComposerCommand,
+  ComposerCommandOwnerProvider,
+} from "./composer-commands";
+import { useOptionalPaneContext } from "@/views/thread-detail/PaneContext";
+import { ComposerPopupHost } from "./ComposerPopupHost";
 import {
   composerScopeIdentity,
   PluginComposerViewProvider,
@@ -82,6 +99,13 @@ import {
   type PluginMentionTrigger,
 } from "@bb/client-core";
 import { useRichTextEditingPreference } from "@/lib/rich-text-editing-preference";
+import {
+  clearComposerEditorBridge,
+  publishComposerEditorBridge,
+  type ComposerEditorBridge,
+  type ComposerEditorInsertValue,
+} from "@/lib/composer-editor-registry";
+import type { ComposerEditorState } from "@get-bb/plugin-sdk/internal/composer-handle";
 import {
   arePromptDraftStatesEqual,
   isPromptDraftEmpty,
@@ -112,7 +136,6 @@ import {
   promptEditorInlineContentFromValue,
   promptEditorValueFromDoc,
   promptEditorValueFromSlice,
-  parsePromptEditorMentionAttrs,
   promptMentionResourceFromSuggestion,
   type PromptEditorValue,
 } from "./editor/prompt-editor-serialization";
@@ -129,6 +152,7 @@ import {
   typeaheadSuggestionKey,
   type TypeaheadSuggestion,
 } from "./mentions/MentionMenu";
+import { useTypeaheadMenuMaxHeight } from "./useTypeaheadMenuMaxHeight";
 import { parsePromptMentionClipboardElement } from "./mentions/prompt-mention-clipboard";
 import {
   blurPromptEditor,
@@ -146,7 +170,7 @@ import { ComposerSendMenu } from "./ComposerSendMenu";
 const PROMPTBOX_MIN_HEIGHT = 68;
 const PROMPTBOX_SELECTION_REVEAL_MARGIN = 12;
 const COMPACT_PROMPT_ACTION_BUTTON_CLASS =
-  "size-8 p-0 transition-all [&_[data-icon-root]]:size-4";
+  "size-8 p-0 transition-all [&_[data-icon-root]]:size-4 max-md:pointer-coarse:size-10";
 const RICH_PASTE_BLOCK_TAGS = new Set([
   "ADDRESS",
   "ARTICLE",
@@ -243,6 +267,25 @@ export interface PromptBoxSubmissionConfig {
   showModifierSubmitAction?: boolean;
 }
 
+function suppressTouchCompatibilityClick(ownerDocument: Document) {
+  const clear = () => {
+    window.clearTimeout(timeout);
+    ownerDocument.removeEventListener("click", handleClick, true);
+    ownerDocument.removeEventListener("pointerdown", clear, true);
+    ownerDocument.removeEventListener("keydown", clear, true);
+  };
+  const handleClick = (event: MouseEvent) => {
+    if (event.detail === 0) return;
+    clear();
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  };
+  const timeout = window.setTimeout(clear, 1000);
+  ownerDocument.addEventListener("click", handleClick, true);
+  ownerDocument.addEventListener("pointerdown", clear, true);
+  ownerDocument.addEventListener("keydown", clear, true);
+}
+
 interface PromptSubmitButtonProps {
   canSubmit: boolean;
   className: string;
@@ -322,6 +365,7 @@ function PromptSubmitButton({
         ) {
           return;
         }
+        suppressTouchCompatibilityClick(event.currentTarget.ownerDocument);
         onTouchSubmit();
       }}
       onMouseDown={(event) => event.preventDefault()}
@@ -338,7 +382,10 @@ function PromptSubmitButton({
       )}
     >
       {isBusy ? (
-        <Icon name="Loading" className="size-4 animate-spin motion-reduce:animate-none" />
+        <Icon
+          name="Loading"
+          className="size-4 animate-spin motion-reduce:animate-none"
+        />
       ) : (
         <>
           <Icon name={icon ?? "CornerDownLeft"} className="size-4" />
@@ -443,6 +490,7 @@ export interface PromptVoiceConfig {
   stream: MediaStream | null;
   start: () => void | Promise<void>;
   stop: () => void;
+  send: () => void;
   cancel: () => void;
 }
 
@@ -450,6 +498,7 @@ export interface PromptBoxHandle {
   focusEnd: () => void;
   captureHeightForLayoutChange: () => void;
   insertTextAtCursor: (text: string) => void;
+  sendVoiceTranscript: (text: string) => void;
   getTextBeforeCursor: () => string | undefined;
   playVoiceCompletionTransition: () => Promise<void>;
 }
@@ -457,6 +506,11 @@ export interface PromptBoxHandle {
 export type { PromptBoxAction } from "./PromptBoxActionsMenu";
 
 export type MentionMenuPlacement = "top" | "bottom";
+
+type ComposerMenuState =
+  | { kind: "suggestions"; trigger: ActiveTrigger }
+  | { kind: "plugin"; key: string; open: boolean }
+  | null;
 
 interface PromptBoxInternalProps {
   id?: string;
@@ -480,6 +534,7 @@ interface PromptBoxInternalProps {
   attachments?: AttachmentsConfig;
   promptActions?: readonly PromptBoxAction[];
   suppressPluginComposerCustomizations?: boolean;
+  onFocusCommand?: () => void;
   editorLayout?: ComposerEditorLayout;
   onCollapse?: () => void;
   compact?: PromptBoxCompactConfig;
@@ -952,159 +1007,59 @@ function promptActionTextImmediatelyBeforeCursor(
   return before.endsWith(actionText);
 }
 
-function promptActionCommandSerializedText(action: PromptBoxAction): string {
-  if (!action.command) {
-    return action.text;
-  }
-  return `${action.command.trigger}${action.command.name}`;
-}
-
-function isPromptActionCommandMention(
-  node: ProseMirrorNode,
-  actions: readonly PromptBoxAction[],
-): boolean {
-  if (node.type.name !== "mention") {
-    return false;
-  }
-  const attrs = parsePromptEditorMentionAttrs(node.attrs);
-  if (!attrs || attrs.resource.kind !== "command") {
-    return false;
-  }
-  const resource = attrs.resource;
-  return actions.some((action) => {
-    const command = action.command;
-    if (!command) {
-      return false;
-    }
-    return (
-      resource.trigger === command.trigger &&
-      resource.name === command.name &&
-      attrs.serializedText === promptActionCommandSerializedText(action)
-    );
-  });
-}
-
-function findPromptActionTextSuffix(
-  text: string,
-  actions: readonly PromptBoxAction[],
-): PromptBoxAction | null {
-  return (
-    actions.find(
-      (action) =>
-        !action.command && action.text.length > 0 && text.endsWith(action.text),
-    ) ?? null
+function withLeadingCommand(
+  value: { text: string; mentions: readonly PromptTextMention[] },
+  command: PromptActionCommand,
+): PromptEditorValue {
+  const leadingCommand = value.mentions.find(
+    (mention) => mention.resource.kind === "command" && mention.start === 0,
   );
+  const rest = value.text.slice(leadingCommand?.end ?? 0).trimStart();
+  const prefix = `${command.serializedText}${command.trailingText}`;
+  const shift = prefix.length - (value.text.length - rest.length);
+  return {
+    text: `${prefix}${rest}`,
+    mentions: [
+      {
+        start: 0,
+        end: command.serializedText.length,
+        resource: promptCommandResourceFromSuggestion({
+          suggestion: command.suggestion,
+          trigger: command.trigger,
+        }),
+      },
+      ...value.mentions
+        .filter((mention) => mention !== leadingCommand)
+        .map((mention) => ({
+          ...mention,
+          start: mention.start + shift,
+          end: mention.end + shift,
+        })),
+    ],
+  };
 }
 
-function getPromptActionRangeImmediatelyBeforeCursor({
-  editor,
-  actions,
-}: {
-  editor: Editor;
-  actions: readonly PromptBoxAction[];
-}): PromptActionInsertionRange | null {
-  const selection = editor.state.selection;
-  if (!selection.empty) {
-    return null;
-  }
-
-  const { $from } = selection;
-  const cursorOffset = $from.parentOffset;
-  const parentStart = $from.start();
-  let searchOffset = cursorOffset;
-
-  while (searchOffset > 0) {
-    const previous = $from.parent.childBefore(searchOffset);
-    const node = previous.node;
-    if (!node) {
-      return null;
-    }
-    const sizeBeforeSearchOffset = searchOffset - previous.offset;
-    if (node.isText) {
-      const textBeforeCursor = (node.text ?? "").slice(
-        0,
-        sizeBeforeSearchOffset,
-      );
-      const textAction = findPromptActionTextSuffix(textBeforeCursor, actions);
-      if (textAction) {
-        return {
-          from:
-            parentStart +
-            previous.offset +
-            textBeforeCursor.length -
-            textAction.text.length,
-          to: selection.from,
-        };
-      }
-      if (/\S/u.test(textBeforeCursor)) {
-        return null;
-      }
-      searchOffset = previous.offset;
-      continue;
-    }
-    if (
-      sizeBeforeSearchOffset === node.nodeSize &&
-      isPromptActionCommandMention(node, actions)
-    ) {
-      return {
-        from: parentStart + previous.offset,
-        to: selection.from,
-      };
-    }
-    return null;
-  }
-
-  return null;
-}
-
-function getPromptActionInsertionRange({
-  editor,
-  action,
-  actions,
-  triggers,
-}: {
-  editor: Editor;
-  action: PromptBoxAction;
-  actions: readonly PromptBoxAction[];
-  triggers: readonly TypeaheadTrigger[];
-}): PromptActionInsertionRange | null {
+function skillsTriggerInsertionRange(
+  editor: Editor,
+  action: PromptBoxAction,
+  triggers: readonly TypeaheadTrigger[],
+): PromptActionInsertionRange | null {
   const selection = editor.state.selection;
   if (!selection.empty) {
     return { from: selection.from, to: selection.to };
   }
-
-  const previousPromptActionRange = getPromptActionRangeImmediatelyBeforeCursor(
-    {
-      editor,
-      actions,
-    },
-  );
-  if (previousPromptActionRange !== null) {
-    return previousPromptActionRange;
+  if (promptActionTextImmediatelyBeforeCursor(editor, action.text)) {
+    return null;
   }
-
-  const activeCommandTrigger = findActiveTrigger(editor, triggers);
-  const isActiveCommand =
-    activeCommandTrigger !== null && activeCommandTrigger.kind === "command";
-
-  if (action.kind === "skills") {
-    if (
-      isActiveCommand &&
-      activeCommandTrigger.char === action.text &&
-      activeCommandTrigger.to === selection.from
-    ) {
-      return null;
-    }
-    return { from: selection.from, to: selection.to };
+  const activeTrigger = findActiveTrigger(editor, triggers);
+  if (
+    activeTrigger !== null &&
+    activeTrigger.kind === "command" &&
+    activeTrigger.char === action.text &&
+    activeTrigger.to === selection.from
+  ) {
+    return null;
   }
-
-  if (isActiveCommand && activeCommandTrigger.to === selection.from) {
-    return {
-      from: activeCommandTrigger.from,
-      to: activeCommandTrigger.to,
-    };
-  }
-
   return { from: selection.from, to: selection.to };
 }
 
@@ -1130,27 +1085,6 @@ function promptActionCommandFromAction(
       argumentHint: null,
     },
   };
-}
-
-function promptActionTriggers(
-  triggers: readonly TypeaheadTrigger[],
-  commandAction: PromptActionCommand | null,
-): readonly TypeaheadTrigger[] {
-  if (commandAction === null) {
-    return triggers;
-  }
-  if (
-    triggers.some(
-      (trigger) =>
-        trigger.kind === "command" && trigger.char === commandAction.trigger,
-    )
-  ) {
-    return triggers;
-  }
-  return [
-    ...triggers,
-    { kind: "command", char: commandAction.trigger },
-  ] satisfies TypeaheadTrigger[];
 }
 
 export function suppressPromptEditorAnchorActivation(event: Event): boolean {
@@ -1219,6 +1153,7 @@ export function PromptBoxInternal({
   attachments: attachmentConfig = {},
   promptActions,
   suppressPluginComposerCustomizations = false,
+  onFocusCommand,
   editorLayout = "thread",
   onCollapse,
   compact,
@@ -1333,9 +1268,15 @@ export function PromptBoxInternal({
   const onAttachFilesRef = useRef(onAttachFiles);
   const dismissedTriggerRef = useRef<DismissedTriggerRange | null>(null);
   const isRestoringAppliedMentionRef = useRef(false);
-  const [activeTrigger, setActiveTrigger] = useState<ActiveTrigger | null>(
-    null,
-  );
+  const [composerMenu, setComposerMenuState] =
+    useState<ComposerMenuState>(null);
+  const composerMenuRef = useRef<ComposerMenuState>(null);
+  const setComposerMenu = useCallback((next: ComposerMenuState) => {
+    composerMenuRef.current = next;
+    setComposerMenuState(next);
+  }, []);
+  const activeTrigger =
+    composerMenu?.kind === "suggestions" ? composerMenu.trigger : null;
   const [selectedSuggestionKey, setSelectedSuggestionKey] = useState<
     string | null
   >(null);
@@ -1473,7 +1414,11 @@ export function PromptBoxInternal({
     return transition;
   }, []);
   const showCompactLayout =
-    compact?.isCompact === true && !showVoiceActionGroup;
+    compact?.isCompact === true &&
+    (!showVoiceActionGroup ||
+      (value.trim().length === 0 &&
+        attachments.length === 0 &&
+        !pendingUploads?.length));
   const effectivePlaceholder = showCompactLayout
     ? (compact.placeholder ?? placeholder)
     : placeholder;
@@ -1630,8 +1575,40 @@ export function PromptBoxInternal({
     [onCommandQueryChange, onMentionQueryChange],
   );
 
+  const dismissComposerMenu = useCallback(
+    (restoreFocus = false) => {
+      const current = composerMenuRef.current;
+      triggerKeyRef.current = "";
+      if (current?.kind === "suggestions") {
+        dismissedTriggerRef.current = {
+          start: current.trigger.from,
+          end: current.trigger.to,
+          hasLeftRange: false,
+        };
+      }
+      setComposerMenu(
+        current?.kind === "plugin" ? { ...current, open: false } : null,
+      );
+      dispatchTriggerQuery(null);
+      const currentEditor = editorRef.current;
+      if (
+        restoreFocus &&
+        currentEditor &&
+        !currentEditor.isDestroyed &&
+        !currentEditor.isFocused
+      )
+        currentEditor.commands.focus();
+    },
+    [dispatchTriggerQuery, setComposerMenu],
+  );
+
   const syncTriggerState = useCallback(
     (editor: Editor) => {
+      if (
+        composerMenuRef.current?.kind === "plugin" &&
+        composerMenuRef.current.open
+      )
+        return;
       const caretPosition = editor.state.selection.from;
       let dismissedTrigger = dismissedTriggerRef.current;
       const isRestoringAppliedMention =
@@ -1678,11 +1655,17 @@ export function PromptBoxInternal({
         triggerKeyRef.current = nextKey;
         setSelectedSuggestionKey(null);
       }
-      setActiveTrigger(nextTrigger);
+      setComposerMenu(
+        nextTrigger
+          ? { kind: "suggestions", trigger: nextTrigger }
+          : composerMenuRef.current?.kind === "plugin"
+            ? composerMenuRef.current
+            : null,
+      );
 
       dispatchTriggerQuery(nextTrigger);
     },
-    [dispatchTriggerQuery, triggers],
+    [dispatchTriggerQuery, setComposerMenu, triggers],
   );
 
   useEffect(() => {
@@ -1745,20 +1728,20 @@ export function PromptBoxInternal({
             return suppressPromptEditorAnchorActivation(event);
           },
           focus: () => {
+            if (composerMenuRef.current?.kind === "plugin")
+              dismissComposerMenu();
             onCommandEditorFocusRef.current?.();
             return false;
           },
           blur: () => {
-            triggerKeyRef.current = "";
+            if (composerMenuRef.current?.kind === "suggestions")
+              dismissComposerMenu();
             if (dismissedTriggerRef.current) {
               dismissedTriggerRef.current = {
                 ...dismissedTriggerRef.current,
                 hasLeftRange: true,
               };
             }
-            setActiveTrigger(null);
-            onMentionQueryChange(null, null);
-            onCommandQueryChange(null, null);
             return false;
           },
           cut: () => {
@@ -1930,6 +1913,13 @@ export function PromptBoxInternal({
 
   useEffect(() => {
     editorRef.current = editor;
+  }, [editor]);
+
+  useLayoutEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    return registerPaneComposerFocus(editor.view.dom, () => {
+      if (!editor.isDestroyed && editor.isEditable) editor.view.focus();
+    });
   }, [editor]);
 
   useEffect(() => {
@@ -2221,6 +2211,23 @@ export function PromptBoxInternal({
     !isCommandTriggerLiteral &&
     !isBareNonDefaultMentionTrigger;
 
+  useTypeaheadMenuMaxHeight(
+    typeaheadMenuRef,
+    showTypeaheadMenu && mentionMenuPlacement === "top",
+  );
+
+  const popups = useResolvedComposerPopups(
+    suppressPluginComposerCustomizations ? null : composerView.scope.kind,
+  );
+  const popupContribution =
+    composerMenu?.kind === "plugin"
+      ? (popups.find((popup) => popup.key === composerMenu.key) ?? null)
+      : null;
+  const popupOpen =
+    composerMenu?.kind === "plugin" &&
+    composerMenu.open &&
+    popupContribution !== null;
+  const composerMenuOpen = popupOpen || showTypeaheadMenu;
   const typeaheadMenuState: TypeaheadMenuState =
     activeTriggerKind === "command"
       ? { trigger: "command", state: commandMenuState }
@@ -2229,7 +2236,7 @@ export function PromptBoxInternal({
   useLayoutEffect(() => {
     if (reportQueuedEditorTypeaheadLayout === null) return;
     const menu = typeaheadMenuRef.current;
-    if (!showTypeaheadMenu || menu === null) {
+    if (!composerMenuOpen || menu === null) {
       reportQueuedEditorTypeaheadLayout({ height: 0, isOpen: false });
       return;
     }
@@ -2250,7 +2257,7 @@ export function PromptBoxInternal({
       resizeObserver?.disconnect();
       reportQueuedEditorTypeaheadLayout({ height: 0, isOpen: false });
     };
-  }, [reportQueuedEditorTypeaheadLayout, showTypeaheadMenu]);
+  }, [reportQueuedEditorTypeaheadLayout, composerMenuOpen]);
 
   useEffect(() => {
     if (selectedSuggestionKey !== null && selectedSuggestionIndex === -1) {
@@ -2320,7 +2327,7 @@ export function PromptBoxInternal({
       triggerKeyRef.current = "";
       dismissedTriggerRef.current = dismissedTrigger;
       isRestoringAppliedMentionRef.current = true;
-      setActiveTrigger(null);
+      setComposerMenu(null);
       setSelectedSuggestionKey(null);
       clearQuery();
 
@@ -2346,7 +2353,7 @@ export function PromptBoxInternal({
       }
       finishApply(targetEditor);
     },
-    [finishApply],
+    [finishApply, setComposerMenu],
   );
 
   useEffect(() => {
@@ -2447,19 +2454,70 @@ export function PromptBoxInternal({
     [applyCommandSuggestion, applyMentionSuggestion],
   );
 
-  const dismissActiveTrigger = useCallback(() => {
-    triggerKeyRef.current = "";
-    if (activeTrigger) {
-      dismissedTriggerRef.current = {
-        start: activeTrigger.from,
-        end: activeTrigger.to,
-        hasLeftRange: false,
-      };
-    }
-    setActiveTrigger(null);
-    onMentionQueryChange(null, null);
-    onCommandQueryChange(null, null);
-  }, [activeTrigger, onCommandQueryChange, onMentionQueryChange]);
+  const handleComposerMenuKeyDown = useCallback(
+    (event: KeyboardEvent): boolean => {
+      if (!composerMenuOpen || event.defaultPrevented) return false;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        dismissComposerMenu(true);
+        return true;
+      }
+      if (
+        popupOpen &&
+        event.key === "Enter" &&
+        event.target instanceof HTMLInputElement
+      ) {
+        event.preventDefault();
+        return true;
+      }
+      return false;
+    },
+    [composerMenuOpen, dismissComposerMenu, popupOpen],
+  );
+
+  const isFocusedPane = useOptionalPaneContext()?.isFocused ?? true;
+  const ownsCommandTarget = useCallback(
+    (target: EventTarget | null) =>
+      composerOwnsCommand(
+        resolveComposerCommandScope({
+          composer: formRef.current?.closest(APP_COMPOSER_SELECTOR) ?? null,
+          target,
+          isFocusedPane,
+        }),
+      ),
+    [isFocusedPane],
+  );
+
+  const openPopupForPlugin = useCallback(
+    (pluginId: string, popupId: string) => {
+      const contribution = popups.find(
+        (popup) => popup.pluginId === pluginId && popup.popup.id === popupId,
+      );
+      if (!contribution) return false;
+      dismissComposerMenu();
+      setComposerMenu({ kind: "plugin", key: contribution.key, open: true });
+      return true;
+    },
+    [dismissComposerMenu, popups, setComposerMenu],
+  );
+
+  const closePopupForPlugin = useCallback(
+    (pluginId: string) => {
+      const current = composerMenuRef.current;
+      if (
+        current?.kind !== "plugin" ||
+        !current.open ||
+        !popups.some(
+          (popup) => popup.key === current.key && popup.pluginId === pluginId,
+        )
+      )
+        return false;
+      dismissComposerMenu(true);
+      return true;
+    },
+    [dismissComposerMenu, popups],
+  );
 
   const focusEnd = useCallback(() => {
     if (isPointerCoarse) {
@@ -2518,11 +2576,11 @@ export function PromptBoxInternal({
   );
 
   const focusAfterPromptAction = useCallback(
-    (currentEditor: Editor) => {
+    (currentEditor: Editor, position?: "end") => {
       const focusEditor = () => {
         promptActionFocusFrameRef.current = null;
         if (currentEditor.isDestroyed) return;
-        currentEditor.commands.focus();
+        currentEditor.commands.focus(position);
         syncTriggerState(currentEditor);
         scheduleRevealEditorSelection();
       };
@@ -2543,63 +2601,37 @@ export function PromptBoxInternal({
   const applyPromptAction = useCallback(
     (action: PromptBoxAction) => {
       if (action.text.length === 0) return;
+      const currentEditor = editorRef.current;
       const commandAction = promptActionCommandFromAction(action);
 
-      const currentEditor = editorRef.current;
-      if (!currentEditor || currentEditor.isDestroyed) {
-        const currentValue = valueRef.current;
-        if (currentValue.endsWith(action.text)) return;
-        if (commandAction) {
-          const start = currentValue.length;
-          const nextValue = `${currentValue}${commandAction.serializedText}${commandAction.trailingText}`;
-          onChangeRef.current(nextValue, [
-            ...mentionRangesRef.current,
-            {
-              start,
-              end: start + commandAction.serializedText.length,
-              resource: promptCommandResourceFromSuggestion({
-                suggestion: commandAction.suggestion,
-                trigger: commandAction.trigger,
-              }),
-            },
-          ]);
-        } else {
-          onChangeRef.current(`${currentValue}${action.text}`, [
-            ...mentionRangesRef.current,
-          ]);
+      if (commandAction) {
+        const next = withLeadingCommand(
+          { text: valueRef.current, mentions: mentionRangesRef.current },
+          commandAction,
+        );
+        onChangeRef.current(next.text, next.mentions);
+        if (currentEditor && !currentEditor.isDestroyed) {
+          focusAfterPromptAction(currentEditor, "end");
         }
         return;
       }
 
-      if (promptActionTextImmediatelyBeforeCursor(currentEditor, action.text)) {
-        focusAfterPromptAction(currentEditor);
+      if (!currentEditor || currentEditor.isDestroyed) {
+        const currentValue = valueRef.current;
+        if (currentValue.endsWith(action.text)) return;
+        onChangeRef.current(`${currentValue}${action.text}`, [
+          ...mentionRangesRef.current,
+        ]);
         return;
       }
 
-      const insertionRange = getPromptActionInsertionRange({
-        editor: currentEditor,
+      const insertionRange = skillsTriggerInsertionRange(
+        currentEditor,
         action,
-        actions: promptActions ?? [],
-        triggers: promptActionTriggers(triggers, commandAction),
-      });
+        triggers,
+      );
       if (insertionRange === null) {
         focusAfterPromptAction(currentEditor);
-        return;
-      }
-
-      if (commandAction) {
-        insertPromptMentionPill({
-          editor: currentEditor,
-          range: { from: insertionRange.from, to: insertionRange.to },
-          resource: promptCommandResourceFromSuggestion({
-            suggestion: commandAction.suggestion,
-            trigger: commandAction.trigger,
-          }),
-          serializedText: commandAction.serializedText,
-          trailingText: commandAction.trailingText,
-          dismissedTrigger: null,
-          clearQuery: () => onCommandQueryChange(null, null),
-        });
         return;
       }
 
@@ -2614,14 +2646,7 @@ export function PromptBoxInternal({
         .run();
       finishApply(currentEditor);
     },
-    [
-      finishApply,
-      focusAfterPromptAction,
-      insertPromptMentionPill,
-      onCommandQueryChange,
-      promptActions,
-      triggers,
-    ],
+    [finishApply, focusAfterPromptAction, triggers],
   );
 
   const getTextBeforeCursor = useCallback((): string | undefined => {
@@ -2637,12 +2662,24 @@ export function PromptBoxInternal({
     return beforeCursor.length > 0 ? beforeCursor : undefined;
   }, []);
 
+  const [voiceSubmitBaseline, setVoiceSubmitBaseline] = useState<string | null>(
+    null,
+  );
+  const sendVoiceTranscript = useCallback(
+    (text: string) => {
+      setVoiceSubmitBaseline(valueRef.current);
+      insertTextAtCursor(text);
+    },
+    [insertTextAtCursor],
+  );
+
   useImperativeHandle(
     promptBoxRef,
     () => ({
       captureHeightForLayoutChange: capturePromptBoxHeight,
       focusEnd,
       insertTextAtCursor,
+      sendVoiceTranscript,
       getTextBeforeCursor,
       playVoiceCompletionTransition,
     }),
@@ -2651,6 +2688,7 @@ export function PromptBoxInternal({
       focusEnd,
       getTextBeforeCursor,
       insertTextAtCursor,
+      sendVoiceTranscript,
       playVoiceCompletionTransition,
     ],
   );
@@ -2665,6 +2703,117 @@ export function PromptBoxInternal({
   const canPrimarySubmit = canSubmitAction(primarySubmitAction);
   const canSubmit = hasSubmittableInput && canPrimarySubmit;
   const canModifierSubmit = canSubmitAction(modifierSubmitAction);
+  const composerEditorKey = pluginComposerHost?.textEffectKey ?? null;
+  const submittingBlockedReason = canSubmit
+    ? null
+    : isAttaching
+      ? "Uploading attachments..."
+      : (submitDisabledReason ??
+        (showVoiceActionGroup
+          ? "Finish voice input first."
+          : isSubmitting
+            ? "Submitting..."
+            : hasSubmittableInput
+              ? "This composer can't submit right now."
+              : "Type a message first."));
+  const composerEditorState = useMemo<ComposerEditorState>(
+    () => ({
+      layout: composerLayout,
+      isRunning,
+      isSubmitting,
+      isSubmittingBlocked: !canSubmit,
+      submittingBlockedReason,
+      isAttaching,
+      attachmentError,
+    }),
+    [
+      attachmentError,
+      canSubmit,
+      composerLayout,
+      isAttaching,
+      isRunning,
+      isSubmitting,
+      submittingBlockedReason,
+    ],
+  );
+  const insertAtCursorForPlugin = useCallback(
+    (value: ComposerEditorInsertValue, block: boolean) => {
+      const currentEditor = editorRef.current;
+      if (!currentEditor || currentEditor.isDestroyed) return false;
+      const insertion = currentEditor.chain();
+      if (!isPointerCoarse) insertion.focus();
+      insertion
+        .insertContent(
+          block
+            ? promptEditorContentFromValue(value, {
+                richTextMarkdown: richTextEditing,
+              })
+            : promptEditorInlineContentFromValue(value),
+        )
+        .run();
+      if (!isPointerCoarse) scheduleRevealEditorSelection();
+      return true;
+    },
+    [isPointerCoarse, richTextEditing, scheduleRevealEditorSelection],
+  );
+  const composerEditorBridge = useMemo<ComposerEditorBridge | null>(
+    () =>
+      pluginComposerHost === null
+        ? null
+        : {
+            host: pluginComposerHost,
+            pluginCustomizable: !suppressPluginComposerCustomizations,
+            state: composerEditorState,
+            insertAtCursor: insertAtCursorForPlugin,
+            openPopup: openPopupForPlugin,
+            closePopup: closePopupForPlugin,
+            isPopupOpen: () => {
+              const current = composerMenuRef.current;
+              return (
+                current?.kind === "plugin" &&
+                current.open &&
+                popups.some((popup) => popup.key === current.key)
+              );
+            },
+          },
+    [
+      composerEditorState,
+      insertAtCursorForPlugin,
+      openPopupForPlugin,
+      closePopupForPlugin,
+      popups,
+      pluginComposerHost,
+      suppressPluginComposerCustomizations,
+    ],
+  );
+  const publishedComposerEditorBridgeRef = useRef<{
+    key: string;
+    bridge: ComposerEditorBridge;
+  } | null>(null);
+  useLayoutEffect(() => {
+    const previous = publishedComposerEditorBridgeRef.current;
+    if (previous !== null && previous.key !== composerEditorKey) {
+      clearComposerEditorBridge(previous.key, previous.bridge);
+    }
+    if (composerEditorKey === null || composerEditorBridge === null) {
+      publishedComposerEditorBridgeRef.current = null;
+      return;
+    }
+    publishComposerEditorBridge(composerEditorKey, composerEditorBridge);
+    publishedComposerEditorBridgeRef.current = {
+      key: composerEditorKey,
+      bridge: composerEditorBridge,
+    };
+  }, [composerEditorBridge, composerEditorKey]);
+  useEffect(
+    () => () => {
+      const published = publishedComposerEditorBridgeRef.current;
+      if (published !== null) {
+        clearComposerEditorBridge(published.key, published.bridge);
+      }
+    },
+    [],
+  );
   const showStop = Boolean(
     isRunning && onStop && !canSubmit && !isAttaching && !showVoiceActionGroup,
   );
@@ -2679,29 +2828,9 @@ export function PromptBoxInternal({
     showCompactLayout &&
     canStartVoiceInput &&
     (!showVoiceAsPrimaryAction || showStop);
-  const stopGestureButtonRef = useRef<HTMLButtonElement | null>(null);
-  const handleStopPointerDown = useCallback(
-    (event: ReactPointerEvent<HTMLButtonElement>) => {
-      if (event.button !== 0) return;
-      stopGestureButtonRef.current = event.currentTarget;
-    },
-    [],
-  );
-  const handleStopClick = useCallback(
-    (event: ReactMouseEvent<HTMLButtonElement>) => {
-      const gestureButton = stopGestureButtonRef.current;
-      stopGestureButtonRef.current = null;
-      if (event.detail > 0 && gestureButton !== event.currentTarget) return;
-      onStop?.();
-    },
-    [onStop],
-  );
-  const voiceGestureButtonRef = useRef<HTMLButtonElement | null>(null);
   const handleVoicePointerDown = useCallback(
     (event: ReactPointerEvent<HTMLButtonElement>) => {
-      if (event.button !== 0) return;
-      voiceGestureButtonRef.current = event.currentTarget;
-      if (!isPointerCoarse) return;
+      if (!isPointerCoarse || event.button !== 0) return;
 
       event.preventDefault();
     },
@@ -2716,15 +2845,6 @@ export function PromptBoxInternal({
     }
     void voice?.start();
   }, [isPointerCoarse, voice]);
-  const handleVoiceClick = useCallback(
-    (event: ReactMouseEvent<HTMLButtonElement>) => {
-      const gestureButton = voiceGestureButtonRef.current;
-      voiceGestureButtonRef.current = null;
-      if (event.detail > 0 && gestureButton !== event.currentTarget) return;
-      startVoiceInput();
-    },
-    [startVoiceInput],
-  );
   const cancelVoiceInput = useCallback(() => {
     if (voiceActionRevealFrameRef.current !== null) {
       window.cancelAnimationFrame(voiceActionRevealFrameRef.current);
@@ -2757,6 +2877,23 @@ export function PromptBoxInternal({
       blurPromptEditor(editorRef.current);
     }
   }, [canPrimarySubmit, onSubmit]);
+
+  useEffect(() => {
+    if (
+      voiceSubmitBaseline === null ||
+      showVoiceActionGroup ||
+      value === voiceSubmitBaseline
+    )
+      return;
+    setVoiceSubmitBaseline(null);
+    if (canSubmit) submitPrompt();
+  }, [
+    voiceSubmitBaseline,
+    showVoiceActionGroup,
+    value,
+    canSubmit,
+    submitPrompt,
+  ]);
 
   const handleSubmitClick = useCallback(
     (event: ReactMouseEvent<HTMLButtonElement>) => {
@@ -2872,7 +3009,7 @@ export function PromptBoxInternal({
       ) {
         return false;
       }
-      if (dispatchAppCommandKey(event)) {
+      if (dispatchAppCommandKey(event) || handleComposerMenuKeyDown(event)) {
         return true;
       }
       const canSubmitWithEnterKey =
@@ -2963,11 +3100,6 @@ export function PromptBoxInternal({
               setPendingCommandSubmit(true);
             }
           }
-          return true;
-        }
-        if (event.key === "Escape") {
-          event.preventDefault();
-          dismissActiveTrigger();
           return true;
         }
       }
@@ -3096,7 +3228,7 @@ export function PromptBoxInternal({
       commandHasMore,
       commandIsLoadingMore,
       dispatchAppCommandKey,
-      dismissActiveTrigger,
+      handleComposerMenuKeyDown,
       history,
       isPointerCoarse,
       loadMoreCommands,
@@ -3136,6 +3268,7 @@ export function PromptBoxInternal({
       data-promptbox-compact={showCompactLayout ? "" : undefined}
       data-promptbox-voice-active={showVoiceActionGroup ? "" : undefined}
       onSubmit={handleSubmit}
+      onKeyDown={(event) => handleComposerMenuKeyDown(event.nativeEvent)}
       onMouseDown={handlePromptBoxMouseDown}
       onDragOver={(event) => {
         if (!onAttachFiles) return;
@@ -3203,9 +3336,13 @@ export function PromptBoxInternal({
           ) : null}
           <div
             data-promptbox-input-region=""
+            aria-hidden={
+              showCompactLayout && showVoiceActionGroup ? true : undefined
+            }
             className={cn(
               "relative",
               showCompactLayout && "min-w-0 flex-1",
+              showCompactLayout && showVoiceActionGroup && "invisible",
               showCompactVoiceAction && "pr-9",
             )}
           >
@@ -3259,28 +3396,48 @@ export function PromptBoxInternal({
             />
           </div>
 
-          {showTypeaheadMenu ? (
-            <div
-              ref={typeaheadMenuRef}
-              data-promptbox-typeahead-menu=""
-              className={cn(
-                "absolute -left-px -right-px z-20",
-                mentionMenuPlacement === "top"
-                  ? "bottom-full mb-2"
-                  : "top-full mt-2",
-              )}
+          <PluginComposerViewProvider value={composerView}>
+            <ComposerCommandOwnerProvider value={ownsCommandTarget}>
+              {onFocusCommand !== undefined ? (
+                <ComposerCommand
+                  command="composer.focus"
+                  run={onFocusCommand}
+                />
+              ) : null}
+              {pluginComposerHost !== null &&
+              !suppressPluginComposerCustomizations ? (
+                <PluginComposerCommands />
+              ) : null}
+            </ComposerCommandOwnerProvider>
+            <ComposerPopupHost
+              open={composerMenuOpen}
+              placement={mentionMenuPlacement}
+              label={popupContribution?.popup.label ?? "Suggestions"}
+              interactive={popupContribution !== null}
+              popupKey={popupContribution?.key ?? null}
+              popupRef={typeaheadMenuRef}
+              composerRef={formRef}
+              onClose={dismissComposerMenu}
             >
-              <MentionMenu
-                state={typeaheadMenuState}
-                selectedIndex={selectedIndex}
-                onApply={applyTrigger}
-                onDismiss={isPointerCoarse ? dismissActiveTrigger : undefined}
-                onCommandLoadMore={
-                  canLoadMoreCommands ? loadMoreCommands : undefined
-                }
-              />
-            </div>
-          ) : null}
+              {popupContribution !== null ? (
+                <PluginComposerPopup
+                  key={popupContribution.key}
+                  contribution={popupContribution}
+                  onClose={() => dismissComposerMenu(true)}
+                />
+              ) : (
+                <MentionMenu
+                  state={typeaheadMenuState}
+                  selectedIndex={selectedIndex}
+                  onApply={applyTrigger}
+                  onDismiss={isPointerCoarse ? dismissComposerMenu : undefined}
+                  onCommandLoadMore={
+                    canLoadMoreCommands ? loadMoreCommands : undefined
+                  }
+                />
+              )}
+            </ComposerPopupHost>
+          </PluginComposerViewProvider>
 
           {!showCompactLayout ? (
             <>
@@ -3310,8 +3467,9 @@ export function PromptBoxInternal({
             <div
               data-promptbox-action-row=""
               className={cn(
-                "relative flex shrink-0 select-none flex-row items-center gap-3 pb-2 pl-3.5 pr-[13px] pt-1.5",
+                "relative flex shrink-0 select-none flex-row flex-wrap items-center gap-3 pb-2 pl-3.5 pr-[13px] pt-1.5",
                 showCompactLayout && "absolute inset-y-0 right-2 gap-0 p-0",
+                showCompactLayout && showVoiceActionGroup && "inset-0",
               )}
             >
               {voice && isVoiceActionPresent ? (
@@ -3328,9 +3486,12 @@ export function PromptBoxInternal({
                   )}
                 >
                   <VoiceRecordingBar
+                    isCompact={showCompactLayout}
                     state={renderedVoiceActionState}
                     stream={voice.stream}
+                    submitIcon={submitIcon ?? "CornerDownLeft"}
                     onConfirm={voice.stop}
+                    onSend={voice.send}
                     onCancel={cancelVoiceInput}
                   />
                 </div>
@@ -3340,7 +3501,7 @@ export function PromptBoxInternal({
                   data-promptbox-expanded-only=""
                   data-promptbox-standard-actions=""
                   className={cn(
-                    "flex min-w-0 flex-1 flex-row items-center gap-1 transition-[opacity,transform] duration-[180ms] ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none",
+                    "flex min-w-9 flex-1 flex-row items-center gap-1 transition-[opacity,transform] duration-[180ms] ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none",
                     showVoiceActionGroup
                       ? "pointer-events-none translate-y-1 opacity-0"
                       : "translate-y-0 opacity-100",
@@ -3356,9 +3517,6 @@ export function PromptBoxInternal({
                         : undefined
                     }
                     onAction={applyPromptAction}
-                    includePluginContributions={
-                      !suppressPluginComposerCustomizations
-                    }
                   />
                   {footerStart}
                 </div>
@@ -3366,7 +3524,7 @@ export function PromptBoxInternal({
               <div
                 data-promptbox-standard-actions=""
                 className={cn(
-                  "flex shrink-0 flex-row items-center gap-1 transition-[opacity,transform] duration-[180ms] ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none",
+                  "flex min-w-0 max-w-full shrink-0 flex-row flex-wrap items-center justify-end gap-1 transition-[opacity,transform] duration-[180ms] ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none",
                   showVoiceActionGroup
                     ? "pointer-events-none translate-y-1 opacity-0"
                     : "translate-y-0 opacity-100",
@@ -3399,7 +3557,7 @@ export function PromptBoxInternal({
                           }
                           disabled={!canStartVoiceInput}
                           onPointerDown={handleVoicePointerDown}
-                          onClick={handleVoiceClick}
+                          onClick={startVoiceInput}
                           className={
                             showCompactLayout
                               ? COMPACT_PROMPT_ACTION_BUTTON_CLASS
@@ -3422,8 +3580,7 @@ export function PromptBoxInternal({
                         size="icon"
                         variant="secondary"
                         aria-label="Stop run"
-                        onPointerDown={handleStopPointerDown}
-                        onClick={handleStopClick}
+                        onClick={onStop}
                         className={
                           showCompactLayout
                             ? COMPACT_PROMPT_ACTION_BUTTON_CLASS
@@ -3443,7 +3600,7 @@ export function PromptBoxInternal({
                         variant="default"
                         aria-label="Start voice input"
                         onPointerDown={handleVoicePointerDown}
-                        onClick={handleVoiceClick}
+                        onClick={startVoiceInput}
                         className={cn(
                           showCompactLayout
                             ? COMPACT_PROMPT_ACTION_BUTTON_CLASS

@@ -8,6 +8,7 @@ import {
   upsertHost,
   noopNotifier,
 } from "../src/index.js";
+import { dropPluginEnabledFollowsDefaultColumn } from "./helpers/rewind.js";
 
 const SIDEBAR_INSTALLATION_DEFAULTS_MIGRATION_TIMESTAMP = 1790009314673;
 
@@ -95,6 +96,7 @@ describe.each(["project", "thread", "preference"] as const)(
           db.$client
             .prepare("DROP TABLE IF EXISTS thread_search_learned_selections")
             .run();
+          dropPluginEnabledFollowsDefaultColumn(db);
           db.$client
             .prepare("DELETE FROM __drizzle_migrations WHERE created_at >= ?")
             .run(SIDEBAR_INSTALLATION_DEFAULTS_MIGRATION_TIMESTAMP);

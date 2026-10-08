@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
@@ -21,6 +27,7 @@ import {
 import { resetAllCrashedPluginSlotsForTest } from "../../plugin/PluginSlotMount";
 import { ThreadPendingInteractionBanner } from "./ThreadPendingInteractionBanner";
 import { makePluginRegistrationSet as registrationSet } from "@/test/fixtures/plugins";
+import { BottomAnchorContext } from "@/components/ui/bottom-anchored-scroll-body";
 
 const mocks = vi.hoisted(() => ({
   resolveMutateAsync: vi.fn(async () => ({})),
@@ -300,7 +307,11 @@ describe("ThreadPendingInteractionBanner request family", () => {
 
   it("renders a plugin request through the plugin's pendingInteraction slot, keyed by <pluginId>/<kind>", () => {
     function SecretForm({ interaction }: PluginPendingInteractionProps) {
-      return <div data-testid="secret-form">{interaction.title}</div>;
+      return (
+        <div data-testid="secret-form">
+          {interaction.title}:{JSON.stringify(interaction.payload)}
+        </div>
+      );
     }
     setPluginSlotRegistrations(
       "secrets",
@@ -313,7 +324,9 @@ describe("ThreadPendingInteractionBanner request family", () => {
     expect(banner.getAttribute("data-request-kind")).toBe(
       "secrets/secret-request",
     );
-    expect(screen.getByTestId("secret-form").textContent).toBe("Add secrets");
+    expect(screen.getByTestId("secret-form").textContent).toBe(
+      'Add secrets:{"fields":["KEY"]}',
+    );
   });
 
   it("renders a provider's plugin-defined request through the same slot, with the form's data", () => {
@@ -377,6 +390,110 @@ describe("ThreadPendingInteractionBanner presentation detail images", () => {
 });
 
 describe("ThreadPendingInteractionBanner collapsed strip", () => {
+  it("fits native and plugin interaction shells in the remaining footer space", () => {
+    const observers = new Set<() => void>();
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        callback: () => void;
+        constructor(callback: () => void) {
+          this.callback = callback;
+          observers.add(callback);
+        }
+        observe() {}
+        disconnect() {
+          observers.delete(this.callback);
+        }
+      },
+    );
+    try {
+      const scrollElement = document.createElement("div");
+      Object.defineProperty(scrollElement, "clientHeight", { value: 600 });
+      const question: PendingInteraction = {
+        ...planReview,
+        id: "pint_height_question",
+        resolution: null,
+        payload: {
+          kind: "user_question",
+          questions: [
+            {
+              id: "path",
+              prompt: "Which path?",
+              multiSelect: false,
+              allowFreeText: true,
+              options: [],
+            },
+          ],
+        },
+      };
+      const { container } = render(
+        <QueryClientProvider client={new QueryClient()}>
+          <MemoryRouter>
+            <BottomAnchorContext.Provider
+              value={{
+                getScrollElement: () => scrollElement,
+                isAtBottom: true,
+                scrollToBottom: () => {},
+                scrollElementIntoView: () => {},
+                scrollElementIntoViewClampedToMaxScroll: () => {},
+                captureScrollAnchor: () => {},
+              }}
+            >
+              <div data-scroll-footer="">
+                {bannerElement(question)}
+                {bannerElement(pluginRequest)}
+              </div>
+            </BottomAnchorContext.Provider>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+      const native = screen.getByTestId("user-question-banner");
+      const plugin = screen.getByTestId("plugin-interaction-shell");
+      const footer = container.querySelector("[data-scroll-footer]");
+      if (!footer) throw new Error("Missing footer");
+      Object.defineProperty(footer, "offsetHeight", {
+        configurable: true,
+        value: 1000,
+      });
+      for (const shell of [native, plugin]) {
+        Object.defineProperty(shell, "offsetHeight", {
+          configurable: true,
+          value: 400,
+        });
+      }
+      act(() => {
+        for (const observer of observers) observer();
+      });
+      expect(native.style.maxHeight).toBe("200px");
+      expect(plugin.style.maxHeight).toBe("200px");
+      const toggle = plugin.querySelector('button[aria-expanded="true"]');
+      if (!toggle) throw new Error("Missing disclosure");
+      fireEvent.click(toggle);
+      Object.defineProperty(plugin, "offsetHeight", { value: 100 });
+      Object.defineProperty(footer, "offsetHeight", { value: 700 });
+      act(() => {
+        for (const observer of observers) observer();
+      });
+      expect(plugin.style.maxHeight).toBe("");
+      expect(native.style.maxHeight).toBe("300px");
+      for (const footerHeight of [980, 1000]) {
+        Object.defineProperty(footer, "offsetHeight", { value: footerHeight });
+        act(() => {
+          for (const observer of observers) observer();
+        });
+        expect(native.style.maxHeight).toBe("160px");
+      }
+      fireEvent.click(toggle);
+      act(() => {
+        for (const observer of observers) observer();
+      });
+      expect(native.style.maxHeight).toBe("160px");
+      expect(plugin.style.maxHeight).toBe("160px");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("arrives collapsed with only the label and exposes decisions after expansion", () => {
     renderBanner(commandApproval);
     const banner = screen.getByTestId("approval-banner");

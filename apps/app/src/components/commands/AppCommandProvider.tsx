@@ -13,6 +13,7 @@ import {
   PANE_DIRECTION_APP_COMMAND_IDS,
   defaultAppSettings,
   isAppKeybindingAvailableForClient,
+  keyboardPlatform,
   isMacKeyboardPlatform,
   matchesAppShortcut,
   type AppCommandContext,
@@ -25,7 +26,7 @@ import { useSystemConfig } from "@/hooks/queries/system-queries";
 import { getBbDesktopInfo } from "@/lib/bb-desktop";
 import {
   browserPlatform,
-  isEditableKeyboardTarget,
+  isEditableCommandTarget,
   matchesAppCommandContext,
   presentAppShortcut,
   type AppShortcutPresentation,
@@ -39,6 +40,7 @@ type AppCommandHandler = (invocation: AppCommandInvocation) => boolean;
 
 interface AppCommandHandlerRegistration {
   handler: AppCommandHandler;
+  isAvailable: (invocation: AppCommandInvocation) => boolean;
   priority: number;
   sequence: number;
 }
@@ -85,6 +87,15 @@ const EMPTY_CONTEXT: AppCommandContext = {
   splitActive: false,
   webSurface: false,
   macPlatform: false,
+  windowsPlatform: false,
+  linuxPlatform: false,
+};
+
+const APP_COMMAND_FALLBACKS: Partial<
+  Record<KeyboardCommandId, KeyboardCommandId>
+> = {
+  "browser.back": "history.back",
+  "browser.forward": "history.forward",
 };
 
 const OPEN_MODAL_SELECTOR = [
@@ -119,7 +130,6 @@ export function AppCommandProvider({ children }: { children: ReactNode }) {
   );
   const sequenceRef = useRef(0);
   const attemptedEventsRef = useRef(new WeakSet<KeyboardEvent>());
-  const clearShortcutHintHoldRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     if (!showKeyboardHints) return;
@@ -134,13 +144,9 @@ export function AppCommandProvider({ children }: { children: ReactNode }) {
       shortcutHintModifierHeldRef.current = false;
       setIsShortcutHintModifierHeld(false);
     };
-    clearShortcutHintHoldRef.current = clearModifierHold;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (!isShortcutHintModifier(event.key)) {
-        if (
-          modifierHoldTimerRef.current !== null ||
-          shortcutHintModifierHeldRef.current
-        ) {
+        if (!shortcutHintModifierHeldRef.current) {
           clearModifierHold();
         }
         return;
@@ -166,18 +172,17 @@ export function AppCommandProvider({ children }: { children: ReactNode }) {
       }, SHORTCUT_HINT_HOLD_DELAY_MS);
     };
     const handleKeyUp = (event: KeyboardEvent) => {
-      if (isShortcutHintModifier(event.key)) clearModifierHold();
+      if (!event.ctrlKey && !(isMac && event.metaKey)) clearModifierHold();
     };
     const handleBlur = () => clearModifierHold();
 
-    window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("keyup", handleKeyUp);
+    window.addEventListener("keydown", handleKeyDown, true);
+    window.addEventListener("keyup", handleKeyUp, true);
     window.addEventListener("blur", handleBlur);
     return () => {
       clearModifierHold();
-      clearShortcutHintHoldRef.current = () => {};
-      window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("keyup", handleKeyUp);
+      window.removeEventListener("keydown", handleKeyDown, true);
+      window.removeEventListener("keyup", handleKeyUp, true);
       window.removeEventListener("blur", handleBlur);
     };
   }, [showKeyboardHints]);
@@ -232,6 +237,7 @@ export function AppCommandProvider({ children }: { children: ReactNode }) {
           right.priority - left.priority || right.sequence - left.sequence,
       );
       for (const registration of ordered) {
+        if (!registration.isAvailable({ target })) continue;
         if (registration.handler({ target })) return true;
       }
       return false;
@@ -240,11 +246,14 @@ export function AppCommandProvider({ children }: { children: ReactNode }) {
   );
 
   const currentContext = useCallback(
-    (target: EventTarget | null): AppCommandContext => {
+    (
+      target: EventTarget | null,
+      origin: EventTarget | null = target,
+    ): AppCommandContext => {
       const next = { ...EMPTY_CONTEXT };
       next.mainSurface = true;
       next.modalOpen = hasOpenModal();
-      next.editableFocus = isEditableKeyboardTarget(target);
+      next.editableFocus = isEditableCommandTarget(target, origin);
       next.terminalFocus =
         target instanceof HTMLElement &&
         target.closest("[data-app-terminal]") !== null;
@@ -252,7 +261,9 @@ export function AppCommandProvider({ children }: { children: ReactNode }) {
         target instanceof HTMLElement &&
         target.closest("[data-app-browser]") !== null;
       next.webSurface = !isDesktop;
-      next.macPlatform = isMacKeyboardPlatform(browserPlatform());
+      next.macPlatform = keyboardPlatform(browserPlatform()) === "mac";
+      next.windowsPlatform = keyboardPlatform(browserPlatform()) === "windows";
+      next.linuxPlatform = keyboardPlatform(browserPlatform()) === "linux";
       for (const key of activeContextsRef.current.keys()) {
         next[key] = true;
       }
@@ -264,12 +275,21 @@ export function AppCommandProvider({ children }: { children: ReactNode }) {
   const isCommandAvailable = useCallback(
     (command: KeyboardCommandId, target: EventTarget | null): boolean => {
       const registrations = handlersRef.current.get(command);
-      if (registrations === undefined || registrations.size === 0) return false;
-      const isMac = isMacKeyboardPlatform(browserPlatform());
+      if (
+        registrations === undefined ||
+        ![...registrations.values()].some((registration) =>
+          registration.isAvailable({ target }),
+        )
+      ) {
+        return false;
+      }
       const applicable = defaultKeybindings.filter(
         (binding) =>
           binding.command === command &&
-          isAppKeybindingAvailableForClient(binding, { isDesktop, isMac }),
+          isAppKeybindingAvailableForClient(binding, {
+            isDesktop,
+            platform: browserPlatform(),
+          }),
       );
       if (applicable.length === 0) return false;
       const context = currentContext(target);
@@ -282,13 +302,15 @@ export function AppCommandProvider({ children }: { children: ReactNode }) {
 
   const getShortcut = useCallback(
     (command: KeyboardCommandId): AppShortcut | null => {
-      const isMac = isMacKeyboardPlatform(browserPlatform());
       let binding;
       for (let index = keybindings.length - 1; index >= 0; index -= 1) {
         const candidate = keybindings[index];
         if (
           candidate?.command === command &&
-          isAppKeybindingAvailableForClient(candidate, { isDesktop, isMac })
+          isAppKeybindingAvailableForClient(candidate, {
+            isDesktop,
+            platform: browserPlatform(),
+          })
         ) {
           binding = candidate;
           break;
@@ -313,7 +335,10 @@ export function AppCommandProvider({ children }: { children: ReactNode }) {
         if (
           candidate &&
           commands.includes(candidate.command) &&
-          isAppKeybindingAvailableForClient(candidate, { isDesktop, isMac }) &&
+          isAppKeybindingAvailableForClient(candidate, {
+            isDesktop,
+            platform: browserPlatform(),
+          }) &&
           matchesAppShortcut(event, candidate.shortcut, isMac)
         ) {
           return candidate.command;
@@ -337,14 +362,21 @@ export function AppCommandProvider({ children }: { children: ReactNode }) {
       for (let index = bindings.length - 1; index >= 0; index -= 1) {
         const binding = bindings[index];
         if (!binding) continue;
-        if (!isAppKeybindingAvailableForClient(binding, { isDesktop, isMac })) {
+        if (
+          !isAppKeybindingAvailableForClient(binding, {
+            isDesktop,
+            platform: browserPlatform(),
+          })
+        ) {
           continue;
         }
         if (!matchesAppShortcut(event, binding.shortcut, isMac)) continue;
-        context ??= currentContext(event.target);
+        context ??= currentContext(
+          event.target,
+          event.composedPath()[0] ?? event.target,
+        );
         if (!matchesAppCommandContext(binding, context)) continue;
-        if (!dispatch(binding.command, event.target)) return false;
-        clearShortcutHintHoldRef.current();
+        if (!dispatch(binding.command, event.target)) continue;
         event.preventDefault();
         event.stopPropagation();
         return true;
@@ -384,7 +416,11 @@ export function AppCommandProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const desktop = getBbDesktopInfo();
     if (!desktop?.onAppCommand) return;
-    return desktop.onAppCommand((command) => dispatch(command, null));
+    return desktop.onAppCommand((command) => {
+      if (dispatch(command, null)) return true;
+      const fallback = APP_COMMAND_FALLBACKS[command];
+      return fallback !== undefined && dispatch(fallback, null);
+    });
   }, [dispatch]);
 
   const value = useMemo<AppCommandProviderValue>(
@@ -424,6 +460,7 @@ export function useAppCommandHandler(
   handler: AppCommandHandler,
   priority = 0,
   enabled = true,
+  isAvailable?: (invocation: AppCommandInvocation) => boolean,
 ): void {
   const commands = useMemo(() => [command], [command]);
   useIndexedAppCommandHandlers(
@@ -431,6 +468,9 @@ export function useAppCommandHandler(
     (_index, invocation) => handler(invocation),
     priority,
     enabled,
+    isAvailable === undefined
+      ? undefined
+      : (_index, invocation) => isAvailable(invocation),
   );
 }
 
@@ -439,17 +479,22 @@ export function useIndexedAppCommandHandlers(
   handler: (index: number, invocation: AppCommandInvocation) => boolean,
   priority = 0,
   enabled = true,
+  isAvailable?: (index: number, invocation: AppCommandInvocation) => boolean,
 ): void {
   const registerHandler = useContext(AppCommandContextValue)?.registerHandler;
   const handlerRef = useRef(handler);
+  const isAvailableRef = useRef(isAvailable);
   useLayoutEffect(() => {
     handlerRef.current = handler;
-  }, [handler]);
+    isAvailableRef.current = isAvailable;
+  }, [handler, isAvailable]);
   useEffect(() => {
     if (!registerHandler || !enabled) return;
     const unregister = commands.map((command, index) =>
       registerHandler(command, {
         handler: (invocation) => handlerRef.current(index, invocation),
+        isAvailable: (invocation) =>
+          isAvailableRef.current?.(index, invocation) ?? true,
         priority,
       }),
     );

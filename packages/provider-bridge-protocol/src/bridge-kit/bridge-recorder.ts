@@ -180,7 +180,6 @@ export function createBridgeRecorder(args: { dir: string }): BridgeRecorder {
       run,
       seq,
       dir: recordArgs.direction,
-      // Launch requests carry options.envVars (pool tokens); redact by key.
       line: redactCredentialsInJsonLine(recordArgs.line),
     };
     try {

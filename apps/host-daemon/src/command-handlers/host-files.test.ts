@@ -14,7 +14,6 @@ import {
   browseHostDirectory,
   readHostFile,
   readHostFileChunk,
-  readHostFileMetadata,
   readHostRelativeFile,
 } from "./host-files.js";
 
@@ -149,7 +148,10 @@ describe("readHostFile (no ref — disk read)", () => {
         path: "relative/file.txt",
         rootPath: "/tmp",
       }),
-    ).rejects.toBeInstanceOf(CommandDispatchError);
+    ).rejects.toMatchObject({
+      code: "invalid_path",
+      message: "Path must be absolute",
+    });
   });
 
   it("marks missing targets under an existing root as expected", async () => {
@@ -233,43 +235,6 @@ describe("readHostFile (no ref — disk read)", () => {
     ).rejects.toMatchObject({
       code: "invalid_path",
       message: "Path is a directory, not a file",
-    });
-  });
-});
-
-describe("readHostFileMetadata", () => {
-  it("returns host-side file metadata without reading contents", async () => {
-    const repoPath = await initRepo();
-    const filePath = path.join(repoPath, "large-preferences.md");
-    await fs.writeFile(filePath, Buffer.alloc(25 * 1024 * 1024 + 1));
-
-    const result = await readHostFileMetadata({
-      type: "host.file_metadata",
-      path: filePath,
-      rootPath: repoPath,
-    });
-
-    expect(result.path).toBe(filePath);
-    expect(result.sizeBytes).toBe(25 * 1024 * 1024 + 1);
-    expect(result.modifiedAtMs).toBeGreaterThan(0);
-  });
-
-  it("uses the same containment checks as disk reads", async () => {
-    const repoPath = await initRepo();
-    const outsidePath = path.join(repoPath, "..", "outside-metadata.txt");
-    const symlinkPath = path.join(repoPath, "outside-link");
-    await fs.writeFile(outsidePath, "outside");
-    await fs.symlink(outsidePath, symlinkPath);
-
-    await expect(
-      readHostFileMetadata({
-        type: "host.file_metadata",
-        path: symlinkPath,
-        rootPath: repoPath,
-      }),
-    ).rejects.toMatchObject({
-      code: "invalid_path",
-      message: expect.stringContaining("escapes read root"),
     });
   });
 });
@@ -359,27 +324,6 @@ describe("readHostFile (with ref — git history read)", () => {
     });
   });
 
-  it("reads file contents at a specific ref", async () => {
-    const repoPath = await initRepo();
-    const filePath = path.join(repoPath, "tracked.txt");
-    await fs.writeFile(filePath, "version 1\n", "utf8");
-    await runGit(["add", "tracked.txt"], { cwd: repoPath });
-    await runGit(["commit", "-m", "v1"], { cwd: repoPath });
-
-    await fs.writeFile(filePath, "version 2\n", "utf8");
-
-    const result = await readHostFile({
-      type: "host.read_file",
-      path: filePath,
-      rootPath: repoPath,
-      ref: "HEAD",
-    });
-
-    expect(result.content).toBe("version 1\n");
-    expect(result.contentEncoding).toBe("utf8");
-    expect(result.sizeBytes).toBe(10);
-  });
-
   it("returns empty content when the file does not exist at the ref", async () => {
     const repoPath = await initRepo();
     await fs.writeFile(path.join(repoPath, "seed.txt"), "seed\n", "utf8");
@@ -462,6 +406,8 @@ describe("readHostFile (with ref — git history read)", () => {
     });
 
     expect(result.content).toBe("first\n");
+    expect(result.contentEncoding).toBe("utf8");
+    expect(result.sizeBytes).toBe(6);
   });
 });
 
