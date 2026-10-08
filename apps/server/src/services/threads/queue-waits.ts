@@ -6,6 +6,7 @@ import {
   type DbConnection,
   type DbNotifier,
   type DbQueryConnection,
+  QueuedMessageThreadUnavailableError,
   type QueuedThreadMessageRow,
 } from "@bb/db";
 import type {
@@ -20,6 +21,7 @@ import type {
   ThreadQueuedMessage,
 } from "@bb/domain";
 import { ApiError } from "../../errors.js";
+import { throwThreadNotWritable } from "../lib/lifecycle-api-errors.js";
 import {
   emitPluginMessageDispatched,
   emitPluginMessageQueued,
@@ -96,6 +98,47 @@ export interface RecordQueuedMessageWaitArgs {
   claimed: readonly ClaimedQueuedThreadMessageRow[] | null;
 }
 
+function createQueuedRowOrRefuse(
+  deps: QueueWaitDeps,
+  args: RecordQueuedMessageWaitArgs,
+): QueuedThreadMessageRow {
+  try {
+    return deps.db.transaction(
+      (tx) => {
+        assertThreadHostAcceptsWork(tx, args.thread);
+        return createQueuedThreadMessageInTransaction(tx, {
+          threadId: args.thread.id,
+          content: args.message.input,
+          senderThreadId: args.message.senderThreadId,
+          origin: args.message.origin,
+          originPluginId: args.message.originPluginId,
+          requestedBy: args.message.requestedBy,
+          model: args.message.execution.model,
+          reasoningLevel: args.message.execution.reasoningLevel,
+          permissionMode: args.message.execution.permissionMode,
+          serviceTier: args.message.execution.serviceTier,
+          waitingOn: args.waitingOn,
+          sendAt: args.sendAt,
+          payload: args.message.payload,
+          systemNotice: args.message.systemNotice,
+        });
+      },
+      { behavior: "immediate" },
+    );
+  } catch (error) {
+    if (error instanceof QueuedMessageThreadUnavailableError) {
+      throwThreadNotWritable(
+        args.thread,
+        error.reason,
+        error.reason === "archived"
+          ? "Thread is archived"
+          : "Thread is deleted",
+      );
+    }
+    throw error;
+  }
+}
+
 /**
  * Records that a dispatch is waiting: the single place a queued row comes into
  * existence or has its wait rewritten.
@@ -118,28 +161,7 @@ export function recordQueuedMessageWait(
   let row: QueuedThreadMessageRow | null;
 
   if (leadClaim === undefined) {
-    row = deps.db.transaction(
-      (tx) => {
-        assertThreadHostAcceptsWork(tx, args.thread);
-        return createQueuedThreadMessageInTransaction(tx, {
-          threadId: args.thread.id,
-          content: args.message.input,
-          senderThreadId: args.message.senderThreadId,
-          origin: args.message.origin,
-          originPluginId: args.message.originPluginId,
-          requestedBy: args.message.requestedBy,
-          model: args.message.execution.model,
-          reasoningLevel: args.message.execution.reasoningLevel,
-          permissionMode: args.message.execution.permissionMode,
-          serviceTier: args.message.execution.serviceTier,
-          waitingOn: args.waitingOn,
-          sendAt: args.sendAt,
-          payload: args.message.payload,
-          systemNotice: args.message.systemNotice,
-        });
-      },
-      { behavior: "immediate" },
-    );
+    row = createQueuedRowOrRefuse(deps, args);
   } else {
     row = requeueClaimedQueuedThreadMessages(deps.db, deps.hub, {
       claims: claimed.map((claim) => ({

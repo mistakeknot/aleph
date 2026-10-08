@@ -8,6 +8,7 @@ import {
   claimQueuedThreadMessageGroup,
   clearQueuedThreadMessageWaitingOn,
   createQueuedThreadMessage,
+  QueuedMessageThreadUnavailableError,
   deleteClaimedQueuedThreadMessageBatchInTransaction,
   deleteQueuedThreadMessage,
   getQueuedThreadMessage,
@@ -21,7 +22,11 @@ import {
   updateQueuedThreadMessage,
 } from "../../src/data/queued-thread-messages.js";
 import { createProject } from "../../src/data/projects.js";
-import { createThread } from "../../src/data/threads.js";
+import {
+  archiveThread,
+  createThread,
+  deleteThread,
+} from "../../src/data/threads.js";
 import { upsertHost } from "../../src/data/hosts.js";
 import { createMigratedConnection } from "../helpers/migrated-connection.js";
 
@@ -71,6 +76,45 @@ describe("queued thread messages", () => {
     expect(queuedMessage.serviceTier).toBe("default");
     expect(queuedMessage.groupWithNext).toBe(false);
   });
+
+  it.each([
+    ["archived", archiveThread],
+    ["deleted", deleteThread],
+  ] as const)(
+    "refuses to queue onto a thread that is %s and leaves no row",
+    (reason, retire) => {
+      const { db, thread } = setup();
+      retire(db, noopNotifier, thread.id);
+      const notifyThread = vi.fn();
+
+      expect(() =>
+        createQueuedThreadMessage(
+          db,
+          { ...noopNotifier, notifyThread },
+          {
+            threadId: thread.id,
+            content: defaultInput,
+            model: "gpt-5",
+            reasoningLevel: "medium",
+            permissionMode: "full",
+            serviceTier: "default",
+            waitingOn: null,
+            sendAt: null,
+            payload: { kind: "inline" },
+            systemNotice: null,
+          },
+        ),
+      ).toThrow(
+        expect.objectContaining({
+          name: QueuedMessageThreadUnavailableError.name,
+          threadId: thread.id,
+          reason,
+        }),
+      );
+      expect(listQueuedThreadMessages(db, thread.id)).toEqual([]);
+      expect(notifyThread).not.toHaveBeenCalled();
+    },
+  );
 
   it("gets a queued message by ID", () => {
     const { db, thread } = setup();

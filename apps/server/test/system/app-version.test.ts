@@ -58,6 +58,7 @@ describe("createAppVersionService", () => {
       source: "npm",
       updateAvailable: false,
       upgradeCommand: "npx bb-app@latest",
+      queueRetirement: { version: 1, guarantees: ["G1"] },
     });
     expect(calls).toEqual([]);
   });
@@ -161,6 +162,7 @@ describe("createAppVersionService", () => {
       source: "npm",
       updateAvailable: false,
       upgradeCommand: "npx bb-app@latest",
+      queueRetirement: { version: 1, guarantees: ["G1"] },
     });
     expect(warn).toHaveBeenCalled();
   });

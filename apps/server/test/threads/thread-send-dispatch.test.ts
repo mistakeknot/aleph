@@ -29,6 +29,7 @@ import {
   sendQueuedMessage,
   sendQueuedMessageNow,
 } from "../../src/services/threads/queued-messages.js";
+import { setPluginHookProvider } from "../../src/services/plugins/plugin-hook-registry.js";
 import { queueParentSystemMessage } from "../../src/services/threads/parent-system-messages.js";
 import { acceptThreadSendRequest } from "../../src/services/threads/thread-send-request.js";
 import { handleUpdateEnvironmentDirectoryToolCall } from "../../src/services/threads/thread-environment-directory.js";
@@ -1083,6 +1084,68 @@ describe("startup queue waits", () => {
 
       await expect(delivered).resolves.toBe(false);
       expect(listQueuedThreadMessages(harness.db, thread.id)).toEqual([]);
+    });
+  });
+
+  it("drops a held parent notice, with a warning, when archive lands while the dispatch hook is pending", async () => {
+    await withTestHarness(async (harness) => {
+      const { thread } = seedProviderThreadFixture({
+        harness,
+        status: "idle",
+        value: 67,
+      });
+      let release: () => void = () => {};
+      const latch = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let hookEntered: () => void = () => {};
+      const entered = new Promise<void>((resolve) => {
+        hookEntered = resolve;
+      });
+      setPluginHookProvider({
+        listHooks: () => [
+          {
+            pluginId: "holder",
+            handler: async () => {
+              hookEntered();
+              await latch;
+              return { action: "wait", reason: "Holding" } as const;
+            },
+          },
+        ],
+        invokeHook: async (_pluginId, _label, run) => ({
+          ok: true,
+          value: await run(),
+        }),
+        decisionTimeoutMs: 10_000,
+      });
+      const warn = vi.spyOn(harness.deps.logger, "warn");
+
+      try {
+        const delivered = queueParentSystemMessage(harness.deps, {
+          input: textInput("child finished behind a hook"),
+          parentThreadId: thread.id,
+          systemMessageKind: "child-completed",
+          systemMessageSubject: null,
+        });
+        await entered;
+        archiveThread(harness.db, harness.hub, thread.id);
+        release();
+
+        await expect(delivered).resolves.toBe(false);
+        expect(listQueuedThreadMessages(harness.db, thread.id)).toEqual([]);
+        expect(warn).toHaveBeenCalledWith(
+          {
+            parentThreadId: thread.id,
+            reason: "archived",
+            phase: "post-hook",
+            dropped: true,
+          },
+          expect.any(String),
+        );
+      } finally {
+        setPluginHookProvider(undefined);
+      }
     });
   });
 });

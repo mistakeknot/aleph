@@ -31,6 +31,7 @@ function appVersion(
         source: "npm",
         updateAvailable: true,
         upgradeCommand: "npx bb-app@latest",
+        queueRetirement: { version: 1, guarantees: ["G1"] },
         ...response,
       };
     },
