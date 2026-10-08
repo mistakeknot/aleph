@@ -463,6 +463,8 @@ export {
   deleteQueuedRetriesForThreadEventSuffixInTransaction,
   deleteClaimedQueuedThreadMessageBatchInTransaction,
   deleteQueuedThreadMessage,
+  transferQueuedThreadMessageInTransaction,
+  transferAllQueuedThreadMessagesInTransaction,
   getQueuedThreadMessage,
   hasQueuedRetryOfTurnRequest,
   hasClaimedQueuedThreadMessages,

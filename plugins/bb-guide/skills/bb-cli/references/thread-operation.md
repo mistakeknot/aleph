@@ -60,6 +60,31 @@
   and `Send at` columns. Several queued rows on one thread are normal. The SDK
   equivalents are `threads.queue.list` (cross-thread) and
   `threads.queuedMessages.list/send/update/delete` (one thread).
+- `bb thread queue transfer <thread-id> <message-id> <target-thread-id>` moves
+  one unclaimed queued row to another thread in the same project in a single
+  transaction, keeping its system-notice classification, `sendAt` and plugin or
+  time wait (thread-bound waits are re-derived for the target). A row a drain
+  has claimed is refused with 409 (relist after the owner releases or consumes
+  it; never delete and recreate). A retry row, or any non-inline payload, is
+  refused with 400 because it names a turn request that exists only on its own
+  thread. A held system notice's content cannot be edited (PATCH returns 409)
+  and its queue read reports `editable: false`. SDK:
+  `threads.queuedMessages.transfer`. Transfer is the only way to preserve that
+  metadata: create strips `systemNotice`, `waitingOn` and `sendAt`, and system
+  notice content cannot be edited. A plugin that must park rows (compact, fresh
+  start, abort, retirement) should transfer the original rows out and back, not
+  delete and recreate them.
+- `bb thread queue transfer-all <thread-id> <target-thread-id>` is the bulk form
+  (SDK `threads.queuedMessages.transferAll`, `POST
+  /threads/:id/queued-messages/transfer-all {targetThreadId}`): one transaction
+  moves every unclaimed inline row to the target in source order, with the same
+  preservation and refusals (same project; target not archived or missing).
+  Claimed rows and retry rows stay on the source and are reported in `skipped`
+  with reason `claimed` or `not_inline`; `moved` maps each old id to its new id.
+  Group edges are not carried. It is idempotent: a repeat call after success
+  moves nothing, so a caller that lost the response can call again and reconcile
+  from the lists. Use it to forward a retiring thread's pending rows to its
+  successor; create still strips `systemNotice`, `waitingOn` and `sendAt`.
 - Failed queue rows show the failure reason and an exact recovery command.
   Use `bb thread queue send <thread-id> <message-id>` to retry immediately,
   including after automatic retries are exhausted. Editing does not clear a

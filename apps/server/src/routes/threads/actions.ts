@@ -46,6 +46,8 @@ import { validatePromptAttachmentReferences } from "../../services/projects/atta
 import {
   createQueuedMessageForThread,
   sendQueuedMessageNow,
+  transferAllQueuedMessages,
+  transferQueuedMessage,
 } from "../../services/threads/queued-messages.js";
 import {
   ensureThreadIsNotAwaitingUserInteraction,
@@ -275,6 +277,25 @@ export function registerThreadActionRoutes(app: Hono, deps: AppDeps): void {
     return context.json({ ok: true, ...result });
   });
 
+  post(routes.transferAllQueuedMessages, async (context, payload) => {
+    const sourceThread = requirePublicThread(deps.db, context.req.param("id"));
+    const targetThread = requirePublicThread(deps.db, payload.targetThreadId);
+    return context.json(
+      await transferAllQueuedMessages(deps, { sourceThread, targetThread }),
+    );
+  });
+
+  post(routes.transferQueuedMessage, async (context, payload) => {
+    const sourceThread = requirePublicThread(deps.db, context.req.param("id"));
+    const targetThread = requirePublicThread(deps.db, payload.targetThreadId);
+    const queuedMessage = await transferQueuedMessage(deps, {
+      queuedMessageId: context.req.param("queuedMessageId"),
+      sourceThread,
+      targetThread,
+    });
+    return context.json(queuedMessage, 201);
+  });
+
   patch(routes.reorderQueuedMessage, (context, payload) => {
     const thread = requirePublicThread(deps.db, context.req.param("id"));
     ensureThreadQueueIsWritable(thread);
@@ -333,6 +354,13 @@ export function registerThreadActionRoutes(app: Hono, deps: AppDeps): void {
         409,
         "invalid_request",
         "Queued message is already being sent",
+      );
+    }
+    if (result.kind === "system_notice") {
+      throw new ApiError(
+        409,
+        "invalid_request",
+        "A system notice's content cannot be edited",
       );
     }
     if (result.kind === "stale") {

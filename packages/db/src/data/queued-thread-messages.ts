@@ -219,6 +219,7 @@ export type UpdateQueuedThreadMessageResult =
   | { kind: "updated"; queuedMessage: QueuedThreadMessageRow }
   | { kind: "not_found" }
   | { kind: "claimed" }
+  | { kind: "system_notice" }
   | { kind: "stale" };
 
 export type ReleaseQueuedMessageClaimArgs =
@@ -478,10 +479,7 @@ function resolveQueuedThreadMessageNeighbor(
     return false;
   }
 
-  const neighbor = getQueuedThreadMessage(
-    db,
-    args.neighborQueuedMessageId,
-  );
+  const neighbor = getQueuedThreadMessage(db, args.neighborQueuedMessageId);
   if (
     !neighbor ||
     neighbor.threadId !== args.threadId ||
@@ -711,6 +709,9 @@ export function updateQueuedThreadMessage(
       if (isQueuedThreadMessageClaimed(existing)) {
         return { kind: "claimed" };
       }
+      if (existing.systemNotice !== null) {
+        return { kind: "system_notice" };
+      }
       if (existing.updatedAt !== input.expectedUpdatedAt) {
         return { kind: "stale" };
       }
@@ -939,10 +940,7 @@ export function listIdleThreadsWithQueuedMessages(
           notExists(manuallyStoppedQueuePauseQuery(db, threads.id)),
           notOrdinaryTurnEndQueuedThreadMessage(),
         ),
-        or(
-          isNull(threads.environmentId),
-          ne(environments.status, "destroyed"),
-        ),
+        or(isNull(threads.environmentId), ne(environments.status, "destroyed")),
         // Only rows an idle thread actually unblocks. A thread whose only
         // queued row is waiting on a clock or a plugin is not a drain
         // candidate, and listing it would re-run the whole send pipeline
@@ -1182,10 +1180,7 @@ export function reorderQueuedThreadMessage({
   try {
     result = db.transaction(
       (tx): ReorderQueuedThreadMessageResult => {
-        const movedQueuedMessage = getQueuedThreadMessage(
-          tx,
-          queuedMessageId,
-        );
+        const movedQueuedMessage = getQueuedThreadMessage(tx, queuedMessageId);
         if (!movedQueuedMessage || movedQueuedMessage.threadId !== threadId) {
           return { kind: "not_found" };
         }
@@ -1915,7 +1910,10 @@ export function listRetryableFailedQueuedThreadMessages(
         ),
       ),
     )
-    .orderBy(asc(queuedThreadMessages.nextAttemptAt), asc(queuedThreadMessages.id))
+    .orderBy(
+      asc(queuedThreadMessages.nextAttemptAt),
+      asc(queuedThreadMessages.id),
+    )
     .all();
 }
 
@@ -2165,6 +2163,99 @@ export function listThreadIdsWithHostOfflineQueueWaits(
     )
     .all()
     .map((row) => row.threadId);
+}
+
+export interface TransferQueuedThreadMessageInTransactionArgs {
+  queuedMessageId: string;
+  sourceThreadId: string;
+  targetThreadId: string;
+  resolveWaitingOn: (
+    source: QueuedThreadMessageRow,
+  ) => QueuedMessageWaitingOn | null;
+}
+
+export type TransferQueuedThreadMessageResult =
+  | { kind: "transferred"; queuedMessage: QueuedThreadMessageRow }
+  | { kind: "not_found" }
+  | { kind: "claimed" }
+  | { kind: "not_inline" };
+
+export function transferQueuedThreadMessageInTransaction(
+  tx: DbTransaction,
+  args: TransferQueuedThreadMessageInTransactionArgs,
+): TransferQueuedThreadMessageResult {
+  const source = getQueuedThreadMessage(tx, args.queuedMessageId);
+  if (!source || source.threadId !== args.sourceThreadId) {
+    return { kind: "not_found" };
+  }
+  if (source.claimedAt !== null) return { kind: "claimed" };
+  if (source.payloadKind !== "inline") return { kind: "not_inline" };
+  const queuedMessage = createQueuedThreadMessageInTransaction(tx, {
+    threadId: args.targetThreadId,
+    content: JSON.parse(source.content) as PromptInput[],
+    senderThreadId: source.senderThreadId,
+    origin: source.origin,
+    originPluginId: source.originPluginId,
+    requestedBy:
+      source.requestedByInitiator !== null &&
+      source.requestedByThreadId !== null
+        ? {
+            initiator: source.requestedByInitiator,
+            senderThreadId: source.requestedByThreadId,
+          }
+        : null,
+    model: source.model,
+    reasoningLevel: source.reasoningLevel,
+    permissionMode: source.permissionMode,
+    serviceTier: source.serviceTier,
+    waitingOn: args.resolveWaitingOn(source),
+    sendAt: source.sendAt,
+    payload: { kind: "inline" },
+    systemNotice:
+      source.systemNotice === null
+        ? null
+        : (JSON.parse(source.systemNotice) as QueuedMessageSystemNotice),
+  });
+  clearPreviousQueuedMessageGroupEdgeInTransaction(tx, source);
+  tx.delete(queuedThreadMessages)
+    .where(eq(queuedThreadMessages.id, source.id))
+    .run();
+  return { kind: "transferred", queuedMessage };
+}
+
+export type TransferAllSkipReason = "claimed" | "not_inline";
+
+export interface TransferAllQueuedThreadMessagesResult {
+  moved: { id: string; queuedMessage: QueuedThreadMessageRow }[];
+  skipped: { id: string; reason: TransferAllSkipReason }[];
+}
+
+export function transferAllQueuedThreadMessagesInTransaction(
+  tx: DbTransaction,
+  args: Omit<TransferQueuedThreadMessageInTransactionArgs, "queuedMessageId">,
+): TransferAllQueuedThreadMessagesResult {
+  const rows = tx
+    .select({ id: queuedThreadMessages.id })
+    .from(queuedThreadMessages)
+    .where(eq(queuedThreadMessages.threadId, args.sourceThreadId))
+    .orderBy(asc(queuedThreadMessages.sortKey), asc(queuedThreadMessages.id))
+    .all();
+  const result: TransferAllQueuedThreadMessagesResult = {
+    moved: [],
+    skipped: [],
+  };
+  for (const { id } of rows) {
+    const transferred = transferQueuedThreadMessageInTransaction(tx, {
+      ...args,
+      queuedMessageId: id,
+    });
+    if (transferred.kind === "transferred") {
+      result.moved.push({ id, queuedMessage: transferred.queuedMessage });
+    } else if (transferred.kind !== "not_found") {
+      result.skipped.push({ id, reason: transferred.kind });
+    }
+  }
+  return result;
 }
 
 export function deleteQueuedThreadMessage(

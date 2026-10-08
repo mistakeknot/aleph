@@ -12,6 +12,8 @@ import {
   isThreadQueueAutoSendPaused,
   releaseQueuedMessageClaim,
   releaseStaleQueuedMessageClaims,
+  transferAllQueuedThreadMessagesInTransaction,
+  transferQueuedThreadMessageInTransaction,
   type DbQueryConnection,
   type QueuedThreadMessageGroupClaimPolicy,
   type QueuedThreadMessageGroupEligibility,
@@ -31,6 +33,7 @@ import type {
   CreateQueuedMessageRequest,
   SendMessageRequest,
   SendQueuedMessageMode,
+  TransferAllQueuedMessagesResponse,
 } from "@bb/server-contract";
 import type {
   AppDeps,
@@ -67,17 +70,26 @@ import {
 import { recoverThreadModelOverride } from "./thread-execution-override.js";
 import { requireReadyThreadEnvironment } from "./thread-turn-dispatch.js";
 import { resolvePermissionEscalation } from "./thread-runtime-config.js";
-import { hasMessageDispatchHooks } from "./dispatch-hooks.js";
+import {
+  hasMessageDispatchHooks,
+  noteDispatchRequeued,
+} from "./dispatch-hooks.js";
+import { checkParentThreadHeld } from "./parent-wake-policy.js";
 import { attemptDispatch } from "./dispatch-attempt.js";
-import { deliverParentSystemMessage } from "./parent-system-messages.js";
+import {
+  deliverParentSystemMessage,
+  type ParentSystemClaim,
+} from "./parent-system-messages.js";
 import {
   createQueuedMessageAutoSendPausedError,
   createQueuedMessageClaimLostError,
   QUEUED_MESSAGE_AUTO_SEND_PAUSED_CODE,
   QUEUED_MESSAGE_CLAIM_LOST_CODE,
+  recordQueuedMessageWait,
   settleQueueRowDispatched,
 } from "./queue-waits.js";
 import { recordQueuedMessageDrainFailure } from "./queue-drain-failure.js";
+import { emitPluginMessageQueued } from "../plugins/plugin-thread-events.js";
 import {
   appendPluginMentionContext,
   captureUserMessageSentTelemetry,
@@ -214,6 +226,12 @@ function admitQueuedMessage(
   return { hasProviderSession };
 }
 
+function emitQueuedIfHeld(entry: ThreadQueuedMessage): void {
+  if (entry.waitingOn?.kind === "plugin" || entry.waitingOn?.kind === "time") {
+    emitPluginMessageQueued(entry);
+  }
+}
+
 export async function createQueuedMessageForThread(
   deps: LoggedPendingInteractionWorkSessionDeps,
   args: CreateQueuedMessageForThreadArgs,
@@ -285,6 +303,159 @@ export async function createQueuedMessageForThread(
     });
   }
   return toThreadQueuedMessage(queuedMessage);
+}
+
+export interface TransferQueuedMessageArgs {
+  queuedMessageId: string;
+  sourceThread: Thread;
+  targetThread: Thread;
+}
+
+export async function transferQueuedMessage(
+  deps: AppDeps,
+  args: TransferQueuedMessageArgs,
+): Promise<ThreadQueuedMessage> {
+  const { queuedMessageId, sourceThread, targetThread } = args;
+  if (sourceThread.id === targetThread.id) {
+    throw new ApiError(
+      400,
+      "invalid_request",
+      "Queued message is already on that thread",
+    );
+  }
+  if (sourceThread.projectId !== targetThread.projectId) {
+    throw new ApiError(
+      400,
+      "invalid_request",
+      "Queued messages can only be transferred within a project",
+    );
+  }
+  ensureThreadQueueIsWritable(targetThread);
+  const result = deps.db.transaction(
+    (tx) => {
+      const currentTarget = getThread(tx, targetThread.id);
+      if (!currentTarget) {
+        throw new ApiError(404, "thread_not_found", "Thread not found");
+      }
+      admitQueuedMessage(tx, currentTarget);
+      const transferred = transferQueuedThreadMessageInTransaction(tx, {
+        queuedMessageId,
+        sourceThreadId: sourceThread.id,
+        targetThreadId: targetThread.id,
+        resolveWaitingOn: (source) => {
+          const waitingOn = parseStoredQueuedThreadMessageWaitingOn(source);
+          if (waitingOn?.kind === "plugin" || waitingOn?.kind === "time") {
+            return waitingOn;
+          }
+          return currentTarget.status === "stopping"
+            ? { kind: "stopping" }
+            : { kind: "thread-busy" };
+        },
+      });
+      return { currentTarget, transferred };
+    },
+    { behavior: "immediate" },
+  );
+  const { currentTarget, transferred } = result;
+  if (transferred.kind === "not_found") {
+    throw new ApiError(404, "invalid_request", "Queued message not found");
+  }
+  if (transferred.kind === "claimed") {
+    throw new ApiError(
+      409,
+      "invalid_request",
+      "Queued message is already being sent",
+    );
+  }
+  if (transferred.kind === "not_inline") {
+    throw new ApiError(
+      400,
+      "invalid_request",
+      "Only inline queued messages can be transferred",
+    );
+  }
+  deps.hub.notifyThread(sourceThread.id, ["queue-changed"]);
+  deps.hub.notifyThread(targetThread.id, ["queue-changed"]);
+  const movedEntry = toThreadQueuedMessage(transferred.queuedMessage);
+  emitQueuedIfHeld(movedEntry);
+  if (currentTarget.status === "idle") {
+    requestQueuedMessageDispatch(deps, {
+      kind: "thread-ready",
+      threadId: targetThread.id,
+    });
+  }
+  return movedEntry;
+}
+
+export interface TransferAllQueuedMessagesArgs {
+  sourceThread: Thread;
+  targetThread: Thread;
+}
+
+export async function transferAllQueuedMessages(
+  deps: AppDeps,
+  args: TransferAllQueuedMessagesArgs,
+): Promise<TransferAllQueuedMessagesResponse> {
+  const { sourceThread, targetThread } = args;
+  if (sourceThread.id === targetThread.id) {
+    throw new ApiError(
+      400,
+      "invalid_request",
+      "Queued messages are already on that thread",
+    );
+  }
+  if (sourceThread.projectId !== targetThread.projectId) {
+    throw new ApiError(
+      400,
+      "invalid_request",
+      "Queued messages can only be transferred within a project",
+    );
+  }
+  ensureThreadQueueIsWritable(targetThread);
+  const { currentTarget, transferred } = deps.db.transaction(
+    (tx) => {
+      const currentTarget = getThread(tx, targetThread.id);
+      if (!currentTarget) {
+        throw new ApiError(404, "thread_not_found", "Thread not found");
+      }
+      admitQueuedMessage(tx, currentTarget);
+      const transferred = transferAllQueuedThreadMessagesInTransaction(tx, {
+        sourceThreadId: sourceThread.id,
+        targetThreadId: targetThread.id,
+        resolveWaitingOn: (source) => {
+          const waitingOn = parseStoredQueuedThreadMessageWaitingOn(source);
+          if (waitingOn?.kind === "plugin" || waitingOn?.kind === "time") {
+            return waitingOn;
+          }
+          return currentTarget.status === "stopping"
+            ? { kind: "stopping" }
+            : { kind: "thread-busy" };
+        },
+      });
+      return { currentTarget, transferred };
+    },
+    { behavior: "immediate" },
+  );
+  if (transferred.moved.length > 0) {
+    deps.hub.notifyThread(sourceThread.id, ["queue-changed"]);
+    deps.hub.notifyThread(targetThread.id, ["queue-changed"]);
+    for (const row of transferred.moved) {
+      emitQueuedIfHeld(toThreadQueuedMessage(row.queuedMessage));
+    }
+    if (currentTarget.status === "idle") {
+      requestQueuedMessageDispatch(deps, {
+        kind: "thread-ready",
+        threadId: targetThread.id,
+      });
+    }
+  }
+  return {
+    moved: transferred.moved.map((row) => ({
+      id: row.id,
+      newId: row.queuedMessage.id,
+    })),
+    skipped: transferred.skipped,
+  };
 }
 
 function isQueuedMessageAutoSendCandidate(
@@ -614,15 +785,6 @@ async function sendClaimedQueuedMessageForIdleProviderThread(
   return queuedMessage;
 }
 
-/**
- * Delivers a claimed row that is one of core's own system notices.
- *
- * Such a row is not a user dispatch and does not go through the checkpoint:
- * it is an `initiator: "system"` turn with its own taxonomy and its own
- * dispatch path, and the only reason it was on the queue at all is that the
- * queue is where a blocked dispatch waits. Null when the row is an ordinary
- * message, which is every row but these.
- */
 async function sendClaimedSystemNotice(
   deps: LoggedPendingInteractionWorkSessionDeps,
   args: SendClaimedQueuedMessageForThreadArgs,
@@ -635,26 +797,64 @@ async function sendClaimedSystemNotice(
     JSON.parse(lead.systemNotice),
   );
   const queuedMessage = toThreadQueuedMessage(lead);
-  const delivered = await deliverParentSystemMessage(deps, {
-    input: queuedMessage.content,
-    parentThread: args.thread,
-    systemMessageKind: notice.kind,
-    systemMessageSubject: notice.subject,
-  });
+  const claim: ParentSystemClaim = { rows: args.queuedMessages, state: "held" };
+  let delivered: boolean | null = null;
+  const deliver = async (): Promise<void> => {
+    delivered = await deliverParentSystemMessage(deps, {
+      claim,
+      input: queuedMessage.content,
+      parentThread: args.thread,
+      systemMessageKind: notice.kind,
+      systemMessageSubject: notice.subject,
+    });
+  };
+  if (!args.sendNow) {
+    const held = await checkParentThreadHeld(deps, {
+      input: queuedMessage.content,
+      parentThread: args.thread,
+      queuedMessages: args.queuedMessages.map(toThreadQueuedMessage),
+      continueAfterHooks: deliver,
+    });
+    if (held.held) {
+      noteDispatchRequeued(args.thread.id);
+      const execution = await buildExecutionOptions(
+        deps,
+        {},
+        { threadId: args.thread.id },
+      );
+      recordQueuedMessageWait(deps, {
+        thread: args.thread,
+        message: {
+          input: queuedMessage.content,
+          execution,
+          senderThreadId: null,
+          origin: null,
+          originPluginId: null,
+          requestedBy: null,
+          payload: queuedMessage.payload,
+          systemNotice: notice,
+        },
+        waitingOn: {
+          kind: "plugin",
+          pluginId: held.pluginId,
+          reason: held.reason,
+        },
+        sendAt: held.sendAt,
+        claimed: args.queuedMessages,
+      });
+      return queuedMessage;
+    }
+  }
+  if (delivered === null) {
+    await deliver();
+  }
   if (!delivered) {
     // The thread changed under the drain. Leave the row claimed-and-released
     // by the caller's error path rather than consuming a notice nobody got.
     throw createQueuedMessageClaimLostError();
   }
-  const consumed = deps.db.transaction(
-    (tx) =>
-      deleteClaimedQueuedThreadMessageBatchInTransaction(tx, {
-        queuedMessages: args.queuedMessages,
-      }),
-    { behavior: "immediate" },
-  );
-  if (!consumed) {
-    throw createQueuedMessageClaimLostError();
+  if (claim.state === "requeued") {
+    return queuedMessage;
   }
   settleQueueRowDispatched({ row: lead });
   return queuedMessage;

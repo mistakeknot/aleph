@@ -388,6 +388,30 @@ export type SendQueuedMessageRequest = z.infer<
   typeof sendQueuedMessageRequestSchema
 >;
 
+export const transferQueuedMessageRequestSchema = z.object({
+  targetThreadId: z.string().min(1),
+});
+export type TransferQueuedMessageRequest = z.infer<
+  typeof transferQueuedMessageRequestSchema
+>;
+
+export const transferAllQueuedMessagesRequestSchema = z.object({
+  targetThreadId: z.string().min(1),
+});
+export type TransferAllQueuedMessagesRequest = z.infer<
+  typeof transferAllQueuedMessagesRequestSchema
+>;
+
+export const transferAllQueuedMessagesResponseSchema = z.object({
+  moved: z.array(z.object({ id: z.string(), newId: z.string() })),
+  skipped: z.array(
+    z.object({ id: z.string(), reason: z.enum(["claimed", "not_inline"]) }),
+  ),
+});
+export type TransferAllQueuedMessagesResponse = z.infer<
+  typeof transferAllQueuedMessagesResponseSchema
+>;
+
 export const reorderQueuedMessageRequestSchema = z.object({
   previousQueuedMessageId: z.string().min(1).nullable(),
   nextQueuedMessageId: z.string().min(1).nullable(),

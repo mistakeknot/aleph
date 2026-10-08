@@ -1,7 +1,9 @@
 import {
+  deleteClaimedQueuedThreadMessageBatchInTransaction,
   getEnvironment,
   getThread,
   requireThreadLifecycleEventApplied,
+  type ClaimedQueuedThreadMessageRow,
   type DbTransaction,
 } from "@bb/db";
 import type {
@@ -20,6 +22,8 @@ import {
   createQueuedThreadMessage,
   QueuedMessageThreadUnavailableError,
 } from "@bb/db";
+import { emitPluginMessageQueued } from "../plugins/plugin-thread-events.js";
+import { toThreadQueuedMessage } from "./thread-queued-messages.js";
 import {
   addRequestIdToTurnSubmitCommandPayload,
   buildExecutionOptions,
@@ -49,6 +53,7 @@ import {
   LIVE_DAEMON_COMMAND_TIMEOUT_MS,
   startLiveHostCommand,
 } from "../hosts/live-command.js";
+import { createQueuedMessageClaimLostError } from "./queue-waits.js";
 import { queueInputForStartingTurn } from "./thread-turn-starting.js";
 import {
   ThreadContextClearInProgressError,
@@ -116,7 +121,29 @@ interface RenderedParentSystemSlotParts {
   suffix: string;
 }
 
+export interface ParentSystemClaim {
+  rows: readonly ClaimedQueuedThreadMessageRow[];
+  state: "held" | "consumed" | "requeued";
+}
+
+function consumeParentSystemClaimInTransaction(
+  tx: DbTransaction,
+  claim: ParentSystemClaim | undefined,
+): void {
+  if (claim === undefined) {
+    return;
+  }
+  const consumed = deleteClaimedQueuedThreadMessageBatchInTransaction(tx, {
+    queuedMessages: claim.rows,
+  });
+  if (!consumed) {
+    throw createQueuedMessageClaimLostError();
+  }
+  claim.state = "consumed";
+}
+
 interface QueueReadyParentSystemMessageArgs extends ParentSystemMessageTaxonomy {
+  claim?: ParentSystemClaim;
   environment: ReadyThreadEnvironment;
   execution: ResolvedThreadExecutionOptions;
   input: PromptInput[];
@@ -254,6 +281,7 @@ function queueActiveParentSystemMessageInTransaction(
   }
 
   const expectedSteerTurnId = getActiveTurnId({ db: tx }, args.thread.id);
+  consumeParentSystemClaimInTransaction(tx, args.claim);
   const request = appendClientTurnEventInTransaction(tx, {
     ...parentSystemTurnRequestFields(args),
     target: {
@@ -280,7 +308,7 @@ async function queueActiveParentSystemMessage(
   const expectedSteerTurnId = getActiveTurnId(deps, args.thread.id);
   if (expectedSteerTurnId === null) {
     const outcome = queueInputForStartingTurn(deps, {
-      claimed: null,
+      claimed: args.claim?.rows ?? null,
       input: {
         input: args.input,
         execution: args.execution,
@@ -296,7 +324,12 @@ async function queueActiveParentSystemMessage(
       },
       threadId: args.thread.id,
     });
-    if (outcome.kind === "queued") return true;
+    if (outcome.kind === "queued") {
+      if (args.claim !== undefined) {
+        args.claim.state = "requeued";
+      }
+      return true;
+    }
     if (outcome.kind === "dispatched") return false;
     if (outcome.kind === "retry") {
       const currentThread = outcome.thread;
@@ -401,6 +434,7 @@ async function queueReadyParentSystemMessage(
       ensureThreadCanStartRequest(
         requireParentWritableInTransaction(tx, args.thread.id),
       );
+      consumeParentSystemClaimInTransaction(tx, args.claim);
       appendPreparedClientTurnRequestedEventWithNotificationInTransaction(tx, {
         ...parentSystemTurnRequestFields(args),
         target: { kind: "new-turn" },
@@ -454,7 +488,11 @@ async function queueReadyParentSystemMessage(
  */
 async function checkParentThreadHeldTolerantly(
   deps: LoggedPendingInteractionWorkSessionDeps,
-  args: { input: PromptInput[]; parentThread: Thread },
+  args: {
+    continueAfterHooks?: () => Promise<void>;
+    input: PromptInput[];
+    parentThread: Thread;
+  },
 ): Promise<ParentThreadHeldResult> {
   try {
     return await checkParentThreadHeld(deps, args);
@@ -489,22 +527,40 @@ export async function queueParentSystemMessage(
     deps.pendingInteractions.hasTurnBoundPendingThreadInteraction(
       parentThread.id,
     );
+  const delivery: {
+    result: { delivered: boolean } | { error: unknown } | null;
+  } = { result: null };
+  const deliverNow = async (): Promise<void> => {
+    try {
+      delivery.result = {
+        delivered: await deliverParentSystemMessage(deps, {
+          input: args.input,
+          parentThread,
+          systemMessageKind: args.systemMessageKind,
+          systemMessageSubject: args.systemMessageSubject,
+        }),
+      };
+    } catch (error) {
+      delivery.result = { error };
+    }
+  };
   const held = hasPendingInteraction
     ? ({ held: false } as const)
     : await checkParentThreadHeldTolerantly(deps, {
+        continueAfterHooks: deliverNow,
         input: args.input,
         parentThread,
       });
   if (!hasPendingInteraction && !held.held) {
-    try {
-      return await deliverParentSystemMessage(deps, {
-        input: args.input,
-        parentThread,
-        systemMessageKind: args.systemMessageKind,
-        systemMessageSubject: args.systemMessageSubject,
-      });
-    } catch (error) {
-      if (!(error instanceof ThreadContextClearInProgressError)) throw error;
+    if (delivery.result === null) {
+      await deliverNow();
+    }
+    const outcome = delivery.result!;
+    if ("delivered" in outcome) {
+      return outcome.delivered;
+    }
+    if (!(outcome.error instanceof ThreadContextClearInProgressError)) {
+      throw outcome.error;
     }
   }
 
@@ -516,7 +572,7 @@ export async function queueParentSystemMessage(
     },
   );
   try {
-    createQueuedThreadMessage(deps.db, deps.hub, {
+    const queuedRow = createQueuedThreadMessage(deps.db, deps.hub, {
       threadId: parentThread.id,
       content: args.input,
       senderThreadId: null,
@@ -538,6 +594,7 @@ export async function queueParentSystemMessage(
         subject: args.systemMessageSubject,
       },
     });
+    emitPluginMessageQueued(toThreadQueuedMessage(queuedRow));
   } catch (error) {
     if (!(error instanceof QueuedMessageThreadUnavailableError)) throw error;
     deps.logger.warn(
@@ -561,6 +618,7 @@ export async function queueParentSystemMessage(
 }
 
 interface DeliverParentSystemMessageArgs extends ParentSystemMessageTaxonomy {
+  claim?: ParentSystemClaim;
   input: PromptInput[];
   parentThread: Thread;
 }
@@ -618,15 +676,16 @@ async function deliverParentSystemMessageToWritableParent(
   );
   if (
     await dispatchTurnDuringReprovision({
+      beforeRequestAppendInTransaction: ({ tx }) => {
+        requireParentWritableInTransaction(tx, parentThread.id);
+        consumeParentSystemClaimInTransaction(tx, args.claim);
+      },
       deps,
       environment,
       execution,
       initiator: "system",
       input: args.input,
       senderThreadId: null,
-      beforeRequestAppendInTransaction: ({ tx }) => {
-        requireParentWritableInTransaction(tx, parentThread.id);
-      },
       systemMessageKind: args.systemMessageKind,
       systemMessageSubject: args.systemMessageSubject,
       thread: parentThread,
@@ -639,6 +698,7 @@ async function deliverParentSystemMessageToWritableParent(
     getEnvironment(deps.db, environment.id) ?? environment,
   );
   return await queueReadyParentSystemMessage(deps, {
+    ...(args.claim !== undefined ? { claim: args.claim } : {}),
     thread: parentThread,
     input: args.input,
     execution,

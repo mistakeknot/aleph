@@ -65,6 +65,9 @@ import type {
   SendMessageRequest,
   SendMessageResponse,
   SendQueuedMessageRequest,
+  TransferAllQueuedMessagesRequest,
+  TransferAllQueuedMessagesResponse,
+  TransferQueuedMessageRequest,
   SetQueuedMessageGroupBoundaryRequest,
   ThreadEventsQuery,
   ThreadEventWaitQuery,
@@ -209,6 +212,7 @@ export type ThreadQueuedMessageUpdateResult = ThreadQueuedMessage;
 export type ThreadQueuedMessageDeleteResult = { ok: true };
 export type ThreadQueuedMessageReorderResult = ThreadQueuedMessageListResponse;
 export type ThreadQueuedMessageSendResult = SendQueuedMessageResponse;
+export type ThreadQueuedMessageTransferResult = ThreadQueuedMessage;
 export type ThreadQueuedMessageGroupBoundaryResult =
   ThreadQueuedMessageListResponse;
 export type ThreadQueueListResult = ThreadQueuedMessageListResponse;
@@ -336,6 +340,16 @@ export interface ThreadQueuedMessageTargetArgs {
 
 export interface ThreadQueuedMessageSendArgs
   extends ThreadQueuedMessageTargetArgs, SendQueuedMessageRequest {}
+
+export interface ThreadQueuedMessageTransferArgs
+  extends ThreadQueuedMessageTargetArgs, TransferQueuedMessageRequest {}
+
+export interface ThreadQueuedMessageTransferAllArgs extends TransferAllQueuedMessagesRequest {
+  threadId: string;
+}
+
+export type ThreadQueuedMessageTransferAllResult =
+  TransferAllQueuedMessagesResponse;
 
 export interface ThreadQueuedMessageReorderArgs
   extends ThreadQueuedMessageTargetArgs, ReorderQueuedMessageRequest {}
@@ -554,6 +568,12 @@ export interface ThreadQueuedMessagesArea {
   setGroupBoundary(
     args: ThreadQueuedMessageGroupBoundaryArgs,
   ): Promise<ThreadQueuedMessageGroupBoundaryResult>;
+  transfer(
+    args: ThreadQueuedMessageTransferArgs,
+  ): Promise<ThreadQueuedMessageTransferResult>;
+  transferAll(
+    args: ThreadQueuedMessageTransferAllArgs,
+  ): Promise<ThreadQueuedMessageTransferAllResult>;
   update(
     args: ThreadQueuedMessageUpdateArgs,
   ): Promise<ThreadQueuedMessageUpdateResult>;
@@ -1106,6 +1126,29 @@ export function createThreadsArea(args: CreateSdkAreaArgs): ThreadsArea {
               input.expectedGroupedPrefixQueuedMessageIds,
             groupBoundaryQueuedMessageId: input.groupBoundaryQueuedMessageId,
           },
+        }),
+      );
+    },
+    async transferAll(input) {
+      return transport.readJson(
+        transport.api.v1.threads[":id"]["queued-messages"][
+          "transfer-all"
+        ].$post({
+          param: { id: input.threadId },
+          json: { targetThreadId: input.targetThreadId },
+        }),
+      );
+    },
+    async transfer(input) {
+      return transport.readJson(
+        transport.api.v1.threads[":id"]["queued-messages"][
+          ":queuedMessageId"
+        ].transfer.$post({
+          param: {
+            id: input.threadId,
+            queuedMessageId: input.queuedMessageId,
+          },
+          json: { targetThreadId: input.targetThreadId },
         }),
       );
     },
