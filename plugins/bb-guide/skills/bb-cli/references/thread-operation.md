@@ -76,11 +76,14 @@
   delete and recreate them.
 - `bb thread queue transfer-all <thread-id> <target-thread-id>` is the bulk form
   (SDK `threads.queuedMessages.transferAll`, `POST
-  /threads/:id/queued-messages/transfer-all {targetThreadId}`): one transaction
+/threads/:id/queued-messages/transfer-all {targetThreadId}`): one transaction
   moves every unclaimed inline row to the target in source order, with the same
   preservation and refusals (same project; target not archived or missing).
   Claimed rows and retry rows stay on the source and are reported in `skipped`
   with reason `claimed` or `not_inline`; `moved` maps each old id to its new id.
+  A source with more than 1000 queued rows (claimed and retry rows included) is
+  refused with 409 `thread_not_writable`, reason `source_queue_too_large`, and
+  nothing moves; send or delete rows and retry, or move them one at a time.
   Group edges are not carried. It is idempotent: a repeat call after success
   moves nothing, so a caller that lost the response can call again and reconcile
   from the lists. Use it to forward a retiring thread's pending rows to its

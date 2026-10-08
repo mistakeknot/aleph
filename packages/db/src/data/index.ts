@@ -494,11 +494,12 @@ export {
   updateQueuedThreadMessage,
 } from "./queued-thread-messages.js";
 export {
+  ONLINE_QUEUE_MOVE_MAX_ROWS,
+  SourceQueueTooLargeError,
   TransferTargetRetiredError,
   isThreadRetired,
 } from "./queued-thread-messages.js";
 export {
-  RETIRE_MAX_SOURCE_QUEUE_ROWS,
   abortTransferOperation,
   ackTransferOperation,
   drainTransferEvents,

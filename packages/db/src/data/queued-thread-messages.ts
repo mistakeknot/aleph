@@ -2448,6 +2448,33 @@ export class TransferTargetRetiredError extends Error {
   }
 }
 
+export const ONLINE_QUEUE_MOVE_MAX_ROWS = 1000;
+
+export class SourceQueueTooLargeError extends Error {
+  constructor(
+    readonly threadId: string,
+    readonly rows: number,
+  ) {
+    super(
+      `Thread ${threadId} has ${rows} queued messages, over the ${ONLINE_QUEUE_MOVE_MAX_ROWS} that can move at once`,
+    );
+    this.name = "SourceQueueTooLargeError";
+  }
+}
+
+export function countQueuedThreadMessagesInTransaction(
+  tx: DbQueryConnection,
+  threadId: string,
+): number {
+  return (
+    tx
+      .select({ rows: count() })
+      .from(queuedThreadMessages)
+      .where(eq(queuedThreadMessages.threadId, threadId))
+      .get()?.rows ?? 0
+  );
+}
+
 export function isThreadRetired(tx: DbQueryConnection, threadId: string) {
   return (
     tx
@@ -2533,6 +2560,13 @@ export function transferAllQueuedThreadMessagesInTransaction(
   tx: DbTransaction,
   args: Omit<TransferQueuedThreadMessageInTransactionArgs, "queuedMessageId">,
 ): TransferAllQueuedThreadMessagesResult {
+  const sourceRows = countQueuedThreadMessagesInTransaction(
+    tx,
+    args.sourceThreadId,
+  );
+  if (sourceRows > ONLINE_QUEUE_MOVE_MAX_ROWS) {
+    throw new SourceQueueTooLargeError(args.sourceThreadId, sourceRows);
+  }
   const rows = tx
     .select({ id: queuedThreadMessages.id })
     .from(queuedThreadMessages)

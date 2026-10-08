@@ -1,5 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import {
+  ONLINE_QUEUE_MOVE_MAX_ROWS,
   claimQueuedThreadMessage,
   createQueuedThreadMessage,
   events,
@@ -1728,6 +1729,38 @@ describe("transfer-all queued messages (retirement forward)", () => {
       ]);
     });
   }, 25_000);
+
+  it("refuses a source over the row maximum with a thread_not_writable envelope and moves nothing", async () => {
+    await withTestHarness(async (harness) => {
+      const fixture = seedParentFixture(harness, "host-ta-too-large");
+      const source = fixture.parentThreadId;
+      const target = seedSuccessor(harness, fixture);
+      harness.db.$client
+        .prepare(
+          `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<${ONLINE_QUEUE_MOVE_MAX_ROWS + 1}) INSERT INTO queued_thread_messages (id,origin_id,thread_id,content,model,reasoning_level,permission_mode,service_tier,group_with_next,payload_kind,sort_key,created_at,updated_at) SELECT 'bulk'||i,'bulk'||i,?,'[{"type":"text","text":"x","mentions":[]}]','fake-model','medium','full','default',0,'inline',printf('k%08d',i),1,1 FROM n`,
+        )
+        .run(source);
+      const response = await transferAll(harness, source, target);
+      expect(response.status).toBe(409);
+      expect(await readJson(response)).toMatchObject({
+        code: "thread_not_writable",
+        details: { reason: "source_queue_too_large" },
+      });
+      expect(listQueuedThreadMessages(harness.db, source)).toHaveLength(
+        ONLINE_QUEUE_MOVE_MAX_ROWS + 1,
+      );
+      expect(listQueuedThreadMessages(harness.db, target)).toEqual([]);
+      harness.db.$client
+        .prepare("DELETE FROM queued_thread_messages WHERE id = 'bulk1'")
+        .run();
+      const retry = await transferAll(harness, source, target);
+      expect(retry.status).toBe(200);
+      expect(
+        ((await readJson(retry)) as { moved: unknown[] }).moved,
+      ).toHaveLength(ONLINE_QUEUE_MOVE_MAX_ROWS);
+      expect(listQueuedThreadMessages(harness.db, source)).toEqual([]);
+    });
+  }, 30_000);
 
   it("a plain user row without a classification cannot become a system turn through transfer-all", async () => {
     await withTestHarness(async (harness) => {

@@ -15,6 +15,7 @@ import {
   deleteThread,
 } from "../../src/data/threads.js";
 import {
+  ONLINE_QUEUE_MOVE_MAX_ROWS,
   claimQueuedThreadMessage,
   createQueuedThreadMessage,
   createQueuedThreadMessageInTransaction,
@@ -27,7 +28,6 @@ import {
 import { createOrderKeysAfter } from "../../src/data/order-keys.js";
 import { recordProjectAttachment } from "../../src/data/project-attachments.js";
 import {
-  RETIRE_MAX_SOURCE_QUEUE_ROWS,
   ackTransferOperation,
   drainTransferEvents,
   getTransferOperation,
@@ -574,10 +574,10 @@ describe("retire, moves only (G3 behavior; v4 T-T/T-C/T-I/T-R0 definitions are s
   it("completes a retire at the row maximum inside the time bound (T-E1)", () => {
     const fixture = setup();
     const { db, source, target } = fixture;
-    const keys = createOrderKeysAfter({ previousKey: null, count: RETIRE_MAX_SOURCE_QUEUE_ROWS });
+    const keys = createOrderKeysAfter({ previousKey: null, count: ONLINE_QUEUE_MOVE_MAX_ROWS });
     db.transaction(
       (tx) => {
-        for (let index = 0; index < RETIRE_MAX_SOURCE_QUEUE_ROWS; index += 1) {
+        for (let index = 0; index < ONLINE_QUEUE_MOVE_MAX_ROWS; index += 1) {
           createQueuedThreadMessageInTransaction(tx, {
             sortKey: keys[index],
             threadId: source.id,
@@ -599,7 +599,7 @@ describe("retire, moves only (G3 behavior; v4 T-T/T-C/T-I/T-R0 definitions are s
     const outcome = retire(fixture);
     expect(outcome.kind).toBe("retired");
     expect(Date.now() - started).toBeLessThan(2_500);
-    expect(listQueuedThreadMessages(db, target.id)).toHaveLength(RETIRE_MAX_SOURCE_QUEUE_ROWS);
+    expect(listQueuedThreadMessages(db, target.id)).toHaveLength(ONLINE_QUEUE_MOVE_MAX_ROWS);
     expect(listQueuedThreadMessages(db, source.id)).toEqual([]);
   }, 60_000);
 });

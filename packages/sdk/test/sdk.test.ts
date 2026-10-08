@@ -255,6 +255,46 @@ describe("@bb/sdk", () => {
     ]);
   });
 
+  it("rejects a transfer-all over the source row maximum with a typed refusal", async () => {
+    const refusal = {
+      code: "thread_not_writable",
+      message:
+        "Thread thr_source has 1001 queued messages, over the 1000 that can move at once",
+      details: {
+        reason: "source_queue_too_large",
+        archivedAt: null,
+        threadStatus: "idle",
+      },
+    };
+    const queue = createFetchQueue([{ body: refusal, status: 409 }]);
+    const sdk = createBbSdk({
+      transport: createHttpTransport({
+        baseUrl: "http://bb.test",
+        fetch: queue.fetch,
+        runtime: "node",
+      }),
+    });
+
+    await expect(
+      sdk.threads.queuedMessages.transferAll({
+        threadId: "thr_source",
+        targetThreadId: "thr_target",
+      }),
+    ).rejects.toMatchObject({
+      name: "BbHttpError",
+      status: 409,
+      code: "thread_not_writable",
+      body: refusal,
+    });
+    expect(queue.requests).toEqual([
+      {
+        bodyText: JSON.stringify({ targetThreadId: "thr_target" }),
+        method: "POST",
+        url: "http://bb.test/api/v1/threads/thr_source/queued-messages/transfer-all",
+      },
+    ]);
+  });
+
   it("keeps realtime subscriptions distinct under subscribe", () => {
     const queue = createFetchQueue([]);
     const sdk = createBbSdk({

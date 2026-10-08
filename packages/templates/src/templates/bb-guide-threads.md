@@ -366,10 +366,14 @@ Queued messages:
   `transfer` moves one unclaimed queued message to another thread in the same
   project, keeping its system-notice classification, `sendAt` and plugin or time
   wait; `transfer-all` moves every movable one in order in a single transaction
-  and reports skipped rows. A claimed (in-flight) row is refused with 409; a
-  retry row or other non-inline payload is refused with 400. A held system
-  notice's content cannot be edited (409) and reads `editable: false`. Create
-  never accepts `systemNotice`, `waitingOn` or `sendAt`.
+  and reports skipped rows. A source thread with more than 1000 queued
+  messages (claimed and retry rows included) is refused with 409
+  `thread_not_writable`, reason `source_queue_too_large`, and nothing moves;
+  send or delete some, or move them one at a time, and retry. A claimed
+  (in-flight) row is refused with 409; a retry row or other non-inline payload
+  is refused with 400. A held system notice's content cannot be edited (409)
+  and reads `editable: false`. Create never accepts `systemNotice`, `waitingOn`
+  or `sendAt`.
 
   The `Sender` column identifies agent threads and system notices; user messages
   leave it blank. The SDK and `--json` include `initiator` and `senderThreadId`.

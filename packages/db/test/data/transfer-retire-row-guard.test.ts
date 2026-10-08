@@ -12,9 +12,11 @@ import { createProject } from "../../src/data/projects.js";
 import { createThread } from "../../src/data/threads.js";
 import { queuedThreadMessages } from "../../src/schema.js";
 import {
-  RETIRE_MAX_SOURCE_QUEUE_ROWS,
-  retireQueuedThreadMessages,
-} from "../../src/data/transfer-operations.js";
+  ONLINE_QUEUE_MOVE_MAX_ROWS,
+  SourceQueueTooLargeError,
+  transferAllQueuedThreadMessagesInTransaction,
+} from "../../src/data/queued-thread-messages.js";
+import { retireQueuedThreadMessages } from "../../src/data/transfer-operations.js";
 import { withWriteAfterFirstRead } from "../helpers/interleave.js";
 import {
   enqueue,
@@ -62,6 +64,21 @@ function bulkInsert(
     .run(threadId);
 }
 
+const LATE_INSERT =
+  "INSERT INTO queued_thread_messages (id,origin_id,thread_id,content,model,reasoning_level,permission_mode,service_tier,group_with_next,payload_kind,sort_key,created_at,updated_at) VALUES ('late','late',?,'[]','m','r','full','default',0,'inline','z',1,1)";
+
+function deleteRow(db: ReturnType<typeof createConnection>, id: string) {
+  db.$client.prepare("DELETE FROM queued_thread_messages WHERE id = ?").run(id);
+}
+
+function countRows(db: ReturnType<typeof createConnection>, threadId: string) {
+  return (
+    db.$client
+      .prepare("SELECT COUNT(*) AS n FROM queued_thread_messages WHERE thread_id = ?")
+      .get(threadId) as { n: number }
+  ).n;
+}
+
 function snapshot(db: ReturnType<typeof createConnection>) {
   const dump = (table: string) =>
     db.$client.prepare(`SELECT * FROM ${table} ORDER BY 1, 2`).all();
@@ -89,22 +106,25 @@ function retireFile(
 }
 
 describe("retire source row-count guard", () => {
-  it("retires a source holding exactly the maximum number of rows", () => {
+  it("retires a source holding exactly the maximum number of rows and refuses one more", () => {
     const fixture = setupFile();
     bulkInsert(
       fixture.db,
       fixture.source.id,
-      RETIRE_MAX_SOURCE_QUEUE_ROWS,
+      ONLINE_QUEUE_MOVE_MAX_ROWS + 1,
       "row",
     );
+    expect(retireFile(fixture)).toEqual({
+      kind: "refused",
+      reason: "source_queue_too_large",
+    });
+    deleteRow(fixture.db, "row1");
     const outcome = retireFile(fixture);
     if (outcome.kind !== "retired") throw new Error(outcome.kind);
-    expect(outcome.result.moved).toHaveLength(RETIRE_MAX_SOURCE_QUEUE_ROWS);
-    expect(
-      fixture.db.$client
-        .prepare("SELECT COUNT(*) AS n FROM queued_thread_messages WHERE thread_id = ?")
-        .get(fixture.target.id),
-    ).toEqual({ n: RETIRE_MAX_SOURCE_QUEUE_ROWS });
+    expect(outcome.result.moved).toHaveLength(ONLINE_QUEUE_MOVE_MAX_ROWS);
+    expect(countRows(fixture.db, fixture.target.id)).toBe(
+      ONLINE_QUEUE_MOVE_MAX_ROWS,
+    );
   });
 
   it("refuses one row over the maximum and changes nothing", () => {
@@ -112,7 +132,7 @@ describe("retire source row-count guard", () => {
     bulkInsert(
       fixture.db,
       fixture.source.id,
-      RETIRE_MAX_SOURCE_QUEUE_ROWS + 1,
+      ONLINE_QUEUE_MOVE_MAX_ROWS + 1,
       "row",
     );
     const before = snapshot(fixture.db);
@@ -130,7 +150,7 @@ describe("retire source row-count guard", () => {
     bulkInsert(
       fixture.db,
       fixture.source.id,
-      RETIRE_MAX_SOURCE_QUEUE_ROWS + 1,
+      ONLINE_QUEUE_MOVE_MAX_ROWS + 1,
       "row",
     );
     expect(retireFile(fixture)).toMatchObject({
@@ -148,7 +168,7 @@ describe("retire source row-count guard", () => {
     bulkInsert(
       fixture.db,
       fixture.source.id,
-      RETIRE_MAX_SOURCE_QUEUE_ROWS,
+      ONLINE_QUEUE_MOVE_MAX_ROWS,
       "row",
     );
     fixture.db.$client
@@ -166,22 +186,47 @@ describe("retire source row-count guard", () => {
     bulkInsert(
       fixture.db,
       fixture.target.id,
-      RETIRE_MAX_SOURCE_QUEUE_ROWS + 5,
+      ONLINE_QUEUE_MOVE_MAX_ROWS + 5,
       "tgt",
     );
-    bulkInsert(fixture.db, fixture.source.id, 3, "src");
-    expect(retireFile(fixture).kind).toBe("retired");
-  });
-
-  it("returns the replayed result for a repeated key even after the queue grows past the maximum", () => {
-    const fixture = setupFile();
-    bulkInsert(fixture.db, fixture.source.id, 2, "row");
-    const first = retireFile(fixture);
-    if (first.kind !== "retired") throw new Error(first.kind);
     bulkInsert(
       fixture.db,
       fixture.source.id,
-      RETIRE_MAX_SOURCE_QUEUE_ROWS + 1,
+      ONLINE_QUEUE_MOVE_MAX_ROWS + 1,
+      "src",
+    );
+    expect(retireFile(fixture)).toEqual({
+      kind: "refused",
+      reason: "source_queue_too_large",
+    });
+    deleteRow(fixture.db, "src1");
+    const outcome = retireFile(fixture);
+    if (outcome.kind !== "retired") throw new Error(outcome.kind);
+    expect(outcome.result.moved).toHaveLength(ONLINE_QUEUE_MOVE_MAX_ROWS);
+  });
+
+  it("refuses an oversized source, then replays the retire made after it shrank even once it grows past the maximum again", () => {
+    const fixture = setupFile();
+    bulkInsert(
+      fixture.db,
+      fixture.source.id,
+      ONLINE_QUEUE_MOVE_MAX_ROWS + 1,
+      "row",
+    );
+    expect(retireFile(fixture)).toEqual({
+      kind: "refused",
+      reason: "source_queue_too_large",
+    });
+    fixture.db.$client
+      .prepare("DELETE FROM queued_thread_messages WHERE id NOT IN ('row1', 'row2')")
+      .run();
+    const first = retireFile(fixture);
+    if (first.kind !== "retired") throw new Error(first.kind);
+    expect(first.result.moved).toHaveLength(2);
+    bulkInsert(
+      fixture.db,
+      fixture.source.id,
+      ONLINE_QUEUE_MOVE_MAX_ROWS + 1,
       "late",
     );
     const replay = retireFile(fixture);
@@ -196,7 +241,7 @@ describe("retire source row-count guard", () => {
     bulkInsert(
       fixture.db,
       fixture.source.id,
-      RETIRE_MAX_SOURCE_QUEUE_ROWS,
+      ONLINE_QUEUE_MOVE_MAX_ROWS,
       "row",
     );
     const other = new Database(fixture.path);
@@ -223,7 +268,7 @@ describe("retire source row-count guard", () => {
     bulkInsert(
       fixture.db,
       fixture.source.id,
-      RETIRE_MAX_SOURCE_QUEUE_ROWS,
+      ONLINE_QUEUE_MOVE_MAX_ROWS,
       "row",
     );
     const other = new Database(fixture.path);
@@ -291,10 +336,22 @@ describe("retire source row-count guard", () => {
     ).toEqual({ n: 0 });
   });
 
-  it("leaves the small-queue path unchanged", () => {
+  it("leaves the small-queue path unchanged while refusing an oversized thread in the same database", () => {
     const fixture = setupInMemory();
-    enqueue(fixture.db, fixture.source.id, "a");
-    enqueue(fixture.db, fixture.source.id, "b");
+    const crowded = fixture.make();
+    bulkInsert(fixture.db, crowded.id, ONLINE_QUEUE_MOVE_MAX_ROWS + 1, "row");
+    expect(
+      retireQueuedThreadMessages(fixture.db, {
+        projectId: fixture.project.id,
+        sourceThreadId: crowded.id,
+        targetThreadId: fixture.target.id,
+        operationKey: "key-crowded",
+        retireEnabled: true,
+        resolveWaitingOn,
+      }),
+    ).toEqual({ kind: "refused", reason: "source_queue_too_large" });
+    const a = enqueue(fixture.db, fixture.source.id, "a");
+    const b = enqueue(fixture.db, fixture.source.id, "b");
     const outcome = retireQueuedThreadMessages(fixture.db, {
       projectId: fixture.project.id,
       sourceThreadId: fixture.source.id,
@@ -303,6 +360,196 @@ describe("retire source row-count guard", () => {
       retireEnabled: true,
       resolveWaitingOn,
     });
-    expect(outcome.kind).toBe("retired");
+    if (outcome.kind !== "retired") throw new Error(outcome.kind);
+    expect(outcome.result.moved.map((entry) => entry.id)).toEqual([
+      a.id,
+      b.id,
+    ]);
+  });
+});
+
+function transferAllFile(
+  fixture: ReturnType<typeof setupFile>,
+  before: (tx: DbTransaction) => void = () => {},
+) {
+  return fixture.db.transaction(
+    (tx) => {
+      before(tx);
+      return transferAllQueuedThreadMessagesInTransaction(tx, {
+        sourceThreadId: fixture.source.id,
+        targetThreadId: fixture.target.id,
+        resolveWaitingOn,
+      });
+    },
+    { behavior: "immediate" },
+  );
+}
+
+function refusal(run: () => unknown) {
+  try {
+    run();
+  } catch (error) {
+    return error;
+  }
+  throw new Error("expected a refusal");
+}
+
+describe("transfer-all source row-count guard", () => {
+  it("moves a source holding exactly the maximum number of rows and refuses one more", () => {
+    const fixture = setupFile();
+    bulkInsert(
+      fixture.db,
+      fixture.source.id,
+      ONLINE_QUEUE_MOVE_MAX_ROWS + 1,
+      "row",
+    );
+    expect(refusal(() => transferAllFile(fixture))).toBeInstanceOf(
+      SourceQueueTooLargeError,
+    );
+    deleteRow(fixture.db, "row1");
+    const result = transferAllFile(fixture);
+    expect(result.moved).toHaveLength(ONLINE_QUEUE_MOVE_MAX_ROWS);
+    expect(result.skipped).toEqual([]);
+    expect(countRows(fixture.db, fixture.target.id)).toBe(
+      ONLINE_QUEUE_MOVE_MAX_ROWS,
+    );
+    expect(countRows(fixture.db, fixture.source.id)).toBe(0);
+  });
+
+  it("refuses one row over the maximum with a typed error and changes nothing", () => {
+    const fixture = setupFile();
+    bulkInsert(
+      fixture.db,
+      fixture.source.id,
+      ONLINE_QUEUE_MOVE_MAX_ROWS + 1,
+      "row",
+    );
+    const before = snapshot(fixture.db);
+    const error = refusal(() => transferAllFile(fixture));
+    expect(error).toBeInstanceOf(SourceQueueTooLargeError);
+    expect(error).toMatchObject({
+      threadId: fixture.source.id,
+      rows: ONLINE_QUEUE_MOVE_MAX_ROWS + 1,
+    });
+    expect(snapshot(fixture.db)).toEqual(before);
+  });
+
+  it("counts every row on the source, including claimed and retry rows it would skip", () => {
+    const fixture = setupFile();
+    bulkInsert(
+      fixture.db,
+      fixture.source.id,
+      ONLINE_QUEUE_MOVE_MAX_ROWS,
+      "row",
+    );
+    fixture.db.$client
+      .prepare(
+        "UPDATE queued_thread_messages SET payload_kind = 'retry', retry_of_turn_request_id = 'req', retry_attempt = 2, retry_reason = 'rate' WHERE id IN ('row1', 'row2')",
+      )
+      .run();
+    fixture.db.$client
+      .prepare(
+        "UPDATE queued_thread_messages SET claimed_at = 1, claim_token = 'tok' WHERE id = 'row3'",
+      )
+      .run();
+    bulkInsert(fixture.db, fixture.source.id, 1, "extra");
+    const before = snapshot(fixture.db);
+    expect(refusal(() => transferAllFile(fixture))).toBeInstanceOf(
+      SourceQueueTooLargeError,
+    );
+    expect(snapshot(fixture.db)).toEqual(before);
+  });
+
+  it("counts only the source thread, not the rows already on the target", () => {
+    const fixture = setupFile();
+    bulkInsert(
+      fixture.db,
+      fixture.target.id,
+      ONLINE_QUEUE_MOVE_MAX_ROWS + 5,
+      "tgt",
+    );
+    bulkInsert(
+      fixture.db,
+      fixture.source.id,
+      ONLINE_QUEUE_MOVE_MAX_ROWS + 1,
+      "src",
+    );
+    expect(refusal(() => transferAllFile(fixture))).toBeInstanceOf(
+      SourceQueueTooLargeError,
+    );
+    deleteRow(fixture.db, "src1");
+    expect(transferAllFile(fixture).moved).toHaveLength(
+      ONLINE_QUEUE_MOVE_MAX_ROWS,
+    );
+  });
+
+  it("counts a row committed by another connection before the transfer starts", () => {
+    const fixture = setupFile();
+    bulkInsert(
+      fixture.db,
+      fixture.source.id,
+      ONLINE_QUEUE_MOVE_MAX_ROWS,
+      "row",
+    );
+    const other = new Database(fixture.path);
+    try {
+      other.pragma("busy_timeout = 0");
+      other.prepare(LATE_INSERT).run(fixture.source.id);
+    } finally {
+      other.close();
+    }
+    const before = snapshot(fixture.db);
+    expect(refusal(() => transferAllFile(fixture))).toBeInstanceOf(
+      SourceQueueTooLargeError,
+    );
+    expect(snapshot(fixture.db)).toEqual(before);
+  });
+
+  it("cannot be raced: a second connection is locked out for the whole transaction and a row added inside it is counted", () => {
+    const fixture = setupFile();
+    bulkInsert(
+      fixture.db,
+      fixture.source.id,
+      ONLINE_QUEUE_MOVE_MAX_ROWS,
+      "row",
+    );
+    const before = snapshot(fixture.db);
+    const other = new Database(fixture.path);
+    other.pragma("busy_timeout = 0");
+    let blocked: unknown = null;
+    let error: unknown;
+    try {
+      error = refusal(() =>
+        transferAllFile(fixture, (tx) => {
+          try {
+            other.prepare(LATE_INSERT).run(fixture.source.id);
+          } catch (caught) {
+            blocked = caught;
+          }
+          tx.insert(queuedThreadMessages)
+            .values({
+              id: "inside",
+              originId: "inside",
+              threadId: fixture.source.id,
+              content: "[]",
+              model: "m",
+              reasoningLevel: "r",
+              permissionMode: "full",
+              serviceTier: "default",
+              groupWithNext: false,
+              payloadKind: "inline",
+              sortKey: "y",
+              createdAt: 1,
+              updatedAt: 1,
+            })
+            .run();
+        }),
+      );
+    } finally {
+      other.close();
+    }
+    expect(error).toBeInstanceOf(SourceQueueTooLargeError);
+    expect(String((blocked as Error | null)?.message)).toMatch(/locked|busy/i);
+    expect(snapshot(fixture.db)).toEqual(before);
   });
 });

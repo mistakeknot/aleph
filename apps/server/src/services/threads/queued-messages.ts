@@ -20,6 +20,7 @@ import {
   releaseStaleQueuedMessageClaims,
   sweepTransferOperations,
   retireQueuedThreadMessages,
+  SourceQueueTooLargeError,
   TransferTargetRetiredError,
   transferAllQueuedThreadMessagesInTransaction,
   transferQueuedThreadMessageInTransaction,
@@ -396,6 +397,24 @@ function mapTargetRetired<T>(targetThread: Thread, run: () => T): T {
   }
 }
 
+function mapTransferAllRefusal<T>(
+  args: TransferAllQueuedMessagesArgs,
+  run: () => T,
+): T {
+  try {
+    return mapTargetRetired(args.targetThread, run);
+  } catch (error) {
+    if (error instanceof SourceQueueTooLargeError) {
+      throwThreadNotWritable(
+        args.sourceThread,
+        "source_queue_too_large",
+        error.message,
+      );
+    }
+    throw error;
+  }
+}
+
 export interface RetireThreadArgs {
   sourceThreadId: string;
   targetThreadId: string;
@@ -669,7 +688,7 @@ export async function transferAllQueuedMessages(
     );
   }
   ensureThreadQueueIsWritable(targetThread);
-  const { currentTarget, transferred } = mapTargetRetired(targetThread, () =>
+  const { currentTarget, transferred } = mapTransferAllRefusal(args, () =>
     deps.db.transaction(
       (tx) => {
         const currentTarget = getThread(tx, targetThread.id);
