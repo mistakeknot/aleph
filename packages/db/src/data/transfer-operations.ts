@@ -125,6 +125,17 @@ function checkRefusal(
     .where(eq(threadRedirects.successorThreadId, args.sourceThreadId))
     .get();
   if (isRetireTarget) return "source_is_retire_target";
+  const holdsSlot = tx
+    .select({ id: queuedThreadMessages.id })
+    .from(queuedThreadMessages)
+    .where(
+      and(
+        eq(queuedThreadMessages.threadId, args.sourceThreadId),
+        isNotNull(queuedThreadMessages.forwardSourceRowId),
+      ),
+    )
+    .get();
+  if (holdsSlot) return "source_is_retire_target";
   if (isThreadRetired(tx, args.targetThreadId)) return "target_retired";
   const target = tx
     .select({
@@ -245,6 +256,7 @@ export function retireQueuedThreadMessages(
           if (row.claimedAt !== null) {
             const slot = createQueuedThreadMessageInTransaction(tx, {
               originId,
+              redirect: "direct",
               sortKey: targetKeys[nextKeyIndex++],
               threadVerified: true,
               threadId: args.targetThreadId,

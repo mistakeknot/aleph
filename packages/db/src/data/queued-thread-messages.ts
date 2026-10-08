@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { acquireProjectAttachmentOwnership } from "./project-attachments.js";
 import {
   and,
@@ -47,6 +48,7 @@ import {
   queuedThreadMessages,
   threadRedirects,
   threads,
+  transferEntries,
 } from "../schema.js";
 import {
   createQueuedThreadMessageClaimToken,
@@ -57,7 +59,9 @@ import { queryInSqliteVariableBatches } from "./events.js";
 
 export interface CreateQueuedThreadMessageInput {
   threadId: string;
+  id?: string;
   originId?: string;
+  redirect?: "direct";
   sortKey?: string;
   threadVerified?: boolean;
   slotForSourceRowId?: string;
@@ -602,7 +606,11 @@ function applyPreservedLeadGroupAfterReorder(
   return changed ? listQueuedThreadMessages(db, threadId) : queuedMessages;
 }
 
-export type QueuedMessageThreadUnavailableReason = "archived" | "deleted";
+export type QueuedMessageThreadUnavailableReason =
+  | "archived"
+  | "deleted"
+  | "retired_no_successor"
+  | "redirect_depth_exceeded";
 
 export class QueuedMessageThreadUnavailableError extends Error {
   constructor(
@@ -631,10 +639,68 @@ function assertThreadAcceptsQueuedMessage(
   }
 }
 
-export function createQueuedThreadMessageInTransaction(
+function resolveRedirectedCreate(
   tx: DbTransaction,
   input: CreateQueuedThreadMessageInput,
 ) {
+  const redirect = tx
+    .select()
+    .from(threadRedirects)
+    .where(eq(threadRedirects.sourceThreadId, input.threadId))
+    .get();
+  if (!redirect) return null;
+  if (redirect.successorThreadId === null) {
+    throw new QueuedMessageThreadUnavailableError(
+      input.threadId,
+      "retired_no_successor",
+    );
+  }
+  const successorRedirect = tx
+    .select({ sourceThreadId: threadRedirects.sourceThreadId })
+    .from(threadRedirects)
+    .where(eq(threadRedirects.sourceThreadId, redirect.successorThreadId))
+    .get();
+  if (successorRedirect) {
+    throw new QueuedMessageThreadUnavailableError(
+      input.threadId,
+      "redirect_depth_exceeded",
+    );
+  }
+  const id = input.id ?? createQueuedThreadMessageId();
+  const originId = input.originId ?? id;
+  const row = createQueuedThreadMessageInTransaction(tx, {
+    ...input,
+    id,
+    originId,
+    threadId: redirect.successorThreadId,
+    threadVerified: false,
+    redirect: "direct",
+  });
+  tx.insert(transferEntries)
+    .values({
+      id: `tent_${randomUUID()}`,
+      opId: redirect.opId,
+      kind: "redirected",
+      originId,
+      sourceRowId: null,
+      sourceSortKey: null,
+      targetRowId: row.id,
+      detail: null,
+      state: "terminal",
+      updatedAt: Date.now(),
+    })
+    .run();
+  return row;
+}
+
+export function createQueuedThreadMessageInTransaction(
+  tx: DbTransaction,
+  input: CreateQueuedThreadMessageInput,
+): QueuedThreadMessageRow {
+  if (input.redirect !== "direct") {
+    const redirected = resolveRedirectedCreate(tx, input);
+    if (redirected) return redirected;
+  }
   if (!input.threadVerified) {
     assertThreadAcceptsQueuedMessage(tx, input.threadId);
   }
@@ -644,7 +710,7 @@ export function createQueuedThreadMessageInTransaction(
     input.threadId,
     projectAttachmentPaths(input.content),
   );
-  const id = createQueuedThreadMessageId();
+  const id = input.id ?? createQueuedThreadMessageId();
   const originId = input.originId ?? id;
   const lastQueuedMessage = input.sortKey
     ? null
@@ -715,7 +781,10 @@ export function createQueuedThreadMessage(
     (tx) => createQueuedThreadMessageInTransaction(tx, input),
     { behavior: "immediate" },
   );
-  notifier.notifyThread(input.threadId, ["queue-changed"]);
+  notifier.notifyThread(row.threadId, ["queue-changed"]);
+  if (row.threadId !== input.threadId) {
+    notifier.notifyThread(input.threadId, ["queue-changed"]);
+  }
   return row;
 }
 
@@ -2311,6 +2380,7 @@ export function transferQueuedThreadMessageInTransaction(
     .run();
   const queuedMessage = createQueuedThreadMessageInTransaction(tx, {
     originId: source.originId ?? source.id,
+    redirect: "direct",
     sortKey: args.sortKey,
     threadVerified: args.targetVerified,
     threadId: args.targetThreadId,
