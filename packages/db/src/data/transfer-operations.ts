@@ -567,6 +567,7 @@ export type AbortRefusalReason =
   | "successor_retired"
   | "claims_pending"
   | "restore_key_exhausted"
+  | "abort_queue_too_large"
   | "attachment_unavailable";
 
 export interface AbortResult {
@@ -582,6 +583,7 @@ export interface AbortTransferOperationArgs {
   operationId: string;
   expectedRetirementOperationId: string;
   operationKey: string;
+  maxReturnedRows?: number;
   resolveWaitingOn: (
     source: QueuedThreadMessageRow,
   ) => QueuedMessageWaitingOn | null;
@@ -883,6 +885,12 @@ export function abortTransferOperation(
         const unkeyed = ownedRowsOnTarget.filter(
           (row) => row.originId !== null && redirectedOrigins.has(row.originId),
         );
+        if (
+          args.maxReturnedRows !== undefined &&
+          keyed.length + unkeyed.length > args.maxReturnedRows
+        ) {
+          throw new AbortRolledBack("abort_queue_too_large");
+        }
 
         const giveBack = (row: QueuedThreadMessageRow, sortKey: string) => {
           const moved = transferQueuedThreadMessageInTransaction(tx, {

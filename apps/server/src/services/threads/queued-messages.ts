@@ -17,6 +17,7 @@ import {
   isThreadQueueAutoSendPaused,
   releaseQueuedMessageClaim,
   getRedirectSuccessorThreadId,
+  ONLINE_QUEUE_MOVE_MAX_ROWS,
   releaseStaleQueuedMessageClaims,
   sweepTransferOperations,
   retireQueuedThreadMessages,
@@ -503,6 +504,7 @@ export async function abortRetirement(
     operationId: args.operationId,
     expectedRetirementOperationId: args.expectedRetirementOperationId,
     operationKey: args.operationKey,
+    maxReturnedRows: ONLINE_QUEUE_MOVE_MAX_ROWS,
     resolveWaitingOn: (row) => {
       const waitingOn = parseStoredQueuedThreadMessageWaitingOn(row);
       if (waitingOn?.kind === "plugin" || waitingOn?.kind === "time") {
@@ -524,7 +526,9 @@ export async function abortRetirement(
     throwThreadNotWritable(
       source ?? { archivedAt: null, deletedAt: null, status: "idle" },
       outcome.reason,
-      "Retirement cannot be aborted",
+      outcome.reason === "abort_queue_too_large"
+        ? `Retirement cannot be aborted online: it would return more than the ${ONLINE_QUEUE_MOVE_MAX_ROWS} queued messages that can move at once`
+        : "Retirement cannot be aborted",
     );
   }
   await drainTransferLedger(deps);

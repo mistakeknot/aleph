@@ -14,9 +14,14 @@ import { queuedThreadMessages } from "../../src/schema.js";
 import {
   ONLINE_QUEUE_MOVE_MAX_ROWS,
   SourceQueueTooLargeError,
+  createQueuedThreadMessage,
+  createQueuedThreadMessageInTransaction,
   transferAllQueuedThreadMessagesInTransaction,
 } from "../../src/data/queued-thread-messages.js";
-import { retireQueuedThreadMessages } from "../../src/data/transfer-operations.js";
+import {
+  abortTransferOperation,
+  retireQueuedThreadMessages,
+} from "../../src/data/transfer-operations.js";
 import { withWriteAfterFirstRead } from "../helpers/interleave.js";
 import {
   enqueue,
@@ -551,5 +556,196 @@ describe("transfer-all source row-count guard", () => {
     expect(error).toBeInstanceOf(SourceQueueTooLargeError);
     expect(String((blocked as Error | null)?.message)).toMatch(/locked|busy/i);
     expect(snapshot(fixture.db)).toEqual(before);
+  });
+});
+
+function redirectedInput(threadId: string, text: string) {
+  return {
+    threadId,
+    content: [{ type: "text" as const, text, mentions: [] }],
+    model: "m",
+    reasoningLevel: "r",
+    permissionMode: "full" as const,
+    serviceTier: "default" as const,
+    waitingOn: null,
+    sendAt: null,
+    payload: { kind: "inline" as const },
+    systemNotice: null,
+  };
+}
+
+function redirectInto(
+  db: ReturnType<typeof createConnection>,
+  retiredThreadId: string,
+  count: number,
+) {
+  db.transaction(
+    (tx) => {
+      for (let index = 0; index < count; index += 1) {
+        createQueuedThreadMessageInTransaction(
+          tx,
+          redirectedInput(retiredThreadId, `redirected ${index}`),
+        );
+      }
+    },
+    { behavior: "immediate" },
+  );
+}
+
+function deleteFirstRow(
+  db: ReturnType<typeof createConnection>,
+  threadId: string,
+) {
+  const row = db.$client
+    .prepare(
+      "SELECT id FROM queued_thread_messages WHERE thread_id = ? ORDER BY sort_key LIMIT 1",
+    )
+    .get(threadId) as { id: string };
+  deleteRow(db, row.id);
+}
+
+function retiredFile(rows: number) {
+  const fixture = setupFile();
+  bulkInsert(fixture.db, fixture.source.id, rows, "row");
+  const retired = retireFile(fixture);
+  if (retired.kind !== "retired") throw new Error(retired.kind);
+  return { ...fixture, operationId: retired.operationId };
+}
+
+function abortFile(
+  fixture: ReturnType<typeof retiredFile>,
+  options: {
+    db?: ReturnType<typeof createConnection>;
+    maxReturnedRows?: number;
+  } = { maxReturnedRows: ONLINE_QUEUE_MOVE_MAX_ROWS },
+) {
+  return abortTransferOperation(options.db ?? fixture.db, {
+    projectId: fixture.project.id,
+    operationId: fixture.operationId,
+    expectedRetirementOperationId: fixture.operationId,
+    operationKey: "abort-1",
+    maxReturnedRows: options.maxReturnedRows,
+    resolveWaitingOn,
+  });
+}
+
+describe("online abort give-back guard", () => {
+  it("gives back exactly the maximum number of rows and refuses one more", () => {
+    const fixture = retiredFile(ONLINE_QUEUE_MOVE_MAX_ROWS);
+    redirectInto(fixture.db, fixture.source.id, 1);
+    expect(abortFile(fixture)).toEqual({
+      kind: "refused",
+      reason: "abort_queue_too_large",
+    });
+    deleteFirstRow(fixture.db, fixture.target.id);
+    const outcome = abortFile(fixture);
+    if (outcome.kind !== "aborted") throw new Error(outcome.kind);
+    expect(outcome.result.returned).toHaveLength(ONLINE_QUEUE_MOVE_MAX_ROWS);
+    expect(countRows(fixture.db, fixture.source.id)).toBe(
+      ONLINE_QUEUE_MOVE_MAX_ROWS,
+    );
+    expect(countRows(fixture.db, fixture.target.id)).toBe(0);
+  });
+
+  it("refuses one row over the maximum and changes nothing, so the same key retries", () => {
+    const fixture = retiredFile(ONLINE_QUEUE_MOVE_MAX_ROWS);
+    redirectInto(fixture.db, fixture.source.id, 1);
+    const before = snapshot(fixture.db);
+    expect(abortFile(fixture)).toEqual({
+      kind: "refused",
+      reason: "abort_queue_too_large",
+    });
+    expect(snapshot(fixture.db)).toEqual(before);
+    deleteFirstRow(fixture.db, fixture.target.id);
+    expect(abortFile(fixture).kind).toBe("aborted");
+  });
+
+  it("counts rows that reached the successor through the redirect after a small retirement", () => {
+    const fixture = retiredFile(1);
+    redirectInto(fixture.db, fixture.source.id, ONLINE_QUEUE_MOVE_MAX_ROWS);
+    const before = snapshot(fixture.db);
+    expect(abortFile(fixture)).toEqual({
+      kind: "refused",
+      reason: "abort_queue_too_large",
+    });
+    expect(snapshot(fixture.db)).toEqual(before);
+    expect(countRows(fixture.db, fixture.target.id)).toBe(
+      ONLINE_QUEUE_MOVE_MAX_ROWS + 1,
+    );
+  });
+
+  it("counts only the rows it would give back, not other rows on the successor", () => {
+    const fixture = retiredFile(ONLINE_QUEUE_MOVE_MAX_ROWS);
+    bulkInsert(
+      fixture.db,
+      fixture.target.id,
+      ONLINE_QUEUE_MOVE_MAX_ROWS + 5,
+      "tgt",
+    );
+    const outcome = abortFile(fixture);
+    if (outcome.kind !== "aborted") throw new Error(outcome.kind);
+    expect(outcome.result.returned).toHaveLength(ONLINE_QUEUE_MOVE_MAX_ROWS);
+    expect(countRows(fixture.db, fixture.target.id)).toBe(
+      ONLINE_QUEUE_MOVE_MAX_ROWS + 5,
+    );
+  });
+
+  it("leaves the offline abort uncapped when no maximum is passed", () => {
+    const fixture = retiredFile(ONLINE_QUEUE_MOVE_MAX_ROWS);
+    redirectInto(fixture.db, fixture.source.id, 1);
+    const outcome = abortFile(fixture, {});
+    if (outcome.kind !== "aborted") throw new Error(outcome.kind);
+    expect(outcome.result.returned).toHaveLength(
+      ONLINE_QUEUE_MOVE_MAX_ROWS + 1,
+    );
+  });
+
+  it("cannot be raced: a second connection is locked out and a row redirected inside the transaction is counted", () => {
+    const fixture = retiredFile(ONLINE_QUEUE_MOVE_MAX_ROWS);
+    const before = snapshot(fixture.db);
+    const other = createConnection(fixture.path);
+    other.$client.pragma("busy_timeout = 0");
+    let blocked: unknown = null;
+    const raced = new Proxy(fixture.db, {
+      get(target, property, receiver) {
+        const value = Reflect.get(target, property, receiver);
+        if (property !== "transaction") return value;
+        return (run: (tx: DbTransaction) => unknown, options: object) =>
+          target.transaction(
+            (tx: DbTransaction) =>
+              run(
+                withWriteAfterFirstRead(tx, () => {
+                  try {
+                    createQueuedThreadMessage(
+                      other,
+                      noopNotifier,
+                      redirectedInput(fixture.source.id, "late"),
+                    );
+                  } catch (error) {
+                    blocked = error;
+                  }
+                  createQueuedThreadMessageInTransaction(
+                    tx,
+                    redirectedInput(fixture.source.id, "inside"),
+                  );
+                }),
+              ),
+            options,
+          );
+      },
+    });
+    try {
+      expect(
+        abortFile(fixture, {
+          db: raced,
+          maxReturnedRows: ONLINE_QUEUE_MOVE_MAX_ROWS,
+        }),
+      ).toEqual({ kind: "refused", reason: "abort_queue_too_large" });
+    } finally {
+      other.$client.close();
+    }
+    expect(String((blocked as Error | null)?.message)).toMatch(/locked|busy/i);
+    expect(snapshot(fixture.db)).toEqual(before);
+    expect(abortFile(fixture).kind).toBe("aborted");
   });
 });

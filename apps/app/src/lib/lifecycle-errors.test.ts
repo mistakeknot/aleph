@@ -579,6 +579,23 @@ const descriptionCases: DescriptionCase[] = [
     },
   },
   {
+    name: "thread_not_writable abort_queue_too_large",
+    body: {
+      code: "thread_not_writable",
+      message: "Retirement cannot be aborted online",
+      details: {
+        archivedAt: null,
+        reason: "abort_queue_too_large",
+        threadStatus: "active",
+      },
+    },
+    expected: {
+      title: "Too many messages to restore",
+      body: "Restoring this retirement would move too many queued messages at once. Send or remove some from the successor and try again.",
+      severity: "warning",
+    },
+  },
+  {
     name: "thread_not_writable attachment_unavailable",
     body: {
       code: "thread_not_writable",

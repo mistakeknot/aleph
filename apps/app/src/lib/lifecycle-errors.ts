@@ -395,6 +395,12 @@ function describeThreadNotWritable({
         title: "Cannot restore order",
         body: "The original message order cannot be restored.",
       });
+    case "abort_queue_too_large":
+      return warning({
+        operation,
+        title: "Too many messages to restore",
+        body: "Restoring this retirement would move too many queued messages at once. Send or remove some from the successor and try again.",
+      });
     case "attachment_unavailable":
       return errorDescription({
         operation,
