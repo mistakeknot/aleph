@@ -490,6 +490,24 @@ export {
   setQueuedThreadMessageGroupBoundary,
   updateQueuedThreadMessage,
 } from "./queued-thread-messages.js";
+export {
+  TransferTargetRetiredError,
+  isThreadRetired,
+} from "./queued-thread-messages.js";
+export {
+  ackTransferOperation,
+  drainTransferEvents,
+  getTransferOperation,
+  retireQueuedThreadMessages,
+  sweepTransferOperations,
+} from "./transfer-operations.js";
+export type {
+  RetireQueuedThreadMessagesArgs,
+  RetireQueuedThreadMessagesOutcome,
+  RetireRefusalReason,
+  RetireResult,
+  TransferEventRecord,
+} from "./transfer-operations.js";
 export type {
   ClaimedQueuedThreadMessageRow,
   QueuedMessageThreadUnavailableReason,

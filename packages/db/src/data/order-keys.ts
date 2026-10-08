@@ -29,7 +29,11 @@ function requireOrderKeyDigit(index: number): string {
   return digit;
 }
 
-function getOrderKeyDigit(key: string, index: number, fallback: number): number {
+function getOrderKeyDigit(
+  key: string,
+  index: number,
+  fallback: number,
+): number {
   if (index >= key.length) {
     return fallback;
   }
@@ -113,4 +117,29 @@ export function createOrderKeyAfter({
     previousKey,
     nextKey: null,
   });
+}
+
+export function createOrderKeysAfter({
+  count,
+  previousKey,
+}: {
+  count: number;
+  previousKey: string | null;
+}): string[] {
+  const prefix =
+    previousKey ?? createOrderKeyBetween({ previousKey: null, nextKey: null });
+  const base = ORDER_KEY_ALPHABET.length;
+  let width = 1;
+  while (base ** width <= count) width += 1;
+  const keys: string[] = [];
+  for (let index = 1; index <= count; index += 1) {
+    let remainder = index;
+    let suffix = "";
+    for (let place = 0; place < width; place += 1) {
+      suffix = `${requireOrderKeyDigit(remainder % base)}${suffix}`;
+      remainder = Math.floor(remainder / base);
+    }
+    keys.push(`${prefix}${suffix}`);
+  }
+  return keys;
 }

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { dropTransferLedgerSchema } from "./helpers/drop-transfer-ledger.js";
 import { PERSONAL_PROJECT_ID } from "@bb/domain";
 import {
   createConnection,
@@ -79,6 +80,7 @@ describe.each(["project", "thread", "preference"] as const)(
           const threads = db.$client.prepare("SELECT * FROM threads").all();
           db.$client.exec("DROP TABLE ui_preference_defaults");
           db.$client.exec("DROP TABLE idempotent_thread_operations");
+          dropTransferLedgerSchema(db);
           for (const column of [
             "provisional_fence_epoch",
             "provisional_fence_verified_epoch",

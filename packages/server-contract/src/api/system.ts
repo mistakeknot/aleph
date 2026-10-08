@@ -260,6 +260,7 @@ export type ThemeCatalogResponse = z.infer<typeof themeCatalogResponseSchema>;
 export const queueRetirementCapabilitySchema = z.object({
   version: z.literal(1),
   guarantees: z.array(z.string()),
+  retire: z.object({ maxHops: z.number().int().positive() }).optional(),
 });
 export type QueueRetirementCapability = z.infer<
   typeof queueRetirementCapabilitySchema
@@ -267,7 +268,8 @@ export type QueueRetirementCapability = z.infer<
 
 export const QUEUE_RETIREMENT_CAPABILITY: QueueRetirementCapability = {
   version: 1,
-  guarantees: ["G1", "G2"],
+  guarantees: ["G1", "G2", "G3"],
+  retire: { maxHops: 1 },
 };
 
 export function hasQueueRetirementGuarantee(

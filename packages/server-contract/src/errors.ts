@@ -31,6 +31,16 @@ export const threadNotWritableReasonSchema = z.enum([
   "errored",
   "already_active",
   "still_starting",
+  "self_transfer",
+  "unknown_thread",
+  "source_deleted",
+  "already_retired",
+  "source_is_retire_target",
+  "target_retired",
+  "thread_not_writable",
+  "transfer_retire_disabled",
+  "source_has_claims",
+  "attachment_unavailable",
 ]);
 export type ThreadNotWritableReason = z.infer<
   typeof threadNotWritableReasonSchema

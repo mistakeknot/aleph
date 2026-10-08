@@ -1085,11 +1085,21 @@ export const queuedThreadMessages = sqliteTable(
     retryReason: text("retry_reason"),
     claimedAt: integer("claimed_at"),
     claimToken: text("claim_token"),
+    originId: text("origin_id"),
+    forwardSourceRowId: text("forward_source_row_id"),
     sortKey: text("sort_key").notNull(),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },
   (table) => [
+    uniqueIndex("qtm_one_slot_per_source")
+      .on(table.forwardSourceRowId)
+      .where(sql`${table.forwardSourceRowId} IS NOT NULL`),
+    uniqueIndex("qtm_one_live_copy")
+      .on(table.originId)
+      .where(
+        sql`${table.forwardSourceRowId} IS NULL AND ${table.originId} IS NOT NULL`,
+      ),
     index("queued_thread_messages_thread_created_idx").on(
       table.threadId,
       table.createdAt,
@@ -1114,6 +1124,77 @@ export const queuedThreadMessages = sqliteTable(
       .where(sql`${table.waitHolder} IS NOT NULL`),
   ],
 );
+
+export const transferOperations = sqliteTable(
+  "transfer_operations",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id").notNull(),
+    operationKey: text("operation_key").notNull(),
+    requestHash: text("request_hash").notNull(),
+    kind: text("kind", { enum: ["retire", "abort"] }).notNull(),
+    sourceThreadId: text("source_thread_id").notNull(),
+    targetThreadId: text("target_thread_id").notNull(),
+    state: text("state", { enum: ["active", "aborted", "done"] }).notNull(),
+    resultJson: text("result_json"),
+    ackedAt: integer("acked_at"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("transfer_operations_project_key_idx").on(
+      table.projectId,
+      table.operationKey,
+    ),
+  ],
+);
+
+export const transferEntries = sqliteTable("transfer_entries", {
+  id: text("id").primaryKey(),
+  opId: text("op_id")
+    .notNull()
+    .references(() => transferOperations.id, { onDelete: "cascade" }),
+  kind: text("kind", {
+    enum: [
+      "moved",
+      "slot",
+      "not_forwardable",
+      "redirected",
+      "returned",
+      "residual",
+    ],
+  }).notNull(),
+  originId: text("origin_id"),
+  sourceRowId: text("source_row_id"),
+  sourceSortKey: text("source_sort_key"),
+  targetRowId: text("target_row_id"),
+  detail: text("detail"),
+  state: text("state", {
+    enum: ["pending", "forwarded", "left_source", "target_deleted", "terminal"],
+  }).notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
+export const transferEvents = sqliteTable("transfer_events", {
+  eventId: integer("event_id").primaryKey({ autoIncrement: true }),
+  opId: text("op_id")
+    .notNull()
+    .references(() => transferOperations.id, { onDelete: "cascade" }),
+  entryId: text("entry_id").notNull(),
+  state: text("state").notNull(),
+  payload: text("payload").notNull(),
+  emittedAt: integer("emitted_at"),
+});
+
+export const threadRedirects = sqliteTable("thread_redirects", {
+  sourceThreadId: text("source_thread_id")
+    .primaryKey()
+    .references(() => threads.id, { onDelete: "cascade" }),
+  successorThreadId: text("successor_thread_id").references(() => threads.id),
+  opId: text("op_id")
+    .notNull()
+    .references(() => transferOperations.id, { onDelete: "restrict" }),
+});
+
 export const hostDaemonSessions = sqliteTable(
   "host_daemon_sessions",
   {

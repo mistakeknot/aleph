@@ -1,9 +1,11 @@
 import { refreshProviderRetirement } from "../../services/environments/environment-engine.js";
 import {
+  ackTransferOperation,
   deleteQueuedThreadMessage,
   getEnvironment,
   getQueuedThreadMessage,
   getThread,
+  getTransferOperation,
   listActiveVisiblePinnedThreadRootsWithPendingInteractionState,
   pinThread,
   reorderPinnedThread,
@@ -46,6 +48,7 @@ import { validatePromptAttachmentReferences } from "../../services/projects/atta
 import {
   createQueuedMessageForThread,
   sendQueuedMessageNow,
+  retireThread,
   transferAllQueuedMessages,
   transferQueuedMessage,
 } from "../../services/threads/queued-messages.js";
@@ -224,7 +227,7 @@ function assertPinnedThreadOrderResult(
 }
 
 export function registerThreadActionRoutes(app: Hono, deps: AppDeps): void {
-  const { post, patch, del } = typedRoutes<PublicApiSchema>(app, {
+  const { get, post, patch, del } = typedRoutes<PublicApiSchema>(app, {
     onValidationError: (msg) => new ApiError(400, "invalid_request", msg),
   });
   const routes = publicApiRoutes.threads;
@@ -275,6 +278,34 @@ export function registerThreadActionRoutes(app: Hono, deps: AppDeps): void {
       threadId: context.req.param("id"),
     });
     return context.json({ ok: true, ...result });
+  });
+
+  post(routes.retireThread, async (context, payload) => {
+    return context.json(
+      await retireThread(deps, {
+        sourceThreadId: context.req.param("id"),
+        targetThreadId: payload.targetThreadId,
+        operationKey: payload.operationKey,
+      }),
+    );
+  });
+
+  get(routes.getTransferOperation, (context) => {
+    const operation = getTransferOperation(deps.db, context.req.param("id"));
+    if (!operation) {
+      throw new ApiError(404, "not_found", "Transfer operation not found");
+    }
+    return context.json(operation);
+  });
+
+  post(routes.ackTransferOperation, (context) => {
+    const operation = getTransferOperation(deps.db, context.req.param("id"));
+    if (!operation) {
+      throw new ApiError(404, "not_found", "Transfer operation not found");
+    }
+    return context.json({
+      acked: ackTransferOperation(deps.db, operation.id, operation.projectId),
+    });
   });
 
   post(routes.transferAllQueuedMessages, async (context, payload) => {

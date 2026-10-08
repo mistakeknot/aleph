@@ -190,8 +190,12 @@ import type {
   SendMessageResponse,
   SetQueuedMessageGroupBoundaryRequest,
   SendQueuedMessageRequest,
+  AckTransferOperationResponse,
+  RetireThreadRequest,
+  RetireThreadResponse,
   TransferAllQueuedMessagesRequest,
   TransferAllQueuedMessagesResponse,
+  TransferOperationResponse,
   TransferQueuedMessageRequest,
   SendQueuedMessageResponse,
   SidebarBootstrapResponse,
@@ -361,6 +365,7 @@ import {
   editMessageRequestSchema,
   setQueuedMessageGroupBoundaryRequestSchema,
   sendQueuedMessageRequestSchema,
+  retireThreadRequestSchema,
   transferAllQueuedMessagesRequestSchema,
   transferQueuedMessageRequestSchema,
   systemExecutionOptionsQuerySchema,
@@ -1429,6 +1434,26 @@ export const publicApiRoutes = {
         TransferQueuedMessageRequest
       >(transferQueuedMessageRequestSchema),
       response: jsonResponse<ThreadQueuedMessage>({ status: 201 }),
+    }),
+    retireThread: defineRoute({
+      path: "/threads/:id/retire",
+      method: "post",
+      request: jsonRequest<PathId, RetireThreadRequest>(
+        retireThreadRequestSchema,
+      ),
+      response: jsonResponse<RetireThreadResponse>(),
+    }),
+    getTransferOperation: defineRoute({
+      path: "/transfer-operations/:id",
+      method: "get",
+      request: noRequest<PathId>(),
+      response: jsonResponse<TransferOperationResponse>(),
+    }),
+    ackTransferOperation: defineRoute({
+      path: "/transfer-operations/:id/ack",
+      method: "post",
+      request: noRequest<PathId>(),
+      response: jsonResponse<AckTransferOperationResponse>(),
     }),
     transferAllQueuedMessages: defineRoute({
       path: "/threads/:id/queued-messages/transfer-all",
