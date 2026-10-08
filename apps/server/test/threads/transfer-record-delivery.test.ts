@@ -3,11 +3,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  abortTransferOperation,
+  claimQueuedThreadMessage,
   createConnection,
   createProject,
   createQueuedThreadMessage,
   createThread,
   migrate,
+  releaseQueuedMessageClaim,
   retireQueuedThreadMessages,
   upsertHost,
   type DbConnection,
@@ -184,5 +187,253 @@ describe("every durable transfer record reaches a consumer before it is stamped"
     });
     await drainTransferLedger(deps);
     expect(stamped()).toHaveLength(0);
+  });
+});
+
+interface Observed {
+  eventId: number;
+  kind: string;
+  state: string;
+  entryNull: boolean;
+  emittedAtSeen: number | null;
+  rowId: string | null;
+}
+
+function world() {
+  const db = createConnection(":memory:");
+  migrate(db);
+  const host = upsertHost(db, noopNotifier, { name: "families" });
+  const { project } = createProject(db, noopNotifier, {
+    name: "families",
+    source: { type: "local_path", hostId: host.id, path: "/tmp/families" },
+  });
+  const make = () =>
+    createThread(db, noopNotifier, {
+      projectId: project.id,
+      providerId: "codex",
+    });
+  const source = make();
+  const target = make();
+  const enqueue = (
+    threadId: string,
+    text: string,
+    overrides: Partial<Parameters<typeof createQueuedThreadMessage>[2]> = {},
+  ) =>
+    createQueuedThreadMessage(db, noopNotifier, {
+      threadId,
+      content: textInput(text),
+      model: "gpt-5",
+      reasoningLevel: "medium",
+      permissionMode: "full",
+      serviceTier: "default",
+      waitingOn: pluginWait,
+      sendAt: null,
+      payload: { kind: "inline" },
+      systemNotice: null,
+      ...overrides,
+    });
+  const retire = (key: string) => {
+    const outcome = retireQueuedThreadMessages(db, {
+      projectId: project.id,
+      sourceThreadId: source.id,
+      targetThreadId: target.id,
+      operationKey: key,
+      retireEnabled: true,
+      resolveWaitingOn: () => pluginWait,
+    });
+    if (outcome.kind !== "retired") throw new Error(outcome.kind);
+    return outcome.operationId;
+  };
+  const sql = (statement: string, ...params: unknown[]) =>
+    db.$client.prepare(statement).run(...params);
+  const deps = { db, hub: { notifyThread: () => 0 } } as never;
+  return { db, project, source, target, make, enqueue, retire, sql, deps };
+}
+
+async function observe(
+  w: ReturnType<typeof world>,
+  drain: () => Promise<void> = () => drainTransferLedger(w.deps),
+) {
+  const runtime = await createRuntime(w.db);
+  const seen: Observed[] = [];
+  install(runtime, (payload) => {
+    const row = w.db.$client
+      .prepare(
+        "SELECT emitted_at AS at FROM transfer_events WHERE event_id = ?",
+      )
+      .get(payload.transfer.eventId) as { at: number | null };
+    seen.push({
+      eventId: payload.transfer.eventId,
+      kind: payload.transfer.kind,
+      state: payload.transfer.state,
+      entryNull: payload.entry === null,
+      emittedAtSeen: row.at,
+      rowId: (payload.entry as { id: string } | null)?.id ?? null,
+    });
+  });
+  await drain();
+  return seen;
+}
+
+function unstamped(w: ReturnType<typeof world>) {
+  return (
+    w.db.$client
+      .prepare(
+        "SELECT COUNT(*) AS n FROM transfer_events WHERE emitted_at IS NULL",
+      )
+      .get() as { n: number }
+  ).n;
+}
+
+function events(w: ReturnType<typeof world>) {
+  return w.db.$client
+    .prepare(
+      "SELECT event_id AS id, payload FROM transfer_events ORDER BY event_id",
+    )
+    .all() as { id: number; payload: string }[];
+}
+
+function expectEveryEventDeliveredBeforeStamp(
+  w: ReturnType<typeof world>,
+  seen: Observed[],
+) {
+  const all = events(w);
+  expect(all.length).toBeGreaterThan(0);
+  expect(unstamped(w)).toBe(0);
+  expect(seen.map((s) => s.eventId).sort()).toEqual(
+    all.map((e) => e.id).sort(),
+  );
+  for (const s of seen) expect(s.emittedAtSeen).toBeNull();
+  for (const s of seen) {
+    const stored = JSON.parse(
+      all.find((e) => e.id === s.eventId)?.payload ?? "{}",
+    ) as { kind: string; state: string };
+    expect([s.kind, s.state]).toEqual([stored.kind, stored.state]);
+  }
+}
+
+describe("rowless and formerly excluded transfer facts reach consumers before they are stamped", () => {
+  it("delivers a pending slot fact", async () => {
+    const w = world();
+    const held = w.enqueue(w.source.id, "held", { waitingOn: null });
+    expect(claimQueuedThreadMessage(w.db, noopNotifier, held.id)).toBeTruthy();
+    w.retire("slot-pending");
+    const seen = await observe(w);
+    expect(seen.map((s) => [s.kind, s.state, s.entryNull])).toEqual([
+      ["slot", "pending", true],
+    ]);
+    expectEveryEventDeliveredBeforeStamp(w, seen);
+  });
+
+  it("delivers a terminal slot fact", async () => {
+    const w = world();
+    const held = w.enqueue(w.source.id, "held", { waitingOn: null });
+    expect(claimQueuedThreadMessage(w.db, noopNotifier, held.id)).toBeTruthy();
+    const op = w.retire("slot-terminal");
+    w.sql("UPDATE transfer_entries SET state = 'terminal' WHERE op_id = ?", op);
+    const seen = await observe(w);
+    expect(seen.map((s) => [s.kind, s.state, s.entryNull])).toEqual([
+      ["slot", "pending", true],
+      ["slot", "terminal", true],
+    ]);
+    expectEveryEventDeliveredBeforeStamp(w, seen);
+  });
+
+  it("delivers a forwarded slot with its landed row", async () => {
+    const w = world();
+    const held = w.enqueue(w.source.id, "held", { waitingOn: null });
+    const claimed = claimQueuedThreadMessage(w.db, noopNotifier, held.id);
+    if (!claimed) throw new Error("claim failed");
+    w.retire("slot-forwarded");
+    releaseQueuedMessageClaim(w.db, noopNotifier, {
+      id: held.id,
+      claimToken: claimed.claimToken,
+    });
+    const seen = await observe(w);
+    expect(seen.map((s) => [s.kind, s.state])).toEqual([
+      ["slot", "pending"],
+      ["slot", "forwarded"],
+    ]);
+    expect(seen[0]?.entryNull).toBe(true);
+    expect(seen[1]?.entryNull).toBe(false);
+    expectEveryEventDeliveredBeforeStamp(w, seen);
+  });
+
+  it("delivers a non-forwardable fact", async () => {
+    const w = world();
+    w.enqueue(w.source.id, "retry", {
+      waitingOn: null,
+      payload: {
+        kind: "retry",
+        retryOfTurnRequestId: "req",
+        attempt: 2,
+        reason: "rate",
+      },
+    });
+    w.retire("not-forwardable");
+    const seen = await observe(w);
+    expect(seen.map((s) => [s.kind, s.state, s.entryNull])).toEqual([
+      ["not_forwardable", "terminal", true],
+    ]);
+    expectEveryEventDeliveredBeforeStamp(w, seen);
+  });
+
+  it("delivers a redirected arrival fact", async () => {
+    const w = world();
+    w.enqueue(w.source.id, "early");
+    w.retire("redirected");
+    w.enqueue(w.source.id, "late");
+    const seen = await observe(w);
+    const kinds = seen.map((s) => s.kind);
+    expect(kinds).toContain("redirected");
+    expect(seen.find((s) => s.kind === "redirected")?.entryNull).toBe(true);
+    expectEveryEventDeliveredBeforeStamp(w, seen);
+  });
+
+  it("delivers a moved fact whose landed row vanished", async () => {
+    const w = world();
+    w.enqueue(w.source.id, "held");
+    w.retire("vanished");
+    w.sql(
+      "DELETE FROM queued_thread_messages WHERE thread_id = ?",
+      w.target.id,
+    );
+    const seen = await observe(w);
+    expect(seen.map((s) => [s.kind, s.state, s.entryNull])).toEqual([
+      ["moved", "terminal", true],
+    ]);
+    expectEveryEventDeliveredBeforeStamp(w, seen);
+  });
+
+  it("delivers residual and returned facts of an abort", async () => {
+    const w = world();
+    const third = w.make();
+    w.enqueue(w.source.id, "a");
+    w.enqueue(w.source.id, "b");
+    const op = w.retire("abort-source");
+    const landed = w.db.$client
+      .prepare(
+        "SELECT id FROM queued_thread_messages WHERE thread_id = ? ORDER BY sort_key",
+      )
+      .all(w.target.id) as { id: string }[];
+    w.sql(
+      "UPDATE queued_thread_messages SET thread_id = ? WHERE id = ?",
+      third.id,
+      landed[0]?.id,
+    );
+    const aborted = abortTransferOperation(w.db, {
+      projectId: w.project.id,
+      operationId: op,
+      expectedRetirementOperationId: op,
+      operationKey: "abort-1",
+      resolveWaitingOn: () => pluginWait,
+    });
+    expect(aborted.kind).toBe("aborted");
+    const seen = await observe(w);
+    const kinds = new Set(seen.map((s) => s.kind));
+    expect(kinds.has("residual")).toBe(true);
+    expect(kinds.has("returned")).toBe(true);
+    expect(seen.find((s) => s.kind === "residual")?.entryNull).toBe(true);
+    expectEveryEventDeliveredBeforeStamp(w, seen);
   });
 });
