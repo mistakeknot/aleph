@@ -9,6 +9,7 @@ import {
   inArray,
   isNotNull,
   isNull,
+  like,
   lt,
   lte,
   min,
@@ -1426,6 +1427,7 @@ export function requeueClaimedQueuedThreadMessages(
           .where(
             and(
               eq(queuedThreadMessages.id, claim.id),
+              isNull(queuedThreadMessages.forwardSourceRowId),
               eq(queuedThreadMessages.claimToken, claim.claimToken),
             ),
           )
@@ -1476,7 +1478,12 @@ export function releaseQueuedMessageClaim(
   const existing = db
     .select()
     .from(queuedThreadMessages)
-    .where(eq(queuedThreadMessages.id, args.id))
+    .where(
+      and(
+        eq(queuedThreadMessages.id, args.id),
+        isNull(queuedThreadMessages.forwardSourceRowId),
+      ),
+    )
     .get();
   if (
     !existing ||
@@ -1493,6 +1500,7 @@ export function releaseQueuedMessageClaim(
     .where(
       and(
         eq(queuedThreadMessages.id, args.id),
+        isNull(queuedThreadMessages.forwardSourceRowId),
         isNotNull(queuedThreadMessages.claimedAt),
         eq(queuedThreadMessages.claimToken, args.claimToken),
       ),
@@ -1506,15 +1514,30 @@ export function releaseQueuedMessageClaim(
   return true;
 }
 
-export function releaseStaleQueuedMessageClaims(
+export interface ReleaseStaleQueuedMessageClaimsDetailedResult {
+  released: number;
+  threadIds: string[];
+}
+
+class StaleSweepMismatch extends Error {
+  constructor(
+    readonly selected: number,
+    readonly updated: number,
+  ) {
+    super(`stale claim sweep selected ${selected} but updated ${updated}`);
+    this.name = "StaleSweepMismatch";
+  }
+}
+
+export function sweepStaleQueuedMessageClaims(
   db: DbConnection,
-  notifier: DbNotifier,
   args: ReleaseStaleQueuedMessageClaimsArgs,
-): number {
+): ReleaseStaleQueuedMessageClaimsDetailedResult {
   const protectedClaimTokens = [...args.protectedClaimTokens];
   const staleClaimWhere = and(
     isNotNull(queuedThreadMessages.claimedAt),
     lt(queuedThreadMessages.claimedAt, args.claimedBefore),
+    isNull(queuedThreadMessages.forwardSourceRowId),
     ...(protectedClaimTokens.length > 0
       ? [
           or(
@@ -1524,30 +1547,67 @@ export function releaseStaleQueuedMessageClaims(
         ]
       : []),
   );
-  const staleRows = db
-    .select({
-      id: queuedThreadMessages.id,
-      threadId: queuedThreadMessages.threadId,
-    })
-    .from(queuedThreadMessages)
-    .where(staleClaimWhere)
-    .all();
-  if (staleRows.length === 0) {
-    return 0;
-  }
+  return db.transaction(
+    (tx) => {
+      const staleRows = tx
+        .select({
+          id: queuedThreadMessages.id,
+          threadId: queuedThreadMessages.threadId,
+        })
+        .from(queuedThreadMessages)
+        .where(staleClaimWhere)
+        .all();
+      if (staleRows.length === 0) {
+        return { released: 0, threadIds: [] };
+      }
+      const slotThreads = tx
+        .selectDistinct({ threadId: queuedThreadMessages.threadId })
+        .from(queuedThreadMessages)
+        .where(
+          and(
+            like(queuedThreadMessages.claimToken, "slot:%"),
+            inArray(
+              queuedThreadMessages.forwardSourceRowId,
+              tx
+                .select({ id: queuedThreadMessages.id })
+                .from(queuedThreadMessages)
+                .where(staleClaimWhere),
+            ),
+          ),
+        )
+        .all();
+      const result = tx
+        .update(queuedThreadMessages)
+        .set({ claimedAt: null, claimToken: null, updatedAt: Date.now() })
+        .where(staleClaimWhere)
+        .run();
+      if (result.changes !== staleRows.length) {
+        throw new StaleSweepMismatch(staleRows.length, result.changes);
+      }
+      return {
+        released: result.changes,
+        threadIds: [
+          ...new Set([
+            ...staleRows.map((row) => row.threadId),
+            ...slotThreads.map((row) => row.threadId),
+          ]),
+        ],
+      };
+    },
+    { behavior: "immediate" },
+  );
+}
 
-  const now = Date.now();
-  const result = db
-    .update(queuedThreadMessages)
-    .set({ claimedAt: null, claimToken: null, updatedAt: now })
-    .where(staleClaimWhere)
-    .run();
-
-  for (const threadId of new Set(staleRows.map((row) => row.threadId))) {
+export function releaseStaleQueuedMessageClaims(
+  db: DbConnection,
+  notifier: DbNotifier,
+  args: ReleaseStaleQueuedMessageClaimsArgs,
+): number {
+  const { released, threadIds } = sweepStaleQueuedMessageClaims(db, args);
+  for (const threadId of threadIds) {
     notifier.notifyThread(threadId, ["queue-changed"]);
   }
-
-  return result.changes;
+  return released;
 }
 
 export function deleteClaimedQueuedThreadMessageBatchInTransaction(
