@@ -598,10 +598,40 @@ function applyPreservedLeadGroupAfterReorder(
   return changed ? listQueuedThreadMessages(db, threadId) : queuedMessages;
 }
 
+export type QueuedMessageThreadUnavailableReason = "archived" | "deleted";
+
+export class QueuedMessageThreadUnavailableError extends Error {
+  constructor(
+    readonly threadId: string,
+    readonly reason: QueuedMessageThreadUnavailableReason,
+  ) {
+    super(`Cannot queue a message on ${reason} thread ${threadId}`);
+    this.name = "QueuedMessageThreadUnavailableError";
+  }
+}
+
+function assertThreadAcceptsQueuedMessage(
+  tx: DbTransaction,
+  threadId: string,
+): void {
+  const thread = tx
+    .select({ archivedAt: threads.archivedAt, deletedAt: threads.deletedAt })
+    .from(threads)
+    .where(eq(threads.id, threadId))
+    .get();
+  if (!thread || thread.deletedAt !== null) {
+    throw new QueuedMessageThreadUnavailableError(threadId, "deleted");
+  }
+  if (thread.archivedAt !== null) {
+    throw new QueuedMessageThreadUnavailableError(threadId, "archived");
+  }
+}
+
 export function createQueuedThreadMessageInTransaction(
   tx: DbTransaction,
   input: CreateQueuedThreadMessageInput,
 ) {
+  assertThreadAcceptsQueuedMessage(tx, input.threadId);
   const now = Date.now();
   acquireProjectAttachmentOwnership(
     tx,

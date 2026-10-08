@@ -257,6 +257,26 @@ export const themeCatalogResponseSchema = z.object({
 });
 export type ThemeCatalogResponse = z.infer<typeof themeCatalogResponseSchema>;
 
+export const queueRetirementCapabilitySchema = z.object({
+  version: z.literal(1),
+  guarantees: z.array(z.string()),
+});
+export type QueueRetirementCapability = z.infer<
+  typeof queueRetirementCapabilitySchema
+>;
+
+export const QUEUE_RETIREMENT_CAPABILITY: QueueRetirementCapability = {
+  version: 1,
+  guarantees: ["G1"],
+};
+
+export function hasQueueRetirementGuarantee(
+  response: { queueRetirement?: QueueRetirementCapability | undefined },
+  guarantee: string,
+): boolean {
+  return response.queueRetirement?.guarantees.includes(guarantee) ?? false;
+}
+
 export const systemVersionResponseSchema = z.object({
   currentVersion: z.string(),
   latestVersion: z.string().nullable(),
@@ -267,6 +287,7 @@ export const systemVersionResponseSchema = z.object({
   // clients no check ran, so they don't show "Up to date".
   updateChecksDisabled: z.boolean().optional(),
   upgradeCommand: z.string().nullable(),
+  queueRetirement: queueRetirementCapabilitySchema.optional(),
 });
 export type SystemVersionResponse = z.infer<typeof systemVersionResponseSchema>;
 

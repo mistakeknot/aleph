@@ -1,7 +1,10 @@
 import semver from "semver";
 import { z } from "zod";
 import { isAlephAppVersion, isNightlyAppVersion } from "@bb/config/app-update";
-import type { SystemVersionResponse } from "@bb/server-contract";
+import {
+  QUEUE_RETIREMENT_CAPABILITY,
+  type SystemVersionResponse,
+} from "@bb/server-contract";
 import type { ServerLogger, ServerRuntimeConfig } from "../../types.js";
 
 const NPM_REGISTRY_PACKAGE_URL = "https://registry.npmjs.org/bb-app";
@@ -164,6 +167,7 @@ export function createAppVersionService(
         updateAvailable: false,
         isDevelopment: config.isDevelopment,
         upgradeCommand: `npx bb-app@${distTag}`,
+        queueRetirement: QUEUE_RETIREMENT_CAPABILITY,
       };
 
       if (isAlephAppVersion(config.appVersion)) {

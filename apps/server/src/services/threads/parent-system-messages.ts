@@ -16,7 +16,10 @@ import type {
 import type { HostDaemonCommand } from "@bb/host-daemon-contract";
 import type { LoggedPendingInteractionWorkSessionDeps } from "../../types.js";
 import { requireThreadEnvironment } from "../lib/entity-lookup.js";
-import { createQueuedThreadMessage } from "@bb/db";
+import {
+  createQueuedThreadMessage,
+  QueuedMessageThreadUnavailableError,
+} from "@bb/db";
 import {
   addRequestIdToTurnSubmitCommandPayload,
   buildExecutionOptions,
@@ -496,28 +499,42 @@ export async function queueParentSystemMessage(
       threadId: parentThread.id,
     },
   );
-  createQueuedThreadMessage(deps.db, deps.hub, {
-    threadId: parentThread.id,
-    content: args.input,
-    senderThreadId: null,
-    origin: null,
-    originPluginId: null,
-    model: execution.model,
-    reasoningLevel: execution.reasoningLevel,
-    permissionMode: execution.permissionMode,
-    serviceTier: execution.serviceTier,
-    waitingOn: hasPendingInteraction
-      ? { kind: "interaction" }
-      : held.held
-        ? { kind: "plugin", pluginId: held.pluginId, reason: held.reason }
-        : { kind: "thread-busy" },
-    sendAt: held.held ? held.sendAt : null,
-    payload: { kind: "inline" },
-    systemNotice: {
-      kind: args.systemMessageKind,
-      subject: args.systemMessageSubject,
-    },
-  });
+  try {
+    createQueuedThreadMessage(deps.db, deps.hub, {
+      threadId: parentThread.id,
+      content: args.input,
+      senderThreadId: null,
+      origin: null,
+      originPluginId: null,
+      model: execution.model,
+      reasoningLevel: execution.reasoningLevel,
+      permissionMode: execution.permissionMode,
+      serviceTier: execution.serviceTier,
+      waitingOn: hasPendingInteraction
+        ? { kind: "interaction" }
+        : held.held
+          ? { kind: "plugin", pluginId: held.pluginId, reason: held.reason }
+          : { kind: "thread-busy" },
+      sendAt: held.held ? held.sendAt : null,
+      payload: { kind: "inline" },
+      systemNotice: {
+        kind: args.systemMessageKind,
+        subject: args.systemMessageSubject,
+      },
+    });
+  } catch (error) {
+    if (!(error instanceof QueuedMessageThreadUnavailableError)) throw error;
+    deps.logger.warn(
+      {
+        parentThreadId: parentThread.id,
+        reason: error.reason,
+        phase: "post-hook",
+        dropped: true,
+      },
+      "Parent system notice dropped: the parent thread is no longer writable",
+    );
+    return false;
+  }
   if (!hasPendingInteraction && !held.held) {
     requestQueuedMessageDispatch(deps, {
       kind: "thread-ready",

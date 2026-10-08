@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { SystemVersionResponse } from "@bb/server-contract";
+import {
+  QUEUE_RETIREMENT_CAPABILITY,
+  type SystemVersionResponse,
+} from "@bb/server-contract";
 import { readJson } from "../helpers/json.js";
 import { withTestHarness } from "../helpers/test-app.js";
 
@@ -23,6 +26,7 @@ describe("GET /api/v1/system/version", () => {
           updateAvailable: false,
           isDevelopment: true,
           upgradeCommand: "npx bb-app@latest",
+          queueRetirement: QUEUE_RETIREMENT_CAPABILITY,
         }),
         isDevelopment: true,
       },
@@ -33,6 +37,10 @@ describe("GET /api/v1/system/version", () => {
         expect(body.isDevelopment).toBe(true);
         expect(body.updateAvailable).toBe(false);
         expect(body.latestVersion).toBeNull();
+        expect(body.queueRetirement).toEqual({
+          version: 1,
+          guarantees: ["G1"],
+        });
       },
     );
   });
