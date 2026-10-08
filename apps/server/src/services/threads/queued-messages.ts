@@ -3,8 +3,10 @@ import {
   claimQueuedThreadMessageGroup,
   createQueuedThreadMessageInTransaction,
   deleteClaimedQueuedThreadMessageBatchInTransaction,
+  drainTransferEvents,
   getEnvironment,
   getHost,
+  getTransferOperation,
   getQueuedThreadMessage,
   getStoredProviderSession,
   getThread,
@@ -12,6 +14,7 @@ import {
   isThreadQueueAutoSendPaused,
   releaseQueuedMessageClaim,
   releaseStaleQueuedMessageClaims,
+  sweepTransferOperations,
   retireQueuedThreadMessages,
   TransferTargetRetiredError,
   transferAllQueuedThreadMessagesInTransaction,
@@ -378,9 +381,11 @@ export async function retireThread(
       "Thread cannot be retired",
     );
   }
-  if (outcome.kind === "replayed") return outcome.result;
-  deps.hub.notifyThread(args.sourceThreadId, ["queue-changed"]);
-  deps.hub.notifyThread(args.targetThreadId, ["queue-changed"]);
+  if (outcome.kind === "replayed") {
+    drainTransferLedger(deps);
+    return outcome.result;
+  }
+  drainTransferLedger(deps);
   for (const row of outcome.movedRows) {
     emitQueuedIfHeld(toThreadQueuedMessage(row));
   }
@@ -391,6 +396,22 @@ export async function retireThread(
     });
   }
   return outcome.result;
+}
+
+export function drainTransferLedger(deps: Pick<AppDeps, "db" | "hub">): void {
+  let drained: number;
+  do {
+    drained = drainTransferEvents(deps.db, (events) => {
+      const opIds = new Set(events.map((event) => event.opId));
+      for (const opId of opIds) {
+        const operation = getTransferOperation(deps.db, opId);
+        if (!operation) continue;
+        deps.hub.notifyThread(operation.sourceThreadId, ["queue-changed"]);
+        deps.hub.notifyThread(operation.targetThreadId, ["queue-changed"]);
+      }
+    });
+  } while (drained > 0);
+  sweepTransferOperations(deps.db);
 }
 
 export interface TransferQueuedMessageArgs {

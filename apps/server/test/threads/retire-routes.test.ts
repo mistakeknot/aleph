@@ -1,9 +1,12 @@
 import {
   claimQueuedThreadMessage,
   createQueuedThreadMessage,
+  getTransferOperation,
   listQueuedThreadMessages,
+  retireQueuedThreadMessages,
 } from "@bb/db";
-import { describe, expect, it } from "vitest";
+import { runStartupRecoverySweep } from "../../src/services/system/periodic-sweeps.js";
+import { describe, expect, it, vi } from "vitest";
 import { textInput } from "../helpers/prompt-input.js";
 import {
   seedEnvironment,
@@ -38,7 +41,12 @@ function seedPair(harness: TestAppHarness, name: string) {
   return { project, source, target };
 }
 
-function enqueue(harness: TestAppHarness, threadId: string, text: string) {
+function enqueue(
+  harness: TestAppHarness,
+  threadId: string,
+  text: string,
+  overrides: Partial<Parameters<typeof createQueuedThreadMessage>[2]> = {},
+) {
   return createQueuedThreadMessage(harness.db, harness.hub, {
     threadId,
     content: textInput(text),
@@ -50,6 +58,7 @@ function enqueue(harness: TestAppHarness, threadId: string, text: string) {
     sendAt: null,
     payload: { kind: "inline" },
     systemNotice: null,
+    ...overrides,
   });
 }
 
@@ -154,7 +163,7 @@ describe("retire routes", () => {
     });
   }, 20_000);
 
-  it("serves GET and ack, and refuses another project's operation", async () => {
+  it("serves GET and ack, and answers 404 for an unknown operation", async () => {
     await withTestHarness(async (harness) => {
       const { source, target } = seedPair(harness, "retire-get");
       enqueue(harness, source.id, "a");
@@ -184,6 +193,85 @@ describe("retire routes", () => {
       );
       expect(acked.status).toBe(200);
       expect(await acked.json()).toMatchObject({ acked: true });
+    });
+  }, 20_000);
+
+  it("carries plugin and time waits through the real callback and resets the rest to thread-busy", async () => {
+    await withTestHarness(async (harness) => {
+      const { source, target } = seedPair(harness, "retire-wait");
+      const sendAt = Date.now() + 60_000;
+      enqueue(harness, source.id, "plugin", {
+        waitingOn: { kind: "plugin", pluginId: "plug-1", reason: "approval" },
+      });
+      enqueue(harness, source.id, "time", {
+        waitingOn: { kind: "time" },
+        sendAt,
+      });
+      enqueue(harness, source.id, "interaction", {
+        waitingOn: { kind: "interaction" },
+      });
+      const response = await post(harness, `/threads/${source.id}/retire`, {
+        targetThreadId: target.id,
+        operationKey: "k-wait",
+      });
+      expect(response.status).toBe(200);
+      const rows = listQueuedThreadMessages(harness.db, target.id);
+      expect(
+        rows.map((row) => [
+          row.waitingOn && JSON.parse(row.waitingOn),
+          row.waitHolder,
+        ]),
+      ).toEqual([
+        [
+          { kind: "plugin", pluginId: "plug-1", reason: "approval" },
+          "plugin:plug-1",
+        ],
+        [{ kind: "time" }, null],
+        [{ kind: "thread-busy" }, null],
+      ]);
+      expect(rows[1]?.sendAt).toBe(sendAt);
+      expect(rows[0]?.sendAt).toBeNull();
+    });
+  }, 20_000);
+
+  it("drains unemitted events on startup recovery after a crash before delivery, then retains until ack", async () => {
+    await withTestHarness(async (harness) => {
+      const { project, source, target } = seedPair(harness, "retire-crash");
+      enqueue(harness, source.id, "a");
+      const outcome = retireQueuedThreadMessages(harness.db, {
+        projectId: project.id,
+        sourceThreadId: source.id,
+        targetThreadId: target.id,
+        operationKey: "k-crash",
+        retireEnabled: true,
+        resolveWaitingOn: () => ({ kind: "thread-busy" }),
+      });
+      expect(outcome.kind).toBe("retired");
+      const unemitted = () =>
+        (
+          harness.db.$client
+            .prepare(
+              "SELECT COUNT(*) AS n FROM transfer_events WHERE emitted_at IS NULL",
+            )
+            .get() as { n: number }
+        ).n;
+      expect(unemitted()).toBeGreaterThan(0);
+      const notify = vi.spyOn(harness.hub, "notifyThread");
+      await runStartupRecoverySweep(harness.deps);
+      expect(unemitted()).toBe(0);
+      expect(notify).toHaveBeenCalledWith(source.id, ["queue-changed"]);
+      expect(notify).toHaveBeenCalledWith(target.id, ["queue-changed"]);
+      const operationId = (outcome as { result: { operationId: string } })
+        .result.operationId;
+      expect(getTransferOperation(harness.db, operationId)).not.toBeNull();
+      const acked = await post(
+        harness,
+        `/transfer-operations/${operationId}/ack`,
+        {},
+      );
+      expect(acked.status).toBe(200);
+      await runStartupRecoverySweep(harness.deps);
+      expect(getTransferOperation(harness.db, operationId)).toBeNull();
     });
   }, 20_000);
 

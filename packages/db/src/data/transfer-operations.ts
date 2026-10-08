@@ -175,11 +175,7 @@ export function retireQueuedThreadMessages(
             asc(queuedThreadMessages.id),
           )
           .all();
-        if (
-          rows.some(
-            (row) => row.payloadKind === "inline" && row.claimedAt !== null,
-          )
-        ) {
+        if (rows.some((row) => row.claimedAt !== null)) {
           return { kind: "source_has_claims" };
         }
 

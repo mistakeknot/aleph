@@ -1,6 +1,11 @@
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 import type { PromptInput } from "@bb/domain";
+import { createConnection } from "../../src/connection.js";
+import { migrate } from "../../src/migrate.js";
 import { noopNotifier } from "../../src/notifier.js";
 import { upsertHost } from "../../src/data/hosts.js";
 import { createProject } from "../../src/data/projects.js";
@@ -96,7 +101,7 @@ function texts(
   );
 }
 
-describe("origin identity (T-O3, T-L1)", () => {
+describe("origin identity (T-O3 and T-L1; v4 T-O1/T-O2 are outbox tests and are not covered here)", () => {
   it("returns the supplied origin and stores it", () => {
     const { db, source } = setup();
     const row = enqueue(db, source.id, "a");
@@ -147,7 +152,48 @@ describe("origin identity (T-O3, T-L1)", () => {
     expect(getQueuedThreadMessage(db, row.id)?.originId).toBe(row.id);
   });
 
-  it("makes legacy transfer delete-first and carries the origin (T-L1)", () => {
+  it("rolls back when RETURNING disagrees with the supplied origin", () => {
+    const { db, source } = setup();
+    const tamper = (tx: Parameters<typeof createQueuedThreadMessageInTransaction>[0]) =>
+      new Proxy(tx, {
+        get(target, property, receiver) {
+          if (property !== "insert") return Reflect.get(target, property, receiver);
+          return (table: unknown) => {
+            const builder = (target.insert as (t: unknown) => unknown)(table) as {
+              values: (v: Record<string, unknown>) => unknown;
+            };
+            return {
+              values: (v: Record<string, unknown>) =>
+                builder.values(
+                  "originId" in v ? { ...v, originId: "qmsg_tampered" } : v,
+                ),
+            };
+          };
+        },
+      });
+    expect(() =>
+      db.transaction(
+        (tx) =>
+          createQueuedThreadMessageInTransaction(tamper(tx), {
+            threadId: source.id,
+            originId: "qmsg_expected",
+            content: textInput("a"),
+            model: "gpt-5",
+            reasoningLevel: "medium",
+            permissionMode: "full",
+            serviceTier: "default",
+            waitingOn: null,
+            sendAt: null,
+            payload: { kind: "inline" },
+            systemNotice: null,
+          }),
+        { behavior: "immediate" },
+      ),
+    ).toThrow(/instead of qmsg_expected/);
+    expect(listQueuedThreadMessages(db, source.id)).toEqual([]);
+  });
+
+  it("makes legacy transfer delete-first and carries the origin", () => {
     const { db, source, target } = setup();
     const row = enqueue(db, source.id, "a");
     const result = db.transaction(
@@ -174,7 +220,7 @@ describe("origin identity (T-O3, T-L1)", () => {
     expect(live.n).toBe(1);
   });
 
-  it("keeps the transfer-all result shape and skips claimed rows (T-L1)", () => {
+  it("keeps the transfer-all result shape and skips claimed rows ", () => {
     const { db, source, target } = setup();
     const a = enqueue(db, source.id, "a");
     const claimed = enqueue(db, source.id, "b");
@@ -205,7 +251,7 @@ describe("origin identity (T-O3, T-L1)", () => {
   });
 });
 
-describe("retire, moves only (T-R0, T-M1, T-E1)", () => {
+describe("retire, moves only (G3 behavior; v4 T-T/T-C/T-I/T-R0/T-E1 definitions are slot or redirect tests deferred to increment 4)", () => {
   it("moves unclaimed inline rows to the target tail in order and records one entry each", () => {
     const fixture = setup();
     const { db, source, target } = fixture;
@@ -325,6 +371,75 @@ describe("retire, moves only (T-R0, T-M1, T-E1)", () => {
         )
         .get(),
     ).toEqual({ n: 0 });
+  });
+
+  it("refuses with source_has_claims when only a non-inline row is claimed", () => {
+    const fixture = setup();
+    const { db, source, target } = fixture;
+    enqueue(db, source.id, "a");
+    const retry = enqueue(db, source.id, "b", {
+      payload: {
+        kind: "retry",
+        retryOfTurnRequestId: "turn_1",
+        attempt: 1,
+        reason: "network",
+      },
+    });
+    claimQueuedThreadMessage(db, noopNotifier, retry.id);
+    expect(retire(fixture)).toMatchObject({ kind: "source_has_claims" });
+    expect(texts(db, target.id)).toEqual([]);
+    const remaining = db.$client
+      .prepare("SELECT COUNT(*) AS n FROM queued_thread_messages WHERE thread_id = ?")
+      .get(source.id) as { n: number };
+    expect(remaining.n).toBe(2);
+  });
+
+  it("holds the writer reservation from the first statement, excluding a second connection", () => {
+    const dir = mkdtempSync(join(tmpdir(), "retire-lock-"));
+    const file = join(dir, "db.sqlite");
+    const db = createConnection(file);
+    migrate(db);
+    const second = new Database(file);
+    second.pragma("busy_timeout = 0");
+    try {
+      const host = upsertHost(db, noopNotifier, { name: "h" });
+      const { project } = createProject(db, noopNotifier, {
+        name: "p",
+        source: { type: "local_path", hostId: host.id, path: "/tmp/p" },
+      });
+      const a = createThread(db, noopNotifier, {
+        projectId: project.id,
+        providerId: "codex",
+      });
+      const b = createThread(db, noopNotifier, {
+        projectId: project.id,
+        providerId: "codex",
+      });
+      enqueue(db, a.id, "x");
+      let blocked: unknown = null;
+      const outcome = retireQueuedThreadMessages(db, {
+        projectId: project.id,
+        sourceThreadId: a.id,
+        targetThreadId: b.id,
+        operationKey: "k",
+        retireEnabled: true,
+        admitTarget: () => {
+          try {
+            second.prepare("BEGIN IMMEDIATE").run();
+            second.prepare("ROLLBACK").run();
+          } catch (error) {
+            blocked = error;
+          }
+        },
+        resolveWaitingOn,
+      });
+      expect(outcome.kind).toBe("retired");
+      expect(String(blocked)).toMatch(/SQLITE_BUSY|locked/);
+    } finally {
+      second.close();
+      db.$client.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("acquires the target's attachment ownership for moved rows and refuses whole when unavailable (T-M1)", () => {
@@ -679,7 +794,25 @@ describe("GET, ack and sweep", () => {
 });
 
 describe("triggers", () => {
-  it("guards the slot shape on insert and update", () => {
+  it.each([
+    ["NULL token", "NULL", false],
+    ["ordinary token", "'worker-1'", false],
+    ["slot token", "'slot:x'", true],
+    ["fill token", "'fill:x'", true],
+  ])("guards the slot shape on update with a %s", (_name, token, allowed) => {
+    const { db, source } = setup();
+    const row = enqueue(db, source.id, "a");
+    const run = () =>
+      db.$client
+        .prepare(
+          `UPDATE queued_thread_messages SET forward_source_row_id = 'x', claimed_at = 1, claim_token = ${token} WHERE id = ?`,
+        )
+        .run(row.id);
+    if (allowed) run();
+    else expect(run).toThrow(/CHECK constraint failed/);
+  });
+
+  it("guards the slot shape on update when unclaimed", () => {
     const { db, source } = setup();
     const row = enqueue(db, source.id, "a");
     expect(() =>
@@ -689,11 +822,24 @@ describe("triggers", () => {
         )
         .run(row.id),
     ).toThrow(/CHECK constraint failed/);
-    db.$client
-      .prepare(
-        "UPDATE queued_thread_messages SET forward_source_row_id = 'x', claimed_at = 1, claim_token = 'slot:x' WHERE id = ?",
-      )
-      .run(row.id);
+  });
+
+  it.each([
+    ["NULL token", "NULL", false],
+    ["ordinary token", "'worker-1'", false],
+    ["slot token", "'slot:x'", true],
+    ["fill token", "'fill:x'", true],
+  ])("guards the slot shape on insert with a %s", (_name, token, allowed) => {
+    const { db, source } = setup();
+    const run = () =>
+      db.$client
+        .prepare(
+          `INSERT INTO queued_thread_messages (id, thread_id, content, model, reasoning_level, permission_mode, service_tier, group_with_next, payload_kind, failure_count, sort_key, created_at, updated_at, forward_source_row_id, claimed_at, claim_token)
+           VALUES ('qmsg_slot', ?, '[]', 'm', 'r', 'full', 'default', 0, 'inline', 0, 'a0', 1, 1, 'x', 1, ${token})`,
+        )
+        .run(source.id);
+    if (allowed) run();
+    else expect(run).toThrow(/CHECK constraint failed/);
   });
 
   it("tombstones inbound redirects and removes the outbound one on soft delete, and rewires on hard delete", () => {
