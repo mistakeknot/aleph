@@ -219,7 +219,6 @@ export type DispatchAttemptSource =
 
 export interface DispatchAttemptArgs {
   thread: Thread;
-  /** The thread the caller addressed, when ingress redirected to `thread`. */
   requestedThreadId?: string;
   payload: SendMessageRequest & { inputGroups?: PromptInput[][] };
   source: DispatchAttemptSource;

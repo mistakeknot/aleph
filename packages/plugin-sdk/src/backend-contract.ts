@@ -357,14 +357,6 @@ export interface PluginThreadEventPayloads {
    * event, not this one.
    */
   "message.cancelled": { entry: ThreadQueuedMessage };
-  /**
-   * Fired once for every durable queue-transfer record, at least once and
-   * with a stable `transfer.eventId`: a handler that sees an `eventId` twice
-   * is seeing a redelivery. `entry` is the queued row the record landed when
-   * that row still exists, and null for a record that has no landed row
-   * (a pending slot, a settled or deleted source). Core marks the record
-   * delivered only after every handler returned.
-   */
   "message.transferred": {
     entry: ThreadQueuedMessage | null;
     transfer: PluginMessageTransfer;

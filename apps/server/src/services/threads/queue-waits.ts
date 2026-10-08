@@ -83,11 +83,6 @@ export interface QueuedDispatchMessage {
 
 export interface RecordQueuedMessageWaitArgs {
   thread: Thread;
-  /**
-   * The thread the arrival was addressed to when that differs from `thread`
-   * because ingress already redirected it. A new row is inserted against this
-   * id so the store records the redirected arrival under its retirement.
-   */
   requestedThreadId?: string;
   message: QueuedDispatchMessage;
   waitingOn: QueuedMessageWaitingOn;
