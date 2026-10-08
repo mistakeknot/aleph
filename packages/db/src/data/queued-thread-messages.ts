@@ -1093,7 +1093,14 @@ export function claimQueuedThreadMessage(
   return claimedQueuedMessage;
 }
 
-function claimQueuedThreadMessageIdsInTransaction(
+export class ShortClaimError extends Error {
+  constructor() {
+    super("short_claim");
+    this.name = "ShortClaimError";
+  }
+}
+
+export function claimQueuedThreadMessageIdsInTransaction(
   tx: DbTransaction,
   ids: readonly string[],
 ): ClaimedQueuedThreadMessageRow[] | null {
@@ -1115,7 +1122,7 @@ function claimQueuedThreadMessageIdsInTransaction(
     .all();
 
   if (updated.length !== ids.length) {
-    return null;
+    throw new ShortClaimError();
   }
 
   const byId = new Map(
@@ -1124,7 +1131,7 @@ function claimQueuedThreadMessageIdsInTransaction(
   const claimedRows: ClaimedQueuedThreadMessageRow[] = [];
   for (const id of ids) {
     const row = byId.get(id);
-    if (!row) return null;
+    if (!row) throw new ShortClaimError();
     claimedRows.push(row);
   }
   return claimedRows;
@@ -1160,13 +1167,22 @@ function isAutomaticQueuedThreadMessageGroupClaimAllowed(
   );
 }
 
+function runAllOrNoneClaim<T>(run: () => T | null): T | null {
+  try {
+    return run();
+  } catch (error) {
+    if (error instanceof ShortClaimError) return null;
+    throw error;
+  }
+}
+
 export function claimQueuedThreadMessageGroup(
   db: DbConnection,
   notifier: DbNotifier,
   id: string,
   policy: QueuedThreadMessageGroupClaimPolicy,
 ): ClaimedQueuedThreadMessageRow[] | null {
-  const claimedQueuedMessages = db.transaction(
+  const claimedQueuedMessages = runAllOrNoneClaim(() => db.transaction(
     (tx) => {
       const existing = getQueuedThreadMessage(tx, id);
       if (!existing || isQueuedThreadMessageClaimed(existing)) {
@@ -1204,7 +1220,7 @@ export function claimQueuedThreadMessageGroup(
       );
     },
     { behavior: "immediate" },
-  );
+  ));
 
   if (claimedQueuedMessages && claimedQueuedMessages.length > 0) {
     notifier.notifyThread(claimedQueuedMessages[0]!.threadId, [
@@ -1220,7 +1236,7 @@ export function claimNextQueuedThreadMessageGroup(
   threadId: string,
   isGroupEligible?: QueuedThreadMessageGroupEligibility,
 ): ClaimedQueuedThreadMessageRow[] | null {
-  const claimedQueuedMessages = db.transaction(
+  const claimedQueuedMessages = runAllOrNoneClaim(() => db.transaction(
     (tx) => {
       // The idle drain takes the first group whose EVERY member it may act
       // on. A group with one waiting member is skipped whole — dispatching
@@ -1252,7 +1268,7 @@ export function claimNextQueuedThreadMessageGroup(
       );
     },
     { behavior: "immediate" },
-  );
+  ));
 
   if (claimedQueuedMessages && claimedQueuedMessages.length > 0) {
     notifier.notifyThread(threadId, ["queue-changed"]);
@@ -1705,6 +1721,15 @@ export function deleteClaimedQueuedThreadMessageBatchInTransaction(
     )
     .all();
   if (existingRows.length !== ids.length) {
+    return false;
+  }
+  const ownsSlot = db
+    .select({ id: queuedThreadMessages.id })
+    .from(queuedThreadMessages)
+    .where(inArray(queuedThreadMessages.forwardSourceRowId, ids))
+    .limit(1)
+    .get();
+  if (ownsSlot) {
     return false;
   }
 
