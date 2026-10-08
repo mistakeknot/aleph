@@ -251,7 +251,7 @@ describe("origin identity (T-O3 and T-L1; v4 T-O1/T-O2 are outbox tests and are 
   });
 });
 
-describe("retire, moves only (G3 behavior; v4 T-T/T-C/T-I/T-R0/T-E1 definitions are slot or redirect tests deferred to increment 4)", () => {
+describe("retire, moves only (G3 behavior; v4 T-T/T-C/T-I/T-R0 definitions are slot or redirect tests deferred to increment 4; T-E1 is covered only in part, by the 10k time bound and the route flows)", () => {
   it("moves unclaimed inline rows to the target tail in order and records one entry each", () => {
     const fixture = setup();
     const { db, source, target } = fixture;

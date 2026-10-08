@@ -386,9 +386,6 @@ export async function retireThread(
     return outcome.result;
   }
   drainTransferLedger(deps);
-  for (const row of outcome.movedRows) {
-    emitQueuedIfHeld(toThreadQueuedMessage(row));
-  }
   if (target?.status === "idle") {
     requestQueuedMessageDispatch(deps, {
       kind: "thread-ready",
@@ -402,9 +399,15 @@ export function drainTransferLedger(deps: Pick<AppDeps, "db" | "hub">): void {
   let drained: number;
   do {
     drained = drainTransferEvents(deps.db, (events) => {
-      const opIds = new Set(events.map((event) => event.opId));
-      for (const opId of opIds) {
-        const operation = getTransferOperation(deps.db, opId);
+      const notified = new Set<string>();
+      for (const event of events) {
+        if (event.payload.kind === "moved" && event.payload.rowId) {
+          const row = getQueuedThreadMessage(deps.db, event.payload.rowId);
+          if (row) emitQueuedIfHeld(toThreadQueuedMessage(row));
+        }
+        if (notified.has(event.opId)) continue;
+        notified.add(event.opId);
+        const operation = getTransferOperation(deps.db, event.opId);
         if (!operation) continue;
         deps.hub.notifyThread(operation.sourceThreadId, ["queue-changed"]);
         deps.hub.notifyThread(operation.targetThreadId, ["queue-changed"]);

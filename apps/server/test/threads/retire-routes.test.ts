@@ -5,6 +5,7 @@ import {
   listQueuedThreadMessages,
   retireQueuedThreadMessages,
 } from "@bb/db";
+import { setPluginThreadEventEmitter } from "../../src/services/plugins/plugin-thread-events.js";
 import { runStartupRecoverySweep } from "../../src/services/system/periodic-sweeps.js";
 import { describe, expect, it, vi } from "vitest";
 import { textInput } from "../helpers/prompt-input.js";
@@ -272,6 +273,89 @@ describe("retire routes", () => {
       expect(acked.status).toBe(200);
       await runStartupRecoverySweep(harness.deps);
       expect(getTransferOperation(harness.db, operationId)).toBeNull();
+    });
+  }, 20_000);
+
+  it("delivers the held row's message.queued from recovery after a crash before delivery", async () => {
+    await withTestHarness(async (harness) => {
+      const { project, source, target } = seedPair(harness, "retire-deliver");
+      enqueue(harness, source.id, "held", {
+        waitingOn: { kind: "plugin", pluginId: "plug-1", reason: "approval" },
+      });
+      const outcome = retireQueuedThreadMessages(harness.db, {
+        projectId: project.id,
+        sourceThreadId: source.id,
+        targetThreadId: target.id,
+        operationKey: "k-deliver",
+        retireEnabled: true,
+        resolveWaitingOn: (row) => JSON.parse(row.waitingOn as string),
+      });
+      expect(outcome.kind).toBe("retired");
+      const queued: string[] = [];
+      setPluginThreadEventEmitter({
+        emitMessageQueued: (entry: { id: string }) => queued.push(entry.id),
+      } as never);
+      try {
+        await runStartupRecoverySweep(harness.deps);
+        const moved = listQueuedThreadMessages(harness.db, target.id)[0];
+        expect(queued).toContain(moved?.id);
+        const unemitted = harness.db.$client
+          .prepare(
+            "SELECT COUNT(*) AS n FROM transfer_events WHERE emitted_at IS NULL",
+          )
+          .get() as { n: number };
+        expect(unemitted.n).toBe(0);
+      } finally {
+        setPluginThreadEventEmitter(undefined);
+      }
+    });
+  }, 20_000);
+
+  it("keeps events undelivered when held-row emission fails, then delivers on replay", async () => {
+    await withTestHarness(async (harness) => {
+      const { source, target } = seedPair(harness, "retire-between");
+      enqueue(harness, source.id, "held", {
+        waitingOn: { kind: "plugin", pluginId: "plug-1", reason: "approval" },
+      });
+      const unemitted = () =>
+        (
+          harness.db.$client
+            .prepare(
+              "SELECT COUNT(*) AS n FROM transfer_events WHERE emitted_at IS NULL",
+            )
+            .get() as { n: number }
+        ).n;
+      const queued: string[] = [];
+      let failing = true;
+      setPluginThreadEventEmitter({
+        emitMessageQueued: (entry: { id: string }) => {
+          if (failing) throw new Error("emitter down");
+          queued.push(entry.id);
+        },
+      } as never);
+      try {
+        const body = { targetThreadId: target.id, operationKey: "k-between" };
+        const crashed = await post(
+          harness,
+          `/threads/${source.id}/retire`,
+          body,
+        );
+        expect(crashed.status).toBe(500);
+        expect(unemitted()).toBeGreaterThan(0);
+        expect(queued).toEqual([]);
+        failing = false;
+        const replay = await post(
+          harness,
+          `/threads/${source.id}/retire`,
+          body,
+        );
+        expect(replay.status).toBe(200);
+        const moved = listQueuedThreadMessages(harness.db, target.id)[0];
+        expect(queued).toContain(moved?.id);
+        expect(unemitted()).toBe(0);
+      } finally {
+        setPluginThreadEventEmitter(undefined);
+      }
     });
   }, 20_000);
 
