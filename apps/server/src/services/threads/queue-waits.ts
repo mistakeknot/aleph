@@ -30,6 +30,7 @@ import {
 } from "../plugins/plugin-thread-events.js";
 import { toThreadQueuedMessage } from "./thread-queued-messages.js";
 import { assertThreadHostAcceptsWork } from "./thread-host-admission.js";
+import { assertAdmittedDestinationInTransaction } from "./retired-ingress.js";
 
 type QueueWaitDeps = { db: DbQueryConnection; hub: DbNotifier };
 
@@ -164,6 +165,13 @@ function createQueuedRowOrRefuse(
   try {
     return deps.db.transaction(
       (tx) => {
+        if (args.requestedThreadId !== undefined) {
+          assertAdmittedDestinationInTransaction(
+            tx,
+            args.requestedThreadId,
+            args.thread.id,
+          );
+        }
         assertThreadHostAcceptsWork(tx, args.thread);
         return createQueuedThreadMessageInTransaction(tx, {
           threadId: args.requestedThreadId ?? args.thread.id,

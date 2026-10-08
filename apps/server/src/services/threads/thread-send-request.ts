@@ -10,6 +10,7 @@ import { requireThreadCommandEnvironment } from "./thread-command-environment.js
 import { sendThreadMessage } from "./thread-send.js";
 import { assertThreadHostAcceptsWork } from "./thread-host-admission.js";
 import {
+  INGRESS_ADMISSION_ATTEMPTS,
   RetirementAppearedError,
   resolveRetiredIngress,
 } from "./retired-ingress.js";
@@ -40,7 +41,10 @@ export async function acceptThreadSendRequest(
         requestedThreadId: thread.id,
       });
     } catch (error) {
-      if (!(error instanceof RetirementAppearedError) || attempt > 0) {
+      if (
+        !(error instanceof RetirementAppearedError) ||
+        attempt + 1 >= INGRESS_ADMISSION_ATTEMPTS
+      ) {
         throw error;
       }
       thread = getThread(deps.db, thread.id) ?? thread;

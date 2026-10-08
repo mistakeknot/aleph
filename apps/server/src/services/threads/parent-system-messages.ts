@@ -19,7 +19,7 @@ import type { HostDaemonCommand } from "@bb/host-daemon-contract";
 import type { LoggedPendingInteractionWorkSessionDeps } from "../../types.js";
 import { requireThreadEnvironment } from "../lib/entity-lookup.js";
 import {
-  createQueuedThreadMessage,
+  createQueuedThreadMessageInTransaction,
   QueuedMessageThreadUnavailableError,
 } from "@bb/db";
 import { emitPluginMessageQueued } from "../plugins/plugin-thread-events.js";
@@ -61,10 +61,14 @@ import {
 } from "./thread-context-mutation-guard.js";
 import { requestQueuedMessageDispatch } from "./queued-message-dispatch.js";
 import {
+  INGRESS_ADMISSION_ATTEMPTS,
   RetirementAppearedError,
+  assertAdmittedDestinationInTransaction,
   assertNotRetiredInTransaction,
   resolveRetiredIngress,
 } from "./retired-ingress.js";
+import { assertThreadHostAcceptsWork } from "./thread-host-admission.js";
+import { ApiError } from "../../errors.js";
 import {
   checkParentThreadHeld,
   type ParentThreadHeldResult,
@@ -524,6 +528,13 @@ async function checkParentThreadHeldTolerantly(
   }
 }
 
+function isHostRefusal(error: ApiError): boolean {
+  return (
+    error.body.code === "machine_removing" ||
+    error.body.code === "host_not_found"
+  );
+}
+
 export async function queueParentSystemMessage(
   deps: LoggedPendingInteractionWorkSessionDeps,
   args: QueueParentSystemMessageArgs,
@@ -532,7 +543,10 @@ export async function queueParentSystemMessage(
     try {
       return await queueParentSystemMessageToResolvedParent(deps, args);
     } catch (error) {
-      if (!(error instanceof RetirementAppearedError) || attempt > 0) {
+      if (
+        !(error instanceof RetirementAppearedError) ||
+        attempt + 1 >= INGRESS_ADMISSION_ATTEMPTS
+      ) {
         throw error;
       }
     }
@@ -606,30 +620,52 @@ async function queueParentSystemMessageToResolvedParent(
     },
   );
   try {
-    const queuedRow = createQueuedThreadMessage(deps.db, deps.hub, {
-      threadId: requestedParent.id,
-      content: args.input,
-      senderThreadId: null,
-      origin: null,
-      originPluginId: null,
-      model: execution.model,
-      reasoningLevel: execution.reasoningLevel,
-      permissionMode: execution.permissionMode,
-      serviceTier: execution.serviceTier,
-      waitingOn: hasPendingInteraction
-        ? { kind: "interaction" }
-        : held.held
-          ? { kind: "plugin", pluginId: held.pluginId, reason: held.reason }
-          : { kind: "thread-busy" },
-      sendAt: held.held ? held.sendAt : null,
-      payload: { kind: "inline" },
-      systemNotice: {
-        kind: args.systemMessageKind,
-        subject: args.systemMessageSubject,
+    const queuedRow = deps.db.transaction(
+      (tx) => {
+        assertAdmittedDestinationInTransaction(
+          tx,
+          requestedParent.id,
+          parentThread.id,
+        );
+        assertThreadHostAcceptsWork(tx, parentThread);
+        return createQueuedThreadMessageInTransaction(tx, {
+          threadId: requestedParent.id,
+          content: args.input,
+          senderThreadId: null,
+          origin: null,
+          originPluginId: null,
+          model: execution.model,
+          reasoningLevel: execution.reasoningLevel,
+          permissionMode: execution.permissionMode,
+          serviceTier: execution.serviceTier,
+          waitingOn: hasPendingInteraction
+            ? { kind: "interaction" }
+            : held.held
+              ? { kind: "plugin", pluginId: held.pluginId, reason: held.reason }
+              : { kind: "thread-busy" },
+          sendAt: held.held ? held.sendAt : null,
+          payload: { kind: "inline" },
+          systemNotice: {
+            kind: args.systemMessageKind,
+            subject: args.systemMessageSubject,
+          },
+        });
       },
-    });
+      { behavior: "immediate" },
+    );
+    deps.hub.notifyThread(queuedRow.threadId, ["queue-changed"]);
+    if (queuedRow.threadId !== requestedParent.id) {
+      deps.hub.notifyThread(requestedParent.id, ["queue-changed"]);
+    }
     emitPluginMessageQueued(toThreadQueuedMessage(queuedRow));
   } catch (error) {
+    if (error instanceof ApiError && isHostRefusal(error)) {
+      deps.logger.warn(
+        { parentThreadId: parentThread.id, code: error.body.code },
+        "Parent system notice dropped: the parent thread's machine is not accepting work",
+      );
+      return false;
+    }
     if (!(error instanceof QueuedMessageThreadUnavailableError)) throw error;
     deps.logger.warn(
       {

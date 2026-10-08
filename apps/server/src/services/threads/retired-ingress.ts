@@ -7,6 +7,8 @@ import type { Thread } from "@bb/domain";
 import type { ThreadNotWritableReason } from "@bb/server-contract";
 import { retiredUserPostsMode } from "./retired-user-posts.js";
 
+export const INGRESS_ADMISSION_ATTEMPTS = 3;
+
 export class RetirementAppearedError extends Error {
   constructor(readonly threadId: string) {
     super(`Thread ${threadId} was retired while a message was in flight`);
@@ -55,5 +57,18 @@ export function assertNotRetiredInTransaction(
 ): void {
   if (getThreadRedirectState(tx, threadId).kind !== "none") {
     throw new RetirementAppearedError(threadId);
+  }
+}
+
+export function assertAdmittedDestinationInTransaction(
+  tx: DbQueryConnection,
+  requestedThreadId: string,
+  admittedThreadId: string,
+): void {
+  const state = getThreadRedirectState(tx, requestedThreadId);
+  const current =
+    state.kind === "none" ? requestedThreadId : state.successorThreadId;
+  if (current !== admittedThreadId) {
+    throw new RetirementAppearedError(requestedThreadId);
   }
 }
