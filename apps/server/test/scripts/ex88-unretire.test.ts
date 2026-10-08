@@ -178,7 +178,10 @@ describe("ex88-unretire script", () => {
     db.$client.exec("UPDATE transfer_events SET emitted_at = 1");
     db.$client.close();
     const stopped = run(path);
-    expect(JSON.parse(stopped.stdout).stoppedBefore).toBeNull();
+    const proceeded = JSON.parse(stopped.stdout);
+    expect(proceeded.stoppedBefore).toBe("undelivered_events");
+    expect(proceeded.quiesce.holders).toEqual([]);
+    expect(proceeded.aborted).toBe(1);
   });
 
   it("refuses when events are still undelivered before it starts", () => {
@@ -193,30 +196,51 @@ describe("ex88-unretire script", () => {
     });
   });
 
-  it("stamps the events its own aborts create, acks the aborted receipts and ends downgrade-ready", () => {
+  it("keeps the events and receipts its own aborts create instead of stamping them", () => {
     const { path, db } = seededDatabase();
     db.$client.exec("UPDATE transfer_events SET emitted_at = 1");
     db.$client.close();
     const result = run(path);
     const report = JSON.parse(result.stdout);
-    expect(result.status).toBe(0);
+    expect(result.status).toBe(1);
     expect(report).toMatchObject({
       aborted: 1,
-      receiptsReconciled: 2,
+      stoppedBefore: "undelivered_events",
+      ready: false,
+    });
+    const reopened = createConnection(path);
+    const readiness = getDowngradeReadiness(reopened);
+    expect(readiness.unemittedEvents).toBeGreaterThan(0);
+    expect(readiness.unackedReceipts).toBeGreaterThan(0);
+    expect(readiness.ready).toBe(false);
+    const operations = reopened.$client
+      .prepare("SELECT COUNT(*) AS n FROM transfer_operations")
+      .get() as { n: number };
+    expect(operations.n).toBeGreaterThan(0);
+    reopened.$client.close();
+  });
+
+  it("ends downgrade-ready once the server has delivered and acknowledged what the aborts left", () => {
+    const { path, db } = seededDatabase();
+    db.$client.exec("UPDATE transfer_events SET emitted_at = 1");
+    db.$client.close();
+    run(path);
+    const served = createConnection(path);
+    served.$client.exec(
+      "UPDATE transfer_events SET emitted_at = 2 WHERE emitted_at IS NULL",
+    );
+    served.$client.exec(
+      "UPDATE transfer_operations SET acked_at = 2 WHERE acked_at IS NULL",
+    );
+    served.$client.close();
+    const result = run(path);
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
       stoppedBefore: null,
       ready: true,
     });
-    expect(report.eventsStampedOffline).toBeGreaterThan(0);
     const reopened = createConnection(path);
-    expect(getDowngradeReadiness(reopened)).toMatchObject({
-      slots: 0,
-      pendingEntries: 0,
-      unemittedEvents: 0,
-      redirects: 0,
-      nullOrigins: 0,
-      unackedReceipts: 0,
-      ready: true,
-    });
+    expect(getDowngradeReadiness(reopened).ready).toBe(true);
     reopened.$client.close();
   });
 });

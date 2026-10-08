@@ -1,14 +1,10 @@
 import { existsSync, readdirSync, readlinkSync, realpathSync } from "node:fs";
 import Database from "better-sqlite3";
 import {
-  ackTransferOperation,
   abortTransferOperation,
   createConnection,
   getDowngradeReadiness,
-  listUnemittedTransferEvents,
-  markTransferEventEmitted,
   releaseAllWorkerClaimsOffline,
-  sweepTransferOperations,
   type DbConnection,
   type DowngradeReadiness,
 } from "@bb/db";
@@ -36,8 +32,6 @@ interface Report {
   redirectsToAbort: number;
   aborted: number;
   refusals: Array<{ opId: string; reason: string }>;
-  eventsStampedOffline: number;
-  receiptsReconciled: number;
   after: DowngradeReadiness | null;
   ready: boolean;
 }
@@ -164,8 +158,6 @@ function legacyReport(mode: Report["mode"]): Report {
     redirectsToAbort: 0,
     aborted: 0,
     refusals: [],
-    eventsStampedOffline: 0,
-    receiptsReconciled: 0,
     after: mode === "apply" ? zero : null,
     ready: true,
   };
@@ -197,8 +189,6 @@ function runCheck(path: string): Report {
       redirectsToAbort: listRedirects(sqlite).length,
       aborted: 0,
       refusals: [],
-      eventsStampedOffline: 0,
-      receiptsReconciled: 0,
       after: null,
       ready: before.ready,
     };
@@ -221,8 +211,6 @@ function runApply(path: string, assumeStopped: boolean): Report {
     redirectsToAbort: 0,
     aborted: 0,
     refusals: [],
-    eventsStampedOffline: 0,
-    receiptsReconciled: 0,
     after: null,
     ready: false,
   };
@@ -263,29 +251,14 @@ function runApply(path: string, assumeStopped: boolean): Report {
       }
     }
 
-    for (const event of listUnemittedTransferEvents(
-      db,
-      Number.MAX_SAFE_INTEGER,
-    )) {
-      if (markTransferEventEmitted(db, event.eventId)) {
-        report.eventsStampedOffline += 1;
-      }
-    }
-    const unacked = db.$client
-      .prepare(
-        "SELECT id, project_id AS projectId FROM transfer_operations WHERE acked_at IS NULL",
-      )
-      .all() as Array<{ id: string; projectId: string }>;
-    for (const operation of unacked) {
-      if (ackTransferOperation(db, operation.id, operation.projectId)) {
-        report.receiptsReconciled += 1;
-      }
-    }
-    sweepTransferOperations(db);
-
     report.after = getDowngradeReadiness(db);
     report.ready = report.after.ready;
-    if (!report.ready) report.stoppedBefore = "downgrade_ready";
+    if (!report.ready) {
+      report.stoppedBefore =
+        report.after.unemittedEvents > 0 || report.after.unackedReceipts > 0
+          ? "undelivered_events"
+          : "downgrade_ready";
+    }
     return report;
   } finally {
     db.$client.close();
