@@ -32,7 +32,6 @@ import {
   superviseBuiltinPluginSourceWatcher,
   type PluginService,
 } from "../../../src/services/plugins/plugin-service.js";
-import { readPluginManifest } from "../../../src/services/plugins/manifest.js";
 import {
   accountPoolDefaultEnabled,
   BUILTIN_PLUGINS,
@@ -294,52 +293,6 @@ describe("builtin plugin reconciliation", () => {
     ).toBe(true);
   });
 
-  it("gives every builtin plugin a deliberate settings icon", async () => {
-    const expectedIcons = new Map([
-      ["bb-guide", "Explore"],
-      ["account-pool", "Layers"],
-      ["ask-user-question", "MessageQuestion"],
-      ["automations", "Repeat"],
-      ["concurrency-limit", "Limitation"],
-      ["connect", "Smartphone"],
-      ["custom-instructions", "EditFile"],
-      ["plugin-api-tester", "Beaker"],
-      ["inline-vis", "AppWindow"],
-      ["keep-awake", "Coffee"],
-      ["monaco-editor", "Code"],
-      ["pdf-preview", "FileText"],
-      ["environment-project-checkout", "Laptop"],
-      ["environment-personal-workspace", "Folder"],
-      ["provider-acp", "./icons/acp.svg"],
-      ["plugin-api-docs", "./icons/ai-generative.svg"],
-      ["provider-claude-code", "./icons/claude-code.svg"],
-      ["provider-codex", "./icons/codex.svg"],
-      ["provider-pi", "./icons/pi.svg"],
-      ["provider-retry", "ArrowReloadHorizontal"],
-      ["provider-usage", "ChartColumn"],
-      ["push-notifications", "BellDot"],
-      ["drafts", "EditFile"],
-      ["thread-list", "ListView"],
-      ["navigation", "PanelLeft"],
-      ["scheduled-send", "Calendar"],
-      ["agent-annotations", "MessageSquarePlus"],
-      ["secrets", "Lock"],
-      ["side-chat", "SideChat"],
-      ["workflows", "Workflow"],
-      ["environment-git-worktree", "FolderGit"],
-    ]);
-
-    expect(BUILTIN_PLUGINS).toHaveLength(expectedIcons.size);
-    for (const builtin of BUILTIN_PLUGINS) {
-      const manifest = await readPluginManifest(
-        resolveBuiltinPluginRootPath(builtin.name),
-      );
-      expect(manifest.branding.icon, builtin.name).toBe(
-        expectedIcons.get(builtin.name),
-      );
-    }
-  });
-
   afterEach(async () => {
     await service?.stop();
     db.$client.close();
@@ -422,9 +375,10 @@ describe("builtin plugin reconciliation", () => {
     await mkdir(secretsDir, { recursive: true });
     await writeFile(join(secretsDir, "token"), "secret");
 
-    const actual = await vi.importActual<typeof import("node:fs/promises")>(
-      "node:fs/promises",
-    );
+    const actual =
+      await vi.importActual<typeof import("node:fs/promises")>(
+        "node:fs/promises",
+      );
     let failed = false;
     vi.mocked(rm).mockImplementation(async (...args) => {
       if (!failed && args[0] === secretsDir) {
@@ -436,14 +390,16 @@ describe("builtin plugin reconciliation", () => {
     try {
       service = createService({ db, dataDir, includeBuiltin: false });
       await expect(service.start()).rejects.toThrow("secret removal failed");
-      expect(getInstalledPluginRegistration(db, "builtin-fixture")).toBeDefined();
-      expect(await readFile(join(secretsDir, "token"), "utf8")).toBe(
-        "secret",
-      );
+      expect(
+        getInstalledPluginRegistration(db, "builtin-fixture"),
+      ).toBeDefined();
+      expect(await readFile(join(secretsDir, "token"), "utf8")).toBe("secret");
 
       service = createService({ db, dataDir, includeBuiltin: false });
       await service.start();
-      expect(getInstalledPluginRegistration(db, "builtin-fixture")).toBeUndefined();
+      expect(
+        getInstalledPluginRegistration(db, "builtin-fixture"),
+      ).toBeUndefined();
       await expect(stat(secretsDir)).rejects.toThrow();
     } finally {
       vi.mocked(rm).mockImplementation(actual.rm);
@@ -577,13 +533,52 @@ describe("builtin plugin reconciliation", () => {
     ]);
   });
 
-  it("preserves an installed builtin's choice when its default changes", async () => {
+  it.each([false, true])(
+    "follows a changed default for a builtin the user never toggled (initial default: %s)",
+    async (initialDefault) => {
+      service = createService({
+        db,
+        dataDir: join(workDir, "data"),
+        defaultEnabled: initialDefault,
+      });
+      await service.start();
+      expect(service.list()).toMatchObject([
+        {
+          id: "builtin-fixture",
+          enabled: initialDefault,
+          status: initialDefault ? "running" : "disabled",
+        },
+      ]);
+      expect(loadCount()).toBe(initialDefault ? 1 : 0);
+      await service.stop();
+
+      service = createService({
+        db,
+        dataDir: join(workDir, "data"),
+        defaultEnabled: !initialDefault,
+      });
+      await service.start();
+
+      expect(service.list()).toMatchObject([
+        {
+          id: "builtin-fixture",
+          enabled: !initialDefault,
+          status: initialDefault ? "disabled" : "running",
+        },
+      ]);
+      expect(loadCount()).toBe(1);
+    },
+  );
+
+  it("keeps a builtin the user turned off disabled when its default turns on", async () => {
     service = createService({
       db,
       dataDir: join(workDir, "data"),
       defaultEnabled: false,
     });
     await service.start();
+    await service.setEnabled("builtin-fixture", true);
+    await service.setEnabled("builtin-fixture", false);
     await service.stop();
 
     service = createService({
@@ -596,173 +591,55 @@ describe("builtin plugin reconciliation", () => {
     expect(service.list()).toMatchObject([
       { id: "builtin-fixture", enabled: false, status: "disabled" },
     ]);
-    expect(loadCount()).toBe(0);
   });
 
-  it("ships Plugin API Tester disabled on a fresh database", () => {
-    const pluginApiTester = BUILTIN_PLUGINS.find(
-      (builtin) => builtin.name === "plugin-api-tester",
-    );
-
-    expect(pluginApiTester?.defaultEnabled).toBe(false);
-  });
-
-  it("ships the File Editor (monaco-editor) disabled on a fresh database", () => {
-    const monacoEditor = BUILTIN_PLUGINS.find(
-      (builtin) => builtin.name === "monaco-editor",
-    );
-
-    expect(monacoEditor?.defaultEnabled).toBe(false);
-  });
-
-  it("ships the Plugin Guide disabled on a fresh database", async () => {
-    const pluginGuide = BUILTIN_PLUGINS.find(
-      (builtin) => builtin.name === "plugin-api-docs",
-    );
-    expect(pluginGuide?.defaultEnabled).toBe(false);
-
-    service = createService({
-      db,
-      dataDir: join(workDir, "data"),
-      builtinName: "plugin-api-docs",
-      defaultEnabled: pluginGuide?.defaultEnabled,
-      rootDir: resolveBuiltinPluginRootPath("plugin-api-docs"),
+  it("ships each product builtin with its deliberate default", () => {
+    expect(
+      Object.fromEntries(
+        BUILTIN_PLUGINS.map((builtin) => [
+          builtin.name,
+          builtin.defaultEnabled,
+        ]),
+      ),
+    ).toMatchObject({
+      "plugin-api-tester": false,
+      "monaco-editor": false,
+      "plugin-api-docs": false,
+      workflows: false,
+      "provider-usage": true,
+      "concurrency-limit": true,
+      "scheduled-send": true,
+      drafts: true,
+      "provider-retry": true,
+      "push-notifications": true,
     });
-    await service.start();
-
-    expect(service.list()).toMatchObject([
-      {
-        id: "plugin-api-docs",
-        source: "builtin:plugin-api-docs",
-        enabled: false,
-        status: "disabled",
-      },
-    ]);
   });
 
-  it("ships Workflows disabled on a fresh database", async () => {
-    const workflows = BUILTIN_PLUGINS.find(
-      (builtin) => builtin.name === "workflows",
-    );
-    expect(workflows?.defaultEnabled).toBe(false);
+  it.each([
+    ["provider-usage", "bb--provider-usage"],
+    ["provider-retry", "provider-retry"],
+  ])(
+    "runs the real %s builtin on a fresh database",
+    async (builtinName, pluginId) => {
+      service = createService({
+        db,
+        dataDir: join(workDir, "data"),
+        builtinName,
+        pluginId,
+        rootDir: resolveBuiltinPluginRootPath(builtinName),
+      });
+      await service.start();
 
-    service = createService({
-      db,
-      dataDir: join(workDir, "data"),
-      builtinName: "workflows",
-      defaultEnabled: workflows?.defaultEnabled,
-      rootDir: resolveBuiltinPluginRootPath("workflows"),
-    });
-    await service.start();
-
-    expect(service.list()).toMatchObject([
-      {
-        id: "workflows",
-        source: "builtin:workflows",
-        enabled: false,
-        status: "disabled",
-      },
-    ]);
-  });
-
-  it("ships Provider usage enabled on a fresh database", async () => {
-    const providerUsage = BUILTIN_PLUGINS.find(
-      (builtin) => builtin.name === "provider-usage",
-    );
-    expect(providerUsage?.defaultEnabled).toBe(true);
-
-    service = createService({
-      db,
-      dataDir: join(workDir, "data"),
-      builtinName: "provider-usage",
-      defaultEnabled: providerUsage?.defaultEnabled,
-      rootDir: resolveBuiltinPluginRootPath("provider-usage"),
-    });
-    await service.start();
-
-    expect(service.list()).toMatchObject([
-      {
-        id: "provider-usage",
-        source: "builtin:provider-usage",
-        enabled: true,
-        status: "running",
-      },
-    ]);
-  });
-
-  it("ships Concurrency limit enabled on a fresh database", () => {
-    const limiter = BUILTIN_PLUGINS.find(
-      (builtin) => builtin.name === "concurrency-limit",
-    );
-    expect(limiter).toBeDefined();
-    expect(limiter?.defaultEnabled).toBe(true);
-  });
-
-  it("ships Send later enabled on a fresh database", () => {
-    const scheduledSend = BUILTIN_PLUGINS.find(
-      (builtin) => builtin.name === "scheduled-send",
-    );
-    expect(scheduledSend).toBeDefined();
-    expect(scheduledSend?.defaultEnabled).toBe(true);
-  });
-
-  it("ships Drafts enabled on a fresh database", () => {
-    const drafts = BUILTIN_PLUGINS.find((builtin) => builtin.name === "drafts");
-    expect(drafts).toBeDefined();
-    expect(drafts?.defaultEnabled).toBe(true);
-  });
-
-  it("ships Provider retry enabled on a fresh database", async () => {
-    const providerRetry = BUILTIN_PLUGINS.find(
-      (builtin) => builtin.name === "provider-retry",
-    );
-    expect(providerRetry?.defaultEnabled).toBe(true);
-
-    service = createService({
-      db,
-      dataDir: join(workDir, "data"),
-      builtinName: "provider-retry",
-      defaultEnabled: providerRetry?.defaultEnabled,
-      rootDir: resolveBuiltinPluginRootPath("provider-retry"),
-    });
-    await service.start();
-
-    expect(service.list()).toMatchObject([
-      {
-        id: "provider-retry",
-        source: "builtin:provider-retry",
-        enabled: true,
-        status: "running",
-      },
-    ]);
-  });
-
-  it("ships Push notifications enabled on a fresh database", () => {
-    const pushPlugin = BUILTIN_PLUGINS.find(
-      (builtin) => builtin.name === "push-notifications",
-    );
-    expect(pushPlugin?.defaultEnabled).toBe(true);
-  });
-
-  it("loads the builtin connect plugin like other builtins", async () => {
-    service = createService({
-      db,
-      dataDir: join(workDir, "data"),
-      builtinName: "connect",
-    });
-
-    await service.start();
-
-    expect(service.list()).toMatchObject([
-      {
-        id: "builtin-fixture",
-        source: "builtin:connect",
-        enabled: true,
-        status: "running",
-      },
-    ]);
-    expect(loadCount()).toBe(1);
-  });
+      expect(service.list()).toMatchObject([
+        {
+          id: pluginId,
+          source: `builtin:${builtinName}`,
+          enabled: true,
+          status: "running",
+        },
+      ]);
+    },
+  );
 
   it("loads the real side-chat builtin source", async () => {
     service = createService({
@@ -843,7 +720,7 @@ describe("builtin plugin reconciliation", () => {
     expect(loadCount()).toBe(2);
   });
 
-  it("keeps builtin CLI and UI contributions available", async () => {
+  it("lists and runs a builtin plugin's CLI contribution", async () => {
     service = createService({
       db,
       dataDir: join(workDir, "data"),

@@ -175,9 +175,18 @@ describe("readServerMovedLock", () => {
     ).resolves.toEqual(DIRECT_MOVE);
   });
 
-  it("ignores a lock with invalid JSON and logs a warning", async () => {
+  it.each([
+    { name: "invalid JSON", contents: () => "{not json" },
+    {
+      name: "a contract mismatch",
+      contents: () => {
+        const { toHostName: _toHostName, ...incomplete } = movedFile();
+        return JSON.stringify(incomplete);
+      },
+    },
+  ])("ignores a lock with $name and logs a warning", async ({ contents }) => {
     const dataDir = await createTempDir();
-    await writeFile(join(dataDir, SERVER_MOVED_FILE_NAME), "{not json");
+    await writeFile(join(dataDir, SERVER_MOVED_FILE_NAME), contents());
     const logWarning = vi.fn();
 
     await expect(readServerMovedLock({ dataDir, logWarning })).resolves.toBe(
@@ -187,21 +196,6 @@ describe("readServerMovedLock", () => {
     expect(logWarning.mock.calls[0]?.[0]).toContain(
       join(dataDir, SERVER_MOVED_FILE_NAME),
     );
-  });
-
-  it("ignores a lock that does not match the contract", async () => {
-    const dataDir = await createTempDir();
-    const { toHostName: _toHostName, ...incomplete } = movedFile();
-    await writeFile(
-      join(dataDir, SERVER_MOVED_FILE_NAME),
-      JSON.stringify(incomplete),
-    );
-    const logWarning = vi.fn();
-
-    await expect(readServerMovedLock({ dataDir, logWarning })).resolves.toBe(
-      null,
-    );
-    expect(logWarning).toHaveBeenCalledOnce();
   });
 
   it("ignores a connect move without a handle", async () => {
@@ -558,16 +552,22 @@ describe("createServerMovedWatcher", () => {
     const harness = await createHarness({ confirmMove: async () => false });
     await writeServerMovedFile(harness.dataDir, movedFile());
     harness.watcher.start();
-    await harness.timers.flush();
+    try {
+      await harness.timers.flush();
+      await vi.waitFor(() => {
+        expect(harness.confirmMove).toHaveBeenCalledOnce();
+      });
+      expect(harness.onMove).not.toHaveBeenCalled();
 
-    expect(harness.confirmMove).toHaveBeenCalledOnce();
-    expect(harness.onMove).not.toHaveBeenCalled();
-
-    harness.confirmMove.mockImplementation(async () => true);
-    harness.fakeWatch.emit(SERVER_MOVED_FILE_NAME);
-    await harness.timers.flush();
-    expect(harness.onMove).toHaveBeenCalledExactlyOnceWith(CONNECT_MOVE);
-    harness.watcher.stop();
+      harness.confirmMove.mockImplementation(async () => true);
+      harness.fakeWatch.emit(SERVER_MOVED_FILE_NAME);
+      await harness.timers.flush();
+      await vi.waitFor(() => {
+        expect(harness.onMove).toHaveBeenCalledExactlyOnceWith(CONNECT_MOVE);
+      });
+    } finally {
+      harness.watcher.stop();
+    }
   });
 
   it("checks again when the lock changes during a confirmation", async () => {
@@ -607,21 +607,26 @@ describe("createServerMovedWatcher", () => {
 
   it("logs and skips an invalid lock, then delivers the corrected one", async () => {
     const harness = await createHarness();
-    harness.watcher.start();
-    await harness.timers.flush();
-
     await writeFile(join(harness.dataDir, SERVER_MOVED_FILE_NAME), "{partial");
-    harness.fakeWatch.emit(SERVER_MOVED_FILE_NAME);
-    await harness.timers.flush();
-    expect(harness.confirmMove).not.toHaveBeenCalled();
-    expect(harness.onMove).not.toHaveBeenCalled();
-    expect(harness.logWarning).toHaveBeenCalledOnce();
+    harness.watcher.start();
 
-    await writeServerMovedFile(harness.dataDir, movedFile());
-    harness.fakeWatch.emit(SERVER_MOVED_FILE_NAME);
-    await harness.timers.flush();
-    expect(harness.onMove).toHaveBeenCalledExactlyOnceWith(CONNECT_MOVE);
-    harness.watcher.stop();
+    try {
+      await harness.timers.flush();
+      await vi.waitFor(() => {
+        expect(harness.logWarning).toHaveBeenCalledOnce();
+      });
+      expect(harness.confirmMove).not.toHaveBeenCalled();
+      expect(harness.onMove).not.toHaveBeenCalled();
+
+      await writeServerMovedFile(harness.dataDir, movedFile());
+      harness.fakeWatch.emit(SERVER_MOVED_FILE_NAME);
+      await harness.timers.flush();
+      await vi.waitFor(() => {
+        expect(harness.onMove).toHaveBeenCalledExactlyOnceWith(CONNECT_MOVE);
+      });
+    } finally {
+      harness.watcher.stop();
+    }
   });
 
   it("cancels pending checks when stopped", async () => {
@@ -650,9 +655,11 @@ describe("createServerMovedWatcher", () => {
     await writeServerMovedFile(harness.dataDir, movedFile());
     harness.watcher.start();
     await harness.timers.flush();
-    expect(cancellationChecks.map((isCancelled) => isCancelled())).toEqual([
-      false,
-    ]);
+    await vi.waitFor(() => {
+      expect(cancellationChecks.map((isCancelled) => isCancelled())).toEqual([
+        false,
+      ]);
+    });
 
     harness.watcher.stop();
     expect(cancellationChecks[0]?.()).toBe(true);

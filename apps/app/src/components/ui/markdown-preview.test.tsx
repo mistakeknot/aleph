@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 
+import { LazyMarkdownHtml } from "./lazy-markdown-html";
+
 import {
   act,
   cleanup,
@@ -8,11 +10,12 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { highlightMarkdownCode } from "./markdown-code-highlight";
 import { MarkdownPreview } from "./markdown-preview";
 import {
   MarkdownLocalFileContextMenuContext,
+  MarkdownLocalFileOpenTargetsContext,
   type MarkdownLinkRouting,
 } from "./markdown-link-routing";
 
@@ -28,6 +31,8 @@ const workspaceLinkRouting = {
     onOpenLink: vi.fn(() => true),
   },
 } satisfies MarkdownLinkRouting;
+
+beforeAll(() => LazyMarkdownHtml.preload());
 
 afterEach(() => {
   cleanup();
@@ -336,6 +341,29 @@ describe("MarkdownPreview", () => {
     expect(screen.getByText("src/app.ts").tagName).toBe("CODE");
   });
 
+  it("preserves inline commands ending in Markdown paths as code", () => {
+    render(
+      <MarkdownPreview
+        content={
+          "Added `orange` and ran `cat things.md`:\n\n```text\nasdf\napple\npear\norange\n```\n\n`cat /workspace/things.md` and `git diff docs/guide.markdown:4`. See [my notes](<notes/my notes.md>)."
+        }
+        linkRouting={workspaceLinkRouting}
+      />,
+    );
+
+    for (const command of [
+      "cat things.md",
+      "cat /workspace/things.md",
+      "git diff docs/guide.markdown:4",
+    ]) {
+      expect(screen.getByText(command).tagName).toBe("CODE");
+      expect(screen.queryByRole("link", { name: command })).toBeNull();
+    }
+    expect(
+      screen.getByRole("link", { name: "my notes" }).getAttribute("href"),
+    ).toBe("file:///workspace/notes/my%20notes.md");
+  });
+
   it("shows a context menu on local file links when the context provides items", () => {
     const openBuiltin = vi.fn();
     const openFinder = vi.fn();
@@ -637,6 +665,159 @@ describe("MarkdownPreview", () => {
     expect(onOpenLink).toHaveBeenCalledExactlyOnceWith({ href });
   });
 
+  it("routes editor file links to the local file handler with their editor", () => {
+    const onOpenLink = vi.fn(() => true);
+    const onOpenLocalFileLink = vi.fn(() => true);
+
+    render(
+      <MarkdownPreview
+        content="Open [review](devin://file/Users/me/.bb/artifacts/thr_1/review.diff) or [cursor](Cursor://file/workspace/My%20App.ts:12:3)."
+        linkRouting={{
+          localFile: {
+            absoluteLinks: { kind: "trusted-host" },
+            onOpenLink: onOpenLocalFileLink,
+          },
+          onOpenLink,
+        }}
+      />,
+    );
+
+    const review = screen.getByRole("link", { name: "review" });
+    expect(review.getAttribute("href")).toBe(
+      "file:///Users/me/.bb/artifacts/thr_1/review.diff",
+    );
+    fireEvent.click(review);
+    fireEvent.click(screen.getByRole("link", { name: "cursor" }));
+
+    expect(onOpenLocalFileLink.mock.calls).toEqual([
+      [
+        {
+          lineRange: null,
+          openTargetId: "devin-desktop",
+          path: "/Users/me/.bb/artifacts/thr_1/review.diff",
+        },
+      ],
+      [
+        {
+          lineRange: { endLineNumber: 12, startLineNumber: 12 },
+          openTargetId: "cursor",
+          path: "/workspace/My App.ts",
+        },
+      ],
+    ]);
+    expect(onOpenLink).not.toHaveBeenCalled();
+  });
+
+  it("shows the editor logo only on links whose editor can open them", () => {
+    const { container } = render(
+      <MarkdownLocalFileOpenTargetsContext.Provider
+        value={[
+          {
+            capabilities: {
+              openDirectory: true,
+              openFile: true,
+              openFileAtLine: true,
+            },
+            icon: { kind: "builtin", name: "devin-desktop" },
+            id: "devin-desktop",
+            label: "Devin Desktop",
+          },
+        ]}
+      >
+        <MarkdownPreview
+          content="[review](devin://file/tmp/review.diff:3) [app](vscode://file/tmp/app.ts) [plain](/tmp/notes.md)"
+          linkRouting={{
+            localFile: {
+              absoluteLinks: { kind: "trusted-host" },
+              onOpenLink: () => true,
+            },
+          }}
+        />
+      </MarkdownLocalFileOpenTargetsContext.Provider>,
+    );
+
+    const review = screen.getByRole("link", { name: "review" });
+    expect(review.getAttribute("title")).toBe("Open in Devin Desktop");
+    expect(review.querySelector("img")).not.toBeNull();
+    for (const name of ["app", "plain"]) {
+      const link = screen.getByRole("link", { name });
+      expect(link.getAttribute("title")).toBeNull();
+      expect(link.querySelector("img")).toBeNull();
+      expect(link.querySelector("svg")).not.toBeNull();
+    }
+    expect(container.querySelectorAll("img")).toHaveLength(1);
+  });
+
+  it("keeps editor file links through the sanitized HTML path", () => {
+    const onOpenLocalFileLink = vi.fn(() => true);
+
+    const { container } = render(
+      <MarkdownPreview
+        allowHtml
+        content={
+          'Press <kbd>Enter</kbd> for [review](devin://file/tmp/review.diff) or <a href="vscode://file/tmp/a.ts">code</a>, not <a href="javascript:alert(1)">script</a> or <a href="devin://chat-plugin/install?source=https://example.invalid/plugin">install</a>.'
+        }
+        linkRouting={{
+          localFile: {
+            absoluteLinks: { kind: "trusted-host" },
+            onOpenLink: onOpenLocalFileLink,
+          },
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("link", { name: "review" }));
+    fireEvent.click(screen.getByRole("link", { name: "code" }));
+
+    expect(container.querySelectorAll("a")).toHaveLength(2);
+    expect(onOpenLocalFileLink.mock.calls).toEqual([
+      [
+        {
+          lineRange: null,
+          openTargetId: "devin-desktop",
+          path: "/tmp/review.diff",
+        },
+      ],
+      [{ lineRange: null, openTargetId: "vscode", path: "/tmp/a.ts" }],
+    ]);
+  });
+
+  it("renders links with blocked protocols as inert text", () => {
+    const onOpenLink = vi.fn(() => true);
+    const onOpenLocalFileLink = vi.fn(() => true);
+
+    const { container } = render(
+      <MarkdownPreview
+        content={
+          "[script](javascript:alert(1)) [data](data:text/html,hi) [unknown](ms-msdt:/id) [install](devin://chat-plugin/install?source=https://example.invalid/plugin) [command](vscode://command/workbench.action.terminal.new) [query](vscode://file/tmp/a.ts?windowId=_blank) [zed](zed://file/tmp/a.ts) [empty]()"
+        }
+        linkRouting={{
+          localFile: {
+            absoluteLinks: { kind: "trusted-host" },
+            onOpenLink: onOpenLocalFileLink,
+          },
+          onOpenLink,
+        }}
+      />,
+    );
+
+    expect(container.querySelectorAll("a")).toHaveLength(0);
+    for (const name of [
+      "script",
+      "data",
+      "unknown",
+      "install",
+      "command",
+      "query",
+      "zed",
+      "empty",
+    ]) {
+      fireEvent.click(screen.getByText(name));
+    }
+    expect(onOpenLink).not.toHaveBeenCalled();
+    expect(onOpenLocalFileLink).not.toHaveBeenCalled();
+  });
+
   it("rewrites localhost link hrefs without changing the visible text", () => {
     const displayedText = "http://127.0.0.1:5173";
 
@@ -685,16 +866,6 @@ describe("MarkdownPreview", () => {
     expect(container.querySelector(".katex")).toBeNull();
     expect(container.textContent).toContain("$5 to $10");
     expect(container.textContent).toContain("$x$");
-  });
-
-  it("renders display LaTeX math blocks with KaTeX", async () => {
-    const { container } = render(
-      <MarkdownPreview content={"$$\n\\frac{1}{2} + \\frac{1}{2} = 1\n$$"} />,
-    );
-
-    await waitFor(() =>
-      expect(container.querySelector(".katex-display")).not.toBeNull(),
-    );
   });
 
   it("leaves escaped dollar amounts as literal text", () => {

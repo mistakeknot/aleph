@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
@@ -29,19 +30,6 @@ const DISALLOWED_CACHE_IMPORT_SUFFIXES = [
   "/queries/query-keys",
   "/queries/thread-list-cache-data",
 ] as const;
-
-const DEPRECATED_CACHE_SHIM_MODULES = new Set([
-  "hooks/cache-effect-utils",
-  "hooks/cache-effects",
-  "hooks/cache-invalidation-groups",
-  "hooks/environment-cache-effects",
-  "hooks/mutation-cache-effects",
-  "hooks/mutations/thread-archive-cache",
-  "hooks/queries/query-cache",
-  "hooks/queries/thread-list-cache-data",
-  "hooks/realtime-cache-registry",
-  "hooks/system-cache-effects",
-]);
 
 const QUERY_KEYS_MODULE_PATH = "hooks/queries/query-keys";
 
@@ -219,6 +207,7 @@ const CACHE_OWNER_QUERY_KEY_IMPORTS: CacheOwnerQueryKeyImportRegistry = {
     "serverMoveStatusQueryKey",
     "sidebarNavigationQueryKey",
     "systemConfigQueryKey",
+    "systemProviderCatalogQueryKey",
     "threadPromptHistoryQueryKeyPrefix",
     "threadSearchQueryKeyPrefix",
     "threadsQueryKey",
@@ -251,6 +240,11 @@ const CACHE_OWNER_QUERY_KEY_IMPORTS: CacheOwnerQueryKeyImportRegistry = {
     "hostsQueryKey",
     "threadQueryKey",
   ],
+  "hooks/cache-owners/thread-open-cache-owner.ts": [
+    "threadDetailBootstrapQueryKey",
+    "threadTimelineQueryKey",
+    "threadTimelineQueryKeyPrefix",
+  ],
   "hooks/cache-owners/thread-tabs-cache-owner.ts": ["threadTabsQueryKey"],
   "hooks/cache-owners/ui-preferences-cache-owner.ts": ["uiPreferencesQueryKey"],
   "hooks/cache-owners/thread-runtime-cache-owner.ts": [
@@ -275,7 +269,7 @@ const CACHE_OWNER_QUERY_KEY_IMPORTS: CacheOwnerQueryKeyImportRegistry = {
 };
 
 function getSourceRoot(): string {
-  return path.resolve(new URL("../../", import.meta.url).pathname);
+  return path.resolve(fileURLToPath(new URL("../../", import.meta.url)));
 }
 
 function collectSourceFilePaths(directoryPath: string): string[] {
@@ -581,40 +575,6 @@ function resolveAppImportModulePath(
   return null;
 }
 
-function collectDeprecatedCacheShimImportViolations(): SourceFileViolation[] {
-  const violations: SourceFileViolation[] = [];
-  for (const filePath of collectSourceFilePaths(getSourceRoot())) {
-    const relativePath = toAppRelativePath(filePath);
-    const sourceFile = parseSourceFile(filePath);
-    sourceFile.forEachChild((node) => {
-      if (
-        !ts.isImportDeclaration(node) ||
-        !ts.isStringLiteral(node.moduleSpecifier)
-      ) {
-        return;
-      }
-      const resolvedModulePath = resolveAppImportModulePath(
-        relativePath,
-        node.moduleSpecifier.text,
-      );
-      if (
-        resolvedModulePath &&
-        DEPRECATED_CACHE_SHIM_MODULES.has(resolvedModulePath)
-      ) {
-        violations.push(
-          violationForNode(
-            sourceFile,
-            filePath,
-            node,
-            node.moduleSpecifier.text,
-          ),
-        );
-      }
-    });
-  }
-  return violations;
-}
-
 describe("cache owner boundaries", () => {
   it("keeps raw frontend-domain cache writes inside cache owners", () => {
     expect(collectRawCacheWriteViolations()).toEqual([]);
@@ -626,9 +586,5 @@ describe("cache owner boundaries", () => {
 
   it("keeps mutation, realtime, and action-provider files off query-key imports", () => {
     expect(collectCacheImportBoundaryViolations()).toEqual([]);
-  });
-
-  it("keeps imports off deprecated cache-owner re-export shims", () => {
-    expect(collectDeprecatedCacheShimImportViolations()).toEqual([]);
   });
 });

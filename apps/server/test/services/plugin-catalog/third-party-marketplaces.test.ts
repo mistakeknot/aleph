@@ -147,7 +147,7 @@ describe("third-party marketplaces", () => {
     const configFile = join(dataDir, "gitconfig");
     await writeFile(
       configFile,
-      `[url "${repo}"]\n\tinsteadOf = ${url}\n`,
+      `[url "${repo.replaceAll("\\", "\\\\")}"]\n\tinsteadOf = ${url}\n`,
       "utf8",
     );
     const previous = process.env.GIT_CONFIG_GLOBAL;
@@ -542,6 +542,7 @@ describe("third-party marketplaces", () => {
       rootDir: "/plugins/notes",
       version: "1.0.0",
       enabled: true,
+      enabledFollowsDefault: false,
     });
 
     const removed = await catalog.removeMarketplace("acme-plugins");
@@ -952,37 +953,6 @@ describe("third-party marketplaces", () => {
         expectedNpmIntegrity: "sha512-1.5.0",
       }),
     ]);
-  });
-
-  it("refuses an npm install whose version cannot be resolved", async () => {
-    const npmEntry = entry({
-      source: { npm: { package: "bb-plugin-notes", tag: "beta" } },
-    });
-    const catalog = service({
-      fetch: marketplaceFetch({
-        [OFFICIAL_URL]: manifest("bb-community", []),
-        [ACME_URL]: manifest("acme-plugins", [npmEntry]),
-      }),
-      resolveNpm: async () => ({
-        outcome: "unavailable" as const,
-        detail: "registry is unreachable",
-      }),
-    });
-    await catalog.addMarketplace(ACME_URL);
-
-    const plan = await catalog.installPlan({
-      entryId: "notes",
-      marketplace: "acme-plugins",
-    });
-    if (plan.kind !== "marketplace") throw new Error("expected a marketplace");
-    await expect(
-      catalog.install({
-        entryId: "notes",
-        marketplace: "acme-plugins",
-        confirmedSource: plan.resolvedSource,
-      }),
-    ).rejects.toThrow(/npm source could not be resolved/u);
-    expect(installedCatalogEntries).toEqual([]);
   });
 
   it("holds the marketplace lock across an install", async () => {

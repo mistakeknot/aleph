@@ -31,7 +31,7 @@ import type {
   Thread,
   ThreadRuntimeState,
 } from "@bb/domain";
-import { DAEMON_ACTIVE_WORK_DISCONNECT_GRACE_MS } from "../../../src/constants.js";
+import { HOST_RECONNECT_GRACE_MS } from "../../../src/constants.js";
 import {
   resolveThreadRuntimeState,
   toThreadListEntryResponses,
@@ -54,6 +54,7 @@ interface OpenTestSessionArgs {
 }
 
 interface CloseTestSessionArgs {
+  closeReason?: "daemon-disconnect" | "expired";
   closedAt: number;
   db: DbConnection;
   sessionId: string;
@@ -168,7 +169,12 @@ function openTestSession(args: OpenTestSessionArgs) {
 }
 
 function closeTestSession(args: CloseTestSessionArgs): void {
-  closeSession(args.db, noopNotifier, args.sessionId, "daemon-disconnect");
+  closeSession(
+    args.db,
+    noopNotifier,
+    args.sessionId,
+    args.closeReason ?? "daemon-disconnect",
+  );
   args.db
     .update(hostDaemonSessions)
     .set({
@@ -258,7 +264,6 @@ describe("thread runtime display", () => {
       ),
     ).toEqual({
       displayStatus: "active",
-      hostReconnectGraceExpiresAt: null,
     } satisfies ThreadRuntimeState);
   });
 
@@ -278,17 +283,15 @@ describe("thread runtime display", () => {
       ),
     ).toEqual({
       displayStatus: "waiting-for-host",
-      hostReconnectGraceExpiresAt: null,
     } satisfies ThreadRuntimeState);
   });
 
-  it("shows host-reconnecting for the full active-work grace after a daemon disconnect", () => {
+  it("keeps an active thread active while its host's closed socket is within the reconnect grace", () => {
     const { db, hostId, hub } = setup();
     const now = 60_000;
     const session = openTestSession({ db, hostId });
-    const closedAt = now - DAEMON_ACTIVE_WORK_DISCONNECT_GRACE_MS + 1_000;
     closeTestSession({
-      closedAt,
+      closedAt: now - HOST_RECONNECT_GRACE_MS + 1_000,
       db,
       sessionId: session.id,
     });
@@ -299,18 +302,38 @@ describe("thread runtime display", () => {
         { environmentHostId: hostId, now, status: "active" },
       ),
     ).toEqual({
-      displayStatus: "host-reconnecting",
-      hostReconnectGraceExpiresAt:
-        closedAt + DAEMON_ACTIVE_WORK_DISCONNECT_GRACE_MS,
+      displayStatus: "active",
     } satisfies ThreadRuntimeState);
   });
 
-  it("shows waiting-for-host after the active-work disconnect grace expires", () => {
+  it("keeps an active thread active while its reconnecting daemon has not registered its socket", () => {
+    const { db, hostId, hub } = setup();
+    const now = Date.now();
+    const lost = openTestSession({ db, hostId });
+    closeTestSession({
+      closedAt: now - 1_000,
+      db,
+      sessionId: lost.id,
+    });
+    openTestSession({ db, hostId });
+
+    expect(
+      resolveThreadRuntimeState(
+        { db, hub },
+        { environmentHostId: hostId, now, status: "active" },
+      ),
+    ).toEqual({
+      displayStatus: "active",
+    } satisfies ThreadRuntimeState);
+  });
+
+  it("shows waiting-for-host as soon as the server closes a silent daemon session", () => {
     const { db, hostId, hub } = setup();
     const now = 60_000;
     const session = openTestSession({ db, hostId });
     closeTestSession({
-      closedAt: now - DAEMON_ACTIVE_WORK_DISCONNECT_GRACE_MS - 1,
+      closeReason: "expired",
+      closedAt: now - 1_000,
       db,
       sessionId: session.id,
     });
@@ -322,7 +345,26 @@ describe("thread runtime display", () => {
       ),
     ).toEqual({
       displayStatus: "waiting-for-host",
-      hostReconnectGraceExpiresAt: null,
+    } satisfies ThreadRuntimeState);
+  });
+
+  it("shows waiting-for-host after the reconnect grace expires", () => {
+    const { db, hostId, hub } = setup();
+    const now = 60_000;
+    const session = openTestSession({ db, hostId });
+    closeTestSession({
+      closedAt: now - HOST_RECONNECT_GRACE_MS - 1,
+      db,
+      sessionId: session.id,
+    });
+
+    expect(
+      resolveThreadRuntimeState(
+        { db, hub },
+        { environmentHostId: hostId, now, status: "active" },
+      ),
+    ).toEqual({
+      displayStatus: "waiting-for-host",
     } satisfies ThreadRuntimeState);
   });
 
@@ -340,7 +382,6 @@ describe("thread runtime display", () => {
       ),
     ).toEqual({
       displayStatus: "idle",
-      hostReconnectGraceExpiresAt: null,
     } satisfies ThreadRuntimeState);
   });
 
@@ -358,7 +399,6 @@ describe("thread runtime display", () => {
       ),
     ).toEqual({
       displayStatus: "active",
-      hostReconnectGraceExpiresAt: null,
     } satisfies ThreadRuntimeState);
   });
 
@@ -466,15 +506,12 @@ describe("thread runtime display", () => {
     expect(entries.map((entry) => entry.runtime)).toEqual([
       {
         displayStatus: "active",
-        hostReconnectGraceExpiresAt: null,
       },
       {
         displayStatus: "active",
-        hostReconnectGraceExpiresAt: null,
       },
       {
         displayStatus: "active",
-        hostReconnectGraceExpiresAt: null,
       },
     ] satisfies ThreadRuntimeState[]);
   });

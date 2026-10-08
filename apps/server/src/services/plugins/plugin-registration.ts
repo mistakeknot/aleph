@@ -17,6 +17,7 @@ import {
   type PluginSourceIntent,
 } from "@bb/db";
 import {
+  BUILTIN_PLUGIN_ID_PREFIX,
   BUNDLED_PLUGINS,
   builtinPluginSource,
   type BundledPluginRegistration,
@@ -127,7 +128,12 @@ export function createPluginRegistration(context: PluginRegistrationContext) {
 
   function refuseBuiltinShadow(pluginId: string): void {
     const bundledName = bundledPluginNamesById.get(pluginId);
-    if (bundledName === undefined) return;
+    if (bundledName === undefined) {
+      if (!pluginId.startsWith(BUILTIN_PLUGIN_ID_PREFIX)) return;
+      throw new Error(
+        `install refused: plugin ids starting with "${BUILTIN_PLUGIN_ID_PREFIX}" are reserved for plugins bundled with bb; rename the package so its id "${pluginId}" does not start with "${BUILTIN_PLUGIN_ID_PREFIX}"`,
+      );
+    }
     throw new Error(
       `install refused: plugin id "${pluginId}" is reserved by the bundled plugin "${bundledName}"; install "builtin:${bundledName}" instead`,
     );
@@ -220,7 +226,8 @@ export function createPluginRegistration(context: PluginRegistrationContext) {
       current.activeArtifactId === expected.activeArtifactId &&
       current.rootDir === expected.rootDir &&
       current.version === expected.version &&
-      current.enabled === expected.enabled
+      current.enabled === expected.enabled &&
+      current.enabledFollowsDefault === expected.enabledFollowsDefault
     );
   }
 
@@ -371,6 +378,7 @@ export function createPluginRegistration(context: PluginRegistrationContext) {
           rootDir: args.rootDir,
           version: manifest.version,
           enabled: movedFrom?.enabled ?? true,
+          enabledFollowsDefault: false,
         });
         const row = getInstalledPlugin(deps.db, manifest.id);
         if (row) {
@@ -606,6 +614,7 @@ export function createPluginRegistration(context: PluginRegistrationContext) {
       rootDir: row.rootDir,
       version: row.version,
       enabled: row.enabled,
+      enabledFollowsDefault: row.enabledFollowsDefault,
     });
   }
 
@@ -679,6 +688,11 @@ export function createPluginRegistration(context: PluginRegistrationContext) {
       if (!bundled.autoInstall && existing === undefined) {
         continue;
       }
+      const enabledFollowsDefault =
+        existing === undefined || existing.enabledFollowsDefault;
+      const enabled = enabledFollowsDefault
+        ? bundled.defaultEnabled
+        : existing.enabled;
       const sameBundledSource =
         existing?.sourceKind === "builtin" &&
         existing.sourceBuiltinName === bundled.name;
@@ -702,7 +716,8 @@ export function createPluginRegistration(context: PluginRegistrationContext) {
           name: bundled.name,
         }) ||
         existing.version !== manifest.version ||
-        existing.rootDir !== bundled.rootDir
+        existing.rootDir !== bundled.rootDir ||
+        existing.enabled !== enabled
       ) {
         upsertInstalledPlugin(deps.db, {
           id: manifest.id,
@@ -714,7 +729,8 @@ export function createPluginRegistration(context: PluginRegistrationContext) {
           activeArtifactId: null,
           rootDir: bundled.rootDir,
           version: manifest.version,
-          enabled: existing?.enabled ?? bundled.defaultEnabled,
+          enabled,
+          enabledFollowsDefault,
         });
       }
     }

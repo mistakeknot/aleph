@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PluginNavPanelProps } from "@get-bb/plugin-sdk/app";
 import { useProjects } from "./data.js";
 import {
@@ -65,6 +65,35 @@ function BrowseRouteOutlet({
         <ListView projectId={route.projectId} />
       );
   }
+}
+
+function TaskRouteView({
+  taskKey,
+  onClose,
+}: {
+  taskKey: string;
+  onClose: () => void;
+}) {
+  const navigation = useTasksNavigation();
+  const onCanonicalKey = useCallback(
+    (canonicalKey: string) => {
+      if (canonicalKey.toUpperCase() !== taskKey.toUpperCase()) {
+        navigation.go(
+          { kind: "task", taskKey: canonicalKey },
+          { replace: true },
+        );
+      }
+    },
+    [navigation, taskKey],
+  );
+  return (
+    <DetailView
+      key={taskKey}
+      taskKey={taskKey}
+      onClose={onClose}
+      onCanonicalKey={onCanonicalKey}
+    />
+  );
 }
 
 function resolveRoute(route: TasksRoute): ResolvedTasksRoute {
@@ -222,7 +251,7 @@ function TasksAppShellContent({ subPath }: PluginNavPanelProps) {
                 detailSplitFits ? { width: DETAIL_COLUMN_WIDTH } : undefined
               }
             >
-              <DetailView taskKey={route.taskKey} onClose={backFromTask} />
+              <TaskRouteView taskKey={route.taskKey} onClose={backFromTask} />
             </div>
           )}
         </div>

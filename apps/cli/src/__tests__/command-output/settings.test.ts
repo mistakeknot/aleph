@@ -52,6 +52,49 @@ describe("bb settings commands", () => {
     expect(put).toHaveBeenLastCalledWith({ json: [other] });
   });
 
+  it("keeps command scopes separate when setting and resetting platform bindings", async () => {
+    const general = { command: "thread.new", shortcut: null };
+    const mac = { command: "thread.new", platform: "mac", shortcut: null };
+    const linux = { command: "thread.new", platform: "linux", shortcut: null };
+    const put = vi.fn(async ({ json }) => json);
+    stubServerApi({
+      "v1.system.config.$get": vi.fn(async () => ({
+        keybindingOverrides: [general, mac, linux],
+      })),
+      "v1.settings.keyboard.$put": put,
+    });
+    await runCommand(
+      [
+        "settings",
+        "keyboard",
+        "set",
+        "thread.new",
+        "disabled",
+        "--platform",
+        "windows",
+      ],
+      register,
+    );
+    expect(put).toHaveBeenLastCalledWith({
+      json: [
+        general,
+        mac,
+        linux,
+        { command: "thread.new", platform: "windows", shortcut: null },
+      ],
+    });
+    await runCommand(
+      ["settings", "keyboard", "reset", "thread.new", "--platform", "mac"],
+      register,
+    );
+    expect(put).toHaveBeenLastCalledWith({ json: [general, linux] });
+    await runCommand(
+      ["settings", "keyboard", "reset", "--platform", "linux"],
+      register,
+    );
+    expect(put).toHaveBeenLastCalledWith({ json: [general, mac] });
+  });
+
   const completedTurnProviders = [
     {
       id: "claude-code",
@@ -271,7 +314,7 @@ describe("bb settings commands", () => {
     });
   });
 
-  it("updates active-thread Enter behavior while preserving the full contract", async () => {
+  it("disables thread archive confirmation through general settings", async () => {
     const put = vi.fn(async ({ json }) => json);
     stubServerApi({
       "v1.system.config.$get": vi.fn(async () => ({
@@ -280,55 +323,25 @@ describe("bb settings commands", () => {
       })),
       "v1.settings.general.$put": put,
     });
-
     await runCommand(
-      ["settings", "general", "steerActiveThreadOnEnter", "true"],
+      ["settings", "general", "confirmThreadArchive", "off"],
       register,
     );
-
     expect(put).toHaveBeenCalledWith({
-      json: { ...defaultAppSettings, steerActiveThreadOnEnter: true },
+      json: { ...defaultAppSettings, confirmThreadArchive: false },
     });
   });
 
   it("enables the changelog preview experiment", async () => {
     const put = vi.fn(async ({ json }) => json);
-    stubServerApi({
-      "v1.system.config.$get": vi.fn(async () => ({
-        generalSettings: defaultAppSettings,
-        experiments: defaultExperiments,
-      })),
-      "v1.settings.experiments.$put": put,
-    });
+    stubServerApi({ "v1.settings.experiments.$put": put });
 
     await runCommand(
       ["settings", "experiment", "changelogPreview", "true"],
       register,
     );
 
-    expect(put).toHaveBeenCalledWith({
-      json: { ...defaultExperiments, changelogPreview: true },
-    });
-  });
-
-  it("enables the legacy JITI plugin loader experiment", async () => {
-    const updateExperiments = vi.fn(async ({ json }) => json);
-    stubServerApi({
-      "v1.system.config.$get": vi.fn(async () => ({
-        generalSettings: defaultAppSettings,
-        experiments: defaultExperiments,
-      })),
-      "v1.settings.experiments.$put": updateExperiments,
-    });
-
-    await runCommand(
-      ["settings", "experiment", "legacyJitiPluginLoader", "true"],
-      register,
-    );
-
-    expect(updateExperiments).toHaveBeenCalledWith({
-      json: { ...defaultExperiments, legacyJitiPluginLoader: true },
-    });
+    expect(put).toHaveBeenCalledWith({ json: { changelogPreview: true } });
   });
 
   it("reads usage from a selected machine", async () => {

@@ -93,6 +93,12 @@ and counted in the plugin's handler stats (`bb plugin list`).
 
 Lifecycle events are broadcast to all loaded plugins regardless of sidebar
 visibility.
+Use `thread.*` events to react to lifecycle changes while your plugin is
+loaded. Events that occur while it is unloaded are not replayed. Register
+handlers first, then reconcile tracked threads once at startup to catch changes
+from a restart, reload, or disabled period. Make handlers idempotent if a live
+event overlaps reconciliation. Avoid polling thread state to detect lifecycle
+changes.
 
 `thread.created` fires on row creation, so the first user message is not
 always in the timeline yet. To react to a thread's content, listen on
@@ -415,6 +421,9 @@ function IssuesButton() {
   return <button onClick={() => void loadIssues()}>Load issues</button>;
 }
 ```
+
+Each handler also receives a context whose `experimental_caller` identifies
+the calling plugin; see "Calling another plugin's RPC" in `backend-sdk.md`.
 
 The wire envelope is `{ ok: true, result }` or `{ ok: false, error }`.
 Failures use stable codes: `invalid_json`, `invalid_input`, `handler_error`,

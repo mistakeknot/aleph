@@ -205,7 +205,6 @@ interface ThreadRuntimeConfig {
   skillRoots: readonly AgentRuntimeSkillRoot[];
   contributedEnv: readonly AgentRuntimeContributedEnvEntry[];
   dynamicTools?: DynamicTool[];
-  disallowedTools?: readonly string[];
   environmentId: string;
   instructionMode: InstructionMode;
   instructions?: string;
@@ -254,10 +253,6 @@ function resolveThreadStoragePath(
 }
 
 export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
-  // Single runtime emit boundary: provider-supplied diagnostics (warnings,
-  // errors, raw wrappers) can echo launch credentials, so every event is
-  // sanitized before it leaves the runtime. The provider's own launch env is
-  // never touched.
   const emitEvent = (event: ThreadEvent): void => {
     options.onEvent(redactThreadEventPayload(event));
   };
@@ -1085,9 +1080,6 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
       ...(currentConfig.dynamicTools !== undefined
         ? { dynamicTools: currentConfig.dynamicTools }
         : {}),
-      ...(currentConfig.disallowedTools !== undefined
-        ? { disallowedTools: currentConfig.disallowedTools }
-        : {}),
       instructionMode: currentConfig.instructionMode,
     });
   }
@@ -1178,8 +1170,6 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
       type: "provider.env-resolved",
       threadId: args.threadId,
       providerThreadId: args.providerThreadId,
-      // Entries hold the resolved launch env (pool tokens included); only the
-      // redacted form may leave the runtime.
       entries: redactProviderEnvResolvedData({ entries: args.entries })
         .entries,
       scope: { kind: "thread" },
@@ -1528,7 +1518,6 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
       options: execOpts,
       instructions,
       dynamicTools,
-      disallowedTools,
       instructionMode = "append",
       fork,
     }) {
@@ -1571,7 +1560,6 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
             skillRoots: sessionSkillRoots,
             contributedEnv,
             dynamicTools,
-            disallowedTools,
             environmentId,
             envVars: resolvedEnvironment.envVars,
             instructionMode,
@@ -1602,7 +1590,6 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
                   : {}),
                 options: providerExecutionContext,
                 dynamicTools,
-                disallowedTools,
                 instructionMode,
               }
             : {
@@ -1611,7 +1598,6 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
                 cwd: options.workspacePath,
                 options: providerExecutionContext,
                 dynamicTools,
-                disallowedTools,
                 instructionMode,
               };
           let resolved: string;
@@ -1690,7 +1676,6 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
       options: execOpts,
       instructions,
       dynamicTools,
-      disallowedTools,
       instructionMode = "append",
     }) {
       const existing = stagedThreadRewinds.get(leaseId);
@@ -1756,7 +1741,6 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
                 instructions,
               }),
               dynamicTools,
-              disallowedTools,
               instructionMode,
             };
             const command = requireProviderRequestPlan({
@@ -1862,7 +1846,6 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
       options: execOpts,
       instructions,
       dynamicTools,
-      disallowedTools,
       instructionMode = "append",
     }) {
       return runThreadOperation({
@@ -1916,7 +1899,6 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
             skillRoots: sessionSkillRoots,
             contributedEnv,
             dynamicTools,
-            disallowedTools,
             environmentId,
             envVars: resolvedEnvironment.envVars,
             instructionMode,
@@ -1944,7 +1926,6 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
               instructions,
             }),
             dynamicTools,
-            disallowedTools,
             instructionMode,
           };
           const plan = proc.adapter.buildCommandPlan(adapterCommand);
@@ -2449,6 +2430,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
       bridgeLaunch,
       cwd,
       requirement,
+      checkUpdates = true,
     }) {
       await runtime.ensureProvider({ providerId, bridgeLaunch });
       const proc = providerProcesses.requireProviderProcess({
@@ -2459,6 +2441,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
         commandType: "provider/installation/status",
         plan: proc.adapter.buildCommandPlan({
           type: "provider/installation/status",
+          checkUpdates,
           ...(cwd !== undefined ? { cwd } : {}),
           ...(requirement !== undefined ? { requirement } : {}),
         }),

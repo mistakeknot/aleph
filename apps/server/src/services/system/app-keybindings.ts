@@ -129,6 +129,18 @@ const mainWithoutModal = {
   none: ["modalOpen"],
 } as const;
 
+const historyWithoutModal = {
+  all: ["mainSurface"],
+  desktopOnly: true,
+  none: ["modalOpen", "editableFocus", "terminalFocus"],
+} as const;
+
+const browserHistory = {
+  all: ["mainSurface", "browserFocus"],
+  desktopOnly: true,
+  none: ["modalOpen", "editableFocus"],
+} as const;
+
 const composerWithoutModal = {
   all: ["mainSurface", "promptAvailable"],
   none: ["modalOpen", "terminalFocus", "browserFocus"],
@@ -165,6 +177,8 @@ export const DEFAULT_APP_KEYBINDINGS: AppDefaultKeybindings = [
   unassignedBinding("thread.rename", mainWithoutModal),
   unassignedBinding("thread.archive", mainWithoutModal),
   binding("app.back", "Escape", {}, mainWithoutModal),
+  binding("history.back", "[", { mod: true }, historyWithoutModal),
+  binding("history.forward", "]", { mod: true }, historyWithoutModal),
   binding("settings.open", ",", { mod: true }, mainWithoutModal),
   binding("sidebar.toggle", "\\", { mod: true }, mainWithoutModal),
   unassignedBinding("notifications.open", mainWithoutModal),
@@ -212,7 +226,7 @@ export const DEFAULT_APP_KEYBINDINGS: AppDefaultKeybindings = [
     macArrowBindings(
       command,
       key,
-      { mod: true, shift: true },
+      { mod: true, control: true, shift: true },
       splitWithoutModal,
     ),
   ),
@@ -378,6 +392,8 @@ export const DEFAULT_APP_KEYBINDINGS: AppDefaultKeybindings = [
       none: ["modalOpen"],
     },
   ),
+  binding("browser.back", "[", { mod: true }, browserHistory),
+  binding("browser.forward", "]", { mod: true }, browserHistory),
   binding(
     "window.find",
     "f",

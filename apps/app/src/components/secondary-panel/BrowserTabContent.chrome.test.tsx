@@ -12,12 +12,22 @@ import type {
   BbDesktopBrowserApi,
   BbDesktopBrowserState,
 } from "@bb/desktop-contract";
+import { useEffect } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createBbDesktopApi,
   createNoopDesktopBrowserApi,
 } from "@/test/bb-desktop-test-utils";
+import {
+  AppCommandProvider,
+  useAppCommandRunner,
+  type AppCommandRunner,
+} from "@/components/commands/AppCommandProvider";
 import { BrowserTabContent } from "./BrowserTabContent";
+
+vi.mock("@/hooks/queries/system-queries", () => ({
+  useSystemConfig: () => ({ data: undefined }),
+}));
 
 const desktopInfo = {
   lastCheckedAt: null,
@@ -98,28 +108,19 @@ function renderBrowserChrome(
 ) {
   window.bbDesktop = createBbDesktopApi(desktopInfo, harness.api);
   return render(
-    <>
-      <BrowserTabContent
-        tabId="browser:test"
-        initialUrl={initialUrl}
-        addressFocusRequest={null}
-        canHandleBrowserCommands={options.canHandleBrowserCommands}
-        canShowNativeBrowserView={options.canShowNativeBrowserView ?? false}
-        onNativeFocus={options.onNativeFocus}
-        visibilityCoordinator={null}
-        environmentId={null}
-        threadId="thread-1"
-        onUpdate={() => {}}
-      />
-      <button type="button">Outside browser</button>
-    </>,
+    <BrowserTabContent
+      tabId="browser:test"
+      initialUrl={initialUrl}
+      addressFocusRequest={null}
+      canHandleBrowserCommands={options.canHandleBrowserCommands}
+      canShowNativeBrowserView={options.canShowNativeBrowserView ?? false}
+      onNativeFocus={options.onNativeFocus}
+      visibilityCoordinator={null}
+      environmentId={null}
+      threadId="thread-1"
+      onUpdate={() => {}}
+    />,
   );
-}
-
-function expectChromeVisible(): HTMLElement {
-  const chrome = screen.getByTestId("browser-tab-nav-bar");
-  expect(chrome.dataset.state).toBe("expanded");
-  return chrome;
 }
 
 describe("BrowserTabContent persistent navigation", () => {
@@ -130,23 +131,11 @@ describe("BrowserTabContent persistent navigation", () => {
     delete window.bbDesktop;
   });
 
-  it("keeps the top navigation visible through pointer and focus changes", () => {
-    const harness = createBrowserChromeHarness();
-    renderBrowserChrome(harness, "https://example.com/docs");
-    const chrome = expectChromeVisible();
-
-    fireEvent.pointerLeave(chrome);
-    act(() => screen.getByRole("button", { name: "Outside browser" }).focus());
-    expectChromeVisible();
-    expect(screen.getByLabelText("Address and search bar")).not.toBeNull();
-  });
-
   it("keeps navigation visible while loading and preserves the stop action", () => {
     const harness = createBrowserChromeHarness();
     renderBrowserChrome(harness, "https://example.com/docs");
 
     act(() => harness.emitState(browserState({ isLoading: true })));
-    expectChromeVisible();
 
     const stopButton = screen.getByRole("button", { name: "Stop loading" });
     fireEvent.click(stopButton);
@@ -156,11 +145,61 @@ describe("BrowserTabContent persistent navigation", () => {
   it("preserves browser navigation actions", () => {
     const harness = createBrowserChromeHarness();
     renderBrowserChrome(harness, "https://example.com/docs");
-    expectChromeVisible();
 
     act(() => harness.emitState(browserState({ canGoBack: true })));
     fireEvent.click(screen.getByRole("button", { name: "Go back" }));
     expect(harness.goBack).toHaveBeenCalledWith("browser:test");
+  });
+
+  it("routes browser back and forward commands to the tab only when it can navigate", () => {
+    const harness = createBrowserChromeHarness();
+    const goForward = vi.fn();
+    harness.api.goForward = goForward;
+    const captured: { runner: AppCommandRunner | null } = { runner: null };
+    function Capture() {
+      const runner = useAppCommandRunner();
+      useEffect(() => {
+        captured.runner = runner;
+      }, [runner]);
+      return null;
+    }
+    window.bbDesktop = createBbDesktopApi(desktopInfo, harness.api);
+    render(
+      <AppCommandProvider>
+        <Capture />
+        <BrowserTabContent
+          tabId="browser:test"
+          initialUrl="https://example.com/docs"
+          addressFocusRequest={null}
+          canHandleBrowserCommands
+          canShowNativeBrowserView={false}
+          visibilityCoordinator={null}
+          environmentId={null}
+          threadId="thread-1"
+          onUpdate={() => {}}
+        />
+      </AppCommandProvider>,
+    );
+
+    let handled = true;
+    act(() => {
+      handled = captured.runner?.dispatch("browser.back", null) ?? true;
+    });
+    expect(handled).toBe(false);
+    expect(harness.goBack).not.toHaveBeenCalled();
+
+    act(() =>
+      harness.emitState(browserState({ canGoBack: true, canGoForward: true })),
+    );
+    act(() => {
+      handled = captured.runner?.dispatch("browser.back", null) ?? false;
+    });
+    expect(handled).toBe(true);
+    expect(harness.goBack).toHaveBeenCalledWith("browser:test");
+    act(() => {
+      captured.runner?.dispatch("browser.forward", null);
+    });
+    expect(goForward).toHaveBeenCalledWith("browser:test");
   });
 
   it.each(["Stop", "Take over"])(

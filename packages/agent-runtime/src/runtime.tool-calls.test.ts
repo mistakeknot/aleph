@@ -479,7 +479,6 @@ describe("createAgentRuntime tool calls", () => {
     expect(errors.length).toBeGreaterThan(0);
     expect(JSON.stringify(events)).not.toContain(secret);
     expect(JSON.stringify(errors)).toContain("[redacted]");
-    // Redaction must never invalidate an event for the host-daemon schema.
     for (const event of events) {
       expect(threadEventSchema.safeParse(event).success).toBe(true);
     }

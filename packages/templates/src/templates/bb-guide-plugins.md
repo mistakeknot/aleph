@@ -79,7 +79,9 @@ added or enabled accounts are available without a plugin reload. With an
 enabled account whose secret file remains readable and valid, the plugin
 contributes its provider-specific server route and a distinct secret token to
 Claude Code or Codex sessions on every host. Claude Code also receives
-`ENABLE_TOOL_SEARCH=true` so tool search stays on through the hub. Codex
+`ENABLE_TOOL_SEARCH=true` so tool search stays on through the hub, and
+`_CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL=1` so Opus keeps its native 1M
+context window instead of the 200k fallback for custom base URLs. Codex
 receives `CODEX_OPENAI_BASE_URL` and the secret `CODEX_POOL_AUTH_TOKEN`; its
 app server uses those values without editing `~/.codex/config.toml`.
 Codex image generation and editing use the same authenticated pool route.
@@ -113,6 +115,19 @@ conversations can advance. A model-family limit detours only requests for that
 family without moving the session's main pin or the provider cursor. The cursor
 and session pins survive hub restarts. Session pins expire after 30 idle minutes,
 and the pool retains the 4,096 most recently used pins.
+
+Claude accounts can fall back to enabled extra usage after subscription windows
+reach the switch threshold. Accounts below the threshold take precedence, even
+for conversations pinned to an extra-usage fallback, and exhausted accounts are
+rechecked before spending extra usage. `bb pool status` and `account list` show
+an Extra usage column; JSON exposes `extraUsage` with status, observation time,
+and source. The pool does not enable extra usage or change Claude spending limits.
+
+Codex accounts use the same fallback policy when credit availability is reported.
+Spending-control and explicit credit-depletion restrictions still block routing;
+account/status JSON exposes them under `usageRestriction`. Both providers show
+an “Extra usage available” pill when allowance is reported available. The pill
+does not indicate current billing activity.
 
 Use the up/down arrows in Account Pooler settings, or
 `bb pool account reorder <claude|codex> <id>...`, to set the complete order for
@@ -601,7 +616,9 @@ version tags such as `v1` and `v1.2.3` are always the literal tag.
 
 `bb plugin search <query>` matches an id, name, description, category, or tag.
 It searches bb-official and each other registered marketplace. The output has a
-Category column. Status shows installed, compatible, or requires newer bb.
+Category column. Status shows installed, compatible, requires newer bb, or
+`id in use by <source>` when another installed plugin, such as a local `path:`
+checkout, already uses the entry's id.
 Install a bundled plugin by its bare name. Direct
 HTTP(S) Git repository URLs, `path:`, `npm:`, `git:`, and `builtin:`
 sources—and path-like syntax—continue to bypass official-plugin resolution.
@@ -664,9 +681,6 @@ Path installs compile server.ts into a versioned bb-owned cache and load the
 result with native ESM. The cache follows source, SDK, bb, and Node versions,
 so `bb plugin dev`/reload sees edits immediately without running the source
 transformer on the server event loop.
-The Legacy plugin loader (JITI) experiment restores the previous loader on the
-next install, reload, enable, update, or server restart; running instances are
-unchanged when the experiment is toggled.
 
 `bb plugin dev` is the edit loop: it requires the directory to already be
 installed as a plugin (`bb plugin install .` first), ignores dist/,
@@ -713,12 +727,15 @@ useBbNavigate (including openUrl(url), which applies the current
 client's in-app/external-browser preference, plus
 experimental_openFilePreview({ target, location }) and
 experimental_openFileExternally({ target, location }) for explicit live
-workspace/host/thread-storage files), useComposer
-(read/replace/update/clear scoped composer text,
-apply a class-based text effect, lock input, quote selections, insert mention
-pills, and focus the composer), and useComposerView (reactive bound scope,
-layout, draft, and run state). Plain-text edits preserve attachments and
-reconcile only inline mentions overlapped by the edit. Define RPC methods with `defineRpcContract`
+workspace/host/thread-storage files), and useComposer (one stable handle for
+the bound composer: read its text, mentions, reactive picker selection, scope, layout, run and submit
+state, and why submitting is blocked; replace/update/clear text; insert text
+and mentions at the cursor or end; apply a class-based text effect, lock input,
+quote selections, submit exactly as Enter would, and focus the composer),
+and useComposers (a handle for every composer on screen, so a panel can write
+into the one the user picks).
+Plain-text edits preserve attachments and reconcile only inline mentions
+overlapped by the edit. Define RPC methods with `defineRpcContract`
 and Standard Schema-compatible input/output validators (Zod works directly),
 register via `bb.rpc.register(contract, handlers)`, then use a type-only
 backend contract import with `useRpc<typeof contract>()` for exact frontend
@@ -925,10 +942,9 @@ reload/disable/shutdown).
 Frontend entries register React slots (homepageSection, settingsSection,
 navPanel, threadPanelAction, experimental_newThreadPanelAction, fileOpener,
 messageDirective) and composer
-customizations via `app.composer.customize({ actions, plusMenu, banners,
-richText })`; action/banner components use `useComposer()` and
-`useComposerView()`, while the host renders plus-menu rows and editor
-decorations. The deprecated pre-1.0 `slots.composerAccessory` footer API was
+customizations via `app.composer.customize({ actions, plusMenu, sendMenu,
+banners, richText })`; action/banner components use `useComposer()`, while the
+host renders plus-menu and send-menu rows and editor decorations. The deprecated pre-1.0 `slots.composerAccessory` footer API was
 removed; migrate controls to actions or the plus menu and larger content to
 banners. Register all frontend surfaces via
 definePluginApp, use the hooks

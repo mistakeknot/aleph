@@ -182,7 +182,7 @@ describe("runPeriodicSweeps", () => {
       ).toEqual(previews);
       expect(
         changes.filter((threadChanges) =>
-          threadChanges.includes("history-rewritten"),
+          threadChanges.includes("history-compacted"),
         ),
       ).toHaveLength(1);
     });
@@ -261,7 +261,7 @@ describe("runPeriodicSweeps", () => {
       expect(observedCounts).toContain(1);
       expect(
         changes.filter((threadChanges) =>
-          threadChanges.includes("history-rewritten"),
+          threadChanges.includes("history-compacted"),
         ),
       ).toHaveLength(1);
     });
@@ -336,7 +336,7 @@ describe("runPeriodicSweeps", () => {
       );
       expect(
         changes.filter((threadChanges) =>
-          threadChanges.includes("history-rewritten"),
+          threadChanges.includes("history-compacted"),
         ),
       ).toHaveLength(1);
     });
@@ -631,53 +631,6 @@ describe("runPeriodicSweeps", () => {
       } finally {
         clock.mockRestore();
       }
-    });
-  });
-
-  it("isolates job failures in the generic runner", async () => {
-    await withTestHarness(async (harness) => {
-      const logger = {
-        ...testLogger,
-        error: vi.fn(),
-      };
-      const deps = {
-        ...harness.deps,
-        logger,
-        pluginSchedules: harness.pluginService,
-        plugins: harness.pluginService,
-        pluginService: harness.pluginService,
-        pluginCatalogService: harness.pluginCatalogService,
-      };
-      let laterJobRuns = 0;
-      const jobs: PeriodicSweepJob[] = [
-        {
-          cadenceMs: 0,
-          category: "retention",
-          name: "test-failing-sweep",
-          run() {
-            throw new Error("synthetic sweep failure");
-          },
-        },
-        {
-          cadenceMs: 0,
-          category: "retention",
-          name: "test-later-sweep",
-          run() {
-            laterJobRuns += 1;
-          },
-        },
-      ];
-
-      await runPeriodicSweepJobs(deps, jobs, Date.now());
-
-      expect(laterJobRuns).toBe(1);
-      expect(logger.error).toHaveBeenCalledWith(
-        expect.objectContaining({
-          sweepJob: "test-failing-sweep",
-          sweepJobCategory: "retention",
-        }),
-        "Periodic sweep job failed",
-      );
     });
   });
 

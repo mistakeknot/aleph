@@ -10,11 +10,11 @@ Use your own Claude Code and Codex accounts, budgeted. The Account Pooler puts t
 
 ## How it works
 
-The hub runs inside BB and serves an Anthropic Messages endpoint and an OpenAI Responses endpoint. With routing on, BB hands the Claude Code or Codex process a hub base URL and a machine-scoped token, and the provider reports **Proxied** in its health row. An account is skipped when it is at or above the switch threshold (98 percent of a window by default) or in error. A refusal first rechecks exhausted accounts, so upgrades apply next turn. Account secrets stay in the server's BB data directory, and the hub refreshes them in the background.
+The hub runs inside BB and serves Anthropic Messages and OpenAI Responses endpoints. With routing on, the provider receives a hub base URL and a machine-scoped token, and reports **Proxied**. An account is skipped at or above the switch threshold (98 percent of a window by default) or in error. Claude extra usage and Codex credits are fallbacks: usable subscription accounts come first, and conversations return when quota recovers. Exhausted accounts are rechecked before fallback. Codex spending-control and credit-depletion restrictions block routing even below the threshold. The pool never enables extra usage, buys credits, or changes spending limits; Settings shows "Extra usage available" only for reported allowance. Secrets stay on the server and refresh in the background.
 
-The pool waits once on the same account for short temporary rate limits. Longer holds return Retry-After for pinned conversations while new conversations can advance. A model-family limit detours requests for that family without moving the session’s main pin or the provider cursor. The pool commits a new account after a successful response; a failed attempt across every account retains the previous binding. The current account and session pins survive hub restarts. Session pins expire after 30 idle minutes, with the 4,096 most recently used pins retained.
+The pool waits once on the same account for short rate limits. Longer holds return Retry-After for pinned conversations while new ones advance. A model-family limit detours that family without moving the session pin. A new account is committed after a successful response; the current account and session pins survive restarts and expire after 30 idle minutes (4,096 most recent kept).
 
-The pooler owns its upstream HTTP connections and uses HTTP/1.1, so a broken HTTP/2 session in the server's shared fetch dispatcher does not strand requests. The transport honors standard proxy environment variables and is disposed on plugin unload. This does not add request replay; existing account-fallback rules still apply. Request connection failures log a known error code when available, without request bodies, credentials, URLs, or raw exception messages.
+The pool owns its upstream connections over HTTP/1.1, honors standard proxy environment variables, and logs connection failures as error codes without credentials or request contents.
 
 ## Nested bb servers
 
@@ -29,10 +29,10 @@ Proxied traffic authenticates as the parent machine's token, so the parent attri
 
 Accounts you own and are permitted to use this way.
 
-This plugin is experimental. Routing behavior, stored data, and the CLI can change between releases.
+This plugin is experimental. Routing, storage, and the CLI can change.
 
 ## For agents
 
-[Attempt receipts](RECEIPTS.md) provide per-run accounting.
+Thread availability is answered only for the machine that owns the thread's environment. `bb pool exec -- <codex|claude> ...` runs scheduled or supervised work through the pool, with per-run accounting in [attempt receipts](RECEIPTS.md); the skills carry the detail.
 
 `bb pool account add|list|remove|enable|disable|priority|reorder`, `bb pool status`, `bb pool routing <claude|codex> [--off]`, `bb pool config`, `bb pool config set`, `bb pool parent [proxy|isolate]`, `bb pool token rotate`, and `bb pool bypass <thread-id>`. Every command takes `--json` and `--help`; `bb pool --help` lists the commands and `bb pool <command> --help` prints its arguments, options, and rules.

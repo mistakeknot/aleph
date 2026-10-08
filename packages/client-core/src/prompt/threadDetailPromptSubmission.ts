@@ -126,7 +126,6 @@ export function shouldQueueFollowUpMessage(
 ): boolean {
   return (
     displayStatus === "active" ||
-    displayStatus === "host-reconnecting" ||
     displayStatus === "provisioning" ||
     displayStatus === "starting" ||
     displayStatus === "stopping" ||
@@ -210,7 +209,11 @@ export function canSubmitFollowUpShortcut({
       runtimeDisplayStatus === "starting") &&
     submitModeKind === "queue";
   if (hasPromptDraftInput) {
-    return canSteerActiveWork;
+    return (
+      canSteerActiveWork ||
+      (runtimeDisplayStatus === "waiting-for-host" &&
+        submitModeKind === "queue")
+    );
   }
   return (
     queuedMessageCount > 0 &&

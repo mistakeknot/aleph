@@ -91,6 +91,16 @@ export const APP_COMMAND_GROUPS: readonly AppCommandGroup[] = [
         "Back to app",
         "Return from Settings, Plugins, or Skills to the app.",
       ),
+      command(
+        "history.back",
+        "Back",
+        "Go back to the previous view in navigation history. Ignored while typing, in the terminal, or in the browser panel.",
+      ),
+      command(
+        "history.forward",
+        "Forward",
+        "Go forward to the next view in navigation history. Ignored while typing, in the terminal, or in the browser panel.",
+      ),
       command("settings.open", "Open settings", "Open bb settings."),
       command(
         "settings.openServers",
@@ -300,6 +310,16 @@ export const APP_COMMAND_GROUPS: readonly AppCommandGroup[] = [
         "Reload the active embedded browser page.",
       ),
       command(
+        "browser.back",
+        "Browser back",
+        "Go back in the embedded browser page while the browser panel is focused.",
+      ),
+      command(
+        "browser.forward",
+        "Browser forward",
+        "Go forward in the embedded browser page while the browser panel is focused.",
+      ),
+      command(
         "browser.find",
         "Find in page",
         "Open the find bar for the active embedded browser page.",
@@ -317,19 +337,3 @@ export const APP_COMMAND_GROUPS: readonly AppCommandGroup[] = [
     ),
   },
 ];
-
-const APP_COMMAND_METADATA = new Map(
-  APP_COMMAND_GROUPS.flatMap((group) =>
-    group.commands.map((metadata) => [metadata.command, metadata]),
-  ),
-);
-
-export function getAppCommandMetadata(
-  commandId: AppCommandId,
-): AppCommandMetadata {
-  const metadata = APP_COMMAND_METADATA.get(commandId);
-  if (metadata === undefined) {
-    throw new Error(`Missing metadata for app command ${commandId}`);
-  }
-  return metadata;
-}

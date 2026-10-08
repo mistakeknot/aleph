@@ -44,47 +44,6 @@ export function useSurfaceMap(): SurfaceMapState {
   return state;
 }
 
-export const APP_SHELL_MARKS = [
-  "sidebar-navigation",
-  "nav-panel",
-  "thread-row-status",
-  "thread-list",
-  "sidebar-footer",
-  "thread-header",
-  "app-header-status",
-  "timeline-renderers",
-  "message-directives",
-  "message-actions",
-  "pending-interaction",
-  "code-renderers",
-  "browser-toolbar",
-  "thread-panel",
-  "file-opener",
-  "app-overlay",
-  "content-scripts",
-] as const;
-
-export const COMMAND_PALETTE_MARKS = ["command-palette-actions"] as const;
-
-export const COMPOSER_MARKS = [
-  "composer-banners",
-  "composer-state",
-  "mention-provider",
-  "composer-rich-text",
-  "composer-plus-menu",
-  "provider-picker",
-  "composer-actions",
-] as const;
-
-export const COMPOSE_MARKS = ["homepage-section", "new-thread-panel"] as const;
-
-export const EXTENSIONS_MARKS = ["plugin-status"] as const;
-
-export const SETTINGS_MARKS = [
-  "declarative-settings",
-  "settings-section",
-] as const;
-
 function useEngagement(id: string) {
   const { activeId, expandedId } = useSurfaceMap();
   return {
@@ -284,7 +243,6 @@ function MeasuredBadge({
   at,
   align = "center",
   flush = false,
-  onActivate,
   clipTo,
 }: {
   id: string;
@@ -293,7 +251,6 @@ function MeasuredBadge({
   at: "start" | "end" | "above" | "lane";
   align?: "start" | "center" | "end";
   flush?: boolean;
-  onActivate?: () => void;
   clipTo?: string;
 }) {
   const { numberOf, onSelect } = useSurfaceMap();
@@ -442,7 +399,7 @@ function MeasuredBadge({
       data-guide-badge-align={align}
       href={`#surface-${id}`}
       aria-label={`${label} — jump to details`}
-      onClick={(event) => selectAnnotation(event, id, onSelect, onActivate)}
+      onClick={(event) => selectAnnotation(event, id, onSelect, undefined)}
       {...hover}
       className={cn("pointer-events-auto absolute z-50", FOCUS_RING_CLASS)}
       style={position ?? { visibility: "hidden" }}
@@ -669,14 +626,11 @@ const SIDEBAR_SECTION_RENDERERS: Record<string, () => ReactNode> = {
 const MESSAGE_ACTION_RENDERERS: Record<string, () => ReactNode> = {
   copy: () => <MiniIcon icon="Copy" className="size-3.5" />,
   edit: () => <MiniIcon icon="Edit" className="size-3.5" />,
-  "add-to-chat": () => (
-    <MiniIcon icon="MessageSquarePlus" className="size-3.5" />
-  ),
   "send-to-main-thread": () => (
     <MiniIcon icon="ArrowTurnBackward" className="size-3.5" />
   ),
-  fork: () => <MiniIcon icon="Fork" className="size-3.5" />,
   "plugin-actions": () => <PluginGlyph className="size-3.5" />,
+  "message-menu": () => <MiniIcon icon="MoreHorizontal" className="size-3.5" />,
 };
 
 export const ANATOMY_RENDERER_KEYS = {
@@ -1258,7 +1212,7 @@ function AppShellWireframeBody({
               <div className="flex h-7 items-start">
                 <Mark
                   id="message-actions"
-                  label="Plugin message actions, after the host actions"
+                  label="Plugin message actions fit inline before overflowing into the menu"
                   className="inline-flex items-center px-2 py-1.5"
                 >
                   <span
@@ -1704,6 +1658,20 @@ function StaticEmbeddedComposer({ mobile = false }: { mobile?: boolean }) {
           mobile ? "min-h-48 gap-7" : "h-36",
         )}
       >
+        {actions.outlined ? (
+          <div
+            aria-hidden
+            data-guide-transient-for="composer-actions"
+            className="pointer-events-none absolute bottom-full left-2 right-2 z-20 mb-2 rounded-md border border-border bg-popover p-2 shadow-md"
+          >
+            <span className="block border-b border-border pb-1 text-xs text-subtle-foreground">
+              Search saved prompts
+            </span>
+            <span className="mt-1 block rounded bg-state-hover px-2 py-1 text-xs">
+              Review this change
+            </span>
+          </div>
+        ) : null}
         {plus.outlined ? (
           <div
             aria-hidden

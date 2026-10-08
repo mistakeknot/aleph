@@ -18,6 +18,7 @@ import {
 
 afterEach(() => {
   cleanup();
+  localStorage.clear();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   window.localStorage.clear();
@@ -248,7 +249,7 @@ describe("provider usage footer disclosure", () => {
     vi.stubGlobal("fetch", fetchMock);
     const app = await loadPluginApp(() => import("./app"));
     const mounted = await mountPluginContentScripts(app, {
-      pluginId: "provider-usage",
+      pluginId: "bb--provider-usage",
     });
     const item = app.experimentalSidebarFooterItems[0];
     expect(item).toMatchObject({
@@ -261,7 +262,7 @@ describe("provider usage footer disclosure", () => {
 
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
-        "/api/v1/plugins/provider-usage/rpc/getUsage",
+        "/api/v1/plugins/bb--provider-usage/rpc/getUsage",
         expect.objectContaining({
           method: "POST",
           body: JSON.stringify({
@@ -278,6 +279,7 @@ describe("provider usage footer disclosure", () => {
       item,
       { dismiss },
       {
+        pluginId: "bb--provider-usage",
         context: { threadId: "thread-active" },
         sidebarThreads: {
           threads: [threadOnMachine("host-m5", "M5")],
@@ -288,8 +290,32 @@ describe("provider usage footer disclosure", () => {
       slot.getByRole("button", { name: "Usage machine: Account Pooler" }),
     ).toBeTruthy();
     expect(
-      slot.getByRole("heading", { name: "personal@example.com" }),
-    ).toBeTruthy();
+      slot
+        .getByRole("tab", { name: "All accounts" })
+        .getAttribute("aria-selected"),
+    ).toBe("true");
+    expect(
+      slot.getAllByRole("region").map((row) => row.getAttribute("aria-label")),
+    ).toEqual([
+      "Codex team@example.com",
+      "Codex personal@example.com",
+      "Claude Code claude-team@example.com",
+    ]);
+    for (const providerId of ["codex", "claude-code"]) {
+      await waitFor(() =>
+        expect(fetchMock).toHaveBeenCalledWith(
+          "/api/v1/plugins/bb--provider-usage/rpc/getUsage",
+          expect.objectContaining({
+            body: JSON.stringify({
+              force: false,
+              machineIds: ["source:account-pool"],
+              maxAgeMs: 2 * 60_000,
+              providerId,
+            }),
+          }),
+        ),
+      );
+    }
     fireEvent.pointerDown(
       slot.getByRole("button", { name: "Usage machine: Account Pooler" }),
       { button: 0 },
@@ -298,31 +324,38 @@ describe("provider usage footer disclosure", () => {
     const machinePicker = slot.getByRole("button", {
       name: "Usage machine: M5",
     });
-    expect(slot.getByRole("heading", { name: "Codex" })).toBeTruthy();
-    expect(await slot.findByText("codex@example.com")).toBeTruthy();
+    expect(
+      await slot.findByRole("heading", { name: "codex@example.com" }),
+    ).toBeTruthy();
     expect(slot.getByText("3% left")).toBeTruthy();
+    expect(
+      localStorage.getItem("bb.bb--provider-usage.selected-machine.v1"),
+    ).toBe("host-m5");
 
     fireEvent.pointerDown(machinePicker, { button: 0 });
     fireEvent.click(slot.getByRole("menuitemradio", { name: "M4" }));
-    expect(slot.queryAllByRole("tab")).toHaveLength(0);
-    const claudeSection = slot.getByRole("region", { name: "Claude Code" });
-    const codexSection = slot.getByRole("region", { name: "Codex" });
+    const allTab = slot.getByRole("tab", { name: "All accounts" });
+    const claudeTab = slot.getByRole("tab", { name: "Claude Code" });
+    const codexTab = slot.getByRole("tab", { name: "Codex" });
     expect(
-      claudeSection.querySelector("[data-provider-logo*='claude-code']"),
+      slot
+        .getByRole("button", { name: "Usage machine: M4" })
+        .closest('[data-provider-usage-header=""]'),
+    ).toBe(claudeTab.closest('[data-provider-usage-header=""]'));
+    expect(
+      claudeTab.querySelector("[data-provider-logo*='claude-code']"),
     ).not.toBeNull();
     expect(
-      codexSection.querySelector("[data-provider-logo*='/codex/']"),
+      codexTab.querySelector("[data-provider-logo*='/codex/']"),
     ).not.toBeNull();
-    expect(slot.getByRole("heading", { name: "Claude Code" })).toBeTruthy();
     expect(await slot.findByText("claude@example.com")).toBeTruthy();
     expect(slot.getByText("18% left")).toBeTruthy();
-    expect(slot.getByRole("heading", { name: "Codex" })).toBeTruthy();
     expect(await slot.findByText("codex@example.com")).toBeTruthy();
     expect(slot.getByText("63% left")).toBeTruthy();
     for (const providerId of ["claude-code", "codex"]) {
       await waitFor(() =>
         expect(fetchMock).toHaveBeenCalledWith(
-          "/api/v1/plugins/provider-usage/rpc/getUsage",
+          "/api/v1/plugins/bb--provider-usage/rpc/getUsage",
           expect.objectContaining({
             body: JSON.stringify({
               force: false,
@@ -340,8 +373,9 @@ describe("provider usage footer disclosure", () => {
     await waitFor(() => expect(m4Reload.disabled).toBe(false));
     const callsBeforeM4Reload = fetchMock.mock.calls.length;
     fireEvent.click(m4Reload);
-    expect(m4Reload.disabled).toBe(true);
-    await waitFor(() => expect(m4Reload.disabled).toBe(false));
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.length).toBe(callsBeforeM4Reload + 2),
+    );
     expect(
       fetchMock.mock.calls
         .slice(callsBeforeM4Reload)
@@ -360,6 +394,22 @@ describe("provider usage footer disclosure", () => {
         providerId: "codex",
       },
     ]);
+    await waitFor(() => expect(m4Reload.disabled).toBe(false));
+
+    fireEvent.keyDown(allTab, { key: "ArrowRight" });
+    expect(claudeTab.getAttribute("aria-selected")).toBe("true");
+    expect(
+      slot.getByRole("heading", { name: "claude@example.com" }),
+    ).toBeTruthy();
+    expect(slot.getByText("18% left")).toBeTruthy();
+
+    fireEvent.click(codexTab);
+    expect(
+      slot.getByRole("heading", { name: "codex@example.com" }),
+    ).toBeTruthy();
+    expect(slot.getByText("63% left")).toBeTruthy();
+    fireEvent.keyDown(codexTab, { key: "ArrowLeft" });
+    expect(claudeTab.getAttribute("aria-selected")).toBe("true");
 
     fireEvent.pointerDown(
       slot.getByRole("button", { name: "Usage machine: M4" }),
@@ -422,16 +472,19 @@ describe("provider usage footer disclosure", () => {
     fireEvent.click(
       slot.getByRole("menuitemradio", { name: "Account Pooler" }),
     );
-    const poolCodex = slot.getByRole("region", { name: "Codex" });
+    expect(slot.getAllByRole("tab")).toHaveLength(3);
+    const poolCodexTab = slot.getByRole("tab", { name: "Codex" });
     expect(
-      poolCodex.querySelector("[data-provider-logo*='/codex/']"),
-    ).not.toBeNull();
+      slot.container.querySelector("[data-provider-usage-tone]"),
+    ).toBeNull();
+    fireEvent.click(poolCodexTab);
     expect(
-      poolCodex.querySelector('[data-provider-usage-tone="warning"]'),
+      poolCodexTab.querySelector("[data-provider-logo*='/codex/']"),
     ).not.toBeNull();
+    expect(poolCodexTab.querySelector("[data-provider-usage-tone]")).toBeNull();
     expect(
       slot
-        .getByRole("region", { name: "Claude Code" })
+        .getByRole("tab", { name: "Claude Code" })
         .querySelector('[data-provider-usage-tone="critical"]'),
     ).not.toBeNull();
     expect(slot.getAllByText("team@example.com")).toHaveLength(1);
@@ -439,15 +492,8 @@ describe("provider usage footer disclosure", () => {
     expect(slot.getByText("54% left")).toBeTruthy();
     expect(
       slot.getAllByRole("heading").map((heading) => heading.textContent),
-    ).toEqual([
-      "Codex",
-      "team@example.com",
-      "personal@example.com",
-      "Claude Code",
-      "claude-team@example.com",
-    ]);
+    ).toEqual(["team@example.com", "personal@example.com"]);
     expect(slot.getByText("18% left")).toBeTruthy();
-    expect(slot.getByText("3% left")).toBeTruthy();
     expect(
       slot.getByRole("group", {
         name: "Weekly limit: 46% used. Reset time not reported",
@@ -496,6 +542,10 @@ describe("provider usage footer disclosure", () => {
     await waitFor(() =>
       expect(unpacedWindow.getAttribute("data-state")).toBe("closed"),
     );
+    fireEvent.click(slot.getByRole("tab", { name: "Claude Code" }));
+    expect(slot.getByText("claude-team@example.com")).toBeTruthy();
+    expect(slot.getByText("3% left")).toBeTruthy();
+    expect(slot.queryByText("personal@example.com")).toBeNull();
     const diagnostics = vi
       .spyOn(console, "warn")
       .mockImplementation(() => undefined);
@@ -517,9 +567,7 @@ describe("provider usage footer disclosure", () => {
       );
       await waitFor(() =>
         expect(
-          slot.getByText(
-            "Couldn’t refresh usage. Showing the last available update.",
-          ),
+          slot.getByText("Couldn’t refresh. Showing last update."),
         ).toBeTruthy(),
       );
       expect(slot.getByText("claude-team@example.com")).toBeTruthy();
@@ -531,15 +579,213 @@ describe("provider usage footer disclosure", () => {
       );
       await waitFor(() =>
         expect(
-          slot.queryByText(
-            "Couldn’t refresh usage. Showing the last available update.",
-          ),
+          slot.queryByText("Couldn’t refresh. Showing last update."),
         ).toBeNull(),
       );
     }
     expect(diagnostics).toHaveBeenCalledTimes(3);
     await mounted.lifecycle.dispose();
   }, 15_000);
+});
+
+it("refreshes providers one at a time so a late snapshot cannot blank a newer one", async () => {
+  const account = (
+    providerId: string,
+    email: string,
+    usedPercent: number,
+  ): UsageProvider => ({
+    id: `${providerId}:${email}`,
+    providerId,
+    accountLabel: email,
+    displayName: providerId,
+    logoUrl: null,
+    icon: null,
+    strings: { iconTint: null },
+    signInHint: "Sign in.",
+    expiredHint: "Sign in again.",
+    usage: {
+      status: "ok",
+      accountEmail: email,
+      planLabel: null,
+      windows: [
+        { label: "Weekly limit", usedPercent, resetsAt: null, cost: null },
+      ],
+    },
+  });
+  const providers = [
+    account("codex", "codex@example.com", 42),
+    account("claude", "claude@example.com", 30),
+  ];
+  const measured = new Set<string>();
+  let inFlight = 0;
+  let maxInFlight = 0;
+  let providerRequests = 0;
+  const fetchMock = vi.fn(
+    async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const { machineIds, providerId } = JSON.parse(String(init?.body)) as {
+        machineIds: string[] | null;
+        providerId: string | null;
+      };
+      const ours = providerId !== null && machineIds?.[0] === "host-seq";
+      if (ours) measured.add(providerId);
+      const body = JSON.stringify({
+        ok: true,
+        result: {
+          machines: [
+            {
+              id: "host-seq",
+              displayName: "Sequence",
+              status: "connected",
+              error: null,
+              providers: providers.map((provider) =>
+                measured.has(provider.providerId)
+                  ? provider
+                  : { ...provider, usage: null },
+              ),
+            },
+          ],
+        },
+      });
+      if (!ours)
+        return new Response(body, {
+          headers: { "content-type": "application/json" },
+        });
+      providerRequests += 1;
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((resolve) =>
+        setTimeout(resolve, providerRequests === 1 ? 60 : 5),
+      );
+      inFlight -= 1;
+      return new Response(body, {
+        headers: { "content-type": "application/json" },
+      });
+    },
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  const app = await loadPluginApp(() => import("./app"));
+  const mounted = await mountPluginContentScripts(app, {
+    pluginId: "bb--provider-usage",
+  });
+  const item = app.experimentalSidebarFooterItems[0];
+  if (item?.kind !== "disclosure") throw new Error("missing disclosure");
+  const slot = renderSlot(
+    item,
+    { dismiss: vi.fn() },
+    {
+      pluginId: "bb--provider-usage",
+      context: { threadId: "thread-active" },
+      sidebarThreads: { threads: [threadOnMachine("host-seq", "Sequence")] },
+    },
+  );
+  await waitFor(() => expect(providerRequests).toBe(2));
+  await waitFor(() => expect(inFlight).toBe(0));
+  await waitFor(() => {
+    expect(slot.getByText("58% left")).toBeTruthy();
+    expect(slot.getByText("70% left")).toBeTruthy();
+  });
+  expect(maxInFlight).toBe(1);
+  await mounted.lifecycle.dispose();
+});
+
+it("queues the focus reconcile with the card refresh so a stale snapshot cannot land last", async () => {
+  let usedPercent = 21;
+  const snapshot = () =>
+    JSON.stringify({
+      ok: true,
+      result: {
+        machines: [
+          {
+            id: "host-reconcile",
+            displayName: "Reconcile",
+            status: "connected",
+            error: null,
+            providers: [
+              {
+                id: "codex:reconcile@example.com",
+                providerId: "codex",
+                accountLabel: "reconcile@example.com",
+                displayName: "codex",
+                logoUrl: null,
+                icon: null,
+                strings: { iconTint: null },
+                signInHint: "Sign in.",
+                expiredHint: "Sign in again.",
+                usage: {
+                  status: "ok",
+                  accountEmail: "reconcile@example.com",
+                  planLabel: null,
+                  windows: [
+                    {
+                      label: "Weekly limit",
+                      usedPercent,
+                      resetsAt: null,
+                      cost: null,
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        ],
+      },
+    });
+  let afterFocus = false;
+  let inFlight = 0;
+  let maxInFlight = 0;
+  const fetchMock = vi.fn(
+    async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const { providerId } = JSON.parse(String(init?.body)) as {
+        providerId: string | null;
+      };
+      if (afterFocus && providerId !== null) usedPercent = 35;
+      const body = snapshot();
+      if (afterFocus) {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((resolve) =>
+          setTimeout(resolve, providerId === null ? 60 : 5),
+        );
+        inFlight -= 1;
+      }
+      return new Response(body, {
+        headers: { "content-type": "application/json" },
+      });
+    },
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  const app = await loadPluginApp(() => import("./app"));
+  const mounted = await mountPluginContentScripts(app, {
+    pluginId: "bb--provider-usage",
+  });
+  const item = app.experimentalSidebarFooterItems[0];
+  if (item?.kind !== "disclosure") throw new Error("missing disclosure");
+  const slot = renderSlot(
+    item,
+    { dismiss: vi.fn() },
+    {
+      pluginId: "bb--provider-usage",
+      context: { threadId: "thread-active" },
+      sidebarThreads: {
+        threads: [threadOnMachine("host-reconcile", "Reconcile")],
+      },
+    },
+  );
+  await waitFor(() => expect(slot.getByText("79% left")).toBeTruthy());
+  const callsBeforeFocus = fetchMock.mock.calls.length;
+  window.dispatchEvent(new Event("blur"));
+  const now = Date.now();
+  vi.spyOn(Date, "now").mockReturnValue(now + 6 * 60_000);
+  afterFocus = true;
+  window.dispatchEvent(new Event("focus"));
+  await waitFor(() =>
+    expect(fetchMock.mock.calls.length).toBe(callsBeforeFocus + 2),
+  );
+  await waitFor(() => expect(inFlight).toBe(0));
+  await waitFor(() => expect(slot.getByText("65% left")).toBeTruthy());
+  expect(slot.queryByText("79% left")).toBeNull();
+  expect(maxInFlight).toBe(1);
+  await mounted.lifecycle.dispose();
 });
 
 it.each([
@@ -550,10 +796,7 @@ it.each([
     "Sign in to this account in the source plugin’s settings.",
   ],
   ["no-limits", "No usage limits reported for this plan."],
-  [
-    "source-error",
-    "Couldn’t refresh usage. Showing the last available update.",
-  ],
+  ["source-error", "Couldn’t refresh. Showing last update."],
 ] as const)("renders the %s shared-source state", async (state, expected) => {
   const usage: UsageProvider["usage"] =
     state === "expired" || state === "unauthenticated"
@@ -607,11 +850,15 @@ it.each([
   );
   const app = await loadPluginApp(() => import("./app"));
   const mounted = await mountPluginContentScripts(app, {
-    pluginId: "provider-usage",
+    pluginId: "bb--provider-usage",
   });
   const item = app.experimentalSidebarFooterItems[0];
   if (item?.kind !== "disclosure") throw new Error("missing disclosure");
-  const slot = renderSlot(item, { dismiss: vi.fn() });
+  const slot = renderSlot(
+    item,
+    { dismiss: vi.fn() },
+    { pluginId: "bb--provider-usage" },
+  );
   await waitFor(() =>
     expect(slot.getByText(expected, { exact: false })).toBeTruthy(),
   );
@@ -687,6 +934,7 @@ describe("provider usage panel layout", () => {
           error: null,
           isRefreshing: false,
         }}
+        pluginId="bb--provider-usage"
         threadMachineId={null}
         refreshEnabled={false}
       />,
@@ -695,7 +943,9 @@ describe("provider usage panel layout", () => {
 
   it("never scrolls sideways, so a narrow sidebar cannot clip the left edge", () => {
     const view = renderPanel();
-    const region = view.getByRole("region", { name: "Account Pooler usage" });
+    const region = view.getByRole("tabpanel", {
+      name: "Account Pooler Claude Code usage",
+    });
     expect(region.className).toContain("overflow-x-hidden");
   });
 
@@ -703,7 +953,7 @@ describe("provider usage panel layout", () => {
     const view = renderPanel();
     const rows = view.getAllByRole("group");
     expect(rows).toHaveLength(6);
-    const grid = rows[0]!.parentElement!;
+    const grid = rows[0]!.parentElement!.parentElement!;
     expect(grid.className).toContain("minmax(1.25rem,1fr)");
     expect(grid.className).not.toMatch(/grid-cols-\[max-content_/u);
     expect(within(rows[0]!).getAllByText("—")[0]!.className).toContain(
@@ -711,12 +961,12 @@ describe("provider usage panel layout", () => {
     );
   });
 
-  it("caps the panel at a height that fits four accounts", () => {
+  it("caps the panel at the footer disclosure's height cap", () => {
     const view = renderPanel();
     expect(
       view.container.querySelector("[data-provider-usage-header]")!
         .parentElement!.className,
-    ).toContain("max-h-96");
+    ).toContain("max-h-80");
   });
 
   describe("sort order", () => {
@@ -773,6 +1023,7 @@ describe("provider usage panel layout", () => {
             error: null,
             isRefreshing: false,
           }}
+          pluginId="bb--provider-usage"
           threadMachineId={null}
           refreshEnabled={false}
         />,
@@ -802,10 +1053,17 @@ describe("provider usage panel layout", () => {
         "none-high@x.com",
         "none-low@x.com",
       ]);
-      expect(view.queryAllByRole("heading", { level: 2 })).toHaveLength(0);
+      expect(view.getByRole("tab", { name: "All accounts" })).toBeTruthy();
     });
 
     it("persists the chosen grouping and restores it on the next mount", () => {
+      const grouped = [
+        "slow@x.com",
+        "none-low@x.com",
+        "faster@x.com",
+        "none-high@x.com",
+        "fast@x.com",
+      ];
       const first = renderAccounts(mixed());
       fireEvent.click(
         first.getByRole("button", { name: /sort accounts by soonest/iu }),
@@ -813,10 +1071,10 @@ describe("provider usage panel layout", () => {
       expect(window.localStorage.getItem("bb:provider-usage:sort-mode")).toBe(
         "provider",
       );
-      expect(first.getAllByRole("heading", { level: 2 })).toHaveLength(2);
+      expect(order(first)).toEqual(grouped);
       first.unmount();
       const second = renderAccounts(mixed());
-      expect(second.getAllByRole("heading", { level: 2 })).toHaveLength(2);
+      expect(order(second)).toEqual(grouped);
       fireEvent.click(
         second.getByRole("button", { name: /sort accounts by soonest/iu }),
       );

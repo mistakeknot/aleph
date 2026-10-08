@@ -271,7 +271,7 @@ run_lifecycle() {
         systemctl "$systemd_scope" start "$service_name"
       fi
     elif ! owned_pid; then
-      BB_APP_NPM_PREFIX="$data_dir/npm" BB_DATA_DIR="$data_dir" nohup "$data_dir/npm/bin/bb-app" host-daemon --auto-update --host-daemon-port "$host_daemon_port" --server-url "$server_url" >"$data_dir/install-daemon.log" 2>&1 &
+      BB_APP_NPM_PREFIX="$data_dir/npm" BB_DATA_DIR="$data_dir" nohup "$data_dir/npm/bin/bb-app" host-daemon --auto-update --supervise --host-daemon-port "$host_daemon_port" --server-url "$server_url" >"$data_dir/install-daemon.log" 2>&1 &
       daemon_pid=$!
       (umask 077 && printf '%s\n' "$daemon_pid" >"$pid_file")
     fi
@@ -417,6 +417,36 @@ fi
 if [ -n "$lifecycle_action" ]; then
   run_lifecycle
   exit 0
+fi
+
+systemd_host=no
+if [ "$platform" = linux ] &&
+   [ "$(ps -p 1 -o comm= 2>/dev/null | tr -d '[:space:]')" = systemd ] &&
+   ! systemd-detect-virt --container --quiet >/dev/null 2>&1; then
+  systemd_host=yes
+fi
+systemd_scope=--user
+if [ "$systemd_host" = yes ] && [ "$(id -u)" = 0 ]; then
+  systemd_scope=--system
+fi
+if [ "${BB_INSTALL_SKIP_SERVICE:-0}" != 1 ] && [ "$platform" = linux ] &&
+   [ "$systemd_scope" = --user ] && ! systemctl --user show-environment >/dev/null 2>&1; then
+  user_runtime_dir=$(loginctl show-user "$(id -u)" --property=RuntimePath --value 2>/dev/null || true)
+  case "$user_runtime_dir" in
+    /*)
+      XDG_RUNTIME_DIR=$user_runtime_dir
+      export XDG_RUNTIME_DIR
+      unset DBUS_SESSION_BUS_ADDRESS
+      ;;
+  esac
+  if ! systemctl --user show-environment >/dev/null 2>&1; then
+    if [ "$systemd_host" = yes ]; then
+      fail_step "The systemd user bus is unavailable; the bb host-daemon service was not installed."
+      detail "Run the installer from a systemd user session, then retry. To run without a persistent service, set BB_INSTALL_SKIP_SERVICE=1; the daemon will not start after a reboot." >&2
+      exit 1
+    fi
+    BB_INSTALL_SKIP_SERVICE=1
+  fi
 fi
 
 if [ "$adopt" = yes ]; then
@@ -919,17 +949,6 @@ if [ "$already_joined" = no ]; then
   complete_step "Joined successfully"
 fi
 
-systemd_scope=--user
-if [ "$platform" = linux ] && [ "$(id -u)" = 0 ] &&
-   [ "$(ps -p 1 -o comm= | tr -d '[:space:]')" = systemd ] &&
-   ! systemd-detect-virt --container --quiet >/dev/null 2>&1; then
-  systemd_scope=--system
-fi
-if [ "$platform" = linux ] &&
-   [ "$systemd_scope" = --user ] && ! systemctl --user show-environment >/dev/null 2>&1; then
-  BB_INSTALL_SKIP_SERVICE=1
-fi
-
 stop_recorded_daemon() {
   recorded_pid=
   recorded_command=
@@ -971,6 +990,7 @@ if [ "${BB_INSTALL_SKIP_SERVICE:-0}" = 1 ]; then
     detail "Host daemon output is logged to $daemon_log"
     BB_APP_NPM_PREFIX="$bb_app_npm_prefix" BB_DATA_DIR="$data_dir" nohup "$bb_app" host-daemon \
       --auto-update \
+      --supervise \
       --host-daemon-port "$host_daemon_port" \
       --server-url "$server_url" >"$daemon_log" 2>&1 &
     join_pid=$!
@@ -985,9 +1005,9 @@ if [ "${BB_INSTALL_SKIP_SERVICE:-0}" = 1 ]; then
     complete_step "Host daemon connected"
   fi
   if [ -n "$join_pid" ]; then
-    warning_step "Service installation skipped; daemon PID $join_pid is still running."
+    warning_step "Service installation skipped; temporary join daemon PID $join_pid is still running and will not restart if it exits or after a reboot."
   else
-    warning_step "Service installation skipped; the daemon is already running."
+    warning_step "Service installation skipped; the daemon is already running but will not start after a reboot."
   fi
   exit 0
 fi

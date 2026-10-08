@@ -51,7 +51,7 @@ import {
   createQueuedThreadMessageId,
 } from "../ids.js";
 import { createOrderKeyAfter, createOrderKeyBetween } from "./order-keys.js";
-import { queryInSqliteVariableBatches } from "./events.js";
+import { queryInSqliteVariableBatches } from "./sqlite-variable-batches.js";
 
 export interface CreateQueuedThreadMessageInput {
   threadId: string;
@@ -723,20 +723,6 @@ export function getQueuedThreadMessage(db: DbQueryConnection, id: string) {
   );
 }
 
-export function hasQueuedThreadMessages(
-  db: DbQueryConnection,
-  threadId: string,
-): boolean {
-  return (
-    db
-      .select({ id: queuedThreadMessages.id })
-      .from(queuedThreadMessages)
-      .where(eq(queuedThreadMessages.threadId, threadId))
-      .limit(1)
-      .get() !== undefined
-  );
-}
-
 export function hasClaimedQueuedThreadMessages(
   db: DbQueryConnection,
   threadId: string,
@@ -925,53 +911,6 @@ export function listIdleThreadsWithQueuedMessages(
     .all();
 }
 
-export function claimQueuedThreadMessage(
-  db: DbConnection,
-  notifier: DbNotifier,
-  id: string,
-): ClaimedQueuedThreadMessageRow | null {
-  const claimedQueuedMessage = db.transaction(
-    (tx) => {
-      const existing = tx
-        .select()
-        .from(queuedThreadMessages)
-        .where(eq(queuedThreadMessages.id, id))
-        .get();
-      if (
-        !existing ||
-        existing.claimedAt !== null ||
-        existing.claimToken !== null
-      ) {
-        return null;
-      }
-
-      const now = Date.now();
-      clearPreviousQueuedMessageGroupEdgeInTransaction(tx, existing, now);
-      const claimToken = createQueuedThreadMessageClaimToken();
-      const updated = tx
-        .update(queuedThreadMessages)
-        .set({ claimedAt: now, claimToken, updatedAt: now })
-        .where(
-          and(
-            eq(queuedThreadMessages.id, id),
-            isNull(queuedThreadMessages.claimedAt),
-            isNull(queuedThreadMessages.claimToken),
-          ),
-        )
-        .returning()
-        .get();
-
-      return requireClaimedQueuedThreadMessage(updated ?? null);
-    },
-    { behavior: "immediate" },
-  );
-
-  if (claimedQueuedMessage) {
-    notifier.notifyThread(claimedQueuedMessage.threadId, ["queue-changed"]);
-  }
-  return claimedQueuedMessage;
-}
-
 function claimQueuedThreadMessageIdsInTransaction(
   tx: DbTransaction,
   ids: readonly string[],
@@ -1097,7 +1036,7 @@ export function claimNextQueuedThreadMessageGroup(
   db: DbConnection,
   notifier: DbNotifier,
   threadId: string,
-  isGroupEligible?: QueuedThreadMessageGroupEligibility,
+  isGroupEligible: QueuedThreadMessageGroupEligibility,
 ): ClaimedQueuedThreadMessageRow[] | null {
   const claimedQueuedMessages = db.transaction(
     (tx) => {
@@ -1110,9 +1049,8 @@ export function claimNextQueuedThreadMessageGroup(
       const pauseOrdinaryMessages = isThreadQueueAutoSendPaused(tx, threadId);
       const group =
         partitionQueuedMessageGroups(queuedMessages).find((rows) => {
-          const eligible = isGroupEligible
-            ? rows.some(isIdleDrainableQueuedMessage) && isGroupEligible(rows)
-            : rows.every(isIdleDrainableQueuedMessage);
+          const eligible =
+            rows.some(isIdleDrainableQueuedMessage) && isGroupEligible(rows);
           return (
             eligible &&
             isAutomaticQueuedThreadMessageGroupClaimAllowed(

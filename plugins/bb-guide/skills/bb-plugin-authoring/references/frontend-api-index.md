@@ -38,7 +38,8 @@ Read the installed SDK declarations for the exact current signatures.
 - `experimental_useAppPanel`
 - `experimental_useFixedTabTarget`
 - `useComposer`
-- `useComposerView`
+- `useComposers`
+- `useComposerView` — deprecated, runtime-only for older plugins; use `useComposer`
 - `experimental_useSidebarThreads`
 - `experimental_useSidebarThreadActions`
 - `experimental_useSidebarThreadPullRequest`
@@ -201,6 +202,7 @@ Read the installed SDK declarations for the exact current signatures.
 - `PluginCommandContext`
 - `PluginCommandShortcut`
 - `PluginCommandRegistration`
+- `ExperimentalComposerCommandRegistration`
 - `PluginProviderIconRegistration`
 - `PluginTimelineRowPresentation`
 - `PluginTimelineRowStatus`
@@ -221,12 +223,19 @@ Read the installed SDK declarations for the exact current signatures.
 - `PluginRealtimeConnectionState`
 - `PluginComposerScope`
 - `ComposerCustomization`
+- `ExperimentalComposerPopupRegistration`
 - `ComposerPlusMenuItem`
-- `ComposerView`
-- `ExperimentalComposerSubmitOptions`
-- `ExperimentalComposerSelection`
+- `ComposerSendMenuItem`
+- `ComposerSubmitOptions`
+- `ComposerSelection`
 - `ComposerRichTextSpec`
-- `ComposerStructuredDraft`
+- `ComposerDraft`
+- `ComposerDraftSnapshot`
+- `ComposerDraftReplacement`
+- `ComposerAttachment`
+- `ComposerMention`
+- `ComposerInsertPart`
+- `ComposerInsertOptions`
 - `PluginComposerTextEffect`
 - `PluginComposerThreadRowStatus`
 - `PluginComposerMention`

@@ -10,7 +10,7 @@ import {
   type NotifyOnChangeProps,
   type QueryClient,
 } from "@tanstack/react-query";
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { COMPACT_VIEWPORT_QUERY } from "@bb/shared-ui/hooks/use-compact-viewport";
 import { getMediaQuerySnapshot } from "@bb/shared-ui/hooks/use-media-query";
 import type { PendingInteraction, ThreadListEntry } from "@bb/domain";
@@ -92,6 +92,10 @@ import {
 } from "./query-keys";
 import { ARCHIVED_THREADS_PAGE_SIZE } from "./archived-threads-page-size";
 import { ingestThreadDetailBootstrap } from "../cache-owners/thread-detail-cache-owner";
+import {
+  THREAD_OPEN_CACHE_GC_MS,
+  touchThreadOpenCache,
+} from "../cache-owners/thread-open-cache-owner";
 
 interface QueryOptions {
   enabled?: boolean;
@@ -504,7 +508,6 @@ export function useProjectThreadSubset({
   const enabled = (enabledOption ?? true) && Boolean(projectId);
   useThreadListRealtimeSubscription({ enabled });
   const { hasParent, parentThreadId } = filters;
-  const canDeriveFromActiveProjectThreads = true;
   const activeProjectThreadListQueryKey =
     enabled && projectId
       ? threadListQueryKey({ archived: false, projectId })
@@ -512,7 +515,6 @@ export function useProjectThreadSubset({
           projectId ? { archived: false, projectId } : { archived: false },
         );
   const activeProjectThreadListIsCached =
-    canDeriveFromActiveProjectThreads &&
     enabled &&
     projectId !== undefined &&
     queryClient.getQueryData<ThreadListResponse>(
@@ -738,6 +740,7 @@ export function useThreadDetailBootstrap(
     },
     enabled,
     staleTime: Infinity,
+    gcTime: THREAD_OPEN_CACHE_GC_MS,
     retry: shouldRetryTransientReadQuery,
     retryDelay: TRANSIENT_READ_RETRY_DELAY_MS,
   });
@@ -993,6 +996,11 @@ export function useThreadTimeline(
   const queryClient = useQueryClient();
   const enabled = (options?.enabled ?? true) && Boolean(id);
   useThreadDetailRealtimeSubscription(id, { enabled });
+  useEffect(() => {
+    if (enabled) {
+      touchThreadOpenCache(queryClient, id);
+    }
+  }, [enabled, id, queryClient]);
 
   return useQuery<ThreadTimelineResponse>({
     queryKey: threadTimelineQueryKey(id),
@@ -1005,6 +1013,7 @@ export function useThreadTimeline(
       });
     },
     enabled,
+    gcTime: THREAD_OPEN_CACHE_GC_MS,
     ...(options?.notifyOnChangeProps === undefined
       ? {}
       : { notifyOnChangeProps: options.notifyOnChangeProps }),

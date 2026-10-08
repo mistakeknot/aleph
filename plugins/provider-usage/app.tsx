@@ -1,20 +1,24 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
   useSyncExternalStore,
+  type KeyboardEvent,
 } from "react";
 import {
   definePluginApp,
   experimental_ProviderIcon as ProviderIcon,
   experimental_useSidebarThreads,
+  experimental_usePluginId,
   type ExperimentalSidebarFooterDisclosureProps,
   useBbContext,
 } from "@get-bb/plugin-sdk/app";
 import { Icon } from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -28,9 +32,9 @@ import {
   formatUsageDuration,
   formatUsageReset,
   formatUsdCents,
+  sortAccountsByExhaustion,
   usageBarColorClass,
   usageBurnRate,
-  sortAccountsByExhaustion,
   usageProjectedPercent,
 } from "./usage-format.js";
 import {
@@ -57,7 +61,6 @@ import {
   emptyUsageMessage,
   hasReportedUsage,
   offlineUsageMessage,
-  UsageFeedback,
   usageFeedbackMessages,
 } from "./usage-feedback.js";
 
@@ -69,6 +72,7 @@ export interface UsageStoreSnapshot {
   isRefreshing: boolean;
 }
 
+const ALL_PROVIDERS_TAB_ID = "all";
 const CARD_MAX_AGE_MS = 2 * 60_000;
 const FOCUS_MAX_AGE_MS = 5 * 60_000;
 const SAFETY_REFRESH_INTERVAL_MS = 30 * 60_000;
@@ -79,7 +83,9 @@ let storeSnapshot: UsageStoreSnapshot = {
   isRefreshing: false,
 };
 let activeRefreshCount = 0;
+let refreshQueue: Promise<void> = Promise.resolve();
 let lastMachineId: string | null = null;
+let lastProviderIdByMachine = new Map<string, string>();
 
 const SORT_MODE_STORAGE_KEY = "bb:provider-usage:sort-mode";
 type SortMode = "exhaustion" | "provider";
@@ -100,6 +106,17 @@ function writeSortMode(mode: SortMode): void {
   } catch {
     return;
   }
+}
+
+function readSelectedMachine(storageKey: string | null): string | null {
+  if (lastMachineId !== null) return lastMachineId;
+  if (storageKey !== null) {
+    try {
+      const stored = window.localStorage.getItem(storageKey);
+      if (stored !== null && stored.length > 0) return stored;
+    } catch {}
+  }
+  return lastMachineId;
 }
 
 function updateStore(next: UsageStoreSnapshot): void {
@@ -126,12 +143,14 @@ function rpcErrorMessage(body: unknown): string | null {
 }
 
 function refreshUsage({
+  pluginId,
   force,
   machineIds,
   maxAgeMs,
   providerId = null,
   signal,
 }: {
+  pluginId: string;
   force: boolean;
   machineIds: string[] | null;
   maxAgeMs: number;
@@ -140,10 +159,11 @@ function refreshUsage({
 }): Promise<void> {
   activeRefreshCount += 1;
   updateStore({ ...storeSnapshot, error: null, isRefreshing: true });
-  return (async () => {
+  const run = refreshQueue.then(async () => {
     try {
+      if (signal?.aborted === true) return;
       const response = await fetch(
-        "/api/v1/plugins/provider-usage/rpc/getUsage",
+        `/api/v1/plugins/${encodeURIComponent(pluginId)}/rpc/getUsage`,
         {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -183,36 +203,17 @@ function refreshUsage({
         updateStore({ ...storeSnapshot, isRefreshing: false });
       }
     }
-  })();
+  });
+  refreshQueue = run;
+  return run;
 }
 
-async function refreshMachineUsage({
-  force,
-  machineId,
-  maxAgeMs,
-  providerIds,
-}: {
-  force: boolean;
-  machineId: string;
-  maxAgeMs: number;
-  providerIds: readonly string[];
-}): Promise<void> {
-  activeRefreshCount += 1;
-  updateStore({ ...storeSnapshot, isRefreshing: true });
-  try {
-    for (const providerId of providerIds) {
-      await refreshUsage({
-        force,
-        machineIds: [machineId],
-        maxAgeMs,
-        providerId,
-      });
-    }
-  } finally {
-    activeRefreshCount -= 1;
-    if (activeRefreshCount === 0 && storeSnapshot.isRefreshing) {
-      updateStore({ ...storeSnapshot, isRefreshing: false });
-    }
+async function refreshProvidersInSequence(
+  providerIds: readonly (string | null)[],
+  request: Omit<Parameters<typeof refreshUsage>[0], "providerId">,
+): Promise<void> {
+  for (const providerId of providerIds) {
+    await refreshUsage({ ...request, providerId });
   }
 }
 
@@ -223,6 +224,89 @@ function formatResetCountdown(resetsAt: string | null): string | null {
   if (remaining <= 0) return "now";
   return formatUsageDuration(remaining);
 }
+
+function shortWindowLabel(label: string): string {
+  return label
+    .replace(/^Five-hour limit$|^5 hours$/u, "5h")
+    .replace(/^Weekly limit$|^Weekly/u, "7d")
+    .replace(/^Daily limit$/u, "1d");
+}
+
+function usageToneTextClass(usedPercent: number): string {
+  if (usedPercent >= 95) return "text-destructive";
+  if (usedPercent >= 80) return "text-warning";
+  return "text-sidebar-foreground";
+}
+
+type MessageNotice = {
+  kind: "stale" | "empty";
+  icon: "CloudOff" | "AlertTriangle" | "AlertCircle" | "Info";
+  message: string;
+  retry: boolean;
+};
+
+type CardNotice = { kind: "loading" } | MessageNotice;
+
+function UsageSkeleton({ rows }: { rows: number }) {
+  return (
+    <div role="status" aria-label={usageFeedbackMessages.loading}>
+      {Array.from({ length: rows }, (_, index) => (
+        <div key={index} className="flex h-6 items-center gap-2">
+          <Skeleton className="size-3.5 rounded-full" />
+          <Skeleton
+            className={cn("h-2", index % 2 === 0 ? "w-2/5" : "w-1/3")}
+          />
+          <span className="flex-1" />
+          <Skeleton className="h-2 w-9" />
+          <Skeleton className="h-2 w-9" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function UsageNotice({
+  notice,
+  onRetry,
+  className,
+}: {
+  notice: MessageNotice;
+  onRetry: () => void;
+  className?: string;
+}) {
+  return (
+    <div
+      role="status"
+      className={cn(
+        "flex min-w-0 items-start gap-1.5 text-2xs text-subtle-foreground",
+        className,
+      )}
+    >
+      <Icon
+        name={notice.icon}
+        aria-hidden="true"
+        className={cn(
+          "mt-px size-3 shrink-0",
+          notice.icon === "AlertTriangle" && "text-warning",
+        )}
+      />
+      <span className="min-w-0 flex-1">{notice.message}</span>
+      {notice.retry ? (
+        <button
+          type="button"
+          className="shrink-0 rounded-sm text-sidebar-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+          onClick={onRetry}
+        >
+          Retry
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+const USAGE_GRID_CLASS_NAME =
+  "grid grid-cols-[minmax(0,max-content)_minmax(1.25rem,1fr)_max-content_max-content] gap-x-1.5 @[16rem]:grid-cols-[minmax(0,max-content)_minmax(1.25rem,1fr)_max-content_max-content_max-content]";
+
 function UsageWindow({
   window,
   now,
@@ -250,10 +334,6 @@ function UsageWindow({
         formatUsdCents(window.cost.limitUsdCents, false);
   const [open, setOpen] = useState(false);
   const openAtPointerDown = useRef<boolean | null>(null);
-  const label = window.label
-    .replace(/^Five-hour limit$|^5 hours$/u, "5h")
-    .replace(/^Weekly limit$|^Weekly/u, "7d")
-    .replace(/^Daily limit$/u, "1d");
   return (
     <Tooltip open={open} onOpenChange={setOpen}>
       <TooltipTrigger
@@ -279,7 +359,7 @@ function UsageWindow({
           }
         >
           <span className="max-w-20 truncate text-subtle-foreground">
-            {label}
+            {shortWindowLabel(window.label)}
           </span>
           <span className="relative h-1 min-w-0 overflow-hidden rounded-full bg-sidebar-border">
             {projected === null || projected <= usedWidth ? null : (
@@ -302,7 +382,10 @@ function UsageWindow({
           </span>
           <span
             aria-hidden="true"
-            className="text-right tabular-nums text-sidebar-foreground"
+            className={cn(
+              "text-right tabular-nums",
+              usageToneTextClass(window.usedPercent),
+            )}
           >
             {remainingPercent}% left
           </span>
@@ -340,47 +423,119 @@ function UsageWindow({
   );
 }
 
-function ProviderUsageBody({
-  provider,
+function accountStatusMessage(account: UsageProvider): string | null {
+  const usage = account.usage;
+  switch (usage?.status) {
+    case undefined:
+      return "Usage not reported.";
+    case "ok":
+      return usage.windows.length === 0
+        ? "No usage limits reported for this plan."
+        : null;
+    case "not_installed":
+      return "Not installed on this machine.";
+    case "unauthenticated":
+      return account.signInHint;
+    case "expired":
+      return account.expiredHint;
+    case "error":
+      return usage.message;
+  }
+}
+
+function AccountUsage({
+  account,
+  loading,
+  unavailable,
+  showProvider,
   now,
 }: {
-  provider: UsageProvider;
+  account: UsageProvider;
+  loading: boolean;
+  unavailable: boolean;
+  showProvider: boolean;
   now: number;
 }) {
-  const usage = provider.usage;
-  if (usage === null) {
-    return <p className="text-xs text-muted-foreground">Usage not reported.</p>;
-  }
-  switch (usage.status) {
-    case "ok":
-      return usage.windows.length === 0 ? (
-        <p className="text-xs text-muted-foreground">
-          No usage limits reported for this plan.
+  const usage = account.usage;
+  const email = usage?.status === "ok" ? usage.accountEmail : null;
+  const title = account.accountLabel ?? email ?? account.displayName;
+  const plan = usage?.status === "ok" ? usage.planLabel : null;
+  const message =
+    usage === null && loading
+      ? usageFeedbackMessages.loading
+      : usage === null && unavailable
+        ? usageFeedbackMessages.unavailable
+        : accountStatusMessage(account);
+  return (
+    <section
+      aria-label={showProvider ? `${account.displayName} ${title}` : title}
+      className="col-span-full grid grid-cols-subgrid"
+    >
+      <div className="col-span-full flex h-5 min-w-0 items-center gap-1.5">
+        {showProvider ? (
+          <ProviderIcon
+            providerKind="agent"
+            provider={account}
+            fallback="Bot"
+            className="size-3.5 shrink-0"
+          />
+        ) : null}
+        <h3
+          title={title}
+          className="min-w-0 flex-1 truncate text-xs text-sidebar-foreground"
+        >
+          {title}
+        </h3>
+        {plan === null ? null : (
+          <span className="shrink-0 rounded-sm bg-sidebar-border/60 px-1 py-0.5 text-2xs leading-none text-subtle-foreground">
+            {plan}
+          </span>
+        )}
+      </div>
+      {email !== null && email !== title ? (
+        <p
+          title={email}
+          className="col-span-full truncate text-2xs text-subtle-foreground"
+        >
+          {email}
         </p>
-      ) : (
-        <div className="grid grid-cols-[minmax(0,max-content)_minmax(1.25rem,1fr)_max-content_max-content] gap-x-1.5 @[16rem]:grid-cols-[minmax(0,max-content)_minmax(1.25rem,1fr)_max-content_max-content_max-content]">
-          {usage.windows.map((window) => (
-            <UsageWindow key={window.label} window={window} now={now} />
-          ))}
-        </div>
-      );
-    case "not_installed":
-      return (
-        <p className="text-xs text-muted-foreground">
-          Not installed on this machine.
+      ) : null}
+      {message !== null ? (
+        <p className="col-span-full text-2xs text-subtle-foreground">
+          {message}
         </p>
-      );
-    case "unauthenticated":
-      return (
-        <p className="text-xs text-muted-foreground">{provider.signInHint}</p>
-      );
-    case "expired":
-      return (
-        <p className="text-xs text-muted-foreground">{provider.expiredHint}</p>
-      );
-    case "error":
-      return <p className="text-xs text-muted-foreground">{usage.message}</p>;
-  }
+      ) : usage?.status === "ok" ? (
+        usage.windows.map((window) => (
+          <UsageWindow key={window.label} window={window} now={now} />
+        ))
+      ) : null}
+    </section>
+  );
+}
+
+function ProviderAccounts({
+  accounts,
+  loading,
+  unavailable,
+  showProvider,
+  now,
+}: {
+  accounts: UsageProvider[];
+  loading: boolean;
+  unavailable: boolean;
+  showProvider: boolean;
+  now: number;
+}) {
+  return accounts.map((account) => (
+    <AccountUsage
+      key={account.id}
+      account={account}
+      loading={loading}
+      unavailable={unavailable}
+      showProvider={showProvider}
+      now={now}
+    />
+  ));
 }
 
 function MachineSelector({
@@ -409,7 +564,7 @@ function MachineSelector({
             OPTION_BASE_CLASS_NAME,
             OPTION_INTERACTIVE_CLASS_NAME,
             LIST_HOVER_TRANSITION,
-            "h-7 shrink overflow-hidden px-1 text-sidebar-foreground hover:bg-sidebar-accent",
+            "h-6 shrink overflow-hidden px-1.5 text-2xs text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground",
           )}
         >
           <span className="block min-w-0 flex-1 truncate">
@@ -456,112 +611,36 @@ function MachineSelector({
   );
 }
 
-function AccountUsage({
-  account,
-  machineError,
-  now,
-  showProvider = false,
-  snapshot,
-}: {
-  account: UsageProvider;
-  machineError: string | null;
-  now: number;
-  showProvider?: boolean;
-  snapshot: UsageStoreSnapshot;
-}) {
-  const email =
-    account.usage?.status === "ok" &&
-    account.usage.accountEmail !== null &&
-    account.usage.accountEmail !== account.accountLabel
-      ? account.usage.accountEmail
-      : null;
-  const planLabel =
-    account.usage?.status === "ok" ? account.usage.planLabel : null;
-  const AccountContainer = account.accountLabel === null ? "div" : "section";
-  return (
-    <AccountContainer
-      aria-label={account.accountLabel ?? undefined}
-      className="py-1 first:pt-0 last:pb-0"
-    >
-      {account.accountLabel === null &&
-      email === null &&
-      planLabel === null &&
-      !showProvider ? null : (
-        <div className="flex min-w-0 items-start gap-2">
-          {showProvider ? (
-            <span
-              title={account.displayName}
-              className="mt-px flex size-4 shrink-0 items-center justify-center"
-            >
-              <ProviderIcon
-                providerKind="agent"
-                provider={account}
-                fallback="Bot"
-                className="size-3.5"
-              />
-            </span>
-          ) : null}
-          <div className="min-w-0 flex-1">
-            {account.accountLabel === null ? null : (
-              <h3
-                title={account.accountLabel}
-                className="truncate text-xs font-medium text-sidebar-foreground"
-              >
-                {account.accountLabel}
-              </h3>
-            )}
-            {email === null ? null : (
-              <p
-                title={email}
-                className="truncate text-2xs text-subtle-foreground"
-              >
-                {email}
-              </p>
-            )}
-          </div>
-          {planLabel === null ? null : (
-            <span className="ml-auto shrink-0 rounded-sm bg-sidebar-border/60 px-1 py-0.5 text-2xs leading-none text-subtle-foreground">
-              {planLabel}
-            </span>
-          )}
-        </div>
-      )}
-      <div className="mt-0.5">
-        {account.usage === null && snapshot.isRefreshing ? (
-          <p className="text-xs text-muted-foreground">
-            {usageFeedbackMessages.loading}
-          </p>
-        ) : account.usage === null &&
-          (machineError !== null || snapshot.error !== null) ? (
-          <p className="text-xs text-muted-foreground">
-            {usageFeedbackMessages.unavailable}
-          </p>
-        ) : (
-          <ProviderUsageBody provider={account} now={now} />
-        )}
-      </div>
-    </AccountContainer>
-  );
-}
-
 export function ProviderUsageStatusContent({
+  pluginId,
   dismiss,
   snapshot,
   threadMachineId,
   refreshEnabled = true,
+  machineSelectionStorageKey = null,
 }: ExperimentalSidebarFooterDisclosureProps & {
+  pluginId: string;
   snapshot: UsageStoreSnapshot;
   threadMachineId: string | null;
   refreshEnabled?: boolean;
+  machineSelectionStorageKey?: string | null;
 }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 60_000);
     return () => window.clearInterval(timer);
   }, []);
+  const [sortMode, setSortMode] = useState<SortMode>(readSortMode);
+  const chooseSortMode = useCallback((mode: SortMode) => {
+    writeSortMode(mode);
+    setSortMode(mode);
+  }, []);
   const machines = snapshot.data?.machines ?? [];
   const [requestedMachineId, setRequestedMachineId] = useState<string | null>(
-    lastMachineId,
+    () => readSelectedMachine(machineSelectionStorageKey),
+  );
+  const [requestedProviderIds, setRequestedProviderIds] = useState(
+    lastProviderIdByMachine,
   );
   const activeMachine = selectUsageMachine(
     machines,
@@ -586,62 +665,109 @@ export function ProviderUsageStatusContent({
     }
     return [...groups.values()];
   }, [activeMachine]);
-  const [sortMode, setSortMode] = useState<SortMode>(readSortMode);
-  const chooseSortMode = useCallback((mode: SortMode) => {
-    writeSortMode(mode);
-    setSortMode(mode);
-  }, []);
-  const sortedAccounts = useMemo(
+  const requestedProviderId =
+    activeMachine === null
+      ? null
+      : (requestedProviderIds.get(activeMachine.id) ?? null);
+  const showAllTab = providers.length > 1;
+  const tabIds = useMemo(
+    () => [
+      ...(showAllTab ? [ALL_PROVIDERS_TAB_ID] : []),
+      ...providers.map((provider) => provider.id),
+    ],
+    [providers, showAllTab],
+  );
+  const activeTabId = tabIds.includes(requestedProviderId ?? "")
+    ? requestedProviderId
+    : (tabIds[0] ?? null);
+  const isAllTab = activeTabId === ALL_PROVIDERS_TAB_ID;
+  const activeProvider = isAllTab
+    ? null
+    : (providers.find((provider) => provider.id === activeTabId) ?? null);
+  const activeAccounts = useMemo(
     () =>
-      sortAccountsByExhaustion(
-        providers.flatMap((provider) => provider.accounts),
-        now,
-      ),
-    [providers, now],
+      isAllTab
+        ? providers.flatMap((provider) => provider.accounts)
+        : (activeProvider?.accounts ?? []),
+    [activeProvider, isAllTab, providers],
   );
-  const hasUsage = hasReportedUsage(
-    providers.flatMap((provider) => provider.accounts),
+  const hasActiveUsage = hasReportedUsage(activeAccounts);
+  const sortedActiveAccounts = useMemo(
+    () =>
+      sortMode === "exhaustion"
+        ? sortAccountsByExhaustion(activeAccounts, now)
+        : activeAccounts,
+    [activeAccounts, now, sortMode],
   );
-  const feedback =
+  const unavailable = activeMachine?.error != null || snapshot.error !== null;
+  const notice: CardNotice | null =
     activeMachine === null
       ? snapshot.error !== null
-        ? usageFeedbackMessages.loadFailed
+        ? {
+            kind: "empty",
+            icon: "AlertCircle",
+            message: usageFeedbackMessages.loadFailed,
+            retry: true,
+          }
         : snapshot.isRefreshing
-          ? usageFeedbackMessages.loading
-          : usageFeedbackMessages.noSources
+          ? { kind: "loading" }
+          : {
+              kind: "empty",
+              icon: "Info",
+              message: usageFeedbackMessages.noSources,
+              retry: false,
+            }
       : activeMachine.status === "disconnected"
-        ? offlineUsageMessage(activeMachine, hasUsage)
+        ? {
+            kind: hasActiveUsage ? "stale" : "empty",
+            icon: "CloudOff",
+            message: offlineUsageMessage(activeMachine, hasActiveUsage),
+            retry: false,
+          }
         : snapshot.error !== null || activeMachine.error !== null
-          ? hasUsage
-            ? usageFeedbackMessages.refreshFailed
-            : usageFeedbackMessages.loadFailed
-          : providers.length === 0
-            ? emptyUsageMessage(activeMachine)
+          ? hasActiveUsage
+            ? {
+                kind: "stale",
+                icon: "AlertTriangle",
+                message: usageFeedbackMessages.refreshFailed,
+                retry: true,
+              }
+            : {
+                kind: "empty",
+                icon: "AlertCircle",
+                message: usageFeedbackMessages.loadFailed,
+                retry: true,
+              }
+          : activeAccounts.length === 0
+            ? {
+                kind: "empty",
+                icon: "Info",
+                message: emptyUsageMessage(activeMachine),
+                retry: false,
+              }
             : null;
+  const panelId = useId();
   const activeMachineId = activeMachine?.id ?? null;
-  const activeMachineConnected = activeMachine?.status === "connected";
-  const providerIdsKey = providers
-    .map((provider) => provider.providerId)
-    .join("\n");
+  const activeProviderId = activeProvider?.id ?? null;
+  const refreshProviderIds = isAllTab
+    ? providers.map((provider) => provider.id)
+    : activeProviderId === null
+      ? []
+      : [activeProviderId];
+  const refreshProviderKey = refreshProviderIds.join("\n");
 
   useEffect(() => {
     if (!refreshEnabled) return;
-    if (
-      activeMachineId === null ||
-      !activeMachineConnected ||
-      providerIdsKey === ""
-    )
-      return;
-    const providerIds = providerIdsKey.split("\n");
+    if (activeMachineId === null || refreshProviderKey === "") return;
     let running = false;
     const refresh = () => {
       if (running || document.visibilityState === "hidden") return;
       running = true;
-      void refreshMachineUsage({
+      void refreshProvidersInSequence(refreshProviderKey.split("\n"), {
+        pluginId,
         force: false,
-        machineId: activeMachineId,
+        machineIds: [activeMachineId],
         maxAgeMs: CARD_MAX_AGE_MS,
-        providerIds,
       }).finally(() => {
         running = false;
       });
@@ -653,26 +779,180 @@ export function ProviderUsageStatusContent({
       window.clearInterval(timer);
       window.removeEventListener("focus", refresh);
     };
-  }, [activeMachineConnected, activeMachineId, providerIdsKey, refreshEnabled]);
+  }, [activeMachineId, pluginId, refreshProviderKey, refreshEnabled]);
 
-  const selectMachine = useCallback((machineId: string) => {
-    lastMachineId = machineId;
-    setRequestedMachineId(machineId);
-  }, []);
+  const selectMachine = useCallback(
+    (machineId: string) => {
+      lastMachineId = machineId;
+      setRequestedMachineId(machineId);
+      if (machineSelectionStorageKey !== null) {
+        try {
+          window.localStorage.setItem(machineSelectionStorageKey, machineId);
+        } catch {}
+      }
+    },
+    [machineSelectionStorageKey],
+  );
+
+  const selectProvider = useCallback(
+    (providerId: string) => {
+      if (activeMachine === null) return;
+      setRequestedProviderIds((current) => {
+        const next = new Map(current);
+        next.set(activeMachine.id, providerId);
+        lastProviderIdByMachine = next;
+        return next;
+      });
+    },
+    [activeMachine],
+  );
+
+  const reload = () => {
+    void refreshProvidersInSequence(
+      refreshProviderIds.length === 0 ? [null] : refreshProviderIds,
+      {
+        pluginId,
+        force: true,
+        machineIds: activeMachineId === null ? null : [activeMachineId],
+        maxAgeMs: 0,
+      },
+    );
+  };
+
+  const handleTabKeyDown = (
+    event: KeyboardEvent<HTMLButtonElement>,
+    currentIndex: number,
+  ) => {
+    let nextIndex: number;
+    if (event.key === "ArrowRight") {
+      nextIndex = (currentIndex + 1) % tabIds.length;
+    } else if (event.key === "ArrowLeft") {
+      nextIndex = (currentIndex - 1 + tabIds.length) % tabIds.length;
+    } else if (event.key === "Home") {
+      nextIndex = 0;
+    } else if (event.key === "End") {
+      nextIndex = tabIds.length - 1;
+    } else {
+      return;
+    }
+    const nextTabId = tabIds[nextIndex];
+    if (nextTabId === undefined) return;
+    event.preventDefault();
+    selectProvider(nextTabId);
+    event.currentTarget.parentElement
+      ?.querySelectorAll<HTMLButtonElement>('[role="tab"]')
+      .item(nextIndex)
+      .focus();
+  };
 
   return (
     <TooltipProvider delayDuration={150}>
-      <div className="flex max-h-96 flex-col">
+      <div className="flex max-h-80 flex-col">
         <div
           data-provider-usage-header=""
-          className="flex h-10 min-w-0 shrink-0 items-center gap-1 border-b border-sidebar-border px-1.5"
+          className="flex h-9 min-w-0 shrink-0 items-center gap-1 border-b border-sidebar-border px-1.5"
         >
-          <div className="flex min-w-0 flex-1 justify-start">
-            <MachineSelector
-              machines={machines}
-              activeMachine={activeMachine}
-              onSelect={selectMachine}
-            />
+          {providers.length < 2 ? (
+            <span className="px-1.5 text-2xs font-medium text-sidebar-foreground">
+              Usage
+            </span>
+          ) : (
+            <div
+              role="tablist"
+              aria-label="Usage provider"
+              className="flex min-w-0 shrink items-center gap-0.5 overflow-x-auto"
+            >
+              {showAllTab ? (
+                <button
+                  type="button"
+                  role="tab"
+                  title="All accounts"
+                  aria-label="All accounts"
+                  aria-selected={isAllTab}
+                  aria-controls={panelId}
+                  tabIndex={isAllTab ? 0 : -1}
+                  className={cn(
+                    "relative flex h-6 shrink-0 items-center justify-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring px-2",
+                    isAllTab
+                      ? "bg-sidebar-accent text-sidebar-foreground"
+                      : "text-muted-foreground hover:text-sidebar-foreground",
+                  )}
+                  onClick={() => selectProvider(ALL_PROVIDERS_TAB_ID)}
+                  onKeyDown={(event) => handleTabKeyDown(event, 0)}
+                >
+                  <span aria-hidden="true" className="text-2xs font-medium">
+                    All
+                  </span>
+                </button>
+              ) : null}
+              {providers.map((provider, providerIndex) => {
+                const index = providerIndex + (showAllTab ? 1 : 0);
+                const isActive = provider.id === activeProvider?.id;
+                const tones = provider.accounts.map(providerUsageTone);
+                const tone = tones.includes("critical")
+                  ? "critical"
+                  : tones.includes("warning")
+                    ? "warning"
+                    : null;
+                return (
+                  <button
+                    key={provider.id}
+                    type="button"
+                    role="tab"
+                    title={
+                      tone === null
+                        ? provider.displayName
+                        : `${provider.displayName}: an account usage window is at least ${tone === "critical" ? "95" : "80"}% used.`
+                    }
+                    aria-label={provider.displayName}
+                    aria-selected={isActive}
+                    aria-controls={panelId}
+                    tabIndex={isActive ? 0 : -1}
+                    className={cn(
+                      "relative flex h-6 shrink-0 items-center justify-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring w-7",
+                      isActive
+                        ? "bg-sidebar-accent text-sidebar-foreground"
+                        : "group/tab text-muted-foreground hover:text-sidebar-foreground",
+                    )}
+                    onClick={() => selectProvider(provider.id)}
+                    onKeyDown={(event) => handleTabKeyDown(event, index)}
+                  >
+                    <ProviderIcon
+                      providerKind="agent"
+                      provider={
+                        isActive
+                          ? provider
+                          : { ...provider, strings: { iconTint: null } }
+                      }
+                      fallback="Bot"
+                      className={cn(
+                        "size-3.5",
+                        !isActive && "opacity-60 group-hover/tab:opacity-100",
+                      )}
+                    />
+                    {tone === null || isActive || isAllTab ? null : (
+                      <span
+                        aria-hidden="true"
+                        data-provider-usage-tone={tone}
+                        className={cn(
+                          "absolute right-0.5 top-0.5 size-1.5 rounded-full ring-2 ring-sidebar",
+                          tone === "critical" ? "bg-destructive" : "bg-warning",
+                        )}
+                      />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          <div className="flex min-w-0 flex-1 justify-end">
+            {machines.length === 0 ? null : (
+              <MachineSelector
+                machines={machines}
+                activeMachine={activeMachine}
+                onSelect={selectMachine}
+              />
+            )}
           </div>
           <button
             type="button"
@@ -684,7 +964,7 @@ export function ProviderUsageStatusContent({
                 : "Grouped by provider. Click to sort by soonest to run out."
             }
             className={cn(
-              "flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
+              "flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
               sortMode === "exhaustion" &&
                 "bg-sidebar-accent text-sidebar-foreground",
             )}
@@ -700,25 +980,8 @@ export function ProviderUsageStatusContent({
             type="button"
             aria-label="Reload provider usage"
             disabled={snapshot.isRefreshing}
-            className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring disabled:opacity-50"
-            onClick={() =>
-              void (activeMachineId === null ||
-              !activeMachineConnected ||
-              providerIdsKey === ""
-                ? refreshUsage({
-                    force: true,
-                    machineIds:
-                      activeMachineId === null ? null : [activeMachineId],
-                    maxAgeMs: 0,
-                    providerId: null,
-                  })
-                : refreshMachineUsage({
-                    force: true,
-                    machineId: activeMachineId,
-                    maxAgeMs: 0,
-                    providerIds: providerIdsKey.split("\n"),
-                  }))
-            }
+            className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring disabled:opacity-50"
+            onClick={reload}
           >
             <Icon
               name="RotateCcw"
@@ -731,102 +994,76 @@ export function ProviderUsageStatusContent({
           <button
             type="button"
             aria-label="Collapse provider usage"
-            className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+            className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
             onClick={dismiss}
           >
             <Icon name="ChevronDown" aria-hidden="true" className="size-4" />
           </button>
         </div>
         <div
+          id={panelId}
+          role="tabpanel"
           aria-label={
             activeMachine === null
               ? "Provider usage"
-              : activeMachine.displayName + " usage"
+              : isAllTab
+                ? activeMachine.displayName + " usage for all accounts"
+                : activeProvider === null
+                  ? "Provider usage"
+                  : activeMachine.displayName +
+                    " " +
+                    activeProvider.displayName +
+                    " usage"
           }
-          role="region"
-          className="@container min-h-0 overflow-y-auto overflow-x-hidden p-2"
+          className="@container min-h-0 overflow-y-auto overflow-x-hidden p-2.5"
         >
-          {feedback === null ? null : (
-            <UsageFeedback
-              message={feedback}
-              loading={feedback === usageFeedbackMessages.loading}
-              className={providers.length > 0 ? "mb-2" : undefined}
+          {notice !== null && notice.kind !== "loading" ? (
+            <UsageNotice
+              notice={notice}
+              onRetry={reload}
+              className={notice.kind === "stale" ? "mb-2" : undefined}
             />
-          )}
-          <div className="divide-y divide-sidebar-border">
-            {sortMode === "exhaustion"
-              ? sortedAccounts.map((account) => (
-                  <AccountUsage
-                    key={account.id}
-                    account={account}
-                    machineError={activeMachine?.error ?? null}
-                    now={now}
-                    showProvider
-                    snapshot={snapshot}
-                  />
+          ) : null}
+          {notice?.kind === "empty" ? null : notice?.kind === "loading" ? (
+            <UsageSkeleton rows={3} />
+          ) : isAllTab ? (
+            <div className={cn(USAGE_GRID_CLASS_NAME, "gap-y-2.5")}>
+              {sortMode === "exhaustion" ? (
+                <ProviderAccounts
+                  accounts={sortedActiveAccounts}
+                  loading={snapshot.isRefreshing}
+                  unavailable={unavailable}
+                  showProvider
+                  now={now}
+                />
+              ) : (
+                providers.map((provider) => (
+                  <div
+                    key={provider.id}
+                    className="col-span-full grid grid-cols-subgrid gap-y-2 border-t border-sidebar-border pt-2.5 first:border-t-0 first:pt-0"
+                  >
+                    <ProviderAccounts
+                      accounts={provider.accounts}
+                      loading={snapshot.isRefreshing}
+                      unavailable={unavailable}
+                      showProvider
+                      now={now}
+                    />
+                  </div>
                 ))
-              : null}
-            {sortMode === "provider"
-              ? providers.map((provider) => {
-                  const tones = provider.accounts.map(providerUsageTone);
-                  const tone = tones.includes("critical")
-                    ? "critical"
-                    : tones.includes("warning")
-                      ? "warning"
-                      : null;
-                  return (
-                    <section
-                      key={provider.id}
-                      aria-label={provider.displayName}
-                      data-provider-usage-provider={provider.id}
-                      className="py-1.5 first:pt-0 last:pb-0"
-                    >
-                      <h2
-                        title={
-                          tone === null
-                            ? provider.displayName
-                            : `${provider.displayName}: an account usage window is at least ${tone === "critical" ? "95" : "80"}% used.`
-                        }
-                        className="mb-0.5 flex min-w-0 items-center gap-1.5 text-xs font-medium text-sidebar-foreground"
-                      >
-                        <span className="relative flex size-4 shrink-0 items-center justify-center">
-                          <ProviderIcon
-                            providerKind="agent"
-                            provider={provider}
-                            fallback="Bot"
-                            className="size-3.5"
-                          />
-                          {tone === null ? null : (
-                            <span
-                              aria-hidden="true"
-                              data-provider-usage-tone={tone}
-                              className={cn(
-                                "absolute -right-0.5 -top-0.5 size-1.5 rounded-full ring-2 ring-sidebar-accent",
-                                tone === "critical"
-                                  ? "bg-destructive"
-                                  : "bg-warning",
-                              )}
-                            />
-                          )}
-                        </span>
-                        <span className="truncate">{provider.displayName}</span>
-                      </h2>
-                      <div className="divide-y divide-sidebar-border/60">
-                        {provider.accounts.map((account) => (
-                          <AccountUsage
-                            key={account.id}
-                            account={account}
-                            machineError={activeMachine?.error ?? null}
-                            now={now}
-                            snapshot={snapshot}
-                          />
-                        ))}
-                      </div>
-                    </section>
-                  );
-                })
-              : null}
-          </div>
+              )}
+            </div>
+          ) : activeProvider === null ? null : (
+            <div className={cn(USAGE_GRID_CLASS_NAME, "gap-y-2")}>
+              <ProviderAccounts
+                accounts={sortedActiveAccounts}
+                loading={snapshot.isRefreshing}
+                unavailable={unavailable}
+                showProvider={false}
+                now={now}
+              />
+            </div>
+          )}
         </div>
       </div>
     </TooltipProvider>
@@ -834,6 +1071,7 @@ export function ProviderUsageStatusContent({
 }
 
 function ProviderUsageStatus(props: ExperimentalSidebarFooterDisclosureProps) {
+  const pluginId = experimental_usePluginId();
   const snapshot = useSyncExternalStore(
     subscribeStore,
     getStoreSnapshot,
@@ -850,8 +1088,10 @@ function ProviderUsageStatus(props: ExperimentalSidebarFooterDisclosureProps) {
   return (
     <ProviderUsageStatusContent
       {...props}
+      pluginId={pluginId}
       snapshot={snapshot}
       threadMachineId={threadMachineId}
+      machineSelectionStorageKey={`bb.${pluginId}.selected-machine.v1`}
     />
   );
 }
@@ -867,7 +1107,7 @@ export default definePluginApp((app) => {
   });
   app.contentScripts.register({
     id: "refresh-usage",
-    mount({ signal }) {
+    mount({ pluginId, signal }) {
       let timer: number | null = null;
       let hiddenAt = document.visibilityState === "hidden" ? Date.now() : null;
       let blurredAt: number | null = null;
@@ -879,6 +1119,7 @@ export default definePluginApp((app) => {
       };
       const reconcile = (maxAgeMs: number, machineIds: string[] | null) => {
         void refreshUsage({
+          pluginId,
           force: false,
           machineIds,
           maxAgeMs,

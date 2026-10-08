@@ -1,5 +1,10 @@
+import { joinHostPathSegments } from "../services/lib/host-path.js";
 import { serverAccess } from "../services/machines/server-access.js";
-import { getNonDestroyedHost, updateHost } from "@bb/db";
+import {
+  getLatestSessionForHost,
+  getNonDestroyedHost,
+  updateHost,
+} from "@bb/db";
 import {
   publicApiRoutes,
   typedRoutes,
@@ -107,6 +112,7 @@ async function revokeConnectMachineCredential(
       "revokeMachine",
       handler.value,
       { machineId },
+      { kind: "client" },
     );
     if (!result.ok) throw new Error(result.error.message);
   } catch (error) {
@@ -133,7 +139,7 @@ export function registerHostRoutes(
     return context.json(await submitMachine(deps, payload), 201);
   });
 
-  post(routes.createJoinCode, async (context, payload) => {
+  post(routes.createJoinCode, async (context) => {
     assertHostManagementAllowed(context);
     const issued = await issueHostEnrollKey(deps, {
       enrollSource: "public-multi-machine",
@@ -157,13 +163,19 @@ export function registerHostRoutes(
     ),
   );
 
-  get(routes.get, (context) =>
-    context.json({
-      ...requireNonDestroyedHostWithStatus(deps, context.req.param("id")),
-      connectMachineId: requireMutableHost(deps, context.req.param("id"))
-        .connectMachineId,
-    }),
-  );
+  get(routes.get, (context) => {
+    const hostId = context.req.param("id");
+    const host = requireNonDestroyedHostWithStatus(deps, hostId);
+    const session = getLatestSessionForHost(deps.db, { hostId });
+    return context.json({
+      ...host,
+      connectMachineId: requireMutableHost(deps, hostId).connectMachineId,
+      threadStorageRootPath:
+        session === null
+          ? null
+          : joinHostPathSegments(session.dataDir, "thread-storage"),
+    });
+  });
 
   get(routes.enrollmentCommand, async (context) => {
     assertHostManagementAllowed(context);

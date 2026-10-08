@@ -9,10 +9,13 @@ import {
 import {
   machineEnvironmentReplaceSchema,
   setAiServiceSelectionRequestSchema,
+  systemProviderEnabledRequestSchema,
   testAiServiceRequestSchema,
   type MachineEnvironmentReplace,
   type SetAiServiceSelectionRequest,
   type SystemAiServicesResponse,
+  type SystemProviderCatalogEntry,
+  type SystemProviderEnabledRequest,
   type TestAiServiceRequest,
   type TestAiServiceResponse,
 } from "./api/system.js";
@@ -50,6 +53,7 @@ import type {
   AppSettingsUpdate,
   AppKeybindingOverrides,
   Environment,
+  ExperimentUpdates,
   Experiments,
   Host,
   PendingInteraction,
@@ -63,7 +67,7 @@ import {
   appSettingsUpdateSchema,
   appKeybindingOverridesSchema,
   appThemeSelectionSchema,
-  experimentsSchema,
+  experimentUpdatesSchema,
 } from "@bb/domain";
 import type { ProviderUsageResponse } from "@bb/host-daemon-contract";
 import {
@@ -83,8 +87,9 @@ import type {
   PathId,
   PathNonce,
   PathProjectId,
-  PathPreviewAndFilePath,
-  PathThreadAndFilePath,
+  PathIdAndFilePath,
+  PathIdHostAndFilePath,
+  PathIdRefAndFilePath,
   PathThreadAndQueuedMessage,
   PathTerminal,
 } from "./common.js";
@@ -162,7 +167,6 @@ import type {
   ProjectBranchesResponse,
   ProjectCommandsQuery,
   ProjectDefaultExecutionOptionsQuery,
-  ProjectFileContentQuery,
   ProjectFilesQuery,
   ProjectListQuery,
   ProjectPathsQuery,
@@ -178,6 +182,8 @@ import type {
   ProjectWithThreadsResponse,
   PromptHistoryQuery,
   PromptHistoryResponse,
+  PromptHistoryListQuery,
+  PromptHistoryListResponse,
   ReorderPinnedThreadRequest,
   ReorderProjectRequest,
   ReorderQueuedMessageRequest,
@@ -196,6 +202,7 @@ import type {
   SystemAttentionResponse,
   SystemConfigReloadResponse,
   SystemConfigResponse,
+  SystemMobileAppReleasesResponse,
   SystemCliSkillsStatusQuery,
   SystemCliSkillsStatusResponse,
   SystemInstallCliSkillsRequest,
@@ -236,9 +243,7 @@ import type {
   ThreadEventsQuery,
   ThreadSectionMutationResponse,
   ThreadSectionResponse,
-  ThreadFilesRawQuery,
   ThreadGetQuery,
-  ThreadHostFileContentQuery,
   ThreadCountQuery,
   ThreadCountResponse,
   ThreadListQuery,
@@ -259,7 +264,6 @@ import type {
   ThreadSearchResponse,
   RecordThreadSearchSelectionRequest,
   RecordThreadSearchSelectionResponse,
-  ThreadStorageContentQuery,
   ThreadStorageFileListResponse,
   ThreadStorageFilesQuery,
   ThreadStorageLocationResponse,
@@ -343,7 +347,6 @@ import {
   projectBranchesQuerySchema,
   projectCommandsQuerySchema,
   projectDefaultExecutionOptionsQuerySchema,
-  projectFileContentQuerySchema,
   projectFilesQuerySchema,
   projectListQuerySchema,
   projectPathsQuerySchema,
@@ -353,6 +356,7 @@ import {
   projectSkillFilesQuerySchema,
   updateSkillRequestSchema,
   promptHistoryQuerySchema,
+  promptHistoryListQuerySchema,
   reorderPinnedThreadRequestSchema,
   reorderProjectRequestSchema,
   reorderQueuedMessageRequestSchema,
@@ -377,16 +381,13 @@ import {
   systemAppUpdateQuerySchema,
   threadEventWaitQuerySchema,
   threadEventsQuerySchema,
-  threadFilesRawQuerySchema,
   threadGetQuerySchema,
-  threadHostFileContentQuerySchema,
   threadCountQuerySchema,
   threadListQuerySchema,
   threadOpenRequestSchema,
   threadPaneActionRequestSchema,
   threadSearchQuerySchema,
   recordThreadSearchSelectionRequestSchema,
-  threadStorageContentQuerySchema,
   threadStorageFilesQuerySchema,
   threadStoragePathsQuerySchema,
   threadStatusWaitQuerySchema,
@@ -426,6 +427,16 @@ type PathThreadInteractionId = {
 };
 
 export const publicApiRoutes = {
+  promptHistory: {
+    list: defineRoute({
+      path: "/prompt-history",
+      method: "get",
+      request: queryRequest<EmptyInput, PromptHistoryListQuery>(
+        promptHistoryListQuerySchema,
+      ),
+      response: jsonResponse<PromptHistoryListResponse>(),
+    }),
+  },
   projects: {
     machineEnvironment: defineRoute({
       path: "/projects/:id/machine-environment",
@@ -556,12 +567,16 @@ export const publicApiRoutes = {
       ),
       response: jsonResponse<WorkspaceFileListResponse>(),
     }),
-    fileContent: defineRoute({
-      path: "/projects/:id/files/content",
+    file: defineRoute({
+      path: "/projects/:id/files/:filePath{.+}",
       method: "get",
-      request: queryRequest<PathProjectId, ProjectFileContentQuery>(
-        projectFileContentQuerySchema,
-      ),
+      request: noRequest<PathIdAndFilePath>(),
+      response: binaryResponse<Uint8Array>(),
+    }),
+    hostFile: defineRoute({
+      path: "/projects/:id/hosts/:hostId/files/:filePath{.+}",
+      method: "get",
+      request: noRequest<PathIdHostAndFilePath>(),
       response: binaryResponse<Uint8Array>(),
     }),
     paths: defineRoute({
@@ -731,7 +746,7 @@ export const publicApiRoutes = {
     content: defineRoute({
       path: "/file-previews/:id/:filePath{.+}",
       method: "get",
-      request: noRequest<PathPreviewAndFilePath>(),
+      request: noRequest<PathIdAndFilePath>(),
       response: binaryResponse<Uint8Array>(),
     }),
   },
@@ -858,7 +873,12 @@ export const publicApiRoutes = {
       path: "/hosts/:id",
       method: "get",
       request: noRequest<PathId>(),
-      response: jsonResponse<Host & { connectMachineId: string | null }>(),
+      response: jsonResponse<
+        Host & {
+          connectMachineId: string | null;
+          threadStorageRootPath: string | null;
+        }
+      >(),
     }),
     enrollmentCommand: defineRoute({
       path: "/hosts/:id/enrollment-command",
@@ -929,6 +949,12 @@ export const publicApiRoutes = {
         hostDirectoryQuerySchema,
       ),
       response: jsonResponse<HostDirectoryListing>(),
+    }),
+    file: defineRoute({
+      path: "/hosts/:id/files/:filePath{.+}",
+      method: "get",
+      request: noRequest<PathIdAndFilePath>(),
+      response: binaryResponse<Uint8Array>(),
     }),
     cloneDefaultPath: defineRoute({
       path: "/hosts/:id/clone-default-path",
@@ -1086,6 +1112,12 @@ export const publicApiRoutes = {
   },
 
   environments: {
+    cleanup: defineRoute({
+      path: "/environments/:id/cleanup",
+      method: "post",
+      request: noRequest<PathId>(),
+      response: jsonResponse<{ ok: true }>(),
+    }),
     list: defineRoute({
       path: "/environments",
       method: "get",
@@ -1183,6 +1215,18 @@ export const publicApiRoutes = {
       ),
       response: jsonResponse<WorkspacePathListResponse>(),
     }),
+    file: defineRoute({
+      path: "/environments/:id/files/:filePath{.+}",
+      method: "get",
+      request: noRequest<PathIdAndFilePath>(),
+      response: binaryResponse<Uint8Array>(),
+    }),
+    revisionFile: defineRoute({
+      path: "/environments/:id/revisions/:ref/files/:filePath{.+}",
+      method: "get",
+      request: noRequest<PathIdRefAndFilePath>(),
+      response: binaryResponse<Uint8Array>(),
+    }),
     actions: defineRoute({
       path: "/environments/:id/actions",
       method: "post",
@@ -1204,6 +1248,12 @@ export const publicApiRoutes = {
   },
 
   threadSections: {
+    list: defineRoute({
+      path: "/thread-sections",
+      method: "get",
+      request: noRequest<EmptyInput>(),
+      response: jsonResponse<ThreadSectionResponse[]>(),
+    }),
     create: defineRoute({
       path: "/thread-sections",
       method: "post",
@@ -1693,7 +1743,13 @@ export const publicApiRoutes = {
     storageFile: defineRoute({
       path: "/threads/:id/thread-storage/files/:filePath{.+}",
       method: "get",
-      request: noRequest<PathThreadAndFilePath>(),
+      request: noRequest<PathIdAndFilePath>(),
+      response: binaryResponse<Uint8Array>(),
+    }),
+    hostFile: defineRoute({
+      path: "/threads/:id/host-files/:filePath{.+}",
+      method: "get",
+      request: noRequest<PathIdAndFilePath>(),
       response: binaryResponse<Uint8Array>(),
     }),
     storagePaths: defineRoute({
@@ -1703,36 +1759,6 @@ export const publicApiRoutes = {
         threadStoragePathsQuerySchema,
       ),
       response: jsonResponse<ThreadStoragePathListResponse>(),
-    }),
-    storageContent: defineRoute({
-      path: "/threads/:id/thread-storage/content",
-      method: "get",
-      request: queryRequest<PathId, ThreadStorageContentQuery>(
-        threadStorageContentQuerySchema,
-      ),
-      response: binaryResponse<Uint8Array>(),
-    }),
-    hostFileContent: defineRoute({
-      path: "/threads/:id/host-files/content",
-      method: "get",
-      request: queryRequest<PathId, ThreadHostFileContentQuery>(
-        threadHostFileContentQuerySchema,
-      ),
-      response: binaryResponse<Uint8Array>(),
-    }),
-    worktreeFile: defineRoute({
-      path: "/threads/:id/worktree/files/:filePath{.+}",
-      method: "get",
-      request: noRequest<PathThreadAndFilePath>(),
-      response: binaryResponse<Uint8Array>(),
-    }),
-    rawFile: defineRoute({
-      path: "/threads/:id/files/raw",
-      method: "get",
-      request: queryRequest<PathId, ThreadFilesRawQuery>(
-        threadFilesRawQuerySchema,
-      ),
-      response: binaryResponse<Uint8Array>(),
     }),
   },
 
@@ -1792,6 +1818,12 @@ export const publicApiRoutes = {
       request: noRequest(),
       response: jsonResponse<SystemAttentionResponse>(),
     }),
+    mobileAppReleases: defineRoute({
+      path: "/system/mobile-app-releases",
+      method: "get",
+      request: noRequest(),
+      response: jsonResponse<SystemMobileAppReleasesResponse>(),
+    }),
     config: defineRoute({
       path: "/system/config",
       method: "get",
@@ -1841,7 +1873,9 @@ export const publicApiRoutes = {
     experiments: defineRoute({
       path: "/settings/experiments",
       method: "put",
-      request: jsonRequest<EmptyInput, Experiments>(experimentsSchema),
+      request: jsonRequest<EmptyInput, ExperimentUpdates>(
+        experimentUpdatesSchema,
+      ),
       response: jsonResponse<Experiments>(),
     }),
     appearance: defineRoute({
@@ -1949,6 +1983,20 @@ export const publicApiRoutes = {
         systemProvidersQuerySchema,
       ),
       response: jsonResponse<SystemProviderInfo[]>(),
+    }),
+    providerCatalog: defineRoute({
+      path: "/system/providers/catalog",
+      method: "get",
+      request: noRequest(),
+      response: jsonResponse<SystemProviderCatalogEntry[]>(),
+    }),
+    providerEnabled: defineRoute({
+      path: "/system/providers/:id/enabled",
+      method: "put",
+      request: jsonRequest<PathId, SystemProviderEnabledRequest>(
+        systemProviderEnabledRequestSchema,
+      ),
+      response: jsonResponse<SystemProviderCatalogEntry[]>(),
     }),
     providerLogo: defineRoute({
       path: "/system/providers/:id/logo",

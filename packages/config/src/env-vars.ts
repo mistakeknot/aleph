@@ -198,7 +198,7 @@ export const BB_APP_SURFACE_ENV = defineEnvVar<AppSurface>({
 
 export const BB_APP_URL_ENV = defineEnvVar<string>({
   description:
-    "Human-facing app/server base URL used for generated links and allowed browser origins. Does not control which host or port the server binds to.",
+    "Human-facing app/server base URL used for generated links, allowed browser origins, and the allowed DNS hostname for incoming requests. Does not control which host or port the server binds to.",
   name: "BB_APP_URL",
   parse: parseOptionalUrlEnvValue,
 });
@@ -316,17 +316,17 @@ export const BB_HOST_DAEMON_AUTO_UPDATE_ENV = defineEnvVar<boolean>({
   parse: parseBooleanEnvValue,
 });
 
+export const BB_HOST_DAEMON_SUPERVISED_ENV = defineEnvVar<boolean>({
+  description:
+    "Set by bb-app host-daemon --supervise so a daemon that relaunches itself after a server move keeps its launcher restarting it",
+  name: "BB_HOST_DAEMON_SUPERVISED",
+  parse: parseBooleanEnvValue,
+});
+
 export const BB_HOST_ID_ENV = defineEnvVar<string | undefined>({
   description:
     "Preferred host ID to persist for the daemon instead of generating one locally",
   name: "BB_HOST_ID",
-  parse: parseOptionalTrimmedStringEnvValue,
-});
-
-export const BB_HOST_NAME_ENV = defineEnvVar<string | undefined>({
-  description:
-    "Preferred host name to report instead of detecting the local hostname",
-  name: "BB_HOST_NAME",
   parse: parseOptionalTrimmedStringEnvValue,
 });
 

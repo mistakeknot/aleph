@@ -718,7 +718,6 @@ function applyOptimisticAcceptedTurnThreadState({
     runtime: {
       ...thread.runtime,
       displayStatus:
-        thread.runtime.displayStatus === "host-reconnecting" ||
         thread.runtime.displayStatus === "waiting-for-host"
           ? thread.runtime.displayStatus
           : "active",
@@ -913,14 +912,16 @@ export function applyCreateThreadResult({
     thread,
     cachedHostId ?? selectedHostId,
   );
-  prependProjectPromptHistory(
-    queryClient,
-    request.projectId,
-    buildAcceptedPromptHistoryEntry({
-      createdAt: thread.createdAt,
-      input: request.input,
-    }),
-  );
+  if (request.input.length > 0) {
+    prependProjectPromptHistory(
+      queryClient,
+      request.projectId,
+      buildAcceptedPromptHistoryEntry({
+        createdAt: thread.createdAt,
+        input: request.input,
+      }),
+    );
+  }
   invalidateProjectPromptHistoryQueries({
     queryClient,
     projectId: request.projectId,
