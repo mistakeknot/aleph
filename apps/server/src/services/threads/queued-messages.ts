@@ -785,18 +785,6 @@ async function sendClaimedQueuedMessageForIdleProviderThread(
   return queuedMessage;
 }
 
-/**
- * Delivers a claimed row that is one of core's own system notices.
- *
- * Such a row is not a user dispatch and does not go through the checkpoint's
- * core waits: it is an `initiator: "system"` turn with its own taxonomy and
- * its own dispatch path, and the only reason it was on the queue at all is
- * that the queue is where a blocked dispatch waits. It does still pass the
- * `message.dispatch` plugin pass (as a system initiator) on every drain, so a
- * plugin's `wait` keeps holding the row across rechecks; Send-now overrides it
- * like any other plugin wait. Null when the row is an ordinary message, which
- * is every row but these.
- */
 async function sendClaimedSystemNotice(
   deps: LoggedPendingInteractionWorkSessionDeps,
   args: SendClaimedQueuedMessageForThreadArgs,
