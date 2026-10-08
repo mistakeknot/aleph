@@ -592,11 +592,13 @@ class AbortRolledBack extends Error {
 }
 
 export function chooseRestoreKey(
-  existing: readonly string[],
+  existing: readonly string[] | ReadonlySet<string>,
   linkKey: string,
   bound: string | null,
 ): string | null {
-  if (!existing.includes(linkKey)) return linkKey;
+  const taken =
+    existing instanceof Set ? existing.has(linkKey) : [...existing].includes(linkKey);
+  if (!taken) return linkKey;
   let previous: string | null = null;
   let next: string | null = null;
   for (const key of existing) {
@@ -648,6 +650,8 @@ function describeResidual(
     .get();
   return thread?.deletedAt != null ? `deleted:${row.threadId}` : row.threadId;
 }
+
+const ORIGIN_CHUNK_SIZE = 500;
 
 export function abortTransferOperation(
   db: DbConnection,
@@ -754,19 +758,25 @@ export function abortTransferOperation(
           (entry) => entry.state === "pending",
         );
         const ownedClaimed =
-          targetLive && ownedOrigins.length > 0
-            ? tx
+          targetLive &&
+          ownedOrigins.some(
+            (_origin, index) =>
+              index % ORIGIN_CHUNK_SIZE === 0 &&
+              tx
                 .select({ id: queuedThreadMessages.id })
                 .from(queuedThreadMessages)
                 .where(
                   and(
                     eq(queuedThreadMessages.threadId, targetId),
                     isNotNull(queuedThreadMessages.claimedAt),
-                    inArray(queuedThreadMessages.originId, ownedOrigins),
+                    inArray(
+                      queuedThreadMessages.originId,
+                      ownedOrigins.slice(index, index + ORIGIN_CHUNK_SIZE),
+                    ),
                   ),
                 )
-                .get()
-            : undefined;
+                .get() !== undefined,
+          );
         if (sourceClaimed || pendingEntry || ownedClaimed) {
           return { kind: "refused", reason: "claims_pending" };
         }
@@ -795,32 +805,49 @@ export function abortTransferOperation(
           residuals: [],
         };
         const returnedOrigins = new Set<string>();
-        const sourceKeys = tx
-          .select({ sortKey: queuedThreadMessages.sortKey })
-          .from(queuedThreadMessages)
-          .where(eq(queuedThreadMessages.threadId, sourceId))
-          .all()
-          .map((row) => row.sortKey);
+        const sourceKeys = new Set(
+          tx
+            .select({ sortKey: queuedThreadMessages.sortKey })
+            .from(queuedThreadMessages)
+            .where(eq(queuedThreadMessages.threadId, sourceId))
+            .all()
+            .map((row) => row.sortKey),
+        );
 
-        const ownedRowsOnTarget = targetLive
-          ? tx
-              .select()
-              .from(queuedThreadMessages)
-              .where(
-                and(
-                  eq(queuedThreadMessages.threadId, targetId),
-                  isNull(queuedThreadMessages.claimedAt),
-                  ownedOrigins.length > 0
-                    ? inArray(queuedThreadMessages.originId, ownedOrigins)
-                    : sql`0`,
-                ),
-              )
-              .orderBy(
-                asc(queuedThreadMessages.sortKey),
-                asc(queuedThreadMessages.id),
-              )
-              .all()
-          : [];
+        const ownedRowsOnTarget: QueuedThreadMessageRow[] = [];
+        if (targetLive) {
+          for (
+            let index = 0;
+            index < ownedOrigins.length;
+            index += ORIGIN_CHUNK_SIZE
+          ) {
+            ownedRowsOnTarget.push(
+              ...tx
+                .select()
+                .from(queuedThreadMessages)
+                .where(
+                  and(
+                    eq(queuedThreadMessages.threadId, targetId),
+                    isNull(queuedThreadMessages.claimedAt),
+                    inArray(
+                      queuedThreadMessages.originId,
+                      ownedOrigins.slice(index, index + ORIGIN_CHUNK_SIZE),
+                    ),
+                  ),
+                )
+                .all(),
+            );
+          }
+          ownedRowsOnTarget.sort((left, right) =>
+            left.sortKey !== right.sortKey
+              ? left.sortKey < right.sortKey
+                ? -1
+                : 1
+              : left.id < right.id
+                ? -1
+                : 1,
+          );
+        }
         const rowByOrigin = new Map(
           ownedRowsOnTarget.map((row) => [row.originId ?? row.id, row]),
         );
@@ -837,11 +864,15 @@ export function abortTransferOperation(
             if (a !== b) return a < b ? -1 : 1;
             return (left.sourceRowId ?? "") < (right.sourceRowId ?? "") ? -1 : 1;
           });
-        const unkeyed = ownedRowsOnTarget.filter((row) =>
-          owned.some(
-            (entry) =>
-              entry.kind === "redirected" && entry.originId === row.originId,
+        const redirectedOrigins = new Set(
+          owned.flatMap((entry) =>
+            entry.kind === "redirected" && entry.originId !== null
+              ? [entry.originId]
+              : [],
           ),
+        );
+        const unkeyed = ownedRowsOnTarget.filter(
+          (row) => row.originId !== null && redirectedOrigins.has(row.originId),
         );
 
         const giveBack = (row: QueuedThreadMessageRow, sortKey: string) => {
@@ -857,7 +888,7 @@ export function abortTransferOperation(
           if (moved.kind !== "transferred") {
             throw new AbortRolledBack("claims_pending");
           }
-          sourceKeys.push(sortKey);
+          sourceKeys.add(sortKey);
           const originId = row.originId ?? row.id;
           returnedOrigins.add(originId);
           tx.insert(transferEntries)
@@ -890,7 +921,7 @@ export function abortTransferOperation(
           giveBack(row, key);
         });
         for (const row of unkeyed) {
-          const last = sourceKeys.reduce<string | null>(
+          const last = [...sourceKeys].reduce<string | null>(
             (greatest, key) => (greatest === null || key > greatest ? key : greatest),
             null,
           );

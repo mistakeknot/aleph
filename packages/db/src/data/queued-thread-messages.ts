@@ -433,13 +433,7 @@ function getPreviousUnclaimedQueuedThreadMessage(
           eq(queuedThreadMessages.threadId, queuedMessage.threadId),
           isNull(queuedThreadMessages.claimedAt),
           isNull(queuedThreadMessages.claimToken),
-          or(
-            lt(queuedThreadMessages.sortKey, queuedMessage.sortKey),
-            and(
-              eq(queuedThreadMessages.sortKey, queuedMessage.sortKey),
-              lt(queuedThreadMessages.id, queuedMessage.id),
-            ),
-          ),
+          sql`(${queuedThreadMessages.sortKey}, ${queuedThreadMessages.id}) < (${queuedMessage.sortKey}, ${queuedMessage.id})`,
         ),
       )
       .orderBy(
