@@ -98,6 +98,23 @@ describe("ex88-unretire script", () => {
     reopened.$client.close();
   });
 
+  it("treats a database without the retirement schema as already downgrade-ready", () => {
+    const directory = mkdtempSync(join(tmpdir(), "ex88-unretire-"));
+    directories.push(directory);
+    const path = join(directory, "bb.db");
+    const legacy = createConnection(path);
+    legacy.$client.exec("CREATE TABLE queued_thread_messages (id TEXT)");
+    legacy.$client.close();
+    for (const flags of [["--check"], []]) {
+      const result = run(path, ...flags);
+      expect(result.status).toBe(0);
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        schemaPresent: false,
+        ready: true,
+      });
+    }
+  });
+
   it("releases worker claims, aborts every redirect and reports the remaining blockers", () => {
     const { path, db } = seededDatabase();
     db.$client.close();

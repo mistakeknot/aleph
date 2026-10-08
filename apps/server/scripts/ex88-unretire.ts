@@ -18,6 +18,7 @@ interface RedirectRow {
 
 interface Report {
   mode: "check" | "apply";
+  schemaPresent: boolean;
   before: DowngradeReadiness;
   workerClaimsReleased: number | null;
   redirectsToAbort: number;
@@ -61,6 +62,53 @@ function listRedirects(sqlite: Database.Database): RedirectRow[] {
     .all() as RedirectRow[];
 }
 
+function hasRetirementSchema(sqlite: Database.Database): boolean {
+  const table = sqlite
+    .prepare(
+      "SELECT 1 FROM sqlite_master WHERE type='table' AND name='thread_redirects'",
+    )
+    .get();
+  if (table === undefined) {
+    return false;
+  }
+  const columns = sqlite
+    .prepare("SELECT name FROM pragma_table_info('queued_thread_messages')")
+    .all() as Array<{ name: string }>;
+  return columns.some((column) => column.name === "forward_source_row_id");
+}
+
+function legacyReport(mode: Report["mode"]): Report {
+  const zero: DowngradeReadiness = {
+    slots: 0,
+    pendingEntries: 0,
+    unemittedEvents: 0,
+    redirects: 0,
+    nullOrigins: 0,
+    unackedReceipts: 0,
+    ready: true,
+  };
+  return {
+    mode,
+    schemaPresent: false,
+    before: zero,
+    workerClaimsReleased: null,
+    redirectsToAbort: 0,
+    aborted: 0,
+    refusals: [],
+    after: mode === "apply" ? zero : null,
+    ready: true,
+  };
+}
+
+function schemaPresent(path: string): boolean {
+  const sqlite = new Database(path, { readonly: true });
+  try {
+    return hasRetirementSchema(sqlite);
+  } finally {
+    sqlite.close();
+  }
+}
+
 function runCheck(path: string): Report {
   const sqlite = new Database(path, { readonly: true });
   try {
@@ -69,6 +117,7 @@ function runCheck(path: string): Report {
     } as unknown as DbConnection);
     return {
       mode: "check",
+      schemaPresent: true,
       before,
       workerClaimsReleased: null,
       redirectsToAbort: listRedirects(sqlite).length,
@@ -110,6 +159,7 @@ function runApply(path: string): Report {
     const after = getDowngradeReadiness(db);
     return {
       mode: "apply",
+      schemaPresent: true,
       before,
       workerClaimsReleased: released.released,
       redirectsToAbort: redirects.length,
@@ -124,6 +174,11 @@ function runApply(path: string): Report {
 }
 
 const args = parseArgs(process.argv.slice(2));
-const report = args.check ? runCheck(args.db) : runApply(args.db);
+const mode = args.check ? "check" : "apply";
+const report = !schemaPresent(args.db)
+  ? legacyReport(mode)
+  : args.check
+    ? runCheck(args.db)
+    : runApply(args.db);
 console.log(JSON.stringify(report, null, 2));
 process.exit(report.ready ? 0 : 1);
