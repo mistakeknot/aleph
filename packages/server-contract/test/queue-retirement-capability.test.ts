@@ -42,6 +42,16 @@ describe("queue retirement capability", () => {
     expect(hasQueueRetirementGuarantee(parsed, "G2")).toBe(true);
   });
 
+  it("does not infer G1 from an advertisement of only G2", () => {
+    const parsed = systemVersionResponseSchema.parse({
+      ...oldServerResponse,
+      queueRetirement: { version: 1, guarantees: ["G2"] },
+    });
+
+    expect(hasQueueRetirementGuarantee(parsed, "G1")).toBe(false);
+    expect(hasQueueRetirementGuarantee(parsed, "G2")).toBe(true);
+  });
+
   it("does not treat an empty advertisement as a guarantee", () => {
     const parsed = systemVersionResponseSchema.parse({
       ...oldServerResponse,

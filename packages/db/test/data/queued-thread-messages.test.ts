@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { threadScope, type PromptInput } from "@bb/domain";
 import { noopNotifier } from "../../src/notifier.js";
@@ -8,6 +11,7 @@ import {
   claimQueuedThreadMessageGroup,
   clearQueuedThreadMessageWaitingOn,
   createQueuedThreadMessage,
+  createQueuedThreadMessageInTransaction,
   QueuedMessageThreadUnavailableError,
   deleteClaimedQueuedThreadMessageBatchInTransaction,
   deleteQueuedThreadMessage,
@@ -28,6 +32,8 @@ import {
   deleteThread,
 } from "../../src/data/threads.js";
 import { upsertHost } from "../../src/data/hosts.js";
+import { createConnection } from "../../src/connection.js";
+import { migrate } from "../../src/migrate.js";
 import { createMigratedConnection } from "../helpers/migrated-connection.js";
 
 function textInput(text: string): PromptInput[] {
@@ -115,6 +121,83 @@ describe("queued thread messages", () => {
       expect(notifyThread).not.toHaveBeenCalled();
     },
   );
+
+  it("serializes a concurrent archive behind the enqueue transaction", () => {
+    const dir = mkdtempSync(join(tmpdir(), "bb-db-queue-fence-"));
+    const dbPath = join(dir, "bb.db");
+    const writer = createConnection(dbPath);
+    const archiver = createConnection(dbPath);
+    try {
+      migrate(writer);
+      const host = upsertHost(writer, noopNotifier, { name: "test-host" });
+      const { project } = createProject(writer, noopNotifier, {
+        name: "test-project",
+        source: { type: "local_path", hostId: host.id, path: "/tmp/test" },
+      });
+      const thread = createThread(writer, noopNotifier, {
+        projectId: project.id,
+        providerId: "codex",
+      });
+      archiver.$client.pragma("busy_timeout = 0");
+
+      let archiveDuringEnqueue: unknown = null;
+      writer.transaction(
+        (tx) => {
+          createQueuedThreadMessageInTransaction(tx, {
+            threadId: thread.id,
+            content: defaultInput,
+            model: "gpt-5",
+            reasoningLevel: "medium",
+            permissionMode: "full",
+            serviceTier: "default",
+            waitingOn: null,
+            sendAt: null,
+            payload: { kind: "inline" },
+            systemNotice: null,
+          });
+          try {
+            archiveThread(archiver, noopNotifier, thread.id);
+          } catch (error) {
+            archiveDuringEnqueue = error;
+          }
+        },
+        { behavior: "immediate" },
+      );
+
+      expect(archiveDuringEnqueue).toMatchObject({ code: "SQLITE_BUSY" });
+      expect(listQueuedThreadMessages(writer, thread.id)).toHaveLength(1);
+
+      archiveThread(archiver, noopNotifier, thread.id);
+      expect(() =>
+        writer.transaction(
+          (tx) =>
+            createQueuedThreadMessageInTransaction(tx, {
+              threadId: thread.id,
+              content: altInput,
+              model: "gpt-5",
+              reasoningLevel: "medium",
+              permissionMode: "full",
+              serviceTier: "default",
+              waitingOn: null,
+              sendAt: null,
+              payload: { kind: "inline" },
+              systemNotice: null,
+            }),
+          { behavior: "immediate" },
+        ),
+      ).toThrow(
+        expect.objectContaining({
+          name: QueuedMessageThreadUnavailableError.name,
+          reason: "archived",
+        }),
+      );
+      expect(listQueuedThreadMessages(writer, thread.id)).toHaveLength(1);
+    } finally {
+      archiver.$client.close();
+      writer.$client.close();
+      rmSync(dir, { force: true, recursive: true });
+    }
+  });
 
   it("gets a queued message by ID", () => {
     const { db, thread } = setup();
