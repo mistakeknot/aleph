@@ -307,4 +307,135 @@ describe("retire routes", () => {
       });
     });
   }, 20_000);
+
+  it("aborts a retirement over the route, returning rows to the source and replaying the stored result", async () => {
+    await withTestHarness(async (harness) => {
+      const { source, target } = seedPair(harness, "abort-ok");
+      const row = enqueue(harness, source.id, "a");
+      const retired = (await (
+        await post(harness, `/threads/${source.id}/retire`, {
+          targetThreadId: target.id,
+          operationKey: "k1",
+        })
+      ).json()) as { operationId: string };
+      const body = {
+        operationKey: "abort-1",
+        expectedRetirementOperationId: retired.operationId,
+      };
+      const aborted = await post(
+        harness,
+        `/transfer-operations/${retired.operationId}/abort`,
+        body,
+      );
+      expect(aborted.status).toBe(200);
+      const result = (await aborted.json()) as {
+        returned: { originId: string }[];
+      };
+      expect(result.returned.map((r) => r.originId)).toEqual([row.id]);
+      expect(listQueuedThreadMessages(harness.db, source.id)).toHaveLength(1);
+      expect(listQueuedThreadMessages(harness.db, target.id)).toEqual([]);
+      const replay = await post(
+        harness,
+        `/transfer-operations/${retired.operationId}/abort`,
+        body,
+      );
+      expect(replay.status).toBe(200);
+      expect(await replay.json()).toEqual(result);
+      const again = await post(
+        harness,
+        `/transfer-operations/${retired.operationId}/abort`,
+        { ...body, operationKey: "abort-2" },
+      );
+      expect(again.status).toBe(409);
+      expect(await again.json()).toMatchObject({
+        code: "thread_not_writable",
+        details: { reason: "already_aborted" },
+      });
+    });
+  }, 20_000);
+
+  it("answers 404 when aborting an unknown operation", async () => {
+    await withTestHarness(async (harness) => {
+      const response = await post(
+        harness,
+        `/transfer-operations/top_missing/abort`,
+        { operationKey: "k", expectedRetirementOperationId: "top_missing" },
+      );
+      expect(response.status).toBe(404);
+    });
+  }, 20_000);
+
+  it("refuses retire when the kill switch is off while abort still works (T-RB1)", async () => {
+    await withTestHarness(async (harness) => {
+      const { source, target } = seedPair(harness, "kill-switch");
+      enqueue(harness, source.id, "a");
+      const retired = (await (
+        await post(harness, `/threads/${source.id}/retire`, {
+          targetThreadId: target.id,
+          operationKey: "k1",
+        })
+      ).json()) as { operationId: string };
+      vi.stubEnv("ALEPH_TRANSFER_RETIRE", "off");
+      try {
+        const other = seedThread(harness.deps, {
+          projectId: source.projectId,
+          environmentId: source.environmentId,
+          status: "active",
+        });
+        enqueue(harness, other.id, "b");
+        const refused = await post(harness, `/threads/${other.id}/retire`, {
+          targetThreadId: target.id,
+          operationKey: "k2",
+        });
+        expect(refused.status).toBe(409);
+        expect(await refused.json()).toMatchObject({
+          details: { reason: "transfer_retire_disabled" },
+        });
+        const aborted = await post(
+          harness,
+          `/transfer-operations/${retired.operationId}/abort`,
+          {
+            operationKey: "abort-1",
+            expectedRetirementOperationId: retired.operationId,
+          },
+        );
+        expect(aborted.status).toBe(200);
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
+  }, 20_000);
+
+  it("redirects a post to a retired thread and, with redirect off, refuses it", async () => {
+    await withTestHarness(async (harness) => {
+      const { source, target } = seedPair(harness, "post-modes");
+      enqueue(harness, source.id, "a");
+      await post(harness, `/threads/${source.id}/retire`, {
+        targetThreadId: target.id,
+        operationKey: "k1",
+      });
+      const send = () =>
+        post(harness, `/threads/${source.id}/queued-messages`, {
+          input: textInput("late"),
+          model: "gpt-5",
+          reasoningLevel: "medium",
+          permissionMode: "full",
+          serviceTier: "default",
+        });
+      const redirected = await send();
+      expect(redirected.status).toBeLessThan(300);
+      expect(listQueuedThreadMessages(harness.db, target.id)).toHaveLength(2);
+      vi.stubEnv("ALEPH_RETIRED_USER_POSTS", "refuse");
+      try {
+        const refused = await send();
+        expect(refused.status).toBe(409);
+        expect(await refused.json()).toMatchObject({
+          details: { reason: "already_retired" },
+        });
+        expect(listQueuedThreadMessages(harness.db, target.id)).toHaveLength(2);
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
+  }, 20_000);
 });

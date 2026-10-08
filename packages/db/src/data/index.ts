@@ -495,8 +495,11 @@ export {
   isThreadRetired,
 } from "./queued-thread-messages.js";
 export {
+  abortTransferOperation,
   ackTransferOperation,
   drainTransferEvents,
+  getDowngradeReadiness,
+  releaseAllWorkerClaimsOffline,
   listUnemittedTransferEvents,
   markTransferEventEmitted,
   getTransferOperation,
@@ -504,6 +507,10 @@ export {
   sweepTransferOperations,
 } from "./transfer-operations.js";
 export type {
+  AbortRefusalReason,
+  AbortResult,
+  AbortTransferOperationOutcome,
+  DowngradeReadiness,
   RetireQueuedThreadMessagesArgs,
   RetireQueuedThreadMessagesOutcome,
   RetireRefusalReason,

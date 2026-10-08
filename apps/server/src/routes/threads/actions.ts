@@ -48,6 +48,7 @@ import { validatePromptAttachmentReferences } from "../../services/projects/atta
 import {
   createQueuedMessageForThread,
   sendQueuedMessageNow,
+  abortRetirement,
   retireThread,
   transferAllQueuedMessages,
   transferQueuedMessage,
@@ -296,6 +297,16 @@ export function registerThreadActionRoutes(app: Hono, deps: AppDeps): void {
       throw new ApiError(404, "not_found", "Transfer operation not found");
     }
     return context.json(operation);
+  });
+
+  post(routes.abortRetirement, async (context, payload) => {
+    return context.json(
+      await abortRetirement(deps, {
+        operationId: context.req.param("id"),
+        operationKey: payload.operationKey,
+        expectedRetirementOperationId: payload.expectedRetirementOperationId,
+      }),
+    );
   });
 
   post(routes.ackTransferOperation, (context) => {

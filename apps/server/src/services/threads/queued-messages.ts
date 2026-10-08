@@ -1,5 +1,6 @@
 import { retiredUserPostsMode } from "./retired-user-posts.js";
 import {
+  abortTransferOperation,
   claimNextQueuedThreadMessageGroup,
   claimQueuedThreadMessageGroup,
   createQueuedThreadMessageInTransaction,
@@ -21,7 +22,9 @@ import {
   TransferTargetRetiredError,
   transferAllQueuedThreadMessagesInTransaction,
   transferQueuedThreadMessageInTransaction,
+  QueuedMessageThreadUnavailableError,
   type DbQueryConnection,
+  type AbortResult,
   type RetireResult,
   type QueuedThreadMessageGroupClaimPolicy,
   type QueuedThreadMessageGroupEligibility,
@@ -263,45 +266,50 @@ export async function createQueuedMessageForThread(
     senderThreadId: payload.senderThreadId,
     targetThread: thread,
   });
-  const { currentThread, hasProviderSession, queuedMessage } =
-    deps.db.transaction(
-      (tx) => {
-        const currentThread = getThread(tx, thread.id);
-        if (!currentThread) {
-          throw new ApiError(404, "thread_not_found", "Thread not found");
-        }
-        const { hasProviderSession } = admitQueuedMessage(tx, currentThread);
-        const queuedMessage = createQueuedThreadMessageInTransaction(tx, {
-          threadId: thread.id,
-          content: payload.input,
-          senderThreadId,
-          retiredPosts: retiredUserPostsMode(),
-          model: execution.model,
-          reasoningLevel: execution.reasoningLevel,
-          permissionMode: execution.permissionMode,
-          serviceTier: execution.serviceTier,
-          // An explicit "queue this" is a message waiting for the running turn
-          // to end, which is exactly `thread-busy`. Naming it rather than
-          // leaving the wait null keeps every row on one vocabulary, and the
-          // idle drain treats the two identically anyway.
-          //
-          // Queued while the thread is stopping, it is instead a message the
-          // user composed AFTER asking for the stop, so it carries `stopping`
-          // and runs when the stop lands rather than joining the rows the
-          // manual-stop pause holds back.
-          waitingOn:
-            currentThread.status === "stopping"
-              ? { kind: "stopping" }
-              : { kind: "thread-busy" },
-          sendAt: null,
-          payload: { kind: "inline" },
-          systemNotice: null,
-        });
-        return { currentThread, hasProviderSession, queuedMessage };
-      },
-      { behavior: "immediate" },
-    );
-  deps.hub.notifyThread(thread.id, ["queue-changed"]);
+  const { currentThread, hasProviderSession, queuedMessage } = mapUnavailable(
+    deps,
+    thread,
+    () =>
+      deps.db.transaction(
+        (tx) => {
+          const currentThread = getThread(tx, thread.id);
+          if (!currentThread) {
+            throw new ApiError(404, "thread_not_found", "Thread not found");
+          }
+          const { hasProviderSession } = admitQueuedMessage(tx, currentThread);
+          const queuedMessage = createQueuedThreadMessageInTransaction(tx, {
+            threadId: thread.id,
+            content: payload.input,
+            senderThreadId,
+            retiredPosts: retiredUserPostsMode(),
+            model: execution.model,
+            reasoningLevel: execution.reasoningLevel,
+            permissionMode: execution.permissionMode,
+            serviceTier: execution.serviceTier,
+            // An explicit "queue this" is a message waiting for the running turn
+            // to end, which is exactly `thread-busy`. Naming it rather than
+            // leaving the wait null keeps every row on one vocabulary, and the
+            // idle drain treats the two identically anyway.
+            //
+            // Queued while the thread is stopping, it is instead a message the
+            // user composed AFTER asking for the stop, so it carries `stopping`
+            // and runs when the stop lands rather than joining the rows the
+            // manual-stop pause holds back.
+            waitingOn:
+              currentThread.status === "stopping"
+                ? { kind: "stopping" }
+                : { kind: "thread-busy" },
+            sendAt: null,
+            payload: { kind: "inline" },
+            systemNotice: null,
+          });
+          return { currentThread, hasProviderSession, queuedMessage };
+        },
+        { behavior: "immediate" },
+      ),
+  );
+  const landedThreadId = queuedMessage.threadId;
+  deps.hub.notifyThread(landedThreadId, ["queue-changed"]);
   if (senderThreadId === null && payload.input.length > 0) {
     captureUserMessageSentTelemetry(deps, {
       isChildThread: thread.parentThreadId !== null,
@@ -309,13 +317,35 @@ export async function createQueuedMessageForThread(
       providerId: thread.providerId,
     });
   }
-  if (currentThread.status === "idle" && hasProviderSession) {
+  if (
+    landedThreadId !== thread.id ||
+    (currentThread.status === "idle" && hasProviderSession)
+  ) {
     requestQueuedMessageDispatch(deps, {
       kind: "thread-ready",
-      threadId: thread.id,
+      threadId: landedThreadId,
     });
   }
   return toThreadQueuedMessage(queuedMessage);
+}
+
+function mapUnavailable<T>(
+  deps: Pick<AppDeps, "db">,
+  thread: Thread,
+  run: () => T,
+): T {
+  try {
+    return run();
+  } catch (error) {
+    if (error instanceof QueuedMessageThreadUnavailableError) {
+      throwThreadNotWritable(
+        getThread(deps.db, thread.id) ?? thread,
+        error.reason,
+        "Thread is retired",
+      );
+    }
+    throw error;
+  }
 }
 
 function mapTargetRetired<T>(targetThread: Thread, run: () => T): T {
@@ -396,6 +426,60 @@ export async function retireThread(
     requestQueuedMessageDispatch(deps, {
       kind: "thread-ready",
       threadId: args.targetThreadId,
+    });
+  }
+  return outcome.result;
+}
+
+export interface AbortRetirementArgs {
+  operationId: string;
+  operationKey: string;
+  expectedRetirementOperationId: string;
+}
+
+export async function abortRetirement(
+  deps: AppDeps,
+  args: AbortRetirementArgs,
+): Promise<AbortResult> {
+  const operation = getTransferOperation(deps.db, args.operationId);
+  if (!operation) {
+    throw new ApiError(404, "not_found", "Transfer operation not found");
+  }
+  const source = getThread(deps.db, operation.sourceThreadId);
+  const outcome = abortTransferOperation(deps.db, {
+    projectId: operation.projectId,
+    operationId: args.operationId,
+    expectedRetirementOperationId: args.expectedRetirementOperationId,
+    operationKey: args.operationKey,
+    resolveWaitingOn: (row) => {
+      const waitingOn = parseStoredQueuedThreadMessageWaitingOn(row);
+      if (waitingOn?.kind === "plugin" || waitingOn?.kind === "time") {
+        return waitingOn;
+      }
+      return source?.status === "stopping"
+        ? { kind: "stopping" }
+        : { kind: "thread-busy" };
+    },
+  });
+  if (outcome.kind === "idempotency_conflict") {
+    throw new ApiError(
+      409,
+      "idempotency_conflict",
+      "Operation key was already used for a different request",
+    );
+  }
+  if (outcome.kind === "refused") {
+    throwThreadNotWritable(
+      source ?? { archivedAt: null, deletedAt: null, status: "idle" },
+      outcome.reason,
+      "Retirement cannot be aborted",
+    );
+  }
+  await drainTransferLedger(deps);
+  if (source?.status === "idle") {
+    requestQueuedMessageDispatch(deps, {
+      kind: "thread-ready",
+      threadId: source.id,
     });
   }
   return outcome.result;

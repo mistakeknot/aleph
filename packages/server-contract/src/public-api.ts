@@ -191,6 +191,8 @@ import type {
   SetQueuedMessageGroupBoundaryRequest,
   SendQueuedMessageRequest,
   AckTransferOperationResponse,
+  AbortRetirementRequest,
+  AbortRetirementResponse,
   RetireThreadRequest,
   RetireThreadResponse,
   TransferAllQueuedMessagesRequest,
@@ -365,6 +367,7 @@ import {
   editMessageRequestSchema,
   setQueuedMessageGroupBoundaryRequestSchema,
   sendQueuedMessageRequestSchema,
+  abortRetirementRequestSchema,
   retireThreadRequestSchema,
   transferAllQueuedMessagesRequestSchema,
   transferQueuedMessageRequestSchema,
@@ -1448,6 +1451,14 @@ export const publicApiRoutes = {
       method: "get",
       request: noRequest<PathId>(),
       response: jsonResponse<TransferOperationResponse>(),
+    }),
+    abortRetirement: defineRoute({
+      path: "/transfer-operations/:id/abort",
+      method: "post",
+      request: jsonRequest<PathId, AbortRetirementRequest>(
+        abortRetirementRequestSchema,
+      ),
+      response: jsonResponse<AbortRetirementResponse>(),
     }),
     ackTransferOperation: defineRoute({
       path: "/transfer-operations/:id/ack",
