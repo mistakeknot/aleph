@@ -486,6 +486,8 @@ export {
   setQueuedThreadMessageFailureReason,
   setQueuedThreadMessageWaitingOn,
   getRedirectSuccessorThreadId,
+  getThreadRedirectState,
+  type ThreadRedirectState,
   releaseStaleQueuedMessageClaims,
   reorderQueuedThreadMessage,
   setQueuedThreadMessageGroupBoundary,

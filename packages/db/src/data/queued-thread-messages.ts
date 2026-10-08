@@ -648,6 +648,24 @@ export function getRedirectSuccessorThreadId(
   );
 }
 
+export type ThreadRedirectState =
+  | { kind: "none" }
+  | { kind: "retired"; successorThreadId: string | null };
+
+export function getThreadRedirectState(
+  db: DbQueryConnection,
+  sourceThreadId: string,
+): ThreadRedirectState {
+  const redirect = db
+    .select({ successorThreadId: threadRedirects.successorThreadId })
+    .from(threadRedirects)
+    .where(eq(threadRedirects.sourceThreadId, sourceThreadId))
+    .get();
+  return redirect
+    ? { kind: "retired", successorThreadId: redirect.successorThreadId }
+    : { kind: "none" };
+}
+
 function resolveRedirectedCreate(
   tx: DbTransaction,
   input: CreateQueuedThreadMessageInput,

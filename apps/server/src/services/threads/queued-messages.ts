@@ -112,6 +112,7 @@ import {
   formatAgentThreadInput,
   resolveMessageSenderThreadId,
 } from "./thread-send.js";
+import { resolveRetiredIngress } from "./retired-ingress.js";
 import { recordAcceptedPromptHistoryEntry } from "../prompt-history.js";
 import { requireThreadCommandEnvironment } from "./thread-command-environment.js";
 import { applyLoggedThreadLifecycleEventInTransaction } from "./lifecycle-outcome.js";
@@ -252,7 +253,14 @@ export async function createQueuedMessageForThread(
   deps: LoggedPendingInteractionWorkSessionDeps,
   args: CreateQueuedMessageForThreadArgs,
 ): Promise<ThreadQueuedMessage> {
-  const { payload, thread } = args;
+  const { payload } = args;
+  const resolution = resolveRetiredIngress(deps.db, args.thread, {
+    refuseUserPosts: true,
+  });
+  if (resolution.kind === "unavailable") {
+    throwThreadNotWritable(args.thread, resolution.reason, "Thread is retired");
+  }
+  const thread = resolution.thread;
   ensureThreadQueueIsWritable(thread);
   await validatePromptAttachmentReferences({
     db: deps.db,
@@ -279,7 +287,7 @@ export async function createQueuedMessageForThread(
           }
           const { hasProviderSession } = admitQueuedMessage(tx, currentThread);
           const queuedMessage = createQueuedThreadMessageInTransaction(tx, {
-            threadId: thread.id,
+            threadId: args.thread.id,
             content: payload.input,
             senderThreadId,
             retiredPosts: retiredUserPostsMode(),
@@ -319,7 +327,7 @@ export async function createQueuedMessageForThread(
     });
   }
   if (
-    landedThreadId !== thread.id ||
+    landedThreadId !== args.thread.id ||
     (currentThread.status === "idle" && hasProviderSession)
   ) {
     requestQueuedMessageDispatch(deps, {

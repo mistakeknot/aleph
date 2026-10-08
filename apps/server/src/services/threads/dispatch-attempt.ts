@@ -1,4 +1,5 @@
 import { requestQueuedMachineReadiness } from "./queued-message-dispatch.js";
+import { assertNotRetiredInTransaction } from "./retired-ingress.js";
 import {
   cancelPreparingMachinePause,
   isMachineWaitingForExecution,
@@ -578,6 +579,14 @@ async function runDispatchAttempt(
 
   // --- 2. dispatch --------------------------------------------------------
 
+  const directUserPost =
+    args.source.kind === "inline" &&
+    args.trigger === "user" &&
+    args.retryOf === undefined;
+  if (directUserPost) {
+    assertNotRetiredInTransaction(deps.db, thread.id);
+  }
+
   if (firstDispatch) {
     const admission = admitted.value;
     if (admission === null) {
@@ -603,6 +612,9 @@ async function runDispatchAttempt(
       trigger: args.trigger,
       ...(args.retryOf !== undefined ? { retryOf: args.retryOf } : {}),
       beforeAppendInTransaction: ({ tx }) => {
+        if (directUserPost) {
+          assertNotRetiredInTransaction(tx, thread.id);
+        }
         if (getThread(tx, thread.id)?.status !== thread.status) {
           throw new DispatchThreadStatusChangedError();
         }

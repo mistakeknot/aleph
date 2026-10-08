@@ -1,3 +1,4 @@
+import { getThread } from "@bb/db";
 import { isStandaloneBuiltinClearCommand, type Thread } from "@bb/domain";
 import type {
   SendMessageRequest,
@@ -8,6 +9,11 @@ import { attemptDispatch } from "./dispatch-attempt.js";
 import { requireThreadCommandEnvironment } from "./thread-command-environment.js";
 import { sendThreadMessage } from "./thread-send.js";
 import { assertThreadHostAcceptsWork } from "./thread-host-admission.js";
+import {
+  RetirementAppearedError,
+  resolveRetiredIngress,
+} from "./retired-ingress.js";
+import { throwThreadNotWritable } from "../lib/lifecycle-api-errors.js";
 
 interface AcceptThreadSendRequestArgs {
   payload: SendMessageRequest;
@@ -15,6 +21,32 @@ interface AcceptThreadSendRequestArgs {
 }
 
 export async function acceptThreadSendRequest(
+  deps: LoggedPendingInteractionWorkSessionDeps,
+  args: AcceptThreadSendRequestArgs,
+): Promise<SendMessageResponse> {
+  let thread = args.thread;
+  for (let attempt = 0; ; attempt += 1) {
+    const resolution = resolveRetiredIngress(deps.db, thread, {
+      refuseUserPosts: true,
+    });
+    if (resolution.kind === "unavailable") {
+      throwThreadNotWritable(thread, resolution.reason, "Thread is retired");
+    }
+    try {
+      return await acceptResolvedThreadSendRequest(deps, {
+        payload: args.payload,
+        thread: resolution.thread,
+      });
+    } catch (error) {
+      if (!(error instanceof RetirementAppearedError) || attempt > 0) {
+        throw error;
+      }
+      thread = getThread(deps.db, thread.id) ?? thread;
+    }
+  }
+}
+
+async function acceptResolvedThreadSendRequest(
   deps: LoggedPendingInteractionWorkSessionDeps,
   args: AcceptThreadSendRequestArgs,
 ): Promise<SendMessageResponse> {

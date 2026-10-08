@@ -61,6 +61,11 @@ import {
 } from "./thread-context-mutation-guard.js";
 import { requestQueuedMessageDispatch } from "./queued-message-dispatch.js";
 import {
+  RetirementAppearedError,
+  assertNotRetiredInTransaction,
+  resolveRetiredIngress,
+} from "./retired-ingress.js";
+import {
   checkParentThreadHeld,
   type ParentThreadHeldResult,
 } from "./parent-wake-policy.js";
@@ -254,10 +259,14 @@ export function buildParentSystemThreadMention(
 function requireParentWritableInTransaction(
   tx: DbTransaction,
   threadId: string,
+  claimed: boolean,
 ): Thread {
   const currentThread = getThread(tx, threadId);
   if (currentThread === null || currentThread.deletedAt !== null) {
     throw new QueuedMessageThreadUnavailableError(threadId, "deleted");
+  }
+  if (!claimed) {
+    assertNotRetiredInTransaction(tx, threadId);
   }
   if (currentThread.archivedAt !== null) {
     throw new QueuedMessageThreadUnavailableError(threadId, "archived");
@@ -432,7 +441,11 @@ async function queueReadyParentSystemMessage(
   const activeThread: Thread | null = deps.db.transaction(
     (tx) => {
       ensureThreadCanStartRequest(
-        requireParentWritableInTransaction(tx, args.thread.id),
+        requireParentWritableInTransaction(
+          tx,
+          args.thread.id,
+          args.claim !== undefined,
+        ),
       );
       consumeParentSystemClaimInTransaction(tx, args.claim);
       appendPreparedClientTurnRequestedEventWithNotificationInTransaction(tx, {
@@ -515,12 +528,33 @@ export async function queueParentSystemMessage(
   deps: LoggedPendingInteractionWorkSessionDeps,
   args: QueueParentSystemMessageArgs,
 ): Promise<boolean> {
-  const parentThread = getThread(deps.db, args.parentThreadId);
-  if (
-    !parentThread ||
-    parentThread.archivedAt !== null ||
-    parentThread.deletedAt !== null
-  ) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await queueParentSystemMessageToResolvedParent(deps, args);
+    } catch (error) {
+      if (!(error instanceof RetirementAppearedError) || attempt > 0) {
+        throw error;
+      }
+    }
+  }
+}
+
+async function queueParentSystemMessageToResolvedParent(
+  deps: LoggedPendingInteractionWorkSessionDeps,
+  args: QueueParentSystemMessageArgs,
+): Promise<boolean> {
+  const requestedParent = getThread(deps.db, args.parentThreadId);
+  if (!requestedParent || requestedParent.deletedAt !== null) {
+    return false;
+  }
+  const resolution = resolveRetiredIngress(deps.db, requestedParent, {
+    refuseUserPosts: false,
+  });
+  if (resolution.kind === "unavailable") {
+    return false;
+  }
+  const parentThread = resolution.thread;
+  if (parentThread.archivedAt !== null || parentThread.deletedAt !== null) {
     return false;
   }
   const hasPendingInteraction =
@@ -677,7 +711,11 @@ async function deliverParentSystemMessageToWritableParent(
   if (
     await dispatchTurnDuringReprovision({
       beforeRequestAppendInTransaction: ({ tx }) => {
-        requireParentWritableInTransaction(tx, parentThread.id);
+        requireParentWritableInTransaction(
+          tx,
+          parentThread.id,
+          args.claim !== undefined,
+        );
         consumeParentSystemClaimInTransaction(tx, args.claim);
       },
       deps,
