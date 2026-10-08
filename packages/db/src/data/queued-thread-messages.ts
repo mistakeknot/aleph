@@ -1514,9 +1514,25 @@ export function requeueClaimedQueuedThreadMessages(
 ): QueuedThreadMessageRow | null {
   const lead = args.claims[0];
   if (lead === undefined) return null;
+  let slotThreadIds: string[] = [];
   const queued = db.transaction(
     (tx) => {
       const now = Date.now();
+      const slotTargets = tx
+        .select({
+          id: queuedThreadMessages.id,
+          threadId: queuedThreadMessages.threadId,
+          sourceRowId: queuedThreadMessages.forwardSourceRowId,
+        })
+        .from(queuedThreadMessages)
+        .where(
+          inArray(
+            queuedThreadMessages.forwardSourceRowId,
+            args.claims.map((claim) => claim.id),
+          ),
+        )
+        .all();
+      slotThreadIds = [...new Set(slotTargets.map((slot) => slot.threadId))];
       for (const claim of args.claims) {
         tx.update(queuedThreadMessages)
           .set({
@@ -1538,6 +1554,20 @@ export function requeueClaimedQueuedThreadMessages(
             ),
           )
           .run();
+      }
+      const leadSlot = slotTargets.find((slot) => slot.sourceRowId === lead.id);
+      if (leadSlot !== undefined) {
+        const filled = tx
+          .select()
+          .from(queuedThreadMessages)
+          .where(
+            and(
+              eq(queuedThreadMessages.id, leadSlot.id),
+              isNull(queuedThreadMessages.forwardSourceRowId),
+            ),
+          )
+          .get();
+        if (filled !== undefined) return filled;
       }
       return (
         tx
@@ -1572,6 +1602,11 @@ export function requeueClaimedQueuedThreadMessages(
   );
   if (queued) {
     notifier.notifyThread(args.threadId, ["queue-changed"]);
+    for (const threadId of slotThreadIds) {
+      if (threadId !== args.threadId) {
+        notifier.notifyThread(threadId, ["queue-changed"]);
+      }
+    }
   }
   return queued;
 }
@@ -1600,23 +1635,41 @@ export function releaseQueuedMessageClaim(
   }
 
   const now = Date.now();
-  const result = db
-    .update(queuedThreadMessages)
-    .set({ claimedAt: null, claimToken: null, updatedAt: now })
-    .where(
-      and(
-        eq(queuedThreadMessages.id, args.id),
-        isNull(queuedThreadMessages.forwardSourceRowId),
-        isNotNull(queuedThreadMessages.claimedAt),
-        eq(queuedThreadMessages.claimToken, args.claimToken),
-      ),
-    )
-    .run();
-  if (result.changes === 0) {
+  const slotThreadIds = db.transaction(
+    (tx) => {
+      const slotThreads = tx
+        .selectDistinct({ threadId: queuedThreadMessages.threadId })
+        .from(queuedThreadMessages)
+        .where(eq(queuedThreadMessages.forwardSourceRowId, args.id))
+        .all();
+      const result = tx
+        .update(queuedThreadMessages)
+        .set({ claimedAt: null, claimToken: null, updatedAt: now })
+        .where(
+          and(
+            eq(queuedThreadMessages.id, args.id),
+            isNull(queuedThreadMessages.forwardSourceRowId),
+            isNotNull(queuedThreadMessages.claimedAt),
+            eq(queuedThreadMessages.claimToken, args.claimToken),
+          ),
+        )
+        .run();
+      return result.changes === 0
+        ? null
+        : slotThreads.map((slot) => slot.threadId);
+    },
+    { behavior: "immediate" },
+  );
+  if (slotThreadIds === null) {
     return false;
   }
 
   notifier.notifyThread(existing.threadId, ["queue-changed"]);
+  for (const threadId of slotThreadIds) {
+    if (threadId !== existing.threadId) {
+      notifier.notifyThread(threadId, ["queue-changed"]);
+    }
+  }
   return true;
 }
 

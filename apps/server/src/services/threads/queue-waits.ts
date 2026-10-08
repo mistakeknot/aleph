@@ -143,6 +143,9 @@ export function recordQueuedMessageWait(
   const entry = toThreadQueuedMessage(row);
   emitPluginMessageQueued(entry);
   deps.hub.notifyThread(args.thread.id, ["queue-changed"]);
+  if (row.threadId !== args.thread.id) {
+    deps.hub.notifyThread(row.threadId, ["queue-changed"]);
+  }
   return entry;
 }
 
