@@ -231,7 +231,7 @@ export interface PluginThreadEventEmitter {
   emitMessageDispatched(entry: ThreadQueuedMessage): void;
   emitMessageCancelled(entry: ThreadQueuedMessage): void;
   deliverMessageQueuedTransfer(
-    entry: ThreadQueuedMessage,
+    entry: ThreadQueuedMessage | null,
     transfer: PluginMessageTransfer,
   ): Promise<boolean>;
   /**

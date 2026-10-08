@@ -68,7 +68,12 @@ function installHandler(
   handler: Handler,
 ) {
   runtime.loaded.set("plug-1", {
-    handle: { threadEventHandlers: { "message.queued": [handler] } },
+    handle: {
+      threadEventHandlers: {
+        "message.queued": [handler],
+        "message.transferred": [],
+      },
+    },
   } as never);
   setPluginThreadEventEmitter({
     deliverMessageQueuedTransfer: runtime.buildQueuedMessageTransferDeliverer(),

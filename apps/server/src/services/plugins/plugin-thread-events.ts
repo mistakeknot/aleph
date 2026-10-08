@@ -54,7 +54,7 @@ export function emitPluginMessageDispatched(entry: ThreadQueuedMessage): void {
 }
 
 export function deliverPluginMessageQueuedTransfer(
-  entry: ThreadQueuedMessage,
+  entry: ThreadQueuedMessage | null,
   transfer: PluginMessageTransfer,
 ): Promise<boolean> {
   return emitter

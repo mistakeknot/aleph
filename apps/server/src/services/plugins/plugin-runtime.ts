@@ -891,11 +891,23 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
   }
 
   function buildQueuedMessageTransferDeliverer(): (
-    entry: ThreadQueuedMessage,
+    entry: ThreadQueuedMessage | null,
     transfer: PluginMessageTransfer,
   ) => Promise<boolean> {
-    return (entry, transfer) =>
-      deliverThreadEvent("message.queued", { entry, transfer });
+    return async (entry, transfer) => {
+      const recorded = await deliverThreadEvent("message.transferred", {
+        entry,
+        transfer,
+      });
+      const heldByPlugin =
+        entry !== null &&
+        (entry.waitingOn?.kind === "plugin" ||
+          entry.waitingOn?.kind === "time");
+      const queued = heldByPlugin
+        ? await deliverThreadEvent("message.queued", { entry, transfer })
+        : true;
+      return recorded && queued;
+    };
   }
 
   function buildThreadDto(thread: Thread) {

@@ -18,6 +18,7 @@ bb.events.on("message.queued", ({ entry }) => { ... });                    // en
 bb.events.on("message.dispatched", ({ entry }) => { ... });
 bb.events.on("turn.failed", (event) => { ... });                           // ids + failure facts
 bb.events.on("message.cancelled", ({ entry }) => { ... });                 // row deleted before dispatch
+bb.events.on("message.transferred", ({ entry, transfer }) => { ... });    // entry: ThreadQueuedMessage | null
 ```
 
 **Events are announcements core makes.** Something already happened, your
@@ -25,10 +26,11 @@ handler is told, and whatever it returns is IGNORED. The surface that ASKS is
 `bb.experimental_hooks`, below, where core acts on your answer — the same split
 git draws between post-commit and pre-commit hooks.
 
-Fourteen events. The seven `thread.*` ones are thread lifecycle. `interaction.pending`
-fires after core commits a pending interaction row. The three `message.*`
+Fifteen events. The seven `thread.*` ones are thread lifecycle. `interaction.pending`
+fires after core commits a pending interaction row. The four `message.*`
 ones fire when a dispatch is queued behind a wait, when a queued row's waits
-all clear and it dispatches, or when the queued row is cancelled. Every listener sees every queued row, so a plugin
+all clear and it dispatches, when the queued row is cancelled, or when a queue
+transfer record is delivered. Every listener sees every queued row, so a plugin
 that only wants its own filters on
 `entry.waitingOn?.kind === "plugin" && entry.waitingOn.pluginId === bb.pluginId`.
 `message.queued` fires again when a row's wait is rewritten, because a row that

@@ -569,6 +569,7 @@ export function createPluginApi(options: {
     "message.dispatched": [],
     "turn.failed": [],
     "message.cancelled": [],
+    "message.transferred": [],
     "thread.unarchived": [],
   };
   const hooks: PluginHookRecords = {

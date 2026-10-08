@@ -507,27 +507,21 @@ export async function drainTransferLedger(
     progressed = false;
     const notified = new Set<string>();
     for (const event of listUnemittedTransferEvents(deps.db)) {
-      let delivered = true;
+      let entry: ThreadQueuedMessage | null = null;
       if (event.payload.rowId && carriesLandedRow(event.payload)) {
         const row = getQueuedThreadMessage(deps.db, event.payload.rowId);
-        const entry = row ? toThreadQueuedMessage(row) : null;
-        if (
-          entry &&
-          (entry.waitingOn?.kind === "plugin" ||
-            entry.waitingOn?.kind === "time")
-        ) {
-          delivered = await deliverPluginMessageQueuedTransfer(entry, {
-            eventId: event.eventId,
-            operationId: event.opId,
-            entryId: event.entryId,
-            kind: event.payload.kind,
-            state: event.payload.state,
-            rowId: event.payload.rowId,
-            sourceRowId: event.payload.sourceId,
-            originId: event.payload.origin,
-          });
-        }
+        entry = row ? toThreadQueuedMessage(row) : null;
       }
+      const delivered = await deliverPluginMessageQueuedTransfer(entry, {
+        eventId: event.eventId,
+        operationId: event.opId,
+        entryId: event.entryId,
+        kind: event.payload.kind,
+        state: event.payload.state,
+        rowId: event.payload.rowId,
+        sourceRowId: event.payload.sourceId,
+        originId: event.payload.origin,
+      });
       if (!delivered) continue;
       markTransferEventEmitted(deps.db, event.eventId);
       progressed = true;

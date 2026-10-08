@@ -229,6 +229,7 @@ const THREAD_EVENT_PAYLOAD_FIELDS = {
   "message.queued": ["entry", "transfer"],
   "message.dispatched": ["entry"],
   "message.cancelled": ["entry"],
+  "message.transferred": ["entry", "transfer"],
   "turn.failed": [
     "threadId",
     "requestId",
@@ -713,7 +714,7 @@ describe("bb-plugin-authoring skill", () => {
     expect(readReference("frontend-components.md")).not.toContain(
       'workspace: { type: "personal" }',
     );
-    expect(readReference("backend-events.md")).toContain("Fourteen events.");
+    expect(readReference("backend-events.md")).toContain("Fifteen events.");
     expect(readReference("backend-events.md")).toContain(
       "The seven `thread.*` ones",
     );
