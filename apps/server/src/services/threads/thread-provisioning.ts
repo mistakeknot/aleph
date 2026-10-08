@@ -276,42 +276,45 @@ export function requestThreadTargetReprovision(
   deps: Pick<AppDeps, "db" | "hub">,
   args: RequestThreadTargetReprovisionArgs,
 ): ThreadProvisionContext {
-  return deps.db.transaction(() => {
-    const request = appendReprovisionTurnRequest(deps, args);
-    const context = createThreadStartup({
-      clientRequestId: request.requestId,
-      environmentIntent:
-        args.environment.status === "error" &&
-        args.environment.path !== null &&
-        args.environment.teardownStatus === null
-          ? { type: "reuse", environmentId: args.environment.id }
-          : {
-              type: "provider",
-              environmentProviderId: args.provider.environmentProviderId,
-              machine: {
-                type: "existing",
-                hostId: args.environment.hostId,
+  return deps.db.transaction(
+    () => {
+      const request = appendReprovisionTurnRequest(deps, args);
+      const context = createThreadStartup({
+        clientRequestId: request.requestId,
+        environmentIntent:
+          args.environment.status === "error" &&
+          args.environment.path !== null &&
+          args.environment.teardownStatus === null
+            ? { type: "reuse", environmentId: args.environment.id }
+            : {
+                type: "provider",
+                environmentProviderId: args.provider.environmentProviderId,
+                machine: {
+                  type: "existing",
+                  hostId: args.environment.hostId,
+                },
+                inputs: args.provider.selection.inputs,
+                selectionResolved: true,
               },
-              inputs: args.provider.selection.inputs,
-              selectionResolved: true,
-            },
-      execution: args.execution,
-      fork: null,
-      input: args.input,
-      ...(args.inputGroups !== undefined
-        ? { inputGroups: args.inputGroups }
-        : {}),
-      seedWithoutRun: false,
-      titleProvided: true,
-    });
-    saveThreadProvisionContext({
-      replace: true,
-      db: deps.db,
-      threadId: args.thread.id,
-      context,
-    });
-    return context;
-  });
+        execution: args.execution,
+        fork: null,
+        input: args.input,
+        ...(args.inputGroups !== undefined
+          ? { inputGroups: args.inputGroups }
+          : {}),
+        seedWithoutRun: false,
+        titleProvided: true,
+      });
+      saveThreadProvisionContext({
+        replace: true,
+        db: deps.db,
+        threadId: args.thread.id,
+        context,
+      });
+      return context;
+    },
+    { behavior: "immediate" },
+  );
 }
 
 function appendReprovisionTurnRequest(

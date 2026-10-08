@@ -22,15 +22,18 @@ describe("queue retirement capability", () => {
     expect(hasQueueRetirementGuarantee(parsed, "G1")).toBe(false);
   });
 
-  it("reads the advertised G1 guarantee from a current server", () => {
+  it("reads the advertised G1 and G2 guarantees from a current server", () => {
     const parsed = systemVersionResponseSchema.parse({
       ...oldServerResponse,
       queueRetirement: QUEUE_RETIREMENT_CAPABILITY,
     });
 
-    expect(parsed.queueRetirement).toEqual({ version: 1, guarantees: ["G1"] });
+    expect(parsed.queueRetirement).toEqual({
+      version: 1,
+      guarantees: ["G1", "G2"],
+    });
     expect(hasQueueRetirementGuarantee(parsed, "G1")).toBe(true);
-    expect(hasQueueRetirementGuarantee(parsed, "G2")).toBe(false);
+    expect(hasQueueRetirementGuarantee(parsed, "G2")).toBe(true);
   });
 
   it("tolerates guarantees advertised by a future server", () => {

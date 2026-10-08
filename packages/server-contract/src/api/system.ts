@@ -267,7 +267,7 @@ export type QueueRetirementCapability = z.infer<
 
 export const QUEUE_RETIREMENT_CAPABILITY: QueueRetirementCapability = {
   version: 1,
-  guarantees: ["G1"],
+  guarantees: ["G1", "G2"],
 };
 
 export function hasQueueRetirementGuarantee(
