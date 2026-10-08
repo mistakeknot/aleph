@@ -428,6 +428,27 @@ export const retireThreadResponseSchema = z.object({
 });
 export type RetireThreadResponse = z.infer<typeof retireThreadResponseSchema>;
 
+export const abortRetirementRequestSchema = z.object({
+  operationKey: z.string().min(1),
+  expectedRetirementOperationId: z.string().min(1),
+});
+export type AbortRetirementRequest = z.infer<
+  typeof abortRetirementRequestSchema
+>;
+
+export const abortRetirementResponseSchema = z.object({
+  operationId: z.string(),
+  retirementOperationId: z.string(),
+  sourceArchived: z.boolean(),
+  returned: z.array(
+    z.object({ id: z.string(), newId: z.string(), originId: z.string() }),
+  ),
+  residuals: z.array(z.object({ originId: z.string(), location: z.string() })),
+});
+export type AbortRetirementResponse = z.infer<
+  typeof abortRetirementResponseSchema
+>;
+
 export const transferOperationEntrySchema = z.object({
   id: z.string(),
   kind: z.enum([

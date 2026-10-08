@@ -95,7 +95,9 @@ export function ThreadSearchPaletteMode({
   const [query, setQuery] = useState("");
   const [highlightedIndex, setHighlightedIndex] = useState(0);
   const [highlightedKey, setHighlightedKey] = useState<string | null>(null);
-  const [expandedGroups, setExpandedGroups] = useState<ThreadArchiveFilter[]>([]);
+  const [expandedGroups, setExpandedGroups] = useState<ThreadArchiveFilter[]>(
+    [],
+  );
   const filterKey = lifecycles.join(",");
   const [previousFilterKey, setPreviousFilterKey] = useState(filterKey);
   if (previousFilterKey !== filterKey) {

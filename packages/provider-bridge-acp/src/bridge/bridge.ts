@@ -300,10 +300,7 @@ function rememberGrokContextWindow(
   }
 }
 
-function emitGrokContextWindow(
-  session: AcpThreadSession,
-  used: number,
-): void {
+function emitGrokContextWindow(session: AcpThreadSession, used: number): void {
   if (
     session.dialect.id !== "grok" ||
     session.grokContextWindowSize === undefined

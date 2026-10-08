@@ -266,11 +266,23 @@ export type QueueRetirementCapability = z.infer<
   typeof queueRetirementCapabilitySchema
 >;
 
-export const QUEUE_RETIREMENT_CAPABILITY: QueueRetirementCapability = {
-  version: 1,
-  guarantees: ["G1", "G2", "G3"],
-  retire: { maxHops: 1 },
-};
+export type RetiredUserPostsMode = "redirect" | "refuse";
+
+export function buildQueueRetirementCapability(
+  mode: RetiredUserPostsMode,
+): QueueRetirementCapability {
+  return {
+    version: 1,
+    guarantees:
+      mode === "redirect"
+        ? ["G1", "G2", "G3", "G4", "G5", "G6"]
+        : ["G1", "G2", "G3", "G4", "G5"],
+    retire: { maxHops: 1 },
+  };
+}
+
+export const QUEUE_RETIREMENT_CAPABILITY: QueueRetirementCapability =
+  buildQueueRetirementCapability("redirect");
 
 export function hasQueueRetirementGuarantee(
   response: { queueRetirement?: QueueRetirementCapability | undefined },

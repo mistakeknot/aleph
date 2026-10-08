@@ -45,9 +45,7 @@ function resolveLocal(specifier, importerRel) {
   if (specifier.startsWith("@/")) {
     base = specifier.slice(2);
   } else if (specifier.startsWith(".")) {
-    base = path.normalize(
-      path.join(path.dirname(importerRel), specifier),
-    );
+    base = path.normalize(path.join(path.dirname(importerRel), specifier));
   } else {
     return null;
   }
@@ -85,9 +83,7 @@ function importSpecifiersOf(content) {
 /** npm package name of a bare specifier ("@scope/pkg/sub" → "@scope/pkg"). */
 function npmPackageOf(specifier) {
   const parts = specifier.split("/");
-  return specifier.startsWith("@")
-    ? parts.slice(0, 2).join("/")
-    : parts[0];
+  return specifier.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0];
 }
 
 /**
@@ -192,8 +188,7 @@ while (queue.length > 0) {
 const generatedFiles = new Map(); // filename → content string
 const indexEntries = [];
 for (const [itemName, relPath] of [...fileByItem.entries()].sort()) {
-  const { content, dependencies, registryDependencies } =
-    itemMeta.get(relPath);
+  const { content, dependencies, registryDependencies } = itemMeta.get(relPath);
   const { type, target } = classify(relPath);
   const item = {
     $schema: "https://ui.shadcn.com/schema/registry-item.json",
@@ -259,7 +254,9 @@ for (const [name, content] of generatedFiles) {
     : null;
   if (existing !== content) {
     stale = true;
-    staleReasons.push(existing === null ? `missing r/${name}` : `changed r/${name}`);
+    staleReasons.push(
+      existing === null ? `missing r/${name}` : `changed r/${name}`,
+    );
   }
 }
 
@@ -277,7 +274,9 @@ if (check) {
   for (const [name, content] of generatedFiles) {
     await writeFile(path.join(outDir, name), content);
   }
-  console.log(`wrote ${generatedFiles.size} files to r/ (${fileByItem.size} items)`);
+  console.log(
+    `wrote ${generatedFiles.size} files to r/ (${fileByItem.size} items)`,
+  );
 } else {
   console.log(`plugin registry up to date (${fileByItem.size} items)`);
 }

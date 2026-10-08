@@ -84,6 +84,7 @@ import {
   type BbPluginApi,
   type PluginApiHandle,
   type PluginThreadEventName,
+  type PluginMessageTransfer,
   type PluginThreadEventPayloads,
 } from "./plugin-api.js";
 import type {
@@ -870,6 +871,42 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
   ): (entry: ThreadQueuedMessage) => void {
     return (entry) => {
       emitThreadEvent(event, () => ({ entry }));
+    };
+  }
+
+  async function deliverThreadEvent<E extends PluginThreadEventName>(
+    event: E,
+    payload: PluginThreadEventPayloads[E],
+  ): Promise<boolean> {
+    const runs: Promise<{ ok: boolean }>[] = [];
+    for (const [id, plugin] of loaded) {
+      for (const handler of [...plugin.handle.threadEventHandlers[event]]) {
+        runs.push(
+          invokeWrapped(id, `${event} handler`, () => handler(payload)),
+        );
+      }
+    }
+    const results = await Promise.all(runs);
+    return results.every((result) => result.ok);
+  }
+
+  function buildQueuedMessageTransferDeliverer(): (
+    entry: ThreadQueuedMessage | null,
+    transfer: PluginMessageTransfer,
+  ) => Promise<boolean> {
+    return async (entry, transfer) => {
+      const recorded = await deliverThreadEvent("message.transferred", {
+        entry,
+        transfer,
+      });
+      const heldByPlugin =
+        entry !== null &&
+        (entry.waitingOn?.kind === "plugin" ||
+          entry.waitingOn?.kind === "time");
+      const queued = heldByPlugin
+        ? await deliverThreadEvent("message.queued", { entry, transfer })
+        : true;
+      return recorded && queued;
     };
   }
 
@@ -1894,6 +1931,8 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
     disposeAll,
     disposeOne,
     buildQueuedMessageEventEmitter,
+    buildQueuedMessageTransferDeliverer,
+    deliverThreadEvent,
     emitThreadEvent,
     getStatus,
     handlerStats,

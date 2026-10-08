@@ -1,3 +1,4 @@
+import { retiredUserPostsMode } from "./retired-user-posts.js";
 import {
   clearQueuedThreadMessageWaitingOn,
   createQueuedThreadMessageInTransaction,
@@ -29,6 +30,7 @@ import {
 } from "../plugins/plugin-thread-events.js";
 import { toThreadQueuedMessage } from "./thread-queued-messages.js";
 import { assertThreadHostAcceptsWork } from "./thread-host-admission.js";
+import { assertAdmittedDestinationInTransaction } from "./retired-ingress.js";
 
 type QueueWaitDeps = { db: DbQueryConnection; hub: DbNotifier };
 
@@ -82,6 +84,7 @@ export interface QueuedDispatchMessage {
 
 export interface RecordQueuedMessageWaitArgs {
   thread: Thread;
+  requestedThreadId?: string;
   message: QueuedDispatchMessage;
   waitingOn: QueuedMessageWaitingOn;
   /**
@@ -142,6 +145,16 @@ export function recordQueuedMessageWait(
   const entry = toThreadQueuedMessage(row);
   emitPluginMessageQueued(entry);
   deps.hub.notifyThread(args.thread.id, ["queue-changed"]);
+  if (row.threadId !== args.thread.id) {
+    deps.hub.notifyThread(row.threadId, ["queue-changed"]);
+  }
+  if (
+    args.requestedThreadId !== undefined &&
+    args.requestedThreadId !== args.thread.id &&
+    args.requestedThreadId !== row.threadId
+  ) {
+    deps.hub.notifyThread(args.requestedThreadId, ["queue-changed"]);
+  }
   return entry;
 }
 
@@ -152,10 +165,18 @@ function createQueuedRowOrRefuse(
   try {
     return deps.db.transaction(
       (tx) => {
+        if (args.requestedThreadId !== undefined) {
+          assertAdmittedDestinationInTransaction(
+            tx,
+            args.requestedThreadId,
+            args.thread.id,
+          );
+        }
         assertThreadHostAcceptsWork(tx, args.thread);
         return createQueuedThreadMessageInTransaction(tx, {
-          threadId: args.thread.id,
+          threadId: args.requestedThreadId ?? args.thread.id,
           content: args.message.input,
+          retiredPosts: retiredUserPostsMode(),
           senderThreadId: args.message.senderThreadId,
           origin: args.message.origin,
           originPluginId: args.message.originPluginId,
@@ -179,7 +200,9 @@ function createQueuedRowOrRefuse(
         error.reason,
         error.reason === "archived"
           ? "Thread is archived"
-          : "Thread is deleted",
+          : error.reason === "deleted"
+            ? "Thread is deleted"
+            : "Thread is retired",
       );
     }
     throw error;

@@ -18,6 +18,7 @@ bb.events.on("message.queued", ({ entry }) => { ... });                    // en
 bb.events.on("message.dispatched", ({ entry }) => { ... });
 bb.events.on("turn.failed", (event) => { ... });                           // ids + failure facts
 bb.events.on("message.cancelled", ({ entry }) => { ... });                 // row deleted before dispatch
+bb.events.on("message.transferred", ({ entry, transfer }) => { ... });    // entry: ThreadQueuedMessage | null
 ```
 
 **Events are announcements core makes.** Something already happened, your
@@ -25,14 +26,27 @@ handler is told, and whatever it returns is IGNORED. The surface that ASKS is
 `bb.experimental_hooks`, below, where core acts on your answer — the same split
 git draws between post-commit and pre-commit hooks.
 
-Fourteen events. The seven `thread.*` ones are thread lifecycle. `interaction.pending`
-fires after core commits a pending interaction row. The three `message.*`
+Fifteen events. The seven `thread.*` ones are thread lifecycle. `interaction.pending`
+fires after core commits a pending interaction row. The four `message.*`
 ones fire when a dispatch is queued behind a wait, when a queued row's waits
-all clear and it dispatches, or when the queued row is cancelled. Every listener sees every queued row, so a plugin
+all clear and it dispatches, when the queued row is cancelled, or when a queue
+transfer record is delivered. Every listener sees every queued row, so a plugin
 that only wants its own filters on
-`entry.waitingOn?.kind === "plugin" && entry.waitingOn.pluginId === bb.pluginId`.
+`entry?.waitingOn?.kind === "plugin" && entry.waitingOn.pluginId === bb.pluginId`.
+In `message.transferred`, `entry` can be `null`, so keep the optional chain on `entry`.
+
 `message.queued` fires again when a row's wait is rewritten, because a row that
 moved from one wait to another is news to whoever was waiting on the old one.
+
+`message.transferred` announces one durable fact of a queue transfer. `entry` is
+the landed `ThreadQueuedMessage`, or `null` with no landed row (a `pending` or
+`terminal` `slot`, `redirected`, `residual`, `not_forwardable`, or a vanished
+row). `transfer` (`PluginMessageTransfer`) has `eventId`, `operationId`,
+`entryId`, `kind`, `state`, `rowId`, `sourceRowId` and `originId`. Delivery is
+at-least-once: core awaits every listener, and if one throws it redelivers the
+same `eventId`, including to listeners that already handled it successfully, so
+handle each `eventId` idempotently. A landed row held by a plugin or time wait
+also fires `message.queued` with the same `transfer`.
 
 `message.cancelled` fires when the user removes a queued row before it ever
 dispatched — the only signal for that removal. A plugin holding external

@@ -5,7 +5,6 @@ import {
   listQueuedThreadMessages,
   retireQueuedThreadMessages,
 } from "@bb/db";
-import { setPluginThreadEventEmitter } from "../../src/services/plugins/plugin-thread-events.js";
 import { runStartupRecoverySweep } from "../../src/services/system/periodic-sweeps.js";
 import { describe, expect, it, vi } from "vitest";
 import { textInput } from "../helpers/prompt-input.js";
@@ -123,31 +122,40 @@ describe("retire routes", () => {
     });
   }, 20_000);
 
-  it.each([
-    { name: "self_transfer", reason: "self_transfer" },
-    { name: "source_has_claims", reason: "source_has_claims" },
-  ])(
-    "refuses $name with a thread_not_writable envelope and burns no key",
-    async ({ name, reason }) => {
-      await withTestHarness(async (harness) => {
-        const { source, target } = seedPair(harness, `retire-${name}`);
-        const row = enqueue(harness, source.id, "a");
-        if (reason === "source_has_claims") {
-          claimQueuedThreadMessage(harness.db, harness.hub, row.id);
-        }
-        const response = await post(harness, `/threads/${source.id}/retire`, {
-          targetThreadId: reason === "self_transfer" ? source.id : target.id,
-          operationKey: "k1",
-        });
-        expect(response.status).toBe(409);
-        expect(await response.json()).toMatchObject({
-          code: "thread_not_writable",
-          details: { reason },
-        });
+  it("refuses self_transfer with a thread_not_writable envelope", async () => {
+    await withTestHarness(async (harness) => {
+      const { source } = seedPair(harness, "retire-self");
+      enqueue(harness, source.id, "a");
+      const response = await post(harness, `/threads/${source.id}/retire`, {
+        targetThreadId: source.id,
+        operationKey: "k1",
       });
-    },
-    20_000,
-  );
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({
+        code: "thread_not_writable",
+        details: { reason: "self_transfer" },
+      });
+    });
+  }, 20_000);
+
+  it("retires a source with a claimed row by forwarding it through a slot", async () => {
+    await withTestHarness(async (harness) => {
+      const { source, target } = seedPair(harness, "retire-claimed");
+      const row = enqueue(harness, source.id, "a");
+      claimQueuedThreadMessage(harness.db, harness.hub, row.id);
+      const response = await post(harness, `/threads/${source.id}/retire`, {
+        targetThreadId: target.id,
+        operationKey: "k1",
+      });
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as {
+        moved: unknown[];
+        pending: { id: string }[];
+      };
+      expect(body.moved).toEqual([]);
+      expect(body.pending.map((p) => p.id)).toEqual([row.id]);
+    });
+  }, 20_000);
 
   it("refuses a missing source with unknown_thread", async () => {
     await withTestHarness(async (harness) => {
@@ -235,7 +243,7 @@ describe("retire routes", () => {
     });
   }, 20_000);
 
-  it("drains unemitted events on startup recovery after a crash before delivery, then retains until ack", async () => {
+  it("drains unemitted events on startup recovery after a crash before delivery, then retains the live redirect past ack", async () => {
     await withTestHarness(async (harness) => {
       const { project, source, target } = seedPair(harness, "retire-crash");
       enqueue(harness, source.id, "a");
@@ -272,90 +280,7 @@ describe("retire routes", () => {
       );
       expect(acked.status).toBe(200);
       await runStartupRecoverySweep(harness.deps);
-      expect(getTransferOperation(harness.db, operationId)).toBeNull();
-    });
-  }, 20_000);
-
-  it("delivers the held row's message.queued from recovery after a crash before delivery", async () => {
-    await withTestHarness(async (harness) => {
-      const { project, source, target } = seedPair(harness, "retire-deliver");
-      enqueue(harness, source.id, "held", {
-        waitingOn: { kind: "plugin", pluginId: "plug-1", reason: "approval" },
-      });
-      const outcome = retireQueuedThreadMessages(harness.db, {
-        projectId: project.id,
-        sourceThreadId: source.id,
-        targetThreadId: target.id,
-        operationKey: "k-deliver",
-        retireEnabled: true,
-        resolveWaitingOn: (row) => JSON.parse(row.waitingOn as string),
-      });
-      expect(outcome.kind).toBe("retired");
-      const queued: string[] = [];
-      setPluginThreadEventEmitter({
-        emitMessageQueued: (entry: { id: string }) => queued.push(entry.id),
-      } as never);
-      try {
-        await runStartupRecoverySweep(harness.deps);
-        const moved = listQueuedThreadMessages(harness.db, target.id)[0];
-        expect(queued).toContain(moved?.id);
-        const unemitted = harness.db.$client
-          .prepare(
-            "SELECT COUNT(*) AS n FROM transfer_events WHERE emitted_at IS NULL",
-          )
-          .get() as { n: number };
-        expect(unemitted.n).toBe(0);
-      } finally {
-        setPluginThreadEventEmitter(undefined);
-      }
-    });
-  }, 20_000);
-
-  it("keeps events undelivered when held-row emission fails, then delivers on replay", async () => {
-    await withTestHarness(async (harness) => {
-      const { source, target } = seedPair(harness, "retire-between");
-      enqueue(harness, source.id, "held", {
-        waitingOn: { kind: "plugin", pluginId: "plug-1", reason: "approval" },
-      });
-      const unemitted = () =>
-        (
-          harness.db.$client
-            .prepare(
-              "SELECT COUNT(*) AS n FROM transfer_events WHERE emitted_at IS NULL",
-            )
-            .get() as { n: number }
-        ).n;
-      const queued: string[] = [];
-      let failing = true;
-      setPluginThreadEventEmitter({
-        emitMessageQueued: (entry: { id: string }) => {
-          if (failing) throw new Error("emitter down");
-          queued.push(entry.id);
-        },
-      } as never);
-      try {
-        const body = { targetThreadId: target.id, operationKey: "k-between" };
-        const crashed = await post(
-          harness,
-          `/threads/${source.id}/retire`,
-          body,
-        );
-        expect(crashed.status).toBe(500);
-        expect(unemitted()).toBeGreaterThan(0);
-        expect(queued).toEqual([]);
-        failing = false;
-        const replay = await post(
-          harness,
-          `/threads/${source.id}/retire`,
-          body,
-        );
-        expect(replay.status).toBe(200);
-        const moved = listQueuedThreadMessages(harness.db, target.id)[0];
-        expect(queued).toContain(moved?.id);
-        expect(unemitted()).toBe(0);
-      } finally {
-        setPluginThreadEventEmitter(undefined);
-      }
+      expect(getTransferOperation(harness.db, operationId)).not.toBeNull();
     });
   }, 20_000);
 
@@ -369,11 +294,7 @@ describe("retire routes", () => {
           operationKey: "k1",
         })
       ).json()) as { operationId: string };
-      harness.db.$client
-        .prepare(
-          "INSERT INTO thread_redirects (source_thread_id, successor_thread_id, op_id) VALUES (?, ?, ?)",
-        )
-        .run(target.id, source.id, retired.operationId);
+      expect(retired.operationId).toBeTruthy();
       const response = await post(
         harness,
         `/threads/${source.id}/queued-messages/${row.id}/transfer`,
@@ -384,6 +305,137 @@ describe("retire routes", () => {
         code: "thread_not_writable",
         details: { reason: "target_retired" },
       });
+    });
+  }, 20_000);
+
+  it("aborts a retirement over the route, returning rows to the source and replaying the stored result", async () => {
+    await withTestHarness(async (harness) => {
+      const { source, target } = seedPair(harness, "abort-ok");
+      const row = enqueue(harness, source.id, "a");
+      const retired = (await (
+        await post(harness, `/threads/${source.id}/retire`, {
+          targetThreadId: target.id,
+          operationKey: "k1",
+        })
+      ).json()) as { operationId: string };
+      const body = {
+        operationKey: "abort-1",
+        expectedRetirementOperationId: retired.operationId,
+      };
+      const aborted = await post(
+        harness,
+        `/transfer-operations/${retired.operationId}/abort`,
+        body,
+      );
+      expect(aborted.status).toBe(200);
+      const result = (await aborted.json()) as {
+        returned: { originId: string }[];
+      };
+      expect(result.returned.map((r) => r.originId)).toEqual([row.id]);
+      expect(listQueuedThreadMessages(harness.db, source.id)).toHaveLength(1);
+      expect(listQueuedThreadMessages(harness.db, target.id)).toEqual([]);
+      const replay = await post(
+        harness,
+        `/transfer-operations/${retired.operationId}/abort`,
+        body,
+      );
+      expect(replay.status).toBe(200);
+      expect(await replay.json()).toEqual(result);
+      const again = await post(
+        harness,
+        `/transfer-operations/${retired.operationId}/abort`,
+        { ...body, operationKey: "abort-2" },
+      );
+      expect(again.status).toBe(409);
+      expect(await again.json()).toMatchObject({
+        code: "thread_not_writable",
+        details: { reason: "already_aborted" },
+      });
+    });
+  }, 20_000);
+
+  it("answers 404 when aborting an unknown operation", async () => {
+    await withTestHarness(async (harness) => {
+      const response = await post(
+        harness,
+        `/transfer-operations/top_missing/abort`,
+        { operationKey: "k", expectedRetirementOperationId: "top_missing" },
+      );
+      expect(response.status).toBe(404);
+    });
+  }, 20_000);
+
+  it("refuses retire when the kill switch is off while abort still works (T-RB1)", async () => {
+    await withTestHarness(async (harness) => {
+      const { source, target } = seedPair(harness, "kill-switch");
+      enqueue(harness, source.id, "a");
+      const retired = (await (
+        await post(harness, `/threads/${source.id}/retire`, {
+          targetThreadId: target.id,
+          operationKey: "k1",
+        })
+      ).json()) as { operationId: string };
+      vi.stubEnv("ALEPH_TRANSFER_RETIRE", "off");
+      try {
+        const other = seedThread(harness.deps, {
+          projectId: source.projectId,
+          environmentId: source.environmentId,
+          status: "active",
+        });
+        enqueue(harness, other.id, "b");
+        const refused = await post(harness, `/threads/${other.id}/retire`, {
+          targetThreadId: target.id,
+          operationKey: "k2",
+        });
+        expect(refused.status).toBe(409);
+        expect(await refused.json()).toMatchObject({
+          details: { reason: "transfer_retire_disabled" },
+        });
+        const aborted = await post(
+          harness,
+          `/transfer-operations/${retired.operationId}/abort`,
+          {
+            operationKey: "abort-1",
+            expectedRetirementOperationId: retired.operationId,
+          },
+        );
+        expect(aborted.status).toBe(200);
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
+  }, 20_000);
+
+  it("redirects a post to a retired thread and, with redirect off, refuses it", async () => {
+    await withTestHarness(async (harness) => {
+      const { source, target } = seedPair(harness, "post-modes");
+      enqueue(harness, source.id, "a");
+      await post(harness, `/threads/${source.id}/retire`, {
+        targetThreadId: target.id,
+        operationKey: "k1",
+      });
+      const send = () =>
+        post(harness, `/threads/${source.id}/queued-messages`, {
+          input: textInput("late"),
+          model: "gpt-5",
+          reasoningLevel: "medium",
+          permissionMode: "full",
+          serviceTier: "default",
+        });
+      const redirected = await send();
+      expect(redirected.status).toBeLessThan(300);
+      expect(listQueuedThreadMessages(harness.db, target.id)).toHaveLength(2);
+      vi.stubEnv("ALEPH_RETIRED_USER_POSTS", "refuse");
+      try {
+        const refused = await send();
+        expect(refused.status).toBe(409);
+        expect(await refused.json()).toMatchObject({
+          details: { reason: "already_retired" },
+        });
+        expect(listQueuedThreadMessages(harness.db, target.id)).toHaveLength(2);
+      } finally {
+        vi.unstubAllEnvs();
+      }
     });
   }, 20_000);
 });

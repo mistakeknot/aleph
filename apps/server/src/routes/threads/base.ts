@@ -338,7 +338,11 @@ export function registerThreadBaseRoutes(app: Hono, deps: AppDeps): void {
       );
     }
     const thread = getThread(deps.db, payload.threadId);
-    if (!thread || thread.deletedAt !== null || thread.visibility !== "visible") {
+    if (
+      !thread ||
+      thread.deletedAt !== null ||
+      thread.visibility !== "visible"
+    ) {
       throw new ApiError(404, "thread_not_found", "Thread not found");
     }
     recordThreadSearchSelection(deps.db, {

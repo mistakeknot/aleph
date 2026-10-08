@@ -1193,7 +1193,6 @@ a.marketplace-detail-author:hover {
 }
 
 @media (max-width: 560px) {
-
   .marketplace-detail-download {
     display: none;
   }

@@ -222,9 +222,7 @@ export async function validatePromptAttachmentReferences(
 
 function formatMegabytes(bytes: number): string {
   const megabytes = bytes / (1024 * 1024);
-  return Number.isInteger(megabytes)
-    ? String(megabytes)
-    : megabytes.toFixed(1);
+  return Number.isInteger(megabytes) ? String(megabytes) : megabytes.toFixed(1);
 }
 
 function isHeifImageUpload(file: File): boolean {

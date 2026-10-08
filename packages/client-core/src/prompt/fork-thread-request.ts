@@ -29,7 +29,10 @@ interface BuildForkThreadRequestArgs extends ForkThreadCreateSeed {
   providerSupportsFork: boolean;
 }
 
-type ForkableThread = Pick<Thread, "archivedAt" | "environmentId" | "providerId">;
+type ForkableThread = Pick<
+  Thread,
+  "archivedAt" | "environmentId" | "providerId"
+>;
 
 export function isThreadForkable(
   sourceThread: ForkableThread | null,

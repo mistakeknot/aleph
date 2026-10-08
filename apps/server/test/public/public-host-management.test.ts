@@ -121,7 +121,9 @@ describe("public host management", () => {
         hostId: string;
       };
       expect(prepared).toMatchObject({ hostId: host.id });
-      expect(prepared.command).toContain("https://relay.example.com/install.sh");
+      expect(prepared.command).toContain(
+        "https://relay.example.com/install.sh",
+      );
       expect(release).not.toHaveBeenCalled();
       const credentialOf = (command: string) =>
         /X-BB-Enrollment: ([^']+)/u.exec(command)?.[1] ?? "";

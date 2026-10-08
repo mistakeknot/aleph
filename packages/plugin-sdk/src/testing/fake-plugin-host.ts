@@ -1128,6 +1128,7 @@ function createFakePluginHostInternal(
     "message.dispatched": [],
     "turn.failed": [],
     "message.cancelled": [],
+    "message.transferred": [],
     "thread.unarchived": [],
   };
   const hooks: {
@@ -1638,6 +1639,8 @@ function createFakePluginHostInternal(
             threadEventHandlers["message.dispatched"].length,
           "turn.failed": threadEventHandlers["turn.failed"].length,
           "message.cancelled": threadEventHandlers["message.cancelled"].length,
+          "message.transferred":
+            threadEventHandlers["message.transferred"].length,
           "thread.unarchived": threadEventHandlers["thread.unarchived"].length,
         };
       },

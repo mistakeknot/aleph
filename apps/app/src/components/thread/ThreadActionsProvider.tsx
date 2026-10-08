@@ -320,9 +320,7 @@ export function ThreadActionsProvider({
           closeDialog?.();
           const viewedThreadId = viewedThreadIdRef.current;
           const archiveDisplacedThread = viewedThreadId === thread.id;
-          const closeResult = closePanesForThreads(
-            response.archivedThreadIds,
-          );
+          const closeResult = closePanesForThreads(response.archivedThreadIds);
           const archiveDestination =
             archiveDisplacedThread &&
             closeResult.removedAny &&
@@ -337,10 +335,7 @@ export function ThreadActionsProvider({
               navigate(getRootComposeRoutePath());
             }
           };
-          syncNavigationAfterClose(
-            closeResult,
-            navigateAwayIfArchived,
-          );
+          syncNavigationAfterClose(closeResult, navigateAwayIfArchived);
           if (archiveDestination !== null) {
             viewedRouteRef.current = archiveDestination;
           }

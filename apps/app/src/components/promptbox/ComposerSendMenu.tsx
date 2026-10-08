@@ -50,7 +50,8 @@ export function ComposerSendMenu({
   useEffect(() => {
     if (!canSubmit) setOpen(false);
   }, [canSubmit]);
-  const handleOpenChange = (nextOpen: boolean) => setOpen(nextOpen && canSubmit);
+  const handleOpenChange = (nextOpen: boolean) =>
+    setOpen(nextOpen && canSubmit);
 
   if (!onSubmit && contributions.length === 0) return children;
 

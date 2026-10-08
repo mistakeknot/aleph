@@ -640,10 +640,7 @@ export function MessageActionBar({
         ref={desktopSlotRef}
         className={cn(slotClass, "h-5 max-md:pointer-coarse:h-7")}
       >
-        <div
-          className={rowClass}
-          data-menu-open={isMenuOpen ? "" : undefined}
-        >
+        <div className={rowClass} data-menu-open={isMenuOpen ? "" : undefined}>
           {actions.slice(0, layout.inlineCount).map((action) => (
             <DesktopMessageAction
               key={action.key ?? action.label}

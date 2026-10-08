@@ -136,6 +136,7 @@ export type {
   PluginCliCommandInfo,
   PluginCliContext,
   PluginMentionTrigger,
+  PluginMessageTransfer,
   PluginThreadEventName,
   PluginThreadEventPayloads,
 } from "@get-bb/plugin-sdk";
@@ -568,6 +569,7 @@ export function createPluginApi(options: {
     "message.dispatched": [],
     "turn.failed": [],
     "message.cancelled": [],
+    "message.transferred": [],
     "thread.unarchived": [],
   };
   const hooks: PluginHookRecords = {

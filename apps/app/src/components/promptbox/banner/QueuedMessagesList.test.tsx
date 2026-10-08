@@ -1987,9 +1987,7 @@ describe("queued row affordances", () => {
         sendAt: 0,
       }),
     ]);
-    expect(
-      container.querySelector("[data-queued-message-sender]"),
-    ).toBeNull();
+    expect(container.querySelector("[data-queued-message-sender]")).toBeNull();
     expect(
       getByText(/^Rate limited · retrying at .* · attempt 2$/u),
     ).toBeDefined();

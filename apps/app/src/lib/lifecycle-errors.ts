@@ -341,11 +341,53 @@ function describeThreadNotWritable({
         title: "Queue move disabled",
         body: "Moving queues is currently disabled.",
       });
-    case "source_has_claims":
+    case "retired_no_successor":
+      return warning({
+        operation,
+        title: "Thread retired",
+        body: "This thread was retired and its successor is gone; it cannot accept messages.",
+      });
+    case "redirect_depth_exceeded":
+      return warning({
+        operation,
+        title: "Thread retired",
+        body: "This thread was retired into another retired thread; it cannot accept messages.",
+      });
+    case "unknown_operation":
+      return warning({
+        operation,
+        title: "Operation not found",
+        body: "The retirement could not be found.",
+      });
+    case "already_aborted":
+      return warning({
+        operation,
+        title: "Already restored",
+        body: "This retirement was already restored.",
+      });
+    case "stale_abort":
+      return warning({
+        operation,
+        title: "Retirement changed",
+        body: "This retirement is no longer current.",
+      });
+    case "successor_retired":
+      return warning({
+        operation,
+        title: "Successor retired",
+        body: "The successor thread was retired, so this cannot be restored.",
+      });
+    case "claims_pending":
       return warning({
         operation,
         title: "Messages in flight",
         body: "Messages are being delivered; try again shortly.",
+      });
+    case "restore_key_exhausted":
+      return warning({
+        operation,
+        title: "Cannot restore order",
+        body: "The original message order cannot be restored.",
       });
     case "attachment_unavailable":
       return errorDescription({

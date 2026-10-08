@@ -804,9 +804,7 @@ describe("MachinesSettingsSection", () => {
     for (const name of ["MacBook Pro", "paused-vm"]) {
       await openHostMenu(name);
       await screen.findByRole("menuitem", { name: "Rename" });
-      expect(
-        screen.queryByRole("menuitem", { name: "Reconnect" }),
-      ).toBeNull();
+      expect(screen.queryByRole("menuitem", { name: "Reconnect" })).toBeNull();
       fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
       await waitFor(() => {
         expect(screen.queryByRole("menu")).toBeNull();
@@ -862,18 +860,14 @@ describe("MachinesSettingsSection", () => {
 
     await screen.findByText("dev-vm");
     await openHostMenu("dev-vm");
-    fireEvent.click(
-      await screen.findByRole("menuitem", { name: "Reconnect" }),
-    );
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Reconnect" }));
 
     await waitFor(() => {
-      expect(
-        vi.mocked(sdk.hosts.experimental_reconnect),
-      ).toHaveBeenCalledWith({ hostId: offlineHost.id });
+      expect(vi.mocked(sdk.hosts.experimental_reconnect)).toHaveBeenCalledWith({
+        hostId: offlineHost.id,
+      });
     });
-    expect(
-      await screen.findByText(/X-BB-Enrollment: bbde_test/),
-    ).toBeDefined();
+    expect(await screen.findByText(/X-BB-Enrollment: bbde_test/)).toBeDefined();
     expect(
       await screen.findByText("Waiting for the machine to reconnect…"),
     ).toBeDefined();

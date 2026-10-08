@@ -9,6 +9,9 @@ const TRANSFER_LEDGER_TRIGGERS = [
   "entries_event_upd",
   "threads_rewire",
   "threads_soft_deleted",
+  "qtm_t1_claim_exit",
+  "qtm_t2_slot_deleted",
+  "qtm_t3_source_deleted",
 ];
 
 const TRANSFER_LEDGER_TABLES = [

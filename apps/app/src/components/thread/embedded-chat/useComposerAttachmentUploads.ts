@@ -83,9 +83,10 @@ export function useDraftAttachmentUploads({
   });
   const targetKey = target?.key ?? null;
   const isCurrentOperation = operation.targetKey === targetKey;
-  const { pendingUploads, startUploads, finishUploads } = usePendingAttachmentUploads(
-    targetKey === null ? null : `${projectId}\0${targetKey}`,
-  );
+  const { pendingUploads, startUploads, finishUploads } =
+    usePendingAttachmentUploads(
+      targetKey === null ? null : `${projectId}\0${targetKey}`,
+    );
 
   const setAttachmentError = useCallback(
     (error: string | null) => {

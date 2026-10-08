@@ -1,7 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
-import { and, asc, eq, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { ProjectAttachmentError } from "@bb/domain";
-import type { QueuedMessageWaitingOn } from "@bb/domain";
+import type {
+  PromptInput,
+  QueuedMessageSystemNotice,
+  QueuedMessageWaitingOn,
+} from "@bb/domain";
 import type {
   DbConnection,
   DbQueryConnection,
@@ -17,11 +21,17 @@ import {
 } from "../schema.js";
 import {
   QueuedMessageThreadUnavailableError,
+  createQueuedThreadMessageInTransaction,
   getLastQueuedThreadMessage,
   isThreadRetired,
+  sweepStaleQueuedMessageClaims,
   transferQueuedThreadMessageInTransaction,
 } from "./queued-thread-messages.js";
-import { createOrderKeysAfter } from "./order-keys.js";
+import {
+  createOrderKeyAfter,
+  createOrderKeyBetween,
+  createOrderKeysAfter,
+} from "./order-keys.js";
 import type { QueuedThreadMessageRow } from "./queued-thread-messages.js";
 
 export type RetireRefusalReason =
@@ -63,7 +73,6 @@ export type RetireQueuedThreadMessagesOutcome =
     }
   | { kind: "replayed"; operationId: string; result: RetireResult }
   | { kind: "refused"; reason: RetireRefusalReason }
-  | { kind: "source_has_claims" }
   | { kind: "idempotency_conflict" };
 
 class RetireRolledBack extends Error {
@@ -121,6 +130,17 @@ function checkRefusal(
     .where(eq(threadRedirects.successorThreadId, args.sourceThreadId))
     .get();
   if (isRetireTarget) return "source_is_retire_target";
+  const holdsSlot = tx
+    .select({ id: queuedThreadMessages.id })
+    .from(queuedThreadMessages)
+    .where(
+      and(
+        eq(queuedThreadMessages.threadId, args.sourceThreadId),
+        isNotNull(queuedThreadMessages.forwardSourceRowId),
+      ),
+    )
+    .get();
+  if (holdsSlot) return "source_is_retire_target";
   if (isThreadRetired(tx, args.targetThreadId)) return "target_retired";
   const target = tx
     .select({
@@ -175,10 +195,6 @@ export function retireQueuedThreadMessages(
             asc(queuedThreadMessages.id),
           )
           .all();
-        if (rows.some((row) => row.claimedAt !== null)) {
-          return { kind: "source_has_claims" };
-        }
-
         const now = Date.now();
         const operationId = `top_${randomUUID()}`;
         tx.insert(transferOperations)
@@ -242,6 +258,55 @@ export function retireQueuedThreadMessages(
             result.notForwardable.push({ id: row.id, originId });
             continue;
           }
+          if (row.claimedAt !== null) {
+            const slot = createQueuedThreadMessageInTransaction(tx, {
+              originId,
+              redirect: "direct",
+              sortKey: targetKeys[nextKeyIndex++],
+              threadVerified: true,
+              threadId: args.targetThreadId,
+              slotForSourceRowId: row.id,
+              content: JSON.parse(row.content) as PromptInput[],
+              senderThreadId: row.senderThreadId,
+              origin: row.origin,
+              originPluginId: row.originPluginId,
+              requestedBy:
+                row.requestedByInitiator !== null &&
+                row.requestedByThreadId !== null
+                  ? {
+                      initiator: row.requestedByInitiator,
+                      senderThreadId: row.requestedByThreadId,
+                    }
+                  : null,
+              model: row.model,
+              reasoningLevel: row.reasoningLevel,
+              permissionMode: row.permissionMode,
+              serviceTier: row.serviceTier,
+              waitingOn: null,
+              sendAt: row.sendAt,
+              payload: { kind: "inline" },
+              systemNotice:
+                row.systemNotice === null
+                  ? null
+                  : (JSON.parse(row.systemNotice) as QueuedMessageSystemNotice),
+            });
+            tx.insert(transferEntries)
+              .values({
+                id: `tent_${randomUUID()}`,
+                opId: operationId,
+                kind: "slot",
+                originId,
+                sourceRowId: row.id,
+                sourceSortKey: row.sortKey,
+                targetRowId: slot.id,
+                detail: null,
+                state: "pending",
+                updatedAt: now,
+              })
+              .run();
+            result.pending.push({ id: row.id, originId });
+            continue;
+          }
           const transferred = transferQueuedThreadMessageInTransaction(tx, {
             queuedMessageId: row.id,
             sourceThreadId: args.sourceThreadId,
@@ -276,6 +341,13 @@ export function retireQueuedThreadMessages(
           });
           movedRows.push(transferred.queuedMessage);
         }
+        tx.insert(threadRedirects)
+          .values({
+            sourceThreadId: args.sourceThreadId,
+            successorThreadId: args.targetThreadId,
+            opId: operationId,
+          })
+          .run();
         tx.update(transferOperations)
           .set({ resultJson: JSON.stringify(result) })
           .where(eq(transferOperations.id, operationId))
@@ -439,4 +511,536 @@ export function drainTransferEvents(
     { behavior: "immediate" },
   );
   return rows.length;
+}
+
+export function listUnemittedTransferEvents(
+  db: DbConnection,
+  limit = 500,
+): TransferEventRecord[] {
+  return db
+    .select()
+    .from(transferEvents)
+    .where(isNull(transferEvents.emittedAt))
+    .orderBy(asc(transferEvents.eventId))
+    .limit(limit)
+    .all()
+    .map((row) => ({
+      eventId: row.eventId,
+      opId: row.opId,
+      entryId: row.entryId,
+      state: row.state,
+      payload: JSON.parse(row.payload) as TransferEventRecord["payload"],
+    }));
+}
+
+export function markTransferEventEmitted(
+  db: DbConnection,
+  eventId: number,
+): boolean {
+  return (
+    db
+      .update(transferEvents)
+      .set({ emittedAt: Date.now() })
+      .where(
+        and(
+          eq(transferEvents.eventId, eventId),
+          isNull(transferEvents.emittedAt),
+        ),
+      )
+      .run().changes > 0
+  );
+}
+
+export type AbortRefusalReason =
+  | "unknown_operation"
+  | "already_aborted"
+  | "stale_abort"
+  | "successor_retired"
+  | "claims_pending"
+  | "restore_key_exhausted"
+  | "attachment_unavailable";
+
+export interface AbortResult {
+  operationId: string;
+  retirementOperationId: string;
+  sourceArchived: boolean;
+  returned: { id: string; newId: string; originId: string }[];
+  residuals: { originId: string; location: string }[];
+}
+
+export interface AbortTransferOperationArgs {
+  projectId: string;
+  operationId: string;
+  expectedRetirementOperationId: string;
+  operationKey: string;
+  resolveWaitingOn: (
+    source: QueuedThreadMessageRow,
+  ) => QueuedMessageWaitingOn | null;
+}
+
+export type AbortTransferOperationOutcome =
+  | { kind: "aborted"; operationId: string; result: AbortResult }
+  | { kind: "replayed"; operationId: string; result: AbortResult }
+  | { kind: "refused"; reason: AbortRefusalReason }
+  | { kind: "idempotency_conflict" };
+
+class AbortRolledBack extends Error {
+  constructor(readonly reason: AbortRefusalReason) {
+    super(reason);
+    this.name = "AbortRolledBack";
+  }
+}
+
+export function chooseRestoreKey(
+  existing: readonly string[] | ReadonlySet<string>,
+  linkKey: string,
+  bound: string | null,
+): string | null {
+  const taken =
+    existing instanceof Set ? existing.has(linkKey) : [...existing].includes(linkKey);
+  if (!taken) return linkKey;
+  let previous: string | null = null;
+  let next: string | null = null;
+  for (const key of existing) {
+    if (key < linkKey && (previous === null || key > previous)) previous = key;
+    if (key > linkKey && (next === null || key < next)) next = key;
+  }
+  try {
+    return createOrderKeyBetween({ previousKey: previous, nextKey: linkKey });
+  } catch {
+    const ceiling =
+      next !== null && bound !== null ? (next < bound ? next : bound) : (next ?? bound);
+    try {
+      return createOrderKeyBetween({ previousKey: linkKey, nextKey: ceiling });
+    } catch {
+      return null;
+    }
+  }
+}
+
+function hashAbortRequest(args: AbortTransferOperationArgs) {
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        kind: "abort",
+        retirementOperationId: args.operationId,
+        expectedRetirementOperationId: args.expectedRetirementOperationId,
+      }),
+    )
+    .digest("hex");
+}
+
+function describeResidual(
+  tx: DbQueryConnection,
+  sourceThreadId: string,
+  originId: string,
+): string | null {
+  const row = tx
+    .select({ threadId: queuedThreadMessages.threadId })
+    .from(queuedThreadMessages)
+    .where(eq(queuedThreadMessages.originId, originId))
+    .limit(1)
+    .get();
+  if (!row) return "gone";
+  if (row.threadId === sourceThreadId) return null;
+  const thread = tx
+    .select({ deletedAt: threads.deletedAt })
+    .from(threads)
+    .where(eq(threads.id, row.threadId))
+    .get();
+  return thread?.deletedAt != null ? `deleted:${row.threadId}` : row.threadId;
+}
+
+const ORIGIN_CHUNK_SIZE = 500;
+
+export function abortTransferOperation(
+  db: DbConnection,
+  args: AbortTransferOperationArgs,
+): AbortTransferOperationOutcome {
+  const requestHash = hashAbortRequest(args);
+  try {
+    return db.transaction(
+      (tx): AbortTransferOperationOutcome => {
+        const existing = findOperation(tx, args.projectId, args.operationKey);
+        if (existing) {
+          if (existing.requestHash !== requestHash) {
+            return { kind: "idempotency_conflict" };
+          }
+          return {
+            kind: "replayed",
+            operationId: existing.id,
+            result: JSON.parse(existing.resultJson ?? "null") as AbortResult,
+          };
+        }
+        const retirement = tx
+          .select()
+          .from(transferOperations)
+          .where(eq(transferOperations.id, args.operationId))
+          .get();
+        if (
+          !retirement ||
+          retirement.kind !== "retire" ||
+          retirement.projectId !== args.projectId
+        ) {
+          return { kind: "refused", reason: "unknown_operation" };
+        }
+        if (retirement.state === "aborted") {
+          return { kind: "refused", reason: "already_aborted" };
+        }
+        const sourceId = retirement.sourceThreadId;
+        const targetId = retirement.targetThreadId;
+        const redirect = tx
+          .select()
+          .from(threadRedirects)
+          .where(eq(threadRedirects.sourceThreadId, sourceId))
+          .get();
+        const source = tx
+          .select({
+            archivedAt: threads.archivedAt,
+            deletedAt: threads.deletedAt,
+          })
+          .from(threads)
+          .where(eq(threads.id, sourceId))
+          .get();
+        if (
+          args.expectedRetirementOperationId !== retirement.id ||
+          !redirect ||
+          redirect.opId !== retirement.id ||
+          !source ||
+          source.deletedAt !== null
+        ) {
+          return { kind: "refused", reason: "stale_abort" };
+        }
+        const target = tx
+          .select({ deletedAt: threads.deletedAt })
+          .from(threads)
+          .where(eq(threads.id, targetId))
+          .get();
+        const targetLive = target !== undefined && target.deletedAt === null;
+        if (
+          targetLive &&
+          tx
+            .select({ sourceThreadId: threadRedirects.sourceThreadId })
+            .from(threadRedirects)
+            .where(eq(threadRedirects.sourceThreadId, targetId))
+            .get()
+        ) {
+          return { kind: "refused", reason: "successor_retired" };
+        }
+
+        const retirementEntries = tx
+          .select()
+          .from(transferEntries)
+          .where(eq(transferEntries.opId, retirement.id))
+          .orderBy(sql`rowid`)
+          .all();
+        const owned = retirementEntries.filter(
+          (entry) =>
+            entry.kind === "moved" ||
+            entry.kind === "redirected" ||
+            (entry.kind === "slot" && entry.state === "forwarded"),
+        );
+        const ownedOrigins = owned.flatMap((entry) =>
+          entry.originId === null ? [] : [entry.originId],
+        );
+
+        const sourceClaimed = tx
+          .select({ id: queuedThreadMessages.id })
+          .from(queuedThreadMessages)
+          .where(
+            and(
+              eq(queuedThreadMessages.threadId, sourceId),
+              isNotNull(queuedThreadMessages.claimedAt),
+            ),
+          )
+          .get();
+        const pendingEntry = retirementEntries.some(
+          (entry) => entry.state === "pending",
+        );
+        const ownedClaimed =
+          targetLive &&
+          ownedOrigins.some(
+            (_origin, index) =>
+              index % ORIGIN_CHUNK_SIZE === 0 &&
+              tx
+                .select({ id: queuedThreadMessages.id })
+                .from(queuedThreadMessages)
+                .where(
+                  and(
+                    eq(queuedThreadMessages.threadId, targetId),
+                    isNotNull(queuedThreadMessages.claimedAt),
+                    inArray(
+                      queuedThreadMessages.originId,
+                      ownedOrigins.slice(index, index + ORIGIN_CHUNK_SIZE),
+                    ),
+                  ),
+                )
+                .get() !== undefined,
+          );
+        if (sourceClaimed || pendingEntry || ownedClaimed) {
+          return { kind: "refused", reason: "claims_pending" };
+        }
+
+        const now = Date.now();
+        const abortId = `top_${randomUUID()}`;
+        tx.insert(transferOperations)
+          .values({
+            id: abortId,
+            projectId: args.projectId,
+            operationKey: args.operationKey,
+            requestHash,
+            kind: "abort",
+            sourceThreadId: sourceId,
+            targetThreadId: targetId,
+            state: "active",
+            createdAt: now,
+          })
+          .run();
+
+        const result: AbortResult = {
+          operationId: abortId,
+          retirementOperationId: retirement.id,
+          sourceArchived: source.archivedAt !== null,
+          returned: [],
+          residuals: [],
+        };
+        const returnedOrigins = new Set<string>();
+        const sourceKeys = new Set(
+          tx
+            .select({ sortKey: queuedThreadMessages.sortKey })
+            .from(queuedThreadMessages)
+            .where(eq(queuedThreadMessages.threadId, sourceId))
+            .all()
+            .map((row) => row.sortKey),
+        );
+
+        const ownedRowsOnTarget: QueuedThreadMessageRow[] = [];
+        if (targetLive) {
+          for (
+            let index = 0;
+            index < ownedOrigins.length;
+            index += ORIGIN_CHUNK_SIZE
+          ) {
+            ownedRowsOnTarget.push(
+              ...tx
+                .select()
+                .from(queuedThreadMessages)
+                .where(
+                  and(
+                    eq(queuedThreadMessages.threadId, targetId),
+                    isNull(queuedThreadMessages.claimedAt),
+                    inArray(
+                      queuedThreadMessages.originId,
+                      ownedOrigins.slice(index, index + ORIGIN_CHUNK_SIZE),
+                    ),
+                  ),
+                )
+                .all(),
+            );
+          }
+          ownedRowsOnTarget.sort((left, right) =>
+            left.sortKey !== right.sortKey
+              ? left.sortKey < right.sortKey
+                ? -1
+                : 1
+              : left.id < right.id
+                ? -1
+                : 1,
+          );
+        }
+        const rowByOrigin = new Map(
+          ownedRowsOnTarget.map((row) => [row.originId ?? row.id, row]),
+        );
+        const keyed = owned
+          .filter(
+            (entry) =>
+              entry.kind !== "redirected" &&
+              entry.sourceSortKey !== null &&
+              entry.originId !== null && rowByOrigin.has(entry.originId),
+          )
+          .sort((left, right) => {
+            const a = left.sourceSortKey ?? "";
+            const b = right.sourceSortKey ?? "";
+            if (a !== b) return a < b ? -1 : 1;
+            return (left.sourceRowId ?? "") < (right.sourceRowId ?? "") ? -1 : 1;
+          });
+        const redirectedOrigins = new Set(
+          owned.flatMap((entry) =>
+            entry.kind === "redirected" && entry.originId !== null
+              ? [entry.originId]
+              : [],
+          ),
+        );
+        const unkeyed = ownedRowsOnTarget.filter(
+          (row) => row.originId !== null && redirectedOrigins.has(row.originId),
+        );
+
+        const giveBack = (row: QueuedThreadMessageRow, sortKey: string) => {
+          const moved = transferQueuedThreadMessageInTransaction(tx, {
+            queuedMessageId: row.id,
+            sourceThreadId: targetId,
+            targetThreadId: sourceId,
+            sortKey,
+            sourceRow: row,
+            targetVerified: true,
+            resolveWaitingOn: args.resolveWaitingOn,
+          });
+          if (moved.kind !== "transferred") {
+            throw new AbortRolledBack("claims_pending");
+          }
+          sourceKeys.add(sortKey);
+          const originId = row.originId ?? row.id;
+          returnedOrigins.add(originId);
+          tx.insert(transferEntries)
+            .values({
+              id: `tent_${randomUUID()}`,
+              opId: abortId,
+              kind: "returned",
+              originId,
+              sourceRowId: row.id,
+              sourceSortKey: row.sortKey,
+              targetRowId: moved.queuedMessage.id,
+              detail: null,
+              state: "terminal",
+              updatedAt: now,
+            })
+            .run();
+          result.returned.push({
+            id: row.id,
+            newId: moved.queuedMessage.id,
+            originId,
+          });
+        };
+
+        keyed.forEach((entry, index) => {
+          const row = entry.originId === null ? undefined : rowByOrigin.get(entry.originId);
+          if (!row || entry.sourceSortKey === null) return;
+          const bound = keyed[index + 1]?.sourceSortKey ?? null;
+          const key = chooseRestoreKey(sourceKeys, entry.sourceSortKey, bound);
+          if (key === null) throw new AbortRolledBack("restore_key_exhausted");
+          giveBack(row, key);
+        });
+        for (const row of unkeyed) {
+          const last = [...sourceKeys].reduce<string | null>(
+            (greatest, key) => (greatest === null || key > greatest ? key : greatest),
+            null,
+          );
+          giveBack(
+            row,
+            last === null
+              ? createOrderKeyBetween({ previousKey: null, nextKey: null })
+              : createOrderKeyAfter({ previousKey: last }),
+          );
+        }
+
+        for (const originId of ownedOrigins) {
+          if (returnedOrigins.has(originId)) continue;
+          const location = describeResidual(tx, sourceId, originId);
+          if (location === null) continue;
+          tx.insert(transferEntries)
+            .values({
+              id: `tent_${randomUUID()}`,
+              opId: abortId,
+              kind: "residual",
+              originId,
+              sourceRowId: null,
+              sourceSortKey: null,
+              targetRowId: null,
+              detail: location,
+              state: "terminal",
+              updatedAt: now,
+            })
+            .run();
+          result.residuals.push({ originId, location });
+        }
+
+        tx.delete(threadRedirects)
+          .where(eq(threadRedirects.sourceThreadId, sourceId))
+          .run();
+        tx.update(transferOperations)
+          .set({ state: "aborted" })
+          .where(eq(transferOperations.id, retirement.id))
+          .run();
+        tx.update(transferOperations)
+          .set({ state: "done", resultJson: JSON.stringify(result) })
+          .where(eq(transferOperations.id, abortId))
+          .run();
+        return { kind: "aborted", operationId: abortId, result };
+      },
+      { behavior: "immediate" },
+    );
+  } catch (error) {
+    if (error instanceof AbortRolledBack) {
+      return { kind: "refused", reason: error.reason };
+    }
+    if (error instanceof ProjectAttachmentError) {
+      return { kind: "refused", reason: "attachment_unavailable" };
+    }
+    throw error;
+  }
+}
+
+export function releaseAllWorkerClaimsOffline(db: DbConnection): {
+  released: number;
+  threadIds: string[];
+} {
+  return sweepStaleQueuedMessageClaims(db, {
+    claimedBefore: Number.MAX_SAFE_INTEGER,
+    protectedClaimTokens: [],
+  });
+}
+
+export interface DowngradeReadiness {
+  slots: number;
+  pendingEntries: number;
+  unemittedEvents: number;
+  redirects: number;
+  nullOrigins: number;
+  unackedReceipts: number;
+  ready: boolean;
+}
+
+function countRows(db: DbConnection, query: string): number {
+  const row = db.$client.prepare(query).get() as { n: number };
+  return row.n;
+}
+
+export function getDowngradeReadiness(db: DbConnection): DowngradeReadiness {
+  const slots = countRows(
+    db,
+    "SELECT count(*) AS n FROM queued_thread_messages WHERE forward_source_row_id IS NOT NULL",
+  );
+  const pendingEntries = countRows(
+    db,
+    "SELECT count(*) AS n FROM transfer_entries WHERE state = 'pending'",
+  );
+  const unemittedEvents = countRows(
+    db,
+    "SELECT count(*) AS n FROM transfer_events WHERE emitted_at IS NULL",
+  );
+  const redirects = countRows(db, "SELECT count(*) AS n FROM thread_redirects");
+  const nullOrigins = countRows(
+    db,
+    "SELECT count(*) AS n FROM queued_thread_messages WHERE origin_id IS NULL",
+  );
+  const unackedReceipts = countRows(
+    db,
+    "SELECT count(*) AS n FROM transfer_operations WHERE acked_at IS NULL",
+  );
+  return {
+    slots,
+    pendingEntries,
+    unemittedEvents,
+    redirects,
+    nullOrigins,
+    unackedReceipts,
+    ready:
+      slots +
+        pendingEntries +
+        unemittedEvents +
+        redirects +
+        nullOrigins +
+        unackedReceipts ===
+      0,
+  };
 }

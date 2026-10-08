@@ -68,6 +68,7 @@ import {
 import { validatePromptAttachmentReferences } from "../projects/attachments.js";
 import { resolvePluginMentionContextInputs } from "../plugins/plugin-mentions.js";
 import { clearThreadContext } from "./thread-context-clear.js";
+import { assertAdmittedDestinationInTransaction } from "./retired-ingress.js";
 import { withThreadSendGuard } from "./thread-context-mutation-guard.js";
 import {
   prependDeferredFirstTurnContext,
@@ -101,6 +102,7 @@ interface SendThreadMessageArgs {
     onCommandSettled?: () => void | Promise<void>;
   };
   payload: SendThreadMessagePayload;
+  requestedThreadId?: string;
   thread: Thread;
   trigger: SendThreadMessageTrigger;
 }
@@ -465,9 +467,20 @@ export async function sendThreadMessage(
   args: SendThreadMessageArgs,
 ): Promise<void> {
   if (isStandaloneBuiltinClearCommand(args.payload.input)) {
+    const { requestedThreadId } = args;
     await clearThreadContext(deps, {
       environment: args.environment,
       thread: args.thread,
+      ...(requestedThreadId === undefined
+        ? {}
+        : {
+            assertDestinationCurrent: (tx) =>
+              assertAdmittedDestinationInTransaction(
+                tx,
+                requestedThreadId,
+                args.thread.id,
+              ),
+          }),
     });
     return;
   }

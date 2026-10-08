@@ -48,7 +48,10 @@ describe("bundled plugin artifact resolution", () => {
   it("retains source development plugin and generated catalog resolution", async () => {
     const moduleDir = join(root, "apps/server/src/services/plugins");
     const plugin = join(root, "plugins/connect");
-    const catalog = join(root, "apps/server/src/generated/bb-official-marketplace");
+    const catalog = join(
+      root,
+      "apps/server/src/generated/bb-official-marketplace",
+    );
     await mkdir(plugin, { recursive: true });
     await mkdir(catalog, { recursive: true });
     await writeFile(join(catalog, "marketplace.json"), "{}");

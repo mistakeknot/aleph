@@ -59,7 +59,8 @@ export function PluginCatalogInstallControl(
               installed && !disabled && "hover:text-destructive-text",
               disabled &&
                 "cursor-not-allowed hover:bg-transparent hover:text-subtle-foreground",
-              installed && "opacity-50 hover:opacity-100 focus-visible:opacity-100",
+              installed &&
+                "opacity-50 hover:opacity-100 focus-visible:opacity-100",
             )}
             onClick={() => {
               if (disabled) return;

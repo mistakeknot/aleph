@@ -426,19 +426,138 @@ const descriptionCases: DescriptionCase[] = [
     },
   },
   {
-    name: "thread_not_writable source_has_claims",
+    name: "thread_not_writable retired_no_successor",
+    body: {
+      code: "thread_not_writable",
+      message: "Thread retired",
+      details: {
+        archivedAt: null,
+        reason: "retired_no_successor",
+        threadStatus: "active",
+      },
+    },
+    expected: {
+      title: "Thread retired",
+      body: "This thread was retired and its successor is gone; it cannot accept messages.",
+      severity: "warning",
+    },
+  },
+  {
+    name: "thread_not_writable redirect_depth_exceeded",
+    body: {
+      code: "thread_not_writable",
+      message: "Thread retired",
+      details: {
+        archivedAt: null,
+        reason: "redirect_depth_exceeded",
+        threadStatus: "active",
+      },
+    },
+    expected: {
+      title: "Thread retired",
+      body: "This thread was retired into another retired thread; it cannot accept messages.",
+      severity: "warning",
+    },
+  },
+  {
+    name: "thread_not_writable unknown_operation",
+    body: {
+      code: "thread_not_writable",
+      message: "Operation not found",
+      details: {
+        archivedAt: null,
+        reason: "unknown_operation",
+        threadStatus: "active",
+      },
+    },
+    expected: {
+      title: "Operation not found",
+      body: "The retirement could not be found.",
+      severity: "warning",
+    },
+  },
+  {
+    name: "thread_not_writable already_aborted",
+    body: {
+      code: "thread_not_writable",
+      message: "Already restored",
+      details: {
+        archivedAt: null,
+        reason: "already_aborted",
+        threadStatus: "active",
+      },
+    },
+    expected: {
+      title: "Already restored",
+      body: "This retirement was already restored.",
+      severity: "warning",
+    },
+  },
+  {
+    name: "thread_not_writable stale_abort",
+    body: {
+      code: "thread_not_writable",
+      message: "Retirement changed",
+      details: {
+        archivedAt: null,
+        reason: "stale_abort",
+        threadStatus: "active",
+      },
+    },
+    expected: {
+      title: "Retirement changed",
+      body: "This retirement is no longer current.",
+      severity: "warning",
+    },
+  },
+  {
+    name: "thread_not_writable successor_retired",
+    body: {
+      code: "thread_not_writable",
+      message: "Successor retired",
+      details: {
+        archivedAt: null,
+        reason: "successor_retired",
+        threadStatus: "active",
+      },
+    },
+    expected: {
+      title: "Successor retired",
+      body: "The successor thread was retired, so this cannot be restored.",
+      severity: "warning",
+    },
+  },
+  {
+    name: "thread_not_writable claims_pending",
     body: {
       code: "thread_not_writable",
       message: "Messages in flight",
       details: {
         archivedAt: null,
-        reason: "source_has_claims",
+        reason: "claims_pending",
         threadStatus: "active",
       },
     },
     expected: {
       title: "Messages in flight",
       body: "Messages are being delivered; try again shortly.",
+      severity: "warning",
+    },
+  },
+  {
+    name: "thread_not_writable restore_key_exhausted",
+    body: {
+      code: "thread_not_writable",
+      message: "Cannot restore order",
+      details: {
+        archivedAt: null,
+        reason: "restore_key_exhausted",
+        threadStatus: "active",
+      },
+    },
+    expected: {
+      title: "Cannot restore order",
+      body: "The original message order cannot be restored.",
       severity: "warning",
     },
   },

@@ -45,14 +45,16 @@ describe("SidebarNavigationSetting", () => {
     const options = (await screen.findAllByRole("menuitem")).map(
       (item) => item.textContent ?? "",
     );
-    expect(
-      options.find((option) => option.startsWith("Automatic")),
-    ).toContain("Chooses Navigation grid (navbar).");
+    expect(options.find((option) => option.startsWith("Automatic"))).toContain(
+      "Chooses Navigation grid (navbar).",
+    );
     expect(options).toHaveLength(3);
     expect(options[1]).toContain("Navigation gridFrom the navbar plugin.");
     expect(options[2]).toContain("Navigation (built-in)BB default.");
 
-    fireEvent.click(screen.getByRole("menuitem", { name: /^Navigation \(built-in\)/u }));
+    fireEvent.click(
+      screen.getByRole("menuitem", { name: /^Navigation \(built-in\)/u }),
+    );
     expect(store.get(sidebarNavigationProviderAtom)).toBe(
       "navigation/navigation",
     );

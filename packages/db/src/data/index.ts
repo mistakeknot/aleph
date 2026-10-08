@@ -485,6 +485,9 @@ export {
   requeueClaimedQueuedThreadMessages,
   setQueuedThreadMessageFailureReason,
   setQueuedThreadMessageWaitingOn,
+  getRedirectSuccessorThreadId,
+  getThreadRedirectState,
+  type ThreadRedirectState,
   releaseStaleQueuedMessageClaims,
   reorderQueuedThreadMessage,
   setQueuedThreadMessageGroupBoundary,
@@ -495,13 +498,22 @@ export {
   isThreadRetired,
 } from "./queued-thread-messages.js";
 export {
+  abortTransferOperation,
   ackTransferOperation,
   drainTransferEvents,
+  getDowngradeReadiness,
+  releaseAllWorkerClaimsOffline,
+  listUnemittedTransferEvents,
+  markTransferEventEmitted,
   getTransferOperation,
   retireQueuedThreadMessages,
   sweepTransferOperations,
 } from "./transfer-operations.js";
 export type {
+  AbortRefusalReason,
+  AbortResult,
+  AbortTransferOperationOutcome,
+  DowngradeReadiness,
   RetireQueuedThreadMessagesArgs,
   RetireQueuedThreadMessagesOutcome,
   RetireRefusalReason,

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { acquireProjectAttachmentOwnership } from "./project-attachments.js";
 import {
   and,
@@ -9,6 +10,7 @@ import {
   inArray,
   isNotNull,
   isNull,
+  like,
   lt,
   lte,
   min,
@@ -46,6 +48,7 @@ import {
   queuedThreadMessages,
   threadRedirects,
   threads,
+  transferEntries,
 } from "../schema.js";
 import {
   createQueuedThreadMessageClaimToken,
@@ -56,9 +59,13 @@ import { queryInSqliteVariableBatches } from "./events.js";
 
 export interface CreateQueuedThreadMessageInput {
   threadId: string;
+  id?: string;
   originId?: string;
+  redirect?: "direct";
+  retiredPosts?: "redirect" | "refuse";
   sortKey?: string;
   threadVerified?: boolean;
+  slotForSourceRowId?: string;
   content: PromptInput[];
   senderThreadId?: string | null;
   /**
@@ -426,13 +433,7 @@ function getPreviousUnclaimedQueuedThreadMessage(
           eq(queuedThreadMessages.threadId, queuedMessage.threadId),
           isNull(queuedThreadMessages.claimedAt),
           isNull(queuedThreadMessages.claimToken),
-          or(
-            lt(queuedThreadMessages.sortKey, queuedMessage.sortKey),
-            and(
-              eq(queuedThreadMessages.sortKey, queuedMessage.sortKey),
-              lt(queuedThreadMessages.id, queuedMessage.id),
-            ),
-          ),
+          sql`(${queuedThreadMessages.sortKey}, ${queuedThreadMessages.id}) < (${queuedMessage.sortKey}, ${queuedMessage.id})`,
         ),
       )
       .orderBy(
@@ -600,7 +601,12 @@ function applyPreservedLeadGroupAfterReorder(
   return changed ? listQueuedThreadMessages(db, threadId) : queuedMessages;
 }
 
-export type QueuedMessageThreadUnavailableReason = "archived" | "deleted";
+export type QueuedMessageThreadUnavailableReason =
+  | "archived"
+  | "deleted"
+  | "retired_no_successor"
+  | "redirect_depth_exceeded"
+  | "already_retired";
 
 export class QueuedMessageThreadUnavailableError extends Error {
   constructor(
@@ -629,10 +635,105 @@ function assertThreadAcceptsQueuedMessage(
   }
 }
 
-export function createQueuedThreadMessageInTransaction(
+export function getRedirectSuccessorThreadId(
+  db: DbQueryConnection,
+  sourceThreadId: string,
+): string | null {
+  return (
+    db
+      .select({ successorThreadId: threadRedirects.successorThreadId })
+      .from(threadRedirects)
+      .where(eq(threadRedirects.sourceThreadId, sourceThreadId))
+      .get()?.successorThreadId ?? null
+  );
+}
+
+export type ThreadRedirectState =
+  | { kind: "none" }
+  | { kind: "retired"; successorThreadId: string | null };
+
+export function getThreadRedirectState(
+  db: DbQueryConnection,
+  sourceThreadId: string,
+): ThreadRedirectState {
+  const redirect = db
+    .select({ successorThreadId: threadRedirects.successorThreadId })
+    .from(threadRedirects)
+    .where(eq(threadRedirects.sourceThreadId, sourceThreadId))
+    .get();
+  return redirect
+    ? { kind: "retired", successorThreadId: redirect.successorThreadId }
+    : { kind: "none" };
+}
+
+function resolveRedirectedCreate(
   tx: DbTransaction,
   input: CreateQueuedThreadMessageInput,
 ) {
+  const redirect = tx
+    .select()
+    .from(threadRedirects)
+    .where(eq(threadRedirects.sourceThreadId, input.threadId))
+    .get();
+  if (!redirect) return null;
+  if (redirect.successorThreadId === null) {
+    throw new QueuedMessageThreadUnavailableError(
+      input.threadId,
+      "retired_no_successor",
+    );
+  }
+  if (input.retiredPosts === "refuse") {
+    throw new QueuedMessageThreadUnavailableError(
+      input.threadId,
+      "already_retired",
+    );
+  }
+  const successorRedirect = tx
+    .select({ sourceThreadId: threadRedirects.sourceThreadId })
+    .from(threadRedirects)
+    .where(eq(threadRedirects.sourceThreadId, redirect.successorThreadId))
+    .get();
+  if (successorRedirect) {
+    throw new QueuedMessageThreadUnavailableError(
+      input.threadId,
+      "redirect_depth_exceeded",
+    );
+  }
+  const id = input.id ?? createQueuedThreadMessageId();
+  const originId = input.originId ?? id;
+  const row = createQueuedThreadMessageInTransaction(tx, {
+    ...input,
+    id,
+    originId,
+    threadId: redirect.successorThreadId,
+    threadVerified: false,
+    redirect: "direct",
+  });
+  tx.insert(transferEntries)
+    .values({
+      id: `tent_${randomUUID()}`,
+      opId: redirect.opId,
+      kind: "redirected",
+      originId,
+      sourceRowId: null,
+      sourceSortKey: null,
+      targetRowId: row.id,
+      detail: null,
+      state: "terminal",
+      updatedAt: Date.now(),
+    })
+    .run();
+  return row;
+}
+
+export function createQueuedThreadMessageInTransaction(
+  tx: DbTransaction,
+  input: CreateQueuedThreadMessageInput,
+): QueuedThreadMessageRow {
+  if (input.redirect !== "direct") {
+    const redirected = resolveRedirectedCreate(tx, input);
+    if (redirected) return redirected;
+  }
   if (!input.threadVerified) {
     assertThreadAcceptsQueuedMessage(tx, input.threadId);
   }
@@ -642,7 +743,7 @@ export function createQueuedThreadMessageInTransaction(
     input.threadId,
     projectAttachmentPaths(input.content),
   );
-  const id = createQueuedThreadMessageId();
+  const id = input.id ?? createQueuedThreadMessageId();
   const originId = input.originId ?? id;
   const lastQueuedMessage = input.sortKey
     ? null
@@ -684,8 +785,12 @@ export function createQueuedThreadMessageInTransaction(
         input.payload.kind === "retry" ? input.payload.attempt : null,
       retryReason: input.payload.kind === "retry" ? input.payload.reason : null,
       groupWithNext: false,
-      claimedAt: null,
-      claimToken: null,
+      claimedAt: input.slotForSourceRowId === undefined ? null : now,
+      claimToken:
+        input.slotForSourceRowId === undefined
+          ? null
+          : `slot:${input.slotForSourceRowId}`,
+      forwardSourceRowId: input.slotForSourceRowId ?? null,
       sortKey,
       createdAt: now,
       updatedAt: now,
@@ -709,7 +814,10 @@ export function createQueuedThreadMessage(
     (tx) => createQueuedThreadMessageInTransaction(tx, input),
     { behavior: "immediate" },
   );
-  notifier.notifyThread(input.threadId, ["queue-changed"]);
+  notifier.notifyThread(row.threadId, ["queue-changed"]);
+  if (row.threadId !== input.threadId) {
+    notifier.notifyThread(input.threadId, ["queue-changed"]);
+  }
   return row;
 }
 
@@ -1018,7 +1126,14 @@ export function claimQueuedThreadMessage(
   return claimedQueuedMessage;
 }
 
-function claimQueuedThreadMessageIdsInTransaction(
+export class ShortClaimError extends Error {
+  constructor() {
+    super("short_claim");
+    this.name = "ShortClaimError";
+  }
+}
+
+export function claimQueuedThreadMessageIdsInTransaction(
   tx: DbTransaction,
   ids: readonly string[],
 ): ClaimedQueuedThreadMessageRow[] | null {
@@ -1040,7 +1155,7 @@ function claimQueuedThreadMessageIdsInTransaction(
     .all();
 
   if (updated.length !== ids.length) {
-    return null;
+    throw new ShortClaimError();
   }
 
   const byId = new Map(
@@ -1049,7 +1164,7 @@ function claimQueuedThreadMessageIdsInTransaction(
   const claimedRows: ClaimedQueuedThreadMessageRow[] = [];
   for (const id of ids) {
     const row = byId.get(id);
-    if (!row) return null;
+    if (!row) throw new ShortClaimError();
     claimedRows.push(row);
   }
   return claimedRows;
@@ -1085,13 +1200,22 @@ function isAutomaticQueuedThreadMessageGroupClaimAllowed(
   );
 }
 
+function runAllOrNoneClaim<T>(run: () => T | null): T | null {
+  try {
+    return run();
+  } catch (error) {
+    if (error instanceof ShortClaimError) return null;
+    throw error;
+  }
+}
+
 export function claimQueuedThreadMessageGroup(
   db: DbConnection,
   notifier: DbNotifier,
   id: string,
   policy: QueuedThreadMessageGroupClaimPolicy,
 ): ClaimedQueuedThreadMessageRow[] | null {
-  const claimedQueuedMessages = db.transaction(
+  const claimedQueuedMessages = runAllOrNoneClaim(() => db.transaction(
     (tx) => {
       const existing = getQueuedThreadMessage(tx, id);
       if (!existing || isQueuedThreadMessageClaimed(existing)) {
@@ -1129,7 +1253,7 @@ export function claimQueuedThreadMessageGroup(
       );
     },
     { behavior: "immediate" },
-  );
+  ));
 
   if (claimedQueuedMessages && claimedQueuedMessages.length > 0) {
     notifier.notifyThread(claimedQueuedMessages[0]!.threadId, [
@@ -1145,7 +1269,7 @@ export function claimNextQueuedThreadMessageGroup(
   threadId: string,
   isGroupEligible?: QueuedThreadMessageGroupEligibility,
 ): ClaimedQueuedThreadMessageRow[] | null {
-  const claimedQueuedMessages = db.transaction(
+  const claimedQueuedMessages = runAllOrNoneClaim(() => db.transaction(
     (tx) => {
       // The idle drain takes the first group whose EVERY member it may act
       // on. A group with one waiting member is skipped whole — dispatching
@@ -1177,7 +1301,7 @@ export function claimNextQueuedThreadMessageGroup(
       );
     },
     { behavior: "immediate" },
-  );
+  ));
 
   if (claimedQueuedMessages && claimedQueuedMessages.length > 0) {
     notifier.notifyThread(threadId, ["queue-changed"]);
@@ -1402,9 +1526,25 @@ export function requeueClaimedQueuedThreadMessages(
 ): QueuedThreadMessageRow | null {
   const lead = args.claims[0];
   if (lead === undefined) return null;
+  let slotThreadIds: string[] = [];
   const queued = db.transaction(
     (tx) => {
       const now = Date.now();
+      const slotTargets = tx
+        .select({
+          id: queuedThreadMessages.id,
+          threadId: queuedThreadMessages.threadId,
+          sourceRowId: queuedThreadMessages.forwardSourceRowId,
+        })
+        .from(queuedThreadMessages)
+        .where(
+          inArray(
+            queuedThreadMessages.forwardSourceRowId,
+            args.claims.map((claim) => claim.id),
+          ),
+        )
+        .all();
+      slotThreadIds = [...new Set(slotTargets.map((slot) => slot.threadId))];
       for (const claim of args.claims) {
         tx.update(queuedThreadMessages)
           .set({
@@ -1421,10 +1561,25 @@ export function requeueClaimedQueuedThreadMessages(
           .where(
             and(
               eq(queuedThreadMessages.id, claim.id),
+              isNull(queuedThreadMessages.forwardSourceRowId),
               eq(queuedThreadMessages.claimToken, claim.claimToken),
             ),
           )
           .run();
+      }
+      const leadSlot = slotTargets.find((slot) => slot.sourceRowId === lead.id);
+      if (leadSlot !== undefined) {
+        const filled = tx
+          .select()
+          .from(queuedThreadMessages)
+          .where(
+            and(
+              eq(queuedThreadMessages.id, leadSlot.id),
+              isNull(queuedThreadMessages.forwardSourceRowId),
+            ),
+          )
+          .get();
+        if (filled !== undefined) return filled;
       }
       return (
         tx
@@ -1459,6 +1614,11 @@ export function requeueClaimedQueuedThreadMessages(
   );
   if (queued) {
     notifier.notifyThread(args.threadId, ["queue-changed"]);
+    for (const threadId of slotThreadIds) {
+      if (threadId !== args.threadId) {
+        notifier.notifyThread(threadId, ["queue-changed"]);
+      }
+    }
   }
   return queued;
 }
@@ -1471,7 +1631,12 @@ export function releaseQueuedMessageClaim(
   const existing = db
     .select()
     .from(queuedThreadMessages)
-    .where(eq(queuedThreadMessages.id, args.id))
+    .where(
+      and(
+        eq(queuedThreadMessages.id, args.id),
+        isNull(queuedThreadMessages.forwardSourceRowId),
+      ),
+    )
     .get();
   if (
     !existing ||
@@ -1482,34 +1647,68 @@ export function releaseQueuedMessageClaim(
   }
 
   const now = Date.now();
-  const result = db
-    .update(queuedThreadMessages)
-    .set({ claimedAt: null, claimToken: null, updatedAt: now })
-    .where(
-      and(
-        eq(queuedThreadMessages.id, args.id),
-        isNotNull(queuedThreadMessages.claimedAt),
-        eq(queuedThreadMessages.claimToken, args.claimToken),
-      ),
-    )
-    .run();
-  if (result.changes === 0) {
+  const slotThreadIds = db.transaction(
+    (tx) => {
+      const slotThreads = tx
+        .selectDistinct({ threadId: queuedThreadMessages.threadId })
+        .from(queuedThreadMessages)
+        .where(eq(queuedThreadMessages.forwardSourceRowId, args.id))
+        .all();
+      const result = tx
+        .update(queuedThreadMessages)
+        .set({ claimedAt: null, claimToken: null, updatedAt: now })
+        .where(
+          and(
+            eq(queuedThreadMessages.id, args.id),
+            isNull(queuedThreadMessages.forwardSourceRowId),
+            isNotNull(queuedThreadMessages.claimedAt),
+            eq(queuedThreadMessages.claimToken, args.claimToken),
+          ),
+        )
+        .run();
+      return result.changes === 0
+        ? null
+        : slotThreads.map((slot) => slot.threadId);
+    },
+    { behavior: "immediate" },
+  );
+  if (slotThreadIds === null) {
     return false;
   }
 
   notifier.notifyThread(existing.threadId, ["queue-changed"]);
+  for (const threadId of slotThreadIds) {
+    if (threadId !== existing.threadId) {
+      notifier.notifyThread(threadId, ["queue-changed"]);
+    }
+  }
   return true;
 }
 
-export function releaseStaleQueuedMessageClaims(
+export interface ReleaseStaleQueuedMessageClaimsDetailedResult {
+  released: number;
+  threadIds: string[];
+}
+
+class StaleSweepMismatch extends Error {
+  constructor(
+    readonly selected: number,
+    readonly updated: number,
+  ) {
+    super(`stale claim sweep selected ${selected} but updated ${updated}`);
+    this.name = "StaleSweepMismatch";
+  }
+}
+
+export function sweepStaleQueuedMessageClaims(
   db: DbConnection,
-  notifier: DbNotifier,
   args: ReleaseStaleQueuedMessageClaimsArgs,
-): number {
+): ReleaseStaleQueuedMessageClaimsDetailedResult {
   const protectedClaimTokens = [...args.protectedClaimTokens];
   const staleClaimWhere = and(
     isNotNull(queuedThreadMessages.claimedAt),
     lt(queuedThreadMessages.claimedAt, args.claimedBefore),
+    isNull(queuedThreadMessages.forwardSourceRowId),
     ...(protectedClaimTokens.length > 0
       ? [
           or(
@@ -1519,30 +1718,67 @@ export function releaseStaleQueuedMessageClaims(
         ]
       : []),
   );
-  const staleRows = db
-    .select({
-      id: queuedThreadMessages.id,
-      threadId: queuedThreadMessages.threadId,
-    })
-    .from(queuedThreadMessages)
-    .where(staleClaimWhere)
-    .all();
-  if (staleRows.length === 0) {
-    return 0;
-  }
+  return db.transaction(
+    (tx) => {
+      const staleRows = tx
+        .select({
+          id: queuedThreadMessages.id,
+          threadId: queuedThreadMessages.threadId,
+        })
+        .from(queuedThreadMessages)
+        .where(staleClaimWhere)
+        .all();
+      if (staleRows.length === 0) {
+        return { released: 0, threadIds: [] };
+      }
+      const slotThreads = tx
+        .selectDistinct({ threadId: queuedThreadMessages.threadId })
+        .from(queuedThreadMessages)
+        .where(
+          and(
+            like(queuedThreadMessages.claimToken, "slot:%"),
+            inArray(
+              queuedThreadMessages.forwardSourceRowId,
+              tx
+                .select({ id: queuedThreadMessages.id })
+                .from(queuedThreadMessages)
+                .where(staleClaimWhere),
+            ),
+          ),
+        )
+        .all();
+      const result = tx
+        .update(queuedThreadMessages)
+        .set({ claimedAt: null, claimToken: null, updatedAt: Date.now() })
+        .where(staleClaimWhere)
+        .run();
+      if (result.changes !== staleRows.length) {
+        throw new StaleSweepMismatch(staleRows.length, result.changes);
+      }
+      return {
+        released: result.changes,
+        threadIds: [
+          ...new Set([
+            ...staleRows.map((row) => row.threadId),
+            ...slotThreads.map((row) => row.threadId),
+          ]),
+        ],
+      };
+    },
+    { behavior: "immediate" },
+  );
+}
 
-  const now = Date.now();
-  const result = db
-    .update(queuedThreadMessages)
-    .set({ claimedAt: null, claimToken: null, updatedAt: now })
-    .where(staleClaimWhere)
-    .run();
-
-  for (const threadId of new Set(staleRows.map((row) => row.threadId))) {
+export function releaseStaleQueuedMessageClaims(
+  db: DbConnection,
+  notifier: DbNotifier,
+  args: ReleaseStaleQueuedMessageClaimsArgs,
+): number {
+  const { released, threadIds } = sweepStaleQueuedMessageClaims(db, args);
+  for (const threadId of threadIds) {
     notifier.notifyThread(threadId, ["queue-changed"]);
   }
-
-  return result.changes;
+  return released;
 }
 
 export function deleteClaimedQueuedThreadMessageBatchInTransaction(
@@ -1571,6 +1807,15 @@ export function deleteClaimedQueuedThreadMessageBatchInTransaction(
     )
     .all();
   if (existingRows.length !== ids.length) {
+    return false;
+  }
+  const ownsSlot = db
+    .select({ id: queuedThreadMessages.id })
+    .from(queuedThreadMessages)
+    .where(inArray(queuedThreadMessages.forwardSourceRowId, ids))
+    .limit(1)
+    .get();
+  if (ownsSlot) {
     return false;
   }
 
@@ -2246,6 +2491,7 @@ export function transferQueuedThreadMessageInTransaction(
     .run();
   const queuedMessage = createQueuedThreadMessageInTransaction(tx, {
     originId: source.originId ?? source.id,
+    redirect: "direct",
     sortKey: args.sortKey,
     threadVerified: args.targetVerified,
     threadId: args.targetThreadId,

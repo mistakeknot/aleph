@@ -348,7 +348,7 @@ it.each(["suspended", "suspending"] as const)(
         );
         expect(response.status).not.toBe(404);
         expect(listQueuedCommands(h, "workspace.status")).toHaveLength(0);
-      expect(listQueuedCommands(h, "workspace.pull_request")).toHaveLength(0);
+        expect(listQueuedCommands(h, "workspace.pull_request")).toHaveLength(0);
       }
     });
   },

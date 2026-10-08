@@ -1,6 +1,7 @@
 import type { ApplyThreadLifecycleEventOutcome, HostRow } from "@bb/db";
 import type { PendingInteraction, Thread } from "@bb/domain";
 import type { ThreadQueuedMessage } from "@bb/domain";
+import type { PluginMessageTransfer } from "@get-bb/plugin-sdk";
 import type { PluginThreadEventEmitter } from "./plugin-service.js";
 
 const pendingThreadEvents = new Map<string, ReturnType<typeof setTimeout>>();
@@ -50,6 +51,15 @@ export function emitPluginMessageQueued(entry: ThreadQueuedMessage): void {
 /** Called after a queued row's waits cleared and it dispatched. */
 export function emitPluginMessageDispatched(entry: ThreadQueuedMessage): void {
   emitter?.emitMessageDispatched(entry);
+}
+
+export function deliverPluginMessageQueuedTransfer(
+  entry: ThreadQueuedMessage | null,
+  transfer: PluginMessageTransfer,
+): Promise<boolean> {
+  return emitter
+    ? emitter.deliverMessageQueuedTransfer(entry, transfer)
+    : Promise.resolve(true);
 }
 
 export function emitPluginMessageCancelled(entry: ThreadQueuedMessage): void {

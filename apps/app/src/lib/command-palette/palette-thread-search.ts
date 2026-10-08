@@ -1,7 +1,4 @@
-import {
-  PERSONAL_PROJECT_ID,
-  type ThreadListEntry,
-} from "@bb/domain";
+import { PERSONAL_PROJECT_ID, type ThreadListEntry } from "@bb/domain";
 import type {
   ThreadSearchMatch,
   ThreadSearchResponse,

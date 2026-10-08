@@ -953,6 +953,20 @@
       "when": 1791464912065,
       "tag": "0135_fixed_imperial_guard",
       "breakpoints": true
+    },
+    {
+      "idx": 136,
+      "version": "6",
+      "when": 1791472689884,
+      "tag": "0136_ex88_slot_triggers",
+      "breakpoints": true
+    },
+    {
+      "idx": 137,
+      "version": "6",
+      "when": 1791478574764,
+      "tag": "0137_ex88_slot_fill_waits",
+      "breakpoints": true
     }
   ]
 }

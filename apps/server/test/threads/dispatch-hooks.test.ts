@@ -1,5 +1,7 @@
 import {
   createQueuedThreadMessage,
+  abortTransferOperation,
+  retireQueuedThreadMessages,
   getThread,
   listEvents,
   listQueuedThreadMessages,
@@ -14,7 +16,7 @@ import type {
   MessageDispatchHookContext,
   PluginHookName,
 } from "@get-bb/plugin-sdk";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../src/errors.js";
 import {
   invokePluginInline,
@@ -1371,6 +1373,172 @@ describe("message.dispatch hooks on the queue drain", () => {
       expect(
         listQueuedThreadCommands(harness, "turn.submit", thread.id),
       ).toEqual([]);
+    });
+  });
+});
+
+describe("retire racing a drain claim (T-C1)", () => {
+  it("forwards the claimed row to the successor once and starts no turn on the source", async () => {
+    await withTestHarness(async (harness) => {
+      installHooks(emptyRegistry());
+      const { environment, project, thread } = seedRunnableThread(harness, {
+        hostId: "host-retire-race",
+        status: "idle",
+      });
+      const target = seedThread(harness.deps, {
+        environmentId: environment.id,
+        projectId: project.id,
+        status: "idle",
+      });
+      seedThreadRuntimeState(harness.deps, {
+        environmentId: environment.id,
+        providerThreadId: "provider-retire-race-target",
+        threadId: target.id,
+      });
+      const queued = createQueuedThreadMessage(harness.db, harness.deps.hub, {
+        threadId: thread.id,
+        content: textInput("raced work"),
+        senderThreadId: null,
+        origin: null,
+        originPluginId: null,
+        requestedBy: null,
+        model: "requested-model",
+        reasoningLevel: "medium",
+        permissionMode: "auto",
+        serviceTier: "default",
+        payload: { kind: "inline" },
+        waitingOn: { kind: "thread-busy" },
+        sendAt: null,
+        systemNotice: null,
+      });
+      const sourceBaseline = turnRequests(harness, thread.id).length;
+      const targetBaseline = turnRequests(harness, target.id).length;
+      const notify = harness.hub.notifyThread.bind(harness.hub);
+      let retired = false;
+      vi.spyOn(harness.hub, "notifyThread").mockImplementation(
+        (threadId, ...rest) => {
+          if (threadId === thread.id && !retired) {
+            retired = true;
+            const outcome = retireQueuedThreadMessages(harness.db, {
+              projectId: project.id,
+              sourceThreadId: thread.id,
+              targetThreadId: target.id,
+              operationKey: "race",
+              retireEnabled: true,
+              resolveWaitingOn: () => ({ kind: "thread-busy" }),
+            });
+            expect(outcome.kind).toBe("retired");
+          }
+          return notify(threadId, ...rest);
+        },
+      );
+
+      const drained = await sendNextQueuedMessageIfPresent(harness.deps, {
+        threadId: thread.id,
+      });
+
+      expect(retired).toBe(true);
+      expect(drained).toBe(false);
+      expect(turnRequests(harness, thread.id)).toHaveLength(sourceBaseline);
+      expect(listQueuedThreadMessages(harness.db, thread.id)).toEqual([]);
+      const forwarded = listQueuedThreadMessages(harness.db, target.id);
+      expect(forwarded).toHaveLength(1);
+      expect(forwarded[0]).toMatchObject({
+        originId: queued.id,
+        claimToken: null,
+      });
+
+      await vi.waitFor(() =>
+        expect(turnRequests(harness, target.id)).toHaveLength(
+          targetBaseline + 1,
+        ),
+      );
+      expect(turnRequests(harness, target.id)).toHaveLength(targetBaseline + 1);
+      expect(turnRequests(harness, thread.id)).toHaveLength(sourceBaseline);
+      expect(listQueuedThreadMessages(harness.db, target.id)).toEqual([]);
+    });
+  });
+  it("refuses an abort that lands between claim and consume and executes once on the target", async () => {
+    await withTestHarness(async (harness) => {
+      installHooks(emptyRegistry());
+      const { environment, project, thread } = seedRunnableThread(harness, {
+        hostId: "host-abort-race",
+        status: "idle",
+      });
+      const target = seedThread(harness.deps, {
+        environmentId: environment.id,
+        projectId: project.id,
+        status: "idle",
+      });
+      seedThreadRuntimeState(harness.deps, {
+        environmentId: environment.id,
+        providerThreadId: "provider-abort-race-target",
+        threadId: target.id,
+      });
+      const queued = createQueuedThreadMessage(harness.db, harness.deps.hub, {
+        threadId: thread.id,
+        content: textInput("aborted work"),
+        senderThreadId: null,
+        origin: null,
+        originPluginId: null,
+        requestedBy: null,
+        model: "requested-model",
+        reasoningLevel: "medium",
+        permissionMode: "auto",
+        serviceTier: "default",
+        payload: { kind: "inline" },
+        waitingOn: { kind: "thread-busy" },
+        sendAt: null,
+        systemNotice: null,
+      });
+      const retirement = retireQueuedThreadMessages(harness.db, {
+        projectId: project.id,
+        sourceThreadId: thread.id,
+        targetThreadId: target.id,
+        operationKey: "abort-race-retire",
+        retireEnabled: true,
+        resolveWaitingOn: () => ({ kind: "thread-busy" }),
+      });
+      if (retirement.kind !== "retired") {
+        throw new Error("expected the retirement to land");
+      }
+      expect(listQueuedThreadMessages(harness.db, target.id)).toHaveLength(1);
+
+      const sourceBaseline = turnRequests(harness, thread.id).length;
+      const targetBaseline = turnRequests(harness, target.id).length;
+      const notify = harness.hub.notifyThread.bind(harness.hub);
+      let aborted = false;
+      vi.spyOn(harness.hub, "notifyThread").mockImplementation(
+        (threadId, ...rest) => {
+          if (threadId === target.id && !aborted) {
+            aborted = true;
+            const outcome = abortTransferOperation(harness.db, {
+              projectId: project.id,
+              operationId: retirement.operationId,
+              expectedRetirementOperationId: retirement.operationId,
+              operationKey: "abort-race-abort",
+              resolveWaitingOn: () => ({ kind: "thread-busy" }),
+            });
+            expect(outcome).toEqual({
+              kind: "refused",
+              reason: "claims_pending",
+            });
+          }
+          return notify(threadId, ...rest);
+        },
+      );
+
+      const drained = await sendNextQueuedMessageIfPresent(harness.deps, {
+        threadId: target.id,
+      });
+
+      expect(aborted).toBe(true);
+      expect(drained).toBe(true);
+      expect(turnRequests(harness, target.id)).toHaveLength(targetBaseline + 1);
+      expect(turnRequests(harness, thread.id)).toHaveLength(sourceBaseline);
+      expect(listQueuedThreadMessages(harness.db, target.id)).toEqual([]);
+      expect(listQueuedThreadMessages(harness.db, thread.id)).toEqual([]);
+      expect(queued.id).toBeTruthy();
     });
   });
 });

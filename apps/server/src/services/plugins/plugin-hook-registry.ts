@@ -77,7 +77,9 @@ export interface PluginHookProvider {
  */
 let provider: PluginHookProvider | undefined;
 
-export function setPluginHookProvider(next: PluginHookProvider | undefined): void {
+export function setPluginHookProvider(
+  next: PluginHookProvider | undefined,
+): void {
   provider = next;
 }
 

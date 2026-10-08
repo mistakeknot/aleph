@@ -38,6 +38,7 @@ import {
   type ExperimentalPluginBrowserToolbarActionProps,
   type PluginThreadListProps,
   type PluginSidebarFooterActionRegistration,
+  type PluginMessageTransfer,
   type PluginThreadEventPayloads,
   type PluginThreadPanelProps,
   type ThreadChatMessageAction,
@@ -68,6 +69,13 @@ function readSkillTree(directory = SKILL_ROOT): string {
 
 function readReference(name: string): string {
   return readFileSync(join(SKILL_ROOT, "references", name), "utf8");
+}
+
+function readSurfacesSource(): string {
+  return readFileSync(
+    join(REPO_ROOT, "plugins/plugin-api-docs/src/surfaces.ts"),
+    "utf8",
+  );
 }
 
 function exportedTypeNames(source: string): string[] {
@@ -226,9 +234,10 @@ const THREAD_EVENT_PAYLOAD_FIELDS = {
   "thread.unarchived": ["thread"],
   "thread.deleted": ["thread"],
   "interaction.pending": ["thread", "interaction"],
-  "message.queued": ["entry"],
+  "message.queued": ["entry", "transfer"],
   "message.dispatched": ["entry"],
   "message.cancelled": ["entry"],
+  "message.transferred": ["entry", "transfer"],
   "turn.failed": [
     "threadId",
     "requestId",
@@ -239,9 +248,7 @@ const THREAD_EVENT_PAYLOAD_FIELDS = {
     "attemptNumber",
   ],
 } as const satisfies {
-  [
-    E in keyof PluginThreadEventPayloads
-  ]: readonly (keyof PluginThreadEventPayloads[E])[];
+  [E in keyof PluginThreadEventPayloads]: readonly (keyof PluginThreadEventPayloads[E])[];
 };
 
 type MissingThreadEventField = {
@@ -689,6 +696,45 @@ describe("bb-plugin-authoring skill", () => {
     }
   });
 
+  it("documents the message.transferred delivery semantics and a null-safe example", () => {
+    const events = readReference("backend-events.md");
+    const transferFields = [
+      "eventId",
+      "operationId",
+      "entryId",
+      "kind",
+      "state",
+      "rowId",
+      "sourceRowId",
+      "originId",
+    ] as const satisfies readonly (keyof PluginMessageTransfer)[];
+    for (const field of transferFields) {
+      expect(events, `transfer field ${field} is not documented`).toContain(
+        `\`${field}\``,
+      );
+    }
+    for (const phrase of [
+      "PluginMessageTransfer",
+      "`null`",
+      "at-least-once",
+      "awaits every",
+      "including to listeners that already handled it successfully",
+      "idempotently",
+      "`pending`",
+      "`terminal`",
+      "`redirected`",
+      "`residual`",
+      "`not_forwardable`",
+    ]) {
+      expect(events, `"${phrase}" is missing from backend-events.md`).toContain(
+        phrase,
+      );
+    }
+    expect(events).not.toMatch(/[^?]entry\.waitingOn\?\.kind/);
+    expect(events).toContain("entry?.waitingOn?.kind");
+    expect(readSurfacesSource()).toContain("PluginMessageTransfer");
+  });
+
   it("keeps environment app symbols and composer and event guidance current", () => {
     const frontendIndex = readReference("frontend-api-index.md");
     const backendIndex = readReference("backend-api-index.md");
@@ -713,7 +759,7 @@ describe("bb-plugin-authoring skill", () => {
     expect(readReference("frontend-components.md")).not.toContain(
       'workspace: { type: "personal" }',
     );
-    expect(readReference("backend-events.md")).toContain("Fourteen events.");
+    expect(readReference("backend-events.md")).toContain("Fifteen events.");
     expect(readReference("backend-events.md")).toContain(
       "The seven `thread.*` ones",
     );

@@ -26,7 +26,11 @@ interface PluginCardProps {
   onOpen: (trigger: HTMLButtonElement) => void;
 }
 
-export function PluginCard({ byline, footerAction, ...props }: PluginCardProps) {
+export function PluginCard({
+  byline,
+  footerAction,
+  ...props
+}: PluginCardProps) {
   return (
     <ResourceBrowseCard
       {...props}

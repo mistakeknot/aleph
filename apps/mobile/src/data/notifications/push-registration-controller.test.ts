@@ -117,13 +117,8 @@ describe("createPushRegistrationController", () => {
   });
 
   it("ignores repeated device token events and events caused by an active sync", async () => {
-    const {
-      controller,
-      store,
-      notifications,
-      tokenGate,
-      emitDeviceToken,
-    } = setup();
+    const { controller, store, notifications, tokenGate, emitDeviceToken } =
+      setup();
     store.setEnabled(profile.id, true);
     tokenGate.resolve("expo-token");
     await controller.sync(profile);

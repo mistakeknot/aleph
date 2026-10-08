@@ -38,9 +38,7 @@ export function ThreadLifecycleFilterItems({
             key={option.value}
             role="menuitemcheckbox"
             aria-checked={checked}
-            title={
-              required ? "Keep at least one filter selected" : undefined
-            }
+            title={required ? "Keep at least one filter selected" : undefined}
             onSelect={(event) => {
               event.preventDefault();
               if (required) return;

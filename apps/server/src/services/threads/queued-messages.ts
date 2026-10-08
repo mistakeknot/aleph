@@ -1,9 +1,12 @@
+import { retiredUserPostsMode } from "./retired-user-posts.js";
 import {
+  abortTransferOperation,
   claimNextQueuedThreadMessageGroup,
   claimQueuedThreadMessageGroup,
   createQueuedThreadMessageInTransaction,
   deleteClaimedQueuedThreadMessageBatchInTransaction,
-  drainTransferEvents,
+  listUnemittedTransferEvents,
+  markTransferEventEmitted,
   getEnvironment,
   getHost,
   getTransferOperation,
@@ -13,13 +16,16 @@ import {
   isOrdinaryTurnEndQueuedMessage,
   isThreadQueueAutoSendPaused,
   releaseQueuedMessageClaim,
+  getRedirectSuccessorThreadId,
   releaseStaleQueuedMessageClaims,
   sweepTransferOperations,
   retireQueuedThreadMessages,
   TransferTargetRetiredError,
   transferAllQueuedThreadMessagesInTransaction,
   transferQueuedThreadMessageInTransaction,
+  QueuedMessageThreadUnavailableError,
   type DbQueryConnection,
+  type AbortResult,
   type RetireResult,
   type QueuedThreadMessageGroupClaimPolicy,
   type QueuedThreadMessageGroupEligibility,
@@ -95,7 +101,10 @@ import {
   settleQueueRowDispatched,
 } from "./queue-waits.js";
 import { recordQueuedMessageDrainFailure } from "./queue-drain-failure.js";
-import { emitPluginMessageQueued } from "../plugins/plugin-thread-events.js";
+import {
+  deliverPluginMessageQueuedTransfer,
+  emitPluginMessageQueued,
+} from "../plugins/plugin-thread-events.js";
 import {
   appendPluginMentionContext,
   captureUserMessageSentTelemetry,
@@ -103,6 +112,12 @@ import {
   formatAgentThreadInput,
   resolveMessageSenderThreadId,
 } from "./thread-send.js";
+import {
+  INGRESS_ADMISSION_ATTEMPTS,
+  RetirementAppearedError,
+  assertAdmittedDestinationInTransaction,
+  resolveRetiredIngress,
+} from "./retired-ingress.js";
 import { recordAcceptedPromptHistoryEntry } from "../prompt-history.js";
 import { requireThreadCommandEnvironment } from "./thread-command-environment.js";
 import { applyLoggedThreadLifecycleEventInTransaction } from "./lifecycle-outcome.js";
@@ -243,7 +258,32 @@ export async function createQueuedMessageForThread(
   deps: LoggedPendingInteractionWorkSessionDeps,
   args: CreateQueuedMessageForThreadArgs,
 ): Promise<ThreadQueuedMessage> {
-  const { payload, thread } = args;
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await createQueuedMessageForResolvedThread(deps, args);
+    } catch (error) {
+      if (
+        !(error instanceof RetirementAppearedError) ||
+        attempt + 1 >= INGRESS_ADMISSION_ATTEMPTS
+      ) {
+        throw error;
+      }
+    }
+  }
+}
+
+async function createQueuedMessageForResolvedThread(
+  deps: LoggedPendingInteractionWorkSessionDeps,
+  args: CreateQueuedMessageForThreadArgs,
+): Promise<ThreadQueuedMessage> {
+  const { payload } = args;
+  const resolution = resolveRetiredIngress(deps.db, args.thread, {
+    refuseUserPosts: true,
+  });
+  if (resolution.kind === "unavailable") {
+    throwThreadNotWritable(args.thread, resolution.reason, "Thread is retired");
+  }
+  const thread = resolution.thread;
   ensureThreadQueueIsWritable(thread);
   await validatePromptAttachmentReferences({
     db: deps.db,
@@ -258,44 +298,51 @@ export async function createQueuedMessageForThread(
     senderThreadId: payload.senderThreadId,
     targetThread: thread,
   });
-  const { currentThread, hasProviderSession, queuedMessage } =
-    deps.db.transaction(
-      (tx) => {
-        const currentThread = getThread(tx, thread.id);
-        if (!currentThread) {
-          throw new ApiError(404, "thread_not_found", "Thread not found");
-        }
-        const { hasProviderSession } = admitQueuedMessage(tx, currentThread);
-        const queuedMessage = createQueuedThreadMessageInTransaction(tx, {
-          threadId: thread.id,
-          content: payload.input,
-          senderThreadId,
-          model: execution.model,
-          reasoningLevel: execution.reasoningLevel,
-          permissionMode: execution.permissionMode,
-          serviceTier: execution.serviceTier,
-          // An explicit "queue this" is a message waiting for the running turn
-          // to end, which is exactly `thread-busy`. Naming it rather than
-          // leaving the wait null keeps every row on one vocabulary, and the
-          // idle drain treats the two identically anyway.
-          //
-          // Queued while the thread is stopping, it is instead a message the
-          // user composed AFTER asking for the stop, so it carries `stopping`
-          // and runs when the stop lands rather than joining the rows the
-          // manual-stop pause holds back.
-          waitingOn:
-            currentThread.status === "stopping"
-              ? { kind: "stopping" }
-              : { kind: "thread-busy" },
-          sendAt: null,
-          payload: { kind: "inline" },
-          systemNotice: null,
-        });
-        return { currentThread, hasProviderSession, queuedMessage };
-      },
-      { behavior: "immediate" },
-    );
-  deps.hub.notifyThread(thread.id, ["queue-changed"]);
+  const { currentThread, hasProviderSession, queuedMessage } = mapUnavailable(
+    deps,
+    thread,
+    () =>
+      deps.db.transaction(
+        (tx) => {
+          const currentThread = getThread(tx, thread.id);
+          if (!currentThread) {
+            throw new ApiError(404, "thread_not_found", "Thread not found");
+          }
+          assertAdmittedDestinationInTransaction(tx, args.thread.id, thread.id);
+          const { hasProviderSession } = admitQueuedMessage(tx, currentThread);
+          const queuedMessage = createQueuedThreadMessageInTransaction(tx, {
+            threadId: args.thread.id,
+            content: payload.input,
+            senderThreadId,
+            retiredPosts: retiredUserPostsMode(),
+            model: execution.model,
+            reasoningLevel: execution.reasoningLevel,
+            permissionMode: execution.permissionMode,
+            serviceTier: execution.serviceTier,
+            // An explicit "queue this" is a message waiting for the running turn
+            // to end, which is exactly `thread-busy`. Naming it rather than
+            // leaving the wait null keeps every row on one vocabulary, and the
+            // idle drain treats the two identically anyway.
+            //
+            // Queued while the thread is stopping, it is instead a message the
+            // user composed AFTER asking for the stop, so it carries `stopping`
+            // and runs when the stop lands rather than joining the rows the
+            // manual-stop pause holds back.
+            waitingOn:
+              currentThread.status === "stopping"
+                ? { kind: "stopping" }
+                : { kind: "thread-busy" },
+            sendAt: null,
+            payload: { kind: "inline" },
+            systemNotice: null,
+          });
+          return { currentThread, hasProviderSession, queuedMessage };
+        },
+        { behavior: "immediate" },
+      ),
+  );
+  const landedThreadId = queuedMessage.threadId;
+  deps.hub.notifyThread(landedThreadId, ["queue-changed"]);
   if (senderThreadId === null && payload.input.length > 0) {
     captureUserMessageSentTelemetry(deps, {
       isChildThread: thread.parentThreadId !== null,
@@ -303,13 +350,35 @@ export async function createQueuedMessageForThread(
       providerId: thread.providerId,
     });
   }
-  if (currentThread.status === "idle" && hasProviderSession) {
+  if (
+    landedThreadId !== args.thread.id ||
+    (currentThread.status === "idle" && hasProviderSession)
+  ) {
     requestQueuedMessageDispatch(deps, {
       kind: "thread-ready",
-      threadId: thread.id,
+      threadId: landedThreadId,
     });
   }
   return toThreadQueuedMessage(queuedMessage);
+}
+
+function mapUnavailable<T>(
+  deps: Pick<AppDeps, "db">,
+  thread: Thread,
+  run: () => T,
+): T {
+  try {
+    return run();
+  } catch (error) {
+    if (error instanceof QueuedMessageThreadUnavailableError) {
+      throwThreadNotWritable(
+        getThread(deps.db, thread.id) ?? thread,
+        error.reason,
+        "Thread is retired",
+      );
+    }
+    throw error;
+  }
 }
 
 function mapTargetRetired<T>(targetThread: Thread, run: () => T): T {
@@ -374,18 +443,18 @@ export async function retireThread(
       "Operation key was already used for a different request",
     );
   }
-  if (outcome.kind === "refused" || outcome.kind === "source_has_claims") {
+  if (outcome.kind === "refused") {
     throwThreadNotWritable(
       target ?? project,
-      outcome.kind === "refused" ? outcome.reason : "source_has_claims",
+      outcome.reason,
       "Thread cannot be retired",
     );
   }
   if (outcome.kind === "replayed") {
-    drainTransferLedger(deps);
+    await drainTransferLedger(deps);
     return outcome.result;
   }
-  drainTransferLedger(deps);
+  await drainTransferLedger(deps);
   if (target?.status === "idle") {
     requestQueuedMessageDispatch(deps, {
       kind: "thread-ready",
@@ -395,25 +464,99 @@ export async function retireThread(
   return outcome.result;
 }
 
-export function drainTransferLedger(deps: Pick<AppDeps, "db" | "hub">): void {
-  let drained: number;
-  do {
-    drained = drainTransferEvents(deps.db, (events) => {
-      const notified = new Set<string>();
-      for (const event of events) {
-        if (event.payload.kind === "moved" && event.payload.rowId) {
-          const row = getQueuedThreadMessage(deps.db, event.payload.rowId);
-          if (row) emitQueuedIfHeld(toThreadQueuedMessage(row));
-        }
-        if (notified.has(event.opId)) continue;
-        notified.add(event.opId);
-        const operation = getTransferOperation(deps.db, event.opId);
-        if (!operation) continue;
-        deps.hub.notifyThread(operation.sourceThreadId, ["queue-changed"]);
-        deps.hub.notifyThread(operation.targetThreadId, ["queue-changed"]);
+export interface AbortRetirementArgs {
+  operationId: string;
+  operationKey: string;
+  expectedRetirementOperationId: string;
+}
+
+export async function abortRetirement(
+  deps: AppDeps,
+  args: AbortRetirementArgs,
+): Promise<AbortResult> {
+  const operation = getTransferOperation(deps.db, args.operationId);
+  if (!operation) {
+    throw new ApiError(404, "not_found", "Transfer operation not found");
+  }
+  const source = getThread(deps.db, operation.sourceThreadId);
+  const outcome = abortTransferOperation(deps.db, {
+    projectId: operation.projectId,
+    operationId: args.operationId,
+    expectedRetirementOperationId: args.expectedRetirementOperationId,
+    operationKey: args.operationKey,
+    resolveWaitingOn: (row) => {
+      const waitingOn = parseStoredQueuedThreadMessageWaitingOn(row);
+      if (waitingOn?.kind === "plugin" || waitingOn?.kind === "time") {
+        return waitingOn;
       }
+      return source?.status === "stopping"
+        ? { kind: "stopping" }
+        : { kind: "thread-busy" };
+    },
+  });
+  if (outcome.kind === "idempotency_conflict") {
+    throw new ApiError(
+      409,
+      "idempotency_conflict",
+      "Operation key was already used for a different request",
+    );
+  }
+  if (outcome.kind === "refused") {
+    throwThreadNotWritable(
+      source ?? { archivedAt: null, deletedAt: null, status: "idle" },
+      outcome.reason,
+      "Retirement cannot be aborted",
+    );
+  }
+  await drainTransferLedger(deps);
+  if (source?.status === "idle") {
+    requestQueuedMessageDispatch(deps, {
+      kind: "thread-ready",
+      threadId: source.id,
     });
-  } while (drained > 0);
+  }
+  return outcome.result;
+}
+
+function carriesLandedRow(payload: { kind: string; state: string }): boolean {
+  if (payload.kind === "moved" || payload.kind === "returned") return true;
+  return payload.kind === "slot" && payload.state === "forwarded";
+}
+
+export async function drainTransferLedger(
+  deps: Pick<AppDeps, "db" | "hub">,
+): Promise<void> {
+  let progressed: boolean;
+  do {
+    progressed = false;
+    const notified = new Set<string>();
+    for (const event of listUnemittedTransferEvents(deps.db)) {
+      let entry: ThreadQueuedMessage | null = null;
+      if (event.payload.rowId && carriesLandedRow(event.payload)) {
+        const row = getQueuedThreadMessage(deps.db, event.payload.rowId);
+        entry = row ? toThreadQueuedMessage(row) : null;
+      }
+      const delivered = await deliverPluginMessageQueuedTransfer(entry, {
+        eventId: event.eventId,
+        operationId: event.opId,
+        entryId: event.entryId,
+        kind: event.payload.kind,
+        state: event.payload.state,
+        rowId: event.payload.rowId,
+        sourceRowId: event.payload.sourceId,
+        originId: event.payload.origin,
+      });
+      if (!delivered) continue;
+      markTransferEventEmitted(deps.db, event.eventId);
+      progressed = true;
+      if (notified.has(event.opId)) continue;
+      notified.add(event.opId);
+      const operation = getTransferOperation(deps.db, event.opId);
+      if (!operation) continue;
+      deps.hub.notifyThread(operation.sourceThreadId, ["queue-changed"]);
+      deps.hub.notifyThread(operation.targetThreadId, ["queue-changed"]);
+    }
+  } while (progressed);
   sweepTransferOperations(deps.db);
 }
 
@@ -631,15 +774,29 @@ function formatQueuedMessageInputForSender(
   });
 }
 
-function releaseQueuedMessageClaims(
-  deps: Pick<AppDeps, "db" | "hub">,
+async function releaseQueuedMessageClaims(
+  deps: LoggedPendingInteractionWorkSessionDeps,
   queuedMessages: readonly ClaimedQueuedMessage[],
-): void {
+): Promise<void> {
+  const threadIds = new Set<string>();
   for (const queuedMessage of queuedMessages) {
     releaseQueuedMessageClaim(deps.db, deps.hub, {
       id: queuedMessage.id,
       claimToken: queuedMessage.claimToken,
     });
+    threadIds.add(queuedMessage.threadId);
+  }
+  await drainTransferLedger(deps);
+  for (const threadId of [...threadIds]) {
+    const successorId = getRedirectSuccessorThreadId(deps.db, threadId);
+    if (successorId !== null) {
+      threadIds.add(successorId);
+    }
+  }
+  for (const threadId of threadIds) {
+    if (getThread(deps.db, threadId)?.status === "idle") {
+      requestQueuedMessageDispatch(deps, { kind: "thread-ready", threadId });
+    }
   }
 }
 
@@ -1105,7 +1262,7 @@ export async function sendQueuedMessage(
         queuedMessages.some(isOrdinaryTurnEndQueuedMessage) &&
         isThreadQueueAutoSendPaused(deps.db, thread.id)))
   ) {
-    releaseQueuedMessageClaims(deps, queuedMessages);
+    await releaseQueuedMessageClaims(deps, queuedMessages);
     return toThreadQueuedMessage(queuedMessages[0]!);
   }
   try {
@@ -1118,7 +1275,7 @@ export async function sendQueuedMessage(
       }),
     );
   } catch (error) {
-    releaseQueuedMessageClaims(deps, queuedMessages);
+    await releaseQueuedMessageClaims(deps, queuedMessages);
     if (
       isQueuedMessageAutoSendPausedError(error) ||
       error instanceof ThreadContextClearInProgressError
@@ -1186,7 +1343,7 @@ export async function sendNextQueuedMessageIfPresent(
     !isQueuedMessageAutoSendCandidate(thread) ||
     isManualCompactionActive(deps, thread)
   ) {
-    releaseQueuedMessageClaims(deps, nextQueuedMessages);
+    await releaseQueuedMessageClaims(deps, nextQueuedMessages);
     return false;
   }
 
@@ -1200,7 +1357,7 @@ export async function sendNextQueuedMessageIfPresent(
       }),
     );
   } catch (error) {
-    releaseQueuedMessageClaims(deps, nextQueuedMessages);
+    await releaseQueuedMessageClaims(deps, nextQueuedMessages);
     if (
       isQueuedMessageClaimLostError(error) ||
       isQueuedMessageAutoSendPausedError(error) ||
