@@ -676,17 +676,16 @@ async function deliverParentSystemMessageToWritableParent(
   );
   if (
     await dispatchTurnDuringReprovision({
-      beforeRequestAppendInTransaction: ({ tx }) =>
-        consumeParentSystemClaimInTransaction(tx, args.claim),
+      beforeRequestAppendInTransaction: ({ tx }) => {
+        requireParentWritableInTransaction(tx, parentThread.id);
+        consumeParentSystemClaimInTransaction(tx, args.claim);
+      },
       deps,
       environment,
       execution,
       initiator: "system",
       input: args.input,
       senderThreadId: null,
-      beforeRequestAppendInTransaction: ({ tx }) => {
-        requireParentWritableInTransaction(tx, parentThread.id);
-      },
       systemMessageKind: args.systemMessageKind,
       systemMessageSubject: args.systemMessageSubject,
       thread: parentThread,
