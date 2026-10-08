@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createConnection } from "../../src/index.js";
 import { noopNotifier } from "../../src/notifier.js";
 import {
@@ -16,7 +16,14 @@ import {
   releaseStaleQueuedMessageClaims,
 } from "../../src/data/queued-thread-messages.js";
 import type { DbNotifier } from "../../src/notifier.js";
-import { allRows, claim, enqueue, entries, retire, setup } from "../helpers/retire-fixture.js";
+import {
+  allRows,
+  claim,
+  enqueue,
+  entries,
+  retire,
+  setup,
+} from "../helpers/retire-fixture.js";
 import type { Fixture } from "../helpers/retire-fixture.js";
 
 function recordingNotifier() {
@@ -152,6 +159,65 @@ describe("transactional sweep (T-RC4, T-RC5)", () => {
     expect(notified).toEqual([]);
     expect(getQueuedThreadMessage(f.db, a.id)?.claimedAt).not.toBeNull();
     expect(allRows(f, f.target.id)[0]?.claimToken).toBe(`slot:${a.id}`);
+  });
+
+  it("T-RC4 a second connection cannot write between the stale selection and the update", () => {
+    const f = setup();
+    const a = enqueue(f.db, f.source.id, "a");
+    claim(f, a.id);
+    enqueue(f.db, f.source.id, "other");
+    retire(f);
+    ageClaims(f);
+    const dir = mkdtempSync(join(tmpdir(), "rc4-window-"));
+    const file = join(dir, "bb.db");
+    f.db.$client.pragma("wal_checkpoint(TRUNCATE)");
+    writeFileSync(file, f.db.$client.serialize());
+    const first = createConnection(file);
+    const second = createConnection(file);
+    second.$client.pragma("busy_timeout = 0");
+    const write = () =>
+      second.$client
+        .prepare("UPDATE threads SET title = ? WHERE id = ?")
+        .run("second", f.target.id);
+    expect(write).not.toThrow();
+    const prepare = first.$client.prepare.bind(first.$client);
+    let attempted = false;
+    let code = "";
+    const spy = vi.spyOn(first.$client, "prepare").mockImplementation(((
+      sql: string,
+    ) => {
+      const statement = prepare(sql);
+      if (
+        sql.startsWith(
+          'select "id", "thread_id" from "queued_thread_messages"',
+        ) &&
+        sql.includes('"claimed_at"')
+      ) {
+        const all = statement.all.bind(statement);
+        statement.all = ((...args: unknown[]) => {
+          const rows = all(...args);
+          attempted = true;
+          try {
+            write();
+            code = "ran";
+          } catch (error) {
+            code = (error as { code?: string }).code ?? String(error);
+          }
+          return rows;
+        }) as typeof statement.all;
+      }
+      return statement;
+    }) as typeof first.$client.prepare);
+    try {
+      releaseStaleQueuedMessageClaims(first, noopNotifier, sweepArgs());
+    } finally {
+      spy.mockRestore();
+      first.$client.close();
+      second.$client.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+    expect(attempted).toBe(true);
+    expect(code).toBe("SQLITE_BUSY");
   });
 
   it("T-RC5 releases more claims than the driver bind cap in one sweep and fills the slot", () => {
