@@ -51,15 +51,6 @@ export function resolveRetiredIngress(
   return { kind: "redirected", thread: successor };
 }
 
-export function assertNotRetiredInTransaction(
-  tx: DbQueryConnection,
-  threadId: string,
-): void {
-  if (getThreadRedirectState(tx, threadId).kind !== "none") {
-    throw new RetirementAppearedError(threadId);
-  }
-}
-
 export function assertAdmittedDestinationInTransaction(
   tx: DbQueryConnection,
   requestedThreadId: string,

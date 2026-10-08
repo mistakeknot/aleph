@@ -112,7 +112,12 @@ import {
   formatAgentThreadInput,
   resolveMessageSenderThreadId,
 } from "./thread-send.js";
-import { resolveRetiredIngress } from "./retired-ingress.js";
+import {
+  INGRESS_ADMISSION_ATTEMPTS,
+  RetirementAppearedError,
+  assertAdmittedDestinationInTransaction,
+  resolveRetiredIngress,
+} from "./retired-ingress.js";
 import { recordAcceptedPromptHistoryEntry } from "../prompt-history.js";
 import { requireThreadCommandEnvironment } from "./thread-command-environment.js";
 import { applyLoggedThreadLifecycleEventInTransaction } from "./lifecycle-outcome.js";
@@ -253,6 +258,24 @@ export async function createQueuedMessageForThread(
   deps: LoggedPendingInteractionWorkSessionDeps,
   args: CreateQueuedMessageForThreadArgs,
 ): Promise<ThreadQueuedMessage> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await createQueuedMessageForResolvedThread(deps, args);
+    } catch (error) {
+      if (
+        !(error instanceof RetirementAppearedError) ||
+        attempt + 1 >= INGRESS_ADMISSION_ATTEMPTS
+      ) {
+        throw error;
+      }
+    }
+  }
+}
+
+async function createQueuedMessageForResolvedThread(
+  deps: LoggedPendingInteractionWorkSessionDeps,
+  args: CreateQueuedMessageForThreadArgs,
+): Promise<ThreadQueuedMessage> {
   const { payload } = args;
   const resolution = resolveRetiredIngress(deps.db, args.thread, {
     refuseUserPosts: true,
@@ -285,6 +308,7 @@ export async function createQueuedMessageForThread(
           if (!currentThread) {
             throw new ApiError(404, "thread_not_found", "Thread not found");
           }
+          assertAdmittedDestinationInTransaction(tx, args.thread.id, thread.id);
           const { hasProviderSession } = admitQueuedMessage(tx, currentThread);
           const queuedMessage = createQueuedThreadMessageInTransaction(tx, {
             threadId: args.thread.id,

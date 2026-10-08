@@ -64,7 +64,6 @@ import {
   INGRESS_ADMISSION_ATTEMPTS,
   RetirementAppearedError,
   assertAdmittedDestinationInTransaction,
-  assertNotRetiredInTransaction,
   resolveRetiredIngress,
 } from "./retired-ingress.js";
 import { assertThreadHostAcceptsWork } from "./thread-host-admission.js";
@@ -156,6 +155,7 @@ interface QueueReadyParentSystemMessageArgs extends ParentSystemMessageTaxonomy 
   environment: ReadyThreadEnvironment;
   execution: ResolvedThreadExecutionOptions;
   input: PromptInput[];
+  requestedThreadId?: string;
   thread: Thread;
 }
 
@@ -264,13 +264,18 @@ function requireParentWritableInTransaction(
   tx: DbTransaction,
   threadId: string,
   claimed: boolean,
+  requestedThreadId: string | undefined,
 ): Thread {
   const currentThread = getThread(tx, threadId);
   if (currentThread === null || currentThread.deletedAt !== null) {
     throw new QueuedMessageThreadUnavailableError(threadId, "deleted");
   }
   if (!claimed) {
-    assertNotRetiredInTransaction(tx, threadId);
+    assertAdmittedDestinationInTransaction(
+      tx,
+      requestedThreadId ?? threadId,
+      threadId,
+    );
   }
   if (currentThread.archivedAt !== null) {
     throw new QueuedMessageThreadUnavailableError(threadId, "archived");
@@ -282,6 +287,13 @@ function queueActiveParentSystemMessageInTransaction(
   tx: DbTransaction,
   args: QueueActiveParentSystemMessageInTransactionArgs,
 ): Extract<HostDaemonCommand, { type: "turn.submit" }> | null {
+  if (args.claim === undefined) {
+    assertAdmittedDestinationInTransaction(
+      tx,
+      args.requestedThreadId ?? args.thread.id,
+      args.thread.id,
+    );
+  }
   const currentThread = getThread(tx, args.thread.id);
   if (
     !currentThread ||
@@ -336,6 +348,9 @@ async function queueActiveParentSystemMessage(
         },
       },
       threadId: args.thread.id,
+      ...(args.requestedThreadId !== undefined
+        ? { requestedThreadId: args.requestedThreadId }
+        : {}),
     });
     if (outcome.kind === "queued") {
       if (args.claim !== undefined) {
@@ -449,6 +464,7 @@ async function queueReadyParentSystemMessage(
           tx,
           args.thread.id,
           args.claim !== undefined,
+          args.requestedThreadId,
         ),
       );
       consumeParentSystemClaimInTransaction(tx, args.claim);
@@ -584,6 +600,7 @@ async function queueParentSystemMessageToResolvedParent(
         delivered: await deliverParentSystemMessage(deps, {
           input: args.input,
           parentThread,
+          requestedThreadId: requestedParent.id,
           systemMessageKind: args.systemMessageKind,
           systemMessageSubject: args.systemMessageSubject,
         }),
@@ -606,6 +623,13 @@ async function queueParentSystemMessageToResolvedParent(
     const outcome = delivery.result!;
     if ("delivered" in outcome) {
       return outcome.delivered;
+    }
+    if (outcome.error instanceof ApiError && isHostRefusal(outcome.error)) {
+      deps.logger.warn(
+        { parentThreadId: parentThread.id, code: outcome.error.body.code },
+        "Parent system notice dropped: the parent thread's machine is not accepting work",
+      );
+      return false;
     }
     if (!(outcome.error instanceof ThreadContextClearInProgressError)) {
       throw outcome.error;
@@ -691,6 +715,7 @@ interface DeliverParentSystemMessageArgs extends ParentSystemMessageTaxonomy {
   claim?: ParentSystemClaim;
   input: PromptInput[];
   parentThread: Thread;
+  requestedThreadId?: string;
 }
 
 /**
@@ -751,6 +776,7 @@ async function deliverParentSystemMessageToWritableParent(
           tx,
           parentThread.id,
           args.claim !== undefined,
+          args.requestedThreadId,
         );
         consumeParentSystemClaimInTransaction(tx, args.claim);
       },
@@ -773,6 +799,9 @@ async function deliverParentSystemMessageToWritableParent(
   );
   return await queueReadyParentSystemMessage(deps, {
     ...(args.claim !== undefined ? { claim: args.claim } : {}),
+    ...(args.requestedThreadId !== undefined
+      ? { requestedThreadId: args.requestedThreadId }
+      : {}),
     thread: parentThread,
     input: args.input,
     execution,
