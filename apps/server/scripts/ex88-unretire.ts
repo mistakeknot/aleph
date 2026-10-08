@@ -1,10 +1,14 @@
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, readlinkSync, realpathSync } from "node:fs";
 import Database from "better-sqlite3";
 import {
+  ackTransferOperation,
   abortTransferOperation,
   createConnection,
   getDowngradeReadiness,
+  listUnemittedTransferEvents,
+  markTransferEventEmitted,
   releaseAllWorkerClaimsOffline,
+  sweepTransferOperations,
   type DbConnection,
   type DowngradeReadiness,
 } from "@bb/db";
@@ -16,25 +20,87 @@ interface RedirectRow {
   projectId: string;
 }
 
+interface Quiesce {
+  holders: number[];
+  unverifiable: number;
+}
+
 interface Report {
   mode: "check" | "apply";
   schemaPresent: boolean;
+  killSwitchOff: boolean;
+  quiesce: Quiesce;
+  stoppedBefore: string | null;
   before: DowngradeReadiness;
   workerClaimsReleased: number | null;
   redirectsToAbort: number;
   aborted: number;
   refusals: Array<{ opId: string; reason: string }>;
+  eventsStampedOffline: number;
+  receiptsReconciled: number;
   after: DowngradeReadiness | null;
   ready: boolean;
 }
 
-function parseArgs(argv: readonly string[]): { db: string; check: boolean } {
+const EMPTY_QUIESCE: Quiesce = { holders: [], unverifiable: 0 };
+
+function killSwitchOff(): boolean {
+  return process.env.ALEPH_TRANSFER_RETIRE === "off";
+}
+
+function findDatabaseHolders(path: string): Quiesce {
+  const targets = new Set(
+    [path, `${path}-wal`, `${path}-shm`]
+      .filter((candidate) => existsSync(candidate))
+      .map((candidate) => realpathSync(candidate)),
+  );
+  const holders: number[] = [];
+  let unverifiable = 0;
+  let pids: string[];
+  try {
+    pids = readdirSync("/proc").filter((name) => /^[0-9]+$/.test(name));
+  } catch {
+    return { holders, unverifiable: 1 };
+  }
+  for (const pid of pids) {
+    if (Number(pid) === process.pid) continue;
+    let descriptors: string[];
+    try {
+      descriptors = readdirSync(`/proc/${pid}/fd`);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        unverifiable += 1;
+      }
+      continue;
+    }
+    for (const descriptor of descriptors) {
+      try {
+        if (targets.has(readlinkSync(`/proc/${pid}/fd/${descriptor}`))) {
+          holders.push(Number(pid));
+          break;
+        }
+      } catch {
+        continue;
+      }
+    }
+  }
+  return { holders, unverifiable };
+}
+
+function parseArgs(argv: readonly string[]): {
+  db: string;
+  check: boolean;
+  assumeStopped: boolean;
+} {
   let db = "";
   let check = false;
+  let assumeStopped = false;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--check") {
       check = true;
+    } else if (arg === "--assume-stopped") {
+      assumeStopped = true;
     } else if (arg === "--db") {
       db = argv[index + 1] ?? "";
       index += 1;
@@ -45,7 +111,7 @@ function parseArgs(argv: readonly string[]): { db: string; check: boolean } {
   if (db === "" || !existsSync(db)) {
     throw new Error("--db must name an existing database file");
   }
-  return { db, check };
+  return { db, check, assumeStopped };
 }
 
 function listRedirects(sqlite: Database.Database): RedirectRow[] {
@@ -90,11 +156,16 @@ function legacyReport(mode: Report["mode"]): Report {
   return {
     mode,
     schemaPresent: false,
+    killSwitchOff: killSwitchOff(),
+    quiesce: EMPTY_QUIESCE,
+    stoppedBefore: null,
     before: zero,
     workerClaimsReleased: null,
     redirectsToAbort: 0,
     aborted: 0,
     refusals: [],
+    eventsStampedOffline: 0,
+    receiptsReconciled: 0,
     after: mode === "apply" ? zero : null,
     ready: true,
   };
@@ -118,11 +189,16 @@ function runCheck(path: string): Report {
     return {
       mode: "check",
       schemaPresent: true,
+      killSwitchOff: killSwitchOff(),
+      quiesce: findDatabaseHolders(path),
+      stoppedBefore: null,
       before,
       workerClaimsReleased: null,
       redirectsToAbort: listRedirects(sqlite).length,
       aborted: 0,
       refusals: [],
+      eventsStampedOffline: 0,
+      receiptsReconciled: 0,
       after: null,
       ready: before.ready,
     };
@@ -131,14 +207,43 @@ function runCheck(path: string): Report {
   }
 }
 
-function runApply(path: string): Report {
+function runApply(path: string, assumeStopped: boolean): Report {
+  const quiesce = findDatabaseHolders(path);
   const db = createConnection(path);
+  const report: Report = {
+    mode: "apply",
+    schemaPresent: true,
+    killSwitchOff: killSwitchOff(),
+    quiesce,
+    stoppedBefore: null,
+    before: getDowngradeReadiness(db),
+    workerClaimsReleased: null,
+    redirectsToAbort: 0,
+    aborted: 0,
+    refusals: [],
+    eventsStampedOffline: 0,
+    receiptsReconciled: 0,
+    after: null,
+    ready: false,
+  };
+  const stop = (step: string): Report => {
+    report.stoppedBefore = step;
+    report.after = getDowngradeReadiness(db);
+    return report;
+  };
   try {
-    const before = getDowngradeReadiness(db);
-    const released = releaseAllWorkerClaimsOffline(db);
+    if (!report.killSwitchOff) return stop("kill_switch");
+    if (
+      quiesce.holders.length > 0 ||
+      (quiesce.unverifiable > 0 && !assumeStopped)
+    ) {
+      return stop("quiesce");
+    }
+    if (report.before.unemittedEvents > 0) return stop("undrained_events");
+
+    report.workerClaimsReleased = releaseAllWorkerClaimsOffline(db).released;
     const redirects = listRedirects(db.$client);
-    const refusals: Report["refusals"] = [];
-    let aborted = 0;
+    report.redirectsToAbort = redirects.length;
     for (const redirect of redirects) {
       const outcome = abortTransferOperation(db, {
         projectId: redirect.projectId,
@@ -148,26 +253,40 @@ function runApply(path: string): Report {
         resolveWaitingOn: () => ({ kind: "thread-busy" }),
       });
       if (outcome.kind === "aborted" || outcome.kind === "replayed") {
-        aborted += 1;
+        report.aborted += 1;
       } else {
-        refusals.push({
+        report.refusals.push({
           opId: redirect.opId,
           reason: outcome.kind === "refused" ? outcome.reason : outcome.kind,
         });
+        return stop("abort");
       }
     }
-    const after = getDowngradeReadiness(db);
-    return {
-      mode: "apply",
-      schemaPresent: true,
-      before,
-      workerClaimsReleased: released.released,
-      redirectsToAbort: redirects.length,
-      aborted,
-      refusals,
-      after,
-      ready: after.ready && refusals.length === 0,
-    };
+
+    for (const event of listUnemittedTransferEvents(
+      db,
+      Number.MAX_SAFE_INTEGER,
+    )) {
+      if (markTransferEventEmitted(db, event.eventId)) {
+        report.eventsStampedOffline += 1;
+      }
+    }
+    const unacked = db.$client
+      .prepare(
+        "SELECT id, project_id AS projectId FROM transfer_operations WHERE acked_at IS NULL",
+      )
+      .all() as Array<{ id: string; projectId: string }>;
+    for (const operation of unacked) {
+      if (ackTransferOperation(db, operation.id, operation.projectId)) {
+        report.receiptsReconciled += 1;
+      }
+    }
+    sweepTransferOperations(db);
+
+    report.after = getDowngradeReadiness(db);
+    report.ready = report.after.ready;
+    if (!report.ready) report.stoppedBefore = "downgrade_ready";
+    return report;
   } finally {
     db.$client.close();
   }
@@ -179,6 +298,6 @@ const report = !schemaPresent(args.db)
   ? legacyReport(mode)
   : args.check
     ? runCheck(args.db)
-    : runApply(args.db);
+    : runApply(args.db, args.assumeStopped);
 console.log(JSON.stringify(report, null, 2));
 process.exit(report.ready ? 0 : 1);
