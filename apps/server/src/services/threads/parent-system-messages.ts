@@ -224,6 +224,20 @@ export function buildParentSystemThreadMention(
   };
 }
 
+function requireParentWritableInTransaction(
+  tx: DbTransaction,
+  threadId: string,
+): Thread {
+  const currentThread = getThread(tx, threadId);
+  if (currentThread === null || currentThread.deletedAt !== null) {
+    throw new QueuedMessageThreadUnavailableError(threadId, "deleted");
+  }
+  if (currentThread.archivedAt !== null) {
+    throw new QueuedMessageThreadUnavailableError(threadId, "archived");
+  }
+  return currentThread;
+}
+
 function queueActiveParentSystemMessageInTransaction(
   tx: DbTransaction,
   args: QueueActiveParentSystemMessageInTransactionArgs,
@@ -384,7 +398,9 @@ async function queueReadyParentSystemMessage(
   });
   const activeThread: Thread | null = deps.db.transaction(
     (tx) => {
-      ensureThreadCanStartRequest(args.thread);
+      ensureThreadCanStartRequest(
+        requireParentWritableInTransaction(tx, args.thread.id),
+      );
       appendPreparedClientTurnRequestedEventWithNotificationInTransaction(tx, {
         ...parentSystemTurnRequestFields(args),
         target: { kind: "new-turn" },
@@ -570,6 +586,27 @@ async function deliverParentSystemMessageWithContextGuard(
   deps: LoggedPendingInteractionWorkSessionDeps,
   args: DeliverParentSystemMessageArgs,
 ): Promise<boolean> {
+  try {
+    return await deliverParentSystemMessageToWritableParent(deps, args);
+  } catch (error) {
+    if (!(error instanceof QueuedMessageThreadUnavailableError)) throw error;
+    deps.logger.warn(
+      {
+        parentThreadId: error.threadId,
+        reason: error.reason,
+        phase: "post-hook",
+        dropped: true,
+      },
+      "Parent system notice dropped: the parent thread is no longer writable",
+    );
+    return false;
+  }
+}
+
+async function deliverParentSystemMessageToWritableParent(
+  deps: LoggedPendingInteractionWorkSessionDeps,
+  args: DeliverParentSystemMessageArgs,
+): Promise<boolean> {
   const { parentThread } = args;
   const { environment } = requireThreadEnvironment(deps.db, parentThread.id);
   const execution = await buildExecutionOptions(
@@ -587,6 +624,9 @@ async function deliverParentSystemMessageWithContextGuard(
       initiator: "system",
       input: args.input,
       senderThreadId: null,
+      beforeRequestAppendInTransaction: ({ tx }) => {
+        requireParentWritableInTransaction(tx, parentThread.id);
+      },
       systemMessageKind: args.systemMessageKind,
       systemMessageSubject: args.systemMessageSubject,
       thread: parentThread,
