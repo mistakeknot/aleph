@@ -498,6 +498,7 @@ export {
   isThreadRetired,
 } from "./queued-thread-messages.js";
 export {
+  RETIRE_MAX_SOURCE_QUEUE_ROWS,
   abortTransferOperation,
   ackTransferOperation,
   drainTransferEvents,

@@ -562,6 +562,23 @@ const descriptionCases: DescriptionCase[] = [
     },
   },
   {
+    name: "thread_not_writable source_queue_too_large",
+    body: {
+      code: "thread_not_writable",
+      message: "Queue too large",
+      details: {
+        archivedAt: null,
+        reason: "source_queue_too_large",
+        threadStatus: "active",
+      },
+    },
+    expected: {
+      title: "Queue too large to move",
+      body: "This thread has too many queued messages to move at once. Send or remove some and try again.",
+      severity: "warning",
+    },
+  },
+  {
     name: "thread_not_writable attachment_unavailable",
     body: {
       code: "thread_not_writable",

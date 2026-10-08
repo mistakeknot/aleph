@@ -43,7 +43,10 @@ export type RetireRefusalReason =
   | "target_retired"
   | "thread_not_writable"
   | "transfer_retire_disabled"
+  | "source_queue_too_large"
   | "attachment_unavailable";
+
+export const RETIRE_MAX_SOURCE_QUEUE_ROWS = 1000;
 
 export interface RetireResult {
   operationId: string;
@@ -160,6 +163,14 @@ function checkRefusal(
     return "thread_not_writable";
   }
   if (!args.retireEnabled) return "transfer_retire_disabled";
+  const sourceRows = tx
+    .select({ count: sql<number>`count(*)` })
+    .from(queuedThreadMessages)
+    .where(eq(queuedThreadMessages.threadId, args.sourceThreadId))
+    .get();
+  if ((sourceRows?.count ?? 0) > RETIRE_MAX_SOURCE_QUEUE_ROWS) {
+    return "source_queue_too_large";
+  }
   return null;
 }
 

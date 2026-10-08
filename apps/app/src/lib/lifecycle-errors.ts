@@ -341,6 +341,12 @@ function describeThreadNotWritable({
         title: "Queue move disabled",
         body: "Moving queues is currently disabled.",
       });
+    case "source_queue_too_large":
+      return warning({
+        operation,
+        title: "Queue too large to move",
+        body: "This thread has too many queued messages to move at once. Send or remove some and try again.",
+      });
     case "retired_no_successor":
       return warning({
         operation,
