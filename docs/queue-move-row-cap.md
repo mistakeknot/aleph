@@ -151,17 +151,22 @@ V6 is **FAILED** (bead mk-fcg1). Two controlled reruns are complete on head
 - The first enforced load1 below 8 throughout each scenario. It obtained
   0 valid head runs of 6 required and spent the void budget. It failed for
   lack of valid runs, not a measured latency breach.
-- The second admitted a scenario only when load1 was below 8 at its start;
-  once admitted, it could not be voided at any subsequent load. It retained
-  12 admitted runs, 6 per target. Head failed 2 of 6: run 1
+- The second admitted each run only when load1 was below 8 at run start;
+  once a run was admitted, it could not be voided at any subsequent load.
+  It retained 12 admitted runs, 6 per target. Head failed 2 of 6: run 1
   `s4a.writers_progress_after` and run 7 `s4a.writers_progress_before`.
   Main failed 1 of 6: run 8 `s4b.writers_progress_after`. Every failure was
-  a writer stall in S4. S5 passed in all 12 admitted runs: call times were
-  862–1918 ms and the slowest writer wait was 2533 ms. No latency bound
-  (2500 ms per call, 3000 ms writer wait) was exceeded in any admitted run.
+  an S4 writer-progress check. Those failed scenarios started at load1 8.49
+  (head run 1, S4a), 20.03 (head run 7, S4a) and 12.02 (main run 8, S4b).
+  Load1 rose well above 8 within admitted runs, reaching 20.93.
+  S5 passed in all 12 admitted runs: call times were 862–1918 ms and the
+  slowest writer wait was 2533 ms, within S5's 2500 ms call and 3000 ms
+  writer bounds. S4 permitted 4500 ms writer latency and recorded waits of
+  4133.1 ms (head run 1, S4a) and 3232.4 ms (main run 8, S4b).
+  No scenario-specific latency bound failed in any admitted run.
 
 The bounds are unchanged. V6 is not claimed passed; any pass would have been
-scoped to scenarios starting at load1 below 8. Start admission neither
+scoped to runs admitted at load1 below 8 at run start. Run admission neither
 maintains low load nor guarantees fairness. The original successful
 10,000-row criterion is superseded and was never reported passed.
 
