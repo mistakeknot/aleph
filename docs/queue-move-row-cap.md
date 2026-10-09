@@ -56,8 +56,10 @@ offline unretire script can still abort at any size.
 
 The online bounds stay as designed: a move must finish within 2500 ms (half of
 the 5000 ms busy timeout), and no concurrent writer may wait more than 3000 ms.
-The cap is sized so that a move at the cap fits those bounds with margin at
-host load1 below 8; see [What the timing claim covers](#what-the-timing-claim-covers).
+The 1000-row caps bound transaction size in moved or returned rows. They do
+not guarantee latency or writer fairness, or bound bytes, attachment work,
+target size or historical abort-ledger work; see
+[What the timing claim covers](#what-the-timing-claim-covers).
 
 The deepest queue measured on a live deployment was 3 rows (p99 3), in one
 snapshot. A cap of 1000 is about 333 times that depth. That sample does not
@@ -142,15 +144,52 @@ and the successor's owned rows; the uncontended samples above took 9.8 to
 
 ## What the timing claim covers
 
-The claim that retire and transfer-all at the cap finish within 2500 ms per
-call, with no concurrent writer waiting more than 3000 ms, is made only for
-host load1 below 8. It is not claimed at higher load. The evidence is the
-measurements above and the V6 gate runs (bead mk-fcg1), each of which started
-below load1 8. Load rose during most of those runs, and in one of them a
-transfer-all at the cap took 3813 ms with a 4720 ms writer wait while load1
-rose from 8.04 to 17.18 across that step. That failure stands. Higher load is a
-plausible explanation, not an established cause.
+V6 is **FAILED** (bead mk-fcg1). Two controlled reruns are complete on head
+`2670f98e7bc1e3b791f17bf5098bcfaf932b6463` and main
+`69aba32c605fc7ae1982315c9fc438a7d8f1fb08`:
 
-V6 has not passed. It is pending a controlled rerun. The original V6
-criterion, a successful retire of 10,000 rows within the bounds, is superseded
-by the cap; it was never met and is not reported as passed.
+- The first enforced load1 below 8 throughout each scenario. It obtained
+  0 valid head runs of 6 required and spent the void budget. It failed for
+  lack of valid runs, not a measured latency breach.
+- The second admitted a scenario only when load1 was below 8 at its start;
+  once admitted, it could not be voided at any subsequent load. It retained
+  12 admitted runs, 6 per target. Head failed 2 of 6: run 1
+  `s4a.writers_progress_after` and run 7 `s4a.writers_progress_before`.
+  Main failed 1 of 6: run 8 `s4b.writers_progress_after`. Every failure was
+  a writer stall in S4. S5 passed in all 12 admitted runs: call times were
+  862–1918 ms and the slowest writer wait was 2533 ms. No latency bound
+  (2500 ms per call, 3000 ms writer wait) was exceeded in any admitted run.
+
+The bounds are unchanged. V6 is not claimed passed; any pass would have been
+scoped to scenarios starting at load1 below 8. Start admission neither
+maintains low load nor guarantees fairness. The original successful
+10,000-row criterion is superseded and was never reported passed.
+
+The historical campaign on head `80e58f8a7` had an S5 transfer-all call of
+3813 ms and a 4720 ms writer wait while load1 rose from 8.04 to 17.18 across
+that step. That breach remains on record; the later S5 results do not erase it.
+Higher load is a plausible explanation for that breach, not an established
+cause.
+
+Pre-existing SQLite busy-handler starvation was independently reproduced in
+a bare reproducer. This strongly supports pre-existing starvation as the
+shared S4 failure explanation, but does not prove causality in the exact
+failed runs or exclude every contribution from this PR. No PR-specific cause
+has been identified.
+
+## Mitigation and rollout gates
+
+Merging the row caps is mitigation only, with V6 FAILED; it does not accept
+recovery or authorize rollout. Above-cap offline release and live kill
+switch/quiesce verification remain separate rollout gates. V7 is closed as
+run: 52 checks passed, 13 negative controls were caught and provenance passed
+33/33. Its exit 3 reflects the accepted grouping-loss limitation, not a
+rehearsed handoff; no final script digest or handoff was established. The
+unretire script remains held behind the separate operational gates.
+
+The actual server switch is `ALEPH_TRANSFER_RETIRE=off`. It blocks **new
+retirements only**: it does not block transfer-all, abort, existing retirement
+replays or existing redirects, and it does not stop ordinary writers or fix
+S4 starvation. Omitting it enables new retirements. Before deployment, verify
+the actual server environment and switch behavior and separately verify
+quiescence; source inspection alone is not live operational evidence.
