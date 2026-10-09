@@ -75,6 +75,7 @@ import type {
   ThreadStorageFilesQuery,
   ThreadStoragePathsQuery,
   ThreadTimelineQuery,
+  ThreadConversationOutlineQuery,
   TimelineTurnSummaryDetailsQuery,
   UpdateThreadTabsRequest,
   UpdateThreadRequest,
@@ -367,6 +368,11 @@ export interface ThreadStoragePathsArgs extends ThreadStoragePathsQuery {
   threadId: string;
 }
 
+export interface ThreadConversationOutlineArgs extends ThreadConversationOutlineQuery {
+  signal?: AbortSignal;
+  threadId: string;
+}
+
 export interface ThreadTimelineTurnSummaryDetailsArgs extends TimelineTurnSummaryDetailsQuery {
   signal?: AbortSignal;
   threadId: string;
@@ -587,7 +593,7 @@ export interface ThreadsArea {
   clearContext(args: ThreadActionArgs): Promise<ThreadBannerActionResult>;
   clearGoal(args: ThreadActionArgs): Promise<ThreadBannerActionResult>;
   conversationOutline(
-    args: ThreadStatusArgs,
+    args: ThreadConversationOutlineArgs,
   ): Promise<ThreadConversationOutlineResult>;
   count(args?: ThreadCountArgs): Promise<ThreadCountResult>;
   defaultExecutionOptions(
@@ -841,6 +847,9 @@ function searchQuery(args: ThreadSearchArgs): ThreadSearchQuery {
 
 function timelineQuery(args: ThreadTimelineArgs): ThreadTimelineQuery {
   return {
+    ...(args.deferContent !== undefined
+      ? { deferContent: args.deferContent }
+      : {}),
     ...(args.includeNestedRows !== undefined
       ? { includeNestedRows: args.includeNestedRows }
       : {}),
@@ -1179,7 +1188,10 @@ export function createThreadsArea(args: CreateSdkAreaArgs): ThreadsArea {
     async conversationOutline(input) {
       return transport.readJson(
         transport.api.v1.threads[":id"]["conversation-outline"].$get(
-          { param: { id: input.threadId } },
+          {
+            param: { id: input.threadId },
+            query: input.role === undefined ? {} : { role: input.role },
+          },
           ...signalRequestArgs(input.signal),
         ),
       );
@@ -1478,6 +1490,10 @@ export function createThreadsArea(args: CreateSdkAreaArgs): ThreadsArea {
               ...(input.beforeCursor === undefined
                 ? {}
                 : { beforeCursor: input.beforeCursor }),
+              ...(input.deferContent === undefined
+                ? {}
+                : { deferContent: input.deferContent }),
+              ...(input.itemId === undefined ? {} : { itemId: input.itemId }),
             },
           },
           ...signalRequestArgs(input.signal),

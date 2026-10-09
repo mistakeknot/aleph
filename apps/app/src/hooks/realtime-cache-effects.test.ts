@@ -523,6 +523,7 @@ describe("createRealtimeCacheEffects", () => {
     const configKey = systemConfigQueryKey();
     const timelineKey = threadTimelineQueryKey("thr_1");
     const summaryKey = threadTimelineTurnSummaryDetailsQueryKey({
+      itemId: null,
       threadId: "thr_1",
       turnId: "turn_1",
       sourceSeqStart: 1,
@@ -917,7 +918,7 @@ describe("createRealtimeCacheEffects", () => {
     const { effects, queryClient } = createRealtimeEffectsTestContext();
     const threadId = "thr_outline";
     const timelineKey = threadTimelineQueryKey(threadId);
-    const outlineKey = threadConversationOutlineQueryKey(threadId);
+    const outlineKey = threadConversationOutlineQueryKey(threadId, "user");
     const timelineQueryFn = vi.fn(async () => ({ rows: [] }));
     const outlineQueryFn = vi.fn(async () => ({ items: [], maxSeq: 1 }));
     const timelineObserver = new QueryObserver(queryClient, {
@@ -1728,6 +1729,7 @@ describe("createRealtimeCacheEffects", () => {
     const timelineKey = threadTimelineQueryKey("thr_1");
     const promptHistoryKey = threadPromptHistoryQueryKey("thr_1");
     const turnDetailsKey = threadTimelineTurnSummaryDetailsQueryKey({
+      itemId: null,
       threadId: "thr_1",
       turnId: "turn_1",
       sourceSeqStart: 1,
@@ -2651,8 +2653,9 @@ describe("createRealtimeCacheEffects", () => {
     vi.useFakeTimers();
     const { effects, queryClient } = createRealtimeEffectsTestContext();
     const timelineKey = threadTimelineQueryKey("thr_1");
-    const outlineKey = threadConversationOutlineQueryKey("thr_1");
+    const outlineKey = threadConversationOutlineQueryKey("thr_1", "user");
     const turnDetailsKey = threadTimelineTurnSummaryDetailsQueryKey({
+      itemId: null,
       threadId: "thr_1",
       turnId: "turn_1",
       sourceSeqStart: 1,

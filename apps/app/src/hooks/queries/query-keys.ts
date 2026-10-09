@@ -351,6 +351,7 @@ type ThreadTimelineQueryKey = readonly [
 type ThreadConversationOutlineQueryKey = readonly [
   typeof THREAD_CONVERSATION_OUTLINE_QUERY_KEY,
   string,
+  ThreadConversationOutlineRole,
 ];
 type ThreadConversationOutlineQueryKeyPrefix = readonly [
   typeof THREAD_CONVERSATION_OUTLINE_QUERY_KEY,
@@ -360,6 +361,7 @@ type AllThreadConversationOutlineQueryKeyPrefix = readonly [
   typeof THREAD_CONVERSATION_OUTLINE_QUERY_KEY,
 ];
 export interface ThreadTimelineTurnSummaryDetailsQueryIdentity {
+  itemId: string | null;
   sourceSeqEnd: number;
   sourceSeqStart: number;
   threadId: string;
@@ -371,6 +373,7 @@ type ThreadTimelineTurnSummaryDetailsQueryKey = readonly [
   string,
   number,
   number,
+  string | null,
 ];
 type ThreadTimelineQueryKeyPrefix = readonly [
   typeof THREAD_TIMELINE_QUERY_KEY,
@@ -929,10 +932,13 @@ export function threadTimelineQueryKey(
   return [THREAD_TIMELINE_QUERY_KEY, threadId];
 }
 
+export type ThreadConversationOutlineRole = "user" | "assistant";
+
 export function threadConversationOutlineQueryKey(
   threadId: string,
+  role: ThreadConversationOutlineRole,
 ): ThreadConversationOutlineQueryKey {
-  return [THREAD_CONVERSATION_OUTLINE_QUERY_KEY, threadId];
+  return [THREAD_CONVERSATION_OUTLINE_QUERY_KEY, threadId, role];
 }
 
 export function threadConversationOutlineQueryKeyPrefix(
@@ -946,6 +952,7 @@ export function allThreadConversationOutlineQueryKeyPrefix(): AllThreadConversat
 }
 
 export function threadTimelineTurnSummaryDetailsQueryKey({
+  itemId,
   sourceSeqEnd,
   sourceSeqStart,
   threadId,
@@ -957,6 +964,7 @@ export function threadTimelineTurnSummaryDetailsQueryKey({
     turnId,
     sourceSeqStart,
     sourceSeqEnd,
+    itemId,
   ];
 }
 

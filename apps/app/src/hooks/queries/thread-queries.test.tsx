@@ -256,6 +256,7 @@ describe("useThreadDetailBootstrap", () => {
 
     await waitFor(() => {
       expect(sdk.threads.timeline).toHaveBeenCalledWith({
+        deferContent: "true",
         afterSequence: "7",
         signal: expect.any(AbortSignal),
         threadId: "thread-1",
@@ -882,6 +883,7 @@ describe("useThreadTimeline segment limit", () => {
       expect(result.current.isSuccess).toBe(true);
     });
     expect(vi.mocked(sdk.threads.timeline).mock.calls[0]?.[0]).toEqual({
+      deferContent: "true",
       threadId: "thread-1",
       segmentLimit: String(COMPACT_THREAD_TIMELINE_SEGMENT_LIMIT),
       signal: expect.any(AbortSignal),
@@ -891,6 +893,7 @@ describe("useThreadTimeline segment limit", () => {
       queryKey: threadTimelineQueryKey("thread-1"),
     });
     expect(vi.mocked(sdk.threads.timeline).mock.calls[1]?.[0]).toEqual({
+      deferContent: "true",
       threadId: "thread-1",
       segmentLimit: String(COMPACT_THREAD_TIMELINE_SEGMENT_LIMIT),
       afterSequence: "0",
@@ -909,6 +912,7 @@ describe("useThreadTimeline segment limit", () => {
       expect(result.current.isSuccess).toBe(true);
     });
     expect(vi.mocked(sdk.threads.timeline).mock.calls[0]?.[0]).toEqual({
+      deferContent: "true",
       threadId: "thread-1",
       signal: expect.any(AbortSignal),
     });
@@ -1058,6 +1062,7 @@ describe("thread open cache retention", () => {
     });
 
     expect(vi.mocked(sdk.threads.timeline).mock.calls[1]?.[0]).toEqual({
+      deferContent: "true",
       afterSequence: "7",
       signal: expect.any(AbortSignal),
       threadId: "thread-1",

@@ -929,6 +929,7 @@ export const threadTimelineQuerySchema = z
     beforeAnchorId: z.string().min(1),
     summaryOnly: z.enum(["true", "false"]),
     afterSequence: z.string().regex(/^\d+$/),
+    deferContent: z.enum(["true", "false"]),
   })
   .partial()
   .superRefine((query, context) => {
@@ -949,6 +950,8 @@ export type ThreadTimelineQuery = z.infer<typeof threadTimelineQuerySchema>;
 
 export const timelineTurnSummaryDetailsQuerySchema = z.object({
   beforeCursor: z.string().min(1).optional(),
+  deferContent: z.enum(["true", "false"]).optional(),
+  itemId: z.string().min(1).optional(),
   turnId: z.string().min(1),
   sourceSeqStart: z.string().regex(/^\d+$/),
   sourceSeqEnd: z.string().regex(/^\d+$/),
@@ -1073,6 +1076,15 @@ export const threadConversationOutlineItemSchema = z
   .strict();
 export type ThreadConversationOutlineItem = z.infer<
   typeof threadConversationOutlineItemSchema
+>;
+
+export const threadConversationOutlineQuerySchema = z
+  .object({
+    role: z.enum(["user", "assistant"]),
+  })
+  .partial();
+export type ThreadConversationOutlineQuery = z.infer<
+  typeof threadConversationOutlineQuerySchema
 >;
 
 export const threadConversationOutlineResponseSchema = z

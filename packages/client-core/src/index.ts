@@ -37,6 +37,7 @@ export * from "./timeline/compute-muted-prefix-length.js";
 export * from "./timeline/conversation-turn-request-label.js";
 export * from "./timeline/optimistic-timeline-row.js";
 export * from "./timeline/timeline-merge.js";
+export * from "./timeline/deferred-content.js";
 
 export * from "./diff/renderable-patch.js";
 
