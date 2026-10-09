@@ -37,6 +37,11 @@ so the offline unretire script, which aborts with the server stopped, is not
 capped. Offline claim release is not capped either. The cap targets callers
 that hold the write lock while the server serves other writers.
 
+Leaving `maxReturnedRows` out means no cap, so any new online caller of
+`abortTransferOperation` must pass it. Today the only online caller is the
+server's `abortRetirement`, which always passes `ONLINE_QUEUE_MOVE_MAX_ROWS` and
+does not let an HTTP client change it.
+
 ### Redirected ingress
 
 A retired thread keeps accepting messages: each new message is redirected to the
@@ -51,7 +56,8 @@ offline unretire script can still abort at any size.
 
 The online bounds stay as designed: a move must finish within 2500 ms (half of
 the 5000 ms busy timeout), and no concurrent writer may wait more than 3000 ms.
-The cap is sized so that a move at the cap fits those bounds with margin.
+The cap is sized so that a move at the cap fits those bounds with margin at
+host load1 below 8; see [What the timing claim covers](#what-the-timing-claim-covers).
 
 The deepest queue measured on a live deployment was 3 rows (p99 3), in one
 snapshot. A cap of 1000 is about 333 times that depth. That sample does not
@@ -98,8 +104,9 @@ host are not bounded by it.
 Abort was measured separately on the same host, with the same row shape, at
 load1 between 10.4 and 11.6 and with no competing writer. "keyed" retires the
 rows and then aborts. "redirected" retires an empty thread, sends the rows
-through its redirect and then aborts. At 1001 rows, 1000 were retired and one
-was redirected.
+through its redirect and then aborts. At 1001 rows the keyed profile retired
+1000 rows and redirected one; the redirected profile retired none and redirected
+all 1001.
 
 | Operation | Profile    | Rows | Result             | Runs (ms)           | Median (ms) |
 | --------- | ---------- | ---- | ------------------ | ------------------- | ----------- |
@@ -116,8 +123,13 @@ An earlier partial run at load1 between 12.7 and 14.4 measured the keyed abort
 of 1000 rows at 1174.4, 835.9 and 1218.4 ms. Abort gives rows back one at a
 time, at roughly 0.85 to 1.2 ms per row here, close to transfer-all. The same
 load caveat applies: an independent uncapped abort of 10,000 redirected rows
-took 41.9 s at load1 above 50, about 4.2 ms per row, which at 1000 rows would
-exceed 2500 ms.
+took 41.9 s at load1 above 50, about 4.2 ms per row, so a 1000-row abort at
+that load would exceed 2500 ms. These per-row costs are host- and
+shape-specific.
+
+The V6 gate does not test the abort cap: its own abort step runs uncapped and
+is informational. The abort cap is covered by the DB unit tests and the server
+route test.
 
 Refusal times in the retire and transfer-all table are the uncontended samples
 above. A retire or transfer-all refusal is one indexed count, but the count
@@ -127,3 +139,18 @@ refusals took 3.7 and 9.0 ms in one review run and 11.6 and 1.3 ms in another
 (retire and transfer-all). An abort refusal first reads the retirement's ledger
 and the successor's owned rows; the uncontended samples above took 9.8 to
 14.0 ms.
+
+## What the timing claim covers
+
+The claim that retire and transfer-all at the cap finish within 2500 ms per
+call, with no concurrent writer waiting more than 3000 ms, is made only for
+host load1 below 8. It is not claimed at higher load. The evidence is the
+measurements above and the V6 gate runs (bead mk-fcg1), each of which started
+below load1 8. Load rose during most of those runs, and in one of them a
+transfer-all at the cap took 3813 ms with a 4720 ms writer wait while load1
+rose from 8.04 to 17.18 across that step. That failure stands. Higher load is a
+plausible explanation, not an established cause.
+
+V6 has not passed. It is pending a controlled rerun. The original V6
+criterion, a successful retire of 10,000 rows within the bounds, is superseded
+by the cap; it was never met and is not reported as passed.
