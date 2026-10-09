@@ -101,6 +101,50 @@ describe("bb thread organization commands", () => {
     });
   });
 
+  it("surfaces a transfer-all refusal for a source over the row maximum", async () => {
+    const message =
+      "Thread thread-1 has 1001 queued messages, over the 1000 that can move at once";
+    const transferAll = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            code: "thread_not_writable",
+            message,
+            details: {
+              reason: "source_queue_too_large",
+              archivedAt: null,
+              threadStatus: "idle",
+            },
+          }),
+          { status: 409, headers: { "Content-Type": "application/json" } },
+        ),
+    );
+    stubServerApi({
+      "v1.threads.:id.queued-messages.transfer-all.$post": transferAll,
+    });
+
+    await expect(
+      runCommand(
+        ["thread", "queue", "transfer-all", "thread-1", "thread-2", "--json"],
+        register,
+      ),
+    ).rejects.toThrow("process.exit:1");
+
+    expect(transferAll).toHaveBeenCalledWith({
+      param: { id: "thread-1" },
+      json: { targetThreadId: "thread-2" },
+    });
+    expect(
+      vi.mocked(console.error).mock.calls.map((args) => args.join(" ")),
+    ).toEqual([`Error: HTTP 409: ${message}`]);
+    expect(
+      JSON.parse(String(vi.mocked(console.log).mock.calls.at(-1)?.[0])),
+    ).toMatchObject({
+      ok: false,
+      error: { code: "thread_not_writable" },
+    });
+  });
+
   it("shows agent and system senders in queued message rows", async () => {
     const list = vi.fn(async () => [
       queuedMessage({ id: "queued-user" }),

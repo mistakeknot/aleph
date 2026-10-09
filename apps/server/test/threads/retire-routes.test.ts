@@ -1,4 +1,5 @@
 import {
+  ONLINE_QUEUE_MOVE_MAX_ROWS,
   claimQueuedThreadMessage,
   createQueuedThreadMessage,
   getTransferOperation,
@@ -137,6 +138,30 @@ describe("retire routes", () => {
       });
     });
   }, 20_000);
+
+  it("refuses a source over the row maximum with a thread_not_writable envelope and moves nothing", async () => {
+    await withTestHarness(async (harness) => {
+      const { source, target } = seedPair(harness, "retire-too-large");
+      harness.db.$client
+        .prepare(
+          `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<${ONLINE_QUEUE_MOVE_MAX_ROWS + 1}) INSERT INTO queued_thread_messages (id,origin_id,thread_id,content,model,reasoning_level,permission_mode,service_tier,group_with_next,payload_kind,sort_key,created_at,updated_at) SELECT 'bulk'||i,'bulk'||i,?,'[]','m','r','full','default',0,'inline',printf('k%08d',i),1,1 FROM n`,
+        )
+        .run(source.id);
+      const response = await post(harness, `/threads/${source.id}/retire`, {
+        targetThreadId: target.id,
+        operationKey: "k1",
+      });
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({
+        code: "thread_not_writable",
+        details: { reason: "source_queue_too_large" },
+      });
+      expect(listQueuedThreadMessages(harness.db, source.id)).toHaveLength(
+        ONLINE_QUEUE_MOVE_MAX_ROWS + 1,
+      );
+      expect(listQueuedThreadMessages(harness.db, target.id)).toEqual([]);
+    });
+  }, 30_000);
 
   it("retires a source with a claimed row by forwarding it through a slot", async () => {
     await withTestHarness(async (harness) => {
@@ -353,6 +378,64 @@ describe("retire routes", () => {
       });
     });
   }, 20_000);
+
+  it("refuses an online abort that would give back more rows than the cap and moves nothing", async () => {
+    await withTestHarness(async (harness) => {
+      const { source, target } = seedPair(harness, "abort-cap");
+      enqueue(harness, source.id, "a");
+      const retired = (await (
+        await post(harness, `/threads/${source.id}/retire`, {
+          targetThreadId: target.id,
+          operationKey: "k1",
+        })
+      ).json()) as { operationId: string };
+      for (let index = 0; index < ONLINE_QUEUE_MOVE_MAX_ROWS; index += 1) {
+        enqueue(harness, source.id, `redirected ${index}`);
+      }
+      const body = {
+        operationKey: "abort-1",
+        expectedRetirementOperationId: retired.operationId,
+      };
+      const refused = await post(
+        harness,
+        `/transfer-operations/${retired.operationId}/abort`,
+        body,
+      );
+      expect(refused.status).toBe(409);
+      expect(await refused.json()).toMatchObject({
+        code: "thread_not_writable",
+        details: { reason: "abort_queue_too_large" },
+      });
+      expect(listQueuedThreadMessages(harness.db, source.id)).toEqual([]);
+      expect(listQueuedThreadMessages(harness.db, target.id)).toHaveLength(
+        ONLINE_QUEUE_MOVE_MAX_ROWS + 1,
+      );
+      expect(
+        getTransferOperation(harness.db, retired.operationId),
+      ).toMatchObject({ kind: "retire", state: "active" });
+      expect(
+        harness.db.$client
+          .prepare(
+            "SELECT COUNT(*) AS n FROM transfer_operations WHERE kind = 'abort'",
+          )
+          .get(),
+      ).toEqual({ n: 0 });
+      harness.db.$client
+        .prepare(
+          "DELETE FROM queued_thread_messages WHERE id = (SELECT id FROM queued_thread_messages WHERE thread_id = ? ORDER BY sort_key LIMIT 1)",
+        )
+        .run(target.id);
+      const aborted = await post(
+        harness,
+        `/transfer-operations/${retired.operationId}/abort`,
+        body,
+      );
+      expect(aborted.status).toBe(200);
+      expect(listQueuedThreadMessages(harness.db, source.id)).toHaveLength(
+        ONLINE_QUEUE_MOVE_MAX_ROWS,
+      );
+    });
+  }, 60_000);
 
   it("answers 404 when aborting an unknown operation", async () => {
     await withTestHarness(async (harness) => {

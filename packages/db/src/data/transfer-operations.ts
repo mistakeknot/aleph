@@ -20,7 +20,9 @@ import {
   transferOperations,
 } from "../schema.js";
 import {
+  ONLINE_QUEUE_MOVE_MAX_ROWS,
   QueuedMessageThreadUnavailableError,
+  countQueuedThreadMessagesInTransaction,
   createQueuedThreadMessageInTransaction,
   getLastQueuedThreadMessage,
   isThreadRetired,
@@ -43,6 +45,7 @@ export type RetireRefusalReason =
   | "target_retired"
   | "thread_not_writable"
   | "transfer_retire_disabled"
+  | "source_queue_too_large"
   | "attachment_unavailable";
 
 export interface RetireResult {
@@ -160,6 +163,12 @@ function checkRefusal(
     return "thread_not_writable";
   }
   if (!args.retireEnabled) return "transfer_retire_disabled";
+  if (
+    countQueuedThreadMessagesInTransaction(tx, args.sourceThreadId) >
+    ONLINE_QUEUE_MOVE_MAX_ROWS
+  ) {
+    return "source_queue_too_large";
+  }
   return null;
 }
 
@@ -558,6 +567,7 @@ export type AbortRefusalReason =
   | "successor_retired"
   | "claims_pending"
   | "restore_key_exhausted"
+  | "abort_queue_too_large"
   | "attachment_unavailable";
 
 export interface AbortResult {
@@ -573,6 +583,7 @@ export interface AbortTransferOperationArgs {
   operationId: string;
   expectedRetirementOperationId: string;
   operationKey: string;
+  maxReturnedRows?: number;
   resolveWaitingOn: (
     source: QueuedThreadMessageRow,
   ) => QueuedMessageWaitingOn | null;
@@ -874,6 +885,12 @@ export function abortTransferOperation(
         const unkeyed = ownedRowsOnTarget.filter(
           (row) => row.originId !== null && redirectedOrigins.has(row.originId),
         );
+        if (
+          args.maxReturnedRows !== undefined &&
+          keyed.length + unkeyed.length > args.maxReturnedRows
+        ) {
+          throw new AbortRolledBack("abort_queue_too_large");
+        }
 
         const giveBack = (row: QueuedThreadMessageRow, sortKey: string) => {
           const moved = transferQueuedThreadMessageInTransaction(tx, {

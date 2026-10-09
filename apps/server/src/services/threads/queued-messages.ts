@@ -17,9 +17,11 @@ import {
   isThreadQueueAutoSendPaused,
   releaseQueuedMessageClaim,
   getRedirectSuccessorThreadId,
+  ONLINE_QUEUE_MOVE_MAX_ROWS,
   releaseStaleQueuedMessageClaims,
   sweepTransferOperations,
   retireQueuedThreadMessages,
+  SourceQueueTooLargeError,
   TransferTargetRetiredError,
   transferAllQueuedThreadMessagesInTransaction,
   transferQueuedThreadMessageInTransaction,
@@ -396,6 +398,24 @@ function mapTargetRetired<T>(targetThread: Thread, run: () => T): T {
   }
 }
 
+function mapTransferAllRefusal<T>(
+  args: TransferAllQueuedMessagesArgs,
+  run: () => T,
+): T {
+  try {
+    return mapTargetRetired(args.targetThread, run);
+  } catch (error) {
+    if (error instanceof SourceQueueTooLargeError) {
+      throwThreadNotWritable(
+        args.sourceThread,
+        "source_queue_too_large",
+        error.message,
+      );
+    }
+    throw error;
+  }
+}
+
 export interface RetireThreadArgs {
   sourceThreadId: string;
   targetThreadId: string;
@@ -484,6 +504,7 @@ export async function abortRetirement(
     operationId: args.operationId,
     expectedRetirementOperationId: args.expectedRetirementOperationId,
     operationKey: args.operationKey,
+    maxReturnedRows: ONLINE_QUEUE_MOVE_MAX_ROWS,
     resolveWaitingOn: (row) => {
       const waitingOn = parseStoredQueuedThreadMessageWaitingOn(row);
       if (waitingOn?.kind === "plugin" || waitingOn?.kind === "time") {
@@ -505,7 +526,9 @@ export async function abortRetirement(
     throwThreadNotWritable(
       source ?? { archivedAt: null, deletedAt: null, status: "idle" },
       outcome.reason,
-      "Retirement cannot be aborted",
+      outcome.reason === "abort_queue_too_large"
+        ? `Retirement cannot be aborted online: it would return more than the ${ONLINE_QUEUE_MOVE_MAX_ROWS} queued messages that can move at once`
+        : "Retirement cannot be aborted",
     );
   }
   await drainTransferLedger(deps);
@@ -669,7 +692,7 @@ export async function transferAllQueuedMessages(
     );
   }
   ensureThreadQueueIsWritable(targetThread);
-  const { currentTarget, transferred } = mapTargetRetired(targetThread, () =>
+  const { currentTarget, transferred } = mapTransferAllRefusal(args, () =>
     deps.db.transaction(
       (tx) => {
         const currentTarget = getThread(tx, targetThread.id);

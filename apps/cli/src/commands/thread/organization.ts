@@ -525,7 +525,7 @@ export function registerOrganizationCommands(
   queue
     .command("transfer-all <threadId> <targetThreadId>")
     .description(
-      "Move every unclaimed queued message to another thread in the same project in one transaction, keeping system notices, schedules and waits; claimed and retry rows stay and are reported",
+      "Move every unclaimed queued message to another thread in the same project in one transaction, keeping system notices, schedules and waits; claimed and retry rows stay and are reported. A source with more than 1000 queued messages is refused with 409 source_queue_too_large and nothing moves",
     )
     .option("--json", "Print machine-readable JSON output")
     .action(
