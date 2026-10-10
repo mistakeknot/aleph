@@ -17,6 +17,11 @@ import { SkillTreeRegistry } from "./services/skills/injected-skills.js";
 import { PluginHostArtifactRegistry } from "./services/plugins/plugin-host-artifact-registry.js";
 import { createProviderNativeRootsCache } from "./services/providers/native-roots.js";
 import { createAiServiceRegistry } from "./services/ai/ai-service-registry.js";
+import { isAlephAppVersion } from "@bb/config/app-update";
+import {
+  createServerAlephUpdateService,
+  type AlephUpdateNoticeSink,
+} from "./services/system/aleph-update-composition.js";
 import { createAppUpdateService } from "./services/system/app-update.js";
 import { createAppVersionService } from "./services/system/app-version.js";
 import { createLauncherChannel } from "./services/system/launcher-channel.js";
@@ -94,7 +99,14 @@ export function startServerPlugins(
     });
 }
 
-export async function runServer(serverConfig: ServerConfig): Promise<void> {
+export interface RunServerOptions {
+  alephUpdateNotify?: AlephUpdateNoticeSink;
+}
+
+export async function runServer(
+  serverConfig: ServerConfig,
+  options: RunServerOptions = {},
+): Promise<void> {
   const logger = createLogger({
     component: "server",
     dataDir: serverConfig.BB_DATA_DIR,
@@ -243,6 +255,17 @@ export async function runServer(serverConfig: ServerConfig): Promise<void> {
     mode: appUpdateMode,
     notifyChanged: () => hub.notifySystem(["app-update-changed"]),
   });
+  const alephUpdate = isAlephAppVersion(runtimeConfig.appVersion)
+    ? createServerAlephUpdateService({
+        appVersion: runtimeConfig.appVersion,
+        countRunningThreads: () => listRunningThreads(db).length,
+        dataDir: serverConfig.BB_DATA_DIR,
+        logger,
+        ...(options.alephUpdateNotify === undefined
+          ? {}
+          : { notify: options.alephUpdateNotify }),
+      })
+    : null;
   const {
     app,
     closeWebSockets,
@@ -252,6 +275,7 @@ export async function runServer(serverConfig: ServerConfig): Promise<void> {
     serverMove,
   } = createApp(
     {
+      alephUpdate,
       appUpdate,
       appVersion,
       bbAppManagedConfig,

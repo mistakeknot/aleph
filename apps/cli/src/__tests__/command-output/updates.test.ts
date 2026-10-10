@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Host } from "@bb/domain";
+import { BbHttpError } from "@bb/sdk";
 import type {
   HostProviderCliStatusResponse,
+  SystemAlephUpdateStatus,
   SystemAppUpdateStatus,
 } from "@bb/server-contract";
 import {
@@ -276,6 +278,155 @@ describe("bb updates command output", () => {
     const output = collectLogPayloads(vi.mocked(console.log)).join("\n");
     expect(output).toContain("0.0.32 -> 0.0.33");
     expect(output).toContain("Update available (run: bb updates app apply)");
+  });
+});
+
+describe("bb updates aleph", () => {
+  setupCommandOutputTestEnvironment();
+
+  const register: CommandRegistrar = (program) =>
+    registerUpdatesCommands(program, () => "http://server");
+  const nonce = "c".repeat(32);
+
+  const alephStatus: SystemAlephUpdateStatus = {
+    activeThreadCount: 2,
+    capability: "startable",
+    detail: null,
+    floor: null,
+    installed: { aleph: "0.5.3", version: "0.43.4" },
+    predecessor: null,
+    selection: "available",
+    target: {
+      aleph: "0.5.4",
+      manifestDigest: "f".repeat(64),
+      version: "0.43.5",
+    },
+  };
+
+  const notFound = () =>
+    new BbHttpError({
+      body: null,
+      code: null,
+      message: "Not Found",
+      status: 404,
+    });
+
+  it("prints the selection, capability, and target", async () => {
+    stubServerApi({
+      "v1.system.aleph-update.$get": vi.fn(async () => alephStatus),
+    });
+
+    await runCommand(["updates", "aleph"], register);
+
+    const output = collectLogPayloads(vi.mocked(console.log)).join("\n");
+    expect(output).toContain("0.5.3");
+    expect(output).toContain("0.5.4");
+    expect(output).toContain("available");
+    expect(output).toContain("startable");
+  });
+
+  it("prints the status as JSON", async () => {
+    stubServerApi({
+      "v1.system.aleph-update.$get": vi.fn(async () => alephStatus),
+    });
+
+    await runCommand(["updates", "aleph", "status", "--json"], register);
+
+    expect(
+      JSON.parse(String(vi.mocked(console.log).mock.calls[0]?.[0])),
+    ).toEqual(alephStatus);
+  });
+
+  it("reports an unsupported build when the status route is missing", async () => {
+    stubServerApi({
+      "v1.system.aleph-update.$get": vi.fn(async () => {
+        throw notFound();
+      }),
+    });
+
+    await runCommand(["updates", "aleph"], register);
+    expect(collectLogPayloads(vi.mocked(console.log)).join("\n")).toContain(
+      "does not use the Aleph update channel",
+    );
+
+    vi.mocked(console.log).mockClear();
+    await runCommand(["updates", "aleph", "--json"], register);
+    expect(
+      JSON.parse(String(vi.mocked(console.log).mock.calls[0]?.[0])),
+    ).toEqual({ supported: false });
+  });
+
+  it("looks up a run by nonce", async () => {
+    const lookup = vi.fn(async () => ({
+      detail: "swapping binaries",
+      nonce,
+      state: "running" as const,
+    }));
+    stubServerApi({ "v1.system.aleph-update.runs.:nonce.$get": lookup });
+
+    await runCommand(["updates", "aleph", "run", nonce], register);
+
+    expect(lookup).toHaveBeenCalledWith({ param: { nonce } });
+    const output = collectLogPayloads(vi.mocked(console.log)).join("\n");
+    expect(output).toContain("running");
+    expect(output).toContain("swapping binaries");
+  });
+
+  it("prints the run as JSON and reports an unsupported build on 404", async () => {
+    stubServerApi({
+      "v1.system.aleph-update.runs.:nonce.$get": vi.fn(async () => ({
+        detail: null,
+        nonce,
+        state: "succeeded" as const,
+      })),
+    });
+    await runCommand(["updates", "aleph", "run", nonce, "--json"], register);
+    expect(
+      JSON.parse(String(vi.mocked(console.log).mock.calls[0]?.[0])),
+    ).toEqual({ detail: null, nonce, state: "succeeded" });
+
+    vi.mocked(console.log).mockClear();
+    stubServerApi({
+      "v1.system.aleph-update.runs.:nonce.$get": vi.fn(async () => {
+        throw notFound();
+      }),
+    });
+    await runCommand(["updates", "aleph", "run", nonce], register);
+    expect(collectLogPayloads(vi.mocked(console.log)).join("\n")).toContain(
+      "does not use the Aleph update channel",
+    );
+  });
+
+  it("offers no command that starts, rolls back, or recovers", async () => {
+    stubServerApi({});
+    await expect(
+      runCommand(["updates", "aleph", "apply"], register),
+    ).rejects.toThrow();
+  });
+
+  it("adds the Aleph status to the aggregate JSON and tolerates its absence", async () => {
+    stubServerApi({
+      "v1.system.version.$get": vi.fn(async () => version),
+      "v1.system.aleph-update.$get": vi.fn(async () => alephStatus),
+      "v1.hosts.$get": vi.fn(async () => []),
+    });
+    await runCommand(["updates", "--json"], register);
+    expect(
+      JSON.parse(String(vi.mocked(console.log).mock.calls[0]?.[0])).alephUpdate,
+    ).toEqual(alephStatus);
+
+    vi.mocked(console.log).mockClear();
+    stubServerApi({
+      "v1.system.version.$get": vi.fn(async () => version),
+      "v1.system.aleph-update.$get": vi.fn(async () => {
+        throw notFound();
+      }),
+      "v1.hosts.$get": vi.fn(async () => []),
+    });
+    await runCommand(["updates", "--json"], register);
+    expect(
+      JSON.parse(String(vi.mocked(console.log).mock.calls[0]?.[0])).alephUpdate,
+    ).toBeNull();
   });
 });
 

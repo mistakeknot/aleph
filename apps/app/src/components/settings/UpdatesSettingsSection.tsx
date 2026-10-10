@@ -77,6 +77,7 @@ import {
 } from "@/components/dialogs/ConfirmDeleteDialog";
 import { appToast } from "@/components/ui/app-toast";
 import { BbLogo } from "@/components/ui/bb-logo";
+import { AlephUpdateRow, useAlephUpdateRowStatus } from "./AlephUpdateRow";
 import { OverflowFade } from "@/components/ui/overflow-fade";
 import {
   SettingsBadge,
@@ -1402,6 +1403,9 @@ export function UpdatesSettingsSection({
     number | null
   >(null);
   const appUpdate = appUpdateStatus.data;
+  const alephStatus = useAlephUpdateRowStatus(
+    isAlephAppVersion(inventory.systemVersion?.currentVersion ?? ""),
+  );
 
   function startAppUpdate(): void {
     const runningThreadCount = appUpdate?.runningThreadCount ?? 0;
@@ -1688,11 +1692,16 @@ export function UpdatesSettingsSection({
                 }
                 showServerBadge={machine.host.id === serverPrimaryHostId}
               >
-                {ownsApp
-                  ? serverRunsSeparately
-                    ? serverAppRow
-                    : appRow
-                  : null}
+                {ownsApp ? (
+                  alephStatus !== null &&
+                  (desktopInfo === null || serverRunsSeparately) ? (
+                    <AlephUpdateRow name="bb server" status={alephStatus} />
+                  ) : serverRunsSeparately ? (
+                    serverAppRow
+                  ) : (
+                    appRow
+                  )
+                ) : null}
                 {machine.host.id === desktopClientHostId
                   ? desktopClientRow
                   : null}

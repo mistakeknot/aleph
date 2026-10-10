@@ -16,6 +16,7 @@
     ".codex/",
     ".claude/",
     "pnpm-lock.yaml",
+    "packages/bb-app/npm-shrinkwrap.json",
     "plugins/provider-codex/src/generated/",
     "packages/templates/src/generated/",
     "packages/plugin-sdk/bundled-types/",

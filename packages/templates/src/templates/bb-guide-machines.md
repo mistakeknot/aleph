@@ -131,6 +131,11 @@ bb updates app apply Download the update and restart bb into it
 --no-wait Return once the update starts
 --json Print the final status as JSON
 bb updates app dismiss Mark the last update result as seen
+bb updates aleph [status] Show the Aleph signed-channel selection,
+capability, and target (read only)
+--json Print the status as JSON
+bb updates aleph run <nonce> Show the outcome of an Aleph update request
+--json Print the run as JSON
 
 `bb updates apply` covers provider CLIs only. `bb updates app apply` updates
 bb itself when it was started with `--in-app-updates` from `npx bb-app` (or a
@@ -141,6 +146,16 @@ fast-forwards to `origin/main`.
 Desktop users update through the desktop app's relaunch; development servers
 and `bb-server` cannot update themselves. Connected daemons follow the server
 version automatically.
+
+`bb updates aleph` reads an Aleph build's signed update channel and never
+starts, rolls back, or recovers an update; the signed-in owner does that from
+Settings → Updates. A build without the channel answers 404, shown as an
+unsupported build (`{"supported": false}` with `--json`). Set
+`ALEPH_UPDATE_NOTIFY_COMMAND` to a JSON array such as
+`["/usr/local/bin/notify-admin"]` to run a command for each Aleph update
+request: no shell, one line of at most 512 bytes on stdin, killed after five
+seconds, and only `PATH`, `HOME`, and `LANG` in its environment. Unset or
+invalid, no notice is sent.
 
 Machine selectors accept either an exact machine ID or an unambiguous machine
 name. `--host` is an alias for `--machine`.

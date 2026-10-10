@@ -111,6 +111,15 @@ If any input is unclear, ask before bumping the version.
    `apps/desktop/package.json`. Do not run `npm version` directly in
    `packages/bb-app`; CI enforces these versions in lockstep.
 
+   The package also commits `packages/bb-app/npm-shrinkwrap.json`, which pins
+   the production dependency closure and records the package version. Under the
+   npm version pinned in `packages/bb-app/package.json`, regenerate it after the
+   bump (and after any dependency change):
+
+   ```bash
+   node packages/bb-app/scripts/release-lock.mjs generate
+   ```
+
 4. Update the release notes. Add the new version's section to the repo-root
    `CHANGELOG.md`, and add its entry (ship date and headline) to
    `RELEASE_META` in the repo-root `changelog-metadata.ts`. The marketing site's
@@ -125,15 +134,21 @@ If any input is unclear, ask before bumping the version.
 
    ```bash
    node .github/workflows/check-version-lockstep.mjs
+   node packages/bb-app/scripts/release-lock.mjs check
    pnpm exec turbo run typecheck test --filter=@bb/app --filter=@bb/config --filter=@bb/server --filter=bb-app
    pnpm exec turbo run smoke:tarball --filter=bb-app --force
    git diff --check
    ```
 
+   `smoke:tarball` also accepts `--installed-prefix <dir>` to run the installed
+   package phases against an npm prefix that already holds bb-app
+   (`<dir>/bin` and `<dir>/lib/node_modules/bb-app`), without packing or
+   touching the network.
+
 7. Commit the release change.
 
    ```bash
-   git add README.md docs packages/bb-app/package.json packages/bb-app/README.md apps/desktop/package.json
+   git add README.md docs packages/bb-app/package.json packages/bb-app/npm-shrinkwrap.json packages/bb-app/README.md apps/desktop/package.json
    git commit -m "Prepare bb-app <version>"
    ```
 

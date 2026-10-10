@@ -108,10 +108,35 @@
       "types": "./src/app-update.ts",
       "default": "./src/app-update.ts"
     },
+    "./aleph-update-select": {
+      "source": "./src/aleph-update-select.ts",
+      "types": "./src/aleph-update-select.ts",
+      "default": "./src/aleph-update-select.ts"
+    },
+    "./aleph-update-instance": {
+      "source": "./src/aleph-update-instance.ts",
+      "types": "./src/aleph-update-instance.ts",
+      "default": "./src/aleph-update-instance.ts"
+    },
     "./aleph-version": {
       "source": "./src/aleph-version.ts",
       "types": "./src/aleph-version.ts",
       "default": "./src/aleph-version.ts"
+    },
+    "./aleph-manifest": {
+      "source": "./src/aleph-manifest.ts",
+      "types": "./src/aleph-manifest.ts",
+      "default": "./src/aleph-manifest.ts"
+    },
+    "./aleph-manifest-floor": {
+      "source": "./src/aleph-manifest-floor.ts",
+      "types": "./src/aleph-manifest-floor.ts",
+      "default": "./src/aleph-manifest-floor.ts"
+    },
+    "./aleph-manifest-signature": {
+      "source": "./src/aleph-manifest-signature.ts",
+      "types": "./src/aleph-manifest-signature.ts",
+      "default": "./src/aleph-manifest-signature.ts"
     },
     "./app-surface": {
       "source": "./src/app-surface.ts",
