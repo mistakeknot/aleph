@@ -79,9 +79,9 @@ path back on. `packages/config/test/aleph-release-version.test.ts` fails when
 `bb-app`, `@bb/desktop` or the newest `changelog-metadata.ts` release lacks
 `+aleph.X.Y.Z`.
 
-Settings → Updates and `bb updates` show "Update checks off" for the bb app
-instead of "Up to date", because nothing was checked. Neither says whether a
-newer Aleph build exists.
+Settings → Updates and `bb updates` show "Update checks off" for the generic
+bb app check instead of "Up to date", because no upstream release was checked.
+The separate Aleph row reports the [signed channel](#signed-update-channel).
 
 Updating Aleph follows the signed release channel, or a newer Aleph build
 installed by hand:
@@ -103,6 +103,118 @@ installed by hand:
   the server's own `bb-app`. If that download fails, it falls back to a `bb-app`
   already on the machine's PATH, or to upstream from npm, so check the version
   it reports.
+
+### Signed update channel
+
+The Aleph channel describes releases in a canonical `aleph-manifest/2`
+manifest. Each entry identifies the Aleph release, upstream base, source
+commit, toolchain, host protocol, ordered database migrations, qualification
+jobs, review receipt and platform artifacts. A Linux closure's archive digest
+must match its qualification digest. A Mac artifact carries a
+`maintainer-receipt` attestation and its receipt digest. These records bind a
+release to evidence; accepting a manifest does not run qualification or install
+anything.
+
+`packages/bb-app/scripts/release-lock.mjs` requires the running npm to match
+the exact `dependencies.npm` pin in the package manifest and refuses a
+different version. It removes development dependencies from a temporary copy
+of the packed manifest and converts the generated package lock to
+`npm-shrinkwrap.json`. In `check` mode, the packed package must include that
+shrinkwrap; `generate` mode can create it when absent. Both modes reject a
+pack listing containing `package-lock.json`. The smoke script,
+`packages/bb-app/scripts/smoke-tarball.mjs`, accepts
+`--installed-prefix <prefix>` to test an already-installed package and its
+native modules without packing or installing another copy. The release recipe
+still has to qualify the archive that the helper will install.
+
+The manifest and its detached SSHSIG signature live together under
+`gen/<sequence>-<digest12>/` as `manifest.json` and `manifest.json.sig`, where
+`digest12` is the first 12 lowercase hexadecimal characters of the digest.
+`current.json` points to that directory; the pointer is unsigned and does not
+make a generation trusted. Artifact files live under `artifacts/<sha256>/`.
+The server reads the selected generation from the configured publication
+directory, whose default is `/srv/aleph-update/public`.
+
+Verification uses the `aleph-update-manifest` namespace and pinned
+`sk-ssh-ed25519@openssh.com` signers. Both the user-presence and user-verified
+signature flags are required, and the verified fingerprint must match the
+manifest's `signer_fingerprint`. Signer entries have a `valid-after` boundary
+and may have `valid-before`; multiple pinned entries allow a rotation overlap.
+The helper's admission tooling rejects a manifest signature larger than
+16384 bytes.
+
+Each consumer starts from a pinned floor and retains the accepted sequence,
+digest, issue time and manifest bytes. A lower sequence, an older issue time,
+or different bytes at the same sequence is refused. A manifest may be issued
+at most five minutes ahead of the verifier's clock, must remain unexpired,
+and may cover at most 35 days. Existing release entries cannot change or
+disappear in a later accepted generation; revocations accumulate. An offline
+consumer cannot learn a revocation until it observes a newer generation.
+
+The channel compares Aleph releases numerically, component by component,
+after extracting `aleph.X.Y.Z` from package build metadata. A legacy
+`+aleph.N` install is `not-comparable` to this channel. Upstream semver and its
+build-metadata ordering do not choose the Aleph target. The selector needs a
+consistent manifest entry for the installed release. It considers only newer,
+unrevoked entries with an artifact for the current platform and reports the
+highest such release as `available` only when every migration's tag,
+timestamp and SQL digest matches the installed entry in order. A difference
+reports `migration-required`; the button cannot apply it. Installed
+revocations are reported separately. A missing or inconsistent installed
+entry is `not-comparable`.
+
+Settings → Updates shows a separate Aleph row, independent of the generic
+launcher's update support. `GET /api/v1/system/aleph-update`, `bb updates aleph`
+and `bb updates aleph run <nonce>` expose status without starting an update.
+The row shows the manifest sequence and age, installed release, predecessor,
+active-thread count and explicit manifest or recovery errors. A status read
+may advance the advisory manifest floor; it does not switch the installation.
+
+The system helper is configured separately. Its capability is `absent` when
+the unit template is missing, `command-only` when the template exists without
+a matching capability declaration, and `startable` when the declaration
+contains `polkit-start/1` and the installed rule's digest. That declaration is
+advisory, not proof of authorization. A denied start returns 409 with the
+command for an operator to run from a root shell.
+
+Requests use `aleph-update@<instance>.service`, with these instance forms:
+
+```text
+update_<version>_<digest>_<consent>_<nonce>
+rollback_<from>_<to>_<consent>_<nonce>
+recover_<nonce>
+adopt_<version>_<digest>_<consent>_<nonce>
+```
+
+Versions have three decimal components, each one to four digits with no
+leading zero except `0`. Digests are 64 lowercase hexadecimal characters;
+nonces are 32. Consent is `n` for waiting without interruption or `i` for
+explicit interrupt consent. The digest binds an update to the manifest the
+user saw. `adopt` is reserved for the operator's root command; the server
+exposes only update, rollback and recover. The shared grammar is
+`packages/config/src/aleph-update-instance-grammar.json`.
+
+Before posting, the browser saves the nonce and request body. Reconnecting
+polls `GET /api/v1/system/aleph-update/runs/<nonce>`; a retry keeps the original
+nonce and body. An existing run takes precedence over a later refusal record,
+and a repeat request returns the original status without starting another
+operation. Missing status or a disconnected browser is not a success result.
+
+Each mutation requires a `session` gate marker, the app's Origin,
+`x-aleph-update: 1` and the operation's `confirm` value. The connect relay
+strips caller-supplied gate headers and supplies the session marker after
+checking the owner's cookie. The server trusts that marker; it does not
+authenticate it independently. A local process able to reach the server's
+loopback listener can forge it. Ordinary CLI requests without the marker,
+machine credentials and cross-origin browser requests are refused.
+
+The helper owns installation admission and recovery state. A channel update
+does not authorize a database migration. Rollback returns to the recorded
+predecessor's code with matching migrations and preserves newer data; a
+database restore is a separate operator decision. Recovery verifies the
+installation recorded by the helper, rather than selecting another release.
+Release publication, helper setup and desktop installation remain separate
+operator steps.
 
 ### Update request notices and audit
 
