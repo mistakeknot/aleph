@@ -19,6 +19,7 @@ import {
   codexLoginPollInputSchema,
   loginCompleteInputSchema,
   modelFamilySchema,
+  nestedLaunchThreadIdsSchema,
   parentModeSchema,
   tokenRotateInputSchema,
   routingSetInputSchema,
@@ -40,6 +41,7 @@ import type { CodexDeviceLogin } from "./codex-device-login.js";
 const DESCRIPTION = [
   "Accounts run sequentially by priority, then order added. The current fallback stays active until unavailable.",
   "When this bb server runs inside another bb server's thread, parent proxy routes its pooled traffic through that parent; isolate neutralises the inherited routing.",
+  "Only threads listed in nestedLaunchThreadIds receive the parent markers that let a bb server launched inside them use this pool; other threads receive blank markers. Changes apply to the next agent start and do not revoke nested servers already running.",
   "Reorder includes every account for the provider and changes the next failover sequence; existing conversations stay pinned.",
 ].join("\n");
 
@@ -205,6 +207,7 @@ function formatConfig(config: AccountPoolConfig): string {
     `codexUpstreamBaseUrl: ${config.codexUpstreamBaseUrl}`,
     `switchThreshold: ${config.switchThreshold}`,
     `parentMode: ${config.parentMode}`,
+    `nestedLaunchThreadIds: ${JSON.stringify(config.nestedLaunchThreadIds)}`,
   ].join("\n");
 }
 
@@ -242,10 +245,34 @@ function parseConfigUpdate(
   if (key === "parentMode") {
     return accountPoolConfigSetInputSchema.parse({ parentMode: value });
   }
+  if (key === "nestedLaunchThreadIds") {
+    return { nestedLaunchThreadIds: parseNestedLaunchThreadIds(value) };
+  }
   throw new PluginCliError(
-    "Config key must be anthropicUpstreamBaseUrl, codexUpstreamBaseUrl, switchThreshold, or parentMode.",
+    "Config key must be anthropicUpstreamBaseUrl, codexUpstreamBaseUrl, switchThreshold, parentMode, or nestedLaunchThreadIds.",
     { code: "invalid_value" },
   );
+}
+
+function parseNestedLaunchThreadIds(value: string): string[] {
+  const invalid = (message: string) =>
+    new PluginCliError(`nestedLaunchThreadIds ${message}`, {
+      code: "invalid_value",
+      hint: `Pass a JSON array of exact thread IDs, for example '["thr_example"]', or '[]' to clear it.`,
+    });
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(value);
+  } catch {
+    throw invalid("must be a JSON array.");
+  }
+  const parsed = nestedLaunchThreadIdsSchema.safeParse(decoded);
+  if (!parsed.success) {
+    throw invalid(
+      `is invalid: ${parsed.error.issues[0]?.message ?? "Must be an array of exact thread IDs."}`,
+    );
+  }
+  return parsed.data;
 }
 
 function json(value: object): string {
@@ -806,13 +833,13 @@ export function registerPoolCli(
             {
               name: "key",
               description:
-                "anthropicUpstreamBaseUrl, codexUpstreamBaseUrl, switchThreshold, or parentMode",
+                "anthropicUpstreamBaseUrl, codexUpstreamBaseUrl, switchThreshold, parentMode, or nestedLaunchThreadIds",
               required: true,
             },
             {
               name: "value",
               description:
-                "HTTP(S) URL for upstream keys, a threshold, or proxy/isolate",
+                "HTTP(S) URL for upstream keys, a threshold, proxy/isolate, or a JSON array of exact thread IDs such as '[\"thr_example\"]' ('[]' clears it)",
               required: true,
             },
           ],

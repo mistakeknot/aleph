@@ -816,6 +816,18 @@ async function movePoolToOtherAccount(
 }
 
 const EMPTY_USAGE_URL = "data:application/json,{}";
+const BLANK_PARENT_MARKERS = [
+  {
+    name: "BB_ACCOUNT_POOL_PARENT_URL",
+    value: "",
+    reason: "Nested bb server launches are not opted in for this thread",
+  },
+  {
+    name: "BB_ACCOUNT_POOL_PARENT_TOKEN",
+    value: "",
+    reason: "Nested bb server launches are not opted in for this thread",
+  },
+];
 const CODEX_USAGE_STUB_URL = "https://usage.example/wham/usage";
 
 describe("Account Pool config schema", () => {
@@ -825,6 +837,7 @@ describe("Account Pool config schema", () => {
       codexUpstreamBaseUrl: "https://chatgpt.com/backend-api/codex",
       switchThreshold: 0.98,
       parentMode: "proxy",
+      nestedLaunchThreadIds: [],
     });
     expect(
       accountPoolConfigSetInputSchema.safeParse({
@@ -838,6 +851,45 @@ describe("Account Pool config schema", () => {
       accountPoolConfigSetInputSchema.safeParse({ switchThreshold: 1.01 })
         .success,
     ).toBe(false);
+  });
+
+  it("accepts only exact, unique, bounded nested launch thread IDs", () => {
+    expect(
+      accountPoolConfigSetInputSchema.parse({
+        nestedLaunchThreadIds: ["thr_one", "thread-two"],
+      }),
+    ).toEqual({ nestedLaunchThreadIds: ["thr_one", "thread-two"] });
+    expect(
+      accountPoolConfigSetInputSchema.parse({ nestedLaunchThreadIds: [] }),
+    ).toEqual({ nestedLaunchThreadIds: [] });
+    for (const nestedLaunchThreadIds of [
+      ["*"],
+      ["thr_*"],
+      [""],
+      ["thr one"],
+      ["thr/one"],
+      ["a".repeat(201)],
+      ["thr_one", "thr_one"],
+      Array.from({ length: 101 }, (_, index) => `thr_${index}`),
+      "thr_one",
+      [1],
+    ]) {
+      expect(
+        accountPoolConfigSetInputSchema.safeParse({ nestedLaunchThreadIds })
+          .success,
+      ).toBe(false);
+      expect(
+        accountPoolConfigSchema.safeParse({ nestedLaunchThreadIds }).success,
+      ).toBe(false);
+    }
+    expect(
+      accountPoolConfigSetInputSchema.safeParse({
+        nestedLaunchThreadIds: Array.from(
+          { length: 100 },
+          (_, index) => `thr_${index}`,
+        ),
+      }).success,
+    ).toBe(true);
   });
 });
 
@@ -926,6 +978,7 @@ describe("Account Pool plugin", () => {
       codexUpstreamBaseUrl: "https://chatgpt.com/backend-api/codex",
       switchThreshold: 0.75,
       parentMode: "proxy",
+      nestedLaunchThreadIds: [],
     });
     expect(
       accountPoolConfigSchema.parse(await host.bb.storage.kv.get("config")),
@@ -1595,7 +1648,7 @@ describe("Account Pool plugin", () => {
         projectId: "project-one",
         hostId: "host-one",
       }),
-    ).toEqual([]);
+    ).toEqual(BLANK_PARENT_MARKERS);
     await expect(
       host.harness.behavior.resolveProviderEnvHealth("claude-code", {
         hostId: "host-one",
@@ -2196,7 +2249,7 @@ describe("Account Pool plugin", () => {
     );
   });
 
-  it("resolves distinct secret machine tokens and honors per-thread bypass", async () => {
+  it("resolves machine tokens without parent markers and honors per-thread bypass", async () => {
     const upstream = await startUpstream(async (request, response) => {
       await readRequestBody(request);
       response.writeHead(200, { "content-type": "application/json" });
@@ -2229,16 +2282,7 @@ describe("Account Pool plugin", () => {
         reason:
           "Claude Code turns tool search off behind a custom base URL; the hub forwards tool_reference blocks",
       },
-      {
-        name: "BB_ACCOUNT_POOL_PARENT_URL",
-        value: { serverPath: "/api/v1/plugins/account-pool/http" },
-        reason: "Account Pooler hub for nested bb servers on this machine",
-      },
-      {
-        name: "BB_ACCOUNT_POOL_PARENT_TOKEN",
-        value: fixture.key,
-        reason: "Account Pooler hub token for this machine",
-      },
+      ...BLANK_PARENT_MARKERS,
     ]);
     await expect(
       fixture.host.harness.behavior.resolveProviderEnvHealth("claude-code", {
@@ -2266,7 +2310,7 @@ describe("Account Pool plugin", () => {
         projectId: "project-one",
         hostId: "host-one",
       }),
-    ).toEqual([]);
+    ).toEqual(BLANK_PARENT_MARKERS);
     const off = await fixture.host.harness.behavior.runCli([
       "bypass",
       "thread-one",
@@ -2299,7 +2343,7 @@ describe("Account Pool plugin", () => {
         projectId: "project-one",
         hostId: "host-one",
       }),
-    ).resolves.toEqual([]);
+    ).resolves.toEqual(BLANK_PARENT_MARKERS);
     await expect(
       fixture.host.harness.behavior.resolveProviderEnvHealth("claude-code", {
         hostId: "host-one",
@@ -5994,7 +6038,7 @@ describe("Account Pool plugin", () => {
         projectId: "project-one",
         hostId: "host-one",
       }),
-    ).resolves.toEqual([]);
+    ).resolves.toEqual(BLANK_PARENT_MARKERS);
     await expect(
       fixture.host.harness.behavior.resolveProviderEnvHealth("claude-code", {
         hostId: "host-one",
@@ -6409,12 +6453,7 @@ describe("sequential pool recovery", () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
     releaseUsage();
     expect(await statuses).toEqual([200, 200]);
-    expect(calls).toEqual([
-      "/usage",
-      "/usage",
-      "/v1/messages",
-      "/v1/messages",
-    ]);
+    expect(calls).toEqual(["/usage", "/usage", "/v1/messages", "/v1/messages"]);
   });
 
   it("applies reordered failover atomically without moving current conversations", async () => {
@@ -6836,7 +6875,10 @@ describe("Account Pool nested proxy", () => {
           hostId: "host-one",
         },
       ),
-    ).resolves.toEqual(neutralised(args.provider));
+    ).resolves.toEqual([
+      ...neutralised(args.provider),
+      ...BLANK_PARENT_MARKERS,
+    ]);
   });
 
   it("contributes self-pointing routing and the marker while proxying", async () => {
@@ -6860,6 +6902,86 @@ describe("Account Pool nested proxy", () => {
     expect(
       entries.find((entry) => entry.name === "ANTHROPIC_AUTH_TOKEN")?.value,
     ).not.toBe(PARENT_TOKEN);
+  });
+
+  it.each([
+    {
+      provider: "claude" as const,
+      tokenName: "ANTHROPIC_AUTH_TOKEN",
+      routing: [
+        "ANTHROPIC_BASE_URL",
+        "ANTHROPIC_AUTH_TOKEN",
+        "ENABLE_TOOL_SEARCH",
+      ],
+    },
+    {
+      provider: "codex" as const,
+      tokenName: "CODEX_POOL_AUTH_TOKEN",
+      routing: ["CODEX_OPENAI_BASE_URL", "CODEX_POOL_AUTH_TOKEN"],
+    },
+  ])(
+    "exports the child's own markers to allowlisted $provider threads while proxying",
+    async (args) => {
+      const parent = await startParent({});
+      cleanups.push(parent.upstream.close);
+      const host = await createChild({ parentUrl: parent.upstream.url });
+      await host.harness.behavior.callRpc("config.set", {
+        nestedLaunchThreadIds: ["thread-launcher"],
+      });
+      const resolve = (threadId: string) =>
+        host.harness.behavior.resolveProviderEnv(
+          args.provider === "claude" ? "claude-code" : "codex",
+          { threadId, projectId: "project-one", hostId: "host-one" },
+        );
+      const launcher = await resolve("thread-launcher");
+      expect(envNames(launcher)).toEqual([
+        ...args.routing,
+        "BB_ACCOUNT_POOL_PARENT_URL",
+        "BB_ACCOUNT_POOL_PARENT_TOKEN",
+      ]);
+      const childToken = launcher.find(
+        (entry) => entry.name === args.tokenName,
+      )?.value;
+      expect(typeof childToken).toBe("string");
+      expect(childToken).not.toBe(PARENT_TOKEN);
+      expect(
+        launcher.find((entry) => entry.name === "BB_ACCOUNT_POOL_PARENT_URL")
+          ?.value,
+      ).toEqual({ serverPath: "/api/v1/plugins/account-pool/http" });
+      expect(
+        launcher.find((entry) => entry.name === "BB_ACCOUNT_POOL_PARENT_TOKEN")
+          ?.value,
+      ).toBe(childToken);
+      const ordinary = await resolve("thread-ordinary");
+      expect(ordinary.slice(args.routing.length)).toEqual(BLANK_PARENT_MARKERS);
+      expect(
+        ordinary.find((entry) => entry.name === args.tokenName)?.value,
+      ).toBe(childToken);
+    },
+  );
+
+  it("blanks markers beside neutralised routing for allowlisted threads on an isolated child", async () => {
+    const parent = await startParent({});
+    cleanups.push(parent.upstream.close);
+    const host = await createChild({
+      parentUrl: parent.upstream.url,
+      parentMode: "isolate",
+    });
+    await host.harness.behavior.callRpc("config.set", {
+      nestedLaunchThreadIds: ["thread-launcher"],
+    });
+    for (const provider of ["claude", "codex"] as const) {
+      await expect(
+        host.harness.behavior.resolveProviderEnv(
+          provider === "claude" ? "claude-code" : "codex",
+          {
+            threadId: "thread-launcher",
+            projectId: "project-one",
+            hostId: "host-one",
+          },
+        ),
+      ).resolves.toEqual([...neutralised(provider), ...BLANK_PARENT_MARKERS]);
+    }
   });
 
   it("forwards pooled traffic to the parent with the parent token", async () => {
@@ -6931,6 +7053,195 @@ describe("Account Pool nested proxy", () => {
     );
     expect(allowed.status).toBe(200);
     expect(await allowed.json()).toEqual({ claude: true, codex: false });
+  });
+});
+
+describe("nested launch opt-in", () => {
+  async function openedFixture() {
+    const upstream = await startUpstream(async (request, response) => {
+      await readRequestBody(request);
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end("{}");
+    });
+    cleanups.push(upstream.close);
+    return createFixture({ upstreamUrl: upstream.url });
+  }
+
+  const resolveClaude = (host: Fixture["host"], threadId: string) =>
+    host.harness.behavior.resolveProviderEnv("claude-code", {
+      threadId,
+      projectId: "project-one",
+      hostId: "host-one",
+    });
+
+  const markers = <T extends { name: string }>(entries: T[]) =>
+    entries.filter((entry) => entry.name.startsWith("BB_ACCOUNT_POOL_PARENT_"));
+
+  it("exports the machine token as markers only to allowlisted serving threads", async () => {
+    const fixture = await openedFixture();
+    await fixture.host.harness.behavior.callRpc("config.set", {
+      nestedLaunchThreadIds: ["thread-launcher"],
+    });
+    const launcher = await resolveClaude(fixture.host, "thread-launcher");
+    expect(markers(launcher)).toEqual([
+      {
+        name: "BB_ACCOUNT_POOL_PARENT_URL",
+        value: { serverPath: "/api/v1/plugins/account-pool/http" },
+        reason: "Account Pooler hub for nested bb servers on this machine",
+      },
+      {
+        name: "BB_ACCOUNT_POOL_PARENT_TOKEN",
+        value: fixture.key,
+        reason: "Account Pooler hub token for this machine",
+      },
+    ]);
+    expect(
+      launcher.find((entry) => entry.name === "ANTHROPIC_AUTH_TOKEN")?.value,
+    ).toBe(fixture.key);
+    const ordinary = await resolveClaude(fixture.host, "thread-ordinary");
+    expect(markers(ordinary)).toEqual(BLANK_PARENT_MARKERS);
+    expect(
+      ordinary.find((entry) => entry.name === "ANTHROPIC_AUTH_TOKEN")?.value,
+    ).toBe(fixture.key);
+  });
+
+  it("blanks markers for allowlisted threads that are bypassed or unserved", async () => {
+    const fixture = await openedFixture();
+    await fixture.host.harness.behavior.callRpc("config.set", {
+      nestedLaunchThreadIds: ["thread-launcher"],
+    });
+    await fixture.host.harness.behavior.callRpc("bypass.set", {
+      threadId: "thread-launcher",
+      bypassed: true,
+    });
+    await expect(
+      resolveClaude(fixture.host, "thread-launcher"),
+    ).resolves.toEqual(BLANK_PARENT_MARKERS);
+    await fixture.host.harness.behavior.callRpc("bypass.set", {
+      threadId: "thread-launcher",
+      bypassed: false,
+    });
+    expect(
+      (
+        await fixture.host.harness.behavior.runCli([
+          "routing",
+          "claude",
+          "--off",
+        ])
+      ).exitCode,
+    ).toBe(0);
+    await expect(
+      resolveClaude(fixture.host, "thread-launcher"),
+    ).resolves.toEqual(BLANK_PARENT_MARKERS);
+  });
+
+  it("persists the allowlist and clears markers once a thread is removed", async () => {
+    const fixture = await openedFixture();
+    await fixture.host.harness.behavior.callRpc("config.set", {
+      nestedLaunchThreadIds: ["thread-launcher", "thread-other"],
+    });
+    expect(
+      accountPoolConfigSchema.parse(
+        await fixture.host.bb.storage.kv.get("config"),
+      ).nestedLaunchThreadIds,
+    ).toEqual(["thread-launcher", "thread-other"]);
+    const restarted = await fixture.host.harness.lifecycle.reload(
+      createAccountPoolPlugin({ usageUrl: EMPTY_USAGE_URL }),
+    );
+    cleanups.push(() => restarted.harness.lifecycle.dispose());
+    expect(
+      markers(await resolveClaude(restarted, "thread-launcher"))[1]?.value,
+    ).toBe(fixture.key);
+    await restarted.harness.behavior.callRpc("config.set", {
+      nestedLaunchThreadIds: ["thread-other"],
+    });
+    const removed = await resolveClaude(restarted, "thread-launcher");
+    expect(markers(removed)).toEqual(BLANK_PARENT_MARKERS);
+    expect(
+      removed.find((entry) => entry.name === "ANTHROPIC_AUTH_TOKEN")?.value,
+    ).toBe(fixture.key);
+  });
+
+  it("sets and clears the allowlist through JSON-array CLI values", async () => {
+    const fixture = await openedFixture();
+    const run = (argv: string[]) => fixture.host.harness.behavior.runCli(argv);
+    const shown = await run(["config"]);
+    expect(shown.stdout).toContain("nestedLaunchThreadIds: []");
+    const set = await run([
+      "config",
+      "set",
+      "nestedLaunchThreadIds",
+      '["thread-launcher","thr_other"]',
+    ]);
+    expect(set.exitCode).toBe(0);
+    expect(set.stdout).toContain(
+      'nestedLaunchThreadIds: ["thread-launcher","thr_other"]',
+    );
+    expect(
+      accountPoolConfigSchema.parse(
+        await fixture.host.harness.behavior.callRpc("config.get", null),
+      ).nestedLaunchThreadIds,
+    ).toEqual(["thread-launcher", "thr_other"]);
+    expect(
+      markers(await resolveClaude(fixture.host, "thread-launcher"))[1]?.value,
+    ).toBe(fixture.key);
+    const cleared = await run([
+      "config",
+      "set",
+      "nestedLaunchThreadIds",
+      "[]",
+      "--json",
+    ]);
+    expect(cleared.exitCode).toBe(0);
+    expect(JSON.parse(cleared.stdout)).toMatchObject({
+      ok: true,
+      config: { nestedLaunchThreadIds: [] },
+    });
+    expect(
+      markers(await resolveClaude(fixture.host, "thread-launcher")),
+    ).toEqual(BLANK_PARENT_MARKERS);
+  });
+
+  it.each([
+    "thread-launcher",
+    "[thread-launcher]",
+    '"thread-launcher"',
+    '["*"]',
+    '["thread-launcher","thread-launcher"]',
+    '{"threadId":"thread-launcher"}',
+  ])("rejects %s as an invalid CLI allowlist value", async (value) => {
+    const fixture = await openedFixture();
+    const result = await fixture.host.harness.behavior.runCli([
+      "config",
+      "set",
+      "nestedLaunchThreadIds",
+      value,
+      "--json",
+    ]);
+    expect(result.exitCode).not.toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      ok: false,
+      error: { code: "invalid_value" },
+    });
+    expect(
+      accountPoolConfigSchema.parse(
+        await fixture.host.harness.behavior.callRpc("config.get", null),
+      ).nestedLaunchThreadIds,
+    ).toEqual([]);
+  });
+
+  it("rejects malformed allowlists through RPC without changing config", async () => {
+    const fixture = await openedFixture();
+    await expect(
+      fixture.host.harness.behavior.callRpc("config.set", {
+        nestedLaunchThreadIds: ["thr/one"],
+      }),
+    ).rejects.toThrow();
+    expect(
+      accountPoolConfigSchema.parse(
+        await fixture.host.bb.storage.kv.get("config"),
+      ).nestedLaunchThreadIds,
+    ).toEqual([]);
   });
 });
 

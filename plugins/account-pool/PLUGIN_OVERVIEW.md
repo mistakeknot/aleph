@@ -18,7 +18,11 @@ The pooler owns its upstream HTTP connections and uses HTTP/1.1, so a broken HTT
 
 ## Nested bb servers
 
-A bb server started inside another bb server's thread detects the parent's pooler and enables this plugin. Choose in settings or with `bb pool parent`:
+A bb server started inside an opted-in thread of another bb server detects the parent's pooler and enables this plugin. The parent opts in exact thread IDs with `bb pool config set nestedLaunchThreadIds '["thr_example"]'`; `'[]'`, the default, opts out every thread. Only listed threads that the parent's pool currently serves receive the parent markers; other threads receive them blank, so a bb server launched there neither enables the pooler automatically nor proxies to the parent. A nested server reads the markers once at startup. Allowlist changes apply to agent sessions started afterwards; already-running sessions and nested servers keep their parent pairing. Each nested server has its own allowlist for the servers launched from its threads.
+
+The markers carry the same machine token that the thread already receives for provider routing, so the allowlist limits automatic nested pairing, not access to that token.
+
+Choose in settings or with `bb pool parent`:
 
 - **proxy** (default): keep a local hub with its own machine tokens and forward pooled traffic to the parent, so the parent's token never reaches this server's agents. Routing is contributed only for providers the parent can serve.
 - **isolate**: neutralise the inherited routing and use this instance's own accounts, or each provider's own credentials.
