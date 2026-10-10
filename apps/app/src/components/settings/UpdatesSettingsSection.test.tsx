@@ -78,6 +78,17 @@ vi.mock("@/lib/sdk", async () => {
   };
 });
 
+const alephApiMock = vi.hoisted(() => ({
+  fetchAlephUpdateRun: vi.fn(),
+  fetchAlephUpdateStatus: vi.fn(),
+  postAlephUpdate: vi.fn(),
+}));
+
+vi.mock("@/lib/aleph-update-api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/aleph-update-api")>()),
+  ...alephApiMock,
+}));
+
 vi.mock("@/lib/ws", () => ({
   wsManager: { subscribe: vi.fn(), unsubscribe: vi.fn() },
 }));
@@ -338,6 +349,15 @@ function useWebApp(): void {
 
 beforeEach(() => {
   hostDaemon.localDaemonHostId = null;
+  alephApiMock.fetchAlephUpdateStatus.mockReset();
+  alephApiMock.fetchAlephUpdateStatus.mockRejectedValue(
+    new BbHttpError({
+      body: null,
+      code: "aleph_update_unavailable",
+      message: "unavailable",
+      status: 404,
+    }),
+  );
   vi.mocked(sdk.system.appUpdate).mockResolvedValue(
     makeAppUpdateStatus({
       available: null,
@@ -2027,6 +2047,56 @@ describe("UpdatesSettingsSection on an Aleph build", () => {
 
     await waitFor(() => {
       expect(sdk.system.appUpdate).toHaveBeenCalled();
+    });
+    await waitFor(expectAppRowChecksOff);
+  });
+
+  it("shows the Aleph update row with its own state and action", async () => {
+    useWebApp();
+    useUpdateInventoryMock.mockReturnValue(
+      makeInventory({ systemVersion: alephVersion }),
+    );
+    alephApiMock.fetchAlephUpdateStatus.mockResolvedValue({
+      activeThreadCount: 0,
+      capability: "startable",
+      detail: null,
+      floor: null,
+      installed: { aleph: "2", version: "0.43.4+aleph.2" },
+      predecessor: null,
+      selection: "available",
+      target: {
+        aleph: "3",
+        manifestDigest: "e".repeat(64),
+        version: "0.43.4+aleph.3",
+      },
+    });
+
+    renderSection();
+
+    expect(await screen.findByText("Update available")).toBeTruthy();
+    expect(screen.getByText("Updates can be started from here")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Update" })).toBeTruthy();
+    expect(document.querySelector('[data-bb-update-role="app"]')).toBeNull();
+  });
+
+  it("keeps the checks-off row when the Aleph update channel is unavailable", async () => {
+    useWebApp();
+    useUpdateInventoryMock.mockReturnValue(
+      makeInventory({ systemVersion: alephVersion }),
+    );
+    alephApiMock.fetchAlephUpdateStatus.mockRejectedValue(
+      new BbHttpError({
+        body: { code: "aleph_update_unavailable" },
+        code: "aleph_update_unavailable",
+        message: "unavailable",
+        status: 404,
+      }),
+    );
+
+    renderSection();
+
+    await waitFor(() => {
+      expect(alephApiMock.fetchAlephUpdateStatus).toHaveBeenCalled();
     });
     await waitFor(expectAppRowChecksOff);
   });

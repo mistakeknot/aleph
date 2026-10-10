@@ -1,4 +1,5 @@
 import {
+  isAlephAppVersion,
   isNightlyAppVersion,
   sourceUpdateCheckSchema,
   type AppRevision,
@@ -244,6 +245,9 @@ export function createAppUpdateService(
     if (support.kind !== "supported" || args.launcher === null) {
       return { available: null, blocked: null };
     }
+    if (isAlephAppVersion(args.config.appVersion)) {
+      return { available: null, blocked: null };
+    }
     if (support.mode === "npm") {
       const version = await args.appVersion.getSystemVersion({ forceRefresh });
       if (!version.updateAvailable || version.latestVersion === null) {
@@ -339,6 +343,13 @@ export function createAppUpdateService(
       return getStatus({ forceRefresh: false });
     },
     async apply({ confirmInterruptingThreads }) {
+      if (isAlephAppVersion(args.config.appVersion)) {
+        throw new ApiError(
+          409,
+          "app_update_unavailable",
+          "This build is updated through the Aleph update channel, not the generic updater.",
+        );
+      }
       const launcher = requireLauncher();
       if (launcherStatus !== null && launcherStatus.activity.phase !== "idle") {
         throw new ApiError(

@@ -17,3 +17,7 @@ it("excludes every sourcemap from the published package, at any depth", () => {
 it("keeps the sourcemap exclusion last so no later pattern re-includes maps", () => {
   expect(files.at(-1)).toBe("!**/*.map");
 });
+
+it("publishes the committed shrinkwrap, which npm omits unless it is listed", () => {
+  expect(files).toContain("npm-shrinkwrap.json");
+});

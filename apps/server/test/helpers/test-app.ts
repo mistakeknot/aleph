@@ -27,6 +27,7 @@ import { SkillTreeRegistry } from "../../src/services/skills/injected-skills.js"
 import { PluginHostArtifactRegistry } from "../../src/services/plugins/plugin-host-artifact-registry.js";
 import { createProviderNativeRootsCache } from "../../src/services/providers/native-roots.js";
 import { createAiServiceRegistry } from "../../src/services/ai/ai-service-registry.js";
+import type { AlephUpdateService } from "../../src/services/system/aleph-update.js";
 import {
   createAppUpdateService,
   type AppUpdateService,
@@ -86,6 +87,7 @@ export async function installTestBuiltinPlugin(
 }
 
 export type TestAppHarnessConfigOverrides = Partial<ServerRuntimeConfig> & {
+  alephUpdateService?: AlephUpdateService;
   appUpdateService?: AppUpdateService;
   appVersionService?: AppVersionService;
   terminalAttachTimeoutMs?: number;
@@ -153,6 +155,7 @@ export async function createTestAppHarness(
   overrides: TestAppHarnessConfigOverrides = {},
 ): Promise<TestAppHarness> {
   const {
+    alephUpdateService,
     appUpdateService,
     appVersionService,
     terminalAttachTimeoutMs = TEST_TERMINAL_RPC_TIMEOUT_MS,
@@ -289,6 +292,7 @@ export async function createTestAppHarness(
       notifyChanged: () => hub.notifySystem(["app-update-changed"]),
     });
   const deps: ServerAppDeps = {
+    alephUpdate: alephUpdateService ?? null,
     appUpdate,
     appVersion,
     bbAppManagedConfig,

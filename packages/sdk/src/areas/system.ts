@@ -15,6 +15,8 @@ import type { ProviderUsageResponse } from "@bb/host-daemon-contract";
 import type {
   SetAiServiceSelectionRequest,
   SystemAiServicesResponse,
+  SystemAlephUpdateRun,
+  SystemAlephUpdateStatus,
   SystemAppUpdateAcknowledgeRequest,
   SystemAppUpdateApplyRequest,
   SystemAppUpdateQuery,
@@ -70,6 +72,18 @@ export interface SystemAppUpdateArgs {
   force?: boolean;
   signal?: AbortSignal;
 }
+
+export interface SystemAlephUpdateStatusArgs {
+  signal?: AbortSignal;
+}
+
+export interface SystemAlephUpdateRunArgs {
+  nonce: string;
+  signal?: AbortSignal;
+}
+
+export type SystemAlephUpdateStatusResult = SystemAlephUpdateStatus;
+export type SystemAlephUpdateRunResult = SystemAlephUpdateRun;
 
 export type SystemApplyAppUpdateArgs = SystemAppUpdateApplyRequest;
 export type SystemAcknowledgeAppUpdateArgs = SystemAppUpdateAcknowledgeRequest;
@@ -185,6 +199,12 @@ export interface SystemArea {
   usageLimits(args?: SystemUsageLimitsArgs): Promise<SystemUsageLimitsResult>;
   version(args?: SystemVersionArgs): Promise<SystemVersionResult>;
   appUpdate(args?: SystemAppUpdateArgs): Promise<SystemAppUpdateStatusResult>;
+  alephUpdateStatus(
+    args?: SystemAlephUpdateStatusArgs,
+  ): Promise<SystemAlephUpdateStatusResult>;
+  alephUpdateRun(
+    args: SystemAlephUpdateRunArgs,
+  ): Promise<SystemAlephUpdateRunResult>;
   applyAppUpdate(
     args: SystemApplyAppUpdateArgs,
   ): Promise<SystemAppUpdateStatusResult>;
@@ -394,6 +414,22 @@ export function createSystemArea(args: CreateSdkAreaArgs): SystemArea {
         transport.api.v1.system["app-update"].$get(
           { query: appUpdateQuery(input) },
           ...signalRequestArgs(input?.signal),
+        ),
+      );
+    },
+    async alephUpdateStatus(input) {
+      return transport.readJson(
+        transport.api.v1.system["aleph-update"].$get(
+          {},
+          ...signalRequestArgs(input?.signal),
+        ),
+      );
+    },
+    async alephUpdateRun(input) {
+      return transport.readJson(
+        transport.api.v1.system["aleph-update"].runs[":nonce"].$get(
+          { param: { nonce: input.nonce } },
+          ...signalRequestArgs(input.signal),
         ),
       );
     },

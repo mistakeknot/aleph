@@ -7,12 +7,14 @@ import {
   mkdtemp,
   readFile,
   rm,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseSmokeArgs, resolveInstalledPrefix } from "./installed-prefix.mjs";
 import { createManagedProcessStop } from "./managed-process.mjs";
 
 const HTTP_WAIT_TIMEOUT_MS = 60_000;
@@ -57,6 +59,7 @@ const PORT_COLLISION_PATTERN =
 
 const scriptsDir = dirname(fileURLToPath(import.meta.url));
 const packageRoot = resolve(scriptsDir, "..");
+const { installedPrefix } = parseSmokeArgs(process.argv.slice(2));
 const tempRoot = await mkdtemp(join(tmpdir(), "bb-app-tarball-"));
 const smokeProcessEnv = {
   BB_TELEMETRY: "false",
@@ -1205,29 +1208,73 @@ async function smokeDaemonJoin(binDir) {
   );
 }
 
-try {
-  const smokeStartedAt = performance.now();
-  const tarballPath = await timed("npm pack", () => packTarball());
-  await timed("npx entrypoint", () => smokeNpxEntrypoint(tarballPath));
-  const sdkDir = await timed("sdk package", () => smokeSdkPackage(tarballPath));
-  const installedBinDir = join(sdkDir, "node_modules", ".bin");
-  const installedPackageDir = join(sdkDir, "node_modules", "bb-app");
-  await timed("help commands", () => smokeHelpCommands(installedBinDir));
-  await timed("config command", () => smokeConfigCommand(installedBinDir));
-  await timed("installed repack", () =>
-    smokeInstalledRepack(installedPackageDir),
-  );
+async function smokeNativeModules(installedPackageDir) {
+  await runCommand({
+    args: [
+      "--input-type=module",
+      "-e",
+      [
+        'import { createRequire } from "node:module";',
+        `const require = createRequire(${JSON.stringify(join(installedPackageDir, "package.json"))});`,
+        'for (const name of ["@parcel/watcher", "fs-native-extensions", "node-pty"]) require(name);',
+        'const Database = require("better-sqlite3");',
+        'const db = new Database(":memory:");',
+        'db.exec("CREATE TABLE smoke (id INTEGER PRIMARY KEY, value TEXT)");',
+        'db.prepare("INSERT INTO smoke (value) VALUES (?)").run("ok");',
+        'if (db.prepare("SELECT value FROM smoke").get()?.value !== "ok") process.exit(1);',
+        "db.close();",
+      ].join("\n"),
+    ],
+    command: process.execPath,
+    label: "installed native modules",
+  });
+}
+
+async function smokeInstalledPackage({ binDir, packageDir, workDir }) {
+  await timed("help commands", () => smokeHelpCommands(binDir));
+  await timed("config command", () => smokeConfigCommand(binDir));
   await timed("provider bridge bundles", () =>
-    smokeProviderBridgeBundles(installedPackageDir),
+    smokeProviderBridgeBundles(packageDir),
   );
   await timed("plugin host worker bundle", () =>
-    smokePluginHostWorkerBundle(installedPackageDir),
+    smokePluginHostWorkerBundle(packageDir),
   );
-  await timed("full stack", () => smokeFullStack(installedBinDir, sdkDir));
-  await timed("daemon join", () => smokeDaemonJoin(installedBinDir));
-  process.stdout.write(
-    `bb-app tarball smoke passed in ${formatElapsed(smokeStartedAt)}\n`,
-  );
+  await timed("full stack", () => smokeFullStack(binDir, workDir));
+  await timed("daemon join", () => smokeDaemonJoin(binDir));
+}
+
+try {
+  const smokeStartedAt = performance.now();
+  if (installedPrefix !== null) {
+    const { binDir, packageDir } = resolveInstalledPrefix(installedPrefix);
+    const workDir = join(tempRoot, "installed-prefix-work");
+    await mkdir(join(workDir, "node_modules"), { recursive: true });
+    await symlink(packageDir, join(workDir, "node_modules", "bb-app"), "dir");
+    await timed("native modules", () => smokeNativeModules(packageDir));
+    await smokeInstalledPackage({ binDir, packageDir, workDir });
+    process.stdout.write(
+      `bb-app installed-prefix smoke passed in ${formatElapsed(smokeStartedAt)}\n`,
+    );
+  } else {
+    const tarballPath = await timed("npm pack", () => packTarball());
+    await timed("npx entrypoint", () => smokeNpxEntrypoint(tarballPath));
+    const sdkDir = await timed("sdk package", () =>
+      smokeSdkPackage(tarballPath),
+    );
+    const installedBinDir = join(sdkDir, "node_modules", ".bin");
+    const installedPackageDir = join(sdkDir, "node_modules", "bb-app");
+    await timed("installed repack", () =>
+      smokeInstalledRepack(installedPackageDir),
+    );
+    await smokeInstalledPackage({
+      binDir: installedBinDir,
+      packageDir: installedPackageDir,
+      workDir: sdkDir,
+    });
+    process.stdout.write(
+      `bb-app tarball smoke passed in ${formatElapsed(smokeStartedAt)}\n`,
+    );
+  }
 } finally {
   await rm(tempRoot, { force: true, recursive: true });
 }

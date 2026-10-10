@@ -223,7 +223,10 @@ const CACHE_OWNER_QUERY_KEY_IMPORTS: CacheOwnerQueryKeyImportRegistry = {
     "threadSearchQueryKeyPrefix",
     "threadsQueryKey",
   ],
-  "hooks/cache-owners/app-update-cache-owner.ts": ["systemAppUpdateQueryKey"],
+  "hooks/cache-owners/app-update-cache-owner.ts": [
+    "systemAlephUpdateQueryKey",
+    "systemAppUpdateQueryKey",
+  ],
   "hooks/cache-owners/server-move-cache-owner.ts": ["serverMoveStatusQueryKey"],
   "hooks/cache-owners/provider-cli-status-cache-owner.ts": [
     "hostProviderCliStatusQueryKey",
