@@ -345,6 +345,14 @@ export function createAccountPoolPlugin(
         reason: "Account Pooler hub token for this machine",
       },
     ];
+    const blankMarkerEntries: PoolEnvEntry[] = [
+      PARENT_URL_ENV,
+      PARENT_TOKEN_ENV,
+    ].map((name) => ({
+      name,
+      value: "",
+      reason: "Nested bb server launches are not opted in for this thread",
+    }));
     const neutralized = (provider: PoolProvider): PoolEnvEntry[] =>
       PROVIDER_ROUTING_ENV[provider].map((name) => ({
         name,
@@ -360,9 +368,16 @@ export function createAccountPoolPlugin(
           if (provider === "claude") {
             await routing.recordRouted(context.threadId, context.hostId);
           }
-          return [...serving(token), ...markerEntries(token)];
+          return [
+            ...serving(token),
+            ...(currentSettings.nestedLaunchThreadIds.includes(context.threadId)
+              ? markerEntries(token)
+              : blankMarkerEntries),
+          ];
         }
-        return parentPool === null ? [] : neutralized(provider);
+        return parentPool === null
+          ? blankMarkerEntries
+          : [...neutralized(provider), ...blankMarkerEntries];
       };
     const proxiedHealth = async (provider: PoolProvider) =>
       (await canServe(provider))

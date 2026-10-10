@@ -21,7 +21,7 @@ bb pool account refresh <id>
 bb pool status [--json]
 bb pool routing <claude|codex> [--off]
 bb pool config
-bb pool config set <anthropicUpstreamBaseUrl|codexUpstreamBaseUrl|switchThreshold|parentMode> <value>
+bb pool config set <anthropicUpstreamBaseUrl|codexUpstreamBaseUrl|switchThreshold|parentMode|nestedLaunchThreadIds> <value>
 bb pool parent [proxy|isolate]
 bb pool token rotate --machine <id-or-name>
 bb pool bypass <thread-id> [--off]
@@ -71,6 +71,9 @@ UUID is aligned with the selected OAuth account. Use `bb pool config` to
 inspect the full routing configuration and
 `bb pool config set <key> <value>` to update one value. The upstream URL keys
 are QA-only overrides; `switchThreshold` must be greater than 0 and at most 1.
+`nestedLaunchThreadIds` takes a JSON array of exact thread IDs, for example
+`bb pool config set nestedLaunchThreadIds '["thr_example"]'`, and `'[]'`
+clears it; see Nested bb servers.
 `BB_ACCOUNT_POOL_EXEC_INPUT_DIR` is operator-owned server-startup configuration for
 stdin files, not a CLI or settings RPC key. When unset, the host resolves the
 fixed default `<daemon HOME>/.local/state/bb-account-pool/exec-input` from its
@@ -177,7 +180,10 @@ hub's existing Bearer authorization header). Never print or copy that token into
 command arguments. A successful response is:
 
 ```json
-{"threadId":"thr_example","availability":{"claude":true,"codex":false}}
+{
+  "threadId": "thr_example",
+  "availability": { "claude": true, "codex": false }
+}
 ```
 
 The thread's current environment must belong to the authenticated machine,
@@ -210,11 +216,34 @@ cross-provider eligibility for a particular thread.
 
 ## Nested bb servers
 
-A bb server started from inside another bb server's thread inherits that parent's
-pooler routing through its environment. The parent contributes
-`BB_ACCOUNT_POOL_PARENT_URL` and `BB_ACCOUNT_POOL_PARENT_TOKEN` alongside the
-provider routing variables, and the nested server enables the pooler on first run
-when it sees them.
+A bb server started from inside an opted-in thread of another bb server
+inherits that parent's pooler routing through its environment. The nested
+server enables the pooler on first run when it sees non-empty
+`BB_ACCOUNT_POOL_PARENT_URL` and `BB_ACCOUNT_POOL_PARENT_TOKEN`.
+
+The parent sets those markers only for threads whose exact ID is listed in its
+`nestedLaunchThreadIds` config and that its pool currently serves for the
+thread's provider: not bypassed, routing on, and a usable account or parent
+availability. The list defaults to `[]`. Set it with
+`bb pool config set nestedLaunchThreadIds '["thr_example"]'`; `'[]'` clears it.
+Entries are exact thread IDs (ASCII letters, digits, underscores and hyphens, at
+most 200 characters), unique, and at most 100; there are no wildcards or
+descendant matches. The token marker is the same machine token the thread
+receives as `ANTHROPIC_AUTH_TOKEN` or `CODEX_POOL_AUTH_TOKEN`.
+
+Every other thread, including bypassed and unserved ones, receives both markers
+with empty values. Empty values override marker values from machine or project
+environment sources and count as absent, so a bb server launched from an
+ordinary thread does not enable the pooler automatically or proxy to the parent.
+Provider routing variables are unchanged. The allowlist limits automatic nested
+pairing; it does not keep the machine token away from ordinary threads.
+
+A nested server reads the markers once at startup, from the environment of the
+agent session that launched it. Allowlist changes apply to agent sessions started
+afterwards. Agent sessions and nested servers that are already running keep the
+markers and parent pairing they started with; removing a thread does not revoke
+them. A nested server applies its own `nestedLaunchThreadIds`, so a bb server
+launched from one of its threads needs that thread listed on the nested server.
 
 `bb pool parent` reports the detected parent, the current mode, and which
 providers the parent can serve. `bb pool parent proxy` and `bb pool parent

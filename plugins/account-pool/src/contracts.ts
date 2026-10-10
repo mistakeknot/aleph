@@ -24,6 +24,25 @@ const switchThresholdSchema = z
 export const parentModeSchema = z.enum(["proxy", "isolate"]);
 export type ParentMode = z.infer<typeof parentModeSchema>;
 
+const MAX_NESTED_LAUNCH_THREAD_IDS = 100;
+
+export const nestedLaunchThreadIdsSchema = z
+  .array(
+    z
+      .string()
+      .min(1)
+      .max(200)
+      .regex(/^[A-Za-z0-9_-]+$/u, "Must be an exact thread ID."),
+  )
+  .max(
+    MAX_NESTED_LAUNCH_THREAD_IDS,
+    `Must list at most ${MAX_NESTED_LAUNCH_THREAD_IDS} thread IDs.`,
+  )
+  .refine(
+    (threadIds) => new Set(threadIds).size === threadIds.length,
+    "Thread IDs must be unique.",
+  );
+
 export const accountPoolConfigSchema = z
   .object({
     anthropicUpstreamBaseUrl: httpUrlSchema.default(
@@ -38,6 +57,7 @@ export const accountPoolConfigSchema = z
     parentMode: parentModeSchema.default(
       DEFAULT_ACCOUNT_POOL_CONFIG.parentMode,
     ),
+    nestedLaunchThreadIds: nestedLaunchThreadIdsSchema.default([]),
   })
   .strict();
 
@@ -49,6 +69,7 @@ export const accountPoolConfigSetInputSchema = z
     codexUpstreamBaseUrl: httpUrlSchema.optional(),
     switchThreshold: switchThresholdSchema.optional(),
     parentMode: parentModeSchema.optional(),
+    nestedLaunchThreadIds: nestedLaunchThreadIdsSchema.optional(),
   })
   .strict();
 
