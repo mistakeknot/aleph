@@ -115,11 +115,13 @@ must match its qualification digest. A Mac artifact carries a
 release to evidence; accepting a manifest does not run qualification or install
 anything.
 
-`packages/bb-app/scripts/release-lock.mjs` uses the exact npm version pinned
-in the package manifest, removes development dependencies from a temporary
-copy of the packed manifest, and converts the generated package lock to
-`npm-shrinkwrap.json`. The packed package must include that shrinkwrap and
-exclude `package-lock.json`. The smoke script,
+`packages/bb-app/scripts/release-lock.mjs` requires the running npm to match
+the exact `dependencies.npm` pin in the package manifest and refuses a
+different version. It removes development dependencies from a temporary copy
+of the packed manifest and converts the generated package lock to
+`npm-shrinkwrap.json`. In `check` mode, the packed package must include that
+shrinkwrap; `generate` mode can create it when absent. Both modes reject a
+pack listing containing `package-lock.json`. The smoke script,
 `packages/bb-app/scripts/smoke-tarball.mjs`, accepts
 `--installed-prefix <prefix>` to test an already-installed package and its
 native modules without packing or installing another copy. The release recipe
@@ -138,8 +140,8 @@ Verification uses the `aleph-update-manifest` namespace and pinned
 signature flags are required, and the verified fingerprint must match the
 manifest's `signer_fingerprint`. Signer entries have a `valid-after` boundary
 and may have `valid-before`; multiple pinned entries allow a rotation overlap.
-The helper's receipt verifier rejects detached signatures larger than the
-fixed limit of 16384 bytes.
+The helper's admission tooling rejects a manifest signature larger than
+16384 bytes.
 
 Each consumer starts from a pinned floor and retains the accepted sequence,
 digest, issue time and manifest bytes. A lower sequence, an older issue time,
@@ -150,16 +152,16 @@ disappear in a later accepted generation; revocations accumulate. An offline
 consumer cannot learn a revocation until it observes a newer generation.
 
 The channel compares Aleph releases numerically, component by component,
-after extracting `aleph.X.Y.Z` from package build metadata. The older
-`aleph.N` form still means `0.N.0`. Upstream semver and its build-metadata
-ordering do not choose the Aleph target. The selector needs a consistent
-manifest entry for the installed release and considers only newer, unrevoked
-entries with an artifact for the current platform. It reports the highest
-such release as `available` only when every migration's tag, timestamp and
-SQL digest matches the installed entry in order. A difference reports
-`migration-required`; the button cannot apply it. An installed revocation is
-reported separately, and a missing or inconsistent installed entry is
-`not-comparable`.
+after extracting `aleph.X.Y.Z` from package build metadata. A legacy
+`+aleph.N` install is `not-comparable` to this channel. Upstream semver and its
+build-metadata ordering do not choose the Aleph target. The selector needs a
+consistent manifest entry for the installed release. It considers only newer,
+unrevoked entries with an artifact for the current platform and reports the
+highest such release as `available` only when every migration's tag,
+timestamp and SQL digest matches the installed entry in order. A difference
+reports `migration-required`; the button cannot apply it. Installed
+revocations are reported separately. A missing or inconsistent installed
+entry is `not-comparable`.
 
 Settings → Updates shows a separate Aleph row, independent of the generic
 launcher's update support. `GET /api/v1/system/aleph-update`, `bb updates aleph`
