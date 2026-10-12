@@ -12,6 +12,7 @@ const builtInThemeIdSchema = z.enum([
   "gruvbox",
   "catppuccin",
   "thecla",
+  "dorcas",
 ]);
 export type BuiltInThemeId = z.infer<typeof builtInThemeIdSchema>;
 
@@ -44,6 +45,12 @@ export const builtInThemes: readonly BuiltInThemeMeta[] = [
     id: "thecla",
     name: "Thecla",
     description: "Luminous rose, orchid pink, and cyan on deep black",
+  },
+  {
+    id: "dorcas",
+    name: "Dorcas",
+    description:
+      "Thecla dimmed for OLED: quiet lines drifting rose to cyan on true black",
   },
 ];
 

@@ -4,6 +4,7 @@ import {
   type BuiltInThemeId,
 } from "@bb/domain";
 import { catppuccinThemeCss } from "./catppuccin";
+import { dorcasThemeCss } from "./dorcas";
 import { draculaThemeCss } from "./dracula";
 import { gruvboxThemeCss } from "./gruvbox";
 import { nordThemeCss } from "./nord";
@@ -21,7 +22,19 @@ const builtInThemeCss: Record<BuiltInThemeId, string> = {
   gruvbox: gruvboxThemeCss,
   catppuccin: catppuccinThemeCss,
   thecla: theclaThemeCss,
+  dorcas: dorcasThemeCss,
 };
+
+const ambientScreenCareThemeIds: ReadonlySet<BuiltInThemeId> = new Set([
+  "dorcas",
+]);
+
+export function usesAmbientScreenCare(appearance: AppTheme): boolean {
+  return (
+    isBuiltInThemeId(appearance.themeId) &&
+    ambientScreenCareThemeIds.has(appearance.themeId)
+  );
+}
 
 export function resolveAppThemeCss(appearance: AppTheme): string {
   if (isBuiltInThemeId(appearance.themeId)) {
