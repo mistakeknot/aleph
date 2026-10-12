@@ -44,11 +44,11 @@ function expectedFigures(): Record<string, string> {
   const poolHub = "plugins/account-pool/src/hub.ts";
   const idleMs = constant(
     poolHub,
-    /AFFINITY_IDLE_TTL_MS = (\d+ \* \d+ \* [\d_]+)/u,
+    /AFFINITY_IDLE_TTL_MS = (\d+ \* \d+ \* [\d_]+);/u,
   );
   const graceMs = constant(
     poolStore,
-    /HUB_TOKEN_GRACE_MS = (\d+ \* \d+ \* [\d_]+)/u,
+    /HUB_TOKEN_GRACE_MS = (\d+ \* \d+ \* [\d_]+);/u,
   );
   const minutes = (expression: string): string =>
     String(
@@ -77,17 +77,17 @@ function expectedFigures(): Record<string, string> {
     ),
     "switch-threshold": constant(
       "plugins/account-pool/src/contracts.ts",
-      /switchThreshold: ([\d.]+)/u,
+      /switchThreshold: ([\d.]+),/u,
     ),
     "affinity-idle-minutes": minutes(idleMs),
     "affinity-max-bindings": constant(
       poolHub,
-      /MAX_AFFINITY_BINDINGS = ([\d_]+)/u,
+      /MAX_AFFINITY_BINDINGS = ([\d_]+);/u,
     ).replaceAll("_", ""),
     "token-grace-minutes": minutes(graceMs),
     "nested-default": constant(
       "plugins/account-pool/src/contracts.ts",
-      /nestedLaunchThreadIds: nestedLaunchThreadIdsSchema\.default\((\[\])\)/u,
+      /nestedLaunchThreadIds: nestedLaunchThreadIdsSchema\.default\((\[\])\),/u,
     ),
     journeys: String(
       readdirSync(path.join(repoRoot, "docs/cujs")).filter((name) =>
