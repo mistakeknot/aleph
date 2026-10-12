@@ -153,6 +153,7 @@ export async function callPluginRpc(
   pluginId: string,
   method: string,
   input?: unknown,
+  signal?: AbortSignal,
 ): Promise<unknown> {
   const serializedInput = serializePluginRpcInput(input ?? null);
   const response = await fetchImpl(
@@ -161,6 +162,7 @@ export async function callPluginRpc(
       method: "POST",
       headers: { "content-type": "application/json" },
       body: serializedInput,
+      ...(signal === undefined ? {} : { signal }),
     },
   );
   const body = (await response.json().catch(() => null)) as {

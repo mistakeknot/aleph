@@ -29,6 +29,7 @@ import type { ThreadArchiveFilter } from "@/lib/thread-lifecycle-filter";
 import { CompactViewportOverrideProvider } from "@bb/shared-ui/hooks/use-compact-viewport";
 import { AppCommandProvider, useAppCommandHandler } from "./AppCommandProvider";
 import {
+  type PluginCommandPaletteSearchSlot,
   removePluginSlotRegistrations,
   setPluginSlotRegistrations,
 } from "@/lib/plugin-slots";
@@ -2143,6 +2144,420 @@ describe("CommandPalette", () => {
     await waitFor(() =>
       expect(screen.getByTestId("location").textContent).toBe(
         "/plugins/automations/automations",
+      ),
+    );
+  });
+
+  it("shows a plugin's search results after the matching commands and opens the picked one", async () => {
+    const queries: string[] = [];
+    setPluginSlotRegistrations(
+      "linear",
+      makePluginRegistrationSet({
+        navPanels: [
+          {
+            id: "tasks",
+            title: "Tasks",
+            icon: "List",
+            path: "tasks",
+            component: () => null,
+          },
+        ],
+        commandPaletteSearches: [
+          {
+            id: "tasks",
+            title: "Tasks",
+            search: async (query) => {
+              queries.push(query);
+              return [
+                {
+                  id: "task-1",
+                  title: "AUTA-316 Fix the sidebar",
+                  detail: "In progress",
+                  open: { panelPath: "tasks", subPath: "task/AUTA-316" },
+                },
+                {
+                  id: "task-2",
+                  title: "Unregistered panel",
+                  open: { panelPath: "elsewhere" },
+                },
+              ];
+            },
+          },
+        ],
+      }),
+    );
+    renderPalette();
+    openPalette();
+    await waitFor(() => expect(searchField()).toBeTruthy());
+
+    fireEvent.change(searchField(), { target: { value: "AUTA-316" } });
+    expect(screen.getByRole("status").textContent).toBe("Searching…");
+    await waitFor(() =>
+      expect(optionTitles()).toEqual([
+        "AUTA-316 Fix the sidebarTasks · In progress",
+      ]),
+    );
+    expect(queries).toEqual(["AUTA-316"]);
+    expect(screen.getByRole("status").textContent).toBe("1 search result");
+    fireEvent.keyDown(searchField(), { key: "Enter" });
+
+    await waitFor(() =>
+      expect(screen.getByTestId("location").textContent).toBe(
+        "/plugins/linear/tasks/task/AUTA-316",
+      ),
+    );
+    expect(window.localStorage.getItem("bb.palette.recents")).toBeNull();
+  });
+
+  it("stops plugin search when the compact Command-K drawer closes", async () => {
+    const signals: AbortSignal[] = [];
+    const answers: ((
+      rows: Awaited<ReturnType<PluginCommandPaletteSearchSlot["search"]>>,
+    ) => void)[] = [];
+    setPluginSlotRegistrations(
+      "linear",
+      makePluginRegistrationSet({
+        navPanels: [
+          {
+            id: "tasks",
+            title: "Tasks",
+            icon: "List",
+            path: "tasks",
+            component: () => null,
+          },
+        ],
+        commandPaletteSearches: [
+          {
+            id: "tasks",
+            title: "Tasks",
+            search: (_query, { signal }) => {
+              signals.push(signal);
+              return new Promise((resolve) => answers.push(resolve));
+            },
+          },
+        ],
+      }),
+    );
+    modeState.searchResponse = {
+      active: {
+        total: 1,
+        results: [{ thread: makeThread("mentions-card"), matches: [] }],
+      },
+      archived: { total: 0, results: [] },
+    };
+    renderPalette({ compact: true });
+    openThreadSearch();
+    const input = await screen.findByRole("combobox", {
+      name: "Search threads",
+    });
+    fireEvent.change(input, { target: { value: "AUTA-316" } });
+    await waitFor(() => expect(signals).toHaveLength(1));
+    expectText(selectedOption(), "Title mentions-card");
+
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(signals[0]?.aborted).toBe(true));
+    act(() =>
+      answers[0]?.([
+        {
+          id: "task-1",
+          title: "AUTA-316 Fix the sidebar",
+          open: { panelPath: "tasks", subPath: "task/AUTA-316" },
+        },
+      ]),
+    );
+
+    openThreadSearch();
+    await screen.findByRole("combobox", { name: "Search threads" });
+    expect(
+      screen
+        .queryAllByRole("option")
+        .some((option) => option.textContent?.includes("AUTA-316 Fix")),
+    ).toBe(false);
+  });
+
+  it("searches plugins from the Command-K thread search and opens the picked result", async () => {
+    const queries: string[] = [];
+    setPluginSlotRegistrations(
+      "linear",
+      makePluginRegistrationSet({
+        navPanels: [
+          {
+            id: "tasks",
+            title: "Tasks",
+            icon: "List",
+            path: "tasks",
+            component: () => null,
+          },
+        ],
+        commandPaletteSearches: [
+          {
+            id: "tasks",
+            title: "Tasks",
+            search: async (query) => {
+              queries.push(query);
+              return [
+                {
+                  id: "task-1",
+                  title: "AUTA-316 Fix the sidebar",
+                  detail: "In progress",
+                  open: { panelPath: "tasks", subPath: "task/AUTA-316" },
+                },
+              ];
+            },
+          },
+        ],
+      }),
+    );
+    modeState.searchResponse = {
+      active: {
+        total: 1,
+        results: [{ thread: makeThread("mentions-card"), matches: [] }],
+      },
+      archived: { total: 0, results: [] },
+    };
+    renderPalette();
+    const event = openThreadSearch();
+    expect(event.defaultPrevented).toBe(true);
+    const input = await screen.findByRole("combobox", {
+      name: "Search threads",
+    });
+
+    fireEvent.change(input, { target: { value: "AUTA-316" } });
+    expectText(selectedOption(), "Title mentions-card");
+    await waitFor(() =>
+      expect(
+        within(screen.getByRole("listbox", { name: "Threads" })).getByRole(
+          "group",
+          { name: "Tasks" },
+        ),
+      ).toBeTruthy(),
+    );
+    expect(queries).toEqual(["AUTA-316"]);
+    expect(optionTitles()[0]).toBe(
+      "AUTA-316 Fix the sidebarTasks · In progress",
+    );
+    expect(optionTitles()[1]).toContain("Title mentions-card");
+    expectText(selectedOption(), "AUTA-316 Fix the sidebar");
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await waitFor(() =>
+      expect(routeNavigateMock).toHaveBeenCalledWith(
+        "/plugins/linear/tasks/task/AUTA-316",
+      ),
+    );
+    expect(testState.recordedSearchSelections).toEqual([]);
+  });
+
+  it("holds the top Command-K plugin result while its search refreshes", async () => {
+    let calls = 0;
+    let release = () => {};
+    const refreshed = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    setPluginSlotRegistrations(
+      "linear",
+      makePluginRegistrationSet({
+        navPanels: [
+          {
+            id: "tasks",
+            title: "Tasks",
+            icon: "List",
+            path: "tasks",
+            component: () => null,
+          },
+        ],
+        commandPaletteSearches: [
+          {
+            id: "tasks",
+            title: "Tasks",
+            search: async () => {
+              calls += 1;
+              if (calls > 1) await refreshed;
+              return [
+                {
+                  id: "task-1",
+                  title: "AUTA-316 Fix the sidebar",
+                  open: { panelPath: "tasks", subPath: "task/AUTA-316" },
+                },
+              ];
+            },
+          },
+        ],
+      }),
+    );
+    modeState.searchResponse = {
+      active: {
+        total: 1,
+        results: [{ thread: makeThread("mentions-card"), matches: [] }],
+      },
+      archived: { total: 0, results: [] },
+    };
+    renderPalette();
+    openThreadSearch();
+    const input = await screen.findByRole("combobox", {
+      name: "Search threads",
+    });
+    fireEvent.change(input, { target: { value: "AUTA-316" } });
+    await waitFor(() =>
+      expectText(selectedOption(), "AUTA-316 Fix the sidebar"),
+    );
+    expect(screen.getByRole("status").textContent).toBe("1 search result");
+
+    setPluginSlotRegistrations(
+      "automations",
+      makePluginRegistrationSet({
+        navPanels: [
+          {
+            id: "zeta",
+            title: "Zeta board",
+            icon: "Calendar",
+            path: "zeta",
+            component: () => null,
+          },
+        ],
+      }),
+    );
+    await waitFor(() => expect(calls).toBe(2));
+    expect(optionTitles()).toHaveLength(1);
+    expect(optionTitles()[0]).toContain("Title mentions-card");
+    expect(selectedOption()).toBeUndefined();
+    expect(screen.getByRole("status").textContent).toBe("Searching…");
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(routeNavigateMock).not.toHaveBeenCalled();
+    expect(testState.recordedSearchSelections).toEqual([]);
+
+    release();
+    await waitFor(() =>
+      expectText(selectedOption(), "AUTA-316 Fix the sidebar"),
+    );
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() =>
+      expect(routeNavigateMock).toHaveBeenCalledWith(
+        "/plugins/linear/tasks/task/AUTA-316",
+      ),
+    );
+  });
+
+  it("does not run plugin searches in command mode and contains a failing provider", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const queries: string[] = [];
+    setPluginSlotRegistrations(
+      "linear",
+      makePluginRegistrationSet({
+        commandPaletteSearches: [
+          {
+            id: "tasks",
+            title: "Tasks",
+            search: async (query) => {
+              queries.push(query);
+              throw new Error("boom");
+            },
+          },
+        ],
+      }),
+    );
+    renderPalette();
+    openPalette();
+    await waitFor(() => expect(searchField()).toBeTruthy());
+
+    fireEvent.change(searchField(), { target: { value: ">zzzz" } });
+    await waitFor(() =>
+      expect(screen.getByText("No matching commands")).toBeTruthy(),
+    );
+    expect(queries).toEqual([]);
+
+    fireEvent.change(searchField(), { target: { value: "zzzz" } });
+    await waitFor(() =>
+      expect(screen.getByRole("status").textContent).toBe("0 search results"),
+    );
+    expect(screen.getByText("No matching commands")).toBeTruthy();
+    expect(queries).toEqual(["zzzz"]);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("keeps the highlighted search result when a static match arrives above it", async () => {
+    let calls = 0;
+    let release = () => {};
+    const refreshed = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    setPluginSlotRegistrations(
+      "linear",
+      makePluginRegistrationSet({
+        navPanels: [
+          {
+            id: "tasks",
+            title: "Tasks",
+            icon: "List",
+            path: "tasks",
+            component: () => null,
+          },
+        ],
+        commandPaletteSearches: [
+          {
+            id: "tasks",
+            title: "Tasks",
+            search: async () => {
+              calls += 1;
+              if (calls > 1) await refreshed;
+              return [
+                {
+                  id: "first",
+                  title: "ZETA-1 First",
+                  open: { panelPath: "tasks", subPath: "task/ZETA-1" },
+                },
+                {
+                  id: "second",
+                  title: "ZETA-2 Second",
+                  open: { panelPath: "tasks", subPath: "task/ZETA-2" },
+                },
+              ];
+            },
+          },
+        ],
+      }),
+    );
+    renderPalette();
+    openPalette();
+    await waitFor(() => expect(searchField()).toBeTruthy());
+
+    fireEvent.change(searchField(), { target: { value: "zeta" } });
+    await waitFor(() => expect(optionTitles()).toHaveLength(2));
+    fireEvent.keyDown(searchField(), { key: "ArrowDown" });
+    expect(selectedOption()?.textContent).toContain("ZETA-2 Second");
+
+    setPluginSlotRegistrations(
+      "automations",
+      makePluginRegistrationSet({
+        navPanels: [
+          {
+            id: "zeta",
+            title: "Zeta board",
+            icon: "Calendar",
+            path: "zeta",
+            component: () => null,
+          },
+        ],
+      }),
+    );
+    await waitFor(() => expect(calls).toBe(2));
+    expect(optionTitles()).toHaveLength(1);
+    expect(optionTitles()?.[0]).toContain("Zeta board");
+    expect(selectedOption()).toBeUndefined();
+    fireEvent.keyDown(searchField(), { key: "Enter" });
+    expect(screen.getByTestId("location").textContent).toBe("/");
+    expect(searchField()).toBeTruthy();
+
+    release();
+    await waitFor(() => expect(optionTitles()).toHaveLength(3));
+    expect(optionTitles()?.[0]).toContain("Zeta board");
+    expect(selectedOption()?.textContent).toContain("ZETA-2 Second");
+    fireEvent.keyDown(searchField(), { key: "Enter" });
+
+    await waitFor(() =>
+      expect(screen.getByTestId("location").textContent).toBe(
+        "/plugins/linear/tasks/task/ZETA-2",
       ),
     );
   });
