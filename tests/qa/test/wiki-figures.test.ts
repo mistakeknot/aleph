@@ -33,6 +33,12 @@ function expectedFigures(): Record<string, string> {
     JSON.parse(read("packages/bb-app/package.json")) as { version: string }
   ).version;
   const [upstream, aleph] = version.split("+aleph.");
+  const desktopVersion = (
+    JSON.parse(read("apps/desktop/package.json")) as { version: string }
+  ).version;
+  if (desktopVersion !== version) {
+    throw new Error("desktop and bb-app versions differ");
+  }
   const marketplace = JSON.parse(read("plugins/bb-official.json")) as object;
   const poolStore = "plugins/account-pool/src/store.ts";
   const poolHub = "plugins/account-pool/src/hub.ts";
@@ -57,10 +63,12 @@ function expectedFigures(): Record<string, string> {
     "aleph-version": aleph!,
     "upstream-version": upstream!,
     "package-version": version,
-    apps: String(dirs("apps").length),
-    packages: String(dirs("packages").length),
+    apps: String(dirs("apps", "package.json").length),
+    packages: String(dirs("packages", "package.json").length),
     plugins: String(plugins.length),
-    "official-plugins": String(Object.keys(marketplace).length),
+    "official-plugins": String(
+      Object.keys(marketplace).filter((name) => plugins.includes(name)).length,
+    ),
     "provider-plugins": String(
       plugins.filter((name) => name.startsWith("provider-")).length,
     ),
@@ -77,7 +85,10 @@ function expectedFigures(): Record<string, string> {
       /MAX_AFFINITY_BINDINGS = ([\d_]+)/u,
     ).replaceAll("_", ""),
     "token-grace-minutes": minutes(graceMs),
-    "nested-default": "[]",
+    "nested-default": constant(
+      "plugins/account-pool/src/contracts.ts",
+      /nestedLaunchThreadIds: nestedLaunchThreadIdsSchema\.default\((\[\])\)/u,
+    ),
     journeys: String(
       readdirSync(path.join(repoRoot, "docs/cujs")).filter((name) =>
         /^aleph-\d+-.*\.md$/u.test(name),
@@ -91,8 +102,15 @@ describe("wiki figures match the code", () => {
   const found = new Map<string, string[]>();
   for (const page of readdirSync(wikiSrc).filter((f) => f.endsWith(".md"))) {
     const text = readFileSync(path.join(wikiSrc, page), "utf8");
-    for (const match of text.matchAll(/<!--fig:([a-z-]+)=(.+?)-->/gu)) {
-      found.set(match[1]!, [...(found.get(match[1]!) ?? []), match[2]!]);
+    for (const match of text.matchAll(
+      /<!--fig:([a-z-]+)=(.+?)-->`?([\w.+[\]-]*)/gu,
+    )) {
+      const visible = match[3]!.replace(/\.+$/u, "");
+      found.set(match[1]!, [
+        ...(found.get(match[1]!) ?? []),
+        match[2]!,
+        visible,
+      ]);
     }
   }
 
