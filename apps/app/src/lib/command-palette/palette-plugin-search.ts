@@ -66,13 +66,19 @@ export function normalizePluginSearchResults(args: {
   return normalized;
 }
 
+export function pluginSearchActionIdPrefix(
+  slot: Pick<PluginCommandPaletteSearchSlot, "id" | "pluginId">,
+): string {
+  return `${PLUGIN_SEARCH_ACTION_PREFIX}${slot.pluginId}/${slot.id}/`;
+}
+
 export function buildPluginSearchPaletteActions(args: {
   slot: PluginCommandPaletteSearchSlot;
   results: readonly NormalizedPluginSearchResult[];
   navigate: (path: string) => void;
 }): PaletteAction[] {
   return args.results.map((result) => ({
-    id: `${PLUGIN_SEARCH_ACTION_PREFIX}${args.slot.pluginId}/${args.slot.id}/${result.id}`,
+    id: `${pluginSearchActionIdPrefix(args.slot)}${result.id}`,
     bucket: "Plugins" as const,
     group:
       result.detail === null
@@ -170,11 +176,15 @@ export interface PluginPaletteSearchState {
 
 const IDLE_STATE: PluginPaletteSearchState = { actions: [], pending: false };
 
-interface SettledSearch {
+interface PluginSearchRequest {
   query: string;
   projectId: string | null;
   slots: readonly PluginCommandPaletteSearchSlot[];
   panels: readonly PluginNavPanelSlot[];
+}
+
+interface SettledSearch {
+  request: PluginSearchRequest;
   actions: readonly PaletteAction[];
 }
 
@@ -188,41 +198,55 @@ export function usePluginPaletteSearch(args: {
 }): PluginPaletteSearchState {
   const { enabled, query, slots, panels, projectId, navigate } = args;
   const active = enabled && slots.length > 0 && isPluginSearchQuery(query);
+  const [request, setRequest] = useState<PluginSearchRequest | null>(null);
   const [settled, setSettled] = useState<SettledSearch | null>(null);
+  if (!active && request !== null) {
+    setRequest(null);
+  } else if (
+    active &&
+    (request === null ||
+      request.query !== query ||
+      request.projectId !== projectId ||
+      request.slots !== slots ||
+      request.panels !== panels)
+  ) {
+    setRequest({ query, projectId, slots, panels });
+  }
 
   useEffect(() => {
-    if (!active) return;
+    if (request === null) return;
     const controller = new AbortController();
     const timer = setTimeout(() => {
       void Promise.all(
-        slots.map((slot) =>
+        request.slots.map((slot) =>
           runPluginSearchProvider({
             slot,
-            panels,
-            query,
-            projectId,
+            panels: request.panels,
+            query: request.query,
+            projectId: request.projectId,
             signal: controller.signal,
             navigate,
           }),
         ),
       ).then((groups) => {
         if (controller.signal.aborted) return;
-        setSettled({ query, projectId, slots, panels, actions: groups.flat() });
+        setSettled({ request, actions: groups.flat() });
       });
     }, PLUGIN_SEARCH_DEBOUNCE_MS);
     return () => {
       clearTimeout(timer);
       controller.abort(new Error("superseded"));
     };
-  }, [active, navigate, panels, projectId, query, slots]);
+  }, [navigate, request]);
 
   if (!active) return IDLE_STATE;
   if (
-    settled === null ||
-    settled.query !== query ||
-    settled.projectId !== projectId ||
-    settled.slots !== slots ||
-    settled.panels !== panels
+    request === null ||
+    settled?.request !== request ||
+    request.query !== query ||
+    request.projectId !== projectId ||
+    request.slots !== slots ||
+    request.panels !== panels
   ) {
     return { actions: [], pending: true };
   }

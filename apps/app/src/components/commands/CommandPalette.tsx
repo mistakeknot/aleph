@@ -296,18 +296,18 @@ export function CommandPalette({ threadId, projectId }: CommandPaletteProps) {
     highlightedId === null
       ? -1
       : visibleEntries.findIndex((entry) => entry.action.id === highlightedId);
+  const holdHighlightedSearchResult =
+    retainedIndex < 0 &&
+    pluginSearch.pending &&
+    highlightedId?.startsWith(PLUGIN_SEARCH_ACTION_PREFIX) === true;
   const activeIndex =
-    visibleEntries.length === 0
+    visibleEntries.length === 0 || holdHighlightedSearchResult
       ? -1
       : retainedIndex >= 0
         ? retainedIndex
         : Math.min(highlightedIndex, visibleEntries.length - 1);
   const activeId =
     activeIndex < 0 ? null : (visibleEntries[activeIndex]?.action.id ?? null);
-  const holdHighlightedSearchResult =
-    retainedIndex < 0 &&
-    pluginSearch.pending &&
-    highlightedId?.startsWith(PLUGIN_SEARCH_ACTION_PREFIX) === true;
   const syncedIndex = Math.max(activeIndex, 0);
   if (
     !holdHighlightedSearchResult &&
@@ -560,6 +560,7 @@ export function CommandPalette({ threadId, projectId }: CommandPaletteProps) {
           >
             <ThreadSearchPaletteMode
               onExit={exitMode}
+              projectId={projectId}
               runAfterClose={runAfterClose}
             />
           </Suspense>

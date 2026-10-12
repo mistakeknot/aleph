@@ -66,24 +66,36 @@ describe("searchTasksForPalette", () => {
     ]);
   });
 
-  it("searches titles without a key lookup and caps the results", async () => {
+  it("searches titles without a key lookup", async () => {
+    const { rpc, calls } = stubRpc({
+      listTasks: { tasks: [exact], nextCursor: null },
+    });
+
+    const results = await searchTasksForPalette("sidebar", context(rpc));
+
+    expect(results.map((result) => result.id)).toEqual([exact.id]);
+    expect(calls.map((call) => call.method)).toEqual(["listTasks"]);
+  });
+
+  it("caps the results with the exact key first", async () => {
     const tasks = Array.from(
       { length: TASKS_PALETTE_RESULT_LIMIT },
       (_, index) =>
         makeTask({
           id: `01HZZZZZZZZZZZZZZZZZZZZZ${String(index).padStart(2, "0")}`,
-          key: `TSK-${index + 1}`,
+          key: `AUTA-316${index}`,
           title: `Sidebar ${index + 1}`,
         }),
     );
-    const { rpc, calls } = stubRpc({
+    const { rpc } = stubRpc({
+      getTaskByKey: { task: exact },
       listTasks: { tasks, nextCursor: "next" },
     });
 
-    const results = await searchTasksForPalette("sidebar", context(rpc));
+    const results = await searchTasksForPalette("AUTA-316", context(rpc));
 
     expect(results).toHaveLength(TASKS_PALETTE_RESULT_LIMIT);
-    expect(calls.map((call) => call.method)).toEqual(["listTasks"]);
+    expect(results[0]?.id).toBe(exact.id);
   });
 
   it("skips queries shorter than two characters", async () => {

@@ -2208,6 +2208,79 @@ describe("CommandPalette", () => {
     expect(window.localStorage.getItem("bb.palette.recents")).toBeNull();
   });
 
+  it("searches plugins from the Command-K thread search and opens the picked result", async () => {
+    const queries: string[] = [];
+    setPluginSlotRegistrations(
+      "linear",
+      makePluginRegistrationSet({
+        navPanels: [
+          {
+            id: "tasks",
+            title: "Tasks",
+            icon: "List",
+            path: "tasks",
+            component: () => null,
+          },
+        ],
+        commandPaletteSearches: [
+          {
+            id: "tasks",
+            title: "Tasks",
+            search: async (query) => {
+              queries.push(query);
+              return [
+                {
+                  id: "task-1",
+                  title: "AUTA-316 Fix the sidebar",
+                  detail: "In progress",
+                  open: { panelPath: "tasks", subPath: "task/AUTA-316" },
+                },
+              ];
+            },
+          },
+        ],
+      }),
+    );
+    modeState.searchResponse = {
+      active: {
+        total: 1,
+        results: [{ thread: makeThread("mentions-card"), matches: [] }],
+      },
+      archived: { total: 0, results: [] },
+    };
+    renderPalette();
+    const event = openThreadSearch();
+    expect(event.defaultPrevented).toBe(true);
+    const input = await screen.findByRole("combobox", {
+      name: "Search threads",
+    });
+
+    fireEvent.change(input, { target: { value: "AUTA-316" } });
+    expectText(selectedOption(), "Title mentions-card");
+    await waitFor(() =>
+      expect(
+        within(screen.getByRole("listbox", { name: "Threads" })).getByRole(
+          "group",
+          { name: "Tasks" },
+        ),
+      ).toBeTruthy(),
+    );
+    expect(queries).toEqual(["AUTA-316"]);
+    expect(optionTitles()[0]).toBe(
+      "AUTA-316 Fix the sidebarTasks · In progress",
+    );
+    expect(optionTitles()[1]).toContain("Title mentions-card");
+    expectText(selectedOption(), "AUTA-316 Fix the sidebar");
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await waitFor(() =>
+      expect(routeNavigateMock).toHaveBeenCalledWith(
+        "/plugins/linear/tasks/task/AUTA-316",
+      ),
+    );
+    expect(testState.recordedSearchSelections).toEqual([]);
+  });
+
   it("does not run plugin searches in command mode and contains a failing provider", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const queries: string[] = [];
@@ -2247,6 +2320,11 @@ describe("CommandPalette", () => {
   });
 
   it("keeps the highlighted search result when a static match arrives above it", async () => {
+    let calls = 0;
+    let release = () => {};
+    const refreshed = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     setPluginSlotRegistrations(
       "linear",
       makePluginRegistrationSet({
@@ -2263,18 +2341,22 @@ describe("CommandPalette", () => {
           {
             id: "tasks",
             title: "Tasks",
-            search: async () => [
-              {
-                id: "first",
-                title: "ZETA-1 First",
-                open: { panelPath: "tasks", subPath: "task/ZETA-1" },
-              },
-              {
-                id: "second",
-                title: "ZETA-2 Second",
-                open: { panelPath: "tasks", subPath: "task/ZETA-2" },
-              },
-            ],
+            search: async () => {
+              calls += 1;
+              if (calls > 1) await refreshed;
+              return [
+                {
+                  id: "first",
+                  title: "ZETA-1 First",
+                  open: { panelPath: "tasks", subPath: "task/ZETA-1" },
+                },
+                {
+                  id: "second",
+                  title: "ZETA-2 Second",
+                  open: { panelPath: "tasks", subPath: "task/ZETA-2" },
+                },
+              ];
+            },
           },
         ],
       }),
@@ -2302,6 +2384,15 @@ describe("CommandPalette", () => {
         ],
       }),
     );
+    await waitFor(() => expect(calls).toBe(2));
+    expect(optionTitles()).toHaveLength(1);
+    expect(optionTitles()?.[0]).toContain("Zeta board");
+    expect(selectedOption()).toBeUndefined();
+    fireEvent.keyDown(searchField(), { key: "Enter" });
+    expect(screen.getByTestId("location").textContent).toBe("/");
+    expect(searchField()).toBeTruthy();
+
+    release();
     await waitFor(() => expect(optionTitles()).toHaveLength(3));
     expect(optionTitles()?.[0]).toContain("Zeta board");
     expect(selectedOption()?.textContent).toContain("ZETA-2 Second");

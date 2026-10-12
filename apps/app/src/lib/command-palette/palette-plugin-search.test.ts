@@ -308,6 +308,55 @@ describe("usePluginPaletteSearch", () => {
     expect(queries).toEqual(["auta", "auta-3"]);
   });
 
+  it("waits for a fresh answer when a query returns or the palette reopens", async () => {
+    vi.useFakeTimers();
+    const resolvers: Array<{
+      query: string;
+      resolve: (rows: unknown[]) => void;
+    }> = [];
+    const slots = [
+      searchSlot(
+        (query) =>
+          new Promise((resolve) => {
+            resolvers.push({
+              query,
+              resolve: resolve as (rows: unknown[]) => void,
+            });
+          }),
+      ),
+    ];
+    const hook = renderSearch(slots, "alpha");
+    await act(() => vi.advanceTimersByTimeAsync(PLUGIN_SEARCH_DEBOUNCE_MS));
+    await act(async () => resolvers[0]?.resolve([row("first-alpha")]));
+    expect(hook.result.current.pending).toBe(false);
+
+    hook.rerender({ query: "beta", enabled: true });
+    await act(() => vi.advanceTimersByTimeAsync(PLUGIN_SEARCH_DEBOUNCE_MS));
+    hook.rerender({ query: "alpha", enabled: true });
+    expect(hook.result.current).toEqual({ actions: [], pending: true });
+    await act(() => vi.advanceTimersByTimeAsync(PLUGIN_SEARCH_DEBOUNCE_MS));
+    expect(resolvers.map((entry) => entry.query)).toEqual([
+      "alpha",
+      "beta",
+      "alpha",
+    ]);
+    await act(async () => resolvers[1]?.resolve([row("late-beta")]));
+    expect(hook.result.current).toEqual({ actions: [], pending: true });
+    await act(async () => resolvers[2]?.resolve([row("second-alpha")]));
+    expect(hook.result.current.actions.map((action) => action.title)).toEqual([
+      "Title second-alpha",
+    ]);
+
+    hook.rerender({ query: "alpha", enabled: false });
+    hook.rerender({ query: "alpha", enabled: true });
+    expect(hook.result.current).toEqual({ actions: [], pending: true });
+    await act(() => vi.advanceTimersByTimeAsync(PLUGIN_SEARCH_DEBOUNCE_MS));
+    await act(async () => resolvers[3]?.resolve([row("third-alpha")]));
+    expect(hook.result.current.actions.map((action) => action.title)).toEqual([
+      "Title third-alpha",
+    ]);
+  });
+
   it("settles with the providers that answered when another fails", async () => {
     vi.useFakeTimers();
     vi.spyOn(console, "warn").mockImplementation(() => {});
