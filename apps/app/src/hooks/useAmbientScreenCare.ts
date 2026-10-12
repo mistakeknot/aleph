@@ -22,6 +22,22 @@ export function ambientWave(nowMs: number): number {
   return Math.round(wave * 100) / 100;
 }
 
+function ambientNow(): number {
+  const now = Date.now();
+  return now - (now % AMBIENT_TICK_MS);
+}
+
+function untilNextTick(): number {
+  return AMBIENT_TICK_MS - (Date.now() % AMBIENT_TICK_MS);
+}
+
+function isUsingEmbeddedFrame(): boolean {
+  return (
+    document.activeElement instanceof HTMLIFrameElement ||
+    document.querySelector("iframe:hover") !== null
+  );
+}
+
 function prefersReducedMotion(): MediaQueryList | null {
   if (typeof window.matchMedia !== "function") return null;
   return window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -38,7 +54,7 @@ export function startAmbientScreenCare(): () => void {
       root.style.removeProperty(AMBIENT_WAVE_PROPERTY);
       return;
     }
-    const next = String(ambientWave(Date.now()));
+    const next = String(ambientWave(ambientNow()));
     if (root.style.getPropertyValue(AMBIENT_WAVE_PROPERTY) !== next) {
       root.style.setProperty(AMBIENT_WAVE_PROPERTY, next);
     }
@@ -55,9 +71,12 @@ export function startAmbientScreenCare(): () => void {
     setIdle(false);
   };
 
+  let timer = 0;
   const tick = () => {
+    if (isUsingEmbeddedFrame()) lastActivityAt = Date.now();
     renderWave();
     setIdle(Date.now() - lastActivityAt >= AMBIENT_IDLE_AFTER_MS);
+    timer = window.setTimeout(tick, untilNextTick());
   };
 
   for (const type of ACTIVITY_EVENTS) {
@@ -65,10 +84,10 @@ export function startAmbientScreenCare(): () => void {
   }
   reducedMotion?.addEventListener("change", renderWave);
   renderWave();
-  const interval = window.setInterval(tick, AMBIENT_TICK_MS);
+  timer = window.setTimeout(tick, untilNextTick());
 
   return () => {
-    window.clearInterval(interval);
+    window.clearTimeout(timer);
     reducedMotion?.removeEventListener("change", renderWave);
     for (const type of ACTIVITY_EVENTS) {
       window.removeEventListener(type, onActivity, { capture: true });
