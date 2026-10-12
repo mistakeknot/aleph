@@ -102,9 +102,23 @@ describe("wiki figures match the code", () => {
   const found = new Map<string, string[]>();
   let opened = 0;
   let wellFormed = 0;
+  const unmarked: string[] = [];
   for (const page of readdirSync(wikiSrc).filter((f) => f.endsWith(".md"))) {
     const text = readFileSync(path.join(wikiSrc, page), "utf8");
     opened += text.match(/<!--fig:/gu)?.length ?? 0;
+    const bare = text
+      .replace(
+        /<!--fig:[a-z-]+=[^\s>]+?-->`?[\w.+[\]-]+`?(?=[.,;:)]?(?:\s|$))/gu,
+        "",
+      )
+      .match(/(?<![\w.-])\d[\d.,_]*(?![\w-])/gu);
+    for (const token of bare ?? []) {
+      // Illustrative semver examples are allowed unless they equal a real figure.
+      const example = /^\d+\.\d+\.\d+$/u.test(token);
+      if (!example || Object.values(expected).includes(token)) {
+        unmarked.push(`${page}: ${token}`);
+      }
+    }
     for (const match of text.matchAll(
       /<!--fig:([a-z-]+)=([^\s>]+?)-->`?([\w.+[\]-]+)`?(?=[.,;:)]?(?:\s|$))/gu,
     )) {
@@ -126,6 +140,10 @@ describe("wiki figures match the code", () => {
       }
     });
   }
+
+  it("has no unmarked figure in the prose", () => {
+    expect(unmarked).toEqual([]);
+  });
 
   it("has no malformed marker", () => {
     expect(wellFormed).toBe(opened);
