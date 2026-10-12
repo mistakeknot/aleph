@@ -1525,14 +1525,21 @@ describe("server move coordinator", () => {
       });
       registerFakeDaemon(harness, { events, hostId: NEW, handle: targetReply });
 
+      // Each poll waits on the coordinator's async release chain, which can run
+      // past the default 1 s window when the suite shares a busy host.
+      const pollOptions = { timeout: 4_000 };
       const first = await coordinator.start(START_DIRECT);
-      await expect.poll(() => suspensions).toBe(1);
+      await expect.poll(() => suspensions, pollOptions).toBe(1);
       coordinator.cancel();
       const second = await coordinator.start(START_DIRECT);
       expect(second.moveId).not.toBe(first.moveId);
-      await expect.poll(() => isServerMoveFrozen(harness.db)).toBe(true);
+      await expect
+        .poll(() => isServerMoveFrozen(harness.db), pollOptions)
+        .toBe(true);
       firstSuspension.resolve();
-      await expect.poll(() => events.includes("retire")).toBe(true);
+      await expect
+        .poll(() => events.includes("retire"), pollOptions)
+        .toBe(true);
 
       expect(coordinator.getStatus()).toMatchObject({
         moveId: second.moveId,

@@ -17,8 +17,21 @@ import {
 
 const ITEM_KEYS = Array.from({ length: 100 }, (_, index) => `row-${index}`);
 
+// The virtualizer resets its scrolling state on a trailing 150 ms timer that
+// React's unmount does not cancel. Under the node-backed jsdom environment that
+// timer is a real Node timer, so one still pending when the file's environment
+// is torn down fires with no `window` and surfaces as an unhandled error.
+const SCROLL_SETTLE_MS = 300;
+const realSetTimeout = globalThis.setTimeout;
+
 let scrollElement: HTMLDivElement;
 let itemHeights = new Map<number, number>();
+let scrollTimerPending = false;
+
+function fireScroll(): void {
+  fireEvent.scroll(scrollElement);
+  if (!vi.isFakeTimers()) scrollTimerPending = true;
+}
 
 function rect(top: number, height: number): DOMRect {
   return {
@@ -125,7 +138,13 @@ beforeEach(() => {
   vi.stubGlobal("ResizeObserver", ResizeObserverStub);
 });
 
-afterEach(() => {
+afterEach(async () => {
+  if (scrollTimerPending) {
+    scrollTimerPending = false;
+    await act(async () => {
+      await new Promise((resolve) => realSetTimeout(resolve, SCROLL_SETTLE_MS));
+    });
+  }
   cleanup();
   vi.useRealTimers();
   vi.restoreAllMocks();
@@ -173,7 +192,7 @@ describe("TimelineWindowedItems", () => {
     await act(async () => {
       await new Promise((resolve) => requestAnimationFrame(resolve));
     });
-    fireEvent.scroll(scrollElement);
+    fireScroll();
     await waitFor(() => expect(screen.getByTestId("pending-50")).toBeTruthy());
     expect(screen.queryByTestId("pending-0")).toBeNull();
   });
@@ -278,7 +297,7 @@ describe("TimelineWindowedItems", () => {
     await waitFor(() => expect(screen.getByTestId("content-0")).toBeTruthy());
 
     scrollElement.scrollTop = 1_600;
-    fireEvent.scroll(scrollElement);
+    fireScroll();
 
     await waitFor(() => expect(screen.getByTestId("content-50")).toBeTruthy());
     expect(screen.queryByTestId("wrapper-0")).toBeNull();
@@ -299,7 +318,7 @@ describe("TimelineWindowedItems", () => {
     fireEvent.click(screen.getByTestId("content-0"));
 
     scrollElement.scrollTop = 1_600;
-    fireEvent.scroll(scrollElement);
+    fireScroll();
 
     await waitFor(() => expect(screen.getByTestId("content-50")).toBeTruthy());
     expect(screen.getByTestId("content-0")).toBeTruthy();
@@ -312,7 +331,7 @@ describe("TimelineWindowedItems", () => {
     await act(async () => {});
 
     scrollElement.scrollTop = 1_600;
-    fireEvent.scroll(scrollElement);
+    fireScroll();
     await act(async () => {});
 
     expect(
