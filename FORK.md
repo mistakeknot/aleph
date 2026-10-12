@@ -337,6 +337,14 @@ Beyond upstream, Aleph carries:
   OFL-1.1-licensed release of Ioskeley Mono into the data dir on startup and
   serves it same-origin; the font is never committed to the repo, and a
   failed or offline download just leaves Thecla on its fallback fonts.
+- **Dorcas theme, for OLED screens.** A built-in sibling of Thecla that
+  limits burn-in: dimmer text and accents on true black, and borders and
+  input outlines that drift slowly between rose and cyan on an 18-minute
+  cycle, stepped every 30 seconds and shared by every open window. After 5
+  minutes without input a window dims to about a third of its brightness, and
+  any input restores it. The drift stops under the reduced-motion setting, and
+  the drift and dimming are off under forced colors. Select it with
+  `bb theme set dorcas`.
 
 `git log --no-merges <upstream main>..HEAD` lists the carried commits.
 Upstream is merged into Aleph, not rebased, and each merge commit records its

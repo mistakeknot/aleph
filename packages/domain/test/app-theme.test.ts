@@ -17,6 +17,14 @@ describe("built-in themes", () => {
     });
   });
 
+  it("lists dorcas as a built-in theme", () => {
+    expect(isBuiltInThemeId("dorcas")).toBe(true);
+    expect(builtInThemes.find((theme) => theme.id === "dorcas")).toMatchObject({
+      id: "dorcas",
+      name: "Dorcas",
+    });
+  });
+
   it("picks thecla as the new-install default without changing what an explicit Default choice means", () => {
     expect(NEW_INSTALL_DEFAULT_THEME_ID).toBe("thecla");
     expect(defaultAppTheme.themeId).toBe("default");
