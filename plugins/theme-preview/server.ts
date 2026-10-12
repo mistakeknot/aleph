@@ -190,6 +190,7 @@ export const BUILTIN_THEMES: ReadonlyArray<{ id: string; name: string }> = [
   { id: "gruvbox", name: "Gruvbox" },
   { id: "catppuccin", name: "Catppuccin" },
   { id: "thecla", name: "Thecla" },
+  { id: "dorcas", name: "Dorcas" },
 ];
 
 export const BUILTIN_SWATCHES: Record<
@@ -358,6 +359,28 @@ export const BUILTIN_SWATCHES: Record<
       primary: "#f29bce",
       accent: "#8ed5ee",
       foreground: "#f2eaf0",
+      fontSans: '"Ioskeley Mono", "IoskeleyMono", monospace',
+      fontMono: '"Ioskeley Mono", "IoskeleyMono", monospace',
+    },
+  },
+  dorcas: {
+    light: {
+      canvas: "#ede4e8",
+      sidebar: "color-mix(in oklch, #3a2631 2.2%, #ede4e8)",
+      card: "#ede4e8",
+      primary: "#94406d",
+      accent: "#2f6b80",
+      foreground: "#3a2631",
+      fontSans: '"Ioskeley Mono", "IoskeleyMono", monospace',
+      fontMono: '"Ioskeley Mono", "IoskeleyMono", monospace',
+    },
+    dark: {
+      canvas: "#000000",
+      sidebar: "color-mix(in oklch, #cfc5cc 4.3%, #000000)",
+      card: "#000000",
+      primary: "#c97fa9",
+      accent: "#74aec2",
+      foreground: "#cfc5cc",
       fontSans: '"Ioskeley Mono", "IoskeleyMono", monospace',
       fontMono: '"Ioskeley Mono", "IoskeleyMono", monospace',
     },
