@@ -37,6 +37,13 @@ function createFixture(): { binDir: string; dataDir: string; homeDir: string } {
   mkdirSync(homeDir, { recursive: true });
   writeFileSync(join(root, "package.json"), '{"type":"commonjs"}\n');
   symlinkSync(process.execPath, join(binDir, "node"));
+  writeExecutable(
+    join(binDir, "ps"),
+    `#!/bin/sh
+if [ "$*" = "-p 1 -o comm=" ]; then echo init; exit 0; fi
+exec /usr/bin/ps "$@"
+`,
+  );
   return { binDir, dataDir, homeDir };
 }
 
