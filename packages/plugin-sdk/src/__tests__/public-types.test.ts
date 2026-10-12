@@ -99,6 +99,7 @@ const EXPECTED_BACKEND_ROOT_TYPE_EXPORTS = [
   "PluginMentionProviderRegistration",
   "PluginMentionSearchContext",
   "PluginMentionTrigger",
+  "PluginMessageTransfer",
   "ExperimentalPluginMentionImage",
   "PluginProviderCapabilities",
   "PluginProviderComposerAction",
