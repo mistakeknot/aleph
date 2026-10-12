@@ -73,6 +73,35 @@ describe("ambientWave", () => {
 });
 
 describe("startAmbientScreenCare", () => {
+  it("keeps windows opened at different moments on the same step", () => {
+    installReducedMotion(false);
+    vi.setSystemTime(3 * AMBIENT_TICK_MS + AMBIENT_TICK_MS / 2);
+    const stop = startAmbientScreenCare();
+    const opened = wave();
+    vi.advanceTimersByTime(AMBIENT_TICK_MS / 2 - 1);
+    expect(wave()).toBe(opened);
+    vi.advanceTimersByTime(1);
+    expect(wave()).toBe(String(ambientWave(Date.now())));
+    expect(Date.now() % AMBIENT_TICK_MS).toBe(0);
+    stop();
+  });
+
+  it("treats a focused or hovered embedded frame as activity", () => {
+    installReducedMotion(false);
+    const frame = document.createElement("iframe");
+    document.body.append(frame);
+    frame.focus();
+    const stop = startAmbientScreenCare();
+    vi.advanceTimersByTime(AMBIENT_IDLE_AFTER_MS * 2);
+    expect(isIdle()).toBe(false);
+
+    frame.blur();
+    frame.remove();
+    vi.advanceTimersByTime(AMBIENT_IDLE_AFTER_MS);
+    expect(isIdle()).toBe(true);
+    stop();
+  });
+
   it("steps the drift on each tick and clears it on stop", () => {
     installReducedMotion(false);
     const stop = startAmbientScreenCare();
