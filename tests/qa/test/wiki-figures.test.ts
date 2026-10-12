@@ -103,6 +103,7 @@ describe("wiki figures match the code", () => {
   let opened = 0;
   let wellFormed = 0;
   const unmarked: string[] = [];
+  const illustrative = new Set(["0.43.5"]);
   for (const page of readdirSync(wikiSrc).filter((f) => f.endsWith(".md"))) {
     const text = readFileSync(path.join(wikiSrc, page), "utf8");
     opened += text.match(/<!--fig:/gu)?.length ?? 0;
@@ -113,9 +114,7 @@ describe("wiki figures match the code", () => {
       )
       .match(/(?<![\w.-])\d[\d.,_]*(?![\w-])/gu);
     for (const token of bare ?? []) {
-      // Illustrative semver examples are allowed unless they equal a real figure.
-      const example = /^\d+\.\d+\.\d+$/u.test(token);
-      if (!example || Object.values(expected).includes(token)) {
+      if (!illustrative.has(token)) {
         unmarked.push(`${page}: ${token}`);
       }
     }
