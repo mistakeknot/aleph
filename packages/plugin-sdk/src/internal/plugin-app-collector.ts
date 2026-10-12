@@ -17,6 +17,7 @@ import type {
   PluginFileOpenerRegistration,
   PluginHomepageSectionRegistration,
   PluginCommandRegistration,
+  ExperimentalPluginCommandPaletteSearchRegistration,
   PluginMessageActionRegistration,
   PluginMessageDirectiveRegistration,
   PluginNavPanelRegistration,
@@ -360,6 +361,7 @@ export interface CollectedPluginAppRegistrations {
   messageDirectives: PluginMessageDirectiveRegistration[];
   messageActions: PluginMessageActionRegistration[];
   commandPaletteActions: CollectedPluginCommandRegistration[];
+  commandPaletteSearches: ExperimentalPluginCommandPaletteSearchRegistration[];
   providerIcons: CollectedPluginProviderIconRegistration[];
   icons: ExperimentalIconRegistration[];
   timelineRenderers: PluginTimelineRendererRegistration[];
@@ -487,6 +489,7 @@ export function collectPluginAppRegistrations(
     messageDirectives: [],
     messageActions: [],
     commandPaletteActions: [],
+    commandPaletteSearches: [],
     providerIcons: [],
     icons: [],
     timelineRenderers: [],
@@ -517,6 +520,7 @@ export function collectPluginAppRegistrations(
     messageDirective: new Set<string>(),
     messageAction: new Set<string>(),
     command: new Set<string>(),
+    commandPaletteSearch: new Set<string>(),
     providerIcon: new Set<string>(),
     timelineRenderer: new Set<string>(),
     environmentProviderInputs: new Set<string>(),
@@ -872,6 +876,19 @@ export function collectPluginAppRegistrations(
       },
       commandPaletteAction(registration) {
         registerCommand(registration);
+      },
+      experimental_commandPaletteSearch(registration) {
+        const kind = "slots.experimental_commandPaletteSearch";
+        const id = requireSlotId(kind, registration?.id);
+        requireUniqueId(kind, seenIds.commandPaletteSearch, id);
+        if (typeof registration.search !== "function") {
+          throw new Error(`${kind}: "search" must be a function`);
+        }
+        collected.commandPaletteSearches.push({
+          id,
+          title: requireNonEmptyString(kind, "title", registration.title),
+          search: registration.search,
+        });
       },
       experimental_providerIcon(registration) {
         const kind = "slots.experimental_providerIcon";

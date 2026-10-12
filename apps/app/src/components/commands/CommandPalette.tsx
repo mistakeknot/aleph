@@ -46,6 +46,11 @@ import { usePluginSlots } from "@/lib/plugin-slots";
 import { getActiveThreadPanelOpener } from "@/components/plugin/plugin-thread-panel-navigation";
 import { buildSettingsPaletteActions } from "@/lib/command-palette/palette-settings-actions";
 import { buildPluginPagePaletteActions } from "@/lib/command-palette/palette-plugin-page-actions";
+import {
+  isPluginSearchQuery,
+  PLUGIN_SEARCH_ACTION_PREFIX,
+  usePluginPaletteSearch,
+} from "@/lib/command-palette/palette-plugin-search";
 import { pluginListQueryOptions } from "@/hooks/queries/plugin-settings-queries";
 import {
   buildPluginSettingsEntries,
@@ -96,6 +101,11 @@ export function CommandPalette({ threadId, projectId }: CommandPaletteProps) {
   const [query, setQuery] = useState("");
   const [actions, setActions] = useState<readonly PaletteAction[]>([]);
   const [highlightedIndex, setHighlightedIndex] = useState(0);
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const resetHighlight = useCallback(() => {
+    setHighlightedIndex(0);
+    setHighlightedId(null);
+  }, []);
   const [searchingThreads, setSearchingThreads] = useState(false);
   const [installedPlugins, setInstalledPlugins] = useState<
     readonly PluginSettingsCandidate[]
@@ -151,6 +161,10 @@ export function CommandPalette({ threadId, projectId }: CommandPaletteProps) {
       }),
     [navigate, pluginSlots.navPanels],
   );
+  const navigateToPath = useCallback(
+    (path: string) => void navigate(path),
+    [navigate],
+  );
   const openTargetRef = useRef<EventTarget | null>(null);
   const pendingRunRef = useRef<(() => void) | null>(null);
 
@@ -189,12 +203,12 @@ export function CommandPalette({ threadId, projectId }: CommandPaletteProps) {
       if (!open) openTargetRef.current = target;
       setActions(buildActions(openTargetRef.current));
       setQuery("");
-      setHighlightedIndex(0);
+      resetHighlight();
       void appQueryClient
         .fetchQuery(pluginListQueryOptions({ enabled: true }))
         .then(setInstalledPlugins, () => {});
     },
-    [buildActions, open],
+    [buildActions, open, resetHighlight],
   );
 
   useAppCommandHandler("palette.open", (invocation) => {
@@ -245,6 +259,14 @@ export function CommandPalette({ threadId, projectId }: CommandPaletteProps) {
     [availableActions, commandQuery, recents],
   );
   const isGroupedRoot = commandQuery.trim() === "";
+  const pluginSearch = usePluginPaletteSearch({
+    enabled: open && !searchingThreads,
+    query,
+    slots: pluginSlots.commandPaletteSearches,
+    panels: pluginSlots.navPanels,
+    projectId,
+    navigate: navigateToPath,
+  });
   const rootGroups = useMemo(() => {
     const groups = PALETTE_ACTION_BUCKETS.map((bucket) => ({
       bucket,
@@ -259,13 +281,55 @@ export function CommandPalette({ threadId, projectId }: CommandPaletteProps) {
   }, [ranked]);
   const visibleEntries = useMemo(
     () =>
-      isGroupedRoot ? rootGroups.flatMap((group) => group.entries) : ranked,
-    [isGroupedRoot, ranked, rootGroups],
+      isGroupedRoot
+        ? rootGroups.flatMap((group) => group.entries)
+        : [
+            ...ranked,
+            ...pluginSearch.actions.map((action) => ({
+              action,
+              positions: [],
+            })),
+          ],
+    [isGroupedRoot, pluginSearch.actions, ranked, rootGroups],
   );
+  const retainedIndex =
+    highlightedId === null
+      ? -1
+      : visibleEntries.findIndex((entry) => entry.action.id === highlightedId);
   const activeIndex =
     visibleEntries.length === 0
       ? -1
-      : Math.min(highlightedIndex, visibleEntries.length - 1);
+      : retainedIndex >= 0
+        ? retainedIndex
+        : Math.min(highlightedIndex, visibleEntries.length - 1);
+  const activeId =
+    activeIndex < 0 ? null : (visibleEntries[activeIndex]?.action.id ?? null);
+  const holdHighlightedSearchResult =
+    retainedIndex < 0 &&
+    pluginSearch.pending &&
+    highlightedId?.startsWith(PLUGIN_SEARCH_ACTION_PREFIX) === true;
+  const syncedIndex = Math.max(activeIndex, 0);
+  if (
+    !holdHighlightedSearchResult &&
+    (highlightedIndex !== syncedIndex || highlightedId !== activeId)
+  ) {
+    setHighlightedIndex(syncedIndex);
+    setHighlightedId(activeId);
+  }
+  const highlight = useCallback(
+    (index: number) => {
+      setHighlightedIndex(index);
+      setHighlightedId(visibleEntries[index]?.action.id ?? null);
+    },
+    [visibleEntries],
+  );
+  const pluginSearchStatus = pluginSearch.pending
+    ? "Searching…"
+    : !isGroupedRoot &&
+        pluginSlots.commandPaletteSearches.length > 0 &&
+        isPluginSearchQuery(query)
+      ? `${pluginSearch.actions.length} ${pluginSearch.actions.length === 1 ? "search result" : "search results"}`
+      : "";
 
   const listRef = useRef<HTMLDivElement | null>(null);
   const scrollOnNextHighlightRef = useRef(false);
@@ -278,7 +342,9 @@ export function CommandPalette({ threadId, projectId }: CommandPaletteProps) {
   }, [activeIndex]);
 
   const chooseAction = useCallback((action: PaletteAction) => {
-    setRecents((current) => recordPaletteRecent(current, action.id));
+    if (!action.id.startsWith(PLUGIN_SEARCH_ACTION_PREFIX)) {
+      setRecents((current) => recordPaletteRecent(current, action.id));
+    }
     if (action.id === THREAD_SEARCH_ACTION_ID) {
       action.run();
       return;
@@ -302,14 +368,17 @@ export function CommandPalette({ threadId, projectId }: CommandPaletteProps) {
     pending?.();
   }, []);
 
-  const handleOpenChange = useCallback((nextOpen: boolean) => {
-    setOpen(nextOpen);
-    if (!nextOpen) {
-      setSearchingThreads(false);
-      setQuery("");
-      setHighlightedIndex(0);
-    }
-  }, []);
+  const handleOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      setOpen(nextOpen);
+      if (!nextOpen) {
+        setSearchingThreads(false);
+        setQuery("");
+        resetHighlight();
+      }
+    },
+    [resetHighlight],
+  );
 
   const handleKeyDown = useCallback(
     (event: ReactKeyboardEvent<HTMLInputElement>) => {
@@ -318,29 +387,29 @@ export function CommandPalette({ threadId, projectId }: CommandPaletteProps) {
       if (event.key === "ArrowDown") {
         event.preventDefault();
         scrollOnNextHighlightRef.current = true;
-        setHighlightedIndex((current) =>
-          current + 1 >= visibleEntries.length ? 0 : current + 1,
+        highlight(
+          activeIndex + 1 >= visibleEntries.length ? 0 : activeIndex + 1,
         );
         return;
       }
       if (event.key === "ArrowUp") {
         event.preventDefault();
         scrollOnNextHighlightRef.current = true;
-        setHighlightedIndex((current) =>
-          current <= 0 ? visibleEntries.length - 1 : current - 1,
+        highlight(
+          activeIndex <= 0 ? visibleEntries.length - 1 : activeIndex - 1,
         );
         return;
       }
       if (event.key === "Home") {
         event.preventDefault();
         scrollOnNextHighlightRef.current = true;
-        setHighlightedIndex(0);
+        highlight(0);
         return;
       }
       if (event.key === "End") {
         event.preventDefault();
         scrollOnNextHighlightRef.current = true;
-        setHighlightedIndex(visibleEntries.length - 1);
+        highlight(visibleEntries.length - 1);
         return;
       }
       if (event.key === "Enter") {
@@ -350,12 +419,12 @@ export function CommandPalette({ threadId, projectId }: CommandPaletteProps) {
         chooseAction(choice.action);
       }
     },
-    [activeIndex, chooseAction, visibleEntries],
+    [activeIndex, chooseAction, highlight, visibleEntries],
   );
   const exitMode = () => {
     setSearchingThreads(false);
     setQuery("");
-    setHighlightedIndex(0);
+    resetHighlight();
   };
 
   return (
@@ -397,82 +466,87 @@ export function CommandPalette({ threadId, projectId }: CommandPaletteProps) {
       >
         <DialogTitle className="sr-only">Quick palette</DialogTitle>
         {!searchingThreads ? (
-          <PaletteShell
-            activeDescendantId={
-              activeIndex === -1
-                ? undefined
-                : `${optionIdPrefix}-${activeIndex}`
-            }
-            inputDescription={PALETTE_INPUT_DESCRIPTION}
-            inputLabel={PALETTE_INPUT_LABEL}
-            listId={listId}
-            listLabel="Commands"
-            listRef={listRef}
-            onInputChange={(value) => {
-              setQuery(value);
-              setHighlightedIndex(0);
-              if (listRef.current !== null) listRef.current.scrollTop = 0;
-            }}
-            onInputKeyDown={handleKeyDown}
-            placeholder={PALETTE_PLACEHOLDER}
-            value={query}
-          >
-            {!isGroupedRoot && visibleEntries.length === 0 ? (
-              <p className="px-3 py-4 text-center text-sm text-muted-foreground">
-                No matching commands
-              </p>
-            ) : isGroupedRoot ? (
-              rootGroups.map((group) => {
-                const labelId = `${optionIdPrefix}-${group.bucket.toLowerCase()}-label`;
-                return (
-                  <div
-                    key={group.bucket}
-                    role="group"
-                    aria-labelledby={labelId}
-                    data-palette-bucket={group.bucket}
-                  >
-                    <div id={labelId} className={PALETTE_SECTION_LABEL_CLASS}>
-                      {group.bucket}
+          <>
+            <PaletteShell
+              activeDescendantId={
+                activeIndex === -1
+                  ? undefined
+                  : `${optionIdPrefix}-${activeIndex}`
+              }
+              inputDescription={PALETTE_INPUT_DESCRIPTION}
+              inputLabel={PALETTE_INPUT_LABEL}
+              listId={listId}
+              listLabel="Commands"
+              listRef={listRef}
+              onInputChange={(value) => {
+                setQuery(value);
+                resetHighlight();
+                if (listRef.current !== null) listRef.current.scrollTop = 0;
+              }}
+              onInputKeyDown={handleKeyDown}
+              placeholder={PALETTE_PLACEHOLDER}
+              value={query}
+            >
+              {!isGroupedRoot && visibleEntries.length === 0 ? (
+                <p className="px-3 py-4 text-center text-sm text-muted-foreground">
+                  {pluginSearch.pending ? "Searching…" : "No matching commands"}
+                </p>
+              ) : isGroupedRoot ? (
+                rootGroups.map((group) => {
+                  const labelId = `${optionIdPrefix}-${group.bucket.toLowerCase()}-label`;
+                  return (
+                    <div
+                      key={group.bucket}
+                      role="group"
+                      aria-labelledby={labelId}
+                      data-palette-bucket={group.bucket}
+                    >
+                      <div id={labelId} className={PALETTE_SECTION_LABEL_CLASS}>
+                        {group.bucket}
+                      </div>
+                      {group.entries.map((entry, index) => {
+                        const visibleIndex = group.startIndex + index;
+                        return (
+                          <PaletteRow
+                            key={entry.action.id}
+                            entry={entry}
+                            id={`${optionIdPrefix}-${visibleIndex}`}
+                            isActive={visibleIndex === activeIndex}
+                            isDrillIn={
+                              entry.action.id === THREAD_SEARCH_ACTION_ID
+                            }
+                            showShortcut={!isCompactViewport}
+                            onActivate={() => {
+                              highlight(visibleIndex);
+                            }}
+                            onSelect={() => chooseAction(entry.action)}
+                          />
+                        );
+                      })}
                     </div>
-                    {group.entries.map((entry, index) => {
-                      const visibleIndex = group.startIndex + index;
-                      return (
-                        <PaletteRow
-                          key={entry.action.id}
-                          entry={entry}
-                          id={`${optionIdPrefix}-${visibleIndex}`}
-                          isActive={visibleIndex === activeIndex}
-                          isDrillIn={
-                            entry.action.id === THREAD_SEARCH_ACTION_ID
-                          }
-                          showShortcut={!isCompactViewport}
-                          onActivate={() => {
-                            setHighlightedIndex(visibleIndex);
-                          }}
-                          onSelect={() => chooseAction(entry.action)}
-                        />
-                      );
-                    })}
-                  </div>
-                );
-              })
-            ) : (
-              visibleEntries.map((entry, index) => (
-                <PaletteRow
-                  key={entry.action.id}
-                  entry={entry}
-                  id={`${optionIdPrefix}-${index}`}
-                  isActive={index === activeIndex}
-                  isDrillIn={entry.action.id === THREAD_SEARCH_ACTION_ID}
-                  showShortcut={!isCompactViewport}
-                  onActivate={() => {
-                    setHighlightedIndex(index);
-                  }}
-                  onSelect={() => chooseAction(entry.action)}
-                />
-              ))
-            )}
-          </PaletteShell>
+                  );
+                })
+              ) : (
+                visibleEntries.map((entry, index) => (
+                  <PaletteRow
+                    key={entry.action.id}
+                    entry={entry}
+                    id={`${optionIdPrefix}-${index}`}
+                    isActive={index === activeIndex}
+                    isDrillIn={entry.action.id === THREAD_SEARCH_ACTION_ID}
+                    showShortcut={!isCompactViewport}
+                    onActivate={() => {
+                      highlight(index);
+                    }}
+                    onSelect={() => chooseAction(entry.action)}
+                  />
+                ))
+              )}
+            </PaletteShell>
+            <div role="status" aria-live="polite" className="sr-only">
+              {pluginSearchStatus}
+            </div>
+          </>
         ) : (
           <Suspense
             fallback={
@@ -513,7 +587,9 @@ function PaletteRow({
   onSelect: () => void;
 }) {
   const metadataGroup =
-    entry.action.group === "Browser" || entry.action.id.startsWith("plugin:")
+    entry.action.group === "Browser" ||
+    entry.action.id.startsWith("plugin:") ||
+    entry.action.id.startsWith(PLUGIN_SEARCH_ACTION_PREFIX)
       ? entry.action.group
       : null;
   const title = isDrillIn ? `${entry.action.title}…` : entry.action.title;

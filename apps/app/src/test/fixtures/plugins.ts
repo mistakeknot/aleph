@@ -42,6 +42,7 @@ export function makePluginRegistrationSet(
     messageDirectives: [],
     messageActions: [],
     commandPaletteActions: [],
+    commandPaletteSearches: [],
     providerIcons: [],
     timelineRenderers: [],
     ...overrides,

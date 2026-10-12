@@ -2147,6 +2147,173 @@ describe("CommandPalette", () => {
     );
   });
 
+  it("shows a plugin's search results after the matching commands and opens the picked one", async () => {
+    const queries: string[] = [];
+    setPluginSlotRegistrations(
+      "linear",
+      makePluginRegistrationSet({
+        navPanels: [
+          {
+            id: "tasks",
+            title: "Tasks",
+            icon: "List",
+            path: "tasks",
+            component: () => null,
+          },
+        ],
+        commandPaletteSearches: [
+          {
+            id: "tasks",
+            title: "Tasks",
+            search: async (query) => {
+              queries.push(query);
+              return [
+                {
+                  id: "task-1",
+                  title: "AUTA-316 Fix the sidebar",
+                  detail: "In progress",
+                  open: { panelPath: "tasks", subPath: "task/AUTA-316" },
+                },
+                {
+                  id: "task-2",
+                  title: "Unregistered panel",
+                  open: { panelPath: "elsewhere" },
+                },
+              ];
+            },
+          },
+        ],
+      }),
+    );
+    renderPalette();
+    openPalette();
+    await waitFor(() => expect(searchField()).toBeTruthy());
+
+    fireEvent.change(searchField(), { target: { value: "AUTA-316" } });
+    expect(screen.getByRole("status").textContent).toBe("Searching…");
+    await waitFor(() =>
+      expect(optionTitles()).toEqual([
+        "AUTA-316 Fix the sidebarTasks · In progress",
+      ]),
+    );
+    expect(queries).toEqual(["AUTA-316"]);
+    expect(screen.getByRole("status").textContent).toBe("1 search result");
+    fireEvent.keyDown(searchField(), { key: "Enter" });
+
+    await waitFor(() =>
+      expect(screen.getByTestId("location").textContent).toBe(
+        "/plugins/linear/tasks/task/AUTA-316",
+      ),
+    );
+    expect(window.localStorage.getItem("bb.palette.recents")).toBeNull();
+  });
+
+  it("does not run plugin searches in command mode and contains a failing provider", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const queries: string[] = [];
+    setPluginSlotRegistrations(
+      "linear",
+      makePluginRegistrationSet({
+        commandPaletteSearches: [
+          {
+            id: "tasks",
+            title: "Tasks",
+            search: async (query) => {
+              queries.push(query);
+              throw new Error("boom");
+            },
+          },
+        ],
+      }),
+    );
+    renderPalette();
+    openPalette();
+    await waitFor(() => expect(searchField()).toBeTruthy());
+
+    fireEvent.change(searchField(), { target: { value: ">zzzz" } });
+    await waitFor(() =>
+      expect(screen.getByText("No matching commands")).toBeTruthy(),
+    );
+    expect(queries).toEqual([]);
+
+    fireEvent.change(searchField(), { target: { value: "zzzz" } });
+    await waitFor(() =>
+      expect(screen.getByRole("status").textContent).toBe("0 search results"),
+    );
+    expect(screen.getByText("No matching commands")).toBeTruthy();
+    expect(queries).toEqual(["zzzz"]);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("keeps the highlighted search result when a static match arrives above it", async () => {
+    setPluginSlotRegistrations(
+      "linear",
+      makePluginRegistrationSet({
+        navPanels: [
+          {
+            id: "tasks",
+            title: "Tasks",
+            icon: "List",
+            path: "tasks",
+            component: () => null,
+          },
+        ],
+        commandPaletteSearches: [
+          {
+            id: "tasks",
+            title: "Tasks",
+            search: async () => [
+              {
+                id: "first",
+                title: "ZETA-1 First",
+                open: { panelPath: "tasks", subPath: "task/ZETA-1" },
+              },
+              {
+                id: "second",
+                title: "ZETA-2 Second",
+                open: { panelPath: "tasks", subPath: "task/ZETA-2" },
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    renderPalette();
+    openPalette();
+    await waitFor(() => expect(searchField()).toBeTruthy());
+
+    fireEvent.change(searchField(), { target: { value: "zeta" } });
+    await waitFor(() => expect(optionTitles()).toHaveLength(2));
+    fireEvent.keyDown(searchField(), { key: "ArrowDown" });
+    expect(selectedOption()?.textContent).toContain("ZETA-2 Second");
+
+    setPluginSlotRegistrations(
+      "automations",
+      makePluginRegistrationSet({
+        navPanels: [
+          {
+            id: "zeta",
+            title: "Zeta board",
+            icon: "Calendar",
+            path: "zeta",
+            component: () => null,
+          },
+        ],
+      }),
+    );
+    await waitFor(() => expect(optionTitles()).toHaveLength(3));
+    expect(optionTitles()?.[0]).toContain("Zeta board");
+    expect(selectedOption()?.textContent).toContain("ZETA-2 Second");
+    fireEvent.keyDown(searchField(), { key: "Enter" });
+
+    await waitFor(() =>
+      expect(screen.getByTestId("location").textContent).toBe(
+        "/plugins/linear/tasks/task/ZETA-2",
+      ),
+    );
+  });
+
   it("lists a plugin's commandPaletteAction and runs it", async () => {
     setPluginLogoUrls(
       new Map([
