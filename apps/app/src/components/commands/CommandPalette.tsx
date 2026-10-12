@@ -560,6 +560,7 @@ export function CommandPalette({ threadId, projectId }: CommandPaletteProps) {
           >
             <ThreadSearchPaletteMode
               onExit={exitMode}
+              open={open}
               projectId={projectId}
               runAfterClose={runAfterClose}
             />

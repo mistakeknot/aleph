@@ -57,6 +57,7 @@ import {
 import { windowPaletteThreadSearchText } from "@/lib/command-palette/palette-thread-search-window";
 import type { PaletteAction } from "@/lib/command-palette/palette-action";
 import {
+  isPluginSearchQuery,
   PLUGIN_SEARCH_ACTION_PREFIX,
   pluginSearchActionIdPrefix,
   usePluginPaletteSearch,
@@ -92,10 +93,12 @@ function optionKey(option: ThreadSearchOption): string {
 
 export function ThreadSearchPaletteMode({
   onExit,
+  open,
   projectId,
   runAfterClose,
 }: {
   onExit: () => void;
+  open: boolean;
   projectId: string | null;
   runAfterClose: (run: () => void) => void;
 }) {
@@ -144,7 +147,7 @@ export function ThreadSearchPaletteMode({
     [navigate],
   );
   const pluginSearch = usePluginPaletteSearch({
-    enabled: true,
+    enabled: open,
     query,
     slots: pluginSlots.commandPaletteSearches,
     panels: pluginSlots.navPanels,
@@ -232,12 +235,12 @@ export function ThreadSearchPaletteMode({
     });
     return [...pluginOptions, ...threadOptions];
   }, [expandedGroups, lifecycles, pluginGroups, result]);
-  const retainedIndex = highlightPinned
-    ? options.findIndex((option) => optionKey(option) === highlightedKey)
-    : -1;
+  const highlightedKeyIndex = options.findIndex(
+    (option) => optionKey(option) === highlightedKey,
+  );
+  const retainedIndex = highlightPinned ? highlightedKeyIndex : -1;
   const holdHighlightedSearchResult =
-    highlightPinned &&
-    retainedIndex < 0 &&
+    highlightedKeyIndex < 0 &&
     pluginSearch.pending &&
     highlightedKey?.startsWith(PLUGIN_SEARCH_ACTION_PREFIX) === true;
   const activeIndex = holdHighlightedSearchResult
@@ -418,179 +421,193 @@ export function ThreadSearchPaletteMode({
               ? NO_THREADS_MESSAGE
               : "No matching threads";
   }
+  const pluginSearchStatus = pluginSearch.pending
+    ? "Searching…"
+    : pluginSlots.commandPaletteSearches.length > 0 &&
+        isPluginSearchQuery(query)
+      ? `${pluginSearch.actions.length} ${pluginSearch.actions.length === 1 ? "search result" : "search results"}`
+      : "";
 
   return (
-    <PaletteShell
-      activeDescendantId={activeDescendantId}
-      inputDescription={
-        canSplit
-          ? `Use ${splitModifier}+Enter to open in split. Use Escape to return to commands.`
-          : "Use Escape to return to commands."
-      }
-      inputLabel="Search threads"
-      inputAccessory={
-        <div className="max-w-[45%] shrink-0">
-          <ThreadLifecycleFilter value={lifecycles} onChange={setLifecycles} />
-        </div>
-      }
-      inputRef={inputRef}
-      listId={listId}
-      listLabel="Threads"
-      listRef={listRef}
-      modeChip={{
-        icon: "Search",
-        label: "Threads",
-        clearLabel: "Return to commands",
-        onClear: onExit,
-        hideShortcut: isCompact,
-      }}
-      onInputChange={(value) => {
-        setQuery(value);
-        setHighlightedIndex(0);
-        setHighlightedKey(null);
-        setHighlightPinned(false);
-        setExpandedGroups([]);
-        if (listRef.current !== null) listRef.current.scrollTop = 0;
-      }}
-      onInputKeyDown={handleInputKeyDown}
-      placeholder="Search title, project, or message…"
-      value={query}
-    >
-      {emptyMessage === null ? (
-        <>
-          {pluginGroups.map((group) => {
-            const labelId = `${optionIdPrefix}-${group.key}-label`;
-            return (
-              <div
-                key={group.key}
-                role="group"
-                aria-labelledby={labelId}
-                className="not-last:mb-2"
-              >
-                <div id={labelId} className={PALETTE_SECTION_LABEL_CLASS}>
-                  {group.title}
-                </div>
-                {group.actions.map((action) => {
-                  const index = options.findIndex(
-                    (option) => optionKey(option) === action.id,
-                  );
-                  return (
-                    <div
-                      key={action.id}
-                      id={`${optionIdPrefix}-${index}`}
-                      role="option"
-                      aria-selected={index === activeIndex}
-                      className={cn(
-                        "flex min-h-8 w-full min-w-0 cursor-pointer items-center gap-3 rounded-md px-2 py-1.5 text-left text-sm",
-                        index === activeIndex &&
-                          "bg-state-hover text-foreground",
-                      )}
-                      onPointerMove={() => highlightOption(index)}
-                      onClick={() => selectOption({ action }, index)}
-                    >
-                      <span className="min-w-0 truncate">{action.title}</span>
-                      <span className="ml-auto shrink-0 text-xs text-subtle-foreground">
-                        {action.group}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })}
-          {THREAD_LIFECYCLE_OPTIONS.map(({ value: lifecycle, label }) => {
-            if (!result.rows.some((row) => row.lifecycle === lifecycle)) {
-              return null;
-            }
-            const labelId = `${optionIdPrefix}-${lifecycle}-label`;
-            return (
-              <div
-                key={lifecycle}
-                role="group"
-                aria-labelledby={labelId}
-                className="not-last:mb-2"
-              >
-                <div id={labelId} className={PALETTE_SECTION_LABEL_CLASS}>
-                  {label}
-                </div>
-                {options.map((option, index) =>
-                  isPluginSearchOption(option) ||
-                  option.lifecycle !== lifecycle ? null : (
-                    <div
-                      key={
-                        option.row === null
-                          ? `more:${lifecycle}`
-                          : `${option.row.id}:${option.row.primaryText}`
-                      }
-                      className={cn(
-                        "flex min-w-0 items-center rounded-md",
-                        index === activeIndex &&
-                          "bg-state-hover text-foreground",
-                      )}
-                      onPointerMove={() => highlightOption(index)}
-                    >
+    <>
+      <PaletteShell
+        activeDescendantId={activeDescendantId}
+        inputDescription={
+          canSplit
+            ? `Use ${splitModifier}+Enter to open in split. Use Escape to return to commands.`
+            : "Use Escape to return to commands."
+        }
+        inputLabel="Search threads"
+        inputAccessory={
+          <div className="max-w-[45%] shrink-0">
+            <ThreadLifecycleFilter
+              value={lifecycles}
+              onChange={setLifecycles}
+            />
+          </div>
+        }
+        inputRef={inputRef}
+        listId={listId}
+        listLabel="Threads"
+        listRef={listRef}
+        modeChip={{
+          icon: "Search",
+          label: "Threads",
+          clearLabel: "Return to commands",
+          onClear: onExit,
+          hideShortcut: isCompact,
+        }}
+        onInputChange={(value) => {
+          setQuery(value);
+          setHighlightedIndex(0);
+          setHighlightedKey(null);
+          setHighlightPinned(false);
+          setExpandedGroups([]);
+          if (listRef.current !== null) listRef.current.scrollTop = 0;
+        }}
+        onInputKeyDown={handleInputKeyDown}
+        placeholder="Search title, project, or message…"
+        value={query}
+      >
+        {emptyMessage === null ? (
+          <>
+            {pluginGroups.map((group) => {
+              const labelId = `${optionIdPrefix}-${group.key}-label`;
+              return (
+                <div
+                  key={group.key}
+                  role="group"
+                  aria-labelledby={labelId}
+                  className="not-last:mb-2"
+                >
+                  <div id={labelId} className={PALETTE_SECTION_LABEL_CLASS}>
+                    {group.title}
+                  </div>
+                  {group.actions.map((action) => {
+                    const index = options.findIndex(
+                      (option) => optionKey(option) === action.id,
+                    );
+                    return (
                       <div
+                        key={action.id}
                         id={`${optionIdPrefix}-${index}`}
                         role="option"
                         aria-selected={index === activeIndex}
-                        aria-label={
-                          option.row !== null
-                            ? undefined
-                            : lifecycle === "archived"
-                              ? "Show more archived threads"
-                              : "Show more threads"
+                        className={cn(
+                          "flex min-h-8 w-full min-w-0 cursor-pointer items-center gap-3 rounded-md px-2 py-1.5 text-left text-sm",
+                          index === activeIndex &&
+                            "bg-state-hover text-foreground",
+                        )}
+                        onPointerMove={() => highlightOption(index)}
+                        onClick={() => selectOption({ action }, index)}
+                      >
+                        <span className="min-w-0 truncate">{action.title}</span>
+                        <span className="ml-auto shrink-0 text-xs text-subtle-foreground">
+                          {action.group}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+            {THREAD_LIFECYCLE_OPTIONS.map(({ value: lifecycle, label }) => {
+              if (!result.rows.some((row) => row.lifecycle === lifecycle)) {
+                return null;
+              }
+              const labelId = `${optionIdPrefix}-${lifecycle}-label`;
+              return (
+                <div
+                  key={lifecycle}
+                  role="group"
+                  aria-labelledby={labelId}
+                  className="not-last:mb-2"
+                >
+                  <div id={labelId} className={PALETTE_SECTION_LABEL_CLASS}>
+                    {label}
+                  </div>
+                  {options.map((option, index) =>
+                    isPluginSearchOption(option) ||
+                    option.lifecycle !== lifecycle ? null : (
+                      <div
+                        key={
+                          option.row === null
+                            ? `more:${lifecycle}`
+                            : `${option.row.id}:${option.row.primaryText}`
                         }
                         className={cn(
-                          "flex min-w-0 flex-1 cursor-pointer items-center rounded-md px-2 py-1.5",
-                          option.row === null
-                            ? "gap-1.5 text-xs text-subtle-foreground"
-                            : "min-h-11 gap-3 text-left text-sm",
+                          "flex min-w-0 items-center rounded-md",
+                          index === activeIndex &&
+                            "bg-state-hover text-foreground",
                         )}
-                        onClick={() => selectOption(option, index)}
+                        onPointerMove={() => highlightOption(index)}
                       >
-                        {option.row === null ? (
-                          <>
-                            Show more
-                            <Icon
-                              name="ChevronDown"
-                              className="size-3.5"
-                              aria-hidden
-                            />
-                          </>
-                        ) : (
-                          <ThreadSearchPaletteRow row={option.row} />
-                        )}
-                      </div>
-                      {index === activeIndex && canSplit ? (
-                        <button
-                          type="button"
-                          aria-label="Open in split"
-                          className="mr-1 inline-flex h-7 shrink-0 items-center gap-1 rounded-sm px-1 text-xs text-subtle-foreground hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
-                          onClick={() => selectOption(option, index, true)}
+                        <div
+                          id={`${optionIdPrefix}-${index}`}
+                          role="option"
+                          aria-selected={index === activeIndex}
+                          aria-label={
+                            option.row !== null
+                              ? undefined
+                              : lifecycle === "archived"
+                                ? "Show more archived threads"
+                                : "Show more threads"
+                          }
+                          className={cn(
+                            "flex min-w-0 flex-1 cursor-pointer items-center rounded-md px-2 py-1.5",
+                            option.row === null
+                              ? "gap-1.5 text-xs text-subtle-foreground"
+                              : "min-h-11 gap-3 text-left text-sm",
+                          )}
+                          onClick={() => selectOption(option, index)}
                         >
-                          <span className="mr-1">Open in split</span>
-                          <PaletteShortcut>{`${splitModifier} ↵`}</PaletteShortcut>
-                        </button>
-                      ) : null}
-                    </div>
-                  ),
-                )}
-              </div>
-            );
-          })}
-        </>
-      ) : showThreadListEmptyState ||
-        (searchable && !isLoading && !hasLoadError) ? (
-        <ThreadListEmptyState
-          message={emptyMessage}
-          className="justify-center px-3 py-4"
-        />
-      ) : (
-        <p className="px-3 py-4 text-center text-sm text-muted-foreground">
-          {emptyMessage}
-        </p>
-      )}
-    </PaletteShell>
+                          {option.row === null ? (
+                            <>
+                              Show more
+                              <Icon
+                                name="ChevronDown"
+                                className="size-3.5"
+                                aria-hidden
+                              />
+                            </>
+                          ) : (
+                            <ThreadSearchPaletteRow row={option.row} />
+                          )}
+                        </div>
+                        {index === activeIndex && canSplit ? (
+                          <button
+                            type="button"
+                            aria-label="Open in split"
+                            className="mr-1 inline-flex h-7 shrink-0 items-center gap-1 rounded-sm px-1 text-xs text-subtle-foreground hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
+                            onClick={() => selectOption(option, index, true)}
+                          >
+                            <span className="mr-1">Open in split</span>
+                            <PaletteShortcut>{`${splitModifier} ↵`}</PaletteShortcut>
+                          </button>
+                        ) : null}
+                      </div>
+                    ),
+                  )}
+                </div>
+              );
+            })}
+          </>
+        ) : showThreadListEmptyState ||
+          (searchable && !isLoading && !hasLoadError) ? (
+          <ThreadListEmptyState
+            message={emptyMessage}
+            className="justify-center px-3 py-4"
+          />
+        ) : (
+          <p className="px-3 py-4 text-center text-sm text-muted-foreground">
+            {emptyMessage}
+          </p>
+        )}
+      </PaletteShell>
+      <div role="status" aria-live="polite" className="sr-only">
+        {pluginSearchStatus}
+      </div>
+    </>
   );
 }
 
