@@ -12,7 +12,8 @@ and turns upstream update checks off.
 `node scripts/bump-version.mjs` orders Aleph releases by the Aleph part. It
 takes `--patch`, `--minor` or `--major`, or an explicit version, and refuses
 an older Aleph release, an older upstream base, or a version without
-`+aleph.X.Y.Z`.
+`+aleph.<release>`. The release is normally `X.Y.Z`; the legacy form
+`+aleph.<n>` is still accepted and counts as `0.n.0`.
 
 The signed update channel and its planned stages are in
 `FORK.md` and [the roadmap](journeys-and-roadmap.md).

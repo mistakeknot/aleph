@@ -21,6 +21,8 @@ Most behavior ships as plugins. Of the
 
 ## Where Aleph differs from upstream
 
-`docs/forkable-plugins.md` and `scripts/forkable-plugins.json` define which
-plugins Aleph may diverge on; `node scripts/check-plugin-forks.mjs` checks the
-fork against that list.
+`docs/forkable-plugins.md` and `scripts/forkable-plugins.json` name the
+built-in plugins held to a portability rule: a copy of the plugin directory,
+taken out of the repository, must install, typecheck, test and build with
+public dependencies only. `node scripts/check-plugin-forks.mjs` checks that
+rule. It does not measure how far a plugin differs from upstream.

@@ -100,11 +100,15 @@ function expectedFigures(): Record<string, string> {
 describe("wiki figures match the code", () => {
   const expected = expectedFigures();
   const found = new Map<string, string[]>();
+  let opened = 0;
+  let wellFormed = 0;
   for (const page of readdirSync(wikiSrc).filter((f) => f.endsWith(".md"))) {
     const text = readFileSync(path.join(wikiSrc, page), "utf8");
+    opened += text.match(/<!--fig:/gu)?.length ?? 0;
     for (const match of text.matchAll(
-      /<!--fig:([a-z-]+)=(.+?)-->`?([\w.+[\]-]*)/gu,
+      /<!--fig:([a-z-]+)=([^\s>]+?)-->`?([\w.+[\]-]+)`?(?=[.,;:)]?(?:\s|$))/gu,
     )) {
+      wellFormed += 1;
       const visible = match[3]!.replace(/\.+$/u, "");
       found.set(match[1]!, [
         ...(found.get(match[1]!) ?? []),
@@ -122,6 +126,10 @@ describe("wiki figures match the code", () => {
       }
     });
   }
+
+  it("has no malformed marker", () => {
+    expect(wellFormed).toBe(opened);
+  });
 
   it("has no marker for an unknown figure", () => {
     expect([...found.keys()].filter((name) => !(name in expected))).toEqual([]);
