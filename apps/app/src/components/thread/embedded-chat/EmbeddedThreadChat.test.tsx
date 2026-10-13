@@ -260,6 +260,10 @@ vi.mock("@/hooks/queries/thread-queries", () => ({
     interactions: readonly { createdAt: number }[] | undefined,
     isFetching: boolean,
   ) => (!interactions || interactions.length === 0) && isFetching,
+  useBoundedPendingInteractionsLoading: (
+    interactions: readonly { createdAt: number }[] | undefined,
+    isFetching: boolean,
+  ) => (!interactions || interactions.length === 0) && isFetching,
 }));
 
 vi.mock(

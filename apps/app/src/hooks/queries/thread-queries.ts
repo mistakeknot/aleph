@@ -6,7 +6,7 @@ import {
   type NotifyOnChangeProps,
   type QueryClient,
 } from "@tanstack/react-query";
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { COMPACT_VIEWPORT_QUERY } from "@bb/shared-ui/hooks/use-compact-viewport";
 import { getMediaQuerySnapshot } from "@bb/shared-ui/hooks/use-media-query";
 import type { PendingInteraction, ThreadListEntry } from "@bb/domain";
@@ -1099,4 +1099,24 @@ export function isPendingInteractionStateUnknown(
   isFetching: boolean,
 ): boolean {
   return getLatestPendingInteraction(interactions) === null && isFetching;
+}
+
+export const PENDING_INTERACTIONS_LOADING_TIMEOUT_MS = 8_000;
+
+export function useBoundedPendingInteractionsLoading(
+  interactions: readonly PendingInteraction[] | undefined,
+  isFetching: boolean,
+  timeoutMs: number = PENDING_INTERACTIONS_LOADING_TIMEOUT_MS,
+): boolean {
+  const unknown = isPendingInteractionStateUnknown(interactions, isFetching);
+  const [timedOut, setTimedOut] = useState(false);
+  useEffect(() => {
+    if (!unknown) {
+      setTimedOut(false);
+      return;
+    }
+    const timer = setTimeout(() => setTimedOut(true), timeoutMs);
+    return () => clearTimeout(timer);
+  }, [unknown, timeoutMs]);
+  return unknown && !timedOut;
 }

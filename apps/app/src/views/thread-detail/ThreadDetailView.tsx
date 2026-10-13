@@ -72,7 +72,7 @@ import {
 import {
   didThreadDetailBootstrapRefreshAfterMount,
   getLatestPendingInteraction,
-  isPendingInteractionStateUnknown,
+  useBoundedPendingInteractionsLoading,
   useChildThreads,
   useProjectThreadSubset,
   useThread,
@@ -652,7 +652,7 @@ function ThreadDetailViewInternal(props: ThreadRoutePathArgs) {
     },
   );
   const pendingInteractions = pendingInteractionsQuery.data ?? [];
-  const pendingInteractionsInitialLoading = isPendingInteractionStateUnknown(
+  const pendingInteractionsInitialLoading = useBoundedPendingInteractionsLoading(
     pendingInteractionsQuery.data,
     pendingInteractionsQuery.isFetching,
   );
