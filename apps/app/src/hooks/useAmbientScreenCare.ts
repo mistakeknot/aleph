@@ -75,17 +75,23 @@ export function startAmbientScreenCare(): () => void {
     root.toggleAttribute(AMBIENT_REST_ATTRIBUTE, next);
   };
 
+  let restTimer = 0;
   const renderRest = () => {
-    setRest(
-      !document.hasFocus() ||
-        Date.now() - lastActivityAt >= AMBIENT_REST_AFTER_MS,
-    );
+    const quietFor = Date.now() - lastActivityAt;
+    setRest(!document.hasFocus() || quietFor >= AMBIENT_REST_AFTER_MS);
+    window.clearTimeout(restTimer);
+    if (quietFor < AMBIENT_REST_AFTER_MS) {
+      restTimer = window.setTimeout(
+        renderRest,
+        AMBIENT_REST_AFTER_MS - quietFor,
+      );
+    }
   };
 
   const onActivity = () => {
     lastActivityAt = Date.now();
     setIdle(false);
-    renderRest();
+    if (rest) renderRest();
   };
 
   let focusCheck = 0;
@@ -115,6 +121,7 @@ export function startAmbientScreenCare(): () => void {
 
   return () => {
     window.clearTimeout(timer);
+    window.clearTimeout(restTimer);
     window.clearTimeout(focusCheck);
     window.removeEventListener("focus", onFocusChange);
     window.removeEventListener("blur", onFocusChange);
