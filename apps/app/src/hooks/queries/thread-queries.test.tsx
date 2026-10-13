@@ -470,7 +470,11 @@ describe("useThreadPendingInteractions", () => {
       );
       expect(result.current).toBe(true);
       act(() => {
-        vi.advanceTimersByTime(1_001);
+        vi.advanceTimersByTime(999);
+      });
+      expect(result.current).toBe(true);
+      act(() => {
+        vi.advanceTimersByTime(2);
       });
       expect(result.current).toBe(false);
       rerender({ fetching: false });

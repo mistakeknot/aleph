@@ -1101,15 +1101,8 @@ export function isPendingInteractionStateUnknown(
   return getLatestPendingInteraction(interactions) === null && isFetching;
 }
 
-/** How long the composer may stay blocked on an unsettled pending-interactions load. */
 export const PENDING_INTERACTIONS_LOADING_TIMEOUT_MS = 8_000;
 
-/**
- * Like isPendingInteractionStateUnknown, but bounded: a fetch that never
- * settles (for example after a server restart or reconnect) stops blocking
- * the composer once the state has stayed unknown for the timeout. The block
- * re-arms the next time the state becomes known and unknown again.
- */
 export function useBoundedPendingInteractionsLoading(
   interactions: readonly PendingInteraction[] | undefined,
   isFetching: boolean,
