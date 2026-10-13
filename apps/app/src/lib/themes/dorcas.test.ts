@@ -60,4 +60,16 @@ describe("dorcas theme", () => {
     expect(dorcasThemeCss).not.toMatch(/\/home\//);
     expect(dorcasThemeCss).not.toMatch(/https?:\/\//);
   });
+
+  it("fades resting chrome, keeps it on hover or focus, and not under forced colors", () => {
+    expect(dorcasThemeCss).toContain(
+      'html[data-bb-ambient-rest] [data-sidebar="sidebar"]:not(:hover, :focus-within),',
+    );
+    expect(dorcasThemeCss).toContain(
+      "html[data-bb-ambient-rest] header[data-app-page-header]:not(:hover, :focus-within) {\n  opacity: .3;",
+    );
+    expect(dorcasThemeCss).toMatch(
+      /@media \(forced-colors: active\) \{[^@]*header\[data-app-page-header\]:not\(:hover, :focus-within\) \{ opacity: 1; \}/,
+    );
+  });
 });

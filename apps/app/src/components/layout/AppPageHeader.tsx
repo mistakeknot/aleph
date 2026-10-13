@@ -63,6 +63,7 @@ export function AppPageHeader({
   return (
     <header
       ref={headerRef}
+      data-app-page-header=""
       className={cn(
         CHROME_ROW_HEIGHT_CLASS,
         HEADER_SEAM_CLASS,
