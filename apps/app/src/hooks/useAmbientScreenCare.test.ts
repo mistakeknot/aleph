@@ -5,6 +5,8 @@ import {
   AMBIENT_DRIFT_PERIOD_MS,
   AMBIENT_IDLE_AFTER_MS,
   AMBIENT_IDLE_ATTRIBUTE,
+  AMBIENT_REST_AFTER_MS,
+  AMBIENT_REST_ATTRIBUTE,
   AMBIENT_TICK_MS,
   AMBIENT_WAVE_PROPERTY,
   ambientWave,
@@ -41,6 +43,10 @@ function wave(): string {
   return document.documentElement.style.getPropertyValue(AMBIENT_WAVE_PROPERTY);
 }
 
+function isResting(): boolean {
+  return document.documentElement.hasAttribute(AMBIENT_REST_ATTRIBUTE);
+}
+
 function isIdle(): boolean {
   return document.documentElement.hasAttribute(AMBIENT_IDLE_ATTRIBUTE);
 }
@@ -53,6 +59,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.useRealTimers();
   window.matchMedia = originalMatchMedia;
 });
@@ -153,5 +160,41 @@ describe("startAmbientScreenCare", () => {
     }
     expect(isIdle()).toBe(false);
     stop();
+  });
+
+  it("rests the chrome after a quiet minute and wakes it on input", () => {
+    installReducedMotion(false);
+    vi.spyOn(document, "hasFocus").mockReturnValue(true);
+    const stop = startAmbientScreenCare();
+    expect(isResting()).toBe(false);
+
+    vi.advanceTimersByTime(AMBIENT_REST_AFTER_MS - AMBIENT_TICK_MS);
+    expect(isResting()).toBe(false);
+    vi.advanceTimersByTime(AMBIENT_TICK_MS);
+    expect(isResting()).toBe(true);
+    expect(isIdle()).toBe(false);
+
+    window.dispatchEvent(new Event("pointerdown"));
+    expect(isResting()).toBe(false);
+    stop();
+  });
+
+  it("rests the chrome while the window is in the background", () => {
+    installReducedMotion(false);
+    const focus = vi.spyOn(document, "hasFocus").mockReturnValue(true);
+    const stop = startAmbientScreenCare();
+
+    focus.mockReturnValue(false);
+    window.dispatchEvent(new Event("blur"));
+    vi.advanceTimersByTime(0);
+    expect(isResting()).toBe(true);
+
+    focus.mockReturnValue(true);
+    window.dispatchEvent(new Event("focus"));
+    vi.advanceTimersByTime(0);
+    expect(isResting()).toBe(false);
+
+    stop();
+    expect(isResting()).toBe(false);
   });
 });
