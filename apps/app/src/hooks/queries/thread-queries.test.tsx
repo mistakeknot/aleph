@@ -486,6 +486,40 @@ describe("useThreadPendingInteractions", () => {
     }
   });
 
+  it("cancels the timer when the load settles early and on unmount", () => {
+    vi.useFakeTimers();
+    try {
+      const { result, rerender, unmount } = renderHook(
+        ({ fetching }) =>
+          useBoundedPendingInteractionsLoading([], fetching, 1_000),
+        { initialProps: { fetching: true } },
+      );
+      act(() => {
+        vi.advanceTimersByTime(500);
+      });
+      rerender({ fetching: false });
+      expect(vi.getTimerCount()).toBe(0);
+      expect(result.current).toBe(false);
+      rerender({ fetching: true });
+      expect(vi.getTimerCount()).toBe(1);
+      act(() => {
+        vi.advanceTimersByTime(999);
+      });
+      expect(result.current).toBe(true);
+      act(() => {
+        vi.advanceTimersByTime(2);
+      });
+      expect(result.current).toBe(false);
+      rerender({ fetching: false });
+      rerender({ fetching: true });
+      expect(vi.getTimerCount()).toBe(1);
+      unmount();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("reuses the first owner's fresh baseline when a second owner mounts", async () => {
     const { queryClient, wrapper } = createQueryClientTestHarness();
     const first = renderHook(() => useThreadPendingInteractions("thread-1"), {
