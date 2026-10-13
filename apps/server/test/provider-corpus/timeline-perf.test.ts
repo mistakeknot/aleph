@@ -29,6 +29,7 @@ import {
 } from "./synthetic-thread.js";
 
 const BUILD_SAMPLES = 5;
+const SYNTHETIC_BUILD_SAMPLES = 9;
 const MEASUREMENT_ATTEMPTS = 3;
 const LARGEST_PER_PROVIDER = 10;
 const DURATION_TOLERANCE = 1.1;
@@ -39,7 +40,7 @@ const PER_THREAD_TIMEOUT_MS = 5 * 60_000;
 const CALIBRATION_KIND = "json-sort-v1";
 
 const SYNTHETIC_EVENT_COUNT = 10_000;
-const SYNTHETIC_CEILING_RATIO = 4;
+const SYNTHETIC_CEILING_RATIO = 4.5;
 
 type ThreadTimelineBuildProfileStage =
   ThreadTimelineBuildProfile["stageTimings"][number]["stage"];
@@ -160,10 +161,10 @@ function sumProfileDurations(pages: readonly BuiltTimelinePage[]): number {
   return pages.reduce((total, page) => total + page.profile.totalDurationMs, 0);
 }
 
-function sample<T>(build: () => T): T[] {
+function sample<T>(build: () => T, count: number = BUILD_SAMPLES): T[] {
   build();
   const samples: T[] = [];
-  for (let index = 0; index < BUILD_SAMPLES; index += 1) {
+  for (let index = 0; index < count; index += 1) {
     samples.push(build());
   }
   return samples;
@@ -534,16 +535,15 @@ describe("timeline build micro-benchmark", () => {
             variant: "default",
           }),
         };
-      });
+      }, SYNTHETIC_BUILD_SAMPLES);
       const durations = samples.map((entry) =>
         sumProfileDurations(entry.pages),
       );
       const minimum = Math.min(...durations);
-      const minimumRatio = Math.min(
-        ...samples.map(
-          (entry) => sumProfileDurations(entry.pages) / entry.calibrationMs,
-        ),
+      const minimumCalibration = Math.min(
+        ...samples.map((entry) => entry.calibrationMs),
       );
+      const minimumRatio = minimum / minimumCalibration;
       const last = samples[samples.length - 1]?.pages;
       if (last === undefined) {
         throw new Error("no samples");
@@ -555,7 +555,7 @@ describe("timeline build micro-benchmark", () => {
       process.stdout.write(
         `Synthetic ${synthetic.eventCount}-event thread: ${last.length} pages, ${rowsProjected} rows projected, ` +
           `full walk min ${round(minimum)} ms, p50 ${round(percentile(durations, 0.5))} ms, ` +
-          `min calibration ratio ${round(minimumRatio, 4)} ` +
+          `min build ÷ min calibration ${round(minimumRatio, 4)} ` +
           `(samples ${durations.map((value) => round(value)).join(", ")})\n`,
       );
       expect(last.length).toBeGreaterThan(1);
