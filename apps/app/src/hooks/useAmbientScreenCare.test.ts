@@ -212,4 +212,23 @@ describe("startAmbientScreenCare", () => {
     expect(isResting()).toBe(true);
     stop();
   });
+
+  it("keeps the chrome awake when an embedded frame takes focus between ticks", () => {
+    installReducedMotion(false);
+    vi.spyOn(document, "hasFocus").mockReturnValue(true);
+    vi.setSystemTime(1);
+    const stop = startAmbientScreenCare();
+    const frame = document.createElement("iframe");
+    document.body.append(frame);
+
+    vi.advanceTimersByTime(10_000);
+    window.dispatchEvent(new Event("keydown"));
+    vi.advanceTimersByTime(55_000);
+    frame.focus();
+    vi.advanceTimersByTime(5_001);
+    expect(isResting()).toBe(false);
+
+    frame.remove();
+    stop();
+  });
 });

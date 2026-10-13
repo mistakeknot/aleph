@@ -77,6 +77,7 @@ export function startAmbientScreenCare(): () => void {
 
   let restTimer = 0;
   const renderRest = () => {
+    if (isUsingEmbeddedFrame()) lastActivityAt = Date.now();
     const quietFor = Date.now() - lastActivityAt;
     setRest(!document.hasFocus() || quietFor >= AMBIENT_REST_AFTER_MS);
     window.clearTimeout(restTimer);
