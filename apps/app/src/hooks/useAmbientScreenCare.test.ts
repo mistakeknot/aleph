@@ -197,4 +197,19 @@ describe("startAmbientScreenCare", () => {
     stop();
     expect(isResting()).toBe(false);
   });
+
+  it("rests exactly a minute after the last input, between ticks", () => {
+    installReducedMotion(false);
+    vi.spyOn(document, "hasFocus").mockReturnValue(true);
+    vi.setSystemTime(1);
+    const stop = startAmbientScreenCare();
+
+    vi.advanceTimersByTime(AMBIENT_TICK_MS / 3);
+    window.dispatchEvent(new Event("keydown"));
+    vi.advanceTimersByTime(AMBIENT_REST_AFTER_MS - 1);
+    expect(isResting()).toBe(false);
+    vi.advanceTimersByTime(1);
+    expect(isResting()).toBe(true);
+    stop();
+  });
 });
