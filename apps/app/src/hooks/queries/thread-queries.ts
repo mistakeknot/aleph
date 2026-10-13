@@ -6,7 +6,7 @@ import {
   type NotifyOnChangeProps,
   type QueryClient,
 } from "@tanstack/react-query";
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { COMPACT_VIEWPORT_QUERY } from "@bb/shared-ui/hooks/use-compact-viewport";
 import { getMediaQuerySnapshot } from "@bb/shared-ui/hooks/use-media-query";
 import type { PendingInteraction, ThreadListEntry } from "@bb/domain";
@@ -1099,4 +1099,31 @@ export function isPendingInteractionStateUnknown(
   isFetching: boolean,
 ): boolean {
   return getLatestPendingInteraction(interactions) === null && isFetching;
+}
+
+/** How long the composer may stay blocked on an unsettled pending-interactions load. */
+export const PENDING_INTERACTIONS_LOADING_TIMEOUT_MS = 8_000;
+
+/**
+ * Like isPendingInteractionStateUnknown, but bounded: a fetch that never
+ * settles (for example after a server restart or reconnect) stops blocking
+ * the composer once the state has stayed unknown for the timeout. The block
+ * re-arms the next time the state becomes known and unknown again.
+ */
+export function useBoundedPendingInteractionsLoading(
+  interactions: readonly PendingInteraction[] | undefined,
+  isFetching: boolean,
+  timeoutMs: number = PENDING_INTERACTIONS_LOADING_TIMEOUT_MS,
+): boolean {
+  const unknown = isPendingInteractionStateUnknown(interactions, isFetching);
+  const [timedOut, setTimedOut] = useState(false);
+  useEffect(() => {
+    if (!unknown) {
+      setTimedOut(false);
+      return;
+    }
+    const timer = setTimeout(() => setTimedOut(true), timeoutMs);
+    return () => clearTimeout(timer);
+  }, [unknown, timeoutMs]);
+  return unknown && !timedOut;
 }

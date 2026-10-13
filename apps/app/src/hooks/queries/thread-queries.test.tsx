@@ -28,6 +28,7 @@ import {
   COMPACT_THREAD_TIMELINE_SEGMENT_LIMIT,
   didThreadDetailBootstrapRefreshAfterMount,
   isPendingInteractionStateUnknown,
+  useBoundedPendingInteractionsLoading,
   useArchivedThreads,
   useChildThreads,
   useThread,
@@ -457,6 +458,28 @@ describe("useThreadPendingInteractions", () => {
   it("keeps cached empty interactions unknown while their refresh is pending", () => {
     expect(isPendingInteractionStateUnknown([], true)).toBe(true);
     expect(isPendingInteractionStateUnknown([], false)).toBe(false);
+  });
+
+  it("stops blocking after the bound when the load never settles, and re-arms", () => {
+    vi.useFakeTimers();
+    try {
+      const { result, rerender } = renderHook(
+        ({ fetching }) =>
+          useBoundedPendingInteractionsLoading([], fetching, 1_000),
+        { initialProps: { fetching: true } },
+      );
+      expect(result.current).toBe(true);
+      act(() => {
+        vi.advanceTimersByTime(1_001);
+      });
+      expect(result.current).toBe(false);
+      rerender({ fetching: false });
+      expect(result.current).toBe(false);
+      rerender({ fetching: true });
+      expect(result.current).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("reuses the first owner's fresh baseline when a second owner mounts", async () => {

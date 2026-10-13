@@ -47,7 +47,7 @@ import {
 import { useThreadCreationOptions } from "@/hooks/useThreadCreationOptions";
 import {
   getLatestPendingInteraction,
-  isPendingInteractionStateUnknown,
+  useBoundedPendingInteractionsLoading,
   useThread,
   useThreadPendingInteractions,
   useThreadQueuedMessages,
@@ -208,7 +208,7 @@ function EmbeddedThreadChatWithComposer({
   const hasComposerBlockingPendingInteraction =
     activePendingInteraction !== null &&
     activePendingInteraction.payload.kind !== "plugin";
-  const pendingInteractionsInitialLoading = isPendingInteractionStateUnknown(
+  const pendingInteractionsInitialLoading = useBoundedPendingInteractionsLoading(
     pendingInteractionsQuery.data,
     pendingInteractionsQuery.isFetching,
   );
