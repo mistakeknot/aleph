@@ -4,8 +4,10 @@ import { usesAmbientScreenCare } from "@/lib/themes";
 
 export const AMBIENT_WAVE_PROPERTY = "--bb-ambient-wave";
 export const AMBIENT_IDLE_ATTRIBUTE = "data-bb-ambient-idle";
+export const AMBIENT_REST_ATTRIBUTE = "data-bb-ambient-rest";
 export const AMBIENT_DRIFT_PERIOD_MS = 18 * 60_000;
 export const AMBIENT_IDLE_AFTER_MS = 5 * 60_000;
+export const AMBIENT_REST_AFTER_MS = 60_000;
 export const AMBIENT_TICK_MS = 30_000;
 
 const ACTIVITY_EVENTS = [
@@ -48,6 +50,7 @@ export function startAmbientScreenCare(): () => void {
   const reducedMotion = prefersReducedMotion();
   let lastActivityAt = Date.now();
   let idle = false;
+  let rest = false;
 
   const renderWave = () => {
     if (reducedMotion?.matches) {
@@ -66,9 +69,29 @@ export function startAmbientScreenCare(): () => void {
     root.toggleAttribute(AMBIENT_IDLE_ATTRIBUTE, next);
   };
 
+  const setRest = (next: boolean) => {
+    if (rest === next) return;
+    rest = next;
+    root.toggleAttribute(AMBIENT_REST_ATTRIBUTE, next);
+  };
+
+  const renderRest = () => {
+    setRest(
+      !document.hasFocus() ||
+        Date.now() - lastActivityAt >= AMBIENT_REST_AFTER_MS,
+    );
+  };
+
   const onActivity = () => {
     lastActivityAt = Date.now();
     setIdle(false);
+    renderRest();
+  };
+
+  let focusCheck = 0;
+  const onFocusChange = () => {
+    window.clearTimeout(focusCheck);
+    focusCheck = window.setTimeout(renderRest, 0);
   };
 
   let timer = 0;
@@ -76,24 +99,32 @@ export function startAmbientScreenCare(): () => void {
     if (isUsingEmbeddedFrame()) lastActivityAt = Date.now();
     renderWave();
     setIdle(Date.now() - lastActivityAt >= AMBIENT_IDLE_AFTER_MS);
+    renderRest();
     timer = window.setTimeout(tick, untilNextTick());
   };
 
   for (const type of ACTIVITY_EVENTS) {
     window.addEventListener(type, onActivity, { passive: true, capture: true });
   }
+  window.addEventListener("focus", onFocusChange);
+  window.addEventListener("blur", onFocusChange);
   reducedMotion?.addEventListener("change", renderWave);
   renderWave();
+  renderRest();
   timer = window.setTimeout(tick, untilNextTick());
 
   return () => {
     window.clearTimeout(timer);
+    window.clearTimeout(focusCheck);
+    window.removeEventListener("focus", onFocusChange);
+    window.removeEventListener("blur", onFocusChange);
     reducedMotion?.removeEventListener("change", renderWave);
     for (const type of ACTIVITY_EVENTS) {
       window.removeEventListener(type, onActivity, { capture: true });
     }
     root.style.removeProperty(AMBIENT_WAVE_PROPERTY);
     root.removeAttribute(AMBIENT_IDLE_ATTRIBUTE);
+    root.removeAttribute(AMBIENT_REST_ATTRIBUTE);
   };
 }
 

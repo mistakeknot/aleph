@@ -67,6 +67,7 @@ export function AppPageHeader({
   return (
     <header
       ref={composedHeaderRef}
+      data-app-page-header=""
       onClick={
         isCompactViewport
           ? (event) => {
