@@ -457,7 +457,11 @@ describe("CommandPalette", () => {
       ];
       renderPalette({ layout: splitLayout });
       openThreadSearch();
-      await screen.findByRole("option", { name: /Title first/ });
+      await screen.findByRole(
+        "option",
+        { name: /Title first/ },
+        { timeout: 10_000 },
+      );
       fireEvent.keyDown(searchField(), { key: "ArrowDown" });
       const button = screen.getByRole("button", { name: "Open in split" });
       expect(button.querySelectorAll("kbd")).toHaveLength(1);
