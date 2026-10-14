@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.45.0+aleph.0.6.1
+
+Aleph 0.6.1 is a patch on Aleph 0.6.0, on the same upstream bb 0.45.0
+base (`desktop-v0.45.0`, commit `129f62177`).
+
+### Aleph
+
+- **Update row.** When a release was installed by an install wrapper, the
+  update row in Settings says so, and keeps showing an error when an update
+  publication is incomplete.
+- **Tests.** The command palette split test waits longer for the first
+  result, and the plugin-authoring docs test tracks the palette search and
+  app header status slots.
+
 ## 0.45.0+aleph.0.6.0
 
 Aleph 0.6.0 syncs the fork to upstream bb 0.45.0 (`desktop-v0.45.0`, commit
