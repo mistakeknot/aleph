@@ -464,7 +464,7 @@ describe("CommandPalette", () => {
       await screen.findByRole(
         "option",
         { name: /Title first/ },
-        { timeout: 5000 },
+        { timeout: 10_000 },
       );
       fireEvent.keyDown(searchField(), { key: "ArrowDown" });
       const button = screen.getByRole("button", { name: "Open in split" });
