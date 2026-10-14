@@ -66,3 +66,18 @@ export function alephCapabilityText(capability: AlephUpdateCapability): string {
 export function alephRunText(state: AlephUpdateRunState): string {
   return RUN_TEXT[state];
 }
+
+// A server with no update helper and no published manifest is not broken: its
+// Aleph builds are installed by the release wrapper, outside this channel.
+export function isAlephWrapperManaged(status: {
+  capability: AlephUpdateCapability;
+  selection: AlephUpdateSelection;
+}): boolean {
+  return (
+    status.capability === "absent" && status.selection === "manifest-missing"
+  );
+}
+
+export const ALEPH_WRAPPER_LABEL = "Installed by the Aleph release wrapper";
+export const ALEPH_WRAPPER_NOTE =
+  "New releases are installed on this machine by the release wrapper, not from this screen.";
