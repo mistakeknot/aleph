@@ -145,6 +145,27 @@ describe("AlephUpdateRowView", () => {
     expect(screen.queryByRole("button")).toBeNull();
   });
 
+  it("keeps the error when the publication is incomplete and no helper exists", () => {
+    view({
+      status: status({
+        capability: "absent",
+        detail:
+          "The update manifest, its signature or the trust files are missing.",
+        floor: null,
+        selection: "manifest-missing",
+      }),
+    });
+    expect(screen.getByText("No update manifest is published")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "The update manifest, its signature or the trust files are missing.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText("Installed by the Aleph release wrapper"),
+    ).toBeNull();
+  });
+
   it("still shows a missing manifest when the helper is installed", () => {
     view({
       status: status({
