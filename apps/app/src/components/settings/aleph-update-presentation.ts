@@ -1,3 +1,4 @@
+import { ALEPH_NO_MANIFEST_PUBLISHED_DETAIL } from "@bb/server-contract";
 import type {
   AlephUpdateCapability,
   AlephUpdateRunState,
@@ -70,9 +71,12 @@ export function alephRunText(state: AlephUpdateRunState): string {
 export function isAlephWrapperManaged(status: {
   capability: AlephUpdateCapability;
   selection: AlephUpdateSelection;
+  detail: string | null;
 }): boolean {
   return (
-    status.capability === "absent" && status.selection === "manifest-missing"
+    status.capability === "absent" &&
+    status.selection === "manifest-missing" &&
+    status.detail === ALEPH_NO_MANIFEST_PUBLISHED_DETAIL
   );
 }
 

@@ -33,6 +33,7 @@ import type {
   SystemAlephUpdateRun,
   SystemAlephUpdateStatus,
 } from "@bb/server-contract";
+import { ALEPH_NO_MANIFEST_PUBLISHED_DETAIL } from "@bb/server-contract";
 import { ApiError } from "../../errors.js";
 import type { ServerLogger } from "../../types.js";
 
@@ -399,7 +400,7 @@ export function createAlephUpdateService(
     if (rawPointer === null) {
       return {
         selection: "manifest-missing",
-        detail: "No update manifest has been published.",
+        detail: ALEPH_NO_MANIFEST_PUBLISHED_DETAIL,
       };
     }
     const generation = pointer?.["path"];
