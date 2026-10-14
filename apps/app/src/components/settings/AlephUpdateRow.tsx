@@ -14,9 +14,12 @@ import {
   type AlephRequestState,
 } from "@/hooks/useAlephUpdateRequest";
 import {
+  ALEPH_WRAPPER_LABEL,
+  ALEPH_WRAPPER_NOTE,
   alephCapabilityText,
   alephRunText,
   alephSelectionText,
+  isAlephWrapperManaged,
 } from "./aleph-update-presentation";
 
 type AlephUpdateAction = Omit<
@@ -75,7 +78,10 @@ export function AlephUpdateRowView({
   onRecover,
   onDismiss,
 }: AlephUpdateRowViewProps) {
-  const selection = alephSelectionText(status.selection);
+  const wrapperManaged = isAlephWrapperManaged(status);
+  const selection = wrapperManaged
+    ? { label: ALEPH_WRAPPER_LABEL, tone: "neutral" as const }
+    : alephSelectionText(status.selection);
   const busy = request.pending !== null;
   const canAct = status.capability !== "absent" && !busy;
   const startable = status.capability === "startable";
@@ -192,8 +198,14 @@ export function AlephUpdateRowView({
         </span>
       </div>
       <div className="flex flex-col gap-1 pb-2 pl-9 text-xs text-muted-foreground">
-        <span>{alephCapabilityText(status.capability)}</span>
-        {status.detail === null ? null : <span>{status.detail}</span>}
+        {wrapperManaged ? (
+          <span>{ALEPH_WRAPPER_NOTE}</span>
+        ) : (
+          <>
+            <span>{alephCapabilityText(status.capability)}</span>
+            {status.detail === null ? null : <span>{status.detail}</span>}
+          </>
+        )}
         {interrupt && (showUpdate || showRollback) ? (
           <span>{threadsText(status.activeThreadCount)}</span>
         ) : null}
