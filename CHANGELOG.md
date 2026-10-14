@@ -11,8 +11,7 @@ base (`desktop-v0.45.0`, commit `129f62177`).
   update row in Settings says so, and keeps showing an error when an update
   publication is incomplete.
 - **Tests.** The command palette split test waits longer for the first
-  result, and the plugin-authoring docs test tracks the palette search and
-  app header status slots.
+  result.
 
 ## 0.45.0+aleph.0.6.0
 
