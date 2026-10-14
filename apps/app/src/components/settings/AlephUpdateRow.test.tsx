@@ -176,6 +176,7 @@ describe("AlephUpdateRowView", () => {
       }),
     });
     expect(screen.getByText("No update manifest is published")).toBeTruthy();
+    expect(screen.queryByText(/has been published/u)).toBeNull();
   });
 
   it("keeps the action available in command-only mode so the command can be shown", () => {
