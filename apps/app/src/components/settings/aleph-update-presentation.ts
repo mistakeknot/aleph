@@ -66,3 +66,16 @@ export function alephCapabilityText(capability: AlephUpdateCapability): string {
 export function alephRunText(state: AlephUpdateRunState): string {
   return RUN_TEXT[state];
 }
+
+export function isAlephWrapperManaged(status: {
+  capability: AlephUpdateCapability;
+  selection: AlephUpdateSelection;
+}): boolean {
+  return (
+    status.capability === "absent" && status.selection === "manifest-missing"
+  );
+}
+
+export const ALEPH_WRAPPER_LABEL = "Installed by the Aleph release wrapper";
+export const ALEPH_WRAPPER_NOTE =
+  "New releases are installed on this machine by the release wrapper, not from this screen.";
