@@ -34,6 +34,8 @@ import {
   type PluginSidebarFooterActionProps,
   type ExperimentalSidebarNavigationProps,
   type ExperimentalSidebarHeaderProps,
+  type ExperimentalPluginCommandPaletteSearchRegistration,
+  type PluginAppHeaderStatusProps,
   type PluginSourceCodeRendererProps,
   type PluginThreadHeaderActionProps,
   type ExperimentalPluginBrowserToolbarActionProps,
@@ -245,7 +247,9 @@ const THREAD_EVENT_PAYLOAD_FIELDS = {
     "attemptNumber",
   ],
 } as const satisfies {
-  [E in keyof PluginThreadEventPayloads]: readonly (keyof PluginThreadEventPayloads[E])[];
+  [
+    E in keyof PluginThreadEventPayloads
+  ]: readonly (keyof PluginThreadEventPayloads[E])[];
 };
 
 type MissingThreadEventField = {
@@ -284,6 +288,8 @@ type SlotPropsByName = {
   experimental_timelineRenderer: PluginTimelineRendererProps;
   experimental_environmentProviderInputs: PluginEnvironmentProviderInputsProps;
   experimental_machineProviderInputs: PluginMachineProviderInputsProps;
+  experimental_commandPaletteSearch: ExperimentalPluginCommandPaletteSearchRegistration;
+  experimental_appHeaderStatus: PluginAppHeaderStatusProps;
 };
 
 type MissingSlot = Exclude<keyof PluginAppSlots, keyof SlotPropsByName>;
@@ -419,6 +425,14 @@ const FRONTEND_SLOT_PROP_FIELDS = {
     "onChange",
   ],
   experimental_machineProviderInputs: ["value", "onChange"],
+  experimental_commandPaletteSearch: ["id", "title", "search"],
+  experimental_appHeaderStatus: [
+    "threadId",
+    "projectId",
+    "isCompactViewport",
+    "availableWidth",
+    "openSettings",
+  ],
 } as const satisfies {
   [S in keyof SlotPropsByName]: readonly (keyof SlotPropsByName[S])[];
 };

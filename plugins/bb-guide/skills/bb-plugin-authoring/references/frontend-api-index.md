@@ -204,6 +204,11 @@ Read the installed SDK declarations for the exact current signatures.
 - `PluginCommandRegistration`
 - `ExperimentalComposerCommandRegistration`
 - `PluginProviderIconRegistration`
+- `PluginAppHeaderStatusProps`
+- `PluginAppHeaderStatusRegistration`
+- `ExperimentalPluginCommandPaletteSearchContext`
+- `ExperimentalPluginCommandPaletteSearchResult`
+- `ExperimentalPluginCommandPaletteSearchRegistration`
 - `PluginTimelineRowPresentation`
 - `PluginTimelineRowStatus`
 - `PluginTimelineRendererRow`
