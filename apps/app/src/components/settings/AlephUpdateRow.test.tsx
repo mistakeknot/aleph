@@ -127,6 +127,57 @@ describe("AlephUpdateRowView", () => {
     expect(screen.queryByRole("button")).toBeNull();
   });
 
+  it("reports a wrapper-installed server instead of an error when no helper or manifest exists", () => {
+    view({
+      status: status({
+        capability: "absent",
+        detail: "No update manifest has been published.",
+        floor: null,
+        selection: "manifest-missing",
+      }),
+    });
+    expect(
+      screen.getByText("Installed by the Aleph release wrapper"),
+    ).toBeTruthy();
+    expect(screen.getByText("0.5.3")).toBeTruthy();
+    expect(screen.queryByText(/helper is not installed/u)).toBeNull();
+    expect(screen.queryByText(/No update manifest/u)).toBeNull();
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("keeps the error when the publication is incomplete and no helper exists", () => {
+    view({
+      status: status({
+        capability: "absent",
+        detail:
+          "The update manifest, its signature or the trust files are missing.",
+        floor: null,
+        selection: "manifest-missing",
+      }),
+    });
+    expect(screen.getByText("No update manifest is published")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "The update manifest, its signature or the trust files are missing.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText("Installed by the Aleph release wrapper"),
+    ).toBeNull();
+  });
+
+  it("still shows a missing manifest when the helper is installed", () => {
+    view({
+      status: status({
+        capability: "command-only",
+        detail: "No update manifest has been published.",
+        floor: null,
+        selection: "manifest-missing",
+      }),
+    });
+    expect(screen.getByText("No update manifest is published")).toBeTruthy();
+  });
+
   it("keeps the action available in command-only mode so the command can be shown", () => {
     const { onUpdate } = view({
       status: { ...AVAILABLE, capability: "command-only" },

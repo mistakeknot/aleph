@@ -433,6 +433,9 @@ export const alephUpdateSelectionSchema = z.enum([
 ]);
 export type AlephUpdateSelection = z.infer<typeof alephUpdateSelectionSchema>;
 
+export const ALEPH_NO_MANIFEST_PUBLISHED_DETAIL =
+  "No update manifest has been published.";
+
 export const alephUpdateCapabilitySchema = z.enum([
   "absent",
   "command-only",
