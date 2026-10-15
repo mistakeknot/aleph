@@ -29,7 +29,7 @@ describe("bridge runtime env", () => {
     expect(
       withoutBridgeRuntimeEnv({
         BB_AGENT_CGROUP: "systemd",
-        BB_AGENT_CGROUP_SLICE: "bb_agents.slice",
+        BB_AGENT_CGROUP_SLICE: "agents.slice",
         BB_AGENT_CPU_WEIGHT: "20",
         BB_AGENT_CPU_QUOTA: "800%",
         BB_CLI: "/usr/local/bin/bb",

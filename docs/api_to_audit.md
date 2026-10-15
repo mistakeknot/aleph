@@ -3718,3 +3718,21 @@ with third-party providers.
 `bb.sdk.experimental_promptHistory.list({ cursor?, limit?, signal? })` returns `{ entries, nextCursor }`: every accepted user prompt across projects and threads, newest first, each with `id`, `createdAt`, `input`, `projectId`, and `threadId`. `limit` is a digit string, defaulting to 100 and capped at 1000. `nextCursor` is an opaque string, or null on the last page. A page can hold fewer than `limit` entries while `nextCursor` is set, because stored rows whose input no longer parses are skipped. Prompts from a deleted thread remain listed until the thread row is removed, which cascades to its prompt history. The same route backs `bb prompt-history list`.
 
 Before stabilization, audit whether `limit` should be a number, whether the cursor format needs versioning, whether project or thread filters belong on this call rather than on `projects.promptHistory` and `threads.promptHistory`, and whether skipped rows should fill the page.
+
+## `experimental_placeProviderChildInThreadScope`
+
+`@get-bb/plugin-sdk/provider-bridge` exports
+`experimental_placeProviderChildInThreadScope(child, { threadId })`. A bridge
+calls it right after spawning an agent process. When the host daemon runs with
+`BB_AGENT_CGROUP=systemd`, it moves that one process into its own transient
+scope in the agent slice (`BB_AGENT_CGROUP_SLICE`, default `agents.slice`),
+named for the thread; otherwise it does nothing. It never throws, never blocks
+the spawn and logs the first failure of each kind once. Placement happens after
+the process starts, so anything it starts before the move stays in the
+provider worker's scope, which the daemon already starts inside the slice.
+
+Before stabilization, decide whether bridges should get a pre-spawn wrapper
+(command and arguments rewritten through `systemd-run --scope`, as the daemon
+does for provider workers and terminals) instead of, or beside, post-spawn
+placement; whether the scope should be keyed by thread or by turn; and whether
+the bridge should learn the outcome instead of fire-and-forget.

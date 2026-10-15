@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { accessSync, constants, readFileSync } from "node:fs";
+import { delimiter, join } from "node:path";
 
 export const AGENT_CGROUP_ENV = "BB_AGENT_CGROUP";
 export const AGENT_CGROUP_SLICE_ENV = "BB_AGENT_CGROUP_SLICE";
@@ -15,7 +16,7 @@ export const AGENT_CGROUP_ENV_NAMES = [
   AGENT_MEMORY_HIGH_ENV,
 ] as const;
 
-export const DEFAULT_AGENT_SLICE = "bb_agents.slice";
+export const DEFAULT_AGENT_SLICE = "agents.slice";
 export const DEFAULT_AGENT_CPU_WEIGHT = 20;
 const MAX_CPU_WEIGHT = 10_000;
 const MAX_SCOPE_NAME_UNIT_CHARS = 64;
@@ -73,7 +74,7 @@ export function resolveAgentCgroupConfig(args: {
 export function agentProcessScopeUnitName(args: {
   kind: string;
   name: string;
-  pid: number;
+  pid: number | string;
 }): string {
   const name = args.name
     .replace(/[^A-Za-z0-9_]/g, "_")
@@ -152,14 +153,45 @@ export function startAgentScopeArgs(args: {
   ];
 }
 
+export function runInAgentScopeArgs(args: {
+  args: readonly string[];
+  bindsTo: string;
+  command: string;
+  slice: string;
+  unit: string;
+}): string[] {
+  return [
+    "--user",
+    "--scope",
+    "--quiet",
+    "--collect",
+    `--unit=${args.unit}`,
+    `--slice=${args.slice}`,
+    "-p",
+    `BindsTo=${args.bindsTo}`,
+    "--",
+    args.command,
+    ...args.args,
+  ];
+}
+
 export interface AgentCgroupDeps {
   isAlive(pid: number): boolean;
   readOwnCgroup(): string | null;
+  resolveCommand(name: string): string | null;
   run(command: string, args: string[]): Promise<void>;
+  runtimeDir(): string | undefined;
   warn(message: string): void;
 }
 
+export interface AgentScopeSpawn {
+  args: string[];
+  command: string;
+  env: NodeJS.ProcessEnv;
+}
+
 export interface AgentCgroupPlacer {
+  dispose(): void;
   place(args: {
     pid: number | undefined;
     threadId: string | null;
@@ -169,6 +201,14 @@ export interface AgentCgroupPlacer {
     processKind: string;
     unit: string;
   }): Promise<void>;
+  prepare(): Promise<void>;
+  wrapSpawn(args: {
+    args: readonly string[];
+    command: string;
+    env: NodeJS.ProcessEnv;
+    name: string;
+    processKind: string;
+  }): AgentScopeSpawn | null;
 }
 
 export function createAgentCgroupPlacer(args: {
@@ -179,13 +219,25 @@ export function createAgentCgroupPlacer(args: {
   const { config, deps } = args;
   const owner = args.owner ?? "this provider process";
   let disabled = false;
+  let disposed = false;
   let daemonUnit: Promise<string | null> | null = null;
+  let prepared: Promise<void> | null = null;
+  let wrapper: { bindsTo: string; systemdRun: string } | null = null;
+  let spawnSequence = 0;
   let consecutiveFailures = 0;
+  const warnedClasses = new Set<string>();
+
+  const warnOnce = (failureClass: string, message: string): void => {
+    if (warnedClasses.has(failureClass)) return;
+    warnedClasses.add(failureClass);
+    deps.warn(message);
+  };
 
   const disable = (reason: string): void => {
     if (disabled) return;
     disabled = true;
-    deps.warn(
+    warnOnce(
+      "disabled",
       `Agent CPU isolation is off for ${owner}: ${reason}. Its child processes keep running in its own cgroup.`,
     );
   };
@@ -209,15 +261,58 @@ export function createAgentCgroupPlacer(args: {
     return unit;
   };
 
+  const nextSpawnUnit = (kind: string, name: string): string => {
+    spawnSequence += 1;
+    return agentProcessScopeUnitName({
+      kind,
+      name,
+      pid: `${process.pid}_${spawnSequence}`,
+    });
+  };
+
+  const prepareWrapper = async (resolved: AgentCgroupConfig): Promise<void> => {
+    daemonUnit ??= setUp(resolved);
+    const bindsTo = await daemonUnit;
+    if (bindsTo === null || disabled || disposed) return;
+    const systemdRun = deps.resolveCommand("systemd-run");
+    if (systemdRun === null) {
+      warnOnce(
+        "wrap",
+        `Processes started by ${owner} join ${resolved.slice} after they start: systemd-run is not available.`,
+      );
+      return;
+    }
+    try {
+      await deps.run(
+        systemdRun,
+        runInAgentScopeArgs({
+          args: [],
+          bindsTo,
+          command: "true",
+          slice: resolved.slice,
+          unit: nextSpawnUnit("probe", ""),
+        }),
+      );
+    } catch (error) {
+      warnOnce(
+        "wrap",
+        `Processes started by ${owner} join ${resolved.slice} after they start: systemd-run failed (${describeError(error)}).`,
+      );
+      return;
+    }
+    if (disabled || disposed) return;
+    wrapper = { bindsTo, systemdRun };
+  };
+
   const placeInScope: AgentCgroupPlacer["placeInScope"] = async ({
     pid,
     processKind,
     unit,
   }) => {
-    if (config === null || disabled || pid === undefined) return;
+    if (config === null || disabled || disposed || pid === undefined) return;
     daemonUnit ??= setUp(config);
     const bindsTo = await daemonUnit;
-    if (bindsTo === null || disabled) return;
+    if (bindsTo === null || disabled || disposed) return;
 
     try {
       await deps.run(
@@ -235,18 +330,24 @@ export function createAgentCgroupPlacer(args: {
         disable("busctl is not available");
         return;
       }
-      if (!deps.isAlive(pid)) return;
+      if (disposed || !deps.isAlive(pid)) return;
       consecutiveFailures += 1;
-      deps.warn(
-        `Could not move ${processKind} ${pid} into ${config.slice} (${describeError(error)}).`,
+      warnOnce(
+        "placement",
+        `Could not move ${processKind} ${pid} into ${config.slice} (${describeError(error)}). Later placement failures are not logged; after ${MAX_CONSECUTIVE_PLACEMENT_FAILURES} in a row, isolation turns off.`,
       );
       if (consecutiveFailures >= MAX_CONSECUTIVE_PLACEMENT_FAILURES) {
+        warnedClasses.add("disabled");
         disable(`${consecutiveFailures} placements in a row failed`);
       }
     }
   };
 
   return {
+    dispose() {
+      disposed = true;
+      wrapper = null;
+    },
     placeInScope,
     async place({ pid, threadId }) {
       if (pid === undefined || threadId === null) return;
@@ -255,6 +356,32 @@ export function createAgentCgroupPlacer(args: {
         processKind: "agent process",
         unit: agentScopeUnitName({ pid, threadId }),
       });
+    },
+    prepare() {
+      if (config === null || disposed) return Promise.resolve();
+      prepared ??= prepareWrapper(config);
+      return prepared;
+    },
+    wrapSpawn(spawn) {
+      if (config === null || wrapper === null || disabled || disposed) {
+        return null;
+      }
+      const env = { ...spawn.env };
+      const runtimeDir = deps.runtimeDir();
+      if (env.XDG_RUNTIME_DIR === undefined && runtimeDir !== undefined) {
+        env.XDG_RUNTIME_DIR = runtimeDir;
+      }
+      return {
+        args: runInAgentScopeArgs({
+          args: spawn.args,
+          bindsTo: wrapper.bindsTo,
+          command: spawn.command,
+          slice: config.slice,
+          unit: nextSpawnUnit(spawn.processKind, spawn.name),
+        }),
+        command: wrapper.systemdRun,
+        env,
+      };
     },
   };
 }
@@ -293,6 +420,19 @@ export const defaultAgentCgroupDeps: AgentCgroupDeps = {
       return null;
     }
   },
+  resolveCommand(name) {
+    for (const dir of (process.env.PATH ?? "").split(delimiter)) {
+      if (dir === "") continue;
+      const candidate = join(dir, name);
+      try {
+        accessSync(candidate, constants.X_OK);
+      } catch {
+        continue;
+      }
+      return candidate;
+    }
+    return null;
+  },
   run(command, args) {
     return new Promise((resolve, reject) => {
       execFile(
@@ -308,6 +448,9 @@ export const defaultAgentCgroupDeps: AgentCgroupDeps = {
         },
       );
     });
+  },
+  runtimeDir() {
+    return process.env.XDG_RUNTIME_DIR;
   },
   warn(message) {
     process.stderr.write(`${message}\n`);

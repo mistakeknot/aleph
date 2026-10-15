@@ -1047,6 +1047,31 @@ describe("RuntimeManager", () => {
     );
   });
 
+  it("starts provider workers unwrapped when agent isolation is off", async () => {
+    const provisionWorkspace = createProvisionWorkspaceMock("/tmp/env-1");
+    const runtimeOptions: RuntimeOptionsRef = { current: null };
+    const manager = new RuntimeManager({
+      provisionWorkspace,
+      createRuntime: (options) => {
+        runtimeOptions.current = options;
+        return createFakeRuntime();
+      },
+    });
+    await manager.ensureEnvironment({
+      environmentId: "env-1",
+      workspacePath: "/tmp/env-1",
+    });
+
+    await expect(
+      runtimeOptions.current?.prepareProcessSpawn?.({
+        args: ["bridge.js"],
+        command: process.execPath,
+        env: {},
+        providerId: "fake",
+      }),
+    ).resolves.toBe(null);
+  });
+
   it.skipIf(process.platform === "win32")(
     "starts provider workers at the agent nice level",
     async () => {
@@ -1070,6 +1095,7 @@ describe("RuntimeManager", () => {
       ]);
       try {
         runtimeOptions.current?.onProcessSpawn?.({
+          inScope: false,
           pid: worker.pid,
           processKey: "fake",
           providerId: "fake",

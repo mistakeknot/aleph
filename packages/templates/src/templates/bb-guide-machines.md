@@ -390,6 +390,26 @@ suspend/resume. Removing one revokes its server access without executing on the
 machine. Run the original installer with `--uninstall --host-id <host-id>` on that box, with its
 original `BB_DATA_DIR` if explicitly configured, to remove its installation.
 
+## Agent CPU isolation
+
+On Linux, a host daemon running as a systemd user service can keep agent work
+from starving the server. Set these in the host daemon's environment and
+restart the launcher:
+
+- `BB_AGENT_CGROUP=systemd` turns isolation on. Provider workers and terminals
+  start inside their own scope through `systemd-run --user --scope`; plugin
+  workers and agent processes are moved into a scope right after they start.
+- `BB_AGENT_CGROUP_SLICE` names the slice (default `agents.slice`; use a
+  top-level name with no `-`).
+- `BB_AGENT_CPU_WEIGHT` sets the slice's `CPUWeight` (default `20`).
+- `BB_AGENT_CPU_QUOTA` caps all agents together (`800%` is eight CPUs).
+- `BB_AGENT_MEMORY_HIGH` throttles agent memory (`48G` or `75%`).
+- `BB_AGENT_NICE` sets the nice value for the processes the daemon starts
+  (default `10`; `0` disables it).
+
+When unset, or on other platforms, nothing changes. Failures are logged once
+per kind and never stop a spawn. See docs/configuration.md for details.
+
 ## Machine environment
 
 Use `--project <id>` on `bb machine env list|set|unset` for project overrides;

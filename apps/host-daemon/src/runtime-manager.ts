@@ -35,7 +35,11 @@ import {
 } from "@bb/host-workspace";
 import { AGENT_CGROUP_ENV_NAMES } from "@bb/provider-bridge-protocol/bridge-kit";
 import { lowerAgentProcessPriority } from "./agent-process-priority.js";
-import { placeAgentProcessInScope } from "./agent-process-scope.js";
+import {
+  placeAgentProcessInScope,
+  prepareAgentProcessScopes,
+  wrapAgentProcessSpawn,
+} from "./agent-process-scope.js";
 import {
   cleanupInjectedSkillStagingDirs,
   EMPTY_SKILL_CATALOG_HASH,
@@ -1127,10 +1131,25 @@ export class RuntimeManager {
       pid: info.pid,
       processKind: "provider-worker",
     });
+    if (info.inScope) return;
     placeAgentProcessInScope({
       logger: this.options.logger,
       name: info.providerId,
       pid: info.pid,
+      processKind: "provider-worker",
+    });
+  };
+
+  private readonly prepareProviderProcessSpawn: NonNullable<
+    AgentRuntimeOptions["prepareProcessSpawn"]
+  > = async (plan) => {
+    await prepareAgentProcessScopes({ logger: this.options.logger });
+    return wrapAgentProcessSpawn({
+      args: plan.args,
+      command: plan.command,
+      env: plan.env,
+      logger: this.options.logger,
+      name: plan.providerId,
       processKind: "provider-worker",
     });
   };
@@ -1169,6 +1188,7 @@ export class RuntimeManager {
       onInteractiveRequest: this.options.onInteractiveRequest,
       onStderr: this.options.onStderr,
       onProcessSpawn: this.handleProviderProcessSpawn,
+      prepareProcessSpawn: this.prepareProviderProcessSpawn,
       onProcessExit: (info) => {
         if (
           runtime &&
@@ -1242,6 +1262,7 @@ export class RuntimeManager {
       onInteractiveRequest: this.options.onInteractiveRequest,
       onStderr: this.options.onStderr,
       onProcessSpawn: this.handleProviderProcessSpawn,
+      prepareProcessSpawn: this.prepareProviderProcessSpawn,
       onProviderRecovery: (hint) => {
         this.options.logger?.debug(
           {

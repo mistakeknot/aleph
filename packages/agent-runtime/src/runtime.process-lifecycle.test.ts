@@ -244,6 +244,7 @@ describe("createAgentRuntime process lifecycle", () => {
     expect(spawnInfo).toHaveBeenCalledTimes(1);
     const [info] = spawnInfo.mock.calls[0]!;
     expect(info).toEqual({
+      inScope: false,
       pid: expect.any(Number),
       processKey: expect.any(String),
       providerId: "fake",

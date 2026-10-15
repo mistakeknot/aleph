@@ -4,6 +4,7 @@ import {
   defaultAgentCgroupDeps,
   resolveAgentCgroupConfig,
   type AgentCgroupPlacer,
+  type AgentScopeSpawn,
 } from "@bb/provider-bridge-protocol/bridge-kit";
 import type { HostDaemonLogger } from "./logger.js";
 
@@ -61,4 +62,35 @@ export function placeAgentProcessInScope(
       }),
     })
     .catch(() => undefined);
+}
+
+export function prepareAgentProcessScopes(args: {
+  logger: Pick<HostDaemonLogger, "warn"> | undefined;
+  placer?: AgentCgroupPlacer;
+}): Promise<void> {
+  const placer = args.placer ?? getDefaultPlacer(args.logger);
+  return placer.prepare().catch(() => undefined);
+}
+
+export function wrapAgentProcessSpawn(args: {
+  args: readonly string[];
+  command: string;
+  env: NodeJS.ProcessEnv;
+  logger: Pick<HostDaemonLogger, "warn"> | undefined;
+  name: string;
+  placer?: AgentCgroupPlacer;
+  processKind: AgentProcessScopeKind;
+}): AgentScopeSpawn | null {
+  const placer = args.placer ?? getDefaultPlacer(args.logger);
+  return placer.wrapSpawn({
+    args: args.args,
+    command: args.command,
+    env: args.env,
+    name: args.name,
+    processKind: args.processKind,
+  });
+}
+
+export function disposeAgentProcessScopes(): void {
+  defaultPlacer?.dispose();
 }

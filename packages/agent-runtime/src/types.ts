@@ -46,8 +46,19 @@ export interface AgentRuntimeProcessExitThreadState {
 }
 
 export interface AgentRuntimeProcessSpawnInfo {
+  inScope: boolean;
   pid: number | undefined;
   processKey: string;
+  providerId: string;
+}
+
+export interface AgentRuntimeProcessSpawnCommand {
+  args: string[];
+  command: string;
+  env: NodeJS.ProcessEnv;
+}
+
+export interface AgentRuntimeProcessSpawnPlan extends AgentRuntimeProcessSpawnCommand {
   providerId: string;
 }
 
@@ -90,6 +101,10 @@ export interface AgentRuntimeOptions {
   ) => Promise<PendingInteractionResolution>;
 
   onStderr?: (line: string, threadId?: string) => void;
+
+  prepareProcessSpawn?: (
+    plan: AgentRuntimeProcessSpawnPlan,
+  ) => Promise<AgentRuntimeProcessSpawnCommand | null>;
 
   onProcessSpawn?: (info: AgentRuntimeProcessSpawnInfo) => void;
 

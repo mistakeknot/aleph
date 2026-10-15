@@ -336,6 +336,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
       handleStdoutLine(args.line, args.providerProcess),
     onProcessExit: options.onProcessExit,
     onProcessSpawn: options.onProcessSpawn,
+    prepareProcessSpawn: options.prepareProcessSpawn,
     onProviderThreadDetached: (threadId) => {
       toolCalls.cancelThread(threadId);
       threadIdentityRegistry.clearThread(threadId);
