@@ -17,6 +17,7 @@ import {
   ensurePluginProcessDataDir,
   sanitizeInheritedChildProcessEnv,
 } from "@bb/process-utils";
+import { lowerAgentProcessPriority } from "./agent-process-priority.js";
 import type { HostDaemonLogger } from "./logger.js";
 import { ensureCachedPluginHostArtifact } from "./plugin-host-artifact-cache.js";
 import { runInSerialLane } from "./serial-lane.js";
@@ -477,6 +478,11 @@ export class PluginHostManager {
       await rm(tempDir, { recursive: true, force: true });
       throw error;
     }
+    lowerAgentProcessPriority({
+      logger: this.options.logger,
+      pid: child.pid,
+      processKind: "host-plugin-worker",
+    });
     const closed = new Promise<void>((resolve) => child.once("close", resolve));
     void closed
       .then(() => rm(tempDir, { recursive: true, force: true }))

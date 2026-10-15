@@ -14,6 +14,7 @@ import {
 } from "@bb/process-utils";
 import { displayWidth, truncateToWidth } from "@bb/text-utils";
 import type { HostDaemonServerTerminalMessage } from "../server-connection-support.js";
+import { lowerAgentProcessPriority } from "../agent-process-priority.js";
 import type { HostDaemonLogger } from "../logger.js";
 import { RuntimeManager } from "../runtime-manager.js";
 import { runtimeErrorLogFields } from "../error-utils.js";
@@ -224,6 +225,11 @@ const nodePtyAdapter: TerminalPtyAdapter = {
       env: args.env,
       name: "xterm-256color",
       rows: args.rows,
+    });
+    lowerAgentProcessPriority({
+      logger: args.logger,
+      pid: pty.pid,
+      processKind: "terminal",
     });
     return {
       dispose: () => disposeNodePty(pty),
