@@ -266,6 +266,13 @@ Beyond upstream, Aleph carries:
   loop on a shared CPU. It only raises the nice value and skips Windows
   (`apps/host-daemon/src/agent-process-priority.ts`).
 
+- **Account Pooler stall tolerance (0.6.3).** The upstream transport gives
+  each per-address connect attempt 5 s, below undici's 10 s connect timeout,
+  so event-loop stalls no longer abort dual-stack connects
+  (`plugins/account-pool/src/upstream-transport.ts`). Receipt evidence
+  hoists its schemas to module scope and skips frames whose `type` carries no
+  evidence (`plugins/account-pool/src/receipts.ts`).
+
 - **Backported upstream performance fixes (0.6.3).** Nine upstream bb commits
   cherry-picked ahead of the next sync: #4718, #4751, #4931, #5112, #5115,
   #5116, #5120, #5121 and #5240. Each records its upstream commit in a

@@ -4,7 +4,8 @@
 
 Aleph 0.6.3 is a patch on Aleph 0.6.2, on the same upstream bb 0.45.0
 base (`desktop-v0.45.0`, commit `129f62177`). It backports nine upstream bb
-performance fixes and lowers the CPU priority of agent processes. None adds a
+performance fixes, lowers the CPU priority of agent processes and cuts
+Account Pooler's stall sensitivity and per-frame cost. None adds a
 server database migration; the workflows and side-chat plugins each add an
 index or table to their own databases.
 
@@ -17,6 +18,13 @@ index or table to their own databases.
   unchanged.
 - **Quieter logs.** Provider discovery for a disconnected host logs at debug
   instead of warn, and the log entry names the host and environment.
+- **Account Pooler connects.** Each upstream connect attempt gets 5 s instead
+  of Node's 250 ms per address, so a stalled event loop no longer aborts the
+  IPv4 attempt and turns a proxied request into a 502 with `ETIMEDOUT`.
+- **Account Pooler receipts.** Receipt evidence builds its schemas once and
+  skips stream frames that carry no evidence, so a 16k-token stream spends
+  about 0.1 s instead of 4 s parsing evidence on the server's main thread.
+  Receipt states and fail-closed checks are unchanged.
 
 ### Backported from upstream bb
 
