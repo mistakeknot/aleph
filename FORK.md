@@ -260,6 +260,12 @@ Beyond upstream, Aleph carries:
   the drift, fading and dimming are off under forced colors. Select it with
   `bb theme set dorcas`.
 
+- **Agent process priority.** The host daemon raises host plugin workers and
+  terminal PTYs to `BB_AGENT_NICE` (default 10, 0 disables, capped at 19)
+  after spawning them, so agent workloads cannot starve the server's event
+  loop on a shared CPU. It only raises the nice value and skips Windows
+  (`apps/host-daemon/src/agent-process-priority.ts`).
+
 - **Backported upstream performance fixes (0.6.3).** Nine upstream bb commits
   cherry-picked ahead of the next sync: #4718, #4751, #4931, #5112, #5115,
   #5116, #5120, #5121 and #5240. Each records its upstream commit in a

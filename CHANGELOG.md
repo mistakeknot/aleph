@@ -4,8 +4,19 @@
 
 Aleph 0.6.3 is a patch on Aleph 0.6.2, on the same upstream bb 0.45.0
 base (`desktop-v0.45.0`, commit `129f62177`). It backports nine upstream bb
-performance fixes. None adds a server database migration; the workflows and
-side-chat plugins each add an index or table to their own databases.
+performance fixes and lowers the CPU priority of agent processes. None adds a
+server database migration; the workflows and side-chat plugins each add an
+index or table to their own databases.
+
+### Aleph
+
+- **Agent priority.** The host daemon starts host plugin workers and terminal
+  sessions at nice 10, so agent test suites no longer starve the server's
+  event loop when they share a CPU. `BB_AGENT_NICE` sets the level (0
+  disables, capped at 19); the nice value is only ever raised, and Windows is
+  unchanged.
+- **Quieter logs.** Provider discovery for a disconnected host logs at debug
+  instead of warn, and the log entry names the host and environment.
 
 ### Backported from upstream bb
 
@@ -19,8 +30,8 @@ side-chat plugins each add an index or table to their own databases.
 - **Hot lookups and pruning.** Frequent lookups and pruning reuse prepared
   queries (#5115).
 - **Background work.** Workflow queue claims wake on run and capacity changes
-  instead of polling every 250 ms (#5120), and side-chat cleanup is bounded by an indexed
-  pending-fork lookup (#5121).
+  instead of polling every 250 ms (#5120), and side-chat cleanup is bounded
+  by an indexed pending-fork lookup (#5121).
 - **Diagnostics.** Opt-in server CPU profiles (#4751, #5112), and slow SQLite
   log entries name the resource they read (#5116).
 
