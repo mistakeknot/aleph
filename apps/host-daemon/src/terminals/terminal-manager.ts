@@ -15,6 +15,7 @@ import {
 import { displayWidth, truncateToWidth } from "@bb/text-utils";
 import type { HostDaemonServerTerminalMessage } from "../server-connection-support.js";
 import { lowerAgentProcessPriority } from "../agent-process-priority.js";
+import { placeAgentProcessInScope } from "../agent-process-scope.js";
 import type { HostDaemonLogger } from "../logger.js";
 import { RuntimeManager } from "../runtime-manager.js";
 import { runtimeErrorLogFields } from "../error-utils.js";
@@ -228,6 +229,12 @@ const nodePtyAdapter: TerminalPtyAdapter = {
     });
     lowerAgentProcessPriority({
       logger: args.logger,
+      pid: pty.pid,
+      processKind: "terminal",
+    });
+    placeAgentProcessInScope({
+      logger: args.logger,
+      name: "",
       pid: pty.pid,
       processKind: "terminal",
     });
