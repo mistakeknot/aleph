@@ -3307,6 +3307,136 @@ export function listStoredTimelineTurnEventRows(
   }).sort((left, right) => left.sequence - right.sequence);
 }
 
+export interface FindStoredTimelineOpenTurnRowFloorArgs extends ListStoredTimelineWindowEventRowsArgs {
+  completedThroughSequence: number;
+  rowLimit: number;
+  turnId: string;
+}
+
+export interface StoredTimelineOpenTurnRowFloor {
+  floor: number | undefined;
+  rowHeadroom: number;
+}
+
+export function findStoredTimelineOpenTurnRowFloor(
+  db: DbConnection,
+  args: FindStoredTimelineOpenTurnRowFloorArgs,
+): StoredTimelineOpenTurnRowFloor | undefined {
+  const turnRows = and(
+    eq(events.threadId, args.threadId),
+    eq(events.turnId, args.turnId),
+  );
+  const completed = db
+    .select({ sequence: events.sequence })
+    .from(events)
+    .where(
+      and(
+        turnRows,
+        eq(events.type, "turn/completed"),
+        lte(events.sequence, args.completedThroughSequence),
+      ),
+    )
+    .limit(1)
+    .get();
+  if (completed !== undefined) return undefined;
+  const started = db
+    .select({ sequence: sql<number | null>`MIN(${events.sequence})` })
+    .from(events)
+    .where(and(turnRows, eq(events.type, "turn/started")))
+    .get();
+  if (started?.sequence === null || started?.sequence === undefined) {
+    return undefined;
+  }
+  const rowLimit = Math.max(1, args.rowLimit);
+  const turnWindow = and(
+    ...storedTimelineWindowConditions({
+      ...args,
+      sequenceStart: Math.max(args.sequenceStart, started.sequence),
+    }),
+    eq(events.turnId, args.turnId),
+  );
+  const counted = db
+    .select({ rowCount: sql<number>`COUNT(*)` })
+    .from(sql`${events} INDEXED BY events_thread_sequence_idx`)
+    .where(turnWindow)
+    .get();
+  const rowCount = counted?.rowCount ?? 0;
+  const halfBlock = Math.floor(rowLimit / 2);
+  const floorBlock = Math.max(
+    0,
+    Math.floor((rowCount + halfBlock) / rowLimit) - 1,
+  );
+  const rowHeadroom = (floorBlock + 2) * rowLimit - halfBlock - rowCount;
+  if (floorBlock === 0) return { floor: undefined, rowHeadroom };
+  const floorRow = db
+    .select({ sequence: sql<number>`${events.sequence}` })
+    .from(sql`${events} INDEXED BY events_thread_sequence_idx`)
+    .where(turnWindow)
+    .orderBy(events.sequence)
+    .limit(1)
+    .offset(floorBlock * rowLimit)
+    .get();
+  if (floorRow === undefined) return { floor: undefined, rowHeadroom };
+  const rowStart = db
+    .select({ sequence: sql<number>`${events.sequence}` })
+    .from(sql`${events} INDEXED BY events_thread_type_sequence_idx`)
+    .where(
+      and(
+        eq(events.threadId, args.threadId),
+        eq(events.type, "item/started"),
+        gt(events.sequence, Math.max(args.sequenceStart, started.sequence)),
+        lte(events.sequence, floorRow.sequence),
+        eq(events.turnId, args.turnId),
+        isNull(events.parentToolCallId),
+        ...(args.excludeDiagnosticEvents ? [isNotDiagnosticEvent] : []),
+      ),
+    )
+    .orderBy(desc(events.sequence))
+    .limit(1)
+    .get();
+  return { floor: rowStart?.sequence, rowHeadroom };
+}
+
+export function listStoredTimelineTurnRangeEventRows(
+  db: DbConnection,
+  args: ListStoredTimelineWindowEventRowsArgs & { turnId: string },
+): StoredEventRow[] {
+  return db
+    .select(storedEventRowSqlFields(args.maxInlineOutputChars))
+    .from(sql`${events} INDEXED BY events_thread_sequence_idx`)
+    .where(
+      and(
+        ...storedTimelineWindowConditions(args),
+        eq(events.turnId, args.turnId),
+      ),
+    )
+    .orderBy(events.sequence)
+    .all();
+}
+
+export function listStoredTimelineItemEventRowsByItems(
+  db: DbConnection,
+  args: ListStoredTimelineWindowEventRowsArgs & {
+    items: readonly ScopedItemRef[];
+  },
+): StoredEventRow[] {
+  const items = dedupeScopedItemRefs(args.items);
+  if (items.length === 0) return [];
+  return db
+    .select(
+      storedEventRowFieldsWithInlineOutputLimit(args.maxInlineOutputChars),
+    )
+    .from(events)
+    .where(
+      scopedItemRefsPredicate(items, [
+        ...storedTimelineWindowConditions(args),
+        inArray(events.type, ITEM_EVENT_TYPES),
+      ]),
+    )
+    .orderBy(events.sequence)
+    .all();
+}
+
 export function listTimelineRootWindowTurnIds(
   db: DbConnection,
   args: ListStoredTimelineWindowEventRowsArgs,

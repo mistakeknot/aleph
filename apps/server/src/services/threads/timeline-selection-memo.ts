@@ -6,6 +6,7 @@ import {
   getLatestThreadSequence,
   getThreadEventRewriteGeneration,
   listStoredEventRowsInSequenceRange,
+  scopedItemRefKey,
   type DbConnection,
   type TimelineWindowHint,
   type StoredEventRow,
@@ -27,9 +28,12 @@ export interface TimelineEventRowSelection {
 }
 
 export interface StandardTimelineEventRowSelection {
+  cappedTurnIds: ReadonlySet<string>;
   hints: readonly TimelineWindowHint[];
   fetchedTurnIds: ReadonlySet<string>;
+  maxRows: number;
   selection: TimelineEventRowSelection;
+  windowSequenceStart: number;
 }
 
 export interface TimelineBudgetFloor {
@@ -56,13 +60,16 @@ export interface LatestTimelineSelectionLookup {
 interface TimelineSelectionMemoEntry {
   hints: readonly TimelineWindowHint[];
   appendableTurnIds: ReadonlySet<string>;
+  cappedTurnIds: ReadonlySet<string>;
   dataChars: number;
   dataVersion: number;
   epochSequenceStart: number;
   generation: number;
+  maxRows: number;
   maxSeq: number;
   selection: TimelineEventRowSelection;
   threadId: string;
+  windowSequenceStart: number;
 }
 
 interface TimelineSelectionMemo {
@@ -220,6 +227,43 @@ function isAppendableRow(
   );
 }
 
+function storedEventRowItemKey(row: StoredEventRow): string {
+  return scopedItemRefKey({
+    itemId: row.itemId ?? "",
+    scopeKind: row.scopeKind,
+    turnId: row.turnId,
+  });
+}
+
+function selectionItemKeys(
+  entry: TimelineSelectionMemoEntry,
+): Set<string> | null {
+  if (entry.cappedTurnIds.size === 0) return null;
+  const keys = new Set<string>();
+  for (const row of entry.selection.rows) {
+    if (row.itemId !== null) keys.add(storedEventRowItemKey(row));
+  }
+  return keys;
+}
+
+function isUnselectedCappedItemRow(
+  row: StoredEventRow,
+  entry: TimelineSelectionMemoEntry,
+  itemKeys: Set<string> | null,
+): boolean {
+  if (
+    itemKeys === null ||
+    row.itemId === null ||
+    row.turnId === null ||
+    !entry.cappedTurnIds.has(row.turnId)
+  ) {
+    return false;
+  }
+  const key = storedEventRowItemKey(row);
+  if (row.type === "item/started") itemKeys.add(key);
+  return !itemKeys.has(key);
+}
+
 function isIgnorableRow(row: StoredEventRow): boolean {
   return IGNORABLE_EVENT_TYPES.has(row.type) && row.parentToolCallId === null;
 }
@@ -247,7 +291,9 @@ function listAppendableRows(
     return null;
   }
   const appendableRows: StoredEventRow[] = [];
+  const itemKeys = selectionItemKeys(entry);
   for (const row of appendedRows) {
+    if (isUnselectedCappedItemRow(row, entry, itemKeys)) return null;
     if (isAppendableRow(row, entry.appendableTurnIds)) {
       appendableRows.push(row);
     } else if (!isIgnorableRow(row)) {
@@ -309,7 +355,10 @@ export function lookupLatestTimelineSelection(
     args.page.segmentLimit,
     args.epochSequenceStart,
   );
-  if (sequenceStart !== entry.selection.ownedSequenceStart) {
+  if (
+    sequenceStart !== entry.windowSequenceStart ||
+    entry.selection.rows.length + appendableRows.length > entry.maxRows
+  ) {
     return { ...miss, budgetFloor };
   }
   const selection: TimelineEventRowSelection = {
@@ -342,14 +391,17 @@ export function rememberLatestTimelineSelection(
   storeMemoEntry(memo, selectionMemoKey(args), {
     hints: result.hints,
     appendableTurnIds: result.fetchedTurnIds,
+    cappedTurnIds: result.cappedTurnIds,
     dataChars:
       dataCharsOfRows(result.selection.rows) +
       dataCharsOfRows(result.selection.headStateRows),
     dataVersion: lookup.dataVersion,
     epochSequenceStart: args.epochSequenceStart,
     generation: lookup.generation,
+    maxRows: result.maxRows,
     maxSeq: args.maxSeq,
     selection: result.selection,
     threadId: args.threadId,
+    windowSequenceStart: result.windowSequenceStart,
   });
 }

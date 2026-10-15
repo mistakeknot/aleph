@@ -380,6 +380,9 @@ export {
   scopedItemRefKey,
   listStoredTimelineWindowEventRows,
   listStoredTimelineTurnEventRows,
+  listStoredTimelineTurnRangeEventRows,
+  listStoredTimelineItemEventRowsByItems,
+  findStoredTimelineOpenTurnRowFloor,
   listStoredTimelineThreadWindowEventRows,
   listTimelineRootWindowTurnIds,
   listStoredDelegatingItemRowsByItemIds,
@@ -434,6 +437,8 @@ export type {
   ThreadClientTurnRequestKey,
   StoredTurnRequestEventRow,
   HasThreadCompletedAnyOtherTurnArgs,
+  ListStoredTimelineWindowEventRowsArgs,
+  StoredTimelineOpenTurnRowFloor,
 } from "./events.js";
 
 export {

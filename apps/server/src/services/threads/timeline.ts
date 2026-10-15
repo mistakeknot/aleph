@@ -83,6 +83,9 @@ import {
   listStoredClientTurnRequestRowsByKeys,
   listStoredEventRowsByParentToolCallIds,
   listItemEventSpansByItems,
+  findStoredTimelineOpenTurnRowFloor,
+  listStoredTimelineItemEventRowsByItems,
+  listStoredTimelineTurnRangeEventRows,
   listStoredBufferedTextDeltaRowsByItems,
   getStoredItemLifecycleSequenceRange,
   listStoredItemLifecycleRowsByItems,
@@ -106,6 +109,8 @@ import type {
   DbConnection,
   InlineOutputCharLimit,
   ScopedItemRef,
+  ListStoredTimelineWindowEventRowsArgs,
+  StoredTimelineOpenTurnRowFloor,
   StoredEventRow,
 } from "@bb/db";
 import { ApiError } from "../../errors.js";
@@ -944,6 +949,80 @@ function listLatestTimelineHeadStateRows(
   ]);
 }
 
+interface OpenTimelineTurnsArgs extends ListStoredTimelineWindowEventRowsArgs {
+  completedThroughSequence: number;
+  rowLimit: number;
+  turnIds: readonly string[];
+}
+
+function selectOpenTimelineTurns(
+  db: DbConnection,
+  args: OpenTimelineTurnsArgs,
+): Map<string, StoredTimelineOpenTurnRowFloor> {
+  const openTurns = new Map<string, StoredTimelineOpenTurnRowFloor>();
+  for (const turnId of args.turnIds) {
+    const openTurn = findStoredTimelineOpenTurnRowFloor(db, {
+      ...args,
+      turnId,
+    });
+    if (openTurn !== undefined) openTurns.set(turnId, openTurn);
+  }
+  return openTurns;
+}
+
+interface OpenTimelineTurnRowsArgs extends ListStoredTimelineWindowEventRowsArgs {
+  beforeSequence: number;
+  epochSequenceStart: number;
+  maxSeq: number;
+  openTurns: ReadonlyMap<string, StoredTimelineOpenTurnRowFloor>;
+}
+
+function listOpenTimelineTurnRows(
+  db: DbConnection,
+  args: OpenTimelineTurnRowsArgs,
+): StoredEventRow[] {
+  if (args.openTurns.size === 0) return [];
+  const rangeRows = [...args.openTurns].flatMap(([turnId, { floor }]) =>
+    listStoredTimelineTurnRangeEventRows(db, {
+      ...args,
+      sequenceStart: floor ?? args.epochSequenceStart,
+      turnId,
+    }),
+  );
+  const items = new Map<string, ScopedItemRef>();
+  for (const row of rangeRows) {
+    if (row.itemId === null || !row.type.startsWith("item/")) continue;
+    const ref = storedEventRowItemRef(row);
+    items.set(scopedItemRefKey(ref), ref);
+  }
+  const partialItems = listItemEventSpansByItems(db, {
+    threadId: args.threadId,
+    items: [...items.values()],
+  }).filter((span) => {
+    const openTurn =
+      span.turnId === null ? undefined : args.openTurns.get(span.turnId);
+    return (
+      openTurn === undefined ||
+      span.minSequence < (openTurn.floor ?? args.epochSequenceStart) ||
+      span.maxSequence >= args.beforeSequence
+    );
+  });
+  return [
+    ...listStoredTurnStartedRowsByTurnIdsUpToSequence(db, {
+      threadId: args.threadId,
+      sequenceCutoff: args.maxSeq,
+      turnIds: [...args.openTurns.keys()],
+    }),
+    ...rangeRows,
+    ...listStoredTimelineItemEventRowsByItems(db, {
+      ...args,
+      sequenceStart: args.epochSequenceStart,
+      beforeSequence: args.maxSeq + 1,
+      items: partialItems,
+    }),
+  ];
+}
+
 function selectStandardTimelineEventRows(
   db: DbConnection,
   thread: Thread,
@@ -1044,6 +1123,10 @@ function selectStandardTimelineEventRows(
     }),
   ];
   const fetchedTurns = new Set<string>();
+  const turnRowCap = Math.max(1, eventBudget);
+  let cappedSequenceStart: number | undefined;
+  let rowHeadroom = 2 * turnRowCap;
+  const cappedTurnIds = new Set<string>();
   rows = measureThreadTimelineStage(profile, "group-context-query", () => {
     let selectedRows = rows;
     for (;;) {
@@ -1057,13 +1140,41 @@ function selectStandardTimelineEventRows(
       ].filter((turnId) => !fetchedTurns.has(turnId));
       if (turnIds.length === 0) break;
       for (const turnId of turnIds) fetchedTurns.add(turnId);
+      const openTurns = selectOpenTimelineTurns(db, {
+        ...windowArgs,
+        sequenceStart: epochSequenceStart,
+        completedThroughSequence: maxSeq,
+        rowLimit: turnRowCap,
+        turnIds,
+      });
+      const completedTurnIds = turnIds.filter(
+        (turnId) => !openTurns.has(turnId),
+      );
+      for (const [turnId, openTurn] of openTurns) {
+        rowHeadroom = Math.min(rowHeadroom, openTurn.rowHeadroom);
+        const floor = openTurn.floor;
+        if (floor === undefined) continue;
+        cappedTurnIds.add(turnId);
+        cappedSequenceStart = Math.max(
+          cappedSequenceStart ?? sequenceStart,
+          floor,
+        );
+      }
       selectedRows = mergeStoredEventRowsById([
         ...selectedRows,
-        ...listStoredTimelineTurnEventRows(db, {
+        ...(completedTurnIds.length === 0
+          ? []
+          : listStoredTimelineTurnEventRows(db, {
+              ...windowArgs,
+              sequenceStart: epochSequenceStart,
+              beforeSequence: maxSeq + 1,
+              turnIds: completedTurnIds,
+            })),
+        ...listOpenTimelineTurnRows(db, {
           ...windowArgs,
-          sequenceStart: epochSequenceStart,
-          beforeSequence: maxSeq + 1,
-          turnIds,
+          epochSequenceStart,
+          maxSeq,
+          openTurns,
         }),
       ]);
       selectedRows = ensureTimelineWindowParentedRows(db, {
@@ -1089,6 +1200,7 @@ function selectStandardTimelineEventRows(
       }).filter((row) => row.sequence <= maxSeq);
     return selectedRows;
   });
+  const windowHasOlder = hasOlder || cappedSequenceStart !== undefined;
   const contextStart = rows.reduce(
     (start, row) => Math.min(start, row.sequence),
     sequenceStart,
@@ -1192,9 +1304,9 @@ function selectStandardTimelineEventRows(
           .map((row) => row.sequence),
       ),
       orderingBoundarySequence: groupingContext.orderingBoundarySequence,
-      ownedSequenceStart: sequenceStart,
+      ownedSequenceStart: cappedSequenceStart ?? sequenceStart,
       ownedSequenceEnd: beforeSequence,
-      hasOlderSegments: hasOlder,
+      hasOlderSegments: windowHasOlder,
       paginationPage:
         contentCursor === undefined ? page : { ...page, segmentLimit: 1 },
       rows: ensureTimelineWindowTurnStartedRows(db, {
@@ -1208,8 +1320,11 @@ function selectStandardTimelineEventRows(
         ]),
       }),
       strategy:
-        !hasOlder && page.kind === "latest" ? "full" : "standard-window",
+        !windowHasOlder && page.kind === "latest" ? "full" : "standard-window",
     },
+    cappedTurnIds,
+    maxRows: rows.length + rowHeadroom - 1,
+    windowSequenceStart: sequenceStart,
   };
 }
 

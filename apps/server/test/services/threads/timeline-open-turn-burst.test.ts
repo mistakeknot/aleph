@@ -259,12 +259,12 @@ function summarize(result: BurstResult): Record<string, number> {
 }
 
 describe("one large running turn under a mixed append burst", () => {
-  it("reuses the selection for item lifecycle appends instead of rebuilding it", () => {
+  it("reads a capped window and rebuilds only when a delta reopens an item below the floor", () => {
     const result = runBurst(false);
     console.log(`BURST_PER_APPEND ${JSON.stringify(summarize(result))}`);
-    expect(result.eventRowCountFirst).toBeGreaterThan(9_000);
+    expect(result.eventRowCountFirst).toBeLessThan(SEED_EVENTS / 3);
     expect(result.builds).toBe(MIXED_APPENDS + 1);
-    expect(result.fullRebuilds).toBe(0);
+    expect(result.fullRebuilds).toBe(1);
     expect(result.staleServed).toBe(0);
   }, 600_000);
 
@@ -272,7 +272,7 @@ describe("one large running turn under a mixed append burst", () => {
     const result = runBurst(true);
     console.log(`BURST_COALESCED ${JSON.stringify(summarize(result))}`);
     const burstMs = MIXED_APPENDS * APPEND_INTERVAL_MS + result.totalBuildMs;
-    expect(result.fullRebuilds).toBe(0);
+    expect(result.fullRebuilds).toBe(1);
     expect(result.builds).toBeLessThanOrEqual(Math.ceil(burstMs / 250) + 2);
     expect(result.builds).toBeLessThan(MIXED_APPENDS / 4);
     expect(result.staleServed).toBeGreaterThan(MIXED_APPENDS / 2);
