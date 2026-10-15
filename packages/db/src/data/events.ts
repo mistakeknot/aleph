@@ -3397,6 +3397,172 @@ export function findStoredTimelineOpenTurnRowFloor(
   return { floor: rowStart?.sequence, rowHeadroom };
 }
 
+const COMPLETED_TURN_TAIL_EVENT_TYPES = [
+  "item/started",
+  "item/completed",
+  "item/commandExecution/outputDelta",
+  "item/agentMessage/delta",
+  "turn/input/accepted",
+] as const;
+
+const COMPLETED_TURN_TAIL_ITEM_KINDS = [
+  "commandExecution",
+  "agentMessage",
+] as const;
+
+export interface StoredTimelineCompletedTurnTail {
+  firstItem: { beforeSequence: number; sequenceStart: number } | undefined;
+  leadInSequence: number;
+  summaryCount: number;
+}
+
+export interface StoredTimelineCompletedTurnSpan {
+  completedSequence: number;
+  startedSequence: number;
+}
+
+export function listStoredTimelineLongCompletedTurnSpans(
+  db: DbConnection,
+  args: {
+    completedThroughSequence: number;
+    rowLimit: number;
+    sequenceStart: number;
+    threadId: string;
+    turnIds: readonly string[];
+  },
+): Map<string, StoredTimelineCompletedTurnSpan> {
+  const spans = new Map<string, StoredTimelineCompletedTurnSpan>();
+  if (args.turnIds.length === 0) return spans;
+  const bounds = db
+    .select({
+      completedSequence: sql<
+        number | null
+      >`MIN(CASE WHEN ${events.type} = 'turn/completed' AND ${events.sequence} <= ${args.completedThroughSequence} THEN ${events.sequence} END)`,
+      startedSequence: sql<
+        number | null
+      >`MIN(CASE WHEN ${events.type} = 'turn/started' THEN ${events.sequence} END)`,
+      turnId: events.turnId,
+    })
+    .from(events)
+    .where(
+      and(
+        eq(events.threadId, args.threadId),
+        inArray(events.turnId, [...args.turnIds]),
+        inArray(events.type, ["turn/started", "turn/completed"]),
+      ),
+    )
+    .groupBy(events.turnId)
+    .all();
+  for (const { completedSequence, startedSequence, turnId } of bounds) {
+    if (
+      turnId === null ||
+      completedSequence === null ||
+      startedSequence === null ||
+      startedSequence < args.sequenceStart ||
+      completedSequence - startedSequence <= Math.max(1, args.rowLimit) + 1
+    ) {
+      continue;
+    }
+    spans.set(turnId, { completedSequence, startedSequence });
+  }
+  return spans;
+}
+
+export function findStoredTimelineCompletedTurnTail(
+  db: DbConnection,
+  args: FindStoredTimelineOpenTurnRowFloorArgs &
+    StoredTimelineCompletedTurnSpan,
+): StoredTimelineCompletedTurnTail | undefined {
+  const { completedSequence, startedSequence } = args;
+  const tailRow = and(
+    eq(events.turnId, args.turnId),
+    isNull(events.parentToolCallId),
+    inArray(events.type, [...COMPLETED_TURN_TAIL_EVENT_TYPES]),
+    or(
+      isNull(events.itemKind),
+      inArray(events.itemKind, [...COMPLETED_TURN_TAIL_ITEM_KINDS]),
+    ),
+  );
+  const tally = db
+    .select({
+      accepted: sql<number>`COUNT(CASE WHEN ${events.type} = 'turn/input/accepted' THEN 1 END)`,
+      foreign: sql<number>`COUNT(CASE WHEN ${tailRow} THEN NULL ELSE 1 END)`,
+      rowCount: sql<number>`COUNT(CASE WHEN ${events.turnId} = ${args.turnId} THEN 1 END)`,
+    })
+    .from(sql`${events} INDEXED BY events_thread_sequence_idx`)
+    .where(
+      and(
+        ...storedTimelineWindowConditions({
+          ...args,
+          beforeSequence: completedSequence,
+          sequenceStart: startedSequence + 1,
+        }),
+      ),
+    )
+    .get();
+  if (
+    tally === undefined ||
+    tally.rowCount <= Math.max(1, args.rowLimit) ||
+    tally.foreign > 0 ||
+    tally.accepted > 1
+  ) {
+    return undefined;
+  }
+  const items = db
+    .select({
+      itemId: sql<string | null>`${events.itemId}`,
+      itemKind: sql<string | null>`${events.itemKind}`,
+      sequence: sql<number>`${events.sequence}`,
+    })
+    .from(sql`${events} INDEXED BY events_thread_type_sequence_idx`)
+    .where(
+      and(
+        eq(events.threadId, args.threadId),
+        eq(events.type, "item/started"),
+        gt(events.sequence, startedSequence),
+        lt(events.sequence, completedSequence),
+        eq(events.turnId, args.turnId),
+        isNull(events.parentToolCallId),
+        ...(args.excludeDiagnosticEvents ? [isNotDiagnosticEvent] : []),
+      ),
+    )
+    .orderBy(events.sequence)
+    .all();
+  const terminalIndex = items
+    .map((item) => item.itemKind)
+    .lastIndexOf("agentMessage");
+  const leadIn = items[terminalIndex - 1];
+  if (
+    leadIn === undefined ||
+    leadIn.itemKind !== "commandExecution" ||
+    items
+      .slice(terminalIndex + 1)
+      .some((item) => item.itemKind !== "commandExecution") ||
+    new Set(items.map((item) => item.itemId)).size !== items.length ||
+    items.some(
+      (item, index) =>
+        item.itemId === null ||
+        (index > 0 &&
+          item.itemKind === "agentMessage" &&
+          items[index - 1]!.itemKind === "agentMessage"),
+    )
+  ) {
+    return undefined;
+  }
+  const secondItem = items[1];
+  return {
+    firstItem:
+      terminalIndex < 2 || secondItem === undefined
+        ? undefined
+        : {
+            beforeSequence: secondItem.sequence,
+            sequenceStart: items[0]!.sequence,
+          },
+    leadInSequence: leadIn.sequence,
+    summaryCount: terminalIndex,
+  };
+}
+
 export function listStoredTimelineTurnRangeEventRows(
   db: DbConnection,
   args: ListStoredTimelineWindowEventRowsArgs & { turnId: string },

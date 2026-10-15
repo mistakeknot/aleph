@@ -383,6 +383,8 @@ export {
   listStoredTimelineTurnRangeEventRows,
   listStoredTimelineItemEventRowsByItems,
   findStoredTimelineOpenTurnRowFloor,
+  findStoredTimelineCompletedTurnTail,
+  listStoredTimelineLongCompletedTurnSpans,
   listStoredTimelineThreadWindowEventRows,
   listTimelineRootWindowTurnIds,
   listStoredDelegatingItemRowsByItemIds,
@@ -439,6 +441,8 @@ export type {
   HasThreadCompletedAnyOtherTurnArgs,
   ListStoredTimelineWindowEventRowsArgs,
   StoredTimelineOpenTurnRowFloor,
+  StoredTimelineCompletedTurnSpan,
+  StoredTimelineCompletedTurnTail,
 } from "./events.js";
 
 export {

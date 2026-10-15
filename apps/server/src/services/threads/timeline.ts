@@ -83,6 +83,8 @@ import {
   listStoredClientTurnRequestRowsByKeys,
   listStoredEventRowsByParentToolCallIds,
   listItemEventSpansByItems,
+  findStoredTimelineCompletedTurnTail,
+  listStoredTimelineLongCompletedTurnSpans,
   findStoredTimelineOpenTurnRowFloor,
   listStoredTimelineItemEventRowsByItems,
   listStoredTimelineTurnRangeEventRows,
@@ -110,6 +112,7 @@ import type {
   InlineOutputCharLimit,
   ScopedItemRef,
   ListStoredTimelineWindowEventRowsArgs,
+  StoredTimelineCompletedTurnSpan,
   StoredTimelineOpenTurnRowFloor,
   StoredEventRow,
 } from "@bb/db";
@@ -1034,6 +1037,7 @@ function selectStandardTimelineEventRows(
   maxSeq: number,
   contentCursor: TimelineContentCursor | undefined,
   knownBudgetFloor: TimelineBudgetFloor | null,
+  collapseCompletedTurns: boolean,
   profile: ThreadTimelineBuildProfileAccumulator,
 ): StandardTimelineEventRowSelection {
   const decode: StoredEventDecoder = (row) =>
@@ -1127,6 +1131,7 @@ function selectStandardTimelineEventRows(
   let cappedSequenceStart: number | undefined;
   let rowHeadroom = 2 * turnRowCap;
   const cappedTurnIds = new Set<string>();
+  const completedTurnSummaryCounts = new Map<string, number>();
   rows = measureThreadTimelineStage(profile, "group-context-query", () => {
     let selectedRows = rows;
     for (;;) {
@@ -1147,9 +1152,52 @@ function selectStandardTimelineEventRows(
         rowLimit: turnRowCap,
         turnIds,
       });
-      const completedTurnIds = turnIds.filter(
-        (turnId) => !openTurns.has(turnId),
-      );
+      const completedTurnTails = new Map<
+        string,
+        StoredTimelineOpenTurnRowFloor
+      >();
+      const completedTurnFirstItems: StoredEventRow[] = [];
+      const longCompletedTurns = collapseCompletedTurns
+        ? listStoredTimelineLongCompletedTurnSpans(db, {
+            threadId: thread.id,
+            sequenceStart: epochSequenceStart,
+            completedThroughSequence: maxSeq,
+            rowLimit: turnRowCap,
+            turnIds: turnIds.filter((turnId) => !openTurns.has(turnId)),
+          })
+        : new Map<string, StoredTimelineCompletedTurnSpan>();
+      const completedTurnIds = turnIds.filter((turnId) => {
+        if (openTurns.has(turnId)) return false;
+        const span = longCompletedTurns.get(turnId);
+        const tail =
+          span === undefined
+            ? undefined
+            : findStoredTimelineCompletedTurnTail(db, {
+                ...windowArgs,
+                ...span,
+                sequenceStart: epochSequenceStart,
+                completedThroughSequence: maxSeq,
+                rowLimit: turnRowCap,
+                turnId,
+              });
+        if (tail === undefined) return true;
+        completedTurnTails.set(turnId, {
+          floor: tail.leadInSequence,
+          rowHeadroom,
+        });
+        if (tail.firstItem !== undefined) {
+          completedTurnFirstItems.push(
+            ...listStoredTimelineTurnRangeEventRows(db, {
+              ...windowArgs,
+              ...tail.firstItem,
+              turnId,
+            }),
+          );
+        }
+        completedTurnSummaryCounts.set(turnId, tail.summaryCount);
+        cappedTurnIds.add(turnId);
+        return false;
+      });
       for (const [turnId, openTurn] of openTurns) {
         rowHeadroom = Math.min(rowHeadroom, openTurn.rowHeadroom);
         const floor = openTurn.floor;
@@ -1176,6 +1224,13 @@ function selectStandardTimelineEventRows(
           maxSeq,
           openTurns,
         }),
+        ...listOpenTimelineTurnRows(db, {
+          ...windowArgs,
+          epochSequenceStart,
+          maxSeq,
+          openTurns: completedTurnTails,
+        }),
+        ...completedTurnFirstItems,
       ]);
       selectedRows = ensureTimelineWindowParentedRows(db, {
         threadId: thread.id,
@@ -1289,6 +1344,7 @@ function selectStandardTimelineEventRows(
     hints,
     fetchedTurnIds: fetchedTurns,
     selection: {
+      completedTurnSummaryCounts,
       headStateRows:
         page.kind === "latest"
           ? measureThreadTimelineStage(profile, "group-context-query", () =>
@@ -1414,6 +1470,8 @@ function buildThreadTimelineInternal(
   const profile = createThreadTimelineBuildProfileAccumulator();
   const includeNestedRows = options.includeNestedRows ?? false;
   const includeDiagnosticOperations = options.includeDiagnosticOperations;
+  const collapseCompletedTurns =
+    options.completedTurnDisplay === "collapse" && !includeNestedRows;
   const contextBoundarySeq = getLatestCompletedThreadContextClearSequence(db, {
     atOrBeforeSequence: snapshot.maxSeq,
     threadId: thread.id,
@@ -1433,6 +1491,7 @@ function buildThreadTimelineInternal(
       snapshot.maxSeq,
       contentCursor,
       knownBudgetFloor,
+      collapseCompletedTurns,
       profile,
     );
   const maxInlineOutputChars = options.maxInlineOutputChars;
@@ -1445,6 +1504,7 @@ function buildThreadTimelineInternal(
     maxInlineOutputChars !== null &&
     thread.status === "active"
       ? {
+          collapseCompletedTurns,
           epochSequenceStart: historySequenceStart,
           eventBudget: options.eventBudget,
           excludeDiagnosticEvents: !includeDiagnosticOperations,
@@ -1563,8 +1623,22 @@ function buildThreadTimelineInternal(
         },
       }),
   );
+  const completedTurnSummaryCounts = eventSelection.completedTurnSummaryCounts;
+  const summarizedTimelineRows =
+    completedTurnSummaryCounts === undefined ||
+    completedTurnSummaryCounts.size === 0
+      ? timeline.rows
+      : timeline.rows.map((row) => {
+          if (row.kind !== "turn") return row;
+          const summaryCount = completedTurnSummaryCounts.get(row.turnId);
+          return summaryCount === undefined ||
+            (row.id !== `${row.threadId}:${row.turnId}:turn` &&
+              row.id !== `${row.threadId}:${row.turnId}:turn:0`)
+            ? row
+            : { ...row, summaryCount };
+        });
   const projectedTimelineRows = orderTimelineRowsUsingContext(
-    timeline.rows.filter(
+    summarizedTimelineRows.filter(
       (row) =>
         !(
           row.kind === "system" &&

@@ -136,13 +136,16 @@ function workRows(turnId: string, events: number): RowSpec[] {
   return rows;
 }
 
-function seedGiantTurn(completed: boolean): RowSpec[] {
+function seedGiantTurn(
+  completed: boolean,
+  events = GIANT_TURN_EVENTS,
+): RowSpec[] {
   const rows: RowSpec[] = [
     ...turnOpening(1),
     ...workRows("turn-1", 200),
     { data: { status: "completed" }, turnId: "turn-1", type: "turn/completed" },
     ...turnOpening(2),
-    ...workRows("turn-2", GIANT_TURN_EVENTS),
+    ...workRows("turn-2", events),
   ];
   if (completed) {
     rows.push({
@@ -255,5 +258,31 @@ describe("one giant turn", () => {
     report("GIANT_TURN_COMPLETED", walked);
     expect(walked.pages).toBeLessThan(MAX_PAGES);
     expect(walked.latest.rows).toBeGreaterThan(0);
+    expect(walked.maxEventRowCount).toBeLessThan(2_000);
+  }, 600_000);
+
+  it("collapses a completed turn read from its tail like a full read", () => {
+    withTestThread((testThread) => {
+      appendRows(testThread, seedGiantTurn(true, 5_000));
+      const build = (eventBudget?: number) =>
+        buildRouteTimelinePage({
+          db: testThread.db,
+          eventBudget,
+          page: { kind: "latest", segmentLimit: 3 },
+          registry,
+          thread: testThread.thread,
+          variant: "default",
+        });
+      const bounded = build();
+      const full = build(1_000_000);
+      expect(bounded.profile.eventRowCount).toBeLessThan(
+        full.profile.eventRowCount / 2,
+      );
+      const boundedRows = bounded.response.rows;
+      expect(boundedRows.length).toBeGreaterThan(0);
+      expect(boundedRows).toEqual(
+        full.response.rows.slice(-boundedRows.length),
+      );
+    });
   }, 600_000);
 });

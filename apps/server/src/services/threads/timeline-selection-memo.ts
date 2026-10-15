@@ -16,6 +16,7 @@ import type { ThreadTimelinePageRequest } from "./timeline-pagination.js";
 export type ThreadTimelineEventSelectionStrategy = "full" | "standard-window";
 
 export interface TimelineEventRowSelection {
+  completedTurnSummaryCounts?: ReadonlyMap<string, number>;
   contextOnlyInterruptionSequences: ReadonlySet<number>;
   orderingBoundarySequence: number | null;
   ownedSequenceStart: number;
@@ -41,6 +42,7 @@ export interface TimelineBudgetFloor {
 }
 
 export interface LatestTimelineSelectionMemoArgs {
+  collapseCompletedTurns: boolean;
   epochSequenceStart: number;
   eventBudget: number;
   excludeDiagnosticEvents: boolean;
@@ -331,7 +333,9 @@ export function lookupLatestTimelineSelection(
     memo === undefined ||
     entry === undefined ||
     entry.generation !== generation ||
-    entry.dataVersion !== dataVersion
+    entry.dataVersion !== dataVersion ||
+    (!args.collapseCompletedTurns &&
+      (entry.selection.completedTurnSummaryCounts?.size ?? 0) > 0)
   ) {
     return miss;
   }
