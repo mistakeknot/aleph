@@ -3,6 +3,7 @@ import { PassThrough, Writable, type Readable } from "node:stream";
 import {
   experimental_isProviderBridgeRecording,
   experimental_killPortableProcess,
+  experimental_placeProviderChildInThreadScope,
   experimental_readBoundedLines,
   experimental_recordProviderChildIo,
   experimental_spawnPortableProcess,
@@ -125,6 +126,9 @@ export class PiRpcChild {
       stdio: ["pipe", "pipe", "pipe", "pipe", "pipe"],
     });
     experimental_recordProviderChildIo(this.child, {
+      threadId: args.recordThreadId,
+    });
+    experimental_placeProviderChildInThreadScope(this.child, {
       threadId: args.recordThreadId,
     });
     this.channelRecorder = createChannelRecorder(args.recordThreadId);
