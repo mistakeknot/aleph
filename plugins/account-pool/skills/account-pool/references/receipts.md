@@ -70,7 +70,9 @@ polls or sweeps cannot extend retention. Active and unsealed attempts keep their
 original expiry and are not evicted to make room. Clients must preserve terminal
 receipts promptly.
 Exhaustion rejects admission; malformed, oversized or truncated evidence cannot
-produce known usage. Unsupported inference routes invalidate admission. Metadata
+produce known usage. Stream events that carry no evidence (content deltas, pings,
+block boundaries) are recognized by a leading `type` member and not parsed further;
+any other event shape is parsed in full. Unsupported inference routes invalidate admission. Metadata
 (`models`, `count_tokens`) never creates billable model usage.
 The native Codex image generation/edit and alpha search routes are admitted as
 inference. Their unrecognized usage remains unknown and prevents accounting
