@@ -190,6 +190,7 @@ export {
   downloadedInstallerCommand as experimental_downloadedInstallerCommand,
   errorEnvelopeSchema,
   experimental_isProviderBridgeRecording,
+  experimental_placeProviderChildInThreadScope,
   experimental_recordProviderChildIo,
   extractResultText,
   fileReadPresentation as experimental_fileReadPresentation,

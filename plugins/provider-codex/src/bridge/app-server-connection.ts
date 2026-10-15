@@ -2,6 +2,7 @@ import type { ChildProcess } from "node:child_process";
 import { createInterface, type Interface } from "node:readline";
 import {
   experimental_killPortableProcess,
+  experimental_placeProviderChildInThreadScope,
   experimental_recordProviderChildIo,
   experimental_spawnPortableProcess,
 } from "@get-bb/plugin-sdk/provider-bridge";
@@ -127,6 +128,9 @@ export function createCodexAppServerConnection(
     stdio: ["pipe", "pipe", "pipe"],
   });
   experimental_recordProviderChildIo(child, {
+    threadId: options.recordThreadId,
+  });
+  experimental_placeProviderChildInThreadScope(child, {
     threadId: options.recordThreadId,
   });
 

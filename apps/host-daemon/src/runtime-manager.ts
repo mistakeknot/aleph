@@ -33,6 +33,7 @@ import {
   type HostWorkspace,
   type ProvisionWorkspaceArgs,
 } from "@bb/host-workspace";
+import { AGENT_CGROUP_ENV_NAMES } from "@bb/provider-bridge-protocol/bridge-kit";
 import {
   cleanupInjectedSkillStagingDirs,
   EMPTY_SKILL_CATALOG_HASH,
@@ -252,6 +253,12 @@ function providerProcessEnvFromShellEnv(
   const recordDir = process.env.BB_PROVIDER_BRIDGE_RECORD_DIR;
   if (recordDir) {
     env.BB_PROVIDER_BRIDGE_RECORD_DIR = recordDir;
+  }
+  for (const name of AGENT_CGROUP_ENV_NAMES) {
+    const value = process.env[name];
+    if (value) {
+      env[name] = value;
+    }
   }
   return Object.keys(env).length > 0 ? env : null;
 }
