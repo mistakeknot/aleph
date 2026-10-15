@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.45.0+aleph.0.6.3
+
+Aleph 0.6.3 is a patch on Aleph 0.6.2, on the same upstream bb 0.45.0
+base (`desktop-v0.45.0`, commit `129f62177`). It backports nine upstream bb
+performance fixes. None adds a server database migration; the workflows and
+side-chat plugins each add an index or table to their own databases.
+
+### Backported from upstream bb
+
+- **Timelines.** Settled rows over 1,000 characters leave their content out
+  of the timeline and `turn-summary-details` responses until the row is
+  expanded, and delegations load their child rows on expansion (#5240).
+- **Conversation outlines.** Updating an outline skips nested history
+  (#4718), and the outline can be filtered by role (#5240).
+- **Thread batches.** Latest thread state is read with one indexed lookup per
+  thread instead of repeated scans (#4931).
+- **Hot lookups and pruning.** Frequent lookups and pruning reuse prepared
+  queries (#5115).
+- **Background work.** Workflow queue claims wake on run and capacity changes
+  instead of polling every 250 ms (#5120), and side-chat cleanup is bounded by an indexed
+  pending-fork lookup (#5121).
+- **Diagnostics.** Opt-in server CPU profiles (#4751, #5112), and slow SQLite
+  log entries name the resource they read (#5116).
+
 ## 0.45.0+aleph.0.6.2
 
 Aleph 0.6.2 is a patch on Aleph 0.6.1, on the same upstream bb 0.45.0

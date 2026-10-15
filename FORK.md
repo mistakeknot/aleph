@@ -260,6 +260,13 @@ Beyond upstream, Aleph carries:
   the drift, fading and dimming are off under forced colors. Select it with
   `bb theme set dorcas`.
 
+- **Backported upstream performance fixes (0.6.3).** Nine upstream bb commits
+  cherry-picked ahead of the next sync: #4718, #4751, #4931, #5112, #5115,
+  #5116, #5120, #5121 and #5240. Each records its upstream commit in a
+  `(cherry picked from commit ...)` line; the next upstream merge brings the
+  same changes and should take upstream's side. #5240 keeps the fork's
+  timeline build coalescer in the timeline route.
+
 `git log --no-merges <upstream main>..HEAD` lists the carried commits.
 Upstream is merged into Aleph, not rebased, and each merge commit records its
 conflicts.
