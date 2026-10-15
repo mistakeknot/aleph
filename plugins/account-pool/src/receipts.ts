@@ -70,6 +70,82 @@ const usageSchema = z
   );
 type Usage = z.infer<typeof usageSchema>;
 
+const envelopeSchema = z.object({
+  type: z.string().optional(),
+  model: z.unknown().optional(),
+  usage: z.unknown().optional(),
+  response: z.unknown().optional(),
+  message: z.unknown().optional(),
+  status: z.string().optional(),
+  stop_reason: z.string().nullable().optional(),
+});
+const codexStartSchema = z.object({ model });
+const codexCompletedSchema = z.object({
+  status: z.literal("completed"),
+  model,
+  usage: z
+    .object({
+      input_tokens: count,
+      output_tokens: count,
+      total_tokens: count.optional(),
+      input_tokens_details: z
+        .object({ cached_tokens: count })
+        .strict()
+        .optional(),
+      output_tokens_details: z
+        .object({ reasoning_tokens: count })
+        .strict()
+        .optional(),
+    })
+    .strict(),
+});
+const claudeStartSchema = z.object({ model, usage: usageSchema });
+const claudeDeltaUsageSchema = z
+  .object({
+    input_tokens: count.optional(),
+    output_tokens: count,
+    output_tokens_details: thinkingDetails.optional(),
+    cache_read_input_tokens: count.optional(),
+    cache_creation_input_tokens: count.optional(),
+    iterations: z.unknown().optional(),
+    speed: z.unknown().optional(),
+    server_tool_use: z.unknown().optional(),
+  })
+  .strict()
+  .refine(
+    (usage) =>
+      (usage.output_tokens_details?.thinking_tokens ?? 0) <=
+      usage.output_tokens,
+  )
+  .transform(
+    ({
+      iterations: _iterations,
+      speed: _speed,
+      server_tool_use: _tools,
+      output_tokens_details: _details,
+      ...counts
+    }) => counts,
+  );
+
+const evidenceEvents = new Set([
+  "error",
+  "response.created",
+  "response.in_progress",
+  "response.completed",
+  "response.failed",
+  "response.incomplete",
+  "message_start",
+  "message_delta",
+  "message_stop",
+]);
+const leadingType =
+  /^\{[ \t\n\r]*"type"[ \t\n\r]*:[ \t\n\r]*"([A-Za-z0-9_.]+)"[ \t\n\r]*[,}]/u;
+
+function irrelevantEvent(data: string): boolean {
+  const type = leadingType.exec(data)?.[1];
+  return type !== undefined && !evidenceEvents.has(type);
+}
+
 export interface ReceiptHop {
   index: number;
   account_id: string;
@@ -274,17 +350,22 @@ export class ResponseEvidence {
       if (this.buffer.length > 1024 * 1024) throw new Error("oversized frame");
       if (!this.eventStream) return;
       this.buffer = this.buffer.replace(/\r\n/gu, "\n");
+      let start = 0;
       let end: number;
-      while ((end = this.buffer.indexOf("\n\n")) >= 0) {
-        const frame = this.buffer.slice(0, end);
-        this.buffer = this.buffer.slice(end + 2);
+      while ((end = this.buffer.indexOf("\n\n", start)) >= 0) {
+        const frame = this.buffer.slice(start, end);
+        start = end + 2;
         const data = frame
           .split("\n")
           .filter((line) => line.startsWith("data:"))
           .map((line) => line.slice(5).trimStart())
           .join("\n");
-        if (data && data !== "[DONE]") this.observe(JSON.parse(data));
+        if (!data || data === "[DONE]") continue;
+        if (this.terminal) throw new Error("event after terminal");
+        if (irrelevantEvent(data)) continue;
+        this.observe(JSON.parse(data));
       }
+      this.buffer = this.buffer.slice(start);
     } catch {
       this.invalid = true;
       this.buffer = "";
@@ -292,17 +373,7 @@ export class ResponseEvidence {
   }
 
   private observe(value: unknown): void {
-    const envelope = z
-      .object({
-        type: z.string().optional(),
-        model: z.unknown().optional(),
-        usage: z.unknown().optional(),
-        response: z.unknown().optional(),
-        message: z.unknown().optional(),
-        status: z.string().optional(),
-        stop_reason: z.string().nullable().optional(),
-      })
-      .parse(value);
+    const envelope = envelopeSchema.parse(value);
     if (this.terminal) throw new Error("event after terminal");
     if (
       envelope.type === "error" ||
@@ -317,7 +388,7 @@ export class ResponseEvidence {
           envelope.type ?? "",
         )
       ) {
-        const response = z.object({ model }).parse(envelope.response);
+        const response = codexStartSchema.parse(envelope.response);
         if (
           this.observedModel !== null &&
           this.observedModel !== response.model
@@ -327,27 +398,9 @@ export class ResponseEvidence {
         return;
       }
       if (this.eventStream && envelope.type !== "response.completed") return;
-      const response = z
-        .object({
-          status: z.literal("completed"),
-          model,
-          usage: z
-            .object({
-              input_tokens: count,
-              output_tokens: count,
-              total_tokens: count.optional(),
-              input_tokens_details: z
-                .object({ cached_tokens: count })
-                .strict()
-                .optional(),
-              output_tokens_details: z
-                .object({ reasoning_tokens: count })
-                .strict()
-                .optional(),
-            })
-            .strict(),
-        })
-        .parse(this.eventStream ? envelope.response : value);
+      const response = codexCompletedSchema.parse(
+        this.eventStream ? envelope.response : value,
+      );
       const cached = response.usage.input_tokens_details?.cached_tokens ?? 0;
       if (cached > response.usage.input_tokens)
         throw new Error("invalid cached subset");
@@ -377,40 +430,12 @@ export class ResponseEvidence {
       this.terminal = true;
     } else if (envelope.type === "message_start") {
       if (this.observedModel !== null) throw new Error("duplicate start");
-      const message = z
-        .object({ model, usage: usageSchema })
-        .parse(envelope.message);
+      const message = claudeStartSchema.parse(envelope.message);
       this.observedModel = message.model;
       this.usage = message.usage;
     } else if (envelope.type === "message_delta") {
       if (this.usage === null) throw new Error("missing start");
-      const update = z
-        .object({
-          input_tokens: count.optional(),
-          output_tokens: count,
-          output_tokens_details: thinkingDetails.optional(),
-          cache_read_input_tokens: count.optional(),
-          cache_creation_input_tokens: count.optional(),
-          iterations: z.unknown().optional(),
-          speed: z.unknown().optional(),
-          server_tool_use: z.unknown().optional(),
-        })
-        .strict()
-        .refine(
-          (usage) =>
-            (usage.output_tokens_details?.thinking_tokens ?? 0) <=
-            usage.output_tokens,
-        )
-        .transform(
-          ({
-            iterations: _iterations,
-            speed: _speed,
-            server_tool_use: _tools,
-            output_tokens_details: _details,
-            ...counts
-          }) => counts,
-        )
-        .parse(envelope.usage);
+      const update = claudeDeltaUsageSchema.parse(envelope.usage);
       if (update.output_tokens === undefined) throw new Error("missing output");
       this.usage = { ...this.usage, ...update };
       this.delta = true;
