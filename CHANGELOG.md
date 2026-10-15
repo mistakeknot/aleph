@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.45.0+aleph.0.6.2
+
+Aleph 0.6.2 is a patch on Aleph 0.6.1, on the same upstream bb 0.45.0
+base (`desktop-v0.45.0`, commit `129f62177`).
+
+### Aleph
+
+- **Dorcas theme.** Adds Dorcas, an OLED-friendly sibling of Thecla, on web,
+  desktop and mobile.
+- **Resting chrome.** With Dorcas, window chrome fades a minute after the last
+  input, and use inside embedded frames counts as activity.
+
 ## 0.45.0+aleph.0.6.1
 
 Aleph 0.6.1 is a patch on Aleph 0.6.0, on the same upstream bb 0.45.0

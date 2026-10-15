@@ -4,6 +4,10 @@ type ReleaseMeta = {
 };
 
 export const RELEASE_META: Record<string, ReleaseMeta> = {
+  "0.45.0+aleph.0.6.2": {
+    date: "October 15, 2026",
+    headline: "Aleph 0.6.2: the Dorcas theme and its resting chrome",
+  },
   "0.45.0+aleph.0.6.1": {
     date: "October 14, 2026",
     headline:
