@@ -548,3 +548,101 @@ describe("receipt failure boundaries", () => {
     });
   });
 });
+
+describe("stream evidence cost", () => {
+  const encoder = new TextEncoder();
+  const frame = (event: unknown) =>
+    "event: x\r\ndata: " + JSON.stringify(event) + "\r\n\r\n";
+  const claudeHop = (): ReceiptHop => ({
+    index: 1,
+    account_id: "account",
+    provider: "claude",
+    status: 200,
+    state: "active",
+    model: null,
+    usage: null,
+  });
+  const claudeStream = (tokens: number) => [
+    frame({
+      type: "message_start",
+      message: {
+        model: "actual",
+        usage: { input_tokens: 10, output_tokens: 1 },
+      },
+    }),
+    frame({ type: "content_block_start", index: 0 }),
+    frame({ type: "ping" }),
+    ...Array.from({ length: tokens }, (_, i) =>
+      frame({
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "text_delta", text: "token " + i },
+      }),
+    ),
+    frame({ type: "content_block_stop", index: 0 }),
+    frame({ type: "message_delta", usage: { output_tokens: tokens } }),
+    frame({ type: "message_stop" }),
+  ];
+
+  it("keeps the per-frame cost bounded on long streams", () => {
+    const frames = claudeStream(4000).map((text) => encoder.encode(text));
+    const run = () => {
+      const hop = claudeHop();
+      const evidence = new ResponseEvidence(hop, true, true);
+      const started = performance.now();
+      for (const bytes of frames) evidence.feed(bytes);
+      evidence.finish();
+      const elapsed = performance.now() - started;
+      expect(hop).toMatchObject({
+        state: "complete",
+        usage: { output_tokens: 4000 },
+      });
+      return elapsed;
+    };
+    run();
+    const best = Math.min(run(), run(), run());
+    expect((best * 1000) / frames.length).toBeLessThan(50);
+  });
+
+  it("decodes evidence across arbitrary chunk boundaries", () => {
+    const hop = claudeHop();
+    const evidence = new ResponseEvidence(hop, true, true);
+    const bytes = encoder.encode(claudeStream(20).join(""));
+    for (let i = 0; i < bytes.length; i += 7)
+      evidence.feed(bytes.subarray(i, i + 7));
+    evidence.finish();
+    expect(hop).toMatchObject({
+      state: "complete",
+      model: "actual",
+      usage: { input_tokens: 10, output_tokens: 20 },
+    });
+  });
+
+  it.each([
+    ["a content event after the terminal event", '{"type":"ping"}', "after"],
+    [
+      "an evidence event whose type is not the first member",
+      '{"index":0,"type":"error"}',
+      "before",
+    ],
+    [
+      "an evidence event with an escaped type name",
+      '{"type":"err\\u006fr"}',
+      "before",
+    ],
+    ["malformed JSON without a leading type", '{"index":0,', "before"],
+  ])("still fails closed on %s", (_name, data, position) => {
+    const hop = claudeHop();
+    const evidence = new ResponseEvidence(hop, true, true);
+    const frames = claudeStream(2);
+    frames.splice(
+      position === "after" ? frames.length : frames.length - 2,
+      0,
+      "data: " + data + "\n\n",
+    );
+    evidence.feed(encoder.encode(frames.join("")));
+    evidence.finish();
+    expect(hop.state).toBe("truncated");
+    expect(hop.usage).toBeNull();
+  });
+});
