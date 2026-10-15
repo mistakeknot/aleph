@@ -1012,6 +1012,39 @@ describe("RuntimeManager", () => {
     );
   });
 
+  it("forwards agent CPU isolation settings to provider processes", async () => {
+    vi.stubEnv("BB_AGENT_CGROUP", "systemd");
+    vi.stubEnv("BB_AGENT_CGROUP_SLICE", "agents.slice");
+    vi.stubEnv("BB_AGENT_CPU_WEIGHT", "30");
+    vi.stubEnv("BB_AGENT_CPU_QUOTA", "");
+    const provisionWorkspace = createProvisionWorkspaceMock("/tmp/env-1");
+    const createRuntime = vi.fn(() => createFakeRuntime());
+    const manager = new RuntimeManager({
+      provisionWorkspace,
+      createRuntime,
+      shellEnv: {
+        PATH: "/tmp/bb-bin:/usr/bin",
+        BB_AGENT_CPU_QUOTA: "100%",
+      },
+    });
+
+    await manager.ensureEnvironment({
+      environmentId: "env-1",
+      workspacePath: "/tmp/env-1",
+    });
+
+    expect(createRuntime).toHaveBeenCalledWith(
+      expect.objectContaining({
+        env: {
+          PATH: "/tmp/bb-bin:/usr/bin",
+          BB_AGENT_CGROUP: "systemd",
+          BB_AGENT_CGROUP_SLICE: "agents.slice",
+          BB_AGENT_CPU_WEIGHT: "30",
+        },
+      }),
+    );
+  });
+
   it("passes the resolved shell PATH to unmanaged workspace Git", async () => {
     const provisionWorkspace = createProvisionWorkspaceMock("/tmp/env-1");
     const manager = new RuntimeManager({
