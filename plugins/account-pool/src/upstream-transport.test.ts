@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import http from "node:http";
 import http2 from "node:http2";
 import { once } from "node:events";
+import type { LookupFunction } from "node:net";
 import type { Dispatcher } from "undici";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
@@ -178,6 +179,29 @@ it("does not replay an accepted POST whose response connection fails", async () 
     }),
   ).rejects.toThrow();
   expect(requests).toBe(1);
+});
+
+it("connects when the event loop stalls past the first address attempt", async () => {
+  const target = await upstream();
+  const port = new URL(target.url).port;
+  const lookup: LookupFunction = (_hostname, _options, callback) => {
+    callback(null, [
+      { address: "127.0.0.1", family: 4 },
+      { address: "::1", family: 6 },
+    ] as never);
+    process.nextTick(() => {
+      const stalledUntil = Date.now() + 400;
+      while (Date.now() < stalledUntil) {}
+    });
+  };
+  const transport = createUpstreamTransport({ lookup });
+  cleanups.push(transport.destroy);
+  const response = await transport.fetch(`http://upstream.test:${port}`, {
+    method: "POST",
+    body: "hello",
+  });
+  expect(await response.text()).toBe("OK");
+  expect(target.requests()).toBe(1);
 });
 
 it("does not expose arbitrary error messages or unrecognized codes", () => {
