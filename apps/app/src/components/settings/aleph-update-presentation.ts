@@ -80,6 +80,19 @@ export function isAlephWrapperManaged(status: {
   );
 }
 
+export function alephVisibleDetail(status: {
+  selection: AlephUpdateSelection;
+  detail: string | null;
+}): string | null {
+  if (
+    status.selection === "manifest-missing" &&
+    status.detail === ALEPH_NO_MANIFEST_PUBLISHED_DETAIL
+  ) {
+    return null;
+  }
+  return status.detail;
+}
+
 export const ALEPH_WRAPPER_LABEL = "Installed by the Aleph release wrapper";
 export const ALEPH_WRAPPER_NOTE =
   "New releases are installed on this machine by the release wrapper, not from this screen.";

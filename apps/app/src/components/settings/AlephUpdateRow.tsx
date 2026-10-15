@@ -19,6 +19,7 @@ import {
   alephCapabilityText,
   alephRunText,
   alephSelectionText,
+  alephVisibleDetail,
   isAlephWrapperManaged,
 } from "./aleph-update-presentation";
 
@@ -79,6 +80,7 @@ export function AlephUpdateRowView({
   onDismiss,
 }: AlephUpdateRowViewProps) {
   const wrapperManaged = isAlephWrapperManaged(status);
+  const visibleDetail = alephVisibleDetail(status);
   const selection = wrapperManaged
     ? { label: ALEPH_WRAPPER_LABEL, tone: "neutral" as const }
     : alephSelectionText(status.selection);
@@ -203,7 +205,7 @@ export function AlephUpdateRowView({
         ) : (
           <>
             <span>{alephCapabilityText(status.capability)}</span>
-            {status.detail === null ? null : <span>{status.detail}</span>}
+            {visibleDetail === null ? null : <span>{visibleDetail}</span>}
           </>
         )}
         {interrupt && (showUpdate || showRollback) ? (
