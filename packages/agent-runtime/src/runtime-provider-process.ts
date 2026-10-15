@@ -61,6 +61,7 @@ interface RuntimeProviderProcessManagerArgs {
   getNextRequestId: () => number;
   handleStdoutLine: (args: RuntimeProviderProcessLineArgs) => void;
   onProcessExit: AgentRuntimeOptions["onProcessExit"];
+  onProcessSpawn?: AgentRuntimeOptions["onProcessSpawn"];
   onProviderThreadDetached: (threadId: string) => void;
   onStderr: AgentRuntimeOptions["onStderr"];
   skillRoots: readonly AgentRuntimeSkillRoot[];
@@ -380,6 +381,11 @@ export class RuntimeProviderProcessManager {
       env,
     });
     const { child } = managed;
+    this.args.onProcessSpawn?.({
+      pid: child.pid,
+      processKey: args.processKey,
+      providerId: args.providerId,
+    });
     let finalizeExit: () => void = () => undefined;
     const exitFinalized = new Promise<void>((resolve) => {
       finalizeExit = resolve;

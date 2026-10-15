@@ -5,28 +5,33 @@ export const AGENT_CGROUP_ENV = "BB_AGENT_CGROUP";
 export const AGENT_CGROUP_SLICE_ENV = "BB_AGENT_CGROUP_SLICE";
 export const AGENT_CPU_WEIGHT_ENV = "BB_AGENT_CPU_WEIGHT";
 export const AGENT_CPU_QUOTA_ENV = "BB_AGENT_CPU_QUOTA";
+export const AGENT_MEMORY_HIGH_ENV = "BB_AGENT_MEMORY_HIGH";
 
 export const AGENT_CGROUP_ENV_NAMES = [
   AGENT_CGROUP_ENV,
   AGENT_CGROUP_SLICE_ENV,
   AGENT_CPU_WEIGHT_ENV,
   AGENT_CPU_QUOTA_ENV,
+  AGENT_MEMORY_HIGH_ENV,
 ] as const;
 
 export const DEFAULT_AGENT_SLICE = "bb_agents.slice";
 export const DEFAULT_AGENT_CPU_WEIGHT = 20;
 const MAX_CPU_WEIGHT = 10_000;
-const MAX_THREAD_ID_UNIT_CHARS = 64;
+const MAX_SCOPE_NAME_UNIT_CHARS = 64;
 const MAX_CONSECUTIVE_PLACEMENT_FAILURES = 3;
 const SYSTEMD_COMMAND_TIMEOUT_MS = 10_000;
 
 const SLICE_NAME_PATTERN = /^[A-Za-z0-9_:]+(?:-[A-Za-z0-9_:]+)*\.slice$/;
 const USER_MANAGER_SEGMENT_PATTERN = /^user@\d+\.service$/;
+const MEMORY_BYTES_PATTERN = /^[1-9]\d*[KMGT]?$/;
+const MEMORY_PERCENT_PATTERN = /^(?:[1-9]\d?|100)%$/;
 
 export interface AgentCgroupConfig {
   slice: string;
   cpuWeight: number;
   cpuQuota: string | null;
+  memoryHigh: string | null;
 }
 
 export function resolveAgentCgroupConfig(args: {
@@ -55,17 +60,38 @@ export function resolveAgentCgroupConfig(args: {
       ? rawQuota
       : null;
 
-  return { slice, cpuWeight, cpuQuota };
+  const rawMemoryHigh = args.env[AGENT_MEMORY_HIGH_ENV]?.trim() ?? "";
+  const memoryHigh =
+    MEMORY_BYTES_PATTERN.test(rawMemoryHigh) ||
+    MEMORY_PERCENT_PATTERN.test(rawMemoryHigh)
+      ? rawMemoryHigh
+      : null;
+
+  return { slice, cpuWeight, cpuQuota, memoryHigh };
+}
+
+export function agentProcessScopeUnitName(args: {
+  kind: string;
+  name: string;
+  pid: number;
+}): string {
+  const name = args.name
+    .replace(/[^A-Za-z0-9_]/g, "_")
+    .slice(0, MAX_SCOPE_NAME_UNIT_CHARS);
+  return name === ""
+    ? `bb-${args.kind}-${args.pid}.scope`
+    : `bb-${args.kind}-${name}-${args.pid}.scope`;
 }
 
 export function agentScopeUnitName(args: {
   pid: number;
   threadId: string;
 }): string {
-  const thread = args.threadId
-    .replace(/[^A-Za-z0-9_]/g, "_")
-    .slice(0, MAX_THREAD_ID_UNIT_CHARS);
-  return `bb-agent-${thread}-${args.pid}.scope`;
+  return agentProcessScopeUnitName({
+    kind: "agent",
+    name: args.threadId,
+    pid: args.pid,
+  });
 }
 
 export function ownSystemdUserUnit(procSelfCgroup: string): string | null {
@@ -90,6 +116,7 @@ export function agentSlicePropertyArgs(config: AgentCgroupConfig): string[] {
     config.slice,
     `CPUWeight=${config.cpuWeight}`,
     `CPUQuota=${config.cpuQuota ?? ""}`,
+    `MemoryHigh=${config.memoryHigh ?? "infinity"}`,
   ];
 }
 
@@ -137,13 +164,20 @@ export interface AgentCgroupPlacer {
     pid: number | undefined;
     threadId: string | null;
   }): Promise<void>;
+  placeInScope(args: {
+    pid: number | undefined;
+    processKind: string;
+    unit: string;
+  }): Promise<void>;
 }
 
 export function createAgentCgroupPlacer(args: {
   config: AgentCgroupConfig | null;
   deps: AgentCgroupDeps;
+  owner?: string;
 }): AgentCgroupPlacer {
   const { config, deps } = args;
+  const owner = args.owner ?? "this provider process";
   let disabled = false;
   let daemonUnit: Promise<string | null> | null = null;
   let consecutiveFailures = 0;
@@ -152,16 +186,14 @@ export function createAgentCgroupPlacer(args: {
     if (disabled) return;
     disabled = true;
     deps.warn(
-      `Agent CPU isolation is off for this provider process: ${reason}. Agents keep running in the host daemon's cgroup.`,
+      `Agent CPU isolation is off for ${owner}: ${reason}. Its child processes keep running in its own cgroup.`,
     );
   };
 
   const setUp = async (resolved: AgentCgroupConfig): Promise<string | null> => {
     const unit = ownSystemdUserUnit(deps.readOwnCgroup() ?? "");
     if (unit === null) {
-      disable(
-        "the provider process is not running under the systemd user manager",
-      );
+      disable("it is not running under the systemd user manager");
       return null;
     }
     try {
@@ -177,39 +209,52 @@ export function createAgentCgroupPlacer(args: {
     return unit;
   };
 
-  return {
-    async place({ pid, threadId }) {
-      if (config === null || disabled) return;
-      if (pid === undefined || threadId === null) return;
-      daemonUnit ??= setUp(config);
-      const bindsTo = await daemonUnit;
-      if (bindsTo === null || disabled) return;
+  const placeInScope: AgentCgroupPlacer["placeInScope"] = async ({
+    pid,
+    processKind,
+    unit,
+  }) => {
+    if (config === null || disabled || pid === undefined) return;
+    daemonUnit ??= setUp(config);
+    const bindsTo = await daemonUnit;
+    if (bindsTo === null || disabled) return;
 
-      try {
-        await deps.run(
-          "busctl",
-          startAgentScopeArgs({
-            bindsTo,
-            pid,
-            slice: config.slice,
-            unit: agentScopeUnitName({ pid, threadId }),
-          }),
-        );
-        consecutiveFailures = 0;
-      } catch (error) {
-        if (isMissingCommand(error)) {
-          disable("busctl is not available");
-          return;
-        }
-        if (!deps.isAlive(pid)) return;
-        consecutiveFailures += 1;
-        deps.warn(
-          `Could not move agent process ${pid} into ${config.slice} (${describeError(error)}).`,
-        );
-        if (consecutiveFailures >= MAX_CONSECUTIVE_PLACEMENT_FAILURES) {
-          disable(`${consecutiveFailures} placements in a row failed`);
-        }
+    try {
+      await deps.run(
+        "busctl",
+        startAgentScopeArgs({
+          bindsTo,
+          pid,
+          slice: config.slice,
+          unit,
+        }),
+      );
+      consecutiveFailures = 0;
+    } catch (error) {
+      if (isMissingCommand(error)) {
+        disable("busctl is not available");
+        return;
       }
+      if (!deps.isAlive(pid)) return;
+      consecutiveFailures += 1;
+      deps.warn(
+        `Could not move ${processKind} ${pid} into ${config.slice} (${describeError(error)}).`,
+      );
+      if (consecutiveFailures >= MAX_CONSECUTIVE_PLACEMENT_FAILURES) {
+        disable(`${consecutiveFailures} placements in a row failed`);
+      }
+    }
+  };
+
+  return {
+    placeInScope,
+    async place({ pid, threadId }) {
+      if (pid === undefined || threadId === null) return;
+      await placeInScope({
+        pid,
+        processKind: "agent process",
+        unit: agentScopeUnitName({ pid, threadId }),
+      });
     },
   };
 }
@@ -232,7 +277,7 @@ function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-const defaultDeps: AgentCgroupDeps = {
+export const defaultAgentCgroupDeps: AgentCgroupDeps = {
   isAlive(pid) {
     try {
       process.kill(pid, 0);
@@ -280,7 +325,7 @@ export function experimental_placeProviderChildInThreadScope(
       env: process.env,
       platform: process.platform,
     }),
-    deps: defaultDeps,
+    deps: defaultAgentCgroupDeps,
   });
   void defaultPlacer
     .place({ pid: child.pid, threadId: scope.threadId })
