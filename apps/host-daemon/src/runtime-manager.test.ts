@@ -1017,6 +1017,7 @@ describe("RuntimeManager", () => {
     vi.stubEnv("BB_AGENT_CGROUP_SLICE", "agents.slice");
     vi.stubEnv("BB_AGENT_CPU_WEIGHT", "30");
     vi.stubEnv("BB_AGENT_CPU_QUOTA", "");
+    vi.stubEnv("BB_AGENT_MEMORY_HIGH", "48G");
     const provisionWorkspace = createProvisionWorkspaceMock("/tmp/env-1");
     const createRuntime = vi.fn(() => createFakeRuntime());
     const manager = new RuntimeManager({
@@ -1040,10 +1041,46 @@ describe("RuntimeManager", () => {
           BB_AGENT_CGROUP: "systemd",
           BB_AGENT_CGROUP_SLICE: "agents.slice",
           BB_AGENT_CPU_WEIGHT: "30",
+          BB_AGENT_MEMORY_HIGH: "48G",
         },
       }),
     );
   });
+
+  it.skipIf(process.platform === "win32")(
+    "starts provider workers at the agent nice level",
+    async () => {
+      vi.stubEnv("BB_AGENT_NICE", "12");
+      const provisionWorkspace = createProvisionWorkspaceMock("/tmp/env-1");
+      const runtimeOptions: RuntimeOptionsRef = { current: null };
+      const manager = new RuntimeManager({
+        provisionWorkspace,
+        createRuntime: (options) => {
+          runtimeOptions.current = options;
+          return createFakeRuntime();
+        },
+      });
+      await manager.ensureEnvironment({
+        environmentId: "env-1",
+        workspacePath: "/tmp/env-1",
+      });
+      const worker = spawn(process.execPath, [
+        "-e",
+        "setTimeout(() => {}, 30000)",
+      ]);
+      try {
+        runtimeOptions.current?.onProcessSpawn?.({
+          pid: worker.pid,
+          processKey: "fake",
+          providerId: "fake",
+        });
+
+        expect(os.getPriority(worker.pid!)).toBeGreaterThanOrEqual(12);
+      } finally {
+        worker.kill();
+      }
+    },
+  );
 
   it("passes the resolved shell PATH to unmanaged workspace Git", async () => {
     const provisionWorkspace = createProvisionWorkspaceMock("/tmp/env-1");

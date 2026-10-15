@@ -45,6 +45,12 @@ export interface AgentRuntimeProcessExitThreadState {
   threadId: string;
 }
 
+export interface AgentRuntimeProcessSpawnInfo {
+  pid: number | undefined;
+  processKey: string;
+  providerId: string;
+}
+
 export interface AgentRuntimeProcessExitInfo {
   providerId: string;
   threads: AgentRuntimeProcessExitThreadState[];
@@ -84,6 +90,8 @@ export interface AgentRuntimeOptions {
   ) => Promise<PendingInteractionResolution>;
 
   onStderr?: (line: string, threadId?: string) => void;
+
+  onProcessSpawn?: (info: AgentRuntimeProcessSpawnInfo) => void;
 
   onProcessExit?: (info: AgentRuntimeProcessExitInfo) => void;
 

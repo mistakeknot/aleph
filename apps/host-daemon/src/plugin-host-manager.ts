@@ -18,6 +18,7 @@ import {
   sanitizeInheritedChildProcessEnv,
 } from "@bb/process-utils";
 import { lowerAgentProcessPriority } from "./agent-process-priority.js";
+import { placeAgentProcessInScope } from "./agent-process-scope.js";
 import type { HostDaemonLogger } from "./logger.js";
 import { ensureCachedPluginHostArtifact } from "./plugin-host-artifact-cache.js";
 import { runInSerialLane } from "./serial-lane.js";
@@ -482,6 +483,12 @@ export class PluginHostManager {
       logger: this.options.logger,
       pid: child.pid,
       processKind: "host-plugin-worker",
+    });
+    placeAgentProcessInScope({
+      logger: this.options.logger,
+      name: command.pluginId,
+      pid: child.pid,
+      processKind: "plugin-worker",
     });
     const closed = new Promise<void>((resolve) => child.once("close", resolve));
     void closed

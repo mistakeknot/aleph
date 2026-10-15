@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  agentProcessScopeUnitName,
   agentScopeUnitName,
   agentSlicePropertyArgs,
   createAgentCgroupPlacer,
@@ -19,6 +20,7 @@ const CONFIG: AgentCgroupConfig = {
   slice: DEFAULT_AGENT_SLICE,
   cpuWeight: DEFAULT_AGENT_CPU_WEIGHT,
   cpuQuota: null,
+  memoryHigh: null,
 };
 
 function enabled(env: NodeJS.ProcessEnv): AgentCgroupConfig | null {
@@ -52,14 +54,25 @@ describe("resolveAgentCgroupConfig", () => {
     expect(enabled({ BB_AGENT_CGROUP: " SystemD " })).toEqual(CONFIG);
   });
 
-  it("accepts a custom slice, weight and quota", () => {
+  it("accepts a custom slice, weight, quota and memory ceiling", () => {
     expect(
       enabled({
         BB_AGENT_CGROUP_SLICE: "agents.slice",
         BB_AGENT_CPU_WEIGHT: "50",
         BB_AGENT_CPU_QUOTA: "800%",
+        BB_AGENT_MEMORY_HIGH: "48G",
       }),
-    ).toEqual({ slice: "agents.slice", cpuWeight: 50, cpuQuota: "800%" });
+    ).toEqual({
+      slice: "agents.slice",
+      cpuWeight: 50,
+      cpuQuota: "800%",
+      memoryHigh: "48G",
+    });
+    for (const memoryHigh of ["1073741824", "512M", "2T", "75%", "100%"]) {
+      expect(enabled({ BB_AGENT_MEMORY_HIGH: memoryHigh })?.memoryHigh).toBe(
+        memoryHigh,
+      );
+    }
   });
 
   it("falls back to the defaults for invalid values", () => {
@@ -83,6 +96,46 @@ describe("resolveAgentCgroupConfig", () => {
     for (const quota of ["0%", "800", "8 cpus", "-1%", "1.5%"]) {
       expect(enabled({ BB_AGENT_CPU_QUOTA: quota })?.cpuQuota).toBe(null);
     }
+    for (const memoryHigh of [
+      "0",
+      "0G",
+      "48GB",
+      "48g",
+      "0%",
+      "101%",
+      "1.5G",
+      "-1G",
+      "infinity",
+    ]) {
+      expect(enabled({ BB_AGENT_MEMORY_HIGH: memoryHigh })?.memoryHigh).toBe(
+        null,
+      );
+    }
+  });
+});
+
+describe("agentProcessScopeUnitName", () => {
+  it("names one scope per daemon child process", () => {
+    expect(
+      agentProcessScopeUnitName({
+        kind: "provider-worker",
+        name: "codex",
+        pid: 4242,
+      }),
+    ).toBe("bb-provider-worker-codex-4242.scope");
+    expect(
+      agentProcessScopeUnitName({
+        kind: "plugin-worker",
+        name: "@acme/plugin.x",
+        pid: 7,
+      }),
+    ).toBe("bb-plugin-worker-_acme_plugin_x-7.scope");
+  });
+
+  it("leaves out an empty name", () => {
+    expect(
+      agentProcessScopeUnitName({ kind: "terminal", name: "", pid: 9 }),
+    ).toBe("bb-terminal-9.scope");
   });
 });
 
@@ -135,7 +188,7 @@ describe("ownSystemdUserUnit", () => {
 });
 
 describe("systemd command lines", () => {
-  it("configures the agent slice and clears an old quota when unset", () => {
+  it("configures the agent slice and clears old limits when unset", () => {
     expect(agentSlicePropertyArgs(CONFIG)).toEqual([
       "--user",
       "set-property",
@@ -143,10 +196,15 @@ describe("systemd command lines", () => {
       "bb_agents.slice",
       "CPUWeight=20",
       "CPUQuota=",
+      "MemoryHigh=infinity",
     ]);
-    expect(agentSlicePropertyArgs({ ...CONFIG, cpuQuota: "400%" }).at(-1)).toBe(
-      "CPUQuota=400%",
-    );
+    expect(
+      agentSlicePropertyArgs({
+        ...CONFIG,
+        cpuQuota: "400%",
+        memoryHigh: "48G",
+      }).slice(-2),
+    ).toEqual(["CPUQuota=400%", "MemoryHigh=48G"]);
   });
 
   it("adopts the agent into a scope bound to the daemon unit", () => {
@@ -285,7 +343,7 @@ describe("createAgentCgroupPlacer", () => {
 
     expect(calls.map((call) => call.command)).toEqual(["systemctl"]);
     expect(warnings).toEqual([
-      "Agent CPU isolation is off for this provider process: could not configure bb_agents.slice (Failed to connect to bus: No medium found). Agents keep running in the host daemon's cgroup.",
+      "Agent CPU isolation is off for this provider process: could not configure bb_agents.slice (Failed to connect to bus: No medium found). Its child processes keep running in its own cgroup.",
     ]);
   });
 
@@ -354,7 +412,7 @@ describe("createAgentCgroupPlacer", () => {
       "Could not move agent process 101 into bb_agents.slice (Access denied).",
       "Could not move agent process 102 into bb_agents.slice (Access denied).",
       "Could not move agent process 103 into bb_agents.slice (Access denied).",
-      "Agent CPU isolation is off for this provider process: 3 placements in a row failed. Agents keep running in the host daemon's cgroup.",
+      "Agent CPU isolation is off for this provider process: 3 placements in a row failed. Its child processes keep running in its own cgroup.",
     ]);
   });
 
@@ -376,5 +434,83 @@ describe("createAgentCgroupPlacer", () => {
 
     expect(warnings).toHaveLength(4);
     expect(warnings.join("\n")).not.toContain("isolation is off");
+  });
+
+  it("places a daemon child in the scope it is given", async () => {
+    const { calls, deps, warnings } = fakeDeps();
+    const placer = createAgentCgroupPlacer({
+      config: CONFIG,
+      deps,
+      owner: "the host daemon",
+    });
+
+    await placer.placeInScope({
+      pid: 301,
+      processKind: "provider-worker",
+      unit: "bb-provider-worker-codex-301.scope",
+    });
+    await placer.placeInScope({
+      pid: undefined,
+      processKind: "terminal",
+      unit: "bb-terminal-0.scope",
+    });
+
+    expect(calls.map((call) => call.command)).toEqual(["systemctl", "busctl"]);
+    expect(calls[1]?.args).toEqual(
+      startAgentScopeArgs({
+        bindsTo: "bb-host-daemon.service",
+        pid: 301,
+        slice: "bb_agents.slice",
+        unit: "bb-provider-worker-codex-301.scope",
+      }),
+    );
+    expect(warnings).toEqual([]);
+  });
+
+  it("names the owner and process kind in its warnings", async () => {
+    const { deps, warnings } = fakeDeps({
+      run: async (command) => {
+        if (command === "busctl") throw commandError(1, "Access denied");
+      },
+    });
+    const placer = createAgentCgroupPlacer({
+      config: CONFIG,
+      deps,
+      owner: "the host daemon",
+    });
+
+    for (let pid = 301; pid < 304; pid += 1) {
+      await placer.placeInScope({
+        pid,
+        processKind: "terminal",
+        unit: `bb-terminal-${pid}.scope`,
+      });
+    }
+
+    expect(warnings).toEqual([
+      "Could not move terminal 301 into bb_agents.slice (Access denied).",
+      "Could not move terminal 302 into bb_agents.slice (Access denied).",
+      "Could not move terminal 303 into bb_agents.slice (Access denied).",
+      "Agent CPU isolation is off for the host daemon: 3 placements in a row failed. Its child processes keep running in its own cgroup.",
+    ]);
+  });
+
+  it("binds agent scopes to the provider worker's own scope", async () => {
+    const { calls, deps } = fakeDeps({
+      readOwnCgroup: () =>
+        "0::/user.slice/user-1000.slice/user@1000.service/bb_agents.slice/bb-provider-worker-codex-301.scope\n",
+    });
+    const placer = createAgentCgroupPlacer({ config: CONFIG, deps });
+
+    await placer.place({ pid: 401, threadId: "thr_a" });
+
+    expect(calls[1]?.args).toEqual(
+      startAgentScopeArgs({
+        bindsTo: "bb-provider-worker-codex-301.scope",
+        pid: 401,
+        slice: "bb_agents.slice",
+        unit: "bb-agent-thr_a-401.scope",
+      }),
+    );
   });
 });
