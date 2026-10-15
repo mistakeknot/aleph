@@ -1,7 +1,18 @@
+import type { LookupFunction } from "node:net";
 import { EnvHttpProxyAgent } from "undici";
 
-export function createUpstreamTransport() {
-  const dispatcher = new EnvHttpProxyAgent({ allowH2: false });
+const CONNECT_ATTEMPT_TIMEOUT_MS = 5_000;
+
+export function createUpstreamTransport(
+  config: { lookup?: LookupFunction } = {},
+) {
+  const dispatcher = new EnvHttpProxyAgent({
+    allowH2: false,
+    connect: {
+      autoSelectFamilyAttemptTimeout: CONNECT_ATTEMPT_TIMEOUT_MS,
+      ...(config.lookup === undefined ? {} : { lookup: config.lookup }),
+    },
+  });
   const upstreamFetch: typeof fetch = (input, init) => {
     const options = { ...init, dispatcher };
     return fetch(input, options);
