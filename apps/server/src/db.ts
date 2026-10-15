@@ -16,6 +16,8 @@ type InitDbLogger = MigrationWarningLogger &
 
 interface InitDbOptions {
   dataDir?: string;
+  slowQueryThresholdMs?: number | (() => number);
+  slowQueryDiagnosticsEnabled?: () => boolean;
   logger?: InitDbLogger;
 }
 
@@ -25,6 +27,8 @@ export function initDb(
 ): DbConnection {
   const db = createConnection(databasePath, {
     slowQueryLogger: options.logger,
+    slowQueryThresholdMs: options.slowQueryThresholdMs,
+    slowQueryDiagnosticsEnabled: options.slowQueryDiagnosticsEnabled,
   });
   try {
     if (options.dataDir !== undefined && options.logger !== undefined) {
