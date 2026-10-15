@@ -771,6 +771,39 @@ describe("resolveSystemExecutionOptions", () => {
     );
   });
 
+  it("logs discovery for a disconnected host at debug with its host id", async () => {
+    await withTestHarness({}, async (harness) => {
+      const host = seedHost(harness.deps, {
+        id: "host-execution-options-disconnected",
+      });
+      const warn = vi.fn();
+      const debug = vi.fn();
+      harness.deps.logger = { ...harness.deps.logger, warn, debug };
+
+      const providers = await listSystemProviderInfos(harness.deps, {
+        hostId: host.id,
+      });
+
+      expect(providers.length).toBeGreaterThan(0);
+      expect(
+        warn.mock.calls.some(
+          ([, message]) =>
+            message === "Failed to resolve host for provider discovery",
+        ),
+      ).toBe(false);
+      const hostLookupLog = debug.mock.calls.find(
+        ([, message]) =>
+          message === "Failed to resolve host for provider discovery",
+      );
+      expect(hostLookupLog?.[0]).toMatchObject({
+        errorCode: "host_unavailable",
+        errorDetails: { reason: "disconnected" },
+        hostId: host.id,
+        environmentId: null,
+      });
+    });
+  });
+
   it("keeps custom models selectable when the provider model list fails to load", async () => {
     await withTestHarness(
       {

@@ -21,7 +21,10 @@ import {
   requireEnvironment,
 } from "../lib/entity-lookup.js";
 import { expectedFallbackErrorLogFields } from "../lib/error-log-fields.js";
-import { isSuspendedHostUnavailableError } from "../lib/lifecycle-api-errors.js";
+import {
+  isDisconnectedHostUnavailableError,
+  isSuspendedHostUnavailableError,
+} from "../lib/lifecycle-api-errors.js";
 import {
   createProviderListingBudget,
   type ProviderListingBudget,
@@ -254,8 +257,9 @@ function resolveSystemProviderInfosPlan(
   deps: LoggedWorkSessionDeps,
   query: ListSystemProviderInfosRequest = {},
 ): ResolveSystemProviderInfosPlanResult {
+  let hostId: string | null = null;
   try {
-    const hostId = resolveSystemLookupHostId(deps, query);
+    hostId = resolveSystemLookupHostId(deps, query);
     requireConnectedHostSession(deps, hostId);
     return {
       hostId,
@@ -269,11 +273,21 @@ function resolveSystemProviderInfosPlan(
     if (!canOmitProviderDiscoveryForError(error)) {
       throw error;
     }
+    // An offline host (a laptop asleep, a tunnel flap) is routine: the UI
+    // polls discovery for it and falls back to configured providers, so only
+    // unexpected lookup failures earn a warning.
     if (!isSuspendedHostUnavailableError(error)) {
-      deps.logger.warn(
-        expectedFallbackErrorLogFields(error),
-        "Failed to resolve host for provider discovery",
-      );
+      const fields = {
+        ...expectedFallbackErrorLogFields(error),
+        hostId,
+        environmentId: query.environmentId ?? null,
+      };
+      const message = "Failed to resolve host for provider discovery";
+      if (isDisconnectedHostUnavailableError(error)) {
+        deps.logger.debug(fields, message);
+      } else {
+        deps.logger.warn(fields, message);
+      }
     }
     return {
       hostId: null,
