@@ -1180,6 +1180,7 @@ bb pool account add --provider claude --import
 bb pool account add --provider codex --import
 printf '%s\n' "$ANTHROPIC_API_KEY" | bb pool account add --provider claude --api-key-stdin [--label <text>] [--priority <n>]
 bb pool account refresh <id>
+bb pool switches [--limit <n>] [--json]
 ```
 
 The Claude login start command creates a ten-minute in-memory PKCE session,

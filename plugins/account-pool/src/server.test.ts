@@ -25,6 +25,7 @@ import {
   routedThreadStatusListSchema,
   statusReportSchema,
   statusSchema,
+  switchLogEntrySchema,
   type AccountSummary,
 } from "./contracts.js";
 import { z } from "zod";
@@ -4532,6 +4533,36 @@ describe("Account Pool plugin", () => {
         await expectAccount("sk-first");
         exhausted.add("sk-first");
         await expectAccount("sk-second");
+        const switches = z.array(switchLogEntrySchema).parse(
+          await fixture.host.harness.behavior.callRpc("switches.list", {
+            limit: 10,
+          }),
+        );
+        expect(switches).toHaveLength(1);
+        expect(switches[0]).toMatchObject({
+          provider,
+          switchedAt: now,
+          reason: "limit_reached",
+          fromUsagePercent: provider === "claude" ? null : 100,
+        });
+        expect(switches[0]?.fromAccountId).not.toBe(switches[0]?.toAccountId);
+        expect(Object.keys(switches[0] ?? {}).sort()).toEqual([
+          "fromAccountId",
+          "fromLabel",
+          "fromUsagePercent",
+          "id",
+          "provider",
+          "reason",
+          "switchedAt",
+          "toAccountId",
+          "toLabel",
+          "toUsagePercent",
+        ]);
+        for (const secret of ["sk-first"])
+          expect(JSON.stringify(switches)).not.toContain(secret);
+        expect(JSON.stringify(switches)).not.toMatch(
+          /token|secret|refresh|apiKey/i,
+        );
         await expectAccount("sk-second");
         now += 60_000;
         exhausted.delete("sk-first");

@@ -151,13 +151,14 @@ export function createAccountPoolPlugin(
     const db = bb.storage.database();
     bb.storage.migrate(db, QUOTA_MIGRATIONS);
     const quotas = new QuotaStore(db);
+    const affinity = new PoolAffinityStore(db);
     const transport =
       options.fetch === undefined ? createUpstreamTransport() : null;
     const upstreamFetch = options.fetch ?? transport?.fetch;
     const hub = createHub({
       accounts,
       quotas,
-      affinity: new PoolAffinityStore(db),
+      affinity,
       hubTokens,
       getSettings: () => currentSettings,
       fetch: upstreamFetch,
@@ -221,6 +222,7 @@ export function createAccountPoolPlugin(
       () => bb.realtime.publish(ACCOUNT_POOL_ACCOUNTS_CHANGED, {}),
       (accountId) => hub.refreshUsage(accountId, true),
       parentStatus,
+      affinity,
     );
     const login = new ClaudeOAuthLogin({
       fetch: upstreamFetch,

@@ -73,6 +73,34 @@ export interface AccountPoolConfigController {
 
 export const providerSchema = z.enum(["claude", "codex"]);
 export type PoolProvider = z.infer<typeof providerSchema>;
+export const switchReasonSchema = z.enum([
+  "threshold_crossed",
+  "limit_reached",
+  "account_unavailable",
+  "manual",
+  "other",
+]);
+export type SwitchReason = z.infer<typeof switchReasonSchema>;
+
+export const switchLogEntrySchema = z
+  .object({
+    id: z.number().int(),
+    switchedAt: z.number().int(),
+    provider: z.enum(["claude", "codex"]),
+    fromAccountId: z.string(),
+    fromLabel: z.string().nullable(),
+    toAccountId: z.string(),
+    toLabel: z.string().nullable(),
+    reason: switchReasonSchema,
+    fromUsagePercent: z.number().nullable(),
+    toUsagePercent: z.number().nullable(),
+  })
+  .strict();
+export type SwitchLogEntry = z.infer<typeof switchLogEntrySchema>;
+export const switchLogInputSchema = z
+  .object({ limit: z.number().int().min(1).max(500).default(50) })
+  .strict();
+
 export const accountKindSchema = z.enum(["oauth", "api-key"]);
 export const modelFamilySchema = z.enum([
   "fable",

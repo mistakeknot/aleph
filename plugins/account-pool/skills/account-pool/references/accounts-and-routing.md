@@ -19,6 +19,7 @@ bb pool account priority <id> <n>
 bb pool account reorder <claude|codex> <id>...
 bb pool account refresh <id>
 bb pool status [--json]
+bb pool switches [--limit <n>] [--json]
 bb pool routing <claude|codex> [--off]
 bb pool config
 bb pool config set <anthropicUpstreamBaseUrl|codexUpstreamBaseUrl|switchThreshold|parentMode> <value>
@@ -62,7 +63,7 @@ enable and every five minutes while an account is idle. When a request finds no
 eligible account, the pool first refreshes the OAuth accounts it considers
 exhausted, at most once every 30 seconds per account, so a plan upgrade or an
 early reset takes effect on the next turn. Use
-`bb pool account refresh <id>` to request an immediate refresh for one account.
+`bb pool account refresh <id>` to request an immediate refresh for one account. `bb pool switches` lists recent changes of the active account with time, from and to account, reason (`threshold_crossed`, `limit_reached`, `account_unavailable`, `manual`, `other`) and usage percent of both accounts; it never includes credentials.
 For an OAuth account in error, `refresh` also forces a new token with the stored
 refresh token and clears the error when that succeeds, so a spurious error does
 not require logging in again.

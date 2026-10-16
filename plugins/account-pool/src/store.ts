@@ -11,6 +11,8 @@ import {
   hubTokenSummarySchema,
   providerSchema,
   quotaSchema,
+  switchReasonSchema,
+  type SwitchLogEntry,
   type Account,
   type AccountQuota,
   type AccountSecret,
@@ -665,6 +667,21 @@ const activeAccountRowSchema = z.object({
   account_id: z.string().uuid(),
 });
 
+const MAX_SWITCH_LOG_ROWS = 1000;
+
+const switchLogRowSchema = z.object({
+  id: z.number().int(),
+  switched_at: z.number().int(),
+  provider: providerSchema,
+  from_account_id: z.string(),
+  from_label: z.string().nullable(),
+  to_account_id: z.string(),
+  to_label: z.string().nullable(),
+  reason: switchReasonSchema,
+  from_usage_percent: z.number().nullable(),
+  to_usage_percent: z.number().nullable(),
+});
+
 export interface AccountBinding {
   accountId: string;
   lastUsedAt: number;
@@ -723,6 +740,51 @@ export class PoolAffinityStore {
       .run(key);
   }
 
+  recordSwitch(entry: Omit<SwitchLogEntry, "id">): void {
+    this.db
+      .prepare(
+        `INSERT INTO pool_switch_log (switched_at, provider, from_account_id, from_label, to_account_id, to_label, reason, from_usage_percent, to_usage_percent)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        entry.switchedAt,
+        entry.provider,
+        entry.fromAccountId,
+        entry.fromLabel,
+        entry.toAccountId,
+        entry.toLabel,
+        entry.reason,
+        entry.fromUsagePercent,
+        entry.toUsagePercent,
+      );
+    this.db
+      .prepare(
+        "DELETE FROM pool_switch_log WHERE id <= (SELECT MAX(id) FROM pool_switch_log) - ?",
+      )
+      .run(MAX_SWITCH_LOG_ROWS);
+  }
+
+  listSwitches(limit: number): SwitchLogEntry[] {
+    return this.db
+      .prepare("SELECT * FROM pool_switch_log ORDER BY id DESC LIMIT ?")
+      .all(limit)
+      .map((raw) => {
+        const row = switchLogRowSchema.parse(raw);
+        return {
+          id: row.id,
+          switchedAt: row.switched_at,
+          provider: row.provider,
+          fromAccountId: row.from_account_id,
+          fromLabel: row.from_label,
+          toAccountId: row.to_account_id,
+          toLabel: row.to_label,
+          reason: row.reason,
+          fromUsagePercent: row.from_usage_percent,
+          toUsagePercent: row.to_usage_percent,
+        };
+      });
+  }
+
   putActiveAccount(provider: PoolProvider, accountId: string): void {
     this.db
       .prepare(
@@ -761,4 +823,16 @@ export const QUOTA_MIGRATIONS = [
   )`,
   `ALTER TABLE account_quota ADD COLUMN extra_usage_json TEXT NOT NULL DEFAULT 'null'`,
   `ALTER TABLE account_quota ADD COLUMN usage_restriction_json TEXT NOT NULL DEFAULT 'null'`,
+  `CREATE TABLE pool_switch_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    switched_at INTEGER NOT NULL,
+    provider TEXT NOT NULL,
+    from_account_id TEXT NOT NULL,
+    from_label TEXT,
+    to_account_id TEXT NOT NULL,
+    to_label TEXT,
+    reason TEXT NOT NULL,
+    from_usage_percent REAL,
+    to_usage_percent REAL
+  )`,
 ];
