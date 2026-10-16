@@ -119,7 +119,7 @@ export function recordDeliveredChildOutput(args: {
   lastDeliveredChildOutputByKey.set(key, args.finalText);
   evictOldest(lastDeliveredChildOutputByKey, MAX_DELIVERED_TURN_KEYS);
   if (args.turnId) {
-    reserveDeliveredChildTurn(args, args.turnId);
+    commitDeliveredChildTurn(args, args.turnId);
   }
 }
 
@@ -144,15 +144,29 @@ function evictOldest<T>(
 }
 
 /**
- * Marks a completed turn as delivered (or in flight) before delivery is
- * awaited, so an overlapping flush cannot deliver the same completion twice.
- * Call `releaseDeliveredChildTurn` if delivery fails so it can retry.
+ * Turns whose delivery is in flight. Never evicted by the cap: they are
+ * released on completion (moved to delivered history) or on failure.
+ */
+const pendingCompletedTurnKeys = new Set<string>();
+
+/**
+ * Marks a completed turn as in flight before delivery is awaited, so an
+ * overlapping flush cannot deliver the same completion twice. Call
+ * `releaseDeliveredChildTurn` if delivery fails so it can retry.
  */
 export function reserveDeliveredChildTurn(
   args: { childThreadId: string; parentThreadId: string },
   turnId: string,
 ): void {
+  pendingCompletedTurnKeys.add(deliveredTurnKey(args, turnId));
+}
+
+function commitDeliveredChildTurn(
+  args: { childThreadId: string; parentThreadId: string },
+  turnId: string,
+): void {
   const key = deliveredTurnKey(args, turnId);
+  pendingCompletedTurnKeys.delete(key);
   deliveredCompletedTurnKeys.delete(key);
   deliveredCompletedTurnKeys.add(key);
   evictOldest(deliveredCompletedTurnKeys, MAX_DELIVERED_TURN_KEYS);
@@ -162,19 +176,23 @@ export function releaseDeliveredChildTurn(
   args: { childThreadId: string; parentThreadId: string },
   turnId: string,
 ): void {
-  deliveredCompletedTurnKeys.delete(deliveredTurnKey(args, turnId));
+  pendingCompletedTurnKeys.delete(deliveredTurnKey(args, turnId));
 }
 
 export function hasDeliveredChildTurn(
   args: { childThreadId: string; parentThreadId: string },
   turnId: string,
 ): boolean {
-  return deliveredCompletedTurnKeys.has(deliveredTurnKey(args, turnId));
+  const key = deliveredTurnKey(args, turnId);
+  return (
+    pendingCompletedTurnKeys.has(key) || deliveredCompletedTurnKeys.has(key)
+  );
 }
 
 export function clearDeliveredChildOutputForTesting(): void {
   lastDeliveredChildOutputByKey.clear();
   deliveredCompletedTurnKeys.clear();
+  pendingCompletedTurnKeys.clear();
 }
 
 /**
@@ -235,10 +253,7 @@ export function decideParentWake(
   if (args.turnStatus !== "completed") {
     return { wake: true };
   }
-  if (
-    args.turnId &&
-    deliveredCompletedTurnKeys.has(deliveredTurnKey(args, args.turnId))
-  ) {
+  if (args.turnId && hasDeliveredChildTurn(args, args.turnId)) {
     return { wake: false, reason: "duplicate-turn" };
   }
   if (args.notify === "all") {

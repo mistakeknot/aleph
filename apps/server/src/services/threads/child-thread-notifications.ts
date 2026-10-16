@@ -410,7 +410,24 @@ function selectWakingChildThreadTurnNotificationItems(
   },
 ): ChildThreadTurnNotificationBatchItem[] {
   const notify = resolveParentWakeNotifySetting();
-  return args.items.filter((item) => {
+  const selected: ChildThreadTurnNotificationBatchItem[] = [];
+  try {
+    for (const item of args.items) {
+      if (isWakingItem(item)) {
+        selected.push(item);
+      }
+    }
+  } catch (error) {
+    // Release every reservation this invocation acquired before rethrowing.
+    releaseReservedChildThreadTurnNotificationItems({
+      items: selected,
+      parentThreadId: args.parentThreadId,
+    });
+    throw error;
+  }
+  return selected;
+
+  function isWakingItem(item: ChildThreadTurnNotificationBatchItem): boolean {
     const selfInitiated =
       item.turnId !== null &&
       isChildTurnSelfInitiated(deps, {
@@ -441,7 +458,7 @@ function selectWakingChildThreadTurnNotificationItems(
       );
     }
     return decision.wake;
-  });
+  }
 }
 
 function releaseReservedChildThreadTurnNotificationItems(args: {
@@ -494,15 +511,15 @@ async function flushChildThreadTurnNotificationBatch(
   }
   childThreadTurnNotificationBatches.delete(parentThreadId);
 
-  const items = selectWakingChildThreadTurnNotificationItems(deps, {
-    items: batch.items,
-    parentThreadId,
-  });
-  if (items.length === 0) {
-    return;
-  }
-
+  let items: ChildThreadTurnNotificationBatchItem[] = [];
   try {
+    items = selectWakingChildThreadTurnNotificationItems(deps, {
+      items: batch.items,
+      parentThreadId,
+    });
+    if (items.length === 0) {
+      return;
+    }
     const queued = await queueParentSystemMessage(deps, {
       input: buildChildThreadTurnStatusBatchInput({
         items,

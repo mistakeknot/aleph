@@ -15,6 +15,7 @@ import {
   hasDeliveredChildTurn,
   MAX_DELIVERED_TURN_KEYS,
   recordDeliveredChildOutput,
+  reserveDeliveredChildTurn,
 } from "../../src/services/threads/parent-wake-policy.js";
 import {
   seedEnvironment,
@@ -1006,6 +1007,72 @@ describe("parent wake policy", () => {
       true,
     );
   });
+
+  it("keeps an in-flight reservation when delivered history overflows the cap", () => {
+    const pair = { childThreadId: "child", parentThreadId: "parent" };
+    reserveDeliveredChildTurn(pair, "in-flight");
+    for (let i = 0; i < MAX_DELIVERED_TURN_KEYS + 5; i += 1) {
+      recordDeliveredChildOutput({ ...pair, finalText: "x", turnId: `t${i}` });
+    }
+    expect(hasDeliveredChildTurn(pair, "in-flight")).toBe(true);
+  });
+
+  it("releases earlier reservations when selection throws on a later item", async () => {
+    await withTestHarness(async (harness) => {
+      const fixture = seedParentFixture(harness, "host-selection-fault");
+      const makeChild = (title: string) =>
+        seedThread(harness.deps, {
+          projectId: fixture.projectId,
+          title,
+          parentThreadId: fixture.parentThreadId,
+        });
+      const good = makeChild("Good");
+      const bad = makeChild("Bad");
+      for (const child of [good, bad]) {
+        seedChildTurnRequest(harness, {
+          childThreadId: child.id,
+          turnId: "turn-1",
+          initiator: "user",
+          senderThreadId: null,
+        });
+        seedChildFinalOutput(harness, {
+          childThreadId: child.id,
+          turnId: "turn-1",
+          text: "Done",
+        });
+      }
+      // Corrupt the second child's request row so parsing it throws.
+      harness.deps.db
+        .update(events)
+        .set({ data: "not json" })
+        .where(
+          and(
+            eq(events.threadId, bad.id),
+            eq(events.type, "client/turn/requested"),
+          ),
+        )
+        .run();
+      for (const child of [good, bad]) {
+        await queueChildThreadTurnNotificationBestEffort(harness.deps, {
+          childThread: child,
+          parentThreadId: fixture.parentThreadId,
+          turnId: "turn-1",
+          turnStatus: "completed",
+        });
+      }
+      await new Promise((resolve) => setTimeout(resolve, 2_600));
+
+      expect(
+        hasDeliveredChildTurn(
+          {
+            childThreadId: good.id,
+            parentThreadId: fixture.parentThreadId,
+          },
+          "turn-1",
+        ),
+      ).toBe(false);
+    });
+  }, 10_000);
 
   it("does not wake the parent for a self-initiated turn of an archived child", async () => {
     await withTestHarness(async (harness) => {
