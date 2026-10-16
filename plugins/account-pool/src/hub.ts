@@ -29,6 +29,8 @@ import {
   isSharedQuotaExhausted,
   isUsageRestricted,
   retryAfterMilliseconds,
+  switchReason,
+  usagePercent,
 } from "./quota.js";
 import type {
   AccountBinding,
@@ -1077,6 +1079,13 @@ export class AccountPoolHub {
       (bound === undefined ||
         bound.account.id === selected.account.id ||
         (binding === routing.binding && attempted.has(bound.account.id)));
+    const fromAccount = accounts.find(({ id }) => id === active?.accountId);
+    const fromQuota = this.options.quotas.get(active.accountId);
+    const switchEntry = {
+      fromAccount,
+      fromQuota,
+      reason: switchReason(fromAccount, fromQuota, family, threshold, now),
+    };
     const advance =
       !familyDetour(active.accountId) &&
       (activeAccount === undefined ||
@@ -1097,6 +1106,24 @@ export class AccountPoolHub {
         }
         if (advance && this.activeAccounts.get(provider) === active) {
           this.options.affinity.putActiveAccount(provider, selected.account.id);
+          if (active.accountId !== selected.account.id) {
+            const switchedAt = this.options.now();
+            this.options.affinity.recordSwitch({
+              switchedAt,
+              provider,
+              fromAccountId: active.accountId,
+              fromLabel: switchEntry.fromAccount?.label ?? null,
+              toAccountId: selected.account.id,
+              toLabel: selected.account.label,
+              reason: switchEntry.reason,
+              fromUsagePercent: usagePercent(
+                switchEntry.fromQuota,
+                family,
+                switchedAt,
+              ),
+              toUsagePercent: usagePercent(selected.quota, family, switchedAt),
+            });
+          }
           this.activeAccounts.set(provider, { accountId: selected.account.id });
         }
       },

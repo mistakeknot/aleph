@@ -22,6 +22,7 @@ import {
   parentModeSchema,
   tokenRotateInputSchema,
   routingSetInputSchema,
+  switchLogInputSchema,
   type AccountPoolConfig,
   type AccountPoolConfigController,
   type AccountPoolConfigSetInput,
@@ -32,6 +33,7 @@ import {
   type PoolStatus,
   type PoolStatusReport,
   type PoolProvider,
+  type SwitchLogEntry,
 } from "./contracts.js";
 import type { PoolOperations } from "./operations.js";
 import type { ClaudeOAuthLogin } from "./oauth-login.js";
@@ -172,6 +174,13 @@ function formatAccounts(accounts: readonly AccountSummary[]): string {
       ].join("\t"),
     ),
   ].join("\n");
+}
+
+function formatSwitch(row: SwitchLogEntry): string {
+  const percent = (value: number | null) =>
+    value === null ? "n/a" : `${value}%`;
+  const name = (label: string | null, id: string) => label ?? id;
+  return `${new Date(row.switchedAt).toISOString()} ${row.provider} ${name(row.fromLabel, row.fromAccountId)} (${percent(row.fromUsagePercent)}) -> ${name(row.toLabel, row.toAccountId)} (${percent(row.toUsagePercent)}) reason=${row.reason}`;
 }
 
 function formatStatus(status: PoolStatusReport): string {
@@ -753,6 +762,37 @@ export function registerPoolCli(
                 stdout: input.options.json
                   ? json(status)
                   : `${formatStatus(status)}\n`,
+              };
+            }),
+        }),
+        switches: cliCommand({
+          summary:
+            "Show recent changes of the active account, with the reason and usage at the time",
+          suggestFor: ["switch", "history", "log"],
+          options: {
+            limit: {
+              type: "integer",
+              min: 1,
+              max: 500,
+              default: 50,
+              placeholder: "n",
+              description: "Number of most recent switches to show",
+            },
+            json: JSON_OPTION,
+          },
+          run: (input) =>
+            attempt(async () => {
+              const { limit } = switchLogInputSchema.parse({
+                limit: input.options.limit,
+              });
+              const rows = operations.switchLog(limit);
+              return {
+                exitCode: 0,
+                stdout: input.options.json
+                  ? json(rows)
+                  : rows.length === 0
+                    ? "No account switches recorded.\n"
+                    : `${rows.map(formatSwitch).join("\n")}\n`,
               };
             }),
         }),
