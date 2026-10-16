@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { connect, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -16,8 +16,14 @@ const packageRoot = resolve(__dirname, "..");
 const tempRoots: string[] = [];
 const trackedPids: number[] = [];
 
-function createFakeStdin(): EventEmitter & { resume(): void } {
-  return Object.assign(new EventEmitter(), { resume: vi.fn() });
+function createFakeStdin(): EventEmitter & {
+  resume(): void;
+  unref(): void;
+} {
+  return Object.assign(new EventEmitter(), {
+    resume: vi.fn(),
+    unref: vi.fn(),
+  });
 }
 
 function isAlive(pid: number): boolean {
@@ -74,6 +80,32 @@ describe("bridge parent watch", () => {
     expect(kill).not.toHaveBeenCalled();
   });
 
+  it("stays off on Windows where a kill would skip launcher cleanup", () => {
+    const stdin = createFakeStdin();
+    const kill = vi.fn();
+    expect(
+      installParentExitWatch({
+        env: { [EXIT_WHEN_PARENT_GONE_ENV]: "1" },
+        kill,
+        platform: "win32",
+        stdin,
+      }),
+    ).toBe(false);
+    stdin.emit("end");
+    expect(kill).not.toHaveBeenCalled();
+  });
+
+  it("unrefs stdin so it cannot keep the event loop alive", () => {
+    const stdin = createFakeStdin();
+    installParentExitWatch({
+      env: { [EXIT_WHEN_PARENT_GONE_ENV]: "1" },
+      kill: vi.fn(),
+      platform: "linux",
+      stdin,
+    });
+    expect(stdin.unref).toHaveBeenCalled();
+  });
+
   it("terminates the bridge once when the parent pipe closes", () => {
     vi.useFakeTimers();
     try {
@@ -84,6 +116,7 @@ describe("bridge parent watch", () => {
           env: { [EXIT_WHEN_PARENT_GONE_ENV]: "1" },
           forceKillDelayMs: 500,
           kill,
+          platform: "linux",
           stdin,
         }),
       ).toBe(true);
@@ -182,6 +215,105 @@ setInterval(() => undefined, 1000);
           probe.close(() => resolveListen());
         });
       });
+    },
+  );
+
+  posixIt(
+    "lets the bridge exit on its own after graceful shutdown while the desktop lives",
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), "bb-desktop-parent-watch-"));
+      tempRoots.push(root);
+      const watchPath = join(root, "watch.mjs");
+      await build({
+        bundle: true,
+        entryPoints: [join(packageRoot, "src", "bridge-parent-watch.ts")],
+        format: "esm",
+        logLevel: "silent",
+        outfile: watchPath,
+        platform: "node",
+      });
+      const bridgePath = join(root, "bridge.mjs");
+      await writeFile(
+        bridgePath,
+        `import { installParentExitWatch } from ${JSON.stringify(watchPath)};
+installParentExitWatch({
+  env: process.env,
+  kill: (signal) => process.kill(process.pid, signal),
+  stdin: process.stdin,
+});
+process.on("SIGTERM", () => {
+  process.stdout.write("cleanup\\n");
+  process.exitCode = 0;
+});
+process.stdout.write("ready\\n");
+setTimeout(() => process.stdout.write("done\\n"), 200);
+`,
+      );
+      const child = spawn(process.execPath, [bridgePath], {
+        env: { ...process.env, [EXIT_WHEN_PARENT_GONE_ENV]: "1" },
+        stdio: ["pipe", "pipe", "inherit"],
+      });
+      if (child.pid !== undefined) {
+        trackedPids.push(child.pid);
+      }
+      const exit = await new Promise<number | null>((resolveExit) => {
+        child.once("exit", (code) => resolveExit(code));
+      });
+      expect(exit).toBe(0);
+    },
+  );
+
+  posixIt(
+    "runs the bridge's shutdown handler before it exits when the parent is gone",
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), "bb-desktop-parent-watch-"));
+      tempRoots.push(root);
+      const watchPath = join(root, "watch.mjs");
+      await build({
+        bundle: true,
+        entryPoints: [join(packageRoot, "src", "bridge-parent-watch.ts")],
+        format: "esm",
+        logLevel: "silent",
+        outfile: watchPath,
+        platform: "node",
+      });
+      const markerPath = join(root, "cleanup.marker");
+      const bridgePath = join(root, "bridge.mjs");
+      await writeFile(
+        bridgePath,
+        `import { writeFileSync } from "node:fs";
+import { installParentExitWatch } from ${JSON.stringify(watchPath)};
+installParentExitWatch({
+  env: process.env,
+  kill: (signal) => process.kill(process.pid, signal),
+  stdin: process.stdin,
+});
+process.on("SIGTERM", () => {
+  setTimeout(() => {
+    writeFileSync(${JSON.stringify(markerPath)}, "cleaned");
+    process.exit(0);
+  }, 100);
+});
+process.stdout.write("ready\\n");
+setInterval(() => undefined, 1000);
+`,
+      );
+      const child = spawn(process.execPath, [bridgePath], {
+        env: { ...process.env, [EXIT_WHEN_PARENT_GONE_ENV]: "1" },
+        stdio: ["pipe", "pipe", "inherit"],
+      });
+      if (child.pid !== undefined) {
+        trackedPids.push(child.pid);
+      }
+      await new Promise<void>((resolveReady) => {
+        child.stdout.once("data", () => resolveReady());
+      });
+      const exited = new Promise<number | null>((resolveExit) => {
+        child.once("exit", (code) => resolveExit(code));
+      });
+      child.stdin.end();
+      expect(await exited).toBe(0);
+      expect(await readFile(markerPath, "utf8")).toBe("cleaned");
     },
   );
 });
