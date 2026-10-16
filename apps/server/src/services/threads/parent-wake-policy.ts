@@ -112,25 +112,49 @@ export function recordDeliveredChildOutput(args: {
   childThreadId: string;
   parentThreadId: string;
   finalText: string | null;
+  turnId?: string | null;
 }): void {
   lastDeliveredChildOutputByKey.set(lastDeliveredKey(args), args.finalText);
+  if (args.turnId) {
+    deliveredCompletedTurnKeys.add(deliveredTurnKey(args, args.turnId));
+  }
 }
 
 export function clearDeliveredChildOutputForTesting(): void {
   lastDeliveredChildOutputByKey.clear();
+  deliveredCompletedTurnKeys.clear();
+}
+
+/**
+ * Completed turns whose notice was already delivered to this parent. A turn
+ * completes once, so a second notice for the same turn id (an event replay or
+ * redelivery) is stale no matter who requested the turn. In process memory,
+ * with the same restart trade-off as the map above.
+ */
+const deliveredCompletedTurnKeys = new Set<string>();
+
+function deliveredTurnKey(
+  args: { childThreadId: string; parentThreadId: string },
+  turnId: string,
+): string {
+  return `${lastDeliveredKey(args)}:${turnId}`;
 }
 
 export interface DecideParentWakeArgs {
+  childArchived?: boolean;
   childThreadId: string;
   finalText: string | null;
   notify: ParentWakeNotifySetting;
   parentThreadId: string;
   selfInitiated: boolean;
+  turnId?: string | null;
   turnStatus: ThreadEventTurnStatus;
 }
 
 export type ParentWakeSuppressReason =
+  | "archived-child"
   | "duplicate-final-message"
+  | "duplicate-turn"
   | "self-initiated-unchanged";
 
 export type DecideParentWakeResult =
@@ -159,6 +183,12 @@ export function decideParentWake(
   if (args.turnStatus !== "completed") {
     return { wake: true };
   }
+  if (
+    args.turnId &&
+    deliveredCompletedTurnKeys.has(deliveredTurnKey(args, args.turnId))
+  ) {
+    return { wake: false, reason: "duplicate-turn" };
+  }
   if (args.notify === "all") {
     return { wake: true };
   }
@@ -167,6 +197,12 @@ export function decideParentWake(
   }
   if (!args.selfInitiated) {
     return { wake: true };
+  }
+
+  // A child already archived has been finished with: a turn nobody asked
+  // for is not news to the parent.
+  if (args.childArchived) {
+    return { wake: false, reason: "archived-child" };
   }
 
   const previous = lastDeliveredChildOutputByKey.get(lastDeliveredKey(args));

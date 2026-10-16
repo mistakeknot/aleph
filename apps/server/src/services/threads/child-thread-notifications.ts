@@ -4,7 +4,7 @@ import type {
   ThreadEventTurnStatus,
   ChildThreadOutcome,
 } from "@bb/domain";
-import { listActiveBackgroundTaskCountsByThreadIds } from "@bb/db";
+import { getThread, listActiveBackgroundTaskCountsByThreadIds } from "@bb/db";
 import { renderTemplate } from "@bb/templates";
 import type { LoggedPendingInteractionWorkSessionDeps } from "../../types.js";
 import {
@@ -417,6 +417,9 @@ function selectWakingChildThreadTurnNotificationItems(
         turnId: item.turnId,
       });
     const decision = decideParentWake({
+      childArchived:
+        getThread(deps.db, item.childThread.id)?.archivedAt != null,
+      turnId: item.turnId,
       childThreadId: item.childThread.id,
       finalText: item.terminalOutput,
       notify,
@@ -446,6 +449,7 @@ function recordDeliveredChildThreadTurnNotificationItems(args: {
       childThreadId: item.childThread.id,
       finalText: item.terminalOutput,
       parentThreadId: args.parentThreadId,
+      turnId: item.turnId,
     });
   }
 }
