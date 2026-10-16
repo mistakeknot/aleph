@@ -16,10 +16,12 @@ index or table to their own databases.
   event loop when they share a CPU. `BB_AGENT_NICE` sets the level (0
   disables, capped at 19); the nice value is only ever raised, and Windows is
   unchanged.
-- **Agent cgroup placement (opt-in).** With `BB_AGENT_CGROUP=systemd`, the host
-  daemon places each spawned agent process in its own transient systemd scope
-  through a small sh gate, so one runaway agent can be limited without touching
-  the server. Off by default; the default spawn path is unchanged.
+- **Agent cgroup placement (opt-in).** On Linux hosts with a systemd user
+  manager, `BB_AGENT_CGROUP=systemd` makes the host daemon try to place each
+  spawned agent process in its own transient systemd scope through a small sh
+  gate, so an operator can limit one runaway agent apart from the server.
+  Placement is best effort: if it fails the agent runs unplaced. Off by
+  default; the default spawn path is unchanged.
 - **Quieter logs.** Provider discovery for a disconnected host logs at debug
   instead of warn, and the log entry names the host and environment.
 - **Account Pooler connects.** Each upstream connect attempt gets 5 s instead
