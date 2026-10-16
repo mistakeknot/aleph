@@ -88,7 +88,27 @@ describe("SdkSession", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
   });
+
+  it.runIf(process.platform === "linux")(
+    "takes over the CLI spawn when agent isolation is on without recording",
+    () => {
+      vi.stubEnv("BB_PROVIDER_BRIDGE_RECORD_DIR", "");
+      vi.stubEnv("BB_AGENT_CGROUP", "");
+      new SdkSession(defaultOptions, vi.fn(), vi.fn()).start();
+      expect(getLatestQueryCall().options).not.toHaveProperty(
+        "spawnClaudeCodeProcess",
+      );
+
+      vi.stubEnv("BB_AGENT_CGROUP", "systemd");
+      new SdkSession(defaultOptions, vi.fn(), vi.fn()).start();
+      expect(getLatestQueryCall().options).toHaveProperty(
+        "spawnClaudeCodeProcess",
+        expect.any(Function),
+      );
+    },
+  );
 
   it("rejects queued input when the SDK input stream closes before consumption", async () => {
     const session = new SdkSession(defaultOptions, vi.fn(), vi.fn());

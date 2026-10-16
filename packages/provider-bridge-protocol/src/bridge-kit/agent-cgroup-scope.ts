@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { accessSync, constants, readFileSync } from "node:fs";
+import { accessSync, constants, existsSync, readFileSync } from "node:fs";
 import { delimiter, join } from "node:path";
 
 export const AGENT_CGROUP_ENV = "BB_AGENT_CGROUP";
@@ -22,6 +22,12 @@ const MAX_CPU_WEIGHT = 10_000;
 const MAX_SCOPE_NAME_UNIT_CHARS = 64;
 const MAX_CONSECUTIVE_PLACEMENT_FAILURES = 3;
 const SYSTEMD_COMMAND_TIMEOUT_MS = 10_000;
+const WRAPPER_REPROBE_INTERVAL_MS = 60_000;
+
+const USER_BUS_ENV_NAMES = [
+  "XDG_RUNTIME_DIR",
+  "DBUS_SESSION_BUS_ADDRESS",
+] as const;
 
 const SLICE_NAME_PATTERN = /^[A-Za-z0-9_:]+(?:-[A-Za-z0-9_:]+)*\.slice$/;
 const USER_MANAGER_SEGMENT_PATTERN = /^user@\d+\.service$/;
@@ -165,6 +171,7 @@ export function runInAgentScopeArgs(args: {
     "--scope",
     "--quiet",
     "--collect",
+    "--expand-environment=no",
     `--unit=${args.unit}`,
     `--slice=${args.slice}`,
     "-p",
@@ -176,11 +183,13 @@ export function runInAgentScopeArgs(args: {
 }
 
 export interface AgentCgroupDeps {
+  busEnv(): Partial<Record<(typeof USER_BUS_ENV_NAMES)[number], string>>;
+  busReachable(): boolean;
   isAlive(pid: number): boolean;
+  now(): number;
   readOwnCgroup(): string | null;
   resolveCommand(name: string): string | null;
   run(command: string, args: string[]): Promise<void>;
-  runtimeDir(): string | undefined;
   warn(message: string): void;
 }
 
@@ -222,7 +231,13 @@ export function createAgentCgroupPlacer(args: {
   let disposed = false;
   let daemonUnit: Promise<string | null> | null = null;
   let prepared: Promise<void> | null = null;
-  let wrapper: { bindsTo: string; systemdRun: string } | null = null;
+  let wrapper: {
+    bindsTo: string;
+    envCommand: string | null;
+    systemdRun: string;
+  } | null = null;
+  let lastProbeAt = 0;
+  let reprobing: Promise<void> | null = null;
   let spawnSequence = 0;
   let consecutiveFailures = 0;
   const warnedClasses = new Set<string>();
@@ -282,6 +297,24 @@ export function createAgentCgroupPlacer(args: {
       );
       return;
     }
+    const failure = await probe(resolved, bindsTo, systemdRun);
+    if (failure !== null) {
+      warnOnce(
+        "wrap",
+        `Processes started by ${owner} join ${resolved.slice} after they start: systemd-run failed (${failure}).`,
+      );
+      return;
+    }
+    if (disabled || disposed) return;
+    wrapper = { bindsTo, envCommand: deps.resolveCommand("env"), systemdRun };
+  };
+
+  const probe = async (
+    resolved: AgentCgroupConfig,
+    bindsTo: string,
+    systemdRun: string,
+  ): Promise<string | null> => {
+    lastProbeAt = deps.now();
     try {
       await deps.run(
         systemdRun,
@@ -293,15 +326,40 @@ export function createAgentCgroupPlacer(args: {
           unit: nextSpawnUnit("probe", ""),
         }),
       );
+      return null;
     } catch (error) {
-      warnOnce(
-        "wrap",
-        `Processes started by ${owner} join ${resolved.slice} after they start: systemd-run failed (${describeError(error)}).`,
-      );
-      return;
+      return describeError(error);
     }
-    if (disabled || disposed) return;
-    wrapper = { bindsTo, systemdRun };
+  };
+
+  const stopWrapping = (resolved: AgentCgroupConfig, reason: string): void => {
+    if (wrapper === null) return;
+    wrapper = null;
+    warnOnce(
+      "wrap-lost",
+      `Processes started by ${owner} now join ${resolved.slice} after they start, until it restarts: ${reason}.`,
+    );
+  };
+
+  const reprobeIfDue = (resolved: AgentCgroupConfig): Promise<void> => {
+    if (reprobing !== null) return reprobing;
+    const current = wrapper;
+    if (
+      current === null ||
+      deps.now() - lastProbeAt < WRAPPER_REPROBE_INTERVAL_MS
+    ) {
+      return Promise.resolve();
+    }
+    reprobing = probe(resolved, current.bindsTo, current.systemdRun)
+      .then((failure) => {
+        if (failure !== null) {
+          stopWrapping(resolved, `systemd-run failed (${failure})`);
+        }
+      })
+      .finally(() => {
+        reprobing = null;
+      });
+    return reprobing;
   };
 
   const placeInScope: AgentCgroupPlacer["placeInScope"] = async ({
@@ -360,22 +418,45 @@ export function createAgentCgroupPlacer(args: {
     prepare() {
       if (config === null || disposed) return Promise.resolve();
       prepared ??= prepareWrapper(config);
-      return prepared;
+      return prepared.then(() => reprobeIfDue(config));
     },
     wrapSpawn(spawn) {
       if (config === null || wrapper === null || disabled || disposed) {
         return null;
       }
+      if (!deps.busReachable()) {
+        stopWrapping(config, "the systemd user bus socket is gone");
+        return null;
+      }
+      void reprobeIfDue(config);
+
       const env = { ...spawn.env };
-      const runtimeDir = deps.runtimeDir();
-      if (env.XDG_RUNTIME_DIR === undefined && runtimeDir !== undefined) {
-        env.XDG_RUNTIME_DIR = runtimeDir;
+      const busEnv = deps.busEnv();
+      const unset: string[] = [];
+      const restore: string[] = [];
+      for (const name of USER_BUS_ENV_NAMES) {
+        const own = spawn.env[name];
+        const daemon = busEnv[name];
+        if (own === daemon) continue;
+        if (daemon === undefined) delete env[name];
+        else env[name] = daemon;
+        if (own === undefined) unset.push("-u", name);
+        else restore.push(`${name}=${own}`);
+      }
+      let command = spawn.command;
+      let args = spawn.args;
+      if (unset.length > 0 || restore.length > 0) {
+        if (wrapper.envCommand === null || spawn.command.includes("=")) {
+          return null;
+        }
+        command = wrapper.envCommand;
+        args = [...unset, "--", ...restore, spawn.command, ...spawn.args];
       }
       return {
         args: runInAgentScopeArgs({
-          args: spawn.args,
+          args,
           bindsTo: wrapper.bindsTo,
-          command: spawn.command,
+          command,
           slice: config.slice,
           unit: nextSpawnUnit(spawn.processKind, spawn.name),
         }),
@@ -405,6 +486,23 @@ function describeError(error: unknown): string {
 }
 
 export const defaultAgentCgroupDeps: AgentCgroupDeps = {
+  busEnv() {
+    const env: ReturnType<AgentCgroupDeps["busEnv"]> = {};
+    for (const name of USER_BUS_ENV_NAMES) {
+      const value = process.env[name];
+      if (value !== undefined) env[name] = value;
+    }
+    return env;
+  },
+  busReachable() {
+    const address = process.env.DBUS_SESSION_BUS_ADDRESS;
+    if (address !== undefined && address !== "") {
+      const path = /(?:^|;)unix:(?:[^;]*,)?path=([^,;]+)/.exec(address)?.[1];
+      return path === undefined || existsSync(decodeBusPath(path));
+    }
+    const runtimeDir = process.env.XDG_RUNTIME_DIR;
+    return runtimeDir !== undefined && existsSync(join(runtimeDir, "bus"));
+  },
   isAlive(pid) {
     try {
       process.kill(pid, 0);
@@ -449,15 +547,32 @@ export const defaultAgentCgroupDeps: AgentCgroupDeps = {
       );
     });
   },
-  runtimeDir() {
-    return process.env.XDG_RUNTIME_DIR;
+  now() {
+    return Date.now();
   },
   warn(message) {
     process.stderr.write(`${message}\n`);
   },
 };
 
+function decodeBusPath(path: string): string {
+  try {
+    return decodeURIComponent(path);
+  } catch {
+    return path;
+  }
+}
+
 let defaultPlacer: AgentCgroupPlacer | null = null;
+
+export function experimental_isAgentCgroupIsolationRequested(): boolean {
+  return (
+    resolveAgentCgroupConfig({
+      env: process.env,
+      platform: process.platform,
+    }) !== null
+  );
+}
 
 export function experimental_placeProviderChildInThreadScope(
   child: { pid?: number | undefined },

@@ -189,6 +189,7 @@ export {
   decodeToolCallResponsePayload,
   downloadedInstallerCommand as experimental_downloadedInstallerCommand,
   errorEnvelopeSchema,
+  experimental_isAgentCgroupIsolationRequested,
   experimental_isProviderBridgeRecording,
   experimental_placeProviderChildInThreadScope,
   experimental_recordProviderChildIo,

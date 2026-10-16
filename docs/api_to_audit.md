@@ -3719,7 +3719,7 @@ with third-party providers.
 
 Before stabilization, audit whether `limit` should be a number, whether the cursor format needs versioning, whether project or thread filters belong on this call rather than on `projects.promptHistory` and `threads.promptHistory`, and whether skipped rows should fill the page.
 
-## `experimental_placeProviderChildInThreadScope`
+## `experimental_placeProviderChildInThreadScope` and `experimental_isAgentCgroupIsolationRequested`
 
 `@get-bb/plugin-sdk/provider-bridge` exports
 `experimental_placeProviderChildInThreadScope(child, { threadId })`. A bridge
@@ -3731,8 +3731,15 @@ the spawn and logs the first failure of each kind once. Placement happens after
 the process starts, so anything it starts before the move stays in the
 provider worker's scope, which the daemon already starts inside the slice.
 
+`experimental_isAgentCgroupIsolationRequested()` reports whether that variable
+asks for isolation on Linux. A bridge whose SDK spawns the CLI itself (the
+Claude Code bridge) takes the spawn over only when this or record mode is on,
+so the default spawn path stays unchanged.
+
 Before stabilization, decide whether bridges should get a pre-spawn wrapper
 (command and arguments rewritten through `systemd-run --scope`, as the daemon
 does for provider workers and terminals) instead of, or beside, post-spawn
 placement; whether the scope should be keyed by thread or by turn; and whether
-the bridge should learn the outcome instead of fire-and-forget.
+the bridge should learn the outcome instead of fire-and-forget, and whether
+the request predicate should report that isolation actually works rather than
+that it was asked for.

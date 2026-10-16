@@ -247,13 +247,15 @@ function fakeDeps(overrides: Partial<AgentCgroupDeps> = {}) {
   const calls: Array<{ command: string; args: string[] }> = [];
   const warnings: string[] = [];
   const deps: AgentCgroupDeps = {
+    busEnv: () => ({ XDG_RUNTIME_DIR: "/run/user/1000" }),
+    busReachable: () => true,
     isAlive: () => true,
+    now: () => 0,
     readOwnCgroup: () => DAEMON_CGROUP,
     resolveCommand: (name) => `/usr/bin/${name}`,
     run: async (command, args) => {
       calls.push({ command, args });
     },
-    runtimeDir: () => "/run/user/1000",
     warn: (message) => {
       warnings.push(message);
     },
@@ -562,7 +564,7 @@ describe("createAgentCgroupPlacer", () => {
     const wrapped = placer.wrapSpawn({
       args: ["bridge.js"],
       command: "/usr/bin/node",
-      env: { PATH: "/usr/bin" },
+      env: { PATH: "/usr/bin", XDG_RUNTIME_DIR: "/run/user/1000" },
       name: "codex",
       processKind: "provider-worker",
     });
@@ -573,7 +575,8 @@ describe("createAgentCgroupPlacer", () => {
     ]);
     expect(calls[1]?.args.slice(-2)).toEqual(["--", "true"]);
     expect(wrapped?.command).toBe("/usr/bin/systemd-run");
-    const unit = wrapped?.args[4]?.slice("--unit=".length) ?? "";
+    expect(wrapped?.args).toContain("--expand-environment=no");
+    const unit = wrapped?.args[5]?.slice("--unit=".length) ?? "";
     expect(unit).toMatch(/^bb-provider-worker-codex-\d+_\d+\.scope$/);
     expect(wrapped?.args).toEqual(
       runInAgentScopeArgs({
@@ -591,20 +594,166 @@ describe("createAgentCgroupPlacer", () => {
     expect(warnings).toEqual([]);
   });
 
-  it("keeps the child's own runtime directory", async () => {
-    const { deps } = fakeDeps();
+  it("gives systemd-run the daemon's bus and the child its own values", async () => {
+    const { deps } = fakeDeps({
+      busEnv: () => ({
+        DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/1000/bus",
+        XDG_RUNTIME_DIR: "/run/user/1000",
+      }),
+    });
     const placer = createAgentCgroupPlacer({ config: CONFIG, deps });
     await placer.prepare();
 
     const wrapped = placer.wrapSpawn({
-      args: [],
+      args: ["-c", "echo ${HOME}"],
       command: "/bin/sh",
-      env: { XDG_RUNTIME_DIR: "/run/user/2000" },
+      env: { PATH: "/usr/bin", XDG_RUNTIME_DIR: "/run/user/2000" },
       name: "",
       processKind: "terminal",
     });
 
-    expect(wrapped?.env.XDG_RUNTIME_DIR).toBe("/run/user/2000");
+    expect(wrapped?.env).toEqual({
+      DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/1000/bus",
+      PATH: "/usr/bin",
+      XDG_RUNTIME_DIR: "/run/user/1000",
+    });
+    const separator = wrapped?.args.indexOf("--") ?? -1;
+    expect(wrapped?.args.slice(separator + 1)).toEqual([
+      "/usr/bin/env",
+      "-u",
+      "DBUS_SESSION_BUS_ADDRESS",
+      "--",
+      "XDG_RUNTIME_DIR=/run/user/2000",
+      "/bin/sh",
+      "-c",
+      "echo ${HOME}",
+    ]);
+  });
+
+  it("leaves a spawn unwrapped when env cannot restore its values", async () => {
+    const spawn = {
+      args: [],
+      command: "/opt/a=b/tool",
+      env: { XDG_RUNTIME_DIR: "/run/user/2000" },
+      name: "",
+      processKind: "terminal",
+    };
+    const placer = createAgentCgroupPlacer({
+      config: CONFIG,
+      deps: fakeDeps().deps,
+    });
+    await placer.prepare();
+    expect(placer.wrapSpawn(spawn)).toBe(null);
+    expect(placer.wrapSpawn({ ...spawn, command: "/bin/sh" })).not.toBe(null);
+
+    const noEnv = createAgentCgroupPlacer({
+      config: CONFIG,
+      deps: fakeDeps({
+        resolveCommand: (name) => (name === "env" ? null : `/usr/bin/${name}`),
+      }).deps,
+    });
+    await noEnv.prepare();
+    expect(noEnv.wrapSpawn({ ...spawn, command: "/bin/sh" })).toBe(null);
+    expect(
+      noEnv.wrapSpawn({
+        ...spawn,
+        command: "/bin/sh",
+        env: { XDG_RUNTIME_DIR: "/run/user/1000" },
+      }),
+    ).not.toBe(null);
+  });
+
+  it("stops wrapping when the user bus socket goes away", async () => {
+    let reachable = true;
+    const { calls, deps, warnings } = fakeDeps({
+      busReachable: () => reachable,
+    });
+    const placer = createAgentCgroupPlacer({
+      config: CONFIG,
+      deps,
+      owner: "the host daemon",
+    });
+    const spawn = {
+      args: [],
+      command: "/bin/sh",
+      env: { XDG_RUNTIME_DIR: "/run/user/1000" },
+      name: "",
+      processKind: "terminal",
+    };
+    await placer.prepare();
+    expect(placer.wrapSpawn(spawn)).not.toBe(null);
+
+    reachable = false;
+    expect(placer.wrapSpawn(spawn)).toBe(null);
+    reachable = true;
+    await placer.prepare();
+    expect(placer.wrapSpawn(spawn)).toBe(null);
+    expect(placer.wrapSpawn(spawn)).toBe(null);
+
+    expect(calls.map((call) => call.command)).toEqual([
+      "systemctl",
+      "/usr/bin/systemd-run",
+    ]);
+    expect(warnings).toEqual([
+      "Processes started by the host daemon now join agents.slice after they start, until it restarts: the systemd user bus socket is gone.",
+    ]);
+  });
+
+  it("re-probes systemd-run at most once a minute and stops wrapping when it fails", async () => {
+    let now = 0;
+    let failProbe = false;
+    const { calls, deps, warnings } = fakeDeps({
+      now: () => now,
+      run: async (command, args) => {
+        calls.push({ command, args });
+        if (failProbe && command.endsWith("systemd-run")) {
+          throw commandError(1, "Connection timed out");
+        }
+      },
+    });
+    const placer = createAgentCgroupPlacer({
+      config: CONFIG,
+      deps,
+      owner: "the host daemon",
+    });
+    const spawn = {
+      args: [],
+      command: "/bin/sh",
+      env: { XDG_RUNTIME_DIR: "/run/user/1000" },
+      name: "",
+      processKind: "terminal",
+    };
+    await placer.prepare();
+
+    now = 59_999;
+    await placer.prepare();
+    expect(placer.wrapSpawn(spawn)).not.toBe(null);
+    expect(
+      calls.filter((call) => call.command.endsWith("systemd-run")),
+    ).toHaveLength(1);
+
+    now = 60_000;
+    await placer.prepare();
+    expect(placer.wrapSpawn(spawn)).not.toBe(null);
+    expect(
+      calls.filter((call) => call.command.endsWith("systemd-run")),
+    ).toHaveLength(2);
+
+    failProbe = true;
+    now = 120_000;
+    expect(placer.wrapSpawn(spawn)).not.toBe(null);
+    await placer.prepare();
+    expect(placer.wrapSpawn(spawn)).toBe(null);
+    now = 600_000;
+    await placer.prepare();
+    expect(placer.wrapSpawn(spawn)).toBe(null);
+
+    expect(
+      calls.filter((call) => call.command.endsWith("systemd-run")),
+    ).toHaveLength(3);
+    expect(warnings).toEqual([
+      "Processes started by the host daemon now join agents.slice after they start, until it restarts: systemd-run failed (Connection timed out).",
+    ]);
   });
 
   it("leaves spawns unwrapped when systemd-run fails its probe", async () => {

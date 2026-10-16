@@ -11,6 +11,7 @@ import {
   type SpawnOptions,
 } from "@anthropic-ai/claude-agent-sdk";
 import {
+  experimental_isAgentCgroupIsolationRequested,
   experimental_isProviderBridgeRecording,
   experimental_placeProviderChildInThreadScope,
   experimental_recordProviderChildIo,
@@ -246,7 +247,8 @@ export class SdkSession {
       cwd: this.options.cwd,
       systemPrompt: this.options.systemPrompt,
       ...permissionOptions,
-      ...(experimental_isProviderBridgeRecording()
+      ...(experimental_isProviderBridgeRecording() ||
+      experimental_isAgentCgroupIsolationRequested()
         ? {
             spawnClaudeCodeProcess: (spawnOptions: SpawnOptions) =>
               spawnRecordedClaudeProcess({
