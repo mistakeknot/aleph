@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   encodeClientTurnRequestIdNumber,
   threadScope,
@@ -433,10 +433,18 @@ describe("thread search data", () => {
         title: "pintierneedle pinned newer",
       });
       // Pin order here just needs to happen after creation, in this
-      // sequence; ordering below keys off `updated_at`, which each of these
-      // calls bumps to its own call time.
-      pinThread(db, noopNotifier, { threadId: pinnedOlder.id });
-      pinThread(db, noopNotifier, { threadId: pinnedNewer.id });
+      // sequence; ordering below keys off `updated_at`, which each pin bumps
+      // to its call time. A fake clock keeps the two values distinct even
+      // when both calls land in the same real millisecond.
+      vi.useFakeTimers();
+      try {
+        vi.setSystemTime(Date.now() + 1_000);
+        pinThread(db, noopNotifier, { threadId: pinnedOlder.id });
+        vi.setSystemTime(Date.now() + 1_000);
+        pinThread(db, noopNotifier, { threadId: pinnedNewer.id });
+      } finally {
+        vi.useRealTimers();
+      }
 
       const results = searchThreadsWithPendingInteractionState(db, {
         query: "pintierneedle",
