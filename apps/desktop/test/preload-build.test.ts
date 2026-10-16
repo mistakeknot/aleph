@@ -348,7 +348,7 @@ describe("desktop build", () => {
     expect(preloadSource).not.toContain("BB_DESKTOP_VERSION");
     expect(preloadSource).not.toContain("getDesktopVersion(process.env");
 
-    expect(bridgeSource).toContain('import "bb-app/dist/bb-app.js"');
+    expect(bridgeSource).toContain('import("bb-app/dist/bb-app.js")');
 
     for (const mapPath of [
       "main.js.map",
