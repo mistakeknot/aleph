@@ -76,6 +76,37 @@ describe("createHullDesignationsReader", () => {
     expect(read()).toEqual({ proj_test1: "GSV-T9·◐" });
   });
 
+  it("reloads when only the size changes", () => {
+    const path = join(tmp(), "h.json");
+    writeFileSync(path, row("GSV-T1·◐"));
+    utimesSync(path, 1000, 1000);
+    const read = createHullDesignationsReader(() => path);
+    expect(read()).toEqual({ proj_test1: "GSV-T1·◐" });
+    writeFileSync(path, row("GSV-T1-LONGER·◐"));
+    utimesSync(path, 1000, 1000);
+    expect(read()).toEqual({ proj_test1: "GSV-T1-LONGER·◐" });
+  });
+
+  it("drops to empty when a valid file is deleted", () => {
+    const path = join(tmp(), "h.json");
+    writeFileSync(path, row("GSV-T1·◐"));
+    const read = createHullDesignationsReader(() => path);
+    expect(read()).toEqual({ proj_test1: "GSV-T1·◐" });
+    rmSync(path);
+    expect(read()).toEqual({});
+  });
+
+  it("drops to empty when a valid file becomes malformed", () => {
+    const path = join(tmp(), "h.json");
+    writeFileSync(path, row("GSV-T1·◐"));
+    utimesSync(path, 1000, 1000);
+    const read = createHullDesignationsReader(() => path);
+    expect(read()).toEqual({ proj_test1: "GSV-T1·◐" });
+    writeFileSync(path, "[{broken");
+    utimesSync(path, 2000, 2000);
+    expect(read()).toEqual({});
+  });
+
   it("serves the cached value even if same-mtime content differs", () => {
     const path = join(tmp(), "h.json");
     writeFileSync(path, row("GSV-T1·◐"));

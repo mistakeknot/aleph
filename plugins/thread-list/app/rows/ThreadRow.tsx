@@ -241,18 +241,32 @@ function renderThreadRowContainer({
   );
 }
 
-function ThreadRowHullBadge({ projectId }: { projectId: string }) {
+function ThreadRowHullBadge({
+  projectId,
+  rowLinkRef,
+}: {
+  projectId: string;
+  rowLinkRef: RefObject<HTMLAnchorElement | null>;
+}) {
   const designation = useAtomValue(hullDesignationsAtom)[projectId];
   if (designation === undefined) return null;
   return (
-    <span
-      data-sidebar-thread-hull-designation=""
-      title={designation}
-      aria-label={`Hull designation ${designation}`}
-      className="mr-1 max-w-[7rem] shrink-0 truncate rounded-sm bg-muted px-1 font-mono text-[10px] leading-4 text-muted-foreground"
-    >
-      {designation}
-    </span>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          data-sidebar-thread-hull-designation=""
+          className="pointer-events-auto relative z-[31] mr-1 max-w-[7rem] shrink-0 truncate rounded-sm bg-muted px-1 font-mono text-2xs leading-4 text-muted-foreground"
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            rowLinkRef.current?.click();
+          }}
+        >
+          {designation}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="top">{designation}</TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -635,7 +649,10 @@ function ThreadRowComponent({
             providerId={thread.providerId}
             rowLinkRef={rowLinkRef}
           />
-          <ThreadRowHullBadge projectId={thread.projectId} />
+          <ThreadRowHullBadge
+            projectId={thread.projectId}
+            rowLinkRef={rowLinkRef}
+          />
           {isEditing ? (
             <span className="pointer-events-auto relative z-10 min-w-0 flex-1 overflow-visible">
               {editor}

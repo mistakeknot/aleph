@@ -106,6 +106,12 @@ The `threadLifecycles` preference defaults
 to `["active"]`; `bb thread-list prefs set threadLifecycles '["archived"]'`
 shows archived threads, and `'["active","archived"]'` shows both.
 
+Thread rows can show a project hull designation badge. The Thread list plugin
+reads `hull-designations.json` from bb's data directory, or the file named by
+`BB_HULL_DESIGNATIONS_FILE`: a JSON array of `{ projectId, designation,
+approved }` rows, of which only approved rows with a designation show. A missing
+or malformed file shows no badges; reload the app after editing it.
+
 The sidebar navigation rows (New thread, Search, Plugins, Skills, plugin
 panels) are drawn by the Navigation builtin plugin. Their order and
 visibility are `bb settings ui` keys (`sidebar.pluginPanelOrder`,

@@ -1110,6 +1110,17 @@ bb thread-list prefs set rowActions '[]'
 bb thread-list prefs reset rowActions
 ```
 
+### Hull designation badges
+
+The Thread list plugin can show a project's hull designation as a small badge
+before each thread title. It reads a host-local `hull-designations.json` from
+bb's data directory; set `BB_HULL_DESIGNATIONS_FILE` to an absolute path to read
+a different file. The file is a JSON array of `{ "projectId", "designation",
+"approved" }` rows. Only rows with `approved: true` and a non-empty designation
+show, and extra fields are ignored. A missing or malformed file shows no badges.
+The server re-reads the file when its modification time or size changes, but the
+sidebar fetches it once per page load, so reload the app to see edits.
+
 ### Sidebar footer
 
 The footer shows as many icons as fit the sidebar's width, followed by an

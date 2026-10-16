@@ -48,6 +48,7 @@ import {
   resetPreferencesSyncForTest,
 } from "../preferences/preferences-sync.js";
 import { hullDesignationsAtom } from "../preferences/hull-designations.js";
+import { HullDesignationsSync } from "../preferences/HullDesignationsSync.js";
 import { CustomizeRowActionsContext } from "../list/customizeRowActionsContext.js";
 
 installTestPluginRuntime();
@@ -252,7 +253,7 @@ describe("ThreadRow hull designation badge", () => {
     getDefaultStore().set(hullDesignationsAtom, {});
   });
 
-  it("shows the designation badge with a tooltip for a mapped project", () => {
+  it("shows the designation badge for a mapped project", () => {
     getDefaultStore().set(hullDesignationsAtom, { proj_test1: "GSV-T1·◐" });
     const { container } = renderThreadRow({
       thread: createThread({ projectId: "proj_test1" }),
@@ -261,7 +262,50 @@ describe("ThreadRow hull designation badge", () => {
       "[data-sidebar-thread-hull-designation]",
     );
     expect(badge?.textContent).toBe("GSV-T1·◐");
-    expect(badge?.getAttribute("title")).toBe("GSV-T1·◐");
+  });
+
+  it("keeps the badge hoverable so its tooltip is reachable", () => {
+    getDefaultStore().set(hullDesignationsAtom, { proj_test1: "GSV-T1·◐" });
+    const { container } = renderThreadRow({
+      thread: createThread({ projectId: "proj_test1" }),
+    });
+    const badge = container.querySelector(
+      "[data-sidebar-thread-hull-designation]",
+    );
+    expect(badge?.className).toContain("pointer-events-auto");
+    expect(badge?.className).toContain("text-2xs");
+  });
+
+  it("hydrates badges from the rpc into the row", async () => {
+    const thread = createThread({ projectId: "proj_test1" });
+    const Both = () => (
+      <>
+        <HullDesignationsSync />
+        <ThreadRowHarness thread={thread} />
+      </>
+    );
+    const slot = renderSlot(
+      { component: Both },
+      {},
+      {
+        sidebarThreads: { threads: [thread], projects: [] },
+        providers: { providers: [] },
+        rpc: {
+          listHullDesignations: () => ({
+            designations: { proj_test1: "GSV-T1·◐" },
+          }),
+        },
+      },
+    );
+    await waitFor(() =>
+      expect(
+        slot.container.querySelector("[data-sidebar-thread-hull-designation]")
+          ?.textContent,
+      ).toBe("GSV-T1·◐"),
+    );
+    expect(slot.rpcCalls.map((call) => call.method)).toContain(
+      "listHullDesignations",
+    );
   });
 
   it("shows no badge when the project has no designation", () => {
