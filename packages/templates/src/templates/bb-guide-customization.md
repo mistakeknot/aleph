@@ -110,7 +110,8 @@ Thread rows can show a project hull designation badge. The Thread list plugin
 reads `hull-designations.json` from bb's data directory, or the file named by
 `BB_HULL_DESIGNATIONS_FILE`: a JSON array of `{ projectId, designation,
 approved }` rows, of which only approved rows with a designation show. A missing
-or malformed file shows no badges; reload the app after editing it.
+or malformed file shows no badges; it is fetched when the sidebar mounts, so
+reload the app after editing it.
 
 The sidebar navigation rows (New thread, Search, Plugins, Skills, plugin
 panels) are drawn by the Navigation builtin plugin. Their order and

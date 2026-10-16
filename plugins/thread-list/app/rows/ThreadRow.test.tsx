@@ -264,16 +264,22 @@ describe("ThreadRow hull designation badge", () => {
     expect(badge?.textContent).toBe("GSV-T1·◐");
   });
 
-  it("keeps the badge hoverable so its tooltip is reachable", () => {
+  it("keeps the badge non-interactive and the row link navigable", () => {
     getDefaultStore().set(hullDesignationsAtom, { proj_test1: "GSV-T1·◐" });
-    const { container } = renderThreadRow({
-      thread: createThread({ projectId: "proj_test1" }),
-    });
+    const thread = createThread({ projectId: "proj_test1" });
+    const { container } = renderThreadRow({ thread });
     const badge = container.querySelector(
       "[data-sidebar-thread-hull-designation]",
+    ) as HTMLElement;
+    expect(badge.className).toContain("text-2xs");
+    expect(badge.className).not.toContain("pointer-events-auto");
+    expect(badge.getAttribute("title")).toBeNull();
+    expect(badge.getAttribute("role")).toBeNull();
+    expect(badge.onclick).toBeNull();
+    const link = container.querySelector(
+      `a[data-sidebar-thread-id="${thread.id}"]`,
     );
-    expect(badge?.className).toContain("pointer-events-auto");
-    expect(badge?.className).toContain("text-2xs");
+    expect(link?.getAttribute("href")).toBe(thread.href);
   });
 
   it("hydrates badges from the rpc into the row", async () => {

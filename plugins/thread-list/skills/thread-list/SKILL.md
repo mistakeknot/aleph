@@ -56,8 +56,8 @@ Hull designation badges: if `hull-designations.json` exists in bb's data
 directory (or at the path in `BB_HULL_DESIGNATIONS_FILE`), each thread row shows
 the designation of its project. The file is a JSON array of `{ projectId,
 designation, approved }` rows; only approved rows with a designation show. A
-missing or malformed file shows no badges. The sidebar fetches the file once per
-page load, so reload the app after editing it.
+missing or malformed file shows no badges. The sidebar fetches the file when the
+sidebar mounts, so reload the app after editing it.
 
 New threads inherit the sidebar group where creation was invoked. Pinned
 creates pinned threads; custom sections supply their section; project, machine,
