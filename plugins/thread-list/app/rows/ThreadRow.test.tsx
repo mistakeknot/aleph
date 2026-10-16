@@ -47,6 +47,8 @@ import {
   preferenceValueAtom,
   resetPreferencesSyncForTest,
 } from "../preferences/preferences-sync.js";
+import { hullDesignationsAtom } from "../preferences/hull-designations.js";
+import { HullDesignationsSync } from "../preferences/HullDesignationsSync.js";
 import { CustomizeRowActionsContext } from "../list/customizeRowActionsContext.js";
 
 installTestPluginRuntime();
@@ -244,6 +246,83 @@ afterEach(() => {
   resetSidebarTitleDoubleClickForTest();
   resetPreferencesSyncForTest();
   getDefaultStore().set(sidebarShowProviderIconsAtom, false);
+});
+
+describe("ThreadRow hull designation badge", () => {
+  afterEach(() => {
+    getDefaultStore().set(hullDesignationsAtom, {});
+  });
+
+  it("shows the designation badge for a mapped project", () => {
+    getDefaultStore().set(hullDesignationsAtom, { proj_test1: "GSV-T1·◐" });
+    const { container } = renderThreadRow({
+      thread: createThread({ projectId: "proj_test1" }),
+    });
+    const badge = container.querySelector(
+      "[data-sidebar-thread-hull-designation]",
+    );
+    expect(badge?.textContent).toBe("GSV-T1·◐");
+  });
+
+  it("keeps the badge non-interactive and the row link navigable", () => {
+    getDefaultStore().set(hullDesignationsAtom, { proj_test1: "GSV-T1·◐" });
+    const thread = createThread({ projectId: "proj_test1" });
+    const { container } = renderThreadRow({ thread });
+    const badge = container.querySelector(
+      "[data-sidebar-thread-hull-designation]",
+    ) as HTMLElement;
+    expect(badge.className).toContain("text-2xs");
+    expect(badge.className).not.toContain("pointer-events-auto");
+    expect(badge.getAttribute("title")).toBeNull();
+    expect(badge.getAttribute("role")).toBeNull();
+    expect(badge.onclick).toBeNull();
+    const link = container.querySelector(
+      `a[data-sidebar-thread-id="${thread.id}"]`,
+    );
+    expect(link?.getAttribute("href")).toBe(thread.href);
+  });
+
+  it("hydrates badges from the rpc into the row", async () => {
+    const thread = createThread({ projectId: "proj_test1" });
+    const Both = () => (
+      <>
+        <HullDesignationsSync />
+        <ThreadRowHarness thread={thread} />
+      </>
+    );
+    const slot = renderSlot(
+      { component: Both },
+      {},
+      {
+        sidebarThreads: { threads: [thread], projects: [] },
+        providers: { providers: [] },
+        rpc: {
+          listHullDesignations: () => ({
+            designations: { proj_test1: "GSV-T1·◐" },
+          }),
+        },
+      },
+    );
+    await waitFor(() =>
+      expect(
+        slot.container.querySelector("[data-sidebar-thread-hull-designation]")
+          ?.textContent,
+      ).toBe("GSV-T1·◐"),
+    );
+    expect(slot.rpcCalls.map((call) => call.method)).toContain(
+      "listHullDesignations",
+    );
+  });
+
+  it("shows no badge when the project has no designation", () => {
+    getDefaultStore().set(hullDesignationsAtom, { proj_test1: "GSV-T1·◐" });
+    const { container } = renderThreadRow({
+      thread: createThread({ projectId: "proj_other" }),
+    });
+    expect(
+      container.querySelector("[data-sidebar-thread-hull-designation]"),
+    ).toBeNull();
+  });
 });
 
 describe("ThreadRow", () => {
