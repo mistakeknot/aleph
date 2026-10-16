@@ -1095,7 +1095,7 @@ describe("RuntimeManager", () => {
       ]);
       try {
         runtimeOptions.current?.onProcessSpawn?.({
-          inScope: false,
+          scopeUnit: null,
           pid: worker.pid,
           processKey: "fake",
           providerId: "fake",

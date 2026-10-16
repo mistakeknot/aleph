@@ -3737,8 +3737,8 @@ Claude Code bridge) takes the spawn over only when this or record mode is on,
 so the default spawn path stays unchanged.
 
 Before stabilization, decide whether bridges should get a pre-spawn wrapper
-(command and arguments rewritten through `systemd-run --scope`, as the daemon
-does for provider workers and terminals) instead of, or beside, post-spawn
+(a gate that holds the command until it is in its scope, as the daemon does
+for provider workers and terminals) instead of, or beside, post-spawn
 placement; whether the scope should be keyed by thread or by turn; and whether
 the bridge should learn the outcome instead of fire-and-forget, and whether
 the request predicate should report that isolation actually works rather than

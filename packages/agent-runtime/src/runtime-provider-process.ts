@@ -103,7 +103,7 @@ interface TerminateProviderProcessArgs {
 
 interface SpawnProviderArgs {
   adapter: BridgeProtocolAdapter;
-  inScope: boolean;
+  scopeUnit: string | null;
   processKey: string;
   providerId: string;
   spawn: AgentRuntimeProcessSpawnCommand;
@@ -188,7 +188,7 @@ export class RuntimeProviderProcessManager {
       if (this.shuttingDown) return;
       const providerProcess = this.spawnProvider({
         adapter,
-        inScope: scoped !== null,
+        scopeUnit: scoped?.scopeUnit ?? null,
         processKey: args.processKey,
         providerId: args.providerId,
         spawn: scoped ?? plan,
@@ -410,7 +410,7 @@ export class RuntimeProviderProcessManager {
     });
     const { child } = managed;
     this.args.onProcessSpawn?.({
-      inScope: args.inScope,
+      scopeUnit: args.scopeUnit,
       pid: child.pid,
       processKey: args.processKey,
       providerId: args.providerId,

@@ -76,9 +76,23 @@ export function lowerAgentProcessPriority(
       }
     }
   } catch (error) {
+    if (isExitedProcessError(error)) return;
     args.logger.warn(
       { pid: args.pid, processKind: args.processKind, nice, err: error },
       "Failed to lower agent process priority",
     );
   }
+}
+
+function isExitedProcessError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const code = "code" in error ? error.code : undefined;
+  if (code === "ESRCH" || code === "ENOENT") return true;
+  const info = "info" in error ? error.info : undefined;
+  return (
+    typeof info === "object" &&
+    info !== null &&
+    "code" in info &&
+    info.code === "ESRCH"
+  );
 }

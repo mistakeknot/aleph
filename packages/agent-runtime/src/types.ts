@@ -46,7 +46,7 @@ export interface AgentRuntimeProcessExitThreadState {
 }
 
 export interface AgentRuntimeProcessSpawnInfo {
-  inScope: boolean;
+  scopeUnit: string | null;
   pid: number | undefined;
   processKey: string;
   providerId: string;
@@ -56,6 +56,7 @@ export interface AgentRuntimeProcessSpawnCommand {
   args: string[];
   command: string;
   env: NodeJS.ProcessEnv;
+  scopeUnit?: string;
 }
 
 export interface AgentRuntimeProcessSpawnPlan extends AgentRuntimeProcessSpawnCommand {

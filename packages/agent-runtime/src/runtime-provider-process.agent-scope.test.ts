@@ -62,7 +62,12 @@ describe("RuntimeProviderProcessManager agent scope wrap", () => {
       providerId: "fake",
     });
     await manager.shutdown();
-    release({ args: ["bridge.js"], command: "/usr/bin/systemd-run", env: {} });
+    release({
+      args: ["-c", 'exec "$@"', "bb-agent-gate", "node", "bridge.js"],
+      command: "/bin/sh",
+      env: {},
+      scopeUnit: "bb-provider-worker-fake-1.scope",
+    });
     await expect(start).resolves.toBeUndefined();
     expect(spawned.count).toBe(0);
     expect(manager.listRunningProviders()).toEqual([]);

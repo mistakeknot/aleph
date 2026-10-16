@@ -1131,12 +1131,12 @@ export class RuntimeManager {
       pid: info.pid,
       processKind: "provider-worker",
     });
-    if (info.inScope) return;
     placeAgentProcessInScope({
       logger: this.options.logger,
       name: info.providerId,
       pid: info.pid,
       processKind: "provider-worker",
+      scopeUnit: info.scopeUnit,
     });
   };
 

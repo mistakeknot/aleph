@@ -147,6 +147,26 @@ describe("lowerAgentProcessPriority", () => {
     );
   });
 
+  it("stays quiet when the process already exited", () => {
+    const deps = fakeDeps({ 100: 0 });
+    deps.getPriority = () => {
+      throw Object.assign(new Error("A system error occurred"), {
+        code: "ERR_SYSTEM_ERROR",
+        info: { code: "ESRCH" },
+      });
+    };
+    const log = logger();
+    lowerAgentProcessPriority({
+      deps,
+      env: {},
+      logger: log,
+      pid: 100,
+      platform: "linux",
+      processKind: "provider-worker",
+    });
+    expect(log.warn).not.toHaveBeenCalled();
+  });
+
   it.skipIf(process.platform === "win32")(
     "lowers a real child and its descendants inherit it",
     async () => {

@@ -397,7 +397,7 @@ from starving the server. Set these in the host daemon's environment and
 restart the launcher:
 
 - `BB_AGENT_CGROUP=systemd` turns isolation on. Provider workers and terminals
-  start inside their own scope through `systemd-run --user --scope`; plugin
+  start inside their own scope, held by a short gate until they are moved; plugin
   workers and agent processes are moved into a scope right after they start.
 - `BB_AGENT_CGROUP_SLICE` names the slice (default `agents.slice`; use a
   top-level name with no `-`).

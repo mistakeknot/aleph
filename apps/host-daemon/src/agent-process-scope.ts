@@ -19,6 +19,7 @@ interface PlaceAgentProcessInScopeArgs {
   pid: number | undefined;
   placer?: AgentCgroupPlacer;
   processKind: AgentProcessScopeKind;
+  scopeUnit?: string | null;
 }
 
 let defaultPlacer: AgentCgroupPlacer | null = null;
@@ -49,17 +50,20 @@ function getDefaultPlacer(
 export function placeAgentProcessInScope(
   args: PlaceAgentProcessInScopeArgs,
 ): void {
-  if (args.pid === undefined) return;
+  const scopeUnit = args.scopeUnit ?? null;
+  if (args.pid === undefined && scopeUnit === null) return;
   const placer = args.placer ?? getDefaultPlacer(args.logger);
   void placer
     .placeInScope({
       pid: args.pid,
       processKind: args.processKind,
-      unit: agentProcessScopeUnitName({
-        kind: args.processKind,
-        name: args.name,
-        pid: args.pid,
-      }),
+      unit:
+        scopeUnit ??
+        agentProcessScopeUnitName({
+          kind: args.processKind,
+          name: args.name,
+          pid: args.pid ?? 0,
+        }),
     })
     .catch(() => undefined);
 }

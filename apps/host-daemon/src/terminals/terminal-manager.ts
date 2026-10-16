@@ -247,14 +247,13 @@ const nodePtyAdapter: TerminalPtyAdapter = {
       pid: pty.pid,
       processKind: "terminal",
     });
-    if (scoped === null) {
-      placeAgentProcessInScope({
-        logger: args.logger,
-        name: "",
-        pid: pty.pid,
-        processKind: "terminal",
-      });
-    }
+    placeAgentProcessInScope({
+      logger: args.logger,
+      name: "",
+      pid: pty.pid,
+      processKind: "terminal",
+      scopeUnit: scoped?.scopeUnit ?? null,
+    });
     return {
       dispose: () => disposeNodePty(pty),
       kill: (signal) => {

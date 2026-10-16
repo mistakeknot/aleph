@@ -75,6 +75,40 @@ describe("placeAgentProcessInScope", () => {
     expect(placer.placeInScope).not.toHaveBeenCalled();
   });
 
+  it("places a gated spawn in the unit its gate waits for", () => {
+    const placer = fakePlacer();
+
+    placeAgentProcessInScope({
+      logger,
+      name: "codex",
+      pid: 505,
+      placer,
+      processKind: "provider-worker",
+      scopeUnit: "bb-provider-worker-codex-77_1.scope",
+    });
+    placeAgentProcessInScope({
+      logger,
+      name: "codex",
+      pid: undefined,
+      placer,
+      processKind: "provider-worker",
+      scopeUnit: "bb-provider-worker-codex-77_2.scope",
+    });
+
+    expect(placer.placeInScope.mock.calls.map(([call]) => call)).toEqual([
+      {
+        pid: 505,
+        processKind: "provider-worker",
+        unit: "bb-provider-worker-codex-77_1.scope",
+      },
+      {
+        pid: undefined,
+        processKind: "provider-worker",
+        unit: "bb-provider-worker-codex-77_2.scope",
+      },
+    ]);
+  });
+
   it("never lets a placement failure reach the caller", async () => {
     const placer = fakePlacer(async () => {
       throw new Error("bus went away");
@@ -98,14 +132,15 @@ describe("wrapAgentProcessSpawn", () => {
   it("hands the spawn to the placer and returns its wrapped command", () => {
     const placer = fakePlacer();
     placer.wrapSpawn.mockReturnValue({
-      args: ["--scope", "--", "/bin/sh"],
-      command: "/usr/bin/systemd-run",
-      env: { XDG_RUNTIME_DIR: "/run/user/1000" },
+      args: ["-c", 'exec "$@"', "bb-agent-gate", "/bin/bash"],
+      command: "/usr/bin/sh",
+      env: {},
+      scopeUnit: "bb-terminal-77_1.scope",
     });
 
     const wrapped = wrapAgentProcessSpawn({
       args: [],
-      command: "/bin/sh",
+      command: "/bin/bash",
       env: {},
       logger,
       name: "",
@@ -115,12 +150,12 @@ describe("wrapAgentProcessSpawn", () => {
 
     expect(placer.wrapSpawn).toHaveBeenCalledWith({
       args: [],
-      command: "/bin/sh",
+      command: "/bin/bash",
       env: {},
       name: "",
       processKind: "terminal",
     });
-    expect(wrapped?.command).toBe("/usr/bin/systemd-run");
+    expect(wrapped?.scopeUnit).toBe("bb-terminal-77_1.scope");
   });
 });
 
