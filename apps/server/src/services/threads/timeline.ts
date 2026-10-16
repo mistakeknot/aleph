@@ -684,7 +684,11 @@ function filterExactEventRowsForRequestedTurn(
       openToolCallIds.delete(row.itemId);
     }
 
-    const requestId = tryReadClientTurnRequestedRequestId(row);
+    // Only request rows carry a request id; skip decoding every other row.
+    const requestId =
+      row.type === "client/turn/requested"
+        ? tryReadClientTurnRequestedRequestId(row)
+        : null;
     if (
       requestId !== null &&
       args.acceptedClientRequestIdsForOtherTurns.has(requestId)
