@@ -231,9 +231,7 @@ export function getEnvironmentSummaryChrome({
     hostType: host?.type ?? null,
   });
   const summaryHost =
-    host !== null && summary?.label === host.name
-      ? host
-      : undefined;
+    host !== null && summary?.label === host.name ? host : undefined;
   return {
     environmentLabel: summary?.label,
     environmentCompactLabel: summary?.compactLabel,

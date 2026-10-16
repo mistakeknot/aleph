@@ -215,6 +215,16 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
     ) {
       timelineCache.invalidateThread(message.id);
       timelineLatestRowsCache.invalidateThread(message.id);
+      timelineBuildCoalescer.invalidateThread(message.id);
+    } else if (
+      message.changes.includes("thread-deleted") ||
+      message.changes.includes("archived-changed")
+    ) {
+      timelineCache.invalidateThread(message.id);
+      timelineLatestRowsCache.invalidateThread(message.id);
+      if (shouldDropTimelineSnapshots(message.changes)) {
+        timelineBuildCoalescer.invalidateThread(message.id);
+      }
     }
     if (compacted || shouldDropTimelineSnapshots(message.changes)) {
       timelineBuildCoalescer.invalidateThread(message.id);

@@ -1907,6 +1907,51 @@ export interface ExperimentalComposerCommandRegistration {
   run(context: { composer: PluginComposerApi }): void | Promise<void>;
 }
 
+/** What the host passes to {@link ExperimentalPluginCommandPaletteSearchRegistration.search}. */
+export interface ExperimentalPluginCommandPaletteSearchContext {
+  /** This plugin's RPC client, the same one `useRpc()` returns. */
+  rpc: PluginRpcClient;
+  /** The project in view, or null. A hint for ranking, not a required filter. */
+  projectId: string | null;
+  /** Aborted when the query changes, the palette closes, or the host stops waiting. */
+  signal: AbortSignal;
+}
+
+/** One palette row returned by a command palette search provider. */
+export interface ExperimentalPluginCommandPaletteSearchResult {
+  /** Unique within one response from this provider. */
+  id: string;
+  /** The row's label, e.g. "AUTA-316 Fix the sidebar". */
+  title: string;
+  /** Short trailing text shown beside the provider title, e.g. a status. */
+  detail?: string;
+  /**
+   * Where picking the row goes: one of this plugin's `navPanel` paths, plus an
+   * optional sub-path, exactly as `useBbNavigate().toPluginPanel` takes them.
+   * Rows naming a path this plugin did not register are dropped.
+   */
+  open: { panelPath: string; subPath?: string };
+}
+
+/**
+ * Contribute query-dependent rows to bb's command palette, such as records
+ * found by key or title. The host calls `search` after the user pauses typing,
+ * shows the results after the matching commands in the host's order, stops
+ * waiting after a few seconds, and contains errors. Picking a row navigates to
+ * the row's panel; no plugin code runs on pick. Experimental: see
+ * docs/api_to_audit.md.
+ */
+export interface ExperimentalPluginCommandPaletteSearchRegistration {
+  /** Unique within the plugin; letters, digits, `-`, `_`. */
+  id: string;
+  /** Labels this provider's rows, e.g. "Tasks". */
+  title: string;
+  search(
+    query: string,
+    context: ExperimentalPluginCommandPaletteSearchContext,
+  ): Promise<readonly ExperimentalPluginCommandPaletteSearchResult[]>;
+}
+
 /** Registers commands for bb's command palette. */
 export interface PluginAppCommands {
   /** Register a command. IDs are unique within this plugin, including legacy slot registrations. */
@@ -2189,6 +2234,14 @@ export interface PluginAppSlots {
    * Both entry points share the same command registry and ID namespace.
    */
   commandPaletteAction(registration: PluginCommandRegistration): void;
+  /**
+   * Add query-dependent rows to the command palette (see
+   * {@link ExperimentalPluginCommandPaletteSearchRegistration}). Experimental:
+   * see docs/api_to_audit.md.
+   */
+  experimental_commandPaletteSearch(
+    registration: ExperimentalPluginCommandPaletteSearchRegistration,
+  ): void;
   /**
    * Draw one agent, environment, or machine provider's icon with an inline
    * React component instead of its masked logo asset (see

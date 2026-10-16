@@ -9,9 +9,7 @@ interface RewriteLocalhostLinkHrefArgs {
 }
 
 const LOOPBACK_LINK_HOSTNAMES = new Set(["127.0.0.1", "localhost"]);
-const IGNORED_REWRITE_HOSTNAME_PATTERNS = [
-  /^(?:.+\.)?getbb\.app$/i,
-];
+const IGNORED_REWRITE_HOSTNAME_PATTERNS = [/^(?:.+\.)?getbb\.app$/i];
 
 function isIgnoredRewriteHostname(hostname: string): boolean {
   return IGNORED_REWRITE_HOSTNAME_PATTERNS.some((pattern) =>

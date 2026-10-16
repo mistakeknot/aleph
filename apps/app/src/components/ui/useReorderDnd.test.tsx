@@ -8,12 +8,7 @@ import { useReorderDnd } from "./useReorderDnd";
 function DraggableRow({ onClick }: { onClick: () => void }) {
   const { attributes, listeners, setNodeRef } = useDraggable({ id: "row" });
   return (
-    <button
-      ref={setNodeRef}
-      onClick={onClick}
-      {...attributes}
-      {...listeners}
-    >
+    <button ref={setNodeRef} onClick={onClick} {...attributes} {...listeners}>
       Open row
     </button>
   );

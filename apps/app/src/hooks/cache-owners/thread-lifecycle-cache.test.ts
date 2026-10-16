@@ -5,7 +5,10 @@ import {
   makeProjectWithThreadsResponse,
   makeSidebarBootstrapResponse,
 } from "@/test/fixtures/projects";
-import { archivedThreadsListQueryKey, sidebarNavigationQueryKey } from "../queries/query-keys";
+import {
+  archivedThreadsListQueryKey,
+  sidebarNavigationQueryKey,
+} from "../queries/query-keys";
 import {
   beginUnarchiveThreadTransaction,
   rollbackThreadListMutationTransaction,
@@ -32,10 +35,12 @@ describe("sidebar archive cache", () => {
       });
       const neighbor = makeThreadListEntry({ id: "parent", projectId });
       const navigation = makeSidebarBootstrapResponse({
-        projects: [makeProjectWithThreadsResponse({
-          id: "project-1",
-          threads: projectId === "project-1" ? [neighbor] : [],
-        })],
+        projects: [
+          makeProjectWithThreadsResponse({
+            id: "project-1",
+            threads: projectId === "project-1" ? [neighbor] : [],
+          }),
+        ],
         personalProject: makeProjectWithThreadsResponse({
           id: "proj_personal",
           kind: "personal",
@@ -51,15 +56,30 @@ describe("sidebar archive cache", () => {
         threadId: archived.id,
       });
 
-      const next = queryClient.getQueryData<typeof navigation>(sidebarNavigationQueryKey())!;
-      const destination = projectId === "proj_personal" ? next.personalProject : next.projects[0];
-      const other = projectId === "proj_personal" ? next.projects[0] : next.personalProject;
-      expect(destination?.threads).toEqual([neighbor, { ...archived, archivedAt: null }]);
+      const next = queryClient.getQueryData<typeof navigation>(
+        sidebarNavigationQueryKey(),
+      )!;
+      const destination =
+        projectId === "proj_personal" ? next.personalProject : next.projects[0];
+      const other =
+        projectId === "proj_personal" ? next.projects[0] : next.personalProject;
+      expect(destination?.threads).toEqual([
+        neighbor,
+        { ...archived, archivedAt: null },
+      ]);
       expect(other?.threads).toEqual([]);
-      expect(queryClient.getQueryData(archivedKey)).toMatchObject({ pages: [[]] });
+      expect(queryClient.getQueryData(archivedKey)).toMatchObject({
+        pages: [[]],
+      });
 
-      rollbackThreadListMutationTransaction({ queryClient, threadId: archived.id, transaction });
-      expect(queryClient.getQueryData(sidebarNavigationQueryKey())).toEqual(navigation);
+      rollbackThreadListMutationTransaction({
+        queryClient,
+        threadId: archived.id,
+        transaction,
+      });
+      expect(queryClient.getQueryData(sidebarNavigationQueryKey())).toEqual(
+        navigation,
+      );
       expect(queryClient.getQueryData(archivedKey)).toEqual(pages);
     },
   );

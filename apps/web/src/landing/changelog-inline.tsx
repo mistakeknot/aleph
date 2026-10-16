@@ -73,7 +73,8 @@ function parseInline(
 
     appendText(tokens, text.slice(cursor, tokenStart));
     const isCode = tokenStart === codeStart;
-    const isStrongEm = !isCode && allowStrong && text.startsWith("***", tokenStart);
+    const isStrongEm =
+      !isCode && allowStrong && text.startsWith("***", tokenStart);
     const isStrong = !isCode && !isStrongEm && tokenStart === strongStart;
     const delimiter = isCode ? "`" : isStrongEm ? "***" : isStrong ? "**" : "*";
     const contentStart = tokenStart + delimiter.length;

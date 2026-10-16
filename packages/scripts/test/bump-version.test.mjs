@@ -140,9 +140,7 @@ describe("bump-version", () => {
     expect(readVersion(repoRoot, "packages/bb-app/package.json")).toBe(
       newVersion,
     );
-    expect(readVersion(repoRoot, "apps/desktop/package.json")).toBe(
-      newVersion,
-    );
+    expect(readVersion(repoRoot, "apps/desktop/package.json")).toBe(newVersion);
   });
 
   it.each([

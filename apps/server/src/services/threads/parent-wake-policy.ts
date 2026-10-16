@@ -22,7 +22,7 @@ import { requirePublicProject } from "../lib/entity-lookup.js";
 import { toThreadResponseFromThread } from "./thread-runtime-display.js";
 import { buildExecutionOptions } from "./thread-commands.js";
 import type { LoggedPendingInteractionWorkSessionDeps } from "../../types.js";
-import type { PromptInput, Thread } from "@bb/domain";
+import type { PromptInput, Thread, ThreadQueuedMessage } from "@bb/domain";
 
 const parentWakeNotifySettingValues = ["all", "changed", "quiet"] as const;
 export const parentWakeNotifySettingSchema = z.enum(
@@ -295,7 +295,12 @@ export type ParentThreadHeldResult =
  */
 export async function checkParentThreadHeld(
   deps: LoggedPendingInteractionWorkSessionDeps,
-  args: { input: PromptInput[]; parentThread: Thread },
+  args: {
+    input: PromptInput[];
+    parentThread: Thread;
+    queuedMessages?: ThreadQueuedMessage[];
+    continueAfterHooks?: () => Promise<void>;
+  },
 ): Promise<ParentThreadHeldResult> {
   if (!hasMessageDispatchHooks()) {
     return { held: false };
@@ -334,8 +339,11 @@ export async function checkParentThreadHeld(
     originPluginId: null,
     startedOnBehalfOf: null,
     parentThreadId: parentThread.parentThreadId,
-    queuedMessages: [],
+    queuedMessages: args.queuedMessages ?? [],
     pluginSubmission: null,
+    ...(args.continueAfterHooks !== undefined
+      ? { continueAfterHooks: args.continueAfterHooks }
+      : {}),
   });
   if (outcome.kind === "proceed") {
     return { held: false };

@@ -439,6 +439,7 @@ export const SURFACE_GROUPS: SurfaceGroup[] = [
           "Migrate slots.commandPaletteAction to commands.register with the same fields; the old method remains a deprecated alias",
           "Read the current thread and project, and hide the row when it is unavailable",
           "Open one of the plugin's own thread side-panel tabs when a thread is on screen",
+          "Add query-dependent rows with experimental_commandPaletteSearch, such as records found by key or title; bb calls search after typing pauses, lists the rows after the matching commands, stops waiting after a few seconds, and opens the row's own full-page panel when it is picked",
         ],
         apiSymbols: [
           "PluginAppBuilder.commands",
@@ -446,7 +447,12 @@ export const SURFACE_GROUPS: SurfaceGroup[] = [
           "PluginCommandRegistration",
           "PluginCommandContext",
           "PluginCommandShortcut",
+          "PluginAppSlots.experimental_commandPaletteSearch",
+          "ExperimentalPluginCommandPaletteSearchRegistration",
+          "ExperimentalPluginCommandPaletteSearchContext",
+          "ExperimentalPluginCommandPaletteSearchResult",
         ],
+        firstParty: ["Tasks"],
       },
     ],
   },
@@ -938,6 +944,7 @@ export const SURFACE_GROUPS: SurfaceGroup[] = [
           "Subscribe to threads being created, going active or idle, failing, being archived or unarchived, or being deleted",
           "Register handlers before one startup reconciliation because unloaded events are not replayed; avoid polling thread state to detect lifecycle changes",
           "Subscribe to messages being queued behind a wait, dispatching when it clears, or being cancelled before dispatch",
+          "Subscribe to message.transferred, the at-least-once record of a queue transfer between threads, with a stable transfer.eventId and a null entry when no row landed",
           "Subscribe when a thread receives a pending interaction",
           "Observe debounced experimental_thread.events notifications with the latest sequence and current thread, or experimental_terminal.input without keystroke contents",
           "Observe experimental_host.deleted when a machine is removed, to drop state kept for that machine",
@@ -947,6 +954,7 @@ export const SURFACE_GROUPS: SurfaceGroup[] = [
         apiSymbols: [
           "PluginEvents",
           "PluginThreadEventPayloads",
+          "PluginMessageTransfer",
           "PluginTurnFailedEvent",
         ],
         firstParty: [

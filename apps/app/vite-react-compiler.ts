@@ -129,12 +129,10 @@ export async function cachedReactCompiler(cacheDirectory?: string): Promise<
       ]),
     ].sort((a, b) => relative(root, a).localeCompare(relative(root, b)));
     const dependencies = await Promise.all(
-      files.map(
-        async (file): Promise<[string, string]> => [
-          relative(root, file),
-          await readFile(file, "utf8"),
-        ],
-      ),
+      files.map(async (file): Promise<[string, string]> => [
+        relative(root, file),
+        await readFile(file, "utf8"),
+      ]),
     );
     cache = {
       directory: cacheDirectory ?? directory,

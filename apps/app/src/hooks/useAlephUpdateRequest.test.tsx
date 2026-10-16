@@ -438,8 +438,9 @@ describe("useAlephUpdateRequest", () => {
       expect(result.current.unknownMessage).toBeNull();
       expect(result.current.pending?.nonce).toBe(NONCE);
       expect(
-        JSON.parse(window.localStorage.getItem("aleph-update-pending") ?? "null")
-          .nonce,
+        JSON.parse(
+          window.localStorage.getItem("aleph-update-pending") ?? "null",
+        ).nonce,
       ).toBe(NONCE);
       await waitFor(() => expect(result.current.runState).toBe("running"));
       expect(result.current.unknownMessage).toBeNull();
@@ -461,7 +462,9 @@ describe("useAlephUpdateRequest", () => {
       storeStale();
       const first = renderHook(() => useAlephUpdateRequest(), { wrapper });
       await waitFor(() =>
-        expect(first.result.current.unknownMessage).toContain("Outcome unknown"),
+        expect(first.result.current.unknownMessage).toContain(
+          "Outcome unknown",
+        ),
       );
       act(() => first.result.current.dismiss());
       first.unmount();

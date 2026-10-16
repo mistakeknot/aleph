@@ -556,7 +556,9 @@ describe("PluginCollectionToolbar", () => {
     const resize = mockToolbarWidth(354);
     render(<ToolbarHarness installed createAction />);
     expect(screen.getByRole("button", { name: "Filter & sort" })).toBeTruthy();
-    expect(screen.queryByRole("textbox", { name: "Search plugins" })).toBeNull();
+    expect(
+      screen.queryByRole("textbox", { name: "Search plugins" }),
+    ).toBeNull();
     expect(screen.getByRole("button", { name: "Search plugins" })).toBeTruthy();
     resize(320);
     expect(screen.getByRole("button", { name: "Search plugins" })).toBeTruthy();

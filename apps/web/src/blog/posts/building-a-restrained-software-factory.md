@@ -8,7 +8,7 @@ sourceLabel: This post first appeared as an X Article
 sourceHref: https://x.com/sawyerhood/status/2100632943794503909
 ---
 
-***bb*** is probably best known for [extending itself](https://x.com/sawyerhood/status/2085039905529597982), but extensibility was a much later addition to the app. ***bb*** started as an agent orchestrator whose pitch was: **If you can do it in the editor, an agent in bb can do it too.** A big thing that spun out of this is that agents can orchestrate other agents, and it turns out this becomes a powerful primitive for making bb the command center for all of your agents. Some might even call it a *software factory.*
+_**bb**_ is probably best known for [extending itself](https://x.com/sawyerhood/status/2085039905529597982), but extensibility was a much later addition to the app. _**bb**_ started as an agent orchestrator whose pitch was: **If you can do it in the editor, an agent in bb can do it too.** A big thing that spun out of this is that agents can orchestrate other agents, and it turns out this becomes a powerful primitive for making bb the command center for all of your agents. Some might even call it a _software factory._
 
 I know how that sounds. I'm not going to tell you how to tokenmaxx and endlessly fire off your slop cannon. You don't have to have psychosis to automate the repetitive parts of your work: look for what you keep doing by hand, and use the tools at your disposal to make that less painful. The key is observability. bb lets you automate that work while still seeing what every agent is doing, and taking over when you need to.
 
@@ -21,7 +21,7 @@ Any agent inside bb can spawn other agents as child threads and talk to them. Th
 A basic example: let's say you're using Fable through Claude Code to implement something. You can ask that agent to spawn a GPT-6 Astra worker to review the code. When a thread is spawned as a child of another, the parent gets notified when the child stops working. In our reviewer case then the parent thread can implement the feedback the child has for it.
 
 ![A thread under another](/blog/building-a-restrained-software-factory/sub-thread.png)
-*A thread under another*
+_A thread under another_
 
 You aren't limited to spawning a single thread at a time! For example you can have a Fable / Astra worker interview you and create the plan for a feature and then have a series of cheaper models (like Meta Muse or GPT Luna) do the implementation for you..
 
@@ -40,7 +40,7 @@ Here are two of these that I use on a daily basis.
 We have a plugin marketplace where people open PRs to submit their plugins to bb. I have a manager that every morning looks through the submissions, installs those plugins into a test bb instance, and clicks through to make sure they work at a basic level. Then it gives me a preliminary yes or no on whether we should allow them into the marketplace.
 
 ![The genesis prompt for the Marketplace manager](/blog/building-a-restrained-software-factory/marketplace-manager.jpg)
-*The genesis prompt for the Marketplace manager*
+_The genesis prompt for the Marketplace manager_
 
 It keeps track of those reviews, including the submissions it rejected. If the author updates a submission, it checks the update against the previous review.
 
@@ -85,7 +85,7 @@ The Workflows plugin lets agents write code that orchestrates other agents, choo
 This is another tool I only reach for when I have a specific use case. Large migrations are the classic one. If you need to fix a lint error across every file in a codebase, have Fable write a workflow that spawns a Luna worker per file or small group of files, then collects the changes for verification and PRs.
 
 ![Example of a workflow to fix a collection of files](/blog/building-a-restrained-software-factory/workflow.jpg)
-*Example of a workflow to fix a collection of files*
+_Example of a workflow to fix a collection of files_
 
 I really like using this across providers. Fable in particular is great at writing large workflows, while models like Muse and GPT-Luna punch above their weight for the price and you can have them do lots of repetitive work across the codebase for cheap.
 

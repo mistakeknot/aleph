@@ -116,7 +116,9 @@ export function InstalledPluginRow({
         }
         title={plugin.name ?? plugin.id}
         byline={
-          isLocal ? "Local" : catalogEntry !== undefined ? (
+          isLocal ? (
+            "Local"
+          ) : catalogEntry !== undefined ? (
             <PluginCardAuthor entry={catalogEntry} />
           ) : plugin.publisherLabel !== null ? (
             <PluginAuthorByline

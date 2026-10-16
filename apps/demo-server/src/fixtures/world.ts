@@ -191,6 +191,11 @@ export const SYSTEM_VERSION: SystemVersionResponse = {
   updateAvailable: false,
   isDevelopment: false,
   upgradeCommand: "npx bb-app@latest",
+  queueRetirement: {
+    version: 1,
+    guarantees: ["G1", "G2", "G3", "G4", "G5", "G6"],
+    retire: { maxHops: 1 },
+  },
 };
 
 export const PLUGIN_CONTRIBUTIONS = { cliCommands: [], mentionProviders: [] };
@@ -216,6 +221,7 @@ export function queuedMessage(args: {
     groupWithNext: false,
     sendAt: null,
     waitingOn: null,
+    systemNotice: null,
     failureReason: null,
     payload: { kind: "inline" },
     editable: true,

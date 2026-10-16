@@ -84,7 +84,9 @@ describe("builtin server artifacts", () => {
       await cp(source, root, {
         recursive: true,
         filter: (path) =>
-          !["node_modules", "dist", ".bundled-runtime"].includes(basename(path)),
+          !["node_modules", "dist", ".bundled-runtime"].includes(
+            basename(path),
+          ),
       });
       await symlink(
         join(source, "node_modules"),

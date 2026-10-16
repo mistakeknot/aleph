@@ -41,10 +41,7 @@ export function arrangeByStoredOrder<TItem>({
 type ReorderStoredOrderArgs<TId extends string> = {
   order: readonly TId[];
   visibleIds: readonly TId[];
-} & (
-  | { activeId: string; overId: string }
-  | { nextVisibleIds: readonly TId[] }
-);
+} & ({ activeId: string; overId: string } | { nextVisibleIds: readonly TId[] });
 
 export function reorderStoredOrder<TId extends string>(
   args: ReorderStoredOrderArgs<TId>,

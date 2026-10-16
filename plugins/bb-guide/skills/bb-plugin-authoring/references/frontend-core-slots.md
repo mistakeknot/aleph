@@ -245,6 +245,18 @@ target? })`. Inside the fixed-tab component,
   one under Settings → Appearance → Header, and the default is bb's controls
   only. Content is clipped to the row. Experimental: see
   `docs/api_to_audit.md`.
+- `experimental_appHeaderStatus` → `{ threadId, projectId, isCompactViewport,
+  availableWidth, openSettings }` — renders one compact status chip in the
+  header bar's center, sharing width with breadcrumbs and the thread title.
+  Registration: `{ id, title, component }`. Many plugins can contribute. The
+  host renders each contribution once per window, not once per split pane.
+  Collapse to an icon-sized control when `isCompactViewport` is true and fit
+  `availableWidth`. Experimental: see `docs/api_to_audit.md`.
+- `experimental_commandPaletteSearch` → registration `{ id, title, search }`.
+  `search(query, { rpc, projectId, signal })` returns rows for the command
+  palette. bb calls it after typing pauses, lists the rows after the matching
+  commands, stops waiting after a few seconds, and opens the picked row's own
+  full-page panel. Honor `signal`. Experimental: see `docs/api_to_audit.md`.
 - `fileOpener` → `{ path: string, source, experimental_lineRange?, Original }` — register as a viewer/editor
   for file extensions: `{ id, title, extensions: ["md"], component }`.
   Matching files use the first applicable opener in deterministic slot order

@@ -26,6 +26,7 @@ import {
   buildPluginComposerCommandActions,
   buildPluginPaletteActions,
 } from "@/lib/command-palette/palette-plugin-actions";
+import { PLUGIN_SEARCH_ACTION_PREFIX } from "@/lib/command-palette/palette-plugin-search";
 import { usePluginSlots } from "@/lib/plugin-slots";
 import { getActiveThreadPanelOpener } from "@/components/plugin/plugin-thread-panel-navigation";
 import { pluginListQueryOptions } from "@/hooks/queries/plugin-settings-queries";
@@ -204,7 +205,9 @@ export function CommandPalette({ threadId, projectId }: CommandPaletteProps) {
   }, [actions, pluginCommandIds]);
 
   const chooseAction = useCallback((action: PaletteAction) => {
-    setRecents((current) => recordPaletteRecent(current, action.id));
+    if (!action.id.startsWith(PLUGIN_SEARCH_ACTION_PREFIX)) {
+      setRecents((current) => recordPaletteRecent(current, action.id));
+    }
     if (action.id === THREAD_SEARCH_ACTION_ID) {
       action.run();
       return;
@@ -286,6 +289,7 @@ export function CommandPalette({ threadId, projectId }: CommandPaletteProps) {
             installedPlugins={installedPlugins}
             recents={recents}
             query={query}
+            projectId={projectId}
             onQueryChange={setQuery}
             onChoose={chooseAction}
           />
@@ -302,6 +306,8 @@ export function CommandPalette({ threadId, projectId }: CommandPaletteProps) {
           >
             <ThreadSearchPaletteMode
               onExit={exitMode}
+              open={open}
+              projectId={projectId}
               runAfterClose={runAfterClose}
             />
           </Suspense>

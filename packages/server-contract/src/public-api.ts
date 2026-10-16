@@ -197,6 +197,15 @@ import type {
   SendMessageResponse,
   SetQueuedMessageGroupBoundaryRequest,
   SendQueuedMessageRequest,
+  AckTransferOperationResponse,
+  AbortRetirementRequest,
+  AbortRetirementResponse,
+  RetireThreadRequest,
+  RetireThreadResponse,
+  TransferAllQueuedMessagesRequest,
+  TransferAllQueuedMessagesResponse,
+  TransferOperationResponse,
+  TransferQueuedMessageRequest,
   SendQueuedMessageResponse,
   SidebarBootstrapResponse,
   SystemAttentionResponse,
@@ -369,6 +378,10 @@ import {
   editMessageRequestSchema,
   setQueuedMessageGroupBoundaryRequestSchema,
   sendQueuedMessageRequestSchema,
+  abortRetirementRequestSchema,
+  retireThreadRequestSchema,
+  transferAllQueuedMessagesRequestSchema,
+  transferQueuedMessageRequestSchema,
   systemExecutionOptionsQuerySchema,
   systemEnvironmentProvidersQuerySchema,
   systemProvidersQuerySchema,
@@ -1476,6 +1489,51 @@ export const publicApiRoutes = {
         SendQueuedMessageRequest
       >(sendQueuedMessageRequestSchema),
       response: jsonResponse<SendQueuedMessageResponse>(),
+    }),
+    transferQueuedMessage: defineRoute({
+      path: "/threads/:id/queued-messages/:queuedMessageId/transfer",
+      method: "post",
+      request: jsonRequest<
+        PathThreadAndQueuedMessage,
+        TransferQueuedMessageRequest
+      >(transferQueuedMessageRequestSchema),
+      response: jsonResponse<ThreadQueuedMessage>({ status: 201 }),
+    }),
+    retireThread: defineRoute({
+      path: "/threads/:id/retire",
+      method: "post",
+      request: jsonRequest<PathId, RetireThreadRequest>(
+        retireThreadRequestSchema,
+      ),
+      response: jsonResponse<RetireThreadResponse>(),
+    }),
+    getTransferOperation: defineRoute({
+      path: "/transfer-operations/:id",
+      method: "get",
+      request: noRequest<PathId>(),
+      response: jsonResponse<TransferOperationResponse>(),
+    }),
+    abortRetirement: defineRoute({
+      path: "/transfer-operations/:id/abort",
+      method: "post",
+      request: jsonRequest<PathId, AbortRetirementRequest>(
+        abortRetirementRequestSchema,
+      ),
+      response: jsonResponse<AbortRetirementResponse>(),
+    }),
+    ackTransferOperation: defineRoute({
+      path: "/transfer-operations/:id/ack",
+      method: "post",
+      request: noRequest<PathId>(),
+      response: jsonResponse<AckTransferOperationResponse>(),
+    }),
+    transferAllQueuedMessages: defineRoute({
+      path: "/threads/:id/queued-messages/transfer-all",
+      method: "post",
+      request: jsonRequest<PathId, TransferAllQueuedMessagesRequest>(
+        transferAllQueuedMessagesRequestSchema,
+      ),
+      response: jsonResponse<TransferAllQueuedMessagesResponse>(),
     }),
     reorderQueuedMessage: defineRoute({
       path: "/threads/:id/queued-messages/:queuedMessageId/order",

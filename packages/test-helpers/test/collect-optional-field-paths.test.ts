@@ -4,7 +4,9 @@ import { collectOptionalFieldPaths } from "../src/collect-optional-field-paths.j
 
 describe("collectOptionalFieldPaths", () => {
   it("reports an optional field inside an array element", () => {
-    const rows = z.array(z.object({ id: z.string(), note: z.string().optional() }));
+    const rows = z.array(
+      z.object({ id: z.string(), note: z.string().optional() }),
+    );
 
     expect(collectOptionalFieldPaths({ rows })).toEqual(["rows.note"]);
   });

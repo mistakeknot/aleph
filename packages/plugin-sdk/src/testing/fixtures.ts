@@ -328,6 +328,7 @@ export function makeQueueEntry(
       pluginId: "test-plugin",
       reason: "Waiting",
     },
+    systemNotice: null,
     failureReason: null,
     payload: { kind: "inline" },
     editable: true,

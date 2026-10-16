@@ -2057,6 +2057,42 @@ every boot).
    the accessible label story: the host derives `ariaLabel` from its own
    provider data, falling back to the provider id, and the slot supplies none.
 
+## `app.slots.experimental_commandPaletteSearch` (`@get-bb/plugin-sdk/app`)
+
+**What it does.** Lets a plugin frontend answer the quick command palette's
+query with its own rows: `{ id, title, search(query, { rpc, projectId, signal }) }`.
+`search` returns `{ id, title, detail?, open: { panelPath, subPath? } }` rows.
+The host calls every registered provider 150 ms after typing pauses, skips
+command mode (`>`) and the empty query, gives each provider its own
+`AbortSignal` (aborted when the query changes, the palette closes, the provider
+settles, or after 3 s), forwards that signal to the plugin's RPC transport, and
+contains synchronous throws, rejections, and timeouts. Rows are validated:
+malformed rows, rows naming a panel path the plugin did not register, and rows
+past the eighth are dropped. Surviving rows appear after the ranked commands,
+unranked, under the provider's title, and are never recorded as recents.
+Picking a row navigates to the plugin panel route; no plugin code runs on
+pick. The Tasks plugin registers one provider that finds cards by exact key
+(`AUTA-316`) and by key, title, or description substring.
+
+**Audit before stabilizing.**
+
+1. **Ranking and merging.** Plugin rows are appended after the host's ranked
+   matches, grouped by provider in the slot store's order. Decide whether the host should rank
+   plugin rows against commands (with a provider-supplied score or the host's
+   matcher) before more than one provider ships.
+2. **Query cost and scope.** Every pause in typing costs one search per
+   provider. The Tasks provider's substring search is a leading-wildcard
+   `LIKE` across all projects, the same query shape as the Tasks list's own
+   search; `projectId` is only a hint. Measure latency on a large task store
+   and decide whether providers should be project-scoped by default.
+3. **Bundle loading.** Providers exist only once the plugin's frontend bundle
+   has registered its slots. Confirm deferred bundles are loaded (or the
+   palette says a provider is unavailable) before relying on the slot for
+   every installed plugin.
+4. **Result shape.** Rows carry only text and a panel destination. Decide
+   whether icons, keyboard hints, secondary actions, or non-panel
+   destinations (a thread, a fixed tab) belong in the stable shape.
+
 ## `experimental_ProviderModelPicker` (`@get-bb/plugin-sdk/app`)
 
 **What it does.** Exposes bb's execution picker as a controlled

@@ -290,6 +290,329 @@ const descriptionCases: DescriptionCase[] = [
     },
   },
   {
+    name: "thread_not_writable self_transfer",
+    body: {
+      code: "thread_not_writable",
+      message: "Cannot move to itself",
+      details: {
+        archivedAt: null,
+        reason: "self_transfer",
+        threadStatus: "active",
+      },
+    },
+    expected: {
+      title: "Cannot move to itself",
+      body: "A thread cannot move its queue to itself.",
+      severity: "warning",
+    },
+  },
+  {
+    name: "thread_not_writable unknown_thread",
+    body: {
+      code: "thread_not_writable",
+      message: "Thread not found",
+      details: {
+        archivedAt: null,
+        reason: "unknown_thread",
+        threadStatus: "active",
+      },
+    },
+    expected: {
+      title: "Thread not found",
+      body: "The target thread does not exist.",
+      severity: "error",
+    },
+  },
+  {
+    name: "thread_not_writable source_deleted",
+    body: {
+      code: "thread_not_writable",
+      message: "Thread deleted",
+      details: {
+        archivedAt: null,
+        reason: "source_deleted",
+        threadStatus: "active",
+      },
+    },
+    expected: {
+      title: "Thread deleted",
+      body: "This thread was deleted.",
+      severity: "error",
+    },
+  },
+  {
+    name: "thread_not_writable already_retired",
+    body: {
+      code: "thread_not_writable",
+      message: "Queue already moved",
+      details: {
+        archivedAt: null,
+        reason: "already_retired",
+        threadStatus: "active",
+      },
+    },
+    expected: {
+      title: "Queue already moved",
+      body: "This thread's queue was already moved.",
+      severity: "info",
+    },
+  },
+  {
+    name: "thread_not_writable source_is_retire_target",
+    body: {
+      code: "thread_not_writable",
+      message: "Cannot move queue",
+      details: {
+        archivedAt: null,
+        reason: "source_is_retire_target",
+        threadStatus: "active",
+      },
+    },
+    expected: {
+      title: "Cannot move queue",
+      body: "Another thread's queue was moved into this thread.",
+      severity: "warning",
+    },
+  },
+  {
+    name: "thread_not_writable target_retired",
+    body: {
+      code: "thread_not_writable",
+      message: "Target thread retired",
+      details: {
+        archivedAt: null,
+        reason: "target_retired",
+        threadStatus: "active",
+      },
+    },
+    expected: {
+      title: "Target thread retired",
+      body: "The target thread's queue was moved elsewhere.",
+      severity: "warning",
+    },
+  },
+  {
+    name: "thread_not_writable thread_not_writable",
+    body: {
+      code: "thread_not_writable",
+      message: "Thread not writable",
+      details: {
+        archivedAt: null,
+        reason: "thread_not_writable",
+        threadStatus: "active",
+      },
+    },
+    expected: {
+      title: "Thread not writable",
+      body: "The thread cannot accept messages.",
+      severity: "warning",
+    },
+  },
+  {
+    name: "thread_not_writable transfer_retire_disabled",
+    body: {
+      code: "thread_not_writable",
+      message: "Queue move disabled",
+      details: {
+        archivedAt: null,
+        reason: "transfer_retire_disabled",
+        threadStatus: "active",
+      },
+    },
+    expected: {
+      title: "Queue move disabled",
+      body: "Moving queues is currently disabled.",
+      severity: "warning",
+    },
+  },
+  {
+    name: "thread_not_writable retired_no_successor",
+    body: {
+      code: "thread_not_writable",
+      message: "Thread retired",
+      details: {
+        archivedAt: null,
+        reason: "retired_no_successor",
+        threadStatus: "active",
+      },
+    },
+    expected: {
+      title: "Thread retired",
+      body: "This thread was retired and its successor is gone; it cannot accept messages.",
+      severity: "warning",
+    },
+  },
+  {
+    name: "thread_not_writable redirect_depth_exceeded",
+    body: {
+      code: "thread_not_writable",
+      message: "Thread retired",
+      details: {
+        archivedAt: null,
+        reason: "redirect_depth_exceeded",
+        threadStatus: "active",
+      },
+    },
+    expected: {
+      title: "Thread retired",
+      body: "This thread was retired into another retired thread; it cannot accept messages.",
+      severity: "warning",
+    },
+  },
+  {
+    name: "thread_not_writable unknown_operation",
+    body: {
+      code: "thread_not_writable",
+      message: "Operation not found",
+      details: {
+        archivedAt: null,
+        reason: "unknown_operation",
+        threadStatus: "active",
+      },
+    },
+    expected: {
+      title: "Operation not found",
+      body: "The retirement could not be found.",
+      severity: "warning",
+    },
+  },
+  {
+    name: "thread_not_writable already_aborted",
+    body: {
+      code: "thread_not_writable",
+      message: "Already restored",
+      details: {
+        archivedAt: null,
+        reason: "already_aborted",
+        threadStatus: "active",
+      },
+    },
+    expected: {
+      title: "Already restored",
+      body: "This retirement was already restored.",
+      severity: "warning",
+    },
+  },
+  {
+    name: "thread_not_writable stale_abort",
+    body: {
+      code: "thread_not_writable",
+      message: "Retirement changed",
+      details: {
+        archivedAt: null,
+        reason: "stale_abort",
+        threadStatus: "active",
+      },
+    },
+    expected: {
+      title: "Retirement changed",
+      body: "This retirement is no longer current.",
+      severity: "warning",
+    },
+  },
+  {
+    name: "thread_not_writable successor_retired",
+    body: {
+      code: "thread_not_writable",
+      message: "Successor retired",
+      details: {
+        archivedAt: null,
+        reason: "successor_retired",
+        threadStatus: "active",
+      },
+    },
+    expected: {
+      title: "Successor retired",
+      body: "The successor thread was retired, so this cannot be restored.",
+      severity: "warning",
+    },
+  },
+  {
+    name: "thread_not_writable claims_pending",
+    body: {
+      code: "thread_not_writable",
+      message: "Messages in flight",
+      details: {
+        archivedAt: null,
+        reason: "claims_pending",
+        threadStatus: "active",
+      },
+    },
+    expected: {
+      title: "Messages in flight",
+      body: "Messages are being delivered; try again shortly.",
+      severity: "warning",
+    },
+  },
+  {
+    name: "thread_not_writable restore_key_exhausted",
+    body: {
+      code: "thread_not_writable",
+      message: "Cannot restore order",
+      details: {
+        archivedAt: null,
+        reason: "restore_key_exhausted",
+        threadStatus: "active",
+      },
+    },
+    expected: {
+      title: "Cannot restore order",
+      body: "The original message order cannot be restored.",
+      severity: "warning",
+    },
+  },
+  {
+    name: "thread_not_writable source_queue_too_large",
+    body: {
+      code: "thread_not_writable",
+      message: "Queue too large",
+      details: {
+        archivedAt: null,
+        reason: "source_queue_too_large",
+        threadStatus: "active",
+      },
+    },
+    expected: {
+      title: "Queue too large to move",
+      body: "This thread has too many queued messages to move at once. Send or remove some and try again.",
+      severity: "warning",
+    },
+  },
+  {
+    name: "thread_not_writable abort_queue_too_large",
+    body: {
+      code: "thread_not_writable",
+      message: "Retirement cannot be aborted online",
+      details: {
+        archivedAt: null,
+        reason: "abort_queue_too_large",
+        threadStatus: "active",
+      },
+    },
+    expected: {
+      title: "Too many messages to restore",
+      body: "Restoring this retirement would move too many queued messages at once. Send or remove some from the successor and try again.",
+      severity: "warning",
+    },
+  },
+  {
+    name: "thread_not_writable attachment_unavailable",
+    body: {
+      code: "thread_not_writable",
+      message: "Attachment unavailable",
+      details: {
+        archivedAt: null,
+        reason: "attachment_unavailable",
+        threadStatus: "active",
+      },
+    },
+    expected: {
+      title: "Attachment unavailable",
+      body: "An attachment could not be moved.",
+      severity: "error",
+    },
+  },
+  {
     name: "thread_not_writable still starting",
     body: {
       code: "thread_not_writable",

@@ -359,7 +359,10 @@ function BrowseShelf({
         ) : shelf.key === "collection:new-and-notable" ? (
           <Icon name="News01" className="size-4 text-foreground" aria-hidden />
         ) : (
-          <PluginCategoryIcon categoryId={shelf.categoryId} className="size-4" />
+          <PluginCategoryIcon
+            categoryId={shelf.categoryId}
+            className="size-4"
+          />
         )
       }
       browseAction={

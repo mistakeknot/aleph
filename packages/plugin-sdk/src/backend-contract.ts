@@ -264,6 +264,17 @@ export interface PluginTurnFailedEvent {
  * `thread` is the same public DTO GET /threads/:id serves and `entry` is the
  * queued row GET /threads/:id/queued-messages serves.
  */
+export interface PluginMessageTransfer {
+  eventId: number;
+  operationId: string;
+  entryId: string;
+  kind: string;
+  state: string;
+  rowId: string | null;
+  sourceRowId: string | null;
+  originId: string | null;
+}
+
 export interface PluginThreadEventPayloads {
   /** Debounced per thread (at most once per second), with the latest sequence and current thread DTO. Reading history does not emit this event. */
   "experimental_thread.events": { thread: ThreadResponse; sequence: number };
@@ -316,7 +327,10 @@ export interface PluginThreadEventPayloads {
    * A re-queue fires this again with the new wait, because a row that moved
    * from one wait to another is news to whoever was waiting on the old one.
    */
-  "message.queued": { entry: ThreadQueuedMessage };
+  "message.queued": {
+    entry: ThreadQueuedMessage;
+    transfer?: PluginMessageTransfer;
+  };
   /**
    * Fired after a queued row's waits all cleared and it dispatched. The turn
    * it carried runs after this, so a handler must not assume it has started.
@@ -343,6 +357,10 @@ export interface PluginThreadEventPayloads {
    * event, not this one.
    */
   "message.cancelled": { entry: ThreadQueuedMessage };
+  "message.transferred": {
+    entry: ThreadQueuedMessage | null;
+    transfer: PluginMessageTransfer;
+  };
 }
 
 export type PluginThreadEventName = keyof PluginThreadEventPayloads;

@@ -293,6 +293,120 @@ function describeThreadNotWritable({
         title: "Thread starting",
         body: "The thread is still starting.",
       });
+    case "self_transfer":
+      return warning({
+        operation,
+        title: "Cannot move to itself",
+        body: "A thread cannot move its queue to itself.",
+      });
+    case "unknown_thread":
+      return errorDescription({
+        operation,
+        title: "Thread not found",
+        body: "The target thread does not exist.",
+      });
+    case "source_deleted":
+      return errorDescription({
+        operation,
+        title: "Thread deleted",
+        body: "This thread was deleted.",
+      });
+    case "already_retired":
+      return info({
+        operation,
+        title: "Queue already moved",
+        body: "This thread's queue was already moved.",
+      });
+    case "source_is_retire_target":
+      return warning({
+        operation,
+        title: "Cannot move queue",
+        body: "Another thread's queue was moved into this thread.",
+      });
+    case "target_retired":
+      return warning({
+        operation,
+        title: "Target thread retired",
+        body: "The target thread's queue was moved elsewhere.",
+      });
+    case "thread_not_writable":
+      return warning({
+        operation,
+        title: "Thread not writable",
+        body: "The thread cannot accept messages.",
+      });
+    case "transfer_retire_disabled":
+      return warning({
+        operation,
+        title: "Queue move disabled",
+        body: "Moving queues is currently disabled.",
+      });
+    case "source_queue_too_large":
+      return warning({
+        operation,
+        title: "Queue too large to move",
+        body: "This thread has too many queued messages to move at once. Send or remove some and try again.",
+      });
+    case "retired_no_successor":
+      return warning({
+        operation,
+        title: "Thread retired",
+        body: "This thread was retired and its successor is gone; it cannot accept messages.",
+      });
+    case "redirect_depth_exceeded":
+      return warning({
+        operation,
+        title: "Thread retired",
+        body: "This thread was retired into another retired thread; it cannot accept messages.",
+      });
+    case "unknown_operation":
+      return warning({
+        operation,
+        title: "Operation not found",
+        body: "The retirement could not be found.",
+      });
+    case "already_aborted":
+      return warning({
+        operation,
+        title: "Already restored",
+        body: "This retirement was already restored.",
+      });
+    case "stale_abort":
+      return warning({
+        operation,
+        title: "Retirement changed",
+        body: "This retirement is no longer current.",
+      });
+    case "successor_retired":
+      return warning({
+        operation,
+        title: "Successor retired",
+        body: "The successor thread was retired, so this cannot be restored.",
+      });
+    case "claims_pending":
+      return warning({
+        operation,
+        title: "Messages in flight",
+        body: "Messages are being delivered; try again shortly.",
+      });
+    case "restore_key_exhausted":
+      return warning({
+        operation,
+        title: "Cannot restore order",
+        body: "The original message order cannot be restored.",
+      });
+    case "abort_queue_too_large":
+      return warning({
+        operation,
+        title: "Too many messages to restore",
+        body: "Restoring this retirement would move too many queued messages at once. Send or remove some from the successor and try again.",
+      });
+    case "attachment_unavailable":
+      return errorDescription({
+        operation,
+        title: "Attachment unavailable",
+        body: "An attachment could not be moved.",
+      });
     default:
       return assertNever(details.reason);
   }

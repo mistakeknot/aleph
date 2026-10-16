@@ -21,6 +21,10 @@ it("isolates clock mutations in tests and imported helpers", () => {
 
   expect(partitionTestFiles(root, ["test"])).toEqual({
     shared: [{ environment: null, files: ["test/plain.test.ts"] }],
-    isolated: ["test/date.test.ts", "test/helper.test.ts", "test/timers.test.ts"],
+    isolated: [
+      "test/date.test.ts",
+      "test/helper.test.ts",
+      "test/timers.test.ts",
+    ],
   });
 });
