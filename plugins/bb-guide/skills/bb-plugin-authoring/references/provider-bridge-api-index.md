@@ -87,6 +87,8 @@ Context breakdowns are optional snapshots on `contextWindow` deltas:
 - `experimental_fileReadPresentation`
 - `experimental_formatCommand`
 - `experimental_installationVerification`
+- `experimental_isAgentCgroupIsolationRequested` — whether agent processes
+  should get their own scopes; take over the CLI spawn when it is true
 - `experimental_isProviderBridgeRecording`
 - `experimental_killPortableProcess` — end a child from
   `experimental_spawnPortableProcess`; terminates the whole process tree on
@@ -95,6 +97,8 @@ Context breakdowns are optional snapshots on `contextWindow` deltas:
 - `experimental_npmGlobalInstallCommand`
 - `experimental_npmGlobalInstallSource`
 - `experimental_npmLatestVersion`
+- `experimental_placeProviderChildInThreadScope` — move a CLI child into its
+  thread's systemd scope when agent isolation is on; does nothing otherwise
 - `experimental_planStepsPresentation`
 - `experimental_presentationDetail`
 - `experimental_presentationFileName`

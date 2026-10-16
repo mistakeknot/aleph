@@ -574,6 +574,7 @@ export const SURFACE_GROUPS: SurfaceGroup[] = [
           "Publish context snapshots through contextWindow deltas, with provider-defined category IDs and labels. Each category declares used, free, reserved, or deferred accounting; entries are included in its total and may be partial. Snapshots include capture time, session identity, model, totals, and an optional auto-compaction threshold",
           "Receive every message in a thread started with it, through a bridge process the plugin ships",
           "Launch and stop the provider's CLI from that bridge with bb's portable launcher, which runs npm .cmd shims and ends the whole process tree on Windows",
+          "Move that CLI child into its thread's own systemd scope when the host turns on agent CPU isolation, so one busy thread cannot starve another; a bridge that takes over its CLI spawn checks whether isolation was requested first",
           "Handle provider/installation/status with checkUpdates: false using local executable and version checks only, preserving operation-specific minimum versions; omitted or true keeps full install-source and update discovery for Settings",
           "Contribute validated environment variables to any provider for each session and turn",
         ],
@@ -596,6 +597,8 @@ export const SURFACE_GROUPS: SurfaceGroup[] = [
           "ExperimentalPluginProviderEnvHealth",
           "experimental_spawnPortableProcess",
           "experimental_killPortableProcess",
+          "experimental_isAgentCgroupIsolationRequested",
+          "experimental_placeProviderChildInThreadScope",
         ],
         firstParty: [
           "ACP providers",

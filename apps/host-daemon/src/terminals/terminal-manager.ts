@@ -15,6 +15,10 @@ import {
 import { displayWidth, truncateToWidth } from "@bb/text-utils";
 import type { HostDaemonServerTerminalMessage } from "../server-connection-support.js";
 import { lowerAgentProcessPriority } from "../agent-process-priority.js";
+import {
+  placeAgentProcessInScope,
+  wrapAgentProcessSpawn,
+} from "../agent-process-scope.js";
 import type { HostDaemonLogger } from "../logger.js";
 import { RuntimeManager } from "../runtime-manager.js";
 import { runtimeErrorLogFields } from "../error-utils.js";
@@ -219,17 +223,36 @@ function disposeNodePty(pty: ReturnType<typeof spawnPty>): void {
 const nodePtyAdapter: TerminalPtyAdapter = {
   spawn(args) {
     ensureNodePtySpawnHelperExecutable(args.logger);
-    const pty = spawnPty(args.file, args.args, {
-      cols: args.cols,
-      cwd: args.cwd,
+    const scoped = wrapAgentProcessSpawn({
+      args: args.args,
+      command: args.file,
       env: args.env,
-      name: "xterm-256color",
-      rows: args.rows,
+      logger: args.logger,
+      name: "",
+      processKind: "terminal",
     });
+    const pty = spawnPty(
+      scoped?.command ?? args.file,
+      scoped?.args ?? args.args,
+      {
+        cols: args.cols,
+        cwd: args.cwd,
+        env: scoped?.env ?? args.env,
+        name: "xterm-256color",
+        rows: args.rows,
+      },
+    );
     lowerAgentProcessPriority({
       logger: args.logger,
       pid: pty.pid,
       processKind: "terminal",
+    });
+    placeAgentProcessInScope({
+      logger: args.logger,
+      name: "",
+      pid: pty.pid,
+      processKind: "terminal",
+      scopeUnit: scoped?.scopeUnit ?? null,
     });
     return {
       dispose: () => disposeNodePty(pty),

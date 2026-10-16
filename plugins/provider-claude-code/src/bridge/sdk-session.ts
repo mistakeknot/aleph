@@ -11,7 +11,9 @@ import {
   type SpawnOptions,
 } from "@anthropic-ai/claude-agent-sdk";
 import {
+  experimental_isAgentCgroupIsolationRequested,
   experimental_isProviderBridgeRecording,
+  experimental_placeProviderChildInThreadScope,
   experimental_recordProviderChildIo,
 } from "@get-bb/plugin-sdk/provider-bridge";
 import type { ClaudePermissionMode } from "../interactive-contract.js";
@@ -134,6 +136,9 @@ function spawnRecordedClaudeProcess(args: {
     args.onStderr(data);
   });
   experimental_recordProviderChildIo(child, { threadId: args.threadId });
+  experimental_placeProviderChildInThreadScope(child, {
+    threadId: args.threadId,
+  });
   return child as SpawnedProcess;
 }
 
@@ -242,7 +247,8 @@ export class SdkSession {
       cwd: this.options.cwd,
       systemPrompt: this.options.systemPrompt,
       ...permissionOptions,
-      ...(experimental_isProviderBridgeRecording()
+      ...(experimental_isProviderBridgeRecording() ||
+      experimental_isAgentCgroupIsolationRequested()
         ? {
             spawnClaudeCodeProcess: (spawnOptions: SpawnOptions) =>
               spawnRecordedClaudeProcess({

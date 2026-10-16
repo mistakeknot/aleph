@@ -21,6 +21,8 @@ import type {
   AgentRuntimeBridgeLaunch,
   AgentRuntimeOptions,
   AgentRuntimeProcessExitThreadState,
+  AgentRuntimeProcessSpawnCommand,
+  AgentRuntimeProcessSpawnPlan,
   AgentRuntimeSkillRoot,
 } from "./types.js";
 
@@ -61,6 +63,8 @@ interface RuntimeProviderProcessManagerArgs {
   getNextRequestId: () => number;
   handleStdoutLine: (args: RuntimeProviderProcessLineArgs) => void;
   onProcessExit: AgentRuntimeOptions["onProcessExit"];
+  onProcessSpawn?: AgentRuntimeOptions["onProcessSpawn"];
+  prepareProcessSpawn?: AgentRuntimeOptions["prepareProcessSpawn"];
   onProviderThreadDetached: (threadId: string) => void;
   onStderr: AgentRuntimeOptions["onStderr"];
   skillRoots: readonly AgentRuntimeSkillRoot[];
@@ -99,8 +103,10 @@ interface TerminateProviderProcessArgs {
 
 interface SpawnProviderArgs {
   adapter: BridgeProtocolAdapter;
+  scopeUnit: string | null;
   processKey: string;
   providerId: string;
+  spawn: AgentRuntimeProcessSpawnCommand;
 }
 
 interface ProviderProcessExitStatus {
@@ -170,10 +176,22 @@ export class RuntimeProviderProcessManager {
 
     const startPromise = (async () => {
       const adapter = this.getAdapter(args.providerId, args.bridgeLaunch);
+      const plan = this.buildProviderSpawnPlan({
+        adapter,
+        providerId: args.providerId,
+      });
+      const prepareProcessSpawn = this.args.prepareProcessSpawn;
+      const scoped =
+        prepareProcessSpawn === undefined
+          ? null
+          : await prepareProcessSpawn(plan);
+      if (this.shuttingDown) return;
       const providerProcess = this.spawnProvider({
         adapter,
+        scopeUnit: scoped?.scopeUnit ?? null,
         processKey: args.processKey,
         providerId: args.providerId,
+        spawn: scoped ?? plan,
       });
 
       try {
@@ -361,7 +379,10 @@ export class RuntimeProviderProcessManager {
     );
   }
 
-  private spawnProvider(args: SpawnProviderArgs): RuntimeProviderProcess {
+  private buildProviderSpawnPlan(args: {
+    adapter: BridgeProtocolAdapter;
+    providerId: string;
+  }): AgentRuntimeProcessSpawnPlan {
     const processConfig = args.adapter.process;
     const env: NodeJS.ProcessEnv = {
       ...sanitizeInheritedChildProcessEnv({ env: process.env }),
@@ -372,14 +393,28 @@ export class RuntimeProviderProcessManager {
     if (recordRoot !== undefined && recordRoot !== "") {
       env[PROVIDER_BRIDGE_RECORD_DIR_ENV] = join(recordRoot, args.providerId);
     }
-
-    const managed = spawnManagedProcess({
+    return {
+      args: [...processConfig.args],
       command: processConfig.command,
-      args: processConfig.args,
-      cwd: this.args.workspacePath,
       env,
+      providerId: args.providerId,
+    };
+  }
+
+  private spawnProvider(args: SpawnProviderArgs): RuntimeProviderProcess {
+    const managed = spawnManagedProcess({
+      command: args.spawn.command,
+      args: args.spawn.args,
+      cwd: this.args.workspacePath,
+      env: args.spawn.env,
     });
     const { child } = managed;
+    this.args.onProcessSpawn?.({
+      scopeUnit: args.scopeUnit,
+      pid: child.pid,
+      processKey: args.processKey,
+      providerId: args.providerId,
+    });
     let finalizeExit: () => void = () => undefined;
     const exitFinalized = new Promise<void>((resolve) => {
       finalizeExit = resolve;

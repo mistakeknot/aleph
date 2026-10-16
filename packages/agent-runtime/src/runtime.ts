@@ -335,6 +335,8 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
     handleStdoutLine: (args) =>
       handleStdoutLine(args.line, args.providerProcess),
     onProcessExit: options.onProcessExit,
+    onProcessSpawn: options.onProcessSpawn,
+    prepareProcessSpawn: options.prepareProcessSpawn,
     onProviderThreadDetached: (threadId) => {
       toolCalls.cancelThread(threadId);
       threadIdentityRegistry.clearThread(threadId);
@@ -1170,8 +1172,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
       type: "provider.env-resolved",
       threadId: args.threadId,
       providerThreadId: args.providerThreadId,
-      entries: redactProviderEnvResolvedData({ entries: args.entries })
-        .entries,
+      entries: redactProviderEnvResolvedData({ entries: args.entries }).entries,
       scope: { kind: "thread" },
     });
     for (const contribution of args.droppedContributions) {
