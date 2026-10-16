@@ -4558,6 +4558,8 @@ describe("Account Pool plugin", () => {
           "toLabel",
           "toUsagePercent",
         ]);
+        for (const secret of ["sk-first"])
+          expect(JSON.stringify(switches)).not.toContain(secret);
         expect(JSON.stringify(switches)).not.toMatch(
           /token|secret|refresh|apiKey/i,
         );
