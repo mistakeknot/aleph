@@ -26,6 +26,8 @@ import {
   decideParentWake,
   isChildTurnSelfInitiated,
   recordDeliveredChildOutput,
+  releaseDeliveredChildTurn,
+  reserveDeliveredChildTurn,
   resolveParentWakeNotifySetting,
 } from "./parent-wake-policy.js";
 
@@ -427,8 +429,36 @@ function selectWakingChildThreadTurnNotificationItems(
       selfInitiated,
       turnStatus: item.turnStatus,
     });
+    if (decision.wake && item.turnStatus === "completed" && item.turnId) {
+      // Reserve before delivery is awaited so an overlapping flush dedups
+      // against this one; released again if delivery fails.
+      reserveDeliveredChildTurn(
+        {
+          childThreadId: item.childThread.id,
+          parentThreadId: args.parentThreadId,
+        },
+        item.turnId,
+      );
+    }
     return decision.wake;
   });
+}
+
+function releaseReservedChildThreadTurnNotificationItems(args: {
+  items: ChildThreadTurnNotificationBatchItem[];
+  parentThreadId: string;
+}): void {
+  for (const item of args.items) {
+    if (item.turnStatus === "completed" && item.turnId) {
+      releaseDeliveredChildTurn(
+        {
+          childThreadId: item.childThread.id,
+          parentThreadId: args.parentThreadId,
+        },
+        item.turnId,
+      );
+    }
+  }
 }
 
 /**
@@ -485,8 +515,14 @@ async function flushChildThreadTurnNotificationBatch(
         items,
         parentThreadId,
       });
+    } else {
+      releaseReservedChildThreadTurnNotificationItems({
+        items,
+        parentThreadId,
+      });
     }
   } catch (error) {
+    releaseReservedChildThreadTurnNotificationItems({ items, parentThreadId });
     deps.logger.error(
       {
         err: error,

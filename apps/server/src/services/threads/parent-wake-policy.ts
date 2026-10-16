@@ -114,10 +114,62 @@ export function recordDeliveredChildOutput(args: {
   finalText: string | null;
   turnId?: string | null;
 }): void {
-  lastDeliveredChildOutputByKey.set(lastDeliveredKey(args), args.finalText);
+  const key = lastDeliveredKey(args);
+  lastDeliveredChildOutputByKey.delete(key);
+  lastDeliveredChildOutputByKey.set(key, args.finalText);
+  evictOldest(lastDeliveredChildOutputByKey, MAX_DELIVERED_TURN_KEYS);
   if (args.turnId) {
-    deliveredCompletedTurnKeys.add(deliveredTurnKey(args, args.turnId));
+    reserveDeliveredChildTurn(args, args.turnId);
   }
+}
+
+/**
+ * Upper bound on remembered completed-turn keys (and last-output entries).
+ * Oldest entries are evicted first, so memory stays bounded in a long-lived
+ * server. Eviction only means a very old turn could be re-notified.
+ */
+export const MAX_DELIVERED_TURN_KEYS = 2_000;
+
+function evictOldest<T>(
+  collection: Set<T> | Map<string, unknown>,
+  limit: number,
+): void {
+  while (collection.size > limit) {
+    const first = collection.keys().next();
+    if (first.done) {
+      return;
+    }
+    collection.delete(first.value as never);
+  }
+}
+
+/**
+ * Marks a completed turn as delivered (or in flight) before delivery is
+ * awaited, so an overlapping flush cannot deliver the same completion twice.
+ * Call `releaseDeliveredChildTurn` if delivery fails so it can retry.
+ */
+export function reserveDeliveredChildTurn(
+  args: { childThreadId: string; parentThreadId: string },
+  turnId: string,
+): void {
+  const key = deliveredTurnKey(args, turnId);
+  deliveredCompletedTurnKeys.delete(key);
+  deliveredCompletedTurnKeys.add(key);
+  evictOldest(deliveredCompletedTurnKeys, MAX_DELIVERED_TURN_KEYS);
+}
+
+export function releaseDeliveredChildTurn(
+  args: { childThreadId: string; parentThreadId: string },
+  turnId: string,
+): void {
+  deliveredCompletedTurnKeys.delete(deliveredTurnKey(args, turnId));
+}
+
+export function hasDeliveredChildTurn(
+  args: { childThreadId: string; parentThreadId: string },
+  turnId: string,
+): boolean {
+  return deliveredCompletedTurnKeys.has(deliveredTurnKey(args, turnId));
 }
 
 export function clearDeliveredChildOutputForTesting(): void {
