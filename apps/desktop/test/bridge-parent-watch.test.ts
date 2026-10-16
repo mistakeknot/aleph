@@ -316,4 +316,64 @@ setInterval(() => undefined, 1000);
       expect(await readFile(markerPath, "utf8")).toBe("cleaned");
     },
   );
+
+  posixIt(
+    "finishes async cleanup when the parent's stdout and stderr readers are gone too",
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), "bb-desktop-parent-watch-"));
+      tempRoots.push(root);
+      const watchPath = join(root, "watch.mjs");
+      await build({
+        bundle: true,
+        entryPoints: [join(packageRoot, "src", "bridge-parent-watch.ts")],
+        format: "esm",
+        logLevel: "silent",
+        outfile: watchPath,
+        platform: "node",
+      });
+      const markerPath = join(root, "cleanup.marker");
+      const bridgePath = join(root, "bridge.mjs");
+      await writeFile(
+        bridgePath,
+        `import { writeFileSync } from "node:fs";
+import { installParentExitWatch } from ${JSON.stringify(watchPath)};
+installParentExitWatch({
+  env: process.env,
+  kill: (signal) => process.kill(process.pid, signal),
+  outputs: [process.stdout, process.stderr],
+  stdin: process.stdin,
+});
+process.on("SIGTERM", () => {
+  process.stdout.write("shutting down\\n");
+  process.stderr.write("shutting down\\n");
+  setTimeout(() => {
+    process.stdout.write("descendants stopped\\n");
+    writeFileSync(${JSON.stringify(markerPath)}, "cleaned");
+    process.exit(0);
+  }, 200);
+});
+process.stdout.write("ready\\n");
+setInterval(() => undefined, 1000);
+`,
+      );
+      const child = spawn(process.execPath, [bridgePath], {
+        env: { ...process.env, [EXIT_WHEN_PARENT_GONE_ENV]: "1" },
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      if (child.pid !== undefined) {
+        trackedPids.push(child.pid);
+      }
+      await new Promise<void>((resolveReady) => {
+        child.stdout.once("data", () => resolveReady());
+      });
+      const exited = new Promise<number | null>((resolveExit) => {
+        child.once("exit", (code) => resolveExit(code));
+      });
+      child.stdout.destroy();
+      child.stderr.destroy();
+      child.stdin.end();
+      expect(await exited).toBe(0);
+      expect(await readFile(markerPath, "utf8")).toBe("cleaned");
+    },
+  );
 });

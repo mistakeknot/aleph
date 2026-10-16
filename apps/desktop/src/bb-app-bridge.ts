@@ -5,6 +5,7 @@ installParentExitWatch({
   kill(signal) {
     process.kill(process.pid, signal);
   },
+  outputs: [process.stdout, process.stderr],
   stdin: process.stdin,
 });
 

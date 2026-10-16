@@ -8,10 +8,15 @@ interface ParentWatchStdin {
   unref?(): unknown;
 }
 
+interface ParentWatchOutput {
+  on(event: "error", listener: (error: Error) => void): unknown;
+}
+
 interface InstallParentExitWatchArgs {
   env: NodeJS.ProcessEnv;
   forceKillDelayMs?: number;
   kill(signal: NodeJS.Signals): void;
+  outputs?: ParentWatchOutput[];
   platform?: NodeJS.Platform;
   stdin: ParentWatchStdin;
 }
@@ -26,6 +31,16 @@ export function installParentExitWatch(
     (args.platform ?? process.platform) === "win32"
   ) {
     return false;
+  }
+
+  // The output readers die with the desktop, so shutdown logging would raise
+  // an unhandled EPIPE before asynchronous cleanup finishes.
+  for (const output of args.outputs ?? []) {
+    output.on("error", (error) => {
+      if ((error as NodeJS.ErrnoException).code !== "EPIPE") {
+        throw error;
+      }
+    });
   }
 
   let triggered = false;
