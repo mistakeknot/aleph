@@ -605,7 +605,7 @@ describe("thread search data", () => {
     }
   });
 
-  it("lists title-matching threads first with the title as their first match, ahead of newer pinned body-only threads", () => {
+  it("lists title-matching threads first with the title as their first match, ahead of body-only threads that are pinned or match the body strongly", () => {
     const { db, project } = setup();
     try {
       const bodyThreads = ["Zeta review", "Alpha review", "Beta review"].map(
