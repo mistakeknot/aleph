@@ -3729,7 +3729,8 @@ scope in the agent slice (`BB_AGENT_CGROUP_SLICE`, default `agents.slice`),
 named for the thread; otherwise it does nothing. It never throws, never blocks
 the spawn and logs the first failure of each kind once. Placement happens after
 the process starts, so anything it starts before the move stays in the
-provider worker's scope, which the daemon already starts inside the slice.
+provider worker's scope, which the daemon normally places inside the slice
+before the worker runs (unless that placement misses the gate's short timeout).
 
 `experimental_isAgentCgroupIsolationRequested()` reports whether that variable
 asks for isolation on Linux. A bridge whose SDK spawns the CLI itself (the

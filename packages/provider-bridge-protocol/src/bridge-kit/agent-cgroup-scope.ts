@@ -27,15 +27,18 @@ export const PLACEMENT_GATE_TICK_SECONDS = "0.05";
 export const PLACEMENT_GATE_NAME = "bb-agent-gate";
 
 export const PLACEMENT_GATE_SCRIPT = [
-  "u=$1; n=$2; s=$3; shift 3",
-  'while [ "$n" -gt 0 ]; do',
-  "  [ -r /proc/$$/cgroup ] || break",
-  "  c=",
-  "  while read -r l; do case $l in 0::*) c=$l;; esac; done < /proc/$$/cgroup",
-  '  case $c in */"$u") break;; esac',
-  "  n=$((n - 1))",
-  `  "$s" ${PLACEMENT_GATE_TICK_SECONDS}`,
-  "done",
+  "(",
+  "  u=$1; n=$2; s=$3",
+  '  while [ "$n" -gt 0 ]; do',
+  "    [ -r /proc/$$/cgroup ] || break",
+  "    c=",
+  "    while read -r l; do case $l in 0::*) c=$l;; esac; done < /proc/$$/cgroup",
+  '    case $c in */"$u") break;; esac',
+  "    n=$((n - 1))",
+  `    "$s" ${PLACEMENT_GATE_TICK_SECONDS}`,
+  "  done",
+  ")",
+  "shift 3",
   'exec "$@"',
 ].join("\n");
 
@@ -235,8 +238,8 @@ export function createAgentCgroupPlacer(args: {
   let daemonUnit: Promise<string | null> | null = null;
   let prepared: Promise<void> | null = null;
   let gate: { sh: string; sleep: string } | null = null;
-  const gatedUnits = new Set<string>();
   let spawnSequence = 0;
+  const spawnUnitPattern = new RegExp(`-${process.pid}_\\d+\\.scope$`);
   let consecutiveFailures = 0;
   const warnedClasses = new Set<string>();
 
@@ -313,7 +316,7 @@ export function createAgentCgroupPlacer(args: {
     processKind,
     unit,
   }) => {
-    const gated = gatedUnits.delete(unit);
+    const gated = spawnUnitPattern.test(unit);
     if (config === null || disabled || disposed || pid === undefined) return;
     daemonUnit ??= setUp(config);
     const bindsTo = await daemonUnit;
@@ -358,7 +361,6 @@ export function createAgentCgroupPlacer(args: {
     dispose() {
       disposed = true;
       gate = null;
-      gatedUnits.clear();
     },
     placeInScope,
     async place({ pid, threadId }) {
@@ -380,7 +382,6 @@ export function createAgentCgroupPlacer(args: {
       }
       if (spawn.command === "" || spawn.command.startsWith("-")) return null;
       const scopeUnit = nextSpawnUnit(spawn.processKind, spawn.name);
-      gatedUnits.add(scopeUnit);
       return {
         args: placementGateArgs({
           args: spawn.args,

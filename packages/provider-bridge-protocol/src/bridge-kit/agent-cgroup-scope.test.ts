@@ -761,6 +761,28 @@ describe("createAgentCgroupPlacer", () => {
       expect(placed.out).toBe("a b|${HOME}|-x|it's|");
       expect(placed.ms).toBeLessThan(1_000);
 
+      const env = execFileSync(
+        "/bin/sh",
+        placementGateArgs({
+          args: ["-c", 'printf "%s|" "$u" "$n" "$s" "$c" "$l"'],
+          command: "/bin/sh",
+          sleep: "sleep",
+          unit: ownLeaf,
+        }),
+        {
+          encoding: "utf8",
+          env: {
+            PATH: process.env.PATH,
+            c: "C",
+            l: "L",
+            n: "8",
+            s: "S",
+            u: "U",
+          },
+        },
+      );
+      expect(env).toBe("U|8|S|C|L|");
+
       const timedOut = run("bb-never-placed.scope");
       expect(timedOut.out).toBe("a b|${HOME}|-x|it's|");
       expect(timedOut.ms).toBeGreaterThanOrEqual(1_500);

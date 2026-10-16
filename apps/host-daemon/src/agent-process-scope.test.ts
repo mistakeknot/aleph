@@ -86,25 +86,12 @@ describe("placeAgentProcessInScope", () => {
       processKind: "provider-worker",
       scopeUnit: "bb-provider-worker-codex-77_1.scope",
     });
-    placeAgentProcessInScope({
-      logger,
-      name: "codex",
-      pid: undefined,
-      placer,
-      processKind: "provider-worker",
-      scopeUnit: "bb-provider-worker-codex-77_2.scope",
-    });
 
     expect(placer.placeInScope.mock.calls.map(([call]) => call)).toEqual([
       {
         pid: 505,
         processKind: "provider-worker",
         unit: "bb-provider-worker-codex-77_1.scope",
-      },
-      {
-        pid: undefined,
-        processKind: "provider-worker",
-        unit: "bb-provider-worker-codex-77_2.scope",
       },
     ]);
   });

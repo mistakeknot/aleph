@@ -50,19 +50,18 @@ function getDefaultPlacer(
 export function placeAgentProcessInScope(
   args: PlaceAgentProcessInScopeArgs,
 ): void {
-  const scopeUnit = args.scopeUnit ?? null;
-  if (args.pid === undefined && scopeUnit === null) return;
+  if (args.pid === undefined) return;
   const placer = args.placer ?? getDefaultPlacer(args.logger);
   void placer
     .placeInScope({
       pid: args.pid,
       processKind: args.processKind,
       unit:
-        scopeUnit ??
+        args.scopeUnit ??
         agentProcessScopeUnitName({
           kind: args.processKind,
           name: args.name,
-          pid: args.pid ?? 0,
+          pid: args.pid,
         }),
     })
     .catch(() => undefined);
