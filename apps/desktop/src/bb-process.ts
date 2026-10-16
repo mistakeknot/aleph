@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { posix as posixPath } from "node:path";
+import { EXIT_WHEN_PARENT_GONE_ENV } from "./bridge-parent-watch.js";
 import {
   hasProcessExited,
   waitForProcessExit,
@@ -323,8 +324,8 @@ export function startBbAppProcess(args: StartBbAppProcessArgs): BbAppProcess {
   const childProcess = spawn(launch.executablePath, launch.args, {
     cwd: args.cwd,
     detached: args.runtime.kind === "appimage",
-    env: launch.env,
-    stdio: ["ignore", "pipe", "pipe"],
+    env: { ...launch.env, [EXIT_WHEN_PARENT_GONE_ENV]: "1" },
+    stdio: ["pipe", "pipe", "pipe"],
   });
   const pid = childProcess.pid;
   if (pid === undefined) {
