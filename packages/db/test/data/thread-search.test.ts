@@ -605,6 +605,72 @@ describe("thread search data", () => {
     }
   });
 
+  it("lists title-matching threads first with the title as their first match, ahead of newer pinned body-only threads", () => {
+    const { db, project } = setup();
+    try {
+      const bodyThreads = ["Zeta review", "Alpha review", "Beta review"].map(
+        (title, index) => {
+          const thread = createThread(db, noopNotifier, {
+            projectId: project.id,
+            providerId: "codex",
+            title,
+            titleFallback: "masaq masaq masaq masaq",
+          });
+          upsertThreadSearchSegments(db, {
+            segments: [
+              {
+                threadId: thread.id,
+                sourceKind: "assistant_message",
+                sourceKey: `event:${index}`,
+                sourceSeq: index,
+                text: "masaq masaq masaq masaq",
+              },
+            ],
+          });
+          return thread;
+        },
+      );
+      pinThread(db, noopNotifier, { threadId: bodyThreads[0]!.id });
+      const vizier = createThread(db, noopNotifier, {
+        projectId: project.id,
+        providerId: "codex",
+        title: "Masaq' | vizier",
+      });
+      upsertThreadSearchSegments(db, {
+        segments: [
+          {
+            threadId: vizier.id,
+            sourceKind: "assistant_message",
+            sourceKey: "event:9",
+            sourceSeq: 9,
+            text: "a long reply that mentions the masaq coordinator once among many other words",
+          },
+        ],
+      });
+
+      const { results } = searchThreadsWithPendingInteractionState(db, {
+        query: "masaq",
+        limitPerGroup: 20,
+      }).active;
+
+      expect(results[0]?.thread.id).toBe(vizier.id);
+      expect(results[0]?.matches[0]).toMatchObject({
+        sourceKind: "title",
+        text: "Masaq' | vizier",
+      });
+      expect(results.slice(1).map((result) => result.thread.id).sort()).toEqual(
+        bodyThreads.map((thread) => thread.id).sort(),
+      );
+      for (const result of results.slice(1)) {
+        expect(result.matches.map((match) => match.sourceKind)).not.toContain(
+          "title",
+        );
+      }
+    } finally {
+      closeConnection(db);
+    }
+  });
+
   it("leads each group with the strongest learned thread that matches the query", () => {
     const { db, project } = setup();
     try {
