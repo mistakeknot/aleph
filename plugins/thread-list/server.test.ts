@@ -334,3 +334,31 @@ it("validates lifecycle selection through CLI and RPC and broadcasts it", async 
     payload: { key: "threadLifecycles", value: ["archived"] },
   });
 });
+
+describe("thread-list hull designations rpc", () => {
+  it("serves approved rows from the data dir file and tolerates a missing file", async () => {
+    const { mkdtempSync, rmSync, writeFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = mkdtempSync(join(tmpdir(), "hull-rpc-"));
+    try {
+      const host = createFakePluginHost({ pluginId: PLUGIN_ID, dataDir: dir });
+      await plugin(host.bb);
+      await expect(
+        host.harness.behavior.callRpc("listHullDesignations", null),
+      ).resolves.toEqual({ designations: {} });
+      writeFileSync(
+        join(dir, "hull-designations.json"),
+        JSON.stringify([
+          { projectId: "proj_test1", designation: "GSV-T1·◐", approved: true },
+          { projectId: "proj_test2", designation: "GSV-T2·◐", approved: false },
+        ]),
+      );
+      await expect(
+        host.harness.behavior.callRpc("listHullDesignations", null),
+      ).resolves.toEqual({ designations: { proj_test1: "GSV-T1·◐" } });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

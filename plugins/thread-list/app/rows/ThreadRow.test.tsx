@@ -47,6 +47,7 @@ import {
   preferenceValueAtom,
   resetPreferencesSyncForTest,
 } from "../preferences/preferences-sync.js";
+import { hullDesignationsAtom } from "../preferences/hull-designations.js";
 import { CustomizeRowActionsContext } from "../list/customizeRowActionsContext.js";
 
 installTestPluginRuntime();
@@ -244,6 +245,34 @@ afterEach(() => {
   resetSidebarTitleDoubleClickForTest();
   resetPreferencesSyncForTest();
   getDefaultStore().set(sidebarShowProviderIconsAtom, false);
+});
+
+describe("ThreadRow hull designation badge", () => {
+  afterEach(() => {
+    getDefaultStore().set(hullDesignationsAtom, {});
+  });
+
+  it("shows the designation badge with a tooltip for a mapped project", () => {
+    getDefaultStore().set(hullDesignationsAtom, { proj_test1: "GSV-T1·◐" });
+    const { container } = renderThreadRow({
+      thread: createThread({ projectId: "proj_test1" }),
+    });
+    const badge = container.querySelector(
+      "[data-sidebar-thread-hull-designation]",
+    );
+    expect(badge?.textContent).toBe("GSV-T1·◐");
+    expect(badge?.getAttribute("title")).toBe("GSV-T1·◐");
+  });
+
+  it("shows no badge when the project has no designation", () => {
+    getDefaultStore().set(hullDesignationsAtom, { proj_test1: "GSV-T1·◐" });
+    const { container } = renderThreadRow({
+      thread: createThread({ projectId: "proj_other" }),
+    });
+    expect(
+      container.querySelector("[data-sidebar-thread-hull-designation]"),
+    ).toBeNull();
+  });
 });
 
 describe("ThreadRow", () => {
