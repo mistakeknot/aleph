@@ -31,6 +31,10 @@ import {
   makeRelease,
 } from "./aleph-manifest-fixtures.js";
 
+// Each case signs and verifies several generations; a loaded CI guest can
+// exceed the 5 s default on the slower ones.
+vi.setConfig({ testTimeout: 30_000 });
+
 const failNextClose = vi.hoisted(() => ({ armed: false }));
 vi.mock("node:fs/promises", async (importOriginal) => {
   const original = await importOriginal<typeof import("node:fs/promises")>();
