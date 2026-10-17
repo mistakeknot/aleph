@@ -9,6 +9,7 @@ import {
   migrate,
   noopNotifier,
 } from "../src/index.js";
+import { dropTransferLedgerSchema } from "./helpers/drop-transfer-ledger.js";
 import { dropPluginEnabledFollowsDefaultColumn } from "./helpers/rewind.js";
 
 const THREAD_DRAFTS_MIGRATION_TIMESTAMP = 1790477193525;
@@ -73,6 +74,7 @@ it.each([false, true])(
         `INSERT INTO plugins (id, source, provenance, source_kind, source_builtin_name, root_dir, version, installed_at, updated_at)
          VALUES ('drafts', 'builtin:drafts', 'builtin', 'builtin', 'drafts', '/tmp/drafts', '0.1.0', 1, 1)`,
       );
+      dropTransferLedgerSchema(db);
       db.$client
         .prepare("DELETE FROM __drizzle_migrations WHERE created_at >= ?")
         .run(THREAD_DRAFTS_MIGRATION_TIMESTAMP);
@@ -109,10 +111,16 @@ it.each([false, true])(
       migrate(db);
       migrate(db);
 
+      // The transfer-ledger migration adds origin_id (backfilled to id) and
+      // forward_source_row_id; every pre-existing column must be unchanged.
+      const queueAfter = db.$client
+        .prepare("SELECT * FROM queued_thread_messages ORDER BY id")
+        .all() as Array<Record<string, unknown>>;
+      for (const row of queueAfter) expect(row.origin_id).toBe(row.id);
       expect(
-        db.$client
-          .prepare("SELECT * FROM queued_thread_messages ORDER BY id")
-          .all(),
+        queueAfter.map(
+          ({ origin_id: _o, forward_source_row_id: _f, ...rest }) => rest,
+        ),
       ).toEqual(queueBefore);
       expect(
         db.$client.prepare("SELECT * FROM plugins ORDER BY id").all(),
