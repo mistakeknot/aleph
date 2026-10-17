@@ -111,12 +111,13 @@ it.each([false, true])(
       migrate(db);
       migrate(db);
 
-      // The transfer-ledger migration adds origin_id (backfilled to id) and
-      // forward_source_row_id; every pre-existing column must be unchanged.
       const queueAfter = db.$client
         .prepare("SELECT * FROM queued_thread_messages ORDER BY id")
         .all() as Array<Record<string, unknown>>;
-      for (const row of queueAfter) expect(row.origin_id).toBe(row.id);
+      for (const row of queueAfter) {
+        expect(row.origin_id).toBe(row.id);
+        expect(row.forward_source_row_id).toBeNull();
+      }
       expect(
         queueAfter.map(
           ({ origin_id: _o, forward_source_row_id: _f, ...rest }) => rest,
