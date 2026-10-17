@@ -1,7 +1,11 @@
+import { createBbSdk } from "@bb/sdk/core";
+import { createHttpTransport } from "@bb/sdk/node";
+import { spawnSync } from "node:child_process";
 import {
   getEnvironment,
   getHost,
   hosts,
+  hostDaemonSessions,
   getSessionById,
   getStoredProviderModelCatalog,
   getThread,
@@ -63,6 +67,51 @@ function requestJoinCode(app: {
 }
 
 describe("public host management", () => {
+  it("reads machine paths after an offline session without requiring threads", async () => {
+    await withTestHarness(async (harness) => {
+      const host = seedHost(harness.deps, { id: "host_paths" });
+      const response = await harness.app.request(`${API}/hosts/${host.id}`);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        threadStorageRootPath: null,
+      });
+      const session = seedSession(harness.deps, host.id);
+      harness.hub.unregisterDaemon(session.id);
+      harness.db
+        .update(hostDaemonSessions)
+        .set({
+          status: "closed",
+          updatedAt: 1,
+          createdAt: 1,
+        })
+        .where(eq(hostDaemonSessions.id, session.id))
+        .run();
+      const latest = seedSession(harness.deps, host.id, {
+        instanceId: "instance-2",
+      });
+      harness.hub.unregisterDaemon(latest.id);
+      harness.db
+        .update(hostDaemonSessions)
+        .set({
+          status: "closed",
+          dataDir: "/tmp/new-machine-data",
+        })
+        .where(eq(hostDaemonSessions.id, latest.id))
+        .run();
+      const sdk = createBbSdk({
+        transport: createHttpTransport({
+          baseUrl: "http://localhost",
+          runtime: "node",
+          fetch: async (input, init) =>
+            harness.app.fetch(new Request(input, init)),
+        }),
+      });
+      await expect(sdk.hosts.get({ hostId: host.id })).resolves.toMatchObject({
+        threadStorageRootPath: "/tmp/new-machine-data/thread-storage",
+      });
+    });
+  });
+
   it("reconnects a machine by re-enrolling it, replacing access only when the installer runs", async () => {
     await withTestHarness(async (harness) => {
       const host = seedHost(harness.deps, { id: "host_reconnect" });
@@ -170,6 +219,19 @@ describe("public host management", () => {
         headers: { "X-BB-Enrollment": credential },
       });
       expect(reused.status).toBe(403);
+      expect(reused.headers.get("content-type")).toContain(
+        "text/x-shellscript",
+      );
+      const errorText = await reused.text();
+      if (process.platform !== "win32") {
+        const errorScript = spawnSync("sh", ["-c", errorText], {
+          encoding: "utf8",
+        });
+        expect(errorScript.status).toBe(1);
+        expect(errorScript.stderr).toContain(
+          "already been used, replaced, or expired",
+        );
+      }
     });
   });
 
@@ -410,6 +472,30 @@ describe("public host management", () => {
     });
   });
 
+  it("filters the host list by type and rejects unknown types", async () => {
+    await withTestHarness(async (harness) => {
+      const persistent = seedHost(harness.deps, { id: "host_persistent" });
+      const ephemeral = seedHost(harness.deps, { id: "host_ephemeral" });
+      updateHost(harness.db, harness.hub, ephemeral.id, { type: "ephemeral" });
+
+      const listIds = async (query: string) => {
+        const response = await harness.app.request(`${API}/hosts${query}`);
+        expect(response.status).toBe(200);
+        return z
+          .array(z.object({ id: z.string() }))
+          .parse(await readJson(response))
+          .map((host) => host.id);
+      };
+
+      expect(await listIds("")).toEqual([persistent.id, ephemeral.id]);
+      expect(await listIds("?type=persistent")).toEqual([persistent.id]);
+      expect(await listIds("?type=ephemeral")).toEqual([ephemeral.id]);
+      expect(
+        (await harness.app.request(`${API}/hosts?type=sandbox`)).status,
+      ).toBe(400);
+    });
+  });
+
   it("stores a permission ceiling for a session-gated request", async () => {
     await withTestHarness(async (harness) => {
       const host = seedHost(harness.deps, { id: "host_ceiling" });
@@ -435,20 +521,6 @@ describe("public host management", () => {
       expect(getHost(harness.db, host.id)?.maxPermissionMode).toBe(
         "accept-edits",
       );
-    });
-  });
-
-  it("allows session-gated join-code minting", async () => {
-    await withTestHarness(async (harness) => {
-      const response = await harness.app.request(`${API}/hosts/join-codes`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-bb-gate-auth": "session",
-        },
-        body: JSON.stringify({}),
-      });
-      expect(response.status).toBe(201);
     });
   });
 
@@ -803,6 +875,7 @@ describe("public host management", () => {
         "revokeMachine",
         revokeRecord,
         { machineId: "machine-cloud-remove" },
+        { kind: "client" },
       );
     });
   }, 30_000);

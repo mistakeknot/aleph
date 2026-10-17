@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   encodeClientTurnRequestIdNumber,
   threadScope,
@@ -433,10 +433,18 @@ describe("thread search data", () => {
         title: "pintierneedle pinned newer",
       });
       // Pin order here just needs to happen after creation, in this
-      // sequence; ordering below keys off `updated_at`, which each of these
-      // calls bumps to its own call time.
-      pinThread(db, noopNotifier, { threadId: pinnedOlder.id });
-      pinThread(db, noopNotifier, { threadId: pinnedNewer.id });
+      // sequence; ordering below keys off `updated_at`, which each pin bumps
+      // to its call time. A fake clock keeps the two values distinct even
+      // when both calls land in the same real millisecond.
+      vi.useFakeTimers();
+      try {
+        vi.setSystemTime(Date.now() + 1_000);
+        pinThread(db, noopNotifier, { threadId: pinnedOlder.id });
+        vi.setSystemTime(Date.now() + 1_000);
+        pinThread(db, noopNotifier, { threadId: pinnedNewer.id });
+      } finally {
+        vi.useRealTimers();
+      }
 
       const results = searchThreadsWithPendingInteractionState(db, {
         query: "pintierneedle",
@@ -533,6 +541,139 @@ describe("thread search data", () => {
         unpinnedTitle.id,
         pinnedBodyOnly.id,
       ]);
+    } finally {
+      closeConnection(db);
+    }
+  });
+
+  it("ranks apostrophe titles as name matches and treats a titled thread's hidden fallback as body text", () => {
+    const { db, project } = setup();
+    try {
+      const vizier = createThread(db, noopNotifier, {
+        projectId: project.id,
+        providerId: "codex",
+        title: "Masaq' | vizier",
+        titleFallback: "Can we have this thread be the vizier thread",
+      });
+      const planning = createThread(db, noopNotifier, {
+        projectId: project.id,
+        providerId: "codex",
+        title: "Masaq' planning notes for the long running vizier thread",
+      });
+      const fallbackOnly = createThread(db, noopNotifier, {
+        projectId: project.id,
+        providerId: "codex",
+        title: "Clavain | coordinator",
+        titleFallback: "masaq",
+      });
+      pinThread(db, noopNotifier, { threadId: fallbackOnly.id });
+      const bodyOnly = createThread(db, noopNotifier, {
+        projectId: project.id,
+        providerId: "codex",
+        title: "After Them | coordinator",
+      });
+      upsertThreadSearchSegments(db, {
+        segments: [
+          {
+            threadId: bodyOnly.id,
+            sourceKind: "user_message",
+            sourceKey: "event:1",
+            sourceSeq: 1,
+            text: "masaq",
+          },
+        ],
+      });
+
+      for (const query of ["masaq", "Masaq'", "masaq vizier"]) {
+        const ids = searchThreadsWithPendingInteractionState(db, {
+          query,
+          limitPerGroup: 20,
+        }).active.results.map((result) => result.thread.id);
+        expect(ids.slice(0, 2)).toEqual([vizier.id, planning.id]);
+      }
+      const results = searchThreadsWithPendingInteractionState(db, {
+        query: "masaq",
+        limitPerGroup: 20,
+      });
+      expect(results.active.results.map((result) => result.thread.id)).toEqual([
+        vizier.id,
+        planning.id,
+        fallbackOnly.id,
+        bodyOnly.id,
+      ]);
+      expect(results.active.results[0]?.matches).toContainEqual(
+        expect.objectContaining({
+          sourceKind: "title",
+          text: "Masaq' | vizier",
+          highlightRanges: [{ start: 0, end: 5 }],
+        }),
+      );
+    } finally {
+      closeConnection(db);
+    }
+  });
+
+  it("lists title-matching threads first with the title as their first match, ahead of body-only threads that are pinned or match the body strongly", () => {
+    const { db, project } = setup();
+    try {
+      const bodyThreads = ["Zeta review", "Alpha review", "Beta review"].map(
+        (title, index) => {
+          const thread = createThread(db, noopNotifier, {
+            projectId: project.id,
+            providerId: "codex",
+            title,
+            titleFallback: "masaq masaq masaq masaq",
+          });
+          upsertThreadSearchSegments(db, {
+            segments: [
+              {
+                threadId: thread.id,
+                sourceKind: "assistant_message",
+                sourceKey: `event:${index}`,
+                sourceSeq: index,
+                text: "masaq masaq masaq masaq",
+              },
+            ],
+          });
+          return thread;
+        },
+      );
+      pinThread(db, noopNotifier, { threadId: bodyThreads[0]!.id });
+      const vizier = createThread(db, noopNotifier, {
+        projectId: project.id,
+        providerId: "codex",
+        title: "Masaq' | vizier",
+      });
+      upsertThreadSearchSegments(db, {
+        segments: [
+          {
+            threadId: vizier.id,
+            sourceKind: "assistant_message",
+            sourceKey: "event:9",
+            sourceSeq: 9,
+            text: "a long reply that mentions the masaq coordinator once among many other words",
+          },
+        ],
+      });
+
+      const { results } = searchThreadsWithPendingInteractionState(db, {
+        query: "masaq",
+        limitPerGroup: 20,
+      }).active;
+
+      expect(results[0]?.thread.id).toBe(vizier.id);
+      expect(results[0]?.matches[0]).toMatchObject({
+        sourceKind: "title",
+        text: "Masaq' | vizier",
+      });
+      expect(results.slice(1).map((result) => result.thread.id).sort()).toEqual(
+        bodyThreads.map((thread) => thread.id).sort(),
+      );
+      for (const result of results.slice(1)) {
+        expect(result.matches.map((match) => match.sourceKind)).not.toContain(
+          "title",
+        );
+      }
     } finally {
       closeConnection(db);
     }

@@ -1,5 +1,6 @@
+import { joinHostPathSegments } from "../services/lib/host-path.js";
+import { cleanupEnvironment } from "../services/environments/environment-engine.js";
 import { parsePaginationQuery } from "../services/lib/validation.js";
-import path from "node:path";
 import {
   countLiveThreadsInEnvironment,
   listEnvironments,
@@ -284,6 +285,26 @@ export function registerEnvironmentRoutes(app: Hono, deps: AppDeps): void {
     onValidationError: (msg) => new ApiError(400, "invalid_request", msg),
   });
   const routes = publicApiRoutes.environments;
+  post(routes.cleanup, (context) => {
+    const environment = requireEnvironment(deps.db, context.req.param("id"));
+    if (
+      countLiveThreadsInEnvironment(deps.db, {
+        environmentId: environment.id,
+      }) > 0
+    )
+      throw new ApiError(
+        409,
+        "invalid_request",
+        "Environment still has live threads",
+      );
+    if (!cleanupEnvironment(deps, environment.id))
+      throw new ApiError(
+        409,
+        "invalid_request",
+        "Environment is not provider-managed",
+      );
+    return context.json({ ok: true } as const);
+  });
 
   get(routes.list, async (context, query) => {
     const { limit, offset } = parsePaginationQuery({
@@ -568,7 +589,10 @@ export function registerEnvironmentRoutes(app: Hono, deps: AppDeps): void {
     ) {
       throw new ApiError(400, "invalid_request", "Invalid path");
     }
-    const absolutePath = path.join(environment.path, repoRelativePath);
+    const absolutePath = joinHostPathSegments(
+      environment.path,
+      repoRelativePath,
+    );
     const ref = resolveDiffFileRef(query);
     const result = await callHostRetryableOnlineRpc(deps, {
       hostId: environment.hostId,

@@ -141,7 +141,7 @@ describe("origin identity (T-O3 and T-L1; v4 T-O1/T-O2 are outbox tests and are 
       .run(row.id);
     expect(getQueuedThreadMessage(db, row.id)?.originId).toBeNull();
     const sql = readFileSync(
-      new URL("../../drizzle/0135_fixed_imperial_guard.sql", import.meta.url),
+      new URL("../../drizzle/0141_fixed_imperial_guard.sql", import.meta.url),
       "utf8",
     );
     const backfill = sql

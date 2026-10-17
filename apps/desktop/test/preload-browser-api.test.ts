@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppCommandId } from "@bb/domain";
 import type {
   BbDesktopApi,
@@ -10,6 +10,7 @@ import type {
   BbDesktopInfo,
   BbDesktopWindowState,
 } from "@bb/desktop-contract";
+import { BB_DESKTOP_ALEPH_DIAGNOSTIC_CHANNEL } from "../src/aleph-renderer-log-ipc.js";
 import {
   BB_DESKTOP_CHECK_FOR_UPDATES_CHANNEL,
   BB_DESKTOP_GET_INFO_CHANNEL,
@@ -42,11 +43,14 @@ import {
   BB_DESKTOP_APP_COMMAND_CHANNEL,
   BB_DESKTOP_CLOSE_WINDOW_REQUEST_CHANNEL,
   BB_DESKTOP_CLOSE_WINDOW_RESPONSE_CHANNEL,
+  BB_DESKTOP_FOCUS_WINDOW_CHANNEL,
   BB_DESKTOP_GET_WINDOW_STATE_CHANNEL,
   BB_DESKTOP_OPEN_NEW_TAB_CHANNEL,
   BB_DESKTOP_OPEN_SERVER_DAEMON_LOGS_CHANNEL,
   BB_DESKTOP_WINDOW_STATE_CHANGED_CHANNEL,
+  CLOSE_WINDOW_REQUEST_TIMEOUT_MS,
 } from "../src/desktop-window-command-ipc.js";
+import { createCloseWindowRequestTracker } from "../src/desktop-close-window-request.js";
 const electronMock = vi.hoisted(() => {
   interface IpcRendererEvent {}
 
@@ -251,6 +255,8 @@ describe("desktop preload browser API", () => {
     api.browser.setVisibleWithoutFocus?.(visibleRequest);
     api.browser.findInPage?.(findRequest);
     api.browser.stopFindInPage?.(stopFindRequest);
+    expect(api.focusWindow).toBeTypeOf("function");
+    api.focusWindow?.();
     api.setTheme("dark");
     await api.checkForUpdates();
     await expect(api.getWindowState?.()).resolves.toEqual({
@@ -308,6 +314,7 @@ describe("desktop preload browser API", () => {
         channel: BB_DESKTOP_BROWSER_STOP_FIND_IN_PAGE_CHANNEL,
         payload: stopFindRequest,
       },
+      { channel: BB_DESKTOP_FOCUS_WINDOW_CHANNEL, payload: undefined },
       { channel: BB_DESKTOP_SET_THEME_CHANNEL, payload: "dark" },
     ]);
     expect(electronMock.invokeCalls).toContain(BB_DESKTOP_GET_INFO_CHANNEL);
@@ -420,6 +427,7 @@ describe("desktop preload browser API", () => {
     });
     api.onAppCommand?.((command) => {
       appCommands.push(command);
+      return false;
     });
     api.onCloseWindowRequest?.(() => {
       closeWindowRequestCount += 1;
@@ -555,5 +563,234 @@ describe("desktop preload browser API", () => {
       channel: BB_DESKTOP_CLOSE_WINDOW_RESPONSE_CHANNEL,
       payload: false,
     });
+  });
+
+  describe("Cmd/Ctrl-W close requests through preload and main", () => {
+    interface RendererWindow {
+      paneCount: number;
+      sideTabOpen: boolean;
+      closedPaneCount: number;
+      closedSideTabCount: number;
+    }
+
+    interface MainWindow {
+      closeCount: number;
+      close(): void;
+      isDestroyed(): boolean;
+    }
+
+    const webContentsId = 7;
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    function mountRenderer(args: {
+      paneCount: number;
+      sideTabOpen: boolean;
+    }): RendererWindow {
+      const renderer: RendererWindow = {
+        ...args,
+        closedPaneCount: 0,
+        closedSideTabCount: 0,
+      };
+      api.onCloseWindowRequest?.(() => {
+        if (!renderer.sideTabOpen) return false;
+        renderer.sideTabOpen = false;
+        renderer.closedSideTabCount += 1;
+        return true;
+      });
+      api.onAppCommand?.((command) => {
+        if (command !== "pane.close" || renderer.paneCount <= 1) return false;
+        renderer.paneCount -= 1;
+        renderer.closedPaneCount += 1;
+        return true;
+      });
+      return renderer;
+    }
+
+    function createMainWindow(): MainWindow {
+      return {
+        closeCount: 0,
+        close() {
+          this.closeCount += 1;
+        },
+        isDestroyed() {
+          return false;
+        },
+      };
+    }
+
+    function lastCloseResponse(): unknown {
+      const responses = electronMock.sendCalls.filter(
+        (call) => call.channel === BB_DESKTOP_CLOSE_WINDOW_RESPONSE_CHANNEL,
+      );
+      return responses.at(-1)?.payload;
+    }
+
+    function pressCloseShortcut(
+      tracker: ReturnType<typeof createCloseWindowRequestTracker>,
+      mainWindow: MainWindow,
+    ): void {
+      tracker.request(webContentsId, mainWindow, () => {
+        emitIpcPayload({
+          channel: BB_DESKTOP_CLOSE_WINDOW_REQUEST_CHANNEL,
+          payload: null,
+        });
+      });
+      tracker.respond(webContentsId, lastCloseResponse(), mainWindow);
+    }
+
+    it("closes only the focused pane while several panes are open, then the window", () => {
+      const renderer = mountRenderer({ paneCount: 2, sideTabOpen: false });
+      const tracker = createCloseWindowRequestTracker(
+        CLOSE_WINDOW_REQUEST_TIMEOUT_MS,
+      );
+      const mainWindow = createMainWindow();
+
+      pressCloseShortcut(tracker, mainWindow);
+      expect(renderer.closedPaneCount).toBe(1);
+      expect(lastCloseResponse()).toBe(true);
+      expect(mainWindow.closeCount).toBe(0);
+
+      pressCloseShortcut(tracker, mainWindow);
+      expect(renderer.closedPaneCount).toBe(1);
+      expect(lastCloseResponse()).toBe(false);
+      expect(mainWindow.closeCount).toBe(1);
+    });
+
+    it("closes the window when a single pane is open", () => {
+      const renderer = mountRenderer({ paneCount: 1, sideTabOpen: false });
+      const tracker = createCloseWindowRequestTracker(
+        CLOSE_WINDOW_REQUEST_TIMEOUT_MS,
+      );
+      const mainWindow = createMainWindow();
+
+      pressCloseShortcut(tracker, mainWindow);
+
+      expect(renderer.closedPaneCount).toBe(0);
+      expect(mainWindow.closeCount).toBe(1);
+    });
+
+    it("closes the focused pane's side tab before the pane or the window", () => {
+      const renderer = mountRenderer({ paneCount: 2, sideTabOpen: true });
+      const tracker = createCloseWindowRequestTracker(
+        CLOSE_WINDOW_REQUEST_TIMEOUT_MS,
+      );
+      const mainWindow = createMainWindow();
+
+      pressCloseShortcut(tracker, mainWindow);
+      expect(renderer.closedSideTabCount).toBe(1);
+      expect(renderer.closedPaneCount).toBe(0);
+      expect(mainWindow.closeCount).toBe(0);
+
+      pressCloseShortcut(tracker, mainWindow);
+      expect(renderer.closedPaneCount).toBe(1);
+      expect(mainWindow.closeCount).toBe(0);
+    });
+
+    it("decides from the renderer's pane state, not the split navigation flag sent to main", () => {
+      const multiPane = mountRenderer({ paneCount: 2, sideTabOpen: false });
+      api.setSplitNavigationEnabled?.(false);
+      const tracker = createCloseWindowRequestTracker(
+        CLOSE_WINDOW_REQUEST_TIMEOUT_MS,
+      );
+      const mainWindow = createMainWindow();
+
+      pressCloseShortcut(tracker, mainWindow);
+
+      expect(multiPane.closedPaneCount).toBe(1);
+      expect(mainWindow.closeCount).toBe(0);
+    });
+
+    it("keeps closing the window for a web app whose command listener returns nothing", () => {
+      api.onAppCommand?.(
+        (() => undefined) as unknown as (command: AppCommandId) => boolean,
+      );
+      const tracker = createCloseWindowRequestTracker(
+        CLOSE_WINDOW_REQUEST_TIMEOUT_MS,
+      );
+      const mainWindow = createMainWindow();
+
+      pressCloseShortcut(tracker, mainWindow);
+
+      expect(lastCloseResponse()).toBe(false);
+      expect(mainWindow.closeCount).toBe(1);
+    });
+
+    it("closes the window when the renderer does not answer in time", () => {
+      vi.useFakeTimers();
+      const tracker = createCloseWindowRequestTracker(
+        CLOSE_WINDOW_REQUEST_TIMEOUT_MS,
+      );
+      const mainWindow = createMainWindow();
+
+      tracker.request(webContentsId, mainWindow, () => undefined);
+      vi.advanceTimersByTime(CLOSE_WINDOW_REQUEST_TIMEOUT_MS - 1);
+      expect(mainWindow.closeCount).toBe(0);
+      vi.advanceTimersByTime(1);
+      expect(mainWindow.closeCount).toBe(1);
+    });
+
+    it("cancels the timeout once the renderer answers", () => {
+      vi.useFakeTimers();
+      mountRenderer({ paneCount: 2, sideTabOpen: false });
+      const tracker = createCloseWindowRequestTracker(
+        CLOSE_WINDOW_REQUEST_TIMEOUT_MS,
+      );
+      const mainWindow = createMainWindow();
+
+      pressCloseShortcut(tracker, mainWindow);
+      vi.advanceTimersByTime(CLOSE_WINDOW_REQUEST_TIMEOUT_MS * 2);
+
+      expect(mainWindow.closeCount).toBe(0);
+    });
+  });
+});
+
+describe("desktop preload Aleph diagnostics", () => {
+  const originalChannel = process.env.BB_DESKTOP_RELEASE_CHANNEL;
+
+  afterEach(() => {
+    if (originalChannel === undefined) {
+      delete process.env.BB_DESKTOP_RELEASE_CHANNEL;
+    } else {
+      process.env.BB_DESKTOP_RELEASE_CHANNEL = originalChannel;
+    }
+  });
+
+  it("exposes the enabled flag and sink only on the aleph channel", async () => {
+    process.env.BB_DESKTOP_RELEASE_CHANNEL = "aleph";
+    const api = await loadPreload();
+    expect(api.diagnosticsEnabled).toBe(true);
+    api.logDiagnostic?.({
+      at: 1,
+      kind: "socket-replaced",
+      pongPending: false,
+      readyState: 1,
+    });
+    expect(electronMock.sendCalls).toContainEqual({
+      channel: BB_DESKTOP_ALEPH_DIAGNOSTIC_CHANNEL,
+      payload: {
+        at: 1,
+        kind: "socket-replaced",
+        pongPending: false,
+        readyState: 1,
+      },
+    });
+  });
+
+  it("exposes neither the flag nor the sink on stock builds", async () => {
+    for (const channel of [undefined, "stable", "beta"]) {
+      if (channel === undefined) {
+        delete process.env.BB_DESKTOP_RELEASE_CHANNEL;
+      } else {
+        process.env.BB_DESKTOP_RELEASE_CHANNEL = channel;
+      }
+      const api = await loadPreload();
+      expect(api.diagnosticsEnabled).toBeUndefined();
+      expect(api.logDiagnostic).toBeUndefined();
+      expect("logDiagnostic" in api).toBe(false);
+    }
   });
 });

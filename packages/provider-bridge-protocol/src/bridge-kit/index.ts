@@ -1,4 +1,5 @@
 export * from "./adapter-utils.js";
+export * from "./agent-cgroup-scope.js";
 export * from "./bounded-line-reader.js";
 export * from "./bridge-harness.js";
 export * from "./bridge-recorder.js";

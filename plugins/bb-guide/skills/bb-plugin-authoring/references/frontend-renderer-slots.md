@@ -21,9 +21,6 @@ Original }`. `experimental_fullFileContents` is either
   Every value is already resolved. Render `Original` (bb's
   renderer, bound to this call) to delegate without re-entering resolution —
   behind a plugin setting, by language, over a size threshold:
-  A bundle compiled against an SDK before 0.4.16 may still read
-  `experimental_Original`: every host passes the same component under that
-  name for one release (it warns once; removed in bb 0.42).
 
   ```tsx
   app.slots.experimental_diffRenderer({
@@ -112,6 +109,9 @@ openWorkspaceFile }` — register a leaf
   `plugin:<plugin-id>/<command-id>`. Keyboard invocation uses the same current
   context and error handling as the palette and is suppressed while a modal
   is open. Shortcuts run only while the plugin frontend is active.
+  A command that acts on the composer the user is typing in registers through
+  `app.composer.experimental_registerCommand` instead; see the composer
+  section of frontend-hooks-and-ui.
 - `experimental_timelineRenderer` → the expanded body of the timeline rows a
   provider plugin owns. Registration: `{ kind, component }`, where `kind` is
   one of the plugin's own extension item kinds (`"<pluginId>/<name>"`, as

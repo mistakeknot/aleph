@@ -54,6 +54,7 @@ import {
 import { hasPendingProjectSourceSetupOnHost } from "../projects/project-source-setup.js";
 import { machineProviderUnavailableReason } from "./provider-availability.js";
 import { errorMessage } from "../lib/error-log-fields.js";
+import { toHostWithStatus } from "../lib/entity-lookup.js";
 import { perDbRegistry } from "../lib/per-db-registry.js";
 import { emitPluginHostDeleted } from "../plugins/plugin-thread-events.js";
 
@@ -410,13 +411,10 @@ export async function parseMachineProviderInputs(
   return parsed.data;
 }
 
-export async function prepareMachineProviderSelection(
-  deps: Deps,
-  args: {
-    machineProviderId: string;
-    inputs: JsonValue | null;
-  },
-): Promise<{ record: PluginMachineProviderRecord; inputs: JsonValue | null }> {
+export async function prepareMachineProviderSelection(args: {
+  machineProviderId: string;
+  inputs: JsonValue | null;
+}): Promise<{ record: PluginMachineProviderRecord; inputs: JsonValue | null }> {
   const record = getMachineProvider(args.machineProviderId);
   if (record === undefined) {
     throw new ApiError(
@@ -566,7 +564,7 @@ export function askMachineLaunch(
   } else {
     return {
       action: "ready",
-      host: machineHostResponse(row, deps),
+      host: toHostWithStatus(deps, row),
       log: takeCreateLog(deps, row),
     };
   }
@@ -586,37 +584,6 @@ function takeCreateLog(deps: Deps, row: MachineHostRow): string {
   return log;
 }
 
-function machineHostResponse(
-  row: NonNullable<ReturnType<typeof getHost>>,
-  deps: Deps,
-): Host {
-  return {
-    id: row.id,
-    name: row.name,
-    type: row.type,
-    status: deps.hub.hasDaemonForHost(row.id) ? "connected" : "disconnected",
-    machineProviderId: row.machineProviderId,
-    lifecycle: {
-      phase: row.phase,
-      suspendedAt: row.suspendedAt,
-      message: row.statusMessage,
-      pendingLog: row.pendingLog,
-      teardown:
-        row.teardownStatus === null
-          ? null
-          : {
-              status: row.teardownStatus,
-              attempt: row.teardownAttempt,
-            },
-    },
-    maxPermissionMode: row.maxPermissionMode,
-    lastSeenAt: row.lastSeenAt,
-    lastRejectedProtocolVersion: row.lastRejectedProtocolVersion,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-  };
-}
-
 export async function submitMachine(
   deps: Deps,
   args: {
@@ -626,7 +593,7 @@ export async function submitMachine(
   },
 ): Promise<Host> {
   const key = args.key ?? `machine-${randomUUID()}`;
-  const prepared = await prepareMachineProviderSelection(deps, args);
+  const prepared = await prepareMachineProviderSelection(args);
   const decision = askMachineLaunch(deps, {
     key,
     lifetime: "standalone",
@@ -638,7 +605,7 @@ export async function submitMachine(
   const host = getNonDestroyedHostByLaunchKey(deps.db, key);
   if (host === null)
     throw new ApiError(409, "machine_provider_rejected", "Machine was removed");
-  return machineHostResponse(host, deps);
+  return toHostWithStatus(deps, host);
 }
 
 export async function removeCreatingMachine(

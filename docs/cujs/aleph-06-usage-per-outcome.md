@@ -12,33 +12,33 @@ bead: none
 
 Every other journey claims to save usage or improve quality. Without
 measurement, those claims can't be checked, and waste stays invisible
-until a weekly limit runs out early. The operator needs to see what a
+until a weekly limit is reached early. The operator needs to see what a
 finished outcome cost (a merged change, a review, a release), and where
 usage went that produced nothing: wakes with no action, retries, duplicate
 or orphaned runs, extra review rounds.
 
 ### Current State vs. Planned
 
-| Capability | Status |
-|---|---|
-| Attempt receipts: sealed record of account, model and usage for one budgeted run | **Shipped** |
-| Receipt begin returns 503 when receipts can't be issued, before spend | **Shipped** |
-| Pool and account usage views | **Shipped** (upstream Provider Usage) |
-| Live receipt canary | **Planned** (deferred: no provider capacity) |
-| Outcome tag, inherited by child turns, pooled runs and receipts | **Planned** |
-| Usage rolled up per accepted outcome, by kind, with a waste ratio | **Planned** |
-| No-action wakes, retries, duplicate runs, over-cap review rounds and environment rebuilds recorded | **Planned** |
+| Capability                                                                                         | Status                                                          |
+| -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| Attempt receipts: sealed record of account, model and usage for one budgeted run                   | **Shipped**                                                     |
+| Receipt begin returns 503 when receipts can't be issued, before spend                              | **Shipped**                                                     |
+| Account usage views                                                                                | **Shipped** (upstream Provider Usage)                           |
+| Live receipt canary                                                                                | **Planned** (deferred: no budgeted account had quota available) |
+| Outcome tag, inherited by child turns, budgeted runs and receipts                                  | **Planned**                                                     |
+| Usage rolled up per accepted outcome, by kind, with a waste ratio                                  | **Planned**                                                     |
+| No-action wakes, retries, duplicate runs, over-cap review rounds and environment rebuilds recorded | **Planned**                                                     |
 
 ## What an outcome is
 
-*Provisional, pending operator confirmation.*
+_Provisional, pending operator confirmation._
 
 - **Unit.** An outcome is a declared bb-native unit with an ID, a kind
   (`change`, `release`, `review`, `research` or `decision`), an acceptance
   test, and optionally an external reference (a tracker item or a pull
   request). The coordinator declares it at dispatch, and the operator can
   re-tag.
-- **Inheritance.** Usage from every turn, child thread, pooled run and
+- **Inheritance.** Usage from every turn, child thread, budgeted run and
   receipt inherits the outcome ID, the way ownership passes from parent to
   child. Untagged usage goes to an `unattributed` bucket.
 - **Acceptance.** An outcome counts only when it's accepted on evidence: a
@@ -59,13 +59,13 @@ A coordinator starts budgeted work. For each run, it begins an attempt
 with the receipts API. If receipts aren't available, begin returns 503
 and the coordinator stops before spending. Otherwise the run completes
 and the attempt is finalized. The result is a sealed record of every
-upstream request and account hop, with the account, model and usage.
+upstream request, with the account, model and usage.
 
-*Planned:* the coordinator declares an outcome when it dispatches work,
-and every turn, child, pooled run and receipt under it carries the
+_Planned:_ the coordinator declares an outcome when it dispatches work,
+and every turn, child, budgeted run and receipt under it carries the
 outcome ID. bb records the waste counters for that outcome as it goes.
 
-*Planned:* the operator opens a view, or runs a `bb` command, that lists
+_Planned:_ the operator opens a view, or runs a `bb` command, that lists
 recent outcomes by kind with their usage by provider and model, their
 waste counters, whether they were accepted and on what evidence, and the
 size of the `unattributed` bucket. They can see that a
@@ -75,16 +75,16 @@ those numbers fell without quality falling.
 
 ## Success Signals
 
-| Signal | Type | Status | Assertion |
-|---|---|---|---|
-| Budget stops before spend | measurable | active | Receipt begin returning 503 → no provider process starts |
-| Every budgeted run has a receipt | measurable | planned | Live canary: a finalized receipt names account, model and usage for a real run |
-| Usage attributed to outcomes | measurable | planned | `unattributed` holds ≤ 10% of a week's usage |
-| Tags are inherited | measurable | planned | A child thread, pooled run or receipt started under an outcome carries its ID without the child setting it |
-| Acceptance needs evidence | observable | planned | Every accepted outcome names its merged SHA, PASS verdict, canary pass or operator accept |
-| Waste is counted | measurable | planned | Each outcome shows no-action wakes, retries, duplicate runs, over-cap review rounds and environment rebuilds; abandoned and superseded outcomes count fully as waste |
-| Headline is visible | observable | planned | Usage per accepted outcome, by kind, and the waste ratio can be compared between Aleph releases |
-| Numbers change decisions | qualitative | planned | The operator uses the view to change a routing, review or dispatch rule |
+| Signal                           | Type        | Status  | Assertion                                                                                                                                                            |
+| -------------------------------- | ----------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Budget stops before spend        | measurable  | active  | Receipt begin returning 503 → no provider process starts                                                                                                             |
+| Every budgeted run has a receipt | measurable  | planned | Live canary: a finalized receipt names account, model and usage for a real run                                                                                       |
+| Usage attributed to outcomes     | measurable  | planned | `unattributed` holds ≤ 10% of a week's usage                                                                                                                         |
+| Tags are inherited               | measurable  | planned | A child thread, budgeted run or receipt started under an outcome carries its ID without the child setting it                                                         |
+| Acceptance needs evidence        | observable  | planned | Every accepted outcome names its merged SHA, PASS verdict, canary pass or operator accept                                                                            |
+| Waste is counted                 | measurable  | planned | Each outcome shows no-action wakes, retries, duplicate runs, over-cap review rounds and environment rebuilds; abandoned and superseded outcomes count fully as waste |
+| Headline is visible              | observable  | planned | Usage per accepted outcome, by kind, and the waste ratio can be compared between Aleph releases                                                                      |
+| Numbers change decisions         | qualitative | planned | The operator uses the view to change a routing, review or dispatch rule                                                                                              |
 
 ## Known Friction Points
 

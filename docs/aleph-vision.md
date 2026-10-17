@@ -19,7 +19,7 @@ implementation and review, and passes decisions to a human operator.
 
 Most of the cost of that setup isn't the work. It's orchestration done
 badly. Coordinators are woken for nothing, waits never end, reviews loop,
-work is duplicated, jobs die on one exhausted account, and long sessions
+work is duplicated, jobs die on a refusal with no plan for it, and long sessions
 pay again to rebuild state they had already worked out. Aleph exists to make
 that orchestration cheap and reliable, so the operator's usage across
 providers turns into project output and quality.
@@ -28,16 +28,16 @@ providers turns into project output and quality.
 
 Over two days of real coordinator operation, these patterns showed up:
 
-| Pattern | What happened | What it cost |
-|---|---|---|
-| **Wake storms** | Children ended a turn for every progress update, and each turn end woke the coordinator | One long test run caused 5–6 coordinator wakes with nothing to act on |
-| **Wrong wait conditions** | A coordinator waited for a CI virtual machine process to exit before rebuilding; an idle process lingered | The wait never ended; a maintenance window was missed; about 7 hours lost |
-| **Unbounded review** | One change went through 4 independent review rounds with an escalation, and reviews were re-run after the reviewer-routing rules changed | Repeated full reviews for one change |
-| **Duplicate and orphaned work** | Reviews started against a branch the producer was still pushing to; a stop command matched its own shell and killed a fresh review | Reviews of the wrong target and killed work, both redone |
-| **Capacity cliffs** | Every account for one provider hit its weekly limit at once; transient "no eligible account" refusals killed two review threads; scripted jobs skipped the pool | A producer died mid-task and had to move provider; jobs failed while other accounts had headroom |
-| **Status churn** | Coordinators passed status-only messages to each other and to the operator | Tokens and attention with no decision attached |
-| **Context-heavy coordinators** | Long sessions filled up, compacted or rotated, then re-derived state, sometimes from stale handoffs | Paying twice for the same understanding, plus corrections |
-| **Verification in the wrong place** | Build checks failed on environment problems (missing native modules or type declarations, machine load) | A full rebuild cycle before the real result each time |
+| Pattern                             | What happened                                                                                                                                                                                       | What it cost                                                                                 |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| **Wake storms**                     | Children ended a turn for every progress update, and each turn end woke the coordinator                                                                                                             | One long test run caused 5–6 coordinator wakes with nothing to act on                        |
+| **Wrong wait conditions**           | A coordinator waited for a CI virtual machine process to exit before rebuilding; an idle process lingered                                                                                           | The wait never ended; a maintenance window was missed; about 7 hours lost                    |
+| **Unbounded review**                | One change went through 4 independent review rounds with an escalation, and reviews were re-run after the reviewer-routing rules changed                                                            | Repeated full reviews for one change                                                         |
+| **Duplicate and orphaned work**     | Reviews started against a branch the producer was still pushing to; a stop command matched its own shell and killed a fresh review                                                                  | Reviews of the wrong target and killed work, both redone                                     |
+| **Unplanned refusals**              | The operator's own accounts for one provider all reached their weekly limits together; transient "no eligible account" refusals killed two review threads; scripted jobs skipped the budgeted route | A producer died mid-task and had to move provider; jobs failed instead of waiting or pausing |
+| **Status churn**                    | Coordinators passed status-only messages to each other and to the operator                                                                                                                          | Tokens and attention with no decision attached                                               |
+| **Context-heavy coordinators**      | Long sessions filled up, compacted or rotated, then re-derived state, sometimes from stale handoffs                                                                                                 | Paying twice for the same understanding, plus corrections                                    |
+| **Verification in the wrong place** | Build checks failed on environment problems (missing native modules or type declarations, machine load)                                                                                             | A full rebuild cycle before the real result each time                                        |
 
 Some of these are now handled by rules the operator gives in prompts: return
 only DONE or BLOCKED, at most two review rounds and then a human decision,
@@ -50,8 +50,8 @@ following them every time. Aleph's job is to build them into bb.
 - Coordinators wake only on DONE, BLOCKED or a decision.
 - Work goes to the cheapest model that meets the quality bar, with
   independent cross-provider review when it matters, bounded in rounds.
-- Capacity across providers and accounts is pooled and forecast, so no
-  job dies on one exhausted login.
+- Each of the operator's own accounts is budgeted and its usage forecast,
+  so no job dies without a plan to wait, pause or ask the operator.
 - Child returns are capped and structured.
 - Long coordinator sessions rotate cleanly from checkpoints.
 - Waste is measured: usage per outcome, wakes per task, retries.
@@ -61,24 +61,24 @@ following them every time. Aleph's job is to build them into bb.
 `0.43.4+aleph.1` (upstream bb 0.43.4 plus main through `fdd3de3`) ships
 the first pieces. [FORK.md](../FORK.md) has the details.
 
-| Shipped | What it gives the mission |
-|---|---|
-| `bb pool exec` for Codex and Claude | Scripted and supervised runs use the account pool instead of one login, and say whether they really ran pooled |
-| Thread-bound availability | Borrowing another provider's pool, for example for an independent review, is decided per thread and fails closed |
-| Attempt receipts for budgeted dispatch | A sealed record of account, model and usage per run; the basis for measuring usage per outcome |
-| Pooled Claude isolated from caller settings | Pooled runs behave the same wherever they're started |
-| Switch a thread's provider in place | Work can move provider after a capacity cliff without losing its place in the thread tree |
-| Provider icons in the thread list | The operator can see which provider each thread is using |
+| Shipped                                       | What it gives the mission                                                                                                                               |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bb pool exec` for Codex and Claude           | Scripted and supervised runs use the operator's own accounts under their budget instead of an unmanaged login, and say whether they really ran budgeted |
+| Thread-bound availability                     | Using another provider's accounts, for example for an independent review, is decided per thread and fails closed                                        |
+| Attempt receipts for budgeted dispatch        | A sealed record of account, model and usage per run; the basis for measuring usage per outcome                                                          |
+| Budgeted Claude isolated from caller settings | Budgeted runs behave the same wherever they're started                                                                                                  |
+| Switch a thread's provider in place           | Work can move provider when the operator chooses, without losing its place in the thread tree                                                           |
+| Provider icons in the thread list             | The operator can see which provider each thread is using                                                                                                |
 
 From upstream bb, Aleph also relies on `bb thread wait` and
 `bb thread output`, the concurrency limit, thread compaction, and the
-pool's recheck of exhausted accounts before it refuses a request.
+Account Pooler's recheck of an account's reported limits before it refuses a request.
 
 Not yet: DONE/BLOCKED as a structural rule, capped returns, outcome waits
-with deadlines, bounded review, checkpoints for rotation, capacity
+with deadlines, bounded review, checkpoints for rotation, usage
 forecasts, and any measure of usage per outcome. The live receipt canary
-and a live Codex run through the pool were deferred because no provider
-capacity was available.
+and a live Codex run through `bb pool exec` were deferred because no
+budgeted account had quota available.
 
 ## Where Aleph is going (next 6–12 months)
 
@@ -110,12 +110,15 @@ Work goes to the cheapest model that clears the bar. Cross-provider
 review is per thread, pinned to a commit and limited in rounds. Journey:
 [route to the cheapest adequate model](cujs/aleph-03-cheapest-adequate-model.md).
 
-### No job dies on one exhausted account
+### Your own accounts, budgeted
 
-Transient refusals are waited out, provider-wide cliffs are forecast and
-rerouted with the operator's approval, and every scripted run goes
-through the pool. Journey:
-[no job dies on an exhausted account](cujs/aleph-04-no-dead-jobs.md).
+Transient refusals are waited out, an approaching weekly limit is
+forecast so the operator can decide whether to pause or move work, and
+every scripted run goes through the operator's budgeted accounts. Each
+account is used for its owner's own work. Nothing here changes any
+account's limits or hides usage; work moves to another of the operator's own
+accounts only when one is unavailable or at its threshold. Journey:
+[your own accounts, budgeted](cujs/aleph-04-no-dead-jobs.md).
 
 ### Coordinators rotate cleanly
 
@@ -160,7 +163,7 @@ These targets are aspirational; the baseline hasn't been measured yet.
 - Coordinator wakes per completed child fall to about one.
 - No coordinator wait runs past its deadline without becoming BLOCKED.
 - No change needs more than two review rounds before a human decision.
-- No job fails on an exhausted account while another pooled account has
-  headroom.
+- No scripted job dies on a refusal without waiting, pausing or asking the
+  operator first.
 - Usage per accepted outcome goes down release over release, and quality
   doesn't.

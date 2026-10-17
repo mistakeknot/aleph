@@ -26,8 +26,8 @@ import {
   queuedMessageSortingStrategy,
   resolveQueuedMessageDrag,
   snapGroupBoundaryDragTransform,
-  type QueuedMessagesListProps,
 } from "./QueuedMessagesList";
+import type { QueuedMessagesListProps } from "./LazyQueuedMessagesList";
 import {
   QueuedEditorTypeaheadLayoutContext,
   type QueuedEditorTypeaheadLayout,

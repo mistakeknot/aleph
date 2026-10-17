@@ -1,4 +1,9 @@
-import { threadScope, turnScope } from "@bb/domain";
+import {
+  encodeClientTurnRequestIdNumber,
+  threadEventSchema,
+  threadScope,
+  turnScope,
+} from "@bb/domain";
 import { describe, expect, it, vi } from "vitest";
 import { createEventSink, type CreateEventSinkOptions } from "./event-sink.js";
 import { ServerResponseError } from "./server-client.js";
@@ -43,22 +48,6 @@ function systemErrorEvent(threadId: string) {
 }
 
 describe("event sink", () => {
-  it("posts emitted events", async () => {
-    const postEvents = acceptingPostEvents();
-    const sink = createEventSink({
-      isSessionOpen: () => true,
-      logger: createLogger(),
-      postEvents,
-    });
-
-    sink.emit({ threadId: "thr_1", event: systemErrorEvent("thr_1") });
-    await sink.flush();
-
-    expect(postEvents).toHaveBeenCalledWith([
-      { threadId: "thr_1", event: systemErrorEvent("thr_1") },
-    ]);
-  });
-
   it("drains successfully skipped diffs without requiring allocated sequences", async () => {
     const postEvents = vi.fn<CreateEventSinkOptions["postEvents"]>(
       async () => ({
@@ -92,7 +81,7 @@ describe("event sink", () => {
     ]);
   });
 
-  it("holds events while the session is closed and delivers them once it reopens", async () => {
+  it("holds events while the session is closed, reports their threads, and delivers them once it reopens", async () => {
     let sessionOpen = false;
     const postEvents = acceptingPostEvents();
     const sink = createEventSink({
@@ -102,8 +91,11 @@ describe("event sink", () => {
     });
 
     sink.emit({ threadId: "thr_1", event: systemErrorEvent("thr_1") });
+    sink.emit({ threadId: "thr_2", event: systemErrorEvent("thr_2") });
+    sink.emit({ threadId: "thr_1", event: systemErrorEvent("thr_1") });
     await sink.flush();
     expect(postEvents).not.toHaveBeenCalled();
+    expect(sink.listUndeliveredThreadIds()).toEqual(["thr_1", "thr_2"]);
 
     sessionOpen = true;
     await sink.flush();
@@ -111,7 +103,10 @@ describe("event sink", () => {
     expect(postEvents).toHaveBeenCalledTimes(1);
     expect(postEvents).toHaveBeenCalledWith([
       { threadId: "thr_1", event: systemErrorEvent("thr_1") },
+      { threadId: "thr_2", event: systemErrorEvent("thr_2") },
+      { threadId: "thr_1", event: systemErrorEvent("thr_1") },
     ]);
+    expect(sink.listUndeliveredThreadIds()).toEqual([]);
   });
 
   it("keeps events queued after a post failure and redelivers them on the next flush", async () => {
@@ -393,5 +388,387 @@ describe("event sink", () => {
         sink.emit({ threadId: "thr_1", event: systemErrorEvent("thr_1") });
       }
     }).not.toThrow();
+  });
+
+  it("redacts credentials in diagnostics before queueing and posting", async () => {
+    const secret = "synthetic-review-token-1234";
+    const postEvents = acceptingPostEvents();
+    const sink = createEventSink({
+      isSessionOpen: () => true,
+      logger: createLogger(),
+      postEvents,
+    });
+
+    sink.emit({
+      threadId: "thr_1",
+      event: {
+        ...systemErrorEvent("thr_1"),
+        message: `Authorization: Bearer ${secret}`,
+      },
+    });
+    await sink.flush();
+
+    expect(JSON.stringify(postEvents.mock.calls)).not.toContain(secret);
+    expect(JSON.stringify(postEvents.mock.calls)).toContain("[redacted]");
+  });
+
+  it.each(["completed", "toolCall", "synthetic-tool"])(
+    "keeps the event schema-valid when a secret equals %s",
+    async (value) => {
+      const postEvents = acceptingPostEvents();
+      const sink = createEventSink({
+        isSessionOpen: () => true,
+        logger: createLogger(),
+        postEvents,
+      });
+      const event = threadEventSchema.parse({
+        type: "item/completed",
+        threadId: "thr_1",
+        providerThreadId: "synthetic-provider",
+        scope: turnScope("synthetic-turn"),
+        item: {
+          type: "toolCall",
+          id: "synthetic-tool",
+          tool: "probe",
+          status: "completed",
+          result: { env: { API_KEY: value }, echo: value },
+        },
+      });
+      sink.emit({ threadId: "thr_1", event });
+      await sink.flush();
+
+      const posted = postEvents.mock.calls[0]?.[0][0] as
+        | { event?: unknown }
+        | undefined;
+      const postedEvent = (posted?.event ?? posted) as {
+        item: { status: string; type: string };
+      };
+      expect(threadEventSchema.safeParse(postedEvent).success).toBe(true);
+      expect(postedEvent.item.status).toBe("completed");
+      expect(postedEvent.item.type).toBe("toolCall");
+      expect(JSON.stringify(postedEvent)).not.toContain(`"echo":"${value}"`);
+    },
+  );
+
+  it("keeps authored completed messages and redacts rejected-turn diagnostics", async () => {
+    const secret = "synthetic-review-token-1234";
+    const postEvents = acceptingPostEvents();
+    const sink = createEventSink({
+      isSessionOpen: () => true,
+      logger: createLogger(),
+      postEvents,
+    });
+    const authored = [
+      "Explain",
+      "Authorization:",
+      "Bearer",
+      "PLACEHOLDER_CREDENTIAL_EXAMPLE",
+    ].join(" ");
+    sink.emit({
+      threadId: "thr_1",
+      event: threadEventSchema.parse({
+        type: "item/completed",
+        threadId: "thr_1",
+        providerThreadId: "synthetic-provider",
+        scope: turnScope("synthetic-turn"),
+        item: {
+          type: "userMessage",
+          id: "synthetic-message",
+          content: [{ type: "text", text: authored }],
+        },
+      }),
+    });
+    sink.emit({
+      threadId: "thr_1",
+      event: {
+        type: "client/turn/rejected",
+        threadId: "thr_1",
+        scope: threadScope(),
+        requestId: encodeClientTurnRequestIdNumber({ value: 501 }),
+        reason: "launch_failed",
+        message: `Authorization: Bearer ${secret}`,
+      } as never,
+    });
+    await sink.flush();
+    const text = JSON.stringify(postEvents.mock.calls);
+    expect(text).toContain(authored);
+    expect(text).not.toContain(secret);
+  });
+
+  it("keeps required envelope fields and schema validity when payload limits trip", async () => {
+    const secret = "synthetic-review-token-1234";
+    const postEvents = acceptingPostEvents();
+    const sink = createEventSink({
+      isSessionOpen: () => true,
+      logger: createLogger(),
+      postEvents,
+    });
+    let deep: unknown = secret;
+    for (let index = 0; index < 200; index += 1) deep = { child: deep };
+    const base = {
+      type: "item/completed",
+      threadId: "thr_1",
+      providerThreadId: "synthetic-provider",
+      scope: turnScope("synthetic-turn"),
+      item: {
+        type: "toolCall",
+        id: "synthetic-tool",
+        tool: "probe",
+        status: "completed",
+      },
+    };
+    const events = [
+      { ...base, item: { ...base.item, result: deep } },
+      {
+        ...base,
+        item: {
+          ...base.item,
+          result: Array.from({ length: 250_000 }, () => ({ ok: true })),
+        },
+      },
+      {
+        ...base,
+        item: {
+          ...base.item,
+          result: { headers: [["Authorization", `Bearer ${secret}`]] },
+        },
+      },
+    ].map((event) => threadEventSchema.parse(event));
+    for (const event of events) {
+      sink.emit({ threadId: "thr_1", event });
+    }
+    await sink.flush();
+
+    const posted = postEvents.mock.calls.flatMap(([batch]) => batch);
+    expect(posted).toHaveLength(3);
+    for (const entry of posted) {
+      expect(threadEventSchema.safeParse(entry.event).success).toBe(true);
+      expect(entry.event.scope).toEqual(turnScope("synthetic-turn"));
+    }
+    expect(JSON.stringify(posted)).not.toContain(secret);
+  });
+
+  it("keeps schema-constrained fields valid after redaction", async () => {
+    const postEvents = vi.fn<CreateEventSinkOptions["postEvents"]>(
+      async (events) => ({
+        acceptedEvents: events.map((event, eventIndex) => ({
+          eventIndex,
+          sequence: eventIndex + 1,
+          threadId: event.threadId,
+        })),
+        rejectedEvents: [],
+      }),
+    );
+    const sink = createEventSink({
+      isSessionOpen: () => true,
+      logger: { debug: vi.fn(), error: vi.fn(), warn: vi.fn() },
+      postEvents,
+    });
+    const presentation = {
+      label: { pending: "Working", completed: "Done" },
+      icon: { glyph: "x" },
+    };
+    const items = [
+      {
+        type: "toolCall",
+        id: "synthetic-tool",
+        tool: "probe",
+        status: "completed",
+        result: { env: { API_KEY: "abcdefgh" } },
+        presentation: { ...presentation, detail: `abcdefgh${"x".repeat(272)}` },
+      },
+      {
+        type: "extension",
+        id: "synthetic-item",
+        kind: "synthetic/state",
+        status: "completed",
+        payload: { env: { API_KEY: "synthetic/state" } },
+        presentation,
+      },
+    ];
+    for (const item of items) {
+      sink.emit({
+        threadId: "thr_1",
+        event: threadEventSchema.parse({
+          type: "item/completed",
+          threadId: "thr_1",
+          providerThreadId: "synthetic-provider",
+          scope: turnScope("synthetic-turn"),
+          item,
+        }),
+      });
+    }
+    await sink.flush();
+    const posted = postEvents.mock.calls.flatMap(([batch]) => batch);
+    expect(posted).toHaveLength(2);
+    for (const entry of posted) {
+      expect(threadEventSchema.safeParse(entry.event).success).toBe(true);
+    }
+  });
+
+  it("redacts round-6 surfaces and keeps the events schema-valid", async () => {
+    const secret = "synthetic-review-token-1234";
+    const postEvents = vi.fn<CreateEventSinkOptions["postEvents"]>(
+      async (events) => ({
+        acceptedEvents: events.map((event, eventIndex) => ({
+          eventIndex,
+          sequence: eventIndex + 1,
+          threadId: event.threadId,
+        })),
+        rejectedEvents: [],
+      }),
+    );
+    const sink = createEventSink({
+      isSessionOpen: () => true,
+      logger: { debug: vi.fn(), error: vi.fn(), warn: vi.fn() },
+      postEvents,
+    });
+    const events = [
+      {
+        type: "provider/warning",
+        category: "config",
+        details: `Cookie: prefix\\"${secret}`,
+        scope: threadScope(),
+      },
+      {
+        type: "item/completed",
+        scope: turnScope("synthetic-turn"),
+        item: {
+          type: "userMessage",
+          id: "synthetic-message",
+          content: [
+            { type: "image", url: `https://example.invalid/i?token=${secret}` },
+          ],
+        },
+      },
+      {
+        type: "item/backgroundTask/progress",
+        scope: threadScope(),
+        item: {
+          type: "backgroundTask",
+          id: "synthetic-task",
+          taskType: "local_agent",
+          description: "synthetic",
+          status: "failed",
+          taskStatus: "failed",
+          skipTranscript: false,
+          error: `launch failed api_key=${secret}`,
+        },
+      },
+      {
+        type: "system/interaction/lifecycle",
+        scope: turnScope("synthetic-turn"),
+        interaction: {
+          id: "synthetic-i",
+          status: "resolved",
+          statusReason: null,
+          origin: {
+            kind: "plugin",
+            pluginId: "synthetic-p",
+            rendererId: "synthetic-r",
+          },
+          payload: { kind: "plugin", title: "Synthetic" },
+          resolution: {
+            kind: "plugin_submitted",
+            description: {
+              payload: {
+                env: { API_KEY: "abcdefgh" },
+                echo: "abcdefgh".repeat(8000),
+              },
+            },
+          },
+        },
+      },
+    ];
+    for (const event of events) {
+      sink.emit({
+        threadId: "thr_1",
+        event: threadEventSchema.parse({
+          threadId: "thr_1",
+          providerThreadId: "synthetic-provider",
+          ...event,
+        }),
+      });
+    }
+    await sink.flush();
+    const posted = postEvents.mock.calls.flatMap(([batch]) => batch);
+    expect(posted).toHaveLength(events.length);
+    const text = JSON.stringify(posted);
+    expect(text).not.toContain(secret);
+    expect(text).not.toContain("abcdefgh");
+    for (const entry of posted) {
+      expect(threadEventSchema.safeParse(entry.event).success).toBe(true);
+    }
+  });
+  it("redacts round-7 surfaces and keeps the events schema-valid", async () => {
+    const tail = "synthetic-tail-credential-1234";
+    const postEvents = vi.fn<CreateEventSinkOptions["postEvents"]>(
+      async (events) => ({
+        acceptedEvents: events.map((event, eventIndex) => ({
+          eventIndex,
+          sequence: eventIndex + 1,
+          threadId: event.threadId,
+        })),
+        rejectedEvents: [],
+      }),
+    );
+    const sink = createEventSink({
+      isSessionOpen: () => true,
+      logger: { debug: vi.fn(), error: vi.fn(), warn: vi.fn() },
+      postEvents,
+    });
+    const events = [
+      {
+        type: "provider/warning",
+        category: "config",
+        details: `earlier \\"ok\\"; Cookie: prefix\\"${tail}`,
+        scope: threadScope(),
+      },
+      {
+        type: "item/completed",
+        scope: turnScope("synthetic-turn"),
+        item: {
+          type: "userMessage",
+          id: "synthetic-message",
+          content: [
+            { type: "image", url: `https://example.invalid/i?token=a'${tail}&ok=1` },
+            { type: "image", url: `//example.invalid/i?sig=${tail}` },
+          ],
+        },
+      },
+      {
+        type: "client/turn/start",
+        scope: threadScope(),
+        direction: "outbound",
+        source: "tell",
+        initiator: "user",
+        request: {
+          method: "turn/start",
+          params: {
+            inputGroups: [
+              [{ type: "image", url: `https://example.invalid/i?%74oken=${tail}` }],
+            ],
+          },
+        },
+      },
+    ];
+    for (const event of events) {
+      sink.emit({
+        threadId: "thr_1",
+        event: threadEventSchema.parse({
+          threadId: "thr_1",
+          providerThreadId: "synthetic-provider",
+          ...event,
+        }),
+      });
+    }
+    await sink.flush();
+    const posted = postEvents.mock.calls.flatMap(([batch]) => batch);
+    expect(posted).toHaveLength(events.length);
+    expect(JSON.stringify(posted)).not.toContain(tail);
+    expect(JSON.stringify(posted)).toContain("ok=1");
+    for (const entry of posted) {
+      expect(threadEventSchema.safeParse(entry.event).success).toBe(true);
+    }
   });
 });

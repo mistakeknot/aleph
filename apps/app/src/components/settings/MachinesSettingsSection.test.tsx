@@ -552,22 +552,6 @@ describe("MachinesSettingsSection", () => {
     });
   });
 
-  it("keeps the row menu open without navigating when its trigger is clicked", async () => {
-    vi.mocked(sdk.system.config).mockResolvedValue(systemConfig());
-    vi.mocked(sdk.hosts.list).mockResolvedValue([primaryHost, offlineHost]);
-    stubSidebarBootstrapFetch();
-
-    renderSection();
-
-    await screen.findByText("dev-vm");
-    await openHostMenu("dev-vm");
-
-    expect(
-      await screen.findByRole("menuitem", { name: "Rename" }),
-    ).toBeDefined();
-    expect(screen.getByTestId("location").textContent).toBe("/");
-  });
-
   it("stays on the machines list when a row menu item is selected", async () => {
     vi.mocked(sdk.system.config).mockResolvedValue(systemConfig());
     vi.mocked(sdk.hosts.list).mockResolvedValue([primaryHost, offlineHost]);
@@ -575,8 +559,12 @@ describe("MachinesSettingsSection", () => {
 
     renderSection();
 
-    await screen.findByText("dev-vm");
-    await openHostMenu("dev-vm");
+    const trigger = await screen.findByRole("button", {
+      name: "dev-vm actions",
+    });
+    fireEvent.pointerDown(trigger, { button: 0 });
+    fireEvent.click(trigger);
+    expect(screen.getByTestId("location").textContent).toBe("/");
     fireEvent.click(await screen.findByRole("menuitem", { name: "Rename" }));
 
     expect(await screen.findByLabelText("Machine name")).toBeDefined();
@@ -851,6 +839,8 @@ describe("MachinesSettingsSection", () => {
     vi.mocked(sdk.hosts.experimental_reconnect).mockResolvedValue({
       command:
         "curl -fsSL -H 'X-BB-Enrollment: bbde_test' 'https://bb.example.com/install.sh' | sh",
+      windowsCommand:
+        "irm -Headers @{ 'X-BB-Enrollment' = 'bbde_test' } 'https://bb.example.com/install.ps1' | iex",
       expiresAt: NOW + 15 * 60 * 1000,
       hostId: offlineHost.id,
     });

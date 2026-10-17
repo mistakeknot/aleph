@@ -1,6 +1,7 @@
 import {
   deleteClaimedQueuedThreadMessageBatchInTransaction,
   getEnvironment,
+  getHost,
   getThread,
   requireThreadLifecycleEventApplied,
   type ClaimedQueuedThreadMessageRow,
@@ -49,6 +50,7 @@ import {
 } from "./thread-turn-dispatch.js";
 import { resolvePermissionEscalation } from "./thread-runtime-config.js";
 import { ensureHostSessionReadyForWork } from "../hosts/host-lifecycle.js";
+import { isHostUnavailableApiError } from "../hosts/online-rpc.js";
 import {
   LIVE_DAEMON_COMMAND_TIMEOUT_MS,
   startLiveHostCommand,
@@ -616,6 +618,7 @@ async function queueParentSystemMessageToResolvedParent(
         input: args.input,
         parentThread,
       });
+  let hostUnavailable = false;
   if (!hasPendingInteraction && !held.held) {
     if (delivery.result === null) {
       await deliverNow();
@@ -631,7 +634,13 @@ async function queueParentSystemMessageToResolvedParent(
       );
       return false;
     }
-    if (!(outcome.error instanceof ThreadContextClearInProgressError)) {
+    hostUnavailable =
+      outcome.error instanceof Error &&
+      isHostUnavailableApiError(outcome.error);
+    if (
+      !(outcome.error instanceof ThreadContextClearInProgressError) &&
+      !hostUnavailable
+    ) {
       throw outcome.error;
     }
   }
@@ -643,6 +652,15 @@ async function queueParentSystemMessageToResolvedParent(
       threadId: parentThread.id,
     },
   );
+  const host = hostUnavailable
+    ? getHost(
+        deps.db,
+        requireThreadEnvironment(deps.db, parentThread.id).environment.hostId,
+      )
+    : null;
+  if (hostUnavailable && !host) {
+    throw new Error("Parent host disappeared while queueing a system message");
+  }
   try {
     const queuedRow = deps.db.transaction(
       (tx) => {
@@ -662,11 +680,17 @@ async function queueParentSystemMessageToResolvedParent(
           reasoningLevel: execution.reasoningLevel,
           permissionMode: execution.permissionMode,
           serviceTier: execution.serviceTier,
-          waitingOn: hasPendingInteraction
-            ? { kind: "interaction" }
-            : held.held
-              ? { kind: "plugin", pluginId: held.pluginId, reason: held.reason }
-              : { kind: "thread-busy" },
+          waitingOn: host
+            ? { kind: "host-offline", hostName: host.name }
+            : hasPendingInteraction
+              ? { kind: "interaction" }
+              : held.held
+                ? {
+                    kind: "plugin",
+                    pluginId: held.pluginId,
+                    reason: held.reason,
+                  }
+                : { kind: "thread-busy" },
           sendAt: held.held ? held.sendAt : null,
           payload: { kind: "inline" },
           systemNotice: {
@@ -702,7 +726,7 @@ async function queueParentSystemMessageToResolvedParent(
     );
     return false;
   }
-  if (!hasPendingInteraction && !held.held) {
+  if (!hasPendingInteraction && !held.held && !hostUnavailable) {
     requestQueuedMessageDispatch(deps, {
       kind: "thread-ready",
       threadId: parentThread.id,

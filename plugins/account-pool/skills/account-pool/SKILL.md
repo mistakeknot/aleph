@@ -1,6 +1,6 @@
 ---
 name: account-pool
-description: "Configure or diagnose Account Pooler accounts, authentication, quota routing, and failover through bb pool."
+description: "Configure or diagnose Account Pooler accounts, authentication, quota budgets, and routing through bb pool."
 ---
 
 # Account Pooler

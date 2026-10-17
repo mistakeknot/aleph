@@ -74,9 +74,9 @@ describe("aleph update notify command", () => {
     });
     await notify("hello");
     const keys: string[] = JSON.parse(await readFile(join(dir, "out"), "utf8"));
-    expect(
-      keys.filter((key) => !["HOME", "LANG", "PATH"].includes(key)),
-    ).toEqual([]);
+    expect(keys.filter((key) => !["HOME", "LANG", "PATH"].includes(key))).toEqual(
+      [],
+    );
     expect(keys).toEqual(expect.arrayContaining(["HOME", "LANG", "PATH"]));
   });
 

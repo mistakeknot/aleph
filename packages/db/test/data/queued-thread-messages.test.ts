@@ -7,7 +7,6 @@ import { noopNotifier } from "../../src/notifier.js";
 import { insertEvents } from "../../src/data/events.js";
 import {
   claimNextQueuedThreadMessageGroup,
-  claimQueuedThreadMessage,
   claimQueuedThreadMessageGroup,
   clearQueuedThreadMessageWaitingOn,
   createQueuedThreadMessage,
@@ -417,7 +416,9 @@ describe("queued thread messages", () => {
       payload: { kind: "inline" },
       systemNotice: null,
     });
-    claimQueuedThreadMessage(db, noopNotifier, queuedMessage.id);
+    claimQueuedThreadMessageGroup(db, noopNotifier, queuedMessage.id, {
+      kind: "explicit-send",
+    });
 
     expect(
       updateQueuedThreadMessage(db, noopNotifier, {
@@ -471,11 +472,12 @@ describe("queued thread messages", () => {
       systemNotice: null,
     });
 
-    const claimedQueuedMessage = claimQueuedThreadMessage(
+    const claimedQueuedMessage = claimQueuedThreadMessageGroup(
       db,
       noopNotifier,
       queuedMessage.id,
-    );
+      { kind: "explicit-send" },
+    )?.[0];
     expect(claimedQueuedMessage?.id).toBe(queuedMessage.id);
     expect(claimedQueuedMessage?.claimToken).toMatch(/^qclaim_/);
     expect(listQueuedThreadMessages(db, thread.id)).toHaveLength(0);
@@ -506,11 +508,12 @@ describe("queued thread messages", () => {
       payload: { kind: "inline" },
       systemNotice: null,
     });
-    const firstClaim = claimQueuedThreadMessage(
+    const firstClaim = claimQueuedThreadMessageGroup(
       db,
       noopNotifier,
       queuedMessage.id,
-    );
+      { kind: "explicit-send" },
+    )?.[0];
     if (!firstClaim) {
       throw new Error("Expected first queued message claim");
     }
@@ -539,11 +542,12 @@ describe("queued thread messages", () => {
         claimToken: firstClaim.claimToken,
       }),
     ).toBe(true);
-    const secondClaim = claimQueuedThreadMessage(
+    const secondClaim = claimQueuedThreadMessageGroup(
       db,
       noopNotifier,
       queuedMessage.id,
-    );
+      { kind: "explicit-send" },
+    )?.[0];
     if (!secondClaim) {
       throw new Error("Expected second queued message claim");
     }
@@ -589,11 +593,12 @@ describe("queued thread messages", () => {
         payload: { kind: "inline" },
         systemNotice: null,
       });
-      const claimedQueuedMessage = claimQueuedThreadMessage(
+      const claimedQueuedMessage = claimQueuedThreadMessageGroup(
         db,
         noopNotifier,
         queuedMessage.id,
-      );
+        { kind: "explicit-send" },
+      )?.[0];
       expect(claimedQueuedMessage?.claimedAt).toBe(1_000);
       expect(claimedQueuedMessage?.claimToken).toMatch(/^qclaim_/);
       expect(listQueuedThreadMessages(db, thread.id)).toHaveLength(0);
@@ -653,16 +658,18 @@ describe("queued thread messages", () => {
           systemNotice: null,
         },
       );
-      const protectedClaim = claimQueuedThreadMessage(
+      const protectedClaim = claimQueuedThreadMessageGroup(
         db,
         noopNotifier,
         protectedQueuedMessage.id,
-      );
-      const releasableClaim = claimQueuedThreadMessage(
+        { kind: "explicit-send" },
+      )?.[0];
+      const releasableClaim = claimQueuedThreadMessageGroup(
         db,
         noopNotifier,
         releasableQueuedMessage.id,
-      );
+        { kind: "explicit-send" },
+      )?.[0];
       if (!protectedClaim || !releasableClaim) {
         throw new Error("Expected queued message claims");
       }
@@ -724,6 +731,7 @@ describe("queued thread messages", () => {
         db,
         noopNotifier,
         thread.id,
+        () => true,
       )?.[0];
       expect(claimedQueuedMessage?.id).toBe(firstQueuedMessage.id);
       expect(
@@ -925,6 +933,7 @@ describe("queued thread messages", () => {
       db,
       noopNotifier,
       thread.id,
+      () => true,
     );
 
     expect(
@@ -999,9 +1008,12 @@ describe("queued thread messages", () => {
       }),
     ).toBeNull();
     expect(
-      claimNextQueuedThreadMessageGroup(db, noopNotifier, thread.id)?.map(
-        (row) => row.id,
-      ),
+      claimNextQueuedThreadMessageGroup(
+        db,
+        noopNotifier,
+        thread.id,
+        () => true,
+      )?.map((row) => row.id),
     ).toEqual([notice.id]);
     expect(
       listQueuedThreadMessages(db, thread.id).map((row) => row.id),
@@ -1063,9 +1075,12 @@ describe("queued thread messages", () => {
       }),
     ).toBeNull();
     expect(
-      claimNextQueuedThreadMessageGroup(db, noopNotifier, thread.id)?.map(
-        (row) => row.id,
-      ),
+      claimNextQueuedThreadMessageGroup(
+        db,
+        noopNotifier,
+        thread.id,
+        () => true,
+      )?.map((row) => row.id),
     ).toEqual([askedForDuringStop.id]);
     expect(
       listQueuedThreadMessages(db, thread.id).map((row) => row.id),
@@ -1146,6 +1161,7 @@ describe("queued thread messages", () => {
       db,
       noopNotifier,
       thread.id,
+      () => true,
     );
     expect(claimed?.map((queuedMessage) => queuedMessage.id)).toEqual([
       lead.id,
@@ -1161,7 +1177,12 @@ describe("queued thread messages", () => {
     // The requeue wrote the wait on the lead only; the tail must not be
     // claimable alone, or the drain would dispatch half a composed prompt.
     expect(
-      claimNextQueuedThreadMessageGroup(db, noopNotifier, thread.id),
+      claimNextQueuedThreadMessageGroup(
+        db,
+        noopNotifier,
+        thread.id,
+        () => true,
+      ),
     ).toBeNull();
 
     // An independent row behind the blocked group still drains past it.
@@ -1178,9 +1199,12 @@ describe("queued thread messages", () => {
       systemNotice: null,
     });
     expect(
-      claimNextQueuedThreadMessageGroup(db, noopNotifier, thread.id)?.map(
-        (queuedMessage) => queuedMessage.id,
-      ),
+      claimNextQueuedThreadMessageGroup(
+        db,
+        noopNotifier,
+        thread.id,
+        () => true,
+      )?.map((queuedMessage) => queuedMessage.id),
     ).toEqual([independent.id]);
   });
 
@@ -1221,6 +1245,7 @@ describe("queued thread messages", () => {
       db,
       noopNotifier,
       thread.id,
+      () => true,
     );
     requeueClaimedQueuedThreadMessages(db, noopNotifier, {
       claims: claimed!.map(({ id, claimToken }) => ({ id, claimToken })),
@@ -1371,9 +1396,12 @@ describe("queued thread messages", () => {
       { id: thirdQueuedMessage.id, groupWithNext: false },
     ]);
     expect(
-      claimNextQueuedThreadMessageGroup(db, noopNotifier, thread.id)?.map(
-        (queuedMessage) => queuedMessage.id,
-      ),
+      claimNextQueuedThreadMessageGroup(
+        db,
+        noopNotifier,
+        thread.id,
+        () => true,
+      )?.map((queuedMessage) => queuedMessage.id),
     ).toEqual([firstQueuedMessage.id]);
   });
 
@@ -1663,6 +1691,7 @@ describe("queued thread messages", () => {
       db,
       noopNotifier,
       thread.id,
+      () => true,
     );
     if (!claimedQueuedMessages) {
       throw new Error("Expected grouped claim");
@@ -1821,6 +1850,7 @@ describe("queued thread messages", () => {
       db,
       noopNotifier,
       thread.id,
+      () => true,
     )?.[0];
     expect(claimedQueuedMessage?.id).toBe(secondQueuedMessage.id);
     expect(
@@ -1963,9 +1993,12 @@ describe("queued thread messages", () => {
       { id: secondQueuedMessage.id, groupWithNext: false },
     ]);
     expect(
-      claimNextQueuedThreadMessageGroup(db, noopNotifier, thread.id)?.map(
-        (queuedMessage) => queuedMessage.id,
-      ),
+      claimNextQueuedThreadMessageGroup(
+        db,
+        noopNotifier,
+        thread.id,
+        () => true,
+      )?.map((queuedMessage) => queuedMessage.id),
     ).toEqual([firstQueuedMessage.id]);
   });
 
@@ -2055,11 +2088,12 @@ describe("queued thread messages", () => {
       }).kind,
     ).toBe("invalid_neighbor_order");
 
-    const claimedQueuedMessage = claimQueuedThreadMessage(
+    const claimedQueuedMessage = claimQueuedThreadMessageGroup(
       db,
       noopNotifier,
       secondQueuedMessage.id,
-    );
+      { kind: "explicit-send" },
+    )?.[0];
     if (!claimedQueuedMessage) {
       throw new Error("Expected queued message claim");
     }

@@ -1,3 +1,4 @@
+import { preloadThreadSecondaryPanel } from "@/components/secondary-panel/lazySecondaryPanelComponents";
 import {
   useCallback,
   useContext,
@@ -15,7 +16,6 @@ import { Pill } from "@bb/shared-ui/pill";
 import { SplitButton } from "@/components/ui/split-button.js";
 import {
   AppPageHeader,
-  COMPACT_SHELF_HIDDEN_PAGE_HEADER_ACTIONS_CLASS,
   HEADER_ICON_BUTTON_CLASS,
   HEADER_PANE_ACTION_ICON_BUTTON_CLASS,
 } from "@/components/layout/AppPageHeader";
@@ -191,10 +191,8 @@ export function ThreadDetailHeader({
       ) : null}
       {actionsMenu == null ? null : (
         <span
-          data-testid="thread-detail-header-actions-menu"
           className={cn(
             "flex items-center",
-            COMPACT_SHELF_HIDDEN_PAGE_HEADER_ACTIONS_CLASS,
             usesDesktopChrome && MACOS_WINDOW_NO_DRAG_CLASS,
           )}
         >
@@ -255,6 +253,22 @@ export function ThreadDetailHeader({
         className="ml-1 flex items-center gap-0.5"
         data-thread-header-pane-actions=""
       >
+        <PaneMaximizeButton />
+        {onClosePane ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className={cn(
+              HEADER_PANE_ACTION_ICON_BUTTON_CLASS,
+              CHROME_SUBTLE_ICON_BUTTON_FOREGROUND_CLASS,
+            )}
+            aria-label="Close pane"
+            onClick={onClosePane}
+          >
+            <Icon name="CloseThreadPane" />
+          </Button>
+        ) : null}
         {showRightPanelToggle ? (
           <span className="inline-flex items-center gap-1.5">
             <AppCommandShortcutHint shortcut={panelShortcut} />
@@ -273,27 +287,14 @@ export function ThreadDetailHeader({
               }
               aria-keyshortcuts={panelShortcut?.ariaKeyshortcuts}
               aria-expanded={isSecondaryPanelOpen}
+              onPointerEnter={preloadThreadSecondaryPanel}
+              onFocus={preloadThreadSecondaryPanel}
+              onPointerDown={preloadThreadSecondaryPanel}
               onClick={onToggleSecondaryPanel}
             >
               <Icon name={rightPanelIconName} />
             </Button>
           </span>
-        ) : null}
-        <PaneMaximizeButton />
-        {onClosePane ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className={cn(
-              HEADER_PANE_ACTION_ICON_BUTTON_CLASS,
-              CHROME_SUBTLE_ICON_BUTTON_FOREGROUND_CLASS,
-            )}
-            aria-label="Close pane"
-            onClick={onClosePane}
-          >
-            <Icon name="CloseThreadPane" />
-          </Button>
         ) : null}
         {reservesWindowPanelToggle && !isWindowPanelOpen ? (
           <span aria-hidden className={HEADER_ICON_BUTTON_CLASS} />

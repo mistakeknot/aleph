@@ -1,3 +1,4 @@
+import { MobileAppSection } from "@/components/settings/MobileAppSection";
 import { MachineEnvironmentSettings } from "@/components/settings/MachineEnvironmentSettings";
 import { MachineAccessSettings } from "@/components/settings/MachineAccessSettings";
 import { useMemo, useRef, useState, type ReactNode } from "react";
@@ -167,6 +168,8 @@ interface AppearanceSettingsSectionProps {
 }
 
 interface GeneralSettingsSectionProps {
+  confirmThreadArchive: boolean;
+  onConfirmThreadArchiveChange: (enabled: boolean) => void;
   desktopBrowserAvailable: boolean;
   generalSettingsDisabled: boolean;
   managedBranchPrefix: string;
@@ -206,6 +209,7 @@ function appPaletteLabel(
 }
 
 interface ExperimentsSettingsSectionProps {
+  performanceDiagnosticsAvailable: boolean;
   disabled: boolean;
   experiments: Experiments;
   onExperimentChange: (key: ExperimentKey, enabled: boolean) => void;
@@ -848,6 +852,8 @@ export function AppearanceSettingsSection({
 }
 
 export function GeneralSettingsSection({
+  confirmThreadArchive,
+  onConfirmThreadArchiveChange,
   desktopBrowserAvailable,
   generalSettingsDisabled,
   managedBranchPrefix,
@@ -939,6 +945,18 @@ export function GeneralSettingsSection({
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
+          </SettingsWithControl>
+
+          <SettingsWithControl
+            label="Thread archive confirmation"
+            description="Ask before archiving a thread with unarchived children."
+          >
+            <Switch
+              checked={confirmThreadArchive}
+              disabled={generalSettingsDisabled}
+              onCheckedChange={onConfirmThreadArchiveChange}
+              aria-label="Thread archive confirmation"
+            />
           </SettingsWithControl>
         </div>
       </SettingsSection>
@@ -1051,54 +1069,57 @@ const EXPERIMENT_DEFINITIONS: Record<
     description:
       "Show the latest release notes as a compact preview on the Updates page.",
   },
-  mobileApp: {
-    label: "Mobile app",
+  performanceDiagnostics: {
+    label: "Server performance diagnostics",
     description:
-      "Pair the bb mobile app over bb connect: shows Add mobile device under Remote access and enables bb connect machine-code.",
+      "Collect CPU profiles and detailed performance logs while the server was launched with --perf-diagnostics. Turning this off stops collection; saved profiles remain.",
   },
   serverMove: {
     label: "Server move",
     description:
       "Move the bb server to another machine from Settings → Machines, and export or import server data with bb server.",
   },
-  sidebarProgressiveDisclosure: {
-    label: "Sidebar progressive disclosure",
-    description:
-      "In By project and By machine, show the first five groups in the current sort order, keep attention groups visible, and reveal ten more per click. Manually is unchanged.",
-  },
 };
 export function ExperimentsSettingsSection({
+  performanceDiagnosticsAvailable,
   disabled,
   experiments,
   onExperimentChange,
 }: ExperimentsSettingsSectionProps) {
   return (
-    <SettingsSection
-      title="Experiments"
-      description="Early features that are off by default. Opt in to try them."
-    >
-      <div className="space-y-5">
-        {experimentKeys.map((experimentKey) => {
-          const definition = EXPERIMENT_DEFINITIONS[experimentKey];
-          return (
-            <SettingsWithControl
-              key={experimentKey}
-              label={definition.label}
-              description={definition.description}
-            >
-              <Switch
-                checked={experiments[experimentKey]}
-                disabled={disabled}
-                onCheckedChange={(enabled) =>
-                  onExperimentChange(experimentKey, enabled)
-                }
-                aria-label={definition.label}
-              />
-            </SettingsWithControl>
-          );
-        })}
-      </div>
-    </SettingsSection>
+    <>
+      <SettingsSection
+        title="Experiments"
+        description="Early features that are off by default. Opt in to try them."
+      >
+        <div className="space-y-5">
+          {experimentKeys.map((experimentKey) => {
+            if (
+              experimentKey === "performanceDiagnostics" &&
+              !performanceDiagnosticsAvailable
+            )
+              return null;
+            const definition = EXPERIMENT_DEFINITIONS[experimentKey];
+            return (
+              <SettingsWithControl
+                key={experimentKey}
+                label={definition.label}
+                description={definition.description}
+              >
+                <Switch
+                  checked={experiments[experimentKey]}
+                  disabled={disabled}
+                  onCheckedChange={(enabled) =>
+                    onExperimentChange(experimentKey, enabled)
+                  }
+                  aria-label={definition.label}
+                />
+              </SettingsWithControl>
+            );
+          })}
+        </div>
+      </SettingsSection>
+    </>
   );
 }
 
@@ -1249,6 +1270,8 @@ export function SettingsView() {
         showChangelogPreview={experiments.changelogPreview}
       />
     );
+  } else if (activeSection === "mobile") {
+    content = <MobileAppSection />;
   } else if (activeSection === "experiments") {
     content = (
       <ExperimentsSettingsSection
@@ -1257,8 +1280,11 @@ export function SettingsView() {
           updateExperimentsMutation.isPending
         }
         experiments={experiments}
+        performanceDiagnosticsAvailable={
+          systemConfigQuery.data?.performanceDiagnosticsAvailable ?? false
+        }
         onExperimentChange={(key, enabled) =>
-          updateExperimentsMutation.mutate({ ...experiments, [key]: enabled })
+          updateExperimentsMutation.mutate({ [key]: enabled })
         }
       />
     );
@@ -1272,6 +1298,13 @@ export function SettingsView() {
     content = (
       <>
         <GeneralSettingsSection
+          confirmThreadArchive={generalSettings.confirmThreadArchive}
+          onConfirmThreadArchiveChange={(enabled) =>
+            updateGeneralSettingsMutation.mutate({
+              ...generalSettings,
+              confirmThreadArchive: enabled,
+            })
+          }
           desktopBrowserAvailable={desktopBrowserAvailable}
           generalSettingsDisabled={
             systemConfigQuery.data === undefined ||

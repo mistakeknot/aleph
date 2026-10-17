@@ -22,7 +22,6 @@ const switchThresholdSchema = z
   .max(1, "Must be at most 1.");
 
 export const parentModeSchema = z.enum(["proxy", "isolate"]);
-export type ParentMode = z.infer<typeof parentModeSchema>;
 
 const MAX_NESTED_LAUNCH_THREAD_IDS = 100;
 
@@ -95,6 +94,34 @@ export interface AccountPoolConfigController {
 
 export const providerSchema = z.enum(["claude", "codex"]);
 export type PoolProvider = z.infer<typeof providerSchema>;
+export const switchReasonSchema = z.enum([
+  "threshold_crossed",
+  "limit_reached",
+  "account_unavailable",
+  "manual",
+  "other",
+]);
+export type SwitchReason = z.infer<typeof switchReasonSchema>;
+
+export const switchLogEntrySchema = z
+  .object({
+    id: z.number().int(),
+    switchedAt: z.number().int(),
+    provider: z.enum(["claude", "codex"]),
+    fromAccountId: z.string(),
+    fromLabel: z.string().nullable(),
+    toAccountId: z.string(),
+    toLabel: z.string().nullable(),
+    reason: switchReasonSchema,
+    fromUsagePercent: z.number().nullable(),
+    toUsagePercent: z.number().nullable(),
+  })
+  .strict();
+export type SwitchLogEntry = z.infer<typeof switchLogEntrySchema>;
+export const switchLogInputSchema = z
+  .object({ limit: z.number().int().min(1).max(500).default(50) })
+  .strict();
+
 export const accountKindSchema = z.enum(["oauth", "api-key"]);
 export const modelFamilySchema = z.enum([
   "fable",
@@ -197,7 +224,20 @@ export const accountSecretSchema = z.discriminatedUnion("kind", [
 
 export type AccountSecret = z.infer<typeof accountSecretSchema>;
 
+export const extraUsageSchema = z
+  .object({
+    status: z.enum(["allowed", "rejected"]),
+    observedAt: z.number().int(),
+    source: z.enum(["header", "usage"]),
+  })
+  .strict();
+
 const quotaFieldsShape = {
+  usageRestriction: z
+    .object({ reason: z.string().min(1), resetAt: z.number().int().nullable() })
+    .strict()
+    .nullable(),
+  extraUsage: extraUsageSchema.nullable(),
   fiveHourUtilization: z.number().nullable(),
   fiveHourResetAt: z.number().int().nullable(),
   fiveHourStatus: z.string().nullable(),

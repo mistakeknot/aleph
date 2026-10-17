@@ -69,7 +69,6 @@ const SYSTEM_APP_UPDATE_QUERY_KEY = "systemAppUpdate";
 const SYSTEM_ALEPH_UPDATE_QUERY_KEY = "systemAlephUpdate";
 const SERVER_MOVE_STATUS_QUERY_KEY = "serverMoveStatus";
 const HOST_PROVIDER_CLI_STATUS_QUERY_KEY = "hostProviderCliStatus";
-const SYSTEM_USAGE_LIMITS_QUERY_KEY = "systemUsageLimits";
 const SYSTEM_PROVIDER_STATES_QUERY_KEY = "systemProviderStates";
 const HOST_PATH_EXISTENCE_QUERY_KEY = "hostPathExistence";
 const PROJECT_SKILLS_QUERY_KEY = "projectSkills";
@@ -352,6 +351,7 @@ type ThreadTimelineQueryKey = readonly [
 type ThreadConversationOutlineQueryKey = readonly [
   typeof THREAD_CONVERSATION_OUTLINE_QUERY_KEY,
   string,
+  ThreadConversationOutlineRole,
 ];
 type ThreadConversationOutlineQueryKeyPrefix = readonly [
   typeof THREAD_CONVERSATION_OUTLINE_QUERY_KEY,
@@ -361,6 +361,7 @@ type AllThreadConversationOutlineQueryKeyPrefix = readonly [
   typeof THREAD_CONVERSATION_OUTLINE_QUERY_KEY,
 ];
 export interface ThreadTimelineTurnSummaryDetailsQueryIdentity {
+  itemId: string | null;
   sourceSeqEnd: number;
   sourceSeqStart: number;
   threadId: string;
@@ -372,6 +373,7 @@ type ThreadTimelineTurnSummaryDetailsQueryKey = readonly [
   string,
   number,
   number,
+  string | null,
 ];
 type ThreadTimelineQueryKeyPrefix = readonly [
   typeof THREAD_TIMELINE_QUERY_KEY,
@@ -483,11 +485,6 @@ type SystemAlephUpdateQueryKey = readonly [
 type ServerMoveStatusQueryKey = readonly [typeof SERVER_MOVE_STATUS_QUERY_KEY];
 type HostProviderCliStatusQueryKey = readonly [
   typeof HOST_PROVIDER_CLI_STATUS_QUERY_KEY,
-  string | null,
-];
-type SystemUsageLimitsQueryKey = readonly [
-  typeof SYSTEM_USAGE_LIMITS_QUERY_KEY,
-  string | null,
   string | null,
 ];
 type SystemProviderStatesQueryKey = readonly [
@@ -935,10 +932,13 @@ export function threadTimelineQueryKey(
   return [THREAD_TIMELINE_QUERY_KEY, threadId];
 }
 
+export type ThreadConversationOutlineRole = "user" | "assistant";
+
 export function threadConversationOutlineQueryKey(
   threadId: string,
+  role: ThreadConversationOutlineRole,
 ): ThreadConversationOutlineQueryKey {
-  return [THREAD_CONVERSATION_OUTLINE_QUERY_KEY, threadId];
+  return [THREAD_CONVERSATION_OUTLINE_QUERY_KEY, threadId, role];
 }
 
 export function threadConversationOutlineQueryKeyPrefix(
@@ -952,6 +952,7 @@ export function allThreadConversationOutlineQueryKeyPrefix(): AllThreadConversat
 }
 
 export function threadTimelineTurnSummaryDetailsQueryKey({
+  itemId,
   sourceSeqEnd,
   sourceSeqStart,
   threadId,
@@ -963,6 +964,7 @@ export function threadTimelineTurnSummaryDetailsQueryKey({
     turnId,
     sourceSeqStart,
     sourceSeqEnd,
+    itemId,
   ];
 }
 
@@ -1168,13 +1170,6 @@ export function hostProviderCliStatusQueryKey(
   return [HOST_PROVIDER_CLI_STATUS_QUERY_KEY, hostId];
 }
 
-export function systemUsageLimitsQueryKey(
-  hostId: string | null,
-  providerId: string | null = null,
-): SystemUsageLimitsQueryKey {
-  return [SYSTEM_USAGE_LIMITS_QUERY_KEY, hostId, providerId];
-}
-
 export function systemProviderStatesQueryKey(
   args: Pick<SystemExecutionOptionsQueryKeyArgs, "environmentId" | "hostId">,
 ): SystemProviderStatesQueryKey {
@@ -1306,4 +1301,8 @@ export function pluginCatalogInstallPlanQueryKey(args: {
 
 export function pluginMarketplacesQueryKey() {
   return [PLUGIN_MARKETPLACES_QUERY_KEY] as const;
+}
+
+export function systemProviderCatalogQueryKey() {
+  return [SYSTEM_PROVIDERS_QUERY_KEY, "catalog"] as const;
 }

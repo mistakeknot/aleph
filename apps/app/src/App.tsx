@@ -1,3 +1,5 @@
+import { LazyThreadDetailView } from "./views/thread-detail/LazyThreadDetailView";
+import { useRouteState } from "./hooks/useRouteState";
 import { lazy, Suspense, useEffect } from "react";
 import {
   matchPath,
@@ -16,6 +18,7 @@ import { AppNavigationUrlHost } from "./lib/url-open-routing";
 import { NativeShellReporter } from "./lib/native-shell";
 import { UiPreferencesSync } from "@/lib/ui-preferences/UiPreferencesSync";
 import { AppFileExternalNavigationHost } from "./components/plugin/AppFileExternalNavigationHost";
+import { pluginDetailKeyFromRoute } from "./components/plugin/plugin-detail-key";
 import { useAppTheme } from "./hooks/useAppTheme";
 import { useAmbientScreenCare } from "./hooks/useAmbientScreenCare";
 import { useFaviconColorSync } from "./lib/favicon-color-preference";
@@ -23,6 +26,7 @@ import { useDesktopThemeSync } from "./hooks/useDesktopThemeSync";
 import { usePluginFrontendBoot } from "./hooks/usePluginFrontendBoot";
 import { markRouteContentPainted } from "./lib/route-content-paint";
 import { useRememberPluginNavPanelChrome } from "@/lib/plugin-nav-panel-chrome";
+import { useAlephDiagnostics } from "./aleph/diagnostics-bridge";
 import { useWebSocket } from "./hooks/useWebSocket";
 import {
   AUTH_CALLBACK_ROUTE_PATH,
@@ -125,7 +129,7 @@ function LegacyProjectSettingsRedirect() {
   );
 }
 
-export function LegacyAutomationDetailRedirect() {
+function LegacyAutomationDetailRedirect() {
   const location = useLocation();
   const { projectId, automationId } = useParams<{
     projectId?: string;
@@ -147,7 +151,7 @@ export function LegacyAutomationDetailRedirect() {
   );
 }
 
-export function LegacyAutomationCollectionRedirect() {
+function LegacyAutomationCollectionRedirect() {
   const location = useLocation();
   const browse =
     location.pathname.endsWith("/browse") ||
@@ -266,6 +270,10 @@ export function HashNavigationScroll() {
 }
 
 export function AppRoutes() {
+  const { isThreadView } = useRouteState();
+  useEffect(() => {
+    if (isThreadView) void LazyThreadDetailView.preload();
+  }, [isThreadView]);
   return (
     <AppLayout>
       <Suspense fallback={null}>
@@ -275,7 +283,7 @@ export function AppRoutes() {
             element={
               <Navigate
                 to={getPluginConfigurationRoutePath({
-                  pluginId: "provider-usage",
+                  pluginId: "bb--provider-usage",
                 })}
                 replace
               />
@@ -416,11 +424,21 @@ function RouteContentPaintSignal() {
 
 function PluginsRoute() {
   const { pluginId } = useParams<{ pluginId?: string }>();
-  return <PluginsView pluginId={pluginId} />;
+  const { search } = useLocation();
+  return (
+    <PluginsView
+      detailKey={
+        pluginId === undefined
+          ? undefined
+          : pluginDetailKeyFromRoute(pluginId, search)
+      }
+    />
+  );
 }
 
 export function App() {
   useWebSocket();
+  useAlephDiagnostics();
   useDesktopThemeSync();
   useAppTheme();
   useAmbientScreenCare();

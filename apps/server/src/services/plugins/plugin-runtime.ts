@@ -17,7 +17,6 @@ import { dirname, extname, join, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire, registerHooks } from "node:module";
 import { performance } from "node:perf_hooks";
-import { createJiti } from "jiti";
 import semver from "semver";
 import { HOST_ARTIFACT_MAX_BYTES } from "@bb/host-daemon-contract/protocol";
 import {
@@ -101,6 +100,8 @@ import type {
 import { createKeyedLock } from "../lib/async-deduper.js";
 import { runEventLoopWork } from "../system/event-loop-work.js";
 import { abortPluginToolCallsForPlugin } from "./plugin-tool-calls.js";
+import { buildCachedPluginServer } from "./plugin-server-cache.js";
+import { createPluginRpcCallerRegistry } from "./plugin-rpc-caller.js";
 
 const serverRuntimeDir = dirname(fileURLToPath(import.meta.url));
 const pluginSdkRuntimePath = join(serverRuntimeDir, "plugin-sdk-runtime.js");
@@ -122,44 +123,41 @@ async function hashFile(
   return { digest: hash.digest("hex"), byteLength };
 }
 
-export function pluginSdkAliasFor(runtimePath: string): Record<string, string> {
-  return {
-    [PLUGIN_SDK_SPECIFIER]: runtimePath,
-    [LEGACY_PLUGIN_SDK_SPECIFIER]: runtimePath,
-  };
-}
-
-export function zodAliasFor(args: {
-  runtimePath: string | undefined;
-  sourceKind: InstalledPluginRow["sourceKind"];
-  serverEntry: string;
-}): Record<string, string> | undefined {
-  if (
-    args.runtimePath === undefined ||
-    args.sourceKind !== "builtin" ||
-    !args.serverEntry.endsWith(`${sep}dist${sep}server.js`)
-  ) {
-    return undefined;
-  }
-  return { [ZOD_SPECIFIER]: args.runtimePath };
-}
-
-const pluginSdkAlias: Record<string, string> | undefined = existsSync(
-  pluginSdkRuntimePath,
-)
-  ? pluginSdkAliasFor(pluginSdkRuntimePath)
-  : undefined;
+const runtimeRequire = createRequire(import.meta.url);
+const pluginSdkRuntimeEntry = existsSync(pluginSdkRuntimePath)
+  ? pluginSdkRuntimePath
+  : runtimeRequire.resolve(PLUGIN_SDK_SPECIFIER);
+const pluginRuntimeExternalUrls = new Map(
+  Object.entries({
+    [PLUGIN_SDK_SPECIFIER]: pluginSdkRuntimeEntry,
+    [LEGACY_PLUGIN_SDK_SPECIFIER]: pluginSdkRuntimeEntry,
+    "better-sqlite3": runtimeRequire.resolve("better-sqlite3"),
+  }).map(([specifier, path]) => [specifier, pathToFileURL(path).href]),
+);
 
 const availableZodRuntimePath = existsSync(zodRuntimePath)
   ? zodRuntimePath
   : undefined;
 
+function usesServerZodRuntime(
+  sourceKind: InstalledPluginRow["sourceKind"],
+  serverEntry: string,
+): boolean {
+  return (
+    availableZodRuntimePath !== undefined &&
+    sourceKind === "builtin" &&
+    serverEntry.endsWith(`${sep}dist${sep}server.js`)
+  );
+}
+
 interface MutableRoot {
   id: number;
   epoch: number;
+  version: string;
 }
 
 const mutableRoots = new Map<string, MutableRoot>();
+const builtinZodParentUrls = new Set<string>();
 const MUTABLE_ROOT_MARKER = /[?&]bbPluginLoad=(\d+)\.(\d+)/;
 let nextMutableRootId = 1;
 let nextMutableRootEpoch = 1;
@@ -169,6 +167,23 @@ function registerMutableRootHooks(): void {
   if (mutableRootHooks !== null) return;
   mutableRootHooks = registerHooks({
     resolve(specifier, context, nextResolve) {
+      const parentUrl = context.parentURL?.split("?")[0];
+      if (
+        specifier === ZOD_SPECIFIER &&
+        availableZodRuntimePath !== undefined &&
+        parentUrl !== undefined &&
+        builtinZodParentUrls.has(parentUrl)
+      ) {
+        return {
+          url: pathToFileURL(availableZodRuntimePath).href,
+          shortCircuit: true,
+        };
+      }
+      const parent = MUTABLE_ROOT_MARKER.exec(context.parentURL ?? "");
+      const runtimeExternalUrl = pluginRuntimeExternalUrls.get(specifier);
+      if (runtimeExternalUrl !== undefined) {
+        return { url: runtimeExternalUrl, shortCircuit: true };
+      }
       const resolved = nextResolve(specifier, context);
       if (mutableRoots.size === 0) return resolved;
       if (!resolved.url.startsWith("file:")) return resolved;
@@ -181,7 +196,6 @@ function registerMutableRootHooks(): void {
         matchedLength = rootUrl.length;
       }
       if (match === undefined) return resolved;
-      const parent = MUTABLE_ROOT_MARKER.exec(context.parentURL ?? "");
       const epoch =
         parent !== null && Number(parent[1]) === match.id
           ? parent[2]
@@ -238,6 +252,13 @@ function mutableRootUrl(canonicalDir: string): string {
   return pathToFileURL(join(canonicalDir, "/")).href;
 }
 
+function detachCommonJsModule(entry: NodeModule): void {
+  const parent = entry.parent;
+  if (parent === null || parent === undefined) return;
+  const index = parent.children.indexOf(entry);
+  if (index >= 0) parent.children.splice(index, 1);
+}
+
 function evictCommonJsCache(canonicalDir: string): Map<string, NodeModule> {
   const prefix = join(canonicalDir, "/");
   const cache = createRequire(import.meta.url).cache;
@@ -245,29 +266,51 @@ function evictCommonJsCache(canonicalDir: string): Map<string, NodeModule> {
   for (const filename of Object.keys(cache)) {
     if (!filename.startsWith(prefix)) continue;
     const entry = cache[filename];
-    if (entry !== undefined) evicted.set(filename, entry);
+    if (entry !== undefined) {
+      evicted.set(filename, entry);
+      detachCommonJsModule(entry);
+    }
     delete cache[filename];
   }
   return evicted;
 }
 
-function bumpMutableRootGeneration(rootDir: string): () => void {
+function setMutableRootVersion(
+  rootDir: string,
+  version: string,
+): { rootUrl: string; rollback: () => void } {
   registerMutableRootHooks();
   const canonicalDir = mutableRootDir(rootDir);
   const rootUrl = mutableRootUrl(canonicalDir);
   const previous = mutableRoots.get(rootUrl);
+  if (previous?.version === version) {
+    return { rootUrl, rollback: () => {} };
+  }
   mutableRoots.set(rootUrl, {
     id: previous?.id ?? nextMutableRootId++,
     epoch: nextMutableRootEpoch++,
+    version,
   });
   const evicted = evictCommonJsCache(canonicalDir);
-  return () => {
-    if (previous === undefined) mutableRoots.delete(rootUrl);
-    else mutableRoots.set(rootUrl, previous);
-    const cache = createRequire(import.meta.url).cache;
-    for (const [filename, entry] of evicted) {
-      if (cache[filename] === undefined) cache[filename] = entry;
-    }
+  return {
+    rootUrl,
+    rollback: () => {
+      if (previous === undefined) mutableRoots.delete(rootUrl);
+      else mutableRoots.set(rootUrl, previous);
+      const cache = createRequire(import.meta.url).cache;
+      for (const [filename, entry] of evicted) {
+        if (cache[filename] !== undefined) continue;
+        cache[filename] = entry;
+        const parent = entry.parent;
+        if (
+          parent !== null &&
+          parent !== undefined &&
+          !parent.children.includes(entry)
+        ) {
+          parent.children.push(entry);
+        }
+      }
+    },
   };
 }
 
@@ -276,7 +319,12 @@ export function forgetMutableRoot(rootDir: string): void {
 }
 
 function releaseMutableRoots(rootUrls: Iterable<string>): void {
-  for (const rootUrl of rootUrls) mutableRoots.delete(rootUrl);
+  for (const rootUrl of rootUrls) {
+    mutableRoots.delete(rootUrl);
+    for (const parentUrl of builtinZodParentUrls) {
+      if (parentUrl.startsWith(rootUrl)) builtinZodParentUrls.delete(parentUrl);
+    }
+  }
   if (mutableRoots.size > 0 || mutableRootHooks === null) return;
   mutableRootHooks.deregister();
   mutableRootHooks = null;
@@ -321,7 +369,7 @@ export interface SafeModeActivationRefusalArgs {
 const PLUGIN_SAFE_MODE_DETAIL = "safe mode is on";
 
 export interface PluginLoadHold {
-  source: string;
+  sources: readonly string[];
   detail: string;
   isActive(): Promise<boolean>;
 }
@@ -337,6 +385,7 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
     deps.serviceRestartBaseMs ?? DEFAULT_SERVICE_RESTART_BASE_MS;
 
   const loaded = new Map<string, LoadedPlugin>();
+  const initializedSourceBuiltinIds = new Set<string>();
   deps.pendingInteractions?.setPluginDirectory({
     isLoaded: (pluginId) => loaded.has(pluginId),
   });
@@ -350,7 +399,6 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
   const REGISTRATION_MUTATION_KEY = "plugin-registration-mutations";
   const disposingPluginIds = new Set<string>();
   const builtinSourceWatchers: FSWatcher[] = [];
-  const ownedRootUrls = new Set<string>();
 
   const statuses = new Map<
     string,
@@ -383,6 +431,7 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
   const handlerStats = new Map<string, PluginHandlerStats>();
   let boundSdk: BbSdk | undefined;
   let boundLoopbackBaseUrl: string | undefined;
+  const rpcCallers = createPluginRpcCallerRegistry();
   let loadHold: PluginLoadHold | null = null;
 
   function publishStatus(
@@ -1090,27 +1139,98 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
     return false;
   }
 
+  type ResolvedServerEntry = {
+    path: string;
+    digest: string;
+    loader: "cjs" | "esm";
+  };
+
+  async function packageScopeIsEsm(
+    entryPath: string,
+    rootDir: string,
+  ): Promise<boolean> {
+    const directories = [dirname(entryPath), rootDir];
+    for (const directory of new Set(directories)) {
+      try {
+        const parsed: unknown = JSON.parse(
+          await readFile(join(directory, "package.json"), "utf8"),
+        );
+        if (typeof parsed !== "object" || parsed === null) return false;
+        if ("type" in parsed) return Reflect.get(parsed, "type") === "module";
+      } catch {}
+    }
+    return false;
+  }
+
   async function resolveServerEntry(
     row: InstalledPluginRow,
     manifest: PluginManifest,
-  ): Promise<string> {
-    if (
-      row.sourceKind === "path" ||
-      (row.sourceKind === "builtin" &&
-        !isPackagedBuiltinEntry({
-          kind: row.sourceKind,
-          manifest,
+  ): Promise<ResolvedServerEntry> {
+    async function buildSource(
+      serverEntry = manifest.serverEntry,
+    ): Promise<ResolvedServerEntry> {
+      const built = await withArtifactLock(`server:${row.id}`, async () =>
+        buildCachedPluginServer({
           rootDir: row.rootDir,
-          artifact: "server",
-        }))
+          dataDir: deps.dataDir,
+          pluginId: row.id,
+          sdkVersion: PLUGIN_SDK_VERSION,
+          bbVersion: deps.appVersion,
+          validatedConfig: {
+            serverEntry,
+            packageName: manifest.packageName,
+            pluginVersion: manifest.version,
+          },
+          toolchain: () => getPluginBuildToolchain(deps),
+          runtimeImports: {
+            [PLUGIN_SDK_SPECIFIER]: {
+              path: pluginSdkRuntimeEntry,
+            },
+            [LEGACY_PLUGIN_SDK_SPECIFIER]: {
+              path: pluginSdkRuntimeEntry,
+            },
+            "better-sqlite3": {
+              path: runtimeRequire.resolve("better-sqlite3"),
+              external: true,
+            },
+          },
+          fallbackResolve: (specifier) => {
+            try {
+              const resolved = import.meta.resolve(specifier);
+              return resolved.startsWith("file:")
+                ? fileURLToPath(resolved)
+                : resolved;
+            } catch {}
+            try {
+              return runtimeRequire.resolve(specifier);
+            } catch {
+              return undefined;
+            }
+          },
+        }),
+      );
+      return { ...built, loader: "cjs" };
+    }
+    if (row.sourceKind === "path") return buildSource();
+    if (
+      row.sourceKind === "builtin" &&
+      !isPackagedBuiltinEntry({
+        kind: row.sourceKind,
+        manifest,
+        rootDir: row.rootDir,
+        artifact: "server",
+      })
     ) {
-      return manifest.serverEntry;
+      if (initializedSourceBuiltinIds.has(row.id)) return buildSource();
+      initializedSourceBuiltinIds.add(row.id);
+      const { digest } = await hashFile(manifest.serverEntry);
+      return { path: manifest.serverEntry, digest, loader: "esm" };
     }
     const distJsPath = join(row.rootDir, "dist", "server.js");
     try {
       await stat(distJsPath);
     } catch {
-      return manifest.serverEntry;
+      return buildSource();
     }
     let meta: { sdkMajor: number; sdkVersion: string } | null = null;
     try {
@@ -1122,9 +1242,13 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
       logger.warn(
         `plugin ${row.id}: ignoring prebuilt dist/server.js (built with SDK ${meta?.sdkVersion ?? "unknown"}, running SDK is ${PLUGIN_SDK_VERSION}) — loading from source`,
       );
-      return manifest.serverEntry;
+      return buildSource();
     }
-    return distJsPath;
+    const { digest } = await hashFile(distJsPath);
+    if (await packageScopeIsEsm(distJsPath, row.rootDir)) {
+      return { path: distJsPath, digest, loader: "esm" };
+    }
+    return buildSource(distJsPath);
   }
 
   async function loadAppBundleCandidate(
@@ -1395,7 +1519,7 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
 
   async function heldDetail(row: InstalledPluginRow): Promise<string | null> {
     const hold = loadHold;
-    if (hold === null || !row.enabled || row.source !== hold.source) {
+    if (hold === null || !row.enabled || !hold.sources.includes(row.source)) {
       return null;
     }
     return (await hold.isActive()) ? hold.detail : null;
@@ -1548,6 +1672,7 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
       },
       getAppUrl: deps.getAppUrl ?? (() => null),
       getLoopbackBaseUrl: () => boundLoopbackBaseUrl,
+      rpcCaller: rpcCallers.issue(row.id),
       publishSignal: (channel, payload) => {
         deps.hub.notifyPluginSignal(row.id, channel, payload);
       },
@@ -1674,28 +1799,48 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
       },
     });
     settingsDescriptorsRef.current = handle.settings.descriptors;
-    let rollbackGeneration: (() => void) | undefined;
-    if (row.sourceKind === "path" || row.sourceKind === "builtin") {
-      rollbackGeneration = bumpMutableRootGeneration(row.rootDir);
-      ownedRootUrls.add(mutableRootUrl(mutableRootDir(row.rootDir)));
-    }
+    const rollbackGenerations: Array<() => void> = [];
+    const candidateModuleRootUrls = new Set<string>();
     try {
       const serverEntry = await resolveServerEntry(row, manifest);
-      const alias = {
-        ...pluginSdkAlias,
-        ...zodAliasFor({
-          runtimePath: availableZodRuntimePath,
-          sourceKind: row.sourceKind,
-          serverEntry,
-        }),
-      };
-      const jiti = createJiti(import.meta.url, {
-        moduleCache: false,
-        ...(Object.keys(alias).length === 0 ? {} : { alias }),
-      });
-      const mod = (await jiti.import(serverEntry)) as {
-        default?: unknown;
-      };
+      if (row.sourceKind === "path" || row.sourceKind === "builtin") {
+        const mutation = setMutableRootVersion(
+          row.rootDir,
+          serverEntry.loader === "esm"
+            ? `esm:${serverEntry.digest}`
+            : `${serverEntry.loader}:${serverEntry.digest}:${nextMutableRootEpoch}`,
+        );
+        rollbackGenerations.push(mutation.rollback);
+        candidateModuleRootUrls.add(mutation.rootUrl);
+      }
+      if (usesServerZodRuntime(row.sourceKind, serverEntry.path)) {
+        builtinZodParentUrls.add(pathToFileURL(serverEntry.path).href);
+      }
+      let mod: { default?: unknown };
+      if (serverEntry.loader === "cjs") {
+        const filename = runtimeRequire.resolve(serverEntry.path);
+        try {
+          const exported: unknown = runtimeRequire(filename);
+          mod =
+            typeof exported === "function"
+              ? { default: exported }
+              : (exported as { default?: unknown });
+        } finally {
+          const entry = runtimeRequire.cache[filename];
+          if (entry !== undefined) detachCommonJsModule(entry);
+          delete runtimeRequire.cache[filename];
+        }
+      } else {
+        const mutation = setMutableRootVersion(
+          dirname(serverEntry.path),
+          `esm:${serverEntry.digest}`,
+        );
+        rollbackGenerations.push(mutation.rollback);
+        candidateModuleRootUrls.add(mutation.rootUrl);
+        mod = (await import(pathToFileURL(serverEntry.path).href)) as {
+          default?: unknown;
+        };
+      }
       const factory = mod.default;
       if (typeof factory !== "function") {
         throw new Error(
@@ -1707,7 +1852,7 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
         handle.api,
       );
     } catch (error) {
-      rollbackGeneration?.();
+      for (const rollback of rollbackGenerations.reverse()) rollback();
       discardCandidateHandle(handle);
       let message = error instanceof Error ? error.message : String(error);
       if (/ERR_DLOPEN_FAILED|\.node/.test(message)) {
@@ -1726,7 +1871,7 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
         : message;
     }
     if (hostArtifactProblem !== null) {
-      rollbackGeneration?.();
+      for (const rollback of rollbackGenerations.reverse()) rollback();
       try {
         replaceUnavailableProviderRegistrations(
           row,
@@ -1747,6 +1892,7 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
     const plugin: LoadedPlugin = {
       manifest,
       handle,
+      moduleRootUrls: candidateModuleRootUrls,
       services: handle.backgroundServices.map((record) => ({
         record,
         state: "stopped" as const,
@@ -1762,11 +1908,17 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
       await disposePluginInstance(row.id, previous);
       const hungAfterDispose = hungServices.get(row.id);
       if (hungAfterDispose !== undefined && hungAfterDispose.size > 0) {
+        for (const rollback of rollbackGenerations.reverse()) rollback();
         loaded.delete(row.id);
         deps.sharedPorts?.clearDeclarationsForOwner(row.id);
         discardCandidateHandle(handle);
         return hungServicesDetail(hungAfterDispose);
       }
+      releaseMutableRoots(
+        [...previous.moduleRootUrls].filter(
+          (rootUrl) => !candidateModuleRootUrls.has(rootUrl),
+        ),
+      );
     }
     disposeUnavailableProviderRegistrations(row.id);
     loaded.set(row.id, plugin);
@@ -1869,6 +2021,7 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
     if (!plugin) return;
     loaded.delete(id);
     await disposePluginInstance(id, plugin);
+    releaseMutableRoots(plugin.moduleRootUrls);
     hostArtifacts.delete(id);
     deps.sharedPorts?.clearDeclarationsForOwner(id);
   }
@@ -1881,8 +2034,6 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
     for (const id of pluginIds) {
       await withLifecycleLock(id, () => disposeOne(id));
     }
-    releaseMutableRoots(ownedRootUrls);
-    ownedRootUrls.clear();
   }
 
   async function loadAll(): Promise<void> {
@@ -1924,6 +2075,7 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
     appBundles,
     hostArtifacts,
     bindSdk,
+    resolveRpcCaller: rpcCallers.resolve,
     buildThreadDto,
     builtinSourceWatchers,
     checkEngineRange,

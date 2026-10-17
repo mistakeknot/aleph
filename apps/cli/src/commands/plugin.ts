@@ -317,14 +317,23 @@ async function warnIfSdkVersionUnpublished(): Promise<void> {
   );
 }
 
+async function execNpm(
+  args: readonly string[],
+  options: { cwd?: string; timeout?: number; killSignal?: NodeJS.Signals },
+): Promise<{ stdout: string; stderr: string }> {
+  const { exec, execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  if (process.platform === "win32") {
+    return promisify(exec)(["npm", ...args].join(" "), options);
+  }
+  return promisify(execFile)("npm", [...args], options);
+}
+
 async function probeSdkVersionPublished(): Promise<
   "published" | "missing" | "unknown"
 > {
-  const { execFile } = await import("node:child_process");
-  const { promisify } = await import("node:util");
   try {
-    const { stdout } = await promisify(execFile)(
-      "npm",
+    const { stdout } = await execNpm(
       ["view", `@get-bb/plugin-sdk@${PLUGIN_SDK_VERSION}`, "version", "--json"],
       { timeout: 5_000, killSignal: "SIGKILL" },
     );
@@ -365,14 +374,10 @@ function npmFailureDetail(cause: unknown): string {
 async function installScaffoldDependencies(
   targetDir: string,
 ): Promise<boolean> {
-  const { execFile } = await import("node:child_process");
-  const { promisify } = await import("node:util");
   try {
-    await promisify(execFile)(
-      "npm",
-      ["install", "--include=dev", "--no-fund", "--no-audit"],
-      { cwd: targetDir },
-    );
+    await execNpm(["install", "--include=dev", "--no-fund", "--no-audit"], {
+      cwd: targetDir,
+    });
   } catch (cause) {
     console.warn(
       `Could not run npm install — run it in the plugin directory before \`bb plugin build\`.${npmFailureDetail(cause)}`,
@@ -899,9 +904,11 @@ export function registerPluginCommands(
             : []),
           result.installed
             ? "✓ installed"
-            : result.compatible
-              ? "compatible"
-              : `requires newer bb${result.incompatibleReason ? `: ${result.incompatibleReason}` : ""}`,
+            : !result.compatible
+              ? `requires newer bb${result.incompatibleReason ? `: ${result.incompatibleReason}` : ""}`
+              : result.conflictingInstallSource !== null
+                ? `id in use by ${result.conflictingInstallSource}`
+                : "compatible",
         ]);
         console.log(
           renderBorderlessTable(
@@ -1290,7 +1297,7 @@ export function registerPluginCommands(
   plugin
     .command("types [path]")
     .description(
-      "Sync a package-layout plugin's @get-bb/plugin-sdk surface to the running bb (default: cwd): repin the npm devDependency and the type-only devDependencies of the packages bb shims at runtime (sonner, vaul, the portal radix families, ...); legacy vendored-layout plugins must migrate first",
+      "Sync a package-layout plugin's @get-bb/plugin-sdk surface to the running bb (default: cwd): repin the npm devDependency and the declared type-only devDependencies of the packages bb shims at runtime (sonner, vaul, the portal radix families, ...); legacy vendored-layout plugins must migrate first",
     )
     .option(
       "--check",
@@ -1314,7 +1321,6 @@ export function registerPluginCommands(
             const pending = await setPluginSdkPin({
               rootDir,
               sdkVersion: PLUGIN_SDK_VERSION,
-              app: hasApp,
               dryRun: true,
             });
             if (pending === null) {
@@ -1342,11 +1348,10 @@ export function registerPluginCommands(
           const changed = await setPluginSdkPin({
             rootDir,
             sdkVersion: PLUGIN_SDK_VERSION,
-            app: hasApp,
           });
           if (changed === null) {
             console.log(
-              `@get-bb/plugin-sdk is already pinned to ${PLUGIN_SDK_VERSION} — this bb's SDK version${hasApp ? ", and the runtime-shimmed packages are at this bb's versions" : ""}.`,
+              `@get-bb/plugin-sdk is already pinned to ${PLUGIN_SDK_VERSION} — this bb's SDK version${hasApp ? ", and the declared runtime-shimmed packages are at this bb's versions" : ""}.`,
             );
             console.log(
               "The declarations are in node_modules/@get-bb/plugin-sdk/bundled-types/ — read them for exact signatures.",

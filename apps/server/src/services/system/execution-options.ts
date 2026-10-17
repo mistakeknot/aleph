@@ -21,7 +21,10 @@ import {
   requireEnvironment,
 } from "../lib/entity-lookup.js";
 import { expectedFallbackErrorLogFields } from "../lib/error-log-fields.js";
-import { isSuspendedHostUnavailableError } from "../lib/lifecycle-api-errors.js";
+import {
+  isDisconnectedHostUnavailableError,
+  isSuspendedHostUnavailableError,
+} from "../lib/lifecycle-api-errors.js";
 import {
   createProviderListingBudget,
   type ProviderListingBudget,
@@ -119,10 +122,12 @@ function listConfiguredSystemProviderInfos(
   deps: Pick<LoggedWorkSessionDeps, "providerRegistry">,
   filter: ProviderFilter = {},
 ): ProviderInfo[] {
+  const disabled = deps.providerRegistry.disabledProviderIds();
   return deps.providerRegistry
     .list()
     .filter(
       (entry) =>
+        !disabled.has(entry.info.id) &&
         entry.visibility === "always" &&
         providerMatchesFilter(entry.info, filter),
     )
@@ -141,7 +146,10 @@ function includeRequestedRegisteredProvider(
     return providers;
   }
   const registration = deps.providerRegistry.get(providerId);
-  return registration === null ? providers : [...providers, registration.info];
+  return registration === null ||
+    deps.providerRegistry.disabledProviderIds().has(providerId)
+    ? providers
+    : [...providers, registration.info];
 }
 
 function canOmitProviderDiscoveryForError(error: unknown): error is ApiError {
@@ -155,10 +163,12 @@ async function listInstalledPluginProviderInfos(
   hostId: string,
   filter: ProviderFilter,
 ): Promise<ProviderInfo[]> {
+  const disabled = deps.providerRegistry.disabledProviderIds();
   const registrations = deps.providerRegistry
     .list()
     .filter(
       (registration) =>
+        !disabled.has(registration.info.id) &&
         registration.visibility === "installed" &&
         providerMatchesFilter(registration.info, filter),
     );
@@ -247,8 +257,9 @@ function resolveSystemProviderInfosPlan(
   deps: LoggedWorkSessionDeps,
   query: ListSystemProviderInfosRequest = {},
 ): ResolveSystemProviderInfosPlanResult {
+  let hostId: string | null = null;
   try {
-    const hostId = resolveSystemLookupHostId(deps, query);
+    hostId = resolveSystemLookupHostId(deps, query);
     requireConnectedHostSession(deps, hostId);
     return {
       hostId,
@@ -262,11 +273,21 @@ function resolveSystemProviderInfosPlan(
     if (!canOmitProviderDiscoveryForError(error)) {
       throw error;
     }
+    // An offline host (a laptop asleep, a tunnel flap) is routine: the UI
+    // polls discovery for it and falls back to configured providers, so only
+    // unexpected lookup failures earn a warning.
     if (!isSuspendedHostUnavailableError(error)) {
-      deps.logger.warn(
-        expectedFallbackErrorLogFields(error),
-        "Failed to resolve host for provider discovery",
-      );
+      const fields = {
+        ...expectedFallbackErrorLogFields(error),
+        hostId,
+        environmentId: query.environmentId ?? null,
+      };
+      const message = "Failed to resolve host for provider discovery";
+      if (isDisconnectedHostUnavailableError(error)) {
+        deps.logger.debug(fields, message);
+      } else {
+        deps.logger.warn(fields, message);
+      }
     }
     return {
       hostId: null,

@@ -79,6 +79,7 @@ export interface ThreadTimelineCacheKeyArgs {
   providerDisplayName?: string;
   page: ThreadTimelinePageRequest;
   includeNestedRows: boolean;
+  deferContent: boolean;
   summaryOnly: boolean;
   includeDiagnosticOperations: boolean;
   completedTurnDisplay: CompletedTurnDisplay;
@@ -103,6 +104,7 @@ export function buildThreadTimelineParamsKey(
     args.providerDisplayName ?? "-",
     pageKeyPart(args.page),
     args.includeNestedRows ? "1" : "0",
+    args.deferContent ? "1" : "0",
     args.summaryOnly ? "1" : "0",
     args.includeDiagnosticOperations ? "1" : "0",
     args.completedTurnDisplay,

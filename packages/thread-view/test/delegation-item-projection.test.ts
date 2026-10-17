@@ -163,7 +163,7 @@ describe("delegation item projection", () => {
       }),
     );
     expect(
-      row.childRows.map((child) =>
+      (row.childRows ?? []).map((child) =>
         child.kind === "conversation" ? child.text : child.kind,
       ),
     ).toContain("README says hello.");

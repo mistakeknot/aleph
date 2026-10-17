@@ -1,12 +1,17 @@
+import {
+  pendingInteractionsRefetchInterval,
+  withPendingInteractionsRequestTimeout,
+} from "@/aleph/pending-interactions-guard";
 import { prependOlderTimelineRows } from "@bb/client-core";
 import {
   useInfiniteQuery,
   useQuery,
   useQueryClient,
+  type InfiniteData,
   type NotifyOnChangeProps,
   type QueryClient,
 } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { COMPACT_VIEWPORT_QUERY } from "@bb/shared-ui/hooks/use-compact-viewport";
 import { getMediaQuerySnapshot } from "@bb/shared-ui/hooks/use-media-query";
 import type { PendingInteraction, ThreadListEntry } from "@bb/domain";
@@ -23,6 +28,7 @@ import type {
   ThreadStorageLocationResponse,
   ThreadStoragePathListResponse,
   ThreadTimelineResponse,
+  TimelineRow,
   TimelineTurnSummaryDetailsResponse,
 } from "@bb/server-contract";
 import { useDebouncedValue } from "../useDebouncedValue";
@@ -84,10 +90,15 @@ import {
   threadTimelineQueryKey,
   threadTimelineTurnSummaryDetailsQueryKey,
   threadsQueryKey,
+  type ThreadConversationOutlineRole,
   type ThreadTimelineTurnSummaryDetailsQueryIdentity,
 } from "./query-keys";
 import { ARCHIVED_THREADS_PAGE_SIZE } from "./archived-threads-page-size";
 import { ingestThreadDetailBootstrap } from "../cache-owners/thread-detail-cache-owner";
+import {
+  THREAD_OPEN_CACHE_GC_MS,
+  touchThreadOpenCache,
+} from "../cache-owners/thread-open-cache-owner";
 
 interface QueryOptions {
   enabled?: boolean;
@@ -500,7 +511,6 @@ export function useProjectThreadSubset({
   const enabled = (enabledOption ?? true) && Boolean(projectId);
   useThreadListRealtimeSubscription({ enabled });
   const { hasParent, parentThreadId } = filters;
-  const canDeriveFromActiveProjectThreads = true;
   const activeProjectThreadListQueryKey =
     enabled && projectId
       ? threadListQueryKey({ archived: false, projectId })
@@ -508,7 +518,6 @@ export function useProjectThreadSubset({
           projectId ? { archived: false, projectId } : { archived: false },
         );
   const activeProjectThreadListIsCached =
-    canDeriveFromActiveProjectThreads &&
     enabled &&
     projectId !== undefined &&
     queryClient.getQueryData<ThreadListResponse>(
@@ -689,6 +698,7 @@ function liftThreadListPlaceholder(
   return {
     ...thread,
     activeBackgroundAgentCount: thread.activity.activeBackgroundAgentCount,
+    canRestoreEnvironment: false,
     canSpawnChild: false,
     queuedMessageCount: 0,
   };
@@ -733,6 +743,7 @@ export function useThreadDetailBootstrap(
     },
     enabled,
     staleTime: Infinity,
+    gcTime: THREAD_OPEN_CACHE_GC_MS,
     retry: shouldRetryTransientReadQuery,
     retryDelay: TRANSIENT_READ_RETRY_DELAY_MS,
   });
@@ -789,11 +800,18 @@ export function useThreadPendingInteractions(
   return useQuery<ThreadPendingInteractionsResponse>({
     queryKey: threadPendingInteractionsQueryKey(id),
     queryFn: ({ signal }) =>
-      sdk.threads.interactions.list({
-        threadId: requireThreadId(id, "useThreadPendingInteractions"),
+      withPendingInteractionsRequestTimeout({
+        request: (timeoutSignal) =>
+          sdk.threads.interactions.list({
+            threadId: requireThreadId(id, "useThreadPendingInteractions"),
+            signal: timeoutSignal,
+          }),
         signal,
+        threadId: id,
       }),
     enabled,
+    networkMode: "always",
+    refetchInterval: pendingInteractionsRefetchInterval,
     refetchOnMount:
       options?.refetchOnMount ??
       ((query) => (query.getObserversCount() === 1 ? "always" : true)),
@@ -959,8 +977,12 @@ async function fetchThreadTimeline({
   const queryKey = threadTimelineQueryKey(threadId);
   const previous = queryClient.getQueryData<ThreadTimelineResponse>(queryKey);
   const segmentLimit = resolveThreadTimelineSegmentLimit();
-  const pageArgs =
-    segmentLimit === undefined ? {} : { segmentLimit: String(segmentLimit) };
+  const pageArgs = {
+    deferContent: "true" as const,
+    ...(segmentLimit === undefined
+      ? {}
+      : { segmentLimit: String(segmentLimit) }),
+  };
   const response = await sdk.threads.timeline({
     threadId,
     signal,
@@ -981,6 +1003,11 @@ export function useThreadTimeline(
   const queryClient = useQueryClient();
   const enabled = (options?.enabled ?? true) && Boolean(id);
   useThreadDetailRealtimeSubscription(id, { enabled });
+  useEffect(() => {
+    if (enabled) {
+      touchThreadOpenCache(queryClient, id);
+    }
+  }, [enabled, id, queryClient]);
 
   return useQuery<ThreadTimelineResponse>({
     queryKey: threadTimelineQueryKey(id),
@@ -993,6 +1020,7 @@ export function useThreadTimeline(
       });
     },
     enabled,
+    gcTime: THREAD_OPEN_CACHE_GC_MS,
     ...(options?.notifyOnChangeProps === undefined
       ? {}
       : { notifyOnChangeProps: options.notifyOnChangeProps }),
@@ -1013,16 +1041,17 @@ export function useThreadTimeline(
 
 export function useThreadConversationOutline(
   id: string,
+  role: ThreadConversationOutlineRole,
   options?: ThreadConversationOutlineQueryOptions,
 ) {
   const enabled = (options?.enabled ?? true) && Boolean(id);
   useThreadDetailRealtimeSubscription(id, { enabled });
 
   return useQuery<ThreadConversationOutlineResponse>({
-    queryKey: threadConversationOutlineQueryKey(id),
+    queryKey: threadConversationOutlineQueryKey(id, role),
     queryFn: async ({ signal }) => {
       const threadId = requireThreadId(id, "useThreadConversationOutline");
-      return sdk.threads.conversationOutline({ threadId, signal });
+      return sdk.threads.conversationOutline({ threadId, role, signal });
     },
     enabled,
     refetchOnMount: options?.refetchOnMount ?? true,
@@ -1032,14 +1061,34 @@ export function useThreadConversationOutline(
   });
 }
 
+function mergeTimelineTurnSummaryDetailsPages(
+  data: InfiniteData<TimelineTurnSummaryDetailsResponse, string | undefined>,
+): TimelineRow[] {
+  const [latest, ...olderPages] = data.pages;
+  let rows = latest?.rows ?? [];
+  for (const older of olderPages) {
+    rows = prependOlderTimelineRows({
+      olderRows: older.rows,
+      loadedRows: rows,
+    });
+  }
+  return rows;
+}
+
 export function useThreadTimelineTurnSummaryDetails(
   identity: ThreadTimelineTurnSummaryDetailsQueryIdentity,
   options?: ThreadTimelineTurnSummaryDetailsQueryOptions,
 ) {
-  return useQuery<TimelineTurnSummaryDetailsResponse>({
+  return useInfiniteQuery<
+    TimelineTurnSummaryDetailsResponse,
+    Error,
+    TimelineRow[],
+    ReturnType<typeof threadTimelineTurnSummaryDetailsQueryKey>,
+    string | undefined
+  >({
     queryKey: threadTimelineTurnSummaryDetailsQueryKey(identity),
-    queryFn: async ({ signal }) => {
-      const input = {
+    queryFn: ({ pageParam, signal }) =>
+      sdk.threads.timelineTurnSummaryDetails({
         threadId: requireThreadId(
           identity.threadId,
           "useThreadTimelineTurnSummaryDetails",
@@ -1047,24 +1096,14 @@ export function useThreadTimelineTurnSummaryDetails(
         sourceSeqEnd: String(identity.sourceSeqEnd),
         sourceSeqStart: String(identity.sourceSeqStart),
         turnId: identity.turnId,
+        deferContent: "true",
+        ...(identity.itemId === null ? {} : { itemId: identity.itemId }),
+        ...(pageParam === undefined ? {} : { beforeCursor: pageParam }),
         signal,
-      };
-      const response = await sdk.threads.timelineTurnSummaryDetails(input);
-      let rows = response.rows;
-      let cursor = response.olderCursor;
-      while (cursor) {
-        const older = await sdk.threads.timelineTurnSummaryDetails({
-          ...input,
-          beforeCursor: cursor,
-        });
-        rows = prependOlderTimelineRows({
-          olderRows: older.rows,
-          loadedRows: rows,
-        });
-        cursor = older.olderCursor;
-      }
-      return { ...response, rows, olderCursor: null };
-    },
+      }),
+    initialPageParam: undefined,
+    getNextPageParam: (lastPage) => lastPage.olderCursor ?? undefined,
+    select: mergeTimelineTurnSummaryDetailsPages,
     enabled:
       (options?.enabled ?? true) &&
       Boolean(identity.threadId) &&
@@ -1092,31 +1131,4 @@ export function getLatestPendingInteraction(
       interaction.createdAt > latest.createdAt ? interaction : latest,
     firstInteraction,
   );
-}
-
-export function isPendingInteractionStateUnknown(
-  interactions: readonly PendingInteraction[] | undefined,
-  isFetching: boolean,
-): boolean {
-  return getLatestPendingInteraction(interactions) === null && isFetching;
-}
-
-export const PENDING_INTERACTIONS_LOADING_TIMEOUT_MS = 8_000;
-
-export function useBoundedPendingInteractionsLoading(
-  interactions: readonly PendingInteraction[] | undefined,
-  isFetching: boolean,
-  timeoutMs: number = PENDING_INTERACTIONS_LOADING_TIMEOUT_MS,
-): boolean {
-  const unknown = isPendingInteractionStateUnknown(interactions, isFetching);
-  const [timedOut, setTimedOut] = useState(false);
-  useEffect(() => {
-    if (!unknown) {
-      setTimedOut(false);
-      return;
-    }
-    const timer = setTimeout(() => setTimedOut(true), timeoutMs);
-    return () => clearTimeout(timer);
-  }, [unknown, timeoutMs]);
-  return unknown && !timedOut;
 }

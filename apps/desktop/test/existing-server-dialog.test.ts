@@ -33,7 +33,7 @@ describe("formatStartedAt", () => {
 
 describe("formatSurface", () => {
   it("names how bb was started", () => {
-    expect(formatSurface("desktop")).toBe("the bb desktop app");
+    expect(formatSurface("desktop")).toBe("the Aleph desktop app");
     expect(formatSurface("web")).toBe("a terminal");
   });
 });
@@ -49,8 +49,8 @@ describe("renderExistingServerDialogHtml", () => {
     for (const choice of EXISTING_SERVER_DIALOG_CHOICES) {
       expect(html).toContain(`data-choice="${choice}"`);
     }
-    expect(html).toContain(">Quit this bb<");
-    expect(html).toContain(">Quit other bb<");
+    expect(html).toContain(">Quit this Aleph<");
+    expect(html).toContain(">Quit other Aleph<");
     expect(html).toContain(">Connect<");
   });
 
@@ -65,7 +65,9 @@ describe("renderExistingServerDialogHtml", () => {
     expect(html).toContain("/Users/example/.bb");
     expect(html).toContain("0.34.0");
     expect(html).toContain("30 min ago by a terminal (pid 4242)");
-    expect(html).toContain(`bb is already running on ${BUILTIN_SERVER_NAME}`);
+    expect(html).toContain(
+      `Aleph is already running on ${BUILTIN_SERVER_NAME}`,
+    );
   });
 
   it("hides the stop option for a bb that cannot be identified", () => {

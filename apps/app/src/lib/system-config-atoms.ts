@@ -27,11 +27,11 @@ const unavailableSystemConfig: SystemConfigResponse = {
   keybindings: [],
   defaultKeybindings: [],
   keybindingOverrides: [],
+  performanceDiagnosticsAvailable: false,
   experiments: {
     changelogPreview: false,
-    mobileApp: false,
     serverMove: false,
-    sidebarProgressiveDisclosure: false,
+    performanceDiagnostics: false,
   },
   appearance: defaultAppTheme,
   customThemes: [],

@@ -1,42 +1,38 @@
-Keep Claude Code or Codex running across account limits. The Account Pooler picks an account per request through a local hub.
+Use your own Claude Code and Codex accounts, budgeted. The Account Pooler puts the accounts you own behind a local hub and applies the order and quota thresholds you set to each request.
 
 ## What you get
 
-- Add Claude and Codex accounts by importing a local login, signing in through the browser, or pasting an Anthropic API key.
-- Accounts run by priority, then order added. New conversations stay on the fallback even if earlier accounts recover; existing ones keep their account until unavailable.
-- Reorder each provider's accounts by dragging in settings, or with Space to pick up/drop, arrows to move, Escape to cancel. CLI: `bb pool account reorder <claude|codex> <id>...`.
-- View live account and model-family limit windows in settings or `bb pool status`.
-- Switch routing per provider or bypass it per thread to use that thread's own credentials.
+- Your own Claude and Codex accounts, added by importing the login already on the machine, signing in through the browser, or pasting an Anthropic API key.
+- Accounts run one after another in priority order, with ties following the order added. New conversations stay on the current fallback even when an earlier account recovers. Existing conversations keep their own account until it becomes unavailable.
+- Drag handles set the account order within each provider in settings (keyboard: Space to pick up, arrow keys to move, Space to drop, Escape to cancel), with the same operation available through `bb pool account reorder <claude|codex> <id>...`.
+- Live limit windows per account and model family in the plugin's settings page, and the same numbers from `bb pool status`.
+- A routing switch per provider and a bypass per thread, so one thread can go straight to its own credentials.
 
 ## How it works
 
-The hub serves Anthropic Messages and OpenAI Responses inside BB. With routing on, providers receive a hub URL and machine-scoped token and report **Proxied** in their health row. Skip accounts at or above the switch threshold (98 percent of a window by default) or in error. A refusal rechecks exhausted accounts so upgrades apply next turn. Secrets stay in the server's BB data directory and refresh in the background.
+The hub runs inside BB and serves Anthropic Messages and OpenAI Responses endpoints. With routing on, the provider receives a hub base URL and a machine-scoped token, and reports **Proxied**. An account is skipped at or above the switch threshold (98 percent of a window by default) or in error. Claude extra usage and Codex credits are fallbacks: usable subscription accounts come first, and conversations return when quota recovers. Exhausted accounts are rechecked before fallback. Codex spending-control and credit-depletion restrictions block routing even below the threshold. The pool never enables extra usage, buys credits, or changes spending limits; Settings shows "Extra usage available" only for reported allowance. Secrets stay on the server and refresh in the background.
 
-Short rate limits get one wait on the same account. Longer holds return Retry-After for pinned conversations; new conversations can advance. Model-family limits detour that family's requests without moving the session's main pin or provider cursor. Commit a new account only after a successful response; all-account failure retains the previous binding. Accounts and session pins survive restarts. Pins expire after 30 idle minutes; retain the 4,096 most recently used.
+The pool waits once on the same account for short rate limits. Longer holds return Retry-After for pinned conversations while new ones advance. A model-family limit detours that family without moving the session pin. A new account is committed after a successful response; the current account and session pins survive restarts and expire after 30 idle minutes (4,096 most recent kept).
 
-The pooler uses its own HTTP/1.1 connections, avoiding broken shared HTTP/2 sessions. It honors standard proxy environment variables and closes on unload. It adds no request replay; account-fallback rules still apply. Pooled request connection failures log known error codes when available, without bodies, credentials, URLs, or raw exception messages.
+The pool owns its upstream connections over HTTP/1.1, honors standard proxy environment variables, and logs connection failures as error codes without credentials or request contents.
 
 ## Nested bb servers
 
-A bb server started in an opted-in parent thread detects the parent's pooler and enables this plugin. Set exact IDs with `bb pool config set nestedLaunchThreadIds '["thr_example"]'`; `'[]'` (default) opts out all threads. Only listed threads currently served by the parent get markers; others get blank markers, so launching bb there neither auto-enables the pooler nor proxies to the parent. Markers are read once at startup. Allowlist edits affect future agent starts; running sessions and nested servers keep their pairing. Each nested server has its own allowlist.
+A bb server in an opted-in parent thread detects the parent's pooler and enables this plugin. Opt in with `bb pool config set nestedLaunchThreadIds '["thr_example"]'`; `'[]'` (default) opts all out. The allowlist limits pairing, not token access. Mode, in settings or `bb pool parent`:
 
-Markers carry the machine token already used for provider routing; the allowlist limits automatic pairing, not token access.
+- **proxy** (default): keep a local hub with its own machine tokens and forward traffic to the parent, so the parent's token never reaches this server's agents.
+- **isolate**: neutralise the inherited routing and use this instance's own accounts, or each provider's own credentials.
 
-Choose in settings or with `bb pool parent`:
-
-- **proxy** (default): forward through a local hub with its own machine tokens, keeping the parent's token out of local agents. Only providers the parent serves are routed.
-- **isolate**: neutralise inherited routing and use local accounts or each provider's own credentials.
-
-Proxied traffic authenticates with the parent's machine token and is attributed to that machine.
+Proxied traffic uses the parent machine's token.
 
 ## Requirements
 
 Accounts you own and are permitted to use this way.
 
-Experimental: routing, stored data, and the CLI may change between releases.
+This plugin is experimental. Routing, storage, and the CLI can change.
 
 ## For agents
 
-[Attempt receipts](RECEIPTS.md) provide per-run accounting.
+Thread availability is answered only for the machine that owns the thread's environment. `bb pool exec -- <codex|claude> ...` runs scheduled or supervised work through the pool, with per-run accounting in [attempt receipts](RECEIPTS.md); the skills carry the detail.
 
-Commands: `bb pool account add|list|remove|enable|disable|priority|reorder`, `bb pool status`, `bb pool routing <claude|codex> [--off]`, `bb pool config`, `bb pool config set`, `bb pool parent [proxy|isolate]`, `bb pool token rotate`, `bb pool bypass <thread-id>`. All take `--json` and `--help`; `bb pool --help` lists commands; `bb pool <command> --help` gives arguments, options, and rules.
+`bb pool account add|list|remove|enable|disable|priority|reorder`, `bb pool status`, `bb pool routing <claude|codex> [--off]`, `bb pool config`, `bb pool config set`, `bb pool parent [proxy|isolate]`, `bb pool token rotate`, and `bb pool bypass <thread-id>`. Every command takes `--json` and `--help`; `bb pool --help` lists the commands and `bb pool <command> --help` prints its arguments, options, and rules.

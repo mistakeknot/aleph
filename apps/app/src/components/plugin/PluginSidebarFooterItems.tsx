@@ -10,18 +10,20 @@ import {
 import { Link, useNavigate } from "react-router-dom";
 import type { ExperimentalSidebarFooterCommandKind } from "@get-bb/plugin-sdk/internal/plugin-app-collector";
 import { cn } from "@bb/shared-ui/lib/utils";
+import { useIsCompactViewport } from "@bb/shared-ui/hooks/use-compact-viewport";
 import { Icon } from "@bb/shared-ui/icon";
-import { SidebarMenuButton, SidebarMenuItem } from "@/components/ui/sidebar.js";
-import { PluginIcon, pluginIconName } from "@/components/plugin/PluginIcon";
+import {
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+} from "@/components/ui/sidebar.js";
+import { PluginItemIcon, pluginIconName } from "@/components/plugin/PluginIcon";
 import { PluginSlotMount } from "@/components/plugin/PluginSlotMount";
 import {
   usePluginSlots,
   type PluginSidebarFooterItemSlot,
 } from "@/lib/plugin-slots";
-import {
-  getSettingsRoutePath,
-  getPluginConfigurationRoutePath,
-} from "@/lib/route-paths";
+import { getPluginConfigurationRoutePath } from "@/lib/route-paths";
 
 import {
   ContextMenu,
@@ -38,6 +40,7 @@ import {
 } from "@bb/shared-ui/dropdown-menu";
 import {
   useSidebarFooterPreferences,
+  useMeasureSidebarFooterCapacity,
   SIDEBAR_FOOTER_MORE_ID,
   type FooterItem,
   type BuiltinFooterId,
@@ -174,8 +177,54 @@ export function usePluginSidebarFooterDisclosure() {
       event.preventDefault();
       dismiss();
     };
+    const panelId = footerDisclosureId(pinnedItem);
+    const triggerId = footerTriggerId(pinnedItem);
+    const isOwnedByPanel = (owner: Element | null) => {
+      if (owner === null) return false;
+      const panel = document.getElementById(panelId);
+      return panel?.contains(owner) === true || owner.id === triggerId;
+    };
+    const isOwnPopup = (popup: Element) => {
+      const labelledBy = popup.getAttribute("aria-labelledby");
+      if (labelledBy !== null)
+        return labelledBy
+          .split(/\s+/u)
+          .some((id) => isOwnedByPanel(document.getElementById(id)));
+      const id = popup.id;
+      if (id === "") return false;
+      return [...document.querySelectorAll("[aria-describedby]")].some(
+        (element) =>
+          element
+            .getAttribute("aria-describedby")
+            ?.split(/\s+/u)
+            .includes(id) === true && isOwnedByPanel(element),
+      );
+    };
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) {
+        dismiss();
+        return;
+      }
+      if (
+        document.getElementById(panelId)?.contains(target) === true ||
+        document.getElementById(triggerId)?.contains(target) === true
+      )
+        return;
+      const wrapper = target.closest("[data-radix-popper-content-wrapper]");
+      const popup =
+        target.closest('[role="menu"], [role="tooltip"]') ??
+        wrapper?.querySelector('[role="menu"], [role="tooltip"]') ??
+        null;
+      if (popup !== null && isOwnPopup(popup)) return;
+      dismiss();
+    };
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("pointerdown", onPointerDown);
+    };
   }, [pinnedItem, dismiss]);
 
   return {
@@ -192,10 +241,12 @@ export function PluginSidebarFooterDisclosure({
   item,
   onDismiss,
   hoverPreview,
+  pinned,
 }: {
   item: PluginSidebarFooterItemSlot | null;
   onDismiss: () => void;
   hoverPreview?: FooterHoverPreview;
+  pinned: boolean;
 }) {
   const contentRef = useRef<HTMLDivElement | null>(null);
   const [contentHeight, setContentHeight] = useState<number | null>(null);
@@ -219,7 +270,13 @@ export function PluginSidebarFooterDisclosure({
       id={footerDisclosureId(item)}
       aria-label={item.label}
       data-testid={`plugin-sidebar-footer-disclosure-${item.pluginId}-${item.id}`}
-      className="overflow-hidden rounded-lg border border-sidebar-border bg-sidebar-accent/50 transition-[height] duration-200 ease-out motion-reduce:transition-none"
+      data-pinned={pinned}
+      className={cn(
+        "overflow-hidden rounded-lg border bg-sidebar-accent/50 transition-[height] duration-200 ease-out motion-reduce:transition-none",
+        pinned
+          ? "border-sidebar-ring ring-1 ring-sidebar-ring/40"
+          : "border-sidebar-border",
+      )}
       style={{ height: contentHeight ?? undefined }}
       onPointerEnter={(event) => {
         if (event.pointerType === "mouse") hoverPreview?.onPanelEnter();
@@ -228,7 +285,7 @@ export function PluginSidebarFooterDisclosure({
         if (event.pointerType === "mouse") hoverPreview?.onPanelLeave();
       }}
     >
-      <div ref={contentRef} className="max-h-80 overflow-auto">
+      <div ref={contentRef} className="max-h-96 overflow-auto">
         <PluginSlotMount
           pluginId={item.pluginId}
           slotKind="experimental_sidebarFooter"
@@ -253,6 +310,7 @@ export function PluginSidebarFooterItems({
   activeDisclosureKey,
   onDisclosureCommand,
   onNavigate,
+  onCustomize,
   builtInActions = [],
   hoverPreview,
   previewDisclosureKey = null,
@@ -264,19 +322,28 @@ export function PluginSidebarFooterItems({
     sequence?: number,
   ) => void;
   onNavigate?: () => void;
+  onCustomize: () => void;
   builtInActions?: readonly BuiltinFooterAction[];
   hoverPreview?: FooterHoverPreview;
   previewDisclosureKey?: string | null;
 }) {
   const navigate = useNavigate();
   const preferences = useSidebarFooterPreferences();
+  const isCompactViewport = useIsCompactViewport();
   const previousHidden = useRef(preferences.hidden);
-  const items = preferences.items.filter(
-    (item) =>
-      item.kind === "plugin" ||
-      builtInActions.some((action) => action.id === item.id),
+  const customizeAfterClose = useRef(false);
+  const menuRef = useRef<HTMLUListElement>(null);
+  const moreRef = useRef<HTMLButtonElement>(null);
+  useMeasureSidebarFooterCapacity(menuRef, moreRef);
+  const isAvailable = (item: FooterItem) =>
+    item.kind === "plugin" ||
+    builtInActions.some((action) => action.id === item.id);
+  const items = preferences.items.filter(isAvailable);
+  const visible = preferences.footer.filter(isAvailable);
+  const hidden = items.filter((item) => !visible.includes(item));
+  const footerHidden = preferences.items.every((item) =>
+    preferences.hidden.includes(item.key),
   );
-  const hidden = items.filter((item) => preferences.hidden.includes(item.key));
   useEffect(() => {
     for (const item of items) {
       if (
@@ -290,6 +357,16 @@ export function PluginSidebarFooterItems({
     }
     previousHidden.current = preferences.hidden;
   }, [items, preferences.hidden, onDisclosureCommand]);
+
+  function customize() {
+    customizeAfterClose.current = true;
+  }
+  function handleCloseAutoFocus(event: Event) {
+    if (!customizeAfterClose.current) return;
+    event.preventDefault();
+    customizeAfterClose.current = false;
+    onCustomize();
+  }
 
   function activate(item: FooterItem) {
     if (item.kind === "builtin") {
@@ -317,10 +394,6 @@ export function PluginSidebarFooterItems({
         }),
     );
   }
-  function customize() {
-    onNavigate?.();
-    void navigate(getSettingsRoutePath("appearance"));
-  }
   return (
     <>
       {items.map((item) =>
@@ -332,158 +405,169 @@ export function PluginSidebarFooterItems({
           />
         ) : null,
       )}
-      {items
-        .filter((item) => !preferences.hidden.includes(item.key))
-        .map((item) => {
-          const builtin =
-            item.kind === "builtin"
-              ? builtInActions.find((action) => action.id === item.id)
-              : undefined;
-          const active =
-            item.kind === "plugin" &&
-            footerItemKey(item.slot) === activeDisclosureKey;
-          const label = builtin?.ariaLabel ?? item.label;
-          const previewKey =
-            hoverPreview !== undefined &&
-            item.kind === "plugin" &&
-            item.slot.kind === "disclosure"
-              ? footerItemKey(item.slot)
-              : null;
-          return (
-            <ContextMenu key={item.key}>
-              <ContextMenuTrigger asChild>
-                <SidebarMenuItem
-                  className="min-w-0"
-                  data-footer-item={item.key}
-                >
-                  <SidebarMenuButton
-                    asChild={builtin?.href !== undefined}
-                    id={
-                      item.kind === "plugin"
-                        ? footerTriggerId(item.slot)
-                        : `sidebar-footer-${item.id}`
-                    }
-                    aria-label={label}
-                    aria-keyshortcuts={builtin?.ariaKeyShortcuts}
-                    tooltip={{
-                      children: label,
-                      hidden:
-                        active ||
-                        (previewKey !== null &&
-                          previewKey === previewDisclosureKey),
-                      side: "top",
-                    }}
-                    className={cn(
-                      SIDEBAR_FOOTER_ACTION_CLASS,
-                      active &&
-                        "bg-sidebar-accent text-sidebar-accent-foreground [&>[data-icon-root]]:opacity-100",
-                    )}
-                    data-testid={
-                      item.kind === "plugin"
-                        ? item.slot.source === "sidebarFooterAction"
-                          ? `plugin-sidebar-footer-action-${item.slot.pluginId}-${item.slot.id}`
-                          : `plugin-sidebar-footer-item-${item.slot.pluginId}-${item.slot.id}`
-                        : undefined
-                    }
-                    {...(item.kind === "plugin" &&
-                    item.slot.kind === "disclosure"
-                      ? {
-                          "aria-expanded": active,
-                          "aria-controls": footerDisclosureId(item.slot),
-                        }
-                      : {})}
-                    onClick={
-                      builtin?.href === undefined
-                        ? () => activate(item)
-                        : undefined
-                    }
-                    onPointerEnter={
-                      previewKey === null
-                        ? undefined
-                        : (event) => {
-                            if (event.pointerType === "mouse") {
-                              hoverPreview?.onTriggerEnter(previewKey);
-                            }
-                          }
-                    }
-                    onPointerLeave={
-                      previewKey === null
-                        ? undefined
-                        : (event) => {
-                            if (event.pointerType === "mouse") {
-                              hoverPreview?.onTriggerLeave();
-                            }
-                          }
-                    }
+      <SidebarMenuItem className="min-w-0 flex-1">
+        <SidebarMenu ref={menuRef} className="flex-row items-center gap-1">
+          {visible.map((item) => {
+            const builtin =
+              item.kind === "builtin"
+                ? builtInActions.find((action) => action.id === item.id)
+                : undefined;
+            const active =
+              item.kind === "plugin" &&
+              footerItemKey(item.slot) === activeDisclosureKey;
+            const label = builtin?.ariaLabel ?? item.label;
+            const previewKey =
+              hoverPreview !== undefined &&
+              item.kind === "plugin" &&
+              item.slot.kind === "disclosure"
+                ? footerItemKey(item.slot)
+                : null;
+            return (
+              <ContextMenu key={item.key}>
+                <ContextMenuTrigger asChild>
+                  <SidebarMenuItem
+                    className="min-w-0 shrink-0"
+                    data-footer-item={item.key}
                   >
-                    {builtin?.href !== undefined ? (
-                      <Link to={builtin.href} onClick={onNavigate}>
-                        <FooterItemIcon item={item} />
-                        <span className="sr-only">{item.label}</span>
-                      </Link>
-                    ) : (
-                      <>
-                        <FooterItemIcon item={item} />
-                        <span className="sr-only">{item.label}</span>
-                      </>
-                    )}
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              </ContextMenuTrigger>
-              <ContextMenuContent
-                onPointerUpCapture={(event) => {
-                  if (event.button !== 0) event.preventDefault();
-                }}
-              >
-                <ContextMenuItem
-                  onSelect={() => preferences.setVisible(item.key, false)}
+                    <SidebarMenuButton
+                      asChild={builtin?.href !== undefined}
+                      id={
+                        item.kind === "plugin"
+                          ? footerTriggerId(item.slot)
+                          : `sidebar-footer-${item.id}`
+                      }
+                      aria-label={label}
+                      aria-keyshortcuts={builtin?.ariaKeyShortcuts}
+                      tooltip={{
+                        children: label,
+                        hidden:
+                          active ||
+                          (previewKey !== null &&
+                            previewKey === previewDisclosureKey),
+                        side: "top",
+                      }}
+                      className={cn(
+                        SIDEBAR_FOOTER_ACTION_CLASS,
+                        active &&
+                          "bg-sidebar-accent text-sidebar-accent-foreground ring-1 ring-inset ring-sidebar-ring [&>[data-icon-root]]:opacity-100",
+                      )}
+                      data-testid={
+                        item.kind === "plugin"
+                          ? item.slot.source === "sidebarFooterAction"
+                            ? `plugin-sidebar-footer-action-${item.slot.pluginId}-${item.slot.id}`
+                            : `plugin-sidebar-footer-item-${item.slot.pluginId}-${item.slot.id}`
+                          : undefined
+                      }
+                      {...(item.kind === "plugin" &&
+                      item.slot.kind === "disclosure"
+                        ? {
+                            "aria-expanded": active,
+                            "aria-pressed": active,
+                            "aria-controls": footerDisclosureId(item.slot),
+                          }
+                        : {})}
+                      onClick={
+                        builtin?.href === undefined
+                          ? () => activate(item)
+                          : undefined
+                      }
+                      onPointerEnter={
+                        previewKey === null
+                          ? undefined
+                          : (event) => {
+                              if (event.pointerType === "mouse") {
+                                hoverPreview?.onTriggerEnter(previewKey);
+                              }
+                            }
+                      }
+                      onPointerLeave={
+                        previewKey === null
+                          ? undefined
+                          : (event) => {
+                              if (event.pointerType === "mouse") {
+                                hoverPreview?.onTriggerLeave();
+                              }
+                            }
+                      }
+                    >
+                      {builtin?.href !== undefined ? (
+                        <Link to={builtin.href} onClick={onNavigate}>
+                          <FooterItemIcon item={item} />
+                          <span className="sr-only">{item.label}</span>
+                        </Link>
+                      ) : (
+                        <>
+                          <FooterItemIcon item={item} />
+                          <span className="sr-only">{item.label}</span>
+                        </>
+                      )}
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                </ContextMenuTrigger>
+                <ContextMenuContent onCloseAutoFocus={handleCloseAutoFocus}>
+                  <ContextMenuItem
+                    onSelect={() => preferences.hideFromFooter(item.key)}
+                  >
+                    <Icon name="EyeOff" />
+                    Hide from footer
+                  </ContextMenuItem>
+                  <ContextMenuItem onSelect={customize}>
+                    <Icon name="SlidersHorizontal" />
+                    Customize footer
+                  </ContextMenuItem>
+                </ContextMenuContent>
+              </ContextMenu>
+            );
+          })}
+          <SidebarMenuItem className="min-w-0 shrink-0">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <SidebarMenuButton
+                  ref={moreRef}
+                  id={SIDEBAR_FOOTER_MORE_ID}
+                  aria-label="More footer actions"
+                  tooltip={{ children: "More", hidden: false, side: "top" }}
+                  className={SIDEBAR_FOOTER_ACTION_CLASS}
                 >
-                  <Icon name="EyeOff" />
-                  Hide
-                </ContextMenuItem>
-                <ContextMenuItem onSelect={customize}>
-                  Customize footer
-                </ContextMenuItem>
-              </ContextMenuContent>
-            </ContextMenu>
-          );
-        })}
-      {hidden.length > 0 ? (
-        <SidebarMenuItem className="min-w-0">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <SidebarMenuButton
-                id={SIDEBAR_FOOTER_MORE_ID}
-                aria-label="More footer actions"
-                tooltip={{ children: "More", hidden: false, side: "top" }}
-                className={SIDEBAR_FOOTER_ACTION_CLASS}
+                  <Icon name="MoreHorizontal" />
+                  <span className="sr-only">More</span>
+                </SidebarMenuButton>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                side="top"
+                align="start"
+                mobileTitle="More footer actions"
+                onCloseAutoFocus={handleCloseAutoFocus}
               >
-                <Icon name="MoreHorizontal" />
-                <span className="sr-only">More</span>
-              </SidebarMenuButton>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              side="top"
-              align="start"
-              mobileTitle="More footer actions"
-            >
-              {hidden.map((item) => (
+                {hidden.map((item) => (
+                  <DropdownMenuItem
+                    key={item.key}
+                    onSelect={() => activate(item)}
+                  >
+                    <FooterItemIcon item={item} />
+                    {item.label}
+                  </DropdownMenuItem>
+                ))}
+                {hidden.length > 0 && <DropdownMenuSeparator />}
                 <DropdownMenuItem
-                  key={item.key}
-                  onSelect={() => activate(item)}
+                  onSelect={isCompactViewport ? onCustomize : customize}
                 >
-                  <FooterItemIcon item={item} />
-                  {item.label}
+                  <Icon name="SlidersHorizontal" />
+                  Customize footer
                 </DropdownMenuItem>
-              ))}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={customize}>
-                Customize footer
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </SidebarMenuItem>
-      ) : null}
+                {items.length > 0 && (
+                  <DropdownMenuItem
+                    onSelect={() => preferences.setFooterShown(footerHidden)}
+                  >
+                    <Icon name={footerHidden ? "Eye" : "EyeOff"} />
+                    {footerHidden ? "Show footer" : "Hide footer"}
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarMenuItem>
     </>
   );
 }
@@ -516,7 +600,7 @@ function FooterCommandObserver({
 export function FooterItemIcon({ item }: { item: FooterItem }) {
   return item.kind === "plugin" &&
     item.slot.source === "sidebarFooterAction" ? (
-    <PluginIcon pluginId={item.slot.pluginId} icon={item.icon} />
+    <PluginItemIcon pluginId={item.slot.pluginId} icon={item.icon} />
   ) : (
     <Icon
       name={pluginIconName(item.icon)}

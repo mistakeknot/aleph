@@ -27,14 +27,13 @@ handler is told, and whatever it returns is IGNORED. The surface that ASKS is
 git draws between post-commit and pre-commit hooks.
 
 Fifteen events. The seven `thread.*` ones are thread lifecycle. `interaction.pending`
-fires after core commits a pending interaction row. The four `message.*`
-ones fire when a dispatch is queued behind a wait, when a queued row's waits
-all clear and it dispatches, when the queued row is cancelled, or when a queue
+fires after core commits a pending interaction row. The four `message.*` ones
+fire when a dispatch is queued behind a wait, when a queued row's waits all
+clear and it dispatches, when the queued row is cancelled, or when a queue
 transfer record is delivered. Every listener sees every queued row, so a plugin
 that only wants its own filters on
-`entry?.waitingOn?.kind === "plugin" && entry.waitingOn.pluginId === bb.pluginId`.
-In `message.transferred`, `entry` can be `null`, so keep the optional chain on `entry`.
-
+`entry?.waitingOn?.kind === "plugin" && entry.waitingOn.pluginId === bb.pluginId`
+(`entry` is `null` in some `message.transferred` events, so keep the `?.`).
 `message.queued` fires again when a row's wait is rewritten, because a row that
 moved from one wait to another is news to whoever was waiting on the old one.
 
@@ -48,23 +47,20 @@ same `eventId`, including to listeners that already handled it successfully, so
 handle each `eventId` idempotently. A landed row held by a plugin or time wait
 also fires `message.queued` with the same `transfer`.
 
-`message.cancelled` fires when the user removes a queued row before it ever
-dispatched — the only signal for that removal. A plugin holding external
-resources for a waiting message (a sandbox mid-provision via an environment
-provider, a reserved slot) releases them here; archive/delete of the whole
-thread fires the thread event instead.
+`message.cancelled` fires when the user removes a queued row before it ever dispatched — the
+only signal for that removal. A plugin holding external resources for a waiting message (a
+sandbox mid-provision via an environment provider, a reserved slot) releases them here;
+archive/delete of the whole thread fires the thread event instead.
 
-`turn.failed` fires after a turn failed and the thread has already landed in
-`error`. Its payload (`PluginTurnFailedEvent`) is ids and failure facts only —
-`threadId`, the failed turn's `requestId`, the provider `turnId` (null when the
-failure never reached a turn), `errorInfo` (the failure's `ProviderErrorInfo`:
-the provider's own report, or the typed code of a request the provider rejected
-at the door; null when neither carried one), `inputAccepted` (whether the
-provider took the input into its conversation before failing), `rateLimits`
-(the latest `ProviderRateLimitState`, null when the provider reports no
-windows) and `attemptNumber` (1 on a first failure, 2 on the first retry's).
-There is no thread DTO and no copy of the message, because a retry is asked for
-BY REFERENCE:
+`turn.failed` fires after a turn failed and the thread has already landed in `error`. Its
+payload (`PluginTurnFailedEvent`) is ids and failure facts only — `threadId`, the failed
+turn's `requestId`, the provider `turnId` (null when the failure never reached a turn),
+`errorInfo` (the failure's `ProviderErrorInfo`: the provider's own report, or the typed code
+of a request the provider rejected at the door; null when neither carried one),
+`inputAccepted` (whether the provider took the input into its conversation before failing),
+`rateLimits` (the latest `ProviderRateLimitState`, null when the provider reports no
+windows) and `attemptNumber` (1 on a first failure, 2 on the first retry's). There is no
+thread DTO and no copy of the message, because a retry is asked for BY REFERENCE:
 
 ```ts
 bb.events.on("turn.failed", async (event) => {
@@ -83,30 +79,31 @@ bb.events.on("turn.failed", async (event) => {
 });
 ```
 
-`threads.retry` re-submits the failed turn: the user's message never re-enters
-the timeline, and what the provider is sent follows `inputAccepted` — an input
-the provider never took is re-sent verbatim, while an accepted turn (already in
-the provider's conversation) is continued with a nudge rather than asked twice.
-The new attempt carries a retry marker so the next failure's `attemptNumber` is
-right. A future `sendAt`
-queues it on the clock; without one it is attempted now. Either way it is an
-ordinary dispatch attempt, so it still passes the `message.dispatch` hook. Core
-allows one live retry per original turn and enforces no ceiling beyond that —
-the cap is yours.
+`threads.retry` re-submits the failed turn: the user's message never re-enters the timeline,
+and what the provider is sent follows `inputAccepted` — an input the provider never took is
+re-sent verbatim, while an accepted turn (already in the provider's conversation) is
+continued with a nudge rather than asked twice. The new attempt carries a retry marker so
+the next failure's `attemptNumber` is right. A future `sendAt` queues it on the clock;
+without one it is attempted now. Either way it is an ordinary dispatch attempt, so it still
+passes the `message.dispatch` hook. Core allows one live retry per original turn and
+enforces no ceiling beyond that — the cap is yours.
 
-The seven `thread.*` events. `thread.active` fires when an applied lifecycle
-transition enters the running `active` state. `thread.archived` fires after a
-thread is archived, including cascade archives (archiving a parent archives
-its children too, each with its own event). `thread.unarchived` fires after a
-thread comes back; nothing is provisioned at that moment — an environment
-provider that tore its workspace down is asked for one again when the thread
-next needs to run, so this is where to start warming one up. Observe-only handlers run
-fire-and-forget after the transition and can never block or veto it. `thread`
-is the same DTO `GET /api/v1/threads/:id` serves. Errors are caught, logged,
-and counted in the plugin's handler stats (`bb plugin list`).
+The seven `thread.*` events. `thread.active` fires when an applied lifecycle transition
+enters the running `active` state. `thread.archived` fires after a thread is archived,
+including cascade archives (archiving a parent archives its children too, each with its own
+event). `thread.unarchived` fires after a thread comes back; nothing is provisioned at that
+moment — an environment provider that tore its workspace down is asked for one again when
+the thread next needs to run, so this is where to start warming one up. Observe-only
+handlers run fire-and-forget after the transition and can never block or veto it. `thread`
+is the same DTO `GET /api/v1/threads/:id` serves. Errors are caught, logged, and counted in
+the plugin's handler stats (`bb plugin list`).
 
-Lifecycle events are broadcast to all loaded plugins regardless of sidebar
-visibility.
+Lifecycle events are broadcast to all loaded plugins regardless of sidebar visibility. Use
+`thread.*` events to react to lifecycle changes while your plugin is loaded. Events that
+occur while it is unloaded are not replayed. Register handlers first, then reconcile tracked
+threads once at startup to catch changes from a restart, reload, or disabled period. Make
+handlers idempotent if a live event overlaps reconciliation. Avoid polling thread state to
+detect lifecycle changes.
 
 `thread.created` fires on row creation, so the first user message is not
 always in the timeline yet. To react to a thread's content, listen on
@@ -166,12 +163,11 @@ returns one decision for the entire group, preserving send-together behavior.
 `ctx.initiator` summarizes the authors: `user`, `agent`, or `system` when all
 messages share that category, and `mixed` when categories differ. Two different
 agents still yield `agent`. `ctx.senderThreadId` is the sender ID shared by all
-messages, null when none of them has a sender, and `"mixed"` when they
-disagree — so null still means a human typed it rather than bb being unsure.
-Individual rows never report `mixed`, and recorded turns keep their existing
-initiator types.
-A queued thread-start preserves its requester's author; a retry is `system`
-with no sender.
+messages, null when none of them has a sender, and `"mixed"` when they disagree —
+so null still means a human typed it rather than bb being unsure. Individual rows
+never report `mixed`, and recorded turns keep their existing initiator types. A
+queued thread-start preserves its requester's author; a retry is `system` with no
+sender.
 
 `ctx.origin` and `ctx.originPluginId` are stored with the queued row and remain
 stable across re-attempts. For grouped dispatches they describe the first row.
@@ -266,25 +262,24 @@ bb.experimental_environments.register({
 ```
 
 `requires` declares four project facts. Every provider runs on the selected
-machine; `projectCheckout` requires that machine's project directory; `gitCheckout`
-implies `projectCheckout` and requires a committed git checkout; `gitRemote`
-supplies the project's remote; `projectless` offers the provider only outside
-projects. Projectless cannot combine with project requirements. Core validates
-eligibility before creating the thread.
-Create waits for startup registrations to settle, then rejects an unknown
-provider id; existing threads wait if their registered provider disappears.
-`inputs` is an optional Standard Schema validator (including zod);
-core parses the request and stores the parsed JSON, with schema defaults filled.
-No schema means `inputs: null`. Parsed inputs are persisted on the environment
-and are readable by every plugin through the SDK, including after the
-environment is destroyed. They are configuration, not a credential store;
-keep credentials in secret settings. `availability` may return
+machine; `projectCheckout` requires that machine's project directory;
+`gitCheckout` implies `projectCheckout` and requires a committed git checkout;
+`gitRemote` supplies the project's remote; `projectless` offers the provider only
+outside projects. Projectless cannot combine with project requirements. Core
+validates eligibility before creating the thread. Create waits for startup
+registrations to settle, then rejects an unknown provider id; existing threads
+wait if their registered provider disappears. `inputs` is an optional Standard
+Schema validator (including zod); core parses the request and stores the parsed
+JSON, with schema defaults filled. No schema means `inputs: null`. Parsed inputs
+are persisted on the environment and are readable by every plugin through the SDK,
+including after the environment is destroyed. They are configuration, not a
+credential store; keep credentials in secret settings. `availability` may return
 available, setup-required with a message, or unavailable with a message for a
 project and machine. Core calls it inside the decision timeout only for the
-selected provider and machine during thread creation, checking it afresh for
-every creation request. `validate` may accept or refuse the same request before
-a thread exists, using the resolved project, host, checkout, remote and inputs.
-Required facts and schema outputs are inferred by registration.
+selected provider and machine during thread creation, checking it afresh for every
+creation request. `validate` may accept or refuse the same request before a thread
+exists, using the resolved project, host, checkout, remote and inputs. Required
+facts and schema outputs are inferred by registration.
 
 Core owns launch attempts, cancellation, retry timing, attachment, retirement,
 and removal in SQLite. Providers must not keep duplicate launch records or
@@ -293,17 +288,22 @@ call `sdk.environments.delete` to drive retirement. The former
 contract are removed. The environment-provider entry exports operation types.
 
 `create` receives the resolved facts, thread, suggestedBranchName, monotonic
-attempt, pathKey, rebuild, `previous: { environment, resource } | null`,
-report, and an abort signal. It is one long call and must be idempotent for
-pathKey: after a process or plugin restart, core calls it again with the same
-attempt and pathKey. Return `created` with `path`, explicit `ownsPath`
-and optional `mergeBaseBranch`, or `failed` with a message; a failed create is terminal.
-`report.step` and
+attempt, pathKey, report, and an abort signal, and always builds a fresh
+environment. A thread whose environment was destroyed gets it back only when the
+user asks for a restore and the provider declares the optional `restore`: it
+receives the same facts, with the inputs the environment was created with, plus
+`previous: { environment, resource }` describing the removed environment, and
+decides what restoring means, such as checking the recorded branch out again.
+Without it, core never rebuilds a destroyed environment and its threads report it
+unavailable. `create` is one long call and must be idempotent for pathKey: after a
+process or plugin restart, core calls it again with the same attempt and pathKey.
+Return `created` with `path`, explicit `ownsPath` and optional `mergeBaseBranch`,
+or `failed` with a message; a failed create is terminal. `report.step` and
 `report.log` stream durable progress while the call runs.
 
 A created result may carry a private JSON resource capped at
 16 KiB. Core transfers it directly to the environment row and never includes
-it in responses or events. Rebuild and removal receive it; completed removal
+it in responses or events. Restore and removal receive it; completed removal
 clears it. On cancellation core aborts create, waits for it to stop, then calls
 `remove` with nullable `environment`, `hostId` and `path`, plus `pathKey`,
 `resource`, `attempt`, `report`, and a new signal. Remove must clean everything
@@ -334,13 +334,11 @@ example, Worktree copies `.worktreeinclude` files).
 
 ### bb.http — HTTP routes
 
-`bb.http.route(method, path, handler, { auth? })` mounts an exact-match route
-at `/api/v1/plugins/<id>/http/<path>`. The allowed methods are `GET`, `POST`,
-`PUT`, `PATCH`, `DELETE`, `HEAD`, and `OPTIONS`. The path must start with `/`.
-The router treats `:` and `*` as literal characters, not parameters or
-wildcards. The handler is a Hono handler:
-`(context) => Response | Promise<Response>`.
-Auth modes:
+`bb.http.route(method, path, handler, { auth? })` mounts an exact-match route at
+`/api/v1/plugins/<id>/http/<path>`. The allowed methods are `GET`, `POST`, `PUT`,
+`PATCH`, `DELETE`, `HEAD`, and `OPTIONS`. The path must start with `/`. The router
+treats `:` and `*` as literal characters, not parameters or wildcards. The handler
+is a Hono handler: `(context) => Response | Promise<Response>`. Auth modes:
 
 - `"local"` (default) — accepts no `Origin` header or a trusted BB app origin.
   A non-GET mutation must use `application/json`. Use this mode for the BB
@@ -423,6 +421,9 @@ function IssuesButton() {
   return <button onClick={() => void loadIssues()}>Load issues</button>;
 }
 ```
+
+Each handler also receives a context whose `experimental_caller` identifies
+the calling plugin; see "Calling another plugin's RPC" in `backend-sdk.md`.
 
 The wire envelope is `{ ok: true, result }` or `{ ok: false, error }`.
 Failures use stable codes: `invalid_json`, `invalid_input`, `handler_error`,

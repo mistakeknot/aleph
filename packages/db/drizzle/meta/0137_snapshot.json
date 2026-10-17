@@ -1,6 +1,6 @@
 {
-  "id": "4ca943f6-4acb-4b56-8299-909db8ad4b0f",
-  "prevId": "f58fad83-b800-48e5-8e82-b087bad7b984",
+  "id": "72890df1-c7c8-43cb-9c9e-699242870fda",
+  "prevId": "a1401b47-32c9-4811-9823-7e216e518bdf",
   "version": "6",
   "dialect": "sqlite",
   "tables": {
@@ -1534,89 +1534,6 @@
             "launch_key"
           ],
           "where": "\"hosts\".\"destroyed_at\" is null",
-          "isUnique": true
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "idempotent_thread_operations": {
-      "name": "idempotent_thread_operations",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "scope": {
-          "name": "scope",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "idempotency_key": {
-          "name": "idempotency_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'accepted'"
-        },
-        "send_at": {
-          "name": "send_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "result_json": {
-          "name": "result_json",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "error_message": {
-          "name": "error_message",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "idempotent_thread_operations_scope_key_idx": {
-          "name": "idempotent_thread_operations_scope_key_idx",
-          "columns": [
-            "scope",
-            "idempotency_key"
-          ],
           "isUnique": true
         }
       },
@@ -3751,20 +3668,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "origin_id": {
-          "name": "origin_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "forward_source_row_id": {
-          "name": "forward_source_row_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "sort_key": {
           "name": "sort_key",
           "type": "text",
@@ -3788,22 +3691,6 @@
         }
       },
       "indexes": {
-        "qtm_one_slot_per_source": {
-          "name": "qtm_one_slot_per_source",
-          "columns": [
-            "forward_source_row_id"
-          ],
-          "where": "\"queued_thread_messages\".\"forward_source_row_id\" IS NOT NULL",
-          "isUnique": true
-        },
-        "qtm_one_live_copy": {
-          "name": "qtm_one_live_copy",
-          "columns": [
-            "origin_id"
-          ],
-          "where": "\"queued_thread_messages\".\"forward_source_row_id\" IS NULL AND \"queued_thread_messages\".\"origin_id\" IS NOT NULL",
-          "isUnique": true
-        },
         "queued_thread_messages_thread_created_idx": {
           "name": "queued_thread_messages_thread_created_idx",
           "columns": [
@@ -4507,160 +4394,6 @@
         }
       }
     },
-    "thread_redirects": {
-      "name": "thread_redirects",
-      "columns": {
-        "source_thread_id": {
-          "name": "source_thread_id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "successor_thread_id": {
-          "name": "successor_thread_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "op_id": {
-          "name": "op_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "thread_redirects_source_thread_id_threads_id_fk": {
-          "name": "thread_redirects_source_thread_id_threads_id_fk",
-          "tableFrom": "thread_redirects",
-          "columnsFrom": [
-            "source_thread_id"
-          ],
-          "tableTo": "threads",
-          "columnsTo": [
-            "id"
-          ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
-        },
-        "thread_redirects_successor_thread_id_threads_id_fk": {
-          "name": "thread_redirects_successor_thread_id_threads_id_fk",
-          "tableFrom": "thread_redirects",
-          "columnsFrom": [
-            "successor_thread_id"
-          ],
-          "tableTo": "threads",
-          "columnsTo": [
-            "id"
-          ],
-          "onUpdate": "no action",
-          "onDelete": "no action"
-        },
-        "thread_redirects_op_id_transfer_operations_id_fk": {
-          "name": "thread_redirects_op_id_transfer_operations_id_fk",
-          "tableFrom": "thread_redirects",
-          "columnsFrom": [
-            "op_id"
-          ],
-          "tableTo": "transfer_operations",
-          "columnsTo": [
-            "id"
-          ],
-          "onUpdate": "no action",
-          "onDelete": "restrict"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "thread_search_learned_selections": {
-      "name": "thread_search_learned_selections",
-      "columns": {
-        "query_text": {
-          "name": "query_text",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "thread_id": {
-          "name": "thread_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "selection_count": {
-          "name": "selection_count",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 1
-        },
-        "last_selected_at": {
-          "name": "last_selected_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "thread_search_learned_selections_query_idx": {
-          "name": "thread_search_learned_selections_query_idx",
-          "columns": [
-            "query_text"
-          ],
-          "isUnique": false
-        },
-        "thread_search_learned_selections_thread_idx": {
-          "name": "thread_search_learned_selections_thread_idx",
-          "columns": [
-            "thread_id"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "thread_search_learned_selections_thread_id_threads_id_fk": {
-          "name": "thread_search_learned_selections_thread_id_threads_id_fk",
-          "tableFrom": "thread_search_learned_selections",
-          "columnsFrom": [
-            "thread_id"
-          ],
-          "tableTo": "threads",
-          "columnsTo": [
-            "id"
-          ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
-        }
-      },
-      "compositePrimaryKeys": {
-        "thread_search_learned_selections_query_text_thread_id_pk": {
-          "columns": [
-            "query_text",
-            "thread_id"
-          ],
-          "name": "thread_search_learned_selections_query_text_thread_id_pk"
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
     "thread_search_segments": {
       "name": "thread_search_segments",
       "columns": {
@@ -4973,20 +4706,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "provisional_fence_epoch": {
-          "name": "provisional_fence_epoch",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "provisional_fence_verified_epoch": {
-          "name": "provisional_fence_verified_epoch",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "visibility": {
           "name": "visibility",
           "type": "text",
@@ -5056,6 +4775,20 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "provisional_fence_epoch": {
+          "name": "provisional_fence_epoch",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "provisional_fence_verified_epoch": {
+          "name": "provisional_fence_verified_epoch",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         }
       },
@@ -5254,262 +4987,6 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "transfer_entries": {
-      "name": "transfer_entries",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "op_id": {
-          "name": "op_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "origin_id": {
-          "name": "origin_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "source_row_id": {
-          "name": "source_row_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "source_sort_key": {
-          "name": "source_sort_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "target_row_id": {
-          "name": "target_row_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "detail": {
-          "name": "detail",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "state": {
-          "name": "state",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "transfer_entries_op_id_transfer_operations_id_fk": {
-          "name": "transfer_entries_op_id_transfer_operations_id_fk",
-          "tableFrom": "transfer_entries",
-          "columnsFrom": [
-            "op_id"
-          ],
-          "tableTo": "transfer_operations",
-          "columnsTo": [
-            "id"
-          ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "transfer_events": {
-      "name": "transfer_events",
-      "columns": {
-        "event_id": {
-          "name": "event_id",
-          "type": "integer",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": true
-        },
-        "op_id": {
-          "name": "op_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "entry_id": {
-          "name": "entry_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "state": {
-          "name": "state",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "payload": {
-          "name": "payload",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "emitted_at": {
-          "name": "emitted_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "transfer_events_op_id_transfer_operations_id_fk": {
-          "name": "transfer_events_op_id_transfer_operations_id_fk",
-          "tableFrom": "transfer_events",
-          "columnsFrom": [
-            "op_id"
-          ],
-          "tableTo": "transfer_operations",
-          "columnsTo": [
-            "id"
-          ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "transfer_operations": {
-      "name": "transfer_operations",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "project_id": {
-          "name": "project_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "operation_key": {
-          "name": "operation_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "request_hash": {
-          "name": "request_hash",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "source_thread_id": {
-          "name": "source_thread_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "target_thread_id": {
-          "name": "target_thread_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "state": {
-          "name": "state",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "result_json": {
-          "name": "result_json",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "acked_at": {
-          "name": "acked_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "transfer_operations_project_key_idx": {
-          "name": "transfer_operations_project_key_idx",
-          "columns": [
-            "project_id",
-            "operation_key"
-          ],
-          "isUnique": true
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
     "ui_preference_defaults": {
       "name": "ui_preference_defaults",
       "columns": {
@@ -5569,6 +5046,172 @@
       "indexes": {},
       "foreignKeys": {},
       "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "idempotent_thread_operations": {
+      "name": "idempotent_thread_operations",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "scope": {
+          "name": "scope",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "idempotency_key": {
+          "name": "idempotency_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'accepted'"
+        },
+        "send_at": {
+          "name": "send_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "result_json": {
+          "name": "result_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "error_message": {
+          "name": "error_message",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idempotent_thread_operations_scope_key_idx": {
+          "name": "idempotent_thread_operations_scope_key_idx",
+          "columns": [
+            "scope",
+            "idempotency_key"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "thread_search_learned_selections": {
+      "name": "thread_search_learned_selections",
+      "columns": {
+        "query_text": {
+          "name": "query_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "thread_id": {
+          "name": "thread_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "selection_count": {
+          "name": "selection_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "last_selected_at": {
+          "name": "last_selected_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "thread_search_learned_selections_query_idx": {
+          "name": "thread_search_learned_selections_query_idx",
+          "columns": [
+            "query_text"
+          ],
+          "isUnique": false
+        },
+        "thread_search_learned_selections_thread_idx": {
+          "name": "thread_search_learned_selections_thread_idx",
+          "columns": [
+            "thread_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "thread_search_learned_selections_thread_id_threads_id_fk": {
+          "name": "thread_search_learned_selections_thread_id_threads_id_fk",
+          "tableFrom": "thread_search_learned_selections",
+          "tableTo": "threads",
+          "columnsFrom": [
+            "thread_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "thread_search_learned_selections_query_text_thread_id_pk": {
+          "columns": [
+            "query_text",
+            "thread_id"
+          ],
+          "name": "thread_search_learned_selections_query_text_thread_id_pk"
+        }
+      },
       "uniqueConstraints": {},
       "checkConstraints": {}
     }

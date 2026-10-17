@@ -1,6 +1,7 @@
 export type FollowUpBlockedReason =
   | "loading-execution-options"
   | "loading-pending-interactions"
+  | "pending-interactions-check-failed"
   | "pending-interaction"
   | "unavailable";
 
@@ -15,4 +16,15 @@ export type FollowUpSubmitMode =
   | { kind: "ready" }
   | { kind: "queue"; onStop: () => void }
   | { kind: "queue-while-stopping" }
-  | { kind: "blocked"; reason: FollowUpBlockedReason };
+  | {
+      kind: "blocked";
+      reason: Exclude<
+        FollowUpBlockedReason,
+        "pending-interactions-check-failed"
+      >;
+    }
+  | {
+      kind: "blocked";
+      reason: "pending-interactions-check-failed";
+      onRetry: () => void;
+    };

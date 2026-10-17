@@ -12,7 +12,7 @@ interface DesktopReleaseInfo {
   channel: DesktopReleaseChannel;
   iconFileName: "icon.png" | "icon-nightly.png";
   releaseTag: "desktop-latest" | "desktop-nightly";
-  updateReleaseBaseUrl: string;
+  updateReleaseBaseUrl: string | null;
 }
 
 export function createDesktopReleaseInfo(
@@ -31,7 +31,10 @@ export function createDesktopReleaseInfo(
     channel,
     iconFileName: nightly ? "icon-nightly.png" : "icon.png",
     releaseTag,
-    updateReleaseBaseUrl: `https://github.com/get-bb/bb/releases/download/${releaseTag}/`,
+    updateReleaseBaseUrl:
+      channel === "aleph"
+        ? null
+        : `https://github.com/get-bb/bb/releases/download/${releaseTag}/`,
   };
 }
 
@@ -78,7 +81,10 @@ const DESKTOP_UPDATE_RELEASE_BASE_URL =
 
 export function createDesktopUpdateFeedUrl(
   platform: BbDesktopVersionFeedPlatform,
-): string {
+): string | null {
+  if (DESKTOP_UPDATE_RELEASE_BASE_URL === null) {
+    return null;
+  }
   return `${DESKTOP_UPDATE_RELEASE_BASE_URL}${createBbDesktopVersionFeedFileName(platform)}`;
 }
 
@@ -88,11 +94,21 @@ export interface DesktopAutoUpdateFeedConfig {
   url: string;
 }
 
-export const DESKTOP_AUTO_UPDATE_FEED_CONFIG: DesktopAutoUpdateFeedConfig = {
-  channel: DESKTOP_RELEASE_CHANNEL,
-  provider: "generic",
-  url: DESKTOP_UPDATE_RELEASE_BASE_URL,
-};
+export function createDesktopAutoUpdateFeedConfig(
+  channel: DesktopReleaseChannel,
+  updateReleaseBaseUrl: string | null,
+): DesktopAutoUpdateFeedConfig | null {
+  if (updateReleaseBaseUrl === null) {
+    return null;
+  }
+  return { channel, provider: "generic", url: updateReleaseBaseUrl };
+}
+
+export const DESKTOP_AUTO_UPDATE_FEED_CONFIG =
+  createDesktopAutoUpdateFeedConfig(
+    DESKTOP_RELEASE_CHANNEL,
+    DESKTOP_UPDATE_RELEASE_BASE_URL,
+  );
 
 interface DesktopUpdateSupport {
   autoUpdate: boolean;
@@ -113,7 +129,7 @@ export function resolveDesktopUpdateSupport(
     return { autoUpdate: false, versionCheck: false };
   }
 
-  if (args.platform === "macos") {
+  if (args.platform === "macos" || args.platform === "windows") {
     return { autoUpdate: true, versionCheck: true };
   }
 

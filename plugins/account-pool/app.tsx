@@ -154,7 +154,7 @@ function parentHost(baseUrl: string): string {
 function parentBannerBody(parent: NonNullable<PoolStatus["parent"]>): string {
   const host = parentHost(parent.baseUrl);
   if (parent.mode !== "proxy") {
-    return `This server was started from a thread on ${host}. Turn this on to send Claude and Codex requests to its pool instead of using the accounts below.`;
+    return `This server was started from a thread on ${host}. Turn this on to send Claude and Codex requests to its Account Pooler instead of using the accounts below.`;
   }
   const served = PROVIDERS.filter(
     (provider) => parent.availability[provider.id],
@@ -165,7 +165,7 @@ function parentBannerBody(parent: NonNullable<PoolStatus["parent"]>): string {
   const missing = PROVIDERS.filter(
     (provider) => !parent.availability[provider.id],
   ).map((provider) => provider.title);
-  const routed = `${served.join(" and ")} requests are sent to the pool on ${host}.`;
+  const routed = `${served.join(" and ")} requests are sent to the Account Pooler on ${host}.`;
   return missing.length === 0
     ? `${routed} Accounts on this server are not used while this is on.`
     : `${routed} ${missing.join(" and ")} has no accounts there, so those requests fall back to their own credentials.`;
@@ -490,7 +490,7 @@ function AccountRow({
           onClick={onOpen}
         >
           <div className="min-w-0 flex-1 space-y-1">
-            <div className="flex min-w-0 items-center gap-1.5">
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
               <span className="truncate text-sm font-medium text-foreground">
                 {account.label}
               </span>
@@ -500,6 +500,9 @@ function AccountRow({
                 </span>
               )}
               <SettingsBadge>{tier(account)}</SettingsBadge>
+              {account.extraUsage?.status === "allowed" ? (
+                <SettingsBadge>Extra usage available</SettingsBadge>
+              ) : null}
             </div>
             <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-subtle-foreground/75">
               <span className="inline-flex shrink-0 items-center gap-1.5">
@@ -1230,7 +1233,7 @@ function AccountPoolSettings() {
         {status !== null && !statusIsCached && accounts.length === 0 ? (
           <div className="rounded-lg border border-dashed border-border px-5 py-6 text-center">
             <h2 className="text-sm font-semibold text-foreground">
-              No accounts in the pool
+              No accounts added
             </h2>
             <p className="mx-auto mt-1 max-w-lg text-xs leading-relaxed text-muted-foreground">
               Add a Claude or Codex account and threads on every machine will
@@ -1472,7 +1475,6 @@ function AccountPoolSettings() {
           <AccountDialog
             account={selectedAccount}
             threshold={threshold}
-            close={closeDialog}
             act={(action) => void accountAction(selectedAccount, action)}
           />
         ) : null}
@@ -1505,8 +1507,10 @@ function AccountPoolSettings() {
             }
           >
             <p className="text-sm text-muted-foreground">
-              Lower numbers come first in the failover order. Ties follow the
-              order accounts were added. Existing conversations stay pinned.
+              Lower numbers are used first. Ties follow the order accounts were
+              added. Work moves to the next of your accounts only when one is
+              unavailable or at its threshold. Existing conversations stay
+              pinned.
             </p>
             <Input
               type="number"
@@ -1587,7 +1591,7 @@ function AccountPoolSettings() {
           >
             <p className="text-sm text-muted-foreground">
               This deletes the account&apos;s secret file. Threads fall back to
-              their machine login when no other pooled account is available.
+              their machine login when no other account is available.
             </p>
           </DialogFrame>
         ) : null}
@@ -1643,12 +1647,10 @@ function AccountPoolSettings() {
 function AccountDialog({
   account,
   threshold,
-  close,
   act,
 }: {
   account: AccountSummary;
   threshold: number;
-  close: () => void;
   act: (action: "toggle" | "refresh" | "remove") => void;
 }) {
   const shared = (

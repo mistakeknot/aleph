@@ -255,6 +255,26 @@ describe("threadDetailPromptSubmission", () => {
         isFollowUpSubmitting: false,
         isQueueMutationPending: false,
         queuedMessageCount: 0,
+        runtimeDisplayStatus: "waiting-for-host",
+        submitModeKind: "queue",
+      }),
+    ).toBe(true);
+    expect(
+      canSubmitFollowUpShortcut({
+        hasPromptDraftInput: false,
+        isFollowUpSubmitting: false,
+        isQueueMutationPending: false,
+        queuedMessageCount: 1,
+        runtimeDisplayStatus: "waiting-for-host",
+        submitModeKind: "queue",
+      }),
+    ).toBe(false);
+    expect(
+      canSubmitFollowUpShortcut({
+        hasPromptDraftInput: true,
+        isFollowUpSubmitting: false,
+        isQueueMutationPending: false,
+        queuedMessageCount: 0,
         runtimeDisplayStatus: "active",
         submitModeKind: "queue",
       }),
@@ -292,7 +312,6 @@ describe("threadDetailPromptSubmission", () => {
 
     const queueableStatuses: ThreadRuntimeDisplayStatus[] = [
       "active",
-      "host-reconnecting",
       "provisioning",
       "starting",
       "waiting-for-host",
@@ -322,6 +341,7 @@ describe("threadDetailPromptSubmission", () => {
           isDefaultExecutionOptionsLoading: true,
           isPendingInteractionsInitialLoading: false,
           isStopRequested: false,
+          onRetryPendingInteractions: null,
           onStop,
           runtimeDisplayStatus,
         }),
@@ -337,6 +357,7 @@ describe("threadDetailPromptSubmission", () => {
         isDefaultExecutionOptionsLoading: false,
         isPendingInteractionsInitialLoading: false,
         isStopRequested: true,
+        onRetryPendingInteractions: null,
         onStop,
         runtimeDisplayStatus: "starting",
       }),
@@ -347,10 +368,47 @@ describe("threadDetailPromptSubmission", () => {
         isDefaultExecutionOptionsLoading: false,
         isPendingInteractionsInitialLoading: false,
         isStopRequested: false,
+        onRetryPendingInteractions: null,
         onStop,
         runtimeDisplayStatus: "starting",
       }),
     ).toEqual({ kind: "blocked", reason: "pending-interaction" });
+  });
+
+  it("offers a retry when the pending interactions check failed", () => {
+    const onRetry = () => undefined;
+
+    expect(
+      buildFollowUpSubmitMode({
+        hasPendingInteraction: false,
+        isDefaultExecutionOptionsLoading: false,
+        isPendingInteractionsInitialLoading: true,
+        isStopRequested: false,
+        onRetryPendingInteractions: onRetry,
+        onStop: () => undefined,
+        runtimeDisplayStatus: "idle",
+      }),
+    ).toEqual({
+      kind: "blocked",
+      reason: "pending-interactions-check-failed",
+      onRetry,
+    });
+    expect(
+      buildSideChatSubmitMode({
+        childThreadId: "thr_child",
+        hasPendingInteraction: false,
+        isDefaultExecutionOptionsLoading: false,
+        isPendingInteractionsInitialLoading: true,
+        isStopRequested: false,
+        onRetryPendingInteractions: onRetry,
+        onStop: () => undefined,
+        runtimeDisplayStatus: "active",
+      }),
+    ).toEqual({
+      kind: "blocked",
+      reason: "pending-interactions-check-failed",
+      onRetry,
+    });
   });
 
   it("blocks follow-up submit until pending interactions initially load", () => {
@@ -362,6 +420,7 @@ describe("threadDetailPromptSubmission", () => {
         isDefaultExecutionOptionsLoading: false,
         isPendingInteractionsInitialLoading: true,
         isStopRequested: false,
+        onRetryPendingInteractions: null,
         onStop,
         runtimeDisplayStatus: "idle",
       }),
@@ -372,6 +431,7 @@ describe("threadDetailPromptSubmission", () => {
         isDefaultExecutionOptionsLoading: false,
         isPendingInteractionsInitialLoading: true,
         isStopRequested: false,
+        onRetryPendingInteractions: null,
         onStop,
         runtimeDisplayStatus: "active",
       }),
@@ -388,6 +448,7 @@ describe("threadDetailPromptSubmission", () => {
         isDefaultExecutionOptionsLoading: true,
         isPendingInteractionsInitialLoading: false,
         isStopRequested: false,
+        onRetryPendingInteractions: null,
         onStop,
         runtimeDisplayStatus: "provisioning",
       }),
@@ -400,6 +461,7 @@ describe("threadDetailPromptSubmission", () => {
         isDefaultExecutionOptionsLoading: false,
         isPendingInteractionsInitialLoading: false,
         isStopRequested: false,
+        onRetryPendingInteractions: null,
         onStop,
         runtimeDisplayStatus: "idle",
       }),
@@ -416,6 +478,7 @@ describe("threadDetailPromptSubmission", () => {
         isDefaultExecutionOptionsLoading: false,
         isPendingInteractionsInitialLoading: false,
         isStopRequested: false,
+        onRetryPendingInteractions: null,
         onStop,
         runtimeDisplayStatus: "active",
       }),
@@ -430,6 +493,7 @@ describe("threadDetailPromptSubmission", () => {
         isDefaultExecutionOptionsLoading: false,
         isPendingInteractionsInitialLoading: true,
         isStopRequested: false,
+        onRetryPendingInteractions: null,
         onStop: () => undefined,
         runtimeDisplayStatus: "active",
       }),
@@ -444,6 +508,7 @@ describe("threadDetailPromptSubmission", () => {
         isDefaultExecutionOptionsLoading: false,
         isPendingInteractionsInitialLoading: false,
         isStopRequested: false,
+        onRetryPendingInteractions: null,
         onStop: () => undefined,
         runtimeDisplayStatus: "active",
       }),

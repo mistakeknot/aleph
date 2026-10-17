@@ -29,7 +29,13 @@ import {
 import type { PluginHookName } from "@get-bb/plugin-sdk";
 import { queueChildThreadTurnNotificationBestEffort } from "../../src/services/threads/child-thread-notifications.js";
 import { appendClientTurnEvent } from "../../src/services/threads/thread-events.js";
-import { clearDeliveredChildOutputForTesting } from "../../src/services/threads/parent-wake-policy.js";
+import {
+  clearDeliveredChildOutputForTesting,
+  hasDeliveredChildTurn,
+  MAX_DELIVERED_TURN_KEYS,
+  recordDeliveredChildOutput,
+  reserveDeliveredChildTurn,
+} from "../../src/services/threads/parent-wake-policy.js";
 import {
   createAutomaticQueuedMessageGroupEligibility,
   sendQueuedMessage,
@@ -1106,6 +1112,233 @@ describe("parent wake policy", () => {
       expect(wokeAgain).toBe(true);
     });
   }, 20_000);
+  it("does not wake again when the same completed turn is re-notified", async () => {
+    await withTestHarness(async (harness) => {
+      const fixture = seedParentFixture(harness, "host-replay");
+      const child = seedThread(harness.deps, {
+        projectId: fixture.projectId,
+        title: "Worker",
+        parentThreadId: fixture.parentThreadId,
+      });
+      seedChildTurnRequest(harness, {
+        childThreadId: child.id,
+        turnId: "turn-1",
+        initiator: "user",
+        senderThreadId: null,
+      });
+      seedChildFinalOutput(harness, {
+        childThreadId: child.id,
+        turnId: "turn-1",
+        text: "Done",
+      });
+      const notify = () =>
+        queueChildThreadTurnNotificationBestEffort(harness.deps, {
+          childThread: child,
+          parentThreadId: fixture.parentThreadId,
+          turnId: "turn-1",
+          turnStatus: "completed",
+        });
+      await notify();
+      expect(
+        await waitForParentTurnRequests(harness, fixture.parentThreadId, 1),
+      ).toHaveLength(1);
+
+      // The same completion arrives again (event replay or redelivery).
+      await notify();
+      await new Promise((resolve) => setTimeout(resolve, 2_200));
+      expect(
+        await waitForSecondWakeSignal(harness, fixture.parentThreadId, 500),
+      ).toBe(false);
+    });
+  }, 10_000);
+
+  it("delivers once when a slow delivery overlaps a second flush of the same turn", async () => {
+    await withTestHarness(async (harness) => {
+      let hookCalls = 0;
+      const registry = emptyRegistry();
+      registry["message.dispatch"].push({
+        pluginId: "slow-gate",
+        handler: async () => {
+          hookCalls += 1;
+          await new Promise((resolve) => setTimeout(resolve, 3_000));
+          return { action: "proceed" } as const;
+        },
+      });
+      installHooks(registry);
+
+      const fixture = seedParentFixture(harness, "host-overlap");
+      const child = seedThread(harness.deps, {
+        projectId: fixture.projectId,
+        title: "Worker",
+        parentThreadId: fixture.parentThreadId,
+      });
+      seedChildTurnRequest(harness, {
+        childThreadId: child.id,
+        turnId: "turn-1",
+        initiator: "user",
+        senderThreadId: null,
+      });
+      seedChildFinalOutput(harness, {
+        childThreadId: child.id,
+        turnId: "turn-1",
+        text: "Done",
+      });
+      const notify = () =>
+        queueChildThreadTurnNotificationBestEffort(harness.deps, {
+          childThread: child,
+          parentThreadId: fixture.parentThreadId,
+          turnId: "turn-1",
+          turnStatus: "completed",
+        });
+      await notify();
+      // First flush fires at 2s and is still awaiting its 3s delivery when
+      // the replay arrives at 2.5s and its own flush fires at 4.5s.
+      await new Promise((resolve) => setTimeout(resolve, 2_500));
+      await notify();
+      await new Promise((resolve) => setTimeout(resolve, 3_500));
+
+      expect(hookCalls).toBe(1);
+      expect(
+        await waitForParentTurnRequests(harness, fixture.parentThreadId, 1),
+      ).toHaveLength(1);
+    });
+  }, 15_000);
+
+  it("bounds the delivered-turn memory, evicting the oldest entries first", () => {
+    const pair = { childThreadId: "child", parentThreadId: "parent" };
+    for (let i = 0; i < MAX_DELIVERED_TURN_KEYS + 5; i += 1) {
+      recordDeliveredChildOutput({ ...pair, finalText: "x", turnId: `t${i}` });
+    }
+    expect(hasDeliveredChildTurn(pair, "t0")).toBe(false);
+    expect(hasDeliveredChildTurn(pair, "t4")).toBe(false);
+    expect(hasDeliveredChildTurn(pair, "t5")).toBe(true);
+    expect(hasDeliveredChildTurn(pair, `t${MAX_DELIVERED_TURN_KEYS + 4}`)).toBe(
+      true,
+    );
+  });
+
+  it("keeps an in-flight reservation when delivered history overflows the cap", () => {
+    const pair = { childThreadId: "child", parentThreadId: "parent" };
+    reserveDeliveredChildTurn(pair, "in-flight");
+    for (let i = 0; i < MAX_DELIVERED_TURN_KEYS + 5; i += 1) {
+      recordDeliveredChildOutput({ ...pair, finalText: "x", turnId: `t${i}` });
+    }
+    expect(hasDeliveredChildTurn(pair, "in-flight")).toBe(true);
+  });
+
+  it("releases earlier reservations when selection throws on a later item", async () => {
+    await withTestHarness(async (harness) => {
+      const fixture = seedParentFixture(harness, "host-selection-fault");
+      const makeChild = (title: string) =>
+        seedThread(harness.deps, {
+          projectId: fixture.projectId,
+          title,
+          parentThreadId: fixture.parentThreadId,
+        });
+      const good = makeChild("Good");
+      const bad = makeChild("Bad");
+      for (const child of [good, bad]) {
+        seedChildTurnRequest(harness, {
+          childThreadId: child.id,
+          turnId: "turn-1",
+          initiator: "user",
+          senderThreadId: null,
+        });
+        seedChildFinalOutput(harness, {
+          childThreadId: child.id,
+          turnId: "turn-1",
+          text: "Done",
+        });
+      }
+      // Corrupt the second child's request row so parsing it throws.
+      harness.deps.db
+        .update(events)
+        .set({ data: "not json" })
+        .where(
+          and(
+            eq(events.threadId, bad.id),
+            eq(events.type, "client/turn/requested"),
+          ),
+        )
+        .run();
+      for (const child of [good, bad]) {
+        await queueChildThreadTurnNotificationBestEffort(harness.deps, {
+          childThread: child,
+          parentThreadId: fixture.parentThreadId,
+          turnId: "turn-1",
+          turnStatus: "completed",
+        });
+      }
+      await new Promise((resolve) => setTimeout(resolve, 2_600));
+
+      expect(
+        hasDeliveredChildTurn(
+          {
+            childThreadId: good.id,
+            parentThreadId: fixture.parentThreadId,
+          },
+          "turn-1",
+        ),
+      ).toBe(false);
+    });
+  }, 10_000);
+
+  it("does not wake the parent for a self-initiated turn of an archived child", async () => {
+    await withTestHarness(async (harness) => {
+      const fixture = seedParentFixture(harness, "host-archived");
+      const child = seedThread(harness.deps, {
+        projectId: fixture.projectId,
+        title: "Worker",
+        parentThreadId: fixture.parentThreadId,
+      });
+      seedChildTurnRequest(harness, {
+        childThreadId: child.id,
+        turnId: "turn-1",
+        initiator: "user",
+        senderThreadId: null,
+      });
+      seedChildFinalOutput(harness, {
+        childThreadId: child.id,
+        turnId: "turn-1",
+        text: "Done",
+      });
+      seedChildTurnCompleted(harness, {
+        childThreadId: child.id,
+        turnId: "turn-1",
+      });
+      await queueChildThreadTurnNotificationBestEffort(harness.deps, {
+        childThread: child,
+        parentThreadId: fixture.parentThreadId,
+        turnId: "turn-1",
+        turnStatus: "completed",
+      });
+      expect(
+        await waitForParentTurnRequests(harness, fixture.parentThreadId, 1),
+      ).toHaveLength(1);
+
+      harness.deps.db
+        .update(threads)
+        .set({ archivedAt: Date.now() })
+        .where(eq(threads.id, child.id))
+        .run();
+      seedChildFinalOutput(harness, {
+        childThreadId: child.id,
+        turnId: "turn-2",
+        text: "Different text after archive",
+      });
+      await queueChildThreadTurnNotificationBestEffort(harness.deps, {
+        childThread: child,
+        parentThreadId: fixture.parentThreadId,
+        turnId: "turn-2",
+        turnStatus: "completed",
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 2_200));
+      expect(
+        await waitForSecondWakeSignal(harness, fixture.parentThreadId, 500),
+      ).toBe(false);
+    });
+  }, 10_000);
 });
 
 describe("queued system notice transfer (R4 retirement forward, R6)", () => {

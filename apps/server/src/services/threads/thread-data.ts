@@ -9,7 +9,11 @@ import {
 } from "@bb/db";
 import type { DbConnection, StoredEventRow } from "@bb/db";
 import { toRecord } from "@bb/core-ui";
-import { buildThreadEventRow, parseStoredThreadEvent } from "@bb/domain";
+import {
+  buildThreadEventRow,
+  parseStoredThreadEvent,
+  redactEventDataForType,
+} from "@bb/domain";
 import { threadScope, turnScope } from "@bb/domain";
 import type {
   ThreadEvent,
@@ -64,7 +68,7 @@ export function parseStoredEventPayload(
     );
   }
 
-  return record;
+  return redactEventDataForType(row.type, record);
 }
 
 function parseStoredEventScope(row: StoredEventRow): ThreadEventScope {

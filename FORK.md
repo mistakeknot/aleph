@@ -315,13 +315,37 @@ Beyond upstream, Aleph carries:
 
 - **Account Pooler 0.1.2.** Thread availability bound to the thread's owning
   machine (403 on refusal, 503 on failed lookups, no caching); `bb pool exec`
-  for Codex and Claude, with an argument allowlist, the pooled-transport marker
+  for Codex and Claude, with an argument allowlist, the transport marker
   and a host-private stdin directory; and attempt receipts for budgeted
   dispatch. Its contract is `plugins/account-pool/RECEIPTS.md`.
 - **Thread list.** Provider icons with brand, monochrome, theme or custom
   colors.
 - **Split panes.** Optional composer focus when switching panes with the
   keyboard.
+- **Renderer diagnostics log (mk-h1q8).** Aleph-only file sink
+  `~/Library/Logs/Aleph/aleph-renderer-YYYY-MM-DD.log` (daily, 5 days kept,
+  5 MiB per file), gated on `BB_DESKTOP_RELEASE_CHANNEL=aleph`. Records
+  renderer console warnings and errors as a category and code only, socket open/close/replace,
+  reconnect invalidation decisions, thread sequence anomalies and
+  composer send-state changes as ids and enumerated states only. Shared
+  code carries a sink-less emitter (`apps/app/src/lib/diagnostics.ts`) with
+  call sites in `ws.ts`, `system-cache-effects.ts`,
+  `ThreadDetailPromptArea.tsx` and `App.tsx`; everything else lives in
+  `apps/app/src/aleph/` and `apps/desktop/src/aleph-renderer-log*.ts`.
+  Carried commits: see `git log --grep 'mk-h1q8'`.
+- **Composer-stuck fixes (mk-h1q8).** Reconnect invalidation skips only
+  queries fetched at or after the reconnect-open time (was: after the
+  disconnect), in-flight thread-scoped fetches get one trailing refetch when
+  they settle. Sending stays blocked until a successful pending-interactions
+  result for the thread: `useThreadPendingInteractions` has a 5 s request
+  timeout classified as a transient read error (2 retries at 250 ms), polls
+  every 5 s while in the error state, and the composer shows a "Couldn't check
+  for pending approvals. Retry" row. Recovery from one hung fetch takes about
+  5.3 s; from fully hung fetches the Retry row appears after about 15.5 s.
+  Logic is in `apps/app/src/aleph/pending-interactions-guard.ts` and
+  `reconnect-trailing-refetch.ts`; shared code touched is the client-core
+  `pending-interactions-check-failed` blocked reason and
+  `onRetryPendingInteractions` argument, and `isTransientReadError`.
 - **Model picker.** Switching a thread's provider in place when the local
   handoff plugin is running.
 - **No upstream update offers.** See [Updates](#updates).
@@ -348,6 +372,26 @@ Beyond upstream, Aleph carries:
   the drift, fading and dimming are off under forced colors. Select it with
   `bb theme set dorcas`.
 
+- **Agent process priority.** The host daemon raises host plugin workers and
+  terminal PTYs to `BB_AGENT_NICE` (default 10, 0 disables, capped at 19)
+  after spawning them, so agent workloads cannot starve the server's event
+  loop on a shared CPU. It only raises the nice value and skips Windows
+  (`apps/host-daemon/src/agent-process-priority.ts`).
+
+- **Account Pooler stall tolerance (0.6.3).** The upstream transport gives
+  each per-address connect attempt 5 s, below undici's 10 s connect timeout,
+  so event-loop stalls no longer abort dual-stack connects
+  (`plugins/account-pool/src/upstream-transport.ts`). Receipt evidence
+  hoists its schemas to module scope and skips frames whose `type` carries no
+  evidence (`plugins/account-pool/src/receipts.ts`).
+
+- **Backported upstream performance fixes (0.6.3).** Nine upstream bb commits
+  cherry-picked ahead of the next sync: #4718, #4751, #4931, #5112, #5115,
+  #5116, #5120, #5121 and #5240. Each records its upstream commit in a
+  `(cherry picked from commit ...)` line; the next upstream merge brings the
+  same changes and should take upstream's side. #5240 keeps the fork's
+  timeline build coalescer in the timeline route.
+
 `git log --no-merges <upstream main>..HEAD` lists the carried commits.
 Upstream is merged into Aleph, not rebased, and each merge commit records its
 conflicts.
@@ -373,6 +417,15 @@ migration's `when` in `packages/db/drizzle/meta/_journal.json` against
 sort after 0133), or repair an already-shipped mismatch with a shim like the
 existing `repairBranchLocal*` migrations. Skipping this check is a boot
 outage, not a merge conflict, so nothing else surfaces it beforehand.
+
+The fork now owns 0132 to 0134 (0134's `when` is 1790477193524). The 0.45.0
+sync (mk-09dq) brought six upstream migrations whose upstream numbers were
+0132 to 0137 and whose first `when` predated 0134. They were renumbered to
+0135 to 0140 with their SQL unchanged, `0135_thread_drafts`'s `when` moved to
+1790477193525, and their snapshots carry the fork's tables and columns. A host
+that has run 0135 or later cannot go back to a 0.5.x build:
+`validateAppliedMigrationHistory` refuses migrations it does not know, so
+rolling back means restoring a database backup taken before the switch.
 
 ## Project documents
 

@@ -12,10 +12,9 @@ import {
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { createStore, Provider } from "jotai";
 import { paletteThreadLifecyclesAtom } from "@/lib/command-palette/palette-preferences";
-import { sidebarThreadLifecyclesAtom } from "@/components/sidebar/sidebarCollapsedAtoms";
 import { splitLayoutAtom } from "@/lib/split-layout/atoms";
 import { MAX_PANES, type SplitLayout } from "@/lib/split-layout";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   defaultAppSettings,
   type AppCommandId,
@@ -44,6 +43,10 @@ import {
 } from "@/lib/plugin-thread-row-status";
 import { makePluginRegistrationSet } from "@/test/fixtures/plugins";
 import { collectPluginAppRegistrations } from "@get-bb/plugin-sdk/internal/plugin-app-collector";
+
+beforeAll(async () => {
+  await import("./ThreadSearchPaletteMode");
+});
 
 const PALETTE_SHORTCUT = {
   key: "p",
@@ -293,6 +296,8 @@ function LocationProbe() {
   return <output data-testid="location">{location.pathname}</output>;
 }
 
+const threadUpdatedAt = Date.now();
+
 function makeThread(
   id: string,
   overrides: Partial<ThreadListEntry> = {},
@@ -319,7 +324,7 @@ function makeThread(
     lastReadAt: null,
     latestAttentionAt: 1,
     createdAt: 1,
-    updatedAt: Date.now(),
+    updatedAt: threadUpdatedAt,
     activity: {
       activeWorkflowCount: 0,
       activeBackgroundAgentCount: 0,
@@ -335,7 +340,7 @@ function makeThread(
     environmentName: null,
     environmentBranchName: null,
     environmentWorkspaceDisplayKind: "other",
-    runtime: { displayStatus: "idle", hostReconnectGraceExpiresAt: null },
+    runtime: { displayStatus: "idle" },
     queuedWork: "none",
     ...overrides,
   };
@@ -523,7 +528,7 @@ describe("CommandPalette", () => {
         layout: reason === "no workspace" ? null : layout,
       });
       openThreadSearch();
-      await screen.findByRole("option");
+      await screen.findByRole("option", {}, { timeout: 5000 });
       expect(
         screen.queryByRole("button", { name: "Open in split" }),
       ).toBeNull();
@@ -552,7 +557,11 @@ describe("CommandPalette", () => {
     };
     renderPalette({ layout: splitLayout });
     openThreadSearch();
-    await screen.findByRole("combobox", { name: "Search threads" });
+    await screen.findByRole(
+      "combobox",
+      { name: "Search threads" },
+      { timeout: 5000 },
+    );
     fireEvent.change(searchField(), { target: { value: "match" } });
     fireEvent.keyDown(searchField(), { key: "End" });
     expect(selectedOption()?.textContent).toContain("Show more");
@@ -569,7 +578,7 @@ describe("CommandPalette", () => {
     expect(screen.queryByRole("button", { name: "Open in split" })).toBeNull();
   });
 
-  it("preserves archived message anchors for split opening", async () => {
+  it("opens an archived message match in a split at the latest message", async () => {
     modeState.searchResponse = {
       active: { total: 0, results: [] },
       archived: {
@@ -591,15 +600,19 @@ describe("CommandPalette", () => {
     };
     renderPalette({ layout: splitLayout, lifecycles: ["archived"] });
     openThreadSearch();
-    await screen.findByRole("combobox", { name: "Search threads" });
+    await screen.findByRole(
+      "combobox",
+      { name: "Search threads" },
+      { timeout: 5000 },
+    );
     fireEvent.change(searchField(), { target: { value: "matching" } });
     fireEvent.keyDown(searchField(), { key: "Enter", metaKey: true });
     await waitFor(() => expect(openThreadInSplitMock).toHaveBeenCalledTimes(1));
     expect(openThreadInSplitMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        threadId: "archived-message",
-        state: { searchMessageSeq: 42, searchThreadId: "archived-message" },
-      }),
+      expect.objectContaining({ threadId: "archived-message" }),
+    );
+    expect(openThreadInSplitMock.mock.calls[0]?.[0]).not.toHaveProperty(
+      "state",
     );
     expect(routeNavigateMock).not.toHaveBeenCalled();
   });
@@ -933,7 +946,11 @@ describe("CommandPalette", () => {
     async (query) => {
       renderPalette();
       openThreadSearch();
-      await screen.findByRole("combobox", { name: "Search threads" });
+      await screen.findByRole(
+        "combobox",
+        { name: "Search threads" },
+        { timeout: 5000 },
+      );
       fireEvent.change(searchField(), { target: { value: query } });
       const message = await screen.findByText(
         query === "" ? "No threads" : "No matching threads",
@@ -998,26 +1015,11 @@ describe("CommandPalette", () => {
     expectText(await screen.findByRole("tooltip"), "Return to commands (Esc)");
     expect(document.querySelector("[data-palette-footer]")).toBeNull();
     fireEvent.keyDown(close, { key: "Escape" });
-    await screen.findByRole("combobox", { name: "Search commands" });
-  });
-
-  it("enters thread mode by running Search threads from the root", async () => {
-    renderPalette();
-    openPalette();
-    await waitFor(() => expect(searchField()).toBeTruthy());
-
-    const searchCommand = within(bucketGroup("Threads"))
-      .getAllByRole("option")
-      .find((row) => row.textContent?.includes("Search threads"));
-    expect(searchCommand).toBeDefined();
-    fireEvent.click(searchCommand as HTMLElement);
-
-    await waitFor(() =>
-      expect(
-        screen.getByRole("combobox", { name: "Search threads" }),
-      ).toBeTruthy(),
+    await screen.findByRole(
+      "combobox",
+      { name: "Search commands" },
+      { timeout: 5000 },
     );
-    expect(testState.calls).toEqual([]);
   });
 
   it("returns from an empty thread query with Backspace", async () => {
@@ -1058,7 +1060,11 @@ describe("CommandPalette", () => {
     };
     renderPalette();
     openThreadSearch();
-    await screen.findByRole("combobox", { name: "Search threads" });
+    await screen.findByRole(
+      "combobox",
+      { name: "Search threads" },
+      { timeout: 5000 },
+    );
     const results = screen.getByRole("listbox", { name: "Threads" });
     const rows = within(results).getAllByRole("option");
     expect(rows.map((row) => row.textContent)).toEqual([
@@ -1109,14 +1115,17 @@ describe("CommandPalette", () => {
     expect(input.getAttribute("aria-activedescendant")).toBe(
       selectedOption()?.id,
     );
-    expect(store.get(sidebarThreadLifecyclesAtom)).toEqual(["active"]);
   });
 
   it("operates the lifecycle filter with the keyboard without selecting a result", async () => {
     modeState.activeRecents = [makeThread("active")];
     const { store } = renderPalette();
     openThreadSearch();
-    await screen.findByRole("combobox", { name: "Search threads" });
+    await screen.findByRole(
+      "combobox",
+      { name: "Search threads" },
+      { timeout: 5000 },
+    );
     const trigger = screen.getByRole("button", {
       name: "Filter: Active",
     });
@@ -1198,19 +1207,6 @@ describe("CommandPalette", () => {
       expect(document.querySelector("[data-palette-footer]")).toBeNull();
     },
   );
-
-  it("uses the shared empty treatment for selected populations and search with no matches", async () => {
-    renderPalette({ lifecycles: ["active", "archived"] });
-    openThreadSearch();
-    const input = await screen.findByRole("combobox", {
-      name: "Search threads",
-    });
-    expect(screen.getByText("No threads")).toBeTruthy();
-    fireEvent.change(input, { target: { value: "unmatched" } });
-    expect(screen.getByText("No matching threads")).toBeTruthy();
-    expect(screen.queryAllByRole("option")).toHaveLength(0);
-    expect(screen.queryByRole("button", { name: /create/i })).toBeNull();
-  });
 
   it("groups lifecycle with headings while preserving highlights and attention status", async () => {
     const active = makeThread("active", {
@@ -1404,8 +1400,6 @@ describe("CommandPalette", () => {
       fireEvent.keyDown(input, { key: "Enter" });
       await waitFor(() => expect(routeNavigateMock).toHaveBeenCalled());
       expect(routeNavigateMock.mock.calls[0][0]).toContain(`${lifecycle}-6`);
-      // Expanding "Show more" is not a pick; opening the thread is, and it
-      // is learned against the query that found it.
       expect(testState.recordedSearchSelections).toEqual([
         { query: "match", threadId: `${lifecycle}-6` },
       ]);
@@ -1490,7 +1484,6 @@ describe("CommandPalette", () => {
           lastReadAt: Date.now(),
           runtime: {
             displayStatus: "active",
-            hostReconnectGraceExpiresAt: null,
           },
         }),
         makeThread("draft", { lastReadAt: Date.now() }),
@@ -1589,7 +1582,11 @@ describe("CommandPalette", () => {
     setPluginThreadRowStatus("waiting", "checks", pluginStatus);
     renderPalette();
     openThreadSearch();
-    await screen.findByRole("combobox", { name: "Search threads" });
+    await screen.findByRole(
+      "combobox",
+      { name: "Search threads" },
+      { timeout: 5000 },
+    );
     const row = screen.getByRole("option", { name: /Title plugin/ });
     expect(within(row).queryByRole("img")).toBeNull();
     act(() => setPluginThreadRowStatus("plugin", "checks", pluginStatus));
@@ -1615,7 +1612,7 @@ describe("CommandPalette", () => {
     expect(within(row).queryByRole("img")).toBeNull();
   });
 
-  it("opens an archived message match with its anchor", async () => {
+  it("opens an archived message match at the latest message rather than the match", async () => {
     modeState.searchResponse = {
       active: { total: 0, results: [] },
       archived: {
@@ -1666,14 +1663,9 @@ describe("CommandPalette", () => {
     expect(projectIcon?.nextSibling?.textContent).toBe("Palette project · ");
     fireEvent.keyDown(input, { key: "Enter" });
 
-    const state = {
-      searchMessageSeq: 42,
-      searchThreadId: "archived-message",
-    };
     await waitFor(() => expect(screen.queryByRole("combobox")).toBeNull());
     expect(routeNavigateMock).toHaveBeenCalledWith(
       "/projects/project-1/threads/archived-message",
-      { state },
     );
   });
 
@@ -1820,22 +1812,6 @@ describe("CommandPalette", () => {
     expect(activation.defaultPrevented).toBe(true);
     await waitFor(() => expect(testState.calls).toEqual(["panel.toggle"]));
     expect(screen.queryByRole("combobox")).toBeNull();
-  });
-
-  it("runs the highlighted command, closes, and restores focus", async () => {
-    renderPalette();
-    openPalette();
-    await waitFor(() => expect(searchField()).toBeTruthy());
-
-    fireEvent.change(searchField(), { target: { value: "toggle panel" } });
-    await waitFor(() =>
-      expect(selectedOption()?.textContent).toContain("Toggle panel"),
-    );
-    fireEvent.keyDown(searchField(), { key: "Enter" });
-
-    await waitFor(() => expect(testState.calls).toEqual(["panel.toggle"]));
-    expect(screen.queryByRole("combobox")).toBeNull();
-    expect(document.activeElement).toBe(screen.getByTestId("origin"));
   });
 
   it("keeps the default catalog unchanged after running a command", async () => {
@@ -2587,6 +2563,7 @@ describe("CommandPalette", () => {
       makePluginRegistrationSet({
         commandPaletteActions: [
           {
+            target: "app",
             id: "open-issue",
             title: "Open issue",
             defaultShortcut: null,

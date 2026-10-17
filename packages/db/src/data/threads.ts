@@ -1,3 +1,4 @@
+import { prepareCachedQuery } from "../connection.js";
 import { copyProjectAttachmentOwnership } from "./project-attachments.js";
 import { deleteThreadSearchLearnedSelections } from "./thread-search-learned-selections.js";
 import {
@@ -14,6 +15,7 @@ import {
   lt,
   ne,
   or,
+  placeholder,
   sql,
   type SQL,
 } from "drizzle-orm";
@@ -271,6 +273,7 @@ export interface CreateThreadInput {
   title?: string | null;
   titleFallback?: string | null;
   sectionId?: string | null;
+  pinned?: boolean;
   status?: ThreadStatus;
   parentThreadId?: string | null;
   lifecycleOwnerThreadId?: string | null;
@@ -278,6 +281,7 @@ export interface CreateThreadInput {
   originKind?: ThreadOriginKind | null;
   originPluginId?: string | null;
   pluginMetadata?: { pluginId: string; metadata: JsonObject } | null;
+  startupContext?: string;
   visibility?: ThreadVisibility;
 }
 
@@ -327,7 +331,15 @@ export function createThread(
           title: input.title ?? null,
           titleFallback: input.titleFallback ?? null,
           sectionId: input.sectionId ?? null,
+          pinnedAt: input.pinned ? now : null,
+          pinSortKey: input.pinned
+            ? createOrderKeyBetween({
+                previousKey: null,
+                nextKey: getFirstPinnedThread(tx)?.pinSortKey ?? null,
+              })
+            : null,
           status: input.status ?? "starting",
+          startupContext: input.startupContext ?? null,
           parentThreadId:
             originKind === null ? (input.parentThreadId ?? null) : null,
           sourceThreadId:
@@ -382,8 +394,15 @@ export function createThread(
   return thread;
 }
 
+const prepareGetThread = (db: DbQueryConnection) =>
+  db
+    .select()
+    .from(threads)
+    .where(eq(threads.id, placeholder("id")))
+    .prepare();
+
 export function getThread(db: ThreadWriteConnection, id: string) {
-  return db.select().from(threads).where(eq(threads.id, id)).get() ?? null;
+  return prepareCachedQuery(db, prepareGetThread).get({ id }) ?? null;
 }
 
 export interface ThreadMentionRow {
@@ -997,9 +1016,14 @@ function listThreadSearchMatchRows(
         s.thread_id AS threadId,
         ${tokenIndex} AS tokenIndex,
         MIN(thread_search_segments_fts.rank) AS tokenRank,
-        MAX(CASE WHEN s.source_kind IN ('title', 'title_fallback') THEN 1 ELSE 0 END) AS tokenMatchedTitle
+        MAX(CASE
+          WHEN s.source_kind = 'title' THEN 1
+          WHEN s.source_kind = 'title_fallback' AND TRIM(COALESCE(t.title, '')) = '' THEN 1
+          ELSE 0
+        END) AS tokenMatchedTitle
       FROM thread_search_segments_fts
       JOIN thread_search_segments AS s ON s.rowid = thread_search_segments_fts.rowid
+      JOIN threads AS t ON t.id = s.thread_id
       WHERE thread_search_segments_fts MATCH ${matchQuery}
       GROUP BY s.thread_id
     `,
@@ -1023,9 +1047,9 @@ function listThreadSearchMatchRows(
       SELECT
         token_matches.threadId AS threadId,
         MIN(token_matches.tokenRank) AS bestRank,
-        -- Every query token matched somewhere in the title (not just the
-        -- message body), so this thread ranks as a quick-switcher-style
-        -- name match rather than a plain content match.
+        -- Every query token matched the displayed title (the fallback only
+        -- counts for untitled threads), so this thread ranks as a
+        -- quick-switcher-style name match rather than a plain content match.
         MIN(token_matches.tokenMatchedTitle) AS titleMatch,
         MAX(t.updated_at) AS threadUpdatedAt,
         MAX(t.archived_at IS NOT NULL) AS archived,
@@ -1584,6 +1608,21 @@ export function listThreadEnvironmentAssignmentsOnHost(
       ),
     )
     .all();
+}
+
+export function listExistingThreadIds(
+  db: DbQueryConnection,
+  threadIds: string[],
+): string[] {
+  if (threadIds.length === 0) {
+    return [];
+  }
+  return db
+    .select({ id: threads.id })
+    .from(threads)
+    .where(inArray(threads.id, threadIds))
+    .all()
+    .map((row) => row.id);
 }
 
 export function listHostThreadIds(
@@ -2150,12 +2189,12 @@ export function markThreadDeleted(
 
 export function markThreadStorageDeleted(
   db: ThreadWriteConnection,
-  args: { threadId: string; deletedAt?: number },
+  args: { threadId: string },
 ) {
   return (
     db
       .update(threads)
-      .set({ storageDeletedAt: args.deletedAt ?? Date.now() })
+      .set({ storageDeletedAt: Date.now() })
       .where(eq(threads.id, args.threadId))
       .returning()
       .get() ?? null
@@ -2207,7 +2246,7 @@ export function unarchiveThread(
       return tx
         .update(threads)
         .set({ archivedAt: null, updatedAt: now })
-        .where(eq(threads.id, id))
+        .where(and(eq(threads.id, id), isNotNull(threads.archivedAt)))
         .returning()
         .get();
     },

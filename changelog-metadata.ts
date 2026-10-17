@@ -4,10 +4,51 @@ type ReleaseMeta = {
 };
 
 export const RELEASE_META: Record<string, ReleaseMeta> = {
+  "0.45.0+aleph.0.6.3": {
+    date: "October 15, 2026",
+    headline: "Aleph 0.6.3: timeline, database and agent priority performance fixes",
+  },
+  "0.45.0+aleph.0.6.2": {
+    date: "October 15, 2026",
+    headline: "Aleph 0.6.2: the Dorcas theme and its resting chrome",
+  },
+  "0.45.0+aleph.0.6.1": {
+    date: "October 14, 2026",
+    headline:
+      "Aleph 0.6.1: the update row shows when a wrapper installed the release",
+  },
+  "0.45.0+aleph.0.6.0": {
+    date: "October 8, 2026",
+    headline: "Aleph 0.6.0: synced to upstream bb 0.45.0",
+  },
+  "0.44.0+aleph.0.5.3": {
+    date: "October 3, 2026",
+    headline:
+      "Aleph 0.5.3: secrets in resolved provider environments are redacted from thread events",
+  },
+  "0.44.0+aleph.0.5.2": {
+    date: "October 1, 2026",
+    headline:
+      "Aleph 0.5.2: busy threads no longer stall the server, and task comments post at once",
+  },
+  "0.44.0+aleph.0.5.1": {
+    date: "September 29, 2026",
+    headline:
+      "Aleph 0.5.1: the composer no longer gets stuck after a reconnect",
+  },
+  "0.44.0+aleph.0.5.0": {
+    date: "September 28, 2026",
+    headline:
+      "Aleph 0.5.0: synced to upstream bb 0.44.0, task details beside the list, account usage in the header, and Cmd-W closes the focused pane",
+  },
   "0.43.4+aleph.0.4.1": {
     date: "September 27, 2026",
     headline:
       "Aleph 0.4.1: a new app icon, and provider usage on hover with burn rates inline",
+  },
+  "0.44.0": {
+    date: "September 25, 2026",
+    headline: "Diff filtering, safer archiving, and plugin safe mode",
   },
   "0.43.4+aleph.4": {
     date: "September 27, 2026",

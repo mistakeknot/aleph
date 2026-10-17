@@ -1,5 +1,5 @@
 import { readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import ts from "typescript";
@@ -8,6 +8,7 @@ import {
   type BbPluginApi,
   type ExperimentalAppOverlayProps,
   type PluginAppBuilder,
+  type PluginAppHeaderStatusProps,
   type PluginAppSlots,
   type PluginContentScriptContext,
   type PluginContentScriptRegistration,
@@ -34,7 +35,6 @@ import {
   type ExperimentalSidebarNavigationProps,
   type ExperimentalSidebarHeaderProps,
   type ExperimentalPluginCommandPaletteSearchRegistration,
-  type PluginAppHeaderStatusProps,
   type PluginSourceCodeRendererProps,
   type PluginThreadHeaderActionProps,
   type ExperimentalPluginBrowserToolbarActionProps,
@@ -81,8 +81,13 @@ function readSurfacesSource(): string {
 }
 
 function exportedTypeNames(source: string): string[] {
-  return [...source.matchAll(/^export (?:interface|type) ([A-Za-z0-9_]+)/gm)]
-    .map((match) => match[1])
+  return [
+    ...source.matchAll(
+      /(\/\*\*(?:(?!\*\/)[\s\S])*\*\/\s*)?^export (?:interface|type) ([A-Za-z0-9_]+)/gm,
+    ),
+  ]
+    .filter((match) => !(match[1] ?? "").includes("@internal"))
+    .map((match) => match[2])
     .filter((name): name is string => name !== undefined);
 }
 
@@ -250,9 +255,7 @@ const THREAD_EVENT_PAYLOAD_FIELDS = {
     "attemptNumber",
   ],
 } as const satisfies {
-  [
-    E in keyof PluginThreadEventPayloads
-  ]: readonly (keyof PluginThreadEventPayloads[E])[];
+  [E in keyof PluginThreadEventPayloads]: readonly (keyof PluginThreadEventPayloads[E])[];
 };
 
 type MissingThreadEventField = {
@@ -279,6 +282,7 @@ type SlotPropsByName = {
   experimental_sidebarHeader: ExperimentalSidebarHeaderProps;
   experimental_threadList: PluginThreadListProps;
   experimental_threadHeaderAction: PluginThreadHeaderActionProps;
+  experimental_appHeaderStatus: PluginAppHeaderStatusProps;
   experimental_browserToolbarAction: ExperimentalPluginBrowserToolbarActionProps;
   fileOpener: PluginFileOpenerProps;
   experimental_sourceCodeRenderer: PluginSourceCodeRendererProps;
@@ -291,7 +295,6 @@ type SlotPropsByName = {
   experimental_environmentProviderInputs: PluginEnvironmentProviderInputsProps;
   experimental_machineProviderInputs: PluginMachineProviderInputsProps;
   experimental_commandPaletteSearch: ExperimentalPluginCommandPaletteSearchRegistration;
-  experimental_appHeaderStatus: PluginAppHeaderStatusProps;
 };
 
 type MissingSlot = Exclude<keyof PluginAppSlots, keyof SlotPropsByName>;
@@ -372,6 +375,13 @@ const FRONTEND_SLOT_PROP_FIELDS = {
     "projectId",
     "isCompactViewport",
   ],
+  experimental_appHeaderStatus: [
+    "threadId",
+    "projectId",
+    "isCompactViewport",
+    "availableWidth",
+    "openSettings",
+  ],
   experimental_browserToolbarAction: [
     "threadId",
     "tabId",
@@ -379,20 +389,13 @@ const FRONTEND_SLOT_PROP_FIELDS = {
     "experimental_page",
     "isCompactViewport",
   ],
-  fileOpener: [
-    "path",
-    "source",
-    "experimental_lineRange",
-    "Original",
-    "experimental_Original",
-  ],
+  fileOpener: ["path", "source", "experimental_lineRange", "Original"],
   experimental_sourceCodeRenderer: [
     "content",
     "path",
     "overflow",
     "highlightedLines",
     "Original",
-    "experimental_Original",
   ],
   experimental_diffRenderer: [
     "patch",
@@ -402,10 +405,15 @@ const FRONTEND_SLOT_PROP_FIELDS = {
     "showLineNumbers",
     "experimental_fullFileContents",
     "Original",
-    "experimental_Original",
   ],
   messageDirective: ["attributes", "source", "message", "openWorkspaceFile"],
-  messageAction: ["threadId", "message", "selectedText", "openPanel"],
+  messageAction: [
+    "threadId",
+    "message",
+    "selectedText",
+    "openPanel",
+    "composer",
+  ],
   commandPaletteAction: ["threadId", "projectId", "openPanel"],
   experimental_providerIcon: ["providerKind", "providerId", "icon"],
   experimental_timelineRenderer: [
@@ -423,13 +431,6 @@ const FRONTEND_SLOT_PROP_FIELDS = {
   ],
   experimental_machineProviderInputs: ["value", "onChange"],
   experimental_commandPaletteSearch: ["id", "title", "search"],
-  experimental_appHeaderStatus: [
-    "threadId",
-    "projectId",
-    "isCompactViewport",
-    "availableWidth",
-    "openSettings",
-  ],
 } as const satisfies {
   [S in keyof SlotPropsByName]: readonly (keyof SlotPropsByName[S])[];
 };
@@ -579,8 +580,8 @@ describe("bb-plugin-authoring skill", () => {
       onError,
       shouldCreateNewSourceFile,
     ) =>
-      file === filename
-        ? ts.createSourceFile(filename, source!, languageVersion)
+      resolve(file) === filename
+        ? ts.createSourceFile(file, source!, languageVersion)
         : readSource(file, languageVersion, onError, shouldCreateNewSourceFile);
     const program = ts.createProgram([filename], options, host);
     expect(

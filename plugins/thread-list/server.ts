@@ -12,6 +12,7 @@ import {
   getPreferenceDefault,
   isPreferenceKey,
   parsePreferenceValue,
+  parseStoredPreferenceValue,
   PREFERENCE_KEYS,
   PREFERENCES_CHANGED_CHANNEL,
   preferenceDefinitions,
@@ -19,6 +20,10 @@ import {
   type PreferenceValue,
   type PreferenceValues,
 } from "./shared/preferences.js";
+import {
+  createHullDesignationsReader,
+  resolveHullDesignationsPath,
+} from "./shared/hull-designations.js";
 
 const PREFERENCE_KV_PREFIX = "preference:";
 const MIGRATION_KV_KEY = "migration:ui-preferences:v1";
@@ -50,6 +55,12 @@ export const threadListRpcContract = defineRpcContract({
       .object({ key: preferenceKeySchema, value: z.unknown() })
       .strict(),
   },
+  listHullDesignations: {
+    input: z.null(),
+    output: z
+      .object({ designations: z.record(z.string(), z.string()) })
+      .strict(),
+  },
 });
 
 function kvKey(key: PreferenceKey): string {
@@ -62,7 +73,7 @@ export function createPreferenceStore(bb: BbPluginApi) {
   ): Promise<PreferenceValue<Key>> {
     const stored = await bb.storage.kv.get<unknown>(kvKey(key));
     if (stored === undefined) return getPreferenceDefault(key);
-    const parsed = parsePreferenceValue(key, stored);
+    const parsed = parseStoredPreferenceValue(key, stored);
     if (parsed.success) return parsed.value;
     bb.log.warn(
       `stored preference ${key} is invalid (${parsed.message}); using the default`,
@@ -181,8 +192,14 @@ const JSON_OPTION = {
 
 export default async function threadListPlugin(bb: BbPluginApi) {
   const store = createPreferenceStore(bb);
+  const readHullDesignations = createHullDesignationsReader(() =>
+    resolveHullDesignationsPath(bb.server.experimental_dataDir),
+  );
 
   bb.rpc.register(threadListRpcContract, {
+    async listHullDesignations() {
+      return { designations: readHullDesignations() };
+    },
     async listPreferences() {
       return { preferences: await store.readAll() };
     },

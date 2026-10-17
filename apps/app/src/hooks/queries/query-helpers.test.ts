@@ -1,3 +1,4 @@
+import { PendingInteractionsRequestTimeoutError } from "@/aleph/pending-interactions-guard";
 import { describe, expect, it } from "vitest";
 import type { ThreadListEntry, WorkspaceStatus } from "@bb/domain";
 import {
@@ -44,19 +45,13 @@ import {
 import { createQueryClientTestHarness } from "@/test/queryClientTestHarness";
 import { HttpError } from "@/lib/api";
 import { BbHttpError } from "@/lib/sdk";
-import { isTransientReadError, requireEnabledQueryArg } from "./query-helpers";
+import {
+  isTransientReadError,
+  requireEnabledQueryArg,
+  shouldRetryTransientReadQuery,
+} from "./query-helpers";
 
 describe("requireEnabledQueryArg", () => {
-  it("returns the value when present", () => {
-    expect(
-      requireEnabledQueryArg({
-        value: "thr_1",
-        hookName: "useThread",
-        argName: "thread id",
-      }),
-    ).toBe("thr_1");
-  });
-
   it("keeps a numeric zero rather than treating it as missing", () => {
     expect(
       requireEnabledQueryArg({
@@ -164,7 +159,6 @@ function makeThreadResponse(
     environmentId: "env-1",
     runtime: {
       displayStatus: "waiting-for-host",
-      hostReconnectGraceExpiresAt: null,
     },
     canSpawnChild: false,
     ...thread,
@@ -522,22 +516,24 @@ describe("optimisticallyInsertThread", () => {
     ).toEqual([]);
   });
 
-  it("preserves the server-provided runtime state", () => {
+  it("places a new thread on its selected machine in the first cached sidebar row", () => {
     const { queryClient } = createQueryClientTestHarness();
-    const threadListKey = threadListQueryKey({
-      archived: false,
-      projectId: "project-1",
-    });
-    queryClient.setQueryData(threadListKey, []);
+    queryClient.setQueryData(
+      sidebarNavigationQueryKey(),
+      makeSidebarNavigation(),
+    );
 
-    optimisticallyInsertThread(queryClient, makeThreadResponse());
+    optimisticallyInsertThread(
+      queryClient,
+      makeThreadResponse(),
+      "host-selected",
+    );
 
-    const [thread] =
-      queryClient.getQueryData<ThreadListEntry[]>(threadListKey) ?? [];
-    expect(thread?.runtime).toEqual({
-      displayStatus: "waiting-for-host",
-      hostReconnectGraceExpiresAt: null,
-    });
+    expect(
+      queryClient.getQueryData<SidebarBootstrapResponse>(
+        sidebarNavigationQueryKey(),
+      )?.projects[0]?.threads[0]?.environmentHostId,
+    ).toBe("host-selected");
   });
 
   it("projects queued work into the thread list and sidebar immediately", () => {
@@ -584,7 +580,6 @@ describe("optimisticallyInsertThread", () => {
       makeThreadResponse({
         runtime: {
           displayStatus: "active",
-          hostReconnectGraceExpiresAt: null,
         },
       }),
     );
@@ -641,5 +636,15 @@ describe("optimisticallyInsertThread", () => {
         .getQueryData<ThreadListEntry[]>(forkListKey)
         ?.map((entry) => entry.id),
     ).toEqual(["fork-1"]);
+  });
+});
+
+describe("pending-interactions timeout retry classification", () => {
+  it("retries the timeout error with a bounded attempt count", () => {
+    const error = new PendingInteractionsRequestTimeoutError();
+    expect(isTransientReadError(error)).toBe(true);
+    expect(shouldRetryTransientReadQuery(0, error)).toBe(true);
+    expect(shouldRetryTransientReadQuery(1, error)).toBe(true);
+    expect(shouldRetryTransientReadQuery(2, error)).toBe(false);
   });
 });

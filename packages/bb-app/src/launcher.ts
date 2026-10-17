@@ -13,9 +13,10 @@ import {
 import { mutateManagedJsonFile } from "@bb/config/managed-json-file";
 import { access, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, resolve, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
+import { setTimeout as sleep } from "node:timers/promises";
 import {
   bbAppRuntimeVerifyTokens,
   claimBbAppRuntimeFile,
@@ -26,6 +27,7 @@ import {
 import { stopVerifiedProcess } from "@bb/config/verified-process-stop";
 import {
   findMachineServiceFile,
+  HOST_DAEMON_RESTART_EXIT_CODE,
   MACHINE_INSTALLER_ENV_NAME,
 } from "@bb/config/machine-service";
 import {
@@ -46,7 +48,6 @@ import {
   bbAppManagedEnvFileSchema,
   formatBbAppConfigPath,
   formatBbAppEnvPath,
-  formatCustomAcpAgentProviderId,
   parseBbAppManagedConfig,
   REMOVED_AI_SERVICE_CONFIG_KEYS,
   REMOVED_AI_SERVICE_CONFIG_MESSAGE,
@@ -126,6 +127,9 @@ const HEALTH_CHECK_REQUEST_TIMEOUT_MS = 1_000;
 const MANAGED_PROCESS_TERMINATION_TIMEOUT_MS = 5_000;
 const MANAGED_PROCESS_KILL_TIMEOUT_MS = 1_000;
 const MANAGED_PROCESS_RESTART_RETRY_DELAY_MS = 1_000;
+const HOST_DAEMON_RESTART_INITIAL_DELAY_MS = 1_000;
+const HOST_DAEMON_RESTART_MAX_DELAY_MS = 30_000;
+const HOST_DAEMON_RESTART_STABLE_UPTIME_MS = 60_000;
 const MOVED_SERVER_EXIT_POLL_INTERVAL_MS = 1_000;
 const MOVED_SERVER_EXIT_GRACE_MS = 20_000;
 const MOVED_MODE_MARKER_POLL_INTERVAL_MS = 1_000;
@@ -161,6 +165,7 @@ const STARTUP_ONLY_MANAGED_ENV_KEYS = new Set<string>([
   "BB_HOST_DAEMON_PORT",
   "BB_INHERITED_SKILLS_ROOTS",
   "BB_LOG_LEVEL",
+  "BB_PERF_DIAGNOSTICS",
   "BB_MANAGED_DEV_BUILTIN_PLUGIN_HOT_RELOAD",
   "BB_POSTHOG_API_KEY",
   "BB_SERVER_BIND_HOST",
@@ -224,11 +229,7 @@ type ManagedConfigValues = BbAppManagedConfigValues;
 type ManagedEnvConfig = BbAppManagedEnvConfig;
 type ManagedEnvFile = BbAppManagedEnvFile;
 type ManagedConfig = BbAppManagedConfig;
-type ManagedConfigForWrite = Omit<
-  ManagedConfig,
-  "customAcpAgents" | "customModels"
-> & {
-  customAcpAgents?: unknown[];
+type ManagedConfigForWrite = Omit<ManagedConfig, "customModels"> & {
   customModels?: unknown[];
 };
 
@@ -340,6 +341,7 @@ interface LauncherCliOptions {
   enrollKey?: string;
   help: boolean;
   inAppUpdates?: boolean;
+  performanceDiagnostics?: boolean;
   hostDaemonPort?: string;
   hostId?: string;
   joinCode?: string;
@@ -347,6 +349,7 @@ interface LauncherCliOptions {
   serverBindHost?: string;
   serverPort?: string;
   serverUrl?: string;
+  supervise?: boolean;
 }
 
 interface ParsedLauncherArgs {
@@ -574,6 +577,7 @@ interface WaitForHostDaemonStatusArgs {
   expectedServerUrl: string;
   port: number;
   timeoutMs?: number;
+  signal?: AbortSignal;
 }
 
 interface RequestHostEnrollKeyArgs {
@@ -611,6 +615,7 @@ interface CreateServerBaseEnvArgs {
   env: NodeJS.ProcessEnv;
   envFile: ManagedEnvFile;
   serverBindHostOverride?: string;
+  performanceDiagnostics?: boolean;
 }
 
 interface CreateDaemonEnvArgs {
@@ -721,6 +726,15 @@ interface RunHostDaemonOnlyArgs {
   args: string[];
   context: BbAppStartContext;
   env: NodeJS.ProcessEnv;
+  supervise: boolean;
+}
+
+export interface SuperviseHostDaemonProcessArgs {
+  delayMilliseconds: DelayMillisecondsFn;
+  firstRun: ManagedProcessRun;
+  isShutdownRequested: () => boolean;
+  now: () => number;
+  startDaemon: () => ManagedProcessRun;
 }
 
 interface RunBundledCliCommandArgs {
@@ -806,6 +820,7 @@ export function parseLauncherArgs(args: string[]): ParsedLauncherArgs {
       "enroll-key": { type: "string" },
       "host-daemon-port": { type: "string" },
       "in-app-updates": { type: "boolean" },
+      "perf-diagnostics": { type: "boolean" },
       "host-id": { type: "string" },
       "join-code": { type: "string" },
       "server-bind-host": { type: "string" },
@@ -814,6 +829,7 @@ export function parseLauncherArgs(args: string[]): ParsedLauncherArgs {
       help: { short: "h", type: "boolean" },
       json: { type: "boolean" },
       server: { type: "string" },
+      supervise: { type: "boolean" },
     },
   });
   const options: LauncherCliOptions = {
@@ -823,11 +839,17 @@ export function parseLauncherArgs(args: string[]): ParsedLauncherArgs {
   if (readBooleanOption(parsed.values["auto-update"])) {
     options.autoUpdate = true;
   }
+  if (readBooleanOption(parsed.values.supervise)) {
+    options.supervise = true;
+  }
   if (readBooleanOption(parsed.values.bundled)) {
     options.bundled = true;
   }
   if (readBooleanOption(parsed.values["in-app-updates"])) {
     options.inAppUpdates = true;
+  }
+  if (readBooleanOption(parsed.values["perf-diagnostics"])) {
+    options.performanceDiagnostics = true;
   }
   const dataDir = readStringOption(parsed.values["data-dir"]);
   const enrollKey = readStringOption(parsed.values["enroll-key"]);
@@ -947,11 +969,17 @@ function createEnvFromOptions(
   args: CreateEnvFromOptionsArgs,
 ): NodeJS.ProcessEnv {
   const env = { ...args.env };
+  if (args.options.performanceDiagnostics === true) {
+    env.BB_PERF_DIAGNOSTICS = "1";
+  }
   if (args.options.dataDir !== undefined) {
     env.BB_DATA_DIR = args.options.dataDir;
   }
   if (args.options.autoUpdate === true) {
     env.BB_HOST_DAEMON_AUTO_UPDATE = "1";
+  }
+  if (args.options.supervise === true) {
+    env.BB_HOST_DAEMON_SUPERVISED = "1";
   }
   if (args.options.hostDaemonPort !== undefined) {
     env.BB_HOST_DAEMON_PORT = args.options.hostDaemonPort;
@@ -1018,6 +1046,9 @@ function createServerBaseEnv(args: CreateServerBaseEnvArgs): NodeJS.ProcessEnv {
     ...args.env,
     ...args.config.config,
     ...args.envFile.env,
+    ...(args.performanceDiagnostics === true
+      ? { BB_PERF_DIAGNOSTICS: "1" }
+      : {}),
     ...(args.serverBindHostOverride !== undefined
       ? { BB_SERVER_BIND_HOST: args.serverBindHostOverride }
       : {}),
@@ -1084,9 +1115,6 @@ function readManagedConfigForWrite(
         return parsedConfig;
       }
       const configForWrite: ManagedConfigForWrite = { ...parsedConfig };
-      if (Array.isArray(parsedJson.customAcpAgents)) {
-        configForWrite.customAcpAgents = parsedJson.customAcpAgents;
-      }
       if (Array.isArray(parsedJson.customModels)) {
         configForWrite.customModels = parsedJson.customModels;
       }
@@ -1161,9 +1189,6 @@ function mergeManagedConfig(
   if (patchConfig.customModels !== undefined) {
     nextConfig.customModels = patchConfig.customModels;
   }
-  if (patchConfig.customAcpAgents !== undefined) {
-    nextConfig.customAcpAgents = patchConfig.customAcpAgents;
-  }
 
   return nextConfig;
 }
@@ -1175,8 +1200,6 @@ function pruneManagedConfig(
   if (nextConfig.config && Object.keys(nextConfig.config).length === 0)
     delete nextConfig.config;
   if (nextConfig.customModels?.length === 0) delete nextConfig.customModels;
-  if (nextConfig.customAcpAgents?.length === 0)
-    delete nextConfig.customAcpAgents;
   return nextConfig;
 }
 
@@ -1367,6 +1390,7 @@ export async function resolveBbAppRuntimeState(
           envFile,
           env: initialEnv,
           serverBindHostOverride: args.options.serverBindHost,
+          performanceDiagnostics: args.options.performanceDiagnostics,
         }),
       ),
     );
@@ -1408,6 +1432,7 @@ export async function resolveBbAppRuntimeState(
           envFile,
           env: initialEnv,
           serverBindHostOverride: args.options.serverBindHost,
+          performanceDiagnostics: args.options.performanceDiagnostics,
         }),
       ),
     ),
@@ -1518,7 +1543,8 @@ Usage:
 Startup-only server and launcher keys:
   BB_APP_SURFACE, BB_APP_URL, BB_DATA_DIR, BB_DEV_APP_PORT,
   BB_EXTERNAL_URL, BB_HOST_DAEMON_PORT, BB_INHERITED_SKILLS_ROOTS,
-  BB_LOG_LEVEL, BB_MANAGED_DEV_BUILTIN_PLUGIN_HOT_RELOAD, BB_POSTHOG_API_KEY,
+  BB_LOG_LEVEL, BB_MANAGED_DEV_BUILTIN_PLUGIN_HOT_RELOAD, BB_PERF_DIAGNOSTICS,
+  BB_POSTHOG_API_KEY,
   BB_SERVER_BIND_HOST, BB_SERVER_PORT, BB_TELEMETRY, and BB_FF_* feature
   flags.
   Changes require a full bb-app restart with bb-app stop && bb-app start,
@@ -1640,11 +1666,6 @@ function formatManagedConfig(config: ManagedConfig): string {
   for (const [index, customModel] of (config.customModels ?? []).entries()) {
     lines.push(
       `customModels[${index}]=${customModel.providerId}:${customModel.model}`,
-    );
-  }
-  for (const [index, customAgent] of (config.customAcpAgents ?? []).entries()) {
-    lines.push(
-      `customAcpAgents[${index}]=${formatCustomAcpAgentProviderId(customAgent.id)}:${customAgent.command}`,
     );
   }
   return lines.length > 0 ? `${lines.join("\n")}\n` : "No bb-app config set.\n";
@@ -2324,12 +2345,16 @@ export async function waitForHostDaemonStatus(
   const statusUrl = `http://${BB_LOOPBACK_HOST}:${args.port}/status`;
 
   while (Date.now() <= deadline) {
+    args.signal?.throwIfAborted();
     if (args.childProcess && hasProcessExited(args.childProcess)) {
       throw new Error("Host daemon exited before becoming ready");
     }
     try {
       const response = await fetch(statusUrl, {
-        signal: AbortSignal.timeout(HEALTH_CHECK_REQUEST_TIMEOUT_MS),
+        signal: AbortSignal.any([
+          AbortSignal.timeout(HEALTH_CHECK_REQUEST_TIMEOUT_MS),
+          ...(args.signal ? [args.signal] : []),
+        ]),
       });
       if (response.ok) {
         const status = hostDaemonStatusSchema.parse(await response.json());
@@ -2343,7 +2368,7 @@ export async function waitForHostDaemonStatus(
         }
       }
     } catch {}
-    await delayMilliseconds({ ms: HEALTH_CHECK_INTERVAL_MS });
+    await sleep(HEALTH_CHECK_INTERVAL_MS, undefined, { signal: args.signal });
   }
   throw new Error(
     `Timed out waiting for host daemon ${args.expectedHostId} to connect to ${expectedServerUrl} at ${statusUrl}`,
@@ -2608,12 +2633,34 @@ export async function createHostDaemonJoinEnv(
   };
 }
 
+interface ResolveBundledCliLaunchArgs {
+  args: string[];
+  cliPath: string;
+  nodePath: string;
+  platform: NodeJS.Platform;
+}
+
+export function resolveBundledCliLaunch(args: ResolveBundledCliLaunchArgs): {
+  command: string;
+  args: string[];
+} {
+  return args.platform === "win32" && win32.extname(args.cliPath) === ""
+    ? { command: args.nodePath, args: [args.cliPath, ...args.args] }
+    : { command: args.cliPath, args: args.args };
+}
+
 export async function runBundledCliCommand(
   args: RunBundledCliCommandArgs,
 ): Promise<number> {
   const bbCliOverride = toOptionalString(args.env.BB_CLI);
   const cliPath = bbCliOverride ?? join(args.context.daemonBundleDir, "bb");
-  const childProcess = spawn(cliPath, args.args, {
+  const launch = resolveBundledCliLaunch({
+    args: args.args,
+    cliPath,
+    nodePath: process.execPath,
+    platform: process.platform,
+  });
+  const childProcess = spawn(launch.command, launch.args, {
     cwd: process.cwd(),
     env: createCliEnv({ context: args.context, env: args.env }),
     stdio: "inherit",
@@ -2773,16 +2820,18 @@ async function runHostDaemonOnly(args: RunHostDaemonOnlyArgs): Promise<void> {
     enrollment.enrolled ? "Starting daemon" : "Enrolling and starting daemon",
   );
 
-  const daemonProcess = spawnLoggedProcess({
-    args: [args.context.daemonEntry],
-    command: process.execPath,
-    env: daemonEnv,
-    logDir: args.context.logDir,
-    logName: "host-daemon",
-  });
+  const startDaemon = (): ChildManagedProcessRun =>
+    spawnNamedManagedProcess({
+      args: [args.context.daemonEntry],
+      command: process.execPath,
+      env: daemonEnv,
+      logDir: args.context.logDir,
+      processName: "daemon",
+    });
+  const firstRun = startDaemon();
+  let currentRun: ManagedProcessRun = firstRun;
 
   let shuttingDown = false;
-  const daemonExit = waitForProcessExit(daemonProcess);
 
   const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
     if (shuttingDown) {
@@ -2791,11 +2840,7 @@ async function runHostDaemonOnly(args: RunHostDaemonOnlyArgs): Promise<void> {
     shuttingDown = true;
     process.stdout.write("\n");
     log(dim("●"), "Shutting down");
-    await terminateProcessIfRunning({
-      childProcess: daemonProcess,
-      processName: "daemon",
-      signal,
-    });
+    await currentRun.terminate(signal);
   };
 
   const removeSignalForwarding = installTerminationSignalForwarding(
@@ -2804,14 +2849,38 @@ async function runHostDaemonOnly(args: RunHostDaemonOnlyArgs): Promise<void> {
     },
   );
 
+  const supervise = args.supervise && command.kind === "start";
+  const readiness = new AbortController();
+  const daemonExit = supervise
+    ? superviseHostDaemonProcess({
+        delayMilliseconds,
+        firstRun,
+        isShutdownRequested: () => shuttingDown,
+        now: Date.now,
+        startDaemon: () => {
+          currentRun = startDaemon();
+          return currentRun;
+        },
+      })
+    : firstRun.exit.then(({ result }) => result);
+
   try {
     try {
-      await waitForHostDaemonStatus({
-        childProcess: daemonProcess,
+      const ready = waitForHostDaemonStatus({
+        childProcess: supervise ? null : firstRun.childProcess,
         expectedHostId,
         expectedServerUrl: serverUrl,
         port: args.context.daemonPort,
+        timeoutMs: supervise ? Infinity : HEALTH_CHECK_TIMEOUT_MS,
+        signal: readiness.signal,
       });
+      const exited = supervise
+        ? await Promise.race([ready.then(() => null), daemonExit])
+        : await ready.then(() => null);
+      if (exited !== null) {
+        process.exitCode = toExitCode(exited);
+        return;
+      }
     } catch {
       endStep(red("✗"), "Host daemon failed to start");
       log(" ", dim(`lock: ${args.context.daemonLockDir}`));
@@ -2843,7 +2912,42 @@ async function runHostDaemonOnly(args: RunHostDaemonOnlyArgs): Promise<void> {
 
     process.exitCode = toExitCode(await daemonExit);
   } finally {
+    readiness.abort();
     removeSignalForwarding();
+  }
+}
+
+export async function superviseHostDaemonProcess(
+  args: SuperviseHostDaemonProcessArgs,
+): Promise<ProcessExitResult> {
+  let run = args.firstRun;
+  let startedAt = args.now();
+  let backoffMs = HOST_DAEMON_RESTART_INITIAL_DELAY_MS;
+  for (;;) {
+    const { result } = await run.exit;
+    if (args.isShutdownRequested() || result.code === 0) {
+      return result;
+    }
+    if (args.now() - startedAt >= HOST_DAEMON_RESTART_STABLE_UPTIME_MS) {
+      backoffMs = HOST_DAEMON_RESTART_INITIAL_DELAY_MS;
+    }
+    const restartRequested = result.code === HOST_DAEMON_RESTART_EXIT_CODE;
+    const delayMs = restartRequested ? 0 : backoffMs;
+    if (!restartRequested) {
+      backoffMs = Math.min(backoffMs * 2, HOST_DAEMON_RESTART_MAX_DELAY_MS);
+    }
+    log(
+      yellow("!"),
+      `host daemon exited with ${formatProcessExitResult(result)} - restarting host daemon${
+        delayMs === 0 ? "" : ` in ${delayMs / 1_000}s`
+      }`,
+    );
+    await args.delayMilliseconds({ ms: delayMs });
+    if (args.isShutdownRequested()) {
+      return result;
+    }
+    run = args.startDaemon();
+    startedAt = args.now();
   }
 }
 
@@ -2855,7 +2959,7 @@ export async function runBbHostDaemon(
     process.stdout.write(`bb-host-daemon
 
 Usage:
-  bb-host-daemon [--server-url <url>] [--host-daemon-port <port>] [--host-id <id>] [--enroll-key <key>] [--auto-update]
+  bb-host-daemon [--server-url <url>] [--host-daemon-port <port>] [--host-id <id>] [--enroll-key <key>] [--auto-update] [--supervise]
   bb-host-daemon join --server-url <url> [--host-daemon-port <port>] [--join-code <code> --host-id <id>] [--auto-update]
 `);
     return;
@@ -2873,6 +2977,7 @@ Usage:
     args: parsedArgs.positionals,
     context: runtime.context,
     env: runtime.env,
+    supervise: parsedArgs.options.supervise === true,
   });
 }
 
@@ -2897,6 +3002,7 @@ Usage:
   bb-app [--data-dir <path>] [--server-bind-host <host>] [--server-port <port>] [--host-daemon-port <port>] [--in-app-updates] [--bundled]
   bb-app start
 
+  --perf-diagnostics permits CPU profiles and detailed logs when the performanceDiagnostics experiment is also on.
   --in-app-updates lets Settings → Updates and bb updates app update and
   restart bb. bb-app then runs the newest of this package and any version
   installed by an in-app update; --bundled runs this package regardless.
@@ -2906,8 +3012,12 @@ Usage:
   bb-app config refresh
   bb-app env set <key> <value>
   bb-app client ssh-target set <server-origin> <ssh-target> [--host-id <id>]
-  bb-app host-daemon [--server-url <url>] [--host-daemon-port <port>] [--host-id <id>] [--enroll-key <key>] [--auto-update]
+  bb-app host-daemon [--server-url <url>] [--host-daemon-port <port>] [--host-id <id>] [--enroll-key <key>] [--auto-update] [--supervise]
   bb-app host-daemon join --server-url <url> [--host-daemon-port <port>] [--join-code <code> --host-id <id>] [--auto-update]
+
+  --supervise restarts the host daemon when it crashes or installs an
+  update, for machines where no service manager restarts it. A daemon
+  that stops on purpose (exit 0) is not restarted.
 
 CLI:
   npx --package bb-app bb <command>
@@ -3896,6 +4006,7 @@ export async function runBbApp(
       args: command.args,
       context: runtime.context,
       env: runtime.env,
+      supervise: parsedArgs.options.supervise === true,
     });
     return;
   }

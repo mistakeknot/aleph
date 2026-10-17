@@ -11,7 +11,9 @@ import {
   type SpawnOptions,
 } from "@anthropic-ai/claude-agent-sdk";
 import {
+  experimental_isAgentCgroupIsolationRequested,
   experimental_isProviderBridgeRecording,
+  experimental_placeProviderChildInThreadScope,
   experimental_recordProviderChildIo,
 } from "@get-bb/plugin-sdk/provider-bridge";
 import type { ClaudePermissionMode } from "../interactive-contract.js";
@@ -29,11 +31,11 @@ export interface SdkSessionOptions {
   effort?: Options["effort"];
   sessionId?: string;
   permissionMode?: ClaudePermissionMode;
+  allowBypassPermissions: boolean;
   sandbox?: Options["sandbox"];
   hooks?: Options["hooks"];
   mcpServers?: Record<string, McpSdkServerConfigWithInstance>;
   allowedTools?: string[];
-  disallowedTools?: string[];
   canUseTool?: CanUseTool;
   env?: NodeJS.ProcessEnv;
   pathToClaudeCodeExecutable?: Options["pathToClaudeCodeExecutable"];
@@ -56,6 +58,7 @@ export type ClaudeMutableFlagSettings = {
   enableWorkflows: boolean;
   effortLevel?: ClaudeSdkReasoningEffort;
   ultracode: boolean;
+  fastMode: boolean;
 };
 
 type SdkSessionMessageHandler = (message: SDKMessage) => void;
@@ -73,6 +76,7 @@ interface SdkPermissionOptions {
 }
 
 interface BuildSdkPermissionOptionsArgs {
+  allowBypassPermissions: boolean;
   permissionMode: ClaudePermissionMode | undefined;
 }
 
@@ -88,8 +92,8 @@ interface BuildSdkDoneErrorMessageArgs {
 
 const SDK_STDERR_TAIL_MAX_CHARS = 4_000;
 
-function isCurrentProcessRoot(): boolean {
-  return process.getuid?.() === 0;
+export function isBypassPermissionsAvailable(): boolean {
+  return process.getuid?.() !== 0;
 }
 
 function appendBoundedText(args: AppendBoundedTextArgs): string {
@@ -132,6 +136,9 @@ function spawnRecordedClaudeProcess(args: {
     args.onStderr(data);
   });
   experimental_recordProviderChildIo(child, { threadId: args.threadId });
+  experimental_placeProviderChildInThreadScope(child, {
+    threadId: args.threadId,
+  });
   return child as SpawnedProcess;
 }
 
@@ -139,12 +146,15 @@ function buildSdkPermissionOptions(
   args: BuildSdkPermissionOptionsArgs,
 ): SdkPermissionOptions {
   const permissionMode = args.permissionMode ?? "default";
-  if (permissionMode !== "bypassPermissions") {
+  if (!args.allowBypassPermissions) {
     return { permissionMode };
   }
 
-  if (isCurrentProcessRoot()) {
-    return { permissionMode: "default" };
+  if (!isBypassPermissionsAvailable()) {
+    return {
+      permissionMode:
+        permissionMode === "bypassPermissions" ? "default" : permissionMode,
+    };
   }
 
   return {
@@ -222,6 +232,7 @@ export class SdkSession {
 
     this.stderrTail = "";
     const permissionOptions = buildSdkPermissionOptions({
+      allowBypassPermissions: this.options.allowBypassPermissions,
       permissionMode: this.options.permissionMode,
     });
     const onStderr = (data: string): void => {
@@ -236,7 +247,8 @@ export class SdkSession {
       cwd: this.options.cwd,
       systemPrompt: this.options.systemPrompt,
       ...permissionOptions,
-      ...(experimental_isProviderBridgeRecording()
+      ...(experimental_isProviderBridgeRecording() ||
+      experimental_isAgentCgroupIsolationRequested()
         ? {
             spawnClaudeCodeProcess: (spawnOptions: SpawnOptions) =>
               spawnRecordedClaudeProcess({
@@ -256,9 +268,6 @@ export class SdkSession {
         : {}),
       ...(this.options.allowedTools
         ? { allowedTools: this.options.allowedTools }
-        : {}),
-      ...(this.options.disallowedTools
-        ? { disallowedTools: this.options.disallowedTools }
         : {}),
       ...(this.options.canUseTool
         ? { canUseTool: this.options.canUseTool }
@@ -282,7 +291,10 @@ export class SdkSession {
       ...(this.options.plugins ? { plugins: this.options.plugins } : {}),
       ...(this.options.thinking ? { thinking: this.options.thinking } : {}),
       ...(this.options.settings ? { settings: this.options.settings } : {}),
-      ...(this.options.extraArgs ? { extraArgs: this.options.extraArgs } : {}),
+      extraArgs: {
+        ...this.options.extraArgs,
+        "replay-user-messages": null,
+      },
     };
 
     try {
@@ -348,16 +360,17 @@ export class SdkSession {
   async closeGracefully(timeoutMs: number): Promise<void> {
     this.inputDone = true;
     this.rejectQueuedInputs("Claude SDK session closed before input consumed");
-    this.resolveInputDone();
 
-    if (!this.query) {
+    const query = this.query;
+    if (!query) {
+      this.resolveInputDone();
       return;
     }
 
     let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
       await Promise.race([
-        this.completion,
+        this.interruptAndDrain(query),
         new Promise<void>((_, reject) => {
           timeout = setTimeout(() => {
             reject(
@@ -375,6 +388,12 @@ export class SdkSession {
         clearTimeout(timeout);
       }
     }
+  }
+
+  private async interruptAndDrain(query: Query): Promise<void> {
+    await query.interrupt();
+    this.resolveInputDone();
+    await this.completion;
   }
 
   private createInputIterable(): AsyncIterable<SDKUserMessage> {

@@ -40,19 +40,21 @@ thread must be allowed to borrow it, and the review has a fixed target
 commit and a fixed number of rounds (two by default). After that, the
 disagreement goes to the operator.
 
-### 5. Capacity is a pool, not a login
+### 5. Your own accounts, budgeted
 
-Accounts for several providers hit their limits at different times, and
-sometimes all at once. Work should draw from the pool, wait out transient
-refusals instead of dying, and surface a provider-wide cliff early enough
-to reroute. No job should fail on one exhausted account while another has
-headroom.
+The operator's own accounts for several providers each have limits that
+are a budget to plan around. Work should use the account budgeted for it,
+wait out transient refusals instead of dying, and surface an approaching
+limit early enough for the operator to pause or move work. Nothing here
+changes any account's limits, hides usage or shares accounts beyond their
+owner; work moves to another of the owner's own accounts only when one is
+unavailable or at its threshold.
 
 ### 6. Fail closed on credentials and accounting
 
 When Aleph can't tell whether something is allowed or what it will cost,
 it refuses. If ownership can't be checked, the answer is 503, not
-permission. A run whose pooled route is unconfirmed is never replayed. A
+permission. A run whose budgeted route is unconfirmed is never replayed. A
 budgeted run that can't get a receipt stops before it spends quota.
 Credentials stay in the child process environment and never appear in
 arguments, files or logs.

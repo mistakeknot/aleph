@@ -36,6 +36,7 @@ async function makeTempHome(): Promise<string> {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "bb-codex-auth-"));
   tempDirs.push(tempDir);
   vi.stubEnv("HOME", tempDir);
+  vi.stubEnv("USERPROFILE", tempDir);
   return tempDir;
 }
 
@@ -351,42 +352,6 @@ describe("Codex ChatGPT client", () => {
     });
   });
 
-  it("preserves structured server error codes from failed responses", async () => {
-    const homeDir = await makeTempHome();
-    await writeCodexApiKeyAuth({
-      homeDir,
-      apiKey: "sk-codex-api-key",
-    });
-    const fetchMock = setupFetchMock();
-    fetchMock.mockResolvedValueOnce(
-      sseResponse([
-        {
-          type: "response.failed",
-          response: {
-            error: {
-              code: "server_error",
-              message: "An unexpected provider error occurred.",
-            },
-          },
-        },
-      ]),
-    );
-
-    await expect(
-      completeCodexInference(
-        {
-          model: "gpt-5.6-luna",
-          prompt: "Return a title",
-          timeoutMs: 10_000,
-        },
-        new AbortController().signal,
-      ),
-    ).rejects.toMatchObject({
-      detailCode: "codex_service_unavailable",
-      message: "An unexpected provider error occurred.",
-    });
-  });
-
   it("cancels an open SSE body after a terminal failure event", async () => {
     const homeDir = await makeTempHome();
     await writeCodexApiKeyAuth({
@@ -418,6 +383,7 @@ describe("Codex ChatGPT client", () => {
       ),
     ).rejects.toMatchObject({
       detailCode: "codex_service_unavailable",
+      message: "An unexpected provider error occurred.",
     });
     expect(failedResponse.wasCanceled()).toBe(true);
   });

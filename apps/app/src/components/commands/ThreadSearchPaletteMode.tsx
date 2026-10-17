@@ -326,13 +326,6 @@ export function ThreadSearchPaletteMode({
         recordSelection({ query: trimmedQuery, threadId: row.threadId });
       }
       runAfterClose(() => {
-        const state =
-          row.messageSeq === null
-            ? undefined
-            : {
-                searchMessageSeq: row.messageSeq,
-                searchThreadId: row.threadId,
-              };
         if (split) {
           openThreadInSplit({
             store,
@@ -340,7 +333,6 @@ export function ThreadSearchPaletteMode({
             projectId: row.projectId,
             threadId: row.threadId,
             isCompact,
-            state,
           });
           return;
         }
@@ -349,7 +341,6 @@ export function ThreadSearchPaletteMode({
             projectId: row.projectId,
             threadId: row.threadId,
           }),
-          { state },
         );
       });
     },

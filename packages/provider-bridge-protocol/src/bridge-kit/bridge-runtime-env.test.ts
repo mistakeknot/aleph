@@ -24,4 +24,16 @@ describe("bridge runtime env", () => {
       }),
     ).toEqual({ BB_CLI: "/usr/local/bin/bb" });
   });
+
+  it("keeps agent CPU isolation settings out of provider children", () => {
+    expect(
+      withoutBridgeRuntimeEnv({
+        BB_AGENT_CGROUP: "systemd",
+        BB_AGENT_CGROUP_SLICE: "agents.slice",
+        BB_AGENT_CPU_WEIGHT: "20",
+        BB_AGENT_CPU_QUOTA: "800%",
+        BB_CLI: "/usr/local/bin/bb",
+      }),
+    ).toEqual({ BB_CLI: "/usr/local/bin/bb" });
+  });
 });

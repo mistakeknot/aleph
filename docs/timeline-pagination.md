@@ -59,9 +59,20 @@ snapshot projected no such rows. When a new latest snapshot's window reaches
 the loaded tip and this value does not exceed it, `mergeLoadedTimelineWithLatest`
 keeps loaded older pages and replaces the rows the latest page covers, so
 streaming does not unload history. Otherwise a later event changed a row the
-page omitted, and loaded rows are replaced. A row that keeps changing while
-omitted, such as a long-running item before a content cut, therefore replaces
-loaded rows on each refresh.
+page omitted, and loaded rows are replaced.
+
+A latest page sends omitted rows whose `sourceSeqEnd` reaches its window start
+in `timelinePage.olderRowUpdates` instead of in `olderRowsSourceSeqEnd`, such as
+a running background delegation that started on an older page. Each update
+keeps only the nested children that reach the window start.
+`mergeLoadedTimelineWithLatest` joins each update into the loaded row with the
+same id and ignores rows it has not loaded, including on repeat refreshes of
+the same snapshot. Updates share the page byte budget
+with the returned rows. Updates that do not fit the remaining budget, and leaves
+omitted by a content cut, still count toward `olderRowsSourceSeqEnd`.
+
+`summaryOnly=true` returns head state without timeline rows or older-row updates.
+
 `completedTurnDisplay` reports whether the page projected finished turns as
 collapsed "Worked for" rows or flat rows. It is part of the display surface: a
 cursor from one display returns HTTP 400 under the other, and
@@ -133,11 +144,81 @@ and must be benchmarked separately from cold opens and appended updates.
 `GET /api/v1/threads/:id/timeline/turn-summary-details` and
 `sdk.threads.timelineTurnSummaryDetails` retain the existing `turnId`,
 `sourceSeqStart`, and `sourceSeqEnd` inputs. A response can include an
-`olderCursor`; pass it as `beforeCursor` with the same inputs until it is null.
-These pages have their own `historySnapshot` and use the same recursive merge.
-The app loads the detail walk when expanding a summary. Tool output remains
-subject to the existing preview and retention rules.
+`olderCursor`; pass it as `beforeCursor` with the same inputs to read the next
+older page. These pages have their own `historySnapshot` and use the same
+recursive merge. A page holds at most 200 leaves and targets 1 MiB. The app
+loads the newest page when a summary is expanded and requests older pages only
+when the user asks for earlier activity.
+
+Without `itemId`, the response covers the whole turn and command and tool
+output longer than 4,000 characters is previewed. With `itemId`, pass the range
+of the row that carries that item: its `callId`, or `reasoningId` for a
+reasoning row. The response contains only the rows for that item, at the top
+level, with their full content subject to the retention rules. For a
+delegation it returns that delegation and its children, paged by the same
+cursor, with previews below it. The server widens the range to the item's own
+lifecycle events, so a row whose range starts after its item started still
+resolves. An item the range does not contain returns HTTP 400
+`invalid_request`.
+
+## Deferred content
+
+`deferContent=true` on the timeline and on `turn-summary-details` leaves out
+content that is only visible when a settled row is expanded. Without it,
+responses keep every row's content inline, as `bb thread log` and SDK callers
+expect. With it:
+
+- a delegation that is no longer pending and has children returns
+  `childRows: null`; an empty array still means it has no children;
+- a settled command whose command text and output exceed 1,000 characters
+  together returns an empty `output`, no `outputPreview`, and only the first
+  300 characters of `command`; activity intents still describe the whole
+  command;
+- a settled tool row whose output exceeds 1,000 characters returns an empty
+  `output` and no `outputPreview`;
+- a settled file change whose diff, stdout and stderr exceed 1,000 characters
+  together returns a null diff, stdout and stderr, keeping `diffStats`;
+- a settled reasoning row whose text exceeds 1,000 characters returns a null
+  `detail`.
+
+Each deferred row other than a delegation carries `contentDeferred: true`.
+Load the content with `turn-summary-details` using the row's `turnId`,
+`sourceSeqStart`, `sourceSeqEnd`, and `itemId`. Pending rows keep their
+content so the live frontier can stream and auto-expand; settled rows nested
+in them are still deferred. Rows without a turn are never deferred. The app
+sends `deferContent=true` on every timeline and detail request; cursors are
+bound to the setting, so keep it unchanged throughout a walk.
 
 Content pagination does not freeze completed turns, persist projections,
 perform a backfill, add database tables or triggers, or run work on event
 ingestion. Appended events are interpreted when a new snapshot is requested.
+
+## Conversation outline caching
+
+The conversation outline returns the full list of message previews.
+`role=user` or `role=assistant` returns only that role's items; caching is
+shared across roles. The app requests user items while the table of contents
+is visible and assistant items only while its Agent messages tab is open. Exact
+revisions use an in-memory response cache and idle/error threads also persist
+their outline. When an active thread advances, a bounded per-database cache
+retains completed outline items and reprojects the tail from a safe turn
+boundary. It keeps the latest turn in the tail even after that turn completes.
+
+Ordinary outlines select only root events before decoding and projection. A
+child turn is identified by its stored start, including child completion events
+without a parent ID. Unfinished children do not prevent retaining completed root
+history. Checkpoints never cross an unresolved steer, an open root turn, or the
+first external-user ordering boundary.
+
+Accepted root turns with inherited parent metadata, background/delegation state,
+and external-user ordering use the full projection conservatively. These
+classification changes are checked in newly appended events and retained with
+the bounded checkpoint. Late references to retained root turns, requests, or
+parent items, history rewrites, context clears, metadata/display changes, and
+writes from another database connection force a rebuild.
+
+The message-delta compaction threshold still counts nested deltas through an
+indexed, bounded lookup. Crossing it rebuilds the prefix so empty completed
+messages keep the same fallback previews even when child payloads are omitted.
+The checkpoint cache retains at most 16 threads and 8 million characters of
+serialized previews and identity data; eviction only affects performance.

@@ -21,7 +21,6 @@ export interface PaletteThreadSearchRow {
   projectId: string;
   threadId: string;
   thread: ThreadListEntry;
-  messageSeq: number | null;
 }
 
 interface BuildPaletteThreadSearchRowsArgs {
@@ -41,11 +40,7 @@ export interface PaletteThreadSearchRowsResult {
 
 const RECENT_THREAD_LIMIT = 20;
 
-/**
- * Stable partition that moves items matching `isPinned` ahead of the rest
- * without disturbing relative order within either group.
- */
-function pinnedFirstThenBy<T>(
+function stablePartitionByPinned<T>(
   items: readonly T[],
   isPinned: (item: T) => boolean,
 ): T[] {
@@ -82,8 +77,11 @@ function serverRow(
   const titleMatch = matches.find(
     (match) => isTitleMatch(match) && match.text === title,
   );
-  const snippetMatch = matches.find((match) => !isTitleMatch(match));
-  const primaryMatch = snippetMatch ?? titleMatch;
+  const snippetMatch =
+    titleMatch === undefined
+      ? matches.find((match) => !isTitleMatch(match))
+      : undefined;
+  const primaryMatch = titleMatch ?? snippetMatch;
   return {
     id: `${lifecycle}:${thread.id}`,
     lifecycle,
@@ -95,7 +93,6 @@ function serverRow(
     projectId: thread.projectId,
     threadId: thread.id,
     thread,
-    messageSeq: snippetMatch?.sourceSeq ?? null,
   };
 }
 
@@ -115,7 +112,7 @@ export function buildPaletteThreadSearchRows({
     isRecent,
     rows: normalizeThreadLifecycleFilter(lifecycles).flatMap((lifecycle) =>
       isRecent
-        ? pinnedFirstThenBy(
+        ? stablePartitionByPinned(
             recentThreads
               .filter((thread) =>
                 lifecycle === "archived"

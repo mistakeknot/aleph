@@ -8,15 +8,16 @@ afterEach(cleanup);
 
 function renderSection(
   onExperimentChange: (key: ExperimentKey, enabled: boolean) => void,
+  performanceDiagnosticsAvailable = true,
 ) {
   return render(
     <ExperimentsSettingsSection
       disabled={false}
+      performanceDiagnosticsAvailable={performanceDiagnosticsAvailable}
       experiments={{
         changelogPreview: false,
-        mobileApp: false,
         serverMove: false,
-        sidebarProgressiveDisclosure: false,
+        performanceDiagnostics: false,
       }}
       onExperimentChange={onExperimentChange}
     />,
@@ -24,24 +25,22 @@ function renderSection(
 }
 
 describe("ExperimentsSettingsSection", () => {
-  it("reports changelog preview changes", () => {
-    const onChange = vi.fn();
-    renderSection(onChange);
-    fireEvent.click(screen.getByLabelText("Changelog preview"));
-    expect(onChange).toHaveBeenCalledWith("changelogPreview", true);
+  it("hides performance diagnostics when startup permission is absent", () => {
+    renderSection(vi.fn(), false);
+    expect(
+      screen.queryByLabelText("Server performance diagnostics"),
+    ).toBeNull();
+    expect(screen.getByLabelText("Changelog preview")).toBeTruthy();
+    expect(screen.getByLabelText("Server move")).toBeTruthy();
   });
 
-  it("reports mobile app changes", () => {
+  it.each([
+    ["Changelog preview", "changelogPreview"],
+    ["Server performance diagnostics", "performanceDiagnostics"],
+  ])("reports %s changes", (label, key) => {
     const onChange = vi.fn();
     renderSection(onChange);
-    fireEvent.click(screen.getByLabelText("Mobile app"));
-    expect(onChange).toHaveBeenCalledWith("mobileApp", true);
-  });
-
-  it("reports sidebar progressive disclosure changes", () => {
-    const onChange = vi.fn();
-    renderSection(onChange);
-    fireEvent.click(screen.getByLabelText("Sidebar progressive disclosure"));
-    expect(onChange).toHaveBeenCalledWith("sidebarProgressiveDisclosure", true);
+    fireEvent.click(screen.getByLabelText(label));
+    expect(onChange).toHaveBeenCalledWith(key, true);
   });
 });

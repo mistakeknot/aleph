@@ -11,6 +11,7 @@ vi.mock("@bb/config/server", () => ({
   loadServerConfig: () => ({ BB_DATA_DIR: "/nonexistent-aleph-entry" }),
 }));
 vi.mock("@bb/process-utils", () => ({
+  installSocketTypeOfServiceGuard: () => {},
   installSafeProcessDiagnostics: () => {},
   writeSafeProcessDiagnosticReport: () => {},
 }));

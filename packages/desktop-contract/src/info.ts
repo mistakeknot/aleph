@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { BbDesktopBrowserApi } from "./browser.js";
+import type { BbDesktopDiagnosticEvent } from "./diagnostics.js";
 import type { BbDesktopWindowFindRequest } from "./find.js";
 import { bbDesktopVersionFeedPlatformSchema } from "./version-feed.js";
 import type { AppCommandId } from "@bb/domain";
@@ -48,15 +49,18 @@ export type BbDesktopWindowStateChangeHandler = (
 ) => void;
 export type BbDesktopZoomChangeHandler = (zoomFactor: number) => void;
 export type BbDesktopOpenNewTabHandler = () => void;
-export type BbDesktopAppCommandHandler = (command: AppCommandId) => void;
+export type BbDesktopAppCommandHandler = (command: AppCommandId) => boolean;
 export type BbDesktopCloseWindowRequestHandler = () => boolean;
 
 export interface BbDesktopApi extends BbDesktopInfo {
   browser: BbDesktopBrowserApi;
   checkForUpdates(): Promise<BbDesktopInfo>;
   getInfo(): Promise<BbDesktopInfo>;
+  focusWindow?(): void;
   getWindowState?(): Promise<BbDesktopWindowState>;
   installUpdate(): Promise<void>;
+  diagnosticsEnabled?: boolean;
+  logDiagnostic?(event: BbDesktopDiagnosticEvent): void;
   onChange(listener: BbDesktopInfoChangeHandler): BbDesktopInfoUnsubscribe;
   onWindowStateChange?(
     listener: BbDesktopWindowStateChangeHandler,

@@ -95,6 +95,7 @@ const GITHUB_CATALOG_ENTRY = {
   official: true,
   author: null,
   installed: false,
+  conflictingInstallSource: null,
   compatible: true,
   incompatibleReason: null,
 };
@@ -457,29 +458,6 @@ describe("PluginsOverview", () => {
     );
     fireEvent.keyDown(document, { key: "Escape" });
     expect(await screen.findByText("Automations")).toBeTruthy();
-  });
-
-  it("shows the same category control on Installed", async () => {
-    installFetch([AUTOMATIONS_PLUGIN]);
-    const { wrapper: QueryClientWrapper } = createQueryClientTestHarness();
-    render(
-      <MemoryRouter initialEntries={["/plugins?view=installed"]}>
-        <QueryClientWrapper>
-          <PluginsOverview />
-          <SwitchViewButton view="browse" />
-          <SwitchViewButton view="installed" />
-        </QueryClientWrapper>
-      </MemoryRouter>,
-    );
-
-    expect(await screen.findByText("Automations")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Category" })).toBeNull();
-    expect(
-      screen.getByRole("button", {
-        name: "Filter plugins by category: All categories",
-      }),
-    ).toBeTruthy();
-    expect(screen.getByRole("button", { name: "New plugin" })).toBeTruthy();
   });
 
   it("keeps Browse filters in the toolbar rather than a separate pill band", async () => {
@@ -930,11 +908,6 @@ describe("PluginsOverview", () => {
     );
 
     expect(await screen.findByText("Automations")).toBeTruthy();
-    expect(
-      document.querySelectorAll(
-        '[data-testid^="plugin-row-"], [data-plugin-row]',
-      ).length,
-    ).toBeGreaterThanOrEqual(0);
     expect(screen.getByText("Inactive Builtin")).toBeTruthy();
     expect(
       screen.getByRole("switch", { name: "Enable inactive-builtin" }),

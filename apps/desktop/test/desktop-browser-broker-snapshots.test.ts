@@ -29,7 +29,6 @@ function nativeTab(tabId: string, threadId: string): DesktopBrowserNativeTab {
     canGoForward: false,
     errorText: null,
     generation: "tab-generation",
-    profile: { kind: "personal" },
     presentation: "reveal",
   };
 }
@@ -65,7 +64,7 @@ describe("desktop browser broker snapshots", () => {
     let notifyTabsChanged: () => void = () => undefined;
     const manager: Pick<
       DesktopBrowserViewManager,
-      "listTabs" | "subscribeAutomationTabs" | "profileSession" | "destroyAll"
+      "listTabs" | "subscribeAutomationTabs" | "session" | "destroyAll"
     > = {
       listTabs: ({ threadId }) =>
         tabs.filter((tab) => threadId === null || tab.threadId === threadId),
@@ -73,7 +72,7 @@ describe("desktop browser broker snapshots", () => {
         notifyTabsChanged = listener;
         return () => undefined;
       },
-      profileSession: () => ({}) as Session,
+      session: () => ({}) as Session,
       destroyAll: () => undefined,
     };
     const broker = createDesktopBrowserBroker({

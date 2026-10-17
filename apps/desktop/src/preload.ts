@@ -35,6 +35,7 @@ import {
   type BbDesktopBrowserUnsubscribe,
   type BbDesktopBrowserViewBounds,
   type BbDesktopCloseWindowRequestHandler,
+  type BbDesktopDiagnosticEvent,
   type BbDesktopInfo,
   type BbDesktopInfoChangeHandler,
   type BbDesktopInfoUnsubscribe,
@@ -90,6 +91,7 @@ import {
   BB_DESKTOP_SET_SPLIT_NAVIGATION_ENABLED_CHANNEL,
   BB_DESKTOP_CLOSE_WINDOW_REQUEST_CHANNEL,
   BB_DESKTOP_CLOSE_WINDOW_RESPONSE_CHANNEL,
+  BB_DESKTOP_FOCUS_WINDOW_CHANNEL,
   BB_DESKTOP_GET_WINDOW_STATE_CHANNEL,
   BB_DESKTOP_OPEN_NEW_TAB_CHANNEL,
   BB_DESKTOP_OPEN_DATA_DIRECTORY_CHANNEL,
@@ -100,6 +102,7 @@ import {
   getDesktopVersion,
   resolveBbDesktopPlatform,
 } from "./desktop-platform.js";
+import { BB_DESKTOP_ALEPH_DIAGNOSTIC_CHANNEL } from "./aleph-renderer-log-ipc.js";
 import { STARTUP_ACTION_CHANNEL } from "./local-view.js";
 
 function createInitialDesktopInfo(): BbDesktopInfo {
@@ -380,7 +383,21 @@ const bbBrowserApi: BbDesktopBrowserApi = {
   },
 };
 
+const alephDiagnosticsApi: Pick<
+  BbDesktopApi,
+  "diagnosticsEnabled" | "logDiagnostic"
+> =
+  process.env.BB_DESKTOP_RELEASE_CHANNEL === "aleph"
+    ? {
+        diagnosticsEnabled: true,
+        logDiagnostic(event: BbDesktopDiagnosticEvent): void {
+          ipcRenderer.send(BB_DESKTOP_ALEPH_DIAGNOSTIC_CHANNEL, event);
+        },
+      }
+    : {};
+
 const bbDesktopApi: BbDesktopApi = {
+  ...alephDiagnosticsApi,
   browser: bbBrowserApi,
   get lastCheckedAt() {
     return currentInfo.lastCheckedAt;
@@ -407,6 +424,9 @@ const bbDesktopApi: BbDesktopApi = {
   },
   getInfo() {
     return invokeDesktopInfo(BB_DESKTOP_GET_INFO_CHANNEL);
+  },
+  focusWindow() {
+    ipcRenderer.send(BB_DESKTOP_FOCUS_WINDOW_CHANNEL);
   },
   getWindowState() {
     return invokeDesktopWindowState();
@@ -493,6 +513,11 @@ ipcRenderer.on(BB_DESKTOP_CLOSE_WINDOW_REQUEST_CHANNEL, () => {
   let handled = false;
   for (const listener of closeWindowRequestListeners) {
     handled = listener() || handled;
+  }
+  if (!handled) {
+    for (const listener of appCommandListeners) {
+      handled = listener("pane.close") === true || handled;
+    }
   }
   ipcRenderer.send(BB_DESKTOP_CLOSE_WINDOW_RESPONSE_CHANNEL, handled);
 });

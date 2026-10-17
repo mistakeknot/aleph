@@ -45,6 +45,24 @@ export interface AgentRuntimeProcessExitThreadState {
   threadId: string;
 }
 
+export interface AgentRuntimeProcessSpawnInfo {
+  scopeUnit: string | null;
+  pid: number | undefined;
+  processKey: string;
+  providerId: string;
+}
+
+export interface AgentRuntimeProcessSpawnCommand {
+  args: string[];
+  command: string;
+  env: NodeJS.ProcessEnv;
+  scopeUnit?: string;
+}
+
+export interface AgentRuntimeProcessSpawnPlan extends AgentRuntimeProcessSpawnCommand {
+  providerId: string;
+}
+
 export interface AgentRuntimeProcessExitInfo {
   providerId: string;
   threads: AgentRuntimeProcessExitThreadState[];
@@ -84,6 +102,12 @@ export interface AgentRuntimeOptions {
   ) => Promise<PendingInteractionResolution>;
 
   onStderr?: (line: string, threadId?: string) => void;
+
+  prepareProcessSpawn?: (
+    plan: AgentRuntimeProcessSpawnPlan,
+  ) => Promise<AgentRuntimeProcessSpawnCommand | null>;
+
+  onProcessSpawn?: (info: AgentRuntimeProcessSpawnInfo) => void;
 
   onProcessExit?: (info: AgentRuntimeProcessExitInfo) => void;
 
@@ -133,7 +157,6 @@ export interface StartThreadArgs {
   options: AgentRuntimeExecutionOptions;
   instructions?: string;
   dynamicTools?: DynamicTool[];
-  disallowedTools?: readonly string[];
   instructionMode?: InstructionMode;
   fork?: {
     sourceProviderThreadId: string;
@@ -159,7 +182,6 @@ interface PrepareThreadRewindArgs {
   options: AgentRuntimeExecutionOptions;
   instructions?: string;
   dynamicTools?: DynamicTool[];
-  disallowedTools?: readonly string[];
   instructionMode?: InstructionMode;
 }
 
@@ -183,7 +205,6 @@ export interface ResumeThreadArgs {
   options: AgentRuntimeExecutionOptions;
   instructions?: string;
   dynamicTools?: DynamicTool[];
-  disallowedTools?: readonly string[];
   instructionMode?: InstructionMode;
 }
 
@@ -295,6 +316,7 @@ interface ProviderMaintenanceArgs {
 
 interface ProviderInstallationStatusArgs extends ProviderMaintenanceArgs {
   requirement?: "thread_rewind";
+  checkUpdates?: boolean;
 }
 
 export interface AgentRuntime {

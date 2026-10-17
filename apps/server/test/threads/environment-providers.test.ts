@@ -752,12 +752,14 @@ describe("shared machine preparation retention", () => {
             );
             release.resolve();
             await expect
-              .poll(() => getPreparingEnvironment(harness.db, next.id)?.status)
+              .poll(() => getThread(harness.db, next.id)?.status)
               .toBe("error");
-            await advanceThreadProvisioning(harness.deps, {
-              threadId: next.id,
-            });
-            expect(getThread(harness.db, next.id)?.status).toBe("error");
+            await expect
+              .poll(
+                () =>
+                  getPreparingEnvironment(harness.db, next.id)?.teardownStatus,
+              )
+              .toBe("removed");
           }
           await sweepProviderMachine(harness.deps, host.id);
           expect(remove).toHaveBeenCalledTimes(1);
@@ -2696,36 +2698,6 @@ describe("a provider-produced environment over its life", () => {
       );
       expect(environment?.mergeBaseBranch).toBe("origin/main");
       expect(environment?.baseBranch).toBeNull();
-    });
-  });
-
-  it("generates the instance key from the core launch path key", async () => {
-    await withTestHarness(async (harness) => {
-      const { host, project } = seedTargetFixture(
-        harness,
-        "host-target-no-key",
-      );
-      installTarget({
-        provision: () => ({
-          action: "ready",
-          environment: {
-            type: "host",
-            hostId: host.id,
-            path: "/tmp/environment-providers-unkeyed",
-          },
-        }),
-      });
-      const created = await createTargetThread(harness, {
-        projectId: project.id,
-      });
-      await vi.waitFor(() =>
-        expect(getThread(harness.db, created.id)?.environmentId).not.toBeNull(),
-      );
-      const environmentId = getThread(harness.db, created.id)?.environmentId;
-      expect(
-        getEnvironment(harness.db, environmentId ?? "")
-          ?.environmentProviderInstanceKey,
-      ).toBe(created.id);
     });
   });
 

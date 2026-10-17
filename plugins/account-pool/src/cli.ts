@@ -23,6 +23,7 @@ import {
   parentModeSchema,
   tokenRotateInputSchema,
   routingSetInputSchema,
+  switchLogInputSchema,
   type AccountPoolConfig,
   type AccountPoolConfigController,
   type AccountPoolConfigSetInput,
@@ -33,16 +34,17 @@ import {
   type PoolStatus,
   type PoolStatusReport,
   type PoolProvider,
+  type SwitchLogEntry,
 } from "./contracts.js";
 import type { PoolOperations } from "./operations.js";
 import type { ClaudeOAuthLogin } from "./oauth-login.js";
 import type { CodexDeviceLogin } from "./codex-device-login.js";
 
 const DESCRIPTION = [
-  "Accounts run sequentially by priority, then order added. The current fallback stays active until unavailable.",
+  "Your own accounts are used one after another by priority, then order added. Work moves to the next of your accounts only when the current one is unavailable or at its threshold; this does not change any account's limits.",
   "When this bb server runs inside another bb server's thread, parent proxy routes its pooled traffic through that parent; isolate neutralises the inherited routing.",
   "Only threads listed in nestedLaunchThreadIds receive the parent markers that let a bb server launched inside them use this pool; other threads receive blank markers. Changes apply to the next agent start and do not revoke nested servers already running.",
-  "Reorder includes every account for the provider and changes the next failover sequence; existing conversations stay pinned.",
+  "Reorder includes every account for the provider and changes which of your accounts is used next; existing conversations stay pinned.",
 ].join("\n");
 
 const JSON_OPTION = {
@@ -148,6 +150,7 @@ function formatAccounts(accounts: readonly AccountSummary[]): string {
       "7d",
       "7d reset",
       "Windows",
+      "Extra usage",
       ...families.map(familyLabel),
       "Status",
     ].join("\t"),
@@ -165,6 +168,7 @@ function formatAccounts(accounts: readonly AccountSummary[]): string {
         formatUtilization(account.sevenDayUtilization),
         formatReset(account.sevenDayResetAt),
         formatLimitWindows(account.limitWindows),
+        account.extraUsage?.status ?? "-",
         ...families.map((family) =>
           formatFamilyQuota(account.familyWeekly[family]),
         ),
@@ -172,6 +176,13 @@ function formatAccounts(accounts: readonly AccountSummary[]): string {
       ].join("\t"),
     ),
   ].join("\n");
+}
+
+function formatSwitch(row: SwitchLogEntry): string {
+  const percent = (value: number | null) =>
+    value === null ? "n/a" : `${value}%`;
+  const name = (label: string | null, id: string) => label ?? id;
+  return `${new Date(row.switchedAt).toISOString()} ${row.provider} ${name(row.fromLabel, row.fromAccountId)} (${percent(row.fromUsagePercent)}) -> ${name(row.toLabel, row.toAccountId)} (${percent(row.toUsagePercent)}) reason=${row.reason}`;
 }
 
 function formatStatus(status: PoolStatusReport): string {
@@ -411,7 +422,7 @@ export function registerPoolCli(
               placeholder: "n",
               aliases: ["order"],
               description:
-                "Failover position; lower numbers run first, ties keep the order added",
+                "Position in your account order; lower numbers are used first, ties keep the order added",
             },
             json: JSON_OPTION,
           },
@@ -654,7 +665,7 @@ export function registerPoolCli(
             }),
         }),
         "account priority": cliCommand({
-          summary: "Set an account's position in the failover priority order",
+          summary: "Set an account's position in your account order",
           positionals: [
             ACCOUNT_ID_POSITIONAL,
             {
@@ -695,7 +706,8 @@ export function registerPoolCli(
             }),
         }),
         "account reorder": cliCommand({
-          summary: "Set the complete failover order for one provider",
+          summary:
+            "Set the complete order in which one provider's accounts are used",
           description:
             "List every account for the provider, including disabled ones, in the order they should be tried.",
           positionals: [
@@ -732,7 +744,8 @@ export function registerPoolCli(
             }),
         }),
         "account refresh": cliCommand({
-          summary: "Refresh one account's observed usage",
+          summary:
+            "Refresh one account's observed usage; retries an errored OAuth login and clears the error on success",
           positionals: [ACCOUNT_ID_POSITIONAL],
           options: { json: JSON_OPTION },
           run: (input) =>
@@ -750,7 +763,9 @@ export function registerPoolCli(
                 exitCode: 0,
                 stdout: input.options.json
                   ? json({ ok: true, account })
-                  : `Refreshed usage for ${id}.\n`,
+                  : account.error === null
+                    ? `Refreshed usage for ${id}.\n`
+                    : `Account ${id} is still in error: ${account.error}\n`,
               };
             }),
         }),
@@ -774,6 +789,37 @@ export function registerPoolCli(
                 stdout: input.options.json
                   ? json(status)
                   : `${formatStatus(status)}\n`,
+              };
+            }),
+        }),
+        switches: cliCommand({
+          summary:
+            "Show recent changes of the active account, with the reason and usage at the time",
+          suggestFor: ["switch", "history", "log"],
+          options: {
+            limit: {
+              type: "integer",
+              min: 1,
+              max: 500,
+              default: 50,
+              placeholder: "n",
+              description: "Number of most recent switches to show",
+            },
+            json: JSON_OPTION,
+          },
+          run: (input) =>
+            attempt(async () => {
+              const { limit } = switchLogInputSchema.parse({
+                limit: input.options.limit,
+              });
+              const rows = operations.switchLog(limit);
+              return {
+                exitCode: 0,
+                stdout: input.options.json
+                  ? json(rows)
+                  : rows.length === 0
+                    ? "No account switches recorded.\n"
+                    : `${rows.map(formatSwitch).join("\n")}\n`,
               };
             }),
         }),

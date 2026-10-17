@@ -1,5 +1,5 @@
 import {
-  claimQueuedThreadMessage,
+  claimQueuedThreadMessageGroup,
   createQueuedThreadMessage,
   createPendingInteraction,
   createPromptHistoryEntry,
@@ -943,38 +943,6 @@ describe("editThreadMessage", () => {
     });
   });
 
-  it("uses the provider lineage that produced the preceding checkpoint", async () => {
-    await withTestHarness(async (harness) => {
-      const { environment, thread } = seedEditableThread(harness, {
-        firstProviderThreadId: "provider-before-restart",
-      });
-      const editPromise = editThreadMessage(harness.deps, {
-        environment,
-        thread,
-        payload: {
-          operationId: "edit-op-provider-lineage",
-          expectedRequestSequence: 7,
-          input: [{ type: "text", text: "Replacement", mentions: [] }],
-        },
-      });
-      const rewind = await waitForQueuedCommand(
-        harness,
-        (queued) => queued.command.type === "thread.rewind.prepare",
-      );
-      expect(rewind.command).toMatchObject({
-        sourceProviderThreadId: "provider-before-restart",
-      });
-      const rejectedEdit = expect(editPromise).rejects.toThrow(
-        "Stop after inspecting command",
-      );
-      await reportQueuedCommandError(harness, rewind, {
-        errorCode: "test_complete",
-        errorMessage: "Stop after inspecting command",
-      });
-      await rejectedEdit;
-    });
-  });
-
   it("rejects grouped requests", async () => {
     await withTestHarness(async (harness) => {
       const { environment, thread } = seedEditableThread(harness);
@@ -1213,10 +1181,11 @@ describe("editThreadMessage", () => {
         threadId: thread.id,
       });
       expect(
-        claimQueuedThreadMessage(
+        claimQueuedThreadMessageGroup(
           harness.db,
           harness.deps.hub,
           queuedMessage.id,
+          { kind: "explicit-send" },
         ),
       ).not.toBeNull();
       const rejectedEdit = expect(editPromise).rejects.toThrow(

@@ -1,10 +1,17 @@
 import { recheckEnvironmentProvisioning } from "./services/threads/thread-environment-providers.js";
-import { enrolledInstallerScript } from "./services/machines/manual-enrollment-command.js";
+import {
+  enrolledInstallerScript,
+  enrolledWindowsInstallerScript,
+  windowsInstallerFailureScript,
+} from "./services/machines/manual-enrollment-command.js";
 import { reconnectBootstrapForCredential } from "./services/machines/reconnect.js";
 import { getMachineEnrollmentService } from "./services/machines/machine-services.js";
 import { withManualMachineProvider } from "./services/machines/manual-provider.js";
 import { registerDesktopBrowserRoutes } from "./routes/desktop-browsers.js";
-import { INSTALL_MACHINE_SCRIPT_PATH } from "./install-machine-asset.js";
+import {
+  INSTALL_MACHINE_SCRIPT_PATH,
+  INSTALL_MACHINE_WINDOWS_SCRIPT_PATH,
+} from "./install-machine-asset.js";
 import { createNodeWebSocket } from "@hono/node-ws";
 import { createHash, randomUUID } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
@@ -15,7 +22,7 @@ import { terminalWebSocketQuerySchema } from "@bb/server-contract";
 import { compress } from "hono/compress";
 import { cors } from "hono/cors";
 import type { ServerAppDeps } from "./types.js";
-import { ApiError, errorToResponse } from "./errors.js";
+import { ApiError, createServerErrorHandler } from "./errors.js";
 import { registerEnvironmentRoutes } from "./routes/environments.js";
 import { registerFileRoutes } from "./routes/files.js";
 import { registerHostRoutes } from "./routes/hosts.js";
@@ -28,6 +35,7 @@ import { registerThreadRoutes } from "./routes/threads/index.js";
 import { registerQueueRoutes } from "./routes/queue.js";
 import { registerPluginRoutes } from "./routes/plugins.js";
 import { registerPluginCatalogRoutes } from "./routes/plugin-catalog.js";
+import { registerPromptHistoryRoutes } from "./routes/prompt-history.js";
 import { registerSkillsRegistryRoutes } from "./routes/skills-registry.js";
 import {
   createPluginService,
@@ -97,6 +105,7 @@ import { requestMatchesEntityTag } from "./services/hosts/daemon-file-response.j
 import {
   allowedAppOrigins,
   browserRequestProblem,
+  requestHostProblem,
 } from "./browser-request-guard.js";
 import {
   callPluginHostRpc,
@@ -179,6 +188,7 @@ interface CreateAppOptions {
   bbAppArtifactService?: BbAppArtifactService;
   serverMove?: ServerMoveAppOptions;
   slowApiRequestLogThresholdMs?: number;
+  performanceDiagnosticsEnabled?: () => boolean;
   staticDir?: string;
 }
 
@@ -475,6 +485,13 @@ export function createApp(
   const pendingServerMove = serverMoveOptions.pending;
 
   app.use("*", async (context, next) => {
+    const problem = requestHostProblem(context, deps);
+    if (problem !== null) {
+      throw new ApiError(problem.status, "forbidden_host", problem.error);
+    }
+    return next();
+  });
+  app.use("*", async (context, next) => {
     captureTrustedRemoteAddress(context);
     return runWithTelemetryAppSurface(resolveRequestAppSurface(context), next);
   });
@@ -511,7 +528,7 @@ export function createApp(
       await compressApiJson(context, next);
     });
   });
-  app.onError((error) => errorToResponse(error, deps.logger));
+  app.onError(createServerErrorHandler(deps.logger));
   app.get("/health", async (context) => {
     const serverMove = await readServerMoveHealth({
       dataDir: deps.config.dataDir,
@@ -540,12 +557,12 @@ export function createApp(
       } catch (error) {
         deps.logger.warn({ error }, "Could not refresh machine access");
         return new Response(
-          "Could not refresh machine access. Run the command again, or generate a new one in bb.\n",
+          "echo 'Could not refresh machine access. Run the command again, or generate a new one in bb.' >&2\nexit 1\n",
           {
             status: 503,
             headers: {
               "cache-control": "no-store",
-              "content-type": "text/plain",
+              "content-type": "text/x-shellscript; charset=utf-8",
             },
           },
         );
@@ -553,12 +570,12 @@ export function createApp(
     }
     if (credential !== undefined && bootstrap === null) {
       return new Response(
-        "Enrollment is expired or unavailable. Generate a new command in bb.\n",
+        "echo 'This enrollment command has already been used, replaced, or expired. Generate a new command in bb.' >&2\nexit 1\n",
         {
           status: 403,
           headers: {
             "cache-control": "no-store",
-            "content-type": "text/plain",
+            "content-type": "text/x-shellscript; charset=utf-8",
           },
         },
       );
@@ -571,6 +588,53 @@ export function createApp(
           "content-type": "text/x-shellscript; charset=utf-8",
         },
       },
+    );
+  });
+  app.get("/install.ps1", async (context) => {
+    const headers = {
+      "cache-control": "no-store",
+      "content-type": "text/plain; charset=utf-8",
+    };
+    const credential = context.req.header("X-BB-Enrollment");
+    if (credential === undefined) {
+      return new Response(
+        windowsInstallerFailureScript(
+          "This installer needs an enrollment command. Generate one in bb under Settings, Machines.",
+        ),
+        { headers },
+      );
+    }
+    let bootstrap =
+      await getMachineEnrollmentService(deps).pendingBootstrapForCredential(
+        credential,
+      );
+    if (bootstrap === null) {
+      try {
+        bootstrap = await reconnectBootstrapForCredential(deps, credential);
+      } catch (error) {
+        deps.logger.warn({ error }, "Could not refresh machine access");
+        return new Response(
+          windowsInstallerFailureScript(
+            "Could not refresh machine access. Run the command again, or generate a new one in bb.",
+          ),
+          { headers },
+        );
+      }
+    }
+    if (bootstrap === null) {
+      return new Response(
+        windowsInstallerFailureScript(
+          "This enrollment command has already been used, replaced, or expired. Generate a new command in bb.",
+        ),
+        { headers },
+      );
+    }
+    return new Response(
+      enrolledWindowsInstallerScript(
+        await readFile(INSTALL_MACHINE_WINDOWS_SCRIPT_PATH, "utf8"),
+        bootstrap,
+      ),
+      { headers },
     );
   });
   app.get("/install/version", async (context) => {
@@ -628,14 +692,19 @@ export function createApp(
     await next();
     const durationMs = performance.now() - startedAt;
     const path = context.req.path;
+    const diagnosticsEnabled =
+      options?.performanceDiagnosticsEnabled?.() ?? false;
     if (
       shouldLogSlowApiRequest({
         durationMs,
         path,
-        thresholdMs: slowApiRequestLogThresholdMs,
+        thresholdMs: diagnosticsEnabled ? 100 : slowApiRequestLogThresholdMs,
       })
     ) {
-      deps.logger.debug(
+      const log = diagnosticsEnabled
+        ? deps.logger.info.bind(deps.logger)
+        : deps.logger.debug.bind(deps.logger);
+      log(
         {
           durationMs: roundDurationMs(durationMs),
           method: context.req.method,
@@ -645,12 +714,6 @@ export function createApp(
         "Slow API request",
       );
     }
-  });
-  app.use("/api/v1/development-only/*", async (_context, next) => {
-    if (!deps.config.isDevelopment) {
-      throw new ApiError(404, "not_found", "Not found");
-    }
-    return next();
   });
   app.use("/internal/*", async (context, next) => {
     const normalizedPath = normalizeInternalAuthPath(context.req.path);
@@ -808,6 +871,7 @@ export function createApp(
     warn: (message) => deps.logger.warn(message),
   });
   registerProjectRoutes(publicApi, deps);
+  registerPromptHistoryRoutes(publicApi, deps);
   registerThreadSectionRoutes(publicApi, deps);
   registerFileRoutes(publicApi, deps);
   registerHostRoutes(publicApi, deps, pluginService);

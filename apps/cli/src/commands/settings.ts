@@ -5,12 +5,12 @@ import {
   aiTaskSchema,
   aiTextTaskSchema,
   keyboardCommandIdSchema,
+  keyboardPlatformSchema,
   appShortcutSchema,
   appSettingsSchema,
   completedTurnDisplaySchema,
   describeUiPreference,
   experimentKeySchema,
-  experimentsSchema,
   isUiPreferenceKey,
   parseUiPreferenceValue,
   UI_PREFERENCE_KEYS,
@@ -19,7 +19,7 @@ import {
   type AppSettings,
   type AppShortcut,
   type CompletedTurnDisplay,
-  type Experiments,
+  type ExperimentUpdates,
   type UiPreferenceKey,
   type UiPreferenceValue,
 } from "@bb/domain";
@@ -312,20 +312,13 @@ function requireKnownProvider(
   );
 }
 
-function updateExperiment(
-  experiments: Experiments,
-  key: string,
-  value: string,
-): Experiments {
+function experimentUpdate(key: string, value: string): ExperimentUpdates {
   const enabled = parseBoolean(value);
   const experimentKey = experimentKeySchema.safeParse(key);
   if (!experimentKey.success) {
     throw new Error(`Unknown experiment '${key}'.`);
   }
-  return experimentsSchema.parse({
-    ...experiments,
-    [experimentKey.data]: enabled,
-  });
+  return { [experimentKey.data]: enabled };
 }
 
 function requireUiPreferenceKey(key: string): UiPreferenceKey {
@@ -616,15 +609,44 @@ export function registerSettingsCommands(
     );
 
   settings
+    .command("mobile-app")
+    .description("Show iOS TestFlight and Android APK download links")
+    .option("--details", "Include available public release metadata")
+    .option("--json", "Print machine-readable JSON output")
+    .action(
+      action(async (opts: JsonOptions & { details?: boolean }) => {
+        const system = createCliBbSdk(getUrl()).system;
+        const links = system.mobileAppDownloads();
+        if (opts.details) {
+          const releases = await system.mobileAppReleases();
+          if (outputJson(opts, { downloads: links, releases })) return;
+          console.log(
+            `iOS TestFlight: ${links.ios}\nAndroid APK: ${links.android}`,
+          );
+          console.log(
+            releases.android
+              ? `Android ${releases.android.version} (build ${releases.android.versionCode}) · Updated ${releases.android.updatedAt} · ${Math.ceil(releases.android.size / 1024 / 1024)} MB`
+              : "Android release details are unavailable.",
+          );
+          console.log("iOS version and release date are shown in TestFlight.");
+          return;
+        }
+        if (outputJson(opts, links)) return;
+        console.log(
+          `iOS TestFlight: ${links.ios}\nAndroid APK: ${links.android}`,
+        );
+      }),
+    );
+
+  settings
     .command("experiment <key> <value>")
     .description("Set an experiment value")
     .option("--json", "Print machine-readable JSON output")
     .action(
       action(async (key: string, value: string, opts: JsonOptions) => {
         const sdk = createCliBbSdk(getUrl());
-        const config = await sdk.system.config();
         const result = await sdk.system.updateExperiments(
-          updateExperiment(config.experiments, key, value),
+          experimentUpdate(key, value),
         );
         if (outputJson(opts, result)) return;
         console.log(`${key} updated`);
@@ -671,18 +693,29 @@ export function registerSettingsCommands(
   keyboard
     .command("set <command> <shortcut>")
     .description("Set a command shortcut; use 'disabled' to clear it")
+    .option(
+      "--platform <platform>",
+      "Scope to mac, windows, or linux",
+      (value: string) => keyboardPlatformSchema.parse(value),
+    )
     .option("--json", "Print machine-readable JSON output")
     .action(
       action(
-        async (commandInput: string, shortcut: string, opts: JsonOptions) => {
+        async (
+          commandInput: string,
+          shortcut: string,
+          opts: JsonOptions & { platform?: "mac" | "windows" | "linux" },
+        ) => {
           const command = keyboardCommandIdSchema.parse(commandInput);
           const sdk = createCliBbSdk(getUrl());
           const config = await sdk.system.config();
           const next = config.keybindingOverrides.filter(
-            (item) => item.command !== command,
+            (item) =>
+              item.command !== command || item.platform !== opts.platform,
           );
           next.push({
             command,
+            ...(opts.platform === undefined ? {} : { platform: opts.platform }),
             shortcut: shortcut === "disabled" ? null : parseShortcut(shortcut),
           });
           const result = await sdk.system.updateKeyboardSettings(next);
@@ -694,26 +727,38 @@ export function registerSettingsCommands(
   keyboard
     .command("reset [command]")
     .description("Reset one command override or all keyboard overrides")
+    .option(
+      "--platform <platform>",
+      "Scope to mac, windows, or linux",
+      (value: string) => keyboardPlatformSchema.parse(value),
+    )
     .option("--json", "Print machine-readable JSON output")
     .action(
-      action(async (commandInput: string | undefined, opts: JsonOptions) => {
-        const sdk = createCliBbSdk(getUrl());
-        const config = await sdk.system.config();
-        const next =
-          commandInput === undefined
-            ? []
-            : config.keybindingOverrides.filter(
-                (item) =>
-                  item.command !== keyboardCommandIdSchema.parse(commandInput),
-              );
-        const result = await sdk.system.updateKeyboardSettings(next);
-        if (outputJson(opts, result)) return;
-        console.log(
-          commandInput
-            ? `Shortcut for ${commandInput} reset`
-            : "Keyboard overrides reset",
-        );
-      }),
+      action(
+        async (
+          commandInput: string | undefined,
+          opts: JsonOptions & { platform?: "mac" | "windows" | "linux" },
+        ) => {
+          const sdk = createCliBbSdk(getUrl());
+          const config = await sdk.system.config();
+          const command =
+            commandInput === undefined
+              ? undefined
+              : keyboardCommandIdSchema.parse(commandInput);
+          const next = config.keybindingOverrides.filter(
+            (item) =>
+              (command !== undefined && item.command !== command) ||
+              (opts.platform !== undefined && item.platform !== opts.platform),
+          );
+          const result = await sdk.system.updateKeyboardSettings(next);
+          if (outputJson(opts, result)) return;
+          console.log(
+            commandInput
+              ? `Shortcut for ${commandInput} reset`
+              : "Keyboard overrides reset",
+          );
+        },
+      ),
     );
 
   settings

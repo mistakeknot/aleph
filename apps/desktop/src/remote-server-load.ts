@@ -17,14 +17,14 @@ export interface LoadRemoteServerPageArgs {
   serverUrl: string;
 }
 
-export function describeServerUrl(serverUrl: string): string {
+function describeServerUrl(serverUrl: string): string {
   let parsed: URL;
   try {
     parsed = new URL(serverUrl);
   } catch {
-    return "the saved bb server";
+    return "the saved Aleph server";
   }
-  return `the bb server at ${parsed.origin}`;
+  return `the Aleph server at ${parsed.origin}`;
 }
 
 function formatLoadFailure(error: unknown): string {
@@ -55,7 +55,7 @@ export async function loadRemoteServerPage(
         `${label.charAt(0).toUpperCase()}${label.slice(1)} did not answer. ` +
         "Check that the machine is awake and reachable.",
       logs: "",
-      title: "Could not reach this bb server",
+      title: "Could not reach this Aleph server",
     });
     return false;
   }

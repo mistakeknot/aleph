@@ -226,7 +226,7 @@ export const DEFAULT_APP_KEYBINDINGS: AppDefaultKeybindings = [
     macArrowBindings(
       command,
       key,
-      { mod: true, shift: true },
+      { mod: true, control: true, shift: true },
       splitWithoutModal,
     ),
   ),

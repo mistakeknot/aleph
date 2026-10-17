@@ -3,6 +3,8 @@ import path from "node:path";
 import { z } from "zod";
 import {
   normalizeProviderThreadNameEvent,
+  redactThreadEventPayload,
+  redactProviderEnvResolvedData,
   toProviderExternalThreadName,
 } from "@bb/domain";
 import type { DynamicTool, InstructionMode, ThreadEvent } from "@bb/domain";
@@ -203,7 +205,6 @@ interface ThreadRuntimeConfig {
   skillRoots: readonly AgentRuntimeSkillRoot[];
   contributedEnv: readonly AgentRuntimeContributedEnvEntry[];
   dynamicTools?: DynamicTool[];
-  disallowedTools?: readonly string[];
   environmentId: string;
   instructionMode: InstructionMode;
   instructions?: string;
@@ -252,6 +253,9 @@ function resolveThreadStoragePath(
 }
 
 export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
+  const emitEvent = (event: ThreadEvent): void => {
+    options.onEvent(redactThreadEventPayload(event));
+  };
   const additionalWorkspaceWriteRoots =
     options.additionalWorkspaceWriteRoots ?? [];
   const skillRoots = options.skillRoots ?? [];
@@ -292,7 +296,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
         continue;
       }
       entry.watchdogFired = true;
-      options.onEvent({
+      emitEvent({
         type: "system/error",
         threadId,
         scope: { kind: "thread" },
@@ -331,6 +335,8 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
     handleStdoutLine: (args) =>
       handleStdoutLine(args.line, args.providerProcess),
     onProcessExit: options.onProcessExit,
+    onProcessSpawn: options.onProcessSpawn,
+    prepareProcessSpawn: options.prepareProcessSpawn,
     onProviderThreadDetached: (threadId) => {
       toolCalls.cancelThread(threadId);
       threadIdentityRegistry.clearThread(threadId);
@@ -1076,9 +1082,6 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
       ...(currentConfig.dynamicTools !== undefined
         ? { dynamicTools: currentConfig.dynamicTools }
         : {}),
-      ...(currentConfig.disallowedTools !== undefined
-        ? { disallowedTools: currentConfig.disallowedTools }
-        : {}),
       instructionMode: currentConfig.instructionMode,
     });
   }
@@ -1165,15 +1168,15 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
     providerThreadId: string;
     threadId: string;
   }): void {
-    options.onEvent({
+    emitEvent({
       type: "provider.env-resolved",
       threadId: args.threadId,
       providerThreadId: args.providerThreadId,
-      entries: args.entries,
+      entries: redactProviderEnvResolvedData({ entries: args.entries }).entries,
       scope: { kind: "thread" },
     });
     for (const contribution of args.droppedContributions) {
-      options.onEvent({
+      emitEvent({
         type: "provider/warning",
         threadId: args.threadId,
         providerThreadId: args.providerThreadId,
@@ -1264,7 +1267,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
       turnState.observe(normalizedEvent);
       backgroundWorkState.observe(normalizedEvent);
       observeProviderSessionIdleState(normalizedEvent);
-      options.onEvent(normalizedEvent);
+      emitEvent(normalizedEvent);
       threadGoalState.observe(normalizedEvent);
     }
   }
@@ -1516,7 +1519,6 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
       options: execOpts,
       instructions,
       dynamicTools,
-      disallowedTools,
       instructionMode = "append",
       fork,
     }) {
@@ -1559,7 +1561,6 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
             skillRoots: sessionSkillRoots,
             contributedEnv,
             dynamicTools,
-            disallowedTools,
             environmentId,
             envVars: resolvedEnvironment.envVars,
             instructionMode,
@@ -1590,7 +1591,6 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
                   : {}),
                 options: providerExecutionContext,
                 dynamicTools,
-                disallowedTools,
                 instructionMode,
               }
             : {
@@ -1599,7 +1599,6 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
                 cwd: options.workspacePath,
                 options: providerExecutionContext,
                 dynamicTools,
-                disallowedTools,
                 instructionMode,
               };
           let resolved: string;
@@ -1678,7 +1677,6 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
       options: execOpts,
       instructions,
       dynamicTools,
-      disallowedTools,
       instructionMode = "append",
     }) {
       const existing = stagedThreadRewinds.get(leaseId);
@@ -1744,7 +1742,6 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
                 instructions,
               }),
               dynamicTools,
-              disallowedTools,
               instructionMode,
             };
             const command = requireProviderRequestPlan({
@@ -1850,7 +1847,6 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
       options: execOpts,
       instructions,
       dynamicTools,
-      disallowedTools,
       instructionMode = "append",
     }) {
       return runThreadOperation({
@@ -1904,7 +1900,6 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
             skillRoots: sessionSkillRoots,
             contributedEnv,
             dynamicTools,
-            disallowedTools,
             environmentId,
             envVars: resolvedEnvironment.envVars,
             instructionMode,
@@ -1932,7 +1927,6 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
               instructions,
             }),
             dynamicTools,
-            disallowedTools,
             instructionMode,
           };
           const plan = proc.adapter.buildCommandPlan(adapterCommand);
@@ -2437,6 +2431,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
       bridgeLaunch,
       cwd,
       requirement,
+      checkUpdates = true,
     }) {
       await runtime.ensureProvider({ providerId, bridgeLaunch });
       const proc = providerProcesses.requireProviderProcess({
@@ -2447,6 +2442,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
         commandType: "provider/installation/status",
         plan: proc.adapter.buildCommandPlan({
           type: "provider/installation/status",
+          checkUpdates,
           ...(cwd !== undefined ? { cwd } : {}),
           ...(requirement !== undefined ? { requirement } : {}),
         }),

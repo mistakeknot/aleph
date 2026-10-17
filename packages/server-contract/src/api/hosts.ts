@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { jsonValueSchema, permissionModeSchema } from "@bb/domain";
+import {
+  hostTypeSchema,
+  jsonValueSchema,
+  permissionModeSchema,
+} from "@bb/domain";
 import {
   pathsExistRequestSchema,
   providerCliInstallEventSchema,
@@ -61,6 +65,7 @@ export type CreateMachineRequest = z.infer<typeof createMachineRequestSchema>;
 export const hostEnrollmentCommandResponseSchema = z
   .object({
     command: z.string().min(1),
+    windowsCommand: z.string().min(1),
     expiresAt: z.number().int().positive(),
   })
   .nullable();
@@ -71,6 +76,7 @@ export type HostEnrollmentCommandResponse = z.infer<
 export const hostReconnectResponseSchema = z
   .object({
     command: z.string().min(1),
+    windowsCommand: z.string().min(1),
     expiresAt: z.number().int().positive(),
     hostId: z.string().min(1),
   })
@@ -137,5 +143,6 @@ export type HostProviderCliInstallEvent = ProviderCliInstallEvent;
 
 export const hostListQuerySchema = z.object({
   includeCreating: z.enum(["true", "false"]).optional(),
+  type: hostTypeSchema.optional(),
 });
 export type HostListQuery = z.input<typeof hostListQuerySchema>;

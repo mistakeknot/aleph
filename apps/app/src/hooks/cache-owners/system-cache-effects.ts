@@ -1,6 +1,12 @@
 import type { QueryKey } from "@tanstack/react-query";
+import { emitDiagnostic } from "@/lib/diagnostics";
+import { describeReconnectInvalidation } from "@/aleph/reconnect-diagnostics";
+import { armTrailingRefetchesForInFlightQueries } from "@/aleph/reconnect-trailing-refetch";
 import type { Environment, Host } from "@bb/domain";
-import type { SystemConfigResponse } from "@bb/server-contract";
+import type {
+  SystemConfigResponse,
+  SystemProviderCatalogEntry,
+} from "@bb/server-contract";
 import {
   allEnvironmentDiffFilesQueryKeyPrefix,
   allEnvironmentDiffPatchQueryKeyPrefix,
@@ -35,6 +41,7 @@ import {
   serverMoveStatusQueryKey,
   sidebarNavigationQueryKey,
   systemConfigQueryKey,
+  systemProviderCatalogQueryKey,
   threadPromptHistoryQueryKeyPrefix,
   threadSearchQueryKeyPrefix,
   threadsQueryKey,
@@ -44,6 +51,7 @@ import type { QueryClientArg } from "../cache-effect-types";
 import { clearCachedModelCatalogs } from "@/lib/model-catalog-cache";
 import { bumpAllDiffPatchEvictionGenerations } from "./environment-diff-patch-cache-owner";
 import { invalidateAppUpdateStatus } from "./app-update-cache-owner";
+import { invalidatePluginList } from "./plugin-cache-owner";
 import { invalidateSystemVersion } from "./system-version-cache-owner";
 import {
   invalidateQueryKeys,
@@ -56,17 +64,38 @@ interface SystemExecutionOptionsInvalidationArgs extends QueryClientArg {
 
 interface ServerReconnectInvalidationArgs extends QueryClientArg {
   disconnectedAt: number;
+  reconnectedAt: number;
 }
 
 export function invalidateRealtimeQueriesAfterServerReconnect({
   disconnectedAt,
   queryClient,
+  reconnectedAt,
 }: ServerReconnectInvalidationArgs): void {
-  for (const queryKey of getServerReconnectInvalidationQueryKeys()) {
+  emitDiagnostic(() =>
+    describeReconnectInvalidation({
+      disconnectedAt,
+      reconnectedAt,
+      queryClient,
+      queryKeys: getServerReconnectInvalidationQueryKeys(),
+    }),
+  );
+  const queryKeys = getServerReconnectInvalidationQueryKeys();
+  armTrailingRefetchesForInFlightQueries({
+    invalidate: (queryKey) => {
+      void queryClient.invalidateQueries(
+        { exact: true, queryKey },
+        { cancelRefetch: false },
+      );
+    },
+    queryCache: queryClient.getQueryCache(),
+    queryKeys,
+  });
+  for (const queryKey of queryKeys) {
     void queryClient.invalidateQueries(
       {
         queryKey,
-        predicate: (query) => query.state.dataUpdatedAt < disconnectedAt,
+        predicate: (query) => query.state.dataUpdatedAt < reconnectedAt,
       },
       { cancelRefetch: false },
     );
@@ -106,6 +135,21 @@ export function invalidateRealtimeQueriesFetchedBeforeInitialConnect({
   }
 }
 
+export function refetchActiveRealtimeQueriesOnResume({
+  queryClient,
+}: QueryClientArg): void {
+  for (const queryKey of [
+    allThreadTimelineQueryKeyPrefix(),
+    allThreadQueryKeyPrefix(),
+    sidebarNavigationQueryKey(),
+  ]) {
+    void queryClient.refetchQueries(
+      { queryKey, type: "active" },
+      { cancelRefetch: false },
+    );
+  }
+}
+
 export function invalidateSystemConfig({ queryClient }: QueryClientArg): void {
   invalidateQueryKeys({
     queryClient,
@@ -120,6 +164,21 @@ export function invalidateMachineEnvironment({
     queryClient,
     queryKeys: [allMachineEnvironmentQueryKeyPrefix()],
   });
+}
+
+export async function applyProviderAvailabilityChange({
+  queryClient,
+  catalog,
+}: QueryClientArg & { catalog: SystemProviderCatalogEntry[] }): Promise<void> {
+  queryClient.setQueryData(systemProviderCatalogQueryKey(), catalog);
+  await Promise.all([
+    invalidateSystemProviders({ queryClient }),
+    queryClient.invalidateQueries({
+      queryKey: allSystemExecutionOptionsQueryKeyPrefix(),
+    }),
+    queryClient.invalidateQueries({ queryKey: systemConfigQueryKey() }),
+    invalidatePluginList({ queryClient }),
+  ]);
 }
 
 export function invalidateSystemProviders({

@@ -1,9 +1,12 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { PassThrough, Writable, type Readable } from "node:stream";
 import {
   experimental_isProviderBridgeRecording,
+  experimental_killPortableProcess,
+  experimental_placeProviderChildInThreadScope,
   experimental_readBoundedLines,
   experimental_recordProviderChildIo,
+  experimental_spawnPortableProcess,
   sanitizeInheritedChildProcessEnv,
   withoutBridgeRuntimeEnv,
 } from "@get-bb/plugin-sdk/provider-bridge";
@@ -115,12 +118,17 @@ export class PiRpcChild {
       resolveSettledExit = resolve;
     });
     const launch = resolvePiLaunch(process.env);
-    this.child = spawn(launch.command, [...launch.args, ...args.args], {
+    this.child = experimental_spawnPortableProcess({
+      command: launch.command,
+      args: [...launch.args, ...args.args],
       cwd: args.cwd,
       env: args.env,
       stdio: ["pipe", "pipe", "pipe", "pipe", "pipe"],
     });
     experimental_recordProviderChildIo(this.child, {
+      threadId: args.recordThreadId,
+    });
+    experimental_placeProviderChildInThreadScope(this.child, {
       threadId: args.recordThreadId,
     });
     this.channelRecorder = createChannelRecorder(args.recordThreadId);
@@ -263,12 +271,12 @@ export class PiRpcChild {
       this.killEscalation = setTimeout(() => {
         this.killEscalation = null;
         if (this.exitInfo === null) {
-          this.child.kill("SIGKILL");
+          experimental_killPortableProcess(this.child, "SIGKILL");
         }
       }, SIGKILL_ESCALATION_MS);
       this.killEscalation.unref?.();
     }
-    this.child.kill("SIGTERM");
+    experimental_killPortableProcess(this.child, "SIGTERM");
   }
 
   respondToExtensionUi(

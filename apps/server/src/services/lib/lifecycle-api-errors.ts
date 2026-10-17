@@ -146,14 +146,24 @@ export function inactiveHostUnavailableDetails(
   };
 }
 
-export function isSuspendedHostUnavailableError(error: unknown): boolean {
+function hostUnavailableReason(
+  error: unknown,
+): HostUnavailableErrorDetails["reason"] | null {
   if (!(error instanceof ApiError) || error.body.code !== "host_unavailable") {
-    return false;
+    return null;
   }
   const details = hostUnavailableErrorDetailsSchema.safeParse(
     error.body.details,
   );
-  return details.success && details.data.reason === "suspended";
+  return details.success ? details.data.reason : null;
+}
+
+export function isSuspendedHostUnavailableError(error: unknown): boolean {
+  return hostUnavailableReason(error) === "suspended";
+}
+
+export function isDisconnectedHostUnavailableError(error: unknown): boolean {
+  return hostUnavailableReason(error) === "disconnected";
 }
 
 export function destroyedHostUnavailableDetails(

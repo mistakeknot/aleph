@@ -205,6 +205,7 @@ const scriptPath = scriptPathFromArgs(process.argv.slice(2));
 const script = scriptPath ? JSON.parse(readFileSync(scriptPath, "utf8")) : null;
 const scriptedTurns = script?.turns ?? null;
 const requestLogPath = script?.requestLogPath ?? null;
+const responseLogPath = script?.responseLogPath ?? null;
 const modelListFailOnceMarkerPath = script?.modelListFailOnceMarkerPath ?? null;
 
 const archiveStatePath = script?.archiveStatePath ?? null;
@@ -411,6 +412,15 @@ async function handleRequest(message) {
       respond(id, {});
       return;
     case "account/rateLimits/read":
+      if (script?.rateLimitRead) {
+        if (script.rateLimitRead.hang) return;
+        setTimeout(() => {
+          if (script.rateLimitRead.error)
+            respondError(id, -32603, "Quota read unavailable");
+          else respond(id, script.rateLimitRead.result);
+        }, script.rateLimitRead.delayMs ?? 0);
+        return;
+      }
       respond(id, { rateLimits: {} });
       return;
     case "model/list":
@@ -759,6 +769,9 @@ stdinLines.on("line", (line) => {
     const resolve = pendingOutboundRequests.get(parsed.id);
     if (resolve) {
       pendingOutboundRequests.delete(parsed.id);
+      if (responseLogPath !== null) {
+        appendFileSync(responseLogPath, `${JSON.stringify(parsed)}\n`);
+      }
       resolve(parsed);
     }
   }

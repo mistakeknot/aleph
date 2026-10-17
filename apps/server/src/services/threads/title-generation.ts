@@ -4,6 +4,7 @@ import {
   removeCommandMentionsFromPromptInput,
   type PromptInput,
   type PromptMentionCommandTrigger,
+  type Thread,
 } from "@bb/domain";
 import {
   countWords,
@@ -73,6 +74,22 @@ export function deriveTitleFallback(input: PromptInput[]): string | null {
     return null;
   }
   return clampPromptText(text);
+}
+
+const FORK_TITLE_PATTERN = /^\((\d+)\) (.+)$/s;
+
+export function deriveForkTitle(
+  source: Pick<Thread, "title" | "titleFallback">,
+): string | null {
+  const sourceTitle = source.title?.trim() || source.titleFallback?.trim();
+  if (!sourceTitle) {
+    return null;
+  }
+  const numbered = FORK_TITLE_PATTERN.exec(sourceTitle);
+  if (numbered === null) {
+    return `(1) ${sourceTitle}`;
+  }
+  return `(${BigInt(numbered[1]) + 1n}) ${numbered[2]}`;
 }
 
 interface InvokedPromptCommand {

@@ -1,7 +1,6 @@
 import type { TimelineConversationAttachments } from "@bb/server-contract";
 import type { ThreadTimelinePluginMessageAction } from "@/components/thread/timeline/types";
 import type { PromptMentionResource, PromptTextMention } from "@bb/domain";
-import type { TimelineTitleLink } from "@bb/thread-view";
 import { renderTemplate } from "@bb/templates";
 import type { ReactNode } from "react";
 import { ConversationMessageContent } from "@/components/thread/timeline/ConversationMessageContent";
@@ -38,13 +37,6 @@ function TimelineStage({
 }
 
 const resolveImageSrc = (path: string) => path;
-
-function resolveThreadLink(link: TimelineTitleLink): string | null {
-  switch (link.kind) {
-    case "thread":
-      return `/projects/proj_demo/threads/${link.threadId}`;
-  }
-}
 
 const acceptedMessage = {
   isGrouped: false,
@@ -359,15 +351,13 @@ const parentChildSystemMessageFixtures = [
   },
   {
     label: "interrupted",
-    hint: "single child thread interruption carries the manual-stop guidance",
+    hint: "single child thread interruption explains its recorded cause",
     message: buildMessage(
       renderTemplate("systemMessageChildThreadOutcomeBatch", {
         updates: [
-          "@thread:thr_docs was interrupted.",
+          "@thread:thr_docs was interrupted because its host connection was lost.",
           "",
           "Review the thread before deciding next steps.",
-          "",
-          "If the user stopped it manually, do not resume, restart, retry, replace, or continue the work unless the user explicitly asks.",
         ].join("\n"),
       }),
       [
@@ -391,9 +381,7 @@ const parentChildSystemMessageFixtures = [
           "",
           "- @thread:thr_schema completed.",
           "- @thread:thr_rebase failed.",
-          "- @thread:thr_docs was interrupted.",
-          "",
-          "If the user stopped any interrupted thread manually, do not resume, restart, retry, replace, or continue the work unless the user explicitly asks.",
+          "- @thread:thr_docs was interrupted because its host daemon restarted.",
         ].join("\n"),
       }),
       [
@@ -548,6 +536,7 @@ export function Overview() {
             systemMessageKind="unlabeled"
             systemMessageSubject={null}
             text="hi"
+            timestamp={0}
             attachments={null}
             mentions={[]}
             turnRequest={acceptedMessage}
@@ -576,6 +565,7 @@ export function Overview() {
               systemMessageKind="unlabeled"
               systemMessageSubject={null}
               text={`Continue in ${RAW_THREAD_ID}; exact inline-code reference \`${RAW_THREAD_ID}\`.`}
+              timestamp={0}
               attachments={null}
               mentions={[]}
               turnRequest={acceptedMessage}
@@ -598,6 +588,7 @@ export function Overview() {
             systemMessageKind="unlabeled"
             systemMessageSubject={null}
             text="Walk me through how ThreadDetailView wires the prompt context banner."
+            timestamp={0}
             attachments={null}
             mentions={[]}
             turnRequest={acceptedMessage}
@@ -617,6 +608,7 @@ export function Overview() {
             systemMessageKind="unlabeled"
             systemMessageSubject={null}
             text="Walk me through how ThreadDetailView wires the prompt context banner."
+            timestamp={0}
             attachments={null}
             mentions={[]}
             turnRequest={acceptedMessage}
@@ -639,6 +631,7 @@ export function Overview() {
             systemMessageKind="unlabeled"
             systemMessageSubject={null}
             text={mentionedMessageText}
+            timestamp={0}
             attachments={null}
             mentions={mentionedMessageMentions}
             projectId="proj_bb"
@@ -662,6 +655,7 @@ export function Overview() {
             systemMessageKind="unlabeled"
             systemMessageSubject={null}
             text={longMarkdownText}
+            timestamp={0}
             attachments={null}
             mentions={[]}
             turnRequest={acceptedMessage}
@@ -684,6 +678,7 @@ export function Overview() {
             systemMessageKind="unlabeled"
             systemMessageSubject={null}
             text="Hold on — also include the queue API in that audit, please."
+            timestamp={0}
             attachments={null}
             mentions={[]}
             turnRequest={pendingSteer}
@@ -706,6 +701,7 @@ export function Overview() {
             systemMessageKind="unlabeled"
             systemMessageSubject={null}
             text="Hold on — also include the queue API in that audit, please."
+            timestamp={0}
             attachments={null}
             mentions={[]}
             turnRequest={acceptedSteer}
@@ -725,6 +721,7 @@ export function Overview() {
             systemMessageKind="unlabeled"
             systemMessageSubject={null}
             text="Repro of the layout regression in the prompt context banner."
+            timestamp={0}
             attachments={singleImageAttachments}
             mentions={[]}
             turnRequest={acceptedMessage}
@@ -748,6 +745,7 @@ export function Overview() {
             systemMessageKind="unlabeled"
             systemMessageSubject={null}
             text="Three screenshots from the design review and the spec doc."
+            timestamp={0}
             attachments={mixedAttachments}
             mentions={[]}
             turnRequest={acceptedMessage}
@@ -772,13 +770,13 @@ export function Overview() {
             role="user"
             originKind={null}
             initiator="agent"
-            resolveSegmentLinkHref={resolveThreadLink}
             senderThreadId="thr_ux3h8sxg65"
             senderThreadTitle="Render Rich Thread Names"
             senderIsPluginSideChat={false}
             systemMessageKind="unlabeled"
             systemMessageSubject={null}
             text={agentInitiatedMessage.text}
+            timestamp={0}
             attachments={null}
             mentions={agentInitiatedMessage.mentions}
             projectId="proj_demo"
@@ -795,7 +793,6 @@ export function Overview() {
             role="user"
             originKind={null}
             initiator="agent"
-            resolveSegmentLinkHref={resolveThreadLink}
             onTitleAction={() => () => undefined}
             senderThreadId="thr_side_chat"
             senderThreadTitle="new thread"
@@ -803,6 +800,7 @@ export function Overview() {
             systemMessageKind="unlabeled"
             systemMessageSubject={null}
             text={agentInitiatedMessage.text}
+            timestamp={0}
             attachments={null}
             mentions={agentInitiatedMessage.mentions}
             projectId="proj_demo"
@@ -819,13 +817,13 @@ export function Overview() {
             role="user"
             originKind={null}
             initiator="agent"
-            resolveSegmentLinkHref={resolveThreadLink}
             senderThreadId="thr_h4u3fgr6be"
             senderThreadTitle="Full QA post-rebase: prompt timeline app data voice"
             senderIsPluginSideChat={false}
             systemMessageKind="unlabeled"
             systemMessageSubject={null}
             text={agentSteerMessage.text}
+            timestamp={0}
             attachments={null}
             mentions={agentSteerMessage.mentions}
             projectId="proj_demo"
@@ -841,6 +839,7 @@ export function Overview() {
             systemMessageKind="unlabeled"
             systemMessageSubject={null}
             text={systemAssignedMessage.text}
+            timestamp={0}
             attachments={null}
             mentions={systemAssignedMessage.mentions}
             projectId="proj_demo"
@@ -863,6 +862,7 @@ export function Overview() {
             systemMessageKind="unlabeled"
             systemMessageSubject={null}
             text={systemAssignedMessage.text}
+            timestamp={0}
             attachments={null}
             mentions={systemAssignedMessage.mentions}
             projectId="proj_demo"
@@ -885,6 +885,7 @@ export function Overview() {
             systemMessageKind="unlabeled"
             systemMessageSubject={null}
             text={systemChildOutcomeBatchMessage.text}
+            timestamp={0}
             attachments={null}
             mentions={systemChildOutcomeBatchMessage.mentions}
             projectId="proj_demo"
@@ -907,6 +908,7 @@ export function Overview() {
             systemMessageKind="unlabeled"
             systemMessageSubject={null}
             text={longSystemMessage.text}
+            timestamp={0}
             attachments={null}
             mentions={longSystemMessage.mentions}
             projectId="proj_demo"
@@ -962,6 +964,7 @@ export function ActionOverflow() {
             systemMessageKind="unlabeled"
             systemMessageSubject={null}
             text="Sounds good"
+            timestamp={0}
             attachments={null}
             mentions={[]}
             turnRequest={acceptedMessage}
@@ -983,6 +986,7 @@ export function ActionOverflow() {
             systemMessageKind="unlabeled"
             systemMessageSubject={null}
             text="Ok"
+            timestamp={0}
             attachments={null}
             mentions={[]}
             turnRequest={acceptedMessage}
@@ -1006,6 +1010,7 @@ export function ActionOverflow() {
             systemMessageKind="unlabeled"
             systemMessageSubject={null}
             text="Ok"
+            timestamp={0}
             attachments={null}
             mentions={[]}
             turnRequest={acceptedMessage}
@@ -1030,6 +1035,7 @@ export function ActionOverflow() {
             systemMessageKind="unlabeled"
             systemMessageSubject={null}
             text={longMarkdownText}
+            timestamp={0}
             attachments={null}
             mentions={[]}
             turnRequest={acceptedMessage}
@@ -1056,10 +1062,10 @@ export function ParentChildSystemMessages() {
               senderThreadTitle={null}
               originKind={null}
               senderIsPluginSideChat={false}
-              resolveSegmentLinkHref={resolveThreadLink}
               systemMessageKind="unlabeled"
               systemMessageSubject={null}
               text={fixture.message.text}
+              timestamp={0}
               attachments={null}
               mentions={fixture.message.mentions}
               projectId="proj_demo"

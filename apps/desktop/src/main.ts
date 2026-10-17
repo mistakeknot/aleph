@@ -47,6 +47,7 @@ import {
   type ClientMessage,
 } from "@bb/server-contract";
 import { z } from "zod";
+import { registerDesktopWindowFocusIpc } from "./desktop-window-focus.js";
 import {
   assertPathExists,
   resolveDesktopBridgePath,
@@ -153,10 +154,7 @@ import {
   createConnectSessionRenewal,
   type ConnectSessionRenewal,
 } from "./connect-session-renewal.js";
-import {
-  createDesktopShutdownState,
-  registerDesktopShutdownSignalHandlers,
-} from "./desktop-shutdown.js";
+import { registerDesktopShutdownSignalHandlers } from "./desktop-shutdown.js";
 import {
   createDesktopWindowFactory,
   type DesktopBrowserWindow,
@@ -221,8 +219,18 @@ import {
   createDesktopBrowserViewManager,
   type DesktopBrowserViewManager,
 } from "./desktop-browser-view.js";
+import { removeLegacyAutomationPartitions } from "./desktop-browser-legacy-partitions.js";
 import { resolveDesktopBrowserAppCommand } from "./desktop-browser-shortcuts.js";
+import {
+  createRendererLogWriter,
+  resolveRendererLogDirectory,
+} from "./aleph-renderer-log.js";
+import {
+  registerAlephRendererLog,
+  type AlephRendererLog,
+} from "./aleph-renderer-log-main.js";
 import { registerDesktopBrowserIpc } from "./desktop-browser-main-ipc.js";
+import { resolveDesktopExternalUrl } from "./desktop-external-url.js";
 import {
   createDesktopFindViewManager,
   type DesktopFindViewManager,
@@ -252,6 +260,7 @@ import {
 import { parseDesktopSystemConfig } from "./desktop-system-config.js";
 import { ensurePackagedUserShellPath } from "./desktop-shell-path.js";
 import { resolveDesktopReloadShortcut } from "./desktop-reload-shortcut.js";
+import { createCloseWindowRequestTracker } from "./desktop-close-window-request.js";
 import {
   createLogTailer,
   createLogLineBuffer,
@@ -388,6 +397,7 @@ const logViewerCopyRequestSchema = z
 let desktopWindowFactory: DesktopWindowFactory | null = null;
 let desktopBrowserViewManager: DesktopBrowserViewManager | null = null;
 let desktopFindViewManager: DesktopFindViewManager | null = null;
+let alephRendererLog: AlephRendererLog | null = null;
 let desktopBrowserBroker: DesktopBrowserBroker | null = null;
 let desktopBrowserBrokerClient: ReturnType<
   typeof createDesktopBrowserBrokerClient
@@ -484,7 +494,7 @@ function canReplaceAppImage(appImagePath: string): boolean {
 
 function resolveDesktopUpdateFeedUrl(
   args: ResolveDesktopUpdateFeedUrlArgs,
-): string {
+): string | null {
   const rawFeedUrl = args.env.BB_DESKTOP_VERSION_FEED_URL?.trim();
   if (rawFeedUrl === undefined || rawFeedUrl.length === 0) {
     return createDesktopUpdateFeedUrl(args.platform);
@@ -688,31 +698,26 @@ function createDesktopPathContext(): DesktopPathContext {
 
 function shouldEnableServerDaemonLogsMenu(): boolean {
   return (
-    process.platform === "darwin" && currentRuntime?.ownership === "spawned"
+    (process.platform === "darwin" || process.platform === "win32") &&
+    currentRuntime?.ownership === "spawned"
   );
 }
 
-const pendingCloseWindowRequests = new Map<number, NodeJS.Timeout>();
+const closeWindowRequests = createCloseWindowRequestTracker(
+  CLOSE_WINDOW_REQUEST_TIMEOUT_MS,
+);
 
 function requestRendererWindowClose(browserWindow: BrowserWindow): void {
-  const webContentsId = browserWindow.webContents.id;
-  const pending = pendingCloseWindowRequests.get(webContentsId);
-  if (pending !== undefined) {
-    clearTimeout(pending);
-  }
-  pendingCloseWindowRequests.set(
-    webContentsId,
-    setTimeout(() => {
-      pendingCloseWindowRequests.delete(webContentsId);
-      if (!browserWindow.isDestroyed()) {
-        browserWindow.close();
-      }
-    }, CLOSE_WINDOW_REQUEST_TIMEOUT_MS),
-  );
-  sendToApplicationRenderer(
+  closeWindowRequests.request(
+    browserWindow.webContents.id,
     browserWindow,
-    BB_DESKTOP_CLOSE_WINDOW_REQUEST_CHANNEL,
-    null,
+    () => {
+      sendToApplicationRenderer(
+        browserWindow,
+        BB_DESKTOP_CLOSE_WINDOW_REQUEST_CHANNEL,
+        null,
+      );
+    },
   );
 }
 
@@ -1158,6 +1163,7 @@ function registerApplicationWindow(browserWindow: DesktopBrowserWindow): void {
   registerApplicationRendererReloadShortcut(
     (browserWindow as BrowserWindow).webContents,
   );
+  alephRendererLog?.attachConsole((browserWindow as BrowserWindow).webContents);
   registerDesktopContextMenu({ webContents: browserWindow.webContents });
   browserWindow.on("enter-full-screen", () => {
     sendDesktopWindowStateChanged(browserWindow);
@@ -1306,7 +1312,7 @@ async function authenticateConnectTarget(
       cachedFailure ?? {
         code: "network",
         detail:
-          "the local bb server is unavailable, and this app has no stored bb Connect credential",
+          "the local Aleph server is unavailable, and this app has no stored bb Connect credential",
         ok: false,
       }
     );
@@ -1670,7 +1676,7 @@ async function runStartupAction(
       actions: [],
       details: error instanceof Error ? error.message : String(error),
       logs: "",
-      title: "Could not open bb",
+      title: "Could not open Aleph",
     });
   } finally {
     startupActionPending = false;
@@ -1784,7 +1790,7 @@ async function loadServerMovedView(move: DesktopServerMove): Promise<void> {
       ? "The old copy on this computer is locked after the move."
       : "The old copy on this computer was deleted.",
     logs: "",
-    title: `bb moved to ${move.toHostName}`,
+    title: `Aleph moved to ${move.toHostName}`,
   });
 }
 
@@ -1819,10 +1825,10 @@ async function applyServerTarget(): Promise<void> {
           { id: "choose-server", label: "Choose server…" },
         ],
         details:
-          `Could not connect to the local bb server on ${process.platform === "darwin" ? "this Mac" : "this computer"}. ` +
-          "Check that the port is free or that a compatible bb server is running.",
+          `Could not connect to the local Aleph server on ${process.platform === "darwin" ? "this Mac" : "this computer"}. ` +
+          "Check that the port is free or that a compatible Aleph server is running.",
         logs: "",
-        title: "Could not connect to bb server",
+        title: "Could not connect to Aleph server",
       });
       refreshApplicationMenu();
       return;
@@ -2044,7 +2050,7 @@ async function loadLogViewerWindow(
     minHeight: 520,
     minWidth: 840,
     show: false,
-    title: "bb - Server & Daemon Logs",
+    title: "Aleph - Server & Daemon Logs",
     titleBarStyle: "default",
     webPreferences: {
       contextIsolation: true,
@@ -2149,8 +2155,8 @@ async function loadLoadingView(): Promise<void> {
     url: createLocalViewUrl({
       viewModel: {
         kind: "loading",
-        message: "Starting local services and opening the bb workspace.",
-        title: "Opening bb",
+        message: "Starting local services and opening the Aleph workspace.",
+        title: "Opening Aleph",
       },
     }),
   });
@@ -2265,6 +2271,7 @@ async function finishQuit(): Promise<void> {
 }
 
 function registerDesktopUpdateIpc(): void {
+  registerDesktopWindowFocusIpc(applicationWindowWebContentsIds);
   ipcMain.on(BB_DESKTOP_ZOOM_COMMAND_CHANNEL, (event, payload: unknown) => {
     const parsed = bbDesktopZoomCommandSchema.safeParse(payload);
     if (parsed.success) {
@@ -2369,31 +2376,19 @@ function registerDesktopUpdateIpc(): void {
   });
 
   ipcMain.on(BB_DESKTOP_CLOSE_WINDOW_RESPONSE_CHANNEL, (event, payload) => {
-    const pending = pendingCloseWindowRequests.get(event.sender.id);
-    if (pending !== undefined) {
-      clearTimeout(pending);
-      pendingCloseWindowRequests.delete(event.sender.id);
-    }
-    if (payload === false) {
-      resolveApplicationWindow(event.sender)?.close();
-    }
+    closeWindowRequests.respond(
+      event.sender.id,
+      payload,
+      resolveApplicationWindow(event.sender),
+    );
   });
   ipcMain.on(
     BB_DESKTOP_OPEN_EXTERNAL_URL_CHANNEL,
     (_event, payload: unknown) => {
-      if (typeof payload !== "string") {
-        return;
+      const url = resolveDesktopExternalUrl(payload);
+      if (url !== null) {
+        void shell.openExternal(url);
       }
-      let parsed: URL;
-      try {
-        parsed = new URL(payload);
-      } catch {
-        return;
-      }
-      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-        return;
-      }
-      void shell.openExternal(parsed.toString());
     },
   );
 }
@@ -2487,7 +2482,7 @@ async function spawnOwnedRuntime(
       )}.`,
       logs: bbProcess.logs.text(),
       actions: [],
-      title: "bb stopped",
+      title: "Aleph stopped",
     });
   });
   return { bbProcess, runtime };
@@ -2520,7 +2515,7 @@ async function startOwnedRuntime(
       )}.`,
       logs: bbProcess.logs.text(),
       actions: [],
-      title: "Could not start bb",
+      title: "Could not start Aleph",
     });
     setCurrentRuntime(null);
     return null;
@@ -2533,11 +2528,11 @@ async function startOwnedRuntime(
   await loadStartupError({
     details:
       raceResult.result.kind === "incompatible"
-        ? `Port ${args.serverUrl} is responding, but it does not look like bb: ${raceResult.result.reason}.`
-        : `Timed out waiting for bb at ${args.serverUrl}: ${raceResult.result.reason}.`,
+        ? `Port ${args.serverUrl} is responding, but it does not look like Aleph: ${raceResult.result.reason}.`
+        : `Timed out waiting for Aleph at ${args.serverUrl}: ${raceResult.result.reason}.`,
     logs: bbProcess.logs.text(),
     actions: [],
-    title: "Could not start bb",
+    title: "Could not start Aleph",
   });
   await stopOwnedRuntime();
   return null;
@@ -2616,40 +2611,40 @@ async function decideOnExistingServer(
   if (stopResult.kind === "unverified") {
     await loadStartupError({
       details:
-        `The bb at ${probe.serverUrl} records process ${String(stopResult.pid)}, but that ` +
-        "process no longer matches the record. bb did not stop it. Stop it yourself, then open bb again.",
+        `The Aleph at ${probe.serverUrl} records process ${String(stopResult.pid)}, but that ` +
+        "process no longer matches the record. Aleph did not stop it. Stop it yourself, then open Aleph again.",
       logs: "",
       actions: [],
-      title: "Could not stop the running bb",
+      title: "Could not stop the running Aleph",
     });
     return "quit";
   }
   if (stopResult.kind === "still-running") {
     await loadStartupError({
-      details: `bb could not stop process ${String(stopResult.pid)}, even after SIGKILL.`,
+      details: `Aleph could not stop process ${String(stopResult.pid)}, even after SIGKILL.`,
       logs: "",
       actions: [],
-      title: "Could not stop the running bb",
+      title: "Could not stop the running Aleph",
     });
     return "quit";
   }
   if (stopResult.kind === "replaced") {
     await loadStartupError({
       details:
-        `Another bb started at ${probe.serverUrl} while the question was open, so bb stopped nothing. ` +
-        "Open bb again to see the copy that runs now.",
+        `Another Aleph started at ${probe.serverUrl} while the question was open, so Aleph stopped nothing. ` +
+        "Open Aleph again to see the copy that runs now.",
       logs: "",
       actions: [],
-      title: "Could not stop the running bb",
+      title: "Could not stop the running Aleph",
     });
     return "quit";
   }
   if (!(await waitForServerToStop(probe.serverUrl))) {
     await loadStartupError({
-      details: `The bb at ${probe.serverUrl} stopped, but the address is still in use.`,
+      details: `The Aleph at ${probe.serverUrl} stopped, but the address is still in use.`,
       logs: "",
       actions: [],
-      title: "Could not stop the running bb",
+      title: "Could not stop the running Aleph",
     });
     return "quit";
   }
@@ -2702,7 +2697,7 @@ async function initializeRuntime(args: InitializeRuntimeArgs): Promise<void> {
 
   if (existingProbe.kind === "incompatible") {
     await loadStartupError({
-      details: `Port ${args.serverUrl} is already in use, but it is not a compatible bb server: ${existingProbe.reason}.`,
+      details: `Port ${args.serverUrl} is already in use, but it is not a compatible Aleph server: ${existingProbe.reason}.`,
       logs: "",
       actions: [],
       title: "Port conflict",
@@ -2796,7 +2791,6 @@ async function runDesktopApp(): Promise<void> {
     quitApplication() {
       app.quit();
     },
-    state: createDesktopShutdownState(),
     async stopOwnedRuntime() {
       quitting = true;
       await stopOwnedRuntime();
@@ -2999,6 +2993,21 @@ async function runDesktopApp(): Promise<void> {
     sendDesktopInfoChanged();
   });
   registerDesktopUpdateIpc();
+  if (process.env.BB_DESKTOP_RELEASE_CHANNEL === "aleph") {
+    alephRendererLog = registerAlephRendererLog({
+      ipcMain,
+      getApplicationMainFrame: (id) =>
+        applicationWindowWebContentsIds.has(id)
+          ? (electronWebContents.fromId(id)?.mainFrame ?? null)
+          : null,
+      writer: createRendererLogWriter({
+        directory: resolveRendererLogDirectory(
+          process.platform,
+          app.getPath("logs"),
+        ),
+      }),
+    });
+  }
   desktopFindViewManager = createDesktopFindViewManager({
     preloadPath: findBarPreloadPath,
   });
@@ -3016,6 +3025,7 @@ async function runDesktopApp(): Promise<void> {
     }
     desktopFindViewManager?.open(browserWindow, parsed.data);
   });
+  void removeLegacyAutomationPartitions(userDataPath).catch(() => {});
   desktopBrowserViewManager = createDesktopBrowserViewManager({
     pagePreloadPath: browserPagePreloadPath,
     dispatchAppCommand({ command, hostWebContentsId }) {
@@ -3042,7 +3052,7 @@ async function runDesktopApp(): Promise<void> {
     resolveAppCommand(input, hostWebContentsId) {
       return resolveDesktopBrowserAppCommand({
         input,
-        isMac: process.platform === "darwin",
+        platform: process.platform,
         keybindings: currentAppKeybindings,
         splitNavigationEnabled:
           splitNavigationEnabledWebContentsIds.has(hostWebContentsId),
@@ -3095,7 +3105,7 @@ async function runDesktopApp(): Promise<void> {
           sourceId: parsed.data.sourceId,
           sourceProfileDirectory: parsed.data.sourceProfileDirectory,
         },
-        manager.profileSession(parsed.data.profile),
+        manager.session(),
       );
     },
   );
@@ -3234,6 +3244,6 @@ void runDesktopApp().catch((error) => {
     details: message,
     logs: "",
     actions: [],
-    title: "Could not open bb",
+    title: "Could not open Aleph",
   });
 });

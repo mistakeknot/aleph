@@ -78,6 +78,7 @@ import type {
   ThreadStorageFilesQuery,
   ThreadStoragePathsQuery,
   ThreadTimelineQuery,
+  ThreadConversationOutlineQuery,
   TimelineTurnSummaryDetailsQuery,
   UpdateThreadTabsRequest,
   UpdateThreadRequest,
@@ -204,6 +205,7 @@ export type ThreadBannerActionResult = { ok: true };
 export type ThreadUnarchiveResult = { ok: true };
 export type ThreadArchiveAllResult = ThreadArchiveAllResponse;
 export type ThreadReadStateResult = ThreadResponse;
+export type ThreadRestoreEnvironmentResult = ThreadResponse;
 export type ThreadPinOrderResult = ThreadListResponse;
 export type ThreadPromptHistoryResult = PromptHistoryResponse;
 export type ThreadQueuedMessagesResult = ThreadQueuedMessageListResponse;
@@ -375,6 +377,11 @@ export interface ThreadStorageFilesArgs extends ThreadStorageFilesQuery {
 }
 
 export interface ThreadStoragePathsArgs extends ThreadStoragePathsQuery {
+  signal?: AbortSignal;
+  threadId: string;
+}
+
+export interface ThreadConversationOutlineArgs extends ThreadConversationOutlineQuery {
   signal?: AbortSignal;
   threadId: string;
 }
@@ -605,7 +612,7 @@ export interface ThreadsArea {
   clearContext(args: ThreadActionArgs): Promise<ThreadBannerActionResult>;
   clearGoal(args: ThreadActionArgs): Promise<ThreadBannerActionResult>;
   conversationOutline(
-    args: ThreadStatusArgs,
+    args: ThreadConversationOutlineArgs,
   ): Promise<ThreadConversationOutlineResult>;
   count(args?: ThreadCountArgs): Promise<ThreadCountResult>;
   defaultExecutionOptions(
@@ -645,6 +652,16 @@ export interface ThreadsArea {
    * `sendAt` in the future queues it on the clock and a `message.dispatch` hook
    * can still hold it; the response says which of the two happened.
    */
+  /**
+   * Ask the environment provider to restore the destroyed workspace of a
+   * thread and attach it; the provider decides what restoring means, such as
+   * checking the recorded branch out again. Sends fail until this runs. Starts
+   * no turn: the thread settles back to `idle` once the workspace is ready.
+   * Refused unless the thread's `canRestoreEnvironment` is true.
+   */
+  restoreEnvironment(
+    args: ThreadActionArgs,
+  ): Promise<ThreadRestoreEnvironmentResult>;
   retry(args: ThreadRetryArgs): Promise<ThreadRetryResult>;
   search(args: ThreadSearchArgs): Promise<ThreadSearchResult>;
   recordSearchSelection(
@@ -849,6 +866,9 @@ function searchQuery(args: ThreadSearchArgs): ThreadSearchQuery {
 
 function timelineQuery(args: ThreadTimelineArgs): ThreadTimelineQuery {
   return {
+    ...(args.deferContent !== undefined
+      ? { deferContent: args.deferContent }
+      : {}),
     ...(args.includeNestedRows !== undefined
       ? { includeNestedRows: args.includeNestedRows }
       : {}),
@@ -1210,7 +1230,10 @@ export function createThreadsArea(args: CreateSdkAreaArgs): ThreadsArea {
     async conversationOutline(input) {
       return transport.readJson(
         transport.api.v1.threads[":id"]["conversation-outline"].$get(
-          { param: { id: input.threadId } },
+          {
+            param: { id: input.threadId },
+            query: input.role === undefined ? {} : { role: input.role },
+          },
           ...signalRequestArgs(input.signal),
         ),
       );
@@ -1415,6 +1438,13 @@ export function createThreadsArea(args: CreateSdkAreaArgs): ThreadsArea {
         }),
       );
     },
+    async restoreEnvironment(input) {
+      return transport.readJson(
+        transport.api.v1.threads[":id"]["restore-environment"].$post({
+          param: { id: input.threadId },
+        }),
+      );
+    },
     async retry(input) {
       return transport.readJson(
         transport.api.v1.threads[":id"].retry.$post({
@@ -1502,6 +1532,10 @@ export function createThreadsArea(args: CreateSdkAreaArgs): ThreadsArea {
               ...(input.beforeCursor === undefined
                 ? {}
                 : { beforeCursor: input.beforeCursor }),
+              ...(input.deferContent === undefined
+                ? {}
+                : { deferContent: input.deferContent }),
+              ...(input.itemId === undefined ? {} : { itemId: input.itemId }),
             },
           },
           ...signalRequestArgs(input.signal),

@@ -29,7 +29,14 @@ built-ins held to this rule. Two checks read it:
   installs the packed SDK and npm packages with `--legacy-peer-deps`, and runs
   the copy's typecheck, tests, and `bb plugin build`. Pass plugin directories
   to check only those, `--keep` to keep the copies, and `--concurrency=<n>` to
-  change how many run at once.
+  change how many run at once. Use `--shard=<index>/<count>` (one-based) to
+  partition the selected plugins across runners; `--list` prints that shard.
+
+On PRs, CI selects only changed plugins when every changed file belongs to a
+listed forkable plugin. Shared changes or unavailable history run the full
+list; main and manual runs always run the full list. Use
+`--changed-from=<sha> --list` to inspect selection locally. See
+[CI performance](ci-performance.md) for selection rules and timing artifacts.
 
 ## What a listed plugin looks like
 

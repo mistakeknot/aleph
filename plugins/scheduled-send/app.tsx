@@ -26,9 +26,8 @@ import {
 import {
   definePluginApp,
   useComposer,
-  useComposerView,
-  type ComposerView,
-  type PluginComposerScope,
+  type ComposerSendMenuItem,
+  type PluginComposerApi,
 } from "@get-bb/plugin-sdk/app";
 import {
   DEFAULT_SCHEDULE_PRESET_ID,
@@ -45,19 +44,6 @@ import {
   type ScheduleTimeParse,
 } from "./schedule-time.js";
 
-export function composerScopeKey(scope: PluginComposerScope): string {
-  switch (scope.kind) {
-    case "thread":
-      return `thread:${scope.threadId}`;
-    case "queued-message":
-      return `queued-message:${scope.queuedMessageId}`;
-    case "side-chat":
-      return `side-chat:${scope.tabId}`;
-    case "new-thread":
-      return `new-thread:${scope.projectId ?? ""}`;
-  }
-}
-
 const listeners = new Set<() => void>();
 let openScopeKey: string | null = null;
 
@@ -72,9 +58,9 @@ function subscribe(listener: () => void): () => void {
   };
 }
 
-export function openSendLater(view: ComposerView): boolean {
-  if (view.draft.isEmpty) return false;
-  openScopeKey = composerScopeKey(view.scope);
+export function openSendLater(composer: PluginComposerApi): boolean {
+  if (composer.isEmpty) return false;
+  openScopeKey = composer.key;
   notify();
   return true;
 }
@@ -121,11 +107,57 @@ function resolveScheduleOption(
     : { ok: true, at: preset.at };
 }
 
+const SCHEDULE_SELECTION_STORAGE_KEY = "bb:scheduled-send:selection:v1";
+
+function readScheduleSelection(now: number): {
+  optionId: ScheduleOptionId;
+  custom: CustomScheduleFields;
+} {
+  const fallback = {
+    optionId: DEFAULT_SCHEDULE_PRESET_ID,
+    custom: defaultCustomSchedule(now),
+  };
+  try {
+    const stored = localStorage.getItem(SCHEDULE_SELECTION_STORAGE_KEY);
+    if (stored === null) return fallback;
+    const value: unknown = JSON.parse(stored);
+    if (
+      typeof value !== "object" ||
+      value === null ||
+      !("optionId" in value) ||
+      typeof value.optionId !== "string" ||
+      !isScheduleOptionId(value.optionId) ||
+      !("date" in value) ||
+      typeof value.date !== "string" ||
+      !("time" in value) ||
+      typeof value.time !== "string"
+    )
+      return fallback;
+    const custom = { date: value.date, time: value.time };
+    return resolveScheduleOption(value.optionId, custom, now).ok
+      ? { optionId: value.optionId, custom }
+      : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function rememberScheduleSelection(
+  optionId: ScheduleOptionId,
+  custom: CustomScheduleFields,
+): void {
+  try {
+    localStorage.setItem(
+      SCHEDULE_SELECTION_STORAGE_KEY,
+      JSON.stringify({ optionId, ...custom }),
+    );
+  } catch {}
+}
+
 function SendLaterPicker() {
   const composer = useComposer();
-  const view = useComposerView();
-  const scopeKey = composerScopeKey(view.scope);
-  const isOpen = useSendLaterOpen(scopeKey);
+  const isEmpty = composer.isEmpty;
+  const isOpen = useSendLaterOpen(composer.key);
   const whenId = useId();
   const customDateId = useId();
   const customTimeId = useId();
@@ -143,16 +175,17 @@ function SendLaterPicker() {
     if (!isOpen) return;
     const openedAt = Date.now();
     setNow(openedAt);
-    setSelectedOption(DEFAULT_SCHEDULE_PRESET_ID);
-    setCustom(defaultCustomSchedule(openedAt));
+    const selection = readScheduleSelection(openedAt);
+    setSelectedOption(selection.optionId);
+    setCustom(selection.custom);
     setError(null);
     const interval = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(interval);
   }, [isOpen]);
 
   useEffect(() => {
-    if (isOpen && view.draft.isEmpty) closeSendLater();
-  }, [isOpen, view.draft.isEmpty]);
+    if (isOpen && isEmpty) closeSendLater();
+  }, [isEmpty, isOpen]);
 
   async function schedule(at: number): Promise<void> {
     if (at <= Date.now()) {
@@ -162,7 +195,7 @@ function SendLaterPicker() {
     setBusy(true);
     setError(null);
     try {
-      await composer.experimental_submit({ sendAt: at });
+      await composer.submit({ sendAt: at });
       closeSendLater();
       toast.success(`Sending ${formatScheduleTime(at, Date.now())}`);
     } catch (scheduleError: unknown) {
@@ -196,7 +229,7 @@ function SendLaterPicker() {
         <DialogHeader>
           <DialogTitle>Send later</DialogTitle>
           <DialogDescription>
-            {view.scope.kind === "new-thread"
+            {composer.scope.kind === "new-thread"
               ? "Choose when this thread should start. It will use the model and environment selected in the composer."
               : "Choose when this message should send."}
           </DialogDescription>
@@ -215,6 +248,7 @@ function SendLaterPicker() {
               onValueChange={(value) => {
                 if (!isScheduleOptionId(value)) return;
                 setSelectedOption(value);
+                rememberScheduleSelection(value, custom);
                 setError(null);
               }}
               value={selectedOption}
@@ -245,10 +279,9 @@ function SendLaterPicker() {
                   max={formatDateInputValue(now + MAX_SCHEDULE_AHEAD_MS)}
                   min={formatDateInputValue(now)}
                   onChange={(event) => {
-                    setCustom((current) => ({
-                      ...current,
-                      date: event.target.value,
-                    }));
+                    const next = { ...custom, date: event.target.value };
+                    setCustom(next);
+                    rememberScheduleSelection(selectedOption, next);
                     setError(null);
                   }}
                   type="date"
@@ -261,10 +294,9 @@ function SendLaterPicker() {
                   disabled={busy}
                   id={customTimeId}
                   onChange={(event) => {
-                    setCustom((current) => ({
-                      ...current,
-                      time: event.target.value,
-                    }));
+                    const next = { ...custom, time: event.target.value };
+                    setCustom(next);
+                    rememberScheduleSelection(selectedOption, next);
                     setError(null);
                   }}
                   type="time"
@@ -313,26 +345,26 @@ function SendLaterPicker() {
   );
 }
 
+const sendLater: ComposerSendMenuItem = {
+  id: "send-later",
+  label: "Send later…",
+  icon: "Calendar",
+  description: "Schedule the current draft to send at a time you pick.",
+  disabled: (composer) => composer.isSubmittingBlocked,
+  run: ({ composer }) => {
+    if (!openSendLater(composer)) {
+      toast.error("Nothing to schedule", {
+        description: "Type a message first, then choose Send later.",
+      });
+    }
+  },
+};
+
 export default definePluginApp((app) => {
   app.composer.customize({
     id: "send-later",
     scopes: ["thread", "new-thread"],
-    plusMenu: [
-      {
-        id: "send-later",
-        label: "Send later…",
-        icon: "Calendar",
-        description: "Schedule the current draft to send at a time you pick.",
-        disabled: (view) => view.draft.isEmpty || view.run.isSubmitting,
-        run: ({ view }) => {
-          if (!openSendLater(view)) {
-            toast.error("Nothing to schedule", {
-              description: "Type a message first, then choose Send later.",
-            });
-          }
-        },
-      },
-    ],
+    sendMenu: [sendLater],
     banners: [{ id: "send-later", chrome: "bare", component: SendLaterPicker }],
   });
 });

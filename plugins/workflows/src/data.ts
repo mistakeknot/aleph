@@ -32,7 +32,6 @@ export interface WorkflowRunRow {
   error: string | null;
   phase: string | null;
   replaySafetyVersion: number;
-  replayBarrierIndex: number | null;
   notificationSent: boolean;
   notificationOutcome: "pending" | "delivered" | "abandoned";
   notificationAttemptCount: number;
@@ -113,7 +112,6 @@ const RUN_SELECT = `
     settings_json AS settingsJson, status,
     resumed_from_run_id AS resumedFromRunId, result_json AS resultJson, error,
     phase, replay_safety_version AS replaySafetyVersion,
-    replay_barrier_index AS replayBarrierIndex,
     notification_sent AS notificationSent,
     notification_outcome AS notificationOutcome,
     notification_attempt_count AS notificationAttemptCount,
@@ -231,6 +229,9 @@ export const migrations = [
      FROM workflow_calls calls JOIN workflow_runs runs ON runs.id = calls.run_id
      WHERE calls.child_thread_id IS NOT NULL;`,
   `ALTER TABLE workflow_workers ADD COLUMN cleanup_attempts INTEGER NOT NULL DEFAULT 0;`,
+  `CREATE INDEX workflow_runs_expiry_idx
+     ON workflow_runs(finished_at + json_extract(settings_json, '$.retentionDays') * 86400000)
+     WHERE status IN ('succeeded', 'failed', 'cancelled') AND notification_sent = 1;`,
 ];
 
 export function createRun(
@@ -243,7 +244,6 @@ export function createRun(
     | "error"
     | "phase"
     | "replaySafetyVersion"
-    | "replayBarrierIndex"
     | "notificationSent"
     | "notificationOutcome"
     | "notificationAttemptCount"
@@ -532,13 +532,13 @@ export function countCallsForRun(db: Db, runId: string): WorkflowCallCounts {
   return row;
 }
 
-export function listRunningCalls(db: Db, limit: number): WorkflowCallRow[] {
+export function listRunningCalls(db: Db): WorkflowCallRow[] {
   return db
     .prepare(
       `${CALL_SELECT} WHERE status = 'running' AND child_thread_id IS NOT NULL
-       ORDER BY COALESCE(last_activity_at, started_at), id LIMIT ?`,
+       ORDER BY COALESCE(last_activity_at, started_at), id`,
     )
-    .all(limit)
+    .all()
     .map(callRow);
 }
 
@@ -856,6 +856,12 @@ export function listExpiredTerminalRuns(
   now: number,
   limit: number,
 ): ExpiredTerminalRuns {
+  const due = db
+    .prepare(`SELECT id FROM workflow_runs INDEXED BY workflow_runs_expiry_idx
+    WHERE status IN ('succeeded', 'failed', 'cancelled') AND notification_sent = 1
+    AND finished_at + json_extract(settings_json, '$.retentionDays') * 86400000 <= ? LIMIT 1`)
+    .get(now);
+  if (!due) return { runIds: [] };
   const runIds = (
     db.prepare(EXPIRED_TERMINAL_RUN_IDS_SQL).all(now, now, limit) as Array<{
       id: string;
@@ -898,20 +904,30 @@ export function workerOrigins(db: Db, now: number): string[] {
   ).map((row) => row.id);
 }
 
+const RETIRED_WORKER_FROM = `FROM workflow_workers workers
+    LEFT JOIN workflow_calls calls ON calls.id = workers.call_id
+    LEFT JOIN workflow_runs runs ON runs.id = workers.run_id
+    WHERE workers.archived_at IS NULL
+      AND (calls.id IS NULL OR calls.status NOT IN ('queued', 'running')
+        OR calls.child_thread_id IS NOT workers.thread_id OR runs.status NOT IN ('queued', 'running'))`;
+
 export function retiredWorkers(
   db: Db,
   now: number,
 ): Array<{ threadId: string; callId: string }> {
   return db
     .prepare(`SELECT workers.thread_id AS threadId, workers.call_id AS callId
-    FROM workflow_workers workers
-    LEFT JOIN workflow_calls calls ON calls.id = workers.call_id
-    LEFT JOIN workflow_runs runs ON runs.id = workers.run_id
-    WHERE workers.archived_at IS NULL AND workers.next_cleanup_at <= ?
-      AND (calls.id IS NULL OR calls.status NOT IN ('queued', 'running')
-        OR calls.child_thread_id IS NOT workers.thread_id OR runs.status NOT IN ('queued', 'running'))
+    ${RETIRED_WORKER_FROM} AND workers.next_cleanup_at <= ?
     ORDER BY workers.next_cleanup_at, workers.thread_id LIMIT 100`)
     .all(now) as Array<{ threadId: string; callId: string }>;
+}
+
+export function isWorkerRetired(db: Db, threadId: string): boolean {
+  return (
+    db
+      .prepare(`SELECT 1 ${RETIRED_WORKER_FROM} AND workers.thread_id = ?`)
+      .get(threadId) !== undefined
+  );
 }
 
 export function recordWorkerCleanup(

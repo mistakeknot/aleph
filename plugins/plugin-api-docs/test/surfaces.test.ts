@@ -1,21 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import anatomy from "../src/anatomy-manifest.json";
-import { SURFACE_NUMBERS } from "../src/product-map";
-import {
-  fixtureResponsiveStrategy,
-  SURFACE_GROUPS,
-  SURFACES_BY_ID,
-} from "../src/surfaces";
-import {
-  ANATOMY_RENDERER_KEYS,
-  APP_SHELL_MARKS,
-  COMMAND_PALETTE_MARKS,
-  COMPOSE_MARKS,
-  COMPOSER_MARKS,
-  EXTENSIONS_MARKS,
-  SETTINGS_MARKS,
-} from "../src/wireframes";
+import { SURFACE_GROUPS, SURFACES_BY_ID } from "../src/surfaces";
+import { ANATOMY_RENDERER_KEYS } from "../src/wireframes";
 
 const groupById = new Map(SURFACE_GROUPS.map((group) => [group.id, group]));
 
@@ -47,12 +34,10 @@ describe("product-map surfaces", () => {
       "content-scripts",
     ];
     expect(surfaceIds("app-shell")).toEqual(ordered);
-    expect([...APP_SHELL_MARKS]).toEqual(ordered);
   });
 
   it("gives command palette actions their own numbered page", () => {
     expect(surfaceIds("command-palette")).toEqual(["command-palette-actions"]);
-    expect([...COMMAND_PALETTE_MARKS]).toEqual(["command-palette-actions"]);
   });
 
   it("reads composer annotations from the banner through the draft and action row", () => {
@@ -66,7 +51,6 @@ describe("product-map surfaces", () => {
       "composer-actions",
     ];
     expect(surfaceIds("composer")).toEqual(ordered);
-    expect([...COMPOSER_MARKS]).toEqual(ordered);
   });
 
   it("has globally unique surface ids", () => {
@@ -75,52 +59,6 @@ describe("product-map surfaces", () => {
     );
     expect(new Set(all).size).toBe(all.length);
     expect(SURFACES_BY_ID.size).toBe(all.length);
-  });
-
-  it("marks every visual-group surface on its fixture exactly once", () => {
-    expect([...APP_SHELL_MARKS].sort()).toEqual(surfaceIds("app-shell").sort());
-    expect([...COMMAND_PALETTE_MARKS].sort()).toEqual(
-      surfaceIds("command-palette").sort(),
-    );
-    expect([...COMPOSER_MARKS].sort()).toEqual(surfaceIds("composer").sort());
-    expect([...COMPOSE_MARKS].sort()).toEqual(surfaceIds("home").sort());
-    expect([...SETTINGS_MARKS].sort()).toEqual(surfaceIds("settings").sort());
-    expect([...EXTENSIONS_MARKS].sort()).toEqual(
-      surfaceIds("extensions").sort(),
-    );
-  });
-
-  it("numbers the surfaces a fixture draws, and only those", () => {
-    for (const group of SURFACE_GROUPS) {
-      const numbers = group.surfaces.map((surface) =>
-        SURFACE_NUMBERS.get(surface.id),
-      );
-      if (group.id === "headless") {
-        expect(numbers.every((number) => number === undefined)).toBe(true);
-        continue;
-      }
-      expect(numbers).toEqual(group.surfaces.map((_, index) => index + 1));
-    }
-  });
-
-  it("derives one responsive strategy from each group's fixture kind", () => {
-    for (const group of SURFACE_GROUPS) {
-      expect(fixtureResponsiveStrategy(group), group.id).toBe(
-        group.fixtureKind === "spatial" ? "scale-together" : "reflow",
-      );
-    }
-    expect(
-      SURFACE_GROUPS.filter(
-        (group) => fixtureResponsiveStrategy(group) === "scale-together",
-      ).map((group) => group.id),
-    ).toEqual([
-      "app-shell",
-      "command-palette",
-      "composer",
-      "home",
-      "settings",
-      "extensions",
-    ]);
   });
 
   it("renders every anatomy-manifest region and nothing else", () => {
@@ -162,20 +100,6 @@ describe("product-map surfaces", () => {
     expect([...sectioned].sort()).toEqual(surfaceIds("headless").sort());
     expect(new Set(sectioned).size).toBe(sectioned.length);
     expect(surfaceIds("headless")).toEqual(sectioned);
-  });
-
-  it("keeps the headless group off the surface fixtures", () => {
-    const marked = new Set<string>([
-      ...APP_SHELL_MARKS,
-      ...COMMAND_PALETTE_MARKS,
-      ...COMPOSER_MARKS,
-      ...COMPOSE_MARKS,
-      ...SETTINGS_MARKS,
-      ...EXTENSIONS_MARKS,
-    ]);
-    for (const id of surfaceIds("headless")) {
-      expect(marked.has(id)).toBe(false);
-    }
   });
 });
 

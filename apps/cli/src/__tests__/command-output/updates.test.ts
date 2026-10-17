@@ -345,9 +345,9 @@ describe("bb updates aleph", () => {
     });
 
     await runCommand(["updates", "aleph"], register);
-    expect(collectLogPayloads(vi.mocked(console.log)).join("\n")).toContain(
-      "does not use the Aleph update channel",
-    );
+    expect(
+      collectLogPayloads(vi.mocked(console.log)).join("\n"),
+    ).toContain("does not use the Aleph update channel");
 
     vi.mocked(console.log).mockClear();
     await runCommand(["updates", "aleph", "--json"], register);
@@ -392,9 +392,9 @@ describe("bb updates aleph", () => {
       }),
     });
     await runCommand(["updates", "aleph", "run", nonce], register);
-    expect(collectLogPayloads(vi.mocked(console.log)).join("\n")).toContain(
-      "does not use the Aleph update channel",
-    );
+    expect(
+      collectLogPayloads(vi.mocked(console.log)).join("\n"),
+    ).toContain("does not use the Aleph update channel");
   });
 
   it("offers no command that starts, rolls back, or recovers", async () => {
@@ -412,7 +412,8 @@ describe("bb updates aleph", () => {
     });
     await runCommand(["updates", "--json"], register);
     expect(
-      JSON.parse(String(vi.mocked(console.log).mock.calls[0]?.[0])).alephUpdate,
+      JSON.parse(String(vi.mocked(console.log).mock.calls[0]?.[0]))
+        .alephUpdate,
     ).toEqual(alephStatus);
 
     vi.mocked(console.log).mockClear();
@@ -425,7 +426,8 @@ describe("bb updates aleph", () => {
     });
     await runCommand(["updates", "--json"], register);
     expect(
-      JSON.parse(String(vi.mocked(console.log).mock.calls[0]?.[0])).alephUpdate,
+      JSON.parse(String(vi.mocked(console.log).mock.calls[0]?.[0]))
+        .alephUpdate,
     ).toBeNull();
   });
 });

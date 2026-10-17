@@ -1,5 +1,216 @@
 # Changelog
 
+## 0.45.0+aleph.0.6.3
+
+Aleph 0.6.3 is a patch on Aleph 0.6.2, on the same upstream bb 0.45.0
+base (`desktop-v0.45.0`, commit `129f62177`). It backports nine upstream bb
+performance fixes, lowers the CPU priority of agent processes and cuts
+Account Pooler's stall sensitivity and per-frame cost. None adds a
+server database migration; the workflows and side-chat plugins each add an
+index or table to their own databases.
+
+### Aleph
+
+- **Agent priority.** The host daemon starts host plugin workers and terminal
+  sessions at nice 10, so agent test suites no longer starve the server's
+  event loop when they share a CPU. `BB_AGENT_NICE` sets the level (0
+  disables, capped at 19); the nice value is only ever raised, and Windows is
+  unchanged.
+- **Agent cgroup placement (opt-in).** On Linux hosts with a systemd user
+  manager, `BB_AGENT_CGROUP=systemd` makes the host daemon try to place each
+  spawned agent process in its own transient systemd scope through a small sh
+  gate, so an operator can limit one runaway agent apart from the server.
+  Placement is best effort: if it fails the agent runs unplaced. Off by
+  default; the default spawn path is unchanged.
+- **Quieter logs.** Provider discovery for a disconnected host logs at debug
+  instead of warn, and the log entry names the host and environment.
+- **Account Pooler connects.** Each upstream connect attempt gets 5 s instead
+  of Node's 250 ms per address, so a stalled event loop no longer aborts the
+  IPv4 attempt and turns a proxied request into a 502 with `ETIMEDOUT`.
+- **Account Pooler receipts.** Receipt evidence builds its schemas once and
+  skips stream frames that carry no evidence, so a 16k-token stream spends
+  about 0.1 s instead of 4 s parsing evidence on the server's main thread.
+  Receipt states and fail-closed checks are unchanged.
+
+### Backported from upstream bb
+
+- **Timelines.** Settled rows over 1,000 characters leave their content out
+  of the timeline and `turn-summary-details` responses until the row is
+  expanded, and delegations load their child rows on expansion (#5240).
+- **Conversation outlines.** Updating an outline skips nested history
+  (#4718), and the outline can be filtered by role (#5240).
+- **Thread batches.** Latest thread state is read with one indexed lookup per
+  thread instead of repeated scans (#4931).
+- **Hot lookups and pruning.** Frequent lookups and pruning reuse prepared
+  queries (#5115).
+- **Background work.** Workflow queue claims wake on run and capacity changes
+  instead of polling every 250 ms (#5120), and side-chat cleanup is bounded
+  by an indexed pending-fork lookup (#5121).
+- **Diagnostics.** Opt-in server CPU profiles (#4751, #5112), and slow SQLite
+  log entries name the resource they read (#5116).
+
+## 0.45.0+aleph.0.6.2
+
+Aleph 0.6.2 is a patch on Aleph 0.6.1, on the same upstream bb 0.45.0
+base (`desktop-v0.45.0`, commit `129f62177`).
+
+### Aleph
+
+- **Dorcas theme.** Adds Dorcas, an OLED-friendly sibling of Thecla, on web,
+  desktop and mobile.
+- **Resting chrome.** With Dorcas, window chrome fades a minute after the last
+  input, and use inside embedded frames counts as activity.
+
+## 0.45.0+aleph.0.6.1
+
+Aleph 0.6.1 is a patch on Aleph 0.6.0, on the same upstream bb 0.45.0
+base (`desktop-v0.45.0`, commit `129f62177`).
+
+### Aleph
+
+- **Update row.** When a release was installed by an install wrapper, the
+  update row in Settings says so, and keeps showing an error when an update
+  publication is incomplete.
+- **Tests.** The command palette split test waits longer for the first
+  result.
+
+## 0.45.0+aleph.0.6.0
+
+Aleph 0.6.0 syncs the fork to upstream bb 0.45.0 (`desktop-v0.45.0`, commit
+`129f62177`) and keeps every Aleph change from 0.5.3.
+
+### Highlights
+
+- **Windows.** Upstream adds a native Windows desktop app and installer,
+  Windows machine enrollment, and Windows terminals, paths and provider CLI
+  discovery.
+- **Faster timelines and a lighter database.** Conversation outlines project
+  incrementally, root timeline ordering is reused while child threads stream,
+  and daemon authentication, liveness and watch-set refreshes read and write
+  the database less.
+- **Safer defaults.** Upstream's DNS-rebinding guard for the app server and
+  fixes for Claude Code permission handling (plan approval, `permissions.ask`
+  commands, "Allow for session") are included.
+
+### Aleph
+
+- **No upstream update feed.** The Aleph channel no longer builds the
+  upstream release feed URL, and the desktop auto-updater is never pointed at
+  it. Update checks were already off for `+aleph` versions.
+- **History shortcuts.** Cmd-[ and Cmd-] navigation and the Go menu are
+  carried onto the 0.45 pane-focus and keybinding changes.
+- **Comments post at once** now uses upstream's implementation of the same
+  behavior; `bb tasks comment --notify` still waits for delivery.
+
+### Upgrading
+
+- Server and host daemon speak a newer protocol (219 to 227). Update both
+  together.
+- The keybinding and desktop APIs take `platform` instead of `isMac`.
+
+## 0.44.0+aleph.0.5.3
+
+Aleph 0.5.3 is a patch on Aleph 0.5.2, on the same upstream bb 0.44.0
+base (`desktop-v0.44.0`, commit `0baa605b3`).
+
+### Security
+
+- **Secrets in provider environments no longer reach thread events.** Values
+  from a resolved provider environment, and common vendor token shapes, are
+  redacted when events are recorded, emitted and read. Known residual cases
+  are listed in `docs/credential-redaction-residuals.md`.
+
+## 0.44.0+aleph.0.5.2
+
+Aleph 0.5.2 is a patch on Aleph 0.5.1, on the same upstream bb 0.44.0
+base (`desktop-v0.44.0`, commit `0baa605b3`).
+
+### Highlights
+
+- **Busy threads no longer stall the server.** A thread with a long open
+  turn rebuilt its latest timeline page on every new event, and each rebuild
+  held up every other request: task comments, the thread list, other
+  threads. The server now reuses the previous page while a turn streams and
+  builds a busy thread's page at most a few times a second, then sends one
+  refresh with the final state.
+
+### Tasks
+
+- **Comments post at once.** Adding a comment returns as soon as it is
+  saved. Delivering it to the thread's agent happens afterwards.
+  `bb tasks comment --notify` still waits for delivery.
+
+## 0.44.0+aleph.0.5.1
+
+Aleph 0.5.1 is a patch on Aleph 0.5.0, on the same upstream bb 0.44.0
+base (`desktop-v0.44.0`, commit `0baa605b3`).
+
+### Highlights
+
+- **The composer no longer gets stuck after a reconnect.** When the
+  connection to the server dropped and came back, the message box could stay
+  disabled until you reloaded. Updates that arrive during the reconnect are
+  now picked up, and the composer waits only for a successful check of
+  pending approvals. If that check fails, the composer says so and offers
+  Retry.
+
+### Desktop
+
+- **Renderer diagnostics log.** The Aleph desktop app writes connection,
+  reconnect and composer-state events to
+  `~/Library/Logs/Aleph/aleph-renderer-YYYY-MM-DD.log`, keeping 5 days of
+  files of up to 5 MiB each. It records ids, codes and fixed categories only,
+  never message or console text.
+
+## 0.44.0+aleph.0.5.0
+
+Aleph 0.5.0 syncs to upstream bb 0.44.0 (`desktop-v0.44.0`, commit
+`0baa605b3`).
+
+### Highlights
+
+- **Everything from upstream 0.44.0.** Diff panel filtering, safer archiving
+  with undo, plugin safe mode, and Claude Code fast mode on supported Opus
+  models. See the `0.44.0` notes below for the full list of what upstream
+  shipped in this sync.
+
+### Tasks
+
+- **A task opens beside the list.** Opening a task on the Tasks board or
+  list shows its details in a column to the right, and the list or board
+  stays visible so you can move between neighboring tasks. Close the column
+  with Esc or its close button. In a narrow window the task fills the width
+  as before.
+- **Task links in chat open in the side panel.** Clicking a task link in an
+  agent's message opens the task in the thread's side panel instead of
+  navigating away from the conversation. Cmd-click and other modified
+  clicks still open the link normally.
+
+### Account Pooler
+
+- **Account usage in the top header bar.** The header shows a chip for each
+  provider (Claude, Codex) with the active account, how much of its
+  tightest limit is used, colored by how close it is, and when that limit
+  resets. In a narrow window each chip shrinks to its icon.
+
+### Quick switcher
+
+- **Cmd-K ranks threads by the title you see.** A thread whose title
+  matches your search shows its highlighted title instead of a message
+  snippet, and ranks above threads that match only in their messages. A
+  titled thread's first prompt no longer counts as a title match.
+- **Threads open at the latest message.** Picking a thread from Cmd-K opens
+  it at the bottom, even when the match was in an earlier message.
+
+### Desktop app
+
+- **Cmd-W closes the focused pane.** With the thread view split into panes,
+  Cmd-W (Ctrl-W on Windows and Linux) closes the pane you are in instead of
+  the whole window.
+- **The desktop app says Aleph throughout.** The loading screen, error and
+  server dialogs, window titles and sign-in popups name Aleph instead of bb.
+  bb Connect keeps its name.
+
 ## 0.43.4+aleph.0.4.1
 
 Aleph 0.4.1 is the first release under Aleph's own version number. Earlier
@@ -62,7 +273,7 @@ releases were numbered by build: aleph.4 counts as Aleph 0.4.0.
 ### Provider usage
 
 - **The Provider usage card shows every provider at once.** Claude Code,
-  Codex and any other provider on the selected machine or account pool are
+  Codex and any other provider on the selected machine are
   listed together, one section per provider with each account's limits,
   instead of one provider tab at a time.
 - **Hover a limit to see its burn rate.** Hovering or focusing a usage bar
@@ -178,13 +389,47 @@ Upstream main after 0.43.4 includes the Account Pooler recheck of exhausted acco
 
 - **Thread-bound availability.** `GET /api/v1/plugins/account-pool/http/availability?threadId=<id>` reports whether one thread may use each provider's pool. The thread's current environment must belong to the calling machine, which must still be enrolled. Ownership refusals return 403, failed ownership lookups return 503, and responses are never cached. This replaces the earlier thread check, which followed the routing rules without checking ownership.
 - **Run agents through the pool with `bb pool exec`.** Scheduled or supervised processes on the server's primary machine can run `bb pool exec -- codex exec …` or `bb pool exec -- claude --print …`. Only an allowlist of arguments is accepted; configuration overrides, profiles, provider selectors, and unknown options are rejected. The machine token reaches only the child's environment and is never printed. Output begins with a `bb-pool-exec: transport=pooled` line on stderr, or `pool-unconfirmed` when the pooled route could not be confirmed. `--stdin-file` reads a prompt from a private directory on the host, `~/.local/state/bb-account-pool/exec-input` by default.
-- **Attempt receipts for budgeted dispatch.** A dispatcher can begin an attempt under `/api/v1/plugins/account-pool/http/receipts`, run one Codex or Claude process with a scoped token, and finalize it for a sealed record of every upstream request and account hop. Receipts use the machine's own authentication and never accept machine or account IDs from callers. Hubs that cannot issue receipts, including nested hubs using a parent pool, return 503 when an attempt begins, so a dispatcher can stop before spending model quota.
+- **Attempt receipts for budgeted dispatch.** A dispatcher can begin an attempt under `/api/v1/plugins/account-pool/http/receipts`, run one Codex or Claude process with a scoped token, and finalize it for a sealed record of every upstream request with its account. Receipts use the machine's own authentication and never accept machine or account IDs from callers. Hubs that cannot issue receipts, including nested hubs using a parent Account Pooler, return 503 when an attempt begins, so a dispatcher can stop before spending model quota.
 
 ### Thread list and panes
 
 - **Provider icons.** Each thread row leads with its agent provider's icon. Turn them off in Organize → Rows → Provider icons. Choose brand colors or monochrome, or set light and dark colors for each provider with Customize colors…. Themes can set `--provider-icon-<id>` and `--provider-icon`.
 - **Switch a thread's provider in place.** When the handoff plugin is running, changing the provider in the model picker defaults to Switch in this thread. The new thread takes over the title, pin, section, parent, and children, and the original is archived. New thread keeps bb's standard handoff.
 - **Optional composer focus on pane switches.** Settings → Keyboard → Pane navigation → Focus composer when switching panes with keyboard. It is off by default and saved separately in each browser or desktop app.
+
+## 0.44.0
+
+Filter large diffs, recover archived threads more safely, and troubleshoot plugins with safe mode. These notes also cover 0.43.4, which shipped without notes.
+
+### Highlights
+
+- **Filter the diff panel** with globs like `*.md`, `docs/**`, or `!*.test.ts`.
+- **Safer archiving.** Undo within 30 seconds keeps a running turn and its terminals alive, and cleaned-up workspaces can be restored.
+- **Plugin safe mode** stops every plugin not included with bb in one step, then restores them when you turn it off.
+- **Claude Code fast mode** now works on supported Opus models.
+
+### Improvements
+
+- **Composer:** a send menu to queue, steer, save a draft, or send later; an Install button when a provider CLI is missing; 35 MB attachments; and automatic retries for failed queued messages.
+- **Sidebar:** show and unarchive archived threads, rename in place, and hide rows from their … menu. Installed thread-list and navigation plugins take over automatically.
+- **Navigation:** keyboard shortcuts for moving between splits and panel tabs, starting threads in existing Git worktrees, and faster long conversations.
+- **Desktop:** Cmd+F find, 50–300% zoom, clearer startup recovery, and cookie import from Dia.
+- **Machines:** remove a machine while keeping its threads as read-only history, and turn a moved server’s old computer into a regular machine with `bb server install-machine-service`.
+- **Plugins:** Docs improvements, a refreshed marketplace, 75% smaller bundled plugins, and forkable built-ins.
+- **AI services:** choose which service writes thread titles, commit messages, and voice transcripts in Settings → AI services.
+- **In-app updates (opt-in):** start bb with `npx bb-app start --in-app-updates` to update from Settings → Updates or `bb updates app`.
+
+### Fixes
+
+- Fixes for Pi, Claude Code, Codex, and ACP sessions, bb Connect tunnel resets, stuck workspaces and questions, voice input, and the mobile keyboard and sidebar.
+
+### New plugin APIs
+
+- Experimental `aiServices`, `sidebarHeader`, `useSidebarNavigation`, and `sendMenu`, plus `useSdk()`, `bb.onInstall`, and the `experimental_host.deleted` event.
+
+### Thanks
+
+Thank you to the contributors outside the core team: [@andrewkchan](https://github.com/andrewkchan), [@danielbachhuber](https://github.com/danielbachhuber), [@dillonzq](https://github.com/dillonzq), [@fgrehm](https://github.com/fgrehm), [@hemaaanth](https://github.com/hemaaanth), [@jshph](https://github.com/jshph), [@luketraas](https://github.com/luketraas), [@MacHatter1](https://github.com/MacHatter1), [@maheen-ejaz](https://github.com/maheen-ejaz), [@OXI-717](https://github.com/OXI-717), [@salemsayed](https://github.com/salemsayed), [@vyacheslav-startsev](https://github.com/vyacheslav-startsev), [@vznh](https://github.com/vznh), and [@Willhong](https://github.com/Willhong).
 
 ## 0.43.3
 

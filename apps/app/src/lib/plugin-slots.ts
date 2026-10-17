@@ -113,10 +113,10 @@ export interface PluginMessageDirectiveSlot
   extends PluginMessageDirectiveRegistration, PluginSlotBase {}
 export interface PluginMessageActionSlot
   extends PluginMessageActionRegistration, PluginSlotBase {}
-export interface PluginCommandPaletteActionSlot
-  extends CollectedPluginCommandRegistration, PluginSlotBase {}
-export interface PluginCommandPaletteSearchSlot
-  extends ExperimentalPluginCommandPaletteSearchRegistration, PluginSlotBase {}
+export type PluginCommandPaletteActionSlot =
+  CollectedPluginCommandRegistration & PluginSlotBase;
+export type PluginCommandPaletteSearchSlot =
+  ExperimentalPluginCommandPaletteSearchRegistration & PluginSlotBase;
 interface PluginIconSlot extends ExperimentalIconRegistration, PluginSlotBase {}
 interface PluginProviderIconSlot
   extends CollectedPluginProviderIconRegistration, PluginSlotBase {}

@@ -14,6 +14,7 @@ import {
 import {
   invalidateRealtimeQueriesAfterServerReconnect,
   invalidateRealtimeQueriesFetchedBeforeInitialConnect,
+  refetchActiveRealtimeQueriesOnResume,
   refetchErroredRealtimeQueriesOnInitialConnect,
 } from "./cache-owners/system-cache-effects";
 import { createBufferedEnvironmentInvalidator } from "./buffered-environment-invalidator";
@@ -70,6 +71,7 @@ interface RealtimeCacheEffects {
   dispose: () => void;
   handleChanged: (message: ChangedMessage) => void;
   handleConnected: (event: RealtimeConnectedEvent) => void;
+  handleResumed: () => void;
 }
 
 export interface RealtimeCacheEffectsVisibility {
@@ -568,6 +570,7 @@ export function createRealtimeCacheEffects({
         invalidateRealtimeQueriesAfterServerReconnect({
           disconnectedAt: event.disconnectedAt,
           queryClient,
+          reconnectedAt: Date.now(),
         });
         return;
       }
@@ -576,6 +579,12 @@ export function createRealtimeCacheEffects({
         connectedAt: Date.now(),
         queryClient,
       });
+    },
+    handleResumed: () => {
+      if (!visibility.isDocumentVisible()) {
+        return;
+      }
+      refetchActiveRealtimeQueriesOnResume({ queryClient });
     },
   };
 }

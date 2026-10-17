@@ -1,1 +1,12 @@
-import "bb-app/dist/bb-app.js";
+import { installParentExitWatch } from "./bridge-parent-watch.js";
+
+installParentExitWatch({
+  env: process.env,
+  kill(signal) {
+    process.kill(process.pid, signal);
+  },
+  outputs: [process.stdout, process.stderr],
+  stdin: process.stdin,
+});
+
+void import("bb-app/dist/bb-app.js");

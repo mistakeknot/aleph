@@ -15,6 +15,7 @@ import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { SHIMMED_TYPE_PACKAGES } from "../packages/plugin-build/src/runtime-shims.mjs";
+import { affectedPluginForks } from "./lib/ci-plugin-forks.mjs";
 import {
   forkPluginPackageJson,
   forkPluginTsconfig,
@@ -26,13 +27,16 @@ import {
 const run = promisify(execFile);
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const USAGE =
-  "Usage: node scripts/check-plugin-forks.mjs [plugins/<name> ...] [--keep] [--concurrency=<n>]\n\n" +
+  "Usage: node scripts/check-plugin-forks.mjs [plugins/<name> ...] [--keep] [--concurrency=<n>] [--changed-from=<sha>] [--shard=<index>/<count>] [--list]\n\n" +
   "Copies each forkable built-in plugin (scripts/forkable-plugins.json) out of\n" +
   "the monorepo the way a fork would: the component registry items its @/\n" +
   "imports name are written into the copy, and it installs published packages\n" +
   "plus a packed @get-bb/plugin-sdk. Then it runs the copy's typecheck, tests,\n" +
   "and `bb plugin build`. Plugins run --concurrency at a time (default: up to\n" +
-  "4), and every failure is reported at the end.";
+  "4), and every failure is reported at the end. --changed-from selects changed\n" +
+  "plugins only when every changed file belongs to a forkable plugin; shared or\n" +
+  "unknown changes run all plugins. --shard partitions the selection across\n" +
+  "runners (one-based index). --list prints the shard selection as JSON.";
 const COPY_EXCLUDED = new Set([
   "node_modules",
   "dist",
@@ -46,6 +50,17 @@ if (args.includes("--help")) {
   process.exit(0);
 }
 const keep = args.includes("--keep");
+for (const arg of args) {
+  if (
+    arg.startsWith("--") &&
+    !["--keep", "--list"].includes(arg) &&
+    !arg.startsWith("--concurrency=") &&
+    !arg.startsWith("--changed-from=") &&
+    !arg.startsWith("--shard=")
+  ) {
+    throw new Error(`Unknown argument: ${arg}`);
+  }
+}
 const concurrencyArg = args.find((arg) => arg.startsWith("--concurrency="));
 const concurrency =
   concurrencyArg === undefined
@@ -59,14 +74,49 @@ const forkable = JSON.parse(
   await readFile(join(repoRoot, "scripts", "forkable-plugins.json"), "utf8"),
 ).plugins;
 const requested = args.filter((arg) => !arg.startsWith("--"));
-const pluginDirs = requested.length > 0 ? requested : forkable;
-for (const pluginDir of pluginDirs) {
+const changedFrom = args
+  .find((arg) => arg.startsWith("--changed-from="))
+  ?.slice("--changed-from=".length);
+if (changedFrom !== undefined && requested.length > 0) {
+  throw new Error("Use plugin directories or --changed-from, not both.");
+}
+const selectedPluginDirs =
+  requested.length > 0
+    ? requested
+    : affectedPluginForks(repoRoot, changedFrom, forkable);
+const shardArg = args.find((arg) => arg.startsWith("--shard="));
+let pluginDirs = selectedPluginDirs;
+if (shardArg !== undefined) {
+  const match = /^--shard=([1-9]\d*)\/([1-9]\d*)$/u.exec(shardArg);
+  const index = Number(match?.[1]);
+  const count = Number(match?.[2]);
+  if (
+    !Number.isSafeInteger(index) ||
+    !Number.isSafeInteger(count) ||
+    index > count
+  ) {
+    throw new Error("--shard requires an index/count with 1 <= index <= count");
+  }
+  pluginDirs = selectedPluginDirs.filter(
+    (_, position) => position % count === index - 1,
+  );
+}
+for (const pluginDir of selectedPluginDirs) {
   if (!forkable.includes(pluginDir)) {
     console.error(
       `${pluginDir} is not listed in scripts/forkable-plugins.json\n\n${USAGE}`,
     );
     process.exit(1);
   }
+}
+
+if (args.includes("--list")) {
+  console.log(JSON.stringify(pluginDirs));
+  process.exit(0);
+}
+if (pluginDirs.length === 0) {
+  console.log("No changed forkable plugins.");
+  process.exit(0);
 }
 
 async function step(log, label, command, commandArgs, options = {}) {

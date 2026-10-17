@@ -45,7 +45,9 @@ function resolveLocal(specifier, importerRel) {
   if (specifier.startsWith("@/")) {
     base = specifier.slice(2);
   } else if (specifier.startsWith(".")) {
-    base = path.normalize(path.join(path.dirname(importerRel), specifier));
+    base = path.posix.normalize(
+      path.posix.join(path.posix.dirname(importerRel), specifier),
+    );
   } else {
     return null;
   }
@@ -105,7 +107,7 @@ function itemNameFor(relPath) {
 
 function componentGroupOf(relPath) {
   if (!relPath.startsWith("components/ui/")) return [];
-  const segments = path.dirname(relPath).split("/").slice(2);
+  const segments = path.posix.dirname(relPath).split("/").slice(2);
   return segments[0] === "hooks" ? [] : segments;
 }
 

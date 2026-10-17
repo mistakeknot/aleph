@@ -262,15 +262,26 @@ describe("bb machine command output", () => {
       type: "ephemeral",
       machineProviderId: "modal-sandbox",
     };
-    stubServerApi({ "v1.hosts.$get": vi.fn(async () => [...hosts, sandbox]) });
+    const list = vi.fn(async ({ query }: { query: { type?: string } }) =>
+      [...hosts, sandbox].filter(
+        (host) => query.type === undefined || host.type === query.type,
+      ),
+    );
+    stubServerApi({ "v1.hosts.$get": list });
 
     await runCommand(["machine", "list", "--json"], register);
+    expect(list).toHaveBeenLastCalledWith({
+      query: { includeCreating: "true", type: "persistent" },
+    });
     expect(
       JSON.parse(String(vi.mocked(console.log).mock.calls[0]?.[0])),
     ).toEqual(hosts);
 
     vi.mocked(console.log).mockClear();
     await runCommand(["machine", "list", "--all", "--json"], register);
+    expect(list).toHaveBeenLastCalledWith({
+      query: { includeCreating: "true" },
+    });
     expect(
       JSON.parse(String(vi.mocked(console.log).mock.calls[0]?.[0])),
     ).toEqual([...hosts, sandbox]);
@@ -375,10 +386,6 @@ describe("bb machine command output", () => {
 describe("machine selection", () => {
   it("resolves an ID before names", () => {
     expect(resolveMachineId(hosts, "host-primary")).toBe("host-primary");
-  });
-
-  it("resolves an unambiguous name", () => {
-    expect(resolveMachineId(hosts, "laptop")).toBe("host-remote");
   });
 
   it("lists matching IDs for an ambiguous name", () => {

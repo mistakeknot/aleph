@@ -154,4 +154,32 @@ describe("bridge recorder", () => {
     splitter.push(" and keeps going\nafter\n");
     expect(lines).toEqual(["short", "after"]);
   });
+
+  it("redacts launch env var secrets from recorded request lines", () => {
+    const secret = "synthetic-review-token-1234";
+    dir = mkdtempSync(join(tmpdir(), "bb-bridge-recorder-"));
+    const recorder = createBridgeRecorder({ dir });
+    recorder.recordRuntimeLine(
+      "runtime→bridge",
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 3,
+        method: "thread/start",
+        params: {
+          threadId: "thr_redact",
+          options: {
+            envVars: { CODEX_POOL_AUTH_TOKEN: secret, PATH: "/usr/bin" },
+          },
+        },
+      }),
+    );
+    recorder.close();
+    const raw = readFileSync(
+      join(dir, "thr_redact", "runtime→bridge.ndjson"),
+      "utf8",
+    );
+    expect(raw).not.toContain(secret);
+    expect(raw).toContain("CODEX_POOL_AUTH_TOKEN");
+    expect(raw).toContain("/usr/bin");
+  });
 });

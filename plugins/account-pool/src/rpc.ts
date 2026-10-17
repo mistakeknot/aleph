@@ -20,6 +20,8 @@ import {
   loginStartSchema,
   routedThreadStatusListSchema,
   statusSchema,
+  switchLogEntrySchema,
+  switchLogInputSchema,
   tokenRotateInputSchema,
   routingSetInputSchema,
   type AccountPoolConfigController,
@@ -103,6 +105,10 @@ export const accountPoolRpcContract = defineRpcContract({
     input: z.null(),
     output: routedThreadStatusListSchema,
   },
+  "switches.list": {
+    input: switchLogInputSchema,
+    output: z.array(switchLogEntrySchema),
+  },
   "token.rotate": {
     input: tokenRotateInputSchema,
     output: hubTokenSummarySchema,
@@ -160,6 +166,7 @@ export function createRpcHandlers(
     }),
     "status.get": () => operations.status(),
     "status.routedThreads": () => operations.routedThreadsWithoutLocalLogin(),
+    "switches.list": ({ limit }) => operations.switchLog(limit),
     "token.rotate": ({ machine }) => operations.rotateToken(machine),
     "bypass.set": ({ threadId, bypassed }) =>
       operations.setBypass(threadId, bypassed),

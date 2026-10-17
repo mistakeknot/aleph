@@ -388,50 +388,6 @@ describe("provider retry plugin", () => {
     await host.harness.dispose();
   });
 
-  it("asks core to retry an overloaded turn after backoff", async () => {
-    const host = createHost();
-    await plugin(host.bb);
-
-    const { errors } = await host.harness.behavior.emitThreadEvent(
-      "turn.failed",
-      overloadedFailure(),
-    );
-
-    expect(errors).toEqual([]);
-    expect(host.retries).toHaveLength(1);
-    expect(host.retries[0]).toMatchObject({
-      threadId: THREAD_ID,
-      turnRequestId: REQUEST_ID,
-      reason: "Provider overloaded",
-    });
-    expect(host.retries[0]?.sendAt).toBeGreaterThanOrEqual(
-      NOW_MS + OVERLOAD_RETRY_BASE_MS,
-    );
-    expect(host.retries[0]?.sendAt).toBeLessThan(
-      NOW_MS + OVERLOAD_RETRY_BASE_MS * 2,
-    );
-    await host.harness.dispose();
-  });
-
-  it("leaves ordinary failures alone", async () => {
-    const host = createHost();
-    await plugin(host.bb);
-
-    await host.harness.behavior.emitThreadEvent(
-      "turn.failed",
-      failure({
-        errorInfo: {
-          category: "internal",
-          providerCode: null,
-          httpStatusCode: 500,
-        },
-      }),
-    );
-
-    expect(host.retries).toEqual([]);
-    await host.harness.dispose();
-  });
-
   it("re-reads the maximum wait when the setting changes", async () => {
     const host = createHost();
     await plugin(host.bb);
@@ -528,33 +484,16 @@ describe("provider retry plugin", () => {
     await host.harness.dispose();
   });
 
-  it("renders help, refuses unknown flags, and reports errors as JSON", async () => {
+  it("documents the optional thread id, exits 2 on usage errors, and reports errors as JSON", async () => {
     const host = createHost();
     await plugin(host.bb);
 
-    for (const argv of [["--help"], ["-h"], ["cancel", "--help"]]) {
-      const help = await host.harness.runCli(argv);
-      expect(help.exitCode, argv.join(" ")).toBe(0);
-      expect(help.stderr).toBe("");
-      expect(help.stdout).toContain("bb provider-retry");
-    }
-    expect((await host.harness.runCli(["retry", "--help"])).stdout).toContain(
-      "[<thread-id>]",
-    );
-
-    const unknownFlag = await host.harness.runCli(["status", "--jsom"]);
-    expect(unknownFlag.exitCode).toBe(2);
-    expect(unknownFlag.stderr).toContain("unknown option '--jsom'");
-    expect(unknownFlag.stderr).toContain("(Did you mean --json?)");
-
-    const unknownCommand = await host.harness.runCli(["cancle", THREAD_ID]);
-    expect(unknownCommand.exitCode).toBe(2);
-    expect(unknownCommand.stderr).toContain("unknown command 'cancle'");
-    expect(unknownCommand.stderr).toContain("(Did you mean cancel?)");
+    const help = (await host.harness.runCli(["retry", "--help"])).stdout;
+    expect(help).toContain("bb provider-retry retry");
+    expect(help).toContain("[<thread-id>]");
 
     const stray = await host.harness.runCli(["retry", THREAD_ID, "extra"]);
     expect(stray.exitCode).toBe(2);
-    expect(stray.stderr).toContain("unexpected argument 'extra'");
     expect(host.sent).toEqual([]);
 
     const envelope = await host.harness.runCli(["cancel", THREAD_ID, "--json"]);

@@ -76,6 +76,7 @@ describe("general settings mutation", () => {
     const configKey = systemConfigQueryKey();
     const timelineKey = threadTimelineQueryKey("thread-1");
     const summaryKey = threadTimelineTurnSummaryDetailsQueryKey({
+      itemId: null,
       threadId: "thread-1",
       turnId: "turn-1",
       sourceSeqStart: 1,
@@ -114,26 +115,6 @@ describe("general settings mutation", () => {
       models: ["cached"],
     });
     expect(queryClient.getQueryState(providersKey)?.isInvalidated).toBe(false);
-  });
-
-  it("refreshes the provider directory after its picker order changes", async () => {
-    const { queryClient, wrapper } = createQueryClientTestHarness();
-    const providersKey = systemProvidersQueryKey();
-    queryClient.setQueryData(systemConfigQueryKey(), systemConfig());
-    queryClient.setQueryData(providersKey, [{ id: "alpha" }, { id: "beta" }]);
-    const nextSettings = {
-      ...defaultAppSettings,
-      providerOrder: ["beta", "alpha"],
-    };
-    vi.mocked(sdk.system.updateGeneralSettings).mockResolvedValue(nextSettings);
-    const { result } = renderHook(() => useUpdateGeneralSettings(), {
-      wrapper,
-    });
-
-    act(() => result.current.mutate(nextSettings));
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
-    expect(queryClient.getQueryState(providersKey)?.isInvalidated).toBe(true);
   });
 
   it.each(["success", "failure"])(

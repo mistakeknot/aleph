@@ -1,11 +1,17 @@
-import { and, eq, inArray, isNull, ne } from "drizzle-orm";
+import { prepareCachedQuery } from "../connection.js";
+import { and, eq, inArray, isNull, ne, placeholder } from "drizzle-orm";
 import {
   resolveEnvironmentHostLifecycle,
   type HostChangeKind,
+  type HostType,
   type JsonValue,
   type PermissionMode,
 } from "@bb/domain";
-import type { DbConnection, DbTransaction } from "../connection.js";
+import type {
+  DbConnection,
+  DbTransaction,
+  DbQueryConnection,
+} from "../connection.js";
 import type { DbNotifier } from "../notifier.js";
 import { environments, hosts } from "../schema.js";
 import { createHostId } from "../ids.js";
@@ -18,16 +24,15 @@ export interface UpsertHostInput {
   connectMachineId?: string | null;
   id?: string;
   name: string;
-  type?: "persistent" | "ephemeral";
+  type?: HostType;
   destroyedAt?: number | null;
 }
 
 export interface UpdateHostInput {
-  type?: "persistent" | "ephemeral";
+  type?: HostType;
   machineOperationId?: string | null;
   launchKey?: string | null;
   inputs?: JsonValue | null;
-  attempt?: number;
   pendingLog?: string;
   destroyedAt?: number | null;
   lastRejectedProtocolVersion?: number | null;
@@ -169,8 +174,15 @@ export function markHostSeen(
     .run();
 }
 
+const prepareGetHost = (db: DbQueryConnection) =>
+  db
+    .select()
+    .from(hosts)
+    .where(eq(hosts.id, placeholder("id")))
+    .prepare();
+
 export function getHost(db: HostWriteConnection, id: string) {
-  return db.select().from(hosts).where(eq(hosts.id, id)).get() ?? null;
+  return prepareCachedQuery(db, prepareGetHost).get({ id }) ?? null;
 }
 
 export function getNonDestroyedHost(db: DbConnection, id: string) {
@@ -202,7 +214,7 @@ export function listHosts(db: DbConnection) {
 
 export function listPublicHosts(
   db: DbConnection,
-  options?: { includeCreating?: boolean },
+  options?: { includeCreating?: boolean; type?: HostType },
 ) {
   return db
     .select()
@@ -211,6 +223,7 @@ export function listPublicHosts(
       and(
         isNull(hosts.destroyedAt),
         ...(options?.includeCreating ? [] : [ne(hosts.phase, "creating")]),
+        ...(options?.type ? [eq(hosts.type, options.type)] : []),
       ),
     )
     .all();
@@ -273,7 +286,6 @@ export function updateHost(
         : {}),
       ...(input.launchKey !== undefined ? { launchKey: input.launchKey } : {}),
       ...(input.inputs !== undefined ? { inputs: input.inputs } : {}),
-      ...(input.attempt !== undefined ? { attempt: input.attempt } : {}),
       ...(input.pendingLog !== undefined
         ? { pendingLog: input.pendingLog }
         : {}),

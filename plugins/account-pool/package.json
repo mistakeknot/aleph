@@ -3,14 +3,14 @@
   "version": "0.1.2",
   "private": true,
   "type": "module",
-  "description": "Routes Claude and Codex API traffic across provider account pools.",
+  "description": "Routes Claude and Codex API traffic to your own accounts, budgeted.",
   "engines": {
     "bb": ">=0.0",
     "bbPluginSdk": ">=0.4.102"
   },
   "bb": {
     "name": "Account Pooler [Experimental]",
-    "description": "Routes Claude and Codex API traffic across provider account pools.",
+    "description": "Routes Claude and Codex API traffic to your own accounts, budgeted.",
     "branding": {
       "icon": "Layers"
     },
@@ -35,7 +35,6 @@
   "devDependencies": {
     "@bb/plugin-build": "workspace:*",
     "@get-bb/plugin-sdk": "workspace:*",
-    "@radix-ui/react-dialog": "^1.1.19",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "^16.3.2",
     "@types/better-sqlite3": "^7.6.12",
