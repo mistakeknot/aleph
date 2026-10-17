@@ -7464,6 +7464,7 @@ describe("Account Pool nested proxy", () => {
         "ANTHROPIC_BASE_URL",
         "ANTHROPIC_AUTH_TOKEN",
         "ENABLE_TOOL_SEARCH",
+        "_CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL",
       ],
     },
     {
