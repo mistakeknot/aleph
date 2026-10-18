@@ -489,6 +489,11 @@ export const appTheme = sqliteTable("app_theme", {
     .$type<FaviconColorPreference>()
     .notNull()
     .default("default"),
+  musicMode: integer("music_mode", { mode: "boolean" })
+    .notNull()
+    .default(false),
+  musicPort: integer("music_port").notNull().default(47_615),
+  musicSecret: text("music_secret"),
   updatedAt: integer("updated_at").notNull(),
 });
 

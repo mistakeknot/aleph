@@ -56,6 +56,8 @@ import type {
   ExperimentUpdates,
   Experiments,
   Host,
+  MusicPairing,
+  MusicSecretUpdate,
   PendingInteraction,
   ProjectExecutionDefaults,
   ProjectSource,
@@ -68,6 +70,7 @@ import {
   appKeybindingOverridesSchema,
   appThemeSelectionSchema,
   experimentUpdatesSchema,
+  musicSecretUpdateSchema,
 } from "@bb/domain";
 import type { ProviderUsageResponse } from "@bb/host-daemon-contract";
 import {
@@ -1947,6 +1950,29 @@ export const publicApiRoutes = {
         appThemeSelectionSchema,
       ),
       response: jsonResponse<AppTheme>(),
+    }),
+    /**
+     * Store or clear the Dorcas music mode pairing secret. It lives apart from
+     * the theme selection, so theme and favicon writes keep it, and every
+     * other response reports it only as `musicSecret: "set" | null`.
+     */
+    musicSecret: defineRoute({
+      path: "/settings/appearance/music-secret",
+      method: "put",
+      request: jsonRequest<EmptyInput, MusicSecretUpdate>(
+        musicSecretUpdateSchema,
+      ),
+      response: jsonResponse<AppTheme>(),
+    }),
+    /**
+     * The only read of the music pairing secret. The app calls it to open the
+     * loopback Phosphene connection; machine credentials are refused.
+     */
+    musicPairing: defineRoute({
+      path: "/settings/appearance/music-pairing",
+      method: "get",
+      request: noRequest(),
+      response: jsonResponse<MusicPairing>(),
     }),
     uiPreferences: defineRoute({
       path: "/preferences/ui",

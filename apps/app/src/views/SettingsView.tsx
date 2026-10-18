@@ -16,6 +16,7 @@ import {
   defaultExperiments,
   experimentKeys,
   managedBranchPrefixSchema,
+  themeSelectionFrom,
   type AppTheme,
   type ExperimentKey,
   type Experiments,
@@ -1207,10 +1208,7 @@ export function SettingsView() {
         themePreference={themePreference}
         onAppearanceThemeChange={(themeId) =>
           updateAppearanceMutation.mutate(
-            {
-              themeId,
-              faviconColor: appearance.faviconColor,
-            },
+            themeSelectionFrom(appearance, themeId),
             { onError: () => appThemePreview.previewTheme(null) },
           )
         }
@@ -1226,7 +1224,7 @@ export function SettingsView() {
         }
         onFaviconColorChange={(faviconColor) =>
           updateAppearanceMutation.mutate({
-            themeId: appearance.themeId,
+            ...themeSelectionFrom(appearance),
             faviconColor,
           })
         }

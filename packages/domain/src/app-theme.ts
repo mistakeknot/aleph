@@ -98,10 +98,35 @@ export type FaviconColorPreference = z.infer<
 
 export const defaultFaviconColor: FaviconColorPreference = "default";
 
+export const MUSIC_MODE_THEME_ID: BuiltInThemeId = "dorcas";
+export const MUSIC_PORT_MIN = 1024;
+export const MUSIC_PORT_MAX = 65_535;
+export const DEFAULT_MUSIC_PORT = 47_615;
+export const MUSIC_SECRET_BYTES = 32;
+
+export const musicPortSchema = z
+  .number()
+  .int()
+  .min(MUSIC_PORT_MIN)
+  .max(MUSIC_PORT_MAX);
+
+export const musicSecretSchema = z
+  .string()
+  .regex(
+    /^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$/,
+    "The music pairing secret must be 32 bytes in standard base64",
+  );
+
+export const musicSecretStatusSchema = z.literal("set").nullable();
+export type MusicSecretStatus = z.infer<typeof musicSecretStatusSchema>;
+
 export const appThemeSchema = z.object({
   themeId: z.string().min(1),
   customCss: z.string().max(CUSTOM_THEME_CSS_MAX_LENGTH).nullable(),
   faviconColor: faviconColorPreferenceSchema,
+  musicMode: z.boolean().default(false),
+  musicPort: musicPortSchema.default(DEFAULT_MUSIC_PORT),
+  musicSecret: musicSecretStatusSchema.default(null),
   resolvedCodeTheme: resolvedCodeThemeSchema.default(defaultResolvedCodeTheme),
 });
 export type AppTheme = z.infer<typeof appThemeSchema>;
@@ -123,8 +148,21 @@ export function formatPluginThemeId(pluginId: string, themeId: string): string {
 export const appThemeSelectionSchema = z.object({
   themeId: z.string().min(1),
   faviconColor: faviconColorPreferenceSchema,
+  musicMode: z.boolean(),
+  musicPort: musicPortSchema,
 });
 export type AppThemeSelection = z.infer<typeof appThemeSelectionSchema>;
+
+export const musicSecretUpdateSchema = z.object({
+  secret: musicSecretSchema.nullable(),
+});
+export type MusicSecretUpdate = z.infer<typeof musicSecretUpdateSchema>;
+
+export const musicPairingSchema = z.object({
+  port: musicPortSchema,
+  secret: musicSecretSchema.nullable(),
+});
+export type MusicPairing = z.infer<typeof musicPairingSchema>;
 
 export const NEW_INSTALL_DEFAULT_THEME_ID: BuiltInThemeId = "thecla";
 
@@ -132,5 +170,20 @@ export const defaultAppTheme: AppTheme = {
   themeId: "default",
   customCss: null,
   faviconColor: defaultFaviconColor,
+  musicMode: false,
+  musicPort: DEFAULT_MUSIC_PORT,
+  musicSecret: null,
   resolvedCodeTheme: defaultResolvedCodeTheme,
 };
+
+export function themeSelectionFrom(
+  appearance: AppTheme,
+  themeId: string = appearance.themeId,
+): AppThemeSelection {
+  return {
+    themeId,
+    faviconColor: appearance.faviconColor,
+    musicMode: appearance.musicMode,
+    musicPort: appearance.musicPort,
+  };
+}

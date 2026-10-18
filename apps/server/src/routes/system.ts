@@ -14,12 +14,15 @@ import {
   getAppKeybindingOverrides,
   getExperiments,
   getStoredFaviconColor,
+  getStoredMusicPairing,
+  getStoredMusicPreferences,
   getStoredThemeId,
   hasActiveThreadAttention,
   setAppSettings,
   setAppKeybindingOverrides,
   setExperiments,
   setStoredAppearance,
+  setStoredMusicSecret,
 } from "@bb/db";
 import {
   applyAppKeybindingOverrides,
@@ -82,6 +85,7 @@ import {
   listCustomThemeNames,
   readCustomThemeCss,
   resolveAppTheme,
+  type AppThemePreferences,
   resolveCustomThemeCssPath,
   resolveThemeRootPath,
 } from "../services/system/custom-themes.js";
@@ -184,23 +188,33 @@ export function registerSystemRoutes(
     }
   }
 
+  function readStoredThemePreferences(): AppThemePreferences {
+    const music = getStoredMusicPreferences(deps.db);
+    return {
+      faviconColor: getStoredFaviconColor(deps.db),
+      musicMode: music.musicMode,
+      musicPort: music.musicPort,
+      musicSecret: music.musicSecretSet ? "set" : null,
+    };
+  }
+
   async function resolveSelectedTheme(
     themeId: string,
-    faviconColor: AppTheme["faviconColor"],
+    preferences: AppThemePreferences = readStoredThemePreferences(),
   ): Promise<AppTheme> {
     const pluginCss = await pluginService.readThemeCss(themeId);
     if (pluginCss !== null) {
       return {
         themeId,
         customCss: pluginCss,
-        faviconColor,
+        ...preferences,
         resolvedCodeTheme: resolveCodeTheme(
           pluginService.readThemeCodeTheme(themeId),
           themeId,
         ),
       };
     }
-    return resolveAppTheme(themeRoot, themeId, faviconColor);
+    return resolveAppTheme(themeRoot, themeId, preferences);
   }
 
   async function buildSystemConfigResponse(serverUrl: string) {
@@ -224,10 +238,7 @@ export function registerSystemRoutes(
       experiments: getExperiments(deps.db),
       performanceDiagnosticsAvailable:
         deps.config.performanceDiagnosticsAvailable,
-      appearance: await resolveSelectedTheme(
-        getStoredThemeId(deps.db),
-        getStoredFaviconColor(deps.db),
-      ),
+      appearance: await resolveSelectedTheme(getStoredThemeId(deps.db)),
       customThemes: listCustomThemeNames(themeRoot),
       pluginThemes: pluginService.listThemes(),
       featureFlags: deps.config.featureFlags,
@@ -345,6 +356,19 @@ export function registerSystemRoutes(
     return context.json(getExperiments(deps.db));
   });
 
+  function requireUserCredentials(
+    context: Parameters<typeof getGateAuthKind>[0],
+    action: string,
+  ): void {
+    if (getGateAuthKind(context) === "machine") {
+      throw new ApiError(
+        403,
+        "forbidden",
+        `Machine credentials cannot ${action}`,
+      );
+    }
+  }
+
   async function requireKnownTheme(themeId: string): Promise<void> {
     if (isBuiltInThemeId(themeId)) return;
     if ((await pluginService.readThemeCss(themeId)) !== null) return;
@@ -365,19 +389,28 @@ export function registerSystemRoutes(
   }
 
   put(routes.appearance, async (context, payload) => {
-    const { themeId, faviconColor } = payload;
-    await requireKnownTheme(themeId);
-    setStoredAppearance(deps.db, { themeId, faviconColor });
+    await requireKnownTheme(payload.themeId);
+    setStoredAppearance(deps.db, payload);
     deps.hub.notifySystem(["config-changed"]);
-    return context.json(await resolveSelectedTheme(themeId, faviconColor));
+    return context.json(await resolveSelectedTheme(payload.themeId));
+  });
+
+  put(routes.musicSecret, async (context, payload) => {
+    requireUserCredentials(context, "change the music pairing secret");
+    setStoredMusicSecret(deps.db, payload.secret);
+    deps.hub.notifySystem(["config-changed"]);
+    return context.json(await resolveSelectedTheme(getStoredThemeId(deps.db)));
+  });
+
+  get(routes.musicPairing, (context) => {
+    requireUserCredentials(context, "read the music pairing secret");
+    return context.json(getStoredMusicPairing(deps.db));
   });
 
   get(routes.resolveTheme, async (context) => {
     const themeId = context.req.param("id");
     await requireKnownTheme(themeId);
-    return context.json(
-      await resolveSelectedTheme(themeId, getStoredFaviconColor(deps.db)),
-    );
+    return context.json(await resolveSelectedTheme(themeId));
   });
 
   get(routes.themes, async (context) =>
@@ -385,10 +418,7 @@ export function registerSystemRoutes(
       dir: themeRoot,
       custom: listCustomThemeNames(themeRoot),
       plugins: pluginService.listThemes(),
-      active: await resolveSelectedTheme(
-        getStoredThemeId(deps.db),
-        getStoredFaviconColor(deps.db),
-      ),
+      active: await resolveSelectedTheme(getStoredThemeId(deps.db)),
     }),
   );
 
