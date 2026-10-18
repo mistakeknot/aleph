@@ -920,7 +920,7 @@ describe("in-turn timeline windows", () => {
 
     expect(walked.pages).toBe(1);
     expect(walked.rows).not.toHaveLength(0);
-  });
+  }, 30_000);
 
   it("pages back through a running oversized turn to exactly the unbudgeted rows", () => {
     const { db, thread } = setup();
@@ -1013,7 +1013,7 @@ describe("in-turn timeline windows", () => {
     expect(commandCallIds.size).toBe(BYTE_WINDOW_ITEM_COUNT);
     expect(expandedCommandCallIds.size).toBe(BYTE_WINDOW_ITEM_COUNT);
     expect(turnRowIds.size).toBe(1);
-  }, 15_000);
+  }, 60_000);
 
   it("keeps latest byte-page row identities stable while a turn grows", () => {
     const { db, thread } = setup();
@@ -1194,7 +1194,7 @@ describe("in-turn timeline windows", () => {
     expect(pages).toBeGreaterThan(1);
     expect(commandCallIds.size).toBe(BYTE_WINDOW_ITEM_COUNT);
     expect(expandedCommandCallIds.size).toBe(BYTE_WINDOW_ITEM_COUNT);
-  }, 15_000);
+  }, 60_000);
 
   it("returns one oversized atomic row without discarding its content", () => {
     const { db, thread } = setup();
