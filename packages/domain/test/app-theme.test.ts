@@ -38,8 +38,16 @@ describe("built-in themes", () => {
   });
 });
 
+function base64Of(bytes: readonly number[]): string {
+  return btoa(String.fromCharCode(...bytes));
+}
+
+function repeated(length: number): number[] {
+  return Array.from({ length }, () => 7);
+}
+
 describe("music mode theme preferences", () => {
-  const secret = Buffer.alloc(32, 7).toString("base64");
+  const secret = base64Of(repeated(32));
 
   it("defaults music mode off with the Phosphene port and no secret", () => {
     const parsed = appThemeSchema.parse({
@@ -99,20 +107,16 @@ describe("music mode theme preferences", () => {
   });
 
   it("accepts only canonical base64 of exactly 32 bytes as the secret", () => {
+    const varied = base64Of(Array.from({ length: 32 }, (_, i) => 255 - i));
+    expect(varied).toMatch(/[+/]/);
     expect(musicSecretSchema.safeParse(secret).success).toBe(true);
-    expect(
-      musicSecretSchema.safeParse(
-        Buffer.from(Array.from({ length: 32 }, (_, i) => i * 8)).toString(
-          "base64",
-        ),
-      ).success,
-    ).toBe(true);
+    expect(musicSecretSchema.safeParse(varied).success).toBe(true);
     for (const bad of [
-      Buffer.alloc(31, 7).toString("base64"),
-      Buffer.alloc(33, 7).toString("base64"),
+      base64Of(repeated(31)),
+      base64Of(repeated(33)),
       secret.replace(/=$/, ""),
       secret.slice(0, 42) + "B=",
-      Buffer.alloc(32, 7).toString("base64url"),
+      varied.replace(/\+/g, "-").replace(/\//g, "_"),
       ` ${secret}`,
     ]) {
       expect(musicSecretSchema.safeParse(bad).success).toBe(false);
