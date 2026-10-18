@@ -1,3 +1,4 @@
+import { useCallback, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   type AppKeybindingOverrides,
@@ -6,6 +7,7 @@ import {
   type ExperimentUpdates,
 } from "@bb/domain";
 import type { SystemInstallCliSkillsRequest } from "@bb/server-contract";
+import { showMutationErrorToast } from "@/lib/mutation-errors";
 import { sdk } from "@/lib/sdk";
 import {
   invalidateGeneralSettingsDependencies,
@@ -109,4 +111,35 @@ export function useUpdateAppearance() {
       invalidateSystemConfig({ queryClient });
     },
   });
+}
+
+export function useWriteMusicSecret(): {
+  write: (secret: string | null) => Promise<boolean>;
+  pending: boolean;
+} {
+  const queryClient = useQueryClient();
+  const [pending, setPending] = useState(false);
+  const write = useCallback(
+    async (secret: string | null) => {
+      setPending(true);
+      try {
+        await sdk.theme.setMusicSecret({ secret });
+        invalidateSystemConfig({ queryClient });
+        return true;
+      } catch (error) {
+        showMutationErrorToast({
+          error,
+          fallbackMessage:
+            secret === null
+              ? "Failed to clear the music pairing secret."
+              : "Failed to save the music pairing secret.",
+        });
+        return false;
+      } finally {
+        setPending(false);
+      }
+    },
+    [queryClient],
+  );
+  return { write, pending };
 }

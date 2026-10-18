@@ -258,6 +258,9 @@ function AppearanceSettingsStory() {
       onFaviconColorChange={(faviconColor) =>
         state.setAppearance((current) => ({ ...current, faviconColor }))
       }
+      onMusicSelectionChange={(update) =>
+        state.setAppearance((current) => ({ ...current, ...update }))
+      }
       onThemePreferenceChange={state.setThemePreference}
       themePreference={state.themePreference}
     />
