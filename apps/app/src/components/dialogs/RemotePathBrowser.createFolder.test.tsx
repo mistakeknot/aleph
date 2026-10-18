@@ -49,8 +49,13 @@ beforeEach(() => {
   );
 });
 
-afterEach(() => {
+const VIRTUALIZER_SCROLL_RESET_DELAY_MS = 150;
+
+afterEach(async () => {
   cleanup();
+  await new Promise((resolve) =>
+    setTimeout(resolve, VIRTUALIZER_SCROLL_RESET_DELAY_MS + 50),
+  );
   vi.clearAllMocks();
   vi.restoreAllMocks();
 });
