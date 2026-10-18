@@ -765,6 +765,11 @@
       // variables, so without these they start unauthenticated.
       "passThroughEnv": ["CLAUDE_CODE_OAUTH_TOKEN", "BB_CLAUDE_CODE_EXECUTABLE"]
     },
+    "@bb/app#test:pixel": {
+      "dependsOn": ["topo"],
+      "cache": false,
+      "passThroughEnv": ["CHROME_PATH"]
+    },
     "smoke:tarball": {
       "dependsOn": ["build"],
       "cache": false,
