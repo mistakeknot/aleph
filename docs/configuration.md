@@ -516,7 +516,9 @@ history. `--music-secret-file` and `--music-secret-clear` cannot be combined.
 `bb theme show` prints `Music secret: set` or `not set`, and `--json` prints
 `"musicSecret": "set"` or `null`; neither prints the value. The SDK writes it
 with `sdk.theme.setMusicSecret({ secret })` and the app reads it with
-`sdk.theme.musicPairing()`. Both routes reject machine credentials.
+`sdk.theme.musicPairing()`. Both routes reject machine credentials. A
+plugin's `bb.sdk.theme` omits both calls, but server plugins run in the server
+process, so this is not an isolation boundary.
 
 Trust model:
 

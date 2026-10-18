@@ -2053,9 +2053,12 @@ export interface PluginStatusApi {
  * dashes) or the request fails with HTTP 400. A `pluginMetadata` seed or a
  * `set` that is over 256 KiB on its own rejects before any request is sent. A
  * patch whose merged namespace would exceed 256 KiB fails with HTTP 413 and
- * leaves the namespace unchanged.
+ * leaves the namespace unchanged. `theme` omits `musicPairing` and
+ * `setMusicSecret`: the Phosphene pairing secret is reserved for the BB app and
+ * CLI.
  */
-export type PluginBbSdk = Omit<BbSdk, "threads"> & {
+export type PluginBbSdk = Omit<BbSdk, "theme" | "threads"> & {
+  theme: Omit<BbSdk["theme"], "musicPairing" | "setMusicSecret">;
   threads: Omit<
     BbSdk["threads"],
     "getPluginMetadata" | "updatePluginMetadata"

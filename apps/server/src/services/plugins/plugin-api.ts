@@ -350,6 +350,12 @@ function wrapSdkForPlugin(
 ): PluginBbSdk {
   return {
     ...sdk,
+    theme: {
+      get: sdk.theme.get,
+      catalog: sdk.theme.catalog,
+      resolve: sdk.theme.resolve,
+      set: sdk.theme.set,
+    },
     plugins: {
       ...sdk.plugins,
       callRpc(args) {
