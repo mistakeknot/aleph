@@ -4605,8 +4605,8 @@ describe("Account Pool plugin", () => {
             "sk-first",
           ]);
           rejected = "sk-second";
-          await (await send("wrap")).text();
-          expect(attempts.slice(-2)).toEqual(["sk-first", "sk-first"]);
+          await (await send("failover")).text();
+          expect(attempts.slice(-2)).toEqual(["sk-second", "sk-first"]);
         } finally {
           await first.body?.cancel();
         }
@@ -5276,11 +5276,11 @@ describe("Account Pool plugin", () => {
           });
           expect(await send(fixture.key, "{}", {})).toBe(keyFor("sk-first"));
           now += 29 * 60 * 1_000;
-          expect(await send(fixture.key, body)).toBe(keyFor("sk-first"));
+          expect(await send(otherHost, body)).toBe(keyFor("sk-second"));
           now += 2 * 60 * 1_000;
-          expect(await send(fixture.key, body)).toBe(keyFor("sk-first"));
+          expect(await send(otherHost, body)).toBe(keyFor("sk-second"));
           now += 31 * 60 * 1_000;
-          expect(await send(fixture.key, body)).toBe(keyFor("sk-first"));
+          expect(await send(otherHost, body)).toBe(keyFor("sk-first"));
         } finally {
           await held.body?.cancel();
         }
@@ -5749,7 +5749,10 @@ describe("Account Pool plugin", () => {
           },
         },
       });
-      const second = await addApiAccount(fixture, "sk-second");
+      await addApiAccount(fixture, "sk-second");
+      await fixture.host.harness.behavior.callRpc("account.disable", {
+        id: fixture.account.id,
+      });
       const send = async (id: string) => {
         const response = await fixture.host.harness.behavior.fetchHttp(
           "POST",
@@ -5771,9 +5774,6 @@ describe("Account Pool plugin", () => {
         },
       );
       try {
-        await fixture.host.harness.behavior.callRpc("account.disable", {
-          id: fixture.account.id,
-        });
         for (let index = 1; index < 4; index += 1)
           await send(`session-${index}`);
         await fixture.host.harness.behavior.callRpc("account.enable", {
@@ -5782,13 +5782,11 @@ describe("Account Pool plugin", () => {
         const touched = await send("oldest");
         await send("newest");
         const retained = await send("oldest");
-        await held.body?.cancel();
-        await movePoolToOtherAccount(fixture, "claude", second.id);
         const nextOldest = await send("session-2");
         const evicted = await send("session-1");
         expect([touched, retained, nextOldest, evicted]).toEqual([
-          "sk-first",
-          "sk-first",
+          "sk-second",
+          "sk-second",
           "sk-second",
           "sk-first",
         ]);
