@@ -21,6 +21,7 @@ import { AppFileExternalNavigationHost } from "./components/plugin/AppFileExtern
 import { pluginDetailKeyFromRoute } from "./components/plugin/plugin-detail-key";
 import { useAppTheme } from "./hooks/useAppTheme";
 import { useAmbientScreenCare } from "./hooks/useAmbientScreenCare";
+import { useMusicSignal } from "./hooks/useMusicSignal";
 import { useFaviconColorSync } from "./lib/favicon-color-preference";
 import { useDesktopThemeSync } from "./hooks/useDesktopThemeSync";
 import { usePluginFrontendBoot } from "./hooks/usePluginFrontendBoot";
@@ -442,6 +443,7 @@ export function App() {
   useDesktopThemeSync();
   useAppTheme();
   useAmbientScreenCare();
+  useMusicSignal();
   useFaviconColorSync();
   usePluginFrontendBoot();
   useRememberPluginNavPanelChrome();
