@@ -53,7 +53,7 @@ export const dorcasThemeCss = `
   --file-accent: #74aec2;
 }
 html {
-  --dorcas-hue: calc(350 - 125 * var(--bb-ambient-wave, 0));
+  --dorcas-hue: var(--bb-music-hue, calc(350 - 125 * var(--bb-ambient-wave, 0)));
   --dorcas-line: oklch(0.55 0.08 var(--dorcas-hue));
   --dorcas-wash: oklch(0.55 0.08 var(--dorcas-hue) / 10%);
 }
@@ -105,15 +105,31 @@ html[data-bb-ambient-idle]::after {
   from { opacity: 0; }
   to { opacity: 1; }
 }
+html[data-bb-music] [data-sidebar="sidebar"] { position: relative; }
+html[data-bb-music] [data-sidebar="sidebar"]::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 2px;
+  background-color: var(--dorcas-line);
+  box-shadow: 0 0 8px 2px var(--dorcas-line);
+  opacity: var(--bb-music-glow, 0);
+  pointer-events: none;
+  will-change: opacity;
+}
 @media (prefers-reduced-motion: reduce) {
   form[data-promptbox]::after { transition: none; }
   html[data-bb-ambient-idle]::after { animation: none; }
   [data-sidebar="sidebar"],
   header[data-app-page-header] { transition: none; }
+  html[data-bb-music] [data-sidebar="sidebar"]::after { display: none; }
 }
 @media (forced-colors: active) {
   .bb-sidebar-selected-row:has(> [data-sidebar-thread-id]) { background-image: none; }
   form[data-promptbox]::after { display: none; }
+  html[data-bb-music] [data-sidebar="sidebar"]::after { display: none; }
   html[data-bb-ambient-idle]::after { display: none; }
   html[data-bb-ambient-rest] [data-sidebar="sidebar"]:not(:hover, :focus-within),
   html[data-bb-ambient-rest] header[data-app-page-header]:not(:hover, :focus-within) { opacity: 1; }
