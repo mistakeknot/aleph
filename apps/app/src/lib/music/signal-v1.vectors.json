@@ -1,0 +1,1158 @@
+{
+  "description": "Signal wire schema v1 test vectors (bead mk-dqrwh.1). Shared with the paired client: both ends must agree on every case. Generated once; edit together with signal-schema.ts / signal-protocol.ts and a version bump. Handshake secrets are given as raw bytes (secretBytes); the settings file stores them as standard base64.",
+  "version": 1,
+  "schema": {
+    "valid": [
+      {
+        "name": "baseline",
+        "frame": {
+          "v": 1,
+          "seq": 0,
+          "t": 0,
+          "energy": 0.5,
+          "beatEnv": 0.25,
+          "bpmConfidence": 0.8,
+          "keyConfidence": 0.6,
+          "beat": false,
+          "synthetic": false,
+          "bpm": 124,
+          "key": 9,
+          "keyMode": "minor"
+        }
+      },
+      {
+        "name": "bpm 0 means unknown",
+        "frame": {
+          "v": 1,
+          "seq": 0,
+          "t": 0,
+          "energy": 0.5,
+          "beatEnv": 0.25,
+          "bpmConfidence": 0,
+          "keyConfidence": 0.6,
+          "beat": false,
+          "synthetic": false,
+          "bpm": 0,
+          "key": 9,
+          "keyMode": "minor"
+        }
+      },
+      {
+        "name": "lower bounds",
+        "frame": {
+          "v": 1,
+          "seq": 0,
+          "t": 0,
+          "energy": 0,
+          "beatEnv": 0,
+          "bpmConfidence": 0,
+          "keyConfidence": 0,
+          "beat": false,
+          "synthetic": false,
+          "bpm": 40,
+          "key": 0,
+          "keyMode": "minor"
+        }
+      },
+      {
+        "name": "upper bounds",
+        "frame": {
+          "v": 1,
+          "seq": 0,
+          "t": 0,
+          "energy": 1,
+          "beatEnv": 1,
+          "bpmConfidence": 1,
+          "keyConfidence": 1,
+          "beat": false,
+          "synthetic": false,
+          "bpm": 220,
+          "key": 11,
+          "keyMode": "minor"
+        }
+      },
+      {
+        "name": "major, beat, synthetic",
+        "frame": {
+          "v": 1,
+          "seq": 0,
+          "t": 0,
+          "energy": 0.5,
+          "beatEnv": 0.25,
+          "bpmConfidence": 0.8,
+          "keyConfidence": 0.6,
+          "beat": true,
+          "synthetic": true,
+          "bpm": 124,
+          "key": 9,
+          "keyMode": "major"
+        }
+      },
+      {
+        "name": "fractional t and bpm",
+        "frame": {
+          "v": 1,
+          "seq": 0,
+          "t": 1234.5678,
+          "energy": 0.5,
+          "beatEnv": 0.25,
+          "bpmConfidence": 0.8,
+          "keyConfidence": 0.6,
+          "beat": false,
+          "synthetic": false,
+          "bpm": 127.85,
+          "key": 9,
+          "keyMode": "minor"
+        }
+      },
+      {
+        "name": "max safe seq",
+        "frame": {
+          "v": 1,
+          "seq": 9007199254740991,
+          "t": 1000000000000,
+          "energy": 0.5,
+          "beatEnv": 0.25,
+          "bpmConfidence": 0.8,
+          "keyConfidence": 0.6,
+          "beat": false,
+          "synthetic": false,
+          "bpm": 124,
+          "key": 9,
+          "keyMode": "minor"
+        }
+      },
+      {
+        "name": "key order differs",
+        "frame": {
+          "keyMode": "minor",
+          "key": 9,
+          "bpm": 124,
+          "synthetic": false,
+          "beat": false,
+          "keyConfidence": 0.6,
+          "bpmConfidence": 0.8,
+          "beatEnv": 0.25,
+          "energy": 0.5,
+          "t": 0,
+          "seq": 0,
+          "v": 1
+        }
+      }
+    ],
+    "invalid": [
+      {
+        "name": "missing v",
+        "frame": {
+          "seq": 0,
+          "t": 0,
+          "energy": 0.5,
+          "beatEnv": 0.25,
+          "bpmConfidence": 0.8,
+          "keyConfidence": 0.6,
+          "beat": false,
+          "synthetic": false,
+          "bpm": 124,
+          "key": 9,
+          "keyMode": "minor"
+        },
+        "error": "missing key \"v\""
+      },
+      {
+        "name": "missing seq",
+        "frame": {
+          "v": 1,
+          "t": 0,
+          "energy": 0.5,
+          "beatEnv": 0.25,
+          "bpmConfidence": 0.8,
+          "keyConfidence": 0.6,
+          "beat": false,
+          "synthetic": false,
+          "bpm": 124,
+          "key": 9,
+          "keyMode": "minor"
+        },
+        "error": "missing key \"seq\""
+      },
+      {
+        "name": "missing t",
+        "frame": {
+          "v": 1,
+          "seq": 0,
+          "energy": 0.5,
+          "beatEnv": 0.25,
+          "bpmConfidence": 0.8,
+          "keyConfidence": 0.6,
+          "beat": false,
+          "synthetic": false,
+          "bpm": 124,
+          "key": 9,
+          "keyMode": "minor"
+        },
+        "error": "missing key \"t\""
+      },
+      {
+        "name": "missing energy",
+        "frame": {
+          "v": 1,
+          "seq": 0,
+          "t": 0,
+          "beatEnv": 0.25,
+          "bpmConfidence": 0.8,
+          "keyConfidence": 0.6,
+          "beat": false,
+          "synthetic": false,
+          "bpm": 124,
+          "key": 9,
+          "keyMode": "minor"
+        },
+        "error": "missing key \"energy\""
+      },
+      {
+        "name": "missing beatEnv",
+        "frame": {
+          "v": 1,
+          "seq": 0,
+          "t": 0,
+          "energy": 0.5,
+          "bpmConfidence": 0.8,
+          "keyConfidence": 0.6,
+          "beat": false,
+          "synthetic": false,
+          "bpm": 124,
+          "key": 9,
+          "keyMode": "minor"
+        },
+        "error": "missing key \"beatEnv\""
+      },
+      {
+        "name": "missing bpmConfidence",
+        "frame": {
+          "v": 1,
+          "seq": 0,
+          "t": 0,
+          "energy": 0.5,
+          "beatEnv": 0.25,
+          "keyConfidence": 0.6,
+          "beat": false,
+          "synthetic": false,
+          "bpm": 124,
+          "key": 9,
+          "keyMode": "minor"
+        },
+        "error": "missing key \"bpmConfidence\""
+      },
+      {
+        "name": "missing keyConfidence",
+        "frame": {
+          "v": 1,
+          "seq": 0,
+          "t": 0,
+          "energy": 0.5,
+          "beatEnv": 0.25,
+          "bpmConfidence": 0.8,
+          "beat": false,
+          "synthetic": false,
+          "bpm": 124,
+          "key": 9,
+          "keyMode": "minor"
+        },
+        "error": "missing key \"keyConfidence\""
+      },
+      {
+        "name": "missing beat",
+        "frame": {
+          "v": 1,
+          "seq": 0,
+          "t": 0,
+          "energy": 0.5,
+          "beatEnv": 0.25,
+          "bpmConfidence": 0.8,
+          "keyConfidence": 0.6,
+          "synthetic": false,
+          "bpm": 124,
+          "key": 9,
+          "keyMode": "minor"
+        },
+        "error": "missing key \"beat\""
+      },
+      {
+        "name": "missing synthetic",
+        "frame": {
+          "v": 1,
+          "seq": 0,
+          "t": 0,
+          "energy": 0.5,
+          "beatEnv": 0.25,
+          "bpmConfidence": 0.8,
+          "keyConfidence": 0.6,
+          "beat": false,
+          "bpm": 124,
+          "key": 9,
+          "keyMode": "minor"
+        },
+        "error": "missing key \"synthetic\""
+      },
+      {
+        "name": "missing bpm",
+        "frame": {
+          "v": 1,
+          "seq": 0,
+          "t": 0,
+          "energy": 0.5,
+          "beatEnv": 0.25,
+          "bpmConfidence": 0.8,
+          "keyConfidence": 0.6,
+          "beat": false,
+          "synthetic": false,
+          "key": 9,
+          "keyMode": "minor"
+        },
+        "error": "missing key \"bpm\""
+      },
+      {
+        "name": "missing key",
+        "frame": {
+          "v": 1,
+          "seq": 0,
+          "t": 0,
+          "energy": 0.5,
+          "beatEnv": 0.25,
+          "bpmConfidence": 0.8,
+          "keyConfidence": 0.6,
+          "beat": false,
+          "synthetic": false,
+          "bpm": 124,
+          "keyMode": "minor"
+        },
+        "error": "missing key \"key\""
+      },
+      {
+        "name": "missing keyMode",
+        "frame": {
+          "v": 1,
+          "seq": 0,
+          "t": 0,
+          "energy": 0.5,
+          "beatEnv": 0.25,
+          "bpmConfidence": 0.8,
+          "keyConfidence": 0.6,
+          "beat": false,
+          "synthetic": false,
+          "bpm": 124,
+          "key": 9
+        },
+        "error": "missing key \"keyMode\""
+      },
+      {
+        "name": "extra key",
+        "frame": {
+          "v": 1,
+          "seq": 0,
+          "t": 0,
+          "energy": 0.5,
+          "beatEnv": 0.25,
+          "bpmConfidence": 0.8,
+          "keyConfidence": 0.6,
+          "beat": false,
+          "synthetic": false,
+          "bpm": 124,
+          "key": 9,
+          "keyMode": "minor",
+          "extra": 1
+        },
+        "error": "unexpected key \"extra\""
+      },
+      {
+        "name": "extra key (v2 field)",
+        "frame": {
+          "v": 1,
+          "seq": 0,
+          "t": 0,
+          "energy": 0.5,
+          "beatEnv": 0.25,
+          "bpmConfidence": 0.8,
+          "keyConfidence": 0.6,
+          "beat": false,
+          "synthetic": false,
+          "bpm": 124,
+          "key": 9,
+          "keyMode": "minor",
+          "section": 0.5
+        },
+        "error": "unexpected key \"section\""
+      },
+      {
+        "name": "v 2",
+        "frame": {
+          "v": 2,
+          "seq": 0,
+          "t": 0,
+          "energy": 0.5,
+          "beatEnv": 0.25,
+          "bpmConfidence": 0.8,
+          "keyConfidence": 0.6,
+          "beat": false,
+          "synthetic": false,
+          "bpm": 124,
+          "key": 9,
+          "keyMode": "minor"
+        },
+        "error": "v must be the integer 1"
+      },
+      {
+        "name": "v string",
+        "frame": {
+          "v": "1",
+          "seq": 0,
+          "t": 0,
+          "energy": 0.5,
+          "beatEnv": 0.25,
+          "bpmConfidence": 0.8,
+          "keyConfidence": 0.6,
+          "beat": false,
+          "synthetic": false,
+          "bpm": 124,
+          "key": 9,
+          "keyMode": "minor"
+        },
+        "error": "v must be the integer 1"
+      },
+      {
+        "name": "seq negative",
+        "frame": {
+          "v": 1,
+          "seq": -1,
+          "t": 0,
+          "energy": 0.5,
+          "beatEnv": 0.25,
+          "bpmConfidence": 0.8,
+          "keyConfidence": 0.6,
+          "beat": false,
+          "synthetic": false,
+          "bpm": 124,
+          "key": 9,
+          "keyMode": "minor"
+        },
+        "error": "seq must be an integer in 0..2^53-1"
+      },
+      {
+        "name": "seq fractional",
+        "frame": {
+          "v": 1,
+          "seq": 1.5,
+          "t": 0,
+          "energy": 0.5,
+          "beatEnv": 0.25,
+          "bpmConfidence": 0.8,
+          "keyConfidence": 0.6,
+          "beat": false,
+          "synthetic": false,
+          "bpm": 124,
+          "key": 9,
+          "keyMode": "minor"
+        },
+        "error": "seq must be an integer in 0..2^53-1"
+      },
+      {
+        "name": "seq past 2^53-1",
+        "frame": {
+          "v": 1,
+          "seq": 9007199254740992,
+          "t": 0,
+          "energy": 0.5,
+          "beatEnv": 0.25,
+          "bpmConfidence": 0.8,
+          "keyConfidence": 0.6,
+          "beat": false,
+          "synthetic": false,
+          "bpm": 124,
+          "key": 9,
+          "keyMode": "minor"
+        },
+        "error": "seq must be an integer in 0..2^53-1"
+      },
+      {
+        "name": "seq string",
+        "frame": {
+          "v": 1,
+          "seq": "0",
+          "t": 0,
+          "energy": 0.5,
+          "beatEnv": 0.25,
+          "bpmConfidence": 0.8,
+          "keyConfidence": 0.6,
+          "beat": false,
+          "synthetic": false,
+          "bpm": 124,
+          "key": 9,
+          "keyMode": "minor"
+        },
+        "error": "seq must be an integer in 0..2^53-1"
+      },
+      {
+        "name": "t negative",
+        "frame": {
+          "v": 1,
+          "seq": 0,
+          "t": -0.001,
+          "energy": 0.5,
+          "beatEnv": 0.25,
+          "bpmConfidence": 0.8,
+          "keyConfidence": 0.6,
+          "beat": false,
+          "synthetic": false,
+          "bpm": 124,
+          "key": 9,
+          "keyMode": "minor"
+        },
+        "error": "t must be a finite number >= 0"
+      },
+      {
+        "name": "t string",
+        "frame": {
+          "v": 1,
+          "seq": 0,
+          "t": "0",
+          "energy": 0.5,
+          "beatEnv": 0.25,
+          "bpmConfidence": 0.8,
+          "keyConfidence": 0.6,
+          "beat": false,
+          "synthetic": false,
+          "bpm": 124,
+          "key": 9,
+          "keyMode": "minor"
+        },
+        "error": "t must be a finite number >= 0"
+      },
+      {
+        "name": "t null",
+        "frame": {
+          "v": 1,
+          "seq": 0,
+          "t": null,
+          "energy": 0.5,
+          "beatEnv": 0.25,
+          "bpmConfidence": 0.8,
+          "keyConfidence": 0.6,
+          "beat": false,
+          "synthetic": false,
+          "bpm": 124,
+          "key": 9,
+          "keyMode": "minor"
+        },
+        "error": "t must be a finite number >= 0"
+      },
+      {
+        "name": "energy string",
+        "frame": {
+          "v": 1,
+          "seq": 0,
+          "t": 0,
+          "energy": "0.5",
+          "beatEnv": 0.25,
+          "bpmConfidence": 0.8,
+          "keyConfidence": 0.6,
+          "beat": false,
+          "synthetic": false,
+          "bpm": 124,
+          "key": 9,
+          "keyMode": "minor"
+        },
+        "error": "energy must be a finite number"
+      },
+      {
+        "name": "energy above 1",
+        "frame": {
+          "v": 1,
+          "seq": 0,
+          "t": 0,
+          "energy": 1.0001,
+          "beatEnv": 0.25,
+          "bpmConfidence": 0.8,
+          "keyConfidence": 0.6,
+          "beat": false,
+          "synthetic": false,
+          "bpm": 124,
+          "key": 9,
+          "keyMode": "minor"
+        },
+        "error": "energy must be in 0..1"
+      },
+      {
+        "name": "beatEnv below 0",
+        "frame": {
+          "v": 1,
+          "seq": 0,
+          "t": 0,
+          "energy": 0.5,
+          "beatEnv": -0.0001,
+          "bpmConfidence": 0.8,
+          "keyConfidence": 0.6,
+          "beat": false,
+          "synthetic": false,
+          "bpm": 124,
+          "key": 9,
+          "keyMode": "minor"
+        },
+        "error": "beatEnv must be in 0..1"
+      },
+      {
+        "name": "bpmConfidence null",
+        "frame": {
+          "v": 1,
+          "seq": 0,
+          "t": 0,
+          "energy": 0.5,
+          "beatEnv": 0.25,
+          "bpmConfidence": null,
+          "keyConfidence": 0.6,
+          "beat": false,
+          "synthetic": false,
+          "bpm": 124,
+          "key": 9,
+          "keyMode": "minor"
+        },
+        "error": "bpmConfidence must be a finite number"
+      },
+      {
+        "name": "keyConfidence above 1",
+        "frame": {
+          "v": 1,
+          "seq": 0,
+          "t": 0,
+          "energy": 0.5,
+          "beatEnv": 0.25,
+          "bpmConfidence": 0.8,
+          "keyConfidence": 2,
+          "beat": false,
+          "synthetic": false,
+          "bpm": 124,
+          "key": 9,
+          "keyMode": "minor"
+        },
+        "error": "keyConfidence must be in 0..1"
+      },
+      {
+        "name": "beat number",
+        "frame": {
+          "v": 1,
+          "seq": 0,
+          "t": 0,
+          "energy": 0.5,
+          "beatEnv": 0.25,
+          "bpmConfidence": 0.8,
+          "keyConfidence": 0.6,
+          "beat": 1,
+          "synthetic": false,
+          "bpm": 124,
+          "key": 9,
+          "keyMode": "minor"
+        },
+        "error": "beat must be a boolean"
+      },
+      {
+        "name": "synthetic string",
+        "frame": {
+          "v": 1,
+          "seq": 0,
+          "t": 0,
+          "energy": 0.5,
+          "beatEnv": 0.25,
+          "bpmConfidence": 0.8,
+          "keyConfidence": 0.6,
+          "beat": false,
+          "synthetic": "false",
+          "bpm": 124,
+          "key": 9,
+          "keyMode": "minor"
+        },
+        "error": "synthetic must be a boolean"
+      },
+      {
+        "name": "bpm string",
+        "frame": {
+          "v": 1,
+          "seq": 0,
+          "t": 0,
+          "energy": 0.5,
+          "beatEnv": 0.25,
+          "bpmConfidence": 0.8,
+          "keyConfidence": 0.6,
+          "beat": false,
+          "synthetic": false,
+          "bpm": "124",
+          "key": 9,
+          "keyMode": "minor"
+        },
+        "error": "bpm must be a finite number"
+      },
+      {
+        "name": "bpm below range",
+        "frame": {
+          "v": 1,
+          "seq": 0,
+          "t": 0,
+          "energy": 0.5,
+          "beatEnv": 0.25,
+          "bpmConfidence": 0.8,
+          "keyConfidence": 0.6,
+          "beat": false,
+          "synthetic": false,
+          "bpm": 39.99,
+          "key": 9,
+          "keyMode": "minor"
+        },
+        "error": "bpm must be 0 or in 40..220"
+      },
+      {
+        "name": "bpm above range",
+        "frame": {
+          "v": 1,
+          "seq": 0,
+          "t": 0,
+          "energy": 0.5,
+          "beatEnv": 0.25,
+          "bpmConfidence": 0.8,
+          "keyConfidence": 0.6,
+          "beat": false,
+          "synthetic": false,
+          "bpm": 220.01,
+          "key": 9,
+          "keyMode": "minor"
+        },
+        "error": "bpm must be 0 or in 40..220"
+      },
+      {
+        "name": "bpm negative",
+        "frame": {
+          "v": 1,
+          "seq": 0,
+          "t": 0,
+          "energy": 0.5,
+          "beatEnv": 0.25,
+          "bpmConfidence": 0.8,
+          "keyConfidence": 0.6,
+          "beat": false,
+          "synthetic": false,
+          "bpm": -1,
+          "key": 9,
+          "keyMode": "minor"
+        },
+        "error": "bpm must be 0 or in 40..220"
+      },
+      {
+        "name": "key fractional",
+        "frame": {
+          "v": 1,
+          "seq": 0,
+          "t": 0,
+          "energy": 0.5,
+          "beatEnv": 0.25,
+          "bpmConfidence": 0.8,
+          "keyConfidence": 0.6,
+          "beat": false,
+          "synthetic": false,
+          "bpm": 124,
+          "key": 9.5,
+          "keyMode": "minor"
+        },
+        "error": "key must be an integer in 0..11"
+      },
+      {
+        "name": "key 12",
+        "frame": {
+          "v": 1,
+          "seq": 0,
+          "t": 0,
+          "energy": 0.5,
+          "beatEnv": 0.25,
+          "bpmConfidence": 0.8,
+          "keyConfidence": 0.6,
+          "beat": false,
+          "synthetic": false,
+          "bpm": 124,
+          "key": 12,
+          "keyMode": "minor"
+        },
+        "error": "key must be an integer in 0..11"
+      },
+      {
+        "name": "key negative",
+        "frame": {
+          "v": 1,
+          "seq": 0,
+          "t": 0,
+          "energy": 0.5,
+          "beatEnv": 0.25,
+          "bpmConfidence": 0.8,
+          "keyConfidence": 0.6,
+          "beat": false,
+          "synthetic": false,
+          "bpm": 124,
+          "key": -1,
+          "keyMode": "minor"
+        },
+        "error": "key must be an integer in 0..11"
+      },
+      {
+        "name": "key string",
+        "frame": {
+          "v": 1,
+          "seq": 0,
+          "t": 0,
+          "energy": 0.5,
+          "beatEnv": 0.25,
+          "bpmConfidence": 0.8,
+          "keyConfidence": 0.6,
+          "beat": false,
+          "synthetic": false,
+          "bpm": 124,
+          "key": "9",
+          "keyMode": "minor"
+        },
+        "error": "key must be an integer in 0..11"
+      },
+      {
+        "name": "keyMode capitalised",
+        "frame": {
+          "v": 1,
+          "seq": 0,
+          "t": 0,
+          "energy": 0.5,
+          "beatEnv": 0.25,
+          "bpmConfidence": 0.8,
+          "keyConfidence": 0.6,
+          "beat": false,
+          "synthetic": false,
+          "bpm": 124,
+          "key": 9,
+          "keyMode": "Minor"
+        },
+        "error": "keyMode must be \"major\" or \"minor\""
+      },
+      {
+        "name": "keyMode null",
+        "frame": {
+          "v": 1,
+          "seq": 0,
+          "t": 0,
+          "energy": 0.5,
+          "beatEnv": 0.25,
+          "bpmConfidence": 0.8,
+          "keyConfidence": 0.6,
+          "beat": false,
+          "synthetic": false,
+          "bpm": 124,
+          "key": 9,
+          "keyMode": null
+        },
+        "error": "keyMode must be \"major\" or \"minor\""
+      },
+      {
+        "name": "array",
+        "frame": [
+          {
+            "v": 1,
+            "seq": 0,
+            "t": 0,
+            "energy": 0.5,
+            "beatEnv": 0.25,
+            "bpmConfidence": 0.8,
+            "keyConfidence": 0.6,
+            "beat": false,
+            "synthetic": false,
+            "bpm": 124,
+            "key": 9,
+            "keyMode": "minor"
+          }
+        ],
+        "error": "frame is not a plain object"
+      },
+      {
+        "name": "null",
+        "frame": null,
+        "error": "frame is not a plain object"
+      },
+      {
+        "name": "string",
+        "frame": "frame",
+        "error": "frame is not a plain object"
+      },
+      {
+        "name": "number",
+        "frame": 1,
+        "error": "frame is not a plain object"
+      }
+    ],
+    "invalidJson": [
+      {
+        "name": "__proto__ key",
+        "json": "{\"v\":1,\"seq\":0,\"t\":0,\"energy\":0.5,\"beatEnv\":0.25,\"bpmConfidence\":0.8,\"keyConfidence\":0.6,\"beat\":false,\"synthetic\":false,\"bpm\":124,\"key\":9,\"keyMode\":\"minor\",\"__proto__\":{\"x\":1}}",
+        "error": "unexpected key \"__proto__\""
+      },
+      {
+        "name": "NaN is not JSON",
+        "json": "{\"v\":1,\"seq\":0,\"t\":0,\"energy\":NaN,\"beatEnv\":0.25,\"bpmConfidence\":0.8,\"keyConfidence\":0.6,\"beat\":false,\"synthetic\":false,\"bpm\":124,\"key\":9,\"keyMode\":\"minor\"}",
+        "error": "parse"
+      }
+    ]
+  },
+  "sequence": [
+    {
+      "name": "in order, equal t allowed",
+      "frames": [
+        {
+          "seq": 0,
+          "t": 0
+        },
+        {
+          "seq": 1,
+          "t": 33.3
+        },
+        {
+          "seq": 2,
+          "t": 33.3
+        },
+        {
+          "seq": 3,
+          "t": 66.7
+        }
+      ],
+      "expect": [
+        true,
+        true,
+        true,
+        true
+      ]
+    },
+    {
+      "name": "first frame must be seq 0",
+      "frames": [
+        {
+          "seq": 1,
+          "t": 0
+        }
+      ],
+      "expect": [
+        false
+      ]
+    },
+    {
+      "name": "gap",
+      "frames": [
+        {
+          "seq": 0,
+          "t": 0
+        },
+        {
+          "seq": 2,
+          "t": 10
+        }
+      ],
+      "expect": [
+        true,
+        false
+      ]
+    },
+    {
+      "name": "repeat",
+      "frames": [
+        {
+          "seq": 0,
+          "t": 0
+        },
+        {
+          "seq": 0,
+          "t": 10
+        }
+      ],
+      "expect": [
+        true,
+        false
+      ]
+    },
+    {
+      "name": "backwards",
+      "frames": [
+        {
+          "seq": 0,
+          "t": 0
+        },
+        {
+          "seq": 1,
+          "t": 10
+        },
+        {
+          "seq": 0,
+          "t": 20
+        }
+      ],
+      "expect": [
+        true,
+        true,
+        false
+      ]
+    },
+    {
+      "name": "t decreases",
+      "frames": [
+        {
+          "seq": 0,
+          "t": 10
+        },
+        {
+          "seq": 1,
+          "t": 9.999
+        }
+      ],
+      "expect": [
+        true,
+        false
+      ]
+    },
+    {
+      "name": "a rejected frame does not advance",
+      "frames": [
+        {
+          "seq": 0,
+          "t": 0
+        },
+        {
+          "seq": 2,
+          "t": 10
+        },
+        {
+          "seq": 1,
+          "t": 10
+        }
+      ],
+      "expect": [
+        true,
+        false,
+        true
+      ]
+    }
+  ],
+  "handshake": [
+    {
+      "name": "example origin",
+      "secretBytes": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31],
+      "origin": "https://app.example.com",
+      "cn": "oKGio6SlpqeoqaqrrK2urw",
+      "sn": "sLGys7S1tre4ubq7vL2-vw",
+      "sp": "hqFlIOapnDk443tLTZVcPZu19VYEHrUoXd0c2XKZw6Y",
+      "cp": "Z9AQ6Rqsmyg8AT0USdCbw-16KL9cya9BeS-qqdaLKRY",
+      "hello": "{\"v\":1,\"hello\":\"oKGio6SlpqeoqaqrrK2urw\"}",
+      "challenge": "{\"v\":1,\"sn\":\"sLGys7S1tre4ubq7vL2-vw\",\"sp\":\"hqFlIOapnDk443tLTZVcPZu19VYEHrUoXd0c2XKZw6Y\"}",
+      "proof": "{\"v\":1,\"cp\":\"Z9AQ6Rqsmyg8AT0USdCbw-16KL9cya9BeS-qqdaLKRY\"}"
+    },
+    {
+      "name": "dev origin, all-zero nonces",
+      "secretBytes": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31],
+      "origin": "http://127.0.0.1:5173",
+      "cn": "AAAAAAAAAAAAAAAAAAAAAA",
+      "sn": "AAAAAAAAAAAAAAAAAAAAAA",
+      "sp": "zorCISZ2RfbmStdwtTqVVjUhQ0ISUGlfnvxBEEY_cAk",
+      "cp": "ThTzI_Evgav4fN7pUFTChzL0FccGXRNa7UxIjwnU9NE",
+      "hello": "{\"v\":1,\"hello\":\"AAAAAAAAAAAAAAAAAAAAAA\"}",
+      "challenge": "{\"v\":1,\"sn\":\"AAAAAAAAAAAAAAAAAAAAAA\",\"sp\":\"zorCISZ2RfbmStdwtTqVVjUhQ0ISUGlfnvxBEEY_cAk\"}",
+      "proof": "{\"v\":1,\"cp\":\"ThTzI_Evgav4fN7pUFTChzL0FccGXRNa7UxIjwnU9NE\"}"
+    },
+    {
+      "name": "all-0xff nonces",
+      "secretBytes": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31],
+      "origin": "https://app.example.com",
+      "cn": "_____________________w",
+      "sn": "_____________________w",
+      "sp": "2Pj6lI_vtn06aqF1kwxJ7nsBM7LJHXC_JWNG8ryDe9s",
+      "cp": "rZ2U_6zhYhLhdxxaTFCjlhp967fqqhF3ktvV5ZIopBw",
+      "hello": "{\"v\":1,\"hello\":\"_____________________w\"}",
+      "challenge": "{\"v\":1,\"sn\":\"_____________________w\",\"sp\":\"2Pj6lI_vtn06aqF1kwxJ7nsBM7LJHXC_JWNG8ryDe9s\"}",
+      "proof": "{\"v\":1,\"cp\":\"rZ2U_6zhYhLhdxxaTFCjlhp967fqqhF3ktvV5ZIopBw\"}"
+    }
+  ],
+  "encoding": {
+    "valid": [
+      {
+        "text": "AAAAAAAAAAAAAAAAAAAAAA",
+        "bytes": 16
+      },
+      {
+        "text": "_____________________w",
+        "bytes": 16
+      },
+      {
+        "text": "oKGio6SlpqeoqaqrrK2urw",
+        "bytes": 16
+      },
+      {
+        "text": "hqFlIOapnDk443tLTZVcPZu19VYEHrUoXd0c2XKZw6Y",
+        "bytes": 32
+      }
+    ],
+    "invalid": [
+      {
+        "text": "AAAAAAAAAAAAAAAAAAAAAA==",
+        "bytes": 16,
+        "why": "padding"
+      },
+      {
+        "text": "AAAAAAAAAAAAAAAAAAAAA",
+        "bytes": 16,
+        "why": "too short"
+      },
+      {
+        "text": "AAAAAAAAAAAAAAAAAAAAAAA",
+        "bytes": 16,
+        "why": "too long"
+      },
+      {
+        "text": "AAAAAAAAAAAAAAAAAAAAAB",
+        "bytes": 16,
+        "why": "non-zero trailing bits"
+      },
+      {
+        "text": "+AAAAAAAAAAAAAAAAAAAAA",
+        "bytes": 16,
+        "why": "standard-alphabet +"
+      },
+      {
+        "text": "/AAAAAAAAAAAAAAAAAAAAA",
+        "bytes": 16,
+        "why": "standard-alphabet /"
+      },
+      {
+        "text": "AAAAAAAAAA AAAAAAAAAAA",
+        "bytes": 16,
+        "why": "space"
+      },
+      {
+        "text": "AAAAAAAAAAAAAAAAAAAAAA",
+        "bytes": 32,
+        "why": "nonce where a proof belongs"
+      }
+    ]
+  },
+  "handshakeMessages": {
+    "hello": [
+      "{\"v\":1}",
+      "{\"v\":2,\"hello\":\"AAAAAAAAAAAAAAAAAAAAAA\"}",
+      "{\"v\":1,\"hello\":\"AAAAAAAAAAAAAAAAAAAAAA\",\"x\":1}",
+      "{\"v\":1,\"hello\":\"AAAAAAAAAAAAAAAAAAAAAA==\"}",
+      "{\"v\":1,\"hello\":7}",
+      "{\"v\":1,\"cp\":\"Z9AQ6Rqsmyg8AT0USdCbw-16KL9cya9BeS-qqdaLKRY\"}",
+      "[1]",
+      "hello",
+      ""
+    ],
+    "challenge": [
+      "{\"v\":1,\"sn\":\"sLGys7S1tre4ubq7vL2-vw\"}",
+      "{\"v\":1,\"sn\":\"sLGys7S1tre4ubq7vL2-vw\",\"sp\":\"oKGio6SlpqeoqaqrrK2urw\"}",
+      "{\"v\":1,\"sn\":\"sLGys7S1tre4ubq7vL2-vw\",\"sp\":\"hqFlIOapnDk443tLTZVcPZu19VYEHrUoXd0c2XKZw6Y\",\"x\":0}",
+      "{\"v\":1,\"hello\":\"oKGio6SlpqeoqaqrrK2urw\"}"
+    ]
+  }
+}
