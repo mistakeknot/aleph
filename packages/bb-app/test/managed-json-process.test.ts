@@ -139,6 +139,8 @@ function start(
   };
 }
 
+const DILATED_LOCK_WAIT = { env: { BB_TEST_LOCK_WAIT_DILATION: "6" } };
+
 function seed(dir: string, kind: string, value: object): string {
   const path = join(dir, `${kind}.json`);
   writeFileSync(path, JSON.stringify(value), { mode: 0o600 });
@@ -234,6 +236,7 @@ describe("managed JSON CLI process transactions", options, () => {
           const second = start(
             dir,
             pausedOperation === "unset" ? unrelated : change,
+            DILATED_LOCK_WAIT,
           );
           await compete(first, second);
           const expectedValues = {
@@ -449,15 +452,19 @@ describe("managed JSON CLI process transactions", options, () => {
         { pause: "read" },
       );
       await first.event("paused");
-      const second = start(dir, [
-        "client",
-        "ssh-target",
-        remove ? "remove" : "set",
-        origin,
-        ...(remove ? [] : ["synthetic-c"]),
-        "--host-id",
-        "host_a",
-      ]);
+      const second = start(
+        dir,
+        [
+          "client",
+          "ssh-target",
+          remove ? "remove" : "set",
+          origin,
+          ...(remove ? [] : ["synthetic-c"]),
+          "--host-id",
+          "host_a",
+        ],
+        DILATED_LOCK_WAIT,
+      );
       await compete(first, second);
       expect(read(path)).toEqual({
         servers: {
