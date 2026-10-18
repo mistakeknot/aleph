@@ -3040,7 +3040,7 @@ describe("Account Pool plugin", () => {
       await response.text();
     }
 
-    expect(authorizations).toEqual(["Bearer oauth-b", "Bearer oauth-b"]);
+    expect(authorizations).toEqual(["Bearer oauth-b", "Bearer oauth-a"]);
   });
 
   it("rewrites both known metadata account UUID formats", async () => {
@@ -4264,9 +4264,11 @@ describe("Account Pool plugin", () => {
           "sk-second",
           "sk-third",
           "sk-third",
+          "sk-first",
+          "sk-second",
           "sk-third",
           "sk-third",
-          "sk-third",
+          "sk-first",
         ]);
       },
     );
@@ -4316,6 +4318,106 @@ describe("Account Pool plugin", () => {
         limited = false;
         await send("warm");
         await send("fresh-after-recovery");
+        expect(attempts).toEqual([
+          "sk-first",
+          "sk-first",
+          "sk-second",
+          "sk-first",
+          "sk-first",
+        ]);
+      },
+    );
+
+    it("returns new claude conversations to the first account after its utilization window resets", async () => {
+      let now = 1_800_000_000_000;
+      const attempts: string[] = [];
+      const fixture = await affinityFixture(
+        "claude",
+        async (_input, init) => {
+          const key = new Headers(init?.headers).get("x-api-key") ?? "";
+          attempts.push(key);
+          return key === "sk-first"
+            ? Response.json(
+                {},
+                {
+                  headers: {
+                    "anthropic-ratelimit-unified-5h-status": "allowed",
+                    "anthropic-ratelimit-unified-5h-utilization": "0.99",
+                    "anthropic-ratelimit-unified-5h-reset": String(
+                      now / 1000 + 60,
+                    ),
+                  },
+                },
+              )
+            : Response.json({});
+        },
+        () => now,
+      );
+      const send = async (id: string) => {
+        const response = await fixture.host.harness.behavior.fetchHttp(
+          "POST",
+          "/v1/messages",
+          {
+            headers: { ...authHeaders(fixture.key), "session-id": id },
+            body: claudeBody(id),
+          },
+        );
+        expect(response.status).toBe(200);
+        await response.text();
+      };
+      await send("pinned-first");
+      await send("over-threshold");
+      now += 61_000;
+      await send("after-reset");
+      // The reset response crossed the threshold again, so the first account
+      // is skipped until its window resets once more.
+      await send("pinned-first");
+      await send("over-threshold");
+      expect(attempts).toEqual([
+        "sk-first",
+        "sk-second",
+        "sk-first",
+        "sk-second",
+        "sk-second",
+      ]);
+    });
+
+    it.each(["claude", "codex"] as const)(
+      "fails over a %s conversation on a transport error and returns new conversations to the recovered first account",
+      async (provider) => {
+        let down = false;
+        const attempts: string[] = [];
+        const fixture = await affinityFixture(
+          provider,
+          async (_input, init) => {
+            const headers = new Headers(init?.headers);
+            const key =
+              headers.get("x-api-key") ??
+              headers.get("authorization")?.slice(7) ??
+              "";
+            attempts.push(key);
+            if (down && key === "sk-first") throw new TypeError("fetch failed");
+            return Response.json({});
+          },
+        );
+        const send = async (id: string) => {
+          const response = await fixture.host.harness.behavior.fetchHttp(
+            "POST",
+            provider === "claude" ? "/v1/messages" : "/v1/responses",
+            {
+              headers: { ...authHeaders(fixture.key), "session-id": id },
+              body: provider === "claude" ? claudeBody(id) : "{}",
+            },
+          );
+          expect(response.status).toBe(200);
+          await response.text();
+        };
+        await send("warm");
+        down = true;
+        await send("failover");
+        down = false;
+        await send("after-recovery");
+        await send("failover");
         expect(attempts).toEqual([
           "sk-first",
           "sk-first",
@@ -4427,10 +4529,10 @@ describe("Account Pool plugin", () => {
           "sk-first",
           "sk-first",
           "sk-second",
-          "sk-second",
+          "sk-first",
           "sk-first",
           "sk-second",
-          "sk-second",
+          "sk-first",
         ]);
       },
     );
@@ -4498,13 +4600,13 @@ describe("Account Pool plugin", () => {
             "sk-first",
             "sk-first",
             "sk-second",
-            "sk-second",
             "sk-first",
-            "sk-second",
+            "sk-first",
+            "sk-first",
           ]);
           rejected = "sk-second";
           await (await send("wrap")).text();
-          expect(attempts.slice(-2)).toEqual(["sk-second", "sk-first"]);
+          expect(attempts.slice(-2)).toEqual(["sk-first", "sk-first"]);
         } finally {
           await first.body?.cancel();
         }
@@ -4906,6 +5008,9 @@ describe("Account Pool plugin", () => {
                 () => now,
               );
               const parent = forkRequest(wire, "parent-session", null);
+              await fixture.host.harness.behavior.callRpc("account.disable", {
+                id: fixture.account.id,
+              });
               const held = await fixture.host.harness.behavior.fetchHttp(
                 "POST",
                 route,
@@ -4915,13 +5020,24 @@ describe("Account Pool plugin", () => {
                 },
               );
               try {
-                await movePoolToOtherAccount(fixture, provider);
-                attempts.splice(1);
-                if (reason === "disabled")
+                await fixture.host.harness.behavior.callRpc("account.enable", {
+                  id: fixture.account.id,
+                });
+                if (reason === "disabled") {
+                  const secondId = z
+                    .array(accountSummarySchema)
+                    .parse(
+                      await fixture.host.harness.behavior.callRpc(
+                        "account.list",
+                        null,
+                      ),
+                    )
+                    .find((account) => account.id !== fixture.account.id)?.id;
                   await fixture.host.harness.behavior.callRpc(
                     "account.disable",
-                    { id: fixture.account.id },
+                    { id: secondId },
                   );
+                }
                 if (reason === "expired") now += 31 * 60 * 1_000;
                 const key =
                   reason === "other host"
@@ -4945,7 +5061,7 @@ describe("Account Pool plugin", () => {
                 );
                 expect(child.status).toBe(200);
                 await child.text();
-                expect(attempts).toEqual(["sk-first", "sk-second"]);
+                expect(attempts).toEqual(["sk-second", "sk-first"]);
               } finally {
                 await held.body?.cancel();
               }
@@ -4975,20 +5091,24 @@ describe("Account Pool plugin", () => {
                 body: request.body,
               });
             };
+            await fixture.host.harness.behavior.callRpc("account.disable", {
+              id: fixture.account.id,
+            });
             const held = await send("parent-session", null);
             try {
-              await movePoolToOtherAccount(fixture, provider);
-              attempts.splice(1);
+              await fixture.host.harness.behavior.callRpc("account.enable", {
+                id: fixture.account.id,
+              });
               now += 29 * 60 * 1_000;
               await (await send("child-session", "parent-session")).text();
               now += 2 * 60 * 1_000;
               await (await send("parent-session", null)).text();
               await (await send("child-session", "parent-session")).text();
               expect(attempts).toEqual([
-                "sk-first",
-                "sk-first",
+                "sk-second",
                 "sk-second",
                 "sk-first",
+                "sk-second",
               ]);
             } finally {
               await held.body?.cancel();
@@ -5047,7 +5167,7 @@ describe("Account Pool plugin", () => {
           expect(attempts).toEqual([
             "sk-claude-parent",
             "sk-first",
-            "sk-second",
+            "sk-first",
           ]);
         } finally {
           for (const response of held) await response.body?.cancel();
@@ -5154,13 +5274,13 @@ describe("Account Pool plugin", () => {
           await fixture.host.harness.behavior.callRpc("account.enable", {
             id: fixture.account.id,
           });
-          expect(await send(fixture.key, "{}", {})).toBe(keyFor("sk-second"));
+          expect(await send(fixture.key, "{}", {})).toBe(keyFor("sk-first"));
           now += 29 * 60 * 1_000;
           expect(await send(fixture.key, body)).toBe(keyFor("sk-first"));
           now += 2 * 60 * 1_000;
           expect(await send(fixture.key, body)).toBe(keyFor("sk-first"));
           now += 31 * 60 * 1_000;
-          expect(await send(fixture.key, body)).toBe(keyFor("sk-second"));
+          expect(await send(fixture.key, body)).toBe(keyFor("sk-first"));
         } finally {
           await held.body?.cancel();
         }
@@ -5651,9 +5771,14 @@ describe("Account Pool plugin", () => {
         },
       );
       try {
-        await movePoolToOtherAccount(fixture, "claude");
+        await fixture.host.harness.behavior.callRpc("account.disable", {
+          id: fixture.account.id,
+        });
         for (let index = 1; index < 4; index += 1)
           await send(`session-${index}`);
+        await fixture.host.harness.behavior.callRpc("account.enable", {
+          id: fixture.account.id,
+        });
         const touched = await send("oldest");
         await send("newest");
         const retained = await send("oldest");
@@ -7093,6 +7218,7 @@ describe("sequential pool recovery", () => {
     await send("advance");
     rejectFirst = false;
     await send("new-after-recovery");
+    rejectFirst = true;
     rejectThird = true;
     await send("advance-again");
     expect(attempts).toEqual([
@@ -7100,7 +7226,8 @@ describe("sequential pool recovery", () => {
       "sk-first",
       "sk-first",
       "sk-third",
-      "sk-third",
+      "sk-first",
+      "sk-first",
       "sk-third",
       "sk-second",
     ]);
