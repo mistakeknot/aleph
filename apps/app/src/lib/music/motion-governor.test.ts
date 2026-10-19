@@ -4,6 +4,7 @@ import {
   readShippedPromptboxOpacity,
   renderCheckerFrame,
   strictRule,
+  zigzagReversals,
   type CheckerFrame,
   type CheckerMode,
 } from "@/test/flash-checker";
@@ -78,7 +79,6 @@ const square =
         glow: field === "glow" ? (on ? high : low) : 0.2,
         ambientHue: 350,
         glowShown: true,
-        reserveGlowDrop: false,
       });
     }
     return out;
@@ -97,7 +97,6 @@ const chaos: Generator = (rand) => {
       glow: rand() * 1.2 - 0.1,
       ambientHue,
       glowShown: true,
-      reserveGlowDrop: false,
     });
   }
   return out;
@@ -230,7 +229,6 @@ describe("MotionGovernor", () => {
         glow: 0.9,
         ambientHue: 350,
         glowShown: true,
-        reserveGlowDrop: false,
       }),
     ).toEqual({
       hue: 40,
@@ -248,7 +246,6 @@ describe("MotionGovernor", () => {
         glow: i / 150,
         ambientHue: 350,
         glowShown: true,
-        reserveGlowDrop: false,
       });
       expect(out).toEqual({ hue, glow: i / 150 });
     }
@@ -264,7 +261,6 @@ describe("MotionGovernor", () => {
         glow: 0,
         ambientHue: 350,
         glowShown: true,
-        reserveGlowDrop: false,
       });
       if (previous !== null && out.hue !== previous) writes.push(i * 16);
       previous = out.hue;
@@ -285,7 +281,6 @@ describe("MotionGovernor", () => {
           glow: i % 2 === 0 ? 0 : 0.4,
           ambientHue: 350,
           glowShown: true,
-          reserveGlowDrop: false,
         }).glow,
       );
     }
@@ -302,7 +297,6 @@ describe("MotionGovernor", () => {
         glow: i % 2 ? 0.4 : 0,
         ambientHue: 350,
         glowShown: true,
-        reserveGlowDrop: false,
       });
     }
     const held = governor.current!.glow;
@@ -313,7 +307,6 @@ describe("MotionGovernor", () => {
         glow: next,
         ambientHue: 350,
         glowShown: true,
-        reserveGlowDrop: false,
       }).glow,
     ).toBe(next);
   });
@@ -329,7 +322,6 @@ describe("MotionGovernor", () => {
         glow: 0,
         ambientHue,
         glowShown: true,
-        reserveGlowDrop: false,
       });
       rendered.push(out.hue ?? ambientHue);
       explicit.push(out.hue !== null);
@@ -345,6 +337,54 @@ describe("MotionGovernor", () => {
     ["hue and glow square waves together", both],
     ["random interleavings", chaos],
   ] as const) {
+    it(`reserves forced drops at random instants and after the third reversal for ${name}`, () => {
+      for (let seed = 1; seed <= 20; seed++) {
+        const rand = mulberry32(seed);
+        const candidates = generator(rand);
+        const baseline = drive(new MotionGovernor(), candidates);
+        const series = baseline.map((frame) => ({
+          t: frame.t,
+          value: renderCheckerFrame(
+            SHIPPED_DORCAS_MODES,
+            frame.hue,
+            frame.glow,
+          ).samples.get("light/glow/canvas")!.luminance,
+        }));
+        const reversals = zigzagReversals(series, 0.005, 1e-4);
+        const third = reversals.find(
+          (t, i) => i >= 2 && t - reversals[i - 2] < 1000,
+        );
+        const instants = [
+          candidates[0].t + rand() * (candidates.at(-1)!.t - candidates[0].t),
+        ];
+        if (third !== undefined) instants.push(third + 0.001);
+        for (const instant of instants) {
+          const before = candidates.filter(({ t }) => t < instant);
+          const previous = before.at(-1) ?? candidates[0];
+          const forced = { ...previous, t: instant, glowShown: false };
+          const frames = drive(new MotionGovernor(), [
+            ...before,
+            forced,
+            ...candidates.filter(({ t }) => t >= instant),
+          ]);
+          for (const { name: ruleName, rule, max } of FLASH_RULES) {
+            const report = checkFlashes(SHIPPED_DORCAS_MODES, frames, rule);
+            expect(
+              report.worst.count,
+              `${name} seed ${seed} drop ${instant} ${ruleName} ${report.worst.channel}`,
+            ).toBeLessThanOrEqual(max);
+          }
+          if (baseline[before.length - 1]?.glow > 0) {
+            expect(
+              frames
+                .filter(({ t }) => t >= instant && t < instant + 2000)
+                .every(({ glow }) => glow === 0),
+            ).toBe(true);
+          }
+        }
+      }
+    }, 120_000);
+
     it(`keeps ${name} within 2 flashes per second for every element (seeded)`, () => {
       for (let seed = 1; seed <= 40; seed++) {
         const candidates = generator(mulberry32(seed));
@@ -401,7 +441,6 @@ describe("MotionGovernor", () => {
       glow: MOTION_MAX_GLOW,
       ambientHue: 350,
       glowShown: i % 2 === 0,
-      reserveGlowDrop: false,
     }));
     for (const { rule, max } of FLASH_RULES) {
       expect(
@@ -414,15 +453,14 @@ describe("MotionGovernor", () => {
     }
   });
 
-  it("keeps room to hide the glow at any tick while a drop is reserved (seeded)", () => {
-    const worst = (reserveGlowDrop: boolean) => {
+  it("always keeps room to hide the glow at any tick (seeded)", () => {
+    const worst = () => {
       let count = 0;
       for (let seed = 1; seed <= 20; seed++) {
         const rand = mulberry32(seed);
         const candidates = chaos(rand).map((candidate) => ({
           ...candidate,
           glowShown: rand() < 0.85,
-          reserveGlowDrop,
         }));
         const frames = drive(new MotionGovernor(), candidates);
         for (const { rule } of FLASH_RULES) {
@@ -434,8 +472,7 @@ describe("MotionGovernor", () => {
       }
       return count;
     };
-    expect(worst(false)).toBeGreaterThan(MAX_REVERSALS_PER_SECOND);
-    expect(worst(true)).toBeLessThanOrEqual(MAX_REVERSALS_PER_SECOND);
+    expect(worst()).toBeLessThanOrEqual(MAX_REVERSALS_PER_SECOND);
   }, 120_000);
 
   it("keeps 4 reversals a second at every opacity, not only the grid (seeded)", () => {
@@ -468,7 +505,6 @@ describe("MotionGovernor", () => {
       glow: i % 4 < 2 ? 0 : MOTION_MAX_GLOW,
       ambientHue: 350,
       glowShown: true,
-      reserveGlowDrop: false,
     }));
     const raw = candidates.map(({ t, hue, glow }) => ({ t, hue, glow }));
     for (const { rule, max } of FLASH_RULES) {
@@ -517,7 +553,6 @@ describe("MotionGovernor", () => {
             glow: rand() * 0.4,
             ambientHue: 29.23,
             glowShown: true,
-            reserveGlowDrop: false,
           });
         }
         const unguarded = checkFlashes(

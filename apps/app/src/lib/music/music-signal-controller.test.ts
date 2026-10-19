@@ -686,6 +686,29 @@ describe("MusicSignalController lifecycle", () => {
 });
 
 describe("MusicSignalController accessibility and rest", () => {
+  it.each(["sheet", "suppressed"])(
+    "records a %s drop and re-entry between animation frames",
+    async (cause) => {
+      const h = harness();
+      const socket = await start(h);
+      await stream(socket, h.clock, 6000, { energy: 1, keyConfidence: 0 });
+      expect(Number(glowValue())).toBeGreaterThan(0);
+      h.clock.t += 1;
+      h.controller.setEnvironment({
+        ...visible,
+        dorcasSheet: cause !== "sheet",
+        suppressed: cause === "suppressed",
+      });
+      expect(glowValue()).toBe("");
+      h.clock.t += 1;
+      h.controller.setEnvironment(visible);
+      expect(glowValue()).toBe("");
+      await h.clock.advance(1000);
+      expect(glowValue()).toBe("");
+      h.controller.setEnabled(false, "");
+    },
+  );
+
   it("applies nothing and opens no socket under reduced motion or forced colours", async () => {
     const h = harness();
     h.controller.setEnvironment({ ...visible, suppressed: true });

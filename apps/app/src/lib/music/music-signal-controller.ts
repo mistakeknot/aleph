@@ -165,7 +165,7 @@ export class MusicSignalController {
     motion.setSuppressed(this.environment.suppressed);
     motion.setRest(this.environment.rest);
     motion.setDorcasSheet(this.environment.dorcasSheet);
-    this.ensureFrame();
+    if (this.renderMotion()) this.ensureFrame();
   }
 
   private ensureMotion(): MusicMotion {
@@ -363,20 +363,24 @@ export class MusicSignalController {
 
   private onFrame(): void {
     this.frameId = null;
+    if (this.renderMotion()) this.ensureFrame();
+  }
+
+  private renderMotion(): boolean {
     const motion = this.motion;
-    if (!motion) return;
+    if (!motion) return false;
     const out = motion.tick(this.deps.now(), this.ambientHue());
     if (out.settled) {
       if (this.written.attribute || this.written.hue || this.written.glow) {
         this.clearOutput();
       }
-      return;
+      return false;
     }
     this.write(
       out.hue === null ? "" : String(Math.round(out.hue * 100) / 100),
       out.glow > 0 ? out.glow.toFixed(3) : "",
     );
-    this.ensureFrame();
+    return true;
   }
 
   private write(hue: string, glow: string): void {

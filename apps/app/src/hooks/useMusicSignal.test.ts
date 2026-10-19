@@ -8,7 +8,9 @@ import {
   MUSIC_ATTRIBUTE,
   MUSIC_HUE_PROPERTY,
 } from "@/lib/music/music-signal-controller";
-import { MUSIC_FADE_MS } from "@/lib/music/music-motion";
+import { MUSIC_FADE_MS, MusicMotion } from "@/lib/music/music-motion";
+import { checkFlashes, type CheckerFrame } from "@/test/flash-checker";
+import { FLASH_RULES, SHIPPED_DORCAS_MODES } from "@/test/music-motion-support";
 import {
   challengeMessage,
   parseHello,
@@ -207,6 +209,60 @@ describe("musicSignalEnabled", () => {
 });
 
 describe("observeMusicEnvironment", () => {
+  it.each(["(prefers-reduced-motion: reduce)", "(forced-colors: active)"])(
+    "feeds the effective rendered disappearance from %s into motion",
+    (query) => {
+      const media = installMedia();
+      applyAppThemeCss(dorcasThemeCss);
+      const motion = new MusicMotion();
+      motion.setActive(true);
+      const stop = observeMusicEnvironment(
+        window,
+        document.documentElement,
+        (environment) => {
+          motion.setDorcasSheet(environment.dorcasSheet);
+          motion.setSuppressed(environment.suppressed);
+        },
+      );
+      const timeline: CheckerFrame[] = [];
+      try {
+        for (let t = 0; t <= 10_000; t += 16) {
+          if (t === 7088) media[query].set(true);
+          if (t === 7104) media[query].set(false);
+          motion.receive(t, {
+            energy: 1,
+            beat: [6000, 6512, 7024].includes(t),
+            beatEnv: 0,
+            bpm: 120,
+            bpmConfidence: 0,
+            key: 2,
+            keyMode: "major",
+            keyConfidence: 0,
+            synthetic: false,
+          });
+          const out = motion.tick(t, 350);
+          timeline.push({
+            t,
+            hue: out.hue ?? 350,
+            glow: window.matchMedia(query).matches ? 0 : out.glow,
+          });
+        }
+        for (const { rule, max } of FLASH_RULES) {
+          expect(
+            checkFlashes(SHIPPED_DORCAS_MODES, timeline, rule).worst.count,
+          ).toBeLessThanOrEqual(max);
+        }
+        expect(
+          timeline
+            .filter(({ t }) => t >= 7088 && t < 9088)
+            .every(({ glow }) => glow === 0),
+        ).toBe(true);
+      } finally {
+        stop();
+      }
+    },
+  );
+
   it("reports visibility, suppression, ambient rest or idle and the Dorcas sheet", async () => {
     const media = installMedia();
     const seen: unknown[] = [];

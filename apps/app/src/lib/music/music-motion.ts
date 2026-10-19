@@ -1,6 +1,8 @@
 import { hueArc, normalizeHue } from "./dorcas-colors";
 import {
   MOTION_MAX_GLOW,
+  MOTION_WINDOW_MS,
+  MOTION_REENTRY_MS,
   MotionGovernor,
   type MotionValues,
 } from "./motion-governor";
@@ -9,7 +11,7 @@ import type { SignalFields, SignalKeyMode } from "./signal-schema";
 export const MUSIC_FRESH_MS = 1500;
 export const MUSIC_FADE_MS = 2000;
 export const MUSIC_MAX_TICK_MS = 100;
-export const MUSIC_SHEET_SETTLE_MS = 1000;
+export const MUSIC_SHEET_SETTLE_MS = MOTION_REENTRY_MS;
 export const PULSE_RISE_MS = 90;
 export const PULSE_DECAY_MS = 450;
 export const PULSE_WINDOW_MS = 1000;
@@ -58,11 +60,14 @@ export class MusicMotion {
   private dorcasSheet = true;
   private sheetSinceMs: number | null = -Infinity;
   private glowGate = 1;
+  private forcedDropMs: number | null = null;
+  private wasGlowShown = true;
   private lastTickMs: number | null = null;
   private lastFreshMs: number | null = null;
   private latestEnergy = 0;
   private energy = 0;
   private strength = 0;
+  private fade: { strength: number; elapsed: number } | null = null;
   private acceptedBeats: number[] = [];
   private pulseStartMs: number | null = null;
   private pulseFrom = 0;
@@ -72,6 +77,8 @@ export class MusicMotion {
   private ease: HueEase = { from: null, to: null, startMs: 0, durationMs: 0 };
   private lastHueWriteMs = -Infinity;
   private output: MotionValues = { hue: null, glow: 0 };
+  private governedAmbient: number | null = null;
+  private governedShown: boolean | null = null;
 
   constructor(governor: MotionGovernor = new MotionGovernor()) {
     this.governor = governor;
@@ -200,9 +207,16 @@ export class MusicMotion {
     const fresh = this.fresh(nowMs);
 
     const step = dt / MUSIC_FADE_MS;
-    this.strength = fresh
-      ? Math.min(1, this.strength + step)
-      : Math.max(0, this.strength - step);
+    if (fresh) {
+      this.fade = null;
+      this.strength = Math.min(1, this.strength + step);
+    } else if (this.strength > 0) {
+      if (this.fade === null)
+        this.fade = { strength: this.strength, elapsed: 0 };
+      else this.fade.elapsed += dt;
+      this.strength =
+        this.fade.strength * Math.max(0, 1 - this.fade.elapsed / MUSIC_FADE_MS);
+    }
     this.advanceGlowGate(nowMs, step);
     if (this.strength === 0 && !fresh) this.resetMusicState();
 
@@ -230,13 +244,24 @@ export class MusicMotion {
 
     const candidateHue = this.limitHue(nowMs, hue, ambientHue);
     const previousHue = this.output.hue;
-    this.output = this.governor.step(nowMs, {
-      hue: candidateHue,
-      glow,
-      ambientHue,
-      glowShown: this.dorcasSheet,
-      reserveGlowDrop: this.glowGate < 1,
-    });
+    const glowShown = this.dorcasSheet && !this.suppressed;
+    const fading = this.strength > 0 && this.strength < 1;
+    if (
+      fading ||
+      candidateHue !== this.output.hue ||
+      (glowShown ? glow : 0) !== this.output.glow ||
+      glowShown !== this.governedShown ||
+      ambientHue !== this.governedAmbient
+    ) {
+      this.output = this.governor.step(nowMs, {
+        hue: candidateHue,
+        glow,
+        ambientHue,
+        glowShown,
+      });
+      this.governedAmbient = ambientHue;
+      this.governedShown = glowShown;
+    }
     if (this.output.hue !== previousHue) this.lastHueWriteMs = nowMs;
 
     const settled =
@@ -248,11 +273,20 @@ export class MusicMotion {
   }
 
   private advanceGlowGate(nowMs: number, step: number): void {
-    if (!this.dorcasSheet) {
+    const shown = this.dorcasSheet && !this.suppressed;
+    if (!shown && this.wasGlowShown) {
+      this.forcedDropMs = nowMs;
+      this.sheetSinceMs = null;
+    }
+    this.wasGlowShown = shown;
+    if (!shown) {
       this.glowGate = 0;
       return;
     }
-    this.sheetSinceMs ??= nowMs;
+    this.sheetSinceMs ??= Math.max(
+      nowMs,
+      (this.forcedDropMs ?? -Infinity) + MOTION_WINDOW_MS,
+    );
     if (nowMs - this.sheetSinceMs >= MUSIC_SHEET_SETTLE_MS) {
       this.glowGate = Math.min(1, this.glowGate + step);
     }

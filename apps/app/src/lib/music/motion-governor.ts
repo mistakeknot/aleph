@@ -18,6 +18,7 @@ export const MOTION_DEAD_BAND = 0.005;
 export const MOTION_EXTREME_TOLERANCE = 1e-4;
 export const MOTION_MAX_REVERSALS = 4;
 export const MOTION_WINDOW_MS = 1000;
+export const MOTION_REENTRY_MS = 1000;
 
 export const MOTION_FRACTION_RATIO = 1.05;
 export const MOTION_RANGE_MARGIN = 1.5;
@@ -36,7 +37,6 @@ export interface MotionValues {
 export interface MotionCandidate extends MotionValues {
   ambientHue: number;
   glowShown: boolean;
-  reserveGlowDrop: boolean;
 }
 
 interface Surface {
@@ -45,11 +45,11 @@ interface Surface {
   token: HueToken;
   background: Rgb;
   fractions: readonly number[];
-  keys: readonly string[];
 }
 
 interface ModeModel {
   mode: DorcasModePalette["mode"];
+  redCapable: boolean;
   sources: { name: string; token: HueToken }[];
   surfaces: Surface[];
 }
@@ -161,7 +161,7 @@ function modelFor(palette: DorcasModePalette): ModeModel {
   if (!model) {
     const sources = sourcesOf(palette);
     const surfaces: Surface[] = [];
-    for (const [bgName, background] of backgroundsOf(palette)) {
+    for (const [, background] of backgroundsOf(palette)) {
       for (const { name, glow, token } of sources) {
         const fractions = glow
           ? motionTrackedFractions(token, background, glow)
@@ -172,100 +172,74 @@ function modelFor(palette: DorcasModePalette): ModeModel {
           token,
           background,
           fractions,
-          keys: fractions.map((f) => `${palette.mode}/${name}@${f}/${bgName}`),
         });
       }
     }
-    model = { mode: palette.mode, sources, surfaces };
+    model = {
+      mode: palette.mode,
+      sources,
+      surfaces,
+      redCapable: redCapablePalette(palette),
+    };
     models.set(palette, model);
   }
   return model;
 }
 
-interface TrackerState {
-  direction: -1 | 0 | 1;
-  extreme: number;
-  leftExtremeMs: number | null;
-}
-
-interface TrackerStep {
-  state: TrackerState;
-  leaving: boolean;
-  reversalAtMs: number | null;
-}
-
 class ReversalChannel {
-  private state: TrackerState | null = null;
+  private direction: -1 | 0 | 1 = 0;
+  private extreme = 0;
+  private leftExtremeMs: number | null = null;
+  private lastValue: number | null = null;
   private times: number[] = [];
 
   constructor(private readonly windowMs: number) {}
 
-  private next(nowMs: number, value: number): TrackerStep {
-    return ReversalChannel.advance(this.state, nowMs, value);
-  }
-
-  private static advance(
-    s: TrackerState | null,
-    nowMs: number,
-    value: number,
-  ): TrackerStep {
-    const fresh = { extreme: value, leftExtremeMs: null };
-    const quiet = { leaving: false, reversalAtMs: null };
-    if (s === null) return { state: { direction: 0, ...fresh }, ...quiet };
-    if (s.direction === 0) {
-      if (Math.abs(value - s.extreme) <= MOTION_DEAD_BAND) {
-        return { state: s, ...quiet };
-      }
-      return {
-        state: { direction: value > s.extreme ? 1 : -1, ...fresh },
-        ...quiet,
-      };
-    }
-    const along = (value - s.extreme) * s.direction;
-    if (along > MOTION_EXTREME_TOLERANCE) {
-      return { state: { direction: s.direction, ...fresh }, ...quiet };
-    }
-    if (along >= -MOTION_EXTREME_TOLERANCE) return { state: s, ...quiet };
-    const leaving = s.leftExtremeMs === null;
-    const leftExtremeMs = s.leftExtremeMs ?? nowMs;
-    if (-along <= MOTION_DEAD_BAND) {
-      return { state: { ...s, leftExtremeMs }, leaving, reversalAtMs: null };
-    }
-    return {
-      state: { direction: s.direction === 1 ? -1 : 1, ...fresh },
-      leaving,
-      reversalAtMs: leftExtremeMs,
-    };
-  }
-
   exceeds(nowMs: number, value: number, max: number): boolean {
-    if (!this.next(nowMs, value).leaving) return false;
-    return this.times.filter((t) => t > nowMs - this.windowMs).length >= max;
-  }
-
-  strandsDrop(
-    nowMs: number,
-    value: number,
-    drop: number,
-    max: number,
-  ): boolean {
-    const first = this.next(nowMs, value);
-    if (!ReversalChannel.advance(first.state, nowMs, drop).leaving) {
+    if (
+      value === this.lastValue ||
+      this.direction === 0 ||
+      this.leftExtremeMs !== null ||
+      (value - this.extreme) * this.direction >= -MOTION_EXTREME_TOLERANCE
+    )
       return false;
+    let count = 0;
+    for (const time of this.times) {
+      if (time > nowMs - this.windowMs && ++count >= max) return true;
     }
-    const times =
-      first.reversalAtMs === null
-        ? this.times
-        : [...this.times, first.reversalAtMs];
-    return times.filter((t) => t > nowMs - this.windowMs).length >= max;
+    return false;
   }
 
   commit(nowMs: number, value: number): void {
-    const { state, reversalAtMs } = this.next(nowMs, value);
-    this.state = state;
-    if (reversalAtMs !== null) this.times.push(reversalAtMs);
-    const earliestNext = state.leftExtremeMs ?? nowMs;
-    this.times = this.times.filter((t) => t > earliestNext - this.windowMs);
+    if (value === this.lastValue) return;
+    const initial = this.lastValue === null;
+    this.lastValue = value;
+    if (initial) {
+      this.extreme = value;
+      return;
+    }
+    if (this.direction === 0) {
+      if (Math.abs(value - this.extreme) > MOTION_DEAD_BAND) {
+        this.direction = value > this.extreme ? 1 : -1;
+        this.extreme = value;
+      }
+      return;
+    }
+    const along = (value - this.extreme) * this.direction;
+    if (along > MOTION_EXTREME_TOLERANCE) {
+      this.extreme = value;
+      this.leftExtremeMs = null;
+    } else if (along < -MOTION_EXTREME_TOLERANCE) {
+      this.leftExtremeMs ??= nowMs;
+      if (-along > MOTION_DEAD_BAND) {
+        this.times.push(this.leftExtremeMs);
+        this.direction = this.direction === 1 ? -1 : 1;
+        this.extreme = value;
+        this.leftExtremeMs = null;
+      }
+    }
+    const cutoff = (this.leftExtremeMs ?? nowMs) - this.windowMs;
+    while (this.times.length > 0 && this.times[0] <= cutoff) this.times.shift();
   }
 }
 
@@ -278,7 +252,7 @@ export interface MotionGovernorOptions {
 export class MotionGovernor {
   private readonly modes: ModeModel[];
   private readonly redCapable: boolean;
-  private readonly channels = new Map<string, ReversalChannel>();
+  private readonly channels: ReversalChannel[];
   private readonly maxReversals: number;
   private readonly windowMs: number;
   private moveTimes: number[] = [];
@@ -286,13 +260,27 @@ export class MotionGovernor {
   private last: MotionValues | null = null;
   private lastRenderedHue: number | null = null;
   private lastRenderedGlow = 0;
+  private glowBlockedUntil = -Infinity;
+  private readonly sampleCache = new Map<string, Float64Array>();
+  private readonly colorCache = new Map<number, Map<Surface, Rgb>>();
 
   constructor(options: MotionGovernorOptions = {}) {
     const palettes = options.palettes ?? DORCAS_PALETTES;
     this.modes = palettes.map(modelFor);
-    this.redCapable = palettes.some(redCapablePalette);
+    this.redCapable = this.modes.some((mode) => mode.redCapable);
     this.maxReversals = options.maxReversals ?? MOTION_MAX_REVERSALS;
     this.windowMs = options.windowMs ?? MOTION_WINDOW_MS;
+    const count = this.modes.reduce(
+      (sum, mode) =>
+        sum +
+        1 +
+        mode.surfaces.reduce((n, surface) => n + surface.fractions.length, 0),
+      0,
+    );
+    this.channels = Array.from(
+      { length: count },
+      () => new ReversalChannel(this.windowMs),
+    );
   }
 
   get current(): MotionValues | null {
@@ -301,22 +289,43 @@ export class MotionGovernor {
 
   step(nowMs: number, candidate: MotionCandidate): MotionValues {
     const ambientHue = normalizeHue(candidate.ambientHue);
+    if (!candidate.glowShown && this.lastRenderedGlow > 0) {
+      this.glowBlockedUntil = nowMs + this.windowMs + MOTION_REENTRY_MS;
+      const forced = {
+        hue: this.last?.hue ?? null,
+        glow: 0,
+      };
+      if (
+        this.lastRenderedHue !== null &&
+        forced.hue === null &&
+        ambientHue !== this.lastRenderedHue
+      ) {
+        forced.hue = this.lastRenderedHue;
+      }
+      return this.commit(
+        nowMs,
+        forced,
+        ambientHue,
+        false,
+        this.sample(forced, ambientHue, false),
+      );
+    }
     const requested: MotionValues = {
       hue: candidate.hue === null ? null : normalizeHue(candidate.hue),
-      glow: Math.min(MOTION_MAX_GLOW, Math.max(0, candidate.glow)),
+      glow:
+        !candidate.glowShown || nowMs < this.glowBlockedUntil
+          ? 0
+          : Math.min(MOTION_MAX_GLOW, Math.max(0, candidate.glow)),
     };
     this.moveTimes = this.moveTimes.filter((t) => t > nowMs - this.windowMs);
     this.hueMoveTimes = this.hueMoveTimes.filter(
       (t) => t > nowMs - this.windowMs,
     );
     const shown = candidate.glowShown;
-    const reserve = shown && candidate.reserveGlowDrop;
     const options = this.alternatives(requested, ambientHue, shown);
     for (const option of options) {
       const samples = this.sample(option, ambientHue, shown);
-      if (
-        this.withinBudget(nowMs, option, ambientHue, shown, reserve, samples)
-      ) {
+      if (this.withinBudget(nowMs, option, ambientHue, shown, samples)) {
         return this.commit(nowMs, option, ambientHue, shown, samples);
       }
     }
@@ -344,8 +353,8 @@ export class MotionGovernor {
     const heldGlow = shown ? this.lastRenderedGlow : requested.glow;
     return [
       requested,
-      { hue: heldHue, glow: requested.glow },
       { hue: requested.hue, glow: heldGlow },
+      { hue: heldHue, glow: requested.glow },
       { hue: heldHue, glow: heldGlow },
     ];
   }
@@ -376,42 +385,52 @@ export class MotionGovernor {
     values: MotionValues,
     ambientHue: number,
     shown: boolean,
-  ): Map<string, number> {
+  ): Float64Array {
     const hue = values.hue ?? ambientHue;
     const glow = shown ? values.glow : 0;
-    const out = new Map<string, number>();
+    const cacheKey = `${hue}/${glow}`;
+    const cached = this.sampleCache.get(cacheKey);
+    if (cached) return cached;
+    let colors = this.colorCache.get(hue);
+    if (!colors) {
+      colors = new Map();
+      for (const mode of this.modes) {
+        const sources = new Map(
+          mode.sources.map(({ name, token }) => [name, sourceRgb(token, hue)]),
+        );
+        for (const surface of mode.surfaces)
+          colors.set(surface, sources.get(surface.source)!);
+      }
+      if (this.colorCache.size >= 8)
+        this.colorCache.delete(this.colorCache.keys().next().value!);
+      this.colorCache.set(hue, colors);
+    }
+    const out = new Float64Array(this.channels.length);
+    let index = 0;
     for (const mode of this.modes) {
-      const colors = new Map(
-        mode.sources.map(({ name, token }) => [name, sourceRgb(token, hue)]),
-      );
       let primarySum = 0;
       for (const surface of mode.surfaces) {
-        const color = colors.get(surface.source)!;
+        const color = colors.get(surface)!;
         const opacity = surface.token.alpha * (surface.glow ? glow : 1);
-        primarySum += relativeLuminance(
+        const primary = relativeLuminance(
           composite(color, opacity, surface.background),
         );
-        surface.fractions.forEach((fraction, i) => {
-          out.set(
-            surface.keys[i],
-            relativeLuminance(
-              composite(color, opacity * fraction, surface.background),
-            ),
-          );
-        });
+        primarySum += primary;
+        for (const fraction of surface.fractions) {
+          out[index++] =
+            fraction === 1
+              ? primary
+              : relativeLuminance(
+                  composite(color, opacity * fraction, surface.background),
+                );
+        }
       }
-      out.set(`${mode.mode}/combined`, primarySum / mode.surfaces.length);
+      out[index++] = primarySum / mode.surfaces.length;
     }
+    if (this.sampleCache.size >= 256)
+      this.sampleCache.delete(this.sampleCache.keys().next().value!);
+    this.sampleCache.set(cacheKey, out);
     return out;
-  }
-
-  private channelFor(key: string): ReversalChannel {
-    let channel = this.channels.get(key);
-    if (!channel) {
-      channel = new ReversalChannel(this.windowMs);
-      this.channels.set(key, channel);
-    }
-    return channel;
   }
 
   private withinBudget(
@@ -419,14 +438,16 @@ export class MotionGovernor {
     values: MotionValues,
     ambientHue: number,
     shown: boolean,
-    reserve: boolean,
-    samples: Map<string, number>,
+    samples: Float64Array,
   ): boolean {
-    const reserveDrop = reserve && values.glow > 0;
+    const movingGlow = (shown ? values.glow : 0) !== this.lastRenderedGlow;
+    const hueInFlight = this.hueMoveTimes.length > 0;
+    const voluntaryBudget =
+      this.maxReversals - 1 - (movingGlow && hueInFlight ? 1 : 0);
     if (
       this.redCapable &&
       this.moves(values, ambientHue, shown) &&
-      this.moveTimes.length + (reserveDrop ? 1 : 0) >= this.maxReversals
+      this.moveTimes.length >= voluntaryBudget
     ) {
       return false;
     }
@@ -436,18 +457,8 @@ export class MotionGovernor {
     ) {
       return false;
     }
-    for (const [key, value] of samples) {
-      if (this.channelFor(key).exceeds(nowMs, value, this.maxReversals)) {
-        return false;
-      }
-    }
-    if (!reserveDrop) return true;
-    const hidden = this.sample(values, ambientHue, false);
-    for (const [key, value] of samples) {
-      const drop = hidden.get(key)!;
-      if (
-        this.channelFor(key).strandsDrop(nowMs, value, drop, this.maxReversals)
-      ) {
+    for (let i = 0; i < samples.length; i++) {
+      if (this.channels[i].exceeds(nowMs, samples[i], voluntaryBudget)) {
         return false;
       }
     }
@@ -459,12 +470,12 @@ export class MotionGovernor {
     values: MotionValues,
     ambientHue: number,
     shown: boolean,
-    samples: Map<string, number>,
+    samples: Float64Array,
   ): MotionValues {
     if (this.moves(values, ambientHue, shown)) this.moveTimes.push(nowMs);
     if (this.writesHue(values, ambientHue)) this.hueMoveTimes.push(nowMs);
-    for (const [key, value] of samples) {
-      this.channelFor(key).commit(nowMs, value);
+    for (let i = 0; i < samples.length; i++) {
+      this.channels[i].commit(nowMs, samples[i]);
     }
     this.last = values;
     this.lastRenderedHue = values.hue ?? ambientHue;

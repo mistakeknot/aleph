@@ -56,6 +56,7 @@ interface Output {
   t: number;
   ambient: number;
   dorcasSheet: boolean;
+  suppressed: boolean;
   hue: number | null;
   glow: number;
   settled: boolean;
@@ -63,9 +64,13 @@ interface Output {
 
 function run(ticks: readonly Tick[], motion = new MusicMotion()): Output[] {
   let dorcasSheet = true;
+  let suppressed = false;
   return ticks.map((tick) => {
     if (tick.active !== undefined) motion.setActive(tick.active);
-    if (tick.suppressed !== undefined) motion.setSuppressed(tick.suppressed);
+    if (tick.suppressed !== undefined) {
+      suppressed = tick.suppressed;
+      motion.setSuppressed(suppressed);
+    }
     if (tick.rest !== undefined) motion.setRest(tick.rest);
     if (tick.dorcasSheet !== undefined) {
       dorcasSheet = tick.dorcasSheet;
@@ -76,6 +81,7 @@ function run(ticks: readonly Tick[], motion = new MusicMotion()): Output[] {
       t: tick.t,
       ambient: tick.ambient,
       dorcasSheet,
+      suppressed,
       ...motion.tick(tick.t, tick.ambient),
     };
   });
@@ -85,7 +91,7 @@ const rendered = (outputs: readonly Output[]): CheckerFrame[] =>
   outputs.map((o) => ({
     t: o.t,
     hue: o.hue ?? o.ambient,
-    glow: o.dorcasSheet ? o.glow : 0,
+    glow: o.dorcasSheet && !o.suppressed ? o.glow : 0,
   }));
 
 const shown = (o: Output): number => o.hue ?? o.ambient;
@@ -141,18 +147,14 @@ function eulerianCircuit(n: number): number[] {
   return circuit.reverse();
 }
 
-function expectFlashSafe(
-  outputs: readonly Output[],
-  label: string,
-  forcedReversals = 0,
-): void {
+function expectFlashSafe(outputs: readonly Output[], label: string): void {
   const frames = rendered(outputs);
   for (const { name, rule, max } of FLASH_RULES) {
     const report = checkFlashes(SHIPPED_DORCAS_MODES, frames, rule);
     expect(
       report.worst.count,
       `${label} ${name} ${report.worst.channel}`,
-    ).toBeLessThanOrEqual(max + forcedReversals);
+    ).toBeLessThanOrEqual(max);
     expect(report.maxGlow).toBeLessThanOrEqual(MOTION_MAX_GLOW);
   }
 }
@@ -710,10 +712,10 @@ describe("MusicMotion", () => {
       }
     }, 120_000);
 
-    it("adds at most the one reversal a sheet swap forces under random interleavings (seeded)", () => {
+    it("keeps sheet swaps within four rendered reversals under random interleavings (seeded)", () => {
       for (let seed = 1; seed <= 30; seed++) {
         const outputs = run(chaosScenario(mulberry32(seed), true));
-        expectFlashSafe(outputs, `seed ${seed}`, 1);
+        expectFlashSafe(outputs, `seed ${seed}`);
         expectHueWritesPaced(outputs, `seed ${seed}`);
       }
     }, 120_000);
