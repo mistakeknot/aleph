@@ -229,6 +229,30 @@ describe("createAgentRuntime process lifecycle", () => {
     await runtime.shutdown();
   });
 
+  it("reports each provider process it spawns", async () => {
+    const spawnInfo = vi.fn();
+    const runtime = createScriptedEchoRuntime({
+      runtime: {
+        workspacePath: tmpDir,
+        onEvent: () => {},
+        onProcessSpawn: spawnInfo,
+      },
+    });
+
+    await runtime.ensureProvider({ providerId: "fake" });
+
+    expect(spawnInfo).toHaveBeenCalledTimes(1);
+    const [info] = spawnInfo.mock.calls[0]!;
+    expect(info).toEqual({
+      scopeUnit: null,
+      pid: expect.any(Number),
+      processKey: expect.any(String),
+      providerId: "fake",
+    });
+    expect(processIsAlive(info.pid)).toBe(true);
+    await runtime.shutdown();
+  });
+
   it("retires a threadless bridge process superseded by a new artifact hash", async () => {
     const manager = createProviderProcessManager({
       onProcessExit: vi.fn(),

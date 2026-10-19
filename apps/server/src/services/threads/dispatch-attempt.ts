@@ -1,4 +1,5 @@
 import { requestQueuedMachineReadiness } from "./queued-message-dispatch.js";
+import { assertAdmittedDestinationInTransaction } from "./retired-ingress.js";
 import {
   cancelPreparingMachinePause,
   isMachineWaitingForExecution,
@@ -10,6 +11,7 @@ import {
   isThreadQueueAutoSendPaused,
   listRunningThreads,
   type ClaimedQueuedThreadMessageRow,
+  type DbQueryConnection,
   type RunningThreadRow,
 } from "@bb/db";
 import {
@@ -218,6 +220,7 @@ export type DispatchAttemptSource =
 
 export interface DispatchAttemptArgs {
   thread: Thread;
+  requestedThreadId?: string;
   payload: SendMessageRequest & { inputGroups?: PromptInput[][] };
   source: DispatchAttemptSource;
   /**
@@ -366,12 +369,27 @@ async function runDispatchAttempt(
     systemNotice: null,
   };
 
+  const directUserPost =
+    args.source.kind === "inline" &&
+    args.trigger === "user" &&
+    args.retryOf === undefined;
+  const assertDestinationCurrent: DestinationCheck | undefined = directUserPost
+    ? (tx) => {
+        assertAdmittedDestinationInTransaction(
+          tx,
+          args.requestedThreadId ?? thread.id,
+          thread.id,
+        );
+      }
+    : undefined;
+
   const waitOn = (
     waitingOn: QueuedMessageWaitingOn,
     sendAt: number | null,
   ): DispatchAttemptOutcome => {
     const entry = recordQueuedMessageWait(deps, {
       thread,
+      requestedThreadId: args.requestedThreadId,
       message: queuedMessage,
       waitingOn,
       sendAt,
@@ -478,6 +496,7 @@ async function runDispatchAttempt(
         claimed,
         input: queuedMessage,
         threadId: thread.id,
+        requestedThreadId: args.requestedThreadId,
       });
       if (outcome.kind === "queued" || outcome.kind === "dispatched") {
         continued.outcome = outcome;
@@ -507,6 +526,7 @@ async function runDispatchAttempt(
         respectManualStopPause,
         startContext: args.startContext ?? retryStartContext,
         thread,
+        assertDestinationCurrent,
       });
       if (admitted.value === null) {
         const current = getThread(deps.db, thread.id);
@@ -595,6 +615,8 @@ async function runDispatchAttempt(
     return { kind: "dispatched" };
   }
 
+  assertDestinationCurrent?.(deps.db);
+
   const environment = await requireThreadCommandEnvironment(deps, { thread });
   try {
     await sendThreadMessage(deps, {
@@ -604,6 +626,7 @@ async function runDispatchAttempt(
       trigger: args.trigger,
       ...(args.retryOf !== undefined ? { retryOf: args.retryOf } : {}),
       beforeAppendInTransaction: ({ tx }) => {
+        assertDestinationCurrent?.(tx);
         if (getThread(tx, thread.id)?.status !== thread.status) {
           throw new DispatchThreadStatusChangedError();
         }
@@ -685,7 +708,10 @@ interface AdmitPendingThreadArgs {
   /** Creation's own record; null on a re-attempt, which reads it back. */
   startContext: PendingThreadStartContext | null;
   thread: Thread;
+  assertDestinationCurrent: DestinationCheck | undefined;
 }
+
+type DestinationCheck = (tx: DbQueryConnection) => void;
 
 interface PendingThreadAdmission {
   claimedRow: ClaimedQueuedThreadMessageRow | null;
@@ -743,6 +769,7 @@ async function admitPendingThread(
   try {
     startingThread = deps.db.transaction(
       (tx) => {
+        args.assertDestinationCurrent?.(tx);
         // The row is consumed and the thread flipped in ONE transaction: a
         // flip that loses to a concurrent attempt rolls the consumption back,
         // so the row stays claimed for the caller to hand back rather than

@@ -19,9 +19,11 @@ import {
   codexLoginPollInputSchema,
   loginCompleteInputSchema,
   modelFamilySchema,
+  nestedLaunchThreadIdsSchema,
   parentModeSchema,
   tokenRotateInputSchema,
   routingSetInputSchema,
+  switchLogInputSchema,
   type AccountPoolConfig,
   type AccountPoolConfigController,
   type AccountPoolConfigSetInput,
@@ -32,6 +34,7 @@ import {
   type PoolStatus,
   type PoolStatusReport,
   type PoolProvider,
+  type SwitchLogEntry,
 } from "./contracts.js";
 import type { PoolOperations } from "./operations.js";
 import type { ClaudeOAuthLogin } from "./oauth-login.js";
@@ -40,6 +43,7 @@ import type { CodexDeviceLogin } from "./codex-device-login.js";
 const DESCRIPTION = [
   "Your own accounts are used one after another by priority, then order added. Work moves to the next of your accounts only when the current one is unavailable or at its threshold; this does not change any account's limits.",
   "When this bb server runs inside another bb server's thread, parent proxy routes its pooled traffic through that parent; isolate neutralises the inherited routing.",
+  "Only threads listed in nestedLaunchThreadIds receive the parent markers that let a bb server launched inside them use this pool; other threads receive blank markers. Changes apply to the next agent start and do not revoke nested servers already running.",
   "Reorder includes every account for the provider and changes which of your accounts is used next; existing conversations stay pinned.",
 ].join("\n");
 
@@ -174,6 +178,13 @@ function formatAccounts(accounts: readonly AccountSummary[]): string {
   ].join("\n");
 }
 
+function formatSwitch(row: SwitchLogEntry): string {
+  const percent = (value: number | null) =>
+    value === null ? "n/a" : `${value}%`;
+  const name = (label: string | null, id: string) => label ?? id;
+  return `${new Date(row.switchedAt).toISOString()} ${row.provider} ${name(row.fromLabel, row.fromAccountId)} (${percent(row.fromUsagePercent)}) -> ${name(row.toLabel, row.toAccountId)} (${percent(row.toUsagePercent)}) reason=${row.reason}`;
+}
+
 function formatStatus(status: PoolStatusReport): string {
   return [
     `Route: ${status.route}`,
@@ -207,6 +218,7 @@ function formatConfig(config: AccountPoolConfig): string {
     `codexUpstreamBaseUrl: ${config.codexUpstreamBaseUrl}`,
     `switchThreshold: ${config.switchThreshold}`,
     `parentMode: ${config.parentMode}`,
+    `nestedLaunchThreadIds: ${JSON.stringify(config.nestedLaunchThreadIds)}`,
   ].join("\n");
 }
 
@@ -244,10 +256,34 @@ function parseConfigUpdate(
   if (key === "parentMode") {
     return accountPoolConfigSetInputSchema.parse({ parentMode: value });
   }
+  if (key === "nestedLaunchThreadIds") {
+    return { nestedLaunchThreadIds: parseNestedLaunchThreadIds(value) };
+  }
   throw new PluginCliError(
-    "Config key must be anthropicUpstreamBaseUrl, codexUpstreamBaseUrl, switchThreshold, or parentMode.",
+    "Config key must be anthropicUpstreamBaseUrl, codexUpstreamBaseUrl, switchThreshold, parentMode, or nestedLaunchThreadIds.",
     { code: "invalid_value" },
   );
+}
+
+function parseNestedLaunchThreadIds(value: string): string[] {
+  const invalid = (message: string) =>
+    new PluginCliError(`nestedLaunchThreadIds ${message}`, {
+      code: "invalid_value",
+      hint: `Pass a JSON array of exact thread IDs, for example '["thr_example"]', or '[]' to clear it.`,
+    });
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(value);
+  } catch {
+    throw invalid("must be a JSON array.");
+  }
+  const parsed = nestedLaunchThreadIdsSchema.safeParse(decoded);
+  if (!parsed.success) {
+    throw invalid(
+      `is invalid: ${parsed.error.issues[0]?.message ?? "Must be an array of exact thread IDs."}`,
+    );
+  }
+  return parsed.data;
 }
 
 function json(value: object): string {
@@ -756,6 +792,37 @@ export function registerPoolCli(
               };
             }),
         }),
+        switches: cliCommand({
+          summary:
+            "Show recent changes of the active account, with the reason and usage at the time",
+          suggestFor: ["switch", "history", "log"],
+          options: {
+            limit: {
+              type: "integer",
+              min: 1,
+              max: 500,
+              default: 50,
+              placeholder: "n",
+              description: "Number of most recent switches to show",
+            },
+            json: JSON_OPTION,
+          },
+          run: (input) =>
+            attempt(async () => {
+              const { limit } = switchLogInputSchema.parse({
+                limit: input.options.limit,
+              });
+              const rows = operations.switchLog(limit);
+              return {
+                exitCode: 0,
+                stdout: input.options.json
+                  ? json(rows)
+                  : rows.length === 0
+                    ? "No account switches recorded.\n"
+                    : `${rows.map(formatSwitch).join("\n")}\n`,
+              };
+            }),
+        }),
         routing: cliCommand({
           summary: "Enable or disable pooled routing for one provider",
           positionals: [
@@ -812,13 +879,13 @@ export function registerPoolCli(
             {
               name: "key",
               description:
-                "anthropicUpstreamBaseUrl, codexUpstreamBaseUrl, switchThreshold, or parentMode",
+                "anthropicUpstreamBaseUrl, codexUpstreamBaseUrl, switchThreshold, parentMode, or nestedLaunchThreadIds",
               required: true,
             },
             {
               name: "value",
               description:
-                "HTTP(S) URL for upstream keys, a threshold, or proxy/isolate",
+                "HTTP(S) URL for upstream keys, a threshold, proxy/isolate, or a JSON array of exact thread IDs such as '[\"thr_example\"]' ('[]' clears it)",
               required: true,
             },
           ],

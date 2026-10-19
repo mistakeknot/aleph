@@ -5,6 +5,7 @@ import { gitCheckoutRefSchema } from "./git-checkout.js";
 import {
   queuedMessageFailureReasonSchema,
   queuedMessagePayloadSchema,
+  queuedMessageSystemNoticeSchema,
   queuedMessageWaitingOnSchema,
 } from "./queued-message.js";
 import {
@@ -366,6 +367,7 @@ export const threadQueuedMessageSchema = z.object({
    * typed carry no reason at all, and inventing one for them would be a lie.
    */
   waitingOn: queuedMessageWaitingOnSchema.nullable(),
+  systemNotice: queuedMessageSystemNoticeSchema.nullable(),
   /**
    * Why this row's last DRAIN attempt failed outright, or null when it has not
    * failed one — which is every row that has never been re-attempted, and

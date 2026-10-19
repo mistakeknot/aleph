@@ -60,7 +60,9 @@ describe("useComposerAttachmentUploads", () => {
     });
     expect(result.current.isAttachingBottomFiles).toBe(true);
     expect(result.current.isAttachingInlineFiles).toBe(false);
-    expect(result.current.bottomPendingUploads.map((upload) => upload.file.name)).toEqual(["bottom.txt"]);
+    expect(
+      result.current.bottomPendingUploads.map((upload) => upload.file.name),
+    ).toEqual(["bottom.txt"]);
     expect(result.current.inlinePendingUploads).toEqual([]);
 
     let inlinePromise!: Promise<void>;
@@ -71,7 +73,9 @@ describe("useComposerAttachmentUploads", () => {
     });
     expect(result.current.isAttachingBottomFiles).toBe(true);
     expect(result.current.isAttachingInlineFiles).toBe(true);
-    expect(result.current.inlinePendingUploads.map((upload) => upload.file.name)).toEqual(["inline.txt"]);
+    expect(
+      result.current.inlinePendingUploads.map((upload) => upload.file.name),
+    ).toEqual(["inline.txt"]);
 
     await act(async () => {
       inlineUpload.reject(new Error("inline failed"));
@@ -187,12 +191,17 @@ describe("useComposerAttachmentUploads", () => {
     const first = createDeferredPromise<PromptDraftAttachment>();
     const concurrent = createDeferredPromise<PromptDraftAttachment>();
     const second = createDeferredPromise<PromptDraftAttachment>();
-    mocks.upload.mockReturnValueOnce(first.promise).mockReturnValueOnce(concurrent.promise).mockReturnValueOnce(second.promise);
+    mocks.upload
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(concurrent.promise)
+      .mockReturnValueOnce(second.promise);
     const addAttachment = vi.fn();
-    const { result } = renderHook(() => useDraftAttachmentUploads({
-      projectId: "proj_1",
-      target: { key: "bottom", addAttachment },
-    }));
+    const { result } = renderHook(() =>
+      useDraftAttachmentUploads({
+        projectId: "proj_1",
+        target: { key: "bottom", addAttachment },
+      }),
+    );
     const file = new File(["image"], "same-name.png", { type: "image/png" });
     let batch!: Promise<void>;
     let other!: Promise<void>;
@@ -200,10 +209,17 @@ describe("useComposerAttachmentUploads", () => {
       batch = result.current.handleAttachFiles([file, file]);
       other = result.current.handleAttachFiles([file]);
     });
-    expect(new Set(result.current.pendingUploads.map((upload) => upload.id)).size).toBe(3);
+    expect(
+      new Set(result.current.pendingUploads.map((upload) => upload.id)).size,
+    ).toBe(3);
     expect(result.current.isAttachingFiles).toBe(true);
     await act(async () => {
-      first.resolve({ type: "localImage", name: file.name, path: "uploaded.png", sizeBytes: 5 });
+      first.resolve({
+        type: "localImage",
+        name: file.name,
+        path: "uploaded.png",
+        sizeBytes: 5,
+      });
       await first.promise;
     });
     expect(addAttachment).toHaveBeenCalledTimes(1);

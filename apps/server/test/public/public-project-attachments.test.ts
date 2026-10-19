@@ -121,9 +121,13 @@ describe("public project attachments", () => {
       const oversizedFile = await upload(
         harness.app,
         project.id,
-        new File([new Uint8Array(35 * 1024 * 1024 + 512 * 1024)], "huge-archive.bin", {
-          type: "application/octet-stream",
-        }),
+        new File(
+          [new Uint8Array(35 * 1024 * 1024 + 512 * 1024)],
+          "huge-archive.bin",
+          {
+            type: "application/octet-stream",
+          },
+        ),
       );
       expect(oversizedFile.status).toBe(400);
       await expect(readJson(oversizedFile)).resolves.toEqual({

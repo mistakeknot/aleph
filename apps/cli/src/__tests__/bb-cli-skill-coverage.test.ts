@@ -16,10 +16,7 @@ const COMMAND_INDEX_PATH = fileURLToPath(
 );
 
 const BB_CLI_SKILL_ROOT = fileURLToPath(
-  new URL(
-    "../../../../plugins/bb-guide/skills/bb-cli/",
-    import.meta.url,
-  ),
+  new URL("../../../../plugins/bb-guide/skills/bb-cli/", import.meta.url),
 );
 
 function commandPaths(command: Command, prefix: string[] = []): string[] {

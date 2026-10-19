@@ -245,7 +245,11 @@ export {
 export {
   getStoredThemeId,
   getStoredFaviconColor,
+  getStoredMusicPairing,
+  getStoredMusicPreferences,
   setStoredAppearance,
+  setStoredMusicSecret,
+  type StoredMusicPreferences,
 } from "./app-theme.js";
 
 export {
@@ -461,14 +465,18 @@ export {
 export type { HostDaemonSessionRow } from "./sessions.js";
 
 export {
+  claimQueuedThreadMessage,
   claimQueuedThreadMessageGroup,
   claimNextQueuedThreadMessageGroup,
   clearQueuedThreadMessageWaitingOn,
   createQueuedThreadMessage,
   createQueuedThreadMessageInTransaction,
+  QueuedMessageThreadUnavailableError,
   deleteQueuedRetriesForThreadEventSuffixInTransaction,
   deleteClaimedQueuedThreadMessageBatchInTransaction,
   deleteQueuedThreadMessage,
+  transferQueuedThreadMessageInTransaction,
+  transferAllQueuedThreadMessagesInTransaction,
   getQueuedThreadMessage,
   hasQueuedRetryOfTurnRequest,
   hasClaimedQueuedThreadMessages,
@@ -488,13 +496,46 @@ export {
   requeueClaimedQueuedThreadMessages,
   setQueuedThreadMessageFailureReason,
   setQueuedThreadMessageWaitingOn,
+  getRedirectSuccessorThreadId,
+  getThreadRedirectState,
+  type ThreadRedirectState,
   releaseStaleQueuedMessageClaims,
   reorderQueuedThreadMessage,
   setQueuedThreadMessageGroupBoundary,
   updateQueuedThreadMessage,
 } from "./queued-thread-messages.js";
+export {
+  ONLINE_QUEUE_MOVE_MAX_ROWS,
+  SourceQueueTooLargeError,
+  TransferTargetRetiredError,
+  isThreadRetired,
+} from "./queued-thread-messages.js";
+export {
+  abortTransferOperation,
+  ackTransferOperation,
+  drainTransferEvents,
+  getDowngradeReadiness,
+  releaseAllWorkerClaimsOffline,
+  listUnemittedTransferEvents,
+  markTransferEventEmitted,
+  getTransferOperation,
+  retireQueuedThreadMessages,
+  sweepTransferOperations,
+} from "./transfer-operations.js";
+export type {
+  AbortRefusalReason,
+  AbortResult,
+  AbortTransferOperationOutcome,
+  DowngradeReadiness,
+  RetireQueuedThreadMessagesArgs,
+  RetireQueuedThreadMessagesOutcome,
+  RetireRefusalReason,
+  RetireResult,
+  TransferEventRecord,
+} from "./transfer-operations.js";
 export type {
   ClaimedQueuedThreadMessageRow,
+  QueuedMessageThreadUnavailableReason,
   QueuedThreadMessageGroupClaimPolicy,
   QueuedThreadMessageGroupEligibility,
   QueuedThreadMessageRow,

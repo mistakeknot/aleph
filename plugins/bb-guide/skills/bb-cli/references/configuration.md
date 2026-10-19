@@ -49,6 +49,17 @@ preserve the configured host or forward to localhost. BB Connect rewrites
 requests to the local server address and needs no additional configuration.
 `BB_SERVER_BIND_HOST=0.0.0.0` remains supported for direct remote access.
 
+## Agent CPU Isolation
+
+- On Linux, with the host daemon running as a systemd user service, set
+  `BB_AGENT_CGROUP=systemd` in the daemon's environment to run agent work in
+  its own slice (`BB_AGENT_CGROUP_SLICE`, default `agents.slice`) so it yields
+  CPU to the server. Tune it with `BB_AGENT_CPU_WEIGHT` (default `20`),
+  `BB_AGENT_CPU_QUOTA` (such as `800%`) and `BB_AGENT_MEMORY_HIGH` (such as
+  `48G`). `BB_AGENT_NICE` (default `10`) applies without the slice.
+- These are startup-only: restart the launcher after a change. Run
+  `bb guide machines` for details.
+
 ## Agent Instructions
 
 - Add `AGENTS.md` to the bb data dir (usually `~/.bb/AGENTS.md`) to inject

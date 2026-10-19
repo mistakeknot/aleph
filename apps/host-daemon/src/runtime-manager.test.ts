@@ -1012,6 +1012,102 @@ describe("RuntimeManager", () => {
     );
   });
 
+  it("forwards agent CPU isolation settings to provider processes", async () => {
+    vi.stubEnv("BB_AGENT_CGROUP", "systemd");
+    vi.stubEnv("BB_AGENT_CGROUP_SLICE", "agents.slice");
+    vi.stubEnv("BB_AGENT_CPU_WEIGHT", "30");
+    vi.stubEnv("BB_AGENT_CPU_QUOTA", "");
+    vi.stubEnv("BB_AGENT_MEMORY_HIGH", "48G");
+    const provisionWorkspace = createProvisionWorkspaceMock("/tmp/env-1");
+    const createRuntime = vi.fn(() => createFakeRuntime());
+    const manager = new RuntimeManager({
+      provisionWorkspace,
+      createRuntime,
+      shellEnv: {
+        PATH: "/tmp/bb-bin:/usr/bin",
+        BB_AGENT_CPU_QUOTA: "100%",
+      },
+    });
+
+    await manager.ensureEnvironment({
+      environmentId: "env-1",
+      workspacePath: "/tmp/env-1",
+    });
+
+    expect(createRuntime).toHaveBeenCalledWith(
+      expect.objectContaining({
+        env: {
+          PATH: "/tmp/bb-bin:/usr/bin",
+          BB_AGENT_CGROUP: "systemd",
+          BB_AGENT_CGROUP_SLICE: "agents.slice",
+          BB_AGENT_CPU_WEIGHT: "30",
+          BB_AGENT_MEMORY_HIGH: "48G",
+        },
+      }),
+    );
+  });
+
+  it("starts provider workers unwrapped when agent isolation is off", async () => {
+    const provisionWorkspace = createProvisionWorkspaceMock("/tmp/env-1");
+    const runtimeOptions: RuntimeOptionsRef = { current: null };
+    const manager = new RuntimeManager({
+      provisionWorkspace,
+      createRuntime: (options) => {
+        runtimeOptions.current = options;
+        return createFakeRuntime();
+      },
+    });
+    await manager.ensureEnvironment({
+      environmentId: "env-1",
+      workspacePath: "/tmp/env-1",
+    });
+
+    await expect(
+      runtimeOptions.current?.prepareProcessSpawn?.({
+        args: ["bridge.js"],
+        command: process.execPath,
+        env: {},
+        providerId: "fake",
+      }),
+    ).resolves.toBe(null);
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "starts provider workers at the agent nice level",
+    async () => {
+      vi.stubEnv("BB_AGENT_NICE", "12");
+      const provisionWorkspace = createProvisionWorkspaceMock("/tmp/env-1");
+      const runtimeOptions: RuntimeOptionsRef = { current: null };
+      const manager = new RuntimeManager({
+        provisionWorkspace,
+        createRuntime: (options) => {
+          runtimeOptions.current = options;
+          return createFakeRuntime();
+        },
+      });
+      await manager.ensureEnvironment({
+        environmentId: "env-1",
+        workspacePath: "/tmp/env-1",
+      });
+      const worker = spawn(process.execPath, [
+        "-e",
+        "setTimeout(() => {}, 30000)",
+      ]);
+      try {
+        runtimeOptions.current?.onProcessSpawn?.({
+          scopeUnit: null,
+          pid: worker.pid,
+          processKey: "fake",
+          providerId: "fake",
+        });
+
+        expect(os.getPriority(worker.pid!)).toBeGreaterThanOrEqual(12);
+      } finally {
+        worker.kill();
+      }
+    },
+  );
+
   it("passes the resolved shell PATH to unmanaged workspace Git", async () => {
     const provisionWorkspace = createProvisionWorkspaceMock("/tmp/env-1");
     const manager = new RuntimeManager({

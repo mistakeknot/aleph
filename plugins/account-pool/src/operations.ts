@@ -1,5 +1,6 @@
 import type {
   Account,
+  SwitchLogEntry,
   AccountSummary,
   HubTokenSummary,
   PoolProvider,
@@ -11,6 +12,7 @@ import type { AccountPoolHub } from "./hub.js";
 import type {
   AccountStore,
   HubTokenStore,
+  PoolAffinityStore,
   QuotaStore,
   RoutingStore,
 } from "./store.js";
@@ -49,6 +51,7 @@ export class PoolOperations {
     private readonly parentStatus: () => Promise<
       PoolStatus["parent"]
     > = async () => null,
+    private readonly affinity?: PoolAffinityStore,
   ) {}
 
   async add(input: AccountAddInput): Promise<Account> {
@@ -212,6 +215,10 @@ export class PoolOperations {
 
   isRoutingEnabled(provider: PoolProvider): Promise<boolean> {
     return this.routing.isProviderEnabled(provider);
+  }
+
+  switchLog(limit: number): SwitchLogEntry[] {
+    return this.affinity?.listSwitches(limit) ?? [];
   }
 
   async status(): Promise<PoolStatus> {

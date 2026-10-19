@@ -69,6 +69,7 @@ import {
   runQueuedMessageDispatch,
   type QueueWaitPluginDirectory,
 } from "../threads/queued-message-dispatch.js";
+import { drainTransferLedger } from "../threads/queued-messages.js";
 import { deliverLegacyDeferredThreadMessages } from "../threads/legacy-deferred-messages.js";
 import { runEventLoopWork, runEventLoopWorkSync } from "./event-loop-work.js";
 
@@ -558,6 +559,12 @@ const PERIODIC_SWEEP_JOBS: PeriodicSweepJob[] = [
   {
     cadenceMs: 0,
     category: "durable-intent-retry",
+    name: "transfer-ledger-drain",
+    run: (deps) => drainTransferLedger(deps),
+  },
+  {
+    cadenceMs: 0,
+    category: "durable-intent-retry",
     name: "due-scheduled-queue-dispatch",
     run: (deps, now) =>
       runQueuedMessageDispatch(deps, { kind: "time-reached", now }),
@@ -627,6 +634,7 @@ export async function runStartupRecoverySweep(
   deps: LoggedPendingInteractionWorkSessionDeps,
 ): Promise<void> {
   await deliverLegacyDeferredThreadMessages(deps);
+  await drainTransferLedger(deps);
   await runEnvironmentProvisioningSweep(deps);
   await runThreadLifecycleSweep(deps);
 }

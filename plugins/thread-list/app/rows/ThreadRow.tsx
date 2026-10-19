@@ -57,6 +57,7 @@ import {
   sidebarShowProviderIconsAtom,
   threadRowActionsAtom,
 } from "../preferences/atoms.js";
+import { hullDesignationsAtom } from "../preferences/hull-designations.js";
 import { resolveProviderIconColor } from "./provider-icon-color.js";
 import { AppCommandShortcutPill } from "../ui/AppCommandShortcutPill.js";
 import { SidebarStickyTier } from "../ui/sidebar.js";
@@ -237,6 +238,19 @@ function renderThreadRowContainer({
     <div ref={containerRef} {...containerProps}>
       {children}
     </div>
+  );
+}
+
+function ThreadRowHullBadge({ projectId }: { projectId: string }) {
+  const designation = useAtomValue(hullDesignationsAtom)[projectId];
+  if (designation === undefined) return null;
+  return (
+    <span
+      data-sidebar-thread-hull-designation=""
+      className="mr-1 max-w-[12rem] shrink-0 truncate whitespace-nowrap rounded-sm bg-muted px-1 font-mono text-2xs leading-4 text-muted-foreground"
+    >
+      {designation}
+    </span>
   );
 }
 
@@ -619,6 +633,7 @@ function ThreadRowComponent({
             providerId={thread.providerId}
             rowLinkRef={rowLinkRef}
           />
+          <ThreadRowHullBadge projectId={thread.projectId} />
           {isEditing ? (
             <span className="pointer-events-auto relative z-10 min-w-0 flex-1 overflow-visible">
               {editor}

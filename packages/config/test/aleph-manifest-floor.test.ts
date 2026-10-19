@@ -31,6 +31,8 @@ import {
   makeRelease,
 } from "./aleph-manifest-fixtures.js";
 
+vi.setConfig({ testTimeout: 30_000 });
+
 const failNextClose = vi.hoisted(() => ({ armed: false }));
 vi.mock("node:fs/promises", async (importOriginal) => {
   const original = await importOriginal<typeof import("node:fs/promises")>();

@@ -11,11 +11,25 @@ const TOOLS_DIR = path.join(SCRIPT_DIR, ".icon-tools");
 
 function installToolsOneOff() {
   fs.mkdirSync(TOOLS_DIR, { recursive: true });
-  fs.writeFileSync(path.join(TOOLS_DIR, "package.json"), JSON.stringify({ name: "icon-tools", private: true }));
-  execFileSync("npm", ["install", "--no-save", "--no-audit", "--no-fund", "sharp@0.34.5", "@resvg/resvg-wasm@2.6.2"], {
-    cwd: TOOLS_DIR,
-    stdio: "inherit",
-  });
+  fs.writeFileSync(
+    path.join(TOOLS_DIR, "package.json"),
+    JSON.stringify({ name: "icon-tools", private: true }),
+  );
+  execFileSync(
+    "npm",
+    [
+      "install",
+      "--no-save",
+      "--no-audit",
+      "--no-fund",
+      "sharp@0.34.5",
+      "@resvg/resvg-wasm@2.6.2",
+    ],
+    {
+      cwd: TOOLS_DIR,
+      stdio: "inherit",
+    },
+  );
 }
 
 function requireToolsFrom(anchorUrl) {
@@ -45,12 +59,19 @@ async function renderMaster(tools, svgPath) {
     await initWasm(fs.readFileSync(wasmPath));
     wasmReady = true;
   }
-  const png = new Resvg(fs.readFileSync(svgPath, "utf8"), { fitTo: { mode: "width", value: 2048 } }).render().asPng();
+  const png = new Resvg(fs.readFileSync(svgPath, "utf8"), {
+    fitTo: { mode: "width", value: 2048 },
+  })
+    .render()
+    .asPng();
   return Buffer.from(png);
 }
 
 async function downscale(sharp, sourcePng, size) {
-  return sharp(sourcePng).resize(size, size, { kernel: "lanczos3" }).png().toBuffer();
+  return sharp(sourcePng)
+    .resize(size, size, { kernel: "lanczos3" })
+    .png()
+    .toBuffer();
 }
 
 function icnsChunk(type, data) {
@@ -61,7 +82,9 @@ function icnsChunk(type, data) {
 }
 
 function buildIcns(slots) {
-  const body = Buffer.concat(slots.map(({ type, png }) => icnsChunk(type, png)));
+  const body = Buffer.concat(
+    slots.map(({ type, png }) => icnsChunk(type, png)),
+  );
   const header = Buffer.alloc(8);
   header.write("icns", 0, "ascii");
   header.writeUInt32BE(8 + body.length, 4);
@@ -85,7 +108,10 @@ async function main() {
   const tools = loadTools();
   const { sharp } = tools;
   const master = await renderMaster(tools, path.join(SOURCE_DIR, "icon.svg"));
-  const small = await renderMaster(tools, path.join(SOURCE_DIR, "icon-small.svg"));
+  const small = await renderMaster(
+    tools,
+    path.join(SOURCE_DIR, "icon-small.svg"),
+  );
 
   const slotPngs = [];
   for (const slot of ICNS_SLOTS) {
@@ -96,12 +122,16 @@ async function main() {
 
   fs.writeFileSync(path.join(ASSETS_DIR, "icon.icns"), buildIcns(slotPngs));
 
-  const currentIconPng = await sharp(path.join(ASSETS_DIR, "icon.png")).metadata();
+  const currentIconPng = await sharp(
+    path.join(ASSETS_DIR, "icon.png"),
+  ).metadata();
   const targetSize = currentIconPng.width ?? 1024;
   const iconPng = await downscale(sharp, master, targetSize);
   fs.writeFileSync(path.join(ASSETS_DIR, "icon.png"), iconPng);
 
-  console.log(`Wrote ${path.join(ASSETS_DIR, "icon.icns")} (${ICNS_SLOTS.length} slots) and icon.png (${targetSize}x${targetSize}).`);
+  console.log(
+    `Wrote ${path.join(ASSETS_DIR, "icon.icns")} (${ICNS_SLOTS.length} slots) and icon.png (${targetSize}x${targetSize}).`,
+  );
 }
 
 main();

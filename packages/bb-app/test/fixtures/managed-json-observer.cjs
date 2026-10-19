@@ -5,6 +5,7 @@ const target = process.env.BB_TEST_TARGET;
 const mutationRead = target.endsWith("client.json") ? 1 : 2;
 let reads = 0;
 let blocked = false;
+const LOCK_WAIT_DILATION = Number(process.env.BB_TEST_LOCK_WAIT_DILATION ?? 1);
 
 function notify(event) {
   process.send?.(event);
@@ -66,6 +67,10 @@ nativeLocks.tryLock = function (...args) {
   const acquired = tryLock.call(this, ...args);
   if (!acquired && !blocked) {
     blocked = true;
+    const blockedAt = performance.now();
+    const realNow = performance.now.bind(performance);
+    performance.now = () =>
+      blockedAt + (realNow() - blockedAt) / LOCK_WAIT_DILATION;
     notify("blocked");
   }
   return acquired;

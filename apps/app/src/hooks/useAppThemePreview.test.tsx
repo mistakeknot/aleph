@@ -20,6 +20,9 @@ function customTheme(themeId: string, customCss: string): AppTheme {
     themeId,
     customCss,
     faviconColor: "default",
+    musicMode: false,
+    musicPort: 47_615,
+    musicSecret: null,
     resolvedCodeTheme: defaultResolvedCodeTheme,
   };
 }

@@ -289,6 +289,46 @@ describe("@bb/sdk", () => {
     ]);
   });
 
+  it("rejects a transfer-all over the source row maximum with a typed refusal", async () => {
+    const refusal = {
+      code: "thread_not_writable",
+      message:
+        "Thread thr_source has 1001 queued messages, over the 1000 that can move at once",
+      details: {
+        reason: "source_queue_too_large",
+        archivedAt: null,
+        threadStatus: "idle",
+      },
+    };
+    const queue = createFetchQueue([{ body: refusal, status: 409 }]);
+    const sdk = createBbSdk({
+      transport: createHttpTransport({
+        baseUrl: "http://bb.test",
+        fetch: queue.fetch,
+        runtime: "node",
+      }),
+    });
+
+    await expect(
+      sdk.threads.queuedMessages.transferAll({
+        threadId: "thr_source",
+        targetThreadId: "thr_target",
+      }),
+    ).rejects.toMatchObject({
+      name: "BbHttpError",
+      status: 409,
+      code: "thread_not_writable",
+      body: refusal,
+    });
+    expect(queue.requests).toEqual([
+      {
+        bodyText: JSON.stringify({ targetThreadId: "thr_target" }),
+        method: "POST",
+        url: "http://bb.test/api/v1/threads/thr_source/queued-messages/transfer-all",
+      },
+    ]);
+  });
+
   it("maps thread event filters and reverse pagination onto the public query", async () => {
     const queue = createFetchQueue([{ body: [] }]);
     const sdk = createBbSdk({
@@ -405,24 +445,31 @@ describe("@bb/sdk", () => {
       }),
     });
 
-    await expect(
-      sdk.theme.set({ themeId: "nord", faviconColor: "teal" }),
-    ).resolves.toEqual(appearance);
+    const selection = {
+      themeId: "nord",
+      faviconColor: "teal" as const,
+      musicMode: true,
+      musicPort: 47_615,
+    };
+    await expect(sdk.theme.set(selection)).resolves.toEqual(appearance);
     expect(queue.requests).toEqual([
       {
-        bodyText: JSON.stringify({ themeId: "nord", faviconColor: "teal" }),
+        bodyText: JSON.stringify(selection),
         method: "PUT",
         url: "http://bb.test/api/v1/settings/appearance",
       },
     ]);
   });
 
-  it("preserves the favicon color for the theme-id shorthand", async () => {
+  it("preserves the favicon color and music preferences for the theme-id shorthand", async () => {
     const current = {
       appearance: {
         themeId: "dracula",
         customCss: null,
         faviconColor: "purple" as const,
+        musicMode: true,
+        musicPort: 50_000,
+        musicSecret: "set" as const,
         resolvedCodeTheme: {
           dark: "dracula",
           light: "dracula",
@@ -457,9 +504,54 @@ describe("@bb/sdk", () => {
         url: "http://bb.test/api/v1/system/config",
       },
       {
-        bodyText: JSON.stringify({ themeId: "nord", faviconColor: "purple" }),
+        bodyText: JSON.stringify({
+          themeId: "nord",
+          faviconColor: "purple",
+          musicMode: true,
+          musicPort: 50_000,
+        }),
         method: "PUT",
         url: "http://bb.test/api/v1/settings/appearance",
+      },
+    ]);
+  });
+
+  it("writes the music secret and reads the pairing on their own routes", async () => {
+    const secret = Buffer.alloc(32, 1).toString("base64");
+    const queue = createFetchQueue([
+      { body: { themeId: "dorcas", musicSecret: "set" } },
+      { body: { port: 47_615, secret } },
+      { body: { themeId: "dorcas", musicSecret: null } },
+    ]);
+    const sdk = createBbSdk({
+      transport: createHttpTransport({
+        baseUrl: "http://bb.test",
+        fetch: queue.fetch,
+        runtime: "node",
+      }),
+    });
+
+    await sdk.theme.setMusicSecret({ secret });
+    await expect(sdk.theme.musicPairing()).resolves.toEqual({
+      port: 47_615,
+      secret,
+    });
+    await sdk.theme.setMusicSecret({ secret: null });
+    expect(queue.requests).toEqual([
+      {
+        bodyText: JSON.stringify({ secret }),
+        method: "PUT",
+        url: "http://bb.test/api/v1/settings/appearance/music-secret",
+      },
+      {
+        bodyText: undefined,
+        method: "GET",
+        url: "http://bb.test/api/v1/settings/appearance/music-pairing",
+      },
+      {
+        bodyText: JSON.stringify({ secret: null }),
+        method: "PUT",
+        url: "http://bb.test/api/v1/settings/appearance/music-secret",
       },
     ]);
   });

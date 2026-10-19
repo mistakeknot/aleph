@@ -141,6 +141,7 @@ export type {
   PluginCliCommandInfo,
   PluginCliContext,
   PluginMentionTrigger,
+  PluginMessageTransfer,
   PluginThreadEventName,
   PluginThreadEventPayloads,
 } from "@get-bb/plugin-sdk";
@@ -349,6 +350,12 @@ function wrapSdkForPlugin(
 ): PluginBbSdk {
   return {
     ...sdk,
+    theme: {
+      get: sdk.theme.get,
+      catalog: sdk.theme.catalog,
+      resolve: sdk.theme.resolve,
+      set: sdk.theme.set,
+    },
     plugins: {
       ...sdk.plugins,
       callRpc(args) {
@@ -593,6 +600,7 @@ export function createPluginApi(options: {
     "message.dispatched": [],
     "turn.failed": [],
     "message.cancelled": [],
+    "message.transferred": [],
     "thread.unarchived": [],
   };
   const hooks: PluginHookRecords = {

@@ -20,6 +20,7 @@ export function queueInputForStartingTurn(
   args: {
     claimed: readonly ClaimedQueuedThreadMessageRow[] | null;
     input: QueuedDispatchMessage;
+    requestedThreadId?: string;
     threadId: string;
   },
 ): QueueInputForStartingTurnResult {
@@ -47,6 +48,9 @@ export function queueInputForStartingTurn(
           waitingOn: { kind: "turn-starting" },
           sendAt: null,
           claimed: args.claimed,
+          ...(args.requestedThreadId !== undefined
+            ? { requestedThreadId: args.requestedThreadId }
+            : {}),
         },
       );
       return entry === null

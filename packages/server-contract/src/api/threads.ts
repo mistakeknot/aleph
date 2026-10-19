@@ -389,6 +389,116 @@ export type SendQueuedMessageRequest = z.infer<
   typeof sendQueuedMessageRequestSchema
 >;
 
+export const transferQueuedMessageRequestSchema = z.object({
+  targetThreadId: z.string().min(1),
+});
+export type TransferQueuedMessageRequest = z.infer<
+  typeof transferQueuedMessageRequestSchema
+>;
+
+export const transferAllQueuedMessagesRequestSchema = z.object({
+  targetThreadId: z.string().min(1),
+});
+export type TransferAllQueuedMessagesRequest = z.infer<
+  typeof transferAllQueuedMessagesRequestSchema
+>;
+
+export const transferAllQueuedMessagesResponseSchema = z.object({
+  moved: z.array(z.object({ id: z.string(), newId: z.string() })),
+  skipped: z.array(
+    z.object({ id: z.string(), reason: z.enum(["claimed", "not_inline"]) }),
+  ),
+});
+export type TransferAllQueuedMessagesResponse = z.infer<
+  typeof transferAllQueuedMessagesResponseSchema
+>;
+
+export const retireThreadRequestSchema = z.object({
+  targetThreadId: z.string().min(1),
+  operationKey: z.string().min(1),
+});
+export type RetireThreadRequest = z.infer<typeof retireThreadRequestSchema>;
+
+export const retireThreadResponseSchema = z.object({
+  operationId: z.string(),
+  moved: z.array(
+    z.object({ id: z.string(), newId: z.string(), originId: z.string() }),
+  ),
+  pending: z.array(z.object({ id: z.string(), originId: z.string() })),
+  notForwardable: z.array(z.object({ id: z.string(), originId: z.string() })),
+});
+export type RetireThreadResponse = z.infer<typeof retireThreadResponseSchema>;
+
+export const abortRetirementRequestSchema = z.object({
+  operationKey: z.string().min(1),
+  expectedRetirementOperationId: z.string().min(1),
+});
+export type AbortRetirementRequest = z.infer<
+  typeof abortRetirementRequestSchema
+>;
+
+export const abortRetirementResponseSchema = z.object({
+  operationId: z.string(),
+  retirementOperationId: z.string(),
+  sourceArchived: z.boolean(),
+  returned: z.array(
+    z.object({ id: z.string(), newId: z.string(), originId: z.string() }),
+  ),
+  residuals: z.array(z.object({ originId: z.string(), location: z.string() })),
+});
+export type AbortRetirementResponse = z.infer<
+  typeof abortRetirementResponseSchema
+>;
+
+export const transferOperationEntrySchema = z.object({
+  id: z.string(),
+  kind: z.enum([
+    "moved",
+    "slot",
+    "not_forwardable",
+    "redirected",
+    "returned",
+    "residual",
+  ]),
+  originId: z.string().nullable(),
+  sourceRowId: z.string().nullable(),
+  sourceSortKey: z.string().nullable(),
+  targetRowId: z.string().nullable(),
+  detail: z.string().nullable(),
+  state: z.enum([
+    "pending",
+    "forwarded",
+    "left_source",
+    "target_deleted",
+    "terminal",
+  ]),
+});
+export type TransferOperationEntry = z.infer<
+  typeof transferOperationEntrySchema
+>;
+
+export const transferOperationResponseSchema = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  kind: z.enum(["retire", "abort"]),
+  state: z.enum(["active", "aborted", "done"]),
+  sourceThreadId: z.string(),
+  targetThreadId: z.string(),
+  ackedAt: z.number().nullable(),
+  result: retireThreadResponseSchema.nullable(),
+  entries: z.array(transferOperationEntrySchema),
+});
+export type TransferOperationResponse = z.infer<
+  typeof transferOperationResponseSchema
+>;
+
+export const ackTransferOperationResponseSchema = z.object({
+  acked: z.boolean(),
+});
+export type AckTransferOperationResponse = z.infer<
+  typeof ackTransferOperationResponseSchema
+>;
+
 export const reorderQueuedMessageRequestSchema = z.object({
   previousQueuedMessageId: z.string().min(1).nullable(),
   nextQueuedMessageId: z.string().min(1).nullable(),

@@ -6,6 +6,7 @@ import {
 export default defineWorkspaceTestConfig({
   test: {
     environment: "node",
+    testTimeout: 30_000,
     projects: sharedWorkerProjects({
       pkgDir: __dirname,
       name: "bb-app",

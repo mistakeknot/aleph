@@ -22,7 +22,7 @@ import { requirePublicProject } from "../lib/entity-lookup.js";
 import { toThreadResponseFromThread } from "./thread-runtime-display.js";
 import { buildExecutionOptions } from "./thread-commands.js";
 import type { LoggedPendingInteractionWorkSessionDeps } from "../../types.js";
-import type { PromptInput, Thread } from "@bb/domain";
+import type { PromptInput, Thread, ThreadQueuedMessage } from "@bb/domain";
 
 const parentWakeNotifySettingValues = ["all", "changed", "quiet"] as const;
 export const parentWakeNotifySettingSchema = z.enum(
@@ -112,25 +112,119 @@ export function recordDeliveredChildOutput(args: {
   childThreadId: string;
   parentThreadId: string;
   finalText: string | null;
+  turnId?: string | null;
 }): void {
-  lastDeliveredChildOutputByKey.set(lastDeliveredKey(args), args.finalText);
+  const key = lastDeliveredKey(args);
+  lastDeliveredChildOutputByKey.delete(key);
+  lastDeliveredChildOutputByKey.set(key, args.finalText);
+  evictOldest(lastDeliveredChildOutputByKey, MAX_DELIVERED_TURN_KEYS);
+  if (args.turnId) {
+    commitDeliveredChildTurn(args, args.turnId);
+  }
+}
+
+/**
+ * Upper bound on remembered completed-turn keys (and last-output entries).
+ * Oldest entries are evicted first, so memory stays bounded in a long-lived
+ * server. Eviction only means a very old turn could be re-notified.
+ */
+export const MAX_DELIVERED_TURN_KEYS = 2_000;
+
+function evictOldest<T>(
+  collection: Set<T> | Map<string, unknown>,
+  limit: number,
+): void {
+  while (collection.size > limit) {
+    const first = collection.keys().next();
+    if (first.done) {
+      return;
+    }
+    collection.delete(first.value as never);
+  }
+}
+
+/**
+ * Turns whose delivery is in flight. Never evicted by the cap: they are
+ * released on completion (moved to delivered history) or on failure.
+ */
+const pendingCompletedTurnKeys = new Set<string>();
+
+/**
+ * Marks a completed turn as in flight before delivery is awaited, so an
+ * overlapping flush cannot deliver the same completion twice. Call
+ * `releaseDeliveredChildTurn` if delivery fails so it can retry.
+ */
+export function reserveDeliveredChildTurn(
+  args: { childThreadId: string; parentThreadId: string },
+  turnId: string,
+): void {
+  pendingCompletedTurnKeys.add(deliveredTurnKey(args, turnId));
+}
+
+function commitDeliveredChildTurn(
+  args: { childThreadId: string; parentThreadId: string },
+  turnId: string,
+): void {
+  const key = deliveredTurnKey(args, turnId);
+  pendingCompletedTurnKeys.delete(key);
+  deliveredCompletedTurnKeys.delete(key);
+  deliveredCompletedTurnKeys.add(key);
+  evictOldest(deliveredCompletedTurnKeys, MAX_DELIVERED_TURN_KEYS);
+}
+
+export function releaseDeliveredChildTurn(
+  args: { childThreadId: string; parentThreadId: string },
+  turnId: string,
+): void {
+  pendingCompletedTurnKeys.delete(deliveredTurnKey(args, turnId));
+}
+
+export function hasDeliveredChildTurn(
+  args: { childThreadId: string; parentThreadId: string },
+  turnId: string,
+): boolean {
+  const key = deliveredTurnKey(args, turnId);
+  return (
+    pendingCompletedTurnKeys.has(key) || deliveredCompletedTurnKeys.has(key)
+  );
 }
 
 export function clearDeliveredChildOutputForTesting(): void {
   lastDeliveredChildOutputByKey.clear();
+  deliveredCompletedTurnKeys.clear();
+  pendingCompletedTurnKeys.clear();
+}
+
+/**
+ * Completed turns whose notice was already delivered to this parent. A turn
+ * completes once, so a second notice for the same turn id (an event replay or
+ * redelivery) is stale no matter who requested the turn. In process memory,
+ * with the same restart trade-off as the map above.
+ */
+const deliveredCompletedTurnKeys = new Set<string>();
+
+function deliveredTurnKey(
+  args: { childThreadId: string; parentThreadId: string },
+  turnId: string,
+): string {
+  return `${lastDeliveredKey(args)}:${turnId}`;
 }
 
 export interface DecideParentWakeArgs {
+  childArchived?: boolean;
   childThreadId: string;
   finalText: string | null;
   notify: ParentWakeNotifySetting;
   parentThreadId: string;
   selfInitiated: boolean;
+  turnId?: string | null;
   turnStatus: ThreadEventTurnStatus;
 }
 
 export type ParentWakeSuppressReason =
+  | "archived-child"
   | "duplicate-final-message"
+  | "duplicate-turn"
   | "self-initiated-unchanged";
 
 export type DecideParentWakeResult =
@@ -159,6 +253,9 @@ export function decideParentWake(
   if (args.turnStatus !== "completed") {
     return { wake: true };
   }
+  if (args.turnId && hasDeliveredChildTurn(args, args.turnId)) {
+    return { wake: false, reason: "duplicate-turn" };
+  }
   if (args.notify === "all") {
     return { wake: true };
   }
@@ -167,6 +264,12 @@ export function decideParentWake(
   }
   if (!args.selfInitiated) {
     return { wake: true };
+  }
+
+  // A child already archived has been finished with: a turn nobody asked
+  // for is not news to the parent.
+  if (args.childArchived) {
+    return { wake: false, reason: "archived-child" };
   }
 
   const previous = lastDeliveredChildOutputByKey.get(lastDeliveredKey(args));
@@ -192,7 +295,12 @@ export type ParentThreadHeldResult =
  */
 export async function checkParentThreadHeld(
   deps: LoggedPendingInteractionWorkSessionDeps,
-  args: { input: PromptInput[]; parentThread: Thread },
+  args: {
+    input: PromptInput[];
+    parentThread: Thread;
+    queuedMessages?: ThreadQueuedMessage[];
+    continueAfterHooks?: () => Promise<void>;
+  },
 ): Promise<ParentThreadHeldResult> {
   if (!hasMessageDispatchHooks()) {
     return { held: false };
@@ -231,8 +339,11 @@ export async function checkParentThreadHeld(
     originPluginId: null,
     startedOnBehalfOf: null,
     parentThreadId: parentThread.parentThreadId,
-    queuedMessages: [],
+    queuedMessages: args.queuedMessages ?? [],
     pluginSubmission: null,
+    ...(args.continueAfterHooks !== undefined
+      ? { continueAfterHooks: args.continueAfterHooks }
+      : {}),
   });
   if (outcome.kind === "proceed") {
     return { held: false };

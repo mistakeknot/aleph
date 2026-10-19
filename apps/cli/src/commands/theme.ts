@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { Command } from "commander";
 import {
   builtInThemes,
@@ -5,11 +6,17 @@ import {
   faviconColorPreferenceSchema,
   FAVICON_COLORS,
   isBuiltInThemeId,
+  MUSIC_MODE_THEME_ID,
+  MUSIC_PORT_MAX,
+  MUSIC_PORT_MIN,
+  musicPortSchema,
+  musicSecretSchema,
   NEW_INSTALL_DEFAULT_THEME_ID,
+  themeSelectionFrom,
   type AppTheme,
   type FaviconColorPreference,
 } from "@bb/domain";
-import { action } from "../action.js";
+import { action, CliUsageError } from "../action.js";
 import { createCliBbSdk } from "../client.js";
 import { outputJson, type JsonOutputOptions } from "./helpers.js";
 
@@ -19,7 +26,16 @@ interface ThemeShowCommandOptions extends JsonOutputOptions {
 
 interface ThemeSetCommandOptions extends JsonOutputOptions {
   faviconColor?: string;
+  music?: string;
+  musicPort?: string;
+  musicSecretFile?: string;
+  musicSecretClear?: boolean;
 }
+
+type MusicSecretChange =
+  | { kind: "keep" }
+  | { kind: "set"; secret: string }
+  | { kind: "clear" };
 
 function parseFaviconColor(value: string): FaviconColorPreference {
   const parsed = faviconColorPreferenceSchema.safeParse(value);
@@ -31,6 +47,83 @@ function parseFaviconColor(value: string): FaviconColorPreference {
     );
   }
   return parsed.data;
+}
+
+function parseMusicMode(value: string): boolean {
+  if (value === "on") return true;
+  if (value === "off") return false;
+  throw new CliUsageError({
+    code: "invalid_value",
+    hint: null,
+    message: `Invalid music mode '${value}'. Expected on or off.`,
+  });
+}
+
+function parseMusicPort(value: string): number {
+  const parsed = musicPortSchema.safeParse(
+    /^\d+$/.test(value) ? Number(value) : Number.NaN,
+  );
+  if (!parsed.success) {
+    throw new CliUsageError({
+      code: "invalid_value",
+      hint: null,
+      message: `Invalid music port '${value}'. Expected an integer from ${MUSIC_PORT_MIN} to ${MUSIC_PORT_MAX}.`,
+    });
+  }
+  return parsed.data;
+}
+
+async function readMusicSecretChange(
+  opts: ThemeSetCommandOptions,
+): Promise<MusicSecretChange> {
+  if (opts.musicSecretFile !== undefined && opts.musicSecretClear) {
+    throw new CliUsageError({
+      code: "invalid_value",
+      hint: null,
+      message: "Use either --music-secret-file or --music-secret-clear.",
+    });
+  }
+  if (opts.musicSecretClear) return { kind: "clear" };
+  if (opts.musicSecretFile === undefined) return { kind: "keep" };
+  let contents: string;
+  try {
+    contents = await readFile(opts.musicSecretFile, "utf8");
+  } catch {
+    throw new CliUsageError({
+      code: "invalid_value",
+      hint: null,
+      message: `Cannot read the music secret file '${opts.musicSecretFile}'.`,
+    });
+  }
+  const parsed = musicSecretSchema.safeParse(contents.trim());
+  if (!parsed.success) {
+    throw new CliUsageError({
+      code: "invalid_value",
+      hint: "Phosphene writes the pairing secret as 32 bytes in standard base64.",
+      message: `The music secret file '${opts.musicSecretFile}' does not hold a valid pairing secret.`,
+    });
+  }
+  return { kind: "set", secret: parsed.data };
+}
+
+function hasSelectionOverrides(opts: ThemeSetCommandOptions): boolean {
+  return (
+    opts.faviconColor !== undefined ||
+    opts.music !== undefined ||
+    opts.musicPort !== undefined
+  );
+}
+
+function describeMusicMode(theme: AppTheme): string {
+  const state = theme.musicMode ? "on" : "off";
+  if (theme.themeId === MUSIC_MODE_THEME_ID) return state;
+  return `${state} (no effect: music mode only affects the Dorcas theme)`;
+}
+
+function printMusicPreferences(theme: AppTheme): void {
+  console.log(`Music mode: ${describeMusicMode(theme)}`);
+  console.log(`Music port: ${theme.musicPort}`);
+  console.log(`Music secret: ${theme.musicSecret ?? "not set"}`);
 }
 
 function describeTheme(theme: AppTheme): string {
@@ -53,7 +146,7 @@ export function registerThemeCommands(
 ): void {
   const theme = program
     .command("theme")
-    .description("Manage the app theme and favicon color");
+    .description("Manage the app theme, favicon color and Dorcas music mode");
 
   theme
     .command("list")
@@ -104,6 +197,7 @@ export function registerThemeCommands(
         console.log(`Active: ${describeTheme(catalog.active)}`);
         console.log(`Favicon color: ${catalog.active.faviconColor}`);
         console.log(`Code theme: ${describeCodeTheme(catalog.active)}`);
+        printMusicPreferences(catalog.active);
       }),
     );
 
@@ -116,19 +210,60 @@ export function registerThemeCommands(
       "--favicon-color <color>",
       "Set the favicon color in the same appearance update",
     )
+    .option(
+      "--music <on|off>",
+      "Turn music mode on or off (it only affects the Dorcas theme)",
+    )
+    .option(
+      "--music-port <n>",
+      `Set the loopback port of the Phosphene signal server (${MUSIC_PORT_MIN}-${MUSIC_PORT_MAX})`,
+    )
+    .option(
+      "--music-secret-file <path>",
+      "Read the Phosphene pairing secret from a file and store it",
+    )
+    .option("--music-secret-clear", "Remove the stored pairing secret")
     .option("--json", "Print machine-readable JSON output")
     .action(
       action(async (id: string, opts: ThemeSetCommandOptions) => {
-        const sdk = createCliBbSdk(getUrl());
-        const updated =
+        const faviconColor =
           opts.faviconColor === undefined
-            ? await sdk.theme.set(id)
-            : await sdk.theme.set({
-                themeId: id,
-                faviconColor: parseFaviconColor(opts.faviconColor),
-              });
+            ? undefined
+            : parseFaviconColor(opts.faviconColor);
+        const musicMode =
+          opts.music === undefined ? undefined : parseMusicMode(opts.music);
+        const musicPort =
+          opts.musicPort === undefined
+            ? undefined
+            : parseMusicPort(opts.musicPort);
+        const secretChange = await readMusicSecretChange(opts);
+        const sdk = createCliBbSdk(getUrl());
+        let updated: AppTheme;
+        if (hasSelectionOverrides(opts)) {
+          const current = themeSelectionFrom(await sdk.theme.get(), id);
+          updated = await sdk.theme.set({
+            themeId: id,
+            faviconColor: faviconColor ?? current.faviconColor,
+            musicMode: musicMode ?? current.musicMode,
+            musicPort: musicPort ?? current.musicPort,
+          });
+        } else {
+          updated = await sdk.theme.set(id);
+        }
+        if (secretChange.kind !== "keep") {
+          updated = await sdk.theme.setMusicSecret({
+            secret: secretChange.kind === "set" ? secretChange.secret : null,
+          });
+        }
         if (outputJson(opts, updated)) return;
         console.log(`Theme set to ${describeTheme(updated)}`);
+        if (
+          musicMode !== undefined ||
+          musicPort !== undefined ||
+          secretChange.kind !== "keep"
+        ) {
+          printMusicPreferences(updated);
+        }
       }),
     );
 
@@ -160,7 +295,7 @@ export function registerThemeCommands(
         const sdk = createCliBbSdk(getUrl());
         const active = await sdk.theme.get();
         const updated = await sdk.theme.set({
-          themeId: active.themeId,
+          ...themeSelectionFrom(active),
           faviconColor: parseFaviconColor(color),
         });
         if (outputJson(opts, updated)) return;
@@ -177,7 +312,7 @@ export function registerThemeCommands(
         const sdk = createCliBbSdk(getUrl());
         const active = await sdk.theme.get();
         const updated = await sdk.theme.set({
-          themeId: active.themeId,
+          ...themeSelectionFrom(active),
           faviconColor: defaultFaviconColor,
         });
         if (outputJson(opts, updated)) return;
@@ -217,6 +352,7 @@ export function registerThemeCommands(
           console.log(`Theme: ${describeTheme(theme)}`);
         }
         console.log(`Code theme: ${describeCodeTheme(theme)}`);
+        printMusicPreferences(theme);
       }),
     );
 

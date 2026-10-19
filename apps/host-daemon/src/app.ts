@@ -1,4 +1,8 @@
 import { HOST_DAEMON_RESTART_EXIT_CODE } from "@bb/config/machine-service";
+import {
+  disposeAgentProcessScopes,
+  prepareAgentProcessScopes,
+} from "./agent-process-scope.js";
 import { startDesktopBrowserBroker } from "./desktop-browser-broker.js";
 import { MachineEnvironment } from "./machine-environment.js";
 import { CommandRouter } from "./command-router.js";
@@ -925,6 +929,7 @@ export async function createHostDaemonApp(
       await eventSink.flush();
     },
     shutdownRuntimes: async () => {
+      disposeAgentProcessScopes();
       await desktopBrowserBroker.close();
       idleProviderSessionReaper.stop();
       eventLoopStallMonitor.stop();
@@ -948,6 +953,7 @@ export async function createHostDaemonApp(
         { dataDir: options.dataDir, serverUrl: options.serverUrl },
         "Host daemon connecting",
       );
+      void prepareAgentProcessScopes({ logger: options.logger });
       await connection.start();
     },
   });

@@ -513,7 +513,10 @@ export function PluginDetail({
     >
       <ResourceDetailStack>
         {catalogEntry === undefined ? (
-          <section className="max-w-prose" data-resource-detail-section="overview">
+          <section
+            className="max-w-prose"
+            data-resource-detail-section="overview"
+          >
             <PluginOverviewLead
               description={
                 plugin.description ?? "This plugin does not describe itself."

@@ -107,9 +107,7 @@ function moveEndToWordBoundary(
   if (end === text.length) {
     return end;
   }
-  const lastWhitespace = text
-    .slice(firstMatchEnd, end)
-    .search(/\s\S*$/u);
+  const lastWhitespace = text.slice(firstMatchEnd, end).search(/\s\S*$/u);
   return lastWhitespace > 0 ? firstMatchEnd + lastWhitespace : end;
 }
 
@@ -123,10 +121,7 @@ export function windowPaletteThreadSearchText({
     return { text, highlightRanges: [] };
   }
 
-  let start = Math.max(
-    0,
-    firstMatch.start - THREAD_SEARCH_WINDOW_LEAD_CHARS,
-  );
+  let start = Math.max(0, firstMatch.start - THREAD_SEARCH_WINDOW_LEAD_CHARS);
   let end = Math.min(
     text.length,
     firstMatch.end + THREAD_SEARCH_WINDOW_TAIL_CHARS,

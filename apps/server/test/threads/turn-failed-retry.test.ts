@@ -80,6 +80,7 @@ function recordTurnFailedAnnouncements(): string[] {
     emitMessageQueued: () => {},
     emitMessageDispatched: () => {},
     emitMessageCancelled: () => {},
+    deliverMessageQueuedTransfer: async () => true,
     emitThreadUnarchived: () => {},
     emitTurnFailed: (threadId) => announced.push(threadId),
   });

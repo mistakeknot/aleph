@@ -208,7 +208,9 @@ describe("SplitThreadArea archive pruning", () => {
 
     fireEvent.click(screen.getByTestId("unarchive"));
     await waitFor(() => expect(archivedAtOf(queryClient, "thr-b")).toBeNull());
-    await act(async () => pendingArchive!.reject(new Error("unarchive failed")));
+    await act(async () =>
+      pendingArchive!.reject(new Error("unarchive failed")),
+    );
 
     await waitFor(() =>
       expect(archivedAtOf(queryClient, "thr-b")).toBe(ARCHIVED_AT),

@@ -162,7 +162,10 @@ describe("thread-list plugin", () => {
         sections: SECTIONS,
         threads: THREADS,
       },
-      rpc: { listPreferences: () => new Promise(() => undefined) },
+      rpc: {
+        listPreferences: () => new Promise(() => undefined),
+        listHullDesignations: () => ({ designations: {} }),
+      },
     });
     expect(screen.getByLabelText("Loading sidebar navigation")).not.toBeNull();
     expect(threadIds()).toEqual([]);
@@ -173,7 +176,10 @@ describe("thread-list plugin", () => {
     const { rpcCalls } = renderList({ organizationMode: "chronological" });
 
     await screen.findByText("Pinned thread");
-    expect(rpcCalls.map((call) => call.method)).toEqual(["listPreferences"]);
+    expect(rpcCalls.map((call) => call.method)).toEqual([
+      "listPreferences",
+      "listHullDesignations",
+    ]);
     expect(sectionHeaders()).toEqual(["Pinned", "Later", "Review", "Threads"]);
     expect(threadIds()).toEqual([
       "thr_pinned",

@@ -40,6 +40,7 @@ import {
   type PluginFileOpenerRegistration,
   type PluginHomepageSectionRegistration,
   type PluginMessageActionRegistration,
+  type ExperimentalPluginCommandPaletteSearchRegistration,
   type PluginMessageDirectiveRegistration,
   type PluginDiffRendererRegistration,
   type PluginNavPanelRegistration,
@@ -1258,6 +1259,7 @@ export interface CapturedPluginApp {
   diffRenderers: PluginDiffRendererRegistration[];
   messageDirectives: PluginMessageDirectiveRegistration[];
   messageActions: PluginMessageActionRegistration[];
+  commandPaletteSearches: ExperimentalPluginCommandPaletteSearchRegistration[];
   providerIcons: CollectedPluginProviderIconRegistration[];
   icons: ExperimentalIconRegistration[];
   timelineRenderers: PluginTimelineRendererRegistration[];

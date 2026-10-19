@@ -57,6 +57,7 @@ vi.mock("@/lib/plugin-slots", () => ({
   usePluginSlots: () => ({
     appOverlays: [],
     commandPaletteActions: [],
+    commandPaletteSearches: [],
     fileOpeners: [],
     navPanels: [
       {

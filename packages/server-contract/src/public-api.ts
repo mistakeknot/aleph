@@ -56,6 +56,8 @@ import type {
   ExperimentUpdates,
   Experiments,
   Host,
+  MusicPairing,
+  MusicSecretUpdate,
   PendingInteraction,
   ProjectExecutionDefaults,
   ProjectSource,
@@ -68,6 +70,7 @@ import {
   appKeybindingOverridesSchema,
   appThemeSelectionSchema,
   experimentUpdatesSchema,
+  musicSecretUpdateSchema,
 } from "@bb/domain";
 import type { ProviderUsageResponse } from "@bb/host-daemon-contract";
 import {
@@ -197,6 +200,15 @@ import type {
   SendMessageResponse,
   SetQueuedMessageGroupBoundaryRequest,
   SendQueuedMessageRequest,
+  AckTransferOperationResponse,
+  AbortRetirementRequest,
+  AbortRetirementResponse,
+  RetireThreadRequest,
+  RetireThreadResponse,
+  TransferAllQueuedMessagesRequest,
+  TransferAllQueuedMessagesResponse,
+  TransferOperationResponse,
+  TransferQueuedMessageRequest,
   SendQueuedMessageResponse,
   SidebarBootstrapResponse,
   SystemAttentionResponse,
@@ -369,6 +381,10 @@ import {
   editMessageRequestSchema,
   setQueuedMessageGroupBoundaryRequestSchema,
   sendQueuedMessageRequestSchema,
+  abortRetirementRequestSchema,
+  retireThreadRequestSchema,
+  transferAllQueuedMessagesRequestSchema,
+  transferQueuedMessageRequestSchema,
   systemExecutionOptionsQuerySchema,
   systemEnvironmentProvidersQuerySchema,
   systemProvidersQuerySchema,
@@ -1477,6 +1493,51 @@ export const publicApiRoutes = {
       >(sendQueuedMessageRequestSchema),
       response: jsonResponse<SendQueuedMessageResponse>(),
     }),
+    transferQueuedMessage: defineRoute({
+      path: "/threads/:id/queued-messages/:queuedMessageId/transfer",
+      method: "post",
+      request: jsonRequest<
+        PathThreadAndQueuedMessage,
+        TransferQueuedMessageRequest
+      >(transferQueuedMessageRequestSchema),
+      response: jsonResponse<ThreadQueuedMessage>({ status: 201 }),
+    }),
+    retireThread: defineRoute({
+      path: "/threads/:id/retire",
+      method: "post",
+      request: jsonRequest<PathId, RetireThreadRequest>(
+        retireThreadRequestSchema,
+      ),
+      response: jsonResponse<RetireThreadResponse>(),
+    }),
+    getTransferOperation: defineRoute({
+      path: "/transfer-operations/:id",
+      method: "get",
+      request: noRequest<PathId>(),
+      response: jsonResponse<TransferOperationResponse>(),
+    }),
+    abortRetirement: defineRoute({
+      path: "/transfer-operations/:id/abort",
+      method: "post",
+      request: jsonRequest<PathId, AbortRetirementRequest>(
+        abortRetirementRequestSchema,
+      ),
+      response: jsonResponse<AbortRetirementResponse>(),
+    }),
+    ackTransferOperation: defineRoute({
+      path: "/transfer-operations/:id/ack",
+      method: "post",
+      request: noRequest<PathId>(),
+      response: jsonResponse<AckTransferOperationResponse>(),
+    }),
+    transferAllQueuedMessages: defineRoute({
+      path: "/threads/:id/queued-messages/transfer-all",
+      method: "post",
+      request: jsonRequest<PathId, TransferAllQueuedMessagesRequest>(
+        transferAllQueuedMessagesRequestSchema,
+      ),
+      response: jsonResponse<TransferAllQueuedMessagesResponse>(),
+    }),
     reorderQueuedMessage: defineRoute({
       path: "/threads/:id/queued-messages/:queuedMessageId/order",
       method: "patch",
@@ -1889,6 +1950,29 @@ export const publicApiRoutes = {
         appThemeSelectionSchema,
       ),
       response: jsonResponse<AppTheme>(),
+    }),
+    /**
+     * Store or clear the Dorcas music mode pairing secret. It lives apart from
+     * the theme selection, so theme and favicon writes keep it, and every
+     * other response reports it only as `musicSecret: "set" | null`.
+     */
+    musicSecret: defineRoute({
+      path: "/settings/appearance/music-secret",
+      method: "put",
+      request: jsonRequest<EmptyInput, MusicSecretUpdate>(
+        musicSecretUpdateSchema,
+      ),
+      response: jsonResponse<AppTheme>(),
+    }),
+    /**
+     * The only read of the music pairing secret. The app calls it to open the
+     * loopback Phosphene connection; machine credentials are refused.
+     */
+    musicPairing: defineRoute({
+      path: "/settings/appearance/music-pairing",
+      method: "get",
+      request: noRequest(),
+      response: jsonResponse<MusicPairing>(),
     }),
     uiPreferences: defineRoute({
       path: "/preferences/ui",

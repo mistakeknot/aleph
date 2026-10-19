@@ -42,9 +42,7 @@ export const pushSubscriptionsRemoveOutputSchema = z
   .strict();
 
 export type PushPlatform = z.infer<typeof pushPlatformSchema>;
-export type PushSubscriptionInput = z.infer<
-  typeof pushSubscriptionInputSchema
->;
+export type PushSubscriptionInput = z.infer<typeof pushSubscriptionInputSchema>;
 export type PushSubscriptionRecord = z.infer<
   typeof pushSubscriptionRecordSchema
 >;

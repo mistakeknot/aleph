@@ -29,6 +29,8 @@ import {
   isSharedQuotaExhausted,
   isUsageRestricted,
   retryAfterMilliseconds,
+  switchReason,
+  usagePercent,
 } from "./quota.js";
 import type {
   AccountBinding,
@@ -1026,12 +1028,14 @@ export class AccountPoolHub {
         candidates.find((candidate) => candidate.account.id === account.id),
       )
       .find((candidate) => candidate !== undefined);
+    const fresh = boundAccountId === null && previousAccountId === null;
+    const preferred = fresh ? candidates[0] : undefined;
     const selected =
       bound !== undefined && unattempted.includes(bound)
         ? bound
         : (inherited ??
-          (boundAccountId === null &&
-          previousAccountId === null &&
+          preferred ??
+          (fresh &&
           activeAccount !== undefined &&
           unattempted.includes(activeAccount)
             ? activeAccount
@@ -1077,10 +1081,18 @@ export class AccountPoolHub {
       (bound === undefined ||
         bound.account.id === selected.account.id ||
         (binding === routing.binding && attempted.has(bound.account.id)));
+    const fromAccount = accounts.find(({ id }) => id === active?.accountId);
+    const fromQuota = this.options.quotas.get(active.accountId);
+    const switchEntry = {
+      fromAccount,
+      fromQuota,
+      reason: switchReason(fromAccount, fromQuota, family, threshold, now),
+    };
     const advance =
       !familyDetour(active.accountId) &&
       (activeAccount === undefined ||
         active.accountId === selected.account.id ||
+        (selected === preferred && inherited === undefined) ||
         (active === routing.active && attempted.has(active.accountId)));
     return {
       ...selected,
@@ -1097,6 +1109,24 @@ export class AccountPoolHub {
         }
         if (advance && this.activeAccounts.get(provider) === active) {
           this.options.affinity.putActiveAccount(provider, selected.account.id);
+          if (active.accountId !== selected.account.id) {
+            const switchedAt = this.options.now();
+            this.options.affinity.recordSwitch({
+              switchedAt,
+              provider,
+              fromAccountId: active.accountId,
+              fromLabel: switchEntry.fromAccount?.label ?? null,
+              toAccountId: selected.account.id,
+              toLabel: selected.account.label,
+              reason: switchEntry.reason,
+              fromUsagePercent: usagePercent(
+                switchEntry.fromQuota,
+                family,
+                switchedAt,
+              ),
+              toUsagePercent: usagePercent(selected.quota, family, switchedAt),
+            });
+          }
           this.activeAccounts.set(provider, { accountId: selected.account.id });
         }
       },

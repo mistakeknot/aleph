@@ -4,7 +4,7 @@ import type {
   ThreadEventTurnStatus,
   ChildThreadOutcome,
 } from "@bb/domain";
-import { listActiveBackgroundTaskCountsByThreadIds } from "@bb/db";
+import { getThread, listActiveBackgroundTaskCountsByThreadIds } from "@bb/db";
 import { renderTemplate } from "@bb/templates";
 import type { LoggedPendingInteractionWorkSessionDeps } from "../../types.js";
 import {
@@ -26,6 +26,8 @@ import {
   decideParentWake,
   isChildTurnSelfInitiated,
   recordDeliveredChildOutput,
+  releaseDeliveredChildTurn,
+  reserveDeliveredChildTurn,
   resolveParentWakeNotifySetting,
 } from "./parent-wake-policy.js";
 
@@ -408,7 +410,24 @@ function selectWakingChildThreadTurnNotificationItems(
   },
 ): ChildThreadTurnNotificationBatchItem[] {
   const notify = resolveParentWakeNotifySetting();
-  return args.items.filter((item) => {
+  const selected: ChildThreadTurnNotificationBatchItem[] = [];
+  try {
+    for (const item of args.items) {
+      if (isWakingItem(item)) {
+        selected.push(item);
+      }
+    }
+  } catch (error) {
+    // Release every reservation this invocation acquired before rethrowing.
+    releaseReservedChildThreadTurnNotificationItems({
+      items: selected,
+      parentThreadId: args.parentThreadId,
+    });
+    throw error;
+  }
+  return selected;
+
+  function isWakingItem(item: ChildThreadTurnNotificationBatchItem): boolean {
     const selfInitiated =
       item.turnId !== null &&
       isChildTurnSelfInitiated(deps, {
@@ -417,6 +436,9 @@ function selectWakingChildThreadTurnNotificationItems(
         turnId: item.turnId,
       });
     const decision = decideParentWake({
+      childArchived:
+        getThread(deps.db, item.childThread.id)?.archivedAt != null,
+      turnId: item.turnId,
       childThreadId: item.childThread.id,
       finalText: item.terminalOutput,
       notify,
@@ -424,8 +446,36 @@ function selectWakingChildThreadTurnNotificationItems(
       selfInitiated,
       turnStatus: item.turnStatus,
     });
+    if (decision.wake && item.turnStatus === "completed" && item.turnId) {
+      // Reserve before delivery is awaited so an overlapping flush dedups
+      // against this one; released again if delivery fails.
+      reserveDeliveredChildTurn(
+        {
+          childThreadId: item.childThread.id,
+          parentThreadId: args.parentThreadId,
+        },
+        item.turnId,
+      );
+    }
     return decision.wake;
-  });
+  }
+}
+
+function releaseReservedChildThreadTurnNotificationItems(args: {
+  items: ChildThreadTurnNotificationBatchItem[];
+  parentThreadId: string;
+}): void {
+  for (const item of args.items) {
+    if (item.turnStatus === "completed" && item.turnId) {
+      releaseDeliveredChildTurn(
+        {
+          childThreadId: item.childThread.id,
+          parentThreadId: args.parentThreadId,
+        },
+        item.turnId,
+      );
+    }
+  }
 }
 
 /**
@@ -446,6 +496,7 @@ function recordDeliveredChildThreadTurnNotificationItems(args: {
       childThreadId: item.childThread.id,
       finalText: item.terminalOutput,
       parentThreadId: args.parentThreadId,
+      turnId: item.turnId,
     });
   }
 }
@@ -460,15 +511,15 @@ async function flushChildThreadTurnNotificationBatch(
   }
   childThreadTurnNotificationBatches.delete(parentThreadId);
 
-  const items = selectWakingChildThreadTurnNotificationItems(deps, {
-    items: batch.items,
-    parentThreadId,
-  });
-  if (items.length === 0) {
-    return;
-  }
-
+  let items: ChildThreadTurnNotificationBatchItem[] = [];
   try {
+    items = selectWakingChildThreadTurnNotificationItems(deps, {
+      items: batch.items,
+      parentThreadId,
+    });
+    if (items.length === 0) {
+      return;
+    }
     const queued = await queueParentSystemMessage(deps, {
       input: buildChildThreadTurnStatusBatchInput({
         items,
@@ -481,8 +532,14 @@ async function flushChildThreadTurnNotificationBatch(
         items,
         parentThreadId,
       });
+    } else {
+      releaseReservedChildThreadTurnNotificationItems({
+        items,
+        parentThreadId,
+      });
     }
   } catch (error) {
+    releaseReservedChildThreadTurnNotificationItems({ items, parentThreadId });
     deps.logger.error(
       {
         err: error,

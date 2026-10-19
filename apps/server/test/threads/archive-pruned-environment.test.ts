@@ -28,10 +28,7 @@ function seedThreadWithPrunedEnvironment(
     projectId: project.id,
     status: "idle",
   });
-  deps.db
-    .delete(environments)
-    .where(eq(environments.id, environment.id))
-    .run();
+  deps.db.delete(environments).where(eq(environments.id, environment.id)).run();
 
   const threadAfterPrune = getThread(deps.db, thread.id);
   expect(threadAfterPrune?.environmentId).toBeNull();

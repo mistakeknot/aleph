@@ -26,6 +26,7 @@
     "packages/db/drizzle/meta/",
     "packages/connect-db/migrations/meta/",
     "*.snapshot.json",
+    "apps/app/src/lib/music/signal-v1.vectors.json",
     "apps/mobile/ios/",
     "apps/mobile/android/",
     "apps/mobile/.expo/",

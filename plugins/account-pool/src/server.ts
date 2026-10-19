@@ -151,13 +151,14 @@ export function createAccountPoolPlugin(
     const db = bb.storage.database();
     bb.storage.migrate(db, QUOTA_MIGRATIONS);
     const quotas = new QuotaStore(db);
+    const affinity = new PoolAffinityStore(db);
     const transport =
       options.fetch === undefined ? createUpstreamTransport() : null;
     const upstreamFetch = options.fetch ?? transport?.fetch;
     const hub = createHub({
       accounts,
       quotas,
-      affinity: new PoolAffinityStore(db),
+      affinity,
       hubTokens,
       getSettings: () => currentSettings,
       fetch: upstreamFetch,
@@ -221,6 +222,7 @@ export function createAccountPoolPlugin(
       () => bb.realtime.publish(ACCOUNT_POOL_ACCOUNTS_CHANGED, {}),
       (accountId) => hub.refreshUsage(accountId, true),
       parentStatus,
+      affinity,
     );
     const login = new ClaudeOAuthLogin({
       fetch: upstreamFetch,
@@ -345,6 +347,14 @@ export function createAccountPoolPlugin(
         reason: "Account Pooler hub token for this machine",
       },
     ];
+    const blankMarkerEntries: PoolEnvEntry[] = [
+      PARENT_URL_ENV,
+      PARENT_TOKEN_ENV,
+    ].map((name) => ({
+      name,
+      value: "",
+      reason: "Nested bb server launches are not opted in for this thread",
+    }));
     const neutralized = (provider: PoolProvider): PoolEnvEntry[] =>
       PROVIDER_ROUTING_ENV[provider].map((name) => ({
         name,
@@ -360,9 +370,16 @@ export function createAccountPoolPlugin(
           if (provider === "claude") {
             await routing.recordRouted(context.threadId, context.hostId);
           }
-          return [...serving(token), ...markerEntries(token)];
+          return [
+            ...serving(token),
+            ...(currentSettings.nestedLaunchThreadIds.includes(context.threadId)
+              ? markerEntries(token)
+              : blankMarkerEntries),
+          ];
         }
-        return parentPool === null ? [] : neutralized(provider);
+        return parentPool === null
+          ? blankMarkerEntries
+          : [...neutralized(provider), ...blankMarkerEntries];
       };
     const proxiedHealth = async (provider: PoolProvider) =>
       (await canServe(provider))

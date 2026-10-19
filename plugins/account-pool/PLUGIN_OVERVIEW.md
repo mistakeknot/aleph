@@ -18,12 +18,12 @@ The pool owns its upstream connections over HTTP/1.1, honors standard proxy envi
 
 ## Nested bb servers
 
-A bb server started inside another bb server's thread detects the parent's pooler and enables this plugin. Choose in settings or with `bb pool parent`:
+A bb server in an opted-in parent thread detects the parent's pooler and enables this plugin. Opt in with `bb pool config set nestedLaunchThreadIds '["thr_example"]'`; `'[]'` (default) opts all out. The allowlist limits pairing, not token access. Mode, in settings or `bb pool parent`:
 
-- **proxy** (default): keep a local hub with its own machine tokens and forward traffic to the parent, so the parent's token never reaches this server's agents. Routing is contributed only for providers the parent can serve.
+- **proxy** (default): keep a local hub with its own machine tokens and forward traffic to the parent, so the parent's token never reaches this server's agents.
 - **isolate**: neutralise the inherited routing and use this instance's own accounts, or each provider's own credentials.
 
-Proxied traffic authenticates as the parent machine's token, so the parent attributes it to itself.
+Proxied traffic uses the parent machine's token.
 
 ## Requirements
 

@@ -439,6 +439,7 @@ export const SURFACE_GROUPS: SurfaceGroup[] = [
           "Migrate slots.commandPaletteAction to commands.register with the same fields; the old method remains a deprecated alias",
           "Read the current thread and project, and hide the row when it is unavailable",
           "Open one of the plugin's own thread side-panel tabs when a thread is on screen",
+          "Add query-dependent rows with experimental_commandPaletteSearch, such as records found by key or title; bb calls search after typing pauses, lists the rows after the matching commands, stops waiting after a few seconds, and opens the row's own full-page panel when it is picked",
         ],
         apiSymbols: [
           "PluginAppBuilder.commands",
@@ -446,7 +447,12 @@ export const SURFACE_GROUPS: SurfaceGroup[] = [
           "PluginCommandRegistration",
           "PluginCommandContext",
           "PluginCommandShortcut",
+          "PluginAppSlots.experimental_commandPaletteSearch",
+          "ExperimentalPluginCommandPaletteSearchRegistration",
+          "ExperimentalPluginCommandPaletteSearchContext",
+          "ExperimentalPluginCommandPaletteSearchResult",
         ],
+        firstParty: ["Tasks"],
       },
     ],
   },
@@ -574,6 +580,7 @@ export const SURFACE_GROUPS: SurfaceGroup[] = [
           "Publish context snapshots through contextWindow deltas, with provider-defined category IDs and labels. Each category declares used, free, reserved, or deferred accounting; entries are included in its total and may be partial. Snapshots include capture time, session identity, model, totals, and an optional auto-compaction threshold",
           "Receive every message in a thread started with it, through a bridge process the plugin ships",
           "Launch and stop the provider's CLI from that bridge with bb's portable launcher, which runs npm .cmd shims and ends the whole process tree on Windows",
+          "Move that CLI child into its thread's own systemd scope when the host turns on agent CPU isolation, so one busy thread cannot starve another; a bridge that takes over its CLI spawn checks whether isolation was requested first",
           "Handle provider/installation/status with checkUpdates: false using local executable and version checks only, preserving operation-specific minimum versions; omitted or true keeps full install-source and update discovery for Settings",
           "Contribute validated environment variables to any provider for each session and turn",
         ],
@@ -596,6 +603,8 @@ export const SURFACE_GROUPS: SurfaceGroup[] = [
           "ExperimentalPluginProviderEnvHealth",
           "experimental_spawnPortableProcess",
           "experimental_killPortableProcess",
+          "experimental_isAgentCgroupIsolationRequested",
+          "experimental_placeProviderChildInThreadScope",
         ],
         firstParty: [
           "ACP providers",
@@ -935,6 +944,7 @@ export const SURFACE_GROUPS: SurfaceGroup[] = [
           "Subscribe to threads being created, going active or idle, failing, being archived or unarchived, or being deleted",
           "Register handlers before one startup reconciliation because unloaded events are not replayed; avoid polling thread state to detect lifecycle changes",
           "Subscribe to messages being queued behind a wait, dispatching when it clears, or being cancelled before dispatch",
+          "Subscribe to message.transferred, the at-least-once record of a queue transfer between threads, with a stable transfer.eventId and a null entry when no row landed",
           "Subscribe when a thread receives a pending interaction",
           "Observe debounced experimental_thread.events notifications with the latest sequence and current thread, or experimental_terminal.input without keystroke contents",
           "Observe experimental_host.deleted when a machine is removed, to drop state kept for that machine",
@@ -944,6 +954,7 @@ export const SURFACE_GROUPS: SurfaceGroup[] = [
         apiSymbols: [
           "PluginEvents",
           "PluginThreadEventPayloads",
+          "PluginMessageTransfer",
           "PluginTurnFailedEvent",
         ],
         firstParty: [

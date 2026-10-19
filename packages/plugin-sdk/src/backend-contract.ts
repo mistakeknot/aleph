@@ -264,6 +264,17 @@ export interface PluginTurnFailedEvent {
  * `thread` is the same public DTO GET /threads/:id serves and `entry` is the
  * queued row GET /threads/:id/queued-messages serves.
  */
+export interface PluginMessageTransfer {
+  eventId: number;
+  operationId: string;
+  entryId: string;
+  kind: string;
+  state: string;
+  rowId: string | null;
+  sourceRowId: string | null;
+  originId: string | null;
+}
+
 export interface PluginThreadEventPayloads {
   /** Debounced per thread (at most once per second), with the latest sequence and current thread DTO. Reading history does not emit this event. */
   "experimental_thread.events": { thread: ThreadResponse; sequence: number };
@@ -316,7 +327,10 @@ export interface PluginThreadEventPayloads {
    * A re-queue fires this again with the new wait, because a row that moved
    * from one wait to another is news to whoever was waiting on the old one.
    */
-  "message.queued": { entry: ThreadQueuedMessage };
+  "message.queued": {
+    entry: ThreadQueuedMessage;
+    transfer?: PluginMessageTransfer;
+  };
   /**
    * Fired after a queued row's waits all cleared and it dispatched. The turn
    * it carried runs after this, so a handler must not assume it has started.
@@ -343,6 +357,10 @@ export interface PluginThreadEventPayloads {
    * event, not this one.
    */
   "message.cancelled": { entry: ThreadQueuedMessage };
+  "message.transferred": {
+    entry: ThreadQueuedMessage | null;
+    transfer: PluginMessageTransfer;
+  };
 }
 
 export type PluginThreadEventName = keyof PluginThreadEventPayloads;
@@ -2035,9 +2053,12 @@ export interface PluginStatusApi {
  * dashes) or the request fails with HTTP 400. A `pluginMetadata` seed or a
  * `set` that is over 256 KiB on its own rejects before any request is sent. A
  * patch whose merged namespace would exceed 256 KiB fails with HTTP 413 and
- * leaves the namespace unchanged.
+ * leaves the namespace unchanged. `theme` omits `musicPairing` and
+ * `setMusicSecret`: the Phosphene pairing secret is reserved for the BB app and
+ * CLI.
  */
-export type PluginBbSdk = Omit<BbSdk, "threads"> & {
+export type PluginBbSdk = Omit<BbSdk, "theme" | "threads"> & {
+  theme: Omit<BbSdk["theme"], "musicPairing" | "setMusicSecret">;
   threads: Omit<
     BbSdk["threads"],
     "getPluginMetadata" | "updatePluginMetadata"

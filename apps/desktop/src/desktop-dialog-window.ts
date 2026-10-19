@@ -106,9 +106,8 @@ function fitDialogToContent(
   contentHeight: number,
 ): void {
   const [width] = dialogWindow.getContentSize();
-  const workAreaHeight = screen.getDisplayMatching(
-    dialogWindow.getBounds(),
-  ).workAreaSize.height;
+  const workAreaHeight = screen.getDisplayMatching(dialogWindow.getBounds())
+    .workAreaSize.height;
   const height = clampDialogContentHeight({ contentHeight, workAreaHeight });
   const wasResizable = dialogWindow.isResizable();
   dialogWindow.setResizable(true);

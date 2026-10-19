@@ -2790,6 +2790,7 @@ describe("a provider-produced environment over its life", () => {
         emitMessageQueued: () => {},
         emitMessageDispatched: () => {},
         emitMessageCancelled: () => {},
+        deliverMessageQueuedTransfer: async () => true,
         emitInteractionPending: () => {},
         emitTurnFailed: () => 0,
       });

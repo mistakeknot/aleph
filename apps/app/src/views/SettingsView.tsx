@@ -16,6 +16,7 @@ import {
   defaultExperiments,
   experimentKeys,
   managedBranchPrefixSchema,
+  themeSelectionFrom,
   type AppTheme,
   type ExperimentKey,
   type Experiments,
@@ -58,6 +59,10 @@ import { SidebarFooterSettings } from "@/components/settings/SidebarFooterSettin
 import { SidebarNavigationSetting } from "@/components/settings/SidebarNavigationSetting";
 import { SidebarHeaderSetting } from "@/components/settings/SidebarHeaderSetting";
 import { SplitDimmingSetting } from "@/components/settings/SplitDimmingSetting";
+import {
+  MusicModeSettings,
+  type MusicSelectionUpdate,
+} from "@/components/settings/MusicModeSettings";
 import { useSettingsNavState } from "@/components/settings/settings-nav";
 import { PluginsOverview } from "@/components/plugin/PluginsOverview";
 import { PluginDetailPaneView } from "@/views/ToolsView";
@@ -163,6 +168,7 @@ interface AppearanceSettingsSectionProps {
   onAppearanceThemePreview: (themeId: string | null) => void;
   onCreatePalette: () => void;
   onFaviconColorChange: (faviconColor: FaviconColorPreference) => void;
+  onMusicSelectionChange: (update: MusicSelectionUpdate) => void;
   onThemePreferenceChange: (themePreference: ThemePreference) => void;
   themePreference: ThemePreference;
 }
@@ -686,6 +692,7 @@ export function AppearanceSettingsSection({
   onAppearanceThemePrefetch,
   onAppearanceThemePreview,
   onFaviconColorChange,
+  onMusicSelectionChange,
   onCreatePalette,
   onThemePreferenceChange,
   themePreference,
@@ -834,6 +841,11 @@ export function AppearanceSettingsSection({
             disabled={appearanceDisabled}
             faviconColor={faviconColor}
             onFaviconColorChange={onFaviconColorChange}
+          />
+          <MusicModeSettings
+            appearance={appearance}
+            disabled={appearanceDisabled}
+            onSelectionChange={onMusicSelectionChange}
           />
           <SplitDimmingSetting />
         </div>
@@ -1207,10 +1219,7 @@ export function SettingsView() {
         themePreference={themePreference}
         onAppearanceThemeChange={(themeId) =>
           updateAppearanceMutation.mutate(
-            {
-              themeId,
-              faviconColor: appearance.faviconColor,
-            },
+            themeSelectionFrom(appearance, themeId),
             { onError: () => appThemePreview.previewTheme(null) },
           )
         }
@@ -1226,8 +1235,14 @@ export function SettingsView() {
         }
         onFaviconColorChange={(faviconColor) =>
           updateAppearanceMutation.mutate({
-            themeId: appearance.themeId,
+            ...themeSelectionFrom(appearance),
             faviconColor,
+          })
+        }
+        onMusicSelectionChange={(update) =>
+          updateAppearanceMutation.mutate({
+            ...themeSelectionFrom(appearance),
+            ...update,
           })
         }
         onThemePreferenceChange={setPreferredTheme}

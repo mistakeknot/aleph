@@ -1,7 +1,11 @@
 import semver from "semver";
+import { retiredUserPostsMode } from "../threads/retired-user-posts.js";
 import { z } from "zod";
 import { isAlephAppVersion, isNightlyAppVersion } from "@bb/config/app-update";
-import type { SystemVersionResponse } from "@bb/server-contract";
+import {
+  buildQueueRetirementCapability,
+  type SystemVersionResponse,
+} from "@bb/server-contract";
 import type { ServerLogger, ServerRuntimeConfig } from "../../types.js";
 
 const NPM_REGISTRY_PACKAGE_URL = "https://registry.npmjs.org/bb-app";
@@ -164,6 +168,7 @@ export function createAppVersionService(
         updateAvailable: false,
         isDevelopment: config.isDevelopment,
         upgradeCommand: `npx bb-app@${distTag}`,
+        queueRetirement: buildQueueRetirementCapability(retiredUserPostsMode()),
       };
 
       if (isAlephAppVersion(config.appVersion)) {

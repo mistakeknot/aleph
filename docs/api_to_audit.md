@@ -2057,6 +2057,42 @@ every boot).
    the accessible label story: the host derives `ariaLabel` from its own
    provider data, falling back to the provider id, and the slot supplies none.
 
+## `app.slots.experimental_commandPaletteSearch` (`@get-bb/plugin-sdk/app`)
+
+**What it does.** Lets a plugin frontend answer the quick command palette's
+query with its own rows: `{ id, title, search(query, { rpc, projectId, signal }) }`.
+`search` returns `{ id, title, detail?, open: { panelPath, subPath? } }` rows.
+The host calls every registered provider 150 ms after typing pauses, skips
+command mode (`>`) and the empty query, gives each provider its own
+`AbortSignal` (aborted when the query changes, the palette closes, the provider
+settles, or after 3 s), forwards that signal to the plugin's RPC transport, and
+contains synchronous throws, rejections, and timeouts. Rows are validated:
+malformed rows, rows naming a panel path the plugin did not register, and rows
+past the eighth are dropped. Surviving rows appear after the ranked commands,
+unranked, under the provider's title, and are never recorded as recents.
+Picking a row navigates to the plugin panel route; no plugin code runs on
+pick. The Tasks plugin registers one provider that finds cards by exact key
+(`AUTA-316`) and by key, title, or description substring.
+
+**Audit before stabilizing.**
+
+1. **Ranking and merging.** Plugin rows are appended after the host's ranked
+   matches, grouped by provider in the slot store's order. Decide whether the host should rank
+   plugin rows against commands (with a provider-supplied score or the host's
+   matcher) before more than one provider ships.
+2. **Query cost and scope.** Every pause in typing costs one search per
+   provider. The Tasks provider's substring search is a leading-wildcard
+   `LIKE` across all projects, the same query shape as the Tasks list's own
+   search; `projectId` is only a hint. Measure latency on a large task store
+   and decide whether providers should be project-scoped by default.
+3. **Bundle loading.** Providers exist only once the plugin's frontend bundle
+   has registered its slots. Confirm deferred bundles are loaded (or the
+   palette says a provider is unavailable) before relying on the slot for
+   every installed plugin.
+4. **Result shape.** Rows carry only text and a panel destination. Decide
+   whether icons, keyboard hints, secondary actions, or non-panel
+   destinations (a thread, a fixed tab) belong in the stable shape.
+
 ## `experimental_ProviderModelPicker` (`@get-bb/plugin-sdk/app`)
 
 **What it does.** Exposes bb's execution picker as a controlled
@@ -3718,3 +3754,29 @@ with third-party providers.
 `bb.sdk.experimental_promptHistory.list({ cursor?, limit?, signal? })` returns `{ entries, nextCursor }`: every accepted user prompt across projects and threads, newest first, each with `id`, `createdAt`, `input`, `projectId`, and `threadId`. `limit` is a digit string, defaulting to 100 and capped at 1000. `nextCursor` is an opaque string, or null on the last page. A page can hold fewer than `limit` entries while `nextCursor` is set, because stored rows whose input no longer parses are skipped. Prompts from a deleted thread remain listed until the thread row is removed, which cascades to its prompt history. The same route backs `bb prompt-history list`.
 
 Before stabilization, audit whether `limit` should be a number, whether the cursor format needs versioning, whether project or thread filters belong on this call rather than on `projects.promptHistory` and `threads.promptHistory`, and whether skipped rows should fill the page.
+
+## `experimental_placeProviderChildInThreadScope` and `experimental_isAgentCgroupIsolationRequested`
+
+`@get-bb/plugin-sdk/provider-bridge` exports
+`experimental_placeProviderChildInThreadScope(child, { threadId })`. A bridge
+calls it right after spawning an agent process. When the host daemon runs with
+`BB_AGENT_CGROUP=systemd`, it moves that one process into its own transient
+scope in the agent slice (`BB_AGENT_CGROUP_SLICE`, default `agents.slice`),
+named for the thread; otherwise it does nothing. It never throws, never blocks
+the spawn and logs the first failure of each kind once. Placement happens after
+the process starts, so anything it starts before the move stays in the
+provider worker's scope, which the daemon normally places inside the slice
+before the worker runs (unless that placement misses the gate's short timeout).
+
+`experimental_isAgentCgroupIsolationRequested()` reports whether that variable
+asks for isolation on Linux. A bridge whose SDK spawns the CLI itself (the
+Claude Code bridge) takes the spawn over only when this or record mode is on,
+so the default spawn path stays unchanged.
+
+Before stabilization, decide whether bridges should get a pre-spawn wrapper
+(a gate that holds the command until it is in its scope, as the daemon does
+for provider workers and terminals) instead of, or beside, post-spawn
+placement; whether the scope should be keyed by thread or by turn; and whether
+the bridge should learn the outcome instead of fire-and-forget, and whether
+the request predicate should report that isolation actually works rather than
+that it was asked for.

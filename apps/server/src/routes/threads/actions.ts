@@ -1,9 +1,11 @@
 import { refreshProviderRetirement } from "../../services/environments/environment-engine.js";
 import {
+  ackTransferOperation,
   deleteQueuedThreadMessage,
   getEnvironment,
   getQueuedThreadMessage,
   getThread,
+  getTransferOperation,
   listActiveVisiblePinnedThreadRootsWithPendingInteractionState,
   pinThread,
   reorderPinnedThread,
@@ -46,6 +48,10 @@ import { validatePromptAttachmentReferences } from "../../services/projects/atta
 import {
   createQueuedMessageForThread,
   sendQueuedMessageNow,
+  abortRetirement,
+  retireThread,
+  transferAllQueuedMessages,
+  transferQueuedMessage,
 } from "../../services/threads/queued-messages.js";
 import {
   ensureThreadIsNotAwaitingUserInteraction,
@@ -231,7 +237,7 @@ function assertPinnedThreadOrderResult(
 }
 
 export function registerThreadActionRoutes(app: Hono, deps: AppDeps): void {
-  const { post, patch, del } = typedRoutes<PublicApiSchema>(app, {
+  const { get, post, patch, del } = typedRoutes<PublicApiSchema>(app, {
     onValidationError: (msg) => new ApiError(400, "invalid_request", msg),
   });
   const routes = publicApiRoutes.threads;
@@ -282,6 +288,63 @@ export function registerThreadActionRoutes(app: Hono, deps: AppDeps): void {
       threadId: context.req.param("id"),
     });
     return context.json({ ok: true, ...result });
+  });
+
+  post(routes.retireThread, async (context, payload) => {
+    return context.json(
+      await retireThread(deps, {
+        sourceThreadId: context.req.param("id"),
+        targetThreadId: payload.targetThreadId,
+        operationKey: payload.operationKey,
+      }),
+    );
+  });
+
+  get(routes.getTransferOperation, (context) => {
+    const operation = getTransferOperation(deps.db, context.req.param("id"));
+    if (!operation) {
+      throw new ApiError(404, "not_found", "Transfer operation not found");
+    }
+    return context.json(operation);
+  });
+
+  post(routes.abortRetirement, async (context, payload) => {
+    return context.json(
+      await abortRetirement(deps, {
+        operationId: context.req.param("id"),
+        operationKey: payload.operationKey,
+        expectedRetirementOperationId: payload.expectedRetirementOperationId,
+      }),
+    );
+  });
+
+  post(routes.ackTransferOperation, (context) => {
+    const operation = getTransferOperation(deps.db, context.req.param("id"));
+    if (!operation) {
+      throw new ApiError(404, "not_found", "Transfer operation not found");
+    }
+    return context.json({
+      acked: ackTransferOperation(deps.db, operation.id, operation.projectId),
+    });
+  });
+
+  post(routes.transferAllQueuedMessages, async (context, payload) => {
+    const sourceThread = requirePublicThread(deps.db, context.req.param("id"));
+    const targetThread = requirePublicThread(deps.db, payload.targetThreadId);
+    return context.json(
+      await transferAllQueuedMessages(deps, { sourceThread, targetThread }),
+    );
+  });
+
+  post(routes.transferQueuedMessage, async (context, payload) => {
+    const sourceThread = requirePublicThread(deps.db, context.req.param("id"));
+    const targetThread = requirePublicThread(deps.db, payload.targetThreadId);
+    const queuedMessage = await transferQueuedMessage(deps, {
+      queuedMessageId: context.req.param("queuedMessageId"),
+      sourceThread,
+      targetThread,
+    });
+    return context.json(queuedMessage, 201);
   });
 
   patch(routes.reorderQueuedMessage, (context, payload) => {
@@ -342,6 +405,13 @@ export function registerThreadActionRoutes(app: Hono, deps: AppDeps): void {
         409,
         "invalid_request",
         "Queued message is already being sent",
+      );
+    }
+    if (result.kind === "system_notice") {
+      throw new ApiError(
+        409,
+        "invalid_request",
+        "A system notice's content cannot be edited",
       );
     }
     if (result.kind === "stale") {

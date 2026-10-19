@@ -25,6 +25,7 @@ import {
   routedThreadStatusListSchema,
   statusReportSchema,
   statusSchema,
+  switchLogEntrySchema,
   type AccountSummary,
 } from "./contracts.js";
 import { z } from "zod";
@@ -816,6 +817,18 @@ async function movePoolToOtherAccount(
 }
 
 const EMPTY_USAGE_URL = "data:application/json,{}";
+const BLANK_PARENT_MARKERS = [
+  {
+    name: "BB_ACCOUNT_POOL_PARENT_URL",
+    value: "",
+    reason: "Nested bb server launches are not opted in for this thread",
+  },
+  {
+    name: "BB_ACCOUNT_POOL_PARENT_TOKEN",
+    value: "",
+    reason: "Nested bb server launches are not opted in for this thread",
+  },
+];
 const CODEX_USAGE_STUB_URL = "https://usage.example/wham/usage";
 
 describe("Account Pool config schema", () => {
@@ -825,6 +838,7 @@ describe("Account Pool config schema", () => {
       codexUpstreamBaseUrl: "https://chatgpt.com/backend-api/codex",
       switchThreshold: 0.98,
       parentMode: "proxy",
+      nestedLaunchThreadIds: [],
     });
     expect(
       accountPoolConfigSetInputSchema.safeParse({
@@ -838,6 +852,45 @@ describe("Account Pool config schema", () => {
       accountPoolConfigSetInputSchema.safeParse({ switchThreshold: 1.01 })
         .success,
     ).toBe(false);
+  });
+
+  it("accepts only exact, unique, bounded nested launch thread IDs", () => {
+    expect(
+      accountPoolConfigSetInputSchema.parse({
+        nestedLaunchThreadIds: ["thr_one", "thread-two"],
+      }),
+    ).toEqual({ nestedLaunchThreadIds: ["thr_one", "thread-two"] });
+    expect(
+      accountPoolConfigSetInputSchema.parse({ nestedLaunchThreadIds: [] }),
+    ).toEqual({ nestedLaunchThreadIds: [] });
+    for (const nestedLaunchThreadIds of [
+      ["*"],
+      ["thr_*"],
+      [""],
+      ["thr one"],
+      ["thr/one"],
+      ["a".repeat(201)],
+      ["thr_one", "thr_one"],
+      Array.from({ length: 101 }, (_, index) => `thr_${index}`),
+      "thr_one",
+      [1],
+    ]) {
+      expect(
+        accountPoolConfigSetInputSchema.safeParse({ nestedLaunchThreadIds })
+          .success,
+      ).toBe(false);
+      expect(
+        accountPoolConfigSchema.safeParse({ nestedLaunchThreadIds }).success,
+      ).toBe(false);
+    }
+    expect(
+      accountPoolConfigSetInputSchema.safeParse({
+        nestedLaunchThreadIds: Array.from(
+          { length: 100 },
+          (_, index) => `thr_${index}`,
+        ),
+      }).success,
+    ).toBe(true);
   });
 });
 
@@ -926,6 +979,7 @@ describe("Account Pool plugin", () => {
       codexUpstreamBaseUrl: "https://chatgpt.com/backend-api/codex",
       switchThreshold: 0.75,
       parentMode: "proxy",
+      nestedLaunchThreadIds: [],
     });
     expect(
       accountPoolConfigSchema.parse(await host.bb.storage.kv.get("config")),
@@ -1595,7 +1649,7 @@ describe("Account Pool plugin", () => {
         projectId: "project-one",
         hostId: "host-one",
       }),
-    ).toEqual([]);
+    ).toEqual(BLANK_PARENT_MARKERS);
     await expect(
       host.harness.behavior.resolveProviderEnvHealth("claude-code", {
         hostId: "host-one",
@@ -2168,7 +2222,7 @@ describe("Account Pool plugin", () => {
     );
   });
 
-  it("resolves distinct secret machine tokens and honors per-thread bypass", async () => {
+  it("resolves machine tokens without parent markers and honors per-thread bypass", async () => {
     const upstream = await startUpstream(async (request, response) => {
       await readRequestBody(request);
       response.writeHead(200, { "content-type": "application/json" });
@@ -2207,16 +2261,7 @@ describe("Account Pool plugin", () => {
         reason:
           "Claude Code limits Opus to a 200k context window behind a custom base URL; the hub forwards to Anthropic's API",
       },
-      {
-        name: "BB_ACCOUNT_POOL_PARENT_URL",
-        value: { serverPath: "/api/v1/plugins/account-pool/http" },
-        reason: "Account Pooler hub for nested bb servers on this machine",
-      },
-      {
-        name: "BB_ACCOUNT_POOL_PARENT_TOKEN",
-        value: fixture.key,
-        reason: "Account Pooler hub token for this machine",
-      },
+      ...BLANK_PARENT_MARKERS,
     ]);
     await expect(
       fixture.host.harness.behavior.resolveProviderEnvHealth("claude-code", {
@@ -2244,7 +2289,7 @@ describe("Account Pool plugin", () => {
         projectId: "project-one",
         hostId: "host-one",
       }),
-    ).toEqual([]);
+    ).toEqual(BLANK_PARENT_MARKERS);
     const off = await fixture.host.harness.behavior.runCli([
       "bypass",
       "thread-one",
@@ -2277,7 +2322,7 @@ describe("Account Pool plugin", () => {
         projectId: "project-one",
         hostId: "host-one",
       }),
-    ).resolves.toEqual([]);
+    ).resolves.toEqual(BLANK_PARENT_MARKERS);
     await expect(
       fixture.host.harness.behavior.resolveProviderEnvHealth("claude-code", {
         hostId: "host-one",
@@ -2995,7 +3040,7 @@ describe("Account Pool plugin", () => {
       await response.text();
     }
 
-    expect(authorizations).toEqual(["Bearer oauth-b", "Bearer oauth-b"]);
+    expect(authorizations).toEqual(["Bearer oauth-b", "Bearer oauth-a"]);
   });
 
   it("rewrites both known metadata account UUID formats", async () => {
@@ -4219,9 +4264,11 @@ describe("Account Pool plugin", () => {
           "sk-second",
           "sk-third",
           "sk-third",
+          "sk-first",
+          "sk-second",
           "sk-third",
           "sk-third",
-          "sk-third",
+          "sk-first",
         ]);
       },
     );
@@ -4271,6 +4318,104 @@ describe("Account Pool plugin", () => {
         limited = false;
         await send("warm");
         await send("fresh-after-recovery");
+        expect(attempts).toEqual([
+          "sk-first",
+          "sk-first",
+          "sk-second",
+          "sk-first",
+          "sk-first",
+        ]);
+      },
+    );
+
+    it("returns new claude conversations to the first account after its utilization window resets", async () => {
+      let now = 1_800_000_000_000;
+      const attempts: string[] = [];
+      const fixture = await affinityFixture(
+        "claude",
+        async (_input, init) => {
+          const key = new Headers(init?.headers).get("x-api-key") ?? "";
+          attempts.push(key);
+          return key === "sk-first"
+            ? Response.json(
+                {},
+                {
+                  headers: {
+                    "anthropic-ratelimit-unified-5h-status": "allowed",
+                    "anthropic-ratelimit-unified-5h-utilization": "0.99",
+                    "anthropic-ratelimit-unified-5h-reset": String(
+                      now / 1000 + 60,
+                    ),
+                  },
+                },
+              )
+            : Response.json({});
+        },
+        () => now,
+      );
+      const send = async (id: string) => {
+        const response = await fixture.host.harness.behavior.fetchHttp(
+          "POST",
+          "/v1/messages",
+          {
+            headers: { ...authHeaders(fixture.key), "session-id": id },
+            body: claudeBody(id),
+          },
+        );
+        expect(response.status).toBe(200);
+        await response.text();
+      };
+      await send("pinned-first");
+      await send("over-threshold");
+      now += 61_000;
+      await send("after-reset");
+      await send("pinned-first");
+      await send("over-threshold");
+      expect(attempts).toEqual([
+        "sk-first",
+        "sk-second",
+        "sk-first",
+        "sk-second",
+        "sk-second",
+      ]);
+    });
+
+    it.each(["claude", "codex"] as const)(
+      "fails over a %s conversation on a transport error and returns new conversations to the recovered first account",
+      async (provider) => {
+        let down = false;
+        const attempts: string[] = [];
+        const fixture = await affinityFixture(
+          provider,
+          async (_input, init) => {
+            const headers = new Headers(init?.headers);
+            const key =
+              headers.get("x-api-key") ??
+              headers.get("authorization")?.slice(7) ??
+              "";
+            attempts.push(key);
+            if (down && key === "sk-first") throw new TypeError("fetch failed");
+            return Response.json({});
+          },
+        );
+        const send = async (id: string) => {
+          const response = await fixture.host.harness.behavior.fetchHttp(
+            "POST",
+            provider === "claude" ? "/v1/messages" : "/v1/responses",
+            {
+              headers: { ...authHeaders(fixture.key), "session-id": id },
+              body: provider === "claude" ? claudeBody(id) : "{}",
+            },
+          );
+          expect(response.status).toBe(200);
+          await response.text();
+        };
+        await send("warm");
+        down = true;
+        await send("failover");
+        down = false;
+        await send("after-recovery");
+        await send("failover");
         expect(attempts).toEqual([
           "sk-first",
           "sk-first",
@@ -4382,10 +4527,10 @@ describe("Account Pool plugin", () => {
           "sk-first",
           "sk-first",
           "sk-second",
-          "sk-second",
+          "sk-first",
           "sk-first",
           "sk-second",
-          "sk-second",
+          "sk-first",
         ]);
       },
     );
@@ -4453,12 +4598,12 @@ describe("Account Pool plugin", () => {
             "sk-first",
             "sk-first",
             "sk-second",
-            "sk-second",
             "sk-first",
-            "sk-second",
+            "sk-first",
+            "sk-first",
           ]);
           rejected = "sk-second";
-          await (await send("wrap")).text();
+          await (await send("failover")).text();
           expect(attempts.slice(-2)).toEqual(["sk-second", "sk-first"]);
         } finally {
           await first.body?.cancel();
@@ -4532,6 +4677,36 @@ describe("Account Pool plugin", () => {
         await expectAccount("sk-first");
         exhausted.add("sk-first");
         await expectAccount("sk-second");
+        const switches = z.array(switchLogEntrySchema).parse(
+          await fixture.host.harness.behavior.callRpc("switches.list", {
+            limit: 10,
+          }),
+        );
+        expect(switches).toHaveLength(1);
+        expect(switches[0]).toMatchObject({
+          provider,
+          switchedAt: now,
+          reason: "limit_reached",
+          fromUsagePercent: provider === "claude" ? null : 100,
+        });
+        expect(switches[0]?.fromAccountId).not.toBe(switches[0]?.toAccountId);
+        expect(Object.keys(switches[0] ?? {}).sort()).toEqual([
+          "fromAccountId",
+          "fromLabel",
+          "fromUsagePercent",
+          "id",
+          "provider",
+          "reason",
+          "switchedAt",
+          "toAccountId",
+          "toLabel",
+          "toUsagePercent",
+        ]);
+        for (const secret of ["sk-first"])
+          expect(JSON.stringify(switches)).not.toContain(secret);
+        expect(JSON.stringify(switches)).not.toMatch(
+          /token|secret|refresh|apiKey/i,
+        );
         await expectAccount("sk-second");
         now += 60_000;
         exhausted.delete("sk-first");
@@ -4831,6 +5006,9 @@ describe("Account Pool plugin", () => {
                 () => now,
               );
               const parent = forkRequest(wire, "parent-session", null);
+              await fixture.host.harness.behavior.callRpc("account.disable", {
+                id: fixture.account.id,
+              });
               const held = await fixture.host.harness.behavior.fetchHttp(
                 "POST",
                 route,
@@ -4840,13 +5018,24 @@ describe("Account Pool plugin", () => {
                 },
               );
               try {
-                await movePoolToOtherAccount(fixture, provider);
-                attempts.splice(1);
-                if (reason === "disabled")
+                await fixture.host.harness.behavior.callRpc("account.enable", {
+                  id: fixture.account.id,
+                });
+                if (reason === "disabled") {
+                  const secondId = z
+                    .array(accountSummarySchema)
+                    .parse(
+                      await fixture.host.harness.behavior.callRpc(
+                        "account.list",
+                        null,
+                      ),
+                    )
+                    .find((account) => account.id !== fixture.account.id)?.id;
                   await fixture.host.harness.behavior.callRpc(
                     "account.disable",
-                    { id: fixture.account.id },
+                    { id: secondId },
                   );
+                }
                 if (reason === "expired") now += 31 * 60 * 1_000;
                 const key =
                   reason === "other host"
@@ -4870,7 +5059,7 @@ describe("Account Pool plugin", () => {
                 );
                 expect(child.status).toBe(200);
                 await child.text();
-                expect(attempts).toEqual(["sk-first", "sk-second"]);
+                expect(attempts).toEqual(["sk-second", "sk-first"]);
               } finally {
                 await held.body?.cancel();
               }
@@ -4900,20 +5089,24 @@ describe("Account Pool plugin", () => {
                 body: request.body,
               });
             };
+            await fixture.host.harness.behavior.callRpc("account.disable", {
+              id: fixture.account.id,
+            });
             const held = await send("parent-session", null);
             try {
-              await movePoolToOtherAccount(fixture, provider);
-              attempts.splice(1);
+              await fixture.host.harness.behavior.callRpc("account.enable", {
+                id: fixture.account.id,
+              });
               now += 29 * 60 * 1_000;
               await (await send("child-session", "parent-session")).text();
               now += 2 * 60 * 1_000;
               await (await send("parent-session", null)).text();
               await (await send("child-session", "parent-session")).text();
               expect(attempts).toEqual([
-                "sk-first",
-                "sk-first",
+                "sk-second",
                 "sk-second",
                 "sk-first",
+                "sk-second",
               ]);
             } finally {
               await held.body?.cancel();
@@ -4972,7 +5165,7 @@ describe("Account Pool plugin", () => {
           expect(attempts).toEqual([
             "sk-claude-parent",
             "sk-first",
-            "sk-second",
+            "sk-first",
           ]);
         } finally {
           for (const response of held) await response.body?.cancel();
@@ -5079,13 +5272,13 @@ describe("Account Pool plugin", () => {
           await fixture.host.harness.behavior.callRpc("account.enable", {
             id: fixture.account.id,
           });
-          expect(await send(fixture.key, "{}", {})).toBe(keyFor("sk-second"));
+          expect(await send(fixture.key, "{}", {})).toBe(keyFor("sk-first"));
           now += 29 * 60 * 1_000;
-          expect(await send(fixture.key, body)).toBe(keyFor("sk-first"));
+          expect(await send(otherHost, body)).toBe(keyFor("sk-second"));
           now += 2 * 60 * 1_000;
-          expect(await send(fixture.key, body)).toBe(keyFor("sk-first"));
+          expect(await send(otherHost, body)).toBe(keyFor("sk-second"));
           now += 31 * 60 * 1_000;
-          expect(await send(fixture.key, body)).toBe(keyFor("sk-second"));
+          expect(await send(otherHost, body)).toBe(keyFor("sk-first"));
         } finally {
           await held.body?.cancel();
         }
@@ -5554,7 +5747,10 @@ describe("Account Pool plugin", () => {
           },
         },
       });
-      const second = await addApiAccount(fixture, "sk-second");
+      await addApiAccount(fixture, "sk-second");
+      await fixture.host.harness.behavior.callRpc("account.disable", {
+        id: fixture.account.id,
+      });
       const send = async (id: string) => {
         const response = await fixture.host.harness.behavior.fetchHttp(
           "POST",
@@ -5576,19 +5772,19 @@ describe("Account Pool plugin", () => {
         },
       );
       try {
-        await movePoolToOtherAccount(fixture, "claude");
         for (let index = 1; index < 4; index += 1)
           await send(`session-${index}`);
+        await fixture.host.harness.behavior.callRpc("account.enable", {
+          id: fixture.account.id,
+        });
         const touched = await send("oldest");
         await send("newest");
         const retained = await send("oldest");
-        await held.body?.cancel();
-        await movePoolToOtherAccount(fixture, "claude", second.id);
         const nextOldest = await send("session-2");
         const evicted = await send("session-1");
         expect([touched, retained, nextOldest, evicted]).toEqual([
-          "sk-first",
-          "sk-first",
+          "sk-second",
+          "sk-second",
           "sk-second",
           "sk-first",
         ]);
@@ -6072,7 +6268,7 @@ describe("Account Pool plugin", () => {
         projectId: "project-one",
         hostId: "host-one",
       }),
-    ).resolves.toEqual([]);
+    ).resolves.toEqual(BLANK_PARENT_MARKERS);
     await expect(
       fixture.host.harness.behavior.resolveProviderEnvHealth("claude-code", {
         hostId: "host-one",
@@ -7018,6 +7214,7 @@ describe("sequential pool recovery", () => {
     await send("advance");
     rejectFirst = false;
     await send("new-after-recovery");
+    rejectFirst = true;
     rejectThird = true;
     await send("advance-again");
     expect(attempts).toEqual([
@@ -7025,7 +7222,8 @@ describe("sequential pool recovery", () => {
       "sk-first",
       "sk-first",
       "sk-third",
-      "sk-third",
+      "sk-first",
+      "sk-first",
       "sk-third",
       "sk-second",
     ]);
@@ -7351,7 +7549,10 @@ describe("Account Pool nested proxy", () => {
           hostId: "host-one",
         },
       ),
-    ).resolves.toEqual(neutralised(args.provider));
+    ).resolves.toEqual([
+      ...neutralised(args.provider),
+      ...BLANK_PARENT_MARKERS,
+    ]);
   });
 
   it("contributes self-pointing routing and the marker while proxying", async () => {
@@ -7376,6 +7577,87 @@ describe("Account Pool nested proxy", () => {
     expect(
       entries.find((entry) => entry.name === "ANTHROPIC_AUTH_TOKEN")?.value,
     ).not.toBe(PARENT_TOKEN);
+  });
+
+  it.each([
+    {
+      provider: "claude" as const,
+      tokenName: "ANTHROPIC_AUTH_TOKEN",
+      routing: [
+        "ANTHROPIC_BASE_URL",
+        "ANTHROPIC_AUTH_TOKEN",
+        "ENABLE_TOOL_SEARCH",
+        "_CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL",
+      ],
+    },
+    {
+      provider: "codex" as const,
+      tokenName: "CODEX_POOL_AUTH_TOKEN",
+      routing: ["CODEX_OPENAI_BASE_URL", "CODEX_POOL_AUTH_TOKEN"],
+    },
+  ])(
+    "exports the child's own markers to allowlisted $provider threads while proxying",
+    async (args) => {
+      const parent = await startParent({});
+      cleanups.push(parent.upstream.close);
+      const host = await createChild({ parentUrl: parent.upstream.url });
+      await host.harness.behavior.callRpc("config.set", {
+        nestedLaunchThreadIds: ["thread-launcher"],
+      });
+      const resolve = (threadId: string) =>
+        host.harness.behavior.resolveProviderEnv(
+          args.provider === "claude" ? "claude-code" : "codex",
+          { threadId, projectId: "project-one", hostId: "host-one" },
+        );
+      const launcher = await resolve("thread-launcher");
+      expect(envNames(launcher)).toEqual([
+        ...args.routing,
+        "BB_ACCOUNT_POOL_PARENT_URL",
+        "BB_ACCOUNT_POOL_PARENT_TOKEN",
+      ]);
+      const childToken = launcher.find(
+        (entry) => entry.name === args.tokenName,
+      )?.value;
+      expect(typeof childToken).toBe("string");
+      expect(childToken).not.toBe(PARENT_TOKEN);
+      expect(
+        launcher.find((entry) => entry.name === "BB_ACCOUNT_POOL_PARENT_URL")
+          ?.value,
+      ).toEqual({ serverPath: "/api/v1/plugins/account-pool/http" });
+      expect(
+        launcher.find((entry) => entry.name === "BB_ACCOUNT_POOL_PARENT_TOKEN")
+          ?.value,
+      ).toBe(childToken);
+      const ordinary = await resolve("thread-ordinary");
+      expect(ordinary.slice(args.routing.length)).toEqual(BLANK_PARENT_MARKERS);
+      expect(
+        ordinary.find((entry) => entry.name === args.tokenName)?.value,
+      ).toBe(childToken);
+    },
+  );
+
+  it("blanks markers beside neutralised routing for allowlisted threads on an isolated child", async () => {
+    const parent = await startParent({});
+    cleanups.push(parent.upstream.close);
+    const host = await createChild({
+      parentUrl: parent.upstream.url,
+      parentMode: "isolate",
+    });
+    await host.harness.behavior.callRpc("config.set", {
+      nestedLaunchThreadIds: ["thread-launcher"],
+    });
+    for (const provider of ["claude", "codex"] as const) {
+      await expect(
+        host.harness.behavior.resolveProviderEnv(
+          provider === "claude" ? "claude-code" : "codex",
+          {
+            threadId: "thread-launcher",
+            projectId: "project-one",
+            hostId: "host-one",
+          },
+        ),
+      ).resolves.toEqual([...neutralised(provider), ...BLANK_PARENT_MARKERS]);
+    }
   });
 
   it("forwards pooled traffic to the parent with the parent token", async () => {
@@ -7447,6 +7729,195 @@ describe("Account Pool nested proxy", () => {
     );
     expect(allowed.status).toBe(200);
     expect(await allowed.json()).toEqual({ claude: true, codex: false });
+  });
+});
+
+describe("nested launch opt-in", () => {
+  async function openedFixture() {
+    const upstream = await startUpstream(async (request, response) => {
+      await readRequestBody(request);
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end("{}");
+    });
+    cleanups.push(upstream.close);
+    return createFixture({ upstreamUrl: upstream.url });
+  }
+
+  const resolveClaude = (host: Fixture["host"], threadId: string) =>
+    host.harness.behavior.resolveProviderEnv("claude-code", {
+      threadId,
+      projectId: "project-one",
+      hostId: "host-one",
+    });
+
+  const markers = <T extends { name: string }>(entries: T[]) =>
+    entries.filter((entry) => entry.name.startsWith("BB_ACCOUNT_POOL_PARENT_"));
+
+  it("exports the machine token as markers only to allowlisted serving threads", async () => {
+    const fixture = await openedFixture();
+    await fixture.host.harness.behavior.callRpc("config.set", {
+      nestedLaunchThreadIds: ["thread-launcher"],
+    });
+    const launcher = await resolveClaude(fixture.host, "thread-launcher");
+    expect(markers(launcher)).toEqual([
+      {
+        name: "BB_ACCOUNT_POOL_PARENT_URL",
+        value: { serverPath: "/api/v1/plugins/account-pool/http" },
+        reason: "Account Pooler hub for nested bb servers on this machine",
+      },
+      {
+        name: "BB_ACCOUNT_POOL_PARENT_TOKEN",
+        value: fixture.key,
+        reason: "Account Pooler hub token for this machine",
+      },
+    ]);
+    expect(
+      launcher.find((entry) => entry.name === "ANTHROPIC_AUTH_TOKEN")?.value,
+    ).toBe(fixture.key);
+    const ordinary = await resolveClaude(fixture.host, "thread-ordinary");
+    expect(markers(ordinary)).toEqual(BLANK_PARENT_MARKERS);
+    expect(
+      ordinary.find((entry) => entry.name === "ANTHROPIC_AUTH_TOKEN")?.value,
+    ).toBe(fixture.key);
+  });
+
+  it("blanks markers for allowlisted threads that are bypassed or unserved", async () => {
+    const fixture = await openedFixture();
+    await fixture.host.harness.behavior.callRpc("config.set", {
+      nestedLaunchThreadIds: ["thread-launcher"],
+    });
+    await fixture.host.harness.behavior.callRpc("bypass.set", {
+      threadId: "thread-launcher",
+      bypassed: true,
+    });
+    await expect(
+      resolveClaude(fixture.host, "thread-launcher"),
+    ).resolves.toEqual(BLANK_PARENT_MARKERS);
+    await fixture.host.harness.behavior.callRpc("bypass.set", {
+      threadId: "thread-launcher",
+      bypassed: false,
+    });
+    expect(
+      (
+        await fixture.host.harness.behavior.runCli([
+          "routing",
+          "claude",
+          "--off",
+        ])
+      ).exitCode,
+    ).toBe(0);
+    await expect(
+      resolveClaude(fixture.host, "thread-launcher"),
+    ).resolves.toEqual(BLANK_PARENT_MARKERS);
+  });
+
+  it("persists the allowlist and clears markers once a thread is removed", async () => {
+    const fixture = await openedFixture();
+    await fixture.host.harness.behavior.callRpc("config.set", {
+      nestedLaunchThreadIds: ["thread-launcher", "thread-other"],
+    });
+    expect(
+      accountPoolConfigSchema.parse(
+        await fixture.host.bb.storage.kv.get("config"),
+      ).nestedLaunchThreadIds,
+    ).toEqual(["thread-launcher", "thread-other"]);
+    const restarted = await fixture.host.harness.lifecycle.reload(
+      createAccountPoolPlugin({ usageUrl: EMPTY_USAGE_URL }),
+    );
+    cleanups.push(() => restarted.harness.lifecycle.dispose());
+    expect(
+      markers(await resolveClaude(restarted, "thread-launcher"))[1]?.value,
+    ).toBe(fixture.key);
+    await restarted.harness.behavior.callRpc("config.set", {
+      nestedLaunchThreadIds: ["thread-other"],
+    });
+    const removed = await resolveClaude(restarted, "thread-launcher");
+    expect(markers(removed)).toEqual(BLANK_PARENT_MARKERS);
+    expect(
+      removed.find((entry) => entry.name === "ANTHROPIC_AUTH_TOKEN")?.value,
+    ).toBe(fixture.key);
+  });
+
+  it("sets and clears the allowlist through JSON-array CLI values", async () => {
+    const fixture = await openedFixture();
+    const run = (argv: string[]) => fixture.host.harness.behavior.runCli(argv);
+    const shown = await run(["config"]);
+    expect(shown.stdout).toContain("nestedLaunchThreadIds: []");
+    const set = await run([
+      "config",
+      "set",
+      "nestedLaunchThreadIds",
+      '["thread-launcher","thr_other"]',
+    ]);
+    expect(set.exitCode).toBe(0);
+    expect(set.stdout).toContain(
+      'nestedLaunchThreadIds: ["thread-launcher","thr_other"]',
+    );
+    expect(
+      accountPoolConfigSchema.parse(
+        await fixture.host.harness.behavior.callRpc("config.get", null),
+      ).nestedLaunchThreadIds,
+    ).toEqual(["thread-launcher", "thr_other"]);
+    expect(
+      markers(await resolveClaude(fixture.host, "thread-launcher"))[1]?.value,
+    ).toBe(fixture.key);
+    const cleared = await run([
+      "config",
+      "set",
+      "nestedLaunchThreadIds",
+      "[]",
+      "--json",
+    ]);
+    expect(cleared.exitCode).toBe(0);
+    expect(JSON.parse(cleared.stdout)).toMatchObject({
+      ok: true,
+      config: { nestedLaunchThreadIds: [] },
+    });
+    expect(
+      markers(await resolveClaude(fixture.host, "thread-launcher")),
+    ).toEqual(BLANK_PARENT_MARKERS);
+  });
+
+  it.each([
+    "thread-launcher",
+    "[thread-launcher]",
+    '"thread-launcher"',
+    '["*"]',
+    '["thread-launcher","thread-launcher"]',
+    '{"threadId":"thread-launcher"}',
+  ])("rejects %s as an invalid CLI allowlist value", async (value) => {
+    const fixture = await openedFixture();
+    const result = await fixture.host.harness.behavior.runCli([
+      "config",
+      "set",
+      "nestedLaunchThreadIds",
+      value,
+      "--json",
+    ]);
+    expect(result.exitCode).not.toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      ok: false,
+      error: { code: "invalid_value" },
+    });
+    expect(
+      accountPoolConfigSchema.parse(
+        await fixture.host.harness.behavior.callRpc("config.get", null),
+      ).nestedLaunchThreadIds,
+    ).toEqual([]);
+  });
+
+  it("rejects malformed allowlists through RPC without changing config", async () => {
+    const fixture = await openedFixture();
+    await expect(
+      fixture.host.harness.behavior.callRpc("config.set", {
+        nestedLaunchThreadIds: ["thr/one"],
+      }),
+    ).rejects.toThrow();
+    expect(
+      accountPoolConfigSchema.parse(
+        await fixture.host.bb.storage.kv.get("config"),
+      ).nestedLaunchThreadIds,
+    ).toEqual([]);
   });
 });
 

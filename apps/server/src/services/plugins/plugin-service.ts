@@ -630,6 +630,7 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
     disposeAll,
     disposeOne,
     buildQueuedMessageEventEmitter,
+    buildQueuedMessageTransferDeliverer,
     emitThreadEvent,
     getStatus,
     handlerStats,
@@ -1380,6 +1381,7 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
       emitMessageDispatched:
         buildQueuedMessageEventEmitter("message.dispatched"),
       emitMessageCancelled: buildQueuedMessageEventEmitter("message.cancelled"),
+      deliverMessageQueuedTransfer: buildQueuedMessageTransferDeliverer(),
       emitTurnFailed(threadId) {
         // Built lazily inside the emitter: with no listener the failure path
         // pays one map lookup and never touches the database.

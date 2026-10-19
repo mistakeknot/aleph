@@ -1,0 +1,11 @@
+[book]
+title = "Aleph Wiki"
+description = "How Aleph is built and what it adds to bb"
+language = "en"
+src = "src"
+
+[build]
+build-dir = "book"
+
+[output.html.search]
+enable = true

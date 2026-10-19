@@ -33,6 +33,13 @@ import {
   type HostWorkspace,
   type ProvisionWorkspaceArgs,
 } from "@bb/host-workspace";
+import { AGENT_CGROUP_ENV_NAMES } from "@bb/provider-bridge-protocol/bridge-kit";
+import { lowerAgentProcessPriority } from "./agent-process-priority.js";
+import {
+  placeAgentProcessInScope,
+  prepareAgentProcessScopes,
+  wrapAgentProcessSpawn,
+} from "./agent-process-scope.js";
 import {
   cleanupInjectedSkillStagingDirs,
   EMPTY_SKILL_CATALOG_HASH,
@@ -252,6 +259,12 @@ function providerProcessEnvFromShellEnv(
   const recordDir = process.env.BB_PROVIDER_BRIDGE_RECORD_DIR;
   if (recordDir) {
     env.BB_PROVIDER_BRIDGE_RECORD_DIR = recordDir;
+  }
+  for (const name of AGENT_CGROUP_ENV_NAMES) {
+    const value = process.env[name];
+    if (value) {
+      env[name] = value;
+    }
   }
   return Object.keys(env).length > 0 ? env : null;
 }
@@ -1110,6 +1123,37 @@ export class RuntimeManager {
     return events;
   }
 
+  private readonly handleProviderProcessSpawn: NonNullable<
+    AgentRuntimeOptions["onProcessSpawn"]
+  > = (info) => {
+    lowerAgentProcessPriority({
+      logger: this.options.logger ?? { warn: () => undefined },
+      pid: info.pid,
+      processKind: "provider-worker",
+    });
+    placeAgentProcessInScope({
+      logger: this.options.logger,
+      name: info.providerId,
+      pid: info.pid,
+      processKind: "provider-worker",
+      scopeUnit: info.scopeUnit,
+    });
+  };
+
+  private readonly prepareProviderProcessSpawn: NonNullable<
+    AgentRuntimeOptions["prepareProcessSpawn"]
+  > = async (plan) => {
+    await prepareAgentProcessScopes({ logger: this.options.logger });
+    return wrapAgentProcessSpawn({
+      args: plan.args,
+      command: plan.command,
+      env: plan.env,
+      logger: this.options.logger,
+      name: plan.providerId,
+      processKind: "provider-worker",
+    });
+  };
+
   private async createProviderMaintenanceRuntime(args: {
     dataDir: string;
   }): Promise<AgentRuntime> {
@@ -1143,6 +1187,8 @@ export class RuntimeManager {
         })),
       onInteractiveRequest: this.options.onInteractiveRequest,
       onStderr: this.options.onStderr,
+      onProcessSpawn: this.handleProviderProcessSpawn,
+      prepareProcessSpawn: this.prepareProviderProcessSpawn,
       onProcessExit: (info) => {
         if (
           runtime &&
@@ -1215,6 +1261,8 @@ export class RuntimeManager {
         })),
       onInteractiveRequest: this.options.onInteractiveRequest,
       onStderr: this.options.onStderr,
+      onProcessSpawn: this.handleProviderProcessSpawn,
+      prepareProcessSpawn: this.prepareProviderProcessSpawn,
       onProviderRecovery: (hint) => {
         this.options.logger?.debug(
           {

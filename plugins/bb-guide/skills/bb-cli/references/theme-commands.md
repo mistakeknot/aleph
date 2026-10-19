@@ -20,6 +20,16 @@
     `thecla`, `dorcas`), custom,
     or plugin-contributed theme. Without the flag it preserves the favicon
     color; with the flag it updates the complete appearance selection.
+  - `bb theme set <id>` with `--music on|off`, `--music-port <n>`,
+    `--music-secret-file <path>`, or `--music-secret-clear` — Dorcas music
+    mode. Dorcas tints its lines with the key and pulses a sidebar glow with the
+    beat that Phosphene hears on the same Mac. Other palettes keep the setting
+    but ignore it, and nothing moves under reduced motion or forced colors.
+    The port is Phosphene's loopback port (1024–65535, default 47615). The
+    pairing secret is read from a file so it never appears in argv or shell
+    history; never pass it any other way. `bb theme show` prints
+    `Music secret: set` or `not set` and `--json` prints `"set"` or `null`,
+    never the value.
   - `bb theme show [id] [--css]` — print the active palette, or resolve a
     built-in, custom, or plugin theme by id without activating it. For a custom
     or plugin theme, `--css` prints its CSS. For a built-in theme, it reports

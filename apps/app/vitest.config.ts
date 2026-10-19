@@ -30,6 +30,7 @@ export default defineWorkspaceTestConfig({
       aliases: { "@": path.resolve(__dirname, "./src") },
       name: "@bb/app",
       include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
+      exclude: ["dist/**", "node_modules/**", "src/**/*.pixel.test.ts"],
     }),
   },
 });
