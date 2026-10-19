@@ -470,17 +470,44 @@ function walkTurnDetailsPages(
   return { ...response, rows, olderCursor: null };
 }
 
+type ItemDetailsCache = Map<string, TimelineRow[]>;
+
+function walkItemDetailsPages(
+  db: DbConnection,
+  thread: Thread,
+  options: TurnDetailsPageOptions,
+  itemCache: ItemDetailsCache | undefined,
+): TimelineRow[] {
+  if (itemCache === undefined) {
+    return walkTurnDetailsPages(db, thread, options).rows;
+  }
+  const key = JSON.stringify(options);
+  let rows = itemCache.get(key);
+  if (rows === undefined) {
+    rows = walkTurnDetailsPages(db, thread, options).rows;
+    itemCache.set(key, rows);
+  }
+  return rows;
+}
+
 function expandDeferredDelegations(
   db: DbConnection,
   thread: Thread,
   options: TurnDetailsPageOptions,
   rows: TimelineRow[],
+  itemCache?: ItemDetailsCache,
 ): TimelineRow[] {
   return rows.map((row): TimelineRow => {
     if (row.kind === "turn" && row.children !== null) {
       return {
         ...row,
-        children: expandDeferredDelegations(db, thread, options, row.children),
+        children: expandDeferredDelegations(
+          db,
+          thread,
+          options,
+          row.children,
+          itemCache,
+        ),
       };
     }
     if ("contentDeferred" in row && row.contentDeferred === true) {
@@ -490,12 +517,17 @@ function expandDeferredDelegations(
           : row.kind === "system" && "reasoningId" in row
             ? row.reasoningId
             : undefined;
-      const loaded = walkTurnDetailsPages(db, thread, {
-        ...options,
-        itemId: itemId ?? null,
-        sourceSeqStart: row.sourceSeqStart,
-        sourceSeqEnd: row.sourceSeqEnd,
-      }).rows.find((candidate) => candidate.id === row.id);
+      const loaded = walkItemDetailsPages(
+        db,
+        thread,
+        {
+          ...options,
+          itemId: itemId ?? null,
+          sourceSeqStart: row.sourceSeqStart,
+          sourceSeqEnd: row.sourceSeqEnd,
+        },
+        itemCache,
+      ).find((candidate) => candidate.id === row.id);
       if (loaded === undefined) {
         throw new Error(`Expected deferred content for ${row.id}`);
       }
@@ -512,15 +544,21 @@ function expandDeferredDelegations(
           thread,
           options,
           row.childRows,
+          itemCache,
         ),
       };
     }
-    const scoped = walkTurnDetailsPages(db, thread, {
-      ...options,
-      itemId: row.callId,
-      sourceSeqStart: row.sourceSeqStart,
-      sourceSeqEnd: row.sourceSeqEnd,
-    }).rows[0];
+    const scoped = walkItemDetailsPages(
+      db,
+      thread,
+      {
+        ...options,
+        itemId: row.callId,
+        sourceSeqStart: row.sourceSeqStart,
+        sourceSeqEnd: row.sourceSeqEnd,
+      },
+      itemCache,
+    )[0];
     if (
       scoped?.kind !== "work" ||
       scoped.workKind !== "delegation" ||
@@ -535,6 +573,7 @@ function expandDeferredDelegations(
         thread,
         options,
         scoped.childRows,
+        itemCache,
       ),
     };
   });
@@ -544,12 +583,19 @@ function buildTimelineTurnSummaryDetails(
   db: DbConnection,
   thread: Thread,
   options: Omit<TurnDetailsPageOptions, "deferContent" | "itemId">,
+  itemCache?: ItemDetailsCache,
 ) {
   const pageOptions = { ...options, deferContent: true, itemId: null };
   const response = walkTurnDetailsPages(db, thread, pageOptions);
   return {
     ...response,
-    rows: expandDeferredDelegations(db, thread, pageOptions, response.rows),
+    rows: expandDeferredDelegations(
+      db,
+      thread,
+      pageOptions,
+      response.rows,
+      itemCache,
+    ),
   };
 }
 
@@ -1145,6 +1191,7 @@ describe("in-turn timeline windows", () => {
 
     const commandCallIds = new Set<string>();
     const expandedCommandCallIds = new Set<string>();
+    const itemCache: ItemDetailsCache = new Map();
     let cursor: TimelinePaginationCursor | null = null;
     let pages = 0;
     for (;;) {
@@ -1165,13 +1212,18 @@ describe("in-turn timeline windows", () => {
         if (pages === 1) {
           expect(row.sourceSeqStart).toBeLessThanOrEqual(4);
         }
-        const details = buildTimelineTurnSummaryDetails(db, thread, {
-          completedTurnDisplay: "collapse",
-          includeDiagnosticOperations: false,
-          sourceSeqEnd: row.sourceSeqEnd,
-          sourceSeqStart: row.sourceSeqStart,
-          turnId: row.turnId,
-        });
+        const details = buildTimelineTurnSummaryDetails(
+          db,
+          thread,
+          {
+            completedTurnDisplay: "collapse",
+            includeDiagnosticOperations: false,
+            sourceSeqEnd: row.sourceSeqEnd,
+            sourceSeqStart: row.sourceSeqStart,
+            turnId: row.turnId,
+          },
+          itemCache,
+        );
         const pageDetailCallIds = new Set<string>();
         collectCommandCallIds(details.rows, pageDetailCallIds);
         expect(pageDetailCallIds.size).toBe(BYTE_WINDOW_ITEM_COUNT);
