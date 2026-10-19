@@ -1028,10 +1028,6 @@ export class AccountPoolHub {
         candidates.find((candidate) => candidate.account.id === account.id),
       )
       .find((candidate) => candidate !== undefined);
-    // A new unbound request starts at the highest-priority account that can
-    // serve it now (enabled, under the switch threshold, not held), so the pool
-    // returns to a recovered account instead of staying on the fallback it
-    // failed over to. Bound and inherited sessions keep their account above.
     const fresh = boundAccountId === null && previousAccountId === null;
     const preferred = fresh ? candidates[0] : undefined;
     const selected =
