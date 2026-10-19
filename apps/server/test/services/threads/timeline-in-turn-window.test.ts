@@ -470,10 +470,6 @@ function walkTurnDetailsPages(
   return { ...response, rows, olderCursor: null };
 }
 
-/**
- * Results of item-scoped detail walks, keyed by their request options. Pass
- * one only while the database is unchanged: a cached walk is never re-read.
- */
 type ItemDetailsCache = Map<string, TimelineRow[]>;
 
 function walkItemDetailsPages(
@@ -1195,10 +1191,6 @@ describe("in-turn timeline windows", () => {
 
     const commandCallIds = new Set<string>();
     const expandedCommandCallIds = new Set<string>();
-    // Every page below expands the same turn, so it would load each of the
-    // 250 deferred rows once per page against a database that no longer
-    // changes. Each page still walks its turn details; each distinct deferred
-    // row is loaded once and reused, which keeps the test fast on a busy host.
     const itemCache: ItemDetailsCache = new Map();
     let cursor: TimelinePaginationCursor | null = null;
     let pages = 0;
