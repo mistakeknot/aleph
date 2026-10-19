@@ -490,8 +490,12 @@ and a 2px strip on the sidebar's right edge pulses with the beat. Text and ink
 colors never change. Only the Dorcas palette responds; with another palette the
 setting is kept but has no effect. Under `prefers-reduced-motion: reduce` or
 forced colors nothing moves and no connection is opened. A hidden window closes
-its connection and resumes when it becomes visible again. The motion is
-rate-limited below the WCAG 2.3.1 general and red flash thresholds.
+its connection and resumes when it becomes visible again. Turning the mode off,
+hiding the window, turning on reduced motion or forced colors, and losing the
+connection all fade back to the plain palette over 2 seconds. While a palette preview is shown the glow is hidden, and it fades back
+in once Dorcas has been shown for a second. Malformed or out-of-order frames are
+dropped without closing the connection. The motion is rate-limited below the
+WCAG 2.3.1 general and red flash thresholds.
 
 The preferences are server-owned appearance fields, so they apply to every
 window and survive theme changes, favicon changes, and server restarts:
