@@ -8,6 +8,8 @@ import type { SignalFields, SignalKeyMode } from "./signal-schema";
 
 export const MUSIC_FRESH_MS = 1500;
 export const MUSIC_FADE_MS = 2000;
+export const MUSIC_MAX_TICK_MS = 100;
+export const MUSIC_SHEET_SETTLE_MS = 1000;
 export const PULSE_RISE_MS = 90;
 export const PULSE_DECAY_MS = 450;
 export const PULSE_WINDOW_MS = 1000;
@@ -53,6 +55,9 @@ export class MusicMotion {
   private active = false;
   private suppressed = false;
   private rest = false;
+  private dorcasSheet = true;
+  private sheetSinceMs: number | null = -Infinity;
+  private glowGate = 1;
   private lastTickMs: number | null = null;
   private lastFreshMs: number | null = null;
   private latestEnergy = 0;
@@ -74,6 +79,7 @@ export class MusicMotion {
 
   setActive(active: boolean): void {
     this.active = active;
+    if (!active) this.lastFreshMs = null;
   }
 
   setSuppressed(suppressed: boolean): void {
@@ -84,8 +90,15 @@ export class MusicMotion {
     this.rest = rest;
   }
 
+  setDorcasSheet(shown: boolean): void {
+    if (shown === this.dorcasSheet) return;
+    this.dorcasSheet = shown;
+    this.sheetSinceMs = null;
+    if (!shown) this.glowGate = 0;
+  }
+
   receive(nowMs: number, fields: SignalFields): void {
-    if (!this.active || fields.synthetic) return;
+    if (!this.active || this.suppressed || fields.synthetic) return;
     this.lastFreshMs = nowMs;
     this.latestEnergy = fields.energy;
     if (fields.beat) this.acceptBeat(nowMs);
@@ -129,6 +142,7 @@ export class MusicMotion {
   private fresh(nowMs: number): boolean {
     return (
       this.active &&
+      !this.suppressed &&
       this.lastFreshMs !== null &&
       nowMs - this.lastFreshMs <= MUSIC_FRESH_MS
     );
@@ -178,18 +192,18 @@ export class MusicMotion {
   }
 
   tick(nowMs: number, ambientHue: number): MusicMotionFrame {
-    const dt = this.lastTickMs === null ? 0 : nowMs - this.lastTickMs;
+    const dt =
+      this.lastTickMs === null
+        ? 0
+        : Math.min(MUSIC_MAX_TICK_MS, Math.max(0, nowMs - this.lastTickMs));
     this.lastTickMs = nowMs;
     const fresh = this.fresh(nowMs);
 
-    if (this.suppressed) {
-      this.strength = 0;
-    } else {
-      const step = dt / MUSIC_FADE_MS;
-      this.strength = fresh
-        ? Math.min(1, this.strength + step)
-        : Math.max(0, this.strength - step);
-    }
+    const step = dt / MUSIC_FADE_MS;
+    this.strength = fresh
+      ? Math.min(1, this.strength + step)
+      : Math.max(0, this.strength - step);
+    this.advanceGlowGate(nowMs, step);
     if (this.strength === 0 && !fresh) this.resetMusicState();
 
     const energyInput = fresh ? this.latestEnergy : 0;
@@ -204,13 +218,14 @@ export class MusicMotion {
       hue = normalizeHue(ambientHue + hueArc(ambientHue, musicHue) * m);
     }
 
-    const glowRaw =
-      this.rest || this.suppressed
-        ? 0
-        : Math.min(
-            MOTION_MAX_GLOW,
-            REST_GLOW_MAX * this.energy + PULSE_GLOW_GAIN * this.pulse(nowMs),
-          ) * m;
+    const glowRaw = this.rest
+      ? 0
+      : Math.min(
+          MOTION_MAX_GLOW,
+          REST_GLOW_MAX * this.energy + PULSE_GLOW_GAIN * this.pulse(nowMs),
+        ) *
+        m *
+        smooth(this.glowGate);
     const glow = Math.round(glowRaw / GLOW_STEP) * GLOW_STEP;
 
     const candidateHue = this.limitHue(nowMs, hue, ambientHue);
@@ -219,6 +234,8 @@ export class MusicMotion {
       hue: candidateHue,
       glow,
       ambientHue,
+      glowShown: this.dorcasSheet,
+      reserveGlowDrop: this.glowGate < 1,
     });
     if (this.output.hue !== previousHue) this.lastHueWriteMs = nowMs;
 
@@ -228,6 +245,17 @@ export class MusicMotion {
       this.strength === 0 &&
       !fresh;
     return { ...this.output, settled };
+  }
+
+  private advanceGlowGate(nowMs: number, step: number): void {
+    if (!this.dorcasSheet) {
+      this.glowGate = 0;
+      return;
+    }
+    this.sheetSinceMs ??= nowMs;
+    if (nowMs - this.sheetSinceMs >= MUSIC_SHEET_SETTLE_MS) {
+      this.glowGate = Math.min(1, this.glowGate + step);
+    }
   }
 
   private limitHue(

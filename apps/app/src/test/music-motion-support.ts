@@ -22,7 +22,7 @@ export function mulberry32(seed: number): () => number {
 
 export const SHIPPED_DORCAS_MODES = readShippedDorcasModes();
 export const MAX_REVERSALS_PER_SECOND = 4;
-export const WCAG_MAX_REVERSALS_PER_SECOND = 6;
+export const WCAG_MAX_REVERSALS_PER_SECOND = 4;
 export const PIPELINE_TOLERANCE = 1e-5;
 
 export const STRICT_FLASH_RULE = strictRule(

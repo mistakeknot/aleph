@@ -162,9 +162,6 @@ export function isSaturatedRed(rgb: Rgb): boolean {
 }
 
 const D65_UV = { u: 0.19783, v: 0.46832 };
-const RED_PRIMARY_UV = { u: 0.450704, v: 0.522887 };
-
-export const CHROMA_FADE_BELOW_LUMINANCE = 0.01;
 
 export function chromaticityUv(rgb: Rgb): { u: number; v: number } {
   const r = decode(rgb.r);
@@ -175,16 +172,7 @@ export function chromaticityUv(rgb: Rgb): { u: number; v: number } {
   const Z = 0.0193308 * r + 0.1191948 * g + 0.9505322 * b;
   const d = X + 15 * Y + 3 * Z;
   if (d <= 0) return D65_UV;
-  const w = Math.min(1, Y / CHROMA_FADE_BELOW_LUMINANCE);
-  return {
-    u: D65_UV.u + ((4 * X) / d - D65_UV.u) * w,
-    v: D65_UV.v + ((9 * Y) / d - D65_UV.v) * w,
-  };
-}
-
-export function redDistance(rgb: Rgb): number {
-  const { u, v } = chromaticityUv(rgb);
-  return Math.hypot(u - RED_PRIMARY_UV.u, v - RED_PRIMARY_UV.v);
+  return { u: (4 * X) / d, v: (9 * Y) / d };
 }
 
 export const RENDER_OPACITY_FRACTIONS: readonly number[] = [1, 0.6, 0.3, 0.1];

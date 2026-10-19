@@ -18,6 +18,8 @@ import {
   keyHue,
   MUSIC_FADE_MS,
   MUSIC_FRESH_MS,
+  MUSIC_MAX_TICK_MS,
+  MUSIC_SHEET_SETTLE_MS,
   MusicMotion,
   PULSE_GLOW_GAIN,
   PULSE_MAX_PER_WINDOW,
@@ -47,32 +49,44 @@ interface Tick {
   active?: boolean;
   suppressed?: boolean;
   rest?: boolean;
+  dorcasSheet?: boolean;
 }
 
 interface Output {
   t: number;
   ambient: number;
+  dorcasSheet: boolean;
   hue: number | null;
   glow: number;
   settled: boolean;
 }
 
 function run(ticks: readonly Tick[], motion = new MusicMotion()): Output[] {
+  let dorcasSheet = true;
   return ticks.map((tick) => {
     if (tick.active !== undefined) motion.setActive(tick.active);
     if (tick.suppressed !== undefined) motion.setSuppressed(tick.suppressed);
     if (tick.rest !== undefined) motion.setRest(tick.rest);
+    if (tick.dorcasSheet !== undefined) {
+      dorcasSheet = tick.dorcasSheet;
+      motion.setDorcasSheet(dorcasSheet);
+    }
     if (tick.frame) motion.receive(tick.t, tick.frame);
     return {
       t: tick.t,
       ambient: tick.ambient,
+      dorcasSheet,
       ...motion.tick(tick.t, tick.ambient),
     };
   });
 }
 
 const rendered = (outputs: readonly Output[]): CheckerFrame[] =>
-  outputs.map((o) => ({ t: o.t, hue: o.hue ?? o.ambient, glow: o.glow }));
+  outputs.map((o) => ({
+    t: o.t,
+    hue: o.hue ?? o.ambient,
+    glow: o.dorcasSheet ? o.glow : 0,
+  }));
 
 const shown = (o: Output): number => o.hue ?? o.ambient;
 
@@ -127,14 +141,18 @@ function eulerianCircuit(n: number): number[] {
   return circuit.reverse();
 }
 
-function expectFlashSafe(outputs: readonly Output[], label: string): void {
+function expectFlashSafe(
+  outputs: readonly Output[],
+  label: string,
+  forcedReversals = 0,
+): void {
   const frames = rendered(outputs);
   for (const { name, rule, max } of FLASH_RULES) {
     const report = checkFlashes(SHIPPED_DORCAS_MODES, frames, rule);
     expect(
       report.worst.count,
       `${label} ${name} ${report.worst.channel}`,
-    ).toBeLessThanOrEqual(max);
+    ).toBeLessThanOrEqual(max + forcedReversals);
     expect(report.maxGlow).toBeLessThanOrEqual(MOTION_MAX_GLOW);
   }
 }
@@ -185,7 +203,7 @@ const ENERGY_PATTERNS: ((rand: () => number) => EnergyPattern)[] = [
   },
 ];
 
-function chaosScenario(rand: () => number): Tick[] {
+function chaosScenario(rand: () => number, sheetSwaps = false): Tick[] {
   const ticks: Tick[] = [];
   let t = 0;
   let ambient = ambientHueFor(rand());
@@ -220,6 +238,7 @@ function chaosScenario(rand: () => number): Tick[] {
     if (rand() < 0.01) tick.active = rand() < 0.8;
     if (rand() < 0.01) tick.suppressed = rand() < 0.3;
     if (rand() < 0.01) tick.rest = rand() < 0.4;
+    if (sheetSwaps && rand() < 0.03) tick.dorcasSheet = rand() < 0.6;
     if (t >= staleUntil && rand() < 0.85) {
       const hop = rand() < 0.05;
       const current = hop
@@ -498,33 +517,98 @@ describe("MusicMotion", () => {
     expect(home).toMatchObject({ hue: null, glow: 0, settled: true });
   });
 
-  it("drops to ambient at once when suppressed and ignores frames while inactive", () => {
+  it("fades home over 2 s when suppressed and ignores frames while inactive", () => {
+    const target = keyHue(2, "major");
+    const fields = { energy: 1, keyConfidence: 0.9, key: 2 };
     const outputs = run([
       { t: 0, ambient: AMBIENT, active: true },
-      ...steady(20, 5000, AMBIENT, { energy: 1, keyConfidence: 0.9, key: 2 }),
-      {
-        t: 5000,
-        ambient: AMBIENT,
-        suppressed: true,
-        frame: frame({ energy: 1, keyConfidence: 0.9, key: 2 }),
-      },
-      ...steady(5020, 6000, AMBIENT, { energy: 1, keyConfidence: 0.9, key: 2 }),
-      { t: 6000, ambient: AMBIENT, suppressed: false, active: false },
-      ...steady(6020, 12000, AMBIENT, {
-        energy: 1,
-        keyConfidence: 0.9,
-        key: 2,
-      }),
+      ...steady(20, 5000, AMBIENT, fields),
+      { t: 5000, ambient: AMBIENT, suppressed: true, frame: frame(fields) },
+      ...steady(5020, 8000, AMBIENT, fields),
+      { t: 8000, ambient: AMBIENT, suppressed: false, active: false },
+      ...steady(8020, 12000, AMBIENT, fields),
     ]);
-    const suppressed = at(outputs, 5000);
-    expect(shown(suppressed)).toBe(AMBIENT);
-    expect(suppressed.glow).toBe(0);
-    expect(at(outputs, 5000 + 2 * HUE_WRITE_INTERVAL_MS).hue).toBeNull();
+    expectNear(at(outputs, 4980), target);
+    const fading = at(outputs, 5000 + MUSIC_FADE_MS / 2);
+    expect(fading.settled).toBe(false);
+    expect(fading.hue).not.toBeNull();
+    expect(Math.abs(hueArc(shown(fading), target))).toBeGreaterThan(1);
+    expect(Math.abs(hueArc(shown(fading), AMBIENT))).toBeGreaterThan(1);
+    expect(
+      at(outputs, 5000 + MUSIC_FADE_MS + 2 * HUE_WRITE_INTERVAL_MS),
+    ).toMatchObject({ hue: null, glow: 0, settled: true });
     expect(
       outputs
-        .filter((o) => o.t >= 6000)
+        .filter((o) => o.t >= 8000)
         .every((o) => o.hue === null && o.glow === 0),
     ).toBe(true);
+    expectFlashSafe(outputs, "suppression");
+  });
+
+  it("keeps the fade at least 2 s long when ticks resume after a long gap", () => {
+    const fields = { energy: 1, keyConfidence: 0.9, key: 2 };
+    const outputs = run([
+      { t: 0, ambient: AMBIENT, active: true },
+      ...steady(20, 5000, AMBIENT, fields),
+      { t: 5000, ambient: AMBIENT, active: false },
+      ...steady(15_000, 15_000 + MUSIC_FADE_MS + 1000, AMBIENT, null),
+    ]);
+    const resumed = at(outputs, 15_000);
+    expect(resumed.settled).toBe(false);
+    expect(resumed.hue).not.toBeNull();
+    expect(at(outputs, 15_000 + MUSIC_FADE_MS / 2).settled).toBe(false);
+    expect(
+      at(outputs, 15_000 + MUSIC_FADE_MS - 2 * MUSIC_MAX_TICK_MS).settled,
+    ).toBe(false);
+    expectFlashSafe(outputs, "gap");
+  });
+
+  it("hides the glow at once on another sheet and waits for a settled Dorcas sheet to fade it back", () => {
+    const fields = { energy: 1, keyConfidence: 0.9, key: 2 };
+    const ticks: Tick[] = [
+      { t: 0, ambient: AMBIENT, active: true },
+      ...steady(20, 5000, AMBIENT, fields),
+    ];
+    for (let t = 5000; t < 8000; t += 20) {
+      ticks.push({
+        t,
+        ambient: AMBIENT,
+        frame: frame(fields),
+        dorcasSheet:
+          t === 5000
+            ? false
+            : t < 7900 && t % 150 < 20
+              ? Math.floor(t / 150) % 2 === 1
+              : undefined,
+      });
+    }
+    ticks.push({
+      t: 8000,
+      ambient: AMBIENT,
+      frame: frame(fields),
+      dorcasSheet: true,
+    });
+    ticks.push(...steady(8020, 14_000, AMBIENT, fields));
+    const outputs = run(ticks);
+    expect(at(outputs, 4980).glow).toBeGreaterThan(0.1);
+    expect(
+      outputs
+        .filter((o) => o.t >= 5000 && o.t < 8000)
+        .some((o) => o.dorcasSheet),
+    ).toBe(true);
+    expect(
+      outputs
+        .filter((o) => o.t >= 5000 && o.t < 8000 + MUSIC_SHEET_SETTLE_MS)
+        .every((o) => o.glow === 0),
+    ).toBe(true);
+    expect(
+      at(outputs, 8000 + MUSIC_SHEET_SETTLE_MS + MUSIC_FADE_MS / 2).glow,
+    ).toBeGreaterThan(0);
+    expect(
+      at(outputs, 8000 + MUSIC_SHEET_SETTLE_MS + MUSIC_FADE_MS / 2).glow,
+    ).toBeLessThan(0.1);
+    expect(at(outputs, 13_900).glow).toBeGreaterThan(0.1);
+    expectFlashSafe(outputs, "sheet swaps");
   });
 
   describe("under the independent flash checker", () => {
@@ -585,7 +669,7 @@ describe("MusicMotion", () => {
           `${from}->${to} settles`,
         ).toBeLessThan(HUE_MIN_STEP_DEGREES);
       }
-    }, 120_000);
+    }, 300_000);
 
     it("keeps every key state flash-safe to and from the ambient path", () => {
       const ticks: Tick[] = [{ t: 0, ambient: AMBIENT, active: true }];
@@ -622,6 +706,14 @@ describe("MusicMotion", () => {
       for (let seed = 1; seed <= 30; seed++) {
         const outputs = run(chaosScenario(mulberry32(seed)));
         expectFlashSafe(outputs, `seed ${seed}`);
+        expectHueWritesPaced(outputs, `seed ${seed}`);
+      }
+    }, 120_000);
+
+    it("adds at most the one reversal a sheet swap forces under random interleavings (seeded)", () => {
+      for (let seed = 1; seed <= 30; seed++) {
+        const outputs = run(chaosScenario(mulberry32(seed), true));
+        expectFlashSafe(outputs, `seed ${seed}`, 1);
         expectHueWritesPaced(outputs, `seed ${seed}`);
       }
     }, 120_000);

@@ -125,40 +125,29 @@ export function checkerLuminance(srgb: Vec3): number {
   return apply(LINEAR_SRGB_TO_XYZ, srgb.map(toLinear) as unknown as Vec3)[1];
 }
 
-const RED_PRIMARY_XY = { x: 0.64, y: 0.33 };
-const RED_PRIMARY_UV = {
-  u:
-    (4 * RED_PRIMARY_XY.x) /
-    (-2 * RED_PRIMARY_XY.x + 12 * RED_PRIMARY_XY.y + 3),
-  v:
-    (9 * RED_PRIMARY_XY.y) /
-    (-2 * RED_PRIMARY_XY.x + 12 * RED_PRIMARY_XY.y + 3),
-};
+export interface CheckerUv {
+  u: number;
+  v: number;
+}
 
 const WHITE_XY = { x: 0.3127, y: 0.329 };
-const WHITE_UV = {
+const WHITE_UV: CheckerUv = {
   u: (4 * WHITE_XY.x) / (-2 * WHITE_XY.x + 12 * WHITE_XY.y + 3),
   v: (9 * WHITE_XY.y) / (-2 * WHITE_XY.x + 12 * WHITE_XY.y + 3),
 };
-const CHROMA_FADE_BELOW_Y = 0.01;
 
-export function checkerRedDistance(srgb: Vec3): number {
+export function checkerChromaticity(srgb: Vec3): CheckerUv {
   const [x, y, z] = apply(
     LINEAR_SRGB_TO_XYZ,
     srgb.map(toLinear) as unknown as Vec3,
   );
   const denominator = x + 15 * y + 3 * z;
-  const weight = Math.min(1, y / CHROMA_FADE_BELOW_Y);
-  const u =
-    denominator > 0
-      ? WHITE_UV.u + ((4 * x) / denominator - WHITE_UV.u) * weight
-      : WHITE_UV.u;
-  const v =
-    denominator > 0
-      ? WHITE_UV.v + ((9 * y) / denominator - WHITE_UV.v) * weight
-      : WHITE_UV.v;
-  return Math.sqrt((u - RED_PRIMARY_UV.u) ** 2 + (v - RED_PRIMARY_UV.v) ** 2);
+  if (denominator <= 0) return WHITE_UV;
+  return { u: (4 * x) / denominator, v: (9 * y) / denominator };
 }
+
+export const checkerUvDistance = (a: CheckerUv, b: CheckerUv): number =>
+  Math.hypot(a.u - b.u, a.v - b.v);
 
 export function checkerSaturatedRed(srgb: Vec3): boolean {
   const ratio = (v: Vec3) => {
@@ -274,8 +263,16 @@ export const CHECKER_OPACITY_FRACTIONS: readonly number[] = [
 
 export interface CheckerSample {
   luminance: number;
-  red: number;
+  uv: CheckerUv;
   saturatedRed: boolean;
+}
+
+export function checkerSample(srgb: Vec3): CheckerSample {
+  return {
+    luminance: checkerLuminance(srgb),
+    uv: checkerChromaticity(srgb),
+    saturatedRed: checkerSaturatedRed(srgb),
+  };
 }
 
 export interface CheckerFrame {
@@ -292,11 +289,6 @@ export function renderCheckerFrame(
 ): { samples: Map<string, CheckerSample>; outOfGamut: string[] } {
   const samples = new Map<string, CheckerSample>();
   const outOfGamut: string[] = [];
-  const measure = (srgb: Vec3): CheckerSample => ({
-    luminance: checkerLuminance(srgb),
-    red: checkerRedDistance(srgb),
-    saturatedRed: checkerSaturatedRed(srgb),
-  });
   for (const mode of modes) {
     const canvas = checkerHex(mode.canvas);
     const sidebar = colorMixOklch(
@@ -321,7 +313,7 @@ export function renderCheckerFrame(
         const color = checkerOklchToSrgb({ l: token.l, c: token.c, h: hue });
         if (!color.inGamut) outOfGamut.push(`${mode.mode}/${name}`);
         for (const fraction of fractions) {
-          const sample = measure(over(color.srgb, alpha * fraction, bg));
+          const sample = checkerSample(over(color.srgb, alpha * fraction, bg));
           const label = fraction === 1 ? name : `${name}@${fraction}`;
           samples.set(`${mode.mode}/${label}/${bgName}`, sample);
           if (fraction === 1) combined.push(sample);
@@ -331,7 +323,10 @@ export function renderCheckerFrame(
     samples.set(`${mode.mode}/combined`, {
       luminance:
         combined.reduce((sum, s) => sum + s.luminance, 0) / combined.length,
-      red: combined.reduce((sum, s) => sum + s.red, 0) / combined.length,
+      uv: {
+        u: combined.reduce((sum, s) => sum + s.uv.u, 0) / combined.length,
+        v: combined.reduce((sum, s) => sum + s.uv.v, 0) / combined.length,
+      },
       saturatedRed: combined.some((s) => s.saturatedRed),
     });
   }
@@ -341,7 +336,6 @@ export function renderCheckerFrame(
 interface SeriesPoint {
   t: number;
   value: number;
-  red: boolean;
 }
 
 function zigzag(
@@ -385,11 +379,10 @@ export function zigzagReversals(
   series: readonly SeriesPoint[],
   band: number,
   tolerance: number,
-  redGated: boolean,
 ): number[] {
   const reversals: number[] = [];
-  zigzag(series, band, tolerance, (anchor, point, leftAt) => {
-    if (!redGated || point.red || anchor.red) reversals.push(leftAt);
+  zigzag(series, band, tolerance, (_anchor, _point, leftAt) => {
+    reversals.push(leftAt);
   });
   return reversals;
 }
@@ -399,32 +392,120 @@ export function flashReversals(
   onsetBand: number,
   flashBand: number,
   tolerance: number,
-  redGated: boolean,
-  qualifies: (from: number, to: number) => boolean = () => true,
+  qualifies: (from: number, to: number) => boolean,
 ): number[] {
   if (series.length === 0) return [];
   const turns: SeriesPoint[] = [series[0]];
-  let legRed = series[0].red;
-  let index = 0;
-  const last = zigzag(series, onsetBand, tolerance, (anchor, point, leftAt) => {
-    while (series[index] !== point) {
-      index += 1;
-      legRed = legRed || series[index].red;
-    }
-    turns.push({ t: leftAt, value: anchor.value, red: legRed });
-    legRed = point.red;
-  });
-  if (last !== null) {
-    legRed = legRed || series.slice(index).some((point) => point.red);
-    turns.push({ t: Infinity, value: last.value, red: legRed });
-  }
+  const last = zigzag(
+    series,
+    onsetBand,
+    tolerance,
+    (anchor, _point, leftAt) => {
+      turns.push({ t: leftAt, value: anchor.value });
+    },
+  );
+  if (last !== null) turns.push({ t: Infinity, value: last.value });
   const reversals: number[] = [];
   zigzag(turns, flashBand, 0, (anchor, point) => {
-    if (
-      (!redGated || point.red || anchor.red) &&
-      qualifies(anchor.value, point.value)
-    ) {
-      reversals.push(anchor.t);
+    if (qualifies(anchor.value, point.value)) reversals.push(anchor.t);
+  });
+  return reversals;
+}
+
+export interface UvPoint {
+  t: number;
+  uv: CheckerUv;
+  saturatedRed: boolean;
+}
+
+interface UvReversal {
+  origin: number;
+  peak: number;
+  point: number;
+  leftAt: number;
+}
+
+function zigzagUv(
+  series: readonly UvPoint[],
+  band: number,
+  tolerance: number,
+  onReversal: (reversal: UvReversal) => void,
+): number | null {
+  if (series.length === 0) return null;
+  let origin = 0;
+  let peak = 0;
+  let trending = false;
+  let leftAt: number | null = null;
+  for (let index = 1; index < series.length; index++) {
+    const point = series[index];
+    if (!trending) {
+      if (checkerUvDistance(point.uv, series[origin].uv) > band) {
+        trending = true;
+        peak = index;
+      }
+      continue;
+    }
+    const o = series[origin].uv;
+    const p = series[peak].uv;
+    const away = checkerUvDistance(point.uv, p);
+    if (away <= tolerance) continue;
+    const forward =
+      (point.uv.u - p.u) * (p.u - o.u) + (point.uv.v - p.v) * (p.v - o.v);
+    if (forward >= 0) {
+      peak = index;
+      leftAt = null;
+      continue;
+    }
+    leftAt ??= point.t;
+    if (away > band) {
+      onReversal({ origin, peak, point: index, leftAt });
+      origin = peak;
+      peak = index;
+      leftAt = null;
+    }
+  }
+  return peak;
+}
+
+const involvesRed = (
+  series: readonly UvPoint[],
+  from: number,
+  to: number,
+): boolean => series.slice(from, to + 1).some((point) => point.saturatedRed);
+
+export function redZigzagReversals(
+  series: readonly UvPoint[],
+  band: number,
+  tolerance: number,
+): number[] {
+  const reversals: number[] = [];
+  zigzagUv(series, band, tolerance, ({ origin, point, leftAt }) => {
+    if (involvesRed(series, origin, point)) reversals.push(leftAt);
+  });
+  return reversals;
+}
+
+export function redFlashReversals(
+  series: readonly UvPoint[],
+  onsetBand: number,
+  flashBand: number,
+  tolerance: number,
+): number[] {
+  if (series.length === 0) return [];
+  const turnIndices = [0];
+  const turns: UvPoint[] = [series[0]];
+  const last = zigzagUv(series, onsetBand, tolerance, ({ peak, leftAt }) => {
+    turnIndices.push(peak);
+    turns.push({ ...series[peak], t: leftAt });
+  });
+  if (last !== null) {
+    turnIndices.push(series.length - 1);
+    turns.push({ ...series[last], t: Infinity });
+  }
+  const reversals: number[] = [];
+  zigzagUv(turns, flashBand, 0, ({ origin, peak, point }) => {
+    if (involvesRed(series, turnIndices[origin], turnIndices[point])) {
+      reversals.push(turns[peak].t);
     }
   });
   return reversals;
@@ -445,6 +526,7 @@ export function maxInWindow(
 
 export interface FlashReport {
   worst: { channel: string; count: number };
+  counts: Map<string, number>;
   maxGlow: number;
   luminanceRange: Map<string, { min: number; max: number }>;
   outOfGamut: string[];
@@ -470,41 +552,57 @@ export const WCAG_FLASH_RULE: FlashRule = {
   flash: { luminance: 0.1, red: 0.2, darkerBelow: 0.8 },
 };
 
+export interface CheckerSampleFrame {
+  t: number;
+  samples: ReadonlyMap<string, CheckerSample>;
+}
+
 export function checkFlashes(
   modes: readonly CheckerMode[],
   frames: readonly CheckerFrame[],
   rule: FlashRule,
 ): FlashReport {
-  const series = new Map<
-    string,
-    {
-      luminance: { t: number; value: number; red: boolean }[];
-      red: { t: number; value: number; red: boolean }[];
-    }
-  >();
-  const luminanceRange = new Map<string, { min: number; max: number }>();
   const outOfGamut = new Set<string>();
   let maxGlow = 0;
-  for (const frame of frames) {
+  const rendered = frames.map((frame) => {
     maxGlow = Math.max(maxGlow, frame.glow);
-    const rendered = renderCheckerFrame(
+    const { samples, outOfGamut: missed } = renderCheckerFrame(
       modes,
       frame.hue,
       frame.glow,
       rule.fractions,
     );
-    for (const name of rendered.outOfGamut) outOfGamut.add(name);
-    for (const [name, sample] of rendered.samples) {
+    for (const name of missed) outOfGamut.add(name);
+    return { t: frame.t, samples };
+  });
+  return {
+    ...checkSampleFlashes(rendered, rule),
+    maxGlow,
+    outOfGamut: [...outOfGamut],
+  };
+}
+
+export function checkSampleFlashes(
+  frames: readonly CheckerSampleFrame[],
+  rule: FlashRule,
+): Pick<FlashReport, "worst" | "counts" | "luminanceRange"> {
+  const series = new Map<
+    string,
+    { luminance: SeriesPoint[]; red: UvPoint[] }
+  >();
+  const luminanceRange = new Map<string, { min: number; max: number }>();
+  for (const frame of frames) {
+    for (const [name, sample] of frame.samples) {
       let entry = series.get(name);
       if (!entry) {
         entry = { luminance: [], red: [] };
         series.set(name, entry);
       }
-      entry.luminance.push({ t: frame.t, value: sample.luminance, red: false });
+      entry.luminance.push({ t: frame.t, value: sample.luminance });
       entry.red.push({
         t: frame.t,
-        value: sample.red,
-        red: sample.saturatedRed,
+        uv: sample.uv,
+        saturatedRed: sample.saturatedRed,
       });
       const range = luminanceRange.get(name) ?? {
         min: Infinity,
@@ -517,6 +615,7 @@ export function checkFlashes(
   }
   const flash = rule.flash;
   let worst = { channel: "none", count: 0 };
+  const counts = new Map<string, number>();
   for (const [name, entry] of series) {
     const luminance = flash
       ? flashReversals(
@@ -524,36 +623,25 @@ export function checkFlashes(
           rule.onsetBand,
           flash.luminance,
           rule.extremeTolerance,
-          false,
           (from, to) => Math.min(from, to) < flash.darkerBelow,
         )
-      : zigzagReversals(
-          entry.luminance,
-          rule.onsetBand,
-          rule.extremeTolerance,
-          false,
-        );
+      : zigzagReversals(entry.luminance, rule.onsetBand, rule.extremeTolerance);
     const red = flash
-      ? flashReversals(
+      ? redFlashReversals(
           entry.red,
           rule.onsetBand,
           flash.red,
           rule.extremeTolerance,
-          true,
         )
-      : zigzagReversals(
-          entry.red,
-          rule.onsetBand,
-          rule.extremeTolerance,
-          false,
-        );
+      : redZigzagReversals(entry.red, rule.onsetBand, rule.extremeTolerance);
     for (const [kind, times] of [
       ["luminance", luminance],
       ["red", red],
     ] as const) {
       const count = maxInWindow(times, 1000);
+      counts.set(`${name}/${kind}`, count);
       if (count > worst.count) worst = { channel: `${name}/${kind}`, count };
     }
   }
-  return { worst, maxGlow, luminanceRange, outOfGamut: [...outOfGamut] };
+  return { worst, counts, luminanceRange };
 }

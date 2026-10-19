@@ -3,6 +3,7 @@ import {
   checkFlashes,
   readShippedPromptboxOpacity,
   renderCheckerFrame,
+  strictRule,
   type CheckerFrame,
   type CheckerMode,
 } from "@/test/flash-checker";
@@ -15,18 +16,21 @@ import {
   STRICT_FLASH_RULE,
 } from "@/test/music-motion-support";
 import {
+  chromaticityUv,
   createPaletteRenderer,
   DORCAS_PALETTES,
   isSaturatedRed,
   oklchToRgb,
   RENDER_OPACITY_FRACTIONS,
-  redDistance,
   relativeLuminance,
   type DorcasModePalette,
 } from "./dorcas-colors";
 import {
+  MOTION_DEAD_BAND,
+  MOTION_EXTREME_TOLERANCE,
   MOTION_MAX_GLOW,
   MotionGovernor,
+  redCapablePalette,
   type MotionCandidate,
 } from "./motion-governor";
 
@@ -47,7 +51,11 @@ function drive(
 ): CheckerFrame[] {
   return candidates.map(({ t, ...candidate }) => {
     const out = governor.step(t, candidate);
-    return { t, hue: out.hue ?? candidate.ambientHue, glow: out.glow };
+    return {
+      t,
+      hue: out.hue ?? candidate.ambientHue,
+      glow: candidate.glowShown ? out.glow : 0,
+    };
   });
 }
 
@@ -69,6 +77,8 @@ const square =
         hue: field === "hue" ? (on ? high : low) : 200,
         glow: field === "glow" ? (on ? high : low) : 0.2,
         ambientHue: 350,
+        glowShown: true,
+        reserveGlowDrop: false,
       });
     }
     return out;
@@ -86,10 +96,17 @@ const chaos: Generator = (rand) => {
       hue: rand() < 0.2 ? null : rand() * 720 - 180,
       glow: rand() * 1.2 - 0.1,
       ambientHue,
+      glowShown: true,
+      reserveGlowDrop: false,
     });
   }
   return out;
 };
+
+const DENSE_OPACITY_FRACTIONS = [
+  0.95, 0.8, 0.5, 0.4, 0.25, 0.17, 0.13, 0.075, 0.055, 0.045, 0.035, 0.022,
+  0.015, 0.012,
+];
 
 const both: Generator = (rand) => {
   const hues = square("hue")(rand);
@@ -141,9 +158,11 @@ describe("Dorcas colour inputs", () => {
             expect(
               Math.abs(relativeLuminance(element.rgb) - expected!.luminance),
             ).toBeLessThan(PIPELINE_TOLERANCE);
+            const uv = chromaticityUv(element.rgb);
             expect(
-              Math.abs(redDistance(element.rgb) - expected!.red),
+              Math.hypot(uv.u - expected!.uv.u, uv.v - expected!.uv.v),
             ).toBeLessThan(PIPELINE_TOLERANCE);
+            expect(isSaturatedRed(element.rgb)).toBe(expected!.saturatedRed);
           }
         }
       }
@@ -160,6 +179,24 @@ describe("Dorcas colour inputs", () => {
         expect(sample.saturatedRed).toBe(false);
       }
     }
+  });
+
+  it("never renders a saturated red with the shipped tokens at any opacity", () => {
+    const fractions = Array.from({ length: 40 }, (_, k) => (k + 1) / 40);
+    for (let hue = 0; hue < 360; hue += 1) {
+      const { samples } = renderCheckerFrame(
+        SHIPPED_DORCAS_MODES,
+        hue,
+        MOTION_MAX_GLOW,
+        fractions,
+      );
+      const red = [...samples].filter(([, sample]) => sample.saturatedRed);
+      expect(red.map(([name]) => `${hue}° ${name}`)).toEqual([]);
+    }
+  });
+
+  it("treats the shipped palettes as unable to reach saturated red", () => {
+    expect(DORCAS_PALETTES.some(redCapablePalette)).toBe(false);
   });
 
   it("records the glow's peak and trough luminance over both canvases", () => {
@@ -187,7 +224,15 @@ describe("Dorcas colour inputs", () => {
 describe("MotionGovernor", () => {
   it("passes the first request through with glow clamped to 0.4", () => {
     const governor = new MotionGovernor();
-    expect(governor.step(0, { hue: 400, glow: 0.9, ambientHue: 350 })).toEqual({
+    expect(
+      governor.step(0, {
+        hue: 400,
+        glow: 0.9,
+        ambientHue: 350,
+        glowShown: true,
+        reserveGlowDrop: false,
+      }),
+    ).toEqual({
       hue: 40,
       glow: MOTION_MAX_GLOW,
     });
@@ -197,12 +242,36 @@ describe("MotionGovernor", () => {
   it("allows smooth monotonic motion without holding", () => {
     const governor = new MotionGovernor();
     for (let i = 0; i <= 60; i++) {
+      const hue = 320 + Math.floor(i / 16) * 8;
       const out = governor.step(i * 16, {
-        hue: 320 + i * 0.5,
+        hue,
         glow: i / 150,
         ambientHue: 350,
+        glowShown: true,
+        reserveGlowDrop: false,
       });
-      expect(out).toEqual({ hue: 320 + i * 0.5, glow: i / 150 });
+      expect(out).toEqual({ hue, glow: i / 150 });
+    }
+  });
+
+  it("writes a new hue at most 4 times in any second", () => {
+    const governor = new MotionGovernor();
+    const writes: number[] = [];
+    let previous: number | null = null;
+    for (let i = 0; i <= 250; i++) {
+      const out = governor.step(i * 16, {
+        hue: 320 + i * 0.5,
+        glow: 0,
+        ambientHue: 350,
+        glowShown: true,
+        reserveGlowDrop: false,
+      });
+      if (previous !== null && out.hue !== previous) writes.push(i * 16);
+      previous = out.hue;
+    }
+    expect(writes.length).toBeGreaterThanOrEqual(12);
+    for (let i = 4; i < writes.length; i++) {
+      expect(writes[i] - writes[i - 4]).toBeGreaterThanOrEqual(1000);
     }
   });
 
@@ -215,6 +284,8 @@ describe("MotionGovernor", () => {
           hue: 200,
           glow: i % 2 === 0 ? 0 : 0.4,
           ambientHue: 350,
+          glowShown: true,
+          reserveGlowDrop: false,
         }).glow,
       );
     }
@@ -230,29 +301,42 @@ describe("MotionGovernor", () => {
         hue: 200,
         glow: i % 2 ? 0.4 : 0,
         ambientHue: 350,
+        glowShown: true,
+        reserveGlowDrop: false,
       });
     }
     const held = governor.current!.glow;
     const next = held === 0 ? 0.4 : 0;
     expect(
-      governor.step(1400, { hue: 200, glow: next, ambientHue: 350 }).glow,
+      governor.step(1400, {
+        hue: 200,
+        glow: next,
+        ambientHue: 350,
+        glowShown: true,
+        reserveGlowDrop: false,
+      }).glow,
     ).toBe(next);
   });
 
   it("holds the rendered hue, not the ambient fallback, when ambient moves under a hold", () => {
     const governor = new MotionGovernor();
     const rendered: number[] = [];
-    for (let i = 0; i < 12; i++) {
-      const ambientHue = i < 8 ? 350 : 260;
+    const explicit: boolean[] = [];
+    for (let i = 0; i < 9; i++) {
+      const ambientHue = i < 5 ? 350 : 300;
       const out = governor.step(i * 20, {
-        hue: i % 2 ? null : 260,
+        hue: i < 5 && i % 2 === 0 ? null : 260,
         glow: 0,
         ambientHue,
+        glowShown: true,
+        reserveGlowDrop: false,
       });
       rendered.push(out.hue ?? ambientHue);
+      explicit.push(out.hue !== null);
     }
-    expect(rendered[7]).toBe(350);
-    expect(rendered.slice(8)).toEqual([350, 350, 350, 350]);
+    expect(rendered.slice(0, 5)).toEqual([350, 260, 350, 260, 350]);
+    expect(rendered.slice(5)).toEqual([350, 350, 350, 350]);
+    expect(explicit.slice(5)).toEqual([true, true, true, true]);
   });
 
   for (const [name, generator] of [
@@ -275,8 +359,107 @@ describe("MotionGovernor", () => {
           expect(report.outOfGamut).toEqual([]);
         }
       }
-    });
+    }, 120_000);
   }
+
+  it("keeps 4 reversals a second at an opacity off its grid (chaos seed 72 at 5%)", () => {
+    const frames = drive(new MotionGovernor(), chaos(mulberry32(72)));
+    const report = checkFlashes(
+      SHIPPED_DORCAS_MODES,
+      frames,
+      strictRule(
+        [0.05],
+        MOTION_DEAD_BAND + PIPELINE_TOLERANCE,
+        MOTION_EXTREME_TOLERANCE,
+      ),
+    );
+    expect(report.worst.count, report.worst.channel).toBeLessThanOrEqual(
+      MAX_REVERSALS_PER_SECOND,
+    );
+  });
+
+  it("keeps 4 reversals a second at an opacity off its grid (chaos seed 16 at 70%)", () => {
+    const frames = drive(new MotionGovernor(), chaos(mulberry32(16)));
+    const report = checkFlashes(
+      SHIPPED_DORCAS_MODES,
+      frames,
+      strictRule(
+        [0.7],
+        MOTION_DEAD_BAND + PIPELINE_TOLERANCE,
+        MOTION_EXTREME_TOLERANCE,
+      ),
+    );
+    expect(report.worst.count, report.worst.channel).toBeLessThanOrEqual(
+      MAX_REVERSALS_PER_SECOND,
+    );
+  });
+
+  it("counts a glow that a sheet hides or reveals as a move", () => {
+    const candidates = Array.from({ length: 60 }, (_, i) => ({
+      t: i * 33,
+      hue: 200,
+      glow: MOTION_MAX_GLOW,
+      ambientHue: 350,
+      glowShown: i % 2 === 0,
+      reserveGlowDrop: false,
+    }));
+    for (const { rule, max } of FLASH_RULES) {
+      expect(
+        checkFlashes(
+          SHIPPED_DORCAS_MODES,
+          drive(new MotionGovernor(), candidates),
+          rule,
+        ).worst.count,
+      ).toBeLessThanOrEqual(max);
+    }
+  });
+
+  it("keeps room to hide the glow at any tick while a drop is reserved (seeded)", () => {
+    const worst = (reserveGlowDrop: boolean) => {
+      let count = 0;
+      for (let seed = 1; seed <= 20; seed++) {
+        const rand = mulberry32(seed);
+        const candidates = chaos(rand).map((candidate) => ({
+          ...candidate,
+          glowShown: rand() < 0.85,
+          reserveGlowDrop,
+        }));
+        const frames = drive(new MotionGovernor(), candidates);
+        for (const { rule } of FLASH_RULES) {
+          count = Math.max(
+            count,
+            checkFlashes(SHIPPED_DORCAS_MODES, frames, rule).worst.count,
+          );
+        }
+      }
+      return count;
+    };
+    expect(worst(false)).toBeGreaterThan(MAX_REVERSALS_PER_SECOND);
+    expect(worst(true)).toBeLessThanOrEqual(MAX_REVERSALS_PER_SECOND);
+  }, 120_000);
+
+  it("keeps 4 reversals a second at every opacity, not only the grid (seeded)", () => {
+    const rule = strictRule(
+      DENSE_OPACITY_FRACTIONS,
+      MOTION_DEAD_BAND + PIPELINE_TOLERANCE,
+      MOTION_EXTREME_TOLERANCE,
+    );
+    for (const [name, generator] of [
+      ["glow", square("glow")],
+      ["hue", square("hue")],
+      ["both", both],
+      ["chaos", chaos],
+    ] as const) {
+      for (let seed = 1; seed <= 25; seed++) {
+        const frames = drive(new MotionGovernor(), generator(mulberry32(seed)));
+        const report = checkFlashes(SHIPPED_DORCAS_MODES, frames, rule);
+        expect(
+          report.worst.count,
+          `${name} seed ${seed} ${report.worst.channel}`,
+        ).toBeLessThanOrEqual(MAX_REVERSALS_PER_SECOND);
+      }
+    }
+  }, 120_000);
 
   it("shows the adversarial inputs would flash without the governor", () => {
     const candidates = Array.from({ length: 60 }, (_, i) => ({
@@ -284,6 +467,8 @@ describe("MotionGovernor", () => {
       hue: 200,
       glow: i % 4 < 2 ? 0 : MOTION_MAX_GLOW,
       ambientHue: 350,
+      glowShown: true,
+      reserveGlowDrop: false,
     }));
     const raw = candidates.map(({ t, hue, glow }) => ({ t, hue, glow }));
     for (const { rule, max } of FLASH_RULES) {
@@ -315,6 +500,7 @@ describe("MotionGovernor", () => {
       expect(
         isSaturatedRed(oklchToRgb({ l: 0.628, c: 0.2577, h: 29.23 })),
       ).toBe(true);
+      expect(redCapablePalette(red)).toBe(true);
     });
 
     it("bounds red reversals too", () => {
@@ -330,6 +516,8 @@ describe("MotionGovernor", () => {
             hue: hues[Math.floor(rand() * hues.length)],
             glow: rand() * 0.4,
             ambientHue: 29.23,
+            glowShown: true,
+            reserveGlowDrop: false,
           });
         }
         const unguarded = checkFlashes(
