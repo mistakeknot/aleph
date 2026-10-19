@@ -7,7 +7,10 @@ import {
   setAppKeybindingOverrides,
 } from "../src/index.js";
 import { dropTransferLedgerSchema } from "./helpers/drop-transfer-ledger.js";
-import { dropPluginEnabledFollowsDefaultColumn } from "./helpers/rewind.js";
+import {
+  dropMusicModeColumns,
+  dropPluginEnabledFollowsDefaultColumn,
+} from "./helpers/rewind.js";
 
 const migrationTimestamp = 1790738477751;
 const directions = ["left", "right", "up", "down"] as const;
@@ -44,6 +47,7 @@ function upgradeDatabase(overrides: AppKeybindingOverrides | undefined) {
   migrate(db);
   dropPluginEnabledFollowsDefaultColumn(db);
   dropTransferLedgerSchema(db);
+  dropMusicModeColumns(db);
   db.$client
     .prepare("DELETE FROM __drizzle_migrations WHERE created_at >= ?")
     .run(migrationTimestamp);

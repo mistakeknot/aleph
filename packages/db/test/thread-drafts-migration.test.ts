@@ -10,7 +10,10 @@ import {
   noopNotifier,
 } from "../src/index.js";
 import { dropTransferLedgerSchema } from "./helpers/drop-transfer-ledger.js";
-import { dropPluginEnabledFollowsDefaultColumn } from "./helpers/rewind.js";
+import {
+  dropMusicModeColumns,
+  dropPluginEnabledFollowsDefaultColumn,
+} from "./helpers/rewind.js";
 
 const THREAD_DRAFTS_MIGRATION_TIMESTAMP = 1790477193525;
 const originalMigration = readFileSync(
@@ -75,6 +78,7 @@ it.each([false, true])(
          VALUES ('drafts', 'builtin:drafts', 'builtin', 'builtin', 'drafts', '/tmp/drafts', '0.1.0', 1, 1)`,
       );
       dropTransferLedgerSchema(db);
+      dropMusicModeColumns(db);
       db.$client
         .prepare("DELETE FROM __drizzle_migrations WHERE created_at >= ?")
         .run(THREAD_DRAFTS_MIGRATION_TIMESTAMP);
