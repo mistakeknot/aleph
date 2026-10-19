@@ -4369,8 +4369,6 @@ describe("Account Pool plugin", () => {
       await send("over-threshold");
       now += 61_000;
       await send("after-reset");
-      // The reset response crossed the threshold again, so the first account
-      // is skipped until its window resets once more.
       await send("pinned-first");
       await send("over-threshold");
       expect(attempts).toEqual([
