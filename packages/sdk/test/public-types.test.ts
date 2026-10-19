@@ -386,7 +386,13 @@ type ExpectedSystemKey =
 
 type ExpectedSystemUiPreferencesKey = "list" | "reset" | "set";
 
-type ExpectedThemeKey = "catalog" | "get" | "resolve" | "set";
+type ExpectedThemeKey =
+  | "catalog"
+  | "get"
+  | "musicPairing"
+  | "resolve"
+  | "set"
+  | "setMusicSecret";
 
 type ExpectedThreadSectionsKey = "create" | "delete" | "list" | "update";
 

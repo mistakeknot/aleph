@@ -65,6 +65,12 @@ export function subscribeAppThemeChange(callback: () => void): () => void {
   };
 }
 
+export function getRenderedAppThemeCss(): string {
+  if (typeof document === "undefined") return "";
+  const style = document.getElementById(APP_THEME_STYLE_ELEMENT_ID);
+  return style instanceof HTMLStyleElement ? (style.textContent ?? "") : "";
+}
+
 export function getAppThemeEpoch(): number {
   return appThemeEpoch;
 }

@@ -9,7 +9,10 @@ import {
   upsertHost,
   noopNotifier,
 } from "../src/index.js";
-import { dropPluginEnabledFollowsDefaultColumn } from "./helpers/rewind.js";
+import {
+  dropMusicModeColumns,
+  dropPluginEnabledFollowsDefaultColumn,
+} from "./helpers/rewind.js";
 
 const SIDEBAR_INSTALLATION_DEFAULTS_MIGRATION_TIMESTAMP = 1790009314673;
 
@@ -82,6 +85,7 @@ describe.each(["project", "thread", "preference"] as const)(
           db.$client.exec("DROP TABLE ui_preference_defaults");
           db.$client.exec("DROP TABLE idempotent_thread_operations");
           dropTransferLedgerSchema(db);
+          dropMusicModeColumns(db);
           for (const column of [
             "provisional_fence_epoch",
             "provisional_fence_verified_epoch",

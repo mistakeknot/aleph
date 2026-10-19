@@ -1,4 +1,9 @@
-import type { AppTheme, AppThemeSelection } from "@bb/domain";
+import {
+  themeSelectionFrom,
+  type AppTheme,
+  type AppThemeSelection,
+  type MusicPairing,
+} from "@bb/domain";
 import type { ThemeCatalogResponse } from "@bb/server-contract";
 import { signalRequestArgs, type CreateSdkAreaArgs } from "./common.js";
 
@@ -7,6 +12,8 @@ export type ThemeCatalogResult = ThemeCatalogResponse;
 export type ThemeSetInput = AppThemeSelection;
 export type ThemeSetResult = AppTheme;
 export type ThemeResolveResult = AppTheme;
+export type ThemeSetMusicSecretResult = AppTheme;
+export type ThemeMusicPairingResult = MusicPairing;
 
 export interface ThemeCatalogArgs {
   signal?: AbortSignal;
@@ -21,12 +28,25 @@ export interface ThemeResolveArgs {
   signal?: AbortSignal;
 }
 
+export interface ThemeSetMusicSecretArgs {
+  secret: string | null;
+  signal?: AbortSignal;
+}
+
+export interface ThemeMusicPairingArgs {
+  signal?: AbortSignal;
+}
+
 export interface ThemeArea {
   get(args?: ThemeGetArgs): Promise<ThemeGetResult>;
   catalog(args?: ThemeCatalogArgs): Promise<ThemeCatalogResult>;
   resolve(args: ThemeResolveArgs): Promise<ThemeResolveResult>;
   set(selection: ThemeSetInput): Promise<ThemeSetResult>;
   set(themeId: string): Promise<ThemeSetResult>;
+  setMusicSecret(
+    args: ThemeSetMusicSecretArgs,
+  ): Promise<ThemeSetMusicSecretResult>;
+  musicPairing(args?: ThemeMusicPairingArgs): Promise<ThemeMusicPairingResult>;
 }
 
 export function createThemeArea(args: CreateSdkAreaArgs): ThemeArea {
@@ -64,15 +84,28 @@ export function createThemeArea(args: CreateSdkAreaArgs): ThemeArea {
         ).appearance;
         return transport.readJson(
           transport.api.v1.settings.appearance.$put({
-            json: {
-              themeId: input,
-              faviconColor: appearance.faviconColor,
-            },
+            json: themeSelectionFrom(appearance, input),
           }),
         );
       }
       return transport.readJson(
         transport.api.v1.settings.appearance.$put({ json: input }),
+      );
+    },
+    async setMusicSecret(input) {
+      return transport.readJson(
+        transport.api.v1.settings.appearance["music-secret"].$put(
+          { json: { secret: input.secret } },
+          ...signalRequestArgs(input.signal),
+        ),
+      );
+    },
+    async musicPairing(input = {}) {
+      return transport.readJson(
+        transport.api.v1.settings.appearance["music-pairing"].$get(
+          {},
+          ...signalRequestArgs(input.signal),
+        ),
       );
     },
   };

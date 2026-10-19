@@ -482,6 +482,70 @@ Always end font stacks with a generic fallback such as `sans-serif` or
 `monospace`. The complete theme token reference is in the bb-cli skill's
 `references/theming.md`.
 
+### Dorcas music mode
+
+Music mode lets the Dorcas palette follow the music that Phosphene hears on the
+same Mac. The line, seam, input-outline, and wash hues follow the detected key,
+and a 2px strip on the sidebar's right edge pulses with the beat. Text and ink
+colors never change. Only the Dorcas palette responds; with another palette the
+setting is kept but has no effect. Under `prefers-reduced-motion: reduce` or
+forced colors nothing moves and no connection is opened. A hidden window closes
+its connection and resumes when it becomes visible again. Turning the mode off,
+hiding the window, turning on reduced motion or forced colors, and losing the
+connection all fade back to the plain palette over 2 seconds. While a palette preview is shown the glow is hidden, and it fades back
+in once Dorcas has been shown for a second. Malformed or out-of-order frames are
+dropped without closing the connection. The motion is rate-limited below the
+WCAG 2.3.1 general and red flash thresholds.
+
+The preferences are server-owned appearance fields, so they apply to every
+window and survive theme changes, favicon changes, and server restarts:
+
+| Field         | Values                                    | Default |
+| ------------- | ----------------------------------------- | ------- |
+| `musicMode`   | `true` or `false`                         | `false` |
+| `musicPort`   | Integer from 1024 to 65535                | `47615` |
+| `musicSecret` | 32 bytes in base64, shown as `"set"`/null | null    |
+
+Set them in Settings → Appearance → Music mode, or with the CLI:
+
+```bash
+bb theme set dorcas --music on
+bb theme set dorcas --music-port 47615
+bb theme set dorcas --music-secret-file ~/Downloads/phosphene-secret.txt
+bb theme set dorcas --music-secret-clear
+```
+
+The secret is read from a file so that it never appears in argv or shell
+history. `--music-secret-file` and `--music-secret-clear` cannot be combined.
+`bb theme show` prints `Music secret: set` or `not set`, and `--json` prints
+`"musicSecret": "set"` or `null`; neither prints the value. The SDK writes it
+with `sdk.theme.setMusicSecret({ secret })` and the app reads it with
+`sdk.theme.musicPairing()`. Both routes reject machine credentials. A
+plugin's `bb.sdk.theme` omits both calls, but server plugins run in the server
+process, so this is not an isolation boundary.
+
+Trust model:
+
+- Aleph's allowed app origin is trusted. The server and authorized SDK readers
+  are trusted holders of the secret: it authorizes only a socket to
+  `127.0.0.1` on the Mac running Phosphene, which the server cannot reach. If
+  it leaks, it is usable by any code that runs on that Mac or can relay to its
+  loopback port.
+- The secret travels only over `sdk.theme` writes and the `musicPairing` read.
+  It is redacted from CLI output, the CLI error log, appearance and theme
+  responses, validation errors, and error toasts. Database exports still
+  contain it.
+- Signal frames go straight from Phosphene to the window over
+  `ws://127.0.0.1:<musicPort>/signal/v1`. They are never sent to the server or
+  written to telemetry, diagnostics, logs, or error reports.
+
+Loopback dependencies: neither `apps/app/index.html` nor the server's SPA
+responses set a Content-Security-Policy, so nothing blocks
+`ws://127.0.0.1:*`. Do not add a CSP that blocks it; a future CSP must allow
+`connect-src ws://127.0.0.1:*`. The connection also works only because the
+desktop app installs no permission handler on the app window's session. A
+handler that denies local-network access would silently stop music mode.
+
 ## Keyboard Shortcuts
 
 `Mod+Shift+P` opens the quick palette: type to filter, then run a command with

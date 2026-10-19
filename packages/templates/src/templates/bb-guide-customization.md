@@ -41,6 +41,24 @@ Favicon colors are `default`, `red`, `orange`, `yellow`, `green`, `teal`,
 `blue`, `purple`, and `pink`. Theme and favicon-only commands carry the other
 appearance value forward explicitly.
 
+Dorcas music mode tints Dorcas's lines with the key and pulses a sidebar glow
+with the beat that Phosphene hears on the same Mac. Other palettes ignore it,
+and nothing moves under reduced motion or forced colors.
+
+  bb theme set dorcas --music on|off
+                                 Turn music mode on or off
+  bb theme set dorcas --music-port <n>
+                                 Phosphene's loopback port (1024-65535,
+                                 default 47615)
+  bb theme set dorcas --music-secret-file <path>
+                                 Store the pairing secret read from a file, so
+                                 it never appears in argv or shell history
+  bb theme set dorcas --music-secret-clear
+                                 Remove the stored pairing secret
+
+`bb theme show` prints `Music secret: set` or `not set`, never the value.
+Settings → Appearance → Music mode offers the same controls.
+
 Hovering a palette in Settings → Appearance previews it live in that window
 without saving; `bb theme show <id>` is the CLI counterpart.
 

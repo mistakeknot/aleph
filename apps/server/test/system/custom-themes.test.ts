@@ -8,7 +8,17 @@ import {
   readCustomThemeCss,
   resolveAppTheme,
   resolveThemeRootPath,
+  type AppThemePreferences,
 } from "../../src/services/system/custom-themes.js";
+
+const preferences = (
+  faviconColor: AppThemePreferences["faviconColor"],
+): AppThemePreferences => ({
+  faviconColor,
+  musicMode: false,
+  musicPort: 47_615,
+  musicSecret: null,
+});
 
 async function writeTheme(root: string, name: string, css: string) {
   await mkdir(join(root, name), { recursive: true });
@@ -38,14 +48,29 @@ describe("custom themes service", () => {
   });
 
   it("falls back to default palette but keeps the favicon tint for a missing or unsafe selection", () => {
-    expect(resolveAppTheme(themeRoot, "missing", "pink")).toEqual({
+    expect(resolveAppTheme(themeRoot, "missing", preferences("pink"))).toEqual({
       ...defaultAppTheme,
       faviconColor: "pink",
     });
-    expect(resolveAppTheme(themeRoot, "../escape", "pink")).toEqual({
+    expect(
+      resolveAppTheme(themeRoot, "../escape", preferences("pink")),
+    ).toEqual({
       ...defaultAppTheme,
       faviconColor: "pink",
     });
+  });
+
+  it("keeps the music preferences on built-in, custom and fallback themes", async () => {
+    await writeTheme(themeRoot, "aurora", ":root {}");
+    const music: AppThemePreferences = {
+      faviconColor: "teal",
+      musicMode: true,
+      musicPort: 50_000,
+      musicSecret: "set",
+    };
+    for (const themeId of ["dorcas", "aurora", "missing"]) {
+      expect(resolveAppTheme(themeRoot, themeId, music)).toMatchObject(music);
+    }
   });
 
   it("rejects oversized stylesheets so the broadcast payload stays bounded", async () => {
@@ -55,7 +80,7 @@ describe("custom themes service", () => {
       "a".repeat(CUSTOM_THEME_CSS_MAX_LENGTH + 1),
     );
     expect(readCustomThemeCss(themeRoot, "huge")).toBeNull();
-    expect(resolveAppTheme(themeRoot, "huge", "default")).toEqual(
+    expect(resolveAppTheme(themeRoot, "huge", preferences("default"))).toEqual(
       defaultAppTheme,
     );
   });

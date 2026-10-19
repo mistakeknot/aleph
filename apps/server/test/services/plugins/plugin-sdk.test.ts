@@ -227,6 +227,25 @@ describe("plugin bb.sdk bind gate", () => {
     expect(typeof api.sdk.threads.spawn).toBe("function");
   });
 
+  it("withholds the music pairing secret calls from plugins", async () => {
+    const rootDir = await writePlugin(workDir, {
+      name: "bb-plugin-music",
+      serverSource: `export default function plugin() {}`,
+    });
+    await service.installPath(rootDir);
+    const api = requireApi(service, "music");
+    service.bindSdk({ baseUrl: "http://127.0.0.1:9" });
+
+    expect(Object.keys(api.sdk.theme).sort()).toEqual([
+      "catalog",
+      "get",
+      "resolve",
+      "set",
+    ]);
+    expect("musicPairing" in api.sdk.theme).toBe(false);
+    expect("setMusicSecret" in api.sdk.theme).toBe(false);
+  });
+
   it("rejects unsafe plugin metadata before transport serialization", async () => {
     const rootDir = await writePlugin(workDir, {
       name: "bb-plugin-metadata-boundary",

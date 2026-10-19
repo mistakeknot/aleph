@@ -4,7 +4,10 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { publishedMigrationWhensByTag } from "../src/migration-history.js";
-import { dropPluginEnabledFollowsDefaultColumn } from "./helpers/rewind.js";
+import {
+  dropMusicModeColumns,
+  dropPluginEnabledFollowsDefaultColumn,
+} from "./helpers/rewind.js";
 import { defaultAppSettings } from "@bb/domain";
 import {
   createQueuedThreadMessage,
@@ -783,6 +786,7 @@ function dropProvisionalFenceColumns(db: DbConnection): void {
 function dropIdempotentThreadOperationsTable(db: DbConnection): void {
   db.$client.exec("DROP TABLE IF EXISTS idempotent_thread_operations");
   dropTransferLedgerSchema(db);
+  dropMusicModeColumns(db);
 }
 
 function dropThreadSearchLearnedSelectionsTable(db: DbConnection): void {
@@ -856,6 +860,7 @@ function rewindMachineProvidersMigration(db: DbConnection): void {
   db.$client.exec("DROP TABLE IF EXISTS ui_preference_defaults");
   db.$client.exec("DROP TABLE IF EXISTS idempotent_thread_operations");
   dropTransferLedgerSchema(db);
+  dropMusicModeColumns(db);
   dropThreadSearchLearnedSelectionsTable(db);
   const queuedDispatchOrigin = db.$client
     .prepare<[], TableInfoRow>("PRAGMA table_info(queued_thread_messages)")

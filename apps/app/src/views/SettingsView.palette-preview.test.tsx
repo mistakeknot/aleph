@@ -39,6 +39,7 @@ function renderSection({ compact = false } = {}) {
       onAppearanceThemePreview={onAppearanceThemePreview}
       onCreatePalette={vi.fn()}
       onFaviconColorChange={vi.fn()}
+      onMusicSelectionChange={vi.fn()}
       onThemePreferenceChange={vi.fn()}
       themePreference="system"
     />,

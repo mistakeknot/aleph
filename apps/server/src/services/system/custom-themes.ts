@@ -7,7 +7,6 @@ import {
   isBuiltInThemeId,
   resolveCodeTheme,
   type AppTheme,
-  type FaviconColorPreference,
 } from "@bb/domain";
 import { readCustomThemeCodeTheme } from "./code-themes.js";
 
@@ -55,10 +54,15 @@ export function readCustomThemeCss(
   return css;
 }
 
+export type AppThemePreferences = Pick<
+  AppTheme,
+  "faviconColor" | "musicMode" | "musicPort" | "musicSecret"
+>;
+
 export function resolveAppTheme(
   themeRoot: string,
   themeId: string,
-  faviconColor: FaviconColorPreference,
+  preferences: AppThemePreferences,
 ): AppTheme {
   const declared = isBuiltInThemeId(themeId)
     ? null
@@ -68,7 +72,7 @@ export function resolveAppTheme(
     return {
       themeId,
       customCss: null,
-      faviconColor,
+      ...preferences,
       resolvedCodeTheme,
     };
   }
@@ -76,9 +80,9 @@ export function resolveAppTheme(
   if (customCss === null) {
     return {
       ...defaultAppTheme,
-      faviconColor,
+      ...preferences,
       resolvedCodeTheme: resolveCodeTheme(null, "default"),
     };
   }
-  return { themeId, customCss, faviconColor, resolvedCodeTheme };
+  return { themeId, customCss, ...preferences, resolvedCodeTheme };
 }

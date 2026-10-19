@@ -245,7 +245,11 @@ export {
 export {
   getStoredThemeId,
   getStoredFaviconColor,
+  getStoredMusicPairing,
+  getStoredMusicPreferences,
   setStoredAppearance,
+  setStoredMusicSecret,
+  type StoredMusicPreferences,
 } from "./app-theme.js";
 
 export {

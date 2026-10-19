@@ -1,7 +1,12 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { getStoredFaviconColor, getStoredThemeId } from "@bb/db";
+import {
+  createConnection,
+  getStoredFaviconColor,
+  getStoredMusicPairing,
+  getStoredThemeId,
+} from "@bb/db";
 import {
   appThemeSchema,
   type BuiltInThemeId,
@@ -25,8 +30,27 @@ import {
   themeCatalogResponseSchema,
   systemConfigResponseSchema,
 } from "@bb/server-contract";
+import { createApp } from "../../src/server.js";
 import { readJson } from "../helpers/json.js";
-import { withTestHarness } from "../helpers/test-app.js";
+import { withTestHarness, type TestAppHarness } from "../helpers/test-app.js";
+
+const music = { musicMode: false, musicPort: 47_615 };
+const SECRET = Buffer.alloc(32, 0x5a).toString("base64");
+const OTHER_SECRET = Buffer.alloc(32, 0x33).toString("base64");
+
+function putJson(harness: TestAppHarness, path: string, body: unknown) {
+  return harness.app.request(`/api/v1${path}`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+async function activeAppearance(app: TestAppHarness["app"]) {
+  return systemConfigResponseSchema.parse(
+    await readJson(await app.request("/api/v1/system/config")),
+  ).appearance;
+}
 
 async function writeCustomTheme(
   dataDir: string,
@@ -55,7 +79,11 @@ describe("appearance settings", () => {
       const put = await harness.app.request("/api/v1/settings/appearance", {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ themeId: "nord", faviconColor: "default" }),
+        body: JSON.stringify({
+          themeId: "nord",
+          faviconColor: "default",
+          ...music,
+        }),
       });
       expect(put.status).toBe(200);
       expect(appThemeSchema.parse(await readJson(put))).toEqual(
@@ -78,7 +106,11 @@ describe("appearance settings", () => {
       const put = await harness.app.request("/api/v1/settings/appearance", {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ themeId: "midnight", faviconColor: "teal" }),
+        body: JSON.stringify({
+          themeId: "midnight",
+          faviconColor: "teal",
+          ...music,
+        }),
       });
       expect(put.status).toBe(200);
       expect(appThemeSchema.parse(await readJson(put))).toEqual({
@@ -107,7 +139,11 @@ describe("appearance settings", () => {
       const put = await harness.app.request("/api/v1/settings/appearance", {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ themeId: "default", faviconColor: "teal" }),
+        body: JSON.stringify({
+          themeId: "default",
+          faviconColor: "teal",
+          ...music,
+        }),
       });
       expect(put.status).toBe(200);
       expect(getStoredFaviconColor(harness.db)).toBe("teal");
@@ -127,13 +163,21 @@ describe("appearance settings", () => {
       await harness.app.request("/api/v1/settings/appearance", {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ themeId: "default", faviconColor: "purple" }),
+        body: JSON.stringify({
+          themeId: "default",
+          faviconColor: "purple",
+          ...music,
+        }),
       });
 
       const put = await harness.app.request("/api/v1/settings/appearance", {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ themeId: "nord", faviconColor: "purple" }),
+        body: JSON.stringify({
+          themeId: "nord",
+          faviconColor: "purple",
+          ...music,
+        }),
       });
       expect(appThemeSchema.parse(await readJson(put))).toEqual(
         appearanceForPalette("nord", { faviconColor: "purple" }),
@@ -152,6 +196,7 @@ describe("appearance settings", () => {
           body: JSON.stringify({
             themeId: "default",
             faviconColor: "chartreuse",
+            ...music,
           }),
         },
       );
@@ -253,7 +298,7 @@ describe("appearance settings", () => {
         {
           method: "PUT",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ themeId, faviconColor: "default" }),
+          body: JSON.stringify({ themeId, faviconColor: "default", ...music }),
         },
       );
       expect(response.status).toBe(200);
@@ -271,7 +316,11 @@ describe("appearance settings", () => {
       await harness.app.request("/api/v1/settings/appearance", {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ themeId: "ghost", faviconColor: "default" }),
+        body: JSON.stringify({
+          themeId: "ghost",
+          faviconColor: "default",
+          ...music,
+        }),
       });
 
       await rm(join(harness.config.dataDir, "theme", "ghost"), {
@@ -298,6 +347,7 @@ describe("appearance settings", () => {
           body: JSON.stringify({
             themeId: "nonexistent",
             faviconColor: "default",
+            ...music,
           }),
         },
       );
@@ -312,7 +362,11 @@ describe("appearance settings", () => {
         {
           method: "PUT",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ themeId: "../evil", faviconColor: "default" }),
+          body: JSON.stringify({
+            themeId: "../evil",
+            faviconColor: "default",
+            ...music,
+          }),
         },
       );
       expect(response.status).toBe(400);
@@ -337,7 +391,11 @@ describe("appearance settings", () => {
       const put = await harness.app.request("/api/v1/settings/appearance", {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ themeId: "ocean", faviconColor: "default" }),
+        body: JSON.stringify({
+          themeId: "ocean",
+          faviconColor: "default",
+          ...music,
+        }),
       });
       expect(appThemeSchema.parse(await readJson(put))).toEqual({
         ...defaultAppTheme,
@@ -349,6 +407,218 @@ describe("appearance settings", () => {
           files: { "bb:ocean:dark": { ...darkTheme, name: "bb:ocean:dark" } },
         },
       });
+    });
+  });
+});
+
+describe("music mode settings", () => {
+  it("stores music mode and port with the selection and reports them everywhere", async () => {
+    await withTestHarness(async (harness) => {
+      const put = await putJson(harness, "/settings/appearance", {
+        themeId: "dorcas",
+        faviconColor: "default",
+        musicMode: true,
+        musicPort: 50_123,
+      });
+      expect(put.status).toBe(200);
+      const expected = appearanceForPalette("dorcas", {
+        musicMode: true,
+        musicPort: 50_123,
+      });
+      expect(appThemeSchema.parse(await readJson(put))).toEqual(expected);
+      expect(await activeAppearance(harness.app)).toEqual(expected);
+      const catalog = themeCatalogResponseSchema.parse(
+        await readJson(await harness.app.request("/api/v1/settings/themes")),
+      );
+      expect(catalog.active).toEqual(expected);
+      const preview = appThemeSchema.parse(
+        await readJson(
+          await harness.app.request("/api/v1/settings/themes/nord"),
+        ),
+      );
+      expect(preview).toMatchObject({
+        themeId: "nord",
+        musicMode: true,
+        musicPort: 50_123,
+      });
+    });
+  });
+
+  it("rejects a privileged or out-of-range music port", async () => {
+    await withTestHarness(async (harness) => {
+      for (const musicPort of [80, 1023, 65_536, 47_615.5]) {
+        const response = await putJson(harness, "/settings/appearance", {
+          themeId: "dorcas",
+          faviconColor: "default",
+          musicMode: true,
+          musicPort,
+        });
+        expect(response.status).toBe(400);
+      }
+    });
+  });
+
+  it("keeps the secret and music preferences across theme and favicon changes and a server restart", async () => {
+    await withTestHarness(async (harness) => {
+      await putJson(harness, "/settings/appearance", {
+        themeId: "dorcas",
+        faviconColor: "default",
+        musicMode: true,
+        musicPort: 50_000,
+      });
+      const stored = await putJson(
+        harness,
+        "/settings/appearance/music-secret",
+        {
+          secret: SECRET,
+        },
+      );
+      expect(stored.status).toBe(200);
+      expect(appThemeSchema.parse(await readJson(stored))).toMatchObject({
+        themeId: "dorcas",
+        musicSecret: "set",
+      });
+
+      const themeChange = await putJson(harness, "/settings/appearance", {
+        themeId: "nord",
+        faviconColor: "default",
+        musicMode: true,
+        musicPort: 50_000,
+      });
+      expect(appThemeSchema.parse(await readJson(themeChange))).toMatchObject({
+        themeId: "nord",
+        musicMode: true,
+        musicPort: 50_000,
+        musicSecret: "set",
+      });
+
+      const faviconChange = await putJson(harness, "/settings/appearance", {
+        themeId: "dorcas",
+        faviconColor: "teal",
+        musicMode: true,
+        musicPort: 50_000,
+      });
+      expect(appThemeSchema.parse(await readJson(faviconChange))).toMatchObject(
+        { faviconColor: "teal", musicMode: true, musicSecret: "set" },
+      );
+      expect(getStoredMusicPairing(harness.db)).toEqual({
+        port: 50_000,
+        secret: SECRET,
+      });
+
+      const restarted = createApp({
+        ...harness.deps,
+        db: createConnection(harness.db.$client.serialize()),
+      });
+      try {
+        expect(await activeAppearance(restarted.app)).toEqual(
+          appearanceForPalette("dorcas", {
+            faviconColor: "teal",
+            musicMode: true,
+            musicPort: 50_000,
+            musicSecret: "set",
+          }),
+        );
+        const pairing = await restarted.app.request(
+          "/api/v1/settings/appearance/music-pairing",
+        );
+        expect(await readJson(pairing)).toEqual({
+          port: 50_000,
+          secret: SECRET,
+        });
+      } finally {
+        await restarted.pluginService.stop();
+      }
+    });
+  });
+
+  it("returns the secret only from the pairing read and clears it", async () => {
+    await withTestHarness(async (harness) => {
+      await putJson(harness, "/settings/appearance/music-secret", {
+        secret: SECRET,
+      });
+      const pairing = await harness.app.request(
+        "/api/v1/settings/appearance/music-pairing",
+      );
+      expect(pairing.status).toBe(200);
+      expect(await readJson(pairing)).toEqual({ port: 47_615, secret: SECRET });
+
+      for (const path of [
+        "/api/v1/system/config",
+        "/api/v1/settings/themes",
+        "/api/v1/settings/themes/dorcas",
+      ]) {
+        const text = await (await harness.app.request(path)).text();
+        expect(text).not.toContain(SECRET);
+        expect(text).toContain('"musicSecret":"set"');
+      }
+
+      const cleared = await putJson(
+        harness,
+        "/settings/appearance/music-secret",
+        { secret: null },
+      );
+      expect(appThemeSchema.parse(await readJson(cleared)).musicSecret).toBe(
+        null,
+      );
+      expect(
+        await readJson(
+          await harness.app.request(
+            "/api/v1/settings/appearance/music-pairing",
+          ),
+        ),
+      ).toEqual({ port: 47_615, secret: null });
+    });
+  });
+
+  it("never echoes a rejected secret or a secret sent with the selection", async () => {
+    await withTestHarness(async (harness) => {
+      await putJson(harness, "/settings/appearance/music-secret", {
+        secret: SECRET,
+      });
+      const malformed = `${OTHER_SECRET.slice(0, 40)}!!==`;
+      for (const secret of [malformed, OTHER_SECRET.slice(0, 43), 7]) {
+        const response = await putJson(
+          harness,
+          "/settings/appearance/music-secret",
+          { secret },
+        );
+        expect(response.status).toBe(400);
+        const text = await response.text();
+        expect(text).not.toContain(SECRET);
+        if (typeof secret === "string") expect(text).not.toContain(secret);
+      }
+
+      const smuggled = await putJson(harness, "/settings/appearance", {
+        themeId: "dorcas",
+        faviconColor: "default",
+        musicMode: true,
+        musicPort: 47_615,
+        musicSecret: OTHER_SECRET,
+      });
+      expect(smuggled.status).toBe(200);
+      expect(await smuggled.text()).not.toContain(OTHER_SECRET);
+      expect(getStoredMusicPairing(harness.db).secret).toBe(SECRET);
+    });
+  });
+
+  it("refuses machine credentials on the secret routes", async () => {
+    await withTestHarness(async (harness) => {
+      const headers = {
+        "content-type": "application/json",
+        "x-bb-gate-auth": "machine",
+      };
+      const write = await harness.app.request(
+        "/api/v1/settings/appearance/music-secret",
+        { method: "PUT", headers, body: JSON.stringify({ secret: SECRET }) },
+      );
+      expect(write.status).toBe(403);
+      const read = await harness.app.request(
+        "/api/v1/settings/appearance/music-pairing",
+        { headers },
+      );
+      expect(read.status).toBe(403);
+      expect(getStoredMusicPairing(harness.db).secret).toBe(null);
     });
   });
 });
