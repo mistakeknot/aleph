@@ -34,6 +34,17 @@ describe("parseHullDesignations", () => {
     ).toEqual({ proj_test1: "GSV-T1·◐" });
   });
 
+  it("keys a threadId row by thread and prefers it over projectId on the same row", () => {
+    expect(
+      parseHullDesignations([
+        { threadId: "thr_test1", designation: "GSV-T1·◐", approved: true },
+        { threadId: "thr_test2", projectId: "proj_x", designation: "GSV-T2·◐", approved: true },
+        { threadId: "thr_test3", designation: "GSV-T3·◐", approved: false },
+        { threadId: "", designation: "GSV-T4·◐", approved: true },
+      ]),
+    ).toEqual({ thr_test1: "GSV-T1·◐", thr_test2: "GSV-T2·◐" });
+  });
+
   it("returns empty for a non-array", () => {
     expect(parseHullDesignations({ projectId: "a" })).toEqual({});
   });
