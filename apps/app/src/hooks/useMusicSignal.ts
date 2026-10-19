@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import {
   MUSIC_MODE_THEME_ID,
   musicPairingSchema,
@@ -19,6 +19,8 @@ import {
 import { setMusicSignalStatus } from "@/lib/music/music-signal-status";
 import { webCryptoHmac, webCryptoRandom } from "@/lib/music/webcrypto-hmac";
 import { sdk } from "@/lib/sdk";
+import { getRenderedAppThemeCss, subscribeAppThemeChange } from "@/lib/themes";
+import { dorcasThemeCss } from "@/lib/themes/dorcas";
 
 export const MUSIC_SUPPRESS_QUERIES = [
   "(prefers-reduced-motion: reduce)",
@@ -52,6 +54,7 @@ export function observeMusicEnvironment(
     rest:
       root.hasAttribute(AMBIENT_REST_ATTRIBUTE) ||
       root.hasAttribute(AMBIENT_IDLE_ATTRIBUTE),
+    dorcasSheet: getRenderedAppThemeCss() === dorcasThemeCss,
   });
   let last = read();
   const update = () => {
@@ -59,7 +62,8 @@ export function observeMusicEnvironment(
     if (
       next.visible === last.visible &&
       next.suppressed === last.suppressed &&
-      next.rest === last.rest
+      next.rest === last.rest &&
+      next.dorcasSheet === last.dorcasSheet
     ) {
       return;
     }
@@ -73,9 +77,11 @@ export function observeMusicEnvironment(
   });
   win.document.addEventListener("visibilitychange", update);
   for (const query of queries) query.addEventListener("change", update);
+  const stopThemeChanges = subscribeAppThemeChange(update);
   onChange(last);
   return () => {
     observer.disconnect();
+    stopThemeChanges();
     win.document.removeEventListener("visibilitychange", update);
     for (const query of queries) query.removeEventListener("change", update);
   };
@@ -100,9 +106,21 @@ export function createBrowserMusicSignal(): MusicSignalController {
     setTimer: (callback, ms) => window.setTimeout(callback, ms),
     clearTimer: (id) => window.clearTimeout(id),
     requestFrame: (callback) => window.requestAnimationFrame(callback),
-    cancelFrame: (id) => window.cancelAnimationFrame(id),
     onStatus: setMusicSignalStatus,
   });
+}
+
+let browserMusicSignal: MusicSignalController | null = null;
+
+export function sharedBrowserMusicSignal(): MusicSignalController {
+  if (browserMusicSignal === null) {
+    const controller = createBrowserMusicSignal();
+    observeMusicEnvironment(window, document.documentElement, (environment) =>
+      controller.setEnvironment(environment),
+    );
+    browserMusicSignal = controller;
+  }
+  return browserMusicSignal;
 }
 
 export function useMusicSignal(): void {
@@ -110,39 +128,17 @@ export function useMusicSignal(): void {
   const appearance = data?.appearance;
   const enabled = appearance ? musicSignalEnabled(appearance) : false;
   const revision = appearance ? musicSignalRevision(appearance) : "";
-  const running = useRef<{
-    controller: MusicSignalController;
-    stopObserving: () => void;
-  } | null>(null);
 
   useEffect(() => {
     if (
       !enabled ||
-      running.current !== null ||
       typeof document === "undefined" ||
       typeof WebSocket === "undefined"
     ) {
       return;
     }
-    const controller = createBrowserMusicSignal();
-    const stopObserving = observeMusicEnvironment(
-      window,
-      document.documentElement,
-      (environment) => controller.setEnvironment(environment),
-    );
-    running.current = { controller, stopObserving };
-  }, [enabled]);
-
-  useEffect(() => {
-    running.current?.controller.setEnabled(enabled, revision);
+    const controller = sharedBrowserMusicSignal();
+    controller.setEnabled(true, revision);
+    return () => controller.setEnabled(false, revision);
   }, [enabled, revision]);
-
-  useEffect(
-    () => () => {
-      running.current?.stopObserving();
-      running.current?.controller.dispose();
-      running.current = null;
-    },
-    [],
-  );
 }

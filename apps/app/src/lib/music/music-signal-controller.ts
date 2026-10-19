@@ -9,6 +9,7 @@ import {
   type HmacFn,
   type RandomFn,
 } from "./signal-protocol";
+import { validateSignalFrame } from "./signal-schema";
 
 export const MUSIC_HUE_PROPERTY = "--bb-music-hue";
 export const MUSIC_GLOW_PROPERTY = "--bb-music-glow";
@@ -50,6 +51,7 @@ export interface MusicEnvironment {
   visible: boolean;
   suppressed: boolean;
   rest: boolean;
+  dorcasSheet: boolean;
 }
 
 export interface MusicSignalDeps {
@@ -63,7 +65,6 @@ export interface MusicSignalDeps {
   setTimer(callback: () => void, ms: number): number;
   clearTimer(id: number): void;
   requestFrame(callback: () => void): number;
-  cancelFrame(id: number): void;
   onStatus(status: MusicSignalStatus): void;
   createMotion?: () => MusicMotion;
 }
@@ -108,6 +109,8 @@ interface Connection {
   socket: MusicSocket | null;
   handshake: SignalClientHandshake | null;
   handshakeTimer: number | null;
+  lastSeq: number;
+  lastT: number;
 }
 
 export class MusicSignalController {
@@ -117,6 +120,7 @@ export class MusicSignalController {
     visible: false,
     suppressed: false,
     rest: false,
+    dorcasSheet: true,
   };
   private generation = 0;
   private connection: Connection | null = null;
@@ -126,12 +130,10 @@ export class MusicSignalController {
   private frameId: number | null = null;
   private written = { hue: "", glow: "", attribute: false };
   private status: MusicSignalStatus = { kind: "off" };
-  private disposed = false;
 
   constructor(private readonly deps: MusicSignalDeps) {}
 
   setEnabled(enabled: boolean, revision: string): void {
-    if (this.disposed) return;
     const restart = enabled && this.enabled && revision !== this.revision;
     this.enabled = enabled;
     this.revision = revision;
@@ -140,17 +142,8 @@ export class MusicSignalController {
   }
 
   setEnvironment(environment: MusicEnvironment): void {
-    if (this.disposed) return;
     this.environment = environment;
     this.sync();
-  }
-
-  dispose(): void {
-    if (this.disposed) return;
-    this.disconnect(true);
-    this.resetOutput();
-    this.setStatus({ kind: "off" });
-    this.disposed = true;
   }
 
   private get running(): boolean {
@@ -158,28 +151,21 @@ export class MusicSignalController {
   }
 
   private sync(): void {
-    if (!this.running) {
-      this.disconnect(true);
-      this.resetOutput();
-      this.setStatus(this.enabled ? { kind: "paused" } : { kind: "off" });
-      return;
-    }
-    if (this.enabled) {
-      const motion = this.ensureMotion();
-      motion.setActive(true);
-      motion.setRest(this.environment.rest);
+    if (this.enabled && this.running) {
+      this.ensureMotion();
       if (this.connection === null && this.reconnectTimer === null) {
         this.connect();
       }
     } else {
       this.disconnect(true);
-      this.setStatus({ kind: "off" });
-      if (this.motion) {
-        this.motion.setActive(false);
-        this.motion.setRest(this.environment.rest);
-      }
+      this.setStatus(this.enabled ? { kind: "paused" } : { kind: "off" });
     }
-    if (this.motion) this.ensureFrame();
+    const motion = this.motion;
+    if (motion === null) return;
+    motion.setSuppressed(this.environment.suppressed);
+    motion.setRest(this.environment.rest);
+    motion.setDorcasSheet(this.environment.dorcasSheet);
+    this.ensureFrame();
   }
 
   private ensureMotion(): MusicMotion {
@@ -200,6 +186,8 @@ export class MusicSignalController {
       socket: null,
       handshake: null,
       handshakeTimer: null,
+      lastSeq: -1,
+      lastT: -Infinity,
     };
     this.connection = connection;
     this.setStatus({ kind: "connecting" });
@@ -222,7 +210,6 @@ export class MusicSignalController {
 
   private isCurrent(connection: Connection): boolean {
     return (
-      !this.disposed &&
       this.connection === connection &&
       connection.generation === this.generation
     );
@@ -263,6 +250,10 @@ export class MusicSignalController {
   private receive(connection: Connection, data: unknown): void {
     const handshake = connection.handshake;
     if (handshake === null) return;
+    if (handshake.authed) {
+      this.receiveFrame(connection, data);
+      return;
+    }
     void handshake.onMessage(data).then((action) => {
       if (!this.isCurrent(connection)) return;
       if (action.kind === "close") {
@@ -274,12 +265,32 @@ export class MusicSignalController {
         this.clearHandshakeTimer(connection);
         this.backoffMs = MUSIC_RECONNECT_MIN_MS;
         this.setStatus({ kind: "connected" });
+        this.ensureMotion().setActive(true);
+        this.ensureFrame();
         return;
       }
-      if (!this.motion) return;
-      this.motion.receive(this.deps.now(), action.frame);
-      this.ensureFrame();
+      this.fail(connection, "unexpected frame before authentication");
     });
+  }
+
+  private receiveFrame(connection: Connection, data: unknown): void {
+    if (typeof data !== "string") return;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(data);
+    } catch {
+      return;
+    }
+    const result = validateSignalFrame(parsed);
+    if (!result.ok) return;
+    const frame = result.value;
+    if (frame.seq <= connection.lastSeq || frame.t < connection.lastT) return;
+    connection.lastSeq = frame.seq;
+    connection.lastT = frame.t;
+    const motion = this.motion;
+    if (motion === null) return;
+    motion.receive(this.deps.now(), frame);
+    this.ensureFrame();
   }
 
   private clearHandshakeTimer(connection: Connection): void {
@@ -308,17 +319,20 @@ export class MusicSignalController {
     this.closeConnection(connection, code, reason);
     this.connection = null;
     this.generation++;
+    this.motion?.setActive(false);
+    if (this.motion) this.ensureFrame();
     const delay = this.backoffMs;
     this.backoffMs = Math.min(MUSIC_RECONNECT_MAX_MS, this.backoffMs * 2);
     this.setStatus({ kind: "retrying", reason, retryInMs: delay });
     this.reconnectTimer = this.deps.setTimer(() => {
       this.reconnectTimer = null;
-      if (!this.disposed && this.enabled && this.running) this.connect();
+      if (this.enabled && this.running) this.connect();
     }, delay);
   }
 
   private disconnect(resetBackoff: boolean): void {
     this.generation++;
+    this.motion?.setActive(false);
     if (this.connection) {
       this.closeConnection(
         this.connection,
@@ -335,7 +349,7 @@ export class MusicSignalController {
   }
 
   private ensureFrame(): void {
-    if (this.frameId !== null || this.disposed) return;
+    if (this.frameId !== null) return;
     this.frameId = this.deps.requestFrame(() => this.onFrame());
   }
 
@@ -353,8 +367,9 @@ export class MusicSignalController {
     if (!motion) return;
     const out = motion.tick(this.deps.now(), this.ambientHue());
     if (out.settled) {
-      this.clearOutput();
-      if (!this.enabled) this.motion = null;
+      if (this.written.attribute || this.written.hue || this.written.glow) {
+        this.clearOutput();
+      }
       return;
     }
     this.write(
@@ -389,16 +404,5 @@ export class MusicSignalController {
     root.removeAttribute(MUSIC_ATTRIBUTE);
     if (root.getAttribute("style") === "") root.removeAttribute("style");
     this.written = { hue: "", glow: "", attribute: false };
-  }
-
-  private resetOutput(): void {
-    if (this.frameId !== null) {
-      this.deps.cancelFrame(this.frameId);
-      this.frameId = null;
-    }
-    this.motion = null;
-    if (this.written.attribute || this.written.hue || this.written.glow) {
-      this.clearOutput();
-    }
   }
 }

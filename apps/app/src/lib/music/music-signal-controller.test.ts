@@ -5,6 +5,9 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { onDiagnostic } from "@/lib/diagnostics";
+import { checkFlashes, type CheckerFrame } from "@/test/flash-checker";
+import { FLASH_RULES, SHIPPED_DORCAS_MODES } from "@/test/music-motion-support";
+import { hueArc } from "./dorcas-colors";
 import {
   decodeMusicSecret,
   MUSIC_ATTRIBUTE,
@@ -19,7 +22,12 @@ import {
   type MusicSocket,
   type MusicSocketHandlers,
 } from "./music-signal-controller";
-import { keyHue, MUSIC_FADE_MS, MUSIC_FRESH_MS } from "./music-motion";
+import {
+  ambientHueFor,
+  keyHue,
+  MUSIC_FADE_MS,
+  MUSIC_FRESH_MS,
+} from "./music-motion";
 import {
   challengeMessage,
   CLOSE_HANDSHAKE_TIMEOUT,
@@ -93,10 +101,6 @@ class Clock {
     const id = this.nextId++;
     this.frames.set(id, callback);
     return id;
-  };
-
-  cancelFrame = (id: number) => {
-    this.frames.delete(id);
   };
 
   now = () => this.t;
@@ -225,6 +229,7 @@ const visible: MusicEnvironment = {
   visible: true,
   suppressed: false,
   rest: false,
+  dorcasSheet: true,
 };
 
 interface Harness {
@@ -264,7 +269,6 @@ function harness(): Harness {
     setTimer: clock.setTimer,
     clearTimer: clock.clearTimer,
     requestFrame: clock.requestFrame,
-    cancelFrame: clock.cancelFrame,
     onStatus: (status) => statuses.push(status),
   });
   return h;
@@ -296,6 +300,52 @@ const isPristine = () =>
   hueValue() === "" &&
   glowValue() === "" &&
   !root().hasAttribute(MUSIC_ATTRIBUTE);
+const AMBIENT_HUE = ambientHueFor(0);
+
+function displayed(h: Harness, dorcasSheet: boolean): CheckerFrame {
+  const hue = hueValue();
+  const glow = glowValue();
+  return {
+    t: h.clock.t,
+    hue: hue === "" ? AMBIENT_HUE : Number(hue),
+    glow: dorcasSheet && glow !== "" ? Number(glow) : 0,
+  };
+}
+
+async function record(
+  h: Harness,
+  frames: CheckerFrame[],
+  ms: number,
+  options: {
+    socket?: FakeSocket;
+    over?: Partial<SignalFields>;
+    dorcasSheet?: boolean;
+  } = {},
+): Promise<void> {
+  const end = h.clock.t + ms;
+  let step = 0;
+  while (h.clock.t < end) {
+    if (options.socket && step++ % 2 === 0) options.socket.frame(options.over);
+    await h.clock.advance(FRAME_MS);
+    frames.push(displayed(h, options.dorcasSheet ?? true));
+  }
+}
+
+function expectFlashSafe(frames: readonly CheckerFrame[], label: string) {
+  for (const { name, rule, max } of FLASH_RULES) {
+    const report = checkFlashes(SHIPPED_DORCAS_MODES, frames, rule);
+    expect(
+      report.worst.count,
+      `${label} ${name} ${report.worst.channel}`,
+    ).toBeLessThanOrEqual(max);
+  }
+}
+
+function firstPristineAt(frames: readonly CheckerFrame[], from: number) {
+  return frames.find(
+    (f) => f.t >= from && f.hue === AMBIENT_HUE && f.glow === 0,
+  )?.t;
+}
 
 let baseline = "";
 
@@ -322,7 +372,7 @@ describe("MusicSignalController handshake", () => {
     await stream(socket, h.clock, 3000);
     expect(Number(hueValue())).toBeCloseTo(keyHue(2, "major"), 0);
     expect(root().hasAttribute(MUSIC_ATTRIBUTE)).toBe(true);
-    h.controller.dispose();
+    h.controller.setEnabled(false, "");
   });
 
   it("closes on a wrong server proof without sending a client proof", async () => {
@@ -337,7 +387,7 @@ describe("MusicSignalController handshake", () => {
     });
     await h.clock.advance(3000);
     expect(isPristine()).toBe(true);
-    h.controller.dispose();
+    h.controller.setEnabled(false, "");
   });
 
   it("ignores frames sent before authentication", async () => {
@@ -347,7 +397,7 @@ describe("MusicSignalController handshake", () => {
     expect(socket.closed?.reason).toBe("malformed challenge");
     await h.clock.advance(3000);
     expect(isPristine()).toBe(true);
-    h.controller.dispose();
+    h.controller.setEnabled(false, "");
   });
 
   it("gives up a handshake after its timeout with a script-legal close code", async () => {
@@ -359,35 +409,65 @@ describe("MusicSignalController handshake", () => {
       code: CLOSE_HANDSHAKE_TIMEOUT,
       reason: "handshake timed out",
     });
-    h.controller.dispose();
+    h.controller.setEnabled(false, "");
   });
 });
 
 describe("MusicSignalController frames", () => {
   it.each(vectors.schema.invalid.map((v) => [v.name, v.frame] as const))(
-    "drops the invalid frame vector %s and reconnects",
+    "drops the invalid frame vector %s and keeps the socket open",
     async (_name, frame) => {
       const h = harness();
       const socket = await start(h);
       socket.deliver(JSON.stringify(frame));
       await h.clock.advance(3000);
-      expect(socket.closed).not.toBeNull();
+      expect(socket.closed).toBeNull();
       expect(isPristine()).toBe(true);
-      expect(h.server.sockets.length).toBeGreaterThan(1);
-      h.controller.dispose();
+      expect(h.server.sockets).toHaveLength(1);
+      await stream(socket, h.clock, 3000);
+      expect(Number(hueValue())).toBeCloseTo(keyHue(2, "major"), 0);
+      expect(h.server.sockets).toHaveLength(1);
+      h.controller.setEnabled(false, "");
     },
   );
 
-  it("drops a frame whose seq does not advance", async () => {
+  it.each([
+    ["not json", "not json"],
+    ["binary", new Uint8Array([1, 2, 3])],
+  ] as const)(
+    "drops a %s message after authentication and keeps the socket open",
+    async (_name, data) => {
+      const h = harness();
+      const socket = await start(h);
+      socket.deliver(data);
+      await h.clock.advance(3000);
+      expect(socket.closed).toBeNull();
+      expect(h.server.sockets).toHaveLength(1);
+      await stream(socket, h.clock, 3000);
+      expect(Number(hueValue())).toBeCloseTo(keyHue(2, "major"), 0);
+      h.controller.setEnabled(false, "");
+    },
+  );
+
+  it("drops frames whose seq or t does not advance and takes a later seq after a gap", async () => {
     const h = harness();
     const socket = await start(h);
-    socket.frame({ keyConfidence: 0, energy: 0 });
-    socket.frame({ key: 7 }, 0);
-    await h.clock.advance(3000);
-    expect(socket.closed?.reason).toMatch(/^seq must be 1/);
+    socket.frame({ keyConfidence: 0, energy: 0 }, 10);
+    socket.frame({ key: 7 }, 10);
+    socket.frame({ key: 7 }, 4);
+    socket.deliver(
+      JSON.stringify({ v: 1, seq: 11, t: 100, ...fields({ key: 7 }) }),
+    );
+    await h.clock.advance(1000);
+    expect(socket.closed).toBeNull();
     expect(hueValue()).toBe("");
     expect(glowValue()).toBe("");
-    h.controller.dispose();
+    socket.frame({ key: 7 }, 50);
+    await stream(socket, h.clock, 3000, { key: 7 });
+    expect(socket.closed).toBeNull();
+    expect(h.server.sockets).toHaveLength(1);
+    expect(Number(hueValue())).toBeCloseTo(keyHue(7, "major"), 0);
+    h.controller.setEnabled(false, "");
   });
 
   it("ignores synthetic frames entirely", async () => {
@@ -395,7 +475,7 @@ describe("MusicSignalController frames", () => {
     const socket = await start(h);
     await stream(socket, h.clock, 4000, { synthetic: true, beat: true });
     expect(isPristine()).toBe(true);
-    h.controller.dispose();
+    h.controller.setEnabled(false, "");
   });
 
   it("fades back to today's output exactly once frames go stale", async () => {
@@ -409,7 +489,7 @@ describe("MusicSignalController frames", () => {
     expect(isPristine()).toBe(true);
     expect(root().outerHTML).toBe(baseline);
     expect(h.clock.frames.size).toBe(0);
-    h.controller.dispose();
+    h.controller.setEnabled(false, "");
   });
 });
 
@@ -435,7 +515,7 @@ describe("MusicSignalController lifecycle", () => {
     h.server.last.serverClose();
     await settle();
     expect(h.statuses.at(-1)).toMatchObject({ retryInMs: 1000 });
-    h.controller.dispose();
+    h.controller.setEnabled(false, "");
   });
 
   it("reconnects after the server closes and keeps rendering", async () => {
@@ -449,7 +529,7 @@ describe("MusicSignalController lifecycle", () => {
     expect(second.authed).toBe(true);
     await stream(second, h.clock, 1000);
     expect(isPristine()).toBe(false);
-    h.controller.dispose();
+    h.controller.setEnabled(false, "");
   });
 
   it("retries when the pairing cannot be loaded and reloads it each attempt", async () => {
@@ -467,7 +547,7 @@ describe("MusicSignalController lifecycle", () => {
     await h.clock.advance(MUSIC_RECONNECT_MIN_MS + FRAME_MS);
     expect(h.loads).toBe(2);
     expect(h.server.last.url).toBe("ws://127.0.0.1:50000/signal/v1");
-    h.controller.dispose();
+    h.controller.setEnabled(false, "");
   });
 
   it("reconnects at once when the pairing revision changes", async () => {
@@ -478,7 +558,7 @@ describe("MusicSignalController lifecycle", () => {
     await h.clock.advance(FRAME_MS);
     expect(first.closed?.code).toBe(1000);
     expect(h.server.last.url).toBe("ws://127.0.0.1:50001/signal/v1");
-    h.controller.dispose();
+    h.controller.setEnabled(false, "");
   });
 
   it("mode off closes the socket, fades, then restores today's output exactly", async () => {
@@ -495,7 +575,7 @@ describe("MusicSignalController lifecycle", () => {
     expect(h.statuses.at(-1)).toEqual({ kind: "off" });
     await h.clock.advance(MUSIC_RECONNECT_MAX_MS * 2);
     expect(h.server.sockets).toHaveLength(1);
-    h.controller.dispose();
+    h.controller.setEnabled(false, "");
   });
 
   it("theme change disables it the same way as mode off", async () => {
@@ -506,42 +586,93 @@ describe("MusicSignalController lifecycle", () => {
     await h.clock.advance(MUSIC_FADE_MS + 500);
     expect(socket.closed?.code).toBe(1000);
     expect(root().outerHTML).toBe(baseline);
-    h.controller.dispose();
+    h.controller.setEnabled(false, "");
   });
 
-  it("a hidden window disconnects and clears output, then reconnects when visible", async () => {
+  it("a hidden window disconnects and fades over 2 s, then reconnects when visible", async () => {
     const h = harness();
     const socket = await start(h);
     await stream(socket, h.clock, 3000);
     h.controller.setEnvironment({ ...visible, visible: false });
     expect(socket.closed?.code).toBe(1000);
-    expect(root().outerHTML).toBe(baseline);
+    expect(isPristine()).toBe(false);
     expect(h.statuses.at(-1)).toEqual({ kind: "paused" });
+    await h.clock.advance(MUSIC_FADE_MS - 300);
+    expect(isPristine()).toBe(false);
     await h.clock.advance(MUSIC_RECONNECT_MAX_MS);
+    expect(root().outerHTML).toBe(baseline);
     expect(h.server.sockets).toHaveLength(1);
     h.controller.setEnvironment(visible);
     await h.clock.advance(FRAME_MS);
     expect(h.server.sockets).toHaveLength(2);
     expect(h.server.last.authed).toBe(true);
-    h.controller.dispose();
+    h.controller.setEnabled(false, "");
   });
 
-  it("unmount closes everything immediately and leaves no timers", async () => {
+  it("unmount closes the socket at once but fades the output over 2 s", async () => {
     const h = harness();
     const socket = await start(h);
     await stream(socket, h.clock, 3000, { beat: true });
-    h.controller.dispose();
+    h.controller.setEnabled(false, "");
     expect(socket.closed?.code).toBe(1000);
+    expect(isPristine()).toBe(false);
+    socket.frame();
+    await h.clock.advance(MUSIC_FADE_MS - 300);
+    expect(isPristine()).toBe(false);
+    await h.clock.advance(1000);
     expect(root().outerHTML).toBe(baseline);
     expect(h.clock.timers.size).toBe(0);
     expect(h.clock.frames.size).toBe(0);
-    socket.frame();
-    h.controller.setEnabled(true, "47615:set");
-    h.controller.setEnvironment(visible);
-    await h.clock.advance(3000);
-    expect(root().outerHTML).toBe(baseline);
+    await h.clock.advance(MUSIC_RECONNECT_MAX_MS);
     expect(h.server.sockets).toHaveLength(1);
   });
+
+  it("starts fading home the moment the server closes", async () => {
+    const h = harness();
+    const socket = await start(h);
+    await stream(socket, h.clock, 3000);
+    const before = Math.abs(hueArc(AMBIENT_HUE, Number(hueValue())));
+    expect(before).toBeGreaterThan(30);
+    socket.serverClose();
+    await h.clock.advance(MUSIC_RECONNECT_MIN_MS - 100);
+    const after = Math.abs(hueArc(AMBIENT_HUE, Number(hueValue())));
+    expect(after).toBeLessThan(before * 0.75);
+    expect(h.statuses.at(-1)).toMatchObject({ kind: "retrying" });
+    h.controller.setEnabled(false, "");
+  });
+
+  const lifecycle = {
+    hide: (h: Harness) =>
+      h.controller.setEnvironment({ ...visible, visible: false }),
+    suppress: (h: Harness) =>
+      h.controller.setEnvironment({ ...visible, suppressed: true }),
+    disable: (h: Harness) => h.controller.setEnabled(false, "47615:set"),
+    close: (h: Harness) => h.server.last.serverClose(),
+  };
+
+  it.each(
+    Object.keys(lifecycle).flatMap((name) =>
+      [0, 64, 160, 320].map((offset) => [name, offset] as const),
+    ),
+  )(
+    "%s %i ms after a beat fades for at least 2 s within the flash budget",
+    async (name, offset) => {
+      const h = harness();
+      const socket = await start(h);
+      const frames: CheckerFrame[] = [];
+      await record(h, frames, 3000, { socket, over: { energy: 1 } });
+      socket.frame({ energy: 1, beat: true });
+      await record(h, frames, offset, { socket, over: { energy: 1 } });
+      const at = h.clock.t;
+      lifecycle[name as keyof typeof lifecycle](h);
+      await record(h, frames, MUSIC_FADE_MS + 1000);
+      expect(firstPristineAt(frames, at)).toBeGreaterThanOrEqual(
+        at + MUSIC_FADE_MS - 300,
+      );
+      expectFlashSafe(frames, `${name} ${offset}`);
+      h.controller.setEnabled(false, "");
+    },
+  );
 
   it("a frame racing a disconnect is not applied", async () => {
     const h = harness();
@@ -550,7 +681,7 @@ describe("MusicSignalController lifecycle", () => {
     h.controller.setEnabled(false, "47615:set");
     await h.clock.advance(3000);
     expect(root().outerHTML).toBe(baseline);
-    h.controller.dispose();
+    h.controller.setEnabled(false, "");
   });
 });
 
@@ -562,19 +693,21 @@ describe("MusicSignalController accessibility and rest", () => {
     await h.clock.advance(5000);
     expect(h.server.sockets).toHaveLength(0);
     expect(root().outerHTML).toBe(baseline);
-    h.controller.dispose();
+    h.controller.setEnabled(false, "");
   });
 
-  it("clears output at once when suppression turns on mid-stream", async () => {
+  it("fades home over 2 s when suppression turns on mid-stream", async () => {
     const h = harness();
     const socket = await start(h);
     await stream(socket, h.clock, 3000, { beat: true });
     h.controller.setEnvironment({ ...visible, suppressed: true });
     expect(socket.closed?.code).toBe(1000);
-    expect(root().outerHTML).toBe(baseline);
+    expect(isPristine()).toBe(false);
+    await h.clock.advance(MUSIC_FADE_MS - 300);
+    expect(isPristine()).toBe(false);
     await h.clock.advance(3000);
     expect(root().outerHTML).toBe(baseline);
-    h.controller.dispose();
+    h.controller.setEnabled(false, "");
   });
 
   it("turns the glow off at rest while the hue keeps following the music", async () => {
@@ -590,7 +723,32 @@ describe("MusicSignalController accessibility and rest", () => {
     });
     expect(glowValue()).toBe("");
     expect(Number(hueValue())).toBeCloseTo(keyHue(5, "major"), 0);
-    h.controller.dispose();
+    h.controller.setEnabled(false, "");
+  });
+});
+
+describe("MusicSignalController palette previews", () => {
+  it("keeps a preview toggling every 150 ms against the rest glow within the flash budget", async () => {
+    const h = harness();
+    const socket = await start(h);
+    const frames: CheckerFrame[] = [];
+    await record(h, frames, 6000, { socket, over: { energy: 1 } });
+    expect(Number(glowValue())).toBeCloseTo(0.12, 2);
+    let dorcasSheet = true;
+    for (let i = 0; i < 20; i++) {
+      dorcasSheet = !dorcasSheet;
+      h.controller.setEnvironment({ ...visible, dorcasSheet });
+      await record(h, frames, 150, {
+        socket,
+        over: { energy: 1 },
+        dorcasSheet,
+      });
+    }
+    h.controller.setEnvironment({ ...visible, dorcasSheet: true });
+    await record(h, frames, 4000, { socket, over: { energy: 1 } });
+    expectFlashSafe(frames, "preview toggles");
+    expect(Number(glowValue())).toBeGreaterThan(0.1);
+    h.controller.setEnabled(false, "");
   });
 });
 
@@ -607,12 +765,13 @@ describe("MusicSignalController redaction", () => {
       await stream(socket, h.clock, 2000, { beat: true });
       socket.deliver("not json");
       await h.clock.advance(MUSIC_RECONNECT_MIN_MS + FRAME_MS);
+      expect(h.server.sockets).toHaveLength(1);
       h.server.mode = "wrong-sp";
       h.server.last.serverClose();
       await h.clock.advance(5000);
       h.pairing = "reject";
       await h.clock.advance(10_000);
-      h.controller.dispose();
+      h.controller.setEnabled(false, "");
 
       const secretHex = Buffer.from(SECRET).toString("hex");
       const secretUrl = Buffer.from(SECRET).toString("base64url");
