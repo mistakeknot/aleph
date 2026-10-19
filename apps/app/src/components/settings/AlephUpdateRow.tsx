@@ -10,6 +10,10 @@ import { cn } from "@bb/shared-ui/lib/utils";
 import { BbLogo } from "@/components/ui/bb-logo";
 import { useAlephUpdateStatus } from "@/hooks/queries/aleph-update-queries";
 import {
+  useAlephInstallRequest,
+  type AlephInstallRequestState,
+} from "@/hooks/useAlephInstallRequest";
+import {
   useAlephUpdateRequest,
   type AlephRequestState,
 } from "@/hooks/useAlephUpdateRequest";
@@ -17,6 +21,8 @@ import {
   ALEPH_WRAPPER_LABEL,
   ALEPH_WRAPPER_NOTE,
   alephCapabilityText,
+  alephInstallRequestText,
+  alephRequestButton,
   alephRunText,
   alephSelectionText,
   isAlephWrapperManaged,
@@ -32,10 +38,22 @@ export type AlephRequestView = Pick<
   "failure" | "finished" | "pending" | "runState" | "unknownMessage"
 >;
 
+export type AlephInstallView = Pick<
+  AlephInstallRequestState,
+  "error" | "pending"
+>;
+
+const NO_INSTALL_ACTIVITY: AlephInstallView = { error: null, pending: false };
+
 interface AlephUpdateRowViewProps {
   name: string;
   status: SystemAlephUpdateStatus;
   request: AlephRequestView;
+  install?: AlephInstallView;
+  onRequestInstall?(
+    target: NonNullable<SystemAlephUpdateStatus["target"]>,
+  ): void;
+  onCancelInstall?(nonce: string): void;
   onUpdate(body: AlephUpdateAction): void;
   onRollback(body: Omit<SystemAlephRollbackRequest, "nonce">): void;
   onRecover(body: Omit<SystemAlephRecoverRequest, "nonce">): void;
@@ -50,22 +68,26 @@ function ActionButton({
   children,
   disabled = false,
   onClick,
+  title,
 }: {
   children: ReactNode;
   disabled?: boolean;
   onClick: () => void;
+  title?: string | undefined;
 }) {
   return (
-    <Button
-      type="button"
-      variant="outline"
-      size="sm"
-      disabled={disabled}
-      className="h-6 shrink-0 gap-1.5 px-2 text-xs"
-      onClick={onClick}
-    >
-      {children}
-    </Button>
+    <span title={title} className="inline-flex shrink-0">
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        disabled={disabled}
+        className="h-6 shrink-0 gap-1.5 px-2 text-xs"
+        onClick={onClick}
+      >
+        {children}
+      </Button>
+    </span>
   );
 }
 
@@ -73,6 +95,9 @@ export function AlephUpdateRowView({
   name,
   status,
   request,
+  install = NO_INSTALL_ACTIVITY,
+  onRequestInstall = () => {},
+  onCancelInstall = () => {},
   onUpdate,
   onRollback,
   onRecover,
@@ -83,7 +108,15 @@ export function AlephUpdateRowView({
     ? { label: ALEPH_WRAPPER_LABEL, tone: "neutral" as const }
     : alephSelectionText(status.selection);
   const busy = request.pending !== null;
-  const canAct = status.capability !== "absent" && !busy;
+  const requestButton = alephRequestButton(status);
+  const installRequest = status.installRequest;
+  const installText = alephInstallRequestText(installRequest);
+  const installOpen = installRequest.state === "requested";
+  const installTerminal = installText !== null && !installOpen;
+  const canAct =
+    status.capability !== "absent" &&
+    status.capability !== "request-only" &&
+    !busy;
   const startable = status.capability === "startable";
   const interrupt = status.activeThreadCount > 0;
   const target = status.target;
@@ -173,6 +206,33 @@ export function AlephUpdateRowView({
               {updateLabel}
             </ActionButton>
           ) : null}
+          {requestButton.kind === "request" ? (
+            <ActionButton
+              disabled={requestButton.disabled || install.pending || busy}
+              title={requestButton.reason ?? undefined}
+              onClick={() => {
+                if (status.target !== null) onRequestInstall(status.target);
+              }}
+            >
+              {requestButton.label}
+            </ActionButton>
+          ) : null}
+          {installOpen && installRequest.nonce !== null ? (
+            <ActionButton
+              disabled={install.pending}
+              onClick={() => onCancelInstall(installRequest.nonce ?? "")}
+            >
+              Cancel request
+            </ActionButton>
+          ) : null}
+          {installTerminal && installRequest.nonce !== null ? (
+            <ActionButton
+              disabled={install.pending}
+              onClick={() => onCancelInstall(installRequest.nonce ?? "")}
+            >
+              Dismiss
+            </ActionButton>
+          ) : null}
           {showRecover ? (
             <ActionButton onClick={() => onRecover({ confirm: "recover" })}>
               Recover
@@ -209,6 +269,18 @@ export function AlephUpdateRowView({
         {interrupt && (showUpdate || showRollback) ? (
           <span>{threadsText(status.activeThreadCount)}</span>
         ) : null}
+        {requestButton.kind === "request" && requestButton.reason !== null ? (
+          <span>{requestButton.reason}</span>
+        ) : null}
+        {installText === null ? null : <span>{installText}</span>}
+        {status.lastRun === null ? null : (
+          <span>Last install run: {alephRunText(status.lastRun.state)}</span>
+        )}
+        {install.error === null ? null : (
+          <span className="font-semibold text-destructive">
+            {install.error}
+          </span>
+        )}
         {progress === null ? null : <span>{progress}</span>}
         {finishedText === null ? null : <span>{finishedText}</span>}
         {request.unknownMessage === null ? null : (
@@ -241,11 +313,15 @@ export function AlephUpdateRow({
   status: SystemAlephUpdateStatus;
 }) {
   const request = useAlephUpdateRequest();
+  const install = useAlephInstallRequest();
   return (
     <AlephUpdateRowView
       name={name}
       status={status}
       request={request}
+      install={install}
+      onRequestInstall={install.request}
+      onCancelInstall={install.cancel}
       onUpdate={(body) => request.submit("update", body)}
       onRollback={(body) => request.submit("rollback", body)}
       onRecover={(body) => request.submit("recover", body)}

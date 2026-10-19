@@ -20,7 +20,15 @@ const STATUS: SystemAlephUpdateStatus = {
   capability: "startable",
   detail: null,
   floor: null,
+  installRequest: {
+    manifestDigest: null,
+    nonce: null,
+    requestedAt: null,
+    state: "none",
+    target: null,
+  },
   installed: { aleph: "0.5.3", version: "0.44.0+aleph.0.5.3" },
+  lastRun: null,
   predecessor: null,
   selection: "up-to-date",
   target: null,
@@ -28,10 +36,31 @@ const STATUS: SystemAlephUpdateStatus = {
 
 function fakeService(): AlephUpdateService & {
   started: AlephUpdateOperation[];
+  requested: string[];
+  cancelled: string[];
 } {
   const started: AlephUpdateOperation[] = [];
+  const requested: string[] = [];
+  const cancelled: string[] = [];
+  const record = (nonce: string, state: "requested" | "cancelled") => ({
+    manifestDigest: DIGEST,
+    nonce,
+    requestedAt: "2026-10-10T00:00:00.000Z",
+    state,
+    target: "0.5.4",
+  });
   return {
     started,
+    requested,
+    cancelled,
+    async requestInstall(request) {
+      requested.push(request.nonce);
+      return record(request.nonce, "requested");
+    },
+    async cancelInstall(request) {
+      cancelled.push(request.nonce);
+      return record(request.nonce, "cancelled");
+    },
     async getRun(nonce) {
       return { detail: null, nonce, state: "not-found" };
     },
@@ -185,6 +214,55 @@ describe("aleph update routes", () => {
         expect(response.status).toBe(403);
       }
       expect(service.started).toEqual([]);
+    });
+  });
+
+  it("requests and cancels an install for the owner session", () => {
+    const service = fakeService();
+    return withTestHarness({ alephUpdateService: service }, async (harness) => {
+      const request = await post(
+        harness,
+        "request",
+        { manifestDigest: DIGEST, nonce: NONCE, target: "0.5.4" },
+        OWNER,
+      );
+      const cancel = await post(
+        harness,
+        "request/cancel",
+        { nonce: NONCE },
+        OWNER,
+      );
+      expect(request.status).toBe(200);
+      expect(cancel.status).toBe(200);
+      expect(service.requested).toEqual([NONCE]);
+      expect(service.cancelled).toEqual([NONCE]);
+    });
+  });
+
+  it.each([
+    ["machine credentials", { ...OWNER, "x-bb-gate-auth": "machine" }],
+    ["a request without gate auth", withoutKey(OWNER, "x-bb-gate-auth")],
+    ["a foreign origin", { ...OWNER, origin: "https://elsewhere.example" }],
+    ["a missing update header", withoutKey(OWNER, "x-aleph-update")],
+  ])("refuses install requests from %s", (_label, headers) => {
+    const service = fakeService();
+    return withTestHarness({ alephUpdateService: service }, async (harness) => {
+      const request = await post(
+        harness,
+        "request",
+        { manifestDigest: DIGEST, nonce: NONCE, target: "0.5.4" },
+        headers,
+      );
+      const cancel = await post(
+        harness,
+        "request/cancel",
+        { nonce: NONCE },
+        headers,
+      );
+      expect(request.status).toBe(403);
+      expect(cancel.status).toBe(403);
+      expect(service.requested).toEqual([]);
+      expect(service.cancelled).toEqual([]);
     });
   });
 

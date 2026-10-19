@@ -212,6 +212,21 @@ started from Settings → Updates by the signed-in owner. `bb updates aleph` and
 starts, rolls back, or recovers anything. A build without the Aleph channel
 answers 404, which the CLI reports as an unsupported build.
 
+By default an Aleph server does not start updates itself. Settings → Updates
+shows **Request update**, which records one install request in the server
+database and sends the notice below; the release is then installed through the
+gated release install, never by the server or the browser. The request stays
+open until the installed version matches its target, 24 hours pass, the
+published manifest changes, or the owner cancels it. The row shows the open
+request and, separately, the last install run. The button is disabled with a
+reason when no release is qualified, a migration or recovery is pending, or a
+request is already open. Requests are made and cancelled only from that screen
+by the signed-in owner; the CLI and SDK read them. Set
+`ALEPH_UPDATE_DIRECT_START=allow` to restore the earlier behaviour, where a
+host with the update unit and polkit rule lets the owner start, roll back, and
+recover from the screen; otherwise those calls answer 403
+`aleph_direct_start_disabled`.
+
 `ALEPH_UPDATE_NOTIFY_COMMAND` names the command an Aleph server runs to tell
 you about each update request. Set it to a JSON array of strings with no empty
 element, for example `["/usr/local/bin/notify-admin"]`. The server runs that

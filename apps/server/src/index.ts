@@ -36,6 +36,8 @@ async function main(): Promise<void> {
   const { createAlephUpdateNotifyFromEnv } =
     await import("./services/system/aleph-update-notify-command.js");
   await serverModule.runServer(serverConfig, {
+    alephDirectStart:
+      process.env["ALEPH_UPDATE_DIRECT_START"] === "allow" ? "allow" : "deny",
     alephUpdateNotify: createAlephUpdateNotifyFromEnv(process.env),
   });
 }

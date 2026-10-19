@@ -1483,3 +1483,26 @@ export const idempotentThreadOperations = sqliteTable(
     ),
   ],
 );
+
+export const alephInstallRequests = sqliteTable(
+  "aleph_install_requests",
+  {
+    nonce: text("nonce").primaryKey(),
+    target: text("target").notNull(),
+    manifestDigest: text("manifest_digest").notNull(),
+    state: text("state")
+      .$type<"requested" | "succeeded" | "expired" | "cancelled">()
+      .notNull(),
+    requestedAt: integer("requested_at").notNull(),
+    notifiedAt: integer("notified_at"),
+    dismissed: integer("dismissed", { mode: "boolean" })
+      .notNull()
+      .default(false),
+  },
+  (table) => [
+    uniqueIndex("aleph_install_requests_open_idx")
+      .on(table.state)
+      .where(sql`${table.state} = 'requested'`),
+    index("aleph_install_requests_requested_at_idx").on(table.requestedAt),
+  ],
+);

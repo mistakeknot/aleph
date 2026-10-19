@@ -250,6 +250,14 @@ function printAlephUpdateStatus(status: SystemAlephUpdateStatus): void {
   console.log(`Selection: ${status.selection}`);
   console.log(`Capability: ${status.capability}`);
   console.log(`Running threads: ${String(status.activeThreadCount)}`);
+  const request = status.installRequest;
+  if (request.state !== "none") {
+    const target = request.target ?? "unknown";
+    console.log(`Install request: ${request.state} (target ${target})`);
+  }
+  if (status.lastRun !== null) {
+    console.log(`Last install run: ${status.lastRun.state}`);
+  }
   if (status.detail !== null) console.log(status.detail);
 }
 

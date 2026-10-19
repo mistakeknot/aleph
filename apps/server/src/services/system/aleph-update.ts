@@ -26,10 +26,17 @@ import {
 } from "@bb/config/aleph-update-select";
 import { alephReleaseVersion } from "@bb/config/aleph-version";
 import type {
+  StoredAlephInstallRequest,
+  InsertAlephInstallRequestResult,
+} from "@bb/db";
+import type {
+  AlephInstallRequest,
   AlephUpdateCapability,
   AlephUpdateRelease,
   AlephUpdateRunState,
   AlephUpdateSelection,
+  SystemAlephInstallCancelRequest,
+  SystemAlephInstallRequest,
   SystemAlephUpdateRun,
   SystemAlephUpdateStatus,
 } from "@bb/server-contract";
@@ -95,7 +102,27 @@ export interface AlephUpdateAuditRecord {
     | "command-only"
     | "absent"
     | "denied"
-    | "failed";
+    | "failed"
+    | "direct-start-disabled"
+    | "install-requested"
+    | "install-cancelled";
+}
+
+export type AlephDirectStartPolicy = "allow" | "deny";
+
+export interface AlephInstallRequestStore {
+  get(nonce: string): StoredAlephInstallRequest | undefined;
+  insert(
+    record: StoredAlephInstallRequest,
+    keep: number,
+  ): InsertAlephInstallRequestResult;
+  list(): StoredAlephInstallRequest[];
+  update(
+    nonce: string,
+    patch: Partial<
+      Pick<StoredAlephInstallRequest, "dismissed" | "notifiedAt" | "state">
+    >,
+  ): void;
 }
 
 export type AlephManifestAcceptor = (args: {
@@ -108,8 +135,14 @@ export type AlephManifestAcceptor = (args: {
 }) => Promise<{ manifest: AlephManifest }>;
 
 export interface AlephUpdateService {
+  cancelInstall(
+    request: SystemAlephInstallCancelRequest,
+  ): Promise<AlephInstallRequest>;
   getRun(nonce: string): Promise<SystemAlephUpdateRun>;
   getStatus(): Promise<SystemAlephUpdateStatus>;
+  requestInstall(
+    request: SystemAlephInstallRequest,
+  ): Promise<AlephInstallRequest>;
   start(operation: AlephUpdateOperation): Promise<SystemAlephUpdateRun>;
 }
 
@@ -118,14 +151,19 @@ interface CreateAlephUpdateServiceArgs {
   appVersion: string;
   audit?: (record: AlephUpdateAuditRecord) => void;
   countRunningThreads: () => number;
+  directStart?: AlephDirectStartPolicy;
   logger: ServerLogger;
   notify?: (message: string) => Promise<void>;
   now?: () => number;
   paths: AlephUpdatePaths;
   platform?: NodeJS.Platform;
+  requests?: AlephInstallRequestStore;
   system?: AlephUpdateSystem;
 }
 
+const INSTALL_REQUEST_TTL_MS = 24 * 60 * 60 * 1000;
+const INSTALL_REQUEST_NOTICE_WINDOW_MS = 24 * 60 * 60 * 1000;
+const INSTALL_REQUEST_KEEP = 20;
 const AUDIT_RETRY_MS = 5_000;
 const AUDIT_OUTBOX_LIMIT = 1_000;
 
@@ -138,6 +176,7 @@ interface RootState {
 interface RunRecord {
   counter: number;
   dir: string;
+  nonce: string;
   op: string | null;
   outcome: { code: number; label: string | null } | null;
   started: boolean;
@@ -275,6 +314,7 @@ export function createAlephUpdateService(
   const now = args.now ?? Date.now;
   const platform = args.platform ?? process.platform;
   const { paths } = args;
+  const directStart: AlephDirectStartPolicy = args.directStart ?? "deny";
   const accept: AlephManifestAcceptor =
     args.accept ??
     (({ stateDir, ...rest }) =>
@@ -289,9 +329,10 @@ export function createAlephUpdateService(
     const rule = await system.readFile(paths.polkitRulePath);
     if (declared === null || rule === null) return "command-only";
     const tokens = declared.split(/\s+/u);
-    return tokens.includes(CAPABILITY_MARKER) && tokens.includes(sha256(rule))
-      ? "startable"
-      : "command-only";
+    if (!tokens.includes(CAPABILITY_MARKER) || !tokens.includes(sha256(rule))) {
+      return "command-only";
+    }
+    return directStart === "allow" ? "startable" : "request-only";
   }
 
   async function readRootState(): Promise<RootState> {
@@ -325,6 +366,7 @@ export function createAlephUpdateService(
       records.push({
         counter: Number(match[1]),
         dir,
+        nonce: match[2] as string,
         op: typeof started?.["op"] === "string" ? started["op"] : null,
         outcome:
           typeof outcome?.["code"] === "number"
@@ -349,26 +391,29 @@ export function createAlephUpdateService(
     );
   }
 
+  function runView(run: RunRecord): SystemAlephUpdateRun {
+    const { nonce } = run;
+    if (run.outcome !== null) {
+      return {
+        detail: run.outcome.label,
+        nonce,
+        state: outcomeState(run.outcome.code),
+      };
+    }
+    if (!run.started) return { detail: null, nonce, state: "queued" };
+    return {
+      detail: null,
+      nonce,
+      state: run.op === "recover" ? "recovering" : "running",
+    };
+  }
+
   async function getRun(nonce: string): Promise<SystemAlephUpdateRun> {
     if (!isAlephNonce(nonce)) {
       throw new ApiError(400, "invalid_request", "nonce is not valid");
     }
     const run = (await readRuns(nonce))[0];
-    if (run !== undefined) {
-      if (run.outcome !== null) {
-        return {
-          detail: run.outcome.label,
-          nonce,
-          state: outcomeState(run.outcome.code),
-        };
-      }
-      if (!run.started) return { detail: null, nonce, state: "queued" };
-      return {
-        detail: null,
-        nonce,
-        state: run.op === "recover" ? "recovering" : "running",
-      };
-    }
+    if (run !== undefined) return runView(run);
     const requests = await system.listDir(join(paths.stateDir, "requests"));
     const refused = requests?.find(
       (name) => name.startsWith(`${nonce}.`) && name.endsWith(".refused"),
@@ -479,7 +524,12 @@ export function createAlephUpdateService(
     }
   }
 
-  async function getStatus(): Promise<SystemAlephUpdateStatus> {
+  type SelectionStatus = Omit<
+    SystemAlephUpdateStatus,
+    "installRequest" | "lastRun"
+  >;
+
+  async function readSelection(): Promise<SelectionStatus> {
     const [capability, rootState] = await Promise.all([
       readCapability(),
       readRootState(),
@@ -557,6 +607,195 @@ export function createAlephUpdateService(
               version: release.version,
             },
     };
+  }
+
+  const noInstallRequest: AlephInstallRequest = {
+    manifestDigest: null,
+    nonce: null,
+    requestedAt: null,
+    state: "none",
+    target: null,
+  };
+
+  function requestView(
+    record: StoredAlephInstallRequest | undefined,
+  ): AlephInstallRequest {
+    if (record === undefined) return noInstallRequest;
+    return {
+      manifestDigest: record.manifestDigest,
+      nonce: record.nonce,
+      requestedAt: new Date(record.requestedAt).toISOString(),
+      state: record.state,
+      target: record.target,
+    };
+  }
+
+  function reconcileRequests(status: SelectionStatus): void {
+    const store = args.requests;
+    if (store === undefined) return;
+    for (const record of store.list()) {
+      if (record.state !== "requested") continue;
+      const installedTarget = status.installed?.version === record.target;
+      const expired =
+        now() - record.requestedAt > INSTALL_REQUEST_TTL_MS ||
+        (status.target !== null &&
+          status.target.manifestDigest !== record.manifestDigest);
+      if (installedTarget) {
+        store.update(record.nonce, { state: "succeeded" });
+      } else if (expired) {
+        store.update(record.nonce, { state: "expired" });
+      }
+    }
+  }
+
+  function currentRequest(): AlephInstallRequest {
+    const store = args.requests;
+    if (store === undefined) return noInstallRequest;
+    const visible = store
+      .list()
+      .filter((record) => record.state === "requested" || !record.dismissed);
+    return requestView(visible[0]);
+  }
+
+  async function getStatus(): Promise<SystemAlephUpdateStatus> {
+    const status = await readSelection();
+    reconcileRequests(status);
+    const latest = (await readRuns(null))[0];
+    return {
+      ...status,
+      installRequest: currentRequest(),
+      lastRun: latest === undefined ? null : runView(latest),
+    };
+  }
+
+  let requestLock: Promise<unknown> = Promise.resolve();
+
+  function exclusive<T>(work: () => Promise<T>): Promise<T> {
+    const next = requestLock.then(work, work);
+    requestLock = next.catch(() => undefined);
+    return next;
+  }
+
+  function requireRequestStore(): AlephInstallRequestStore {
+    if (args.requests === undefined) {
+      throw new ApiError(
+        409,
+        "aleph_request_unavailable",
+        "Install requests are not available on this server.",
+      );
+    }
+    return args.requests;
+  }
+
+  function requestAudit(
+    nonce: string,
+    outcome: "install-requested" | "install-cancelled",
+  ): void {
+    deferAudit({ instance: null, nonce, operation: "update", outcome });
+  }
+
+  async function announceRequest(
+    store: AlephInstallRequestStore,
+    record: StoredAlephInstallRequest,
+  ): Promise<void> {
+    const recentlyAnnounced = store
+      .list()
+      .some(
+        (other) =>
+          other.nonce !== record.nonce &&
+          other.manifestDigest === record.manifestDigest &&
+          other.notifiedAt !== null &&
+          now() - other.notifiedAt < INSTALL_REQUEST_NOTICE_WINDOW_MS,
+      );
+    if (recentlyAnnounced || args.notify === undefined) return;
+    try {
+      await args.notify(`Aleph install requested for ${record.target}`);
+      store.update(record.nonce, { notifiedAt: now() });
+    } catch (error) {
+      args.logger.warn({ err: error }, "aleph install request notice failed");
+    }
+  }
+
+  function requestInstall(
+    request: SystemAlephInstallRequest,
+  ): Promise<AlephInstallRequest> {
+    return exclusive(async () => {
+      const store = requireRequestStore();
+      const existing = store.get(request.nonce);
+      if (existing !== undefined) {
+        if (
+          existing.target !== request.target ||
+          existing.manifestDigest !== request.manifestDigest
+        ) {
+          throw new ApiError(
+            409,
+            "aleph_request_nonce_reused",
+            "That request id was already used for a different release.",
+          );
+        }
+        return requestView(existing);
+      }
+      const status = await readSelection();
+      reconcileRequests(status);
+      if (
+        status.selection !== "available" ||
+        status.target === null ||
+        status.target.version !== request.target ||
+        status.target.manifestDigest !== request.manifestDigest
+      ) {
+        throw new ApiError(
+          409,
+          "aleph_request_stale",
+          "That release is no longer the available update. Refresh and try again.",
+        );
+      }
+      const record: StoredAlephInstallRequest = {
+        dismissed: false,
+        manifestDigest: request.manifestDigest,
+        nonce: request.nonce,
+        notifiedAt: null,
+        requestedAt: now(),
+        state: "requested",
+        target: request.target,
+      };
+      const result = store.insert(record, INSTALL_REQUEST_KEEP);
+      if (result.outcome === "open-exists") {
+        throw new ApiError(
+          409,
+          "aleph_request_open",
+          "An install request is already waiting for the gated install.",
+        );
+      }
+      if (result.outcome === "nonce-exists") {
+        throw new ApiError(
+          409,
+          "aleph_request_nonce_reused",
+          "That request id was already used.",
+        );
+      }
+      requestAudit(record.nonce, "install-requested");
+      await announceRequest(store, record);
+      return requestView(store.get(record.nonce));
+    });
+  }
+
+  function cancelInstall(
+    request: SystemAlephInstallCancelRequest,
+  ): Promise<AlephInstallRequest> {
+    return exclusive(async () => {
+      const store = requireRequestStore();
+      const record = store.get(request.nonce);
+      if (record === undefined) {
+        throw new ApiError(404, "not_found", "No such install request.");
+      }
+      if (record.state === "requested") {
+        store.update(record.nonce, { dismissed: true, state: "cancelled" });
+        requestAudit(record.nonce, "install-cancelled");
+      } else {
+        store.update(record.nonce, { dismissed: true });
+      }
+      return currentRequest();
+    });
   }
 
   const outbox: AlephUpdateAuditRecord[] = [];
@@ -720,6 +959,15 @@ export function createAlephUpdateService(
         { details: { command } },
       );
     }
+    if (capability === "request-only") {
+      await record(operation, instance, "direct-start-disabled");
+      throw new ApiError(
+        403,
+        "aleph_direct_start_disabled",
+        "Starting updates from the app is disabled on this server. Request the install instead.",
+        { details: { command } },
+      );
+    }
     await requireAuditWithNotice(
       operation,
       auditEntry(operation, instance, "requested"),
@@ -746,5 +994,5 @@ export function createAlephUpdateService(
     return { detail: null, nonce: operation.nonce, state: "queued" };
   }
 
-  return { getRun, getStatus, start };
+  return { cancelInstall, getRun, getStatus, requestInstall, start };
 }

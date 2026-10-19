@@ -16,10 +16,12 @@ import { hex64, makeManifest, makeRelease } from "../helpers/aleph-manifest.js";
 import { ApiError } from "../../src/errors.js";
 import {
   createAlephUpdateService,
+  type AlephInstallRequestStore,
   type AlephUpdateAuditRecord,
   type AlephUpdateService,
   type AlephUpdateSystem,
 } from "../../src/services/system/aleph-update.js";
+import type { StoredAlephInstallRequest } from "@bb/db";
 import { testLogger } from "../helpers/test-app.js";
 
 const NOW = Date.parse("2026-10-10T00:00:00Z");
@@ -65,7 +67,35 @@ class FakeSystem implements AlephUpdateSystem {
   }
 }
 
+function memoryStore(): AlephInstallRequestStore & {
+  rows: StoredAlephInstallRequest[];
+} {
+  const rows: StoredAlephInstallRequest[] = [];
+  return {
+    rows,
+    get: (nonce) => rows.find((row) => row.nonce === nonce),
+    insert: (record, keep) => {
+      if (rows.some((row) => row.nonce === record.nonce)) {
+        return { outcome: "nonce-exists" };
+      }
+      if (rows.some((row) => row.state === "requested")) {
+        return { outcome: "open-exists" };
+      }
+      rows.unshift({ ...record });
+      rows.splice(keep);
+      return { outcome: "inserted" };
+    },
+    list: () => [...rows].sort((a, b) => b.requestedAt - a.requestedAt),
+    update: (nonce, patch) => {
+      const row = rows.find((entry) => entry.nonce === nonce);
+      if (row) Object.assign(row, patch);
+    },
+  };
+}
+
 interface Rig {
+  requests: ReturnType<typeof memoryStore>;
+  clock: { now: number };
   audit: AlephUpdateAuditRecord[];
   notices: string[];
   service: AlephUpdateService;
@@ -94,6 +124,7 @@ function rig(
     appVersion?: string;
     auditSink?: (record: AlephUpdateAuditRecord) => void;
     capability?: "absent" | "command-only" | "startable";
+    directStart?: "allow" | "deny";
     manifest?: AlephManifest;
     notifySink?: (message: string) => Promise<void>;
     state?: Record<string, unknown> | null;
@@ -138,6 +169,8 @@ function rig(
     }),
   );
   let accepted: AlephManifest | Error = manifest;
+  const requests = memoryStore();
+  const clock = { now: NOW };
   const service = createAlephUpdateService({
     accept: async () => {
       if (accepted instanceof Error) throw accepted;
@@ -152,7 +185,8 @@ function rig(
       (async (message) => {
         notices.push(message);
       }),
-    now: () => NOW,
+    directStart: options.directStart ?? "allow",
+    now: () => clock.now,
     paths: {
       configDir: CONFIG,
       floorStateDir: "/floor",
@@ -161,9 +195,12 @@ function rig(
       stateDir: STATE,
     },
     platform: "linux",
+    requests,
     system,
   });
   return {
+    clock,
+    requests,
     audit,
     notices,
     service,
@@ -599,6 +636,7 @@ describe("aleph update service start", () => {
       appVersion: "0.44.0+aleph.0.5.3",
       audit: () => {},
       countRunningThreads: () => 0,
+      directStart: "allow",
       logger: testLogger,
       notify: async () => {
         throw new Error("notice sink down");
@@ -699,5 +737,170 @@ describe("aleph update service run lookup", () => {
     const { service, system } = rig();
     putRun(system, 10, OTHER_NONCE, {});
     expect((await service.getRun(NONCE)).state).toBe("not-found");
+  });
+});
+
+async function body(
+  service: AlephUpdateService,
+  nonce = NONCE,
+): Promise<{ manifestDigest: string; nonce: string; target: string }> {
+  const target = (await service.getStatus()).target;
+  if (!target) throw new Error("no available target");
+  return {
+    manifestDigest: target.manifestDigest,
+    nonce,
+    target: target.version,
+  };
+}
+
+describe("aleph update direct start policy", () => {
+  it("reports request-only and refuses every start by default", async () => {
+    const { audit, service, system } = rig({ directStart: "deny" });
+    expect((await service.getStatus()).capability).toBe("request-only");
+    await expect(service.start(UPDATE)).rejects.toMatchObject({
+      body: { code: "aleph_direct_start_disabled" },
+      status: 403,
+    });
+    expect(system.started).toEqual([]);
+    expect(audit.map((row) => row.outcome)).toContain("direct-start-disabled");
+  });
+
+  it("reports startable when direct start is allowed", async () => {
+    expect((await rig().service.getStatus()).capability).toBe("startable");
+  });
+});
+
+describe("aleph update install requests", () => {
+  it("records one request and never starts a unit", async () => {
+    const { service, system, requests } = rig({ directStart: "deny" });
+    const status = await service.getStatus();
+    expect(status.selection).toBe("available");
+    const record = await service.requestInstall(await body(service));
+    expect(record.state).toBe("requested");
+    expect(requests.rows).toHaveLength(1);
+    expect(system.started).toEqual([]);
+    expect((await service.getStatus()).installRequest.state).toBe("requested");
+  });
+
+  it("is idempotent on the same nonce and refuses a second open request", async () => {
+    const { service } = rig({ directStart: "deny" });
+    const first = await service.requestInstall(await body(service));
+    const again = await service.requestInstall(await body(service));
+    expect(again).toEqual(first);
+    await expect(
+      service.requestInstall(await body(service, OTHER_NONCE)),
+    ).rejects.toMatchObject({
+      body: { code: "aleph_request_open" },
+      status: 409,
+    });
+  });
+
+  it("refuses a stale digest or target", async () => {
+    const { service, requests } = rig({ directStart: "deny" });
+    await expect(
+      service.requestInstall({
+        ...(await body(service)),
+        manifestDigest: hex64("old"),
+      }),
+    ).rejects.toMatchObject({
+      body: { code: "aleph_request_stale" },
+      status: 409,
+    });
+    await expect(
+      service.requestInstall({ ...(await body(service)), target: "9.9.9" }),
+    ).rejects.toMatchObject({
+      body: { code: "aleph_request_stale" },
+      status: 409,
+    });
+    expect(requests.rows).toEqual([]);
+  });
+
+  it("cancels an open request and frees the slot", async () => {
+    const { service, requests } = rig({ directStart: "deny" });
+    await service.requestInstall(await body(service));
+    const cancelled = await service.cancelInstall({ nonce: NONCE });
+    expect(cancelled.state).toBe("none");
+    expect(requests.rows[0]?.state).toBe("cancelled");
+    expect((await service.getStatus()).installRequest.state).toBe("none");
+    const next = await service.requestInstall(await body(service, OTHER_NONCE));
+    expect(next.state).toBe("requested");
+  });
+
+  it("answers 404 when cancelling an unknown nonce", async () => {
+    const { service } = rig({ directStart: "deny" });
+    await expect(service.cancelInstall({ nonce: NONCE })).rejects.toMatchObject(
+      { status: 404 },
+    );
+  });
+
+  it("expires an open request after 24 hours", async () => {
+    const { service, clock } = rig({ directStart: "deny" });
+    await service.requestInstall(await body(service));
+    clock.now += 24 * 60 * 60 * 1000 + 1;
+    expect((await service.getStatus()).installRequest.state).toBe("expired");
+  });
+
+  it("marks a request succeeded once the target is installed", async () => {
+    const { service, system } = rig({ directStart: "deny" });
+    await service.requestInstall(await body(service));
+    system.files.set(
+      `${STATE}/state.json`,
+      JSON.stringify(
+        installedState({
+          installed: {
+            aleph: "0.5.4",
+            version: "0.44.0+aleph.0.5.4",
+            tree_sha256: hex64("tree"),
+            migrations: [],
+          },
+        }),
+      ),
+    );
+    expect((await service.getStatus()).installRequest.state).toBe("succeeded");
+  });
+
+  it("sends one notice per digest and keeps the request when notify fails", async () => {
+    const { service, notices, requests } = rig({
+      directStart: "deny",
+      notifySink: async () => {
+        throw new Error("hook down");
+      },
+    });
+    const record = await service.requestInstall(await body(service));
+    expect(record.state).toBe("requested");
+    expect(requests.rows).toHaveLength(1);
+    expect(notices).toEqual([]);
+
+    const quiet = rig({ directStart: "deny" });
+    await quiet.service.requestInstall(await body(quiet.service));
+    await quiet.service.cancelInstall({ nonce: NONCE });
+    await quiet.service.requestInstall(await body(quiet.service, OTHER_NONCE));
+    expect(quiet.notices).toHaveLength(1);
+  });
+
+  it("is unavailable without a store", async () => {
+    const made = rig({ directStart: "deny" });
+    const bare = createAlephUpdateService({
+      accept: async () => ({ manifest: makeManifest(), persisted: true }),
+      appVersion: "0.44.0+aleph.0.5.3",
+      countRunningThreads: () => 0,
+      logger: testLogger,
+      paths: {
+        configDir: CONFIG,
+        floorStateDir: "/floor",
+        polkitRulePath: RULE,
+        publishDir: PUBLISH,
+        stateDir: STATE,
+      },
+      platform: "linux",
+      system: made.system,
+    });
+    await expect(
+      bare.requestInstall({
+        manifestDigest: hex64("x"),
+        nonce: NONCE,
+        target: "0.5.4",
+      }),
+    ).rejects.toMatchObject({ body: { code: "aleph_request_unavailable" } });
   });
 });

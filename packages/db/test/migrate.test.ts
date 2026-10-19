@@ -296,6 +296,7 @@ function dropRewindAddedTables(db: DbConnection): void {
   rewindEnvironmentProvidersMigration(db);
   dropThreadConversationOutlinesTable(db);
   db.$client.prepare("DROP TABLE IF EXISTS thread_tabs").run();
+  db.$client.prepare("DROP TABLE IF EXISTS aleph_install_requests").run();
   db.$client.prepare("DROP TABLE IF EXISTS automation_runs").run();
   db.$client.prepare("DROP TABLE IF EXISTS automations").run();
   db.$client.prepare("DROP TABLE IF EXISTS app_theme").run();
