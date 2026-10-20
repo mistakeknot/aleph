@@ -127,7 +127,8 @@ shows archived threads, and `'["active","archived"]'` shows both.
 Thread rows can show a project hull designation badge. The Thread list plugin
 reads `hull-designations.json` from bb's data directory, or the file named by
 `BB_HULL_DESIGNATIONS_FILE`: a JSON array of `{ projectId, designation,
-approved }` rows, of which only approved rows with a designation show. A missing
+approved }` or `{ threadId, designation, approved }` rows; a thread row wins over
+its project's row, and only approved rows with a designation show. A missing
 or malformed file shows no badges; it is fetched when the sidebar mounts, so
 reload the app after editing it.
 
