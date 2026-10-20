@@ -638,8 +638,9 @@ export function createAlephUpdateService(
       const installedTarget = status.installed?.version === record.target;
       const expired =
         now() - record.requestedAt > INSTALL_REQUEST_TTL_MS ||
-        (status.target !== null &&
-          status.target.manifestDigest !== record.manifestDigest);
+        (status.floor !== null &&
+          (status.target === null ||
+            status.target.manifestDigest !== record.manifestDigest));
       if (installedTarget) {
         store.update(record.nonce, { state: "succeeded" });
       } else if (expired) {
@@ -669,6 +670,7 @@ export function createAlephUpdateService(
   }
 
   let requestLock: Promise<unknown> = Promise.resolve();
+  const announcedAt = new Map<string, number>();
 
   function exclusive<T>(work: () => Promise<T>): Promise<T> {
     const next = requestLock.then(work, work);
@@ -698,18 +700,23 @@ export function createAlephUpdateService(
     store: AlephInstallRequestStore,
     record: StoredAlephInstallRequest,
   ): Promise<void> {
-    const recentlyAnnounced = store
-      .list()
-      .some(
-        (other) =>
-          other.nonce !== record.nonce &&
-          other.manifestDigest === record.manifestDigest &&
-          other.notifiedAt !== null &&
-          now() - other.notifiedAt < INSTALL_REQUEST_NOTICE_WINDOW_MS,
-      );
+    const lastNotified = announcedAt.get(record.manifestDigest);
+    const recentlyAnnounced =
+      (lastNotified !== undefined &&
+        now() - lastNotified < INSTALL_REQUEST_NOTICE_WINDOW_MS) ||
+      store
+        .list()
+        .some(
+          (other) =>
+            other.nonce !== record.nonce &&
+            other.manifestDigest === record.manifestDigest &&
+            other.notifiedAt !== null &&
+            now() - other.notifiedAt < INSTALL_REQUEST_NOTICE_WINDOW_MS,
+        );
     if (recentlyAnnounced || args.notify === undefined) return;
     try {
       await args.notify(`Aleph install requested for ${record.target}`);
+      announcedAt.set(record.manifestDigest, now());
       store.update(record.nonce, { notifiedAt: now() });
     } catch (error) {
       args.logger.warn({ err: error }, "aleph install request notice failed");

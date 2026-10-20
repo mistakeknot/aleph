@@ -172,3 +172,20 @@ export function alephInstallRequestText(
       return "The install request was cancelled.";
   }
 }
+
+export function alephInstallRequestLabel(
+  request: AlephInstallRequest,
+): AlephSelectionText | null {
+  switch (request.state) {
+    case "none":
+      return null;
+    case "requested":
+      return { label: "Update requested", tone: "neutral" };
+    case "succeeded":
+      return { label: "Requested update installed", tone: "neutral" };
+    case "expired":
+      return { label: "Update request expired", tone: "neutral" };
+    case "cancelled":
+      return { label: "Update request cancelled", tone: "neutral" };
+  }
+}

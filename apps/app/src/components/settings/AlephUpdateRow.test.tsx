@@ -186,6 +186,51 @@ describe("AlephUpdateRowView", () => {
     expect(onCancelInstall).toHaveBeenCalledWith("m".repeat(32));
   });
 
+  it("shows the last install run", () => {
+    view({
+      status: {
+        ...AVAILABLE,
+        lastRun: { detail: null, nonce: "r".repeat(32), state: "succeeded" },
+      },
+    });
+    expect(screen.getByText(/Last install run: Update succeeded/u)).toBeTruthy();
+  });
+
+  it("puts an open request before the selection in the primary label", () => {
+    view({
+      status: {
+        ...AVAILABLE,
+        capability: "request-only",
+        installRequest: {
+          manifestDigest: DIGEST,
+          nonce: "n".repeat(32),
+          requestedAt: "2026-10-10T00:00:00.000Z",
+          state: "requested",
+          target: "0.5.4",
+        },
+      },
+    });
+    expect(screen.getByText("Update requested")).toBeTruthy();
+  });
+
+  it("keeps recovery ahead of an open request in the primary label", () => {
+    view({
+      status: {
+        ...AVAILABLE,
+        capability: "request-only",
+        selection: "recovery-required",
+        installRequest: {
+          manifestDigest: DIGEST,
+          nonce: "n".repeat(32),
+          requestedAt: "2026-10-10T00:00:00.000Z",
+          state: "requested",
+          target: "0.5.4",
+        },
+      },
+    });
+    expect(screen.queryByText("Update requested")).toBeNull();
+  });
+
   it("shows no action buttons when the helper is absent", () => {
     view({ status: { ...AVAILABLE, capability: "absent" } });
     expect(

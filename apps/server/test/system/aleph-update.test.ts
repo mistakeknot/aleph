@@ -124,7 +124,7 @@ function rig(
     appVersion?: string;
     auditSink?: (record: AlephUpdateAuditRecord) => void;
     capability?: "absent" | "command-only" | "startable";
-    directStart?: "allow" | "deny";
+    directStart?: "allow" | "deny" | "default";
     manifest?: AlephManifest;
     notifySink?: (message: string) => Promise<void>;
     state?: Record<string, unknown> | null;
@@ -185,7 +185,9 @@ function rig(
       (async (message) => {
         notices.push(message);
       }),
-    directStart: options.directStart ?? "allow",
+    ...(options.directStart === "default"
+      ? {}
+      : { directStart: options.directStart ?? "allow" }),
     now: () => clock.now,
     paths: {
       configDir: CONFIG,
@@ -755,12 +757,24 @@ async function body(
 
 describe("aleph update direct start policy", () => {
   it("reports request-only and refuses every start by default", async () => {
-    const { audit, service, system } = rig({ directStart: "deny" });
+    const { audit, service, system } = rig({ directStart: "default" });
     expect((await service.getStatus()).capability).toBe("request-only");
-    await expect(service.start(UPDATE)).rejects.toMatchObject({
-      body: { code: "aleph_direct_start_disabled" },
-      status: 403,
-    });
+    for (const request of [
+      UPDATE,
+      {
+        from: "0.5.4",
+        interrupt: false,
+        nonce: NONCE,
+        operation: "rollback" as const,
+        to: "0.5.3",
+      },
+      { nonce: NONCE, operation: "recover" as const },
+    ]) {
+      await expect(service.start(request)).rejects.toMatchObject({
+        body: { code: "aleph_direct_start_disabled" },
+        status: 403,
+      });
+    }
     expect(system.started).toEqual([]);
     expect(audit.map((row) => row.outcome)).toContain("direct-start-disabled");
   });
@@ -838,6 +852,35 @@ describe("aleph update install requests", () => {
     await service.requestInstall(await body(service));
     clock.now += 24 * 60 * 60 * 1000 + 1;
     expect((await service.getStatus()).installRequest.state).toBe("expired");
+  });
+
+  it("expires an open request when the target is revoked", async () => {
+    const { service, system } = rig({ directStart: "deny" });
+    await service.requestInstall(await body(service));
+    system.files.set(
+      `${PUBLISH}/${GEN}manifest.json`,
+      canonicalJson(
+        makeManifest({
+          sequence: 2,
+          previous_digest: hex64("prior"),
+          releases: [makeRelease("0.5.3"), makeRelease("0.5.4")],
+          revocations: [{ aleph: "0.5.4", reason: "bad", sequence: 2 }],
+        }),
+      ),
+    );
+    const status = await service.getStatus();
+    expect(status.target?.version).not.toBe("0.5.4");
+    expect(status.installRequest.state).toBe("expired");
+  });
+
+  it("sends one notice per digest across many request and cancel cycles", async () => {
+    const { service, notices } = rig({ directStart: "deny" });
+    for (let index = 0; index < 22; index += 1) {
+      const nonce = `${String(index).padStart(2, "0")}${"a".repeat(30)}`;
+      await service.requestInstall(await body(service, nonce));
+      await service.cancelInstall({ nonce });
+    }
+    expect(notices).toHaveLength(1);
   });
 
   it("marks a request succeeded once the target is installed", async () => {
