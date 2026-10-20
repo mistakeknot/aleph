@@ -104,6 +104,27 @@ describe("aleph install requests", () => {
       }
       const rows = listStoredAlephInstallRequests(db);
       expect(rows.some((row) => row.notifiedAt === 1)).toBe(true);
+      expect(rows).toHaveLength(20);
+    } finally {
+      db.$client.close();
+    }
+  });
+
+  it("never exceeds the cap when many digests were notified", () => {
+    const db = open();
+    try {
+      for (let index = 1; index <= 40; index += 1) {
+        insertStoredAlephInstallRequest(
+          db,
+          record(index, {
+            manifestDigest: index.toString(16).padStart(64, "0"),
+            notifiedAt: index,
+            state: "cancelled",
+          }),
+          20,
+        );
+      }
+      expect(listStoredAlephInstallRequests(db)).toHaveLength(20);
     } finally {
       db.$client.close();
     }

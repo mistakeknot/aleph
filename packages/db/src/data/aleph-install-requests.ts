@@ -86,7 +86,9 @@ export function insertStoredAlephInstallRequest(
         newestNoticePerDigest.set(row.manifestDigest, row.nonce);
       }
     }
-    const retained = [...newest, ...newestNoticePerDigest.values()];
+    const retained = [
+      ...new Set([...newestNoticePerDigest.values(), ...newest]),
+    ].slice(0, keep);
     tx.delete(alephInstallRequests)
       .where(notInArray(alephInstallRequests.nonce, retained))
       .run();

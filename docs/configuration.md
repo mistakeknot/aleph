@@ -231,7 +231,7 @@ recover from the screen; otherwise those calls answer 403
 you about each update request. Set it to a JSON array of strings with no empty
 element, for example `["/usr/local/bin/notify-admin"]`. The server runs that
 argv without a shell, writes one line of at most 512 bytes to its stdin
-(`Aleph update request <nonce>: <outcome>`), discards its output, and kills it
+(`Aleph install requested for <target>`, at most once per release in 24 hours), discards its output, and kills it
 after five seconds. The command sees only `PATH`, `HOME`, and `LANG` from the
 server's environment, so pass anything else through the command itself. A
 request refused because its audit row could not be written still sends a

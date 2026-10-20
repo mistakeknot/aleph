@@ -148,8 +148,10 @@ and `bb-server` cannot update themselves. Connected daemons follow the server
 version automatically.
 
 `bb updates aleph` reads an Aleph build's signed update channel and never
-starts, rolls back, or recovers an update; the signed-in owner does that from
-Settings → Updates. A build without the channel answers 404, shown as an
+starts, rolls back, or recovers an update. From Settings → Updates the
+signed-in owner requests an install, which an operator performs through the
+gated release install; `ALEPH_UPDATE_DIRECT_START=allow` restores starting,
+rolling back, and recovering from that screen. A build without the channel answers 404, shown as an
 unsupported build (`{"supported": false}` with `--json`). Set
 `ALEPH_UPDATE_NOTIFY_COMMAND` to a JSON array such as
 `["/usr/local/bin/notify-admin"]` to run a command for each Aleph update
