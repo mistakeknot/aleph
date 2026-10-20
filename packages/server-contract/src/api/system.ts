@@ -540,7 +540,7 @@ export type SystemAlephUpdateRequest = z.infer<
 export const systemAlephInstallRequestSchema = z.object({
   manifestDigest: z.string().regex(/^[0-9a-f]{64}$/u),
   nonce: alephUpdateNonceSchema,
-  target: alephVersionFieldSchema,
+  target: z.string().min(1).max(100),
 });
 export type SystemAlephInstallRequest = z.infer<
   typeof systemAlephInstallRequestSchema

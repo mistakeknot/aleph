@@ -53,6 +53,22 @@ describe("useAlephInstallRequest", () => {
     await waitFor(() => expect(result.current.pending).toBe(false));
   });
 
+  it("uses a distinct nonce for each request", async () => {
+    api.postAlephInstallRequest.mockResolvedValue({});
+    const { result } = renderHook(() => useAlephInstallRequest(), { wrapper });
+    act(() => result.current.request(TARGET));
+    await waitFor(() =>
+      expect(api.postAlephInstallRequest).toHaveBeenCalledTimes(1),
+    );
+    await waitFor(() => expect(result.current.pending).toBe(false));
+    act(() => result.current.request(TARGET));
+    await waitFor(() =>
+      expect(api.postAlephInstallRequest).toHaveBeenCalledTimes(2),
+    );
+    const [first, second] = api.postAlephInstallRequest.mock.calls;
+    expect(first?.[0].nonce).not.toBe(second?.[0].nonce);
+  });
+
   it("surfaces a failure and clears it on the next attempt", async () => {
     api.postAlephInstallRequest.mockRejectedValueOnce(new Error("nope"));
     api.postAlephInstallRequest.mockResolvedValueOnce({});
