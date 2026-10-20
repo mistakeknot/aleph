@@ -7,7 +7,7 @@ The sidebar thread list, as a plugin.
 - Nested child threads, worktree grouping, drag to reorder, pin, nest, and move between sections.
 - Inline rename, keyboard jump shortcuts, and the same status glyphs bb draws elsewhere.
 - Agent provider icons before thread titles, controlled by Organize → Rows → Provider icons.
-- An optional hull designation badge on each thread row, read from `hull-designations.json` in bb's data directory (or the file named by `BB_HULL_DESIGNATIONS_FILE`): a JSON array of `{ projectId, designation, approved }` rows; only approved rows with a designation show, and a missing or invalid file shows no badges.
+- An optional hull designation badge on each thread row, read from `hull-designations.json` in bb's data directory (or the file named by `BB_HULL_DESIGNATIONS_FILE`): a JSON array of `{ projectId, designation, approved }` or `{ threadId, designation, approved }` rows, where a thread row wins over its project row; only approved rows with a designation show, and a missing or invalid file shows no badges.
 
 ## How it works
 

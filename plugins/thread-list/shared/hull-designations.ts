@@ -18,13 +18,17 @@ export function parseHullDesignations(raw: unknown): HullDesignations {
   if (!Array.isArray(raw)) return result;
   for (const row of raw as unknown[]) {
     if (typeof row !== "object" || row === null) continue;
-    const { projectId, designation, approved } = row as Record<string, unknown>;
+    const { projectId, threadId, designation, approved } = row as Record<
+      string,
+      unknown
+    >;
     if (approved !== true) continue;
-    if (typeof projectId !== "string" || projectId.length === 0) continue;
+    const key = typeof threadId === "string" && threadId.length > 0 ? threadId : projectId;
+    if (typeof key !== "string" || key.length === 0) continue;
     if (typeof designation !== "string") continue;
     const trimmed = designation.trim();
     if (trimmed.length === 0) continue;
-    result[projectId] = trimmed;
+    result[key] = trimmed;
   }
   return result;
 }

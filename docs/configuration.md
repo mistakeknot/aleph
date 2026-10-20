@@ -1180,8 +1180,10 @@ The Thread list plugin can show a project's hull designation as a small badge
 before each thread title. It reads a host-local `hull-designations.json` from
 bb's data directory; set `BB_HULL_DESIGNATIONS_FILE` to an absolute path to read
 a different file. The file is a JSON array of `{ "projectId", "designation",
-"approved" }` rows. Only rows with `approved: true` and a non-empty designation
-show, and extra fields are ignored. A missing or malformed file shows no badges.
+"approved" }` rows, or `{ "threadId", "designation", "approved" }` rows to badge
+one thread. A thread's own row wins over its project's row. Only rows with
+`approved: true` and a non-empty designation show, and extra fields are
+ignored. A missing or malformed file shows no badges.
 The server re-reads the file when its modification time or size changes, but the
 sidebar fetches it when it mounts, so reload the app to see edits.
 

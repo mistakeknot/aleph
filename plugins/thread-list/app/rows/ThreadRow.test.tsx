@@ -264,6 +264,27 @@ describe("ThreadRow hull designation badge", () => {
     expect(badge?.textContent).toBe("GSV-T1·◐");
   });
 
+  it("lets a thread row override the project designation and fall back to it", () => {
+    getDefaultStore().set(hullDesignationsAtom, {
+      proj_test1: "GSV-P1·◐",
+      thr_test1: "GSV-T1·◐",
+    });
+    const own = renderThreadRow({
+      thread: createThread({ id: "thr_test1", projectId: "proj_test1" }),
+    });
+    expect(
+      own.container.querySelector("[data-sidebar-thread-hull-designation]")
+        ?.textContent,
+    ).toBe("GSV-T1·◐");
+    const other = renderThreadRow({
+      thread: createThread({ id: "thr_other", projectId: "proj_test1" }),
+    });
+    expect(
+      other.container.querySelector("[data-sidebar-thread-hull-designation]")
+        ?.textContent,
+    ).toBe("GSV-P1·◐");
+  });
+
   it("keeps the badge non-interactive and the row link navigable", () => {
     getDefaultStore().set(hullDesignationsAtom, { proj_test1: "GSV-T1·◐" });
     const thread = createThread({ projectId: "proj_test1" });

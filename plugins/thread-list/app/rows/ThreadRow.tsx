@@ -241,8 +241,15 @@ function renderThreadRowContainer({
   );
 }
 
-function ThreadRowHullBadge({ projectId }: { projectId: string }) {
-  const designation = useAtomValue(hullDesignationsAtom)[projectId];
+function ThreadRowHullBadge({
+  threadId,
+  projectId,
+}: {
+  threadId: string;
+  projectId: string;
+}) {
+  const designations = useAtomValue(hullDesignationsAtom);
+  const designation = designations[threadId] ?? designations[projectId];
   if (designation === undefined) return null;
   return (
     <span
@@ -633,7 +640,7 @@ function ThreadRowComponent({
             providerId={thread.providerId}
             rowLinkRef={rowLinkRef}
           />
-          <ThreadRowHullBadge projectId={thread.projectId} />
+          <ThreadRowHullBadge threadId={thread.id} projectId={thread.projectId} />
           {isEditing ? (
             <span className="pointer-events-auto relative z-10 min-w-0 flex-1 overflow-visible">
               {editor}
