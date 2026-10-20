@@ -779,6 +779,17 @@ describe("aleph update direct start policy", () => {
     expect(audit.map((row) => row.outcome)).toContain("direct-start-disabled");
   });
 
+  it("answers 403 under default deny even without a helper", async () => {
+    for (const capability of ["absent", "command-only"] as const) {
+      const { service, system } = rig({ capability, directStart: "default" });
+      await expect(service.start(UPDATE)).rejects.toMatchObject({
+        body: { code: "aleph_direct_start_disabled" },
+        status: 403,
+      });
+      expect(system.started).toEqual([]);
+    }
+  });
+
   it("reports startable when direct start is allowed", async () => {
     expect((await rig().service.getStatus()).capability).toBe("startable");
   });

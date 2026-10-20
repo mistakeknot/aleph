@@ -716,11 +716,14 @@ export function createAlephUpdateService(
             now() - other.notifiedAt < INSTALL_REQUEST_NOTICE_WINDOW_MS,
         );
     if (recentlyAnnounced || args.notify === undefined) return;
+    const claimedAt = now();
+    store.update(record.nonce, { notifiedAt: claimedAt });
+    announcedAt.set(record.manifestDigest, claimedAt);
     try {
       await args.notify(`Aleph install requested for ${record.target}`);
-      announcedAt.set(record.manifestDigest, now());
-      store.update(record.nonce, { notifiedAt: now() });
     } catch (error) {
+      store.update(record.nonce, { notifiedAt: null });
+      announcedAt.delete(record.manifestDigest);
       args.logger.warn({ err: error }, "aleph install request notice failed");
     }
   }
@@ -943,13 +946,22 @@ export function createAlephUpdateService(
         error instanceof Error ? error.message : "request is not valid",
       );
     }
+    const command = rootCommand(instance);
+    if (directStart !== "allow") {
+      await record(operation, instance, "direct-start-disabled");
+      throw new ApiError(
+        403,
+        "aleph_direct_start_disabled",
+        "Starting updates from the app is disabled on this server. Request the install instead.",
+        { details: { command } },
+      );
+    }
     const existing = await getRun(operation.nonce);
     if (existing.state !== "not-found") {
       await record(operation, instance, "existing");
       return existing;
     }
     const capability = await readCapability();
-    const command = rootCommand(instance);
     if (capability === "absent") {
       await record(operation, instance, "absent");
       throw new ApiError(
@@ -965,15 +977,6 @@ export function createAlephUpdateService(
         409,
         "aleph_update_command_only",
         `This machine cannot start updates from the app. Run as root: ${command}`,
-        { details: { command } },
-      );
-    }
-    if (capability === "request-only") {
-      await record(operation, instance, "direct-start-disabled");
-      throw new ApiError(
-        403,
-        "aleph_direct_start_disabled",
-        "Starting updates from the app is disabled on this server. Request the install instead.",
         { details: { command } },
       );
     }
