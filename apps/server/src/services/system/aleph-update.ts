@@ -722,8 +722,6 @@ export function createAlephUpdateService(
     try {
       await args.notify(`Aleph install requested for ${record.target}`);
     } catch (error) {
-      store.update(record.nonce, { notifiedAt: null });
-      announcedAt.delete(record.manifestDigest);
       args.logger.warn({ err: error }, "aleph install request notice failed");
     }
   }

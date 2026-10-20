@@ -911,9 +911,11 @@ describe("aleph update install requests", () => {
   });
 
   it("sends one notice per digest and keeps the request when notify fails", async () => {
+    let attempts = 0;
     const { service, notices, requests } = rig({
       directStart: "deny",
       notifySink: async () => {
+        attempts += 1;
         throw new Error("hook down");
       },
     });
@@ -921,6 +923,9 @@ describe("aleph update install requests", () => {
     expect(record.state).toBe("requested");
     expect(requests.rows).toHaveLength(1);
     expect(notices).toEqual([]);
+    await service.cancelInstall({ nonce: NONCE });
+    await service.requestInstall(await body(service, OTHER_NONCE));
+    expect(attempts).toBe(1);
 
     const quiet = rig({ directStart: "deny" });
     await quiet.service.requestInstall(await body(quiet.service));
