@@ -87,6 +87,28 @@ describe("aleph install requests", () => {
     }
   });
 
+  it("keeps the newest notified record per digest through pruning", () => {
+    const db = open();
+    try {
+      insertStoredAlephInstallRequest(
+        db,
+        record(1, { notifiedAt: 1, state: "cancelled" }),
+        20,
+      );
+      for (let index = 2; index <= 30; index += 1) {
+        insertStoredAlephInstallRequest(
+          db,
+          record(index, { state: "cancelled" }),
+          20,
+        );
+      }
+      const rows = listStoredAlephInstallRequests(db);
+      expect(rows.some((row) => row.notifiedAt === 1)).toBe(true);
+    } finally {
+      db.$client.close();
+    }
+  });
+
   it("enforces a single open row in the database itself", () => {
     const db = open();
     try {

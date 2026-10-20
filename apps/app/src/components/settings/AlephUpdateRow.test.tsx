@@ -186,6 +186,30 @@ describe("AlephUpdateRowView", () => {
     expect(onCancelInstall).toHaveBeenCalledWith("m".repeat(32));
   });
 
+  it("keeps an open request ahead of the wrapper label", () => {
+    view({
+      status: {
+        ...status({
+          capability: "absent",
+          detail: "No update manifest has been published.",
+          floor: null,
+          selection: "manifest-missing",
+        }),
+        installRequest: {
+          manifestDigest: DIGEST,
+          nonce: "n".repeat(32),
+          requestedAt: "2026-10-10T00:00:00.000Z",
+          state: "requested",
+          target: "0.5.4",
+        },
+      },
+    });
+    expect(screen.getByText("Update requested")).toBeTruthy();
+    expect(
+      screen.queryByText("Installed by the Aleph release wrapper"),
+    ).toBeNull();
+  });
+
   it("shows the last install run", () => {
     view({
       status: {

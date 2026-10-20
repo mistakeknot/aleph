@@ -658,15 +658,17 @@ export function createAlephUpdateService(
     return requestView(visible[0]);
   }
 
-  async function getStatus(): Promise<SystemAlephUpdateStatus> {
-    const status = await readSelection();
-    reconcileRequests(status);
-    const latest = (await readRuns(null))[0];
-    return {
-      ...status,
-      installRequest: currentRequest(),
-      lastRun: latest === undefined ? null : runView(latest),
-    };
+  function getStatus(): Promise<SystemAlephUpdateStatus> {
+    return exclusive(async () => {
+      const status = await readSelection();
+      reconcileRequests(status);
+      const latest = (await readRuns(null))[0];
+      return {
+        ...status,
+        installRequest: currentRequest(),
+        lastRun: latest === undefined ? null : runView(latest),
+      };
+    });
   }
 
   let requestLock: Promise<unknown> = Promise.resolve();

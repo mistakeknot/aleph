@@ -855,21 +855,18 @@ describe("aleph update install requests", () => {
   });
 
   it("expires an open request when the target is revoked", async () => {
-    const { service, system } = rig({ directStart: "deny" });
+    const { service, setAccept } = rig({ directStart: "deny" });
     await service.requestInstall(await body(service));
-    system.files.set(
-      `${PUBLISH}/${GEN}manifest.json`,
-      canonicalJson(
-        makeManifest({
-          sequence: 2,
-          previous_digest: hex64("prior"),
-          releases: [makeRelease("0.5.3"), makeRelease("0.5.4")],
-          revocations: [{ aleph: "0.5.4", reason: "bad", sequence: 2 }],
-        }),
-      ),
+    setAccept(
+      makeManifest({
+        sequence: 2,
+        previous_digest: hex64("prior"),
+        releases: [makeRelease("0.5.3"), makeRelease("0.5.4")],
+        revocations: [{ aleph: "0.5.4", reason: "bad", sequence: 2 }],
+      }),
     );
     const status = await service.getStatus();
-    expect(status.target?.version).not.toBe("0.5.4");
+    expect(status.target).toBeNull();
     expect(status.installRequest.state).toBe("expired");
   });
 

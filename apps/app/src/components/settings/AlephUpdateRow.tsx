@@ -108,10 +108,11 @@ export function AlephUpdateRowView({
   const recovering =
     status.selection === "recovering" ||
     status.selection === "recovery-required";
-  const selection = wrapperManaged
-    ? { label: ALEPH_WRAPPER_LABEL, tone: "neutral" as const }
-    : (recovering ? null : alephInstallRequestLabel(status.installRequest)) ??
-      alephSelectionText(status.selection);
+  const selection =
+    (recovering ? null : alephInstallRequestLabel(status.installRequest)) ??
+    (wrapperManaged
+      ? { label: ALEPH_WRAPPER_LABEL, tone: "neutral" as const }
+      : alephSelectionText(status.selection));
   const busy = request.pending !== null;
   const requestButton = alephRequestButton(status);
   const installRequest = status.installRequest;

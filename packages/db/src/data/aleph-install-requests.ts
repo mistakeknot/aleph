@@ -1,4 +1,4 @@
-import { desc, eq, notInArray } from "drizzle-orm";
+import { desc, eq, isNotNull, notInArray } from "drizzle-orm";
 import type { DbConnection } from "../connection.js";
 import { alephInstallRequests } from "../schema.js";
 
@@ -72,8 +72,23 @@ export function insertStoredAlephInstallRequest(
       .limit(keep)
       .all()
       .map((row) => row.nonce);
+    const newestNoticePerDigest = new Map<string, string>();
+    for (const row of tx
+      .select({
+        manifestDigest: alephInstallRequests.manifestDigest,
+        nonce: alephInstallRequests.nonce,
+      })
+      .from(alephInstallRequests)
+      .where(isNotNull(alephInstallRequests.notifiedAt))
+      .orderBy(desc(alephInstallRequests.notifiedAt))
+      .all()) {
+      if (!newestNoticePerDigest.has(row.manifestDigest)) {
+        newestNoticePerDigest.set(row.manifestDigest, row.nonce);
+      }
+    }
+    const retained = [...newest, ...newestNoticePerDigest.values()];
     tx.delete(alephInstallRequests)
-      .where(notInArray(alephInstallRequests.nonce, newest))
+      .where(notInArray(alephInstallRequests.nonce, retained))
       .run();
     return { outcome: "inserted" as const };
   });
