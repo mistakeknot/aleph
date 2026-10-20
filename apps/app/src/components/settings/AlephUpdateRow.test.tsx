@@ -261,7 +261,9 @@ describe("AlephUpdateRowView", () => {
       screen.getByText("The update helper is not installed on this machine"),
     ).toBeTruthy();
     expect(
-      screen.queryByRole("button", { name: /^(Update to|Roll back|Recover)/u }),
+      screen.queryByRole("button", {
+        name: /^(Update to|Roll back|Recover|Show command)/u,
+      }),
     ).toBeNull();
   });
 

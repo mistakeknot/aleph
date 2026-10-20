@@ -87,7 +87,11 @@ export function insertStoredAlephInstallRequest(
       }
     }
     const retained = [
-      ...new Set([...newestNoticePerDigest.values(), ...newest]),
+      ...new Set([
+        record.nonce,
+        ...newestNoticePerDigest.values(),
+        ...newest,
+      ]),
     ].slice(0, keep);
     tx.delete(alephInstallRequests)
       .where(notInArray(alephInstallRequests.nonce, retained))

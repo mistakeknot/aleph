@@ -125,6 +125,16 @@ describe("aleph install requests", () => {
         );
       }
       expect(listStoredAlephInstallRequests(db)).toHaveLength(20);
+      expect(
+        insertStoredAlephInstallRequest(
+          db,
+          record(41, { manifestDigest: "f".repeat(64) }),
+          20,
+        ),
+      ).toEqual({ outcome: "inserted" });
+      const rows = listStoredAlephInstallRequests(db);
+      expect(rows).toHaveLength(20);
+      expect(rows.some((row) => row.state === "requested")).toBe(true);
     } finally {
       db.$client.close();
     }
