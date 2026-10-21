@@ -1,0 +1,32 @@
+# Reviewed exceptions for the public-repo hygiene guard.
+# Each line exempts one rule in one file whose flagged text comes unchanged from upstream bb sync commits (example hosts, fixtures, generic path conventions).
+# Per-file only: no rule-wide or directory-wide globs.
+
+bb-data-path apps/app/src/hooks/useResolvedLiveFileTarget.test.ts -- unchanged, already-public upstream bb text naming the generic machine-directory or thread-storage convention, not a real path
+bb-data-path apps/mobile/README.md -- unchanged, already-public upstream bb text naming the generic machine-directory or thread-storage convention, not a real path
+bb-data-path apps/web/src/guides/pages/work-from-anywhere.tsx -- unchanged, already-public upstream bb text naming the generic machine-directory or thread-storage convention, not a real path
+bb-data-path docs/configuration.md -- unchanged, already-public upstream bb text naming the generic machine-directory or thread-storage convention, not a real path
+bb-data-path packages/templates/src/templates/bb-guide-machines.md -- unchanged, already-public upstream bb text naming the generic machine-directory or thread-storage convention, not a real path
+bb-data-path packages/templates/src/templates/bb-guide-thread-inspection.md -- unchanged, already-public upstream bb text naming the generic machine-directory or thread-storage convention, not a real path
+bb-data-path plugins/mcp/src/cli-runner.test.ts -- unchanged, already-public upstream bb text naming the generic machine-directory or thread-storage convention, not a real path
+bb-data-path plugins/mcp/src/cli-runner.ts -- unchanged, already-public upstream bb text naming the generic machine-directory or thread-storage convention, not a real path
+bb-host apps/app/src/components/onboarding/Onboarding.stories.tsx -- unchanged, already-public upstream bb fixture or guide text; hostnames are upstream examples or upstream bb own public accounts, none belong to this fork maintainer
+bb-host apps/app/src/components/onboarding/onboarding-model.test.ts -- unchanged, already-public upstream bb fixture or guide text; hostnames are upstream examples or upstream bb own public accounts, none belong to this fork maintainer
+bb-host apps/app/src/components/promptbox/editor/prompt-thread-link-paste.test.ts -- unchanged, already-public upstream bb fixture or guide text; hostnames are upstream examples or upstream bb own public accounts, none belong to this fork maintainer
+bb-host apps/connect/src/relay.test.ts -- unchanged, already-public upstream bb fixture or guide text; hostnames are upstream examples or upstream bb own public accounts, none belong to this fork maintainer
+bb-host apps/connect/src/worker.test.ts -- unchanged, already-public upstream bb fixture or guide text; hostnames are upstream examples or upstream bb own public accounts, none belong to this fork maintainer
+bb-host apps/desktop/test/connect-server-sync.test.ts -- unchanged, already-public upstream bb fixture or guide text; hostnames are upstream examples or upstream bb own public accounts, none belong to this fork maintainer
+bb-host apps/desktop/test/server-list.test.ts -- unchanged, already-public upstream bb fixture or guide text; hostnames are upstream examples or upstream bb own public accounts, none belong to this fork maintainer
+bb-host apps/desktop/test/server-target-persistence.test.ts -- unchanged, already-public upstream bb fixture or guide text; hostnames are upstream examples or upstream bb own public accounts, none belong to this fork maintainer
+bb-host apps/desktop/test/server-target.test.ts -- unchanged, already-public upstream bb fixture or guide text; hostnames are upstream examples or upstream bb own public accounts, none belong to this fork maintainer
+bb-host apps/mobile/src/lib/shell/shell-save-file.test.ts -- unchanged, already-public upstream bb fixture or guide text; hostnames are upstream examples or upstream bb own public accounts, none belong to this fork maintainer
+bb-host apps/web/src/guides/pages/remote-dev-servers.tsx -- unchanged, already-public upstream bb fixture or guide text; hostnames are upstream examples or upstream bb own public accounts, none belong to this fork maintainer
+bb-host apps/web/src/guides/pages/work-from-anywhere.tsx -- unchanged, already-public upstream bb fixture or guide text; hostnames are upstream examples or upstream bb own public accounts, none belong to this fork maintainer
+bb-host apps/web/src/server/oauth.test.ts -- unchanged, already-public upstream bb fixture or guide text; hostnames are upstream examples or upstream bb own public accounts, none belong to this fork maintainer
+bb-host packages/client-core/test/message-link.test.ts -- unchanged, already-public upstream bb fixture or guide text; hostnames are upstream examples or upstream bb own public accounts, none belong to this fork maintainer
+bb-host packages/connect-client/test/connect-client.test.ts -- unchanged, already-public upstream bb fixture or guide text; hostnames are upstream examples or upstream bb own public accounts, none belong to this fork maintainer
+bb-host packages/tunnel-client/test/backpressure.test.ts -- unchanged, already-public upstream bb fixture or guide text; hostnames are upstream examples or upstream bb own public accounts, none belong to this fork maintainer
+bb-host plugins/mcp/src/server.test.ts -- unchanged, already-public upstream bb fixture or guide text; hostnames are upstream examples or upstream bb own public accounts, none belong to this fork maintainer
+internal-url apps/app/src/components/settings/settings-search-anchors.test.tsx -- unchanged, already-public upstream bb test fixture using a documentation-style private-network example address, not a real host
+internal-url apps/app/src/components/settings/useSettingsSearchConditions.test.tsx -- unchanged, already-public upstream bb test fixture using a documentation-style private-network example address, not a real host
+tailnet-host apps/mobile/src/lib/shell/shell-save-file.test.ts -- unchanged, already-public upstream bb test fixture using an example.ts.net placeholder host, not a real tailnet
