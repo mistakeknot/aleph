@@ -3,6 +3,8 @@ import { join } from "node:path";
 import type { ServerLogger } from "../../types.js";
 import {
   DEFAULT_ALEPH_UPDATE_PATHS,
+  type AlephDirectStartPolicy,
+  type AlephInstallRequestStore,
   createAlephUpdateService,
   type AlephUpdateAuditRecord,
   type AlephUpdateService,
@@ -18,8 +20,10 @@ export interface CreateServerAlephUpdateServiceArgs {
   appVersion: string;
   countRunningThreads: () => number;
   dataDir: string;
+  directStart?: AlephDirectStartPolicy;
   logger: ServerLogger;
   notify?: AlephUpdateNoticeSink;
+  requests?: AlephInstallRequestStore;
   overrides?: Partial<AlephUpdateServiceArgs>;
 }
 
@@ -46,9 +50,13 @@ export function createServerAlephUpdateService(
     appVersion: args.appVersion,
     audit: createAlephUpdateAuditSink({ dir: floorStateDir }),
     countRunningThreads: args.countRunningThreads,
+    ...(args.directStart === undefined
+      ? {}
+      : { directStart: args.directStart }),
     logger: args.logger,
     notify: args.notify ?? noopAlephUpdateNotice,
     paths: { ...DEFAULT_ALEPH_UPDATE_PATHS, floorStateDir },
+    ...(args.requests === undefined ? {} : { requests: args.requests }),
     ...args.overrides,
   });
 }

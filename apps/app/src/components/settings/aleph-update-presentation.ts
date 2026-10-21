@@ -1,5 +1,6 @@
 import { ALEPH_NO_MANIFEST_PUBLISHED_DETAIL } from "@bb/server-contract";
 import type {
+  AlephInstallRequest,
   AlephUpdateCapability,
   AlephUpdateRunState,
   AlephUpdateSelection,
@@ -38,6 +39,8 @@ const SELECTION_TEXT: Record<AlephUpdateSelection, AlephSelectionText> = {
 const CAPABILITY_TEXT: Record<AlephUpdateCapability, string> = {
   absent: "The update helper is not installed on this machine",
   "command-only": "Updates start from a root shell on this machine",
+  "request-only":
+    "Updates are installed by the gated release install; request one from here",
   startable: "Updates can be started from here",
 };
 
@@ -83,3 +86,106 @@ export function isAlephWrapperManaged(status: {
 export const ALEPH_WRAPPER_LABEL = "Installed by the Aleph release wrapper";
 export const ALEPH_WRAPPER_NOTE =
   "New releases are installed on this machine by the release wrapper, not from this screen.";
+
+export type AlephRequestButton =
+  | { kind: "hidden" }
+  | {
+      kind: "request";
+      disabled: boolean;
+      label: string;
+      reason: string | null;
+    };
+
+export const ALEPH_REQUEST_OPEN_REASON =
+  "Requested; waiting for the gated install";
+export const ALEPH_REQUEST_RECOVERY_REASON = "Recover first";
+export const ALEPH_REQUEST_MIGRATION_REASON =
+  "Needs a database migration; requires the gated install";
+export const ALEPH_REQUEST_UNQUALIFIED_REASON =
+  "No release has been qualified yet";
+
+export function alephRequestButton(status: {
+  capability: AlephUpdateCapability;
+  detail: string | null;
+  installRequest: AlephInstallRequest;
+  installed: { aleph: string } | null;
+  selection: AlephUpdateSelection;
+  target: { aleph: string } | null;
+}): AlephRequestButton {
+  const blocked = (reason: string): AlephRequestButton => ({
+    disabled: true,
+    kind: "request",
+    label: "Request update",
+    reason,
+  });
+  const { selection } = status;
+  if (status.capability === "startable" && selection === "available") {
+    return { kind: "hidden" };
+  }
+  if (selection === "recovery-required" || selection === "recovering") {
+    return blocked(ALEPH_REQUEST_RECOVERY_REASON);
+  }
+  if (selection === "up-to-date") return { kind: "hidden" };
+  if (status.installRequest.state === "requested") {
+    return blocked(ALEPH_REQUEST_OPEN_REASON);
+  }
+  switch (selection) {
+    case "available": {
+      if (status.target === null) return { kind: "hidden" };
+      if (status.installed?.aleph === status.target.aleph) {
+        return blocked("This release is already installed");
+      }
+      return {
+        disabled: false,
+        kind: "request",
+        label: `Request update to ${status.target.aleph}`,
+        reason: null,
+      };
+    }
+    case "migration-required":
+      return blocked(ALEPH_REQUEST_MIGRATION_REASON);
+    case "manifest-missing":
+      return blocked(
+        status.detail === null ||
+          status.detail === ALEPH_NO_MANIFEST_PUBLISHED_DETAIL
+          ? ALEPH_REQUEST_UNQUALIFIED_REASON
+          : status.detail,
+      );
+    default:
+      return blocked(SELECTION_TEXT[selection].label);
+  }
+}
+
+export function alephInstallRequestText(
+  request: AlephInstallRequest,
+): string | null {
+  switch (request.state) {
+    case "none":
+      return null;
+    case "requested":
+      return `Update to ${request.target ?? "the latest release"} requested; waiting for the gated install.`;
+    case "succeeded":
+      return `Requested update to ${request.target ?? "the latest release"} is installed.`;
+    case "expired":
+      return "The install request expired; request it again if the update is still wanted.";
+    case "cancelled":
+      return "The install request was cancelled.";
+  }
+}
+
+export function alephInstallRequestLabel(
+  request: AlephInstallRequest,
+): AlephSelectionText | null {
+  switch (request.state) {
+    case "none":
+      return null;
+    case "requested":
+      return { label: "Update requested", tone: "neutral" };
+    case "succeeded":
+      return { label: "Requested update installed", tone: "neutral" };
+    case "expired":
+      return { label: "Update request expired", tone: "neutral" };
+    case "cancelled":
+      return { label: "Update request cancelled", tone: "neutral" };
+  }
+}

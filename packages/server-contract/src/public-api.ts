@@ -231,6 +231,9 @@ import type {
   SystemAppUpdateAcknowledgeRequest,
   SystemAppUpdateApplyRequest,
   SystemAppUpdateQuery,
+  AlephInstallRequest,
+  SystemAlephInstallCancelRequest,
+  SystemAlephInstallRequest,
   SystemAlephRecoverRequest,
   SystemAlephRollbackRequest,
   SystemAlephUpdateRequest,
@@ -390,6 +393,8 @@ import {
   systemProvidersQuerySchema,
   systemUsageLimitsQuerySchema,
   systemVersionQuerySchema,
+  systemAlephInstallCancelRequestSchema,
+  systemAlephInstallRequestSchema,
   systemAlephRecoverRequestSchema,
   systemAlephRollbackRequestSchema,
   systemAlephUpdateRequestSchema,
@@ -2173,6 +2178,22 @@ export const publicApiRoutes = {
         systemAlephRecoverRequestSchema,
       ),
       response: jsonResponse<SystemAlephUpdateRun>(),
+    }),
+    alephInstallRequest: defineRoute({
+      path: "/system/aleph-update/request",
+      method: "post",
+      request: jsonRequest<EmptyInput, SystemAlephInstallRequest>(
+        systemAlephInstallRequestSchema,
+      ),
+      response: jsonResponse<AlephInstallRequest>(),
+    }),
+    alephInstallCancel: defineRoute({
+      path: "/system/aleph-update/request/cancel",
+      method: "post",
+      request: jsonRequest<EmptyInput, SystemAlephInstallCancelRequest>(
+        systemAlephInstallCancelRequestSchema,
+      ),
+      response: jsonResponse<AlephInstallRequest>(),
     }),
     alephUpdateRun: defineRoute({
       path: "/system/aleph-update/runs/:nonce",

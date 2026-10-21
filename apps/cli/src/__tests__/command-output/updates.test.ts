@@ -293,7 +293,15 @@ describe("bb updates aleph", () => {
     capability: "startable",
     detail: null,
     floor: null,
+    installRequest: {
+      manifestDigest: "f".repeat(64),
+      nonce,
+      requestedAt: "2026-10-10T00:00:00.000Z",
+      state: "requested",
+      target: "0.5.4",
+    },
     installed: { aleph: "0.5.3", version: "0.43.4" },
+    lastRun: { detail: null, nonce, state: "succeeded" },
     predecessor: null,
     selection: "available",
     target: {
@@ -323,6 +331,8 @@ describe("bb updates aleph", () => {
     expect(output).toContain("0.5.4");
     expect(output).toContain("available");
     expect(output).toContain("startable");
+    expect(output).toContain("Install request: requested (target 0.5.4)");
+    expect(output).toContain("Last install run: succeeded");
   });
 
   it("prints the status as JSON", async () => {
@@ -345,9 +355,9 @@ describe("bb updates aleph", () => {
     });
 
     await runCommand(["updates", "aleph"], register);
-    expect(
-      collectLogPayloads(vi.mocked(console.log)).join("\n"),
-    ).toContain("does not use the Aleph update channel");
+    expect(collectLogPayloads(vi.mocked(console.log)).join("\n")).toContain(
+      "does not use the Aleph update channel",
+    );
 
     vi.mocked(console.log).mockClear();
     await runCommand(["updates", "aleph", "--json"], register);
@@ -392,9 +402,9 @@ describe("bb updates aleph", () => {
       }),
     });
     await runCommand(["updates", "aleph", "run", nonce], register);
-    expect(
-      collectLogPayloads(vi.mocked(console.log)).join("\n"),
-    ).toContain("does not use the Aleph update channel");
+    expect(collectLogPayloads(vi.mocked(console.log)).join("\n")).toContain(
+      "does not use the Aleph update channel",
+    );
   });
 
   it("offers no command that starts, rolls back, or recovers", async () => {
@@ -412,8 +422,7 @@ describe("bb updates aleph", () => {
     });
     await runCommand(["updates", "--json"], register);
     expect(
-      JSON.parse(String(vi.mocked(console.log).mock.calls[0]?.[0]))
-        .alephUpdate,
+      JSON.parse(String(vi.mocked(console.log).mock.calls[0]?.[0])).alephUpdate,
     ).toEqual(alephStatus);
 
     vi.mocked(console.log).mockClear();
@@ -426,8 +435,7 @@ describe("bb updates aleph", () => {
     });
     await runCommand(["updates", "--json"], register);
     expect(
-      JSON.parse(String(vi.mocked(console.log).mock.calls[0]?.[0]))
-        .alephUpdate,
+      JSON.parse(String(vi.mocked(console.log).mock.calls[0]?.[0])).alephUpdate,
     ).toBeNull();
   });
 });

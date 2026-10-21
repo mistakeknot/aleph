@@ -587,3 +587,15 @@ export {
 export * from "./project-attachments.js";
 
 export * from "./project-attachment-backfill.js";
+
+export {
+  getStoredAlephInstallRequest,
+  insertStoredAlephInstallRequest,
+  listStoredAlephInstallRequests,
+  updateStoredAlephInstallRequest,
+} from "./aleph-install-requests.js";
+export type {
+  InsertAlephInstallRequestResult,
+  StoredAlephInstallRequest,
+  StoredAlephInstallRequestState,
+} from "./aleph-install-requests.js";

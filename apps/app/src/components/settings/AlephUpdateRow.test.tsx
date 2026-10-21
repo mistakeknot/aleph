@@ -17,7 +17,15 @@ function status(
     capability: "startable",
     detail: null,
     floor: { ageSeconds: 60, issuedAt: "2026-10-06T12:00:00Z", sequence: 4 },
+    installRequest: {
+      manifestDigest: null,
+      nonce: null,
+      requestedAt: null,
+      state: "none",
+      target: null,
+    },
     installed: { aleph: "0.5.3", version: "0.44.0+aleph.0.5.3" },
+    lastRun: null,
     predecessor: null,
     selection: "up-to-date",
     target: null,
@@ -119,12 +127,144 @@ describe("AlephUpdateRowView", () => {
     expect(onRecover).toHaveBeenCalledWith({ confirm: "recover" });
   });
 
+  it("requests an install from the request button when request-only", () => {
+    const onRequestInstall = vi.fn();
+    view({
+      onRequestInstall,
+      status: { ...AVAILABLE, capability: "request-only" },
+    });
+    expect(screen.queryByRole("button", { name: /^Update/u })).toBeNull();
+    expect(screen.queryByRole("button", { name: /show command/i })).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Request update to 0.5.4" }),
+    );
+    expect(onRequestInstall).toHaveBeenCalledWith(AVAILABLE.target);
+  });
+
+  it("shows an open request, disables a second one and cancels it", () => {
+    const onCancelInstall = vi.fn();
+    view({
+      onCancelInstall,
+      status: {
+        ...AVAILABLE,
+        capability: "request-only",
+        installRequest: {
+          manifestDigest: DIGEST,
+          nonce: "n".repeat(32),
+          requestedAt: "2026-10-10T00:00:00.000Z",
+          state: "requested",
+          target: "0.5.4",
+        },
+      },
+    });
+    const button = screen.getByRole("button", { name: "Request update" });
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      screen.getAllByText(/requested; waiting for the gated install/iu).length,
+    ).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: /cancel request/i }));
+    expect(onCancelInstall).toHaveBeenCalledWith("n".repeat(32));
+  });
+
+  it("offers Dismiss for a terminal request and shows the last run", () => {
+    const onCancelInstall = vi.fn();
+    view({
+      onCancelInstall,
+      status: {
+        ...AVAILABLE,
+        capability: "request-only",
+        installRequest: {
+          manifestDigest: DIGEST,
+          nonce: "m".repeat(32),
+          requestedAt: "2026-10-10T00:00:00.000Z",
+          state: "expired",
+          target: "0.5.4",
+        },
+      },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /dismiss/i }));
+    expect(onCancelInstall).toHaveBeenCalledWith("m".repeat(32));
+  });
+
+  it("keeps an open request ahead of the wrapper label", () => {
+    view({
+      status: {
+        ...status({
+          capability: "absent",
+          detail: "No update manifest has been published.",
+          floor: null,
+          selection: "manifest-missing",
+        }),
+        installRequest: {
+          manifestDigest: DIGEST,
+          nonce: "n".repeat(32),
+          requestedAt: "2026-10-10T00:00:00.000Z",
+          state: "requested",
+          target: "0.5.4",
+        },
+      },
+    });
+    expect(screen.getByText("Update requested")).toBeTruthy();
+    expect(
+      screen.queryByText("Installed by the Aleph release wrapper"),
+    ).toBeNull();
+  });
+
+  it("shows the last install run", () => {
+    view({
+      status: {
+        ...AVAILABLE,
+        lastRun: { detail: null, nonce: "r".repeat(32), state: "succeeded" },
+      },
+    });
+    expect(screen.getByText(/Last install run: Update succeeded/u)).toBeTruthy();
+  });
+
+  it("puts an open request before the selection in the primary label", () => {
+    view({
+      status: {
+        ...AVAILABLE,
+        capability: "request-only",
+        installRequest: {
+          manifestDigest: DIGEST,
+          nonce: "n".repeat(32),
+          requestedAt: "2026-10-10T00:00:00.000Z",
+          state: "requested",
+          target: "0.5.4",
+        },
+      },
+    });
+    expect(screen.getByText("Update requested")).toBeTruthy();
+  });
+
+  it("keeps recovery ahead of an open request in the primary label", () => {
+    view({
+      status: {
+        ...AVAILABLE,
+        capability: "request-only",
+        selection: "recovery-required",
+        installRequest: {
+          manifestDigest: DIGEST,
+          nonce: "n".repeat(32),
+          requestedAt: "2026-10-10T00:00:00.000Z",
+          state: "requested",
+          target: "0.5.4",
+        },
+      },
+    });
+    expect(screen.queryByText("Update requested")).toBeNull();
+  });
+
   it("shows no action buttons when the helper is absent", () => {
     view({ status: { ...AVAILABLE, capability: "absent" } });
     expect(
       screen.getByText("The update helper is not installed on this machine"),
     ).toBeTruthy();
-    expect(screen.queryByRole("button")).toBeNull();
+    expect(
+      screen.queryByRole("button", {
+        name: /^(Update to|Roll back|Recover|Show command)/u,
+      }),
+    ).toBeNull();
   });
 
   it("reports a wrapper-installed server instead of an error when no helper or manifest exists", () => {
@@ -142,7 +282,11 @@ describe("AlephUpdateRowView", () => {
     expect(screen.getByText("0.5.3")).toBeTruthy();
     expect(screen.queryByText(/helper is not installed/u)).toBeNull();
     expect(screen.queryByText(/No update manifest/u)).toBeNull();
-    expect(screen.queryByRole("button")).toBeNull();
+    const requestButton = screen.getByRole("button", {
+      name: "Request update",
+    });
+    expect((requestButton as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText("No release has been qualified yet")).toBeTruthy();
   });
 
   it("keeps the error when the publication is incomplete and no helper exists", () => {
@@ -157,10 +301,10 @@ describe("AlephUpdateRowView", () => {
     });
     expect(screen.getByText("No update manifest is published")).toBeTruthy();
     expect(
-      screen.getByText(
+      screen.getAllByText(
         "The update manifest, its signature or the trust files are missing.",
-      ),
-    ).toBeTruthy();
+      ).length,
+    ).toBeGreaterThan(0);
     expect(
       screen.queryByText("Installed by the Aleph release wrapper"),
     ).toBeNull();

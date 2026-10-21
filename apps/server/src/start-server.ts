@@ -9,7 +9,11 @@ import { createLogger } from "@bb/logger";
 import {
   getAppSettings,
   getDisabledProviderIds,
+  getStoredAlephInstallRequest,
+  insertStoredAlephInstallRequest,
   listRunningThreads,
+  listStoredAlephInstallRequests,
+  updateStoredAlephInstallRequest,
 } from "@bb/db";
 import { initDb } from "./db.js";
 import { createApp } from "./server.js";
@@ -106,6 +110,7 @@ export function startServerPlugins(
 }
 
 export interface RunServerOptions {
+  alephDirectStart?: "allow" | "deny";
   alephUpdateNotify?: AlephUpdateNoticeSink;
 }
 
@@ -271,7 +276,16 @@ export async function runServer(
         appVersion: runtimeConfig.appVersion,
         countRunningThreads: () => listRunningThreads(db).length,
         dataDir: serverConfig.BB_DATA_DIR,
+        directStart: options.alephDirectStart ?? "deny",
         logger,
+        requests: {
+          get: (nonce) => getStoredAlephInstallRequest(db, nonce),
+          insert: (record, keep) =>
+            insertStoredAlephInstallRequest(db, record, keep),
+          list: () => listStoredAlephInstallRequests(db),
+          update: (nonce, patch) =>
+            updateStoredAlephInstallRequest(db, nonce, patch),
+        },
         ...(options.alephUpdateNotify === undefined
           ? {}
           : { notify: options.alephUpdateNotify }),

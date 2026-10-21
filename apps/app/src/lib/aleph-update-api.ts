@@ -1,5 +1,8 @@
 import { BbHttpError } from "@bb/sdk/browser";
 import type {
+  AlephInstallRequest,
+  SystemAlephInstallCancelRequest,
+  SystemAlephInstallRequest,
   SystemAlephUpdateRun,
   SystemAlephUpdateStatus,
 } from "@bb/server-contract";
@@ -91,6 +94,26 @@ export function postAlephUpdate(
   body: Record<string, unknown>,
 ): Promise<SystemAlephUpdateRun> {
   return request<SystemAlephUpdateRun>(`/${operation}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export function postAlephInstallRequest(
+  body: SystemAlephInstallRequest,
+): Promise<AlephInstallRequest> {
+  return request<AlephInstallRequest>("/request", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export function postAlephInstallCancel(
+  body: SystemAlephInstallCancelRequest,
+): Promise<AlephInstallRequest> {
+  return request<AlephInstallRequest>("/request/cancel", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),

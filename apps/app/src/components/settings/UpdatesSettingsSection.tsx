@@ -790,6 +790,9 @@ export function ChangelogPreviewCard() {
   );
 }
 
+const ALEPH_DESKTOP_UPDATE_DISABLED_REASON =
+  "Desktop self-update is not enabled for Aleph builds yet";
+
 interface BbAppUpdateRowsProps {
   name?: string;
   systemVersion: SystemVersionResponse | undefined;
@@ -886,6 +889,31 @@ export function BbAppUpdateRows({
     }
     if (desktopInfo.updateAvailable) {
       return row(name, <RowStateControl state="update-available" />);
+    }
+    if (isAlephAppVersion(desktopInfo.version)) {
+      return row(
+        name,
+        <>
+          {settledStatus}
+          <span
+            title={ALEPH_DESKTOP_UPDATE_DISABLED_REASON}
+            className="inline-flex shrink-0"
+          >
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled
+              className="h-6 shrink-0 px-2 text-xs"
+            >
+              Update Aleph
+            </Button>
+          </span>
+        </>,
+        <span className="truncate text-2xs text-muted-foreground">
+          {ALEPH_DESKTOP_UPDATE_DISABLED_REASON}
+        </span>,
+      );
     }
     return row(name, settledStatus);
   }
@@ -1027,9 +1055,7 @@ function InAppUpdateRow({
         reason="Last update failed"
         openLabel="View the failed bb update"
         openTooltip="View details"
-        onOpen={
-          onShowResult === null ? undefined : () => onShowResult(failure)
-        }
+        onOpen={onShowResult === null ? undefined : () => onShowResult(failure)}
       />,
     );
   }

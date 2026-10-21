@@ -819,7 +819,15 @@ function alephStatus(
     capability: "startable",
     detail: null,
     floor: null,
+    installRequest: {
+      manifestDigest: null,
+      nonce: null,
+      requestedAt: null,
+      state: "none",
+      target: null,
+    },
     installed: { aleph: "0.5.3", version: "0.44.0+aleph.0.5.3" },
+    lastRun: null,
     predecessor: { aleph: "0.5.2", version: "0.44.0+aleph.0.5.2" },
     selection: "up-to-date",
     target: {

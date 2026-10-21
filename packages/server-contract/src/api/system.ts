@@ -437,6 +437,7 @@ export const ALEPH_NO_MANIFEST_PUBLISHED_DETAIL =
 export const alephUpdateCapabilitySchema = z.enum([
   "absent",
   "command-only",
+  "request-only",
   "startable",
 ]);
 export type AlephUpdateCapability = z.infer<typeof alephUpdateCapabilitySchema>;
@@ -463,51 +464,28 @@ export const alephUpdateFloorSchema = z.object({
 });
 export type AlephUpdateFloor = z.infer<typeof alephUpdateFloorSchema>;
 
-export const systemAlephUpdateStatusSchema = z.object({
-  activeThreadCount: z.number().int().nonnegative(),
-  capability: alephUpdateCapabilitySchema,
-  detail: z.string().nullable(),
-  floor: alephUpdateFloorSchema.nullable(),
-  installed: alephUpdateReleaseSchema.nullable(),
-  predecessor: alephUpdateReleaseSchema.nullable(),
-  selection: alephUpdateSelectionSchema,
-  target: alephUpdateTargetSchema.nullable(),
-});
-export type SystemAlephUpdateStatus = z.infer<
-  typeof systemAlephUpdateStatusSchema
+export const alephInstallRequestStateSchema = z.enum([
+  "none",
+  "requested",
+  "succeeded",
+  "expired",
+  "cancelled",
+]);
+export type AlephInstallRequestState = z.infer<
+  typeof alephInstallRequestStateSchema
 >;
 
-const alephVersionFieldSchema = z.string().min(1).max(32);
-
-export const systemAlephUpdateRequestSchema = z.object({
-  confirm: z.literal("update"),
-  interrupt: z.boolean(),
-  manifestDigest: z.string().regex(/^[0-9a-f]{64}$/u),
-  nonce: alephUpdateNonceSchema,
-  target: alephVersionFieldSchema,
+export const alephInstallRequestSchema = z.object({
+  manifestDigest: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/u)
+    .nullable(),
+  nonce: alephUpdateNonceSchema.nullable(),
+  requestedAt: z.string().min(1).nullable(),
+  state: alephInstallRequestStateSchema,
+  target: z.string().min(1).nullable(),
 });
-export type SystemAlephUpdateRequest = z.infer<
-  typeof systemAlephUpdateRequestSchema
->;
-
-export const systemAlephRollbackRequestSchema = z.object({
-  confirm: z.literal("rollback"),
-  from: alephVersionFieldSchema,
-  interrupt: z.boolean(),
-  nonce: alephUpdateNonceSchema,
-  to: alephVersionFieldSchema,
-});
-export type SystemAlephRollbackRequest = z.infer<
-  typeof systemAlephRollbackRequestSchema
->;
-
-export const systemAlephRecoverRequestSchema = z.object({
-  confirm: z.literal("recover"),
-  nonce: alephUpdateNonceSchema,
-});
-export type SystemAlephRecoverRequest = z.infer<
-  typeof systemAlephRecoverRequestSchema
->;
+export type AlephInstallRequest = z.infer<typeof alephInstallRequestSchema>;
 
 export const alephUpdateRunStateSchema = z.enum([
   "queued",
@@ -529,6 +507,70 @@ export const systemAlephUpdateRunSchema = z.object({
   state: alephUpdateRunStateSchema,
 });
 export type SystemAlephUpdateRun = z.infer<typeof systemAlephUpdateRunSchema>;
+
+export const systemAlephUpdateStatusSchema = z.object({
+  activeThreadCount: z.number().int().nonnegative(),
+  capability: alephUpdateCapabilitySchema,
+  detail: z.string().nullable(),
+  floor: alephUpdateFloorSchema.nullable(),
+  installRequest: alephInstallRequestSchema,
+  installed: alephUpdateReleaseSchema.nullable(),
+  lastRun: systemAlephUpdateRunSchema.nullable(),
+  predecessor: alephUpdateReleaseSchema.nullable(),
+  selection: alephUpdateSelectionSchema,
+  target: alephUpdateTargetSchema.nullable(),
+});
+export type SystemAlephUpdateStatus = z.infer<
+  typeof systemAlephUpdateStatusSchema
+>;
+
+const alephVersionFieldSchema = z.string().min(1).max(32);
+
+export const systemAlephUpdateRequestSchema = z.object({
+  confirm: z.literal("update"),
+  interrupt: z.boolean(),
+  manifestDigest: z.string().regex(/^[0-9a-f]{64}$/u),
+  nonce: alephUpdateNonceSchema,
+  target: alephVersionFieldSchema,
+});
+export type SystemAlephUpdateRequest = z.infer<
+  typeof systemAlephUpdateRequestSchema
+>;
+
+export const systemAlephInstallRequestSchema = z.object({
+  manifestDigest: z.string().regex(/^[0-9a-f]{64}$/u),
+  nonce: alephUpdateNonceSchema,
+  target: z.string().min(1).max(100),
+});
+export type SystemAlephInstallRequest = z.infer<
+  typeof systemAlephInstallRequestSchema
+>;
+
+export const systemAlephInstallCancelRequestSchema = z.object({
+  nonce: alephUpdateNonceSchema,
+});
+export type SystemAlephInstallCancelRequest = z.infer<
+  typeof systemAlephInstallCancelRequestSchema
+>;
+
+export const systemAlephRollbackRequestSchema = z.object({
+  confirm: z.literal("rollback"),
+  from: alephVersionFieldSchema,
+  interrupt: z.boolean(),
+  nonce: alephUpdateNonceSchema,
+  to: alephVersionFieldSchema,
+});
+export type SystemAlephRollbackRequest = z.infer<
+  typeof systemAlephRollbackRequestSchema
+>;
+
+export const systemAlephRecoverRequestSchema = z.object({
+  confirm: z.literal("recover"),
+  nonce: alephUpdateNonceSchema,
+});
+export type SystemAlephRecoverRequest = z.infer<
+  typeof systemAlephRecoverRequestSchema
+>;
 
 export const systemConfigReloadResponseSchema = z.object({
   ok: z.literal(true),

@@ -769,6 +769,16 @@ export function registerSystemRoutes(
     );
   });
 
+  post(routes.alephInstallRequest, async (context, body) => {
+    assertAlephOwnerSession(context, deps);
+    return context.json(await requireAlephUpdate(deps).requestInstall(body));
+  });
+
+  post(routes.alephInstallCancel, async (context, body) => {
+    assertAlephOwnerSession(context, deps);
+    return context.json(await requireAlephUpdate(deps).cancelInstall(body));
+  });
+
   post(routes.alephUpdateRollback, async (context, body) => {
     assertAlephOwnerSession(context, deps);
     const { confirm: _confirm, ...request } = body;

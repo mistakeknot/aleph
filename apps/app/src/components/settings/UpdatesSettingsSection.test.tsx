@@ -1279,7 +1279,9 @@ The canonical release summary.
       </TooltipProvider>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Retry on homelab now" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Retry on homelab now" }),
+    );
 
     expect(onClick).not.toHaveBeenCalled();
   });
@@ -2071,7 +2073,15 @@ describe("UpdatesSettingsSection on an Aleph build", () => {
       capability: "startable",
       detail: null,
       floor: null,
+      installRequest: {
+        manifestDigest: null,
+        nonce: null,
+        requestedAt: null,
+        state: "none",
+        target: null,
+      },
       installed: { aleph: "2", version: "0.43.4+aleph.2" },
+      lastRun: null,
       predecessor: null,
       selection: "available",
       target: {
@@ -2135,5 +2145,12 @@ describe("UpdatesSettingsSection on an Aleph build", () => {
     renderSection();
 
     await waitFor(expectAppRowChecksOff);
+    const button = screen.getByRole("button", { name: "Update Aleph" });
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      screen.getAllByText(
+        "Desktop self-update is not enabled for Aleph builds yet",
+      ).length,
+    ).toBeGreaterThan(0);
   });
 });
