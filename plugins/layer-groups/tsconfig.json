@@ -1,0 +1,28 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022"],
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": [
+    "store.ts",
+    "store.test.ts",
+    "provision.ts",
+    "provision.test.ts",
+    "accent.ts",
+    "accent.test.ts",
+    "registry.ts",
+    "registry.test.ts",
+    "test/fixtures/registry-v4.json",
+    "coordinator.ts",
+    "coordinator.test.ts",
+    "server.ts",
+    "server.test.ts",
+    "vitest.config.ts"
+  ]
+}

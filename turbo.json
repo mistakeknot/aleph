@@ -1344,6 +1344,21 @@
         "topo"
       ]
     },
+    "bb-plugin-bb--layer-groups#typecheck": {
+      "dependsOn": ["@get-bb/plugin-sdk#build:types", "topo"]
+    },
+    "bb-plugin-bb--layer-groups#test": {
+      "dependsOn": [
+        "//#ensure-native-modules",
+        "@get-bb/plugin-sdk#build",
+        "topo"
+      ],
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/vitest*.ts"],
+      "passThroughEnv": [
+        "UPDATE_PARITY_ROW_COUNTS",
+        "UPDATE_TRANSCRIPT_EXPECTATIONS"
+      ]
+    },
     "bb-plugin-side-chat#typecheck": {
       "dependsOn": ["@get-bb/plugin-sdk#build:types", "topo"],
       "inputs": [
