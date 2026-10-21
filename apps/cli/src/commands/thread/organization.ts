@@ -13,7 +13,8 @@ import {
 } from "../../table.js";
 import { describeQueueWait } from "./actions.js";
 import { formatQueueSendCountdown } from "./send-time.js";
-import { action } from "../../action.js";
+import { action, CliUsageError } from "../../action.js";
+import { rethrowThreadConflict } from "./conditional-write.js";
 import { createCliBbSdk } from "../../client.js";
 import { requireTextInput, TEXT_FILE_HELP_SUFFIX } from "../../text-input.js";
 import {
@@ -76,6 +77,7 @@ interface QueueGroupOptions extends JsonOptions {
 }
 
 interface ReorderPinnedOptions extends JsonOptions {
+  ifSortKeys?: string;
   after?: string;
   before?: string;
 }
@@ -293,14 +295,47 @@ export function registerOrganizationCommands(
     .description("Move a pinned thread between adjacent pinned threads")
     .option("--after <id>", "Previous pinned thread, or omit for the start")
     .option("--before <id>", "Next pinned thread, or omit for the end")
+    .option(
+      "--if-sort-keys <thread,previous,next>",
+      "Require current sort keys; none means no previous or next key",
+    )
     .option("--json", "Print machine-readable JSON output")
     .action(
       action(async (id: string, opts: ReorderPinnedOptions) => {
-        const result = await createCliBbSdk(getUrl()).threads.reorderPinned({
-          threadId: id,
-          previousThreadId: opts.after ?? null,
-          nextThreadId: opts.before ?? null,
-        });
+        let ifSortKeys:
+          | { thread: string; previous: string | null; next: string | null }
+          | undefined;
+        if (opts.ifSortKeys !== undefined) {
+          const keys = opts.ifSortKeys.split(",");
+          const [thread, previous, next] = keys;
+          if (
+            keys.length !== 3 ||
+            !thread ||
+            thread === "none" ||
+            !previous ||
+            !next
+          ) {
+            throw new CliUsageError({
+              code: "invalid_usage",
+              hint: null,
+              message:
+                "--if-sort-keys requires three comma-separated keys: thread,previous|none,next|none.",
+            });
+          }
+          ifSortKeys = {
+            thread,
+            previous: previous === "none" ? null : previous,
+            next: next === "none" ? null : next,
+          };
+        }
+        const result = await createCliBbSdk(getUrl())
+          .threads.reorderPinned({
+            threadId: id,
+            previousThreadId: opts.after ?? null,
+            nextThreadId: opts.before ?? null,
+            ...(ifSortKeys ? { ifSortKeys } : {}),
+          })
+          .catch(rethrowThreadConflict);
         if (outputJson(opts, result)) return;
         console.log(`Pinned thread ${id} reordered`);
       }),

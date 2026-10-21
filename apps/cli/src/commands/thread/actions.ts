@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { z } from "zod";
+import { rethrowThreadConflict } from "./conditional-write.js";
 import { randomUUID } from "node:crypto";
 import {
   threadVisibilitySchema,
@@ -74,6 +74,8 @@ interface ThreadRestoreEnvironmentCommandOptions {
 }
 
 interface ThreadPinCommandOptions {
+  ifUnpinned?: boolean;
+  ifPinnedAt?: string;
   self?: boolean;
   json?: boolean;
 }
@@ -289,29 +291,7 @@ export function registerActionsCommands(
           const thread = await sdk.threads
             .update({ threadId, ...body })
             .catch((error: unknown) => {
-              if (
-                conditional &&
-                error instanceof BbHttpError &&
-                error.status === 409 &&
-                error.code === "conflict"
-              ) {
-                const state = z
-                  .object({
-                    details: z.object({
-                      current: z.object({
-                        sectionId: z.string().nullable(),
-                        pinnedAt: z.number().nullable(),
-                        archivedAt: z.number().nullable(),
-                        parentThreadId: z.string().nullable(),
-                      }),
-                    }),
-                  })
-                  .safeParse(error.body);
-                if (state.success)
-                  console.error(
-                    `Current state: ${JSON.stringify(state.data.details.current)}`,
-                  );
-              }
+              if (conditional) rethrowThreadConflict(error);
               throw error;
             });
           if (outputJson(opts, thread)) return;
@@ -440,7 +420,7 @@ export function registerActionsCommands(
     { name: "pin", description: "Pin a thread", done: "pinned" },
     { name: "unpin", description: "Unpin a thread", done: "unpinned" },
   ] as const) {
-    parent
+    const command = parent
       .command(`${name} [id]`)
       .description(description)
       .option("--self", "Target the current thread (from BB_THREAD_ID)")
@@ -449,12 +429,43 @@ export function registerActionsCommands(
         action(
           async (id: string | undefined, opts: ThreadPinCommandOptions) => {
             const threadId = requireThreadIdOrSelf(id, opts);
+            if (
+              opts.ifPinnedAt !== undefined &&
+              (!/^\d+$/u.test(opts.ifPinnedAt) ||
+                !Number.isSafeInteger(Number(opts.ifPinnedAt)))
+            ) {
+              throw new CliUsageError({
+                code: "invalid_usage",
+                hint: null,
+                message:
+                  "--if-pinned-at requires a non-negative integer timestamp.",
+              });
+            }
             const sdk = createCliBbSdk(getUrl());
-            const thread = await sdk.threads[name]({ threadId });
+            const thread = await (
+              name === "pin"
+                ? sdk.threads.pin({
+                    threadId,
+                    ...(opts.ifUnpinned ? { ifUnpinned: true } : {}),
+                  })
+                : sdk.threads.unpin({
+                    threadId,
+                    ...(opts.ifPinnedAt !== undefined
+                      ? { ifPinnedAt: Number(opts.ifPinnedAt) }
+                      : {}),
+                  })
+            ).catch(rethrowThreadConflict);
             if (outputJson(opts, thread)) return;
             console.log(`Thread ${thread.id} ${done}`);
           },
         ),
+      );
+    if (name === "pin")
+      command.option("--if-unpinned", "Require an unpinned thread");
+    else
+      command.option(
+        "--if-pinned-at <ms>",
+        "Require the current pin timestamp",
       );
   }
 

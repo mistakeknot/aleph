@@ -78,6 +78,15 @@ with no parent. These flags require `--section` or `--clear-section` and cannot
 be combined with title, parent, model, reasoning, or visibility updates. A
 conflict prints the current state and exits nonzero without changing the thread.
 
+Conditional pin changes use `bb thread pin T --if-unpinned`,
+`bb thread unpin T --if-pinned-at 123`, and `bb thread reorder-pinned T
+--before T2 --if-sort-keys a0,none,a2`. The timestamp is a non-negative integer.
+Sort keys require exactly three comma-separated values for the thread, previous,
+and next; `none` means null only for previous or next. A stale precondition
+returns HTTP 409 `conflict`; the CLI prints `Current state: ` with the
+`details.current` JSON and exits nonzero. Omitting the flags preserves
+unconditional, idempotent pin/unpin behavior.
+
 - Resolve names and IDs with a list or show command before mutation.
 - Pass an explicit project when a command can act across projects.
 - Pass an environment or machine selector when the default host is uncertain.

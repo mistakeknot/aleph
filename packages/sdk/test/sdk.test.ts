@@ -1600,6 +1600,49 @@ describe("@bb/sdk", () => {
     });
   });
 
+  it("serializes optional pin preconditions without changing unconditional requests", async () => {
+    const queue = createFetchQueue(
+      Array.from({ length: 6 }, () => ({ body: { id: "T" } })),
+    );
+    const sdk = createBbSdk({
+      transport: createHttpTransport({
+        baseUrl: "http://bb.test",
+        fetch: queue.fetch,
+        runtime: "node",
+      }),
+    });
+    await sdk.threads.pin({ threadId: "T", ifUnpinned: true });
+    await sdk.threads.unpin({ threadId: "T", ifPinnedAt: 123 });
+    await sdk.threads.pin({ threadId: "T" });
+    await sdk.threads.unpin({ threadId: "T" });
+    const args = { threadId: "T", previousThreadId: null, nextThreadId: "T2" };
+    const ifSortKeys = { thread: "a0", previous: null, next: "a2" };
+    await sdk.threads.reorderPinned({ ...args, ifSortKeys });
+    await sdk.threads.reorderPinned(args);
+    expect(
+      queue.requests.map(
+        (request) =>
+          new URL(request.url).pathname + new URL(request.url).search,
+      ),
+    ).toEqual([
+      "/api/v1/threads/T/pin?ifUnpinned=true",
+      "/api/v1/threads/T/unpin?ifPinnedAt=123",
+      "/api/v1/threads/T/pin",
+      "/api/v1/threads/T/unpin",
+      "/api/v1/threads/T/pin-order",
+      "/api/v1/threads/T/pin-order",
+    ]);
+    expect(JSON.parse(queue.requests[4]!.bodyText!)).toEqual({
+      previousThreadId: null,
+      nextThreadId: "T2",
+      ifSortKeys,
+    });
+    expect(JSON.parse(queue.requests[5]!.bodyText!)).toEqual({
+      previousThreadId: null,
+      nextThreadId: "T2",
+    });
+  });
+
   it("sends section preconditions and surfaces conflicts", async () => {
     const queue = createFetchQueue([
       { body: { id: "T" } },

@@ -346,6 +346,26 @@ Ownership:
   bb thread read [id]                      Mark read
   bb thread unread [id]                    Mark unread
   bb thread reorder-pinned <id> [--after <id>] [--before <id>]
+    --if-sort-keys <thread,previous,next>    Require the three current sort keys
+  bb thread pin [id] [--self] [--if-unpinned]
+  bb thread unpin [id] [--self] [--if-pinned-at <ms>]
+
+  Pin preconditions preserve manual changes: --if-unpinned requires no pin;
+  --if-pinned-at requires the observed non-negative integer pin timestamp.
+  --if-sort-keys takes exactly three comma-separated keys; none means null
+  for previous or next, and the thread's own key cannot be none. For example:
+
+    bb thread pin T --if-unpinned
+    bb thread unpin T --if-pinned-at 123
+    bb thread reorder-pinned T --before T2 --if-sort-keys a0,none,a2
+
+  SDK equivalents are threads.pin({ threadId: "T", ifUnpinned: true }),
+  threads.unpin({ threadId: "T", ifPinnedAt: 123 }), and
+  threads.reorderPinned({ threadId: "T", previousThreadId: null,
+  nextThreadId: "T2", ifSortKeys: { thread: "a0", previous: null, next: "a2" } }).
+  A mismatch returns HTTP 409 conflict with details.current; the CLI prints
+  Current state: followed by that JSON and exits nonzero. Omit preconditions
+  for the existing unconditional behavior, including idempotent pin/unpin.
 
 Interactions:
 

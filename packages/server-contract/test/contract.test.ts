@@ -492,7 +492,7 @@ const OPTIONAL_SERVER_FIELD_GROUPS: readonly OptionalServerFieldGroup[] = [
   },
   {
     reason:
-      "Thread PATCH requests omit fields that should be left unchanged; null explicitly clears nullable values. The if* fields are a conditional section write precondition, mk-ks92z.11.",
+      "Thread writes omit fields that should be left unchanged; null explicitly clears nullable values. Optional if* fields protect conditional section, pin, unpin and pin-order writes; omitted preconditions retain unconditional behavior (mk-ks92z.11).",
     fields: [
       "updateThreadRequestSchema.model",
       "updateThreadRequestSchema.sectionId",
@@ -504,6 +504,9 @@ const OPTIONAL_SERVER_FIELD_GROUPS: readonly OptionalServerFieldGroup[] = [
       "updateThreadRequestSchema.ifUnpinned",
       "updateThreadRequestSchema.ifUnarchived",
       "updateThreadRequestSchema.ifTopLevel",
+      "pinThreadQuerySchema.ifUnpinned",
+      "unpinThreadQuerySchema.ifPinnedAt",
+      "reorderPinnedThreadRequestSchema.ifSortKeys",
     ],
   },
   {
@@ -2217,6 +2220,8 @@ describe("server-contract clients", () => {
       projectFilesQuerySchema: contract.projectFilesQuerySchema,
       reorderPinnedThreadRequestSchema:
         contract.reorderPinnedThreadRequestSchema,
+      pinThreadQuerySchema: contract.pinThreadQuerySchema,
+      unpinThreadQuerySchema: contract.unpinThreadQuerySchema,
       reorderProjectRequestSchema: contract.reorderProjectRequestSchema,
       reorderQueuedMessageRequestSchema:
         contract.reorderQueuedMessageRequestSchema,

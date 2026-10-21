@@ -819,9 +819,26 @@ const rejectUnknownKeysWhenConditional: Parameters<typeof z.preprocess>[0] = (
 export const updateThreadRequestBodySchema: z.ZodType<UpdateThreadRequest> =
   z.preprocess(rejectUnknownKeysWhenConditional, updateThreadRequestSchema);
 
+export const pinThreadQuerySchema = z.object({
+  ifUnpinned: z.literal("true").optional(),
+});
+export type PinThreadQuery = z.infer<typeof pinThreadQuerySchema>;
+
+export const unpinThreadQuerySchema = z.object({
+  ifPinnedAt: z.string().regex(/^\d+$/u).optional(),
+});
+export type UnpinThreadQuery = z.infer<typeof unpinThreadQuerySchema>;
+
 export const reorderPinnedThreadRequestSchema = z.object({
   previousThreadId: z.string().min(1).nullable(),
   nextThreadId: z.string().min(1).nullable(),
+  ifSortKeys: z
+    .object({
+      thread: z.string().min(1),
+      previous: z.string().min(1).nullable(),
+      next: z.string().min(1).nullable(),
+    })
+    .optional(),
 });
 export type ReorderPinnedThreadRequest = z.infer<
   typeof reorderPinnedThreadRequestSchema
