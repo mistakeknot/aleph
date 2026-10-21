@@ -430,7 +430,7 @@ import {
   updateTerminalRequestSchema,
   updateProjectRequestSchema,
   updateProjectSourceRequestSchema,
-  updateThreadRequestSchema,
+  updateThreadRequestBodySchema,
 } from "./api-types.js";
 import {
   serverMoveCheckRequestSchema,
@@ -1399,7 +1399,7 @@ export const publicApiRoutes = {
       path: "/threads/:id",
       method: "patch",
       request: jsonRequest<PathId, UpdateThreadRequest>(
-        updateThreadRequestSchema,
+        updateThreadRequestBodySchema,
       ),
       response: jsonResponse<ThreadResponse>(),
     }),

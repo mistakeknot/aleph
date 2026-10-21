@@ -1,4 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { migrate } from "../../src/index.js";
+import { withWriteAfterFirstRead } from "../helpers/interleave.js";
 import { eq } from "drizzle-orm";
 import { isRawThreadId } from "@bb/domain";
 import { createConnection } from "../../src/connection.js";
@@ -20,6 +25,7 @@ import {
   listThreadsWithPendingInteractionStateForProjects,
   listThreadsWithPendingInteractionState,
   updateThread,
+  updateThreadSectionIf,
   deleteThread,
   archiveThread,
   markThreadDeleted,
@@ -64,6 +70,198 @@ function mustCreateThreadSection(
   }
   return result.section;
 }
+
+describe("conditional section write", () => {
+  it("updates matching expectations and notifies once after commit", () => {
+    const { db, project } = setup();
+    try {
+      const section = mustCreateThreadSection(db, "S1");
+      const thread = createThread(db, noopNotifier, {
+        projectId: project.id,
+        providerId: "codex",
+      });
+      const notifyThread = vi.fn(() =>
+        expect(db.$client.inTransaction).toBe(false),
+      );
+      const result = updateThreadSectionIf(
+        db,
+        { ...noopNotifier, notifyThread },
+        {
+          id: thread.id,
+          sectionId: section.id,
+          expect: {
+            sectionId: null,
+            unpinned: true,
+            unarchived: true,
+            topLevel: true,
+          },
+        },
+      );
+      expect(result).toMatchObject({
+        kind: "updated",
+        thread: { sectionId: section.id },
+      });
+      expect(notifyThread).toHaveBeenCalledExactlyOnceWith(
+        thread.id,
+        ["title-changed"],
+        { projectId: project.id },
+      );
+    } finally {
+      db.$client.close();
+    }
+  });
+
+  it.each(["section", "pinned", "archived", "child", "null-section"] as const)(
+    "leaves a %s mismatch untouched",
+    (state) => {
+      const { db, project } = setup();
+      try {
+        const section = mustCreateThreadSection(db, "S1");
+        const parent = createThread(db, noopNotifier, {
+          projectId: project.id,
+          providerId: "codex",
+        });
+        const thread = createThread(db, noopNotifier, {
+          projectId: project.id,
+          providerId: "codex",
+        });
+        db.update(threads)
+          .set({
+            sectionId:
+              state === "section" || state === "null-section"
+                ? section.id
+                : null,
+            pinnedAt: state === "pinned" ? 1 : null,
+            archivedAt: state === "archived" ? 1 : null,
+            parentThreadId: state === "child" ? parent.id : null,
+            updatedAt: 1,
+          })
+          .where(eq(threads.id, thread.id))
+          .run();
+        const before = getThread(db, thread.id)!;
+        const notifyThread = vi.fn();
+        expect(
+          updateThreadSectionIf(
+            db,
+            { ...noopNotifier, notifyThread },
+            {
+              id: thread.id,
+              sectionId: null,
+              expect:
+                state === "section"
+                  ? { sectionId: "S2" }
+                  : state === "null-section"
+                    ? { sectionId: null }
+                    : { unpinned: true, unarchived: true, topLevel: true },
+            },
+          ),
+        ).toEqual({
+          kind: "conflict",
+          current: {
+            sectionId: before.sectionId,
+            pinnedAt: before.pinnedAt,
+            archivedAt: before.archivedAt,
+            parentThreadId: before.parentThreadId,
+          },
+        });
+        expect(getThread(db, thread.id)).toEqual(before);
+        expect(notifyThread).not.toHaveBeenCalled();
+      } finally {
+        db.$client.close();
+      }
+    },
+  );
+
+  it("returns not_found for missing and deleted threads", () => {
+    const { db, project } = setup();
+    try {
+      const thread = createThread(db, noopNotifier, {
+        projectId: project.id,
+        providerId: "codex",
+      });
+      markThreadDeleted(db, noopNotifier, { threadId: thread.id });
+      for (const id of ["T", thread.id]) {
+        expect(
+          updateThreadSectionIf(db, noopNotifier, {
+            id,
+            sectionId: null,
+            expect: {},
+          }),
+        ).toEqual({ kind: "not_found" });
+      }
+    } finally {
+      db.$client.close();
+    }
+  });
+
+  it.each([false, true])(
+    "preserves a competing move with overlap=%s",
+    (overlap) => {
+      const directory = mkdtempSync(join(tmpdir(), "bb-section-"));
+      const path = join(directory, "db.sqlite");
+      const first = createConnection(path);
+      const second = createConnection(path);
+      try {
+        migrate(first);
+        const host = upsertHost(first, noopNotifier, { name: "H" });
+        const { project } = createProject(first, noopNotifier, {
+          name: "P",
+          source: { type: "local_path", hostId: host.id, path: "/tmp/P" },
+        });
+        const s1 = mustCreateThreadSection(first, "S1");
+        const s2 = mustCreateThreadSection(first, "S2");
+        const thread = createThread(first, noopNotifier, {
+          projectId: project.id,
+          providerId: "codex",
+          sectionId: s1.id,
+        });
+        second.$client.pragma("busy_timeout = 0");
+        let competingWrites = 0;
+        const competingWrite = () => {
+          competingWrites += 1;
+          expect(() =>
+            updateThread(second, noopNotifier, thread.id, { sectionId: s2.id }),
+          ).toThrow(/locked|busy/u);
+        };
+        const proxy = new Proxy(first, {
+          get(target, property, receiver) {
+            const value = Reflect.get(target, property, receiver);
+            if (property !== "transaction" || typeof value !== "function")
+              return value;
+            return (callback: (tx: unknown) => unknown, options?: unknown) =>
+              Reflect.apply(value, target, [
+                (tx: unknown) =>
+                  callback(
+                    withWriteAfterFirstRead(tx as object, competingWrite),
+                  ),
+                options,
+              ]);
+          },
+        });
+        if (!overlap)
+          updateThread(second, noopNotifier, thread.id, { sectionId: s2.id });
+        const result = updateThreadSectionIf(
+          overlap ? proxy : first,
+          noopNotifier,
+          {
+            id: thread.id,
+            sectionId: null,
+            expect: { sectionId: s1.id },
+          },
+        );
+        expect(result.kind).toBe(overlap ? "updated" : "conflict");
+        expect(getThread(first, thread.id)?.sectionId).toBe(
+          overlap ? null : s2.id,
+        );
+        expect(competingWrites).toBe(overlap ? 1 : 0);
+      } finally {
+        first.$client.close();
+        second.$client.close();
+        rmSync(directory, { recursive: true, force: true });
+      }
+    },
+  );
+});
 
 describe("threads", () => {
   it("creates pinned threads in order and retains their section after unpinning", () => {

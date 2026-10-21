@@ -106,6 +106,7 @@ export {
   pinThread,
   reorderPinnedThread,
   updateThread,
+  updateThreadSectionIf,
   deleteThread,
   archiveThread,
   markThreadDeleted,
@@ -120,6 +121,8 @@ export {
   THREAD_SEARCH_LIMIT_PER_GROUP_MAX,
 } from "./threads.js";
 export type {
+  ThreadSectionExpectation,
+  UpdateThreadSectionIfResult,
   ApplyThreadLifecycleEventArgs,
   ApplyThreadLifecycleEventOutcome,
   ProvisionalSuccessorFenceState,

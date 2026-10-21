@@ -1914,6 +1914,76 @@ export function updateThread(
   return updated ?? null;
 }
 
+export interface ThreadSectionExpectation {
+  sectionId?: string | null;
+  unpinned?: true;
+  unarchived?: true;
+  topLevel?: true;
+}
+
+export type UpdateThreadSectionIfResult =
+  | { kind: "updated"; thread: ThreadRow }
+  | {
+      kind: "conflict";
+      current: {
+        sectionId: string | null;
+        pinnedAt: number | null;
+        archivedAt: number | null;
+        parentThreadId: string | null;
+      };
+    }
+  | { kind: "not_found" };
+
+export function updateThreadSectionIf(
+  db: ThreadWriteConnection,
+  notifier: DbNotifier,
+  args: {
+    id: string;
+    sectionId: string | null;
+    expect: ThreadSectionExpectation;
+  },
+): UpdateThreadSectionIfResult {
+  const result = db.transaction(
+    (tx): UpdateThreadSectionIfResult => {
+      const existing = tx
+        .select()
+        .from(threads)
+        .where(eq(threads.id, args.id))
+        .get();
+      if (!existing || existing.deletedAt !== null)
+        return { kind: "not_found" };
+      const current = {
+        sectionId: existing.sectionId,
+        pinnedAt: existing.pinnedAt,
+        archivedAt: existing.archivedAt,
+        parentThreadId: existing.parentThreadId,
+      };
+      if (
+        (args.expect.sectionId !== undefined &&
+          args.expect.sectionId !== current.sectionId) ||
+        (args.expect.unpinned && current.pinnedAt !== null) ||
+        (args.expect.unarchived && current.archivedAt !== null) ||
+        (args.expect.topLevel && current.parentThreadId !== null)
+      )
+        return { kind: "conflict", current };
+      const thread = tx
+        .update(threads)
+        .set({ sectionId: args.sectionId, updatedAt: Date.now() })
+        .where(eq(threads.id, args.id))
+        .returning()
+        .get()!;
+      return { kind: "updated", thread };
+    },
+    { behavior: "immediate" },
+  );
+  if (result.kind === "updated") {
+    notifier.notifyThread(args.id, ["title-changed"], {
+      projectId: result.thread.projectId,
+    });
+  }
+  return result;
+}
+
 export interface ThreadExecutionOverride {
   modelOverride: string | null;
   reasoningLevelOverride: ReasoningLevel | null;

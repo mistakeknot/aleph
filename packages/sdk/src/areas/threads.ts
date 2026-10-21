@@ -744,6 +744,10 @@ function countQuery(args: ThreadCountArgs | undefined): ThreadCountQuery {
 
 function updateJson(args: ThreadUpdateArgs): UpdateThreadRequest {
   return {
+    ifSectionId: args.ifSectionId,
+    ifUnpinned: args.ifUnpinned,
+    ifUnarchived: args.ifUnarchived,
+    ifTopLevel: args.ifTopLevel,
     title: args.title,
     sectionId: args.sectionId,
     parentThreadId: args.parentThreadId,

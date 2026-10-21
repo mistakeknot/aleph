@@ -1,4 +1,5 @@
 import { Command } from "commander";
+import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import {
   threadVisibilitySchema,
@@ -8,7 +9,7 @@ import {
   type ThreadVisibility,
 } from "@bb/domain";
 import { threadEnvironmentUnavailableApiErrorSchema } from "@bb/server-contract";
-import { action, CliExitError } from "../../action.js";
+import { action, CliExitError, CliUsageError } from "../../action.js";
 import { createCliBbSdk } from "../../client.js";
 import { requireTextInput, TEXT_FILE_HELP_SUFFIX } from "../../text-input.js";
 import {
@@ -48,6 +49,10 @@ interface ThreadUpdateCommandOptions {
   clearParentThread?: boolean;
   section?: string;
   clearSection?: boolean;
+  ifSection?: string;
+  ifUnpinned?: boolean;
+  ifUnarchived?: boolean;
+  ifTopLevel?: boolean;
   model?: string;
   reasoningLevel?: string;
   visibility?: string;
@@ -141,6 +146,10 @@ type PostThreadMessageResult = ThreadSendResult & {
 };
 
 interface ThreadUpdateBody {
+  ifSectionId?: string | null;
+  ifUnpinned?: true;
+  ifUnarchived?: true;
+  ifTopLevel?: true;
   title?: string;
   sectionId?: string | null;
   parentThreadId?: string | null;
@@ -164,6 +173,13 @@ export function registerActionsCommands(
     .option("--section <id>", "Move the thread into a section")
     .option("--clear-section", "Remove the thread from its section")
     .option(
+      "--if-section <id|none>",
+      "Require the current section (none means no section)",
+    )
+    .option("--if-unpinned", "Require an unpinned thread")
+    .option("--if-unarchived", "Require an unarchived thread")
+    .option("--if-top-level", "Require a thread with no parent")
+    .option(
       "--model <model>",
       "Set the sticky model applied on the thread's next turn",
     )
@@ -175,6 +191,28 @@ export function registerActionsCommands(
     .action(
       action(
         async (id: string | undefined, opts: ThreadUpdateCommandOptions) => {
+          const conditional =
+            opts.ifSection !== undefined ||
+            opts.ifUnpinned ||
+            opts.ifUnarchived ||
+            opts.ifTopLevel;
+          if (
+            conditional &&
+            ((!opts.section && !opts.clearSection) ||
+              opts.title !== undefined ||
+              opts.parentThread !== undefined ||
+              opts.clearParentThread ||
+              opts.model !== undefined ||
+              opts.reasoningLevel !== undefined ||
+              opts.visibility !== undefined)
+          ) {
+            throw new CliUsageError({
+              code: "invalid_usage",
+              hint: null,
+              message:
+                "Section preconditions require --section or --clear-section and cannot be combined with other updates.",
+            });
+          }
           if (opts.parentThread && opts.clearParentThread) {
             throw new Error(
               "Cannot combine --parent-thread with --clear-parent-thread.",
@@ -209,6 +247,18 @@ export function registerActionsCommands(
             value: opts.parentThread,
           });
           const body: ThreadUpdateBody = {};
+          if (opts.ifSection !== undefined) {
+            body.ifSectionId =
+              opts.ifSection === "none"
+                ? null
+                : resolveExplicitIdFlag({
+                    flagName: "--if-section",
+                    value: opts.ifSection,
+                  });
+          }
+          if (opts.ifUnpinned) body.ifUnpinned = true;
+          if (opts.ifUnarchived) body.ifUnarchived = true;
+          if (opts.ifTopLevel) body.ifTopLevel = true;
           if (opts.title) {
             body.title = opts.title;
           }
@@ -236,7 +286,34 @@ export function registerActionsCommands(
           }
 
           const sdk = createCliBbSdk(getUrl());
-          const thread = await sdk.threads.update({ threadId, ...body });
+          const thread = await sdk.threads
+            .update({ threadId, ...body })
+            .catch((error: unknown) => {
+              if (
+                conditional &&
+                error instanceof BbHttpError &&
+                error.status === 409 &&
+                error.code === "conflict"
+              ) {
+                const state = z
+                  .object({
+                    details: z.object({
+                      current: z.object({
+                        sectionId: z.string().nullable(),
+                        pinnedAt: z.number().nullable(),
+                        archivedAt: z.number().nullable(),
+                        parentThreadId: z.string().nullable(),
+                      }),
+                    }),
+                  })
+                  .safeParse(error.body);
+                if (state.success)
+                  console.error(
+                    `Current state: ${JSON.stringify(state.data.details.current)}`,
+                  );
+              }
+              throw error;
+            });
           if (outputJson(opts, thread)) return;
           console.log(`Thread ${thread.id} updated`);
           if (opts.title) {

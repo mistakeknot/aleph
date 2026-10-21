@@ -70,6 +70,14 @@ BB_HOST_DAEMON_PORT only for an intentional non-default target.
 
 ## Command habits
 
+Conditional section moves use `bb thread update T --section S2 --if-section S1
+--if-unpinned --if-unarchived --if-top-level`. `--if-section <id|none>` checks
+the current section; `none` requires no section. `--if-unpinned`,
+`--if-unarchived`, and `--if-top-level` require an unpinned, unarchived thread
+with no parent. These flags require `--section` or `--clear-section` and cannot
+be combined with title, parent, model, reasoning, or visibility updates. A
+conflict prints the current state and exits nonzero without changing the thread.
+
 - Resolve names and IDs with a list or show command before mutation.
 - Pass an explicit project when a command can act across projects.
 - Pass an environment or machine selector when the default host is uncertain.

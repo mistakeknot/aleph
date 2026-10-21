@@ -316,6 +316,10 @@ Ownership:
     --clear-parent-thread                  Remove parent assignment
     --section <id>                         Move into a section
     --clear-section                        Remove section assignment
+    --if-section <id|none>                 Require the current section (none means no section)
+    --if-unpinned                          Require an unpinned thread
+    --if-unarchived                        Require an unarchived thread
+    --if-top-level                         Require a thread with no parent
     --model <model>                        Set the sticky model for the next and later turns
     --reasoning-level <level>              Set the sticky reasoning level (provider-dependent)
     --visibility <visibility>              Set visible or hidden
@@ -323,6 +327,17 @@ Ownership:
   Clearing a parent inherits the former parent's section unless --section or
   --clear-section is also supplied. Children released by environment archiving
   also inherit their former parent's section.
+
+  Section preconditions require --section or --clear-section and cannot be
+  combined with title, parent, model, reasoning, or visibility updates. A
+  mismatch leaves the thread unchanged, prints its current state, and exits
+  nonzero. For example:
+
+    bb thread update T --section S2 --if-section S1 --if-unpinned --if-unarchived --if-top-level
+
+  SDK callers use threads.update({ threadId: "T", sectionId: "S2",
+  ifSectionId: "S1", ifUnpinned: true, ifUnarchived: true, ifTopLevel: true }).
+  ifSectionId: null requires no section; sectionId: null clears the section.
 
   Model and reasoning updates stay within the thread's current provider. BB
   validates them against that provider's current model catalog, applies them on

@@ -492,7 +492,7 @@ const OPTIONAL_SERVER_FIELD_GROUPS: readonly OptionalServerFieldGroup[] = [
   },
   {
     reason:
-      "Thread PATCH requests omit fields that should be left unchanged; null explicitly clears nullable values.",
+      "Thread PATCH requests omit fields that should be left unchanged; null explicitly clears nullable values. The if* fields are a conditional section write precondition, mk-ks92z.11.",
     fields: [
       "updateThreadRequestSchema.model",
       "updateThreadRequestSchema.sectionId",
@@ -500,6 +500,10 @@ const OPTIONAL_SERVER_FIELD_GROUPS: readonly OptionalServerFieldGroup[] = [
       "updateThreadRequestSchema.reasoningLevel",
       "updateThreadRequestSchema.title",
       "updateThreadRequestSchema.visibility",
+      "updateThreadRequestSchema.ifSectionId",
+      "updateThreadRequestSchema.ifUnpinned",
+      "updateThreadRequestSchema.ifUnarchived",
+      "updateThreadRequestSchema.ifTopLevel",
     ],
   },
   {
@@ -1555,6 +1559,39 @@ describe("server-contract canonical schemas", () => {
         permissionMode: "readonly",
       }),
     ).toThrow();
+  });
+
+  it("validates raw conditional section bodies while preserving legacy stripping", () => {
+    const schema = contract.updateThreadRequestBodySchema;
+    const extra = schema.safeParse({
+      sectionId: "S",
+      ifSectionId: "A",
+      extra: 1,
+    });
+    expect(extra.success).toBe(false);
+    if (!extra.success)
+      expect(extra.error.issues).toContainEqual(
+        expect.objectContaining({
+          code: "custom",
+          message: expect.stringContaining("extra"),
+        }),
+      );
+    expect(schema.safeParse({ ifUnpinned: true }).success).toBe(false);
+    expect(schema.parse({ sectionId: "S", extra: 1 })).toEqual({
+      sectionId: "S",
+    });
+    expect(schema.parse({ sectionId: "S", ifSectionId: null })).toEqual({
+      sectionId: "S",
+      ifSectionId: null,
+    });
+    for (const key of ["ifUnpinned", "ifUnarchived", "ifTopLevel"]) {
+      expect(schema.safeParse({ sectionId: "S", [key]: false }).success).toBe(
+        false,
+      );
+      expect(
+        schema.safeParse({ sectionId: "S", [key]: true, title: "x" }).success,
+      ).toBe(false);
+    }
   });
 
   it("keeps only intentional optional request fields", () => {

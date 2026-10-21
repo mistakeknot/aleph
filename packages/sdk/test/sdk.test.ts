@@ -1600,6 +1600,56 @@ describe("@bb/sdk", () => {
     });
   });
 
+  it("sends section preconditions and surfaces conflicts", async () => {
+    const queue = createFetchQueue([
+      { body: { id: "T" } },
+      {
+        status: 409,
+        body: {
+          code: "conflict",
+          message: "Section changed",
+          details: {
+            current: {
+              sectionId: "S2",
+              pinnedAt: null,
+              archivedAt: null,
+              parentThreadId: null,
+            },
+          },
+        },
+      },
+    ]);
+    const sdk = createBbSdk({
+      transport: createHttpTransport({
+        baseUrl: "http://bb.test",
+        fetch: queue.fetch,
+        runtime: "node",
+      }),
+    });
+    await sdk.threads.update({
+      threadId: "T",
+      sectionId: "S2",
+      ifSectionId: "S1",
+      ifUnpinned: true,
+      ifUnarchived: true,
+      ifTopLevel: true,
+    });
+    expect(JSON.parse(queue.requests[0]!.bodyText!)).toEqual({
+      sectionId: "S2",
+      ifSectionId: "S1",
+      ifUnpinned: true,
+      ifUnarchived: true,
+      ifTopLevel: true,
+    });
+    await expect(
+      sdk.threads.update({ threadId: "T", sectionId: null, ifSectionId: null }),
+    ).rejects.toMatchObject({
+      name: "BbHttpError",
+      status: 409,
+      code: "conflict",
+    });
+  });
+
   it("preserves section assignment in thread updates", async () => {
     const queue = createFetchQueue([
       {

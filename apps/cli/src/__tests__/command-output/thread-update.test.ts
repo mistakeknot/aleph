@@ -16,6 +16,118 @@ describe("bb thread update command output", () => {
   const register: CommandRegistrar = (program) =>
     registerThreadCommands(program, () => "http://server");
 
+  it.each(["S1", "none"])(
+    "sends section preconditions for %s",
+    async (section) => {
+      const patch = vi.fn(async () =>
+        fixtures.makeThread({
+          id: "T",
+          projectId: "P",
+          providerId: "codex",
+          sectionId: "S2",
+        }),
+      );
+      stubServerApi({ "v1.threads.:id.$patch": patch });
+      await runCommand(
+        [
+          "thread",
+          "update",
+          "T",
+          "--section",
+          "S2",
+          "--if-section",
+          section,
+          "--if-unpinned",
+        ],
+        register,
+      );
+      expect(patch).toHaveBeenCalledWith({
+        param: { id: "T" },
+        json: {
+          sectionId: "S2",
+          ifSectionId: section === "none" ? null : section,
+          ifUnpinned: true,
+        },
+      });
+    },
+  );
+
+  it("sends clear-section and the remaining preconditions", async () => {
+    const patch = vi.fn(async () =>
+      fixtures.makeThread({ id: "T", projectId: "P", providerId: "codex" }),
+    );
+    stubServerApi({ "v1.threads.:id.$patch": patch });
+    await runCommand(
+      [
+        "thread",
+        "update",
+        "T",
+        "--clear-section",
+        "--if-unarchived",
+        "--if-top-level",
+      ],
+      register,
+    );
+    expect(patch).toHaveBeenCalledWith({
+      param: { id: "T" },
+      json: { sectionId: null, ifUnarchived: true, ifTopLevel: true },
+    });
+  });
+
+  it.each([
+    ["--if-unpinned"],
+    ["--if-section", "S1", "--section", "S2", "--title", "x"],
+    ["--if-top-level", "--section", "S2", "--parent-thread", "T2"],
+    ["--if-unarchived", "--section", "S2", "--clear-parent-thread"],
+    ["--if-unpinned", "--section", "S2", "--model", "M"],
+    ["--if-unpinned", "--section", "S2", "--reasoning-level", "high"],
+    ["--if-unpinned", "--section", "S2", "--visibility", "hidden"],
+  ])(
+    "rejects invalid conditional flags %j before requesting",
+    async (...flags) => {
+      const patch = vi.fn();
+      stubServerApi({ "v1.threads.:id.$patch": patch });
+      await expect(
+        runCommand(["thread", "update", "T", ...flags], register),
+      ).rejects.toThrow("process.exit:1");
+      expect(console.error).toHaveBeenCalledWith(
+        expect.stringContaining("Section preconditions require"),
+      );
+      expect(patch).not.toHaveBeenCalled();
+    },
+  );
+
+  it("prints current section state on conflict and exits nonzero", async () => {
+    const patch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            code: "conflict",
+            message: "Section changed",
+            details: {
+              current: {
+                sectionId: "S2",
+                pinnedAt: null,
+                archivedAt: null,
+                parentThreadId: null,
+              },
+            },
+          }),
+          { status: 409, headers: { "Content-Type": "application/json" } },
+        ),
+    );
+    stubServerApi({ "v1.threads.:id.$patch": patch });
+    await expect(
+      runCommand(
+        ["thread", "update", "T", "--section", "S3", "--if-section", "S1"],
+        register,
+      ),
+    ).rejects.toThrow("process.exit:1");
+    expect(collectLogLines(vi.mocked(console.error)).join("\n")).toContain(
+      "S2",
+    );
+  });
+
   it("bb thread update sets the parent thread id", async () => {
     const thread: domain.Thread = fixtures.makeThread({
       id: "thread-update-1",
