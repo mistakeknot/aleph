@@ -188,6 +188,8 @@ import type {
   PromptHistoryListQuery,
   PromptHistoryListResponse,
   ReorderPinnedThreadRequest,
+  PinThreadQuery,
+  UnpinThreadQuery,
   ReorderProjectRequest,
   ReorderQueuedMessageRequest,
   ResolvePendingInteractionRequest,
@@ -374,6 +376,8 @@ import {
   promptHistoryQuerySchema,
   promptHistoryListQuerySchema,
   reorderPinnedThreadRequestSchema,
+  pinThreadQuerySchema,
+  unpinThreadQuerySchema,
   reorderProjectRequestSchema,
   reorderQueuedMessageRequestSchema,
   resolvePendingInteractionRequestSchema,
@@ -430,7 +434,7 @@ import {
   updateTerminalRequestSchema,
   updateProjectRequestSchema,
   updateProjectSourceRequestSchema,
-  updateThreadRequestSchema,
+  updateThreadRequestBodySchema,
 } from "./api-types.js";
 import {
   serverMoveCheckRequestSchema,
@@ -1399,7 +1403,7 @@ export const publicApiRoutes = {
       path: "/threads/:id",
       method: "patch",
       request: jsonRequest<PathId, UpdateThreadRequest>(
-        updateThreadRequestSchema,
+        updateThreadRequestBodySchema,
       ),
       response: jsonResponse<ThreadResponse>(),
     }),
@@ -1638,13 +1642,17 @@ export const publicApiRoutes = {
     pin: defineRoute({
       path: "/threads/:id/pin",
       method: "post",
-      request: noRequest<PathId>(),
+      request: optionalQueryRequest<PathId, PinThreadQuery>(
+        pinThreadQuerySchema,
+      ),
       response: jsonResponse<ThreadResponse>(),
     }),
     unpin: defineRoute({
       path: "/threads/:id/unpin",
       method: "post",
-      request: noRequest<PathId>(),
+      request: optionalQueryRequest<PathId, UnpinThreadQuery>(
+        unpinThreadQuerySchema,
+      ),
       response: jsonResponse<ThreadResponse>(),
     }),
     pinOrder: defineRoute({

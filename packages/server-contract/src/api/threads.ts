@@ -761,6 +761,10 @@ export const updateThreadRequestSchema = z
     model: z.string().min(1).nullable(),
     reasoningLevel: reasoningLevelSchema.nullable(),
     visibility: threadVisibilitySchema,
+    ifSectionId: z.string().min(1).nullable(),
+    ifUnpinned: z.literal(true),
+    ifUnarchived: z.literal(true),
+    ifTopLevel: z.literal(true),
   })
   .partial()
   .refine(
@@ -775,9 +779,66 @@ export const updateThreadRequestSchema = z
   );
 export type UpdateThreadRequest = z.infer<typeof updateThreadRequestSchema>;
 
+export const conditionalUpdateKeys: readonly [
+  "ifSectionId",
+  "ifUnpinned",
+  "ifUnarchived",
+  "ifTopLevel",
+] = ["ifSectionId", "ifUnpinned", "ifUnarchived", "ifTopLevel"];
+
+const rejectUnknownKeysWhenConditional: Parameters<typeof z.preprocess>[0] = (
+  value,
+  ctx,
+) => {
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    return value;
+  if (!conditionalUpdateKeys.some((key) => key in value)) return value;
+  const allowedKeys: readonly string[] = [
+    "sectionId",
+    ...conditionalUpdateKeys,
+  ];
+  for (const key of Object.keys(value)) {
+    if (!allowedKeys.includes(key)) {
+      ctx.addIssue({
+        code: "custom",
+        message: `Conditional section write does not accept ${key}`,
+        path: [key],
+      });
+    }
+  }
+  if (!("sectionId" in value)) {
+    ctx.addIssue({
+      code: "custom",
+      message: "Conditional section write requires sectionId",
+      path: ["sectionId"],
+    });
+  }
+  return value;
+};
+
+export const updateThreadRequestBodySchema: z.ZodType<UpdateThreadRequest> =
+  z.preprocess(rejectUnknownKeysWhenConditional, updateThreadRequestSchema);
+
+export const pinThreadQuerySchema = z.object({
+  ifUnpinned: z.literal("true").optional(),
+});
+export type PinThreadQuery = z.infer<typeof pinThreadQuerySchema>;
+
+export const unpinThreadQuerySchema = z.object({
+  ifPinnedAt: z.string().regex(/^\d+$/u).optional(),
+});
+export type UnpinThreadQuery = z.infer<typeof unpinThreadQuerySchema>;
+
 export const reorderPinnedThreadRequestSchema = z.object({
   previousThreadId: z.string().min(1).nullable(),
   nextThreadId: z.string().min(1).nullable(),
+  ifSortKeys: z
+    .object({
+      thread: z.string().min(1),
+      previous: z.string().min(1).nullable(),
+      next: z.string().min(1).nullable(),
+    })
+    .optional(),
 });
 export type ReorderPinnedThreadRequest = z.infer<
   typeof reorderPinnedThreadRequestSchema

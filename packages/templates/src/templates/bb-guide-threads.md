@@ -316,6 +316,10 @@ Ownership:
     --clear-parent-thread                  Remove parent assignment
     --section <id>                         Move into a section
     --clear-section                        Remove section assignment
+    --if-section <id|none>                 Require the current section (none means no section)
+    --if-unpinned                          Require an unpinned thread
+    --if-unarchived                        Require an unarchived thread
+    --if-top-level                         Require a thread with no parent
     --model <model>                        Set the sticky model for the next and later turns
     --reasoning-level <level>              Set the sticky reasoning level (provider-dependent)
     --visibility <visibility>              Set visible or hidden
@@ -324,6 +328,17 @@ Ownership:
   --clear-section is also supplied. Children released by environment archiving
   also inherit their former parent's section.
 
+  Section preconditions require --section or --clear-section and cannot be
+  combined with title, parent, model, reasoning, or visibility updates. A
+  mismatch leaves the thread unchanged, prints its current state, and exits
+  nonzero. For example:
+
+    bb thread update T --section S2 --if-section S1 --if-unpinned --if-unarchived --if-top-level
+
+  SDK callers use threads.update({ threadId: "T", sectionId: "S2",
+  ifSectionId: "S1", ifUnpinned: true, ifUnarchived: true, ifTopLevel: true }).
+  ifSectionId: null requires no section; sectionId: null clears the section.
+
   Model and reasoning updates stay within the thread's current provider. BB
   validates them against that provider's current model catalog, applies them on
   the next turn, and keeps using them on later turns until changed.
@@ -331,6 +346,26 @@ Ownership:
   bb thread read [id]                      Mark read
   bb thread unread [id]                    Mark unread
   bb thread reorder-pinned <id> [--after <id>] [--before <id>]
+    --if-sort-keys <thread,previous,next>    Require the three current sort keys
+  bb thread pin [id] [--self] [--if-unpinned]
+  bb thread unpin [id] [--self] [--if-pinned-at <ms>]
+
+  Pin preconditions preserve manual changes: --if-unpinned requires no pin;
+  --if-pinned-at requires the observed non-negative integer pin timestamp.
+  --if-sort-keys takes exactly three comma-separated keys; none means null
+  for previous or next, and the thread's own key cannot be none. For example:
+
+    bb thread pin T --if-unpinned
+    bb thread unpin T --if-pinned-at 123
+    bb thread reorder-pinned T --before T2 --if-sort-keys a0,none,a2
+
+  SDK equivalents are threads.pin({ threadId: "T", ifUnpinned: true }),
+  threads.unpin({ threadId: "T", ifPinnedAt: 123 }), and
+  threads.reorderPinned({ threadId: "T", previousThreadId: null,
+  nextThreadId: "T2", ifSortKeys: { thread: "a0", previous: null, next: "a2" } }).
+  A mismatch returns HTTP 409 conflict with details.current; the CLI prints
+  Current state: followed by that JSON and exits nonzero. Omit preconditions
+  for the existing unconditional behavior, including idempotent pin/unpin.
 
 Interactions:
 

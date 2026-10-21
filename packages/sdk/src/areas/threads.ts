@@ -638,7 +638,9 @@ export interface ThreadsArea {
   open(args: ThreadOpenArgs): Promise<ThreadOpenResult>;
   paneAction(args: ThreadPaneActionArgs): Promise<ThreadPaneActionResult>;
   output(args: ThreadOutputArgs): Promise<ThreadOutputResponse>;
-  pin(args: ThreadActionArgs): Promise<ThreadMutationResult>;
+  pin(
+    args: ThreadActionArgs & { ifUnpinned?: true },
+  ): Promise<ThreadMutationResult>;
   promptHistory(
     args: ThreadPromptHistoryArgs,
   ): Promise<ThreadPromptHistoryResult>;
@@ -688,7 +690,9 @@ export interface ThreadsArea {
   storageLocation(args: ThreadStatusArgs): Promise<ThreadStorageLocationResult>;
   storagePaths(args: ThreadStoragePathsArgs): Promise<ThreadStoragePathsResult>;
   unarchive(args: ThreadActionArgs): Promise<ThreadUnarchiveResult>;
-  unpin(args: ThreadActionArgs): Promise<ThreadMutationResult>;
+  unpin(
+    args: ThreadActionArgs & { ifPinnedAt?: number },
+  ): Promise<ThreadMutationResult>;
   update(args: ThreadUpdateArgs): Promise<ThreadMutationResult>;
   wait(args: ThreadWaitArgs): Promise<ThreadWaitResult>;
   /**
@@ -744,6 +748,10 @@ function countQuery(args: ThreadCountArgs | undefined): ThreadCountQuery {
 
 function updateJson(args: ThreadUpdateArgs): UpdateThreadRequest {
   return {
+    ifSectionId: args.ifSectionId,
+    ifUnpinned: args.ifUnpinned,
+    ifUnarchived: args.ifUnarchived,
+    ifTopLevel: args.ifTopLevel,
     title: args.title,
     sectionId: args.sectionId,
     parentThreadId: args.parentThreadId,
@@ -1380,6 +1388,9 @@ export function createThreadsArea(args: CreateSdkAreaArgs): ThreadsArea {
       return transport.readJson(
         transport.api.v1.threads[":id"].pin.$post({
           param: { id: input.threadId },
+          ...(input.ifUnpinned === undefined
+            ? {}
+            : { query: { ifUnpinned: "true" as const } }),
         }),
       );
     },
@@ -1402,6 +1413,9 @@ export function createThreadsArea(args: CreateSdkAreaArgs): ThreadsArea {
           json: {
             previousThreadId: input.previousThreadId,
             nextThreadId: input.nextThreadId,
+            ...(input.ifSortKeys === undefined
+              ? {}
+              : { ifSortKeys: input.ifSortKeys }),
           },
         }),
       );
@@ -1591,6 +1605,9 @@ export function createThreadsArea(args: CreateSdkAreaArgs): ThreadsArea {
       return transport.readJson(
         transport.api.v1.threads[":id"].unpin.$post({
           param: { id: input.threadId },
+          ...(input.ifPinnedAt === undefined
+            ? {}
+            : { query: { ifPinnedAt: String(input.ifPinnedAt) } }),
         }),
       );
     },

@@ -22,6 +22,68 @@ describe("bb thread action command output", () => {
   const register: CommandRegistrar = (program) =>
     registerThreadCommands(program, () => "http://server");
 
+  it.each([
+    ["pin", "--if-unpinned", undefined, { ifUnpinned: "true" }],
+    ["unpin", "--if-pinned-at", "123", { ifPinnedAt: "123" }],
+  ] as const)("sends %s preconditions", async (name, flag, value, query) => {
+    const post = vi.fn(async () =>
+      fixtures.makeThread({ id: "T", projectId: "P", providerId: "codex" }),
+    );
+    stubServerApi({ [`v1.threads.:id.${name}.$post`]: post });
+    await runCommand(
+      ["thread", name, "T", flag, ...(value ? [value] : [])],
+      register,
+    );
+    expect(post).toHaveBeenCalledWith({ param: { id: "T" }, query });
+  });
+
+  it.each(["x", "-1", "1.5", ""])(
+    "rejects invalid pin timestamp %s before requesting",
+    async (value) => {
+      const post = vi.fn();
+      stubServerApi({ "v1.threads.:id.unpin.$post": post });
+      await expect(
+        runCommand(["thread", "unpin", "T", "--if-pinned-at", value], register),
+      ).rejects.toThrow("process.exit:1");
+      expect(console.error).toHaveBeenCalledWith(
+        expect.stringContaining("--if-pinned-at requires"),
+      );
+      expect(post).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["pin", "unpin"])(
+    "prints current pin state for %s conflict",
+    async (name) => {
+      const post = vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              code: "conflict",
+              message: "Pin changed",
+              details: { current: { pinnedAt: 123 } },
+            }),
+            { status: 409, headers: { "Content-Type": "application/json" } },
+          ),
+      );
+      stubServerApi({ [`v1.threads.:id.${name}.$post`]: post });
+      await expect(
+        runCommand(
+          [
+            "thread",
+            name,
+            "T",
+            ...(name === "pin" ? ["--if-unpinned"] : ["--if-pinned-at", "1"]),
+          ],
+          register,
+        ),
+      ).rejects.toThrow("process.exit:1");
+      expect(console.error).toHaveBeenCalledWith(
+        'Current state: {"pinnedAt":123}',
+      );
+    },
+  );
+
   it("bb thread archive sends the thread id from args", async () => {
     const archivePost = vi.fn(async () => ({
       ok: true,

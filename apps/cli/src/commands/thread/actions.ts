@@ -1,4 +1,5 @@
 import { Command } from "commander";
+import { rethrowThreadConflict } from "./conditional-write.js";
 import { randomUUID } from "node:crypto";
 import {
   threadVisibilitySchema,
@@ -8,7 +9,7 @@ import {
   type ThreadVisibility,
 } from "@bb/domain";
 import { threadEnvironmentUnavailableApiErrorSchema } from "@bb/server-contract";
-import { action, CliExitError } from "../../action.js";
+import { action, CliExitError, CliUsageError } from "../../action.js";
 import { createCliBbSdk } from "../../client.js";
 import { requireTextInput, TEXT_FILE_HELP_SUFFIX } from "../../text-input.js";
 import {
@@ -48,6 +49,10 @@ interface ThreadUpdateCommandOptions {
   clearParentThread?: boolean;
   section?: string;
   clearSection?: boolean;
+  ifSection?: string;
+  ifUnpinned?: boolean;
+  ifUnarchived?: boolean;
+  ifTopLevel?: boolean;
   model?: string;
   reasoningLevel?: string;
   visibility?: string;
@@ -69,6 +74,8 @@ interface ThreadRestoreEnvironmentCommandOptions {
 }
 
 interface ThreadPinCommandOptions {
+  ifUnpinned?: boolean;
+  ifPinnedAt?: string;
   self?: boolean;
   json?: boolean;
 }
@@ -141,6 +148,10 @@ type PostThreadMessageResult = ThreadSendResult & {
 };
 
 interface ThreadUpdateBody {
+  ifSectionId?: string | null;
+  ifUnpinned?: true;
+  ifUnarchived?: true;
+  ifTopLevel?: true;
   title?: string;
   sectionId?: string | null;
   parentThreadId?: string | null;
@@ -164,6 +175,13 @@ export function registerActionsCommands(
     .option("--section <id>", "Move the thread into a section")
     .option("--clear-section", "Remove the thread from its section")
     .option(
+      "--if-section <id|none>",
+      "Require the current section (none means no section)",
+    )
+    .option("--if-unpinned", "Require an unpinned thread")
+    .option("--if-unarchived", "Require an unarchived thread")
+    .option("--if-top-level", "Require a thread with no parent")
+    .option(
       "--model <model>",
       "Set the sticky model applied on the thread's next turn",
     )
@@ -175,6 +193,28 @@ export function registerActionsCommands(
     .action(
       action(
         async (id: string | undefined, opts: ThreadUpdateCommandOptions) => {
+          const conditional =
+            opts.ifSection !== undefined ||
+            opts.ifUnpinned ||
+            opts.ifUnarchived ||
+            opts.ifTopLevel;
+          if (
+            conditional &&
+            ((!opts.section && !opts.clearSection) ||
+              opts.title !== undefined ||
+              opts.parentThread !== undefined ||
+              opts.clearParentThread ||
+              opts.model !== undefined ||
+              opts.reasoningLevel !== undefined ||
+              opts.visibility !== undefined)
+          ) {
+            throw new CliUsageError({
+              code: "invalid_usage",
+              hint: null,
+              message:
+                "Section preconditions require --section or --clear-section and cannot be combined with other updates.",
+            });
+          }
           if (opts.parentThread && opts.clearParentThread) {
             throw new Error(
               "Cannot combine --parent-thread with --clear-parent-thread.",
@@ -209,6 +249,18 @@ export function registerActionsCommands(
             value: opts.parentThread,
           });
           const body: ThreadUpdateBody = {};
+          if (opts.ifSection !== undefined) {
+            body.ifSectionId =
+              opts.ifSection === "none"
+                ? null
+                : resolveExplicitIdFlag({
+                    flagName: "--if-section",
+                    value: opts.ifSection,
+                  });
+          }
+          if (opts.ifUnpinned) body.ifUnpinned = true;
+          if (opts.ifUnarchived) body.ifUnarchived = true;
+          if (opts.ifTopLevel) body.ifTopLevel = true;
           if (opts.title) {
             body.title = opts.title;
           }
@@ -236,7 +288,12 @@ export function registerActionsCommands(
           }
 
           const sdk = createCliBbSdk(getUrl());
-          const thread = await sdk.threads.update({ threadId, ...body });
+          const thread = await sdk.threads
+            .update({ threadId, ...body })
+            .catch((error: unknown) => {
+              if (conditional) rethrowThreadConflict(error);
+              throw error;
+            });
           if (outputJson(opts, thread)) return;
           console.log(`Thread ${thread.id} updated`);
           if (opts.title) {
@@ -363,7 +420,7 @@ export function registerActionsCommands(
     { name: "pin", description: "Pin a thread", done: "pinned" },
     { name: "unpin", description: "Unpin a thread", done: "unpinned" },
   ] as const) {
-    parent
+    const command = parent
       .command(`${name} [id]`)
       .description(description)
       .option("--self", "Target the current thread (from BB_THREAD_ID)")
@@ -372,12 +429,43 @@ export function registerActionsCommands(
         action(
           async (id: string | undefined, opts: ThreadPinCommandOptions) => {
             const threadId = requireThreadIdOrSelf(id, opts);
+            if (
+              opts.ifPinnedAt !== undefined &&
+              (!/^\d+$/u.test(opts.ifPinnedAt) ||
+                !Number.isSafeInteger(Number(opts.ifPinnedAt)))
+            ) {
+              throw new CliUsageError({
+                code: "invalid_usage",
+                hint: null,
+                message:
+                  "--if-pinned-at requires a non-negative integer timestamp.",
+              });
+            }
             const sdk = createCliBbSdk(getUrl());
-            const thread = await sdk.threads[name]({ threadId });
+            const thread = await (
+              name === "pin"
+                ? sdk.threads.pin({
+                    threadId,
+                    ...(opts.ifUnpinned ? { ifUnpinned: true } : {}),
+                  })
+                : sdk.threads.unpin({
+                    threadId,
+                    ...(opts.ifPinnedAt !== undefined
+                      ? { ifPinnedAt: Number(opts.ifPinnedAt) }
+                      : {}),
+                  })
+            ).catch(rethrowThreadConflict);
             if (outputJson(opts, thread)) return;
             console.log(`Thread ${thread.id} ${done}`);
           },
         ),
+      );
+    if (name === "pin")
+      command.option("--if-unpinned", "Require an unpinned thread");
+    else
+      command.option(
+        "--if-pinned-at <ms>",
+        "Require the current pin timestamp",
       );
   }
 
