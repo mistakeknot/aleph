@@ -27,6 +27,40 @@ export interface QuestionAnswerState {
 
 export type QuestionFormState = Record<string, QuestionAnswerState>;
 
+export interface QuestionFormDraft {
+  formState: QuestionFormState;
+  currentIndex: number;
+}
+
+const questionFormDrafts = new Map<string, QuestionFormDraft>();
+
+export function readQuestionFormDraft(
+  draftKey: string | undefined,
+): QuestionFormDraft | null {
+  return draftKey === undefined
+    ? null
+    : (questionFormDrafts.get(draftKey) ?? null);
+}
+
+export function writeQuestionFormDraft(
+  draftKey: string | undefined,
+  draft: QuestionFormDraft,
+): void {
+  if (draftKey !== undefined) {
+    questionFormDrafts.set(draftKey, draft);
+  }
+}
+
+export function clearQuestionFormDraft(draftKey: string | undefined): void {
+  if (draftKey !== undefined) {
+    questionFormDrafts.delete(draftKey);
+  }
+}
+
+export function clearAllQuestionFormDrafts(): void {
+  questionFormDrafts.clear();
+}
+
 function questionHasOptions(question: Question): boolean {
   return question.options.length > 0;
 }

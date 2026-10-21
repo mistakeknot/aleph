@@ -339,3 +339,53 @@ describe("multi-select and multi-question flows", () => {
     expect(cancel).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("draft persistence across remounts", () => {
+  function mountWithDraft(draftKey: string) {
+    return renderReact(
+      <AppCommandProvider>
+        <ThreadQuestionFormHost>
+          <QuestionForm
+            draftKey={draftKey}
+            questions={singleSelect.questions}
+            disabled={false}
+            cancelDisabled={false}
+            onSubmit={() => {}}
+            onCancel={() => {}}
+          />
+        </ThreadQuestionFormHost>
+      </AppCommandProvider>,
+    );
+  }
+
+  it("restores the Other text after the form unmounts and mounts again", () => {
+    const first = mountWithDraft("thr_a:int_1");
+    fireEvent.keyDown(document.body, { key: "3" });
+    fireEvent.change(first.getByLabelText("Database answer"), {
+      target: { value: "half typed answer" },
+    });
+    first.unmount();
+
+    const second = mountWithDraft("thr_a:int_1");
+
+    expect(
+      (second.getByLabelText("Database answer") as HTMLTextAreaElement).value,
+    ).toBe("half typed answer");
+  });
+
+  it("keeps drafts for different threads separate", () => {
+    const first = mountWithDraft("thr_a:int_1");
+    fireEvent.keyDown(document.body, { key: "3" });
+    fireEvent.change(first.getByLabelText("Database answer"), {
+      target: { value: "thread a text" },
+    });
+    first.unmount();
+
+    const other = mountWithDraft("thr_b:int_1");
+    fireEvent.keyDown(document.body, { key: "3" });
+
+    expect(
+      (other.getByLabelText("Database answer") as HTMLTextAreaElement).value,
+    ).toBe("");
+  });
+});

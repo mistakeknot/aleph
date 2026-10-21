@@ -24,9 +24,12 @@ import { cn } from "../../lib/utils";
 import {
   answerStateFor,
   buildQuestionAnswers,
+  clearQuestionFormDraft,
   createInitialFormState,
   isQuestionAnswered,
+  readQuestionFormDraft,
   resolveQuestionShortcutChoice,
+  writeQuestionFormDraft,
   type QuestionAnswerState,
   type QuestionFormState,
 } from "./question-form-state";
@@ -298,6 +301,7 @@ function QuestionInputBlock({
 }
 
 export interface QuestionFormProps {
+  draftKey?: string;
   questions: readonly Question[];
   disabled: boolean;
   cancelDisabled: boolean;
@@ -306,16 +310,24 @@ export interface QuestionFormProps {
 }
 
 export function QuestionForm({
+  draftKey,
   questions,
   disabled,
   cancelDisabled,
   onSubmit,
   onCancel,
 }: QuestionFormProps) {
-  const [formState, setFormState] = useState<QuestionFormState>(() =>
-    createInitialFormState(questions),
+  const [formState, setFormState] = useState<QuestionFormState>(
+    () =>
+      readQuestionFormDraft(draftKey)?.formState ??
+      createInitialFormState(questions),
   );
-  const [currentIndex, setCurrentIndex] = useState(0);
+  const [currentIndex, setCurrentIndex] = useState(
+    () => readQuestionFormDraft(draftKey)?.currentIndex ?? 0,
+  );
+  useEffect(() => {
+    writeQuestionFormDraft(draftKey, { formState, currentIndex });
+  }, [draftKey, formState, currentIndex]);
   const formRef = useRef<HTMLDivElement>(null);
   const { shortcuts, registerChoiceHandler } = useQuestionFormHost();
 
@@ -377,6 +389,7 @@ export function QuestionForm({
 
   const submitAnswer = (): void => {
     if (disabled || !allAnswered) return;
+    clearQuestionFormDraft(draftKey);
     onSubmit(buildQuestionAnswers(questions, formState));
   };
 
@@ -463,7 +476,10 @@ export function QuestionForm({
           size="sm"
           variant="ghost"
           disabled={cancelDisabled}
-          onClick={onCancel}
+          onClick={() => {
+            clearQuestionFormDraft(draftKey);
+            onCancel();
+          }}
         >
           Cancel
         </Button>

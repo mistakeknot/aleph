@@ -10,6 +10,7 @@ import type { SplitLayout } from "@/lib/split-layout";
 import {
   applyThreadOpenToLayout,
   applyThreadPaneActionToLayout,
+  planBackgroundThreadOpen,
   createSinglePaneLayout,
   focusedPaneRoute,
   reconcileLayoutForContent,
@@ -212,5 +213,35 @@ describe("applyThreadPaneActionToLayout", () => {
       maximizedPaneId: "pane-2",
       dimInactiveSplits: null,
     });
+  });
+});
+
+describe("planBackgroundThreadOpen", () => {
+  it("leaves the layout and focus alone when the thread is already in a pane", () => {
+    const layout = twoPaneLayout();
+
+    const plan = planBackgroundThreadOpen(layout, {
+      projectId: "p1",
+      threadId: "thread-2",
+    });
+
+    expect(plan).toEqual({ kind: "already-open" });
+  });
+
+  it("defers instead of replacing the focused pane when the thread is not open", () => {
+    const layout = twoPaneLayout();
+
+    const plan = planBackgroundThreadOpen(layout, {
+      projectId: "p1",
+      threadId: "thread-9",
+    });
+
+    expect(plan).toEqual({ kind: "defer" });
+  });
+
+  it("defers when no layout exists yet", () => {
+    expect(
+      planBackgroundThreadOpen(null, { projectId: "p1", threadId: "thread-9" }),
+    ).toEqual({ kind: "defer" });
   });
 });

@@ -29,6 +29,9 @@ import { Link, MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppCommandProvider } from "@/components/commands/AppCommandProvider";
 import { AppLayout } from "./AppLayout";
+import { wsManager } from "@/lib/ws";
+import { splitLayoutAtom } from "@/lib/split-layout/atoms";
+import { createSinglePaneLayout } from "@/views/thread-detail/splitThreadNavigation";
 import { CompactViewportOverrideProvider } from "@bb/shared-ui/hooks/use-compact-viewport";
 import { setCompactSecondaryPanelPresentation } from "@/components/ui/secondary-panel-shelf-visibility";
 
@@ -673,4 +676,48 @@ describe("thread header section moves", () => {
       ).toBe(expected);
     },
   );
+});
+
+describe("thread open signals", () => {
+  function captureThreadOpen() {
+    let callback: ((signal: unknown) => void) | null = null;
+    vi.spyOn(wsManager, "onThreadOpen").mockImplementation((cb) => {
+      callback = cb as (signal: unknown) => void;
+      return () => {};
+    });
+    return (signal: unknown) => callback?.(signal);
+  }
+
+  it("does not navigate or replace the focused pane for a thread that is not open", () => {
+    const emit = captureThreadOpen();
+    const store = createStore();
+    const layout = createSinglePaneLayout({ projectId: "p1", threadId: "t1" });
+    store.set(splitLayoutAtom, layout);
+    render(
+      <JotaiProvider store={store}>
+        <MemoryRouter initialEntries={["/projects/p1/threads/t1"]}>
+          <AppCommandProvider>
+            <AppLayout>
+              <RouteContent />
+            </AppLayout>
+          </AppCommandProvider>
+        </MemoryRouter>
+      </JotaiProvider>,
+    );
+
+    act(() => {
+      emit({
+        type: "thread-open",
+        projectId: "p1",
+        threadId: "t2",
+        split: "replace",
+        file: null,
+      });
+    });
+
+    expect(screen.getByTestId("location").textContent).toBe(
+      "/projects/p1/threads/t1",
+    );
+    expect(store.get(splitLayoutAtom)).toBe(layout);
+  });
 });
