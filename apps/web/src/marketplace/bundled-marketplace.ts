@@ -32,6 +32,7 @@ export const INSTALL_ON_REQUEST_BUNDLED_PLUGINS: ReadonlySet<string> = new Set([
 export const OFF_BY_DEFAULT_BUNDLED_PLUGINS: ReadonlySet<string> = new Set([
   "agent-annotations",
   "ask-user-question",
+  "layer-groups",
   "mcp",
   "monaco-editor",
   "plugin-api-docs",
