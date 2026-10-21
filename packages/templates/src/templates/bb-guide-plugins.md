@@ -177,6 +177,22 @@ Each bundled plugin documents its commands and behavior in its own skill.
   see the `automations` skill.
 - Workflows (builtin, off by default): durable JavaScript orchestration of
   worker threads. Run `bb plugin enable workflows`, then
+  `bb workflows validate|run|status|history|list|stop`; see the `workflows`
+  skill.
+- Memory (official, `bb plugin install memory`): durable cross-provider
+  agent memory. `bb memory catalog|search|get|add|update|forget|history`;
+  see the `memory` skill.
+- Docs (official, `bb plugin install docs`): document vaults with a
+  pull/edit/push loop and reviewable proposals.
+  `bb docs vaults|list|read|pull|status|push|propose`; see the `docs` skill.
+- Tasks (official, `bb plugin install tasks`): a task tracker with agent
+  delegation. `bb tasks show|list|comment|update|attach`, and
+  `bb tasks --help` for the rest; see the `tasks` skill.
+- Modal sandboxes (official, `bb plugin install environment-modal-sandbox`):
+  reusable Modal cloud machines. `bb modal account inspect`,
+  `bb machine create --provider modal-sandbox`, and `bb modal image|sandbox`;
+  see the `modal-sandboxes` skill.
+
 The builtin Layer groups plugin is disabled by default. Enable it with
 `bb plugin enable bb--layer-groups`. It provisions sidebar pace-layer sections
 from a registry JSON. Its `mode` setting defaults to `preview`; `registryPath`
@@ -200,22 +216,6 @@ run. `GSV` selects Studio for adopt and enable-layer.
 must be absolute; relative paths are rejected. An
 unreadable registry blocks apply; preview can show a stored snapshot with an
 error. Owned section renames are preserved.
-
-  `bb workflows validate|run|status|history|list|stop`; see the `workflows`
-  skill.
-- Memory (official, `bb plugin install memory`): durable cross-provider
-  agent memory. `bb memory catalog|search|get|add|update|forget|history`;
-  see the `memory` skill.
-- Docs (official, `bb plugin install docs`): document vaults with a
-  pull/edit/push loop and reviewable proposals.
-  `bb docs vaults|list|read|pull|status|push|propose`; see the `docs` skill.
-- Tasks (official, `bb plugin install tasks`): a task tracker with agent
-  delegation. `bb tasks show|list|comment|update|attach`, and
-  `bb tasks --help` for the rest; see the `tasks` skill.
-- Modal sandboxes (official, `bb plugin install environment-modal-sandbox`):
-  reusable Modal cloud machines. `bb modal account inspect`,
-  `bb machine create --provider modal-sandbox`, and `bb modal image|sandbox`;
-  see the `modal-sandboxes` skill.
 
 Multi-plugin repositories
 
