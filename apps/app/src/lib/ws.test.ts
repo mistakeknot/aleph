@@ -302,6 +302,11 @@ describe("WebSocketManager thread-open signals", () => {
       send("thr_a");
       vi.setSystemTime(Date.now() + 61_000);
       send("thr_b");
+      const buffered = Reflect.get(manager, "pendingOpenFileByThreadId") as Map<
+        string,
+        unknown
+      >;
+      expect([...buffered.keys()]).toEqual(["thr_b"]);
       expect(manager.consumePendingOpenFile("thr_a")).toBeNull();
       expect(manager.consumePendingOpenFile("thr_b")).not.toBeNull();
     } finally {
