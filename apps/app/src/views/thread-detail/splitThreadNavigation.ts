@@ -179,6 +179,23 @@ export function applyThreadOpenToLayout(
     : splitPane(layout, layout.focusedPaneId, decision.zone, content);
 }
 
+export type BackgroundThreadOpenPlan =
+  | { kind: "already-open" }
+  | { kind: "defer" };
+
+export function planBackgroundThreadOpen(
+  layout: SplitLayout | null,
+  thread: ThreadRoutePathArgs,
+): BackgroundThreadOpenPlan {
+  if (
+    layout !== null &&
+    findPaneByThread(layout.root, thread.projectId, thread.threadId) !== null
+  ) {
+    return { kind: "already-open" };
+  }
+  return { kind: "defer" };
+}
+
 interface ThreadPaneActionLayoutResult {
   layout: SplitLayout;
   maximizedPaneId: string | null;

@@ -6,6 +6,10 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QuestionForm } from "@bb/shared-ui/question-form";
+import {
+  readQuestionFormDraft,
+  writeQuestionFormDraft,
+} from "@bb/shared-ui/question-form-state";
 import type {
   Question,
   QuestionAnswer,
@@ -337,5 +341,65 @@ describe("multi-select and multi-question flows", () => {
 
     fireEvent.click(getButtonByText(slot, "Cancel"));
     expect(cancel).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("draft persistence across remounts", () => {
+  function mountWithDraft(draftKey: string) {
+    return renderReact(
+      <AppCommandProvider>
+        <ThreadQuestionFormHost>
+          <QuestionForm
+            draftKey={draftKey}
+            questions={singleSelect.questions}
+            disabled={false}
+            cancelDisabled={false}
+            onSubmit={() => {}}
+            onCancel={() => {}}
+          />
+        </ThreadQuestionFormHost>
+      </AppCommandProvider>,
+    );
+  }
+
+  it("restores the Other text after the form unmounts and mounts again", () => {
+    const first = mountWithDraft("thr_a:int_1");
+    fireEvent.keyDown(document.body, { key: "3" });
+    fireEvent.change(first.getByLabelText("Database answer"), {
+      target: { value: "half typed answer" },
+    });
+    first.unmount();
+
+    const second = mountWithDraft("thr_a:int_1");
+
+    expect(
+      (second.getByLabelText("Database answer") as HTMLTextAreaElement).value,
+    ).toBe("half typed answer");
+  });
+
+  it("keeps drafts for different threads separate", () => {
+    const first = mountWithDraft("thr_a:int_1");
+    fireEvent.keyDown(document.body, { key: "3" });
+    fireEvent.change(first.getByLabelText("Database answer"), {
+      target: { value: "thread a text" },
+    });
+    first.unmount();
+
+    const other = mountWithDraft("thr_b:int_1");
+    fireEvent.keyDown(document.body, { key: "3" });
+
+    expect(
+      (other.getByLabelText("Database answer") as HTMLTextAreaElement).value,
+    ).toBe("");
+  });
+
+  it("evicts the oldest drafts beyond the cap", () => {
+    const draft = { formState: {}, currentIndex: 0 };
+    for (let index = 0; index < 60; index += 1) {
+      writeQuestionFormDraft(`cap:${index}`, draft);
+    }
+
+    expect(readQuestionFormDraft("cap:0")).toBeNull();
+    expect(readQuestionFormDraft("cap:59")).not.toBeNull();
   });
 });

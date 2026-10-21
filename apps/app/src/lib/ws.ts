@@ -76,6 +76,9 @@ interface ActiveSubscription {
   target: RealtimeSubscriptionTarget;
 }
 
+const PENDING_OPEN_FILE_TTL_MS = 60_000;
+const MAX_PENDING_OPEN_FILES = 20;
+
 export class WebSocketManager {
   private socket: ReconnectingWebSocket | null = null;
   private subscriptions = new Map<string, ActiveSubscription>();
@@ -83,7 +86,10 @@ export class WebSocketManager {
   private threadOpenCallbacks = new Set<ThreadOpenCallback>();
   private threadPaneActionCallbacks = new Set<ThreadPaneActionCallback>();
   private pluginSignalCallbacks = new Set<PluginSignalCallback>();
-  private pendingOpenFileByThreadId = new Map<string, ThreadOpenFile>();
+  private pendingOpenFileByThreadId = new Map<
+    string,
+    { file: ThreadOpenFile; receivedAt: number }
+  >();
   private connectedCallbacks = new Set<ConnectedCallback>();
   private connectionStateCallbacks = new Set<ConnectionStateCallback>();
   private resumedCallbacks = new Set<ResumedCallback>();
@@ -363,10 +369,12 @@ export class WebSocketManager {
     const threadOpen = threadOpenSignalLenientSchema.safeParse(parsed);
     if (threadOpen.success) {
       if (threadOpen.data.file !== null) {
-        this.pendingOpenFileByThreadId.set(
+        this.storePendingOpenFile(
           threadOpen.data.threadId,
           threadOpen.data.file,
         );
+      } else {
+        this.pendingOpenFileByThreadId.delete(threadOpen.data.threadId);
       }
       for (const cb of this.threadOpenCallbacks) {
         cb(threadOpen.data);
@@ -477,13 +485,31 @@ export class WebSocketManager {
     };
   }
 
+  private storePendingOpenFile(threadId: string, file: ThreadOpenFile): void {
+    const now = Date.now();
+    for (const [id, entry] of this.pendingOpenFileByThreadId) {
+      if (now - entry.receivedAt > PENDING_OPEN_FILE_TTL_MS) {
+        this.pendingOpenFileByThreadId.delete(id);
+      }
+    }
+    this.pendingOpenFileByThreadId.delete(threadId);
+    this.pendingOpenFileByThreadId.set(threadId, { file, receivedAt: now });
+    while (this.pendingOpenFileByThreadId.size > MAX_PENDING_OPEN_FILES) {
+      const oldest = this.pendingOpenFileByThreadId.keys().next();
+      if (oldest.done) break;
+      this.pendingOpenFileByThreadId.delete(oldest.value);
+    }
+  }
+
   consumePendingOpenFile(threadId: string): ThreadOpenFile | null {
     const pending = this.pendingOpenFileByThreadId.get(threadId);
     if (!pending) {
       return null;
     }
     this.pendingOpenFileByThreadId.delete(threadId);
-    return pending;
+    return Date.now() - pending.receivedAt <= PENDING_OPEN_FILE_TTL_MS
+      ? pending.file
+      : null;
   }
 
   onConnected(callback: ConnectedCallback): () => void {

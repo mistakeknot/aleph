@@ -114,8 +114,11 @@ import {
 } from "./useMobileVisualViewportHeight";
 import { wsManager } from "@/lib/ws";
 import { splitLayoutAtom } from "@/lib/split-layout/atoms";
-import { findPaneByThread } from "@/lib/split-layout";
-import { applyThreadOpenToLayout } from "@/views/thread-detail/splitThreadNavigation";
+import {
+  applyThreadOpenToLayout,
+  planBackgroundThreadOpen,
+} from "@/views/thread-detail/splitThreadNavigation";
+import { toast } from "sonner";
 import { useAppSettingsRouteMemory } from "@/hooks/useAppSettingsRouteMemory";
 import { useSetRootComposeProjectId } from "@/lib/root-compose-selection";
 import { BackToAppCommandHandler } from "./BackToAppCommandHandler";
@@ -453,24 +456,35 @@ export function AppLayout({ children }: AppLayoutProps) {
   useEffect(
     () =>
       wsManager.onThreadOpen((signal) => {
-        const route = getThreadRoutePath({
+        const target = {
           projectId: signal.projectId,
           threadId: signal.threadId,
-        });
-        const current = store.get(splitLayoutAtom);
-        const alreadyOpen =
-          current !== null &&
-          findPaneByThread(current.root, signal.projectId, signal.threadId) !==
-            null;
-        const next = applyThreadOpenToLayout(
-          current,
-          { projectId: signal.projectId, threadId: signal.threadId },
-          isCompactViewport ? "replace" : signal.split,
+        };
+        const plan = planBackgroundThreadOpen(
+          store.get(splitLayoutAtom),
+          target,
         );
-        if (next !== current) {
-          store.set(splitLayoutAtom, next);
+        if (plan.kind === "already-open") {
+          return;
         }
-        void navigate(route, alreadyOpen ? { replace: true } : undefined);
+        toast("A thread was opened in the background", {
+          id: `thread-open:${signal.threadId}`,
+          action: {
+            label: "Open",
+            onClick: () => {
+              const current = store.get(splitLayoutAtom);
+              const next = applyThreadOpenToLayout(
+                current,
+                target,
+                isCompactViewport ? "replace" : signal.split,
+              );
+              if (next !== current) {
+                store.set(splitLayoutAtom, next);
+              }
+              void navigate(getThreadRoutePath(target));
+            },
+          },
+        });
       }),
     [isCompactViewport, navigate, store],
   );
