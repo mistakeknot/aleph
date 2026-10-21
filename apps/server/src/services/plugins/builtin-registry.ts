@@ -210,6 +210,11 @@ export const BUILTIN_PLUGINS = [
     defaultEnabled: true,
   },
   {
+    name: "layer-groups",
+    pluginId: "bb--layer-groups",
+    defaultEnabled: false,
+  },
+  {
     name: "workflows",
     pluginId: "workflows",
     defaultEnabled: false,

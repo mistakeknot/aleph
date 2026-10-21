@@ -1083,6 +1083,33 @@ bb plugin config provider-retry set maximumWait "24 hours"
 Disable it with `bb plugin disable provider-retry`. See the `provider-retry`
 skill.
 
+### Layer groups plugin
+
+The builtin Layer groups plugin is disabled on fresh installations. Enable it
+under Settings → Installed plugins or with `bb plugin enable bb--layer-groups`.
+It provisions sidebar pace-layer sections from a pace-layer registry JSON file.
+
+| Key            | Default      | Allowed values          | Behavior                                                |
+| -------------- | ------------ | ----------------------- | ------------------------------------------------------- |
+| `mode`         | `preview`    | `preview`, `apply`      | Preview reports actions; apply creates missing sections. |
+| `registryPath` | empty string | Path to a registry JSON | Empty leaves provisioning unconfigured.                  |
+
+```bash
+bb plugin config bb--layer-groups set registryPath /path/to/registry.json
+bb plugin config bb--layer-groups set mode preview
+bb layer-groups provision
+bb plugin config bb--layer-groups set mode apply
+bb layer-groups provision
+```
+
+Inspect the preview before applying. Runs also occur every 15 minutes. An
+unreadable registry blocks apply; preview can show a stored snapshot with an
+error. Existing owned section labels are preserved. Use `bb layer-groups status`
+to inspect registry identity and the last report, `bb layer-groups adopt B` to
+adopt an empty matching section, `bb layer-groups enable-layer D` to reenable a
+deleted layer, and `bb layer-groups export /path/to/export.json` to export data.
+`GSV` selects Studio for adopt and enable-layer.
+
 ### Workflows plugin
 
 The builtin Workflows plugin is disabled on fresh installations

@@ -105,8 +105,11 @@ export {
   listThreadsWithPendingInteractionState,
   listThreadsWithPendingInteractionStateForProjects,
   pinThread,
+  pinThreadIf,
+  unpinThreadIf,
   reorderPinnedThread,
   updateThread,
+  updateThreadSectionIf,
   deleteThread,
   archiveThread,
   markThreadDeleted,
@@ -123,6 +126,9 @@ export {
   THREAD_SEARCH_LIMIT_PER_GROUP_MAX,
 } from "./threads.js";
 export type {
+  ConditionalPinResult,
+  ThreadSectionExpectation,
+  UpdateThreadSectionIfResult,
   ApplyThreadLifecycleEventArgs,
   ApplyThreadLifecycleEventOutcome,
   ProvisionalSuccessorFenceState,

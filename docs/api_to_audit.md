@@ -3073,3 +3073,45 @@ directories, linked worktrees, and submodules. Core callers: the setup guide
 Stabilize after deciding whether depth, recency window, and limit should be
 caller options, and after exercising slow or network-mounted home directories
 and Windows hosts.
+## threads.update section preconditions (ifSectionId, ifUnpinned, ifUnarchived, ifTopLevel)
+
+`threads.update` accepts conditional section preconditions `ifSectionId`
+(`string | null`), `ifUnpinned`, `ifUnarchived`, and `ifTopLevel` (literal
+`true`). Supplying any precondition requires `sectionId` (`string | null`)
+and rejects every other update field and unknown key before handler side
+effects. Requests without preconditions retain unknown-key stripping.
+The server compares and writes in one immediate transaction; a mismatch
+returns HTTP 409 `conflict` with `details.current` containing `sectionId`,
+`pinnedAt`, `archivedAt`, and `parentThreadId`, leaving the row untouched.
+For example, `threads.update({ threadId: "T", sectionId: "S2", ifSectionId:
+"S1", ifUnpinned: true })` preserves a concurrent manual move. Audit raw-body
+validation, nullable section comparisons, notification timing, and concurrent
+writes before stabilizing this behavior (mk-ks92z.11).
+
+## threads pin, unpin and pin-order preconditions (ifUnpinned, ifPinnedAt, ifSortKeys)
+
+`POST /threads/:id/pin?ifUnpinned=true` pins only an unpinned thread.
+`POST /threads/:id/unpin?ifPinnedAt=123` unpins only when the current pin
+timestamp matches. Query validation accepts only the literal `true` and a
+non-negative integer digit string, respectively. Omitted queries preserve
+unconditional behavior, including HTTP 200 for repeated pin and unpin.
+`PATCH /threads/:id/pin-order` accepts optional `ifSortKeys` with required
+`thread: string`, `previous: string | null`, and `next: string | null`, comparing
+the moved thread and the requested neighbors before detecting a no-op or
+computing a key. Missing or deleted moved threads return 404.
+
+The server checks and writes in an immediate transaction. A mismatch leaves
+rows untouched and returns HTTP 409 `conflict` with `details.current`:
+`{ pinnedAt: number | null }` for pin/unpin, or
+`{ thread: string | null, previous: string | null, next: string | null }` for
+reorder. Notifications occur after commit only for changed rows.
+SDK examples are `threads.pin({ threadId: "T", ifUnpinned: true })`,
+`threads.unpin({ threadId: "T", ifPinnedAt: 123 })`, and
+`threads.reorderPinned({ threadId: "T", previousThreadId: null,
+nextThreadId: "T2", ifSortKeys: { thread: "a0", previous: null, next: "a2" } })`.
+CLI flags are `--if-unpinned`, `--if-pinned-at <ms>`, and
+`--if-sort-keys a0,none,a2`; `none` means null only for neighbor keys. A CLI
+conflict prints `Current state: ` followed by `details.current` JSON and exits
+nonzero. Audit validation, precondition-before-idempotence ordering,
+notification timing, and interleaved manual changes before stabilization
+(mk-ks92z.11).

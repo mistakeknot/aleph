@@ -490,7 +490,7 @@ const OPTIONAL_SERVER_FIELD_GROUPS: readonly OptionalServerFieldGroup[] = [
   },
   {
     reason:
-      "Thread PATCH requests omit fields that should be left unchanged; null explicitly clears nullable values.",
+      "Thread writes omit fields that should be left unchanged; null explicitly clears nullable values. Optional if* fields protect conditional section, pin, unpin and pin-order writes; omitted preconditions retain unconditional behavior (mk-ks92z.11).",
     fields: [
       "updateThreadRequestSchema.model",
       "updateThreadRequestSchema.sectionId",
@@ -499,6 +499,13 @@ const OPTIONAL_SERVER_FIELD_GROUPS: readonly OptionalServerFieldGroup[] = [
       "updateThreadRequestSchema.sessionOptions",
       "updateThreadRequestSchema.title",
       "updateThreadRequestSchema.visibility",
+      "updateThreadRequestSchema.ifSectionId",
+      "updateThreadRequestSchema.ifUnpinned",
+      "updateThreadRequestSchema.ifUnarchived",
+      "updateThreadRequestSchema.ifTopLevel",
+      "pinThreadQuerySchema.ifUnpinned",
+      "unpinThreadQuerySchema.ifPinnedAt",
+      "reorderPinnedThreadRequestSchema.ifSortKeys",
     ],
   },
   {
@@ -1584,6 +1591,39 @@ describe("server-contract canonical schemas", () => {
     ).toThrow();
   });
 
+  it("validates raw conditional section bodies while preserving legacy stripping", () => {
+    const schema = contract.updateThreadRequestBodySchema;
+    const extra = schema.safeParse({
+      sectionId: "S",
+      ifSectionId: "A",
+      extra: 1,
+    });
+    expect(extra.success).toBe(false);
+    if (!extra.success)
+      expect(extra.error.issues).toContainEqual(
+        expect.objectContaining({
+          code: "custom",
+          message: expect.stringContaining("extra"),
+        }),
+      );
+    expect(schema.safeParse({ ifUnpinned: true }).success).toBe(false);
+    expect(schema.parse({ sectionId: "S", extra: 1 })).toEqual({
+      sectionId: "S",
+    });
+    expect(schema.parse({ sectionId: "S", ifSectionId: null })).toEqual({
+      sectionId: "S",
+      ifSectionId: null,
+    });
+    for (const key of ["ifUnpinned", "ifUnarchived", "ifTopLevel"]) {
+      expect(schema.safeParse({ sectionId: "S", [key]: false }).success).toBe(
+        false,
+      );
+      expect(
+        schema.safeParse({ sectionId: "S", [key]: true, title: "x" }).success,
+      ).toBe(false);
+    }
+  });
+
   it("keeps only intentional optional request fields", () => {
     expect(
       createThreadRequestSchema.parse({
@@ -2207,6 +2247,8 @@ describe("server-contract clients", () => {
       projectFilesQuerySchema: contract.projectFilesQuerySchema,
       reorderPinnedThreadRequestSchema:
         contract.reorderPinnedThreadRequestSchema,
+      pinThreadQuerySchema: contract.pinThreadQuerySchema,
+      unpinThreadQuerySchema: contract.unpinThreadQuerySchema,
       reorderProjectRequestSchema: contract.reorderProjectRequestSchema,
       reorderQueuedMessageRequestSchema:
         contract.reorderQueuedMessageRequestSchema,

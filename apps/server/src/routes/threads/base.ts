@@ -21,6 +21,7 @@ import {
   listThreadDescendants,
   searchThreadsWithPendingInteractionState,
   updateThread,
+  updateThreadSectionIf,
   type ThreadSearchResultGroup as DbThreadSearchResultGroup,
   type UpdateThreadInput,
 } from "@bb/db";
@@ -28,6 +29,7 @@ import type { Environment, Thread, ThreadListEntry } from "@bb/domain";
 import { toEnvironmentResponse } from "../../services/environments/environment-response.js";
 import {
   threadIncludeOptionSchema,
+  conditionalUpdateKeys,
   THREAD_COUNT_ROOT_PARENT,
   publicApiRoutes,
   typedRoutes,
@@ -461,6 +463,41 @@ export function registerThreadBaseRoutes(app: Hono, deps: AppDeps): void {
 
   patch(routes.update, async (context, payload) => {
     const thread = requirePublicThread(deps.db, context.req.param("id"));
+    if (conditionalUpdateKeys.some((key) => key in payload)) {
+      const sectionId = payload.sectionId;
+      if (sectionId === undefined) {
+        throw new ApiError(
+          400,
+          "invalid_request",
+          "Conditional section write requires sectionId",
+        );
+      }
+      if (sectionId !== null) requireThreadSection(deps, sectionId);
+      const result = updateThreadSectionIf(deps.db, deps.hub, {
+        id: thread.id,
+        sectionId,
+        expect: {
+          sectionId: payload.ifSectionId,
+          unpinned: payload.ifUnpinned,
+          unarchived: payload.ifUnarchived,
+          topLevel: payload.ifTopLevel,
+        },
+      });
+      if (result.kind === "conflict") {
+        throw new ApiError(
+          409,
+          "conflict",
+          "Thread section precondition failed",
+          { details: { current: result.current } },
+        );
+      }
+      if (result.kind === "not_found") {
+        throw new ApiError(404, "thread_not_found", "Thread not found");
+      }
+      return context.json(
+        toThreadResponseFromThread(deps, { thread: result.thread }),
+      );
+    }
     if (payload.parentThreadId) {
       assertValidParentThread(deps, {
         childThreadId: thread.id,

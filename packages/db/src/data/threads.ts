@@ -473,6 +473,7 @@ export interface UnpinThreadArgs {
 }
 
 export interface ReorderPinnedThreadArgs {
+  ifSortKeys?: { thread: string; previous: string | null; next: string | null };
   db: DbConnection;
   nextThreadId: string | null;
   notifier: DbNotifier;
@@ -526,6 +527,14 @@ export interface ReorderPinnedThreadInvalidNeighborOrder {
 }
 
 export type ReorderPinnedThreadResult =
+  | {
+      kind: "precondition_failed";
+      current: {
+        thread: string | null;
+        previous: string | null;
+        next: string | null;
+      };
+    }
   | ReorderPinnedThreadSuccess
   | ReorderPinnedThreadUnchanged
   | ReorderPinnedThreadNotFound
@@ -1682,38 +1691,9 @@ export function pinThread(
   notifier: DbNotifier,
   args: PinThreadArgs,
 ) {
-  const result = db.transaction(
-    (tx): PinThreadMutationResult | null => {
-      const existing =
-        tx.select().from(threads).where(eq(threads.id, args.threadId)).get() ??
-        null;
-      if (!existing || existing.deletedAt !== null) {
-        return null;
-      }
-      if (existing.pinnedAt !== null && existing.pinSortKey !== null) {
-        return { changed: false, thread: existing };
-      }
-
-      const firstPinnedThread = getFirstPinnedThread(tx);
-      const pinSortKey = createOrderKeyBetween({
-        previousKey: null,
-        nextKey: firstPinnedThread?.pinSortKey ?? null,
-      });
-      const now = Date.now();
-      const updated = tx
-        .update(threads)
-        .set({
-          pinnedAt: args.pinnedAt ?? now,
-          pinSortKey,
-          updatedAt: now,
-        })
-        .where(nonDeletedThreads(eq(threads.id, args.threadId)))
-        .returning()
-        .get();
-      return updated ? { changed: true, thread: updated } : null;
-    },
-    { behavior: "immediate" },
-  );
+  const result = db.transaction((tx) => pinThreadMutation(tx, args), {
+    behavior: "immediate",
+  });
 
   if (result?.changed) {
     notifier.notifyThread(args.threadId, ["pin-state-changed"], {
@@ -1721,6 +1701,39 @@ export function pinThread(
     });
   }
   return result?.thread ?? null;
+}
+
+function pinThreadMutation(
+  tx: ThreadWriteConnection,
+  args: PinThreadArgs,
+): PinThreadMutationResult | null {
+  const existing =
+    tx.select().from(threads).where(eq(threads.id, args.threadId)).get() ??
+    null;
+  if (!existing || existing.deletedAt !== null) {
+    return null;
+  }
+  if (existing.pinnedAt !== null && existing.pinSortKey !== null) {
+    return { changed: false, thread: existing };
+  }
+
+  const firstPinnedThread = getFirstPinnedThread(tx);
+  const pinSortKey = createOrderKeyBetween({
+    previousKey: null,
+    nextKey: firstPinnedThread?.pinSortKey ?? null,
+  });
+  const now = Date.now();
+  const updated = tx
+    .update(threads)
+    .set({
+      pinnedAt: args.pinnedAt ?? now,
+      pinSortKey,
+      updatedAt: now,
+    })
+    .where(nonDeletedThreads(eq(threads.id, args.threadId)))
+    .returning()
+    .get();
+  return updated ? { changed: true, thread: updated } : null;
 }
 
 export function unpinThread(
@@ -1728,32 +1741,9 @@ export function unpinThread(
   notifier: DbNotifier,
   args: UnpinThreadArgs,
 ) {
-  const result = db.transaction(
-    (tx): PinThreadMutationResult | null => {
-      const existing =
-        tx.select().from(threads).where(eq(threads.id, args.threadId)).get() ??
-        null;
-      if (!existing || existing.deletedAt !== null) {
-        return null;
-      }
-      if (existing.pinnedAt === null && existing.pinSortKey === null) {
-        return { changed: false, thread: existing };
-      }
-
-      const updated = tx
-        .update(threads)
-        .set({
-          pinnedAt: null,
-          pinSortKey: null,
-          updatedAt: Date.now(),
-        })
-        .where(nonDeletedThreads(eq(threads.id, args.threadId)))
-        .returning()
-        .get();
-      return updated ? { changed: true, thread: updated } : null;
-    },
-    { behavior: "immediate" },
-  );
+  const result = db.transaction((tx) => unpinThreadMutation(tx, args), {
+    behavior: "immediate",
+  });
 
   if (result?.changed) {
     notifier.notifyThread(args.threadId, ["pin-state-changed"], {
@@ -1763,8 +1753,108 @@ export function unpinThread(
   return result?.thread ?? null;
 }
 
+function unpinThreadMutation(
+  tx: ThreadWriteConnection,
+  args: UnpinThreadArgs,
+): PinThreadMutationResult | null {
+  const existing =
+    tx.select().from(threads).where(eq(threads.id, args.threadId)).get() ??
+    null;
+  if (!existing || existing.deletedAt !== null) {
+    return null;
+  }
+  if (existing.pinnedAt === null && existing.pinSortKey === null) {
+    return { changed: false, thread: existing };
+  }
+
+  const updated = tx
+    .update(threads)
+    .set({
+      pinnedAt: null,
+      pinSortKey: null,
+      updatedAt: Date.now(),
+    })
+    .where(nonDeletedThreads(eq(threads.id, args.threadId)))
+    .returning()
+    .get();
+  return updated ? { changed: true, thread: updated } : null;
+}
+
+export type ConditionalPinResult =
+  | { kind: "updated"; thread: ThreadRow }
+  | { kind: "unchanged"; thread: ThreadRow }
+  | { kind: "conflict"; current: { pinnedAt: number | null } }
+  | { kind: "not_found" };
+
+export function pinThreadIf(
+  db: ThreadWriteConnection,
+  notifier: DbNotifier,
+  args: PinThreadArgs & { ifUnpinned: true },
+): ConditionalPinResult {
+  const result = db.transaction(
+    (tx): ConditionalPinResult => {
+      const existing = tx
+        .select()
+        .from(threads)
+        .where(eq(threads.id, args.threadId))
+        .get();
+      if (!existing || existing.deletedAt !== null)
+        return { kind: "not_found" };
+      if (existing.pinnedAt !== null)
+        return { kind: "conflict", current: { pinnedAt: existing.pinnedAt } };
+      const mutation = pinThreadMutation(tx, args);
+      return mutation
+        ? {
+            kind: mutation.changed ? "updated" : "unchanged",
+            thread: mutation.thread,
+          }
+        : { kind: "not_found" };
+    },
+    { behavior: "immediate" },
+  );
+  if (result.kind === "updated")
+    notifier.notifyThread(args.threadId, ["pin-state-changed"], {
+      projectId: result.thread.projectId,
+    });
+  return result;
+}
+
+export function unpinThreadIf(
+  db: ThreadWriteConnection,
+  notifier: DbNotifier,
+  args: UnpinThreadArgs & { ifPinnedAt: number },
+): ConditionalPinResult {
+  const result = db.transaction(
+    (tx): ConditionalPinResult => {
+      const existing = tx
+        .select()
+        .from(threads)
+        .where(eq(threads.id, args.threadId))
+        .get();
+      if (!existing || existing.deletedAt !== null)
+        return { kind: "not_found" };
+      if (existing.pinnedAt !== args.ifPinnedAt)
+        return { kind: "conflict", current: { pinnedAt: existing.pinnedAt } };
+      const mutation = unpinThreadMutation(tx, args);
+      return mutation
+        ? {
+            kind: mutation.changed ? "updated" : "unchanged",
+            thread: mutation.thread,
+          }
+        : { kind: "not_found" };
+    },
+    { behavior: "immediate" },
+  );
+  if (result.kind === "updated")
+    notifier.notifyThread(args.threadId, ["pin-state-changed"], {
+      projectId: result.thread.projectId,
+    });
+  return result;
+}
+
 export function reorderPinnedThread({
   db,
+  ifSortKeys,
   nextThreadId,
   notifier,
   previousThreadId,
@@ -1776,6 +1866,28 @@ export function reorderPinnedThread({
         tx.select().from(threads).where(eq(threads.id, threadId)).get() ?? null;
       if (!movedThread || movedThread.deletedAt !== null) {
         return { kind: "not_found" };
+      }
+      if (ifSortKeys) {
+        const neighborKey = (id: string | null) => {
+          if (id === null) return null;
+          const row = tx
+            .select({ pinSortKey: threads.pinSortKey })
+            .from(threads)
+            .where(nonDeletedThreads(eq(threads.id, id)))
+            .get();
+          return row?.pinSortKey ?? null;
+        };
+        const current = {
+          thread: movedThread.pinSortKey,
+          previous: neighborKey(previousThreadId),
+          next: neighborKey(nextThreadId),
+        };
+        if (
+          current.thread !== ifSortKeys.thread ||
+          current.previous !== ifSortKeys.previous ||
+          current.next !== ifSortKeys.next
+        )
+          return { kind: "precondition_failed", current };
       }
       if (movedThread.pinnedAt === null || movedThread.pinSortKey === null) {
         return { kind: "not_pinned" };
@@ -1934,6 +2046,76 @@ export function updateThread(
     });
   }
   return updated ?? null;
+}
+
+export interface ThreadSectionExpectation {
+  sectionId?: string | null;
+  unpinned?: true;
+  unarchived?: true;
+  topLevel?: true;
+}
+
+export type UpdateThreadSectionIfResult =
+  | { kind: "updated"; thread: ThreadRow }
+  | {
+      kind: "conflict";
+      current: {
+        sectionId: string | null;
+        pinnedAt: number | null;
+        archivedAt: number | null;
+        parentThreadId: string | null;
+      };
+    }
+  | { kind: "not_found" };
+
+export function updateThreadSectionIf(
+  db: ThreadWriteConnection,
+  notifier: DbNotifier,
+  args: {
+    id: string;
+    sectionId: string | null;
+    expect: ThreadSectionExpectation;
+  },
+): UpdateThreadSectionIfResult {
+  const result = db.transaction(
+    (tx): UpdateThreadSectionIfResult => {
+      const existing = tx
+        .select()
+        .from(threads)
+        .where(eq(threads.id, args.id))
+        .get();
+      if (!existing || existing.deletedAt !== null)
+        return { kind: "not_found" };
+      const current = {
+        sectionId: existing.sectionId,
+        pinnedAt: existing.pinnedAt,
+        archivedAt: existing.archivedAt,
+        parentThreadId: existing.parentThreadId,
+      };
+      if (
+        (args.expect.sectionId !== undefined &&
+          args.expect.sectionId !== current.sectionId) ||
+        (args.expect.unpinned && current.pinnedAt !== null) ||
+        (args.expect.unarchived && current.archivedAt !== null) ||
+        (args.expect.topLevel && current.parentThreadId !== null)
+      )
+        return { kind: "conflict", current };
+      const thread = tx
+        .update(threads)
+        .set({ sectionId: args.sectionId, updatedAt: Date.now() })
+        .where(eq(threads.id, args.id))
+        .returning()
+        .get()!;
+      return { kind: "updated", thread };
+    },
+    { behavior: "immediate" },
+  );
+  if (result.kind === "updated") {
+    notifier.notifyThread(args.id, ["title-changed"], {
+      projectId: result.thread.projectId,
+    });
+  }
+  return result;
 }
 
 export interface ThreadExecutionOverride {

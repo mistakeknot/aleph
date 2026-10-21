@@ -47,6 +47,77 @@ describe("bb thread organization commands", () => {
   const register: CommandRegistrar = (program) =>
     registerThreadCommands(program, () => "http://server");
 
+  it("sends pin sort key preconditions", async () => {
+    const patch = vi.fn(async () => []);
+    stubServerApi({ "v1.threads.:id.pin-order.$patch": patch });
+    await runCommand(
+      [
+        "thread",
+        "reorder-pinned",
+        "T",
+        "--before",
+        "T2",
+        "--if-sort-keys",
+        "a0,none,a2",
+      ],
+      register,
+    );
+    expect(patch).toHaveBeenCalledWith({
+      param: { id: "T" },
+      json: {
+        previousThreadId: null,
+        nextThreadId: "T2",
+        ifSortKeys: { thread: "a0", previous: null, next: "a2" },
+      },
+    });
+  });
+
+  it.each([
+    "a0",
+    "a0,a1",
+    "a0,none,a2,a3",
+    "none,none,a2",
+    "a0,,a2",
+    ",none,a2",
+  ])("rejects malformed sort keys %s before requesting", async (value) => {
+    const patch = vi.fn();
+    stubServerApi({ "v1.threads.:id.pin-order.$patch": patch });
+    await expect(
+      runCommand(
+        ["thread", "reorder-pinned", "T", "--if-sort-keys", value],
+        register,
+      ),
+    ).rejects.toThrow("process.exit:1");
+    expect(console.error).toHaveBeenCalledWith(
+      expect.stringContaining("--if-sort-keys requires"),
+    );
+    expect(patch).not.toHaveBeenCalled();
+  });
+
+  it("prints current sort keys on conflict", async () => {
+    const patch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            code: "conflict",
+            message: "Order changed",
+            details: { current: { thread: "a1", previous: null, next: "a2" } },
+          }),
+          { status: 409, headers: { "Content-Type": "application/json" } },
+        ),
+    );
+    stubServerApi({ "v1.threads.:id.pin-order.$patch": patch });
+    await expect(
+      runCommand(
+        ["thread", "reorder-pinned", "T", "--if-sort-keys", "a0,none,a2"],
+        register,
+      ),
+    ).rejects.toThrow("process.exit:1");
+    expect(console.error).toHaveBeenCalledWith(
+      'Current state: {"thread":"a1","previous":null,"next":"a2"}',
+    );
+  });
+
   it("creates a named thread section", async () => {
     const create = vi.fn(async () => ({
       id: "section-review",

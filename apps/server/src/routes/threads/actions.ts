@@ -8,11 +8,13 @@ import {
   getTransferOperation,
   listActiveVisiblePinnedThreadRootsWithPendingInteractionState,
   pinThread,
+  pinThreadIf,
   reorderPinnedThread,
   reorderQueuedThreadMessage,
   setQueuedThreadMessageGroupBoundary,
   unarchiveThread,
   unpinThread,
+  unpinThreadIf,
   updateQueuedThreadMessage,
   updateThread,
   type ReorderPinnedThreadResult,
@@ -222,6 +224,13 @@ function assertPinnedThreadOrderResult(
   result: ReorderPinnedThreadResult,
 ): void {
   switch (result.kind) {
+    case "precondition_failed":
+      throw new ApiError(
+        409,
+        "conflict",
+        "Pinned thread order precondition failed",
+        { details: { current: result.current } },
+      );
     case "reordered":
     case "unchanged":
       return;
@@ -613,8 +622,23 @@ export function registerThreadActionRoutes(app: Hono, deps: AppDeps): void {
     return context.json({ delivered });
   });
 
-  post(routes.pin, (context) => {
+  post(routes.pin, (context, query) => {
     const publicThread = requirePublicThread(deps.db, context.req.param("id"));
+    if (query.ifUnpinned !== undefined) {
+      const result = pinThreadIf(deps.db, deps.hub, {
+        threadId: publicThread.id,
+        ifUnpinned: true,
+      });
+      if (result.kind === "conflict")
+        throw new ApiError(409, "conflict", "Thread pin precondition failed", {
+          details: { current: result.current },
+        });
+      if (result.kind === "not_found")
+        throw new ApiError(404, "thread_not_found", "Thread not found");
+      return context.json(
+        toThreadResponseFromThread(deps, { thread: result.thread }),
+      );
+    }
     const thread = pinThread(deps.db, deps.hub, {
       threadId: publicThread.id,
     });
@@ -624,8 +648,26 @@ export function registerThreadActionRoutes(app: Hono, deps: AppDeps): void {
     return context.json(toThreadResponseFromThread(deps, { thread }));
   });
 
-  post(routes.unpin, (context) => {
+  post(routes.unpin, (context, query) => {
     const publicThread = requirePublicThread(deps.db, context.req.param("id"));
+    if (query.ifPinnedAt !== undefined) {
+      const result = unpinThreadIf(deps.db, deps.hub, {
+        threadId: publicThread.id,
+        ifPinnedAt: Number(query.ifPinnedAt),
+      });
+      if (result.kind === "conflict")
+        throw new ApiError(
+          409,
+          "conflict",
+          "Thread unpin precondition failed",
+          { details: { current: result.current } },
+        );
+      if (result.kind === "not_found")
+        throw new ApiError(404, "thread_not_found", "Thread not found");
+      return context.json(
+        toThreadResponseFromThread(deps, { thread: result.thread }),
+      );
+    }
     const thread = unpinThread(deps.db, deps.hub, {
       threadId: publicThread.id,
     });
@@ -644,6 +686,7 @@ export function registerThreadActionRoutes(app: Hono, deps: AppDeps): void {
         threadId: thread.id,
         previousThreadId: payload.previousThreadId,
         nextThreadId: payload.nextThreadId,
+        ifSortKeys: payload.ifSortKeys,
       }),
     );
     return context.json(buildActivePinnedThreadRootListResponse(deps));

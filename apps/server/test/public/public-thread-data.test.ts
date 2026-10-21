@@ -94,6 +94,78 @@ const clientTurnRequestedDataSchema = z.object({
 
 type TimelineTurnRow = Extract<TimelineRow, { kind: "turn" }>;
 
+describe("conditional section write", () => {
+  it("compares sections, rejects mixed raw bodies, and preserves legacy writes", async () => {
+    await withTestHarness(async (harness) => {
+      const { host } = seedHostSession(harness.deps);
+      const { project } = seedProjectWithSource(harness.deps, {
+        hostId: host.id,
+      });
+      const thread = seedThread(harness.deps, {
+        projectId: project.id,
+        title: "T",
+      });
+      const sections = ["S1", "S2", "S3"].map((name) => {
+        const result = createThreadSection(harness.deps.db, harness.deps.hub, {
+          name,
+        });
+        if (result.status !== "created") throw new Error("Expected section");
+        return result.section.id;
+      });
+      const [s1, s2, s3] = sections;
+      const patch = (body: object) =>
+        harness.app.request(`/api/v1/threads/${thread.id}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        });
+      expect(
+        (
+          await patch({
+            sectionId: s1,
+            ifSectionId: null,
+            ifUnpinned: true,
+            ifUnarchived: true,
+            ifTopLevel: true,
+          })
+        ).status,
+      ).toBe(200);
+      const before = getThread(harness.deps.db, thread.id);
+      for (const body of [
+        { sectionId: s2, ifSectionId: s1, model: "M" },
+        { sectionId: s2, ifSectionId: s1, unknownField: 1 },
+        { ifUnpinned: true },
+      ]) {
+        const response = await patch(body);
+        expect(response.status).toBe(400);
+        expect(await readJson(response)).toMatchObject({
+          code: "invalid_request",
+        });
+        expect(getThread(harness.deps.db, thread.id)).toEqual(before);
+      }
+      expect((await patch({ sectionId: s2 })).status).toBe(200);
+      const conflict = await patch({ sectionId: s3, ifSectionId: s1 });
+      expect(conflict.status).toBe(409);
+      expect(await readJson(conflict)).toMatchObject({
+        code: "conflict",
+        details: {
+          current: {
+            sectionId: s2,
+            pinnedAt: null,
+            archivedAt: null,
+            parentThreadId: null,
+          },
+        },
+      });
+      expect(getThread(harness.deps.db, thread.id)?.sectionId).toBe(s2);
+      expect((await patch({ sectionId: s3, unknownField: 1 })).status).toBe(
+        200,
+      );
+      expect(getThread(harness.deps.db, thread.id)?.sectionId).toBe(s3);
+    });
+  });
+});
+
 describe("public thread data routes", () => {
   it("manages sections through the canonical public route lifecycle", async () => {
     await withTestHarness(async (harness) => {

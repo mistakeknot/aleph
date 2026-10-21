@@ -177,6 +177,30 @@ Each bundled plugin documents its commands and behavior in its own skill.
   see the `automations` skill.
 - Workflows (builtin, off by default): durable JavaScript orchestration of
   worker threads. Run `bb plugin enable workflows`, then
+The builtin Layer groups plugin is disabled by default. Enable it with
+`bb plugin enable bb--layer-groups`. It provisions sidebar pace-layer sections
+from a registry JSON. Its `mode` setting defaults to `preview`; `registryPath`
+defaults to empty (unconfigured):
+
+```bash
+bb plugin config bb--layer-groups set registryPath /path/to/registry.json
+bb plugin config bb--layer-groups set mode preview
+bb layer-groups provision
+bb plugin config bb--layer-groups set mode apply
+bb layer-groups provision
+```
+
+Inspect the preview before apply. `bb layer-groups status` reports snapshot
+identity and the last run; `bb layer-groups provision` runs now; the schedule
+runs every 15 minutes. `bb layer-groups adopt B` adopts an empty matching
+section, including a check for hidden and archived threads.
+`bb layer-groups enable-layer D` reenables a deleted layer for the next apply
+run. `GSV` selects Studio for adopt and enable-layer.
+`bb layer-groups export /path/to/export.json` exports all plugin data. The path
+must be absolute; relative paths are rejected. An
+unreadable registry blocks apply; preview can show a stored snapshot with an
+error. Owned section renames are preserved.
+
   `bb workflows validate|run|status|history|list|stop`; see the `workflows`
   skill.
 - Memory (official, `bb plugin install memory`): durable cross-provider

@@ -11,6 +11,74 @@ import {
 import { withTestHarness } from "../helpers/test-app.js";
 
 describe("public thread pinning", () => {
+  it("validates conditional queries and returns current state on conflicts", async () => {
+    await withTestHarness(async (harness) => {
+      const { host } = seedHostSession(harness.deps);
+      const { project } = seedProjectWithSource(harness.deps, {
+        hostId: host.id,
+      });
+      const thread = seedThread(harness.deps, {
+        projectId: project.id,
+        title: "T",
+      });
+      const request = (suffix: string) =>
+        harness.app.request(`/api/v1/threads/${thread.id}/${suffix}`, {
+          method: "POST",
+        });
+      for (const suffix of [
+        "pin?ifUnpinned=false",
+        "pin?ifUnpinned=",
+        "unpin?ifPinnedAt=abc",
+        "unpin?ifPinnedAt=-1",
+        "unpin?ifPinnedAt=1.5",
+      ]) {
+        expect((await request(suffix)).status).toBe(400);
+      }
+      expect((await request("pin?ifUnpinned=true")).status).toBe(200);
+      const before = getThread(harness.db, thread.id)!;
+      for (const suffix of [
+        "pin?ifUnpinned=true",
+        `unpin?ifPinnedAt=${before.pinnedAt! - 1}`,
+      ]) {
+        const response = await request(suffix);
+        expect(response.status).toBe(409);
+        expect(await readJson(response)).toMatchObject({
+          code: "conflict",
+          details: { current: { pinnedAt: before.pinnedAt } },
+        });
+        expect(getThread(harness.db, thread.id)).toEqual(before);
+      }
+      const reorder = await harness.app.request(
+        `/api/v1/threads/${thread.id}/pin-order`,
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            previousThreadId: null,
+            nextThreadId: null,
+            ifSortKeys: { thread: "stale", previous: null, next: null },
+          }),
+        },
+      );
+      expect(reorder.status).toBe(409);
+      expect(await readJson(reorder)).toMatchObject({
+        code: "conflict",
+        details: {
+          current: { thread: before.pinSortKey, previous: null, next: null },
+        },
+      });
+      expect(
+        (await request(`unpin?ifPinnedAt=${before.pinnedAt}`)).status,
+      ).toBe(200);
+      const unpinned = await request("unpin?ifPinnedAt=0");
+      expect(unpinned.status).toBe(409);
+      expect(await readJson(unpinned)).toMatchObject({
+        code: "conflict",
+        details: { current: { pinnedAt: null } },
+      });
+    });
+  });
+
   it("pins and unpins threads idempotently", async () => {
     await withTestHarness(async (harness) => {
       const { host } = seedHostSession(harness.deps, {
