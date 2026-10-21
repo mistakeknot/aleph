@@ -58,11 +58,12 @@ export function UserQuestionAnswerForm({
             .then(() => clearQuestionFormDraft(draftKey))
             .catch(() => {});
         }}
-        onCancel={() =>
-          stopThread.mutate(threadId, {
-            onSuccess: () => clearQuestionFormDraft(draftKey),
-          })
-        }
+        onCancel={() => {
+          void stopThread
+            .mutateAsync(threadId)
+            .then(() => clearQuestionFormDraft(draftKey))
+            .catch(() => {});
+        }}
       />
       {error ? (
         <div className="mt-2 shrink-0 rounded-md border border-surface-destructive-border bg-surface-destructive px-3 py-2 text-xs text-destructive-text">
