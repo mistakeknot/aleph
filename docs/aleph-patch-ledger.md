@@ -2,7 +2,7 @@
 
 This ledger lists every difference between upstream bb 0.46.1 (desktop-v0.46.1, 411eac54) and Aleph at 96afe7f6, and says how each is held. It is the checklist for an upstream sync and the source of its conflict resolutions.
 
-Each row is a patch: where it lives, why, and the resolution to use when a sync conflicts. The path-level mapping is in `aleph-patch-ledger-paths.tsv` (one line per differing path, with the patch id). The classification is by path rule and commit history, so a path can belong to a neighbouring patch when two patches share a file. A path that fits no row is listed under `unattributed` and blocks a sync until it is classified.
+Each row is a patch: where it lives, why, and the resolution to use when a sync conflicts. The path-level mapping is in `aleph-patch-ledger-paths.tsv` (one line per differing path, with the patch id; the single exception is `scripts/ci-*-release-check.sh`, a deliberate redacted alias for the tracked release-check script, whose real file name carries an internal host name that the public-repo hygiene rule keeps out of tracked text). The classification is by path rule and commit history, so a path can belong to a neighbouring patch when two patches share a file. A path that fits no row is listed under `unattributed` and blocks a sync until it is classified.
 
 Held as: *plugin* means the change lives in a plugin directory; *in-tree* means it edits upstream files and is what conflicts in a sync.
 
@@ -10,10 +10,10 @@ Held as: *plugin* means the change lives in a plugin directory; *in-tree* means 
 |---|---|---|---|---|
 | account-pooler | plugin + in-tree | 36 | Account Pooler 0.1.2/0.6.3: owning-machine thread availability, `bb pool exec`, attempt receipts, stall tolerance, highest-priority-account fresh conversations (mk-6v3o6) | Keep the Aleph side of the fresh-conversation account choice (07c1ec9e). Contract: plugins/account-pool/RECEIPTS.md. |
 | app-header-status | in-tree | 2 | Header status strip for the Account Pooler | Re-apply; upstream has no equivalent slot use. |
-| thread-list-icons | plugin + in-tree | 24 | Provider icons and hull designation rows in the thread list (mk-omogp.7) | Plugin files carry the change; app edits re-applied. |
+| thread-list-icons | plugin + in-tree | 24 | Provider icons and hull designation rows in the thread list (mk-omogp.7) | Plugin files carry the change. |
 | split-panes | in-tree | 19 | Optional composer focus on pane switch; Cmd/Ctrl-W closes the focused pane (mk-3tlt) | Re-apply the Aleph side of pane navigation. |
 | model-picker | in-tree | 2 | Switch a thread's provider in place | Re-apply. |
-| diagnostics-log | in-tree | 19 | Renderer diagnostics log and composer-stuck guards (mk-h1q8) | Gated on BB_DESKTOP_RELEASE_CHANNEL=aleph; re-apply the emitter calls. |
+| diagnostics-log | in-tree | 19 | Renderer diagnostics log and composer-stuck guards (mk-h1q8) | The desktop logging bridge is gated on BB_DESKTOP_RELEASE_CHANNEL=aleph; the pending-interaction guards are not gated. Re-apply the emitter calls and the guards. |
 | composer-gate | in-tree | 11 | Composer pending-interaction gate | Keep Aleph's gate over upstream's composer edits (07c1ec9e). |
 | history-keybindings | in-tree | 34 | History back/forward keybindings (Cmd-[ and Cmd-]) and Go menu | Keep Aleph's bindings and menu entries (07c1ec9e). |
 | thread-open-follow | in-tree | 2 | Background thread open without stealing focus | Keep Aleph's handling (07c1ec9e). |
@@ -33,19 +33,19 @@ Held as: *plugin* means the change lives in a plugin directory; *in-tree* means 
 | signed-update-channel | in-tree | 62 | Signed update channel: manifest, floor, instance, install request and settings row | Restore the signed update contracts after a sync (fb8d2a5bdc). |
 | version-scheme | in-tree | 6 | Version `<upstream>+aleph.X.Y.Z` and lockstep check | Set after the merge by the version step. |
 | branding | in-tree | 8 | Desktop branding: Aleph strings, copyright, icons | Keep Aleph's desktop branding (07c1ec9e). |
-| desktop-bridge | in-tree | 1 | Desktop bridge EPIPE and shutdown handling (mk-jwb7) | Re-apply. |
+| desktop-bridge | in-tree | 1 | Browser page preload test for editable-focus reporting in nested frames (mk-jwb7); the bridge EPIPE and shutdown handling is `apps/desktop/src/bridge-parent-watch.ts`, held under no-upstream-updates | Re-apply. |
 | editable-focus | in-tree | 2 | Editable focus guard | Re-apply. |
 | fonts | in-tree | 2 | Ioskeley Mono font route tests | Re-apply. |
 | release-qualification | in-tree | 2 | Release qualification script and CI recipes | Re-apply. |
 | fork-owned-migrations | in-tree | 55 | Aleph migrations and the renumbering of upstream migrations: upstream 0132-0137 are 0135-0140 here, upstream 0138-0142 are 0146-0150 here, upstream 0143_queued_message_state is replaced by 0151_queued_message_state. Aleph owns 0132-0134 and 0141-0145 | Rename each upstream migration to its Aleph number. Migration `when` timestamps must stay ordered or the boot check throws (FORK.md). A sync that adds a migration is an ESCALATE item. |
-| fork-docs | in-tree | 34 | Fork documents, hygiene allowlist, changelog, AGENTS.md and skills | Keep Aleph's text. |
+| fork-docs | in-tree | 34 | Fork documents, hygiene allowlist and changelog | Keep Aleph's text. |
 | build-config | in-tree | 10 | Build, lint and test configuration edits | Re-apply. |
 | web-site | in-tree | 7 | Marketing site and blog edits | Re-apply. |
 | mobile | in-tree | 5 | Mobile app edits | Re-apply. |
 | app-shell-ui | in-tree | 12 | App shell, pickers, dialogs and sidebar edits | Re-apply. |
 | upstream-backport | in-tree | 1 | Backport of an upstream main change not yet in a release | Drops out when the release carries it. |
 
-Totals: 779 differing paths. 1 is a deletion (`.github/workflows/deploy-ai-gateway.yml`, an imported workflow Aleph does not run) and `0143_queued_message_state.sql` is deleted in favour of the renumbered 0151 migration; the rest are additions, edits and renames.
+Totals: 779 differing paths. 2 are deletions (`.github/workflows/deploy-ai-gateway.yml`, an imported workflow Aleph does not run, and `0143_queued_message_state.sql`, deleted in favour of the renumbered 0151 migration); the rest are additions, edits and renames.
 
 ## Using the ledger
 
