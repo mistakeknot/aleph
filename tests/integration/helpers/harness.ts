@@ -37,6 +37,7 @@ import {
 import { SkillTreeRegistry } from "../../../apps/server/src/services/skills/injected-skills.js";
 import { PluginHostArtifactRegistry } from "../../../apps/server/src/services/plugins/plugin-host-artifact-registry.js";
 import { createAppUpdateService } from "../../../apps/server/src/services/system/app-update.js";
+import { createCliCommandService } from "../../../apps/server/src/services/system/cli-command.js";
 import { createAppVersionService } from "../../../apps/server/src/services/system/app-version.js";
 import { createProviderNativeRootsCache } from "../../../apps/server/src/services/providers/native-roots.js";
 import { createBbAppManagedConfigReloader } from "../../../apps/server/src/services/system/bb-app-managed-config.js";
@@ -243,10 +244,13 @@ async function startIntegrationServer(
   });
   pendingInteractions.start();
   const appVersion = createAppVersionService({
+    installKind: null,
+    sourceCommit: null,
     config,
     logger: testLogger,
   });
   const appUpdate = createAppUpdateService({
+    currentCommit: null,
     appSurface: "web",
     appVersion,
     config,
@@ -259,6 +263,16 @@ async function startIntegrationServer(
   const serverDeps = {
     alephUpdate: null,
     appUpdate,
+    cliCommand: createCliCommandService({
+      env: {},
+      homeDir: serverDataDir,
+      launcherPath: null,
+      platform: process.platform,
+      windowsUserPath: {
+        read: () => Promise.reject(new Error("no Windows PATH in tests")),
+        write: () => Promise.reject(new Error("no Windows PATH in tests")),
+      },
+    }),
     appVersion,
     bbAppManagedConfig,
     providerRegistry,
@@ -279,7 +293,7 @@ async function startIntegrationServer(
     watchInterests,
     workspaceReadCaches,
   };
-  const { app, injectWebSocket, pluginService } = createApp(
+  const { app, closeWebSockets, injectWebSocket, pluginService } = createApp(
     serverDeps,
     options.staticDir === undefined
       ? undefined
@@ -332,7 +346,8 @@ async function startIntegrationServer(
     machineAuth,
     providerRegistry,
     async close(): Promise<void> {
-      await new Promise<void>((resolve, reject) => {
+      await pluginService.stop();
+      const closed = new Promise<void>((resolve, reject) => {
         server.close((error) => {
           if (error) {
             reject(error);
@@ -341,6 +356,8 @@ async function startIntegrationServer(
           resolve();
         });
       });
+      await closeWebSockets();
+      await closed;
     },
   };
 }

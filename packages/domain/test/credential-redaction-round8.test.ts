@@ -21,10 +21,9 @@ function details(text: string): string {
     category: "config",
     details: text,
   }) as { details: string };
-  expect(
-    redactEventDataForType("provider/warning", out),
-    "idempotent",
-  ).toEqual(out);
+  expect(redactEventDataForType("provider/warning", out), "idempotent").toEqual(
+    out,
+  );
   return out.details;
 }
 
@@ -140,13 +139,28 @@ describe("round 8: the URL scanner is linear", () => {
 
   const shapes: Array<[string, (n: number) => string]> = [
     ["?a= repeats, trailing escape", (n) => urlOf(n, "a=1?")],
-    [";a= repeats, trailing escape", (n) => `https://e.invalid/?${"a=1;".repeat(n)}%20`],
+    [
+      ";a= repeats, trailing escape",
+      (n) => `https://e.invalid/?${"a=1;".repeat(n)}%20`,
+    ],
     ["?a= repeats, no escape", (n) => `https://e.invalid/?${"a=1?".repeat(n)}`],
-    ["escape in every value", (n) => `https://e.invalid/?${"a=%20;".repeat(n)}%20`],
-    ["escapes and & separators", (n) => `https://e.invalid/?${"a=%20&".repeat(n)}`],
-    ["# and mixed separators", (n) => `https://e.invalid/#${"a=1?b=2;c=3#".repeat(n)}%20`],
+    [
+      "escape in every value",
+      (n) => `https://e.invalid/?${"a=%20;".repeat(n)}%20`,
+    ],
+    [
+      "escapes and & separators",
+      (n) => `https://e.invalid/?${"a=%20&".repeat(n)}`,
+    ],
+    [
+      "# and mixed separators",
+      (n) => `https://e.invalid/#${"a=1?b=2;c=3#".repeat(n)}%20`,
+    ],
     ["bare ? runs", (n) => `https://e.invalid/${"?".repeat(n * 4)}%20`],
-    ["long keys without =", (n) => `https://e.invalid/?${"k".repeat(n * 4)}%20`],
+    [
+      "long keys without =",
+      (n) => `https://e.invalid/?${"k".repeat(n * 4)}%20`,
+    ],
     [
       "nested encodings",
       (n) =>
@@ -198,10 +212,7 @@ describe("round 8: the URL scanner is linear", () => {
     const cost = (n: number) => {
       spy.mockClear();
       writePath(urlOf(n, "a=1?"));
-      return spy.mock.calls.reduce(
-        (sum, [arg]) => sum + String(arg).length,
-        0,
-      );
+      return spy.mock.calls.reduce((sum, [arg]) => sum + String(arg).length, 0);
     };
     const a = cost(2000);
     const b = cost(4000);

@@ -116,7 +116,10 @@ describe("round 6: URL fields scrub credential parameters", () => {
         type: "userMessage",
         id: "synthetic-message",
         content: [
-          { type: "image", url: `https://example.invalid/img?token=${SECRET}&a=1` },
+          {
+            type: "image",
+            url: `https://example.invalid/img?token=${SECRET}&a=1`,
+          },
           { type: "text", text: `token=${SECRET}-prompt` },
         ],
       },
@@ -171,7 +174,10 @@ describe("round 6: URL fields scrub credential parameters", () => {
         method: "turn/start",
         params: {
           input: [
-            { type: "image", url: `https://example.invalid/i?token=${SECRET}&ok=1` },
+            {
+              type: "image",
+              url: `https://example.invalid/i?token=${SECRET}&ok=1`,
+            },
           ],
         },
       },

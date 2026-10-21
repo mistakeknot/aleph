@@ -34,7 +34,7 @@ import {
   retireQueuedThreadMessages,
   sweepTransferOperations,
 } from "../../src/data/transfer-operations.js";
-import { createMigratedConnection } from "../helpers/migrated-connection.js";
+import { createMigratedConnection } from "../../src/testing.js";
 
 function textInput(text: string): PromptInput[] {
   return [{ type: "text", text, mentions: [] }];
@@ -123,8 +123,8 @@ describe("origin identity (T-O3 and T-L1; v4 T-O1/T-O2 are outbox tests and are 
     const { db, source } = setup();
     const returned = db.$client
       .prepare(
-        `INSERT INTO queued_thread_messages (id, thread_id, content, model, reasoning_level, permission_mode, service_tier, group_with_next, payload_kind, failure_count, sort_key, created_at, updated_at)
-         VALUES ('qmsg_old', ?, '[]', 'm', 'r', 'full', 'default', 0, 'inline', 0, 'a0', 1, 1) RETURNING origin_id`,
+        `INSERT INTO queued_thread_messages (id, thread_id, content, model, reasoning_level, permission_mode, service_tier, group_with_next, state, payload_kind, failure_count, sort_key, created_at, updated_at)
+         VALUES ('qmsg_old', ?, '[]', 'm', 'r', 'full', 'default', 0, 'queued', 'inline', 0, 'a0', 1, 1) RETURNING origin_id`,
       )
       .get(source.id) as { origin_id: string | null };
     expect(returned.origin_id).toBeNull();
@@ -807,7 +807,7 @@ describe("triggers", () => {
     const run = () =>
       db.$client
         .prepare(
-          `UPDATE queued_thread_messages SET forward_source_row_id = 'x', claimed_at = 1, claim_token = ${token} WHERE id = ?`,
+          `UPDATE queued_thread_messages SET state = 'claimed', forward_source_row_id = 'x', claimed_at = 1, claim_token = ${token} WHERE id = ?`,
         )
         .run(row.id);
     if (allowed) run();
@@ -836,8 +836,8 @@ describe("triggers", () => {
     const run = () =>
       db.$client
         .prepare(
-          `INSERT INTO queued_thread_messages (id, thread_id, content, model, reasoning_level, permission_mode, service_tier, group_with_next, payload_kind, failure_count, sort_key, created_at, updated_at, forward_source_row_id, claimed_at, claim_token)
-           VALUES ('qmsg_slot', ?, '[]', 'm', 'r', 'full', 'default', 0, 'inline', 0, 'a0', 1, 1, 'x', 1, ${token})`,
+          `INSERT INTO queued_thread_messages (id, thread_id, content, model, reasoning_level, permission_mode, service_tier, group_with_next, state, payload_kind, failure_count, sort_key, created_at, updated_at, forward_source_row_id, claimed_at, claim_token)
+           VALUES ('qmsg_slot', ?, '[]', 'm', 'r', 'full', 'default', 0, 'claimed', 'inline', 0, 'a0', 1, 1, 'x', 1, ${token})`,
         )
         .run(source.id);
     if (allowed) run();

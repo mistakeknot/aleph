@@ -292,7 +292,7 @@ export function retireQueuedThreadMessages(
               permissionMode: row.permissionMode,
               serviceTier: row.serviceTier,
               waitingOn: null,
-              sendAt: row.sendAt,
+              sendAt: null,
               payload: { kind: "inline" },
               systemNotice:
                 row.systemNotice === null

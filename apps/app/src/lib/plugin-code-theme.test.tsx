@@ -14,6 +14,7 @@ function renderProbe() {
   }
   const view = render(<Probe />);
   return {
+    initial: () => states[0]!,
     latest: () => states[states.length - 1]!,
     unmount: () => view.unmount(),
   };
@@ -59,16 +60,16 @@ describe("useCodeTheme", () => {
     act(() => {
       applyResolvedCodeTheme({
         dark: "nord",
-        light: "solarized-light",
+        light: "github-light",
         files: {},
       });
     });
 
-    expect(probe.latest().name).toBe("solarized-light");
+    expect(probe.latest().name).toBe("github-light");
     expect(probe.latest().theme?.name).toBe("gruvbox-light-medium");
 
     await waitFor(() => {
-      expect(probe.latest().theme?.name).toBe("solarized-light");
+      expect(probe.latest().theme?.name).toBe("github-light");
     });
     probe.unmount();
   });
@@ -86,7 +87,7 @@ describe("useCodeTheme", () => {
     first.unmount();
 
     const second = renderProbe();
-    expect(second.latest().theme?.name).toBe("solarized-light");
+    expect(second.initial().theme?.name).toBe("solarized-light");
     second.unmount();
   });
 });

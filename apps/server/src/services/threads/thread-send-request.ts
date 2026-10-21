@@ -15,6 +15,7 @@ import {
   resolveRetiredIngress,
 } from "./retired-ingress.js";
 import { throwThreadNotWritable } from "../lib/lifecycle-api-errors.js";
+import { runWithTurnTrace } from "../system/turn-trace.js";
 
 interface AcceptThreadSendRequestArgs {
   payload: SendMessageRequest;
@@ -71,18 +72,23 @@ async function acceptResolvedThreadSendRequest(
     return { ok: true, delivery: "sent" };
   }
 
-  const outcome = await attemptDispatch(deps, {
-    thread: args.thread,
-    requestedThreadId: args.requestedThreadId,
-    payload: args.payload,
-    source: { kind: "inline" },
-    queuePayload: { kind: "inline" },
-    pluginSubmission: args.payload.pluginSubmission ?? null,
-    origin: null,
-    originPluginId: null,
-    startedOnBehalfOf: null,
-    trigger: "user",
-  });
+  const outcome = await runWithTurnTrace(
+    deps,
+    { threadId: args.thread.id },
+    () =>
+      attemptDispatch(deps, {
+        thread: args.thread,
+        requestedThreadId: args.requestedThreadId,
+        payload: args.payload,
+        source: { kind: "inline" },
+        queuePayload: { kind: "inline" },
+        pluginSubmission: args.payload.pluginSubmission ?? null,
+        origin: null,
+        originPluginId: null,
+        startedOnBehalfOf: null,
+        trigger: "user",
+      }),
+  );
   if (outcome.kind === "dispatched") {
     return { ok: true, delivery: "sent" };
   }

@@ -46,7 +46,9 @@ function canConnect(port: number): Promise<boolean> {
   });
 }
 
-async function waitUntil(check: () => Promise<boolean> | boolean): Promise<void> {
+async function waitUntil(
+  check: () => Promise<boolean> | boolean,
+): Promise<void> {
   const deadline = Date.now() + 15_000;
   while (Date.now() < deadline) {
     if (await check()) {

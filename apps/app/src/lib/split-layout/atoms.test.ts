@@ -1,7 +1,6 @@
-// @vitest-environment jsdom
-
+import { createMemoryStorage } from "@bb/test-helpers";
 import { createStore } from "jotai";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import {
   closePanesForThreadsAtom,
   focusComposerOnPaneSwitchAtom,
@@ -33,20 +32,32 @@ function twoPanes(): SplitLayout {
   });
 }
 
+const localStorage = createMemoryStorage();
+const sessionStorage = createMemoryStorage();
+const windowStub = Object.assign(new EventTarget(), {
+  localStorage,
+  sessionStorage,
+});
+vi.stubGlobal("window", windowStub);
+
 afterEach(() => {
-  window.localStorage.clear();
-  window.sessionStorage.clear();
+  localStorage.clear();
+  sessionStorage.clear();
+});
+
+afterAll(() => {
+  vi.unstubAllGlobals();
 });
 
 function writeFromOtherTab(key: string, value: string): void {
-  const previous = window.localStorage.getItem(key);
-  window.localStorage.setItem(key, value);
-  window.dispatchEvent(
-    new StorageEvent("storage", {
+  const previous = localStorage.getItem(key);
+  localStorage.setItem(key, value);
+  windowStub.dispatchEvent(
+    Object.assign(new Event("storage"), {
       key,
       newValue: value,
       oldValue: previous,
-      storageArea: window.localStorage,
+      storageArea: localStorage,
     }),
   );
 }
@@ -87,7 +98,7 @@ describe("tab-scoped workspace state", () => {
   });
 
   it("seeds a new tab from the last arrangement, then reloads its own", () => {
-    window.localStorage.setItem(
+    localStorage.setItem(
       SPLIT_LAYOUT_STORAGE_KEY,
       serializeSplitLayout(twoPanes()),
     );
@@ -95,7 +106,7 @@ describe("tab-scoped workspace state", () => {
 
     const store = createStore();
     store.set(splitLayoutAtom, singlePane("thread-3"));
-    window.localStorage.setItem(
+    localStorage.setItem(
       SPLIT_LAYOUT_STORAGE_KEY,
       serializeSplitLayout(singlePane("thread-9")),
     );
@@ -109,11 +120,9 @@ describe("closePanesForThreadsAtom", () => {
     const store = createStore();
     store.set(maximizedPaneIdAtom, "pane-2");
 
-    expect(window.localStorage.getItem(MAXIMIZED_PANE_STORAGE_KEY)).toBe(
-      "pane-2",
-    );
+    expect(localStorage.getItem(MAXIMIZED_PANE_STORAGE_KEY)).toBe("pane-2");
 
-    window.localStorage.setItem(MAXIMIZED_PANE_STORAGE_KEY, "");
+    localStorage.setItem(MAXIMIZED_PANE_STORAGE_KEY, "");
     const rehydrated = createStore();
     expect(rehydrated.get(maximizedPaneIdAtom)).toBeNull();
   });

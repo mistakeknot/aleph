@@ -18,7 +18,7 @@ export default definePluginApp((app) => {
         panelId: "tasks",
         id: "navigation",
         title: "Navigation",
-        icon: "ListView",
+        icon: "ListTodo",
         component: TasksNavigationPanel,
         layout: "flush",
       },

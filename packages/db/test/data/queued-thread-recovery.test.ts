@@ -38,7 +38,7 @@ function recordingNotifier() {
 
 function ageClaims(f: Fixture, claimedAt = 1) {
   f.db.$client
-    .prepare("UPDATE queued_thread_messages SET claimed_at = ?")
+    .prepare("UPDATE queued_thread_messages SET claimed_at = ? WHERE claimed_at IS NOT NULL")
     .run(claimedAt);
 }
 
@@ -231,8 +231,8 @@ describe("transactional sweep (T-RC4, T-RC5)", () => {
         `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 33000)
          INSERT INTO queued_thread_messages
            (id, thread_id, content, model, reasoning_level, permission_mode, service_tier,
-            group_with_next, payload_kind, claimed_at, claim_token, sort_key, created_at, updated_at)
-         SELECT 'qmsg_bulk' || i, ?, '[]', 'm', 'r', 'full', 'default', 0, 'inline',
+            group_with_next, state, payload_kind, claimed_at, claim_token, sort_key, created_at, updated_at)
+         SELECT 'qmsg_bulk' || i, ?, '[]', 'm', 'r', 'full', 'default', 0, 'claimed', 'inline',
                 1, 'tok' || i, printf('k%08d', i), 1, 1 FROM n`,
       )
       .run(bulk.id);

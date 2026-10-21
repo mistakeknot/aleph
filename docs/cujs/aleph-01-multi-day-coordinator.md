@@ -26,14 +26,14 @@ time. This journey has to avoid both.
 
 ### Current State vs. Planned
 
-| Capability | Status |
-|---|---|
-| Wait for a thread's status and read its final output from the CLI | **Shipped** (upstream `bb thread wait`, `bb thread output`) |
-| Children end their turn only as DONE or BLOCKED; no status-only messages | **Convention** (enforced only by prompt) |
-| Parent woken only for DONE, BLOCKED or a decision | **Planned** |
-| Status-only messages held back or folded into one update | **Planned** |
-| Waits on outcomes, each with a deadline that becomes BLOCKED | **Planned** (by convention today) |
-| Wakes per task recorded | **Planned** (see [usage per outcome](aleph-06-usage-per-outcome.md)) |
+| Capability                                                               | Status                                                               |
+| ------------------------------------------------------------------------ | -------------------------------------------------------------------- |
+| Wait for a thread's status and read its final output from the CLI        | **Shipped** (upstream `bb thread wait`, `bb thread output`)          |
+| Children end their turn only as DONE or BLOCKED; no status-only messages | **Convention** (enforced only by prompt)                             |
+| Parent woken only for DONE, BLOCKED or a decision                        | **Planned**                                                          |
+| Status-only messages held back or folded into one update                 | **Planned**                                                          |
+| Waits on outcomes, each with a deadline that becomes BLOCKED             | **Planned** (by convention today)                                    |
+| Wakes per task recorded                                                  | **Planned** (see [usage per outcome](aleph-06-usage-per-outcome.md)) |
 
 ## The Journey
 
@@ -44,7 +44,7 @@ its turn only when DONE or BLOCKED, and its final message follows the
 [structured return](aleph-02-structured-child-results.md).
 
 While children work, the coordinator is idle and costs nothing. It isn't
-woken by tool calls, intermediate turns or progress notes. *Planned:* bb
+woken by tool calls, intermediate turns or progress notes. _Planned:_ bb
 itself holds back a child's non-final turns from the parent, so the rule
 doesn't depend on each child remembering its prompt. A BLOCKED result is
 never held back.
@@ -52,7 +52,7 @@ never held back.
 When the coordinator has to wait for something outside bb, such as a CI
 run, a deployment or a merge, it waits on that outcome directly: the check
 result, the commit, the thread status. It doesn't wait on a stand-in such
-as a process exiting. Every wait has a deadline. *Planned:* a wait that
+as a process exiting. Every wait has a deadline. _Planned:_ a wait that
 reaches its deadline turns into a BLOCKED report with what was being
 waited on and what was last seen, instead of waiting forever.
 
@@ -64,15 +64,15 @@ events, not child activity.
 
 ## Success Signals
 
-| Signal | Type | Status | Assertion |
-|---|---|---|---|
-| Final messages are classified | measurable | active | Every child's last message starts with `DONE:` or `BLOCKED:` |
-| About one wake per outcome | measurable | planned | Coordinator wakes per finished child ≤ 1.2 over a project, excluding decisions |
-| Blocks are never held back | observable | planned | A BLOCKED child wakes the parent immediately, even when other updates are held back |
-| No status-only messages | observable | active | Coordinator messages to the operator each contain a decision request or a finished outcome |
-| Every wait has a deadline | observable | planned | Each wait records its condition and deadline; none runs past its deadline without a BLOCKED report |
-| Waits target outcomes | qualitative | active | Wait conditions name the result that matters (status, commit, check), not a process standing in for it |
-| Operator sees fewer, better messages | qualitative | active | The operator's queue holds decisions and outcomes, not progress |
+| Signal                               | Type        | Status  | Assertion                                                                                              |
+| ------------------------------------ | ----------- | ------- | ------------------------------------------------------------------------------------------------------ |
+| Final messages are classified        | measurable  | active  | Every child's last message starts with `DONE:` or `BLOCKED:`                                           |
+| About one wake per outcome           | measurable  | planned | Coordinator wakes per finished child ≤ 1.2 over a project, excluding decisions                         |
+| Blocks are never held back           | observable  | planned | A BLOCKED child wakes the parent immediately, even when other updates are held back                    |
+| No status-only messages              | observable  | active  | Coordinator messages to the operator each contain a decision request or a finished outcome             |
+| Every wait has a deadline            | observable  | planned | Each wait records its condition and deadline; none runs past its deadline without a BLOCKED report     |
+| Waits target outcomes                | qualitative | active  | Wait conditions name the result that matters (status, commit, check), not a process standing in for it |
+| Operator sees fewer, better messages | qualitative | active  | The operator's queue holds decisions and outcomes, not progress                                        |
 
 ## Known Friction Points
 

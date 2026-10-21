@@ -72,7 +72,7 @@ import {
   TRANSIENT_READ_RETRY_DELAY_MS,
 } from "./queries/query-helpers";
 import {
-  getLatestPendingInteraction,
+  orderPendingInteractions,
   useThread,
   useThreadPendingInteractions,
 } from "./queries/thread-queries";
@@ -123,7 +123,7 @@ function setup() {
       const thread = useThread(THREAD_ID);
       const pendingInteractions = useThreadPendingInteractions(THREAD_ID);
       const hasPendingInteraction =
-        getLatestPendingInteraction(pendingInteractions.data) !== null;
+        orderPendingInteractions(pendingInteractions.data).length > 0;
       const gate = usePendingInteractionsGate({
         hasPendingInteraction,
         query: pendingInteractions,

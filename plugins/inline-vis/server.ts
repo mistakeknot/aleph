@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import path from "node:path";
 import {
   defineRpcContract,
@@ -123,6 +124,7 @@ export const inlineVisRpcContract = defineRpcContract({
       })
       .strict(),
     output: z.discriminatedUnion("kind", [
+      z.object({ kind: z.literal("not-found"), file: z.string() }).strict(),
       z
         .object({
           kind: z.literal("html"),
@@ -130,6 +132,8 @@ export const inlineVisRpcContract = defineRpcContract({
           source: z.enum(["workspace", "thread-storage"]),
           target: previewTargetSchema,
           url: z.string(),
+          content: z.string(),
+          sha256: z.string(),
         })
         .strict(),
       z
@@ -201,7 +205,7 @@ export default async function plugin(bb: BbPluginApi) {
         });
       } catch (error) {
         if (httpStatus(error) === 404) {
-          throw new Error(`Preview file not found: ${file}`);
+          return { kind: "not-found" as const, file };
         }
         throw error;
       }
@@ -234,7 +238,18 @@ export default async function plugin(bb: BbPluginApi) {
         target.kind === "thread-storage"
           ? `/api/v1/threads/${encodeURIComponent(threadId)}/thread-storage/files/${encodedFile}`
           : `/api/v1/environments/${encodeURIComponent(target.environmentId)}/files/${encodedFile}`;
-      return { kind, file, source, target, url };
+      const sha256 = createHash("sha256")
+        .update(result.content, "utf8")
+        .digest("hex");
+      return {
+        kind,
+        file,
+        source,
+        target,
+        url,
+        content: result.content,
+        sha256,
+      };
     },
   });
 }

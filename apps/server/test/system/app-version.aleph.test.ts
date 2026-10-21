@@ -11,6 +11,8 @@ function serviceFor(latestVersion: string) {
     });
   }) as unknown as typeof fetch;
   const service = createAppVersionService({
+    installKind: null,
+    sourceCommit: null,
     config: { appVersion: "0.43.4+aleph.1", isDevelopment: false },
     fetchImpl,
     logger: testLogger,

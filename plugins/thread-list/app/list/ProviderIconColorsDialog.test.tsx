@@ -74,9 +74,11 @@ describe("ProviderIconColorsDialog", () => {
     );
     renderDialog();
     expect(
-      (screen.getByRole("button", {
-        name: "Reset Claude Code color",
-      }) as HTMLButtonElement).disabled,
+      (
+        screen.getByRole("button", {
+          name: "Reset Claude Code color",
+        }) as HTMLButtonElement
+      ).disabled,
     ).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Reset Codex color" }));
     expect(getDefaultStore().get(sidebarProviderIconColorsAtom)).toEqual({});

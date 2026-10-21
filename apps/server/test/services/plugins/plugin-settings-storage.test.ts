@@ -1,3 +1,4 @@
+import { createPluginUpdateJobs } from "../../../src/services/plugins/plugin-update-jobs.js";
 import {
   mkdtemp,
   mkdir,
@@ -14,14 +15,14 @@ import { join } from "node:path";
 import { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  createConnection,
   getPluginSettingsValues,
-  migrate,
   setPluginSettingsValues,
   type DbConnection,
 } from "@bb/db";
+import { createMigratedConnection } from "@bb/db/testing";
 import type { Logger } from "@bb/logger";
 import { registerPluginRoutes } from "../../../src/routes/plugins.js";
+import { createPluginInstallJobs } from "../../../src/services/plugins/plugin-install-jobs.js";
 import { createAiServiceRegistry } from "../../../src/services/ai/ai-service-registry.js";
 import {
   createPluginService,
@@ -79,8 +80,7 @@ describe("plugin settings + storage", () => {
   let systemBroadcasts: string[][];
 
   beforeEach(async () => {
-    db = createConnection(":memory:");
-    migrate(db);
+    db = createMigratedConnection();
     workDir = await mkdtemp(join(tmpdir(), "bb-plugin-storage-test-"));
     dataDir = join(workDir, "data");
     systemBroadcasts = [];
@@ -290,7 +290,13 @@ describe("plugin settings + storage", () => {
       ).rejects.toThrow("lowercase letters only");
 
       const app = new Hono();
-      registerPluginRoutes(app, { config: { serverPort: 3334 }, db }, service);
+      registerPluginRoutes(
+        app,
+        { config: { serverPort: 3334 }, db },
+        service,
+        createPluginInstallJobs({ notifyChanged: () => {} }),
+        createPluginUpdateJobs({ notifyChanged: () => {} }),
+      );
       const got = await app.request("/plugins/self-configuring/settings");
       const body = (await got.json()) as {
         schema: Record<string, Record<string, unknown>>;
@@ -349,7 +355,13 @@ describe("plugin settings + storage", () => {
     it("serves schema+values over the routes; PUT validates with 400s", async () => {
       await installConfigurable();
       const app = new Hono();
-      registerPluginRoutes(app, { config: { serverPort: 3334 }, db }, service);
+      registerPluginRoutes(
+        app,
+        { config: { serverPort: 3334 }, db },
+        service,
+        createPluginInstallJobs({ notifyChanged: () => {} }),
+        createPluginUpdateJobs({ notifyChanged: () => {} }),
+      );
 
       const got = await app.request("/plugins/configurable/settings");
       expect(got.status).toBe(200);

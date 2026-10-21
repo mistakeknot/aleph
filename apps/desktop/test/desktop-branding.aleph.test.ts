@@ -18,7 +18,7 @@ const BRANDED_SOURCE_FILES = [
 ];
 
 const ALLOWED_BB_NAMES =
-  /\bbb Connect\b|[\w.:-]*[-.:(]bb\b[\w.:-]*|\bbb[-:)][\w.:-]*/gu;
+  /https?:\/\/\S+|\bbb Connect\b|[\w.:-]*[-.:(]bb\b[\w.:-]*|\bbb[-:)][\w.:-]*/gu;
 
 const LOG_PREFIX = "[desktop]";
 

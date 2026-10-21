@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { PluginDisplayName } from "./PluginNameTag";
 import {
   ResourceBrowseCard,
   ResourceBrowseGrid,
@@ -40,7 +41,10 @@ export function PluginCard({
         <span className="block min-h-[2lh]">{props.description}</span>
       }
       title={
-        <span className="line-clamp-2 whitespace-normal">{props.title}</span>
+        <PluginDisplayName
+          displayName={props.title}
+          nameClassName="line-clamp-2 whitespace-normal"
+        />
       }
       footer={
         <div className="flex min-w-0 items-center justify-between gap-2 border-t border-border/60 pt-2 text-xs text-subtle-foreground">

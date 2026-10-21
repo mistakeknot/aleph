@@ -7,11 +7,12 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { MemoryRouter, useLocation } from "react-router-dom";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PluginCatalogSearchEntry } from "@/hooks/queries/plugin-catalog-queries";
 import { createQueryClientTestHarness } from "@/test/queryClientTestHarness";
 import { PluginAuthorPage } from "./PluginAuthorPage";
+import { LocationProbe } from "@/test/location-probe";
 
 function catalogEntry(
   pluginId: string,
@@ -44,6 +45,7 @@ function catalogEntry(
     },
     installed: false,
     conflictingInstallSource: null,
+    installedByDefault: false,
     installs: 10,
     compatible: true,
     incompatibleReason: null,
@@ -80,13 +82,6 @@ const GAMMA = catalogEntry("Gamma", {
 const OTHER = catalogEntry("Other", {
   author: { name: "Pat Lee", github: null, url: null },
 });
-
-function LocationProbe() {
-  const location = useLocation();
-  return (
-    <output data-testid="location">{`${location.pathname}${location.search}`}</output>
-  );
-}
 
 function cardOrder(): string[] {
   return [

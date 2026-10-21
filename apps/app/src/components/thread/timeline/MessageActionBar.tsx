@@ -16,6 +16,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@bb/shared-ui/tooltip";
+import { HOVER_REVEAL_NO_HOVER_VISIBLE_CLASS } from "@bb/shared-ui/hover-reveal";
 import { cn } from "@bb/shared-ui/lib/utils";
 import type { PromptDraftAttachment } from "@bb/client-core";
 import { PluginItemIcon, pluginIconName } from "@/components/plugin/PluginIcon";
@@ -52,15 +53,15 @@ interface MessageActionBarProps {
     text: string,
     attachments?: readonly PromptDraftAttachment[],
   ) => void;
+  onCopyLink?: () => void;
   onEdit?: () => void;
   onFork?: () => void;
-  onSendToMain?: () => void;
   disabled?: boolean;
   pluginActions?: readonly ThreadTimelinePluginMessageAction[];
 }
 
 interface MessageOverflowAction {
-  icon: "Copy" | "Edit" | "MessageSquarePlus" | "Fork" | "ArrowTurnBackward";
+  icon: "Copy" | "Link" | "Edit" | "MessageSquarePlus" | "Fork";
   plugin?: { pluginId: string | null; icon: string | null };
   key?: string;
   label: string;
@@ -178,10 +179,12 @@ export const MessageColumnWidthContext =
 
 const ACTION_BUTTON_CLASS =
   "inline-flex size-5 cursor-pointer items-center justify-center text-muted-foreground hover:text-foreground disabled:pointer-events-none disabled:opacity-40";
-const HOVER_REVEAL_CLASS =
-  "opacity-0 transition-opacity group-hover/message:opacity-100 group-focus-within/message:opacity-100";
+const HOVER_REVEAL_CLASS = cn(
+  "opacity-0 transition-opacity group-hover/message:opacity-100 group-focus-within/message:opacity-100",
+  HOVER_REVEAL_NO_HOVER_VISIBLE_CLASS,
+);
 const MOBILE_INLINE_ACTION_CLASS =
-  "max-md:pointer-coarse:size-7 max-md:pointer-coarse:opacity-100 max-md:pointer-coarse:disabled:opacity-40 max-md:pointer-coarse:[&_[data-icon-root]]:size-4";
+  "max-md:pointer-coarse:size-7 max-md:pointer-coarse:[&_[data-icon-root]]:size-4";
 const MOBILE_OVERFLOW_ACTION_CLASS = "max-md:pointer-coarse:hidden";
 const ACTION_TOOLTIP_SIDE = "bottom";
 const MENU_CONTENT_WIDTH_CLASS = "max-w-[min(16rem,calc(100vw-1rem))]";
@@ -271,6 +274,17 @@ function formatMessageDay(date: Date, now: Date): string {
   });
 }
 
+export function formatShortMessageTime(timestamp: number, now: Date): string {
+  const date = new Date(timestamp);
+  const time = date.toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  return date.toDateString() === now.toDateString()
+    ? time
+    : `${formatMessageDay(date, now)}, ${time}`;
+}
+
 function MessageTimestampFooter({ timestamp }: { timestamp: number }) {
   const date = new Date(timestamp);
   const time = date.toLocaleTimeString(undefined, {
@@ -283,7 +297,7 @@ function MessageTimestampFooter({ timestamp }: { timestamp: number }) {
   });
   return (
     <div
-      className="-mx-1 -mb-1 mt-1 border-t border-border bg-surface-recessed px-3 py-3 text-xs text-muted-foreground max-md:-mx-2 max-md:-mb-2 max-md:px-4"
+      className="mt-1 border-t border-border px-2 pt-2 pb-1 text-xs text-subtle-foreground"
       data-message-metadata=""
     >
       <time dateTime={date.toISOString()} title={fullDate}>
@@ -301,9 +315,9 @@ export function MessageActionBar({
   addToChatAttachments = [],
   copyImageUrl,
   onAddToChat,
+  onCopyLink,
   onEdit,
   onFork,
-  onSendToMain,
   disabled,
   pluginActions = [],
 }: MessageActionBarProps) {
@@ -366,15 +380,6 @@ export function MessageActionBar({
           },
         ]
       : []),
-    ...(onSendToMain
-      ? [
-          {
-            icon: "ArrowTurnBackward" as const,
-            label: "Send to main thread",
-            onSelect: onSendToMain,
-          },
-        ]
-      : []),
     ...pluginActions.map((action) => ({
       icon: "Copy" as const,
       plugin: { pluginId: action.pluginId, icon: action.icon },
@@ -416,6 +421,15 @@ export function MessageActionBar({
       ? 0
       : layout.inlineCount;
   const menuActions = [
+    ...(onCopyLink
+      ? [
+          {
+            icon: "Link" as const,
+            label: "Copy link",
+            onSelect: onCopyLink,
+          },
+        ]
+      : []),
     ...inlineCandidates.slice(isCompactViewport ? 0 : inlineCount),
     ...trailingMenuActions,
   ];

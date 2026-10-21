@@ -23,18 +23,11 @@ import {
   seedThreadFixture,
 } from "./helpers/seed.js";
 import { withTestHarness, type TestAppHarness } from "./helpers/test-app.js";
+import { createDeferredPromise } from "@bb/test-helpers";
 
 const leaseSchema = desktopBrowserScopeSchema
   .extend(desktopBrowserLeaseSchema.shape)
   .extend({ tabIds: z.array(z.string()) });
-
-function deferred<T>() {
-  let resolve: (value: T) => void = () => {};
-  const promise = new Promise<T>((done) => {
-    resolve = done;
-  });
-  return { promise, resolve };
-}
 
 function fixture(harness: TestAppHarness) {
   const seeded = seedThreadFixture(harness);
@@ -741,8 +734,8 @@ describe("desktop browser public API", () => {
         (await test.post("connection", test.leaseRequest(lease.leaseId)))
           .status,
       ).toBe(409);
-      const gate = deferred<HostRpcHandlerResult>();
-      const started = deferred<void>();
+      const gate = createDeferredPromise<HostRpcHandlerResult>();
+      const started = createDeferredPromise<void>();
       test.intercept(({ command }) => {
         if (command.type !== "desktop.browser.acquire_control") return null;
         started.resolve();
@@ -785,8 +778,8 @@ describe("desktop browser public API", () => {
 
   it("a stop during the tab lookup cancels the pending acquisition before any native grant", async () => {
     await withBrowserTest(async (test) => {
-      const gate = deferred<HostRpcHandlerResult>();
-      const started = deferred<void>();
+      const gate = createDeferredPromise<HostRpcHandlerResult>();
+      const started = createDeferredPromise<void>();
       test.intercept(({ command }) => {
         if (command.type !== "desktop.browser.list_tabs") return null;
         started.resolve();
@@ -887,8 +880,8 @@ describe("desktop browser public API", () => {
   });
   it("revokes native control when acquisition completes after its deadline", async () => {
     await withBrowserTest(async (test) => {
-      const gate = deferred<HostRpcHandlerResult>();
-      const started = deferred<void>();
+      const gate = createDeferredPromise<HostRpcHandlerResult>();
+      const started = createDeferredPromise<void>();
       test.intercept(({ command }) => {
         if (command.type !== "desktop.browser.acquire_control") return null;
         started.resolve();
@@ -939,6 +932,171 @@ describe("desktop browser public API", () => {
         (await test.post("connection", test.leaseRequest(command.leaseId)))
           .status,
       ).toBe(409);
+    });
+  });
+
+  it.each(["closed", "updated"] as const)(
+    "ignores a pending restore snapshot after the native tab is %s",
+    async (change) => {
+      await withBrowserTest(async (test) => {
+        const tab = test.tab();
+        test.change({ instanceId: "closed-window" }, [tab]);
+        const listed = createDeferredPromise<HostRpcHandlerResult>();
+        const list = vi.fn(() => listed.promise);
+        test.intercept(({ command }) =>
+          command.type === "desktop.browser.list_instances" ? list() : null,
+        );
+        test.change({}, [tab]);
+        await vi.waitFor(() => expect(list).toHaveBeenCalledTimes(1));
+        const updated = {
+          ...tab,
+          url: "https://example.com/new",
+          title: "New",
+        };
+        test.change({}, change === "closed" ? [] : [updated]);
+        listed.resolve({
+          ok: true,
+          result: {
+            instances: [
+              {
+                instanceId: test.scope.instanceId,
+                generation: test.scope.generation,
+                label: "Desktop",
+              },
+            ],
+          },
+        });
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        expect(test.stored()).toEqual([
+          expect.objectContaining({
+            id: tab.tabId,
+            url: change === "closed" ? tab.url : updated.url,
+            title: change === "closed" ? tab.title : updated.title,
+            desktopTarget: expect.objectContaining({
+              instanceId:
+                change === "closed" ? "closed-window" : test.scope.instanceId,
+            }),
+          }),
+        ]);
+      });
+    },
+  );
+
+  it("moves a tab to the live window that reopened it after its old window closed", async () => {
+    await withBrowserTest(async (test) => {
+      const tab = test.tab();
+      test.change({ instanceId: "closed-window" }, [tab]);
+      expect(test.stored()).toEqual([
+        expect.objectContaining({
+          id: tab.tabId,
+          desktopTarget: expect.objectContaining({
+            instanceId: "closed-window",
+          }),
+        }),
+      ]);
+      test.change({}, [{ ...tab, title: "Reopened" }]);
+      await vi.waitFor(() =>
+        expect(test.stored()).toEqual([
+          expect.objectContaining({
+            id: tab.tabId,
+            title: "Reopened",
+            desktopTarget: {
+              hostId: test.scope.hostId,
+              instanceId: test.scope.instanceId,
+              generation: test.scope.generation,
+            },
+          }),
+        ]),
+      );
+    });
+  });
+  it("keeps a tab with its live owner and closes a competing restored view", async () => {
+    await withBrowserTest(async (test) => {
+      const instances = vi.fn(() => ({
+        ok: true as const,
+        result: {
+          instances: [
+            {
+              instanceId: test.scope.instanceId,
+              generation: test.scope.generation,
+              label: "Desktop",
+            },
+            { instanceId: "owner", generation: "owner-gen", label: "Owner" },
+          ],
+        },
+      }));
+      const closed = vi.fn();
+      test.intercept((request) => {
+        if (request.command.type === "desktop.browser.list_instances")
+          return instances();
+        if (request.command.type === "desktop.browser.close_tab")
+          closed(request.command);
+        return null;
+      });
+      const tab = test.tab();
+      test.change({ instanceId: "owner", generation: "owner-gen" }, [tab]);
+      test.change({}, [{ ...tab, url: "https://clone.example" }]);
+      await vi.waitFor(() => expect(instances).toHaveBeenCalled());
+      await vi.waitFor(() =>
+        expect(closed).toHaveBeenCalledWith({
+          type: "desktop.browser.close_tab",
+          instanceId: test.scope.instanceId,
+          generation: test.scope.generation,
+          threadId: test.scope.threadId,
+          tabId: tab.tabId,
+        }),
+      );
+      expect(test.stored()).toEqual([
+        expect.objectContaining({
+          url: tab.url,
+          desktopTarget: expect.objectContaining({ instanceId: "owner" }),
+        }),
+      ]);
+    });
+  });
+  it("retains one owner when two windows restore the same orphan concurrently", async () => {
+    await withBrowserTest(async (test) => {
+      const tab = test.tab();
+      test.change({ instanceId: "closed-window" }, [tab]);
+      const listed = createDeferredPromise<HostRpcHandlerResult>();
+      const list = vi.fn(() => listed.promise);
+      const closed = vi.fn();
+      test.intercept(({ command }) => {
+        if (command.type === "desktop.browser.list_instances") return list();
+        if (command.type === "desktop.browser.close_tab") closed(command);
+        return null;
+      });
+      test.change({}, [tab]);
+      test.change({ instanceId: "competing-window" }, [tab]);
+      await vi.waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+      listed.resolve({
+        ok: true,
+        result: {
+          instances: [
+            {
+              instanceId: test.scope.instanceId,
+              generation: test.scope.generation,
+              label: "First",
+            },
+            {
+              instanceId: "competing-window",
+              generation: test.scope.generation,
+              label: "Second",
+            },
+          ],
+        },
+      });
+      await vi.waitFor(() => expect(closed).toHaveBeenCalledTimes(1));
+      const owner = test.stored().find((value) => value.id === tab.tabId);
+      expect(owner).toMatchObject({
+        desktopTarget: { instanceId: test.scope.instanceId },
+      });
+      expect(closed).toHaveBeenCalledWith(
+        expect.objectContaining({
+          instanceId: "competing-window",
+          tabId: tab.tabId,
+        }),
+      );
     });
   });
 

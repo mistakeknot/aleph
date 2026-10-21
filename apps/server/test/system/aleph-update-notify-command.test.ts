@@ -74,9 +74,9 @@ describe("aleph update notify command", () => {
     });
     await notify("hello");
     const keys: string[] = JSON.parse(await readFile(join(dir, "out"), "utf8"));
-    expect(keys.filter((key) => !["HOME", "LANG", "PATH"].includes(key))).toEqual(
-      [],
-    );
+    expect(
+      keys.filter((key) => !["HOME", "LANG", "PATH"].includes(key)),
+    ).toEqual([]);
     expect(keys).toEqual(expect.arrayContaining(["HOME", "LANG", "PATH"]));
   });
 
@@ -113,7 +113,7 @@ describe("Aleph update documentation", () => {
 
   it.each([
     "docs/configuration.md",
-    "plugins/bb-guide/skills/bb-cli/references/configuration.md",
+    "plugins/bb-guide/skills/bb-cli/references/aleph-update-notices.md",
     "packages/templates/src/templates/bb-guide-machines.md",
   ])("documents the notice command in %s", async (path) => {
     const text = await read(path);
@@ -123,7 +123,7 @@ describe("Aleph update documentation", () => {
 
   it("documents the notice command contract in the bb-cli skill reference", async () => {
     const text = await read(
-      "plugins/bb-guide/skills/bb-cli/references/configuration.md",
+      "plugins/bb-guide/skills/bb-cli/references/aleph-update-notices.md",
     );
     for (const phrase of [
       "JSON array of strings",

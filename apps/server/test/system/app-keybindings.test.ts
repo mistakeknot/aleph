@@ -190,6 +190,42 @@ describe("app keybindings", () => {
     expect(bindings[0]?.shortcut).toEqual(custom);
   });
 
+  it("lets a user's own Mod+[ binding win over Go back", () => {
+    const bindings = applyAppKeybindingOverrides(
+      DEFAULT_APP_KEYBINDINGS,
+      appKeybindingOverridesSchema.parse([
+        {
+          command: "thread.previous",
+          shortcut: {
+            key: "[",
+            mod: true,
+            meta: false,
+            control: false,
+            alt: false,
+            shift: false,
+          },
+        },
+      ]),
+    );
+    const input = {
+      key: "[",
+      code: "BracketLeft",
+      metaKey: true,
+      ctrlKey: false,
+      altKey: false,
+      shiftKey: false,
+    };
+    expect(
+      [...bindings]
+        .reverse()
+        .find(
+          (binding) =>
+            !binding.when.all.includes("browserFocus") &&
+            matchesAppShortcut(input, binding.shortcut, true),
+        )?.command,
+    ).toBe("thread.previous");
+  });
+
   it("limits overlapping default chords to intentional scoped navigation", () => {
     const assignedDefaults = applyAppKeybindingOverrides(
       DEFAULT_APP_KEYBINDINGS,
@@ -246,7 +282,11 @@ describe("app keybindings", () => {
       );
       expect(config.keybindingOverrides).toEqual([]);
       expect(assignedDefaultKeybindings).toEqual(config.keybindings);
-      for (const command of ["thread.rename", "thread.archive"] as const) {
+      for (const command of [
+        "thread.rename",
+        "thread.archive",
+        "panel.fullScreen.toggle",
+      ] as const) {
         expect(
           config.defaultKeybindings.find(
             (binding) => binding.command === command,
@@ -394,6 +434,35 @@ describe("app keybindings", () => {
           when: { all: ["mainSurface"], none: ["modalOpen"] },
         },
       ]);
+      for (const [command, key] of [
+        ["history.back", "["],
+        ["history.forward", "]"],
+      ] as const) {
+        expect(
+          assignedDefaultKeybindings
+            .filter((binding) => binding.command === command)
+            .map((binding) => ({
+              desktopOnly: binding.desktopOnly,
+              key: binding.shortcut.key,
+              mod: binding.shortcut.mod,
+              control: binding.shortcut.control,
+              shift: binding.shortcut.shift,
+              when: binding.when,
+            })),
+        ).toEqual([
+          {
+            desktopOnly: true,
+            key,
+            mod: true,
+            control: false,
+            shift: false,
+            when: {
+              all: ["mainSurface"],
+              none: ["modalOpen", "editableFocus", "terminalFocus"],
+            },
+          },
+        ]);
+      }
       expect(
         assignedDefaultKeybindings
           .filter((binding) => binding.command.startsWith("thread.jump."))

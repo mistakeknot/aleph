@@ -326,8 +326,16 @@ export function registerSystemRoutes(
       allowFastServiceTier:
         settings.allowFastServiceTier ?? current.allowFastServiceTier,
       telemetryEnabled: settings.telemetryEnabled ?? current.telemetryEnabled,
+      showGitChanges: settings.showGitChanges ?? current.showGitChanges,
+      keepHistoryAfterContextClear:
+        settings.keepHistoryAfterContextClear ??
+        current.keepHistoryAfterContextClear,
       confirmThreadArchive:
         settings.confirmThreadArchive ?? current.confirmThreadArchive,
+      onboardingCompletedAt:
+        settings.onboardingCompletedAt === undefined
+          ? current.onboardingCompletedAt
+          : settings.onboardingCompletedAt,
       showDiagnosticEvents:
         diagnosticValue === undefined ||
         (showUnhandledProviderEvents !== undefined &&
@@ -342,6 +350,11 @@ export function registerSystemRoutes(
     deps.telemetry.setEnabled(updatedSettings.telemetryEnabled);
     deps.hub.notifySystem(["config-changed"]);
     return context.json(compatibleGeneralSettings());
+  });
+
+  post(routes.recordTelemetryEvent, (context, payload) => {
+    deps.telemetry.capture(payload);
+    return context.json({ ok: true });
   });
 
   put(routes.keyboardSettings, (context, payload) => {
@@ -807,6 +820,32 @@ export function registerSystemRoutes(
       await deps.appUpdate.acknowledgeResult({ id: body.id }),
     );
   });
+
+  get(routes.cliCommand, async (context) =>
+    context.json(await deps.cliCommand.getStatus()),
+  );
+
+  post(routes.installCliCommand, async (context) => {
+    assertCliCommandChangeAllowed(context);
+    return context.json(await deps.cliCommand.install());
+  });
+
+  post(routes.removeCliCommand, async (context) => {
+    assertCliCommandChangeAllowed(context);
+    return context.json(await deps.cliCommand.remove());
+  });
+}
+
+function assertCliCommandChangeAllowed(
+  context: Parameters<typeof getGateAuthKind>[0],
+): void {
+  if (getGateAuthKind(context) === "machine") {
+    throw new ApiError(
+      403,
+      "forbidden",
+      "Machine credentials cannot change the bb command on the bb server's computer",
+    );
+  }
 }
 
 function requireAlephUpdate(deps: ServerAppDeps): AlephUpdateService {

@@ -65,16 +65,54 @@ openWorkspaceFile }` — register a leaf
   attributes as attacker-controlled even though the model emitted them;
   load workspace data through `bb.sdk.files` with root/host confinement
   rather than trusting paths. Reference implementation:
-  `plugins/inline-vis` (the sidebar's path-shaped, sandboxed worktree
-  iframe preview, including relative assets and normal web loading).
+  `plugins/inline-vis` (a workspace or thread-storage HTML file shown in a
+  borderless, sandboxed frame that follows the page's height and bb's theme,
+  including relative assets and normal web loading).
+- `experimental_codeFenceRenderer` → `{ code, language, status, index,
+message, Original }` — render fenced code blocks of chosen languages in
+  assistant-message Markdown with a plugin component (e.g. a ` ```ui `
+  block rendered live as the reply streams). Registration:
+  `{ id, languages, component }`; `id` uses letters, digits, `-`, `_` and is
+  unique within the plugin; `languages` is non-empty and each entry matches
+  `/^[a-z0-9][a-z0-9+#._-]*$/`. A plugin may claim a language once across its
+  registrations (duplicates are rejected at load). Props: `code` is the fence
+  body so far, without the delimiters; `status` is `"streaming"` while the
+  closing fence has not arrived and the reply is still being written,
+  `"closed"` once the closing fence is present (`code` is final), and
+  `"unclosed"` when the reply ended without one (for example an interrupted
+  reply); `index` is the zero-based ordinal among fences of the same language
+  in the message (other languages don't shift it); `message` matches
+  `messageDirective`'s; `Original` renders BB's code block (highlighting,
+  copy button, mermaid diagrams). BB mounts the component once per fence and
+  keeps that instance while the message stays on screen, so component state
+  survives the whole stream, including the fence closing and the reply
+  finishing. State that must outlive the mounted component (a reload, the
+  message scrolling out of the rendered window) belongs under
+  `${message.id}#${language}#${index}`. `useBbNavigate().openThreadPanel`
+  works inside it as for `messageDirective`. **Host behavior / fallbacks:**
+  activates only where `messageDirective` does (assistant and nested agent
+  Markdown); user messages, file previews, and plugin Markdown keep BB's code
+  block. BB's code block also renders when two plugins claim the same
+  language (BB logs a console warning naming them), when the plugin is
+  missing or disabled, and for a fence whose component throws. A throw
+  affects that fence only, and BB tries the component again when the fence's
+  `code` or `status` changes, so a renderer that fails on a half-streamed
+  body recovers on the next chunk. Treat `code` as attacker-controlled even
+  though the model emitted it: run generated markup or scripts in a sandboxed
+  frame, never in the bb page. Reference implementation:
+  `plugins/inline-vis` (a ` ```inline-vis ` block holding an HTML page).
+  Experimental: see `docs/api_to_audit.md`.
 - `messageAction` → an action on chat messages: an icon button in the
   per-message action bar (user and assistant messages) and an entry in the
-  assistant-message text-selection menu. Host-rendered chrome, no plugin
+  assistant-message text-selection menu. Slot actions are limited to the main
+  timeline; embedded `ThreadChat` suppresses them on both surfaces. Host-rendered chrome, no plugin
   component — registration: `{ id, title, icon?, run }`. Activating it calls
   `run(context)` with `{ threadId, message, selectedText?, openPanel }`:
   `message` is a narrow stable reference
-  `{ id, threadId, role: "user" | "assistant", text, sourceSeqEnd }` (never
-  an internal timeline row); `selectedText` is present only for
+  `{ id, threadId, role: "user" | "assistant", text, sourceSeqEnd, experimental_messageSeq }` (never
+  an internal timeline row); `experimental_messageSeq` is the recorded message
+  sequence used by `?msg=`, `sdk.threads.message`, and `bb thread log --message`,
+  while `sourceSeqEnd` anchors provider-history forks; `selectedText` is present only for
   selection-menu invocations and holds the exact highlighted text; and
   `openPanel({ actionId, title?, params? })` opens one of the same plugin's
   registered `threadPanelAction` components in the current thread's side
@@ -97,8 +135,6 @@ openWorkspaceFile }` — register a leaf
   `app.slots.commandPaletteAction` is a deprecated alias accepting the same
   fields. Both entry points share one ID namespace; registering the same ID
   through either path twice rejects plugin setup.
-  Require `engines.bbPluginSdk: ">=0.4.91"` for `commands.register`, or
-  `">=0.4.92"` when using keyboard bindings.
   `defaultShortcut: { key: "i", mod: true, shift: true }` supplies an initial
   binding. `mod` means Command on macOS and Control elsewhere; omitted `meta`,
   `control`, `alt`, `shift`, and `mod` are false. Use a Command/Control/Alt
@@ -123,14 +159,11 @@ openWorkspaceFile }` — register a leaf
   threadId, turnId, kind, toolName, status, startedAt, completedAt),
   `payload` (the extension item's validated payload, or `{ arguments,
 output }` for a tool call), `presentation` (the bridge's label, icon,
-  title, detail, suppress and tint for the row; null only for a tool row
-  persisted before bridges attached one), `thread` (`{ id,
-providerId }`) and `Original`, the host's declarative base for the body —
-  render `<Original />` to keep it beside your own content. The row header
-  (label, glyph, tint, headline) stays host-rendered; a glyph of the form
-  `"<pluginId>/<name>"` draws the plugin's declared icon
-  (`bb.branding.experimental_icons`) as a tinted mask, or the per-kind
-  glyph when the name is no longer declared. With no renderer registered,
+  title, detail, suppress and tint for the row, or null for a row without
+  one), `thread` (`{ id, providerId }`) and `Original`, the host's
+  declarative base for the body — render `<Original />` to keep it beside
+  your own content. The row header (label, glyph, tint, headline) stays
+  host-rendered. With no renderer registered,
   the declarative base renders, so a row never goes blank; a crash in the
   component is contained to that row.
 - `experimental_providerIcon` → the React component bb draws as one agent, machine,
@@ -143,8 +176,7 @@ providerId }`) and `Original`, the host's declarative base for the body —
   multicolor rendering.
   A component beats the file logo for that provider; disabling the plugin
   falls back to it, and so does every surface shown before the plugin's
-  deferred `app.tsx` has loaded. Read `references/providers.md` for provider
-  icon declaration and registration details.
-  One registration per provider kind and id per plugin; if two plugins claim one
-  provider kind and id the host keeps the first by plugin id and warns. See the
-  `app.tsx` example in `references/providers.md`.
+  deferred `app.tsx` has loaded. One registration per provider kind and id
+  per plugin; if two plugins claim one provider kind and id the host keeps
+  the first by plugin id and warns. providers.md shows an example; the
+  `experimental_ProviderIcon` resolution order is in frontend-components.md.

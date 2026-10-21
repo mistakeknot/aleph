@@ -83,7 +83,7 @@ let storeSnapshot: UsageStoreSnapshot = {
   isRefreshing: false,
 };
 let activeRefreshCount = 0;
-let refreshQueue: Promise<void> = Promise.resolve();
+let queuedRefresh: Promise<void> = Promise.resolve();
 let lastMachineId: string | null = null;
 let lastProviderIdByMachine = new Map<string, string>();
 
@@ -147,19 +147,19 @@ function refreshUsage({
   force,
   machineIds,
   maxAgeMs,
-  providerId = null,
+  providerIds,
   signal,
 }: {
   pluginId: string;
   force: boolean;
   machineIds: string[] | null;
   maxAgeMs: number;
-  providerId?: string | null;
+  providerIds: string[];
   signal?: AbortSignal;
 }): Promise<void> {
   activeRefreshCount += 1;
   updateStore({ ...storeSnapshot, error: null, isRefreshing: true });
-  const run = refreshQueue.then(async () => {
+  queuedRefresh = queuedRefresh.then(async () => {
     try {
       if (signal?.aborted === true) return;
       const response = await fetch(
@@ -167,7 +167,7 @@ function refreshUsage({
         {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ force, machineIds, maxAgeMs, providerId }),
+          body: JSON.stringify({ force, machineIds, maxAgeMs, providerIds }),
           signal:
             signal === undefined
               ? AbortSignal.timeout(60_000)
@@ -204,17 +204,7 @@ function refreshUsage({
       }
     }
   });
-  refreshQueue = run;
-  return run;
-}
-
-async function refreshProvidersInSequence(
-  providerIds: readonly (string | null)[],
-  request: Omit<Parameters<typeof refreshUsage>[0], "providerId">,
-): Promise<void> {
-  for (const providerId of providerIds) {
-    await refreshUsage({ ...request, providerId });
-  }
+  return queuedRefresh;
 }
 
 function formatResetCountdown(resetsAt: string | null): string | null {
@@ -477,12 +467,12 @@ function AccountUsage({
             providerKind="agent"
             provider={account}
             fallback="Bot"
-            className="size-3.5 shrink-0"
+            className="size-3 shrink-0"
           />
         ) : null}
         <h3
           title={title}
-          className="min-w-0 flex-1 truncate text-xs text-sidebar-foreground"
+          className="min-w-0 flex-1 truncate text-2xs font-medium text-sidebar-foreground"
         >
           {title}
         </h3>
@@ -763,10 +753,11 @@ export function ProviderUsageStatusContent({
     const refresh = () => {
       if (running || document.visibilityState === "hidden") return;
       running = true;
-      void refreshProvidersInSequence(refreshProviderKey.split("\n"), {
+      void refreshUsage({
         pluginId,
         force: false,
         machineIds: [activeMachineId],
+        providerIds: refreshProviderKey.split("\n"),
         maxAgeMs: CARD_MAX_AGE_MS,
       }).finally(() => {
         running = false;
@@ -808,15 +799,13 @@ export function ProviderUsageStatusContent({
   );
 
   const reload = () => {
-    void refreshProvidersInSequence(
-      refreshProviderIds.length === 0 ? [null] : refreshProviderIds,
-      {
-        pluginId,
-        force: true,
-        machineIds: activeMachineId === null ? null : [activeMachineId],
-        maxAgeMs: 0,
-      },
-    );
+    void refreshUsage({
+      pluginId,
+      force: true,
+      machineIds: activeMachineId === null ? null : [activeMachineId],
+      maxAgeMs: 0,
+      providerIds: refreshProviderIds,
+    });
   };
 
   const handleTabKeyDown = (
@@ -1123,6 +1112,7 @@ export default definePluginApp((app) => {
           force: false,
           machineIds,
           maxAgeMs,
+          providerIds: [],
           signal,
         });
       };

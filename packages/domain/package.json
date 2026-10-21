@@ -34,6 +34,11 @@
       "types": "./src/thread-origin-kind.ts",
       "default": "./src/thread-origin-kind.ts"
     },
+    "./queued-message-lifecycle": {
+      "source": "./src/queued-message-lifecycle.ts",
+      "types": "./src/queued-message-lifecycle.ts",
+      "default": "./src/queued-message-lifecycle.ts"
+    },
     "./thread-visibility": {
       "source": "./src/thread-visibility.ts",
       "types": "./src/thread-visibility.ts",
@@ -49,10 +54,20 @@
       "types": "./src/plugin-cli.ts",
       "default": "./src/plugin-cli.ts"
     },
+    "./plugin-display-name": {
+      "source": "./src/plugin-display-name.ts",
+      "types": "./src/plugin-display-name.ts",
+      "default": "./src/plugin-display-name.ts"
+    },
     "./plugin-icon": {
       "source": "./src/plugin-icon.ts",
       "types": "./src/plugin-icon.ts",
       "default": "./src/plugin-icon.ts"
+    },
+    "./plugin-install-badge": {
+      "source": "./src/plugin-install-badge.ts",
+      "types": "./src/plugin-install-badge.ts",
+      "default": "./src/plugin-install-badge.ts"
     },
     "./provider-fork": {
       "source": "./src/provider-fork.ts",

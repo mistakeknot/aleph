@@ -833,6 +833,7 @@ export async function createHostDaemonApp(
       const response = await router.handleOnlineRpcRequest(message);
       sendServerMessage(response);
     },
+    onHostRpcCancel: (message) => router.cancelOnlineRpcRequest(message),
     onWatchSetReplace: async (message) => {
       await watchManager.replaceWatchSet({
         generation: message.generation,
@@ -883,6 +884,7 @@ export async function createHostDaemonApp(
       sessionState.value = session?.sessionId ?? null;
       desktopBrowserBroker.setConnected(session !== null);
       if (session === null) {
+        terminalManager.releaseOutputFlowControl();
         clearInteractiveInterruptRetry();
         interactiveInterruptRetryDelayMs = INTERACTIVE_INTERRUPT_RETRY_DELAY_MS;
       }

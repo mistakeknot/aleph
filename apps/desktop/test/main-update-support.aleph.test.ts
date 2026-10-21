@@ -62,10 +62,7 @@ describe("desktop main update wiring", () => {
 
   it("passes the running desktop version into resolveDesktopUpdateSupport", () => {
     const calls = objectArgumentsOf(source, "resolveDesktopUpdateSupport");
-    expect(calls).toHaveLength(1);
-    const [call] = calls;
-    if (call === undefined) throw new Error("expected one call");
-
+    expect(calls).toHaveLength(2);
     const updateServices = objectArgumentsOf(
       source,
       "createDesktopUpdateService",
@@ -76,6 +73,15 @@ describe("desktop main update wiring", () => {
 
     const runningVersion = propertyText(updateService, "currentVersion");
     expect(runningVersion).toBe("desktopVersion");
-    expect(propertyText(call, "appVersion")).toBe(runningVersion);
+    const versionSources = calls.map((call) =>
+      propertyText(call, "appVersion"),
+    );
+    expect(versionSources).toContain(runningVersion);
+    for (const versionSource of versionSources) {
+      expect([
+        runningVersion,
+        "getDesktopVersion(process.env.BB_DESKTOP_VERSION)",
+      ]).toContain(versionSource);
+    }
   });
 });

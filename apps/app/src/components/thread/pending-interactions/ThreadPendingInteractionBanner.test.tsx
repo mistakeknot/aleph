@@ -25,7 +25,8 @@ import {
   resetPluginFrontendBootStateForTest,
 } from "@/lib/plugin-frontend-boot-state";
 import { resetAllCrashedPluginSlotsForTest } from "../../plugin/PluginSlotMount";
-import { ThreadPendingInteractionBanner } from "./ThreadPendingInteractionBanner";
+import { ThreadPendingInteractionBanners } from "./ThreadPendingInteractionBanner";
+import { InlinePendingInteractionContext } from "./PendingInteractionShell";
 import { makePluginRegistrationSet as registrationSet } from "@/test/fixtures/plugins";
 import { BottomAnchorContext } from "@/components/ui/bottom-anchored-scroll-body";
 
@@ -167,8 +168,8 @@ const commandApproval: PendingInteraction = {
 
 function bannerElement(interaction: PendingInteraction) {
   return (
-    <ThreadPendingInteractionBanner
-      interaction={interaction}
+    <ThreadPendingInteractionBanners
+      interactions={[interaction]}
       threadId="thr_1"
     />
   );
@@ -180,10 +181,6 @@ function renderBanner(interaction: PendingInteraction) {
       <MemoryRouter>{bannerElement(interaction)}</MemoryRouter>
     </QueryClientProvider>,
   );
-}
-
-function expandBanner() {
-  fireEvent.click(screen.getByRole("button", { name: "Show details" }));
 }
 
 function isHidden(element: HTMLElement): boolean {
@@ -204,7 +201,6 @@ describe("ThreadPendingInteractionBanner tool-use approval", () => {
   it("renders the ask from the subject's presentation with the permission decisions", () => {
     renderBanner(toolUseApproval);
     expect(screen.getAllByText("Creating issue").length).toBeGreaterThan(0);
-    expandBanner();
     const ask = screen.getByTestId("tool-use-ask");
     expect(ask.textContent).toContain("get-bb/bb#42");
     expect(ask.textContent).toContain("Tool: mcp__github__create_issue");
@@ -256,7 +252,6 @@ describe("ThreadPendingInteractionBanner tool-use approval", () => {
       ]),
     );
     const withIcon = renderBanner(namespacedAsk);
-    expandBanner();
     const ask = screen.getByTestId("tool-use-ask");
     const mask = ask.querySelector(`[data-plugin-icon-asset="${iconUrl}"]`);
     expect(mask).not.toBeNull();
@@ -268,7 +263,6 @@ describe("ThreadPendingInteractionBanner tool-use approval", () => {
 
     resetPluginLogoStoreForTest();
     renderBanner(namespacedAsk);
-    expandBanner();
     const fallback = screen.getByTestId("tool-use-ask");
     expect(fallback.querySelector("[data-plugin-icon-asset]")).toBeNull();
     expect(fallback.querySelector("svg")?.getAttribute("data-icon")).toBe(
@@ -278,17 +272,16 @@ describe("ThreadPendingInteractionBanner tool-use approval", () => {
 });
 
 describe("ThreadPendingInteractionBanner request family", () => {
-  it("renders a plan review as a request with plan-verdict actions, resolved through today's approval", () => {
+  it("opens a plan review with visible plan-verdict actions without approving it automatically", () => {
     renderBanner(planReview);
     expect(screen.getAllByText("Ready to code?").length).toBeGreaterThan(0);
-    expect(isHidden(screen.getByTestId("plan-review-request"))).toBe(true);
-    expandBanner();
     expect(isHidden(screen.getByTestId("plan-review-request"))).toBe(false);
     expect(screen.getByTestId("plan-review-request").textContent).toContain(
       "Read labels from the declaration",
     );
     expect(screen.getByText("/tmp/plans/picker.md")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Allow once" })).toBeNull();
+    expect(mocks.resolveMutateAsync).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Approve plan" }));
     expect(mocks.resolveMutateAsync).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -303,6 +296,28 @@ describe("ThreadPendingInteractionBanner request family", () => {
         resolution: expect.objectContaining({ decision: "deny" }),
       }),
     );
+  });
+
+  it("allows collapsing a plan review and opens the next plan request independently", () => {
+    const client = new QueryClient();
+    const view = render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>{bannerElement(planReview)}</MemoryRouter>
+      </QueryClientProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Hide details" }));
+    expect(screen.queryByRole("button", { name: "Approve plan" })).toBeNull();
+    expect(mocks.resolveMutateAsync).not.toHaveBeenCalled();
+    view.rerender(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          {bannerElement({ ...planReview, id: "pint_plan_next" })}
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    expect(screen.getByRole("button", { name: "Approve plan" })).toBeTruthy();
+    expect(isHidden(screen.getByTestId("plan-review-request"))).toBe(false);
+    expect(mocks.resolveMutateAsync).not.toHaveBeenCalled();
   });
 
   it("renders a plugin request through the plugin's pendingInteraction slot, keyed by <pluginId>/<kind>", () => {
@@ -382,7 +397,6 @@ describe("ThreadPendingInteractionBanner presentation detail images", () => {
         },
       },
     });
-    expandBanner();
     const ask = screen.getByTestId("tool-use-ask");
     expect(container.querySelector("img")).toBeNull();
     expect(ask.textContent).toContain("[Image: pixel]");
@@ -390,7 +404,7 @@ describe("ThreadPendingInteractionBanner presentation detail images", () => {
 });
 
 describe("ThreadPendingInteractionBanner collapsed strip", () => {
-  it("fits native and plugin interaction shells in the remaining footer space", () => {
+  it("fits an inline question and a plugin card in the remaining footer space", () => {
     const observers = new Set<() => void>();
     vi.stubGlobal(
       "ResizeObserver",
@@ -437,10 +451,15 @@ describe("ThreadPendingInteractionBanner collapsed strip", () => {
                 scrollElementIntoView: () => {},
                 scrollElementIntoViewClampedToMaxScroll: () => {},
                 captureScrollAnchor: () => {},
+                holdContentPosition: () => {},
               }}
             >
               <div data-scroll-footer="">
-                {bannerElement(question)}
+                <InlinePendingInteractionContext.Provider
+                  value={{ promptShownAbove: "Which path?", close: () => {} }}
+                >
+                  {bannerElement(question)}
+                </InlinePendingInteractionContext.Provider>
                 {bannerElement(pluginRequest)}
               </div>
             </BottomAnchorContext.Provider>
@@ -464,6 +483,7 @@ describe("ThreadPendingInteractionBanner collapsed strip", () => {
       act(() => {
         for (const observer of observers) observer();
       });
+      expect(native.getAttribute("data-presentation")).toBe("inline");
       expect(native.style.maxHeight).toBe("200px");
       expect(plugin.style.maxHeight).toBe("200px");
       const toggle = plugin.querySelector('button[aria-expanded="true"]');
@@ -494,17 +514,20 @@ describe("ThreadPendingInteractionBanner collapsed strip", () => {
     }
   });
 
-  it("arrives collapsed with only the label and exposes decisions after expansion", () => {
+  it("arrives open with the decisions and collapses to only the label", () => {
     renderBanner(commandApproval);
     const banner = screen.getByTestId("approval-banner");
-    expect(banner.hasAttribute("data-expanded")).toBe(false);
+    expect(banner.hasAttribute("data-expanded")).toBe(true);
     expect(banner.textContent).toContain("Not in allowlist: bash");
     expect(banner.textContent).toContain(
       "python3 -m unittest discover -s tests 2>&1 | tail -20",
     );
+    expect(isHidden(screen.getByTestId("command-preview"))).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Hide details" }));
+    expect(banner.hasAttribute("data-expanded")).toBe(false);
     expect(isHidden(screen.getByTestId("command-preview"))).toBe(true);
     expect(screen.queryByRole("button", { name: "Allow once" })).toBeNull();
-    expandBanner();
+    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
     fireEvent.click(screen.getByRole("button", { name: "Allow once" }));
     expect(mocks.resolveMutateAsync).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -514,9 +537,8 @@ describe("ThreadPendingInteractionBanner collapsed strip", () => {
     );
   });
 
-  it("opens the full card on demand, shows a four-line preview, and never repeats the command as an action line", () => {
+  it("shows a four-line preview and never repeats the command as an action line", () => {
     renderBanner(commandApproval);
-    expandBanner();
     const banner = screen.getByTestId("approval-banner");
     expect(banner.hasAttribute("data-expanded")).toBe(true);
     expect(screen.getByText("Approval needed")).toBeTruthy();
@@ -526,6 +548,7 @@ describe("ThreadPendingInteractionBanner collapsed strip", () => {
     expect(pre?.textContent).toContain("echo '=== watcher untouched ==='");
     expect(pre?.textContent).not.toContain("git diff --stat -- watcher.py");
     expect(preview.textContent).not.toContain("Action:");
+    expect(preview.textContent).not.toContain("Command:");
     expect(preview.textContent).toContain("/home/user/immortal-agents");
     fireEvent.click(screen.getByRole("button", { name: "Show 2 more lines" }));
     expect(preview.querySelector("pre")?.textContent).toContain(
@@ -543,22 +566,23 @@ describe("ThreadPendingInteractionBanner collapsed strip", () => {
     });
     title.focus();
     fireEvent.click(title);
-    const expandedTitle = screen.getByRole("button", {
+    const collapsedTitle = screen.getByRole("button", {
       name: "Approval needed",
     });
-    expect(expandedTitle.getAttribute("aria-expanded")).toBe("true");
-    expect(document.activeElement).toBe(expandedTitle);
-    fireEvent.click(expandedTitle);
+    expect(collapsedTitle.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(collapsedTitle);
+    fireEvent.click(collapsedTitle);
     expect(
       screen
         .getByRole("button", { name: "Approval needed" })
         .getAttribute("aria-expanded"),
-    ).toBe("false");
+    ).toBe("true");
     expect(mocks.resolveMutateAsync).not.toHaveBeenCalled();
   });
 
   it("keeps focus on the disclosure button across toggles so Escape works right after opening", () => {
     renderBanner(commandApproval);
+    fireEvent.click(screen.getByRole("button", { name: "Hide details" }));
     const show = screen.getByRole("button", { name: "Show details" });
     show.focus();
     fireEvent.click(show);
@@ -573,24 +597,19 @@ describe("ThreadPendingInteractionBanner collapsed strip", () => {
     );
   });
 
-  it("collapses on Escape while open and forgets the open state when a different request arrives", () => {
+  it("collapses on Escape while open and reopens when a different request arrives", () => {
     const client = new QueryClient();
     const view = render(
       <QueryClientProvider client={client}>
         <MemoryRouter>{bannerElement(commandApproval)}</MemoryRouter>
       </QueryClientProvider>,
     );
-    expandBanner();
     fireEvent.keyDown(screen.getByRole("button", { name: "Deny" }), {
       key: "Escape",
     });
     expect(
       screen.getByTestId("approval-banner").hasAttribute("data-expanded"),
     ).toBe(false);
-    expandBanner();
-    expect(
-      screen.getByTestId("approval-banner").hasAttribute("data-expanded"),
-    ).toBe(true);
     view.rerender(
       <QueryClientProvider client={client}>
         <MemoryRouter>
@@ -600,35 +619,32 @@ describe("ThreadPendingInteractionBanner collapsed strip", () => {
     );
     expect(
       screen.getByTestId("approval-banner").hasAttribute("data-expanded"),
-    ).toBe(false);
+    ).toBe(true);
   });
 
-  it("keeps the source thread reachable after expanding", () => {
-    render(
-      <QueryClientProvider client={new QueryClient()}>
-        <MemoryRouter>
-          <ThreadPendingInteractionBanner
-            interaction={commandApproval}
-            sourceThread={{
-              href: "/threads/thr_child",
-              title: "Install tools",
-            }}
-            threadId="thr_child"
-          />
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+  it("shows an inline approval's title only when the banner line differs", () => {
+    const renderInline = (promptShownAbove: string) =>
+      render(
+        <QueryClientProvider client={new QueryClient()}>
+          <MemoryRouter>
+            <InlinePendingInteractionContext.Provider
+              value={{ promptShownAbove, close: () => {} }}
+            >
+              {bannerElement(commandApproval)}
+            </InlinePendingInteractionContext.Provider>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+    renderInline("Not in allowlist: bash");
     expect(
-      screen.queryByRole("link", { name: "From Install tools" }),
+      screen.queryByRole("heading", { name: "Not in allowlist: bash" }),
     ).toBeNull();
-    expandBanner();
+    cleanup();
+
+    renderInline("Run the test suite?");
     expect(
-      screen
-        .getByRole("link", { name: "From Install tools" })
-        .getAttribute("href"),
-    ).toBe("/threads/thr_child");
-    expect(
-      screen.getByRole("link", { name: "From Install tools" }),
+      screen.getByRole("heading", { name: "Not in allowlist: bash" }),
     ).toBeTruthy();
   });
 
@@ -683,5 +699,66 @@ describe("ThreadPendingInteractionBanner collapsed strip", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(mocks.stopMutateAsync).toHaveBeenCalledWith("thr_1");
+  });
+});
+
+describe("ThreadPendingInteractionBanners", () => {
+  function questionCard(id: string, prompt: string): PendingInteraction {
+    return {
+      id,
+      threadId: "thr_1",
+      turnId: "turn_1",
+      providerId: "claude-code",
+      providerThreadId: "pt_1",
+      providerRequestId: id,
+      status: "pending",
+      statusReason: null,
+      createdAt: 1,
+      resolvedAt: null,
+      resolution: null,
+      payload: {
+        kind: "user_question",
+        questions: [
+          {
+            id: "path",
+            prompt,
+            multiSelect: false,
+            allowFreeText: true,
+            options: [],
+          },
+        ],
+      },
+    };
+  }
+
+  function cards(interactions: PendingInteraction[]) {
+    return (
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter>
+          <ThreadPendingInteractionBanners
+            interactions={interactions}
+            threadId="thr_1"
+          />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+  }
+
+  function expandedStates(): boolean[] {
+    return screen
+      .getAllByTestId("user-question-banner")
+      .map((banner) => banner.hasAttribute("data-expanded"));
+  }
+
+  it("expands the next card once the cards above it are answered", () => {
+    const first = questionCard("pint_first", "First?");
+    const second = questionCard("pint_second", "Second?");
+    const view = render(cards([first, second]));
+
+    expect(expandedStates()).toEqual([true, false]);
+
+    view.rerender(cards([second]));
+
+    expect(expandedStates()).toEqual([true]);
   });
 });

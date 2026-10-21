@@ -87,6 +87,11 @@ export const APP_COMMAND_GROUPS: readonly AppCommandGroup[] = [
         "Search the text shown in the current bb desktop window.",
       ),
       command(
+        "window.reload",
+        "Reload window",
+        "Reload the current bb desktop window.",
+      ),
+      command(
         "app.back",
         "Back to app",
         "Return from Settings, Plugins, or Skills to the app.",
@@ -151,6 +156,11 @@ export const APP_COMMAND_GROUPS: readonly AppCommandGroup[] = [
         "panel.toggle",
         "Toggle panel",
         "Show or hide the secondary panel.",
+      ),
+      command(
+        "panel.fullScreen.toggle",
+        "Toggle panel full screen",
+        "Expand the right panel over the conversation, or restore the conversation.",
       ),
       command(
         "pane.focus.left",
@@ -223,6 +233,11 @@ export const APP_COMMAND_GROUPS: readonly AppCommandGroup[] = [
         "plugins.exitSafeMode",
         "Turn off plugin safe mode",
         "Restart the plugins that were enabled before safe mode.",
+      ),
+      command(
+        "plugins.pruneCache",
+        "Clean up plugin cache",
+        "Delete cached plugin versions that no installed plugin uses, such as versions left by earlier bb releases.",
       ),
     ],
   },

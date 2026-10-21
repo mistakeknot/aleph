@@ -63,7 +63,10 @@ describe("in-app npm updates on an Aleph build", () => {
     const launcher = new NpmLauncher();
     const service = createAppUpdateService({
       appSurface: "web",
+      currentCommit: null,
       appVersion: createAppVersionService({
+        installKind: null,
+        sourceCommit: null,
         config,
         fetchImpl,
         logger: testLogger,
@@ -121,7 +124,10 @@ describe("in-app source updates on an Aleph build", () => {
     const config = { appVersion: ALEPH_VERSION, isDevelopment: false };
     return createAppUpdateService({
       appSurface: "web",
+      currentCommit: null,
       appVersion: createAppVersionService({
+        installKind: null,
+        sourceCommit: null,
         config,
         fetchImpl: (async () => new Response("{}")) as unknown as typeof fetch,
         logger: testLogger,

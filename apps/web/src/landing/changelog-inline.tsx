@@ -145,5 +145,16 @@ function renderTokens(tokens: InlineToken[]): ReactNode {
 }
 
 export function ChangelogInline({ text }: { text: string }): ReactNode {
+  const image = /^!\[([^\]]*)\]\(([^)]+)\)$/.exec(text);
+  if (image && isRenderableHref(image[2])) {
+    return (
+      <img
+        src={image[2]}
+        alt={image[1]}
+        className="release-screenshot"
+        loading="lazy"
+      />
+    );
+  }
   return renderTokens(parseInline(text, true, true, true));
 }

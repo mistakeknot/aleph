@@ -17,7 +17,9 @@ function lightDark(tint: ProviderIconTint): string {
   return `light-dark(${tint.light.trim()}, ${tint.dark.trim()})`;
 }
 
-function isValidTint(tint: ProviderIconTint | null | undefined): tint is ProviderIconTint {
+function isValidTint(
+  tint: ProviderIconTint | null | undefined,
+): tint is ProviderIconTint {
   return (
     tint != null &&
     isPresentationTintColor(tint.light) &&

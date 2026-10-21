@@ -9,7 +9,7 @@ The Thread list plugin owns the sidebar's layout state. Read it with
 `bb thread-list prefs list --json`; keys are `threadLifecycles`, `showProviderIcons`, `providerIconColor`
 (`brand` or `monochrome`), `providerIconColors` (provider id →
 `{"light","dark"}` CSS colors), `organizationMode`,
-`environmentGrouping`, `chronologicalSort`, `sortDirection`, `sectionOrder`,
+`environmentGrouping`, `groupByReadStatus`, `chronologicalSort`, `sortDirection`, `sectionOrder`,
 `manualSectionOrder`, `machineSectionOrder`, `hiddenGroups` (including the
 built-in `threads` group), `rowActions`,
 `collapsedSections`, `collapsedProjects`, `collapsedThreads`,
@@ -33,6 +33,25 @@ section are bb core state: use `bb thread section` and `bb thread update`.
 On first load the plugin copies any non-default `sidebar.*` values from
 `bb settings ui` once; after that the two are independent.
 
+`environmentGrouping` decides whether sibling threads sharing one worktree
+collapse into a single row: `"auto"` (default) groups them in every
+organization except chronological, `false` never groups, and `true` always
+groups. `sortDirection` is `default` (each field's natural order: newest first
+for dates, A–Z for titles), `ascending`, or `descending`.
+
+`hiddenGroups` (default `[]`) moves groups into More, the same as a group
+menu's Hide from list. Keys are `threads`, `project:<projectId>`,
+`section:<sectionId>`, and `machine:<hostId>` (`machine:no-machine` for the
+unassigned group); `threads` applies in every organization. Pinned cannot be
+hidden, hiding keeps a group's threads, order, and collapse state, and IDs that
+no longer exist stay saved without producing rows. `set` replaces the whole
+list across organizations, so include existing keys to keep them hidden;
+`reset` shows every group:
+
+```sh
+bb thread-list prefs set hiddenGroups '["threads","project:proj_example"]'
+```
+
 The header's Filter menu selects Active, Archived, or both; at least one must
 remain selected. `bb thread-list prefs set threadLifecycles '["archived"]'`
 shows archived threads, and `'["active","archived"]'` shows both. The default
@@ -40,17 +59,31 @@ is `'["active"]'`. Archived results load in pages; use Show more at the end
 of the list. The same preference is available through `setPreference` RPC.
 
 `rowActions` picks up to three quick-action buttons a thread row shows on
-hover, left to right before its actions menu. Choose from `split`, `copyLink`, `read`,
-`pin`, `move` (opens a section menu), `rename`, and `archive`; the default is `'["archive"]'` and `'[]'`
-leaves only the menu. For example,
-`bb thread-list prefs set rowActions '["pin","archive"]'`. In the app, a thread
-row's actions menu has Customize row actions, which previews the row's three
-action slots; each slot picks an action or Hide, and filled slots drag to reorder.
+hover, left to right before its actions menu, as thread action keys: bb's
+`bb--core/split`, `bb--core/copyLink`, `bb--core/read`, `bb--core/pin`,
+`bb--core/rename`, `bb--core/archive`, `bb--core/delete`, the list's
+`thread-list/move` (opens a section menu), or another plugin's
+`<pluginId>/<actionId>`. Bare legacy ids such as `archive` and `core/<id>`
+keys still work. The default is `'["bb--core/archive"]'` and `'[]'` leaves
+only the menu. For example,
+`bb thread-list prefs set rowActions '["bb--core/pin","bb--core/archive"]'`.
+In the app, a thread
+row's actions menu has Customize actions, which turns that row's quick
+actions into three editable slots in place; each slot picks an action, a filled
+slot can Hide, and filled slots drag to reorder. Done, Escape, or a click
+elsewhere finishes.
 
 Organize → Rows → Provider icons toggles the icon before each thread title.
 `showProviderIcons` defaults to `true`; use
 `bb thread-list prefs set showProviderIcons false` to hide them. Unknown
 provider ids have no icon.
+
+Organize → Groups → By read status lists threads that show the unread dot above
+the rest, keeping the selected sort within each group. `groupByReadStatus`
+defaults to `false`; use `bb thread-list prefs set groupByReadStatus true` to
+turn it on. Parents start collapsed while it is on, without changing
+`collapsedThreads`, and `environmentGrouping` is ignored. The open thread keeps
+its place until another thread is opened.
 
 Hull designation badges: if `hull-designations.json` exists in bb's data
 directory (or at the path in `BB_HULL_DESIGNATIONS_FILE`), each thread row shows

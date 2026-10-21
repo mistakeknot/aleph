@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
   type ComponentPropsWithoutRef,
+  type CSSProperties,
   type Dispatch,
   type MouseEvent as ReactMouseEvent,
   type ReactElement,
@@ -84,15 +85,20 @@ import {
   type MarkdownPromptMentions,
 } from "./markdown-prompt-mentions.js";
 import {
-  buildMessageDirectiveComponent,
+  MessageDirectiveElement,
   EMPTY_MOUNTED_MESSAGE_DIRECTIVES,
   MESSAGE_DIRECTIVE_MOUNT_LIMIT,
   MessageDirectiveMountsContext,
   remarkMessageDirectives,
-  type BuildMessageDirectiveComponentArgs,
   type MarkdownMessageDirectives,
   type MountedMessageDirective,
 } from "./markdown-message-directives.js";
+import {
+  CodeFencePlaceholder,
+  remarkCodeFenceRenderers,
+  useCodeFenceLanguages,
+  type CodeFenceElementProps,
+} from "./markdown-code-fence-renderers.js";
 import {
   createMarkdownPieceCache,
   resolveMarkdownPieces,
@@ -160,7 +166,7 @@ interface BuildMarkdownComponentsArgs {
   setExpandedImage: ExpandedMarkdownImageSetter;
   threadMentions?: MarkdownThreadMentions;
   promptMentions?: ResolvedPromptMentions;
-  messageDirectives?: BuildMessageDirectiveComponentArgs;
+  hasMessageDirectives: boolean;
 }
 
 interface ResolvedPromptMentions {
@@ -255,8 +261,11 @@ type MarkdownPreviewPropsEqual = (
 type MarkdownAnchorEvent = ReactMouseEvent<HTMLAnchorElement>;
 type MarkdownBlockquoteProps = ComponentPropsWithoutRef<"blockquote"> &
   ExtraProps;
-type MarkdownCodeProps = ComponentPropsWithoutRef<"code"> & ExtraProps;
+type MarkdownCodeProps = ComponentPropsWithoutRef<"code"> &
+  ExtraProps &
+  CodeFenceElementProps;
 interface MarkdownCodeRendererProps extends MarkdownCodeProps {
+  codeFenceSourceOffset: number;
   imagePolicy: MarkdownImagePolicy;
   linkRouting?: MarkdownLinkRouting;
   preferredTheme: Theme;
@@ -791,87 +800,125 @@ function renderMarkdownLocalFileContextMenuItem(
   );
 }
 
+function MarkdownCodeBlock({
+  codeProps,
+  codeText,
+  imagePolicy,
+  language,
+  preferredTheme,
+}: {
+  codeProps: ComponentPropsWithoutRef<"code">;
+  codeText: string;
+  imagePolicy: MarkdownImagePolicy;
+  language: string | null;
+  preferredTheme: Theme;
+}) {
+  const [softWrap, setSoftWrap] = useState(false);
+  const highlightedHtml = useMemo(
+    () =>
+      language !== "mermaid"
+        ? highlightMarkdownCode({ code: codeText, language })
+        : null,
+    [language, codeText],
+  );
+  const highlightedMarkup = useMemo(
+    () => (highlightedHtml === null ? null : { __html: highlightedHtml }),
+    [highlightedHtml],
+  );
+  if (language === "mermaid" && imagePolicy === "render") {
+    return (
+      <MarkdownMermaidDiagram
+        preferredTheme={preferredTheme}
+        source={codeText}
+      />
+    );
+  }
+
+  return (
+    <div className="my-2 overflow-hidden rounded-md border border-border bg-surface-recessed">
+      <div className="flex items-center justify-between pl-3 pr-1.5 pt-1.5">
+        <span className="font-mono text-xs uppercase text-muted-foreground">
+          {language ?? ""}
+        </span>
+        <div className="flex items-center gap-0.5">
+          <button
+            type="button"
+            aria-pressed={softWrap}
+            aria-label={softWrap ? "Disable line wrap" : "Wrap long lines"}
+            onClick={() => {
+              setSoftWrap((value) => !value);
+            }}
+            className="inline-flex size-5 cursor-pointer items-center justify-center text-muted-foreground transition-colors hover:text-foreground aria-pressed:text-foreground"
+          >
+            <Icon name="TextWrap" className="size-3" />
+          </button>
+          <CopyButton text={codeText} label="Copy code" />
+        </div>
+      </div>
+      <pre
+        className={cn(
+          "bb-code-highlight px-3 pb-3 pt-1",
+          softWrap
+            ? "whitespace-pre-wrap [overflow-wrap:anywhere]"
+            : "overflow-x-auto",
+        )}
+      >
+        {highlightedMarkup === null ? (
+          <code className="font-mono text-xs" {...codeProps}>
+            {codeText}
+          </code>
+        ) : (
+          <code
+            className={cn(
+              "font-mono text-xs",
+              language ? `language-${language}` : "",
+            )}
+            dangerouslySetInnerHTML={highlightedMarkup}
+            {...codeProps}
+          />
+        )}
+      </pre>
+    </div>
+  );
+}
+
 function MarkdownCode({
   className: codeClassName,
   children,
+  codeFenceSourceOffset,
   imagePolicy,
   linkRouting,
   node: _node,
   preferredTheme,
   rewriteLocalhostLinks,
+  "data-code-fence-offset": codeFenceOffset,
+  "data-code-fence-closed": codeFenceClosed,
   ...props
 }: MarkdownCodeRendererProps) {
   const codeText =
     typeof children === "string" ? children.replace(/\n$/, "") : "";
   const language = getMarkdownCodeLanguage({ className: codeClassName });
   const isBlock = isMarkdownCodeBlock({ codeText, language });
-  const [softWrap, setSoftWrap] = useState(false);
-  const highlightedHtml = useMemo(
-    () =>
-      isBlock && language !== "mermaid"
-        ? highlightMarkdownCode({ code: codeText, language })
-        : null,
-    [isBlock, language, codeText],
-  );
-  const highlightedMarkup = useMemo(
-    () => (highlightedHtml === null ? null : { __html: highlightedHtml }),
-    [highlightedHtml],
-  );
   if (isBlock) {
-    if (language === "mermaid" && imagePolicy === "render") {
-      return (
-        <MarkdownMermaidDiagram
-          preferredTheme={preferredTheme}
-          source={codeText}
-        />
-      );
-    }
-
-    return (
-      <div className="my-2 overflow-hidden rounded-md border border-border bg-surface-recessed">
-        <div className="flex items-center justify-between pl-3 pr-1.5 pt-1.5">
-          <span className="font-mono text-xs uppercase text-muted-foreground">
-            {language ?? ""}
-          </span>
-          <div className="flex items-center gap-0.5">
-            <button
-              type="button"
-              aria-pressed={softWrap}
-              aria-label={softWrap ? "Disable line wrap" : "Wrap long lines"}
-              onClick={() => {
-                setSoftWrap((value) => !value);
-              }}
-              className="inline-flex size-5 cursor-pointer items-center justify-center text-muted-foreground transition-colors hover:text-foreground aria-pressed:text-foreground"
-            >
-              <Icon name="TextWrap" className="size-3" />
-            </button>
-            <CopyButton text={codeText} label="Copy code" />
-          </div>
-        </div>
-        <pre
-          className={cn(
-            "bb-code-highlight px-3 pb-3 pt-1",
-            softWrap
-              ? "whitespace-pre-wrap [overflow-wrap:anywhere]"
-              : "overflow-x-auto",
-          )}
-        >
-          {highlightedMarkup === null ? (
-            <code className="font-mono text-xs" {...props}>
-              {codeText}
-            </code>
-          ) : (
-            <code
-              className={cn(
-                "font-mono text-xs",
-                language ? `language-${language}` : "",
-              )}
-              dangerouslySetInnerHTML={highlightedMarkup}
-              {...props}
-            />
-          )}
-        </pre>
-      </div>
+    const original = (
+      <MarkdownCodeBlock
+        codeProps={props}
+        codeText={codeText}
+        imagePolicy={imagePolicy}
+        language={language}
+        preferredTheme={preferredTheme}
+      />
+    );
+    return codeFenceOffset === undefined || language === null ? (
+      original
+    ) : (
+      <CodeFencePlaceholder
+        closed={codeFenceClosed === "true"}
+        code={codeText}
+        language={language}
+        offset={codeFenceSourceOffset + Number(codeFenceOffset)}
+        original={original}
+      />
     );
   }
 
@@ -973,13 +1020,28 @@ function MarkdownUnorderedList({ children }: MarkdownUnorderedListProps) {
 function MarkdownOrderedList({
   children,
   className: _className,
-  node: _node,
+  node,
   ...orderedListProps
 }: MarkdownOrderedListProps) {
+  const itemCount =
+    node?.children.filter(
+      (child) => child.type === "element" && child.tagName === "li",
+    ).length ?? Children.toArray(children).filter(isValidElement).length;
+  const start = orderedListProps.start ?? 1;
+  const markerDigits = Math.max(
+    String(start).length,
+    String(start + Math.max(0, itemCount - 1)).length,
+  );
+  const style: CSSProperties & { "--markdown-list-marker-digits": number } = {
+    "--markdown-list-marker-digits": markerDigits,
+    paddingInlineStart:
+      "calc(var(--spacing) * 5 + (var(--markdown-list-marker-digits) - 1) * 1ch)",
+  };
   return (
     <ol
       {...orderedListProps}
       className="mb-2 list-decimal pl-5 text-foreground"
+      style={style}
     >
       {children}
     </ol>
@@ -1119,7 +1181,7 @@ function buildMarkdownComponents({
   setExpandedImage,
   threadMentions,
   promptMentions,
-  messageDirectives,
+  hasMessageDirectives,
 }: BuildMarkdownComponentsArgs): Components {
   interface RawThreadIdLabelCandidate {
     end: number;
@@ -1332,6 +1394,7 @@ function buildMarkdownComponents({
     return (
       <MarkdownCode
         {...props}
+        codeFenceSourceOffset={imageSourceOffset}
         imagePolicy={imagePolicy}
         linkRouting={linkRouting}
         preferredTheme={preferredTheme}
@@ -1458,9 +1521,8 @@ function buildMarkdownComponents({
     });
   }
 
-  if (messageDirectives !== undefined) {
-    components["bb-message-directive"] =
-      buildMessageDirectiveComponent(messageDirectives);
+  if (hasMessageDirectives) {
+    components["bb-message-directive"] = MessageDirectiveElement;
   }
 
   return components;
@@ -1828,7 +1890,7 @@ function MarkdownPreviewComponent({
         setExpandedImage,
         threadMentions,
         promptMentions: resolvedPromptMentions,
-        messageDirectives: messageDirectiveMounts ?? undefined,
+        hasMessageDirectives: messageDirectiveMounts !== null,
       }),
     [
       linkRouting,
@@ -1864,24 +1926,28 @@ function MarkdownPreviewComponent({
     }
     return plugins;
   }, [threadMentions, promptMentions, hasMessageDirectives]);
-  const remarkPlugins = useMemo(
-    (): MarkdownRemarkPlugins =>
-      messageDirectiveMounts === null
-        ? baseRemarkPlugins
-        : [
-            ...baseRemarkPlugins,
-            [
-              remarkMessageDirectives,
-              {
-                indexBase: 0,
-                limit: MESSAGE_DIRECTIVE_MOUNT_LIMIT,
-                mounts: messageDirectiveMounts.mounts,
-                registry: messageDirectiveMounts.registry,
-              },
-            ],
-          ],
-    [baseRemarkPlugins, messageDirectiveMounts],
-  );
+  const codeFenceRegistry = useCodeFenceLanguages();
+  const remarkPlugins = useMemo((): MarkdownRemarkPlugins => {
+    const plugins: MarkdownRemarkPlugins = [...baseRemarkPlugins];
+    if (messageDirectiveMounts !== null) {
+      plugins.push([
+        remarkMessageDirectives,
+        {
+          indexBase: 0,
+          limit: MESSAGE_DIRECTIVE_MOUNT_LIMIT,
+          mounts: messageDirectiveMounts.mounts,
+          registry: messageDirectiveMounts.registry,
+        },
+      ]);
+    }
+    if (codeFenceRegistry !== null) {
+      plugins.push([
+        remarkCodeFenceRenderers,
+        { registry: codeFenceRegistry, sourceOffset: 0 },
+      ]);
+    }
+    return plugins;
+  }, [baseRemarkPlugins, messageDirectiveMounts, codeFenceRegistry]);
   const resolvedUrlTransform = useMemo(
     () =>
       localFileRouting || localImageRouting
@@ -1902,6 +1968,7 @@ function MarkdownPreviewComponent({
 
   const markdownPieceRenderConfig = useMemo(
     (): MarkdownPieceRenderConfig => ({
+      codeFenceRendererRegistry: codeFenceRegistry,
       components: markdownComponents,
       messageDirectiveRegistry: messageDirectiveMounts?.registry ?? null,
       rehypePlugins,
@@ -1909,6 +1976,7 @@ function MarkdownPreviewComponent({
       urlTransform: resolvedUrlTransform,
     }),
     [
+      codeFenceRegistry,
       markdownComponents,
       messageDirectiveMounts,
       rehypePlugins,
@@ -1967,11 +2035,13 @@ function MarkdownPreviewComponent({
           <MarkdownFrontmatter source={frontmatter} />
         ) : null}
         <MessageDirectiveMountsContext.Provider
-          value={
-            markdownPieces?.mounts ??
-            messageDirectiveMounts?.mounts ??
-            EMPTY_MOUNTED_MESSAGE_DIRECTIVES
-          }
+          value={{
+            mounts:
+              markdownPieces?.mounts ??
+              messageDirectiveMounts?.mounts ??
+              EMPTY_MOUNTED_MESSAGE_DIRECTIVES,
+            render: messageDirectiveMounts,
+          }}
         >
           {threadMentions === undefined ? (
             renderedMarkdown

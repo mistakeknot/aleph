@@ -5,6 +5,7 @@ import type {
 } from "./question-form-state";
 import {
   useQuestionFormHost,
+  type QuestionFormHost,
   type QuestionShortcut,
 } from "./question-form-host";
 import {
@@ -19,19 +20,18 @@ import {
 } from "react";
 import { Button } from "./button";
 import { Icon } from "./icon";
+import { VoiceInputTextarea } from "./voice-input-textarea";
 import { usePointerCoarse } from "./hooks/use-pointer-coarse";
 import { cn } from "../../lib/utils";
 import {
   answerStateFor,
   buildQuestionAnswers,
-  createInitialFormState,
   isQuestionAnswered,
-  readQuestionFormDraft,
   resolveQuestionShortcutChoice,
-  writeQuestionFormDraft,
   type QuestionAnswerState,
   type QuestionFormState,
 } from "./question-form-state";
+import { useQuestionFormDraft } from "./question-form-draft";
 
 const OTHER_OPTION_LABEL = "Other…";
 const FREE_TEXT_MIN_HEIGHT = 84;
@@ -40,6 +40,7 @@ const PREVIEW_MAX_HEIGHT = 220;
 
 interface QuestionOptionRowProps {
   checked: boolean;
+  density: QuestionFormHost["density"];
   label: string;
   description?: string;
   multiSelect: boolean;
@@ -67,6 +68,7 @@ function useAutoGrow(
 
 function QuestionOptionRow({
   checked,
+  density,
   label,
   description,
   multiSelect,
@@ -86,7 +88,7 @@ function QuestionOptionRow({
     >
       <span
         className={cn(
-          "mt-0.5 flex size-4 shrink-0 items-center justify-center border",
+          "flex size-4 shrink-0 items-center justify-center border",
           multiSelect ? "rounded" : "rounded-full",
           checked
             ? "border-primary bg-primary text-primary-foreground"
@@ -95,20 +97,34 @@ function QuestionOptionRow({
       >
         {checked ? <Icon name="Check" className="size-3" aria-hidden /> : null}
       </span>
-      <span className="min-w-0 flex-1">
-        <span className="block text-sm font-medium text-foreground">
-          {label}
-        </span>
-        {description ? (
-          <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">
-            {description}
+      {density === "compact" ? (
+        <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2">
+          <span className="min-w-0 break-words text-xs text-foreground">
+            {label}
           </span>
-        ) : null}
-      </span>
+          {description ? (
+            <span
+              title={description}
+              className="min-w-0 grow basis-24 truncate text-xs text-muted-foreground"
+            >
+              {description}
+            </span>
+          ) : null}
+        </span>
+      ) : (
+        <span className="min-w-0 flex-1">
+          <span className="block text-xs text-foreground">{label}</span>
+          {description ? (
+            <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">
+              {description}
+            </span>
+          ) : null}
+        </span>
+      )}
       {shortcut ? (
         <kbd
           aria-hidden="true"
-          className="mt-0.5 shrink-0 text-xs font-normal text-subtle-foreground"
+          className="shrink-0 text-xs font-normal text-subtle-foreground"
         >
           {shortcut.label}
         </kbd>
@@ -129,6 +145,7 @@ function QuestionOptionPreview({ preview }: { preview: string }) {
 }
 
 interface QuestionTabsProps {
+  disabled: boolean;
   currentIndex: number;
   formState: QuestionFormState;
   onSelect: (index: number) => void;
@@ -136,6 +153,7 @@ interface QuestionTabsProps {
 }
 
 function QuestionTabs({
+  disabled,
   currentIndex,
   formState,
   onSelect,
@@ -162,6 +180,7 @@ function QuestionTabs({
             >
               <button
                 type="button"
+                disabled={disabled}
                 onClick={() => onSelect(index)}
                 aria-pressed={isActive}
                 title={question.prompt}
@@ -189,6 +208,8 @@ function QuestionTabs({
 }
 
 interface QuestionInputBlockProps {
+  density: QuestionFormHost["density"];
+  showPrompt: boolean;
   disabled: boolean;
   question: Question;
   state: QuestionAnswerState;
@@ -196,10 +217,13 @@ interface QuestionInputBlockProps {
   onSelectOther: () => void;
   onFreeTextChange: (value: string) => void;
   onShortcutSubmit: () => void;
+  onVoiceInputActiveChange: (active: boolean) => void;
   shortcuts: ReadonlyMap<string, QuestionShortcut>;
 }
 
 function QuestionInputBlock({
+  density,
+  showPrompt,
   disabled,
   question,
   state,
@@ -207,6 +231,7 @@ function QuestionInputBlock({
   onSelectOther,
   onFreeTextChange,
   onShortcutSubmit,
+  onVoiceInputActiveChange,
   shortcuts,
 }: QuestionInputBlockProps) {
   const freeTextRef = useRef<HTMLTextAreaElement>(null);
@@ -240,18 +265,19 @@ function QuestionInputBlock({
   return (
     <fieldset disabled={disabled} className="min-w-0">
       <legend className="sr-only">{question.prompt}</legend>
-      {question.prompt ? (
-        <div className="text-sm font-semibold text-foreground">
+      {showPrompt && question.prompt ? (
+        <div className="text-xs font-medium text-foreground">
           {question.prompt}
         </div>
       ) : null}
-      <div className="mt-2 space-y-0.5">
+      <div className={cn("space-y-0.5", showPrompt ? "mt-1" : undefined)}>
         {options.map((option: QuestionOption, index) => {
           const checked = state.selected.includes(option.value);
           return (
             <div key={option.value}>
               <QuestionOptionRow
                 checked={checked}
+                density={density}
                 label={option.label}
                 description={option.description}
                 multiSelect={question.multiSelect}
@@ -267,6 +293,7 @@ function QuestionInputBlock({
         {question.allowFreeText && options.length > 0 ? (
           <QuestionOptionRow
             checked={state.otherSelected}
+            density={density}
             label={OTHER_OPTION_LABEL}
             multiSelect={question.multiSelect}
             onSelect={onSelectOther}
@@ -275,20 +302,18 @@ function QuestionInputBlock({
         ) : null}
       </div>
       {state.otherSelected ? (
-        <textarea
+        <VoiceInputTextarea
           ref={freeTextRef}
           aria-label={freeTextLabel}
           value={state.otherText}
           rows={1}
           autoFocus={!isPointerCoarse}
           autoComplete="off"
-          onChange={(event) => {
-            onFreeTextChange(event.target.value);
-            resizeFreeTextArea(event.target);
-          }}
+          onValueChange={onFreeTextChange}
+          onVoiceInputActiveChange={onVoiceInputActiveChange}
           onKeyDown={handleFreeTextKeyDown}
           placeholder="Type your own answer…"
-          className="mt-2 w-full resize-none overflow-y-auto rounded-md border border-border bg-surface-raised px-3 py-2 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus-visible:border-ring/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/40"
+          className="mt-2 block w-full resize-none overflow-y-auto rounded-md border border-border bg-surface-raised px-3 py-2 text-xs leading-relaxed text-foreground placeholder:text-muted-foreground focus-visible:border-ring/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/40"
           style={{
             minHeight: `${FREE_TEXT_MIN_HEIGHT}px`,
             maxHeight: `${FREE_TEXT_MAX_HEIGHT}px`,
@@ -304,39 +329,33 @@ export interface QuestionFormProps {
   questions: readonly Question[];
   disabled: boolean;
   cancelDisabled: boolean;
-  onSubmit: (answers: Record<string, QuestionAnswer>) => void;
-  onCancel: () => void;
+  onSubmit: (answers: Record<string, QuestionAnswer>) => void | Promise<void>;
+  onCancel: () => void | Promise<void>;
 }
 
 export function QuestionForm({
   draftKey,
   questions,
-  disabled,
+  disabled: inputDisabled,
   cancelDisabled,
   onSubmit,
   onCancel,
 }: QuestionFormProps) {
-  const [formState, setFormState] = useState<QuestionFormState>(
-    () =>
-      readQuestionFormDraft(draftKey)?.formState ??
-      createInitialFormState(questions),
-  );
-  const [currentIndex, setCurrentIndex] = useState(
-    () => readQuestionFormDraft(draftKey)?.currentIndex ?? 0,
-  );
-  const initialDraftRef = useRef({ formState, currentIndex });
-  useEffect(() => {
-    const initial = initialDraftRef.current;
-    if (
-      formState === initial.formState &&
-      currentIndex === initial.currentIndex
-    ) {
-      return;
-    }
-    writeQuestionFormDraft(draftKey, { formState, currentIndex });
-  }, [draftKey, formState, currentIndex]);
+  const { formState, setFormState, currentIndex, setCurrentIndex, clearDraft } =
+    useQuestionFormDraft(draftKey, questions);
+  const [settledAction, setSettledAction] = useState<
+    "submit" | "cancel" | null
+  >(null);
+  const disabled = inputDisabled || settledAction !== null;
+  const [voiceBusy, setVoiceBusy] = useState(false);
   const formRef = useRef<HTMLDivElement>(null);
-  const { shortcuts, registerChoiceHandler } = useQuestionFormHost();
+  const {
+    density,
+    promptShownAbove,
+    closeInline,
+    shortcuts,
+    registerChoiceHandler,
+  } = useQuestionFormHost();
 
   const totalQuestions = questions.length;
   const currentQuestion = questions[currentIndex] ?? null;
@@ -361,7 +380,7 @@ export function QuestionForm({
         [question.id]: update(answerStateFor(current, question)),
       }));
     },
-    [],
+    [setFormState],
   );
 
   const handleToggleOption = useCallback(
@@ -394,21 +413,26 @@ export function QuestionForm({
     updateQuestionState(question, (state) => ({ ...state, otherText: value }));
   };
 
-  const submitAnswer = (): void => {
-    if (disabled || !allAnswered) return;
-    onSubmit(buildQuestionAnswers(questions, formState));
+  const submitAnswer = async (): Promise<void> => {
+    if (disabled || voiceBusy || !allAnswered) return;
+    try {
+      await onSubmit(buildQuestionAnswers(questions, formState));
+      setSettledAction("submit");
+      clearDraft();
+    } catch {}
   };
 
   const handleAdvance = (): void => {
+    if (disabled || voiceBusy) return;
     if (isLast) {
-      submitAnswer();
+      void submitAnswer();
       return;
     }
     setCurrentIndex((index) => Math.min(index + 1, totalQuestions - 1));
   };
 
   useEffect(() => {
-    if (disabled || currentQuestion === null) return;
+    if (disabled || voiceBusy || currentQuestion === null) return;
     return registerChoiceHandler((index) => {
       const choice = resolveQuestionShortcutChoice(currentQuestion, index);
       if (!choice) return false;
@@ -420,6 +444,7 @@ export function QuestionForm({
     });
   }, [
     disabled,
+    voiceBusy,
     currentQuestion,
     registerChoiceHandler,
     handleToggleOption,
@@ -429,6 +454,7 @@ export function QuestionForm({
   if (!currentQuestion) return null;
 
   const currentState = answerStateFor(formState, currentQuestion);
+  const compactButtonClass = density === "compact" ? "font-normal" : undefined;
 
   return (
     <div
@@ -450,10 +476,11 @@ export function QuestionForm({
         event.preventDefault();
         handleAdvance();
       }}
-      className="flex min-h-0 flex-col text-xs text-muted-foreground"
+      className="-m-1 flex min-h-0 flex-col rounded-md p-1 text-xs text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
     >
       {totalQuestions > 1 ? (
         <QuestionTabs
+          disabled={disabled || voiceBusy}
           currentIndex={currentIndex}
           formState={formState}
           onSelect={setCurrentIndex}
@@ -462,6 +489,13 @@ export function QuestionForm({
       ) : null}
       <div>
         <QuestionInputBlock
+          key={currentQuestion.id}
+          density={density}
+          showPrompt={
+            density !== "compact" ||
+            totalQuestions > 1 ||
+            currentQuestion.prompt !== promptShownAbove
+          }
           disabled={disabled}
           question={currentQuestion}
           state={currentState}
@@ -472,17 +506,36 @@ export function QuestionForm({
           onFreeTextChange={(value) =>
             handleFreeTextChange(currentQuestion, value)
           }
+          onVoiceInputActiveChange={setVoiceBusy}
           onShortcutSubmit={handleAdvance}
           shortcuts={shortcuts}
         />
       </div>
-      <div className="mt-3 flex shrink-0 items-center justify-between gap-2">
+      <div
+        className={cn(
+          "flex shrink-0 items-center justify-between gap-2",
+          density === "compact" ? "mt-1.5" : "mt-3",
+        )}
+      >
         <Button
           type="button"
           size="sm"
           variant="ghost"
-          disabled={cancelDisabled}
-          onClick={onCancel}
+          className={compactButtonClass}
+          disabled={
+            closeInline === null && (cancelDisabled || settledAction !== null)
+          }
+          onClick={async () => {
+            if (closeInline) {
+              closeInline();
+              return;
+            }
+            try {
+              await onCancel();
+              setSettledAction("cancel");
+              clearDraft();
+            } catch {}
+          }}
         >
           Cancel
         </Button>
@@ -492,7 +545,8 @@ export function QuestionForm({
               type="button"
               size="sm"
               variant="outline"
-              disabled={disabled}
+              className={compactButtonClass}
+              disabled={disabled || voiceBusy}
               onClick={() => setCurrentIndex((index) => Math.max(index - 1, 0))}
             >
               Back
@@ -501,13 +555,18 @@ export function QuestionForm({
           <Button
             type="button"
             size="sm"
-            disabled={disabled || (isLast && !allAnswered)}
+            className={compactButtonClass}
+            disabled={disabled || voiceBusy || (isLast && !allAnswered)}
             onClick={handleAdvance}
           >
-            {disabled ? (
+            {inputDisabled || settledAction === "submit" ? (
               <Icon name="Spinner" className="size-3 animate-spin" />
             ) : null}
-            {isLast ? "Submit answer" : "Next"}
+            {isLast
+              ? density === "compact"
+                ? "Submit"
+                : "Submit answer"
+              : "Next"}
           </Button>
         </div>
       </div>

@@ -1,10 +1,11 @@
 # Versions and updates
 
 An Aleph version has the form `<upstream>+aleph.<X.Y.Z>`. The current package
-version is <!--fig:package-version=0.43.4+aleph.0.4.1-->0.43.4+aleph.0.4.1.
+version is <!--fig:package-version=0.46.1+aleph.0.7.0-->0.46.1+aleph.0.7.0.
 
-Semver ignores build metadata, so <!--fig:upstream-version=0.43.4-->`0.43.4` compares equal to
-<!--fig:package-version=0.43.4+aleph.0.4.1-->`0.43.4+aleph.0.4.1` and upstream `0.43.5` would compare newer. Aleph builds
+Semver ignores build metadata, so <!--fig:upstream-version=0.46.1-->`0.46.1` compares equal to
+<!--fig:package-version=0.46.1+aleph.0.7.0-->`0.46.1+aleph.0.7.0` and the next upstream patch release would compare newer. Aleph builds
+
 therefore never offer an upstream release: `isAlephAppVersion` in
 `packages/config/src/aleph-version.ts` detects `aleph` in the build metadata
 and turns upstream update checks off.

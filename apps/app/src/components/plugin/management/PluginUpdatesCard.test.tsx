@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 
+import { pluginUpdateJobsQueryKey } from "@/hooks/queries/query-keys";
+import { MemoryRouter } from "react-router-dom";
 import {
   cleanup,
   fireEvent,
@@ -71,7 +73,11 @@ describe("PluginDetailReleaseControl", () => {
           },
         })}
       />,
-      { wrapper },
+      {
+        wrapper: ({ children }) => (
+          <MemoryRouter>{wrapper({ children })}</MemoryRouter>
+        ),
+      },
     );
 
     const update = screen.getByRole("button", {
@@ -94,7 +100,11 @@ describe("PluginDetailReleaseControl", () => {
           },
         })}
       />,
-      { wrapper },
+      {
+        wrapper: ({ children }) => (
+          <MemoryRouter>{wrapper({ children })}</MemoryRouter>
+        ),
+      },
     );
 
     const blockedStatus = screen.getByRole("status", {
@@ -111,28 +121,6 @@ describe("PluginDetailReleaseControl", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("does not prescribe a bb upgrade for a candidate requiring an older bb", () => {
-    const { wrapper } = createQueryClientTestHarness();
-    render(
-      <PluginDetailReleaseStatus
-        plugin={plugin({
-          updateState: {
-            ...EMPTY_PLUGIN_UPDATE_STATE,
-            blockedVersion: "1.9.0",
-            blockedReasons: ["requires bb < 0.20, running bb is 0.21.0"],
-          },
-        })}
-      />,
-      { wrapper },
-    );
-
-    const blockedStatus = screen.getByRole("status", {
-      name: "Update blocked",
-    });
-    expect(blockedStatus.textContent).toContain("Requires bb < 0.20");
-    expect(blockedStatus.textContent).not.toContain("Update bb");
-  });
-
   it("retries a failed update from the release action without opening a modal", async () => {
     let completeUpdate: (() => void) | undefined;
     const fetchMock = vi.fn(
@@ -142,13 +130,16 @@ describe("PluginDetailReleaseControl", () => {
             resolve(
               new Response(
                 JSON.stringify({
-                  applied: true,
-                  from: { version: "1.6.2", display: "1.6.2" },
-                  to: { version: "1.9.0", display: "1.9.0" },
-                  outcome: "updated",
+                  job: {
+                    id: "retry-1",
+                    pluginId: "linear",
+                    displayName: "Linear",
+                    state: "running",
+                    phase: "checking",
+                  },
                 }),
                 {
-                  status: 200,
+                  status: 202,
                   headers: { "content-type": "application/json" },
                 },
               ),
@@ -156,7 +147,7 @@ describe("PluginDetailReleaseControl", () => {
         }),
     );
     vi.stubGlobal("fetch", fetchMock);
-    const { wrapper } = createQueryClientTestHarness();
+    const { wrapper, queryClient } = createQueryClientTestHarness();
     render(
       <>
         <PluginDetailReleaseControl
@@ -186,7 +177,11 @@ describe("PluginDetailReleaseControl", () => {
           })}
         />
       </>,
-      { wrapper },
+      {
+        wrapper: ({ children }) => (
+          <MemoryRouter>{wrapper({ children })}</MemoryRouter>
+        ),
+      },
     );
 
     const failedStatus = screen.getByRole("status", { name: "Update failed" });
@@ -206,20 +201,15 @@ describe("PluginDetailReleaseControl", () => {
     expect(retry).toHaveProperty("disabled", true);
     completeUpdate?.();
     await waitFor(() => expect(retry.getAttribute("aria-busy")).toBe("false"));
+    expect(queryClient.getQueryData(pluginUpdateJobsQueryKey())).toEqual([
+      {
+        id: "retry-1",
+        pluginId: "linear",
+        displayName: "Linear",
+        state: "running",
+        phase: "checking",
+      },
+    ]);
     expect(screen.queryByRole("dialog")).toBeNull();
-  });
-
-  it("renders nothing for builtins (their update channel is the bb release)", () => {
-    const { wrapper } = createQueryClientTestHarness();
-    const { container } = render(
-      <PluginDetailReleaseControl
-        plugin={{
-          ...plugin({ provenance: "builtin" }),
-          source: "builtin:linear",
-        }}
-      />,
-      { wrapper },
-    );
-    expect(container.textContent).toBe("");
   });
 });

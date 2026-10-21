@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  createConnection,
   createProject,
   createQueuedThreadMessage,
   abortTransferOperation,
@@ -11,12 +10,12 @@ import {
   createThread,
   getTransferOperation,
   releaseQueuedMessageClaim,
-  migrate,
   retireQueuedThreadMessages,
   upsertHost,
   type DbConnection,
 } from "@bb/db";
 import type { Logger } from "@bb/logger";
+import { createMigratedConnection } from "@bb/db/testing";
 import { createAiServiceRegistry } from "../../src/services/ai/ai-service-registry.js";
 import { createPluginRuntime } from "../../src/services/plugins/plugin-runtime.js";
 import { setPluginThreadEventEmitter } from "../../src/services/plugins/plugin-thread-events.js";
@@ -81,8 +80,7 @@ function installHandler(
 }
 
 function seed() {
-  const db = createConnection(":memory:");
-  migrate(db);
+  const db = createMigratedConnection();
   const host = upsertHost(db, noopNotifier, { name: "delivery" });
   const { project } = createProject(db, noopNotifier, {
     name: "delivery",
@@ -221,8 +219,7 @@ describe("transfer event delivery on the real plugin runtime", () => {
   });
 
   it("delivers forwarded and returned records for a claimed held row with stable event ids", async () => {
-    const db = createConnection(":memory:");
-    migrate(db);
+    const db = createMigratedConnection();
     const host = upsertHost(db, noopNotifier, { name: "claimed-delivery" });
     const { project } = createProject(db, noopNotifier, {
       name: "claimed-delivery",
@@ -304,8 +301,7 @@ describe("transfer event delivery on the real plugin runtime", () => {
   });
 
   it("keeps a forwarded record unstamped until its handler succeeds", async () => {
-    const db = createConnection(":memory:");
-    migrate(db);
+    const db = createMigratedConnection();
     const host = upsertHost(db, noopNotifier, { name: "retry-delivery" });
     const { project } = createProject(db, noopNotifier, {
       name: "retry-delivery",

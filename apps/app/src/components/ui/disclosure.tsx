@@ -6,8 +6,10 @@ import {
   useMemo,
   useRef,
   useState,
+  type HTMLAttributes,
   type ReactNode,
 } from "react";
+import { HOVER_REVEAL_NO_HOVER_VISIBLE_CLASS } from "@bb/shared-ui/hover-reveal";
 import { cn } from "@bb/shared-ui/lib/utils";
 import {
   observedBorderBoxBlockSize,
@@ -109,14 +111,23 @@ export function CollapsibleHeader({
             ? "rotate-90"
             : forceChevronVisible
               ? "opacity-100"
-              : "opacity-0 group-hover/toggle:opacity-100 group-focus-visible/toggle:opacity-100 max-md:pointer-coarse:opacity-100",
+              : cn(
+                  "opacity-0 group-hover/toggle:opacity-100 group-focus-visible/toggle:opacity-100",
+                  HOVER_REVEAL_NO_HOVER_VISIBLE_CLASS,
+                ),
         )}
       />
     </button>
   );
 }
 
+export type ExpandablePanelIntentHandlers = Pick<
+  HTMLAttributes<HTMLDivElement>,
+  "onFocus" | "onPointerDown" | "onPointerEnter" | "onPointerLeave"
+>;
+
 interface ExpandablePanelProps {
+  intentHandlers?: ExpandablePanelIntentHandlers;
   isExpanded: boolean;
   summaryContent: ReactNode;
   headerToneClass: string;
@@ -223,6 +234,7 @@ function AnimatedExpandablePanelContent({
 }
 
 export function ExpandablePanel({
+  intentHandlers,
   isExpanded,
   summaryContent,
   headerToneClass,
@@ -306,7 +318,10 @@ export function ExpandablePanel({
       : null;
 
   return (
-    <div className={cn("rounded-md text-muted-foreground", className)}>
+    <div
+      className={cn("rounded-md text-muted-foreground", className)}
+      {...intentHandlers}
+    >
       {}
       <div className="group/timeline-row">
         <CollapsibleHeader

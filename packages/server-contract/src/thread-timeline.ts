@@ -83,6 +83,13 @@ export const timelineConversationAttachmentsSchema = z.object({
   imageUrls: z.array(z.string()),
   localImagePaths: z.array(z.string()),
   localFilePaths: z.array(z.string()),
+  localFileDetails: z.array(
+    z.object({
+      path: z.string(),
+      name: z.string(),
+      sizeBytes: z.number().int().nonnegative().nullable(),
+    }),
+  ),
 });
 export type TimelineConversationAttachments = z.infer<
   typeof timelineConversationAttachmentsSchema
@@ -108,6 +115,7 @@ export type TimelineConversationTurnRequest = z.infer<
 
 const timelineConversationRowBaseSchema = timelineRowBaseSchema.extend({
   kind: z.literal("conversation"),
+  messageSeq: z.number().int(),
   text: z.string(),
   attachments: timelineConversationAttachmentsSchema.nullable(),
 });
@@ -645,6 +653,46 @@ export const timelineDeltaSchema = z.object({
   rowOrder: z.array(z.string()).optional(),
 });
 export type TimelineDelta = z.infer<typeof timelineDeltaSchema>;
+
+export function timelineRowChildren(row: TimelineRow): TimelineRow[] | null {
+  if (row.kind === "turn") return row.children;
+  if (row.kind === "work" && row.workKind === "delegation")
+    return row.childRows;
+  return null;
+}
+
+export function withTimelineRowChildren(
+  row: TimelineRow,
+  children: TimelineRow[],
+): TimelineRow {
+  if (row.kind === "turn") return { ...row, children };
+  if (row.kind === "work" && row.workKind === "delegation") {
+    return { ...row, childRows: children };
+  }
+  return row;
+}
+
+export function mapTimelineRowTree(
+  rows: TimelineRow[],
+  mapRow: (row: TimelineRow) => TimelineRow,
+): TimelineRow[] {
+  let changed = false;
+  const next = rows.map((row) => {
+    const children = timelineRowChildren(row);
+    const mappedChildren =
+      children === null ? children : mapTimelineRowTree(children, mapRow);
+    const mapped = mapRow(
+      mappedChildren === children || mappedChildren === null
+        ? row
+        : withTimelineRowChildren(row, mappedChildren),
+    );
+    if (mapped !== row) {
+      changed = true;
+    }
+    return mapped;
+  });
+  return changed ? next : rows;
+}
 
 export function computeTimelineRowDelta(
   prevRows: readonly TimelineRow[],

@@ -10,7 +10,9 @@ import {
 const SECRET = "synthetic-review-token-1234";
 
 function sanitize(type: string, data: Record<string, unknown>) {
-  const scope = type.startsWith("item/") ? turnScope("synthetic-turn") : threadScope();
+  const scope = type.startsWith("item/")
+    ? turnScope("synthetic-turn")
+    : threadScope();
   const event = {
     type,
     threadId: "thr_synthetic",
@@ -36,13 +38,23 @@ describe("round 5: matcher overlap never exposes a credential prefix", () => {
         tool: "probe",
         status: "completed",
         result: {
-          env: { API_KEY: token, SECRET_A: "aaaaaaaa", SECRET_B: "bbbbbbbb", SECRET_C: "cccccccc" },
+          env: {
+            API_KEY: token,
+            SECRET_A: "aaaaaaaa",
+            SECRET_B: "bbbbbbbb",
+            SECRET_C: "cccccccc",
+          },
           echo: `aaaaaaaa${token}`,
         },
       },
     });
     const text = JSON.stringify(out);
-    for (const part of ["synthetic-review", "token-1234", "synthetic-middle", "synthetic-tail"]) {
+    for (const part of [
+      "synthetic-review",
+      "token-1234",
+      "synthetic-middle",
+      "synthetic-tail",
+    ]) {
       expect(text).not.toContain(part);
     }
     expect(JSON.stringify(out)).toContain("[redacted]");
@@ -173,41 +185,60 @@ describe("round 5: fuzz schema validity with secret collisions", () => {
 
   it("sanitized events always pass threadEventSchema", () => {
     const rand = prng(20261003);
-    const pick = <T,>(xs: readonly T[]) => xs[Math.floor(rand() * xs.length)]!;
-    const secrets = ["abcdefgh", "completed", "toolCall", "x", "synthetic/state", "synthetic-tool"];
+    const pick = <T>(xs: readonly T[]) => xs[Math.floor(rand() * xs.length)]!;
+    const secrets = [
+      "abcdefgh",
+      "completed",
+      "toolCall",
+      "x",
+      "synthetic/state",
+      "synthetic-tool",
+    ];
     for (let i = 0; i < 300; i += 1) {
       const secret = pick(secrets);
       const pad = "y".repeat(Math.floor(rand() * 280));
-      const mix = () => (rand() < 0.5 ? secret : `${secret}${pad}`.slice(0, 280 - secret.length));
+      const mix = () =>
+        rand() < 0.5 ? secret : `${secret}${pad}`.slice(0, 280 - secret.length);
       const events: Array<[string, Record<string, unknown>]> = [
-        ["item/completed", {
-          item: {
-            type: "toolCall",
-            id: pick(["synthetic-tool", secret]),
-            tool: "probe",
-            status: "completed",
-            result: { env: { API_KEY: secret }, echo: mix(), status: secret },
-            presentation: {
-              label: { pending: "Working", completed: "Done" },
-              icon: { glyph: "x" },
-              detail: mix(),
+        [
+          "item/completed",
+          {
+            item: {
+              type: "toolCall",
+              id: pick(["synthetic-tool", secret]),
+              tool: "probe",
+              status: "completed",
+              result: { env: { API_KEY: secret }, echo: mix(), status: secret },
+              presentation: {
+                label: { pending: "Working", completed: "Done" },
+                icon: { glyph: "x" },
+                detail: mix(),
+              },
             },
           },
-        }],
-        ["thread/extensionState/updated", {
-          kind: pick(["synthetic/state", secret]),
-          payload: { env: { API_KEY: secret }, kind: secret, deep: [mix()] },
-        }],
-        ["system/operation", {
-          operation: "probe",
-          operationId: "synthetic-operation",
-          status: secret,
-          message: mix(),
-          metadata: { env: { API_KEY: secret }, status: secret },
-        }],
+        ],
+        [
+          "thread/extensionState/updated",
+          {
+            kind: pick(["synthetic/state", secret]),
+            payload: { env: { API_KEY: secret }, kind: secret, deep: [mix()] },
+          },
+        ],
+        [
+          "system/operation",
+          {
+            operation: "probe",
+            operationId: "synthetic-operation",
+            status: secret,
+            message: mix(),
+            metadata: { env: { API_KEY: secret }, status: secret },
+          },
+        ],
       ];
       for (const [type, data] of events) {
-        const scope = type.startsWith("item/") ? turnScope("synthetic-turn") : threadScope();
+        const scope = type.startsWith("item/")
+          ? turnScope("synthetic-turn")
+          : threadScope();
         const base = {
           type,
           threadId: "thr_synthetic",

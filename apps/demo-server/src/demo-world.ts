@@ -27,6 +27,7 @@ import {
   type ThreadQueuedMessageListResponse,
   type ThreadTabsResponse,
   type SystemAppUpdateStatus,
+  type SystemCliCommandStatus,
   type ServerMoveStatusResponse,
   type UiPreferencesResponse,
   type ThreadTimelineResponse,
@@ -172,28 +173,17 @@ function createUiPreferences(): UiPreferenceEntries {
       "sidebar.machineSectionOrder",
     ),
     "sidebar.hiddenGroups": uiPreferenceEntry("sidebar.hiddenGroups"),
-    "sidebar.collapsedSections": uiPreferenceEntry("sidebar.collapsedSections"),
-    "sidebar.collapsedProjects": uiPreferenceEntry("sidebar.collapsedProjects"),
-    "sidebar.collapsedThreads": uiPreferenceEntry("sidebar.collapsedThreads"),
-    "sidebar.collapsedEnvironments": uiPreferenceEntry(
-      "sidebar.collapsedEnvironments",
-    ),
-    "sidebar.collapsedThreadSections": uiPreferenceEntry(
-      "sidebar.collapsedThreadSections",
-    ),
-    "sidebar.collapsedMachines": uiPreferenceEntry("sidebar.collapsedMachines"),
     "sidebar.footerOrder": uiPreferenceEntry("sidebar.footerOrder"),
     "sidebar.hiddenFooterItems": uiPreferenceEntry("sidebar.hiddenFooterItems"),
     "sidebar.pluginPanelOrder": uiPreferenceEntry("sidebar.pluginPanelOrder"),
     "sidebar.visiblePluginPanels": uiPreferenceEntry(
       "sidebar.visiblePluginPanels",
     ),
-    "sidebar.navigationProvider": uiPreferenceEntry(
-      "sidebar.navigationProvider",
-    ),
-    "sidebar.headerProvider": uiPreferenceEntry("sidebar.headerProvider"),
     "sidebar.threadListProvider": uiPreferenceEntry(
       "sidebar.threadListProvider",
+    ),
+    "infoPanel.collapsedSections": uiPreferenceEntry(
+      "infoPanel.collapsedSections",
     ),
   };
 }
@@ -275,6 +265,20 @@ export class DemoWorld {
             runningThreadCount: 0,
             support: { kind: "unsupported", reason: "unmanaged" },
           } satisfies SystemAppUpdateStatus);
+        case "/system/cli-command":
+          return json({
+            installedPath: null,
+            onPath: false,
+            shadowedBy: null,
+            supported: false,
+          } satisfies SystemCliCommandStatus);
+        case "/system/cli-command":
+          return json({
+            installedPath: null,
+            onPath: false,
+            shadowedBy: null,
+            supported: false,
+          } satisfies SystemCliCommandStatus);
         case "/system/version":
           return json(SYSTEM_VERSION);
         case "/system/execution-options":
@@ -542,6 +546,8 @@ export class DemoWorld {
       activeBackgroundCommands: [],
       pendingTodos: null,
       goal: null,
+      providerCommands: null,
+      sessionOptions: null,
       modelFallback: null,
       contextWindowUsage: {
         estimated: false,
@@ -549,11 +555,10 @@ export class DemoWorld {
         usedTokens: 12_400,
       },
       timelinePage: {
-        kind: "latest",
-        segmentLimit: 20,
         returnedSegmentCount: 1,
-        hasOlderRows: false,
         olderCursor: null,
+        historySnapshot: "demo",
+        olderRowsSourceSeqEnd: null,
       },
     };
   }

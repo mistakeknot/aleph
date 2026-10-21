@@ -1,22 +1,74 @@
 import {
+  createContext,
   useCallback,
+  useContext,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
+  type ReactNode,
   type SyntheticEvent,
 } from "react";
 import { useComposedRefs } from "@radix-ui/react-compose-refs";
 import {
   defaultRangeExtractor,
+  elementScroll,
   useVirtualizer,
   type Range,
 } from "@tanstack/react-virtual";
-import {
-  DEFAULT_WINDOWING_MIN_ITEM_COUNT,
-  recordTimelineMeasurement,
-  type TimelineWindowedItemsProps,
-} from "./TimelineWindowedItemsLoader.js";
+import { AutoHeightSnapContext } from "@/components/ui/height-transition";
+import { isIOSWebKit } from "@/lib/ios-webkit";
+
+export const DEFAULT_WINDOWING_MIN_ITEM_COUNT = 20;
+const MAX_MEASUREMENTS = 2_000;
+
+export function recordTimelineMeasurement(
+  measurements: Map<string, number>,
+  key: string,
+  height: number,
+): void {
+  measurements.delete(key);
+  measurements.set(key, height);
+  while (measurements.size > MAX_MEASUREMENTS) {
+    const oldestKey = measurements.keys().next().value;
+    if (oldestKey === undefined) break;
+    measurements.delete(oldestKey);
+  }
+}
+
+export interface TimelineWindowingScrollRoot {
+  getScrollElement: () => HTMLElement | null;
+}
+
+export const TimelineWindowingScrollRootContext =
+  createContext<TimelineWindowingScrollRoot | null>(null);
+
+export const TimelineWindowingMeasurementsContext = createContext<Map<
+  string,
+  number
+> | null>(null);
+
+export interface TimelineWindowedItemRenderState {
+  itemIndex: number | undefined;
+  itemRef: (node: HTMLDivElement | null) => void;
+  itemStyle: CSSProperties | undefined;
+  windowingEnabled: boolean;
+}
+
+export interface TimelineWindowedItemsProps {
+  alwaysMountedKeys?: ReadonlySet<string>;
+  estimateItemHeight: (index: number) => number;
+  gap: number;
+  getScrollElement: (() => HTMLElement | null) | null;
+  itemKeys: readonly string[];
+  measurements: Map<string, number>;
+  renderItem: (
+    index: number,
+    state: TimelineWindowedItemRenderState,
+  ) => ReactNode;
+  pinnedToEnd: boolean;
+}
 
 const TIMELINE_WINDOW_OVERSCAN_ITEMS = 8;
 const TIMELINE_WINDOW_MAX_INTERACTION_PINS = 24;
@@ -54,8 +106,13 @@ export function TimelineWindowedItems({
   itemKeys,
   measurements,
   renderItem,
+  pinnedToEnd,
 }: TimelineWindowedItemsProps) {
+  const [scrollAdjustmentsKeepMomentum] = useState(
+    () => typeof navigator === "undefined" || !isIOSWebKit(navigator),
+  );
   const configured =
+    scrollAdjustmentsKeepMomentum &&
     itemKeys.length >= DEFAULT_WINDOWING_MIN_ITEM_COUNT &&
     getScrollElement !== null;
   const [scrollRootStatus, setScrollRootStatus] = useState<
@@ -109,11 +166,7 @@ export function TimelineWindowedItems({
       const index = Number(element.dataset.index);
       const height = measureBorderBox(element, entry);
       const key = Number.isInteger(index) ? itemKeys[index] : undefined;
-      if (
-        key !== undefined &&
-        height > 0 &&
-        element.dataset.timelineWindowedRealized === "true"
-      ) {
+      if (key !== undefined && height > 0) {
         recordTimelineMeasurement(measurements, key, height);
       }
       return height > 0 ? height : estimateSize(index);
@@ -128,9 +181,35 @@ export function TimelineWindowedItems({
     },
     [forcedIndexes],
   );
-  const initialOffset = useCallback(
-    () => resolvedGetScrollElement()?.scrollTop ?? 0,
-    [resolvedGetScrollElement],
+  const initialOffset = useCallback(() => {
+    const scrollElement = resolvedGetScrollElement();
+    if (!pinnedToEnd) return scrollElement?.scrollTop ?? 0;
+    let estimatedEnd = scrollMargin;
+    for (let index = 0; index < itemKeys.length; index += 1) {
+      estimatedEnd += estimateSize(index) + (index > 0 ? gap : 0);
+    }
+    const viewportHeight = scrollElement?.clientHeight || initialRect.height;
+    return Math.max(0, estimatedEnd - viewportHeight);
+  }, [
+    estimateSize,
+    gap,
+    initialRect,
+    itemKeys,
+    resolvedGetScrollElement,
+    scrollMargin,
+    pinnedToEnd,
+  ]);
+  const snapAutoHeight = useContext(AutoHeightSnapContext);
+  const scrollToFn = useCallback<typeof elementScroll<HTMLElement>>(
+    (offset, options, instance) => {
+      const container = containerElementRef.current;
+      if (container !== null) {
+        container.style.height = `${instance.getTotalSize()}px`;
+      }
+      snapAutoHeight?.();
+      elementScroll(offset, options, instance);
+    },
+    [snapAutoHeight],
   );
 
   const virtualizer = useVirtualizer<HTMLElement, HTMLDivElement>({
@@ -148,12 +227,27 @@ export function TimelineWindowedItems({
     overscan: TIMELINE_WINDOW_OVERSCAN_ITEMS,
     rangeExtractor,
     scrollMargin,
+    scrollToFn,
     useFlushSync: false,
   });
   const containerRef = useComposedRefs(
     containerElementRef,
     virtualizer.containerRef,
   );
+
+  useLayoutEffect(() => {
+    virtualizer.shouldAdjustScrollPositionOnItemSizeChange = (
+      item,
+      _delta,
+      instance,
+    ) => {
+      if (pinnedToEnd) return item.index < instance.options.count - 1;
+      const scrollTop = resolvedGetScrollElement()?.scrollTop ?? 0;
+      if (item.start >= scrollTop) return false;
+      if (!instance.itemSizeCache.has(item.key)) return true;
+      return item.end <= scrollTop;
+    };
+  }, [pinnedToEnd, resolvedGetScrollElement, virtualizer]);
 
   const updateScrollGeometry = useCallback(() => {
     if (!configured) return;
@@ -235,25 +329,23 @@ export function TimelineWindowedItems({
   const virtualItems = [...virtualItemsByIndex.values()].sort(
     (left, right) => left.index - right.index,
   );
-  const renderWindow = windowingEnabled;
-  const indexes = renderWindow
+  const indexes = windowingEnabled
     ? virtualItems.map((item) => item.index)
     : itemKeys.map((_, index) => index);
   return (
     <div
       ref={containerRef}
       className="relative w-full"
-      style={renderWindow ? undefined : { display: "contents" }}
+      style={windowingEnabled ? undefined : { display: "contents" }}
       data-timeline-items=""
-      data-timeline-virtual-spacer={renderWindow ? "" : undefined}
+      data-timeline-virtual-spacer={windowingEnabled ? "" : undefined}
       onClickCapture={retainInteractedItem}
       onFocusCapture={retainInteractedItem}
     >
       {indexes.map((index) =>
         renderItem(index, {
-          isRealized: true,
           itemIndex: index,
-          itemRef: renderWindow
+          itemRef: windowingEnabled
             ? virtualizer.measureElement
             : (element) => {
                 if (element === null) return;
@@ -263,10 +355,10 @@ export function TimelineWindowedItems({
                   recordTimelineMeasurement(measurements, key, height);
                 }
               },
-          itemStyle: renderWindow
+          itemStyle: windowingEnabled
             ? { position: "absolute", left: 0, width: "100%" }
             : undefined,
-          windowingEnabled: renderWindow,
+          windowingEnabled,
         }),
       )}
     </div>

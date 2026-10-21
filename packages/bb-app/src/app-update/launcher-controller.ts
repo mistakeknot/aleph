@@ -63,7 +63,7 @@ export interface LauncherServerPort {
 
 export interface LauncherAppUpdateController {
   attachServer(child: LauncherServerPort): void;
-  dispose(): void;
+  dispose(): Promise<void>;
   finalizeExit(): Promise<number | null>;
   onFullStackReady(): Promise<void>;
 }
@@ -87,6 +87,8 @@ export function createLauncherAppUpdateController(
   let restartPending: AppUpdatePending | null = null;
   let statusTimer: ReturnType<typeof setTimeout> | null = null;
   const abortController = new AbortController();
+  let applyTask: Promise<void> | null = null;
+  const requestTasks = new Set<Promise<void>>();
   let decideRestart: ((decision: RestartDecision) => void) | null = null;
 
   const waitForRestartDecision = (): Promise<RestartDecision> =>
@@ -208,6 +210,7 @@ export function createLauncherAppUpdateController(
       fetch: true,
       repoRoot: args.repoRoot,
       runner: args.runner,
+      signal: abortController.signal,
     });
     assertGenericUpdateAllowed();
     if (check.blocked !== null) throw new Error(check.blocked.message);
@@ -313,6 +316,7 @@ export function createLauncherAppUpdateController(
           fetch: true,
           repoRoot: args.repoRoot,
           runner: args.runner,
+          signal: abortController.signal,
         });
       }
       case "apply": {
@@ -325,7 +329,10 @@ export function createLauncherAppUpdateController(
         if (activity.phase !== "idle" || restartPending !== null) {
           throw new Error("An update is already in progress.");
         }
-        void runApply(request.target, request.targetVersion).catch(
+        if (abortController.signal.aborted) {
+          throw new Error("bb is shutting down.");
+        }
+        applyTask = runApply(request.target, request.targetVersion).catch(
           (error: unknown) => {
             args.log(`In-app update failed: ${errorMessage(error)}`);
             activity = { phase: "idle" };
@@ -371,7 +378,7 @@ export function createLauncherAppUpdateController(
       void refreshLastResult().finally(pushStatus);
       return;
     }
-    void handleRequest(message.request).then(
+    const task = handleRequest(message.request).then(
       (result) => {
         send({
           channel: "bb-app-update/response",
@@ -389,6 +396,17 @@ export function createLauncherAppUpdateController(
         });
       },
     );
+    requestTasks.add(task);
+    void task.then(() => requestTasks.delete(task));
+  };
+
+  const dispose = async (): Promise<void> => {
+    abortController.abort();
+    await Promise.all([applyTask, ...requestTasks]);
+    if (statusTimer !== null) {
+      clearTimeout(statusTimer);
+      statusTimer = null;
+    }
   };
 
   return {
@@ -399,11 +417,9 @@ export function createLauncherAppUpdateController(
         if (server === child) server = null;
       });
     },
-    dispose() {
-      abortController.abort();
-      if (statusTimer !== null) clearTimeout(statusTimer);
-    },
+    dispose,
     async finalizeExit() {
+      await dispose();
       const pending = restartPending;
       if (pending === null) return null;
       try {

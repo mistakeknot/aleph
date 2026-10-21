@@ -24,10 +24,9 @@ function details(text: string): string {
     category: "config",
     details: text,
   }) as { details: string };
-  expect(
-    redactEventDataForType("provider/warning", out),
-    "idempotent",
-  ).toEqual(out);
+  expect(redactEventDataForType("provider/warning", out), "idempotent").toEqual(
+    out,
+  );
   return out.details;
 }
 
@@ -170,7 +169,9 @@ describe("round 7: URL credential values end only at a parameter boundary", () =
     for (const value of values) {
       it(`${JSON.stringify(sep + "token=" + value)}`, () => {
         const base = sep === "&" || sep === ";" ? "?a=1" : "";
-        const url = image(`https://example.invalid/i${base}${sep}token=${value}&ok=1`);
+        const url = image(
+          `https://example.invalid/i${base}${sep}token=${value}&ok=1`,
+        );
         expect(url).not.toContain(TAIL);
         expect(url).toContain("ok=1");
       });
@@ -198,8 +199,12 @@ describe("round 7: URL credential values end only at a parameter boundary", () =
   });
 
   it("preserves unrelated parameters and stays a parseable URL", () => {
-    const url = image(`https://e.invalid/i?design=1&token=a'${TAIL}&author=2&ok=3`);
-    expect(url).toBe("https://e.invalid/i?design=1&token=[redacted]&author=2&ok=3");
+    const url = image(
+      `https://e.invalid/i?design=1&token=a'${TAIL}&author=2&ok=3`,
+    );
+    expect(url).toBe(
+      "https://e.invalid/i?design=1&token=[redacted]&author=2&ok=3",
+    );
     expect(() => new URL(url)).not.toThrow();
   });
 
@@ -235,7 +240,9 @@ describe("round 7: nested request image URLs get the URL override", () => {
       input: [{ type: "image", source: { type: "url", url: url() } }],
     },
     "params.image_url.url": {
-      messages: [{ content: [{ type: "image_url", image_url: { url: url() } }] }],
+      messages: [
+        { content: [{ type: "image_url", image_url: { url: url() } }] },
+      ],
     },
     "params.attachments[*].href": { attachments: [{ href: url() }] },
     "params.urls array": { urls: [url()] },
@@ -327,11 +334,21 @@ describe("round 7: the JSON precheck does not skip signed URLs", () => {
       ["item/toolCall/progress", { item: { url: u } }],
       [
         "client/turn/requested",
-        { request: { method: "turn/start", params: { input: [{ type: "image", url: u }] } } },
+        {
+          request: {
+            method: "turn/start",
+            params: { input: [{ type: "image", url: u }] },
+          },
+        },
       ],
       [
         "client/turn/start",
-        { request: { method: "turn/start", params: { inputGroups: [[{ type: "image", url: u }]] } } },
+        {
+          request: {
+            method: "turn/start",
+            params: { inputGroups: [[{ type: "image", url: u }]] },
+          },
+        },
       ],
     ] as const) {
       const out = redactEventDataJsonForType(type, JSON.stringify(payload));
@@ -340,7 +357,11 @@ describe("round 7: the JSON precheck does not skip signed URLs", () => {
   });
 
   it("still skips parsing ordinary output without credential-shaped text", () => {
-    const json = JSON.stringify({ item: { type: "commandExecution", aggregatedOutput: "plain output" } });
-    expect(redactEventDataJsonForType("item/commandExecution/outputDelta", json)).toBe(json);
+    const json = JSON.stringify({
+      item: { type: "commandExecution", aggregatedOutput: "plain output" },
+    });
+    expect(
+      redactEventDataJsonForType("item/commandExecution/outputDelta", json),
+    ).toBe(json);
   });
 });

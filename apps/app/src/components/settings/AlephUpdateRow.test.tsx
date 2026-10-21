@@ -217,7 +217,9 @@ describe("AlephUpdateRowView", () => {
         lastRun: { detail: null, nonce: "r".repeat(32), state: "succeeded" },
       },
     });
-    expect(screen.getByText(/Last install run: Update succeeded/u)).toBeTruthy();
+    expect(
+      screen.getByText(/Last install run: Update succeeded/u),
+    ).toBeTruthy();
   });
 
   it("puts an open request before the selection in the primary label", () => {

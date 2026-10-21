@@ -27,11 +27,13 @@ export const nativeShellHandshakeSchema = z
   .object({
     bridgeVersion: z.number().int().positive(),
     appVersion: z.string().min(1),
+    androidVersionCode: z.number().int().positive().optional(),
     platform: z.enum(["ios", "android"]),
     profileMode: z.enum(["direct", "connect"]),
     secureContext: z.boolean(),
     safeArea: safeAreaInsetsSchema,
     capabilities: z.array(nativeCapabilitySchema).readonly(),
+    nativeDownloads: z.literal(true).optional(),
   })
   .strict();
 

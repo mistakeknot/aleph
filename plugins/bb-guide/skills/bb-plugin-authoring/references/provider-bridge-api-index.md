@@ -1,20 +1,15 @@
 # Provider bridge API symbol index
 
 Use this index to check provider bridge imports.
-Read `providers.md` for behavior, protocol rules, and examples.
+Read `providers.md` and the provider docs it links for behavior and examples.
 Read the installed declarations for exact current signatures.
 
 ## `@get-bb/plugin-sdk/provider-bridge`
 
-Context breakdowns are optional snapshots on `contextWindow` deltas:
-
-- `contextSnapshotSchema` validates capture time, provider session/turn identity,
-  model, token totals, compaction threshold, estimate status, and categories.
-- `ContextSnapshot` is the typed snapshot carried through recorded usage events.
-- `ContextCategory` has provider-defined IDs/labels, token counts, entries, and
-  accounting kind `used`, `free`, `reserved`, or `deferred`.
-- `ContextEntry` supplies an ID, label, and token count already included in its
-  parent category. Entries may describe only part of the category total.
+- `contextSnapshotSchema`
+- `ContextSnapshot`
+- `ContextCategory`
+- `ContextEntry`
 
 - `BRIDGE_INBOUND_REQUEST_METHODS`
 - `BRIDGE_JSON_RPC_ERRORS`
@@ -90,9 +85,7 @@ Context breakdowns are optional snapshots on `contextWindow` deltas:
 - `experimental_isAgentCgroupIsolationRequested` — whether agent processes
   should get their own scopes; take over the CLI spawn when it is true
 - `experimental_isProviderBridgeRecording`
-- `experimental_killPortableProcess` — end a child from
-  `experimental_spawnPortableProcess`; terminates the whole process tree on
-  Windows
+- `experimental_killPortableProcess`
 - `experimental_npmCommand`
 - `experimental_npmGlobalInstallCommand`
 - `experimental_npmGlobalInstallSource`
@@ -109,8 +102,7 @@ Context breakdowns are optional snapshots on `contextWindow` deltas:
 - `experimental_recordProviderChildIo`
 - `experimental_resolveExecutablePath`
 - `experimental_searchPresentation`
-- `experimental_spawnPortableProcess` — launch the provider CLI by name; resolves
-  PATH/PATHEXT and npm `.cmd` shims on Windows
+- `experimental_spawnPortableProcess`
 - `experimental_toolPresentation`
 - `experimental_versionFrom`
 - `experimental_webFetchPresentation`
@@ -410,6 +402,28 @@ Context breakdowns are optional snapshots on `contextWindow` deltas:
 - `experimental_acpLaunchSpecSchema`
 - `experimental_acpProviderBridge`
 - `experimental_probeAcpAgent`
+- `AcpAgentModelCatalog`
+- `AcpAgentProbe`
+- `AcpAgentProbeRequest`
+- `AcpAgentProfile`
+- `AcpClassifiedToolCall`
+- `AcpClientRequestOutcome`
+- `AcpDelegationReport`
+- `AcpDialect`
+- `AcpLaunchSpec`
+- `AcpToolCallContent`
+- `AcpToolCallStatus`
+- `AcpToolCallUpdateEvent`
+- `AcpToolIdentity`
+- `AcpToolKind`
+
+## `@get-bb/plugin-sdk/provider-bridge/acp-next`
+
+- `experimental_acpAgentProbeSchema`
+- `experimental_acpLaunchSpecSchema`
+- `experimental_acpProviderBridge`
+- `experimental_probeAcpAgent`
+- `experimental_registerAcpDialect`
 - `AcpAgentModelCatalog`
 - `AcpAgentProbe`
 - `AcpAgentProbeRequest`

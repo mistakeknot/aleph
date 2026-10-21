@@ -16,6 +16,33 @@ describe("bb settings commands", () => {
   const register: CommandRegistrar = (program) =>
     registerSettingsCommands(program, () => "http://server");
 
+  it("clears the setup guide completion time and keeps every other setting", async () => {
+    const put = vi.fn(async ({ json }) => json);
+    stubServerApi({
+      "v1.system.config.$get": vi.fn(async () => ({
+        generalSettings: {
+          ...defaultAppSettings,
+          onboardingCompletedAt: "2026-10-01T00:00:00.000Z",
+          streamerMode: true,
+        },
+      })),
+      "v1.settings.general.$put": put,
+    });
+
+    await runCommand(["settings", "replay-onboarding"], register);
+
+    expect(put).toHaveBeenCalledWith({
+      json: {
+        ...defaultAppSettings,
+        onboardingCompletedAt: null,
+        streamerMode: true,
+      },
+    });
+    expect(collectLogLines(vi.mocked(console.log))).toEqual([
+      "The setup guide is showing again",
+    ]);
+  });
+
   it("sets and resets a plugin shortcut while preserving other overrides", async () => {
     const other = { command: "plugin:other/open", shortcut: null };
     const put = vi.fn(async ({ json }) => json);
@@ -366,13 +393,50 @@ describe("bb settings commands", () => {
     });
 
     await runCommand(
-      ["settings", "usage", "--machine", "builder", "--json"],
+      ["settings", "usage", "--machine", "builder", "--refresh", "--json"],
       register,
     );
 
     expect(getUsage).toHaveBeenCalledWith({
-      query: { hostId: "host-remote" },
+      query: { hostId: "host-remote", refresh: "true" },
     });
+  });
+
+  it("shows, installs, and removes the bb CLI for use outside bb", async () => {
+    const install = vi.fn(async () => ({
+      installedPath: "/home/me/.local/bin/bb",
+      onPath: true,
+      shadowedBy: null,
+      supported: true,
+    }));
+    const remove = vi.fn(async () => ({
+      installedPath: null,
+      onPath: false,
+      shadowedBy: null,
+      supported: true,
+    }));
+    stubServerApi({
+      "v1.system.cli-command.$get": vi.fn(async () => ({
+        installedPath: null,
+        onPath: false,
+        shadowedBy: { path: "/usr/local/bin/bb", source: "other" },
+        supported: true,
+      })),
+      "v1.system.cli-command.install.$post": install,
+      "v1.system.cli-command.remove.$post": remove,
+    });
+
+    await runCommand(["settings", "cli-command"], register);
+    await runCommand(["settings", "cli-command", "install"], register);
+    await runCommand(["settings", "cli-command", "remove"], register);
+
+    expect(install).toHaveBeenCalledTimes(1);
+    expect(remove).toHaveBeenCalledTimes(1);
+    expect(collectLogLines(vi.mocked(console.log))).toEqual([
+      "The bb CLI is not installed for use outside bb. Another bb at /usr/local/bin/bb comes first on your PATH.",
+      "The bb CLI is installed at /home/me/.local/bin/bb for use outside bb.",
+      "Removed the bb CLI from your PATH.",
+    ]);
   });
 
   describe("ai-services", () => {

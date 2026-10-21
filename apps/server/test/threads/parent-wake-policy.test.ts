@@ -80,7 +80,9 @@ function recordQueuedEvents(): ThreadQueuedMessage[] {
   setPluginThreadEventEmitter({
     emitThreadEvents: () => {},
     emitTerminalInput: () => {},
+    emitEnvironmentRemoved: () => {},
     emitHostDeleted: () => {},
+    emitThreadParentChanged: () => {},
     emitThreadCreated: () => {},
     emitThreadActive: () => {},
     emitThreadIdle: () => {},
@@ -1970,7 +1972,7 @@ describe("transfer-all queued messages (retirement forward)", () => {
       const target = seedSuccessor(harness, fixture);
       harness.db.$client
         .prepare(
-          `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<${ONLINE_QUEUE_MOVE_MAX_ROWS + 1}) INSERT INTO queued_thread_messages (id,origin_id,thread_id,content,model,reasoning_level,permission_mode,service_tier,group_with_next,payload_kind,sort_key,created_at,updated_at) SELECT 'bulk'||i,'bulk'||i,?,'[{"type":"text","text":"x","mentions":[]}]','fake-model','medium','full','default',0,'inline',printf('k%08d',i),1,1 FROM n`,
+          `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<${ONLINE_QUEUE_MOVE_MAX_ROWS + 1}) INSERT INTO queued_thread_messages (id,origin_id,thread_id,content,model,reasoning_level,permission_mode,service_tier,group_with_next,payload_kind,sort_key,state,created_at,updated_at) SELECT 'bulk'||i,'bulk'||i,?,'[{"type":"text","text":"x","mentions":[]}]','fake-model','medium','full','default',0,'inline',printf('k%08d',i),'queued',1,1 FROM n`,
         )
         .run(source);
       const response = await transferAll(harness, source, target);

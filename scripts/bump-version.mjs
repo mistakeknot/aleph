@@ -108,12 +108,12 @@ export async function bumpVersion(options) {
   const isAlephCurrent = parseAlephVersion(maxCurrentVersion) !== null;
   const newVersion =
     isAlephCurrent && ["--major", "--minor", "--patch"].includes(args[0])
-    ? deriveAlephVersion(maxCurrentVersion, args[0])
-    : resolveVersionArgument({
-        argument: args[0],
-        currentVersion: maxCurrentVersion,
-        usage: USAGE,
-      });
+      ? deriveAlephVersion(maxCurrentVersion, args[0])
+      : resolveVersionArgument({
+          argument: args[0],
+          currentVersion: maxCurrentVersion,
+          usage: USAGE,
+        });
 
   if (isAlephCurrent) {
     assertAlephVersionFollows({
