@@ -281,6 +281,34 @@ describe("WebSocketManager thread-open signals", () => {
     }
   });
 
+  it("bounds and prunes buffered files for threads that are never opened", () => {
+    vi.useFakeTimers();
+    try {
+      const { manager } = createConnectedManager();
+      const send = (threadId: string) =>
+        dispatchRaw({
+          type: "thread-open",
+          projectId: "proj_1",
+          threadId,
+          split: "right",
+          file: { source: "workspace", path: "a.txt", lineNumber: 1 },
+        });
+      for (let index = 0; index < 30; index += 1) {
+        send(`thr_${index}`);
+      }
+      expect(manager.consumePendingOpenFile("thr_0")).toBeNull();
+      expect(manager.consumePendingOpenFile("thr_29")).not.toBeNull();
+
+      send("thr_a");
+      vi.setSystemTime(Date.now() + 61_000);
+      send("thr_b");
+      expect(manager.consumePendingOpenFile("thr_a")).toBeNull();
+      expect(manager.consumePendingOpenFile("thr_b")).not.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("still routes changed messages to onChanged", () => {
     const { manager } = createConnectedManager();
     const changed = vi.fn();
