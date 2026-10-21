@@ -27,6 +27,12 @@ import { makePluginRegistrationSet } from "@/test/fixtures/plugins";
 import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import { Link, MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const toastMock = vi.hoisted(() => vi.fn());
+vi.mock("sonner", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("sonner")>()),
+  toast: toastMock,
+}));
 import { AppCommandProvider } from "@/components/commands/AppCommandProvider";
 import { AppLayout } from "./AppLayout";
 import { wsManager } from "@/lib/ws";
@@ -685,11 +691,15 @@ describe("thread open signals", () => {
       callback = cb as (signal: unknown) => void;
       return () => {};
     });
-    return (signal: unknown) => callback?.(signal);
+    return (signal: unknown) => {
+      if (callback === null) {
+        throw new Error("AppLayout did not subscribe to thread-open signals");
+      }
+      callback(signal);
+    };
   }
 
-  it("does not navigate or replace the focused pane for a thread that is not open", () => {
-    const emit = captureThreadOpen();
+  function renderWithLayout() {
     const store = createStore();
     const layout = createSinglePaneLayout({ projectId: "p1", threadId: "t1" });
     store.set(splitLayoutAtom, layout);
@@ -704,20 +714,68 @@ describe("thread open signals", () => {
         </MemoryRouter>
       </JotaiProvider>,
     );
+    return { store, layout };
+  }
+
+  const openSignal = (threadId: string) => ({
+    type: "thread-open",
+    projectId: "p1",
+    threadId,
+    split: "replace",
+    file: null,
+  });
+
+  afterEach(() => {
+    toastMock.mockClear();
+  });
+
+  it("offers an Open action instead of navigating for a thread that is not open", () => {
+    const emit = captureThreadOpen();
+    const { store, layout } = renderWithLayout();
 
     act(() => {
-      emit({
-        type: "thread-open",
-        projectId: "p1",
-        threadId: "t2",
-        split: "replace",
-        file: null,
-      });
+      emit(openSignal("t2"));
     });
 
     expect(screen.getByTestId("location").textContent).toBe(
       "/projects/p1/threads/t1",
     );
     expect(store.get(splitLayoutAtom)).toBe(layout);
+    expect(toastMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("navigates and replaces the pane only after the Open action is clicked", () => {
+    const emit = captureThreadOpen();
+    const { store, layout } = renderWithLayout();
+
+    act(() => {
+      emit(openSignal("t2"));
+    });
+    const options = toastMock.mock.calls[0]?.[1] as {
+      action: { onClick: () => void };
+    };
+    act(() => {
+      options.action.onClick();
+    });
+
+    expect(screen.getByTestId("location").textContent).toBe(
+      "/projects/p1/threads/t2",
+    );
+    expect(store.get(splitLayoutAtom)).not.toBe(layout);
+  });
+
+  it("does nothing for a thread that is already open", () => {
+    const emit = captureThreadOpen();
+    const { store, layout } = renderWithLayout();
+
+    act(() => {
+      emit(openSignal("t1"));
+    });
+
+    expect(screen.getByTestId("location").textContent).toBe(
+      "/projects/p1/threads/t1",
+    );
+    expect(store.get(splitLayoutAtom)).toBe(layout);
+    expect(toastMock).not.toHaveBeenCalled();
   });
 });

@@ -76,6 +76,8 @@ interface ActiveSubscription {
   target: RealtimeSubscriptionTarget;
 }
 
+const PENDING_OPEN_FILE_TTL_MS = 60_000;
+
 export class WebSocketManager {
   private socket: ReconnectingWebSocket | null = null;
   private subscriptions = new Map<string, ActiveSubscription>();
@@ -83,7 +85,10 @@ export class WebSocketManager {
   private threadOpenCallbacks = new Set<ThreadOpenCallback>();
   private threadPaneActionCallbacks = new Set<ThreadPaneActionCallback>();
   private pluginSignalCallbacks = new Set<PluginSignalCallback>();
-  private pendingOpenFileByThreadId = new Map<string, ThreadOpenFile>();
+  private pendingOpenFileByThreadId = new Map<
+    string,
+    { file: ThreadOpenFile; receivedAt: number }
+  >();
   private connectedCallbacks = new Set<ConnectedCallback>();
   private connectionStateCallbacks = new Set<ConnectionStateCallback>();
   private resumedCallbacks = new Set<ResumedCallback>();
@@ -363,10 +368,12 @@ export class WebSocketManager {
     const threadOpen = threadOpenSignalLenientSchema.safeParse(parsed);
     if (threadOpen.success) {
       if (threadOpen.data.file !== null) {
-        this.pendingOpenFileByThreadId.set(
-          threadOpen.data.threadId,
-          threadOpen.data.file,
-        );
+        this.pendingOpenFileByThreadId.set(threadOpen.data.threadId, {
+          file: threadOpen.data.file,
+          receivedAt: Date.now(),
+        });
+      } else {
+        this.pendingOpenFileByThreadId.delete(threadOpen.data.threadId);
       }
       for (const cb of this.threadOpenCallbacks) {
         cb(threadOpen.data);
@@ -483,7 +490,9 @@ export class WebSocketManager {
       return null;
     }
     this.pendingOpenFileByThreadId.delete(threadId);
-    return pending;
+    return Date.now() - pending.receivedAt <= PENDING_OPEN_FILE_TTL_MS
+      ? pending.file
+      : null;
   }
 
   onConnected(callback: ConnectedCallback): () => void {

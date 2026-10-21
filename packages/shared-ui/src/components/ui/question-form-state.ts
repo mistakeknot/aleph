@@ -32,6 +32,8 @@ export interface QuestionFormDraft {
   currentIndex: number;
 }
 
+const MAX_QUESTION_FORM_DRAFTS = 50;
+
 const questionFormDrafts = new Map<string, QuestionFormDraft>();
 
 export function readQuestionFormDraft(
@@ -46,8 +48,15 @@ export function writeQuestionFormDraft(
   draftKey: string | undefined,
   draft: QuestionFormDraft,
 ): void {
-  if (draftKey !== undefined) {
-    questionFormDrafts.set(draftKey, draft);
+  if (draftKey === undefined) {
+    return;
+  }
+  questionFormDrafts.delete(draftKey);
+  questionFormDrafts.set(draftKey, draft);
+  while (questionFormDrafts.size > MAX_QUESTION_FORM_DRAFTS) {
+    const oldest = questionFormDrafts.keys().next();
+    if (oldest.done) break;
+    questionFormDrafts.delete(oldest.value);
   }
 }
 

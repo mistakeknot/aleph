@@ -245,6 +245,42 @@ describe("WebSocketManager thread-open signals", () => {
     expect(manager.consumePendingOpenFile("thr_1")).toBeNull();
   });
 
+  it("drops a buffered file when a later signal carries none", () => {
+    const { manager } = createConnectedManager();
+    const base = {
+      type: "thread-open",
+      projectId: "proj_1",
+      threadId: "thr_1",
+      split: "right",
+    };
+    dispatchRaw({
+      ...base,
+      file: { source: "workspace", path: "old.txt", lineNumber: 1 },
+    });
+    dispatchRaw({ ...base, file: null });
+
+    expect(manager.consumePendingOpenFile("thr_1")).toBeNull();
+  });
+
+  it("ignores a buffered file older than the expiry window", () => {
+    vi.useFakeTimers();
+    try {
+      const { manager } = createConnectedManager();
+      dispatchRaw({
+        type: "thread-open",
+        projectId: "proj_1",
+        threadId: "thr_1",
+        split: "right",
+        file: { source: "workspace", path: "old.txt", lineNumber: 1 },
+      });
+      vi.advanceTimersByTime(61_000);
+
+      expect(manager.consumePendingOpenFile("thr_1")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("still routes changed messages to onChanged", () => {
     const { manager } = createConnectedManager();
     const changed = vi.fn();

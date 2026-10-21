@@ -6,6 +6,10 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QuestionForm } from "@bb/shared-ui/question-form";
+import {
+  readQuestionFormDraft,
+  writeQuestionFormDraft,
+} from "@bb/shared-ui/question-form-state";
 import type {
   Question,
   QuestionAnswer,
@@ -387,5 +391,15 @@ describe("draft persistence across remounts", () => {
     expect(
       (other.getByLabelText("Database answer") as HTMLTextAreaElement).value,
     ).toBe("");
+  });
+
+  it("evicts the oldest drafts beyond the cap", () => {
+    const draft = { formState: {}, currentIndex: 0 };
+    for (let index = 0; index < 60; index += 1) {
+      writeQuestionFormDraft(`cap:${index}`, draft);
+    }
+
+    expect(readQuestionFormDraft("cap:0")).toBeNull();
+    expect(readQuestionFormDraft("cap:59")).not.toBeNull();
   });
 });

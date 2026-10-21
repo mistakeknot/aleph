@@ -325,7 +325,15 @@ export function QuestionForm({
   const [currentIndex, setCurrentIndex] = useState(
     () => readQuestionFormDraft(draftKey)?.currentIndex ?? 0,
   );
+  const initialDraftRef = useRef({ formState, currentIndex });
   useEffect(() => {
+    const initial = initialDraftRef.current;
+    if (
+      formState === initial.formState &&
+      currentIndex === initial.currentIndex
+    ) {
+      return;
+    }
     writeQuestionFormDraft(draftKey, { formState, currentIndex });
   }, [draftKey, formState, currentIndex]);
   const formRef = useRef<HTMLDivElement>(null);
