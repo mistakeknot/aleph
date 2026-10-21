@@ -1,0 +1,98 @@
+{
+  "catalogVersion": "4",
+  "layers": [
+    {
+      "letter": "A",
+      "name": "Media / Attention / Information",
+      "rank": 1
+    },
+    {
+      "letter": "B",
+      "name": "Fashion / Taste / Self-fashioning",
+      "rank": 2
+    },
+    {
+      "letter": "C",
+      "name": "Cognition / Agents / Mind",
+      "rank": 3
+    },
+    {
+      "letter": "D",
+      "name": "Commerce / Markets / Finance",
+      "rank": 4
+    },
+    {
+      "letter": "E",
+      "name": "Governance / Institutions",
+      "rank": 5
+    },
+    {
+      "letter": "F",
+      "name": "Culture / Narrative / Ideology",
+      "rank": 6
+    },
+    {
+      "letter": "G",
+      "name": "Demography / Population",
+      "rank": 7
+    },
+    {
+      "letter": "H",
+      "name": "Infrastructure / Techno-material stock",
+      "rank": 8
+    },
+    {
+      "letter": "I",
+      "name": "Climate / Ecology",
+      "rank": 9
+    },
+    {
+      "letter": "J",
+      "name": "Geology / Place",
+      "rank": 10
+    },
+    {
+      "letter": "K",
+      "name": "Deep-substrate / Geologic-monotonic time",
+      "rank": 11
+    },
+    {
+      "letter": "X",
+      "name": "Infrastructure-of-the-lab",
+      "rank": null
+    }
+  ],
+  "entries": [
+    {
+      "slug": "paper-kite",
+      "project": "Paper Kite",
+      "layer": "A",
+      "designation": "SYNTHETIC-ONLY"
+    },
+    {
+      "slug": "glass-orbit",
+      "project": "Glass Orbit",
+      "layer": "C"
+    },
+    {
+      "slug": null,
+      "project": "Copper Meadow",
+      "layer": "F"
+    },
+    {
+      "slug": "quiet-pebble",
+      "project": null,
+      "layer": "K"
+    },
+    {
+      "slug": "test-lantern",
+      "project": "Test Lantern",
+      "layer": "X"
+    },
+    {
+      "slug": "velvet-dock",
+      "project": "Velvet Dock",
+      "layer": "STUDIO"
+    }
+  ]
+}

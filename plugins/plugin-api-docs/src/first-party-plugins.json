@@ -120,6 +120,11 @@
     "icon": "Calendar"
   },
   {
+    "id": "bb--layer-groups",
+    "name": "Layer groups",
+    "icon": "ListView"
+  },
+  {
     "id": "side-chat",
     "name": "Side chat",
     "icon": "SideChat"
