@@ -3073,6 +3073,7 @@ directories, linked worktrees, and submodules. Core callers: the setup guide
 Stabilize after deciding whether depth, recency window, and limit should be
 caller options, and after exercising slow or network-mounted home directories
 and Windows hosts.
+
 ## threads.update section preconditions (ifSectionId, ifUnpinned, ifUnarchived, ifTopLevel)
 
 `threads.update` accepts conditional section preconditions `ifSectionId`
