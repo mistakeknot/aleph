@@ -70,6 +70,56 @@ describe("ConversationMessageContent assistant images", () => {
 });
 
 describe("ConversationMessageContent user images", () => {
+  it("passes original attachment names and sizes through the user message", () => {
+    render(
+      <MemoryRouter>
+        <RouteNavigationProvider>
+          <ConversationMessageContent
+            role="user"
+            attachments={{
+              webImages: 0,
+              localImages: 0,
+              localFiles: 1,
+              imageUrls: [],
+              localImagePaths: [],
+              localFilePaths: ["uploaded-paste.txt"],
+              localFileDetails: [
+                {
+                  path: "uploaded-paste.txt",
+                  name: "Pasted text.txt",
+                  sizeBytes: 3638577,
+                },
+              ],
+            }}
+            initiator="user"
+            mentions={[]}
+            senderThreadId={null}
+            senderThreadTitle={null}
+            senderIsPluginSideChat={false}
+            systemMessageKind="unlabeled"
+            systemMessageSubject={null}
+            text="Inspect errors"
+            timestamp={0}
+            threadId="thr_paste"
+            projectId="proj_paste"
+            turnRequest={{
+              isGrouped: false,
+              kind: "message",
+              status: "accepted",
+            }}
+          />
+        </RouteNavigationProvider>
+      </MemoryRouter>,
+    );
+    expect(
+      screen
+        .getByRole("link", { name: "Pasted text.txt · 3.5 MB" })
+        .getAttribute("href"),
+    ).toBe(
+      "/api/v1/projects/proj_paste/attachments/content?path=uploaded-paste.txt",
+    );
+  });
+
   it("uses the same local image routing as assistant messages", () => {
     render(
       <MemoryRouter>
@@ -79,7 +129,6 @@ describe("ConversationMessageContent user images", () => {
             attachments={null}
             initiator="user"
             mentions={[]}
-            originKind={null}
             senderThreadId={null}
             senderThreadTitle={null}
             senderIsPluginSideChat={false}
@@ -115,7 +164,6 @@ describe("ConversationMessageContent user HTML", () => {
             attachments={null}
             initiator="user"
             mentions={[]}
-            originKind={null}
             senderThreadId={null}
             senderThreadTitle={null}
             senderIsPluginSideChat={false}
@@ -217,7 +265,6 @@ describe("ConversationMessageContent long user messages", () => {
             <ConversationMessageContent
               role="user"
               attachments={null}
-              originKind={null}
               initiator="user"
               mentions={[]}
               senderThreadId={null}
@@ -250,7 +297,6 @@ describe("ConversationMessageContent long user messages", () => {
           <ConversationMessageContent
             role="user"
             attachments={null}
-            originKind={null}
             initiator="user"
             mentions={[]}
             senderThreadId={null}
@@ -364,7 +410,6 @@ describe("ConversationMessageContent user thread mentions", () => {
             <ConversationMessageContent
               role="user"
               attachments={null}
-              originKind={null}
               initiator="user"
               mentions={[]}
               senderThreadId={null}
@@ -411,7 +456,6 @@ describe("ConversationMessageContent user thread mentions", () => {
             <ConversationMessageContent
               role="user"
               attachments={null}
-              originKind={null}
               initiator="user"
               mentions={[]}
               senderThreadId={null}
@@ -437,5 +481,87 @@ describe("ConversationMessageContent user thread mentions", () => {
         .getByRole("link", { name: "Cross-project mention" })
         .getAttribute("href"),
     ).toBe("/projects/proj_target/threads/thr_cross_project");
+  });
+});
+
+describe("ConversationMessageContent automation messages", () => {
+  it("renders an automation prompt as a compact expandable row without the marker", () => {
+    const { container } = render(
+      <MemoryRouter>
+        <RouteNavigationProvider>
+          <ConversationMessageContent
+            role="user"
+            attachments={null}
+            initiator="user"
+            mentions={[]}
+            senderThreadId={null}
+            senderThreadTitle={null}
+            senderIsPluginSideChat={false}
+            systemMessageKind="unlabeled"
+            systemMessageSubject={null}
+            text={
+              "[bb automation due:auto_zto0dtbcxme]\n\nWeekday unread digest.\n\nSearch Gmail for AUTOMATION_PROMPT_TAIL."
+            }
+            projectId="proj_automation"
+            timestamp={0}
+            threadId="thr_automation"
+            turnRequest={{
+              isGrouped: false,
+              kind: "message",
+              status: "accepted",
+            }}
+          />
+        </RouteNavigationProvider>
+      </MemoryRouter>,
+    );
+
+    expect(container.textContent).not.toContain("[bb automation due:");
+    expect(
+      screen.getByRole("link", { name: "Automation" }).getAttribute("href"),
+    ).toBe("/plugins/automations/automations/proj_automation/auto_zto0dtbcxme");
+    expect(container.querySelector("time")?.getAttribute("dateTime")).toBe(
+      new Date(0).toISOString(),
+    );
+    expect(screen.getByText("Weekday unread digest.")).toBeTruthy();
+    expect(container.textContent).not.toContain("AUTOMATION_PROMPT_TAIL");
+
+    fireEvent.click(screen.getByRole("button", { name: /Automation/u }));
+
+    expect(container.textContent).toContain("AUTOMATION_PROMPT_TAIL");
+    expect(container.textContent).not.toContain("[bb automation due:");
+  });
+});
+
+describe("ConversationMessageContent undelivered automation messages", () => {
+  it("names a rejected automation steer in the collapsed row", () => {
+    render(
+      <MemoryRouter>
+        <RouteNavigationProvider>
+          <ConversationMessageContent
+            role="user"
+            attachments={null}
+            initiator="user"
+            mentions={[]}
+            senderThreadId={null}
+            senderThreadTitle={null}
+            senderIsPluginSideChat={false}
+            systemMessageKind="unlabeled"
+            systemMessageSubject={null}
+            text={
+              "[bb automation due:auto_zto0dtbcxme]\n\nWeekday unread digest."
+            }
+            timestamp={0}
+            threadId="thr_automation"
+            turnRequest={{
+              isGrouped: false,
+              kind: "steer",
+              status: "rejected",
+            }}
+          />
+        </RouteNavigationProvider>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Steer failed")).toBeTruthy();
   });
 });

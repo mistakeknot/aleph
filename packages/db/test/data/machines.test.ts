@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { createEnvironment } from "../../src/data/environments.js";
 import { updateHost, upsertHost } from "../../src/data/hosts.js";
 import {
+  listProviderMachines,
   machineHasLiveThreadLaunch,
   machineHasPendingThreads,
   machineHasProvisioningEnvironment,
@@ -13,7 +14,7 @@ import { createProject } from "../../src/data/projects.js";
 import { archiveThread, createThread } from "../../src/data/threads.js";
 import { noopNotifier } from "../../src/notifier.js";
 import { environments, threads } from "../../src/schema.js";
-import { createMigratedConnection } from "../helpers/migrated-connection.js";
+import { createMigratedConnection } from "../../src/testing.js";
 
 function setup() {
   const db = createMigratedConnection();
@@ -26,6 +27,25 @@ function setup() {
 }
 
 describe("machine provisioning state", () => {
+  it("selects unfinished provider machines through creation, suspension and removal", () => {
+    const { db, host } = setup();
+    try {
+      updateHost(db, noopNotifier, host.id, { machineProviderId: "test-machine" });
+      const other = upsertHost(db, noopNotifier, { name: "other-provider" });
+      updateHost(db, noopNotifier, other.id, { machineProviderId: "other-machine" });
+      for (const phase of ["creating", "active", "suspending", "suspended", "resuming", "removing"] as const) {
+        updateHost(db, noopNotifier, host.id, { phase });
+        expect(listProviderMachines(db, "test-machine").map((row) => row.id)).toEqual([host.id]);
+      }
+      updateHost(db, noopNotifier, host.id, { phase: "destroyed" });
+      expect(listProviderMachines(db, "test-machine")).toEqual([]);
+      updateHost(db, noopNotifier, host.id, { phase: "active", destroyedAt: 1 });
+      expect(listProviderMachines(db, "test-machine")).toEqual([]);
+    } finally {
+      db.$client.close();
+    }
+  });
+
   it("distinguishes starting launches from live threads retained until archive", () => {
     const { db, host, project } = setup();
     const thread = createThread(db, noopNotifier, {

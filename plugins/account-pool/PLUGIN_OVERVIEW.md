@@ -36,3 +36,5 @@ This plugin is experimental. Routing, storage, and the CLI can change.
 Thread availability is answered only for the machine that owns the thread's environment. `bb pool exec -- <codex|claude> ...` runs scheduled or supervised work through the pool, with per-run accounting in [attempt receipts](RECEIPTS.md); the skills carry the detail.
 
 `bb pool account add|list|remove|enable|disable|priority|reorder`, `bb pool status`, `bb pool routing <claude|codex> [--off]`, `bb pool config`, `bb pool config set`, `bb pool parent [proxy|isolate]`, `bb pool token rotate`, and `bb pool bypass <thread-id>`. Every command takes `--json` and `--help`; `bb pool --help` lists the commands and `bb pool <command> --help` prints its arguments, options, and rules.
+
+Provider Retry uses pool recovery times.

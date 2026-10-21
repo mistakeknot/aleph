@@ -9,7 +9,7 @@ picks an account per request.
 - An account is skipped at or above the switch threshold, currently
   <!--fig:switch-threshold=0.98-->0.98 of a limit window, or when in error.
 - A conversation keeps its account until it is unavailable. Pins expire after
-  <!--fig:affinity-idle-minutes=30-->30 idle minutes and the hub retains the
+  <!--fig:affinity-idle-minutes=65-->65 idle minutes and the hub retains the
   <!--fig:affinity-max-bindings=4096-->4096 most recently used.
 - `bb pool exec -- codex ...` or `-- claude ...` runs a scripted process
   through the pool.
@@ -26,6 +26,7 @@ previous token stays valid for a grace period of
 A bb server started inside a thread uses the parent's pool only if that thread
 is listed in `nestedLaunchThreadIds`. The default is
 <!--fig:nested-default=[]-->`[]`, which opts every thread out; other threads get
+
 blank markers.
 
 ## Receipts

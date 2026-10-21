@@ -23,7 +23,10 @@ export function parseHullDesignations(raw: unknown): HullDesignations {
       unknown
     >;
     if (approved !== true) continue;
-    const key = typeof threadId === "string" && threadId.length > 0 ? threadId : projectId;
+    const key =
+      typeof threadId === "string" && threadId.length > 0
+        ? threadId
+        : projectId;
     if (typeof key !== "string" || key.length === 0) continue;
     if (typeof designation !== "string") continue;
     const trimmed = designation.trim();

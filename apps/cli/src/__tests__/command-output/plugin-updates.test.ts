@@ -41,13 +41,6 @@ const pluginList = (id: string, source: string) => ({
   ],
 });
 
-function jsonResponse(value: object, status = 200): Response {
-  return new Response(JSON.stringify(value), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
-}
-
 describe("bb plugin update commands", () => {
   setupCommandOutputTestEnvironment();
 
@@ -56,7 +49,7 @@ describe("bb plugin update commands", () => {
 
   it("outdated renders every outcome, reasons, and the dev-build annotation", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
-      jsonResponse({
+      Response.json({
         results: [
           { id: "a", outcome: "current", installed: version("1.0.0") },
           {
@@ -108,7 +101,7 @@ describe("bb plugin update commands", () => {
         installed: version("1.0.0"),
       },
     ];
-    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({ results }));
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ results }));
 
     await runCommand(["plugin", "outdated", "--json"], register);
 
@@ -119,7 +112,7 @@ describe("bb plugin update commands", () => {
 
   it("source renders resolved source and activation history", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
-      jsonResponse({
+      Response.json({
         requested: "npm:notes@^1",
         resolved: "1.2.0",
         integrity: "sha512-test",
@@ -150,7 +143,7 @@ describe("bb plugin update commands", () => {
       installedAt: 1_752_300_000_000,
       history: [{ version: "1.0.0", activatedAt: 1_752_300_000_000 }],
     };
-    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(source));
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json(source));
 
     await runCommand(["plugin", "source", "notes", "--json"], register);
 
@@ -161,7 +154,7 @@ describe("bb plugin update commands", () => {
 
   it("reload rejects an unknown id instead of reporting the full inventory", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
-      jsonResponse({
+      Response.json({
         ok: true,
         plugins: pluginList("other", "path:/other").plugins,
       }),
@@ -178,7 +171,7 @@ describe("bb plugin update commands", () => {
 
   it("reload prints only the requested plugin in human output", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
-      jsonResponse({
+      Response.json({
         ok: true,
         plugins: [
           ...pluginList("notes", "path:/notes").plugins,
@@ -196,7 +189,7 @@ describe("bb plugin update commands", () => {
 
   it("list annotates only CLI commands shadowed by core", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
-      jsonResponse({
+      Response.json({
         plugins: [
           {
             ...pluginList("shadower", "path:/shadower").plugins[0],
@@ -222,7 +215,7 @@ describe("bb plugin update commands", () => {
 
   it("skips pinned plugins with manual reinstall guidance", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
-      jsonResponse({
+      Response.json({
         results: [
           {
             id: "notes",
@@ -242,11 +235,50 @@ describe("bb plugin update commands", () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
+  it("starts an update without waiting and lets the user inspect its job", async () => {
+    const job = {
+      id: "update-1",
+      pluginId: "notes",
+      displayName: "Notes",
+      state: "running",
+      phase: "checking",
+    };
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        Response.json({
+          results: [
+            {
+              id: "notes",
+              outcome: "update-available",
+              installed: version("1.0.0"),
+              candidate: version("1.1.0"),
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(Response.json(pluginList("notes", "npm:notes@^1")))
+      .mockResolvedValueOnce(Response.json({ job }, { status: 202 }));
+    await runCommand(
+      ["plugin", "update", "notes", "--yes", "--no-wait"],
+      register,
+    );
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(collectLogPayloads(vi.mocked(console.log)).join("\n")).toContain(
+      "bb plugin update-jobs update-1",
+    );
+    vi.mocked(console.log).mockClear();
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ job }));
+    await runCommand(["plugin", "update-jobs", "update-1", "--json"], register);
+    expect(collectLogPayloads(vi.mocked(console.log))).toEqual([
+      JSON.stringify({ jobs: [job] }, null, 2),
+    ]);
+  });
+
   it("--all updates compatible results and skips pinned and incompatible", async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock
       .mockResolvedValueOnce(
-        jsonResponse({
+        Response.json({
           results: [
             { id: "pin", outcome: "pinned", installed: version("1") },
             {
@@ -264,9 +296,9 @@ describe("bb plugin update commands", () => {
           ],
         }),
       )
-      .mockResolvedValueOnce(jsonResponse(pluginList("good", "npm:good@^1")))
+      .mockResolvedValueOnce(Response.json(pluginList("good", "npm:good@^1")))
       .mockResolvedValueOnce(
-        jsonResponse({
+        Response.json({
           applied: true,
           from: version("1"),
           to: version("2"),
@@ -286,7 +318,7 @@ describe("bb plugin update commands", () => {
   it("renders a rolled-back server result", async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(
-        jsonResponse({
+        Response.json({
           results: [
             {
               id: "notes",
@@ -297,9 +329,9 @@ describe("bb plugin update commands", () => {
           ],
         }),
       )
-      .mockResolvedValueOnce(jsonResponse(pluginList("notes", "npm:notes@^1")))
+      .mockResolvedValueOnce(Response.json(pluginList("notes", "npm:notes@^1")))
       .mockResolvedValueOnce(
-        jsonResponse({
+        Response.json({
           applied: false,
           from: version("1"),
           to: version("2"),
@@ -327,10 +359,13 @@ describe("bb plugin update commands", () => {
       ],
     };
     vi.mocked(fetch)
-      .mockResolvedValueOnce(jsonResponse(update))
-      .mockResolvedValueOnce(jsonResponse(pluginList("notes", "npm:notes@^1")))
+      .mockResolvedValueOnce(Response.json(update))
+      .mockResolvedValueOnce(Response.json(pluginList("notes", "npm:notes@^1")))
       .mockResolvedValueOnce(
-        jsonResponse({ error: "signature verification failed" }, 422),
+        Response.json(
+          { error: "signature verification failed" },
+          { status: 422 },
+        ),
       );
     await expect(
       runCommand(["plugin", "update", "notes", "--yes"], register),
@@ -345,8 +380,10 @@ describe("bb plugin update commands", () => {
       configurable: true,
     });
     vi.mocked(fetch)
-      .mockResolvedValueOnce(jsonResponse(update))
-      .mockResolvedValueOnce(jsonResponse(pluginList("notes", "npm:notes@^1")));
+      .mockResolvedValueOnce(Response.json(update))
+      .mockResolvedValueOnce(
+        Response.json(pluginList("notes", "npm:notes@^1")),
+      );
     await expect(
       runCommand(["plugin", "update", "notes"], register),
     ).rejects.toThrow("process.exit:1");

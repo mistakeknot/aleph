@@ -11,8 +11,12 @@ import {
 } from "../src/index.js";
 import { dropTransferLedgerSchema } from "./helpers/drop-transfer-ledger.js";
 import {
+  dropIdleLifecycleIndexes,
+  dropMarketplaceSourceGitSubdirectoryColumn,
   dropMusicModeColumns,
   dropPluginEnabledFollowsDefaultColumn,
+  dropQueuedMessageEditHeldUntilColumn,
+  rewindThreadPruningWork,
 } from "./helpers/rewind.js";
 
 const THREAD_DRAFTS_MIGRATION_TIMESTAMP = 1790477193525;
@@ -111,7 +115,11 @@ it.each([false, true])(
         .all();
       expect(queueBefore).toHaveLength(alreadyMigrated ? 2 : 5);
 
+      dropIdleLifecycleIndexes(db);
+      rewindThreadPruningWork(db);
       dropPluginEnabledFollowsDefaultColumn(db);
+      dropQueuedMessageEditHeldUntilColumn(db);
+      dropMarketplaceSourceGitSubdirectoryColumn(db);
       migrate(db);
       migrate(db);
 

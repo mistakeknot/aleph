@@ -1,185 +1,193 @@
-# Windows CI foundation
+# Windows CI
 
-The `Windows host packages (Node 22.x)` job in
-`.github/workflows/ci.yml` runs on Blacksmith Windows Server 2025 x64. It runs on
-every pull request and main push, alongside the existing Linux checks. A failure
-fails the job; the Windows tests are not advisory.
+Every Windows job in `.github/workflows/ci.yml` runs on Blacksmith Windows
+Server 2025 x64 alongside the Linux checks. Main pushes run all of them; pull
+requests run the jobs that [PR selection](ci-performance.md#pr-selection)
+picks, and frontend-only pull requests leave their Windows coverage to main. A
+selected Windows job is blocking, not advisory.
 
-The job runs complete test suites and typechecks for nine packages:
+## Host packages
+
+The `Windows host packages (Node 22.x)` job runs lint, typecheck, and the full
+test suite for nine packages:
 
 - `@bb/process-utils`, `@bb/host-workspace`, and `@bb/host-watcher`
 - `@bb/agent-runtime`, `@bb/provider-bridge-protocol`, and `@bb/provider-bridge-acp`
 - `@bb/host-daemon-contract`, `@bb/config`, and `@bb/db`
 
-Turbo runs with `--force`, so a cached result from another OS cannot stand in for
-Windows execution, and `--concurrency=2` limits contention between process-heavy
-suites. Packages use shared Vitest workers with isolation for tests that mutate
-global state.
+Turbo reuses results from Windows-only cache keys; Linux and macOS entries
+cannot satisfy these checks. `--concurrency=2` limits contention between
+process-heavy suites.
 
-The native Windows coverage exercises:
-
-- Native executable and PATH-resolved `.cmd` launches with spaces and Unicode in
-  paths, literal arguments, stdin, stdout, stderr, and nonzero exit status.
-- Missing executable errors and case-insensitive runtime environment cleanup.
-- Buffered command output limits, cancellation, streaming stderr, and stdin EOF.
-  Cancellation and timeout use the shared owned-process termination boundary on every OS.
-- Drive-letter and UNC path containment, sibling-prefix escapes, and cross-drive
-  or cross-share rejection.
-- Real Git repositories: empty repositories, status, commits, diffs, branches,
-  linked worktrees, squash detection, fetch authentication, and command timeouts.
-- GitHub PR lookup and actions against local CLI fixtures, including Windows
-  `.cmd` launchers, missing CLI, and authentication failures.
-- Native Parcel filesystem events, ignored nested directories, watcher recovery,
-  and Git metadata subscriptions.
-- Real provider bridge subprocesses: thread/session lifecycle, cancellation,
-  replacement, ACP model discovery, MCP tools, and recorded provider conformance.
-- ACP launchers and model/version probes through the portable command runner;
-  awaited agent termination before session teardown.
-- Windows drive-root and case-insensitive ACP write-scope containment.
-- Process identity verification through Windows CIM command-line and creation-time
-  fields before stopping a recorded process.
-- Native file-lock exclusion across processes and recovery after the owner dies.
-- SQLite migrations, repositories, transactions, and schema/protocol validation.
-
-Git pipelines use the shell reported by `git var GIT_SHELL_PATH` on Windows.
-Use a recent Git for Windows that supports this query; WSL is not used by this check.
-
-Install and run the same slice from the repository root in PowerShell:
+Reproduce from the repository root in PowerShell:
 
 ```powershell
 npm install --global pnpm@9.15.0 --ignore-scripts
 pnpm install --frozen-lockfile --ignore-scripts --filter bb --filter "@bb/process-utils..." --filter "@bb/host-workspace..." --filter "@bb/host-watcher..." --filter "@bb/agent-runtime..." --filter "@bb/provider-bridge-protocol..." --filter "@bb/provider-bridge-acp..." --filter "@bb/host-daemon-contract..." --filter "@bb/config..." --filter "@bb/db..." --filter "bb-plugin-provider-acp..." --filter "bb-plugin-provider-codex..." --filter "bb-plugin-echo-provider..." --filter "@bb/app..."
-pnpm exec turbo run lint typecheck test --filter=@bb/process-utils --filter=@bb/host-workspace --filter=@bb/host-watcher --filter=@bb/agent-runtime --filter=@bb/provider-bridge-protocol --filter=@bb/provider-bridge-acp --filter=@bb/host-daemon-contract --filter=@bb/config --filter=@bb/db --force --continue --concurrency=2 --output-logs=full
+pnpm exec turbo run lint typecheck test --filter=@bb/process-utils --filter=@bb/host-workspace --filter=@bb/host-watcher --filter=@bb/agent-runtime --filter=@bb/provider-bridge-protocol --filter=@bb/provider-bridge-acp --filter=@bb/host-daemon-contract --filter=@bb/config --filter=@bb/db --continue --concurrency=2 --output-logs=new-only --summarize
 ```
 
-The filtered install includes root tooling, package dependencies, and the real
-provider plugins used by runtime and recorded-conformance fixtures. App
-dependencies supply the existing Plugin SDK runtime/theme generators; the job
-does not build or test the app or Electron. The scripted echo provider is an
-explicit runtime test dependency.
+The filtered install adds the provider plugins used by runtime and
+recorded-conformance fixtures, and the app dependencies that supply the Plugin
+SDK generators; the job does not build or test the app or Electron. Install
+scripts are disabled because the root prepare step generates the entire
+product; Turbo runs the required generators and native-module preparation.
 
-Install scripts are disabled because the root prepare step generates the entire
-product. Turbo runs the required generators and native-module preparation.
-SQLite and Parcel's Windows native addons are exercised by their suites.
+## Full test suite
 
-## Process boundary
+The `Windows tests (<shard>, Node 22.x)` jobs run the test suite of every
+package outside the nine above, on the same runner image. A failure fails the
+job. The thirteen shards cover each
+suite exactly once:
 
-`@bb/process-utils` owns executable resolution, owned process lifetimes, and OS
-process inspection. Long-lived children use `cross-spawn` for executable, PATH, PATHEXT, and `.cmd`
-handling. Buffered commands use Execa 9 behind `execPortableFile`; BB does not
-implement command resolution or shell quoting itself. Callers use these shared
-interfaces rather than selecting a process library or OS-specific flags.
+- `server-1` to `server-3`: `@bb/server`, split by file into three Vitest
+  shards.
+- `app-1` to `app-4`: `@bb/app`, split the same way into four.
+- `plugins-1`: the provider plugins (`bb-plugin-provider-*`) and the three
+  other slowest plugin suites: Tasks, Connect, and the thread list. This shard
+  installs Bun, which the Pi plugin's runtime regression requires in CI.
+- `plugins-2`: every other `bb-plugin-*` package. Its negative filters exclude
+  `plugins-1`, so a new plugin lands here without a workflow change.
+- `packages-host`: host daemon and CLI, one suite at a time.
+- `integration`: the integration tests, alone.
+- `packages-build`: templates, bb-app, demo server, desktop, and plugin build,
+  the same group as the Linux `packages-build` shard.
+- `packages-other`: every remaining package, including provider parity. Its
+  negative filters exclude the groups above and the nine host packages, so a
+  new package lands here without a workflow change.
 
-- `spawn.ts` contains the shared portable launch implementation.
-- `managed-process.ts` pairs a piped child with an idempotent `stop()` promise.
-  It creates the POSIX process group at launch, so callers do not choose
-  `detached` or branch on the OS. `stop({ gracePeriodMs })` resolves after the
-  retained root exits and reports `treeTermination: "confirmed" | "unverified"`.
-  Confirmation covers the owned group or OS-tracked tree, not escaped processes.
-  Failure to terminate the root rejects within the shutdown deadline. Repeated
-  calls share the first stop operation and its grace period.
-- `exec-portable-file.ts` delegates buffering, command launch, and stdin input to
-  Execa. Cancellation, timeout, and output-limit closure use the same bounded
-  ownership operation as managed processes. The
-  adapter preserves BB's exact output, byte-based limits, sanitized environment,
-  streaming UTF-8 stderr, and existing command error fields. Early output closure
-  stops the command, including Execa's output-limit closure; the adapter retains
-  no output buffers of its own.
-  Windows missing-command classification uses `which-command` before launch,
-  because Execa 9 does not retain cross-spawn's ENOENT verification.
-- `process-group.ts` and `windows-process-tree.ts` contain termination mechanics.
-  Managed POSIX stop gives the leader the requested grace period, then kills
-  surviving group members; group disappearance is polled for up to one additional
-  second. Windows cannot offer a signal grace period: it immediately forces the
-  tree with `taskkill /T /F` while the leader is alive, allowing two seconds for
-  taskkill and one second for root exit. Failed taskkill falls back to terminating
-  the retained root and reports unverified tree cleanup. An already-exited root
-  is also unverified; its potentially recycled PID is never targeted. Neither
-  path claims to track descendants that deliberately leave its group/tree.
-- `process-info.ts` reads command and start time together in one OS query.
-  Config still decides whether that identity matches a recorded BB process.
+The shards are sized so that each finishes with the slowest Linux job instead
+of after it; see [ci-performance.md](ci-performance.md#windows-test-shards).
 
-ACP and agent-runtime consume managed handles, and report unverified cleanup in
-process diagnostics. Git's buffered commands and background fetch use the Execa
-adapter; the bounded record reader uses a managed child. Shutdown failure is
-propagated without waiting indefinitely for a stream close event. Git-specific
-shell and error policy stay in host-workspace. The binary blob reader still uses Node's
-buffered binary API. Low-level spawn/group exports remain for existing callers
-outside this slice; new owned processes should use the managed API. The migrated
-runtime and ACP launch boundary have lint rules preventing direct process launches
-or manual process-group setup.
+App shards install the app and database dependency closures. Server shards
+install the server, host daemon, app, and plugin dependency closures, including
+the plugins loaded dynamically by the server test harness. Plugin, host, build,
+and integration shards omit the mobile toolchain. The catch-all `packages-other`
+shard retains the full install when its selected tests include mobile; other
+affected PRs omit the mobile toolchain. Full main and manual runs keep mobile
+coverage. All use
+`--ignore-scripts`; Turbo runs the
+generators and native-module preparation the suites depend on. They restore
+and save Turbo outputs. The cache key includes the runner OS, so a restored
+result was produced on Windows; a suite whose inputs are unchanged is not run
+again. Before saving, the job removes every cache entry that its own Turbo run
+summary does not name, so a shard keeps only what it can reuse.
 
-This structure follows the shared-launch and owned-lifetime patterns in
-[T3's ProcessRunner](https://github.com/pingdotgg/t3code/blob/5cc99e1c23980d7995a13c47f969b47cb68ed1be/apps/server/src/processRunner.ts#L250)
-and [Orca's child-process module](https://github.com/stablyai/orca/blob/449b8ca17dd16ab0074b968cdffe24bcee807b26/src/shared/child-process/run-process.ts#L44).
-No source was copied. T3's scoped resource ownership, Orca's bounded termination
-and explicit cleanup outcomes, and VS Code's separate terminal lifecycle inform
-the boundary. Their Effect integration, custom Windows shim parsing, and native
-process-table addons are not needed for this slice.
+The test step differs from the Linux one in three ways:
 
-Execa is pinned to 9.6.1, whose Windows launcher uses cross-spawn. Native CI
-caught incompatible missing-command classification and batch argument handling
-in Execa 10.0.1. BB therefore keeps owned shutdown in its shared module while
-borrowing Execa's buffering and stream handling. Upgrade the library only after
-these native launch and lifecycle regressions pass.
-[VS Code's process helpers](https://github.com/microsoft/vscode/blob/c353edbfa07735949e432e49b491ddc6baad49cc/src/vs/base/node/processes.ts#L150)
-also use taskkill; Windows terminal sequencing remains a subsequent slice.
+- It runs under `cmd`. A Git Bash step puts Git's MSYS tools first on PATH, and
+  suites that run `tar` then get GNU tar, which reads `C:\...` as a remote host.
+- `TEMP` and `TMP` point at the runner's temp directory. The runner's default
+  is an 8.3 short path inside the user profile
+  (`C:\Users\RUNNER~1\AppData\Local\Temp`). Suites outside the nine host
+  packages compare temp paths against their long names, and the plugin install
+  tests clone Git repositories into paths that pass 260 characters under it.
+- `packages-host` and `integration` run one Turbo task at a time, and the
+  plugin and other package shards run two; the server and app shards each run
+  a single suite. Suites that start many processes slow one another down
+  sharply on a four-vCPU Windows runner. With two at a time, the host daemon,
+  CLI, provider parity, and integration suites failed 6 of 13 measured runs on
+  five-second test timeouts and an integration test server that never finished
+  closing. In later runs beside other suites only the host daemon and
+  integration suites failed, so those two never share a runner with a suite
+  that runs at the same time. Provider parity passed all 35 such runs and now
+  runs in `packages-other`.
 
-The Windows packages use the ordinary Turbo test prerequisites. Shared Vitest
-inputs include `vitest*.ts`, covering both the worker configuration and temporary
-directory setup; there are no Windows-specific package task overrides.
+App and server shards, on Linux and Windows, select their Vitest shard with
+the internal `BB_CI_TEST_SHARD` variable (for example `1/3`). Vitest validates
+and applies it, and Turbo hashes it only for those test tasks. Do not pass
+shard selection after Turbo's `--`: those arguments also reach prerequisite
+builds and give identical SDK type builds different cache keys. Linux caps
+workers at two with `VITEST_MAX_WORKERS`, also hashed only for test tasks;
+Windows keeps Vitest's defaults. Run one shard locally from PowerShell after a
+full install:
+
+```powershell
+pnpm install --frozen-lockfile --ignore-scripts
+$env:BB_CI_TEST_SHARD = "1/3"
+pnpm exec turbo run test --filter=@bb/server --continue --output-logs=new-only
+```
+
+Each shard uploads `.turbo/runs/*.json` as a
+`test-timings-windows-<shard>-<attempt>` artifact. With nothing restored from
+the Turbo cache, a shard finishes in about three to four minutes. Setup
+(checkout, cache restore, install) is one and a half to two minutes of that,
+against under one minute on Linux: unpacking the pnpm store and linking
+`node_modules` are slow on NTFS, and the runners have no antivirus scanner to
+turn off.
+
+## Windows runner rules
+
+- Git pipelines use the shell reported by `git var GIT_SHELL_PATH`; use a Git
+  for Windows recent enough to answer that query. WSL is not used.
+- Run test steps under `cmd`, not Git Bash. Git Bash puts MSYS tools first on
+  PATH, and GNU `tar` reads `C:\...` as a remote host.
+- Point `TEMP` and `TMP` at the runner's temp directory. The default is an 8.3
+  short path, which breaks suites that compare temp paths against long names
+  and pushes plugin-install Git clones past 260 characters.
+- Keep process-heavy suites from running side by side: `packages-host` runs one
+  Turbo task at a time, `plugins` and `packages-other` run two, and the server
+  and app shards run a single suite. Each suite passes alone but times out
+  beside another on a four-vCPU runner.
 
 ## App boot smoke
 
 The `Windows app smoke (Node 22.x)` job builds `bb-app` from the checkout and
-runs `packages/bb-app/scripts/smoke-boot.mjs` on the same runner image. The
-smoke starts the built launcher on free ports with a temporary data directory,
-waits for the server's `/health`, runs `bb status` through the bundled CLI,
-waits for the expected built-in plugins to report `running`, checks that the
-host daemon connected, then stops the process tree and confirms the server no
-longer answers. It fails when a built-in plugin cannot load or the bundled CLI
-cannot start. The same task runs on macOS and Linux:
+runs `packages/bb-app/scripts/smoke-boot.mjs`: it starts the built launcher on
+free ports with a temporary data directory, waits for `/health`, runs
+`bb status` through the bundled CLI, waits for the built-in plugins to report
+`running` and the host daemon to connect, then stops the process tree. It then
+runs `packages/bb-app/scripts/smoke-tarball.mjs`, which packs `bb-app`, runs it
+through `npx --package`, installs the tarball, runs each installed command
+through npm's `.cmd` shim, and starts the full stack and a joined daemon. The
+same tasks run on macOS and Linux:
 
 ```powershell
 pnpm install --frozen-lockfile --ignore-scripts
 pnpm exec turbo run smoke:boot --filter=bb-app --output-logs=new-only
-```
-
-The same job then runs `packages/bb-app/scripts/smoke-tarball.mjs`, which packs
-`bb-app`, runs it through `npx --package`, installs the tarball, runs each
-installed command through the `.cmd` shim npm creates, and starts the full
-stack and a joined daemon from the installed package:
-
-```powershell
 pnpm exec turbo run smoke:tarball --filter=bb-app --output-logs=new-only
 ```
 
+The `Windows desktop smoke (Node 22.x)` job packages the desktop app from the
+same checkout and runs the packaged-app smoke against the result. Both
+packaging smoke jobs install the workspace without `@bb/mobile`, which is not
+in the desktop or launcher dependency chain:
+
+```powershell
+pnpm exec turbo run package:win --filter=@bb/desktop --output-logs=new-only
+pnpm exec turbo run smoke:packaged --filter=@bb/desktop --force --output-logs=new-only
+```
+
+It is a separate job because both smokes build `bb-app` and then spend about a
+minute each on work that cannot overlap: the tarball smoke prunes and packs
+`packages/bb-app/dist` while packaging copies it. In one job they ran back to
+back and that job finished last in the workflow.
+
 The daemon bundle ships `bb.cmd` beside the extensionless `bb` script so
-PowerShell and `cmd.exe` find `bb` on the PATH that bb gives agent shells. The
-launcher and the CLI re-exec run the extensionless script through Node on
-Windows, because Windows cannot execute a file by its shebang.
+PowerShell and `cmd.exe` find `bb` on agent shells' PATH; the launcher and CLI
+re-exec run the extensionless script through Node because Windows cannot
+execute a file by its shebang.
 
-## Remaining Windows work
+## Known gaps
 
-The package checks and the smokes establish that bb starts, installs from npm,
-and packages on Windows. Native Windows is an alpha host (see
-[platform-support.md](platform-support.md)). Provider integration tests use
-controlled agent fixtures and recorded traffic; real installed providers are
-verified by hand, not in CI.
+Native Windows is an alpha host (see [platform-support.md](platform-support.md)).
 
-Windows stop operations use forced tree termination while the leader is alive.
-They do not provide POSIX signal delivery or graceful signal handlers. Descendant
-discovery after the leader has already exited, working-directory process sweeps,
-and synchronous process-group helpers remain follow-up work. Existing tests for
-Unix signals, filenames, symlinks, and Linux inotify counters remain
-platform-specific.
-
-A Windows machine enrolled in another server runs its daemon from the user's
-`Run` registry key, not a Windows service, so it stops when the user signs out.
-No CI job covers that installer; it is verified by hand. The full test suite does not run on Windows: most remaining
-failures are tests that assume `/` paths, POSIX file modes, or a Bourne shell.
-
-Add packages to the install and Turbo filters as their real Windows tests pass.
-Keep the Linux suite running to protect existing behavior. Windows Server CI must
-eventually be supplemented with Windows 11 verification for installation,
-interactive terminals, updates, and actual provider sessions.
+- Provider integration tests use controlled agent fixtures and recorded
+  traffic; real installed providers are verified by hand.
+- Windows stop operations force-terminate the process tree
+  (`taskkill /T /F`) while the leader is alive; there is no POSIX signal
+  delivery or graceful shutdown. Descendant discovery after the leader exits,
+  working-directory process sweeps, and synchronous process-group helpers are
+  not implemented.
+- A Windows machine enrolled in another server runs its daemon from the user's
+  `Run` registry key, so it stops when the user signs out. No CI job covers
+  that installer.
+- Lint and typecheck run on Windows only for the nine host packages. POSIX-only
+  tests skip themselves. Suites outside the host packages are not verified
+  under an 8.3 short `TEMP` path or paths longer than 260 characters; the
+  plugin server build skips its "import escapes the plugin directory" check
+  when the plugin directory is given as an 8.3 short path.
+- The integration test server sometimes fails to finish closing beside another
+  process-heavy suite; the cause is unexplained.
+- Windows 11 installation, interactive terminals, updates, and real provider
+  sessions still need verification beyond Windows Server CI.

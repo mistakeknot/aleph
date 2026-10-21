@@ -1,4 +1,4 @@
-import type { BrowserWindowConstructorOptions } from "electron";
+import type { BrowserWindowConstructorOptions, Event } from "electron";
 import {
   MIN_WINDOW_HEIGHT,
   MIN_WINDOW_WIDTH,
@@ -44,6 +44,11 @@ export interface DesktopWindowOpenDevToolsOptions {
 
 export interface DesktopWindowWebContents extends DesktopContextMenuWebContents {
   id: number;
+  on(...args: Parameters<DesktopContextMenuWebContents["on"]>): void;
+  on(
+    eventName: "did-change-theme-color",
+    listener: (event: Event, color: string | null) => void,
+  ): void;
   openDevTools(options: DesktopWindowOpenDevToolsOptions): void;
   setWindowOpenHandler(handler: DesktopWindowOpenHandler): void;
   setZoomFactor(factor: number): void;
@@ -62,6 +67,7 @@ export interface DesktopBrowserWindow extends StatefulBrowserWindow {
   once(eventName: "ready-to-show", listener: () => void): void;
   restore(): void;
   setFullScreen(isFullScreen: boolean): void;
+  setBackgroundColor(color: string): void;
   show(): void;
   webContents: DesktopWindowWebContents;
 }
@@ -84,6 +90,7 @@ interface CreateDesktopWindowFactoryArgs {
   isMac: boolean;
   isLinuxFrameless: boolean;
   isQuitting(): boolean;
+  shouldUseDarkColors(): boolean;
   openExternalUrl(args: OpenExternalUrlArgs): void;
   preloadPath: string;
   userDataPath: string;
@@ -128,6 +135,7 @@ interface LoadUrlIntoWindowArgs {
 
 interface CreateWindowOptionsArgs {
   applicationName: string;
+  backgroundColor: string;
   bounds: WindowBounds;
   icon: DesktopWindowIcon;
   isLinuxTransparent: boolean;
@@ -163,6 +171,7 @@ function createWindowOptions(
   args: CreateWindowOptionsArgs,
 ): BrowserWindowConstructorOptions {
   return {
+    backgroundColor: args.backgroundColor,
     ...(args.isLinuxFrameless ? { frame: false } : {}),
     ...(args.isLinuxTransparent
       ? { backgroundColor: "#00000000", transparent: true }
@@ -173,7 +182,7 @@ function createWindowOptions(
           titleBarStyle: "hiddenInset" as const,
           trafficLightPosition: MACOS_TRAFFIC_LIGHT_POSITION,
         }
-      : {}),
+      : { autoHideMenuBar: true }),
     height: args.bounds.height,
     icon: args.icon,
     minHeight: MIN_WINDOW_HEIGHT,
@@ -232,6 +241,7 @@ export function createDesktopWindowFactory(
       const browserWindow = args.browserWindowCreator.create(
         createWindowOptions({
           applicationName: args.applicationName,
+          backgroundColor: args.shouldUseDarkColors() ? "#151515" : "#ffffff",
           bounds: restoredState.bounds,
           icon: args.icon,
           isLinuxTransparent: args.isLinuxTransparent,
@@ -240,6 +250,16 @@ export function createDesktopWindowFactory(
           preloadPath: args.preloadPath,
         }),
       );
+      if (!args.isLinuxTransparent) {
+        browserWindow.webContents.on(
+          "did-change-theme-color",
+          (_event, color) => {
+            if (color !== null) {
+              browserWindow.setBackgroundColor(color);
+            }
+          },
+        );
+      }
       browserWindow.webContents.session.setSpellCheckerEnabled(true);
 
       activeWindows.set(stateKey, browserWindow);

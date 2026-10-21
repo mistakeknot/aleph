@@ -31,7 +31,11 @@ function legacyEnvData() {
         source: "shell",
         value: "-H 'Authorization: Bearer synthetic-bearer-1111' --api-key=abc",
       },
-      { name: "MASKED_ONE", source: { core: "machine-git" }, value: { masked: true } },
+      {
+        name: "MASKED_ONE",
+        source: { core: "machine-git" },
+        value: { masked: true },
+      },
     ],
   };
 }

@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { noopNotifier } from "../../src/notifier.js";
 import type { DbNotifier } from "../../src/notifier.js";
 import {
@@ -15,7 +15,7 @@ import {
 import { environments } from "../../src/schema.js";
 import { createProject } from "../../src/data/projects.js";
 import { updateHost, upsertHost } from "../../src/data/hosts.js";
-import { createMigratedConnection } from "../helpers/migrated-connection.js";
+import { createMigratedConnection } from "../../src/testing.js";
 
 function setup() {
   const db = createMigratedConnection();
@@ -68,6 +68,9 @@ describe("environments", () => {
 
   it("marks every environment on a removed host as destroyed history", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
     vi.setSystemTime(25_000);
     const { db, host, project } = setup();
     const first = createEnvironment(db, noopNotifier, {

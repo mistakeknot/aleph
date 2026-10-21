@@ -1,3 +1,4 @@
+import { flushSync } from "react-dom";
 import { Icon, type IconName } from "@bb/shared-ui/icon";
 import { Button } from "@bb/shared-ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@bb/shared-ui/toggle-group";
@@ -60,7 +61,7 @@ import { usePointerCoarse } from "@bb/shared-ui/hooks/use-pointer-coarse";
 import { ThreadTimelineScrollToBottomButton } from "@/views/thread-detail/ThreadTimelineScrollToBottomButton";
 import { ThreadContextWindowIndicator } from "@/components/thread/timeline";
 import {
-  PROMPT_STACK_CARD_ROW_HEIGHT,
+  PROMPT_CONTEXT_BANNER_COLLAPSED_HEIGHT,
   PROMPT_STACK_TRACK_CLASS,
 } from "@/components/promptbox/banner/PromptStackCard";
 
@@ -110,7 +111,8 @@ function PromptBoxWithScrollAnchor({
 
 const FOLLOW_UP_PROMPT_BOX_DEFAULT_MIN_HEIGHT = 68;
 const FOLLOW_UP_PROMPT_BOX_ELASTIC_TARGET_HEIGHT =
-  FOLLOW_UP_PROMPT_BOX_DEFAULT_MIN_HEIGHT + PROMPT_STACK_CARD_ROW_HEIGHT;
+  FOLLOW_UP_PROMPT_BOX_DEFAULT_MIN_HEIGHT +
+  PROMPT_CONTEXT_BANNER_COLLAPSED_HEIGHT;
 const COMPOSER_CONTROL_SELECTOR = "button, [role='button'], [aria-haspopup]";
 const COMPOSER_OVERLAY_TRIGGER_SELECTOR = "[aria-haspopup]";
 const OPEN_COMPOSER_OVERLAY_TRIGGER_SELECTOR = `${COMPOSER_OVERLAY_TRIGGER_SELECTOR}[aria-expanded="true"]`;
@@ -155,6 +157,7 @@ export interface FollowUpPromptBoxProps {
   contextWindowUsage: ContextWindowUsage | null;
   execution: ExecutionControlsProps;
   permission: ExecutionPermissionConfig;
+  sessionOptionsControl?: ReactNode;
   executionReadOnly?: boolean;
   permissionReadOnly?: boolean;
   typeahead: TypeaheadConfig;
@@ -232,6 +235,7 @@ function FollowUpPromptBoxWithComposer({
   contextWindowUsage,
   execution,
   permission,
+  sessionOptionsControl = null,
   executionReadOnly,
   permissionReadOnly,
   typeahead,
@@ -290,18 +294,22 @@ function FollowUpPromptBoxWithComposer({
   }, []);
   const voice = usePromptVoice(
     promptBoxRef,
-    voiceDraft ?? pluginComposerHost ?? undefined,
+    voiceDraft
+      ? { ...voiceDraft, submit: pluginComposerHost?.submit }
+      : (pluginComposerHost ?? undefined),
   );
   const isCompactViewport = useIsCompactViewport();
   const isPointerCoarse = usePointerCoarse();
   const composerInteractionRef = useRef<HTMLDivElement>(null);
-  const interactionExpandedRef = useRef(false);
+  const focusesEditorOnMount = !isPointerCoarse;
+  const interactionExpandedRef = useRef(focusesEditorOnMount);
   const pendingFocusExpansionCleanupRef = useRef<(() => void) | null>(null);
   const pendingFocusLossCleanupRef = useRef<(() => void) | null>(null);
   const deferredControlFocusLossRef = useRef<(() => void) | null>(null);
   const pressedComposerControlRef = useRef(false);
   const pressedComposerControlCleanupRef = useRef<(() => void) | null>(null);
-  const [isInteractionExpanded, setIsInteractionExpanded] = useState(false);
+  const [isInteractionExpanded, setIsInteractionExpanded] =
+    useState(focusesEditorOnMount);
   const [widePromptBoxCollapsedFor, setWidePromptBoxCollapsedFor] = useState<
     string | number | null
   >(null);
@@ -640,7 +648,7 @@ function FollowUpPromptBoxWithComposer({
         disabled={permissionPickerDisabled}
         showChevronWhenDisabled={permissionPickerDisabledByPlanMode}
         displayOverride={permissionDisplayOverride}
-        className="h-6 max-md:h-11 max-md:px-2"
+        className="h-6 max-md:pointer-coarse:h-11 max-md:pointer-coarse:px-2"
       />
     ),
     [
@@ -667,7 +675,7 @@ function FollowUpPromptBoxWithComposer({
     if (element) {
       applyStackHeight(element.offsetHeight);
     }
-  }, [applyStackHeight]);
+  }, [applyStackHeight, stack]);
 
   useEffect(() => {
     const element = stackRef.current;
@@ -678,7 +686,9 @@ function FollowUpPromptBoxWithComposer({
       const borderBoxSize = Array.isArray(entry.borderBoxSize)
         ? entry.borderBoxSize[0]
         : entry.borderBoxSize;
-      applyStackHeight(borderBoxSize?.blockSize ?? entry.contentRect.height);
+      const measured = borderBoxSize?.blockSize ?? entry.contentRect.height;
+      if (lastStackHeightRef.current === measured) return;
+      flushSync(() => applyStackHeight(measured));
     });
     observer.observe(element);
     return () => observer.disconnect();
@@ -739,11 +749,9 @@ function FollowUpPromptBoxWithComposer({
             ? "Submitting..."
             : isLoadingExecutionOptions
               ? "Loading models..."
-              : isLoadingPendingInteractions
-                ? "Checking pending interactions..."
-                : isUnavailable
-                  ? "Unavailable"
-                  : undefined,
+              : isUnavailable
+                ? "Unavailable"
+                : undefined,
           onModifierSubmit,
           swapSubmitActions: steerOnPrimarySubmit,
           showModifierSubmitAction: submitMode.kind === "queue",
@@ -853,12 +861,13 @@ function FollowUpPromptBoxWithComposer({
       {!isPromptBoxCompact ? (
         <div
           data-follow-up-composer-footer=""
-          className="mt-1 flex min-h-6 max-h-6 select-none max-md:mt-0 max-md:min-h-11 max-md:max-h-11 items-center justify-between gap-2 overflow-hidden pl-[15px] pr-3.5 opacity-100 transition-[max-height,min-height,margin-top,opacity] duration-[180ms] ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none"
+          className="mt-1 flex min-h-6 max-h-6 select-none max-md:mt-0 max-md:pointer-coarse:min-h-11 max-md:pointer-coarse:max-h-11 items-center justify-between gap-2 overflow-hidden pl-[15px] pr-3.5 opacity-100 transition-[max-height,min-height,margin-top,opacity] duration-[180ms] ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none"
         >
           <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
             {isCompactViewport ? compactEnvironmentSummary : environmentSummary}
           </div>
           <div className="flex shrink-0 items-center gap-2 max-md:gap-0">
+            {sessionOptionsControl}
             {permissionControl}
             {contextWindowUsage ? (
               <ThreadContextWindowIndicator usage={contextWindowUsage} />

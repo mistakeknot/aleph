@@ -6,8 +6,9 @@ and command names and adds what long-running coordinator work needs: an
 account pool, attempt receipts, and a version scheme that stops an upstream
 update from replacing it.
 
-The current build is Aleph <!--fig:aleph-version=0.4.1-->0.4.1 on upstream bb
-<!--fig:upstream-version=0.43.4-->0.43.4. See `FORK.md` for
+The current build is Aleph <!--fig:aleph-version=0.7.0-->0.7.0 on upstream bb
+<!--fig:upstream-version=0.46.1-->0.46.1. See `FORK.md` for
+
 the rules of the fork.
 
 Figures on these pages carry a hidden marker. The test in

@@ -107,6 +107,7 @@ interface ControlledClaudeQuery {
 }
 
 interface ClaudeQueryCallOptions {
+  allowDangerouslySkipPermissions?: boolean;
   canUseTool?: CanUseTool;
   env?: Record<string, string | undefined>;
   extraArgs?: Record<string, string | null>;
@@ -115,6 +116,7 @@ interface ClaudeQueryCallOptions {
   permissionMode?: ClaudePermissionMode;
   resume?: string;
   sandbox?: BridgeSessionOptions["sandbox"];
+  settings?: BridgeSessionOptions["settings"];
   sessionId?: string;
   settingSources?: string[];
   stderr?: (data: string) => void;
@@ -630,6 +632,19 @@ function isApprovalInteraction(message: BridgeJsonRpcOutputMessage): boolean {
   return interactionPayload(message)?.kind === "approval";
 }
 
+async function waitForBridgeRequest(
+  bridge: BridgeJsonRpcTestHarness,
+  matches: (message: BridgeJsonRpcOutputMessage) => boolean,
+): Promise<BridgeJsonRpcOutputMessage> {
+  return vi.waitFor(() => {
+    const request = bridge.messages.find(matches);
+    if (request?.id === undefined) {
+      throw new Error("Expected bridge request");
+    }
+    return request;
+  });
+}
+
 function isUserQuestionInteraction(
   message: BridgeJsonRpcOutputMessage,
 ): boolean {
@@ -647,9 +662,7 @@ async function forwardAskUserQuestion({
     signal: new AbortController().signal,
     toolUseID,
   });
-  await bridge.flushWork();
-
-  const questionRequest = bridge.messages.find((message) =>
+  const questionRequest = await waitForBridgeRequest(bridge, (message) =>
     isUserQuestionInteraction(message),
   );
   if (questionRequest?.id === undefined) {
@@ -1639,9 +1652,7 @@ describe("bridge", () => {
           toolUseID,
         },
       );
-      await bridge.flushWork();
-
-      const permissionRequest = bridge.messages.find((message) =>
+      const permissionRequest = await waitForBridgeRequest(bridge, (message) =>
         isApprovalInteraction(message),
       );
       if (permissionRequest?.id === undefined) {
@@ -1710,9 +1721,7 @@ describe("bridge", () => {
           toolUseID,
         },
       );
-      await bridge.flushWork();
-
-      const permissionRequest = bridge.messages.find((message) =>
+      const permissionRequest = await waitForBridgeRequest(bridge, (message) =>
         isApprovalInteraction(message),
       );
       if (permissionRequest?.id === undefined) {
@@ -1783,8 +1792,7 @@ describe("bridge", () => {
           toolUseID: "tool-npm",
         },
       );
-      await bridge.flushWork();
-      const npmRequest = bridge.messages.find((message) =>
+      const npmRequest = await waitForBridgeRequest(bridge, (message) =>
         isApprovalInteraction(message),
       );
       if (npmRequest?.id === undefined) {
@@ -1853,8 +1861,8 @@ describe("bridge", () => {
           toolUseID: "tool-python",
         },
       );
-      await bridge.flushWork();
-      const pythonRequest = bridge.messages.find(
+      const pythonRequest = await waitForBridgeRequest(
+        bridge,
         (message) =>
           isApprovalInteraction(message) && message.id !== npmRequest.id,
       );
@@ -1903,9 +1911,7 @@ describe("bridge", () => {
           toolUseID,
         },
       );
-      await bridge.flushWork();
-
-      const permissionRequest = bridge.messages.find((message) =>
+      const permissionRequest = await waitForBridgeRequest(bridge, (message) =>
         isApprovalInteraction(message),
       );
       if (permissionRequest?.id === undefined) {
@@ -1938,7 +1944,7 @@ describe("bridge", () => {
     }
   });
 
-  it("does not let a session grant for a folder cover a later request that names no folder", async () => {
+  it("keeps folder grants scoped and clears them on live permission changes", async () => {
     const bridge = createBridgeJsonRpcTestHarness(handleLine);
     const queries: ControlledClaudeQuery[] = [];
     queryMock.mockImplementation(() => {
@@ -1961,8 +1967,7 @@ describe("bridge", () => {
           toolUseID: "tool-path-grant",
         },
       );
-      await bridge.flushWork();
-      const pathRequest = bridge.messages.find((message) =>
+      const pathRequest = await waitForBridgeRequest(bridge, (message) =>
         isApprovalInteraction(message),
       );
       if (pathRequest?.id === undefined) {
@@ -1995,8 +2000,8 @@ describe("bridge", () => {
           toolUseID: "tool-escalation",
         },
       );
-      await bridge.flushWork();
-      const escalationRequest = bridge.messages.find(
+      const escalationRequest = await waitForBridgeRequest(
+        bridge,
         (message) =>
           isApprovalInteraction(message) && message.id !== pathRequest.id,
       );
@@ -2014,6 +2019,58 @@ describe("bridge", () => {
         behavior: "deny",
         toolUseID: "tool-escalation",
       });
+
+      const cachedRequestOptions = {
+        blockedPath: "/tmp/outside",
+        requestId: "control-request-cached",
+        signal: new AbortController().signal,
+        toolUseID: "tool-cached-grant",
+      };
+      await expect(
+        getLastCanUseTool()(
+          "Read",
+          { file_path: "/tmp/outside/notes.txt" },
+          cachedRequestOptions,
+        ),
+      ).resolves.toMatchObject({ behavior: "allow" });
+      bridge.sendRequest(
+        10,
+        "turn/start",
+        canonicalTurnParams({
+          threadId,
+          input: [{ type: "text", text: "change permission roots" }],
+          providerOptions: {
+            additionalWorkspaceWriteRoots: ["/tmp/shared-worktree"],
+          },
+        }),
+      );
+      await readNextPrompt(getLatestQueryCall());
+      await bridge.waitForResponse(10);
+      expect(queries).toHaveLength(1);
+      const afterChange = getLastCanUseTool()(
+        "Read",
+        { file_path: "/tmp/outside/notes.txt" },
+        cachedRequestOptions,
+      );
+      const renewedRequest = await waitForBridgeRequest(
+        bridge,
+        (message) =>
+          isApprovalInteraction(message) &&
+          message.id !== pathRequest.id &&
+          message.id !== escalationRequest.id,
+      );
+      if (renewedRequest?.id === undefined)
+        throw new Error(
+          "Expected a fresh permission request after the live change",
+        );
+      handleLine(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: renewedRequest.id,
+          result: { decision: "deny", grantedPermissions: null },
+        }),
+      );
+      await expect(afterChange).resolves.toMatchObject({ behavior: "deny" });
 
       await stopBridgeThread({ bridge, queries, threadId });
     } finally {
@@ -2130,9 +2187,7 @@ describe("bridge", () => {
         signal: new AbortController().signal,
         toolUseID,
       });
-      await bridge.flushWork();
-
-      const approvalRequest = bridge.messages.find((message) =>
+      const approvalRequest = await waitForBridgeRequest(bridge, (message) =>
         isApprovalInteraction(message),
       );
       if (approvalRequest?.id === undefined) {
@@ -2170,72 +2225,225 @@ describe("bridge", () => {
     }
   });
 
-  it("returns to the user's permission preset once a plan is approved", async () => {
-    const bridge = createBridgeJsonRpcTestHarness(handleLine);
-    const queries: ControlledClaudeQuery[] = [];
-    queryMock.mockImplementation(() => {
-      const query = createControlledClaudeQuery();
-      queries.push(query);
-      return query;
-    });
+  it.each([
+    { mode: "full", nativeMode: "bypassPermissions" },
+    { mode: "auto", nativeMode: "auto" },
+    { mode: "accept-edits", nativeMode: "acceptEdits" },
+    { mode: "full", nativeMode: "bypassPermissions", samePreset: true },
+    { mode: "auto", nativeMode: "auto", samePreset: true },
+    { mode: "accept-edits", nativeMode: "acceptEdits", samePreset: true },
+    { mode: "accept-edits", nativeMode: "acceptEdits", refuse: true },
+  ] as const)(
+    "prepares the $mode sandbox before approving a Plan preset ($samePreset, $refuse)",
+    async (testCase) => {
+      const { mode, nativeMode } = testCase;
+      const samePreset = "samePreset" in testCase;
+      const refuse = "refuse" in testCase;
+      const full = mode === "full";
+      const bridge = createBridgeJsonRpcTestHarness(handleLine);
+      const queries: ControlledClaudeQuery[] = [];
+      queryMock.mockImplementation(() => {
+        const query = createControlledClaudeQuery();
+        queries.push(query);
+        return query;
+      });
 
-    try {
-      const threadId = "thread-plan-restores-preset";
-      bridge.sendRequest(1, "thread/start", {
-        threadId,
-        cwd: "/tmp/worktree",
-        instructionMode: "append",
-        options: {
-          permissionMode: "full",
-          permissionScope: "full",
-          approvalReviewer: null,
-          permissionEscalation: null,
-          instructions: "test",
+      try {
+        const threadId = `thread-plan-restores-${mode}`;
+        bridge.sendRequest(1, "thread/start", {
+          threadId,
+          cwd: "/tmp/worktree",
+          instructionMode: "append",
+          options: {
+            permissionMode: samePreset ? mode : full ? "auto" : "full",
+            permissionScope: samePreset
+              ? full
+                ? "full"
+                : "workspace"
+              : full
+                ? "workspace"
+                : "full",
+            approvalReviewer: samePreset
+              ? full
+                ? null
+                : mode === "auto"
+                  ? "automatic"
+                  : "user"
+              : full
+                ? "automatic"
+                : null,
+            permissionEscalation: samePreset
+              ? full
+                ? null
+                : "ask"
+              : full
+                ? "ask"
+                : null,
+            instructions: "test",
+            providerOptions: {
+              workflowsEnabled: false,
+              claudeCodePermissionMode: "plan",
+              sandboxEnabled: true,
+              additionalWorkspaceWriteRoots: ["/tmp/shared-worktree"],
+            },
+          },
+        });
+        await bridge.waitForResponse(1);
+
+        const options = {
+          ...canonicalOptions(),
+          permissionMode: mode,
+          permissionScope: full ? "full" : "workspace",
+          approvalReviewer: full
+            ? null
+            : mode === "auto"
+              ? "automatic"
+              : "user",
+          permissionEscalation: full ? null : "ask",
           providerOptions: {
             workflowsEnabled: false,
-            claudeCodePermissionMode: "plan",
+            sandboxEnabled: true,
+            additionalWorkspaceWriteRoots: ["/tmp/shared-worktree"],
           },
-        },
-      });
-      await bridge.waitForResponse(1);
+        };
+        bridge.sendRequest(10, "turn/start", {
+          ...canonicalTurnParams({
+            threadId,
+            input: [
+              {
+                type: "text",
+                text: "Continue planning with the new permission preset after approval",
+              },
+            ],
+          }),
+          options,
+        });
+        await bridge.flushWork();
+        expect(getLatestQueryOptions().permissionMode).toBe("plan");
+        if (full) {
+          expect(getLatestQueryOptions().allowDangerouslySkipPermissions).toBe(
+            true,
+          );
+          expect(getLatestQueryOptions()).not.toHaveProperty("sandbox");
+        } else {
+          if (samePreset) {
+            expect(getLatestQueryOptions()).toMatchObject({
+              sandbox: {
+                enabled: true,
+                filesystem: { allowWrite: ["/tmp/shared-worktree"] },
+              },
+              additionalDirectories: ["/tmp/shared-worktree"],
+            });
+          } else
+            expect(queries[0]?.applyFlagSettings).toHaveBeenLastCalledWith({
+              sandbox: expect.objectContaining({
+                enabled: true,
+                filesystem: { allowWrite: ["/tmp/shared-worktree"] },
+              }),
+              permissions: { additionalDirectories: ["/tmp/shared-worktree"] },
+            });
+          expect(queries[0]?.setPermissionMode).not.toHaveBeenCalled();
+        }
+        await readNextPrompt(getLatestQueryCall());
+        await bridge.waitForResponse(10);
 
-      const canUseTool = getLastCanUseTool();
-      const planPromise = canUseTool(
-        "ExitPlanMode",
-        { plan: "# Plan" },
-        {
-          requestId: "control-request",
-          signal: new AbortController().signal,
-          toolUseID: "tool-plan",
-        },
-      );
-      await bridge.flushWork();
-      const approvalRequest = bridge.messages.find((message) =>
-        isApprovalInteraction(message),
-      );
-      if (approvalRequest?.id === undefined) {
-        throw new Error("Expected ExitPlanMode to request user approval");
+        const canUseTool = getLastCanUseTool();
+        const planPromise = canUseTool(
+          "ExitPlanMode",
+          { plan: "# Plan" },
+          {
+            requestId: "control-request",
+            signal: new AbortController().signal,
+            toolUseID: "tool-plan",
+          },
+        );
+        const approvalRequest = await waitForBridgeRequest(bridge, (message) =>
+          isApprovalInteraction(message),
+        );
+        if (approvalRequest?.id === undefined) {
+          throw new Error("Expected ExitPlanMode to request user approval");
+        }
+
+        if (refuse)
+          queries
+            .at(-1)
+            ?.setPermissionMode.mockRejectedValueOnce(
+              new Error("disabled by settings or configuration"),
+            );
+        handleLine(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: approvalRequest.id,
+            result: { decision: "allow_once", grantedPermissions: null },
+          }),
+        );
+        await expect(planPromise).resolves.toMatchObject({ behavior: "allow" });
+        await bridge.flushWork();
+        if (refuse) {
+          expect(assembleCapturedThreadEvents(bridge.messages)).toContainEqual(
+            expect.objectContaining({
+              type: "provider/error",
+              message: expect.stringContaining("Failed to leave Plan mode"),
+            }),
+          );
+          await stopBridgeThread({
+            bridge,
+            queries: queries.slice(-1),
+            threadId,
+          });
+          return;
+        }
+        await bridge.flushWork();
+
+        expect(queries.at(-1)?.setPermissionMode).toHaveBeenLastCalledWith(
+          nativeMode,
+        );
+        expect(queries).toHaveLength(full && !samePreset ? 2 : 1);
+
+        if (!full) {
+          for (const [id, sandboxEnabled] of [
+            [11, false],
+            [12, true],
+          ] as const) {
+            bridge.sendRequest(id, "turn/start", {
+              ...canonicalTurnParams({
+                threadId,
+                input: [
+                  { type: "text", text: "Update sandbox after approval" },
+                ],
+              }),
+              options: {
+                ...options,
+                providerOptions: { ...options.providerOptions, sandboxEnabled },
+              },
+            });
+            await bridge.flushWork();
+            expect(queries[0]?.applyFlagSettings).toHaveBeenLastCalledWith({
+              sandbox: sandboxEnabled
+                ? expect.objectContaining({
+                    enabled: true,
+                    filesystem: { allowWrite: ["/tmp/shared-worktree"] },
+                  })
+                : { enabled: false },
+              permissions: { additionalDirectories: ["/tmp/shared-worktree"] },
+            });
+            expect(queries).toHaveLength(1);
+            await readNextPrompt(getLatestQueryCall());
+            await bridge.waitForResponse(id);
+          }
+        }
+
+        await stopBridgeThread({
+          bridge,
+          queries: queries.slice(-1),
+          threadId,
+        });
+      } finally {
+        queries.forEach((query) => query.finish());
+        bridge.restore();
       }
-
-      handleLine(
-        JSON.stringify({
-          jsonrpc: "2.0",
-          id: approvalRequest.id,
-          result: { decision: "allow_once", grantedPermissions: null },
-        }),
-      );
-      await expect(planPromise).resolves.toMatchObject({ behavior: "allow" });
-      await bridge.flushWork();
-
-      expect(queries[0]?.setPermissionMode).toHaveBeenLastCalledWith(
-        "bypassPermissions",
-      );
-
-      await stopBridgeThread({ bridge, queries, threadId });
-    } finally {
-      bridge.restore();
-    }
-  });
+    },
+  );
 
   it("translates tagged dollar skill mentions without changing plain dollar text", async () => {
     const bridge = createBridgeJsonRpcTestHarness(handleLine);
@@ -2353,8 +2561,7 @@ describe("bridge", () => {
           toolUseID: "tool-plan",
         },
       );
-      await bridge.flushWork();
-      const approvalRequest = bridge.messages.find((message) =>
+      const approvalRequest = await waitForBridgeRequest(bridge, (message) =>
         isApprovalInteraction(message),
       );
       if (approvalRequest?.id === undefined) {
@@ -2449,8 +2656,7 @@ describe("bridge", () => {
           toolUseID: "tool-plan",
         },
       );
-      await bridge.flushWork();
-      const approvalRequest = bridge.messages.find((message) =>
+      const approvalRequest = await waitForBridgeRequest(bridge, (message) =>
         isApprovalInteraction(message),
       );
       if (approvalRequest?.id === undefined) {
@@ -3604,7 +3810,174 @@ describe("bridge", () => {
     },
   );
 
-  it("restarts the Claude process before the next turn when the sandbox setting changes", async () => {
+  it.each(["turn/start", "turn/steer"])(
+    "refreshes permissions before %s and preserves the conversation",
+    async (method) => {
+      const bridge = createBridgeJsonRpcTestHarness(handleLine);
+      const queries: ControlledClaudeQuery[] = [];
+      queryMock.mockImplementation(() => {
+        const query = createControlledClaudeQuery();
+        queries.push(query);
+        return query;
+      });
+      const threadId = `thread-permissions-${method}`;
+      const options = (full: boolean) => ({
+        ...canonicalOptions(),
+        permissionMode: full ? "full" : "auto",
+        permissionScope: full ? "full" : "workspace",
+        approvalReviewer: full ? null : "automatic",
+        permissionEscalation: full ? null : "ask",
+        providerOptions: {
+          workflowsEnabled: false,
+          sandboxEnabled: true,
+          additionalWorkspaceWriteRoots: ["/tmp/shared-worktree"],
+        },
+      });
+
+      try {
+        bridge.sendRequest(1, "thread/start", {
+          threadId,
+          cwd: "/tmp/worktree",
+          instructionMode: "append",
+          options: options(false),
+        });
+        const providerThreadId = getProviderThreadIdFromResult(
+          await bridge.waitForResponse(1),
+        );
+        expect(getLatestQueryOptions().permissionMode).toBe("auto");
+
+        bridge.sendRequest(2, "turn/start", {
+          ...canonicalTurnParams({
+            threadId,
+            providerThreadId,
+            input: [{ type: "text", text: "first" }],
+          }),
+          options: options(false),
+        });
+        await readNextPrompt(getLatestQueryCall());
+        await bridge.waitForResponse(2);
+        if (method === "turn/start") {
+          queries[0]?.emit(createSuccessfulResultMessage(providerThreadId));
+          await bridge.flushWork();
+        }
+
+        bridge.sendRequest(20, method, {
+          ...canonicalTurnParams({
+            threadId,
+            providerThreadId,
+            expectedTurnId: "active-turn",
+            input: [{ type: "text", text: "update roots before full" }],
+          }),
+          options: {
+            ...options(false),
+            providerOptions: {
+              workflowsEnabled: false,
+              sandboxEnabled: true,
+              additionalWorkspaceWriteRoots: ["/tmp/other-worktree"],
+            },
+          },
+        });
+        await readNextPrompt(getLatestQueryCall());
+        await bridge.waitForResponse(20);
+        expect(queries).toHaveLength(1);
+
+        for (const [id, full] of [
+          [3, true],
+          [4, false],
+          [5, true],
+        ] as const) {
+          bridge.sendRequest(id, method, {
+            ...canonicalTurnParams({
+              threadId,
+              providerThreadId,
+              expectedTurnId: "active-turn",
+              input: [{ type: "text", text: `permissions ${id}` }],
+            }),
+            options: options(full),
+          });
+          await bridge.flushWork();
+          expect(queries).toHaveLength(2);
+          expect(queries[0]?.close).toHaveBeenCalledTimes(1);
+          expect(queries[1]?.close).not.toHaveBeenCalled();
+          expect(queries[1]?.interrupt).not.toHaveBeenCalled();
+          expect(getLatestQueryOptions()).toMatchObject({
+            resume: providerThreadId,
+            allowDangerouslySkipPermissions: true,
+          });
+          if (id === 3) {
+            expect(getLatestQueryOptions().permissionMode).toBe(
+              "bypassPermissions",
+            );
+            expect(getLatestQueryOptions()).not.toHaveProperty("sandbox");
+            expect(getLatestQueryOptions().settings).toMatchObject({
+              sandbox: { enabled: false },
+              permissions: { additionalDirectories: [] },
+            });
+          } else {
+            expect(queries[1]?.setPermissionMode).toHaveBeenLastCalledWith(
+              full ? "bypassPermissions" : "auto",
+            );
+            expect(queries[1]?.applyFlagSettings).toHaveBeenLastCalledWith({
+              sandbox: full
+                ? { enabled: false }
+                : expect.objectContaining({
+                    enabled: true,
+                    filesystem: { allowWrite: ["/tmp/shared-worktree"] },
+                  }),
+              permissions: {
+                additionalDirectories: full ? [] : ["/tmp/shared-worktree"],
+              },
+            });
+          }
+          await expect(readNextPromptText(getLatestQueryCall())).resolves.toBe(
+            `permissions ${id}`,
+          );
+          await bridge.waitForResponse(id);
+          if (method === "turn/start") {
+            queries
+              .at(-1)
+              ?.emit(createSuccessfulResultMessage(providerThreadId));
+            await bridge.flushWork();
+          }
+        }
+        queries[1]?.setPermissionMode.mockRejectedValueOnce(
+          new Error("permission mode refused"),
+        );
+        bridge.sendRequest(6, method, {
+          ...canonicalTurnParams({
+            threadId,
+            providerThreadId,
+            expectedTurnId: "active-turn",
+            input: [{ type: "text", text: "refused input" }],
+          }),
+          options: options(false),
+        });
+        expect(await bridge.waitForResponse(6)).toMatchObject({
+          error: { message: "permission mode refused" },
+        });
+        bridge.sendRequest(7, method, {
+          ...canonicalTurnParams({
+            threadId,
+            providerThreadId,
+            expectedTurnId: "active-turn",
+            input: [{ type: "text", text: "retry input" }],
+          }),
+          options: options(false),
+        });
+        await expect(readNextPromptText(getLatestQueryCall())).resolves.toBe(
+          "retry input",
+        );
+        await bridge.waitForResponse(7);
+        expect(queries).toHaveLength(2);
+        expect(queries[1]?.setPermissionMode).toHaveBeenLastCalledWith("auto");
+      } finally {
+        queries.forEach((query) => query.finish());
+        bridge.restore();
+      }
+    },
+  );
+
+  it("applies sandbox changes live without replacing the Claude process", async () => {
     const bridge = createBridgeJsonRpcTestHarness(handleLine);
     const queries: ControlledClaudeQuery[] = [];
     queryMock.mockImplementation(() => {
@@ -3658,12 +4031,14 @@ describe("bridge", () => {
         }),
       );
       await bridge.flushWork();
-      expect(queries).toHaveLength(2);
-      expect(queries[0]?.close).toHaveBeenCalled();
-      expect(getLatestQueryOptions()).toMatchObject({
-        permissionMode: "acceptEdits",
-        resume: threadId,
-        sandbox: { enabled: true, autoAllowBashIfSandboxed: true },
+      expect(queries).toHaveLength(1);
+      expect(queries[0]?.close).not.toHaveBeenCalled();
+      expect(queries[0]?.applyFlagSettings).toHaveBeenLastCalledWith({
+        sandbox: expect.objectContaining({
+          enabled: true,
+          autoAllowBashIfSandboxed: true,
+        }),
+        permissions: { additionalDirectories: [] },
       });
       await expect(readNextPromptText(getLatestQueryCall())).resolves.toBe(
         "sandbox turned on",
@@ -3673,15 +4048,7 @@ describe("bridge", () => {
         bridge.messages.filter(
           (message) => message.method === "session/replaced",
         ),
-      ).toContainEqual(
-        expect.objectContaining({
-          params: expect.objectContaining({
-            contextLost: false,
-            providerThreadId: threadId,
-            threadId,
-          }),
-        }),
-      );
+      ).toHaveLength(0);
     } finally {
       bridge.sendRequest(4, "thread/stop", {
         threadId,
@@ -4062,9 +4429,8 @@ describe("bridge", () => {
           toolUseID: askToolUseId,
         },
       );
-      await bridge.flushWork();
-
-      const permissionRequest = bridge.messages.find(
+      const permissionRequest = await waitForBridgeRequest(
+        bridge,
         (message) =>
           isApprovalInteraction(message) &&
           isRecord(interactionPayload(message)?.subject) &&
@@ -4932,6 +5298,11 @@ describe("bridge", () => {
             threadId,
             input: [{ type: "text", text: "loosen permissions" }],
           }),
+          options: {
+            ...canonicalOptions(),
+            permissionMode: "auto",
+            approvalReviewer: "automatic",
+          },
           ...(testCase.method === "turn/steer"
             ? { expectedTurnId: "turn-1" }
             : {}),

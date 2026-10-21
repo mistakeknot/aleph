@@ -319,6 +319,7 @@ describe("PluginCollectionToolbar", () => {
       mockToolbarWidth(800);
       render(<ToolbarHarness installed />);
       const trigger = screen.getByRole("button", { name: control });
+      fireEvent.keyDown(document, { key: "Tab" });
       act(() => trigger.focus());
       expect((await screen.findByRole("tooltip")).textContent).toBe(tooltip);
     },
@@ -332,6 +333,7 @@ describe("PluginCollectionToolbar", () => {
     expect(
       trigger.querySelector('[data-icon="FilterHorizontal"]'),
     ).not.toBeNull();
+    fireEvent.keyDown(document, { key: "Tab" });
     act(() => trigger.focus());
     expect((await screen.findByRole("tooltip")).textContent).toBe(
       "Category: Security; Source: Local; Sort: Name · Z–A",

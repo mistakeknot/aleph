@@ -53,6 +53,7 @@ import {
 import {
   registerHostRpcResponder,
   type HostRpcHandlerResult,
+  EMPTY_WORKSPACE_AGENT_CONTEXT,
 } from "../helpers/host-rpc.js";
 import { readJson } from "../helpers/json.js";
 import { textInput } from "../helpers/prompt-input.js";
@@ -780,7 +781,7 @@ describe("public thread data routes", () => {
       const timeline = threadTimelineResponseSchema.parse(
         await readJson(timelineResponse),
       );
-      expect(timeline.timelinePage.hasOlderRows).toBe(true);
+      expect(timeline.timelinePage.olderCursor).not.toBeNull();
       const windowedConversationIds = timeline.rows
         .filter((row) => row.kind === "conversation")
         .map((row) => row.id);
@@ -1145,6 +1146,13 @@ describe("public thread data routes", () => {
         imageUrls: [],
         localImagePaths: [],
         localFilePaths: [uploaded.path],
+        localFileDetails: [
+          {
+            path: uploaded.path,
+            name: uploaded.name,
+            sizeBytes: uploaded.sizeBytes,
+          },
+        ],
       });
     });
   });
@@ -4020,18 +4028,8 @@ describe("public thread data routes", () => {
               result: { providerThreadId: "provider-immediate-reprovision" },
             };
           }
-          if (request.command.type === "host.list_files") {
-            return {
-              ok: true,
-              result: { files: [], truncated: false },
-            };
-          }
-          if (request.command.type === "host.read_file") {
-            return {
-              ok: false,
-              errorCode: "ENOENT",
-              errorMessage: `Path does not exist: ${request.command.path}`,
-            };
+          if (request.command.type === "host.read_workspace_agent_context") {
+            return { ok: true, result: EMPTY_WORKSPACE_AGENT_CONTEXT };
           }
           throw new Error(`Unexpected RPC command ${request.command.type}`);
         },
@@ -4764,7 +4762,7 @@ describe("public thread data routes", () => {
           serviceTier: "default",
           reasoningLevel: "medium",
           permissionMode: "full",
-          claimedAt: null,
+          state: "queued",
           sortKey: "V",
           createdAt: now,
           updatedAt: now,

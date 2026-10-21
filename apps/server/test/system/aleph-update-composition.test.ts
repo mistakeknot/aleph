@@ -63,6 +63,7 @@ function compose(notify?: (message: string) => Promise<void>) {
   return createServerAlephUpdateService({
     appVersion: APP_VERSION,
     countRunningThreads: () => 0,
+    directStart: "allow",
     dataDir,
     logger: testLogger,
     ...(notify === undefined ? {} : { notify }),

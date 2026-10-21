@@ -4,9 +4,22 @@ type ReleaseMeta = {
 };
 
 export const RELEASE_META: Record<string, ReleaseMeta> = {
+  "0.46.1+aleph.0.7.0": {
+    date: "October 20, 2026",
+    headline: "Aleph 0.7.0: synced to upstream bb 0.46.1",
+  },
+  "0.46.1": {
+    date: "October 15, 2026",
+    headline: "MCP server, bb CLI install, and Settings search",
+  },
+  "0.46.0": {
+    date: "October 9, 2026",
+    headline: "Navigation rail, reusable prompts, and notification controls",
+  },
   "0.45.0+aleph.0.6.3": {
     date: "October 15, 2026",
-    headline: "Aleph 0.6.3: timeline, database and agent priority performance fixes",
+    headline:
+      "Aleph 0.6.3: timeline, database and agent priority performance fixes",
   },
   "0.45.0+aleph.0.6.2": {
     date: "October 15, 2026",
@@ -20,6 +33,10 @@ export const RELEASE_META: Record<string, ReleaseMeta> = {
   "0.45.0+aleph.0.6.0": {
     date: "October 8, 2026",
     headline: "Aleph 0.6.0: synced to upstream bb 0.45.0",
+  },
+  "0.45.0": {
+    date: "October 2, 2026",
+    headline: "Native Windows support, service tiers, and faster conversations",
   },
   "0.44.0+aleph.0.5.3": {
     date: "October 3, 2026",

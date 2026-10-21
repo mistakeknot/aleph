@@ -446,11 +446,10 @@ describe("bb thread log command output", () => {
         fixtures.makePendingSteerTimelineRow(),
       ]),
       timelinePage: {
-        kind: "latest" as const,
-        segmentLimit: 20,
         returnedSegmentCount: 20,
-        hasOlderRows: true,
         olderCursor: { anchorSeq: 12, anchorId: "pending-steer-1" },
+        historySnapshot: "snapshot-1",
+        olderRowsSourceSeqEnd: null,
       },
     }));
     stubServerApi({
@@ -509,11 +508,10 @@ describe("bb thread log command output", () => {
               makeUserRow("user-3", 30, "third prompt"),
             ]),
             timelinePage: {
-              kind: "latest" as const,
-              segmentLimit: 100,
               returnedSegmentCount: 1,
-              hasOlderRows: true,
               olderCursor: { anchorSeq: 30, anchorId: "user-3" },
+              historySnapshot: "snapshot-1",
+              olderRowsSourceSeqEnd: null,
             },
           };
         }
@@ -523,11 +521,10 @@ describe("bb thread log command output", () => {
               makeUserRow("user-2", 20, "second prompt"),
             ]),
             timelinePage: {
-              kind: "older" as const,
-              segmentLimit: 100,
               returnedSegmentCount: 1,
-              hasOlderRows: true,
               olderCursor: { anchorSeq: 20, anchorId: "user-2" },
+              historySnapshot: "snapshot-1",
+              olderRowsSourceSeqEnd: null,
             },
           };
         }
@@ -536,11 +533,10 @@ describe("bb thread log command output", () => {
             makeUserRow("user-1", 10, "first prompt"),
           ]),
           timelinePage: {
-            kind: "older" as const,
-            segmentLimit: 100,
             returnedSegmentCount: 1,
-            hasOlderRows: false,
             olderCursor: null,
+            historySnapshot: "snapshot-1",
+            olderRowsSourceSeqEnd: null,
           },
         };
       },
@@ -565,6 +561,53 @@ describe("bb thread log command output", () => {
       output.indexOf("third prompt"),
     );
     expect(output).not.toContain("older history omitted");
+  });
+
+  it("bb thread log --message prints the message with its context", async () => {
+    const getMessage = vi.fn(async () => ({
+      message: fixtures.makePendingSteerTimelineRow(),
+      before: [],
+      after: [],
+    }));
+    const getTimeline = vi.fn(async () => fixtures.makeTimelineResponse([]));
+    stubServerApi({
+      "v1.threads.:id.messages.:seq.$get": getMessage,
+      "v1.threads.:id.timeline.$get": getTimeline,
+    });
+
+    await runCommand(
+      ["thread", "log", "thread-log", "--message", "12", "--context", "2"],
+      register,
+    );
+
+    expect(getMessage).toHaveBeenCalledWith({
+      param: { id: "thread-log", seq: "12" },
+      query: { before: "2", after: "2" },
+    });
+    expect(getTimeline).not.toHaveBeenCalled();
+    const output = String(vi.mocked(console.log).mock.calls[0]?.[0]);
+    expect(output).toContain("Message 12:");
+    expect(output).toContain("Please switch to the safer plan");
+  });
+
+  it.each([
+    [["--message", "12", "--all"], "--message cannot be combined"],
+    [["--context", "2"], "--context requires --message"],
+    [["--message", "12", "--context", "21"], "--context must be an integer"],
+  ])("bb thread log rejects %j", async (flags, error) => {
+    stubServerApi({
+      "v1.threads.:id.messages.:seq.$get": vi.fn(),
+      "v1.threads.:id.timeline.$get": vi.fn(async () =>
+        fixtures.makeTimelineResponse([]),
+      ),
+    });
+
+    await expect(
+      runCommand(["thread", "log", "thread-log", ...flags], register),
+    ).rejects.toThrow("process.exit:1");
+    expect(collectLogLines(vi.mocked(console.error)).join("\n")).toContain(
+      error,
+    );
   });
 
   it("bb thread log rejects --all combined with --limit", async () => {

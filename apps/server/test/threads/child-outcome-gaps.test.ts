@@ -136,10 +136,10 @@ describe("child outcomes without provider completion", () => {
         });
         expect(response.status).toBe(200);
         await vi.advanceTimersByTimeAsync(2_000);
-        expect(parentSystemRequests(harness, parent.id)).toHaveLength(
-          expectedNotices,
-        );
         if (expectedNotices === 1) {
+          await vi.waitFor(() =>
+            expect(parentSystemRequests(harness, parent.id)).toHaveLength(1),
+          );
           expect(
             parentSystemRequests(harness, parent.id)[0]?.systemMessageSubject,
           ).toMatchObject({
@@ -151,6 +151,8 @@ describe("child outcomes without provider completion", () => {
               },
             ],
           });
+        } else {
+          expect(parentSystemRequests(harness, parent.id)).toHaveLength(0);
         }
       });
     },
@@ -193,6 +195,9 @@ describe("child outcomes without provider completion", () => {
       });
       await vi.advanceTimersByTimeAsync(2_000);
 
+      await vi.waitFor(() =>
+        expect(parentSystemRequests(harness, parent.id)).toHaveLength(1),
+      );
       const [notice] = parentSystemRequests(harness, parent.id);
       expect(notice?.systemMessageKind).toBe("child-outcome-batch");
       expect(notice?.systemMessageSubject).toEqual({
@@ -238,9 +243,11 @@ describe("child outcomes without provider completion", () => {
       });
       await vi.advanceTimersByTimeAsync(2_000);
 
-      expect(parentSystemRequests(harness, parent.id)).toMatchObject([
-        { systemMessageKind: "child-failed" },
-      ]);
+      await vi.waitFor(() =>
+        expect(parentSystemRequests(harness, parent.id)).toMatchObject([
+          { systemMessageKind: "child-failed" },
+        ]),
+      );
       expect(
         JSON.stringify(parentSystemRequests(harness, parent.id)[0]?.input),
       ).toContain("failed during workspace setup before a turn began");
@@ -270,9 +277,11 @@ describe("child outcomes without provider completion", () => {
       });
       await vi.advanceTimersByTimeAsync(2_000);
 
-      expect(parentSystemRequests(harness, parent.id)).toMatchObject([
-        { systemMessageKind: "child-failed" },
-      ]);
+      await vi.waitFor(() =>
+        expect(parentSystemRequests(harness, parent.id)).toMatchObject([
+          { systemMessageKind: "child-failed" },
+        ]),
+      );
     });
   });
 
@@ -310,9 +319,11 @@ describe("child outcomes without provider completion", () => {
       expect(
         getQueuedThreadMessage(harness.db, row.id)?.nextAttemptAt,
       ).toBeNull();
-      expect(parentSystemRequests(harness, parent.id)).toMatchObject([
-        { systemMessageKind: "child-failed" },
-      ]);
+      await vi.waitFor(() =>
+        expect(parentSystemRequests(harness, parent.id)).toMatchObject([
+          { systemMessageKind: "child-failed" },
+        ]),
+      );
       expect(
         JSON.stringify(parentSystemRequests(harness, parent.id)[0]?.input),
       ).toContain("could not send a queued message after retrying");

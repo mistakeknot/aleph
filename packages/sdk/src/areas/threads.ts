@@ -26,6 +26,7 @@ import type {
   ForkThreadRequest,
   DeleteThreadRequest,
   PromptHistoryResponse,
+  QueuedMessageEditHoldResponse,
   SendQueuedMessageResponse,
   ThreadArchiveAllResponse,
   ThreadChildSummaryResponse,
@@ -34,6 +35,7 @@ import type {
   ThreadCountQuery,
   ThreadCountResponse,
   ThreadListResponse,
+  ThreadMessageResponse,
   ThreadRunningResponse,
   ThreadOpenResponse,
   ThreadPaneAction,
@@ -41,6 +43,9 @@ import type {
   ThreadPendingInteractionsResponse,
   ThreadQueuedMessageListResponse,
   ThreadResponse,
+  PluginThreadMetadataListResponse,
+  ThreadAncestorsListResponse,
+  ThreadDescendantsListResponse,
   ThreadPluginMetadataResponse,
   ThreadSearchResponse,
   RecordThreadSearchSelectionRequest,
@@ -175,12 +180,16 @@ export type ThreadListResult = ThreadListResponse;
 export type ThreadSearchResult = ThreadSearchResponse;
 export type ThreadRecordSearchSelectionResult =
   RecordThreadSearchSelectionResponse;
+export type ThreadMessageResult = ThreadMessageResponse;
 export type ThreadResolveMentionsResult = ResolveThreadMentionsResponse;
 export interface ThreadOutputResponse {
   output: string | null;
 }
 export type ThreadMutationResult = ThreadResponse;
 export type ThreadPluginMetadataResult = ThreadPluginMetadataResponse;
+export type PluginThreadMetadataListResult = PluginThreadMetadataListResponse;
+export type ThreadAncestorsListResult = ThreadAncestorsListResponse;
+export type ThreadDescendantsListResult = ThreadDescendantsListResponse;
 export type ThreadSpawnResult = ThreadResponse;
 export type ThreadForkResult = ThreadResponse;
 export type ThreadInteractionGetResult = PendingInteraction;
@@ -212,6 +221,8 @@ export type ThreadQueuedMessagesResult = ThreadQueuedMessageListResponse;
 export type ThreadQueuedMessageCreateResult = ThreadQueuedMessage;
 export type ThreadQueuedMessageUpdateResult = ThreadQueuedMessage;
 export type ThreadQueuedMessageDeleteResult = { ok: true };
+export type ThreadQueuedMessageEditHoldResult = QueuedMessageEditHoldResponse;
+export type ThreadQueuedMessageEditHoldReleaseResult = { ok: true };
 export type ThreadQueuedMessageReorderResult = ThreadQueuedMessageListResponse;
 export type ThreadQueuedMessageSendResult = SendQueuedMessageResponse;
 export type ThreadQueuedMessageTransferResult = ThreadQueuedMessage;
@@ -266,6 +277,21 @@ export interface ThreadPluginMetadataArgs {
   pluginId: string;
   signal?: AbortSignal;
   threadId: string;
+}
+export interface PluginThreadMetadataListArgs {
+  pluginId: string;
+  threadIds: readonly string[];
+  signal?: AbortSignal;
+}
+export interface ThreadAncestorsListArgs {
+  threadIds: readonly string[];
+  signal?: AbortSignal;
+}
+export interface ThreadDescendantsListArgs {
+  threadIds: readonly string[];
+  includeArchived?: boolean;
+  includeHidden?: boolean;
+  signal?: AbortSignal;
 }
 export interface ThreadPluginMetadataUpdateArgs {
   threadId: string;
@@ -434,6 +460,14 @@ export interface ThreadOutputArgs {
   threadId: string;
 }
 
+export interface ThreadMessageArgs {
+  signal?: AbortSignal;
+  threadId: string;
+  seq: number;
+  before?: number;
+  after?: number;
+}
+
 export interface ThreadInteractionListArgs {
   signal?: AbortSignal;
   threadId: string;
@@ -564,6 +598,12 @@ export interface ThreadQueuedMessagesArea {
   delete(
     args: ThreadQueuedMessageTargetArgs,
   ): Promise<ThreadQueuedMessageDeleteResult>;
+  experimental_holdForEdit(
+    args: ThreadQueuedMessageTargetArgs,
+  ): Promise<ThreadQueuedMessageEditHoldResult>;
+  experimental_releaseEditHold(
+    args: ThreadQueuedMessageTargetArgs,
+  ): Promise<ThreadQueuedMessageEditHoldReleaseResult>;
   list(args: ThreadQueuedMessageArgs): Promise<ThreadQueuedMessagesResult>;
   reorder(
     args: ThreadQueuedMessageReorderArgs,
@@ -626,6 +666,35 @@ export interface ThreadsArea {
   getPluginMetadata(
     args: ThreadPluginMetadataArgs,
   ): Promise<ThreadPluginMetadataResult>;
+  /**
+   * `pluginId`'s metadata for each of `threadIds` (1–200 per request) that
+   * has any, as `{ threadId, metadata }` rows; archived and deleted threads
+   * included.
+   * Experimental: see docs/api_to_audit.md.
+   */
+  experimental_listPluginMetadata(
+    args: PluginThreadMetadataListArgs,
+  ): Promise<PluginThreadMetadataListResult>;
+  /**
+   * Each of `threadIds` (1–200 per request) that exists, with `ancestorIds`
+   * from its parent up to the root (empty for a root thread); archived and
+   * deleted threads included, unknown ids omitted.
+   * Experimental: see docs/api_to_audit.md.
+   */
+  experimental_listAncestors(
+    args: ThreadAncestorsListArgs,
+  ): Promise<ThreadAncestorsListResult>;
+  /**
+   * Each of `threadIds` (1–200 per request) that exists and is not deleted,
+   * with `descendantIds` for every thread below it, children first (empty
+   * for a leaf). Archived and hidden descendants are omitted unless
+   * `includeArchived` / `includeHidden` is true; threads below them are still
+   * returned. Deleted threads and unknown ids are always omitted.
+   * Experimental: see docs/api_to_audit.md.
+   */
+  experimental_listDescendants(
+    args: ThreadDescendantsListArgs,
+  ): Promise<ThreadDescendantsListResult>;
   updatePluginMetadata(
     args: ThreadPluginMetadataUpdateArgs,
   ): Promise<ThreadPluginMetadataResult>;
@@ -637,6 +706,7 @@ export interface ThreadsArea {
   markUnread(args: ThreadActionArgs): Promise<ThreadReadStateResult>;
   open(args: ThreadOpenArgs): Promise<ThreadOpenResult>;
   paneAction(args: ThreadPaneActionArgs): Promise<ThreadPaneActionResult>;
+  message(args: ThreadMessageArgs): Promise<ThreadMessageResult>;
   output(args: ThreadOutputArgs): Promise<ThreadOutputResponse>;
   pin(
     args: ThreadActionArgs & { ifUnpinned?: true },
@@ -757,6 +827,7 @@ function updateJson(args: ThreadUpdateArgs): UpdateThreadRequest {
     parentThreadId: args.parentThreadId,
     model: args.model,
     reasoningLevel: args.reasoningLevel,
+    sessionOptions: args.sessionOptions,
     visibility: args.visibility,
   };
 }
@@ -1104,6 +1175,31 @@ export function createThreadsArea(args: CreateSdkAreaArgs): ThreadsArea {
       );
       return { ok: true };
     },
+    async experimental_holdForEdit(input) {
+      return transport.readJson(
+        transport.api.v1.threads[":id"]["queued-messages"][":queuedMessageId"][
+          "edit-hold"
+        ].$post({
+          param: {
+            id: input.threadId,
+            queuedMessageId: input.queuedMessageId,
+          },
+        }),
+      );
+    },
+    async experimental_releaseEditHold(input) {
+      await transport.readVoid(
+        transport.api.v1.threads[":id"]["queued-messages"][":queuedMessageId"][
+          "edit-hold"
+        ].$delete({
+          param: {
+            id: input.threadId,
+            queuedMessageId: input.queuedMessageId,
+          },
+        }),
+      );
+      return { ok: true };
+    },
     async list(input) {
       return transport.readJson(
         transport.api.v1.threads[":id"]["queued-messages"].$get(
@@ -1299,6 +1395,42 @@ export function createThreadsArea(args: CreateSdkAreaArgs): ThreadsArea {
       );
     },
     get: getThread,
+    async experimental_listAncestors(input) {
+      return transport.readJson(
+        transport.api.v1.threads.ancestors.$post(
+          { json: { threadIds: [...input.threadIds] } },
+          ...signalRequestArgs(input.signal),
+        ),
+      );
+    },
+    async experimental_listDescendants(input) {
+      return transport.readJson(
+        transport.api.v1.threads.descendants.$post(
+          {
+            json: {
+              threadIds: [...input.threadIds],
+              ...(input.includeArchived === undefined
+                ? {}
+                : { includeArchived: input.includeArchived }),
+              ...(input.includeHidden === undefined
+                ? {}
+                : { includeHidden: input.includeHidden }),
+            },
+          },
+          ...signalRequestArgs(input.signal),
+        ),
+      );
+    },
+    async experimental_listPluginMetadata(input) {
+      return transport.readJson(
+        transport.api.v1.threads["plugin-metadata"].$post(
+          {
+            json: { pluginId: input.pluginId, threadIds: [...input.threadIds] },
+          },
+          ...signalRequestArgs(input.signal),
+        ),
+      );
+    },
     async getPluginMetadata(input) {
       return transport.readJson(
         transport.api.v1.threads[":id"]["plugin-metadata"].$get(
@@ -1352,6 +1484,24 @@ export function createThreadsArea(args: CreateSdkAreaArgs): ThreadsArea {
         transport.api.v1.threads[":id"].unread.$post(
           {
             param: { id: input.threadId },
+          },
+          ...signalRequestArgs(input.signal),
+        ),
+      );
+    },
+    async message(input) {
+      return transport.readJson(
+        transport.api.v1.threads[":id"].messages[":seq"].$get(
+          {
+            param: { id: input.threadId, seq: String(input.seq) },
+            query: {
+              ...(input.before === undefined
+                ? {}
+                : { before: String(input.before) }),
+              ...(input.after === undefined
+                ? {}
+                : { after: String(input.after) }),
+            },
           },
           ...signalRequestArgs(input.signal),
         ),

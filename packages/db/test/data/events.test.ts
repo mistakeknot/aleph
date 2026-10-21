@@ -76,7 +76,7 @@ import type {
 import { upsertHost } from "../../src/data/hosts.js";
 import type { DbConnection } from "../../src/connection.js";
 import { events } from "../../src/schema.js";
-import { createMigratedConnection } from "../helpers/migrated-connection.js";
+import { createMigratedConnection } from "../../src/testing.js";
 
 function setup() {
   const db = createMigratedConnection();
@@ -4638,6 +4638,7 @@ describe("events", () => {
       ["events-appended"],
       {
         eventTypes: ["system/error", "client/turn/requested"],
+        timelineSequence: 2,
       },
     );
     expect(spy.notifyThread).toHaveBeenCalledWith(
@@ -4645,6 +4646,7 @@ describe("events", () => {
       ["events-appended"],
       {
         eventTypes: ["system/error"],
+        timelineSequence: 1,
       },
     );
     expect(spy.notifyThread).toHaveBeenCalledTimes(2);

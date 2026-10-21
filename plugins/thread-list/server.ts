@@ -35,7 +35,9 @@ const preferenceKeySchema = z.enum(
 const preferenceValuesSchema = z.object(
   Object.fromEntries(
     PREFERENCE_KEYS.map((key) => [key, preferenceDefinitions[key].schema]),
-  ) as { [Key in PreferenceKey]: (typeof preferenceDefinitions)[Key]["schema"] },
+  ) as {
+    [Key in PreferenceKey]: (typeof preferenceDefinitions)[Key]["schema"];
+  },
 );
 
 export const threadListRpcContract = defineRpcContract({
@@ -45,15 +47,11 @@ export const threadListRpcContract = defineRpcContract({
   },
   setPreference: {
     input: z.object({ key: preferenceKeySchema, value: z.unknown() }).strict(),
-    output: z
-      .object({ key: preferenceKeySchema, value: z.unknown() })
-      .strict(),
+    output: z.object({ key: preferenceKeySchema, value: z.unknown() }).strict(),
   },
   resetPreference: {
     input: z.object({ key: preferenceKeySchema }).strict(),
-    output: z
-      .object({ key: preferenceKeySchema, value: z.unknown() })
-      .strict(),
+    output: z.object({ key: preferenceKeySchema, value: z.unknown() }).strict(),
   },
   listHullDesignations: {
     input: z.null(),
@@ -159,7 +157,9 @@ export async function migrateFromUiPreferences(
     if (legacy === undefined) continue;
     const parsed = parsePreferenceValue(key, legacy.value);
     if (!parsed.success) continue;
-    if (JSON.stringify(parsed.value) === JSON.stringify(getPreferenceDefault(key))) {
+    if (
+      JSON.stringify(parsed.value) === JSON.stringify(getPreferenceDefault(key))
+    ) {
       continue;
     }
     await bb.storage.kv.set(kvKey(key), parsed.value);
@@ -214,7 +214,8 @@ export default async function threadListPlugin(bb: BbPluginApi) {
   bb.cli.register(
     defineCli({
       name: bb.pluginId,
-      summary: "Inspect and change the sidebar thread list's layout preferences",
+      summary:
+        "Inspect and change the sidebar thread list's layout preferences",
       description:
         "Organization mode, sort, section order, hidden groups, and collapsed groups for bb's sidebar thread list. Values are JSON; a bare word is read as a string.",
       commands: {
@@ -258,7 +259,8 @@ export default async function threadListPlugin(bb: BbPluginApi) {
             { name: "key", description: "Preference name", required: true },
             {
               name: "value",
-              description: 'JSON value, e.g. \'"machine"\' or \'["pinned","threads"]\'',
+              description:
+                'JSON value, e.g. \'"machine"\' or \'["pinned","threads"]\'',
               required: true,
             },
           ],

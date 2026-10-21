@@ -1,9 +1,4 @@
 import { extractThreadContextWindowUsage } from "@bb/thread-view";
-import { clearTimelineOrderingContextCache } from "../../services/threads/timeline-context-order.js";
-import {
-  createTimelineBuildCoalescer,
-  shouldDropTimelineSnapshots,
-} from "../../services/threads/timeline-build-coalescer.js";
 import {
   getAppSettings,
   getDatabaseDataVersion,
@@ -14,16 +9,13 @@ import {
   getLatestThreadSequence,
   getLatestStoredConversationOutlineSequence,
   listQueuedThreadMessages,
-  getEnvironment,
 } from "@bb/db";
 import type { Hono } from "hono";
 import {
-  DEFAULT_COMPLETED_TURN_DISPLAY,
   PROMPT_HISTORY_ENTRY_LIMIT,
   threadEventTypeSchema,
   threadStatusSchema,
-  type AppSettings,
-  type CompletedTurnDisplay,
+  type Thread,
   type ThreadEventType,
 } from "@bb/domain";
 import {
@@ -44,7 +36,7 @@ import { toThreadQueuedMessage } from "../../services/threads/thread-queued-mess
 import {
   toThreadEventWithMeta,
   buildThreadConversationOutlineProjectionKey,
-  buildThreadTimelineWithProfile,
+  getThreadMessage,
   buildTimelineTurnSummaryDetails,
   loadThreadConversationOutline,
   THREAD_TIMELINE_DEFAULT_SEGMENT_LIMIT,
@@ -54,19 +46,11 @@ import type {
   ThreadTimelinePageKind,
   ThreadTimelinePageRequest,
 } from "../../services/threads/timeline-pagination.js";
-import { createSlowThreadTimelineBuildLogger } from "../../services/threads/timeline-build-log.js";
 import {
-  buildThreadTimelineCacheKey,
-  buildThreadTimelineParamsKey,
-  createThreadTimelineCache,
-} from "../../services/threads/timeline-cache.js";
-import { createTimelineLatestRowsCache } from "../../services/threads/timeline-latest-rows-cache.js";
-import {
-  DEFAULT_MAX_INLINE_OUTPUT_CHARS,
-  truncateTimelineResponseOutputs,
-} from "../../services/threads/timeline-output-truncation.js";
-import { previewTimelineResponseOutputs } from "../../services/threads/timeline-output-preview.js";
-import { computeTimelineRowDelta } from "@bb/server-contract";
+  createThreadTimelineWindows,
+  resolveThreadCompletedTurnDisplay,
+  resolveThreadProviderDisplayName,
+} from "../../services/threads/thread-timeline-windows.js";
 import {
   findThreadEvent,
   getLastThreadOutput,
@@ -81,32 +65,12 @@ import {
   parseInteger,
   parseOptionalInteger,
 } from "../../services/lib/validation.js";
-import { resolveProviderPlanCommand } from "../../services/providers/provider-plan-command.js";
 import { parsePathKindInclusion } from "../path-list-inclusion.js";
 import {
   DEFAULT_PATH_LIST_EXCLUDE_NAMES,
   THREAD_STORAGE_PATH_LIST_INCLUDE_HIDDEN,
 } from "../path-list-policy.js";
 import { parseFileListLimit } from "../file-list-query.js";
-
-function resolveThreadProviderDisplayName(
-  deps: Pick<AppDeps, "providerRegistry">,
-  providerId: string,
-): string | undefined {
-  return deps.providerRegistry.get(providerId)?.info.displayName;
-}
-
-function resolveThreadCompletedTurnDisplay(
-  deps: Pick<AppDeps, "providerRegistry">,
-  settings: AppSettings,
-  providerId: string,
-): CompletedTurnDisplay {
-  return (
-    settings.providerCompletedTurnDisplay[providerId] ??
-    deps.providerRegistry.get(providerId)?.info.completedTurnDisplay ??
-    DEFAULT_COMPLETED_TURN_DISPLAY
-  );
-}
 
 function parseThreadEventTypes(
   value: string | undefined,
@@ -186,54 +150,29 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
     onValidationError: (msg) => new ApiError(400, "invalid_request", msg),
   });
   const routes = publicApiRoutes.threads;
-  const timelineCache = createThreadTimelineCache();
-  const timelineLatestRowsCache = createTimelineLatestRowsCache();
-  const timelineBuildCoalescer = createTimelineBuildCoalescer({
-    onTrailingRefresh: (threadId) => {
-      deps.hub.notifyThreadTimelineRefresh(threadId);
-    },
-  });
-  const timelineDeltaFloorByThreadId = new Map<string, number>();
-  deps.hub.onChangedMessage((message) => {
-    if (message.entity !== "thread") {
-      return;
-    }
-    const deleted = message.changes.includes("thread-deleted");
-    const rewritten = message.changes.includes("history-rewritten");
-    const compacted = message.changes.includes("history-compacted");
-    if (deleted) {
-      timelineDeltaFloorByThreadId.delete(message.id);
-    }
-    if (rewritten) {
-      clearTimelineOrderingContextCache(deps.db);
-    }
-    if (
-      deleted ||
-      rewritten ||
-      compacted ||
-      message.changes.includes("archived-changed")
-    ) {
-      timelineCache.invalidateThread(message.id);
-      timelineLatestRowsCache.invalidateThread(message.id);
-    }
-    if (compacted || shouldDropTimelineSnapshots(message.changes)) {
-      timelineBuildCoalescer.invalidateThread(message.id);
-    }
-    if (!deleted && (rewritten || compacted)) {
-      timelineDeltaFloorByThreadId.set(
-        message.id,
-        getLatestThreadSequence(deps.db, { threadId: message.id }),
-      );
-    }
-  });
-  const slowTimelineBuildLogger = createSlowThreadTimelineBuildLogger({
-    logger: deps.logger,
-  });
+  const timelineWindows = createThreadTimelineWindows(deps);
   const conversationOutlineCache = new Map<
     string,
     ThreadConversationOutlineResponse["items"]
   >();
   const CONVERSATION_OUTLINE_CACHE_MAX_ENTRIES = 128;
+  const resolveConversationRowsOptions = (thread: Thread) => {
+    const providerDisplayName = resolveThreadProviderDisplayName(
+      deps,
+      thread.providerId,
+    );
+    const settings = getAppSettings(deps.db);
+    return {
+      completedTurnDisplay: resolveThreadCompletedTurnDisplay(
+        deps,
+        settings,
+        thread.providerId,
+      ),
+      includeClearedContextHistory: settings.keepHistoryAfterContextClear,
+      maxSeq: getLatestThreadSequence(deps.db, { threadId: thread.id }),
+      ...(providerDisplayName === undefined ? {} : { providerDisplayName }),
+    };
+  };
 
   get(routes.pluginMetadata.get, (context, query) => {
     const thread = requirePublicThread(deps.db, context.req.param("id"));
@@ -290,111 +229,17 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
 
   get(routes.timeline, (context, query) => {
     const thread = requirePublicThread(deps.db, context.req.param("id"));
-    const page = parseThreadTimelinePage(query);
-    const includeNestedRows = query.includeNestedRows === "true";
-    const deferContent = query.deferContent === "true";
-    const summaryOnly = query.summaryOnly === "true";
-
-    const providerDisplayName = resolveThreadProviderDisplayName(
-      deps,
-      thread.providerId,
-    );
-    const settings = getAppSettings(deps.db);
-    const includeDiagnosticOperations = settings.showDiagnosticEvents;
-    const completedTurnDisplay = resolveThreadCompletedTurnDisplay(
-      deps,
-      settings,
-      thread.providerId,
-    );
-    const maxSeq = getLatestThreadSequence(deps.db, {
-      threadId: thread.id,
-    });
-    const eventBudget = deps.config.featureFlags.timelineWindowEventBudget;
-    const planCommand = resolveProviderPlanCommand(
-      deps.providerRegistry,
-      thread.providerId,
-    );
-    const workspaceRoot =
-      thread.environmentId === null
-        ? null
-        : (getEnvironment(deps.db, thread.environmentId)?.path ?? null);
-    const keyArgs = {
-      planCommand: JSON.stringify(planCommand),
-      workspaceRoot,
-      threadId: thread.id,
-      status: thread.status,
-      environmentId: thread.environmentId,
-      threadName: thread.title ?? thread.titleFallback ?? "",
-      providerDisplayName,
-      page,
-      includeNestedRows,
-      deferContent,
-      summaryOnly,
-      includeDiagnosticOperations,
-      completedTurnDisplay,
-    };
-    const paramsKey = buildThreadTimelineParamsKey(keyArgs);
-    const buildFull = () =>
-      timelineCache.getOrBuild(
-        thread.id,
-        buildThreadTimelineCacheKey({ ...keyArgs, maxSeq }),
-        () => {
-          const { profile, response } = buildThreadTimelineWithProfile(
-            deps.db,
-            thread,
-            {
-              completedTurnDisplay,
-              deferContent,
-              eventBudget,
-              includeDiagnosticOperations,
-              includeNestedRows,
-              maxInlineOutputChars: DEFAULT_MAX_INLINE_OUTPUT_CHARS,
-              maxSeq,
-              page,
-              providerDisplayName,
-              planCommand,
-              summaryOnly,
-            },
-          );
-          slowTimelineBuildLogger.log({ profile, threadId: thread.id });
-          const truncated = truncateTimelineResponseOutputs(
-            response,
-            DEFAULT_MAX_INLINE_OUTPUT_CHARS,
-          );
-          return includeNestedRows
-            ? truncated
-            : previewTimelineResponseOutputs(truncated);
-        },
-      );
-    const { response: full } = timelineBuildCoalescer.serve({
-      build: buildFull,
-      coalesce: page.kind === "latest" && thread.status === "active",
-      maxSeq,
-      paramsKey,
-      threadId: thread.id,
-    });
-
-    const afterSequence = parseOptionalInteger(
-      query.afterSequence,
-      "afterSequence",
-    );
-    const deltaFloor = timelineDeltaFloorByThreadId.get(thread.id);
-    const previous =
-      afterSequence === undefined ||
-      (deltaFloor !== undefined && afterSequence <= deltaFloor)
-        ? undefined
-        : timelineLatestRowsCache.get(thread.id, paramsKey, afterSequence);
-    const delta =
-      previous === undefined
-        ? undefined
-        : computeTimelineRowDelta(previous.rows, full.rows);
-    timelineLatestRowsCache.set(thread.id, paramsKey, {
-      maxSeq: full.maxSeq,
-      rows: full.rows,
-    });
-
     return context.json(
-      delta === undefined ? full : { ...full, rows: [], delta },
+      timelineWindows.read(
+        thread,
+        {
+          deferContent: query.deferContent === "true",
+          includeNestedRows: query.includeNestedRows === "true",
+          page: parseThreadTimelinePage(query),
+          summaryOnly: query.summaryOnly === "true",
+        },
+        parseOptionalInteger(query.afterSequence, "afterSequence"),
+      ),
     );
   });
 
@@ -405,24 +250,12 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
         ? items
         : items.filter((item) => item.role === query.role);
 
-    const maxSeq = getLatestThreadSequence(deps.db, { threadId: thread.id });
     const outlineSequence = getLatestStoredConversationOutlineSequence(
       deps.db,
       { threadId: thread.id },
     );
-    const providerDisplayName = resolveThreadProviderDisplayName(
-      deps,
-      thread.providerId,
-    );
-    const outlineOptions = {
-      completedTurnDisplay: resolveThreadCompletedTurnDisplay(
-        deps,
-        getAppSettings(deps.db),
-        thread.providerId,
-      ),
-      maxSeq,
-      ...(providerDisplayName === undefined ? {} : { providerDisplayName }),
-    };
+    const outlineOptions = resolveConversationRowsOptions(thread);
+    const { maxSeq } = outlineOptions;
     const cacheKey = JSON.stringify([
       thread.id,
       getDatabaseDataVersion(deps.db),
@@ -453,6 +286,26 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
       conversationOutlineCache.delete(oldest);
     }
     return context.json({ ...response, items: selectItems(response.items) });
+  });
+
+  get(routes.message, (context, query) => {
+    const thread = requirePublicThread(deps.db, context.req.param("id"));
+    const seq = context.req.param("seq");
+    if (!/^\d+$/.test(seq)) {
+      throw new ApiError(
+        400,
+        "invalid_request",
+        "Message seq must be a non-negative integer",
+      );
+    }
+    return context.json(
+      getThreadMessage(deps.db, thread, {
+        ...resolveConversationRowsOptions(thread),
+        seq: parseInteger(seq, "seq"),
+        before: parseOptionalInteger(query.before, "before") ?? 0,
+        after: parseOptionalInteger(query.after, "after") ?? 0,
+      }),
+    );
   });
 
   get(routes.timelineTurnSummaryDetails, (context, query) => {
@@ -639,6 +492,7 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
     try {
       const result = await callHostRetryableOnlineRpc(deps, {
         hostId: target.hostId,
+        signal: context.req.raw.signal,
         timeoutMs: COMMAND_TIMEOUT_MS,
         command: {
           type: "host.list_files",
@@ -692,6 +546,7 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
     try {
       const result = await callHostRetryableOnlineRpc(deps, {
         hostId: target.hostId,
+        signal: context.req.raw.signal,
         timeoutMs: COMMAND_TIMEOUT_MS,
         command: {
           type: "host.list_paths",

@@ -1,7 +1,13 @@
 // @vitest-environment jsdom
 
 import type { ReactNode } from "react";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Thread } from "@bb/domain";
 import { makeThread as makeThreadFixture } from "@bb/test-helpers/domain-fixtures";
@@ -94,6 +100,7 @@ vi.mock("@/hooks/mutations/thread-state-mutations", async (importOriginal) => {
 
 vi.mock("@/lib/sdk", () => ({
   sdk: {
+    environments: { archiveThreads: vi.fn() },
     threads: {
       archiveAll: vi.fn(),
       childSummary: vi.fn(),
@@ -137,6 +144,15 @@ function ArchiveButton({ thread }: { thread: Thread }) {
   return (
     <button type="button" onClick={() => requestArchive(thread)}>
       Archive
+    </button>
+  );
+}
+
+function ArchiveEnvironmentButton() {
+  const { archiveEnvironmentThreads } = useThreadActions();
+  return (
+    <button onClick={() => void archiveEnvironmentThreads("env_test")}>
+      Archive group
     </button>
   );
 }
@@ -388,11 +404,9 @@ describe("ThreadActionsProvider archive confirmation", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Archive" }));
 
-    expect(
-      await screen.findByText(
-        /4 child threads will be archived with this thread\./,
-      ),
-    ).not.toBeNull();
+    expect((await screen.findByRole("dialog")).textContent).toContain(
+      "Its 4 child threads will be archived too.",
+    );
     expect(sdk.threads.archiveAll).not.toHaveBeenCalled();
   });
 
@@ -410,12 +424,58 @@ describe("ThreadActionsProvider archive confirmation", () => {
 });
 
 describe("ThreadActionsProvider archive feedback", () => {
+  it("offers the shared Undo toast for a group and restores its parent before descendants", async () => {
+    vi.mocked(sdk.environments.archiveThreads).mockResolvedValue({
+      ok: true,
+      archivedThreadIds: ["thr_grandchild", "thr_child", "thr_parent"],
+    });
+    renderProvider(<ArchiveEnvironmentButton />);
+    fireEvent.click(screen.getByRole("button", { name: "Archive group" }));
+    await vi.waitFor(() => expect(appToast.success).toHaveBeenCalledTimes(1));
+    const call = vi.mocked(appToast.success).mock.calls[0];
+    if (!call) throw new Error("Expected archive toast");
+    const [title, options] = call;
+    expect(title).toBe("Threads archived");
+    expect(options).toMatchObject({
+      cancel: { label: "Undo" },
+      duration: 10_000,
+    });
+    const undo = options?.cancel;
+    if (!undo) throw new Error("Expected archive Undo");
+    let releaseParent: () => void = () => {};
+    vi.mocked(sdk.threads.unarchive).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          releaseParent = () => resolve({ ok: true });
+        }),
+    );
+    render(<button onClick={undo.onClick}>Undo group</button>);
+    fireEvent.click(screen.getByRole("button", { name: "Undo group" }));
+    await vi.waitFor(() =>
+      expect(sdk.threads.unarchive).toHaveBeenCalledTimes(1),
+    );
+    expect(sdk.threads.unarchive).toHaveBeenLastCalledWith({
+      threadId: "thr_parent",
+    });
+    releaseParent();
+    await vi.waitFor(() =>
+      expect(sdk.threads.unarchive).toHaveBeenCalledTimes(3),
+    );
+    expect(
+      vi
+        .mocked(sdk.threads.unarchive)
+        .mock.calls.map(([args]) => args.threadId),
+    ).toEqual(["thr_parent", "thr_child", "thr_grandchild"]);
+  });
+
   it("shows one archive toast whose Undo restores the parent and children", async () => {
     renderProvider(<ArchiveButton thread={makeThread()} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Archive" }));
     fireEvent.click(
-      await screen.findByRole("button", { name: "Archive 2 threads" }),
+      within(await screen.findByRole("dialog")).getByRole("button", {
+        name: "Archive",
+      }),
     );
 
     await vi.waitFor(() => {
@@ -423,7 +483,7 @@ describe("ThreadActionsProvider archive feedback", () => {
     });
     expect(appToast.message).not.toHaveBeenCalled();
     expect(vi.mocked(appToast.success).mock.calls[0]?.[0]).toBe(
-      "Thread Archived",
+      "Thread archived",
     );
     const toastOptions = vi.mocked(appToast.success).mock.calls[0]?.[1];
     expect(toastOptions).toMatchObject({
@@ -460,7 +520,9 @@ describe("ThreadActionsProvider archive feedback", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Archive" }));
     fireEvent.click(
-      await screen.findByRole("button", { name: "Archive 2 threads" }),
+      within(await screen.findByRole("dialog")).getByRole("button", {
+        name: "Archive",
+      }),
     );
 
     await vi.waitFor(() => {
@@ -497,7 +559,9 @@ describe("ThreadActionsProvider archive feedback", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Archive" }));
     fireEvent.click(
-      await screen.findByRole("button", { name: "Archive 2 threads" }),
+      within(await screen.findByRole("dialog")).getByRole("button", {
+        name: "Archive",
+      }),
     );
 
     await vi.waitFor(() => {

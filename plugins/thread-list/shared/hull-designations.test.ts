@@ -15,14 +15,20 @@ function tmp(): string {
   return dir;
 }
 afterEach(() => {
-  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  for (const dir of dirs.splice(0))
+    rmSync(dir, { recursive: true, force: true });
 });
 
 describe("parseHullDesignations", () => {
   it("keeps only approved rows with a designation and ignores extra fields", () => {
     expect(
       parseHullDesignations([
-        { projectId: "proj_test1", designation: "GSV-T1·◐", approved: true, note: "x" },
+        {
+          projectId: "proj_test1",
+          designation: "GSV-T1·◐",
+          approved: true,
+          note: "x",
+        },
         { projectId: "proj_test2", designation: "GSV-T2·◐", approved: false },
         { projectId: "proj_test3", designation: "  ", approved: true },
         { projectId: "proj_test4", approved: true },
@@ -38,7 +44,12 @@ describe("parseHullDesignations", () => {
     expect(
       parseHullDesignations([
         { threadId: "thr_test1", designation: "GSV-T1·◐", approved: true },
-        { threadId: "thr_test2", projectId: "proj_x", designation: "GSV-T2·◐", approved: true },
+        {
+          threadId: "thr_test2",
+          projectId: "proj_x",
+          designation: "GSV-T2·◐",
+          approved: true,
+        },
         { threadId: "thr_test3", designation: "GSV-T3·◐", approved: false },
         { threadId: "", designation: "GSV-T4·◐", approved: true },
       ]),
@@ -52,16 +63,22 @@ describe("parseHullDesignations", () => {
 
 describe("resolveHullDesignationsPath", () => {
   it("defaults to the data dir and honours the env override", () => {
-    expect(resolveHullDesignationsPath("/d", {})).toBe("/d/hull-designations.json");
+    expect(resolveHullDesignationsPath("/d", {})).toBe(
+      "/d/hull-designations.json",
+    );
     expect(
-      resolveHullDesignationsPath("/d", { BB_HULL_DESIGNATIONS_FILE: "/x/y.json" }),
+      resolveHullDesignationsPath("/d", {
+        BB_HULL_DESIGNATIONS_FILE: "/x/y.json",
+      }),
     ).toBe("/x/y.json");
   });
 });
 
 describe("createHullDesignationsReader", () => {
   const row = (d: string) =>
-    JSON.stringify([{ projectId: "proj_test1", designation: d, approved: true }]);
+    JSON.stringify([
+      { projectId: "proj_test1", designation: d, approved: true },
+    ]);
 
   it("returns empty for a missing file", () => {
     const read = createHullDesignationsReader(() => join(tmp(), "none.json"));

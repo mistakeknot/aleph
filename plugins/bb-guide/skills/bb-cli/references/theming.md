@@ -2,7 +2,7 @@
 
 How to write a good bb app theme: the design model, the full design-token
 reference (what every CSS variable drives), and how to set colors and fonts.
-Read this before authoring or editing a built-in theme or a custom stylesheet.
+Read this before authoring or editing a custom theme stylesheet.
 
 The _palette_ is global and server-stored; light/dark _mode_ is a separate
 per-client setting that the palette layers on top of. You ship one stylesheet
@@ -126,13 +126,13 @@ semantic** tokens; the rest derive.
 
 **Accent — set `--primary` (+ foreground); these follow it:**
 
-| token                                             | drives                                                                    | derives           |
-| ------------------------------------------------- | ------------------------------------------------------------------------- | ----------------- |
-| `--primary`                                       | primary buttons, active/accent states, links, focus ring, selection       | set               |
-| `--primary-foreground`                            | text/icons drawn on a `--primary` fill                                    | set               |
-| `--ring`, `--sidebar-ring`                        | keyboard focus outline                                                    | `= --primary`     |
-| `--surface-selected`, `--surface-selected-border` | selected-row tint and its outline                                         | primary 16% / 35% |
-| `--file-accent`                                   | file-path titles in the timeline (the one tint in otherwise-neutral text) | set               |
+| token                                              | drives                                                                                                                                                                                                | derives                |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| `--primary`                                        | primary buttons, active/accent states, links, focus ring, selection                                                                                                                                   | set                    |
+| `--primary-foreground`                             | text/icons drawn on a `--primary` fill                                                                                                                                                                | set                    |
+| `--ring`, `--sidebar-ring`                         | keyboard focus outline                                                                                                                                                                                | `= --primary`          |
+| `--surface-selected`, `--surface-selected-border`  | selected-row tint and its outline                                                                                                                                                                     | primary 16% / 35%      |
+| `--file-accent`                                    | file-path titles in the timeline (the one tint in otherwise-neutral text)                                                                                                                             | set                    |
 | `--provider-icon`, `--provider-icon-<provider id>` | provider icons in the Thread list rows; the per-provider variable wins (e.g. `--provider-icon-codex`; characters outside `[A-Za-z0-9_-]` become `-`). A user's custom icon color still wins over both | brand tint or row text |
 
 **Text tiers — set these (they do NOT auto-derive; use the `color-mix` recipe so contrast tracks the anchors):**
@@ -172,12 +172,12 @@ Four font tokens, overridden the same way as colors. Fonts are mode-independent,
 so set them in the `:root, .light` block only. Always end the stack with a
 generic family (`sans-serif` / `monospace` / `serif`) as a fallback.
 
-| token                    | drives                                                           |
-| ------------------------ | ---------------------------------------------------------------- |
-| `--font-sans`            | the entire app UI / body text (`body` uses it)                   |
-| `--font-mono`            | code blocks, diffs, file paths and previews, terminal-style text |
-| `--font-serif`           | serif prose (rarely used in the UI)                              |
-| `--font-terminal`        | the integrated terminal's renderer font family                  |
+| token             | drives                                                           |
+| ----------------- | ---------------------------------------------------------------- |
+| `--font-sans`     | the entire app UI / body text (`body` uses it)                   |
+| `--font-mono`     | code blocks, diffs, file paths and previews, terminal-style text |
+| `--font-serif`    | serif prose (rarely used in the UI)                              |
+| `--font-terminal` | the integrated terminal's renderer font family                   |
 
 The browser must be able to load the family. Three ways:
 

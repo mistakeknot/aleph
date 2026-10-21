@@ -8,7 +8,10 @@ function splitBuildMetadata(version) {
 
   return buildStart === -1
     ? { base: version, build: null }
-    : { base: version.slice(0, buildStart), build: version.slice(buildStart + 1) };
+    : {
+        base: version.slice(0, buildStart),
+        build: version.slice(buildStart + 1),
+      };
 }
 
 export function parseAlephVersion(version) {

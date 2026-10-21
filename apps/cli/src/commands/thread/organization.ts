@@ -116,6 +116,7 @@ function printQueueTable(rows: ThreadQueuedMessagesResult): void {
         ? "System"
         : (row.senderThreadId ?? "Agent"),
     truncateCell(queuedMessagePreview(row.content), MAX_QUEUE_TEXT_WIDTH),
+    row.state,
     truncateCell(
       row.failureReason === null
         ? describeQueueWait(row)
@@ -126,8 +127,16 @@ function printQueueTable(rows: ThreadQueuedMessagesResult): void {
   ]);
   printBorderlessTable(
     {
-      head: ["ID", "Thread", "Sender", "Message", "Waiting on", "Send at"],
-      colWidths: columnWidths(table, [2, 6, 6, 7, 10, 7]),
+      head: [
+        "ID",
+        "Thread",
+        "Sender",
+        "Message",
+        "State",
+        "Waiting on",
+        "Send at",
+      ],
+      colWidths: columnWidths(table, [2, 6, 6, 7, 5, 10, 7]),
     },
     table,
   );

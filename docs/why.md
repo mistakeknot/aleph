@@ -22,7 +22,10 @@ fields:
     ref: null
     path: "docs/cujs/aleph-01-multi-day-coordinator.md"
     evidence:
-      - { path: "docs/cujs/aleph-01-multi-day-coordinator.md:1", scope: journey }
+      - {
+          path: "docs/cujs/aleph-01-multi-day-coordinator.md:1",
+          scope: journey,
+        }
   success:
     state: confirmed
     value: "Coordinator wakes per completed child fall to about one (aspirational target; the repo notes the baseline is not yet measured)"

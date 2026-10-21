@@ -1,7 +1,5 @@
 import {
-  getAppSettings,
   getStoredProviderModelCatalog,
-  setAppSettings,
   updateHost,
 } from "@bb/db";
 import type { JsonValue, ProviderFork } from "@bb/domain";
@@ -523,6 +521,42 @@ describe("provider model catalog store", () => {
     });
   });
 
+  it("reads a workspace-scoped catalog in the project's checkout on the machine when a new thread names its project", async () => {
+    await withTestHarness(async (harness) => {
+      const host = setupCatalogHost(harness, { id: "host-catalog-project" });
+      const other = seedHostSession(harness.deps, {
+        id: "host-catalog-project-elsewhere",
+      });
+      const { project } = seedProjectWithSource(harness.deps, {
+        hostId: host.hostId,
+        path: "/tmp/catalog-project-checkout",
+      });
+      const { project: elsewhere } = seedProjectWithSource(harness.deps, {
+        hostId: other.host.id,
+        path: "/tmp/catalog-project-elsewhere",
+      });
+      const read = (providerId: string, projectId: string) =>
+        resolveSystemExecutionOptions(harness.deps, {
+          hostId: host.hostId,
+          projectId,
+          providerId,
+        });
+
+      await read("pi", project.id);
+      await read("pi", elsewhere.id);
+      await read("claude-code", project.id);
+
+      expect(host.listRequests().map((command) => command.cwd)).toEqual([
+        "/tmp/catalog-project-checkout",
+        undefined,
+        undefined,
+      ]);
+      await expect(read("pi", "proj_missing")).rejects.toMatchObject({
+        status: 404,
+      });
+    });
+  });
+
   it("records no failure and sends no push when a refresh fails after its daemon session changed or because the host is not active", async () => {
     await withTestHarness(async (harness) => {
       const logLines = captureLogLines(harness);
@@ -686,10 +720,6 @@ describe("provider model catalog store", () => {
     await withTestHarness(async (harness) => {
       const host = setupCatalogHost(harness, {
         id: "host-catalog-machine-environment",
-      });
-      setAppSettings(harness.db, {
-        ...getAppSettings(harness.db),
-        machineGitCredentialsEnabled: false,
       });
       const held = createDeferredPromise<HostRpcHandlerResult>();
       let saved = false;

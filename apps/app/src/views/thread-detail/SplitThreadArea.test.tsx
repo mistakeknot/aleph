@@ -69,6 +69,7 @@ import {
   PromptBoxInternal,
 } from "@/components/promptbox/PromptBoxInternal";
 import { subscribeComposerFocusRequests } from "@/lib/composer-focus-requests";
+import { LocationProbe } from "@/test/location-probe";
 
 const threadStore = vi.hoisted(
   () =>
@@ -226,6 +227,8 @@ vi.mock("react-resizable-panels", async () => {
 
 vi.mock("@/components/ui/sidebar.js", () => ({
   useIsSidebarShowing: () => sidebarState.showing,
+  useSidebarKeepsCollapsedRail: () => false,
+  useIsSidebarFramed: () => false,
 }));
 
 vi.mock("@/views/RootComposeView", () => ({
@@ -323,6 +326,7 @@ function ThreadComposerFixture({
         mention: {
           results: EMPTY_ORDERED_MENTION_SUGGESTIONS,
           isLoading: false,
+          isRefreshing: false,
           isError: false,
           onQueryChange: () => {},
         },
@@ -332,8 +336,8 @@ function ThreadComposerFixture({
   );
 }
 
-vi.mock("./ThreadDetailView", () => ({
-  ThreadDetailView: ({
+vi.mock("./LazyThreadDetailView", () => ({
+  LazyThreadDetailView: ({
     projectId = "proj_personal",
     threadId = "thr-a",
     timelineEnabled = true,
@@ -715,11 +719,6 @@ function registerDocsPanel() {
   );
 }
 
-function LocationProbe() {
-  const location = useLocation();
-  return <div data-testid="location">{location.pathname}</div>;
-}
-
 function ExternalNav({ to }: { to: string }) {
   const navigate = useNavigate();
   return (
@@ -838,6 +837,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  window.dispatchEvent(new Event("pagehide"));
   vi.restoreAllMocks();
   threadStore.clear();
   resetPluginSlotStoreForTest();
@@ -965,7 +965,9 @@ describe("SplitThreadArea", () => {
       routeAwareContent: true,
     });
     const first = await screen.findByRole("textbox", { name: "Message thr-a" });
-    const second = screen.getByRole("textbox", { name: "New thread message" });
+    const second = await screen.findByRole("textbox", {
+      name: "New thread message",
+    });
     act(() => first.focus());
     act(() => {
       expect(commandHandlers.get("pane.focus.next")?.()).toBe(true);
@@ -1212,7 +1214,7 @@ describe("SplitThreadArea", () => {
     });
 
     expect(screen.queryByTestId("mock-collapsed-thread-rail")).toBeNull();
-    fireEvent.click(screen.getByTestId("maximize-thr-a"));
+    fireEvent.click(await screen.findByTestId("maximize-thr-a"));
 
     expect(screen.getByTestId("maximize-thr-a").textContent).toBe("restore");
     await waitFor(() => {
@@ -1256,7 +1258,7 @@ describe("SplitThreadArea", () => {
     await waitFor(() => expect(hiddenScroller.scrollTop).toBe(0));
   });
 
-  it("stops the restore loop once positions settle instead of burning 30 frames", () => {
+  it("stops the restore loop once positions settle instead of burning 30 frames", async () => {
     const frames = new Map<number, FrameRequestCallback>();
     let frameId = 0;
     vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
@@ -1281,7 +1283,7 @@ describe("SplitThreadArea", () => {
       path: threadPath("thr-a"),
       layout: twoPaneLayout("pane-1"),
     });
-    const hiddenScroller = screen.getByTestId("scroll-thr-b");
+    const hiddenScroller = await screen.findByTestId("scroll-thr-b");
     hiddenScroller.scrollTop = 12;
     fireEvent.scroll(hiddenScroller);
 
@@ -1953,8 +1955,10 @@ describe("SplitThreadArea", () => {
     });
 
     const toggle = await screen.findByTestId("split-workspace-panel-toggle");
-    expect(toggle.querySelector("button")?.getAttribute("aria-expanded")).toBe(
-      "true",
+    await waitFor(() =>
+      expect(
+        toggle.querySelector("button")?.getAttribute("aria-expanded"),
+      ).toBe("true"),
     );
     expect(
       screen.queryByTestId("split-workspace-empty-panel-state"),
@@ -2536,7 +2540,7 @@ describe("SplitThreadArea", () => {
         path: threadPath("thr-a"),
         layout: twoPaneLayout("pane-1", dir),
         focusComposer: true,
-              });
+      });
       const source = await screen.findByTestId("draft-thr-a");
       const destination = screen.getByTestId(
         "draft-thr-b",
@@ -2565,7 +2569,7 @@ describe("SplitThreadArea", () => {
       path: threadPath("thr-a"),
       layout: twoPaneLayout("pane-1"),
       focusComposer: true,
-          });
+    });
     const source = await screen.findByTestId("draft-thr-a");
     const target = screen.getByTestId("draft-thr-b");
     screen.getByTestId("close-thr-a").focus();
@@ -2596,7 +2600,7 @@ describe("SplitThreadArea", () => {
         path: threadPath("thr-a"),
         layout: twoPaneLayout("pane-1"),
         focusComposer: true,
-              });
+      });
       const source = await screen.findByTestId("draft-thr-a");
       const target = screen.getByTestId("draft-thr-b") as HTMLTextAreaElement;
       target.disabled = true;
@@ -3172,7 +3176,7 @@ describe("SplitThreadArea", () => {
       externalTo: threadPath("thr-c"),
     });
 
-    expect(screen.getByTestId("pane-thr-b")).toBeTruthy();
+    expect(await screen.findByTestId("pane-thr-b")).toBeTruthy();
     fireEvent.click(screen.getByTestId("external-nav"));
 
     expect(await screen.findByTestId("pane-thr-c")).toBeTruthy();

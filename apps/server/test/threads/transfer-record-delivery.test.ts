@@ -5,17 +5,16 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   abortTransferOperation,
   claimQueuedThreadMessage,
-  createConnection,
   createProject,
   createQueuedThreadMessage,
   createThread,
-  migrate,
   releaseQueuedMessageClaim,
   retireQueuedThreadMessages,
   upsertHost,
   type DbConnection,
 } from "@bb/db";
 import type { Logger } from "@bb/logger";
+import { createMigratedConnection } from "@bb/db/testing";
 import { createAiServiceRegistry } from "../../src/services/ai/ai-service-registry.js";
 import { createPluginRuntime } from "../../src/services/plugins/plugin-runtime.js";
 import { setPluginThreadEventEmitter } from "../../src/services/plugins/plugin-thread-events.js";
@@ -85,8 +84,7 @@ function install(
 }
 
 function seed(rows: number) {
-  const db = createConnection(":memory:");
-  migrate(db);
+  const db = createMigratedConnection();
   const host = upsertHost(db, noopNotifier, { name: "record" });
   const { project } = createProject(db, noopNotifier, {
     name: "record",
@@ -200,8 +198,7 @@ interface Observed {
 }
 
 function world() {
-  const db = createConnection(":memory:");
-  migrate(db);
+  const db = createMigratedConnection();
   const host = upsertHost(db, noopNotifier, { name: "families" });
   const { project } = createProject(db, noopNotifier, {
     name: "families",

@@ -48,6 +48,7 @@ describe("RuntimeProviderProcessManager agent scope wrap", () => {
         identityRegistry.createProviderState({ providerId }),
       env: undefined,
       getNextRequestId: () => 1,
+      handleDeferredEvents: () => undefined,
       handleStdoutLine: () => undefined,
       onProcessExit: vi.fn(),
       onProviderThreadDetached: () => undefined,

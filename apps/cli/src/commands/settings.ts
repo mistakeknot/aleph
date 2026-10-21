@@ -26,6 +26,7 @@ import {
 import { BbHttpError } from "@bb/sdk";
 import type {
   SystemAiServicesResponse,
+  SystemCliCommandStatus,
   SystemProviderInfo,
 } from "@bb/server-contract";
 import { action } from "../action.js";
@@ -40,6 +41,27 @@ interface JsonOptions {
 
 interface AiServiceSetOptions extends JsonOptions {
   plugin?: string;
+}
+
+function describeCliCommandStatus(status: SystemCliCommandStatus): string {
+  if (!status.supported) {
+    return "The bb CLI can be installed for use outside bb only by an installed bb. Start bb with npx bb-app or the desktop app.";
+  }
+  if (status.installedPath !== null) {
+    return status.onPath
+      ? `The bb CLI is installed at ${status.installedPath} for use outside bb.`
+      : `The bb CLI is installed at ${status.installedPath}, but its folder is not on your PATH. Add the folder to your PATH to use bb outside bb.`;
+  }
+  if (status.shadowedBy === null) {
+    return "The bb CLI is not installed for use outside bb. Run bb settings cli-command install to add it.";
+  }
+  if (status.shadowedBy.source === "npm") {
+    return `bb is already on your PATH at ${status.shadowedBy.path}, installed by npm.`;
+  }
+  if (status.shadowedBy.source === "machine") {
+    return `bb is already on your PATH at ${status.shadowedBy.path}, installed with the bb machine on this computer.`;
+  }
+  return `The bb CLI is not installed for use outside bb. Another bb at ${status.shadowedBy.path} comes first on your PATH.`;
 }
 
 function requireAiTask(input: string): AiTask {
@@ -164,6 +186,7 @@ interface ProviderCompletedTurnDisplayEntry {
 }
 
 interface UsageOptions extends JsonOptions {
+  refresh?: boolean;
   host?: string;
   machine?: string;
 }
@@ -472,6 +495,23 @@ export function registerSettingsCommands(
     );
 
   settings
+    .command("replay-onboarding")
+    .description("Show the first-run setup guide again")
+    .option("--json", "Print machine-readable JSON output")
+    .action(
+      action(async (opts: JsonOptions) => {
+        const sdk = createCliBbSdk(getUrl());
+        const config = await sdk.system.config();
+        const result = await sdk.system.updateGeneralSettings({
+          ...config.generalSettings,
+          onboardingCompletedAt: null,
+        });
+        if (outputJson(opts, result)) return;
+        console.log("The setup guide is showing again");
+      }),
+    );
+
+  settings
     .command("completed-turns [providerId] [display]")
     .description(
       "Show or set whether each provider's finished turns collapse or stay flat (collapse, flat, or default)",
@@ -764,6 +804,7 @@ export function registerSettingsCommands(
   settings
     .command("usage")
     .description("Show provider usage limits")
+    .option("--refresh", "Fetch fresh usage instead of a cached result")
     .option(
       "--machine <id-or-name>",
       "Machine whose provider usage should be shown",
@@ -780,9 +821,10 @@ export function registerSettingsCommands(
                 serverUrl: getUrl(),
                 target,
               });
-        const result = await createCliBbSdk(getUrl()).system.usageLimits(
-          hostId === undefined ? {} : { hostId },
-        );
+        const result = await createCliBbSdk(getUrl()).system.usageLimits({
+          hostId,
+          refresh: opts.refresh,
+        });
         if (outputJson(opts, result)) return;
         console.log(JSON.stringify(result, null, 2));
       }),
@@ -800,6 +842,54 @@ export function registerSettingsCommands(
         });
         if (outputJson(opts, result)) return;
         console.log(JSON.stringify(result, null, 2));
+      }),
+    );
+
+  const cliCommand = settings
+    .command("cli-command")
+    .description(
+      "Install the bb CLI for use outside bb, on the computer that runs the bb server",
+    );
+  cliCommand
+    .command("show", { isDefault: true })
+    .description("Show whether the bb CLI is installed for use outside bb")
+    .option("--json", "Print machine-readable JSON output")
+    .action(
+      action(async (opts: JsonOptions) => {
+        const status =
+          await createCliBbSdk(getUrl()).system.experimental_cliCommand();
+        if (outputJson(opts, status)) return;
+        console.log(describeCliCommandStatus(status));
+      }),
+    );
+  cliCommand
+    .command("install")
+    .description("Link the bb CLI into a folder on PATH")
+    .option("--json", "Print machine-readable JSON output")
+    .action(
+      action(async (opts: JsonOptions) => {
+        const status =
+          await createCliBbSdk(
+            getUrl(),
+          ).system.experimental_installCliCommand();
+        if (outputJson(opts, status)) return;
+        console.log(describeCliCommandStatus(status));
+      }),
+    );
+  cliCommand
+    .command("remove")
+    .description("Take the bb CLI that bb installed off PATH")
+    .option("--json", "Print machine-readable JSON output")
+    .action(
+      action(async (opts: JsonOptions) => {
+        const status =
+          await createCliBbSdk(getUrl()).system.experimental_removeCliCommand();
+        if (outputJson(opts, status)) return;
+        console.log(
+          status.installedPath === null
+            ? "Removed the bb CLI from your PATH."
+            : describeCliCommandStatus(status),
+        );
       }),
     );
 

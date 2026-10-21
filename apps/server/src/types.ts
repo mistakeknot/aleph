@@ -6,6 +6,7 @@ import type { PendingInteractionLifecycle } from "./services/interactions/pendin
 import type { MachineAuthService } from "./services/machine-auth.js";
 import type { AlephUpdateService } from "./services/system/aleph-update.js";
 import type { AppUpdateService } from "./services/system/app-update.js";
+import type { CliCommandService } from "./services/system/cli-command.js";
 import type { AppVersionService } from "./services/system/app-version.js";
 import type { BbAppManagedConfigReloader } from "./services/system/bb-app-managed-config.js";
 import type { TelemetryService } from "./services/system/telemetry.js";
@@ -66,6 +67,7 @@ export interface ServerAppDeps extends AppDeps {
   appUpdate: AppUpdateService;
   appVersion: AppVersionService;
   bbAppManagedConfig: BbAppManagedConfigReloader;
+  cliCommand: CliCommandService;
 }
 
 export type WorkSessionDeps = Pick<

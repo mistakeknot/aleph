@@ -231,20 +231,6 @@ function pluginAppSurfaceItems(
     ),
     ...namedSlotItems(
       pluginId,
-      slots.experimentalSidebarNavigations,
-      "sidebar-navigation",
-      "Can replace the sidebar navigation controls; configured in Appearance.",
-      () => getSettingsRoutePath("appearance"),
-    ),
-    ...namedSlotItems(
-      pluginId,
-      slots.experimentalSidebarHeaders,
-      "sidebar-header",
-      "Can add controls beside the sidebar toggle; configured in Appearance.",
-      () => getSettingsRoutePath("appearance"),
-    ),
-    ...namedSlotItems(
-      pluginId,
       slots.sourceCodeRenderers,
       "source-code-renderer",
       "Replaces how source code is displayed everywhere in the app.",
@@ -296,6 +282,12 @@ function pluginAppSurfaceItems(
       slots.threadHeaderActions,
       "thread-header",
       "Adds an action to thread headers.",
+    ),
+    ...namedSlotItems(
+      pluginId,
+      slots.threadActions,
+      "thread-action",
+      "Adds an action to thread menus.",
     ),
     ...namedSlotItems(
       pluginId,
@@ -372,6 +364,14 @@ function pluginAppSurfaceItems(
         key: `directive:${slot.id}`,
         label: `::${slot.id}`,
         detail: "Renders plugin-provided content inside thread messages.",
+        mono: true,
+      })),
+    ...slots.codeFenceRenderers
+      .filter((slot) => slot.pluginId === pluginId)
+      .map((slot) => ({
+        key: `code-fence:${slot.id}`,
+        label: slot.languages.map((language) => `\`\`\`${language}`).join(", "),
+        detail: "Renders these fenced code blocks inside assistant messages.",
         mono: true,
       })),
   ];
@@ -630,7 +630,7 @@ export function PluginHealthBanner({
 
 export function PluginServices({ plugin }: { plugin: PluginListItem }) {
   return (
-    <div className="max-w-full overflow-hidden rounded-lg border border-border bg-card align-top">
+    <div className="@container/plugin-detail max-w-full overflow-hidden rounded-lg border border-border bg-card align-top">
       <table
         aria-label="Background services"
         className="w-full max-w-full table-fixed border-collapse text-left"

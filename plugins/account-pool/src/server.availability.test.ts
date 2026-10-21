@@ -178,6 +178,7 @@ describe("thread-bound pool availability", () => {
       "ANTHROPIC_AUTH_TOKEN",
       "ENABLE_TOOL_SEARCH",
       "_CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL",
+      "ENABLE_PROMPT_CACHING_1H",
       "BB_ACCOUNT_POOL_PARENT_URL",
       "BB_ACCOUNT_POOL_PARENT_TOKEN",
     ]);

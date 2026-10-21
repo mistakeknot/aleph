@@ -1,10 +1,9 @@
-import { useState, type ReactNode } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useState, type ReactNode } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { PERSONAL_PROJECT_ID, type ProviderInfo } from "@bb/domain";
-import { UPDATE_ACTION_ICON } from "@bb/domain/update-state";
+import { PERSONAL_PROJECT_ID, type Host, type ProviderInfo } from "@bb/domain";
 import type {
   SidebarBootstrapResponse,
+  SystemAiServicesResponse,
   SystemVersionResponse,
 } from "@bb/server-contract";
 import type { ProviderCliStatusResponse } from "@bb/host-daemon-contract";
@@ -16,6 +15,7 @@ import {
   pluginMarketplacesQueryKey,
   serverMoveStatusQueryKey,
   sidebarNavigationQueryKey,
+  systemAiServicesQueryKey,
   systemConfigQueryKey,
   systemProvidersQueryKey,
   systemVersionQueryKey,
@@ -32,13 +32,10 @@ import {
   MODAL_MACHINE_PROVIDER,
 } from "./machine-story-fixtures";
 import { makeProviderInfo } from "@bb/test-helpers/domain-fixtures";
-import { getSettingsRoutePath } from "../src/lib/route-paths";
 import {
   BbAppUpdateRows,
-  MachineUpdatesFleetSection,
-  MachineUpdatesRows,
-  MachineUpdatesSection,
-  UpdateActionButton,
+  BbUpdatesCard,
+  ProviderCliUpdatesSection,
 } from "../src/components/settings/UpdatesSettingsSection";
 import {
   HOST_IDS,
@@ -70,6 +67,32 @@ const STORY_GLOBAL_VARIABLES = [
   },
   { name: "SENTRY_DSN", value: null, secret: true as const, note: null },
 ];
+
+const STORY_AI_SERVICES: SystemAiServicesResponse = {
+  selections: {
+    "thread-title": { mode: "automatic" },
+    "commit-message": { mode: "automatic" },
+    voice: { mode: "automatic" },
+  },
+  services: [
+    {
+      id: "bb",
+      displayName: "bb cloud",
+      pluginId: "bb-ai",
+      tasks: ["thread-title", "commit-message", "voice"],
+      automaticRank: 0,
+      status: { ready: true },
+    },
+    {
+      id: "codex",
+      displayName: "Codex",
+      pluginId: "provider-codex",
+      tasks: ["thread-title", "commit-message"],
+      automaticRank: 1,
+      status: { ready: false, message: "Run `codex login` to sign in" },
+    },
+  ],
+};
 
 const SETTINGS_STORY_NOW = Date.parse("2026-08-19T08:00:00.000Z");
 
@@ -210,6 +233,8 @@ const systemConfig = makeSystemConfig({
 const systemVersion = {
   currentVersion: "0.39.0",
   latestVersion: "0.39.0",
+  currentCommit: null,
+  installKind: "npm",
   source: "npm",
   updateAvailable: false,
   isDevelopment: false,
@@ -246,30 +271,13 @@ const settingsUpdateMachine = {
 } satisfies UpdateInventoryMachine;
 
 const noJobs: ReadonlySet<string> = new Set();
+const noFailures = new Map<string, never>();
 const noop = () => {};
 
 export function SettingsUpdatesStory() {
-  const navigate = useNavigate();
   return (
-    <MachineUpdatesFleetSection
-      action={
-        <div role="toolbar" aria-label="Bulk update actions">
-          <UpdateActionButton
-            label="Update all 1 CLI tool"
-            tooltipLabel="Update all"
-            icon={UPDATE_ACTION_ICON}
-            visibleLabel="Update all"
-            variant="default"
-            onClick={noop}
-          />
-        </div>
-      }
-    >
-      <MachineUpdatesSection
-        machine={settingsUpdateMachine}
-        isThisMachine={false}
-        showServerBadge={false}
-      >
+    <div className="space-y-6">
+      <BbUpdatesCard>
         <BbAppUpdateRows
           systemVersion={systemVersion}
           desktopInfo={null}
@@ -277,19 +285,26 @@ export function SettingsUpdatesStory() {
           onRelaunchDesktop={null}
           onRetryDesktop={null}
         />
-        <MachineUpdatesRows
-          machine={settingsUpdateMachine}
-          runningJobKey={null}
-          queuedJobKeys={noJobs}
-          onStartInstall={noop}
-          onOpenProvider={() => navigate(getSettingsRoutePath("providers"))}
-        />
-      </MachineUpdatesSection>
-    </MachineUpdatesFleetSection>
+      </BbUpdatesCard>
+      <ProviderCliUpdatesSection
+        machines={[settingsUpdateMachine]}
+        now={0}
+        localDaemonHostId={null}
+        serverHostId={null}
+        retryPendingHostId={null}
+        runningJobKey={null}
+        queuedJobKeys={noJobs}
+        failuresByJobKey={noFailures}
+        onStartInstall={noop}
+        onRetryDaemonUpdate={noop}
+        onRetryAllDaemonUpdates={noop}
+        onRecheckClis={noop}
+      />
+    </div>
   );
 }
 
-function createSettingsStoryQueryClient() {
+function createSettingsStoryQueryClient(hosts: Host[] = SETTINGS_STORY_HOSTS) {
   const queryClient = createAppQueryClient({
     showMutationErrorToasts: false,
     defaultOptions: {
@@ -301,13 +316,14 @@ function createSettingsStoryQueryClient() {
       },
     },
   });
-  queryClient.setQueryData(hostsQueryKey(), SETTINGS_STORY_HOSTS);
-  queryClient.setQueryData(hostsQueryKey(true), SETTINGS_STORY_HOSTS);
+  queryClient.setQueryData(hostsQueryKey(), hosts);
+  queryClient.setQueryData(hostsQueryKey(true), hosts);
   queryClient.setQueryData(systemConfigQueryKey(), systemConfig);
   queryClient.setQueryData(systemProvidersQueryKey(), systemProviders);
   queryClient.setQueryData(systemVersionQueryKey(), systemVersion);
   queryClient.setQueryData(sidebarNavigationQueryKey(), sidebarNavigation);
   queryClient.setQueryData(pluginMarketplacesQueryKey(), []);
+  queryClient.setQueryData(systemAiServicesQueryKey(), STORY_AI_SERVICES);
   queryClient.setQueryData(machineEnvironmentQueryKey(null), {
     builtInGit: STORY_GIT_HEALTH,
     variables: STORY_GLOBAL_VARIABLES,
@@ -345,8 +361,18 @@ function createSettingsStoryQueryClient() {
   return queryClient;
 }
 
-export function SettingsStoryFixtures({ children }: { children: ReactNode }) {
-  const [queryClient] = useState(createSettingsStoryQueryClient);
+export function SettingsStoryFixtures({
+  children,
+  hosts = SETTINGS_STORY_HOSTS,
+}: {
+  children: ReactNode;
+  hosts?: Host[];
+}) {
+  const [queryClient] = useState(() => createSettingsStoryQueryClient(hosts));
+  useEffect(() => {
+    queryClient.setQueryData(hostsQueryKey(), hosts);
+    queryClient.setQueryData(hostsQueryKey(true), hosts);
+  }, [hosts, queryClient]);
   return (
     <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
   );

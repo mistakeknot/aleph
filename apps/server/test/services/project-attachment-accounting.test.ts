@@ -30,7 +30,7 @@ import {
 import {
   copyProjectAttachments,
   storeAttachment,
-  validatePromptAttachmentReferences,
+  resolvePromptAttachmentReferences,
 } from "../../src/services/projects/attachments.js";
 import {
   pruneProjectAttachments,
@@ -114,6 +114,7 @@ describe("project attachment accounting", () => {
       const queued = seedQueuedMessage(h.deps, {
         threadId: thread.id,
         content: input(a.path),
+        waitingOn: { kind: "time" },
         sendAt: Date.now() + 30 * 24 * 3600_000,
       });
       const result = updateQueuedThreadMessage(h.db, h.hub, {
@@ -352,10 +353,11 @@ describe("project attachment accounting", () => {
       expect((await pruneProjectAttachments(h.deps, project.id)).status).toBe(
         "backfill-pending",
       );
-      await validatePromptAttachmentReferences({
+      await resolvePromptAttachmentReferences({
         db: h.db,
         dataDir: h.config.dataDir,
         projectId: project.id,
+        hostId: null,
         input: input("./event.txt"),
       });
       await completeBackfill(h, project.id);
@@ -435,10 +437,11 @@ describe("project attachment accounting", () => {
         getProjectAttachment(h.db, project.id, orphan.path),
       ).toBeUndefined();
       await expect(
-        validatePromptAttachmentReferences({
+        resolvePromptAttachmentReferences({
           db: h.db,
           dataDir: h.config.dataDir,
           projectId: project.id,
+          hostId: null,
           input: input("../escape.txt"),
         }),
       ).rejects.toThrow("escapes project directory");

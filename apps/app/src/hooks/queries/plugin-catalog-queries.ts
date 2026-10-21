@@ -1,10 +1,9 @@
+import type { PluginMarketplaceCategory } from "@bb/domain";
 import type {
-  InstalledPlugin,
   PluginApplyUpdateResult as SdkPluginApplyUpdateResult,
   PluginCatalogAuthor,
   PluginCatalogCollection,
   PluginCatalogCollectionMembership,
-  PluginCatalogResolvedSource,
   PluginCatalogSearchResult as SdkPluginCatalogSearchResult,
   PluginMarketplace,
   PluginMarketplaceRefreshResult,
@@ -80,24 +79,6 @@ export function usePluginSource(
   });
 }
 
-export async function installPlugin(
-  fetchImpl: FetchLike,
-  source: string,
-): Promise<InstalledPlugin> {
-  return createPluginsClient(fetchImpl).install({ source });
-}
-
-export async function installCatalogPlugin(
-  fetchImpl: FetchLike,
-  args: {
-    entryId: string;
-    marketplace?: string;
-    confirmedSource?: PluginCatalogResolvedSource;
-  },
-): Promise<InstalledPlugin> {
-  return createPluginsClient(fetchImpl).catalog.install(args);
-}
-
 export function useCatalogInstallPlan(
   args: { entryId: string; marketplace?: string } | null,
 ) {
@@ -120,9 +101,12 @@ async function listPluginMarketplaces(
 
 export async function addPluginMarketplace(
   fetchImpl: FetchLike,
-  source: string,
+  args: { source: string; subdirectory: string | null },
 ): Promise<PluginMarketplace> {
-  return createPluginsClient(fetchImpl).marketplaces.add({ source });
+  return createPluginsClient(fetchImpl).marketplaces.add({
+    source: args.source,
+    ...(args.subdirectory === null ? {} : { subdirectory: args.subdirectory }),
+  });
 }
 
 export async function removePluginMarketplace(
@@ -258,6 +242,7 @@ export interface PluginCatalogSearchEntry {
   official: boolean;
   author: PluginCatalogAuthor | null;
   installed: boolean;
+  installedByDefault: boolean;
   conflictingInstallSource: string | null;
   installs: number | null;
   compatible: boolean;
@@ -292,6 +277,7 @@ function toPluginCatalogSearchEntry(
     official: data.official,
     author: data.author,
     installed: data.installed,
+    installedByDefault: data.installedByDefault,
     conflictingInstallSource: data.conflictingInstallSource,
     installs: data.installs,
     compatible: data.compatible,
@@ -302,13 +288,14 @@ function toPluginCatalogSearchEntry(
 export interface PluginCatalogSearchData {
   entries: PluginCatalogSearchEntry[];
   collections: PluginCatalogCollection[];
+  categories: PluginMarketplaceCategory[];
 }
 
 export async function searchPluginCatalog(
   fetchImpl: FetchLike,
   query: string,
 ): Promise<PluginCatalogSearchData> {
-  const { results, collections } = await createPluginsClient(
+  const { results, collections, categories } = await createPluginsClient(
     fetchImpl,
   ).catalog.search({
     query,
@@ -316,6 +303,7 @@ export async function searchPluginCatalog(
   return {
     entries: results.map(toPluginCatalogSearchEntry),
     collections,
+    categories,
   };
 }
 

@@ -16,6 +16,9 @@ import {
   listLifecycleThreadTree,
   normalizeThreadSearchLearnedQuery,
   recordThreadSearchSelection,
+  listPluginThreadMetadata,
+  listThreadAncestors,
+  listThreadDescendants,
   searchThreadsWithPendingInteractionState,
   updateThread,
   updateThreadSectionIf,
@@ -34,6 +37,9 @@ import {
   type ThreadIncludeOption,
   type ThreadChildSummaryResponse,
   type ThreadCountResponse,
+  type PluginThreadMetadataListResponse,
+  type ThreadAncestorsListResponse,
+  type ThreadDescendantsListResponse,
   type ThreadRunningResponse,
   type ThreadSearchResponse,
   type RecordThreadSearchSelectionResponse,
@@ -67,6 +73,7 @@ import {
 import { assertValidParentThread } from "../../services/threads/thread-parent.js";
 import { handleThreadOwnershipChange } from "../../services/threads/thread-ownership.js";
 import { applyThreadExecutionOverride } from "../../services/threads/thread-execution-override.js";
+import { applyThreadSessionOptionPatch } from "../../services/threads/thread-session-options.js";
 import { emitPluginThreadDeleted } from "../../services/plugins/plugin-thread-events.js";
 
 function parseThreadIncludes(query: ThreadGetQuery): Set<ThreadIncludeOption> {
@@ -258,6 +265,35 @@ export function registerThreadBaseRoutes(app: Hono, deps: AppDeps): void {
       ...(result.groups !== undefined ? { groups: result.groups } : {}),
     };
     return context.json(response);
+  });
+
+  post(routes.ancestors, (context, payload) => {
+    return context.json({
+      threads: listThreadAncestors(deps.db, payload.threadIds),
+    } satisfies ThreadAncestorsListResponse);
+  });
+
+  post(routes.descendants, (context, payload) => {
+    return context.json({
+      threads: listThreadDescendants(deps.db, payload.threadIds, {
+        includeArchived: payload.includeArchived ?? false,
+        includeHidden: payload.includeHidden ?? false,
+      }),
+    } satisfies ThreadDescendantsListResponse);
+  });
+
+  post(routes.pluginMetadata.list, (context, payload) => {
+    const { threads, corruptThreadIds } = listPluginThreadMetadata(
+      deps.db,
+      payload.pluginId,
+      payload.threadIds,
+    );
+    for (const threadId of corruptThreadIds) {
+      deps.logger.warn(
+        `Ignoring corrupt plugin metadata for thread ${threadId}, plugin ${payload.pluginId}`,
+      );
+    }
+    return context.json({ threads } satisfies PluginThreadMetadataListResponse);
   });
 
   get(routes.running, (context) => {
@@ -478,6 +514,13 @@ export function registerThreadBaseRoutes(app: Hono, deps: AppDeps): void {
             ? { reasoningLevel: payload.reasoningLevel }
             : {}),
         },
+      });
+    }
+
+    if (payload.sessionOptions !== undefined) {
+      applyThreadSessionOptionPatch(deps, {
+        thread,
+        patch: payload.sessionOptions,
       });
     }
 

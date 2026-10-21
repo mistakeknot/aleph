@@ -11,8 +11,9 @@ import { threadListProviderAtom } from "@/components/sidebar/threadListProvider"
 import { SidebarThreadListSetting } from "./SidebarThreadListSetting";
 import { makePluginRegistrationSet } from "@/test/fixtures/plugins";
 
-afterEach(() => {
+afterEach(async () => {
   cleanup();
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
   window.localStorage.clear();
   resetPluginSlotStoreForTest();
 });

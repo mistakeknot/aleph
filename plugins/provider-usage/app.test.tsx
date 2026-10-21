@@ -219,15 +219,15 @@ describe("provider usage footer disclosure", () => {
       async (_input: RequestInfo | URL, init?: RequestInit) => {
         const request = JSON.parse(String(init?.body)) as {
           machineIds: string[] | null;
-          providerId: string | null;
+          providerIds: string[];
         };
-        if (request.providerId !== null)
+        for (const providerId of request.providerIds)
           for (const machine of machines)
             if (
               request.machineIds === null ||
               request.machineIds.includes(machine.id)
             )
-              measured.add(`${machine.id}:${request.providerId}`);
+              measured.add(`${machine.id}:${providerId}`);
         return new Response(
           JSON.stringify({
             ok: true,
@@ -269,7 +269,7 @@ describe("provider usage footer disclosure", () => {
             force: false,
             machineIds: null,
             maxAgeMs: 30 * 60_000,
-            providerId: null,
+            providerIds: [],
           }),
         }),
       ),
@@ -301,21 +301,19 @@ describe("provider usage footer disclosure", () => {
       "Codex personal@example.com",
       "Claude Code claude-team@example.com",
     ]);
-    for (const providerId of ["codex", "claude-code"]) {
-      await waitFor(() =>
-        expect(fetchMock).toHaveBeenCalledWith(
-          "/api/v1/plugins/bb--provider-usage/rpc/getUsage",
-          expect.objectContaining({
-            body: JSON.stringify({
-              force: false,
-              machineIds: ["source:account-pool"],
-              maxAgeMs: 2 * 60_000,
-              providerId,
-            }),
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/v1/plugins/bb--provider-usage/rpc/getUsage",
+        expect.objectContaining({
+          body: JSON.stringify({
+            force: false,
+            machineIds: ["source:account-pool"],
+            maxAgeMs: 2 * 60_000,
+            providerIds: ["codex", "claude-code"],
           }),
-        ),
-      );
-    }
+        }),
+      ),
+    );
     fireEvent.pointerDown(
       slot.getByRole("button", { name: "Usage machine: Account Pooler" }),
       { button: 0 },
@@ -352,21 +350,19 @@ describe("provider usage footer disclosure", () => {
     expect(slot.getByText("18% left")).toBeTruthy();
     expect(await slot.findByText("codex@example.com")).toBeTruthy();
     expect(slot.getByText("63% left")).toBeTruthy();
-    for (const providerId of ["claude-code", "codex"]) {
-      await waitFor(() =>
-        expect(fetchMock).toHaveBeenCalledWith(
-          "/api/v1/plugins/bb--provider-usage/rpc/getUsage",
-          expect.objectContaining({
-            body: JSON.stringify({
-              force: false,
-              machineIds: ["host-m4"],
-              maxAgeMs: 2 * 60_000,
-              providerId,
-            }),
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/v1/plugins/bb--provider-usage/rpc/getUsage",
+        expect.objectContaining({
+          body: JSON.stringify({
+            force: false,
+            machineIds: ["host-m4"],
+            maxAgeMs: 2 * 60_000,
+            providerIds: ["claude-code", "codex"],
           }),
-        ),
-      );
-    }
+        }),
+      ),
+    );
     const m4Reload = slot.getByRole("button", {
       name: "Reload provider usage",
     }) as HTMLButtonElement;
@@ -374,7 +370,7 @@ describe("provider usage footer disclosure", () => {
     const callsBeforeM4Reload = fetchMock.mock.calls.length;
     fireEvent.click(m4Reload);
     await waitFor(() =>
-      expect(fetchMock.mock.calls.length).toBe(callsBeforeM4Reload + 2),
+      expect(fetchMock.mock.calls.length).toBe(callsBeforeM4Reload + 1),
     );
     expect(
       fetchMock.mock.calls
@@ -385,13 +381,7 @@ describe("provider usage footer disclosure", () => {
         force: true,
         machineIds: ["host-m4"],
         maxAgeMs: 0,
-        providerId: "claude-code",
-      },
-      {
-        force: true,
-        machineIds: ["host-m4"],
-        maxAgeMs: 0,
-        providerId: "codex",
+        providerIds: ["claude-code", "codex"],
       },
     ]);
     await waitFor(() => expect(m4Reload.disabled).toBe(false));
@@ -440,7 +430,7 @@ describe("provider usage footer disclosure", () => {
           force: true,
           machineIds: ["host-intel"],
           maxAgeMs: 0,
-          providerId: null,
+          providerIds: [],
         }),
       }),
     );
@@ -459,7 +449,7 @@ describe("provider usage footer disclosure", () => {
           force: false,
           machineIds: null,
           maxAgeMs: 5 * 60_000,
-          providerId: null,
+          providerIds: [],
         }),
       }),
     );
@@ -588,7 +578,7 @@ describe("provider usage footer disclosure", () => {
   }, 15_000);
 });
 
-it("refreshes providers one at a time so a late snapshot cannot blank a newer one", async () => {
+it("refreshes the requested providers in one queued call so a late snapshot cannot blank a newer one", async () => {
   const account = (
     providerId: string,
     email: string,
@@ -622,12 +612,12 @@ it("refreshes providers one at a time so a late snapshot cannot blank a newer on
   let providerRequests = 0;
   const fetchMock = vi.fn(
     async (_input: RequestInfo | URL, init?: RequestInit) => {
-      const { machineIds, providerId } = JSON.parse(String(init?.body)) as {
+      const { machineIds, providerIds } = JSON.parse(String(init?.body)) as {
         machineIds: string[] | null;
-        providerId: string | null;
+        providerIds: string[];
       };
-      const ours = providerId !== null && machineIds?.[0] === "host-seq";
-      if (ours) measured.add(providerId);
+      const ours = providerIds.length > 0 && machineIds?.[0] === "host-seq";
+      if (ours) for (const providerId of providerIds) measured.add(providerId);
       const body = JSON.stringify({
         ok: true,
         result: {
@@ -678,7 +668,7 @@ it("refreshes providers one at a time so a late snapshot cannot blank a newer on
       sidebarThreads: { threads: [threadOnMachine("host-seq", "Sequence")] },
     },
   );
-  await waitFor(() => expect(providerRequests).toBe(2));
+  await waitFor(() => expect(providerRequests).toBe(1));
   await waitFor(() => expect(inFlight).toBe(0));
   await waitFor(() => {
     expect(slot.getByText("58% left")).toBeTruthy();
@@ -735,16 +725,16 @@ it("queues the focus reconcile with the card refresh so a stale snapshot cannot 
   let maxInFlight = 0;
   const fetchMock = vi.fn(
     async (_input: RequestInfo | URL, init?: RequestInit) => {
-      const { providerId } = JSON.parse(String(init?.body)) as {
-        providerId: string | null;
+      const { providerIds } = JSON.parse(String(init?.body)) as {
+        providerIds: string[];
       };
-      if (afterFocus && providerId !== null) usedPercent = 35;
+      if (afterFocus && providerIds.length > 0) usedPercent = 35;
       const body = snapshot();
       if (afterFocus) {
         inFlight += 1;
         maxInFlight = Math.max(maxInFlight, inFlight);
         await new Promise((resolve) =>
-          setTimeout(resolve, providerId === null ? 60 : 5),
+          setTimeout(resolve, providerIds.length === 0 ? 60 : 5),
         );
         inFlight -= 1;
       }
@@ -1084,4 +1074,94 @@ describe("provider usage panel layout", () => {
       expect(order(second)[0]).toBe("faster@x.com");
     });
   });
+});
+
+it("keeps a measured refresh when an older snapshot response arrives late", async () => {
+  const account = (usage: UsageProvider["usage"]): UsageProvider => ({
+    id: "account",
+    providerId: "codex",
+    accountLabel: "review@example.com",
+    displayName: "Codex",
+    logoUrl: null,
+    icon: null,
+    strings: { iconTint: null },
+    signInHint: "Sign in.",
+    expiredHint: "Sign in again.",
+    usage,
+  });
+  const snapshot = (usage: UsageProvider["usage"]) =>
+    Response.json({
+      ok: true,
+      result: {
+        machines: [
+          {
+            id: "source:pool",
+            displayName: "Review pool",
+            status: "connected",
+            providers: [account(usage)],
+            error: null,
+          },
+        ],
+      },
+    });
+  let releaseInventory: (() => void) | null = null;
+  const fetchMock = vi.fn(
+    async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const { providerIds } = JSON.parse(String(init?.body)) as {
+        providerIds: string[];
+      };
+      if (providerIds.length > 0)
+        return snapshot({
+          status: "ok",
+          accountEmail: "review@example.com",
+          planLabel: null,
+          windows: [
+            {
+              label: "Weekly limit",
+              usedPercent: 37,
+              resetsAt: null,
+              cost: null,
+            },
+          ],
+        });
+      if (fetchMock.mock.calls.length === 1) return snapshot(null);
+      await new Promise<void>((resolve) => {
+        releaseInventory = resolve;
+      });
+      return snapshot(null);
+    },
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  const app = await loadPluginApp(() => import("./app"));
+  const mounted = await mountPluginContentScripts(app, {
+    pluginId: "bb--provider-usage",
+  });
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+  const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
+  window.dispatchEvent(new Event("blur"));
+  now.mockReturnValue(5 * 60_000 + 1_001);
+  window.dispatchEvent(new Event("focus"));
+  await waitFor(() => expect(releaseInventory).not.toBeNull());
+  now.mockRestore();
+
+  const item = app.experimentalSidebarFooterItems[0];
+  if (item?.kind !== "disclosure") throw new Error("missing disclosure");
+  const slot = renderSlot(
+    item,
+    { dismiss: vi.fn() },
+    { pluginId: "bb--provider-usage" },
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  releaseInventory!();
+  await waitFor(() => expect(slot.getByText("63% left")).toBeTruthy());
+  await waitFor(() =>
+    expect(
+      slot
+        .getByRole("button", { name: "Reload provider usage" })
+        .hasAttribute("disabled"),
+    ).toBe(false),
+  );
+  expect(slot.queryByText("Usage not reported.")).toBeNull();
+  expect(slot.getByText("63% left")).toBeTruthy();
+  await mounted.lifecycle.dispose();
 });

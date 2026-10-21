@@ -139,7 +139,10 @@ function renderAppSidebar() {
                       <AppSidebar
                         onResizeMouseDown={() => {}}
                         isResizing={false}
-                        settingsRoutePath="/settings"
+                        isBodyHidden={false}
+                        renderRail={() => null}
+                        railFooter={null}
+                        alternateBody={null}
                       />
                     </SidebarProvider>
                   </ThreadActionsProvider>
@@ -195,7 +198,6 @@ describe("docs anatomy manifest", () => {
 
     const sectionSelectors: Record<string, string> = {
       "top-reserve": '[data-testid="app-sidebar-top-reserve-row"]',
-      "sidebar-navigation": '[data-testid="sidebar-navigation-region"]',
       "thread-list": '[data-sidebar="content"]',
       footer: '[data-sidebar="footer"]',
     };
@@ -218,7 +220,6 @@ describe("docs anatomy manifest", () => {
     expect(footer).not.toBeNull();
 
     const footerSelectors: Record<string, () => Element | null> = {
-      settings: () => footer!.querySelector('a[aria-label^="Settings"]'),
       "plugin-footer-items": () =>
         footer!.querySelector('button[aria-label="Anatomy footer action"]'),
       "bug-report": () => footer!.querySelector('[aria-label^="Report a bug"]'),
@@ -246,7 +247,6 @@ describe("docs anatomy manifest", () => {
           onAddToChat={() => {}}
           onEdit={() => {}}
           onFork={() => {}}
-          onSendToMain={() => {}}
           pluginActions={[
             {
               key: "anatomy-plugin-action",
@@ -263,7 +263,6 @@ describe("docs anatomy manifest", () => {
     const actionLabels: Record<string, string> = {
       copy: "Copy message",
       edit: "Edit message",
-      "send-to-main-thread": "Send to main thread",
       "plugin-actions": "Anatomy message action",
       "message-menu": "Message actions",
     };

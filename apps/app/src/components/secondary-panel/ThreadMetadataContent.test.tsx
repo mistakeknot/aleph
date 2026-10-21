@@ -1,12 +1,3 @@
-// @vitest-environment jsdom
-
-import {
-  act,
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-} from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import type { Environment, Host, Thread } from "@bb/domain";
@@ -23,18 +14,18 @@ import {
 import { TooltipProvider } from "@bb/shared-ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { focusWithKeyboard } from "@/test/keyboard-focus";
+import { describe, expect, it } from "vitest";
 import {
   makeEnvironment,
   makeHost,
   makeThread as makeThreadFixture,
 } from "@bb/test-helpers/domain-fixtures";
+import { makeWorkspaceMergeBase, makeWorkspaceStatus } from "@bb/test-helpers";
 import {
   EnvironmentProvisioningFailureRow,
   EnvironmentRow,
+  formatBranchComparison,
   GitStatusRow,
-  ThreadMetadataCard,
 } from "./ThreadMetadataContent";
 
 const localHost = { locality: "local", identity: null } as const;
@@ -165,38 +156,6 @@ function renderEnvironmentRow(
   );
 }
 
-afterEach(() => {
-  cleanup();
-  vi.useRealTimers();
-});
-
-describe("ThreadMetadataCard", () => {
-  it("shows its scrollbar only during active scrolling", () => {
-    vi.useFakeTimers();
-    const { container } = render(
-      <ThreadMetadataCard>
-        <div>Thread information</div>
-      </ThreadMetadataCard>,
-    );
-    const scrollArea = container.querySelector("dl");
-    if (!(scrollArea instanceof HTMLElement)) {
-      throw new Error("missing info scroll area");
-    }
-
-    expect(scrollArea.classList).toContain("transient-scrollbar");
-    expect(scrollArea.hasAttribute("data-scrollbar-scrolling")).toBe(false);
-
-    fireEvent.scroll(scrollArea);
-    expect(scrollArea.dataset.scrollbarScrolling).toBe("true");
-
-    act(() => vi.advanceTimersByTime(599));
-    expect(scrollArea.dataset.scrollbarScrolling).toBe("true");
-
-    act(() => vi.advanceTimersByTime(1));
-    expect(scrollArea.hasAttribute("data-scrollbar-scrolling")).toBe(false);
-  });
-});
-
 describe("EnvironmentRow", () => {
   it("shows an unregistered provider id as not installed", () => {
     const markup = renderEnvironmentRow(
@@ -259,33 +218,7 @@ describe("EnvironmentRow", () => {
     expect(markup).toContain("Unavailable — machine removed");
     expect(markup).toContain("Old laptop");
     expect(markup).not.toContain("(offline)");
-    expect(markup).not.toContain('aria-label="New thread in this environment"');
-  });
-
-  it("explains the create-thread action in a tooltip", async () => {
-    render(
-      withQueryClient(
-        <TooltipProvider delayDuration={0}>
-          <MemoryRouter>
-            <EnvironmentRow
-              thread={makeThread()}
-              environment={makeEnvironment()}
-              environmentDisplayHost={localHost}
-            />
-          </MemoryRouter>
-        </TooltipProvider>,
-      ),
-    );
-
-    focusWithKeyboard(
-      screen.getByRole("button", {
-        name: "New thread in this environment",
-      }),
-    );
-
-    expect((await screen.findByRole("tooltip")).textContent).toBe(
-      "New thread in this environment",
-    );
+    expect(markup).not.toContain('aria-label="New thread in environment"');
   });
 
   it("hides the create-thread action while an environment is provisioning", () => {
@@ -296,7 +229,7 @@ describe("EnvironmentRow", () => {
       }),
     );
 
-    expect(markup).not.toContain('aria-label="New thread in this environment"');
+    expect(markup).not.toContain('aria-label="New thread in environment"');
   });
 
   it("hides the create-thread action before an environment has a path", () => {
@@ -306,7 +239,7 @@ describe("EnvironmentRow", () => {
       }),
     );
 
-    expect(markup).not.toContain('aria-label="New thread in this environment"');
+    expect(markup).not.toContain('aria-label="New thread in environment"');
   });
 
   it("offers the create-thread action on a project's own checkout", () => {
@@ -314,7 +247,7 @@ describe("EnvironmentRow", () => {
       makeEnvironment({ environmentProviderId: null }),
     );
 
-    expect(markup).toContain('aria-label="New thread in this environment"');
+    expect(markup).toContain('aria-label="New thread in environment"');
   });
 
   it("shows a custom provider label with its machine", () => {
@@ -387,10 +320,39 @@ describe("GitStatusRow", () => {
         })}
         workspaceStatus={undefined}
         workspaceStatusError={new Error("should not have queried")}
-        selectedMergeBaseBranch={undefined}
       />,
     );
 
     expect(markup).toBe("");
+  });
+
+  it("compares the branch with the merge base the daemon reported", () => {
+    const render = (
+      mergeBase: ReturnType<typeof makeWorkspaceMergeBase> | null,
+    ) =>
+      renderToStaticMarkup(
+        <GitStatusRow
+          thread={makeThread()}
+          environment={null}
+          workspaceStatus={makeWorkspaceStatus({ mergeBase })}
+          workspaceStatusError={null}
+        />,
+      );
+
+    expect(
+      render(
+        makeWorkspaceMergeBase({ mergeBaseBranch: "release", aheadCount: 2 }),
+      ),
+    ).toContain("2 ahead of release");
+    expect(render(null)).toBe("");
+  });
+
+  it("phrases the branch comparison against its merge base", () => {
+    const compare = (aheadCount: number, behindCount: number) =>
+      formatBranchComparison({ aheadCount, behindCount, baseBranch: "main" });
+    expect(compare(0, 0)).toBe("Even with main");
+    expect(compare(6, 0)).toBe("6 ahead of main");
+    expect(compare(0, 3)).toBe("3 behind main");
+    expect(compare(4, 2)).toBe("4 ahead, 2 behind main");
   });
 });

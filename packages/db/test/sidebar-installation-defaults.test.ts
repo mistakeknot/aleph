@@ -10,8 +10,12 @@ import {
   noopNotifier,
 } from "../src/index.js";
 import {
+  dropIdleLifecycleIndexes,
+  dropMarketplaceSourceGitSubdirectoryColumn,
   dropMusicModeColumns,
   dropPluginEnabledFollowsDefaultColumn,
+  dropQueuedMessageEditHeldUntilColumn,
+  rewindThreadPruningWork,
 } from "./helpers/rewind.js";
 
 const SIDEBAR_INSTALLATION_DEFAULTS_MIGRATION_TIMESTAMP = 1790009314673;
@@ -86,6 +90,8 @@ describe.each(["project", "thread", "preference"] as const)(
           db.$client.exec("DROP TABLE idempotent_thread_operations");
           dropTransferLedgerSchema(db);
           dropMusicModeColumns(db);
+          dropIdleLifecycleIndexes(db);
+          rewindThreadPruningWork(db);
           for (const column of [
             "provisional_fence_epoch",
             "provisional_fence_verified_epoch",
@@ -103,6 +109,8 @@ describe.each(["project", "thread", "preference"] as const)(
             .prepare("DROP TABLE IF EXISTS thread_search_learned_selections")
             .run();
           dropPluginEnabledFollowsDefaultColumn(db);
+          dropQueuedMessageEditHeldUntilColumn(db);
+          dropMarketplaceSourceGitSubdirectoryColumn(db);
           db.$client
             .prepare("DELETE FROM __drizzle_migrations WHERE created_at >= ?")
             .run(SIDEBAR_INSTALLATION_DEFAULTS_MIGRATION_TIMESTAMP);

@@ -52,6 +52,7 @@ import {
   readHostRelativeFile,
 } from "./command-handlers/host-files.js";
 import { writeHostFile } from "./command-handlers/file-write.js";
+import { discoverRepos } from "./command-handlers/discover-repos.js";
 import {
   mkdirHostPath,
   moveHostPath,
@@ -88,6 +89,7 @@ import {
 } from "./workspace-resolution.js";
 import { userExecutableProcessOptions } from "./user-executable-env.js";
 import type { ServerMoveService } from "./server-move/service.js";
+import { readWorkspaceAgentContext } from "./command-handlers/workspace-agent-context.js";
 
 const THREAD_STOP_ACTIVE_TURN_WAIT_MS = 5_000;
 
@@ -150,6 +152,7 @@ type OnlineRpcHandlerMap = {
   [TType in HostDaemonOnlineRpcCommandType]: (
     command: Extract<HostDaemonOnlineRpcCommand, { type: TType }>,
     options: CommandDispatchOptions,
+    signal: AbortSignal,
   ) => Promise<HostDaemonOnlineRpcResult<TType>>;
 };
 
@@ -618,8 +621,10 @@ const onlineRpcHandlers: OnlineRpcHandlerMap = {
     }
     return options.ensureConnectTunnelIdentity();
   },
-  "host.list_files": listHostFiles,
-  "host.list_paths": listHostPaths,
+  "host.list_files": (command, _options, signal) =>
+    listHostFiles(command, signal),
+  "host.list_paths": (command, _options, signal) =>
+    listHostPaths(command, signal),
   "host.mkdir": mkdirHostPath,
   "host.move_path": moveHostPath,
   "host.remove_path": removeHostPath,
@@ -645,6 +650,7 @@ const onlineRpcHandlers: OnlineRpcHandlerMap = {
   },
   "host.list_commands": listHostCommands,
   "host.list_skills": listHostSkills,
+  "host.read_workspace_agent_context": readWorkspaceAgentContext,
   "host.delete_skill": deleteHostSkill,
   "host.write_skill": writeHostSkill,
   "host.install_global_skills": installGlobalSkills,
@@ -672,6 +678,12 @@ const onlineRpcHandlers: OnlineRpcHandlerMap = {
         options,
       ),
     }),
+  "host.discover_repos": (command) =>
+    discoverRepos({
+      maxDepth: command.maxDepth,
+      sinceDays: command.sinceDays,
+      limit: command.limit,
+    }),
   "provider.installation.status": async (command, options) => {
     const bridgeLaunch = await resolveRuntimeBridgeLaunch(
       command.bridgeLaunch,
@@ -687,6 +699,7 @@ const onlineRpcHandlers: OnlineRpcHandlerMap = {
     readAvailableWorkspace(command, options, async (workspace) => ({
       workspaceStatus: await workspace.getStatus({
         mergeBaseBranch: command.mergeBaseBranch,
+        maxFiles: command.maxFiles,
         maxUntrackedLineStatFiles: command.maxUntrackedLineStatFiles,
         maxUntrackedLineStatBytes: command.maxUntrackedLineStatBytes,
       }),
@@ -771,9 +784,10 @@ export async function dispatchOnlineRpcCommand<
 >(
   command: Extract<HostDaemonOnlineRpcCommand, { type: TType }>,
   options: CommandDispatchOptions,
+  signal: AbortSignal,
 ): Promise<HostDaemonOnlineRpcResult<TType>> {
   try {
-    return await onlineRpcHandlers[command.type](command, options);
+    return await onlineRpcHandlers[command.type](command, options, signal);
   } catch (error) {
     throwExpectedWorkspacePathNotFoundOrRethrow(error);
   }

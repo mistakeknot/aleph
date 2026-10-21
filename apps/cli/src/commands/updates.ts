@@ -175,7 +175,7 @@ function printUpdatesTable(args: {
 function formatRevision(revision: SystemAppUpdateRevision): string {
   return revision.commit === null
     ? revision.version
-    : `${revision.version} (${revision.commit.slice(0, 10)})`;
+    : `source checkout ${revision.commit.slice(0, 10)}`;
 }
 
 function formatAvailableTarget(status: SystemAppUpdateStatus): string | null {
@@ -194,7 +194,7 @@ function unsupportedAppUpdateMessage(status: SystemAppUpdateStatus): string {
     case "desktop":
       return "The desktop app updates itself; use its update controls.";
     case "unmanaged":
-      return "In-app updates are off. Start bb with `npx bb-app start --in-app-updates` or `pnpm start --in-app-updates` to turn them on.";
+      return "In-app updates are off. Start bb with `npx bb-app start` or `pnpm start`, without `--no-in-app-updates`, to turn them on.";
   }
 }
 
@@ -323,7 +323,11 @@ function appRowFromStatus(args: {
   version: SystemVersionResponse;
 }): readonly [string, string, string] {
   const { appUpdate, version } = args;
-  if (appUpdate !== null && appUpdate.support.kind === "supported") {
+  if (
+    appUpdate !== null &&
+    (appUpdate.support.kind === "supported" ||
+      appUpdate.desktopUpdateSupported === true)
+  ) {
     const target = formatAvailableTarget(appUpdate);
     const current = formatRevision(appUpdate.current);
     const state =
@@ -334,7 +338,13 @@ function appRowFromStatus(args: {
             ? `${UPDATE_STATE_PRESENTATION["latest-unknown"].label} (${appUpdate.blocked.message})`
             : version.updateChecksDisabled
               ? UPDATE_STATE_PRESENTATION["checks-off"].label
-              : UPDATE_STATE_PRESENTATION["up-to-date"].label
+              : appUpdate.blocked !== null
+                ? `${UPDATE_STATE_PRESENTATION["update-manually"].label} (${appUpdate.blocked.message})`
+                : appUpdate.support.kind === "supported" &&
+                    appUpdate.support.mode === "npm" &&
+                    version.latestVersion === null
+                  ? UPDATE_STATE_PRESENTATION["latest-unknown"].label
+                  : UPDATE_STATE_PRESENTATION["up-to-date"].label
           : appUpdate.blocked !== null
             ? `${UPDATE_STATE_PRESENTATION["update-available"].label} (blocked: ${appUpdate.blocked.message})`
             : `${UPDATE_STATE_PRESENTATION["update-available"].label} (run: bb updates app apply)`;
@@ -342,6 +352,13 @@ function appRowFromStatus(args: {
       "bb-app",
       target === null ? current : `${current} -> ${target}`,
       state,
+    ];
+  }
+  if (version.installKind === "source") {
+    return [
+      "bb-app",
+      `source checkout ${version.currentCommit === null ? `build ${version.currentVersion}` : version.currentCommit.slice(0, 10)}`,
+      "Latest unknown (update this checkout with Git; automatic update checks are off)",
     ];
   }
   const appState = version.updateChecksDisabled
@@ -352,7 +369,9 @@ function appRowFromStatus(args: {
         ? version.upgradeCommand === null
           ? UPDATE_STATE_PRESENTATION["update-available"].label
           : `${UPDATE_STATE_PRESENTATION["update-available"].label} (run: ${version.upgradeCommand})`
-        : UPDATE_STATE_PRESENTATION["up-to-date"].label;
+        : version.latestVersion === null
+          ? UPDATE_STATE_PRESENTATION["latest-unknown"].label
+          : UPDATE_STATE_PRESENTATION["up-to-date"].label;
   const appVersionLabel =
     version.latestVersion !== null &&
     version.latestVersion !== version.currentVersion
@@ -363,7 +382,10 @@ function appRowFromStatus(args: {
 
 function printAppUpdateStatus(status: SystemAppUpdateStatus): void {
   const current = formatRevision(status.current);
-  if (status.support.kind !== "supported") {
+  if (
+    status.support.kind !== "supported" &&
+    status.desktopUpdateSupported !== true
+  ) {
     console.log(`bb-app ${current}`);
     console.log(unsupportedAppUpdateMessage(status));
     return;
@@ -371,7 +393,13 @@ function printAppUpdateStatus(status: SystemAppUpdateStatus): void {
   const target = formatAvailableTarget(status);
   console.log(
     target === null
-      ? `bb-app ${current} is up to date.`
+      ? status.blocked !== null ||
+        status.activity.phase !== "idle" ||
+        (status.lastResult !== null &&
+          !status.lastResult.acknowledged &&
+          status.lastResult.outcome === "failed")
+        ? `bb-app ${current}`
+        : `bb-app ${current} is up to date.`
       : `bb-app ${current} -> ${target}`,
   );
   if (status.activity.phase === "preparing") {
@@ -474,7 +502,10 @@ function registerAppUpdateCommands(
       action(async (opts: AppUpdateApplyOptions) => {
         const sdk = createCliBbSdk(getUrl());
         const status = await sdk.system.appUpdate({ force: true });
-        if (status.support.kind !== "supported") {
+        if (
+          status.support.kind !== "supported" &&
+          status.desktopUpdateSupported !== true
+        ) {
           throw new CliExitError(unsupportedAppUpdateMessage(status), 1);
         }
         if (status.blocked !== null) {

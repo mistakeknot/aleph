@@ -15,7 +15,7 @@ import {
 } from "../../src/data/transfer-operations.js";
 import { queuedThreadMessages } from "../../src/schema.js";
 import { asc, eq } from "drizzle-orm";
-import { createMigratedConnection } from "../helpers/migrated-connection.js";
+import { createMigratedConnection } from "../../src/testing.js";
 
 function textInput(text: string): PromptInput[] {
   return [{ type: "text", text, mentions: [] }];

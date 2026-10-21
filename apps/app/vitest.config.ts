@@ -30,7 +30,14 @@ export default defineWorkspaceTestConfig({
       aliases: { "@": path.resolve(__dirname, "./src") },
       name: "@bb/app",
       include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
-      exclude: ["dist/**", "node_modules/**", "src/**/*.pixel.test.ts"],
+      exclude: [
+        "dist/**",
+        "node_modules/**",
+        "src/**/*.pixel.test.ts",
+        ...(process.env.BB_SIDEBAR_BENCH === "1"
+          ? []
+          : ["src/components/sidebar/sidebar.bench.test.tsx"]),
+      ],
     }),
   },
 });

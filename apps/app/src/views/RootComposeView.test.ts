@@ -20,6 +20,7 @@ import {
 import { getProjectStoredPromptAttachmentPaths } from "@bb/client-core";
 import {
   buildRootComposeTerminalSessions,
+  isRootComposeTerminalSession,
   buildMobileRecentThreads,
   canCreateRootComposeTerminal,
   hasSingleUseRootComposeTargetState,
@@ -142,6 +143,22 @@ describe("root-compose project file routing", () => {
         selectedHostId: "host_selected",
       }),
     ).toEqual({ environmentId: null, hostId: null });
+  });
+
+  it("keeps a persisted opener's host after compose context changes", () => {
+    expect(
+      resolveRootComposeProjectFileRouting({
+        fileOpenerSource: {
+          kind: "workspace",
+          threadId: null,
+          environmentId: null,
+          experimental_hostId: "host_opened",
+          projectId: "proj_opened",
+        },
+        selectedEnvironmentId: "env_selected",
+        selectedHostId: "host_selected",
+      }),
+    ).toEqual({ environmentId: null, hostId: "host_opened" });
   });
 
   it("retains live routing for a native project file tab", () => {
@@ -1144,6 +1161,30 @@ describe("buildRootComposeTerminalSessions", () => {
         },
       }),
     ).toEqual([matching]);
+  });
+});
+
+describe("isRootComposeTerminalSession", () => {
+  it("accepts only threadless terminals of the root environment", () => {
+    const target = { kind: "environment" as const, environmentId: "env_1" };
+    expect(
+      isRootComposeTerminalSession(
+        makeTerminalSession({ environmentId: "env_1" }),
+        target,
+      ),
+    ).toBe(true);
+    expect(
+      isRootComposeTerminalSession(
+        makeTerminalSession({ environmentId: "env_1", threadId: "thr_1" }),
+        target,
+      ),
+    ).toBe(false);
+    expect(
+      isRootComposeTerminalSession(
+        makeTerminalSession({ environmentId: "env_2" }),
+        target,
+      ),
+    ).toBe(false);
   });
 });
 

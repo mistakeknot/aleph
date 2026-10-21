@@ -4,8 +4,14 @@ import {
   threadScope,
   turnScope,
 } from "@bb/domain";
-import { describe, expect, it, vi } from "vitest";
-import { createEventSink, type CreateEventSinkOptions } from "./event-sink.js";
+import { createDeferredPromise } from "@bb/test-helpers";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  createEventSink,
+  type CreateEventSinkOptions,
+  type EventPostResult,
+  type EventSink,
+} from "./event-sink.js";
 import { ServerResponseError } from "./server-client.js";
 
 function permanentRejection(bodyMessage: string): ServerResponseError {
@@ -731,7 +737,10 @@ describe("event sink", () => {
           type: "userMessage",
           id: "synthetic-message",
           content: [
-            { type: "image", url: `https://example.invalid/i?token=a'${tail}&ok=1` },
+            {
+              type: "image",
+              url: `https://example.invalid/i?token=a'${tail}&ok=1`,
+            },
             { type: "image", url: `//example.invalid/i?sig=${tail}` },
           ],
         },
@@ -746,7 +755,12 @@ describe("event sink", () => {
           method: "turn/start",
           params: {
             inputGroups: [
-              [{ type: "image", url: `https://example.invalid/i?%74oken=${tail}` }],
+              [
+                {
+                  type: "image",
+                  url: `https://example.invalid/i?%74oken=${tail}`,
+                },
+              ],
             ],
           },
         },
@@ -770,5 +784,209 @@ describe("event sink", () => {
     for (const entry of posted) {
       expect(threadEventSchema.safeParse(entry.event).success).toBe(true);
     }
+  });
+});
+
+describe("event sink automatic retries", () => {
+  let postEvents: ReturnType<typeof acceptingPostEvents>;
+  let sink: EventSink;
+  let sessionOpen: boolean;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    sessionOpen = true;
+    postEvents = acceptingPostEvents();
+    sink = createEventSink({
+      isSessionOpen: () => sessionOpen,
+      logger: createLogger(),
+      postEvents,
+    });
+    sink.emit({ threadId: "thr_1", event: systemErrorEvent("thr_1") });
+  });
+
+  afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("delivers a completion queued during a failed upload without new activity", async () => {
+    const request = createDeferredPromise<EventPostResult>();
+    postEvents.mockImplementationOnce(() => request.promise);
+    const flush = sink.flush();
+    const completion = {
+      type: "turn/completed",
+      threadId: "thr_1",
+      providerThreadId: "provider-1",
+      scope: turnScope("turn-1"),
+      status: "completed",
+    } as const;
+    sink.emit({ threadId: "thr_1", event: completion });
+    request.reject(new TypeError("fetch failed"));
+    await flush;
+
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(postEvents).toHaveBeenLastCalledWith([
+      { threadId: "thr_1", event: systemErrorEvent("thr_1") },
+      { threadId: "thr_1", event: completion },
+    ]);
+    expect(postEvents).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("backs off repeated failures up to a capped interval despite urgent arrivals", async () => {
+    postEvents.mockRejectedValue(new Error("offline"));
+    await sink.flush();
+    let attempts = 1;
+    for (const delay of [750, 1500, 3000, 6000, 12000, 22500, 22500]) {
+      sink.emit({ threadId: "thr_2", event: systemErrorEvent("thr_2") });
+      await vi.advanceTimersByTimeAsync(delay - 1);
+      expect(postEvents).toHaveBeenCalledTimes(attempts);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(postEvents).toHaveBeenCalledTimes(++attempts);
+    }
+  });
+
+  it("stops retrying while disconnected and resumes on a session-open flush", async () => {
+    postEvents.mockRejectedValueOnce(new Error("offline"));
+    await sink.flush();
+    sessionOpen = false;
+    await vi.advanceTimersByTimeAsync(60000);
+    expect(postEvents).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+    sessionOpen = true;
+    await sink.flush();
+    expect(postEvents).toHaveBeenCalledTimes(2);
+  });
+
+  it("cancels a scheduled retry when disposed", async () => {
+    postEvents.mockRejectedValue(new Error("offline"));
+    await sink.flush();
+    await sink.dispose();
+    await vi.advanceTimersByTimeAsync(60000);
+    expect(postEvents).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("resets backoff after the queue drains successfully", async () => {
+    postEvents
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockRejectedValueOnce(new Error("offline"));
+    await sink.flush();
+    await vi.advanceTimersByTimeAsync(2250);
+    expect(postEvents).toHaveBeenCalledTimes(3);
+    postEvents.mockRejectedValueOnce(new Error("offline again"));
+    sink.emit({ threadId: "thr_2", event: systemErrorEvent("thr_2") });
+    await sink.flush();
+    await vi.advanceTimersByTimeAsync(750);
+    expect(postEvents).toHaveBeenCalledTimes(5);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("posts another thread beside an in-flight retry without reposting it", async () => {
+    const request = createDeferredPromise<EventPostResult>();
+    postEvents
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockImplementationOnce(() => request.promise);
+    await sink.flush();
+    await vi.advanceTimersByTimeAsync(750);
+    expect(postEvents).toHaveBeenCalledTimes(2);
+    sink.emit({ threadId: "thr_2", event: systemErrorEvent("thr_2") });
+    const flush = sink.flush();
+    await vi.advanceTimersByTimeAsync(60000);
+    expect(postEvents).toHaveBeenCalledTimes(3);
+    expect(postEvents).toHaveBeenLastCalledWith([
+      { threadId: "thr_2", event: systemErrorEvent("thr_2") },
+    ]);
+    request.resolve({ acceptedEvents: [], rejectedEvents: [] });
+    await flush;
+    expect(postEvents).toHaveBeenCalledTimes(3);
+    expect(sink.listUndeliveredThreadIds()).toEqual([]);
+  });
+});
+
+describe("event sink stream tick", () => {
+  afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  });
+
+  function textDelta(threadId: string, delta: string) {
+    return {
+      type: "item/agentMessage/delta",
+      threadId,
+      providerThreadId: "provider-1",
+      scope: turnScope("turn-1"),
+      itemId: "item-1",
+      delta,
+    } as const;
+  }
+
+  function postedDeltas(
+    postEvents: ReturnType<typeof acceptingPostEvents>,
+  ): string[][] {
+    return postEvents.mock.calls.map(([events]) =>
+      events.map((envelope) =>
+        envelope.event.type === "item/agentMessage/delta"
+          ? `${envelope.threadId}:${envelope.event.delta}`
+          : envelope.event.type,
+      ),
+    );
+  }
+
+  it("posts the first stream event after a quiet tick at once and coalesces the rest per tick", async () => {
+    vi.useFakeTimers();
+    const postEvents = acceptingPostEvents();
+    const sink = createEventSink({
+      isSessionOpen: () => true,
+      logger: createLogger(),
+      postEvents,
+    });
+    sink.emit({ threadId: "thr_1", event: textDelta("thr_1", "a") });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(postedDeltas(postEvents)).toEqual([["thr_1:a"]]);
+
+    await vi.advanceTimersByTimeAsync(10);
+    sink.emit({ threadId: "thr_1", event: textDelta("thr_1", "b") });
+    await vi.advanceTimersByTimeAsync(20);
+    sink.emit({ threadId: "thr_1", event: textDelta("thr_1", "c") });
+    await vi.advanceTimersByTimeAsync(19);
+    expect(postEvents).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(postedDeltas(postEvents)).toEqual([
+      ["thr_1:a"],
+      ["thr_1:b", "thr_1:c"],
+    ]);
+    await sink.dispose();
+  });
+
+  it("keeps a slow thread's POST from holding back another thread", async () => {
+    vi.useFakeTimers();
+    const slow = createDeferredPromise<EventPostResult>();
+    const postEvents = acceptingPostEvents();
+    postEvents.mockImplementationOnce(() => slow.promise);
+    const sink = createEventSink({
+      isSessionOpen: () => true,
+      logger: createLogger(),
+      postEvents,
+    });
+    sink.emit({ threadId: "thr_1", event: textDelta("thr_1", "a") });
+    await vi.advanceTimersByTimeAsync(0);
+    sink.emit({ threadId: "thr_1", event: textDelta("thr_1", "b") });
+    sink.emit({ threadId: "thr_2", event: textDelta("thr_2", "x") });
+    await vi.advanceTimersByTimeAsync(50);
+    expect(postedDeltas(postEvents)).toEqual([["thr_1:a"], ["thr_2:x"]]);
+    expect(sink.listUndeliveredThreadIds()).toEqual(["thr_1"]);
+
+    slow.resolve({ acceptedEvents: [], rejectedEvents: [] });
+    await vi.advanceTimersByTimeAsync(50);
+    expect(postedDeltas(postEvents)).toEqual([
+      ["thr_1:a"],
+      ["thr_2:x"],
+      ["thr_1:b"],
+    ]);
+    expect(sink.listUndeliveredThreadIds()).toEqual([]);
+    await sink.dispose();
   });
 });

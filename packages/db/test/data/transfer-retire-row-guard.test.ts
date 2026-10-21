@@ -64,13 +64,13 @@ function bulkInsert(
 ) {
   db.$client
     .prepare(
-      `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<${count}) INSERT INTO queued_thread_messages (id,origin_id,thread_id,content,model,reasoning_level,permission_mode,service_tier,group_with_next,payload_kind,sort_key,created_at,updated_at) SELECT '${prefix}'||i,'${prefix}'||i,?,'[{"type":"text","text":"x","mentions":[]}]','m','r','full','default',0,'inline',printf('k%08d',i),1,1 FROM n`,
+      `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<${count}) INSERT INTO queued_thread_messages (id,origin_id,thread_id,content,model,reasoning_level,permission_mode,service_tier,group_with_next,state,payload_kind,sort_key,created_at,updated_at) SELECT '${prefix}'||i,'${prefix}'||i,?,'[{"type":"text","text":"x","mentions":[]}]','m','r','full','default',0,'queued','inline',printf('k%08d',i),1,1 FROM n`,
     )
     .run(threadId);
 }
 
 const LATE_INSERT =
-  "INSERT INTO queued_thread_messages (id,origin_id,thread_id,content,model,reasoning_level,permission_mode,service_tier,group_with_next,payload_kind,sort_key,created_at,updated_at) VALUES ('late','late',?,'[]','m','r','full','default',0,'inline','z',1,1)";
+  "INSERT INTO queued_thread_messages (id,origin_id,thread_id,content,model,reasoning_level,permission_mode,service_tier,group_with_next,state,payload_kind,sort_key,created_at,updated_at) VALUES ('late','late',?,'[]','m','r','full','default',0,'queued','inline','z',1,1)";
 
 function deleteRow(db: ReturnType<typeof createConnection>, id: string) {
   db.$client.prepare("DELETE FROM queued_thread_messages WHERE id = ?").run(id);
@@ -254,7 +254,7 @@ describe("retire source row-count guard", () => {
       other.pragma("busy_timeout = 0");
       other
         .prepare(
-          "INSERT INTO queued_thread_messages (id,origin_id,thread_id,content,model,reasoning_level,permission_mode,service_tier,group_with_next,payload_kind,sort_key,created_at,updated_at) VALUES ('late','late',?,'[]','m','r','full','default',0,'inline','z',1,1)",
+          "INSERT INTO queued_thread_messages (id,origin_id,thread_id,content,model,reasoning_level,permission_mode,service_tier,group_with_next,state,payload_kind,sort_key,created_at,updated_at) VALUES ('late','late',?,'[]','m','r','full','default',0,'queued','inline','z',1,1)",
         )
         .run(fixture.source.id);
     } finally {
@@ -291,7 +291,7 @@ describe("retire source row-count guard", () => {
                   try {
                     other
                       .prepare(
-                        "INSERT INTO queued_thread_messages (id,origin_id,thread_id,content,model,reasoning_level,permission_mode,service_tier,group_with_next,payload_kind,sort_key,created_at,updated_at) VALUES ('late','late',?,'[]','m','r','full','default',0,'inline','z',1,1)",
+                        "INSERT INTO queued_thread_messages (id,origin_id,thread_id,content,model,reasoning_level,permission_mode,service_tier,group_with_next,state,payload_kind,sort_key,created_at,updated_at) VALUES ('late','late',?,'[]','m','r','full','default',0,'queued','inline','z',1,1)",
                       )
                       .run(fixture.source.id);
                   } catch (error) {
@@ -309,6 +309,7 @@ describe("retire source row-count guard", () => {
                       serviceTier: "default",
                       groupWithNext: false,
                       payloadKind: "inline",
+                      state: "queued",
                       sortKey: "y",
                       createdAt: 1,
                       updatedAt: 1,
@@ -454,7 +455,7 @@ describe("transfer-all source row-count guard", () => {
       .run();
     fixture.db.$client
       .prepare(
-        "UPDATE queued_thread_messages SET claimed_at = 1, claim_token = 'tok' WHERE id = 'row3'",
+        "UPDATE queued_thread_messages SET state = 'claimed', claimed_at = 1, claim_token = 'tok' WHERE id = 'row3'",
       )
       .run();
     bulkInsert(fixture.db, fixture.source.id, 1, "extra");
@@ -543,6 +544,7 @@ describe("transfer-all source row-count guard", () => {
               serviceTier: "default",
               groupWithNext: false,
               payloadKind: "inline",
+              state: "queued",
               sortKey: "y",
               createdAt: 1,
               updatedAt: 1,

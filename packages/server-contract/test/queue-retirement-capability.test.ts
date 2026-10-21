@@ -7,6 +7,8 @@ import {
 } from "@bb/server-contract";
 
 const oldServerResponse = {
+  currentCommit: null,
+  installKind: null,
   currentVersion: "1.0.0",
   latestVersion: "1.1.0",
   source: "npm",

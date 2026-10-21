@@ -140,6 +140,17 @@ describe("parsePageToShellMessage", () => {
 describe("parseNativeShellHandshake", () => {
   it("accepts the handshake the shell injects", () => {
     expect(parseNativeShellHandshake(handshake)).toEqual(handshake);
+    const android = {
+      ...handshake,
+      platform: "android",
+      androidVersionCode: 4,
+    };
+    expect(parseNativeShellHandshake(android)).toEqual(android);
+    for (const androidVersionCode of [0, -1, 1.5, "4"]) {
+      expect(
+        parseNativeShellHandshake({ ...android, androidVersionCode }),
+      ).toBeNull();
+    }
   });
 
   it("reads a malformed or absent bridge as no bridge", () => {
@@ -150,6 +161,23 @@ describe("parseNativeShellHandshake", () => {
     ).toBeNull();
     expect(
       parseNativeShellHandshake({ ...handshake, capabilities: ["teleport"] }),
+    ).toBeNull();
+  });
+});
+
+describe("native download support", () => {
+  it("advertises native downloads without extending the capability enum", () => {
+    const supported = { ...handshake, nativeDownloads: true };
+    expect(parseNativeShellHandshake(supported)).toEqual(supported);
+    expect(parseNativeShellHandshake(handshake)).toEqual(handshake);
+    expect(
+      parseNativeShellHandshake({ ...handshake, nativeDownloads: "true" }),
+    ).toBeNull();
+    expect(
+      parseNativeShellHandshake({
+        ...handshake,
+        capabilities: ["native-downloads"],
+      }),
     ).toBeNull();
   });
 });

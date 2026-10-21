@@ -8,8 +8,12 @@ import {
 } from "../src/index.js";
 import { dropTransferLedgerSchema } from "./helpers/drop-transfer-ledger.js";
 import {
+  dropIdleLifecycleIndexes,
+  dropMarketplaceSourceGitSubdirectoryColumn,
   dropMusicModeColumns,
   dropPluginEnabledFollowsDefaultColumn,
+  dropQueuedMessageEditHeldUntilColumn,
+  rewindThreadPruningWork,
 } from "./helpers/rewind.js";
 
 const migrationTimestamp = 1790738477751;
@@ -45,9 +49,13 @@ const custom: AppKeybindingOverrides = [
 function upgradeDatabase(overrides: AppKeybindingOverrides | undefined) {
   const db = createConnection(":memory:");
   migrate(db);
+  dropIdleLifecycleIndexes(db);
+  rewindThreadPruningWork(db);
   dropPluginEnabledFollowsDefaultColumn(db);
   dropTransferLedgerSchema(db);
   dropMusicModeColumns(db);
+  dropQueuedMessageEditHeldUntilColumn(db);
+  dropMarketplaceSourceGitSubdirectoryColumn(db);
   db.$client
     .prepare("DELETE FROM __drizzle_migrations WHERE created_at >= ?")
     .run(migrationTimestamp);

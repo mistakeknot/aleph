@@ -184,6 +184,7 @@ export const DEFAULT_APP_KEYBINDINGS: AppDefaultKeybindings = [
   unassignedBinding("notifications.open", mainWithoutModal),
   unassignedBinding("plugins.enterSafeMode", mainWithoutModal),
   unassignedBinding("plugins.exitSafeMode", mainWithoutModal),
+  unassignedBinding("plugins.pruneCache", mainWithoutModal),
   binding(
     "thread.previous",
     "[",
@@ -276,6 +277,7 @@ export const DEFAULT_APP_KEYBINDINGS: AppDefaultKeybindings = [
   ),
   binding("panel.close", "w", { mod: true }, mainWithoutModal),
   binding("panel.toggle", "j", { mod: true }, mainWithoutModal),
+  unassignedBinding("panel.fullScreen.toggle", mainWithoutModal),
   binding("file.quickOpen", "p", { mod: true }, mainWithoutModal),
   binding(
     "diff.toggle",
@@ -427,6 +429,11 @@ export const DEFAULT_APP_KEYBINDINGS: AppDefaultKeybindings = [
   ),
   unassignedBinding("logs.openServerDaemon", {
     all: ["mainSurface", "macPlatform"],
+    desktopOnly: true,
+    none: ["modalOpen"],
+  }),
+  unassignedBinding("window.reload", {
+    all: ["mainSurface"],
     desktopOnly: true,
     none: ["modalOpen"],
   }),

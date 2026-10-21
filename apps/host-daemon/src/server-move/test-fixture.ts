@@ -1,5 +1,6 @@
+import { fork, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
-import { createReadStream } from "node:fs";
+import { closeSync, createReadStream, openSync } from "node:fs";
 import {
   mkdir,
   mkdtemp,
@@ -32,6 +33,9 @@ import {
 const roots: string[] = [];
 const httpServers: Server[] = [];
 const spawnedPids: number[] = [];
+const spawnedChildren: ChildProcess[] = [];
+const pendingServerExits = new Map<number, Promise<void>>();
+const PENDING_SERVER_EXIT_GRACE_MS = 2_000;
 
 export const MOVE_ID = "move-0001";
 export const ACTIVATION_TOKEN = "activation-token-0123456789";
@@ -68,12 +72,50 @@ const server = createServer((request, response) => {
   response.statusCode = 404;
   response.end("{}");
 });
-server.listen(Number(port), "127.0.0.1");
+if (process.send) {
+  process.once("message", (_message, handle) => {
+    server.listen(handle, () => process.send("listening"));
+  });
+  process.send("ready-for-handle");
+} else {
+  server.listen(Number(port), "127.0.0.1");
+}
 process.on("SIGTERM", () => process.exit(0));
 `;
 
+export async function hasPendingServerExited(pid: number): Promise<boolean> {
+  const exited = pendingServerExits.get(pid);
+  if (exited === undefined) {
+    throw new Error(`No fixture pending server was launched with pid ${pid}`);
+  }
+  const grace = new AbortController();
+  try {
+    return await Promise.race([
+      exited.then(() => true),
+      sleep(PENDING_SERVER_EXIT_GRACE_MS, false, { signal: grace.signal }),
+    ]);
+  } finally {
+    grace.abort();
+  }
+}
+
 export function registerServerMoveFixtureCleanup(): void {
   afterEach(async () => {
+    pendingServerExits.clear();
+    await Promise.all(
+      spawnedChildren.splice(0).map(async (child) => {
+        if (
+          child.pid === undefined ||
+          child.exitCode !== null ||
+          child.signalCode !== null
+        )
+          return;
+        await new Promise<void>((resolveExit) => {
+          child.once("exit", () => resolveExit());
+          child.kill("SIGKILL");
+        });
+      }),
+    );
     for (const pid of spawnedPids.splice(0)) {
       try {
         process.kill(-pid, "SIGKILL");
@@ -348,6 +390,18 @@ export async function createFixture(args: FixtureArgs = {}) {
   const detachedRequests: DetachedSpawnRequest[] = [];
   const commands: string[][] = [];
   const launches: PendingServerLaunchRequest[] = [];
+  const reservedPorts = new Map<number, Server>();
+  const pendingChildren = new Map<number, ChildProcess>();
+  const reserveServerPort = async (): Promise<number> => {
+    const server = createServer();
+    httpServers.push(server);
+    await new Promise<void>((resolveListen) =>
+      server.listen(0, "127.0.0.1", resolveListen),
+    );
+    const { port } = server.address() as AddressInfo;
+    reservedPorts.set(port, server);
+    return port;
+  };
   const logger = { error: vi.fn(), info: vi.fn(), warn: vi.fn() };
   const options: ServerMoveServiceOptions = {
     dataDir,
@@ -383,6 +437,70 @@ export async function createFixture(args: FixtureArgs = {}) {
     },
     launchPendingServer: async (request) => {
       launches.push(request);
+      const reservation = reservedPorts.get(request.serverPort);
+      if (reservation !== undefined) {
+        await mkdir(dirname(request.logPath), { recursive: true });
+        const log = openSync(request.logPath, "a", 0o600);
+        let child: ChildProcess;
+        let ready: Promise<void>;
+        try {
+          child = fork(
+            stubPath,
+            [request.dataDir, String(request.serverPort)],
+            {
+              detached: true,
+              env: { PATH: process.env.PATH },
+              execArgv: [],
+              stdio: ["ignore", log, log, "ipc"],
+            },
+          );
+          spawnedChildren.push(child);
+          const exited = new Promise<void>((resolveExited) =>
+            child.once("exit", () => resolveExited()),
+          );
+          if (child.pid !== undefined) {
+            pendingServerExits.set(child.pid, exited);
+          }
+          ready = new Promise<void>((resolveReady, rejectReady) => {
+            const finish = (error?: Error) => {
+              child.off("exit", onExit);
+              child.off("error", finish);
+              child.off("message", onMessage);
+              if (error) rejectReady(error);
+              else resolveReady();
+            };
+            const onExit = () =>
+              finish(
+                new Error("Pending fixture server exited before listening"),
+              );
+            const onMessage = (message: unknown) => {
+              if (message === "ready-for-handle") {
+                child.send("listen", reservation, (error) => {
+                  if (error) finish(error);
+                });
+              } else if (message === "listening") {
+                finish();
+              }
+            };
+            child.once("error", finish);
+            child.once("exit", onExit);
+            child.on("message", onMessage);
+          });
+        } finally {
+          closeSync(log);
+        }
+        await ready;
+        await new Promise<void>((resolveClose) =>
+          reservation.close(() => resolveClose()),
+        );
+        reservedPorts.delete(request.serverPort);
+        child.disconnect();
+        child.unref();
+        if (child.pid === undefined)
+          throw new Error("Pending fixture server did not report a pid");
+        pendingChildren.set(child.pid, child);
+        return child.pid;
+      }
       const pid = await defaultDetachedProcessSpawner({
         command: process.execPath,
         args: [stubPath, request.dataDir, String(request.serverPort)],
@@ -426,6 +544,14 @@ export async function createFixture(args: FixtureArgs = {}) {
     detachedRequests,
     commands,
     launches,
+    reserveServerPort,
+    isPendingServerRunning(pid: number): boolean {
+      const child = pendingChildren.get(pid);
+      if (child === undefined) {
+        throw new Error(`No retained pending server child for pid ${pid}`);
+      }
+      return child.kill(0);
+    },
     logger,
   };
 }
@@ -446,7 +572,7 @@ export async function prepareCommand(
       sizeBytes: fixture.source.archiveSizeBytes,
     },
     bbApp: null,
-    serverPort: await freePort(),
+    serverPort: overrides.serverPort ?? (await fixture.reserveServerPort()),
     bindHost: null,
     sourceDataDir: "/Users/me/.bb",
     sourceServerHostId: "host-source",

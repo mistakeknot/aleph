@@ -2,6 +2,7 @@ import { z } from "zod";
 import type {
   ComposerCustomization,
   ExperimentalAppOverlayRegistration,
+  ExperimentalCodeFenceRendererRegistration,
   ExperimentalSidebarFooter,
   ExperimentalSidebarFooterActionContext,
   ExperimentalSidebarFooterActionRegistration,
@@ -28,10 +29,9 @@ import type {
   ExperimentalIconRegistration,
   PluginSettingsSectionRegistration,
   PluginSidebarFooterActionRegistration,
-  ExperimentalSidebarNavigationRegistration,
-  ExperimentalSidebarHeaderRegistration,
   PluginSourceCodeRendererRegistration,
   PluginThreadHeaderActionRegistration,
+  PluginThreadActionRegistration,
   ExperimentalPluginBrowserToolbarActionRegistration,
   PluginThreadListRegistration,
   PluginThreadPanelActionRegistration,
@@ -50,6 +50,8 @@ import {
   requireTimelineRendererKind,
   requireUniqueId,
 } from "./composer-customization-validation.js";
+
+const CODE_FENCE_LANGUAGE_PATTERN = /^[a-z0-9][a-z0-9+#._-]*$/;
 
 export type ExperimentalSidebarFooterCommandKind = "open" | "close" | "toggle";
 
@@ -355,16 +357,16 @@ export interface CollectedPluginAppRegistrations {
   pendingInteractions: PluginPendingInteractionRegistration[];
   sidebarFooterActions: PluginSidebarFooterActionRegistration[];
   experimentalSidebarFooterItems: CollectedExperimentalSidebarFooterItem[];
-  experimentalSidebarNavigations: ExperimentalSidebarNavigationRegistration[];
-  experimentalSidebarHeaders: ExperimentalSidebarHeaderRegistration[];
   threadLists: PluginThreadListRegistration[];
   threadHeaderActions: PluginThreadHeaderActionRegistration[];
   appHeaderStatuses: PluginAppHeaderStatusRegistration[];
+  threadActions: PluginThreadActionRegistration<unknown>[];
   browserToolbarActions: ExperimentalPluginBrowserToolbarActionRegistration[];
   fileOpeners: PluginFileOpenerRegistration[];
   sourceCodeRenderers: PluginSourceCodeRendererRegistration[];
   diffRenderers: PluginDiffRendererRegistration[];
   messageDirectives: PluginMessageDirectiveRegistration[];
+  codeFenceRenderers: ExperimentalCodeFenceRendererRegistration[];
   messageActions: PluginMessageActionRegistration[];
   commandPaletteActions: CollectedPluginCommandRegistration[];
   commandPaletteSearches: ExperimentalPluginCommandPaletteSearchRegistration[];
@@ -483,16 +485,16 @@ export function collectPluginAppRegistrations(
     pendingInteractions: [],
     sidebarFooterActions: [],
     experimentalSidebarFooterItems: [],
-    experimentalSidebarNavigations: [],
-    experimentalSidebarHeaders: [],
     threadLists: [],
     threadHeaderActions: [],
     appHeaderStatuses: [],
+    threadActions: [],
     browserToolbarActions: [],
     fileOpeners: [],
     sourceCodeRenderers: [],
     diffRenderers: [],
     messageDirectives: [],
+    codeFenceRenderers: [],
     messageActions: [],
     commandPaletteActions: [],
     commandPaletteSearches: [],
@@ -515,16 +517,17 @@ export function collectPluginAppRegistrations(
     composerPopup: new Set<string>(),
     pendingInteraction: new Set<string>(),
     sidebarFooterItem: new Set<string>(),
-    sidebarNavigation: new Set<string>(),
-    sidebarHeader: new Set<string>(),
     threadList: new Set<string>(),
     threadHeaderAction: new Set<string>(),
     appHeaderStatus: new Set<string>(),
+    threadAction: new Set<string>(),
     browserToolbarAction: new Set<string>(),
     fileOpener: new Set<string>(),
     sourceCodeRenderer: new Set<string>(),
     diffRenderer: new Set<string>(),
     messageDirective: new Set<string>(),
+    codeFenceRenderer: new Set<string>(),
+    codeFenceLanguage: new Set<string>(),
     messageAction: new Set<string>(),
     command: new Set<string>(),
     commandPaletteSearch: new Set<string>(),
@@ -783,24 +786,6 @@ export function collectPluginAppRegistrations(
         collected.sidebarFooterActions.push(legacyRegistration);
         sidebarFooterItems.push(adaptSidebarFooterAction(legacyRegistration));
       },
-      experimental_sidebarNavigation(registration) {
-        collected.experimentalSidebarNavigations.push(
-          collectTitledComponent(
-            "slots.experimental_sidebarNavigation",
-            seenIds.sidebarNavigation,
-            registration,
-          ),
-        );
-      },
-      experimental_sidebarHeader(registration) {
-        collected.experimentalSidebarHeaders.push(
-          collectTitledComponent(
-            "slots.experimental_sidebarHeader",
-            seenIds.sidebarHeader,
-            registration,
-          ),
-        );
-      },
       experimental_threadList(registration) {
         collected.threadLists.push(
           collectTitledComponent(
@@ -828,6 +813,39 @@ export function collectPluginAppRegistrations(
             registration,
           ),
         );
+      },
+      experimental_threadAction(registration) {
+        const kind = "slots.experimental_threadAction";
+        const id = requireSlotId(kind, registration?.id);
+        requireUniqueId(kind, seenIds.threadAction, id);
+        if (typeof registration.item !== "function") {
+          throw new Error(`${kind}: "item" must be a function`);
+        }
+        if (
+          registration.useData !== undefined &&
+          typeof registration.useData !== "function"
+        ) {
+          throw new Error(`${kind}: "useData" must be a function`);
+        }
+        if (
+          registration.order !== undefined &&
+          !Number.isFinite(registration.order)
+        ) {
+          throw new Error(`${kind}: "order" must be a finite number`);
+        }
+        collected.threadActions.push({
+          id,
+          title: requireNonEmptyString(kind, "title", registration.title),
+          icon: requireNonEmptyString(kind, "icon", registration.icon),
+          group: requireNonEmptyString(kind, "group", registration.group),
+          ...(registration.order !== undefined
+            ? { order: registration.order }
+            : {}),
+          ...(registration.useData !== undefined
+            ? { useData: registration.useData }
+            : {}),
+          item: registration.item,
+        });
       },
       experimental_browserToolbarAction(registration) {
         const kind = "slots.experimental_browserToolbarAction";
@@ -888,6 +906,37 @@ export function collectPluginAppRegistrations(
         requireUniqueId(kind, seenIds.messageDirective, id);
         collected.messageDirectives.push({
           id,
+          component: requireComponent(kind, registration.component),
+        });
+      },
+      experimental_codeFenceRenderer(registration) {
+        const kind = "slots.experimental_codeFenceRenderer";
+        const id = requireSlotId(kind, registration?.id);
+        requireUniqueId(kind, seenIds.codeFenceRenderer, id);
+        const rawLanguages: unknown = registration.languages;
+        if (!Array.isArray(rawLanguages) || rawLanguages.length === 0) {
+          throw new Error(
+            `${kind}: "languages" must be a non-empty array of lowercase info-string languages`,
+          );
+        }
+        const languages = rawLanguages.map((language: unknown) => {
+          if (
+            typeof language !== "string" ||
+            !CODE_FENCE_LANGUAGE_PATTERN.test(language)
+          ) {
+            throw new Error(
+              `${kind}: languages must match ${CODE_FENCE_LANGUAGE_PATTERN}, got ${JSON.stringify(language)}`,
+            );
+          }
+          if (seenIds.codeFenceLanguage.has(language)) {
+            throw new Error(`${kind}: duplicate language "${language}"`);
+          }
+          seenIds.codeFenceLanguage.add(language);
+          return language;
+        });
+        collected.codeFenceRenderers.push({
+          id,
+          languages,
           component: requireComponent(kind, registration.component),
         });
       },
