@@ -2258,19 +2258,6 @@ host's `useCreateThread` and the thread would look host-originated. So the
 rule is: the composer owns user selections; the plugin owns filing
 (`sectionId`, `parentThreadId`, `title`, `visibility`) and attribution.
 
-`threads.update` accepts conditional section preconditions `ifSectionId`
-(`string | null`), `ifUnpinned`, `ifUnarchived`, and `ifTopLevel` (literal
-`true`). Supplying any precondition requires `sectionId` (`string | null`)
-and rejects every other update field and unknown key before handler side
-effects. Requests without preconditions retain unknown-key stripping.
-The server compares and writes in one immediate transaction; a mismatch
-returns HTTP 409 `conflict` with `details.current` containing `sectionId`,
-`pinnedAt`, `archivedAt`, and `parentThreadId`, leaving the row untouched.
-For example, `threads.update({ threadId: "T", sectionId: "S2", ifSectionId:
-"S1", ifUnpinned: true })` preserves a concurrent manual move. Audit raw-body
-validation, nullable section comparisons, notification timing, and concurrent
-writes before stabilizing this behavior (mk-ks92z.11).
-
 Implementation: the shared workflow is
 `apps/app/src/components/promptbox/NewThreadComposer.tsx`; the SDK adapter is
 `apps/app/src/components/plugin/PluginNewThreadComposer.tsx`, bound in
@@ -3793,3 +3780,18 @@ placement; whether the scope should be keyed by thread or by turn; and whether
 the bridge should learn the outcome instead of fire-and-forget, and whether
 the request predicate should report that isolation actually works rather than
 that it was asked for.
+
+## threads.update section preconditions (ifSectionId, ifUnpinned, ifUnarchived, ifTopLevel)
+
+`threads.update` accepts conditional section preconditions `ifSectionId`
+(`string | null`), `ifUnpinned`, `ifUnarchived`, and `ifTopLevel` (literal
+`true`). Supplying any precondition requires `sectionId` (`string | null`)
+and rejects every other update field and unknown key before handler side
+effects. Requests without preconditions retain unknown-key stripping.
+The server compares and writes in one immediate transaction; a mismatch
+returns HTTP 409 `conflict` with `details.current` containing `sectionId`,
+`pinnedAt`, `archivedAt`, and `parentThreadId`, leaving the row untouched.
+For example, `threads.update({ threadId: "T", sectionId: "S2", ifSectionId:
+"S1", ifUnpinned: true })` preserves a concurrent manual move. Audit raw-body
+validation, nullable section comparisons, notification timing, and concurrent
+writes before stabilizing this behavior (mk-ks92z.11).

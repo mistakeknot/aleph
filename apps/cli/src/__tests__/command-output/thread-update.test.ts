@@ -123,8 +123,10 @@ describe("bb thread update command output", () => {
         register,
       ),
     ).rejects.toThrow("process.exit:1");
-    expect(collectLogLines(vi.mocked(console.error)).join("\n")).toContain(
-      "S2",
+    expect(collectLogLines(vi.mocked(console.error))).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/^Current state: .*"sectionId":"S2"/),
+      ]),
     );
   });
 
