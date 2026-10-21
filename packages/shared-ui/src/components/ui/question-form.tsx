@@ -24,7 +24,6 @@ import { cn } from "../../lib/utils";
 import {
   answerStateFor,
   buildQuestionAnswers,
-  clearQuestionFormDraft,
   createInitialFormState,
   isQuestionAnswered,
   readQuestionFormDraft,
@@ -397,7 +396,6 @@ export function QuestionForm({
 
   const submitAnswer = (): void => {
     if (disabled || !allAnswered) return;
-    clearQuestionFormDraft(draftKey);
     onSubmit(buildQuestionAnswers(questions, formState));
   };
 
@@ -484,10 +482,7 @@ export function QuestionForm({
           size="sm"
           variant="ghost"
           disabled={cancelDisabled}
-          onClick={() => {
-            clearQuestionFormDraft(draftKey);
-            onCancel();
-          }}
+          onClick={onCancel}
         >
           Cancel
         </Button>

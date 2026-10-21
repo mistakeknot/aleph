@@ -1,3 +1,6 @@
+const THREAD_HOSTING_SEGMENTS = ["threads", "webview"];
+
 export function shouldFollowThreadOpen(pathname: string): boolean {
-  return !pathname.split("/").includes("threads");
+  const segments = pathname.split("/");
+  return !THREAD_HOSTING_SEGMENTS.some((segment) => segments.includes(segment));
 }
