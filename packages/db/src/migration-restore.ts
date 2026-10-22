@@ -309,9 +309,8 @@ function copyTable(
   const virtualRowid = virtual;
   const targetColumns =
     includeRowid || virtualRowid ? ["rowid", ...names] : names;
-  const selectColumns = targetColumns;
   sqlite.exec(
-    `INSERT INTO main.${quoteIdentifier(table.name)} (${targetColumns.join(", ")}) SELECT ${selectColumns.join(", ")} FROM bk.${quoteIdentifier(table.name)}`,
+    `INSERT INTO main.${quoteIdentifier(table.name)} (${targetColumns.join(", ")}) SELECT ${targetColumns.join(", ")} FROM bk.${quoteIdentifier(table.name)}`,
   );
 }
 
@@ -357,10 +356,7 @@ function schemaObjects(sqlite: Database.Database, schema: string) {
     .all() as MasterRow[];
 }
 
-function rebuildFromBackup(
-  sqlite: Database.Database,
-  backup: VerifiedBackup,
-): void {
+function rebuildFromBackup(sqlite: Database.Database): void {
   for (const row of schemaObjects(sqlite, "main").filter(
     (entry) => entry.type === "trigger",
   )) {
@@ -437,7 +433,6 @@ function rebuildFromBackup(
   create("index");
   create("view");
   create("trigger");
-  void backup;
 }
 
 function verifyRestored(
@@ -574,7 +569,7 @@ export function restoreMigrationBackup(
 
     sqlite.exec("BEGIN IMMEDIATE");
     try {
-      rebuildFromBackup(sqlite, verified);
+      rebuildFromBackup(sqlite);
       verifyRestored(sqlite, verified, expectedViolations, expectedSequence);
       sqlite.exec("COMMIT");
     } catch (error) {

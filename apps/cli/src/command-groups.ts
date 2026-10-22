@@ -126,6 +126,11 @@ export const CORE_COMMAND_GROUPS: readonly CommandGroup[] = [
     (m) => (program) => m.registerDiagnosticsCommands(program),
   ),
   group(
+    "db",
+    () => import("./commands/db.js"),
+    (m) => (program) => m.registerDbCommands(program),
+  ),
+  group(
     "voice",
     () => import("./commands/voice.js"),
     (m) => (program, deps) => m.registerVoiceCommands(program, deps.getUrl),

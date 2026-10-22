@@ -52,6 +52,16 @@ group with its options on one page. Failures are logged without argument values
 to <dataDir>/logs/cli-errors.jsonl; `bb diagnostics cli-errors [--since 7d]
 [--clear]` tallies or deletes it, and BB_CLI_ERROR_LOG=0 turns logging off.
 
+Roll the local database back to the backup a migration took before it ran with
+`bb db restore-migration-backup <backup> [--database <path>] [--check]`.
+Stop the server and every process that uses the database first. `--check`
+verifies the backup against its sidecar and changes nothing. A restore
+refuses to run while another process holds the database, rebuilds it from the
+backup inside one transaction, verifies row counts, content and sequences, and
+keeps the previous contents in a `.broken-<timestamp>` file beside it. Install
+the older bb binary before restarting. The same operation is exported to code
+as `restoreMigrationBackup` from `@bb/db/migration-restore`.
+
 To make a repo work with bb worktrees, run `bb guide environments` for the
 repo-level `.bb-env-setup.sh` and `.bb-env-teardown.sh` hooks. Run `bb guide
 agent-configuration` for the data-dir and workspace files that customize agent
