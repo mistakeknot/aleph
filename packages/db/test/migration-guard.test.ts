@@ -270,6 +270,70 @@ describe("reference extraction", () => {
     }
   });
 
+  it.each([
+    [
+      "an INSERT INTO target",
+      "CREATE TRIGGER a_log AFTER INSERT ON a BEGIN INSERT INTO 'b' (id) VALUES (new.id); END;",
+    ],
+    [
+      "an UPDATE target",
+      "CREATE TRIGGER a_log AFTER INSERT ON a BEGIN UPDATE 'b' SET id = id; END;",
+    ],
+    [
+      "a DELETE FROM target",
+      "CREATE TRIGGER a_log AFTER INSERT ON a BEGIN DELETE FROM 'b'; END;",
+    ],
+    [
+      "a qualified name",
+      "CREATE TRIGGER a_log AFTER INSERT ON a BEGIN INSERT INTO d SELECT 1 FROM 'main'.'b'; END;",
+    ],
+    [
+      "a second FROM item",
+      "CREATE TRIGGER a_log AFTER INSERT ON a BEGIN INSERT INTO d SELECT 1 FROM a, 'b'; END;",
+    ],
+    [
+      "a JOIN target",
+      "CREATE TRIGGER a_log AFTER INSERT ON a BEGIN INSERT INTO d SELECT 1 FROM a JOIN 'b'; END;",
+    ],
+  ])(
+    "sees a table named by a single-quoted identifier in %s",
+    (_name, trigger) => {
+      const { before, after } = schemas(trigger);
+      try {
+        expect(expandWithForeignKeyNeighbours(after, ["a"])).toContain("b");
+        expect(computeAlteredTables(before, after)).toContain("b");
+      } finally {
+        before.close();
+        after.close();
+      }
+    },
+  );
+
+  it("sees a table named by a single-quoted identifier inside a view chain", () => {
+    const { before, after } = schemas(
+      "CREATE VIEW v1 AS SELECT id FROM 'b'; CREATE VIEW v2 AS SELECT id FROM 'v1';",
+    );
+    try {
+      expect(computeAlteredTables(before, after)).toEqual(["b", "v1", "v2"]);
+      expect(expandWithForeignKeyNeighbours(after, ["v2"])).toContain("b");
+    } finally {
+      before.close();
+      after.close();
+    }
+  });
+
+  it("still ignores single-quoted literals in value positions", () => {
+    const { before, after } = schemas(
+      "CREATE TRIGGER a_log AFTER INSERT ON a WHEN new.id = 'b' BEGIN INSERT INTO c (id) VALUES ('b'); UPDATE c SET id = 'b' WHERE id IN ('b', 'd'); END;",
+    );
+    try {
+      expect(computeAlteredTables(before, after)).toEqual(["a", "c"]);
+    } finally {
+      before.close();
+      after.close();
+    }
+  });
+
   it("still sees a table named by a quoted identifier", () => {
     const { before, after } = schemas(
       'CREATE TRIGGER a_log AFTER INSERT ON a BEGIN INSERT INTO c (id) VALUES (new.id); UPDATE "b" SET id = id; END;',
@@ -356,10 +420,6 @@ describe("scanRebuiltTables", () => {
     [
       "a staging table if not exists",
       "CREATE TABLE IF NOT EXISTS __NEW_Queued_Thread_Messages (id text);",
-    ],
-    [
-      "a temporary staging table",
-      "CREATE TEMP TABLE main.__new_queued_thread_messages (id text);",
     ],
   ])("finds the table behind %s", (_name, sql) => {
     expect(scanRebuiltTables(sql)).toContain("queued_thread_messages");
@@ -454,6 +514,16 @@ describe("scanRebuiltTables", () => {
     ],
   ])("reads %s the way SQLite does", (_name, sql, expected) => {
     expect(scanRebuiltTables(sql)).toEqual(expected);
+  });
+
+  it.each([
+    "CREATE TEMP TABLE __new_queued_thread_messages (id text);",
+    "CREATE TEMP TABLE IF NOT EXISTS __new_queued_thread_messages (id text);",
+    "CREATE TEMPORARY TABLE __new_queued_thread_messages (id text);",
+    "create temporary table if not exists __new_queued_thread_messages (id text);",
+    "CREATE TEMP TABLE __new_queued_thread_messages AS SELECT 1;",
+  ])("ignores an implicit temp staging table: %s", (sql) => {
+    expect(scanRebuiltTables(sql)).toEqual([]);
   });
 
   it("still finds a main table next to a temp one", () => {

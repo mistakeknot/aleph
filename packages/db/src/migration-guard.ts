@@ -173,8 +173,10 @@ export function scanRebuiltTables(sql: string): string[] {
       ) {
         cursor += 1;
       }
+      const temporary = cursor > index + 1;
       if (isKeyword(tokens[cursor], "VIRTUAL")) cursor += 1;
       if (!isKeyword(tokens[cursor], "TABLE")) continue;
+      if (temporary) continue;
       cursor += 1;
       if (
         isKeyword(tokens[cursor], "IF") &&
@@ -276,10 +278,70 @@ function indexSchema(rows: readonly SchemaObjectRow[]): SchemaIndex {
   return { tables, views };
 }
 
+const TABLE_POSITION_KEYWORDS = new Set([
+  "INTO",
+  "FROM",
+  "JOIN",
+  "UPDATE",
+  "TABLE",
+  "ON",
+  "REFERENCES",
+]);
+
+const FROM_LIST_ENDERS = new Set([
+  "WHERE",
+  "GROUP",
+  "ORDER",
+  "HAVING",
+  "LIMIT",
+  "WINDOW",
+  "UNION",
+  "INTERSECT",
+  "EXCEPT",
+  "SELECT",
+  "VALUES",
+  "SET",
+  "ON",
+  "USING",
+  "BEGIN",
+  "END",
+  "WHEN",
+  "RETURNING",
+]);
+
+function isTablePosition(tokens: readonly Token[], index: number): boolean {
+  const next = tokens[index + 1];
+  if (next?.kind === "punct" && next.value === ".") return true;
+  const previous = tokens[index - 1];
+  if (previous === undefined) return false;
+  if (previous.kind === "punct" && previous.value === ".") return true;
+  if (previous.kind === "word") {
+    return TABLE_POSITION_KEYWORDS.has(previous.value.toUpperCase());
+  }
+  if (previous.kind === "punct" && previous.value === ",") {
+    for (let cursor = index - 2; cursor >= 0; cursor -= 1) {
+      const candidate = tokens[cursor];
+      if (candidate?.kind === "punct" && candidate.value === ";") return false;
+      if (candidate?.kind !== "word") continue;
+      const word = candidate.value.toUpperCase();
+      if (word === "FROM" || word === "JOIN") return true;
+      if (FROM_LIST_ENDERS.has(word)) return false;
+    }
+  }
+  return false;
+}
+
 function referencedNames(row: SchemaObjectRow, index: SchemaIndex): string[] {
   const names = new Set<string>();
-  for (const token of tokenize(row.sql ?? "")) {
-    if (token.kind !== "word" && token.kind !== "quoted") continue;
+  const tokens = tokenize(row.sql ?? "");
+  for (const [position, token] of tokens.entries()) {
+    if (
+      token.kind !== "word" &&
+      token.kind !== "quoted" &&
+      !(token.kind === "string" && isTablePosition(tokens, position))
+    ) {
+      continue;
+    }
     const name = token.value.toLowerCase();
     if (index.tables.has(name) || index.views.has(name)) names.add(name);
   }
