@@ -1042,6 +1042,37 @@ describe("skipped Aleph statements keep their trusted tables protected", () => {
     ).not.toThrow();
   });
 
+  const loadWithStatement = (statement: string) => {
+    const alephFolder = alephFolderWithSteps([{ id: "A0010", sql: statement }]);
+    const upstreamFolder = upstreamFolderWithCandidates(
+      [
+        { tag: "0144_zz_source", sql: "CREATE TABLE zz_source (value TEXT);" },
+        {
+          tag: "0145_zz_alter",
+          sql: "ALTER TABLE app_settings ADD COLUMN zz_extra TEXT;",
+        },
+      ],
+      alephFolder,
+    );
+    return () => loadAlignedMigrationPlan({ upstreamFolder, alephFolder });
+  };
+
+  it.each([
+    "INSERT INTO zz_source VALUES ('a'), ('app_settings');",
+    "INSERT INTO zz_source SELECT 1 WHERE 'x' IN (VALUES ('x'), ('app_settings'));",
+    "WITH v(x) AS (VALUES ('a'), ('app_settings')) INSERT INTO zz_source SELECT x FROM v;",
+  ])("does not guard a literal in a later VALUES row: %s", (statement) => {
+    expect(loadWithStatement(statement)).not.toThrow();
+  });
+
+  it("still guards a subquery in a later VALUES row", () => {
+    expect(
+      loadWithStatement(
+        "INSERT INTO zz_source VALUES (1), ((SELECT 1 FROM zz_source, 'app_settings'));",
+      ),
+    ).toThrow(/0145_zz_alter.*app_settings/);
+  });
+
   it("classifies a statement behind a CTE named like a verb", () => {
     expect(statementVerb("WITH begin AS (SELECT 1) DELETE FROM zz_ghost")).toBe(
       "delete",

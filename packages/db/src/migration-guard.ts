@@ -353,6 +353,29 @@ function isLiteralString(
   return false;
 }
 
+function inValuesRows(tokens: readonly Token[], from: number): boolean {
+  let nesting = 0;
+  for (let index = from; index >= 0; index -= 1) {
+    const token = tokens[index];
+    if (token === undefined) continue;
+    if (token.kind === "punct") {
+      if (token.value === ")") nesting += 1;
+      else if (token.value === "(") {
+        if (nesting === 0) return false;
+        nesting -= 1;
+      } else if (token.value === ";" && nesting === 0) return false;
+    } else if (token.kind === "word" && nesting === 0) {
+      const word = token.value.toUpperCase();
+      if (word === "VALUES") return true;
+      if (STATEMENT_VERBS.has(word) || FROM_CLAUSE_ENDERS.has(word)) {
+        return false;
+      }
+      if (word === "FROM" || word === "JOIN" || word === "SELECT") return false;
+    }
+  }
+  return false;
+}
+
 const COMPOUND_SELECT_KEYWORDS = new Set([
   "SELECT",
   "UNION",
@@ -394,7 +417,7 @@ export function statementIdentifiers(statement: string): string[] {
         ) {
           kinds[depth] = "list";
         } else if (before?.kind === "punct" && before.value === ",") {
-          kinds[depth] = parent;
+          kinds[depth] = inValuesRows(tokens, position - 1) ? "list" : parent;
         } else if (before?.kind === "punct" && before.value === "(") {
           kinds[depth] = parent;
         } else kinds[depth] = "group";

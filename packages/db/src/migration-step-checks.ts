@@ -130,7 +130,9 @@ function parseStepChecks(id: string, raw: unknown): StepChecks {
       throw new Error(`Step checks for ${id} columnRenames must be a map`);
     }
     for (const [table, map] of Object.entries(raw.columnRenames)) {
-      columnRenames[fold(table)] = stringMap(map, `columnRenames.${table}`);
+      columnRenames[fold(table)] = foldKeys(
+        stringMap(map, `columnRenames.${table}`),
+      );
     }
   }
   return {
@@ -147,7 +149,9 @@ function parseStepChecks(id: string, raw: unknown): StepChecks {
           entry.preservedColumns,
           "preservedColumns",
         ),
-        columnRenames: stringMap(entry.columnRenames, "columnRenames"),
+        columnRenames: foldKeys(
+          stringMap(entry.columnRenames, "columnRenames"),
+        ),
         normalizedColumns: stringMap(
           entry.normalizedColumns,
           "normalizedColumns",
@@ -207,6 +211,26 @@ export interface StepSnapshot {
 
 function fold(name: string): string {
   return name.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
+}
+
+function foldKeys(map: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(map).map(([key, value]) => [fold(key), value]),
+  );
+}
+
+function renamedColumn(
+  map: Readonly<Record<string, string>> | undefined,
+  column: string,
+): string {
+  return map?.[fold(column)] ?? column;
+}
+
+function storedColumn(table: UserTable, name: string): string {
+  const folded = fold(name);
+  return (
+    table.columns.find((column) => fold(column.name) === folded)?.name ?? name
+  );
 }
 
 function tableByName<T>(
@@ -574,7 +598,12 @@ function preservedWithKey(
   table: UserTable,
   preserved: readonly string[],
 ): string[] {
-  return [...new Set([...(table.keyColumns ?? []), ...preserved])];
+  return [
+    ...new Set([
+      ...(table.keyColumns ?? []),
+      ...preserved.map((column) => storedColumn(table, column)),
+    ]),
+  ];
 }
 
 interface TempColumns {
@@ -724,7 +753,7 @@ function verifyNormalized(
   table: UserTable,
 ): void {
   const pairs = captured.columns.map((column, index) => ({
-    column: entry.columnRenames[column] ?? column,
+    column: storedColumn(table, renamedColumn(entry.columnRenames, column)),
     index,
   }));
   for (const { column } of pairs) {
@@ -764,12 +793,17 @@ function verifyNullKeyGroups(
     .filter(
       (pair): pair is { target: string; index: number } =>
         pair.target !== null &&
-        table.columns.some((column) => column.name === pair.target),
+        table.columns.some(
+          (column) => fold(column.name) === fold(pair.target as string),
+        ),
     );
   if (kept.length === 0) return;
   const beforeColumns = kept.map(({ index }) => `c${index}`).join(", ");
   const afterColumns = kept
-    .map(({ target }, position) => `${quote(target)} AS x${position}`)
+    .map(
+      ({ target }, position) =>
+        `${quote(storedColumn(table, target))} AS x${position}`,
+    )
     .join(", ");
   const afterGroup = kept.map((_, position) => `x${position}`).join(", ");
   const match = kept
@@ -825,7 +859,7 @@ export function verifyStep(
     ]),
   );
   const columnRenameFor = (name: string, column: string): string | undefined =>
-    tableColumnRenames.get(fold(name))?.[column];
+    tableColumnRenames.get(fold(name))?.[fold(column)];
   const renames = new Map(
     Object.entries(declared.tableRenames).map(([from, to]) => [fold(from), to]),
   );
@@ -964,7 +998,11 @@ export function verifyStep(
     verifyNullKeyGroups(sqlite, stepId, captured, table, (column) => {
       if (preserved !== null && !preserved.has(column)) return null;
       return (
-        entry?.columnRenames[column] ?? columnRenameFor(name, column) ?? column
+        (entry === undefined
+          ? undefined
+          : renamedColumn(entry.columnRenames, column)) ??
+        columnRenameFor(name, column) ??
+        column
       );
     });
   }
@@ -1007,8 +1045,8 @@ export function verifyStep(
     if (table === undefined) {
       fail(stepId, `table ${entry.table} is missing after the step`);
     }
-    const renamed = entry.preservedColumns.map(
-      (column) => entry.columnRenames[column] ?? column,
+    const renamed = entry.preservedColumns.map((column) =>
+      renamedColumn(entry.columnRenames, column),
     );
     const columns = preservedWithKey(table, renamed);
     for (const column of columns) {
@@ -1108,8 +1146,8 @@ export function captureForeignKeyIdentities(
           : `json_array(${keyColumns.map((key) => `c.${quote(key)}`).join(", ")})`;
       const values = `json_array(${childColumns.map((column) => `c.${quote(column)}`).join(", ")})`;
       const mappedChild = renames.tableRenames[fold(child.name)] ?? child.name;
-      const mappedColumns = childColumns.map(
-        (column) => renames.columnRenames[fold(child.name)]?.[column] ?? column,
+      const mappedColumns = childColumns.map((column) =>
+        fold(renamedColumn(renames.columnRenames[fold(child.name)], column)),
       );
       sqlite
         .prepare(

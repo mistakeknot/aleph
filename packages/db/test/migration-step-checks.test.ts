@@ -558,6 +558,57 @@ describe("per-step safety checks", () => {
     });
   });
 
+  it("accepts an upper-case column rename declaration with an unchanged orphan", async () => {
+    const db = await migratedPopulatedDatabase();
+    db.$client.pragma("foreign_keys = OFF");
+    db.$client.exec(
+      "CREATE TABLE zz_fk_parent (id integer PRIMARY KEY); CREATE TABLE zz_fk_child (id integer PRIMARY KEY, p integer REFERENCES zz_fk_parent(id)); INSERT INTO zz_fk_child (p) VALUES (99);",
+    );
+    db.$client.pragma("foreign_keys = ON");
+    runA0010(db, "ALTER TABLE zz_fk_child RENAME COLUMN p TO q;", {
+      columnRenames: { ZZ_FK_CHILD: { P: "Q" } },
+    });
+  });
+
+  it("accepts a copied table with upper-case preserved and renamed columns", async () => {
+    const db = await migratedPopulatedDatabase();
+    runA0010(
+      db,
+      "ALTER TABLE app_settings_values RENAME COLUMN value TO zz_v;",
+      {
+        writesTables: [],
+        copiedTables: [
+          {
+            table: "APP_SETTINGS_VALUES",
+            preservedColumns: ["KEY", "VALUE", "UPDATED_AT"],
+            columnRenames: { VALUE: "ZZ_V" },
+          },
+        ],
+      },
+    );
+  });
+
+  it("refuses corruption of a copied table whose columns are declared in upper case", async () => {
+    const db = await migratedPopulatedDatabase();
+    expectRefused(
+      db,
+      [
+        "ALTER TABLE app_settings_values RENAME COLUMN value TO zz_v;",
+        "UPDATE app_settings_values SET zz_v = 'corrupt';",
+      ].join(BREAK),
+      /preserved data/,
+      {
+        copiedTables: [
+          {
+            table: "APP_SETTINGS_VALUES",
+            preservedColumns: ["KEY", "VALUE", "UPDATED_AT"],
+            columnRenames: { VALUE: "ZZ_V" },
+          },
+        ],
+      },
+    );
+  });
+
   it("refuses a declaration that matches no table", async () => {
     const db = await migratedPopulatedDatabase();
     expectRefused(db, "SELECT 1;", /zz_missing/, {
