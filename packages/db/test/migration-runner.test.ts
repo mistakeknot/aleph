@@ -14,7 +14,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createConnection, migrate, type DbConnection } from "../src/index.js";
 import { migrateWithFolders } from "../src/migrate.js";
 import { legacyMigrationChain } from "../src/legacy-migration-chain.js";
-import { statementIdentifiers } from "../src/migration-guard.js";
+import {
+  MigrationGuardError,
+  statementIdentifiers,
+  statementVerb,
+} from "../src/migration-guard.js";
 import { MigrationStateUnknown } from "../src/migration-ledger.js";
 import {
   computeMigrationState,
@@ -931,6 +935,88 @@ describe("skipped Aleph statements keep their trusted tables protected", () => {
       ).toThrow(/0145_zz_alter.*app_settings/);
     },
   );
+
+  it.each([
+    [
+      "a parenthesised join",
+      "INSERT INTO zz_source (value) SELECT a.value FROM (zz_source AS a, 'app_settings' AS b);",
+    ],
+    [
+      "a nested parenthesised FROM item",
+      "INSERT INTO zz_source (value) SELECT a.value FROM zz_source AS a, (('app_settings'));",
+    ],
+    [
+      "a parenthesised join without aliases",
+      "INSERT INTO zz_source (value) SELECT missing FROM (zz_source, 'app_settings');",
+    ],
+    ["an IN target", "DELETE FROM zz_source WHERE missing IN 'app_settings';"],
+  ])(
+    "guards a table named as %s in a skipped Aleph statement",
+    (_label, statement) => {
+      const alephFolder = alephFolderWithSteps([
+        { id: "A0010", sql: statement },
+      ]);
+      const upstreamFolder = upstreamFolderWithCandidates(
+        [
+          {
+            tag: "0144_zz_source",
+            sql: "CREATE TABLE zz_source (value TEXT);",
+          },
+          { tag: "0145_zz_drop", sql: "DROP TABLE app_settings;" },
+        ],
+        alephFolder,
+      );
+      expect(() =>
+        loadAlignedMigrationPlan({ upstreamFolder, alephFolder }),
+      ).toThrow(/0145_zz_drop.*app_settings/);
+    },
+  );
+
+  it("does not guard a table named only inside literal lists", () => {
+    const alephFolder = alephFolderWithSteps([
+      {
+        id: "A0010",
+        sql: "INSERT INTO zz_source (value) SELECT 'x' WHERE 'x' IN ('app_settings', 'y') OR lower('app_settings') = 'z';",
+      },
+    ]);
+    const upstreamFolder = upstreamFolderWithCandidates(
+      [
+        { tag: "0144_zz_source", sql: "CREATE TABLE zz_source (value TEXT);" },
+        {
+          tag: "0145_zz_alter",
+          sql: "ALTER TABLE app_settings ADD COLUMN zz_extra TEXT;",
+        },
+      ],
+      alephFolder,
+    );
+    expect(() =>
+      loadAlignedMigrationPlan({ upstreamFolder, alephFolder }),
+    ).not.toThrow();
+  });
+
+  it("classifies a statement behind a CTE named like a verb", () => {
+    expect(statementVerb("WITH begin AS (SELECT 1) DELETE FROM zz_ghost")).toBe(
+      "delete",
+    );
+    expect(
+      statementVerb(
+        "WITH RECURSIVE a(x) AS (SELECT 1), b AS (SELECT 2) UPDATE t SET x = 1",
+      ),
+    ).toBe("update");
+  });
+
+  it("wraps an unexpected candidate statement failure as a guard error", () => {
+    const alephFolder = alephFolderWithSteps([
+      { id: "A0010", sql: "CREATE TABLE zz_aleph (id TEXT);" },
+    ]);
+    const upstreamFolder = upstreamFolderWithCandidates(
+      [{ tag: "0144_zz_broken", sql: "CREATE TABLE zz_broken (" }],
+      alephFolder,
+    );
+    expect(() =>
+      loadAlignedMigrationPlan({ upstreamFolder, alephFolder }),
+    ).toThrow(MigrationGuardError);
+  });
 
   it("refuses a skipped statement behind a CTE that targets no known object", () => {
     const alephFolder = alephFolderWithSteps([

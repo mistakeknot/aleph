@@ -1327,6 +1327,7 @@ export function migrateWithFolders(
       });
       try {
         sqlite.exec("BEGIN IMMEDIATE");
+        let committing = false;
         try {
           const state = computeMigrationState(sqlite, aligned);
           if (
@@ -1341,10 +1342,15 @@ export function migrateWithFolders(
           if (state.needsWrite || keepAwakeSeedPending(db)) {
             applyMigrationState(db, aligned, state, options);
           }
+          committing = true;
           sqlite.exec("COMMIT");
         } catch (error) {
           if (sqlite.inTransaction) sqlite.exec("ROLLBACK");
-          if (backup !== null) discardMigrationBackup(backup);
+          if (backup !== null && !committing) {
+            try {
+              discardMigrationBackup(backup);
+            } catch {}
+          }
           throw error;
         }
       } finally {

@@ -183,14 +183,6 @@ const STRING_IDENTIFIER_PRECEDERS = new Set([
   "COLUMN",
 ]);
 
-const CONFLICT_RESOLUTIONS = new Set([
-  "REPLACE",
-  "IGNORE",
-  "ROLLBACK",
-  "ABORT",
-  "FAIL",
-]);
-
 const FROM_CLAUSE_ENDERS = new Set([
   "WHERE",
   "GROUP",
@@ -249,20 +241,62 @@ function isFromKeyword(tokens: readonly Token[], position: number): boolean {
   );
 }
 
-function isTableCreation(tokens: readonly Token[]): "INDEX" | "TRIGGER" | null {
-  if (keywordAt(tokens, 0) !== "CREATE") return null;
-  for (let position = 1; position < tokens.length; position += 1) {
-    const keyword = keywordAt(tokens, position);
-    if (keyword === "INDEX" || keyword === "TRIGGER") return keyword;
-    if (keyword === "TABLE" || keyword === "VIEW") return null;
-  }
-  return null;
-}
+const LITERAL_OPERATORS = new Set([
+  "=",
+  "!",
+  "<",
+  ">",
+  "|",
+  "+",
+  "-",
+  "*",
+  "/",
+  "%",
+  "&",
+  "~",
+]);
+
+const LITERAL_PRECEDING_KEYWORDS = new Set([
+  "AND",
+  "OR",
+  "NOT",
+  "LIKE",
+  "GLOB",
+  "IS",
+  "BETWEEN",
+  "DISTINCT",
+  "THEN",
+  "ELSE",
+  "WHEN",
+  "CASE",
+  "ESCAPE",
+  "MATCH",
+  "REGEXP",
+  "DEFAULT",
+  "VALUES",
+  "LIMIT",
+  "OFFSET",
+]);
+
+const LITERAL_FOLLOWING_KEYWORDS = new Set([
+  "IS",
+  "LIKE",
+  "GLOB",
+  "IN",
+  "BETWEEN",
+  "NOT",
+  "COLLATE",
+  "MATCH",
+  "REGEXP",
+]);
 
 export function statementVerb(statement: string): string {
   const tokens = tokenize(statement);
+  const withClause = keywordAt(tokens, 0) === "WITH";
   let depth = 0;
-  for (const token of tokens) {
+  for (let position = 0; position < tokens.length; position += 1) {
+    const token = tokens[position];
+    if (token === undefined) continue;
     if (token.kind === "punct") {
       if (token.value === "(") depth += 1;
       else if (token.value === ")") depth -= 1;
@@ -271,75 +305,101 @@ export function statementVerb(statement: string): string {
     if (depth !== 0 || token.kind !== "word") continue;
     const keyword = foldKeyword(token.value);
     if (keyword === "WITH" || keyword === "RECURSIVE") continue;
-    if (STATEMENT_VERBS.has(keyword)) return keyword.toLowerCase();
+    if (!STATEMENT_VERBS.has(keyword)) continue;
+    if (withClause) {
+      const previous = tokens[position - 1];
+      if (previous?.kind !== "punct" || previous.value !== ")") continue;
+    }
+    return keyword.toLowerCase();
   }
   return "";
 }
 
+type ParenthesisKind = "group" | "list";
+
+function isLiteralString(
+  tokens: readonly Token[],
+  position: number,
+  kinds: readonly ParenthesisKind[],
+  depth: number,
+): boolean {
+  const before = tokens[position - 1];
+  const after = tokens[position + 1];
+  if (before?.kind === "punct" && LITERAL_OPERATORS.has(before.value)) {
+    return true;
+  }
+  if (after?.kind === "punct" && LITERAL_OPERATORS.has(after.value)) {
+    return true;
+  }
+  const afterKeyword = keywordAt(tokens, position + 1);
+  if (
+    afterKeyword !== undefined &&
+    LITERAL_FOLLOWING_KEYWORDS.has(afterKeyword)
+  ) {
+    return true;
+  }
+  const beforeKeyword = keywordAt(tokens, position - 1);
+  if (beforeKeyword === "FROM") return !isFromKeyword(tokens, position - 1);
+  if (beforeKeyword !== undefined) {
+    if (STRING_IDENTIFIER_PRECEDERS.has(beforeKeyword)) return false;
+    return LITERAL_PRECEDING_KEYWORDS.has(beforeKeyword);
+  }
+  if (before?.kind === "punct" && before.value === ",") {
+    return kinds[depth] === "list";
+  }
+  if (before?.kind === "punct" && before.value === "(") {
+    return kinds[depth] === "list";
+  }
+  return false;
+}
+
 export function statementIdentifiers(statement: string): string[] {
   const tokens = tokenize(statement);
-  const creation = isTableCreation(tokens);
-  const firstOn = tokens.findIndex(
-    (_, position) => keywordAt(tokens, position) === "ON",
-  );
   let depth = 0;
-  const inFrom: boolean[] = [false];
+  const kinds: ParenthesisKind[] = ["group"];
   const identifiers = new Set<string>();
   for (let position = 0; position < tokens.length; position += 1) {
     const token = tokens[position];
     if (token === undefined) continue;
     if (token.kind === "punct") {
       if (token.value === "(") {
+        const opener = keywordAt(tokens, position - 1);
+        const before = tokens[position - 1];
+        const parent = kinds[depth] ?? "group";
         depth += 1;
-        inFrom[depth] = false;
+        if (opener === "IN" || opener === "VALUES") kinds[depth] = "list";
+        else if (
+          before?.kind === "word" &&
+          opener !== undefined &&
+          !STATEMENT_VERBS.has(opener) &&
+          !FROM_CLAUSE_ENDERS.has(opener) &&
+          opener !== "FROM" &&
+          opener !== "JOIN" &&
+          opener !== "AS" &&
+          opener !== "ON" &&
+          opener !== "AND" &&
+          opener !== "OR" &&
+          opener !== "NOT" &&
+          opener !== "WHERE"
+        ) {
+          kinds[depth] = "list";
+        } else if (before?.kind === "punct" && before.value === ",") {
+          kinds[depth] = parent;
+        } else if (before?.kind === "punct" && before.value === "(") {
+          kinds[depth] = parent;
+        } else kinds[depth] = "group";
       } else if (token.value === ")") {
-        inFrom[depth] = false;
         depth = Math.max(0, depth - 1);
       }
       continue;
     }
-    const keyword = keywordAt(tokens, position);
-    if (keyword !== undefined) {
-      if (isFromKeyword(tokens, position)) inFrom[depth] = true;
-      else if (FROM_CLAUSE_ENDERS.has(keyword)) inFrom[depth] = false;
-    }
-    if (token.kind === "word") {
-      identifiers.add(normalizeTableName(token.value));
+    if (
+      token.kind === "string" &&
+      isLiteralString(tokens, position, kinds, depth)
+    ) {
       continue;
     }
-    if (token.kind !== "string") {
-      identifiers.add(normalizeTableName(token.value));
-      continue;
-    }
-    const before = keywordAt(tokens, position - 1);
-    const beforePunct = tokens[position - 1];
-    let accepted = false;
-    if (before !== undefined) {
-      if (STRING_IDENTIFIER_PRECEDERS.has(before)) accepted = true;
-      else if (before === "FROM")
-        accepted = isFromKeyword(tokens, position - 1);
-      else if (before === "EXISTS") {
-        const guard = keywordAt(tokens, position - 2);
-        accepted = guard === "IF" || guard === "NOT";
-      } else if (before === "ON") {
-        accepted = creation !== null && position - 1 === firstOn;
-      } else if (CONFLICT_RESOLUTIONS.has(before)) {
-        accepted = keywordAt(tokens, position - 2) === "OR";
-      }
-    } else if (beforePunct?.kind === "punct") {
-      if (beforePunct.value === ".") accepted = true;
-      else if (beforePunct.value === ",") accepted = inFrom[depth] === true;
-      else if (beforePunct.value === "(") {
-        const opener = position - 2;
-        accepted =
-          isFromKeyword(tokens, opener) ||
-          keywordAt(tokens, opener) === "JOIN" ||
-          (tokens[opener]?.kind === "punct" &&
-            tokens[opener]?.value === "," &&
-            inFrom[depth - 1] === true);
-      }
-    }
-    if (accepted) identifiers.add(normalizeTableName(token.value));
+    identifiers.add(normalizeTableName(token.value));
   }
   return [...identifiers];
 }

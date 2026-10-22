@@ -337,7 +337,9 @@ function buildCandidateOwners(
           ) {
             continue;
           }
-          throw error;
+          throw new MigrationGuardError(
+            `Upstream candidate step ${step.tag} failed on a statement the guard replays: ${error instanceof Error ? error.message : String(error)}`,
+          );
         }
         accumulated = mergeOwners(accumulated, ownersByName(sqlite));
       }

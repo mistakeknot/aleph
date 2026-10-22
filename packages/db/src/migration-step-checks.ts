@@ -205,6 +205,19 @@ function fold(name: string): string {
   return name.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
 }
 
+function tableByName<T>(
+  tables: ReadonlyMap<string, T>,
+  name: string,
+): T | undefined {
+  const exact = tables.get(name);
+  if (exact !== undefined) return exact;
+  const folded = fold(name);
+  for (const [candidate, value] of tables) {
+    if (fold(candidate) === folded) return value;
+  }
+  return undefined;
+}
+
 function quote(identifier: string): string {
   return `"${identifier.replace(/"/g, '""')}"`;
 }
@@ -531,12 +544,18 @@ export function capturePreserved(
   sqlite: Database.Database,
   snapshot: StepSnapshot,
   checks: StepChecks,
+  stepId: string,
 ): PreservedBaseline {
   const digests = new Map<string, bigint>();
   const counts = new Map<string, number>();
   for (const copied of checks.copiedTables) {
-    const table = snapshot.tables.get(copied.table);
-    if (table === undefined) continue;
+    const table = tableByName(snapshot.tables, copied.table);
+    if (table === undefined) {
+      fail(
+        stepId,
+        `declared table ${copied.table} does not exist before the step`,
+      );
+    }
     const measured = measureTable(sqlite, table, {
       includeRowid: false,
       columns: preservedWithKey(table, copied.preservedColumns),
@@ -642,7 +661,7 @@ function captureNormalized(
 ): Map<string, TempColumns> {
   const captured = new Map<string, TempColumns>();
   for (const entry of checks.copiedTables) {
-    const table = snapshot.tables.get(entry.table);
+    const table = tableByName(snapshot.tables, entry.table);
     const columns = Object.keys(entry.normalizedColumns);
     if (table === undefined || columns.length === 0) continue;
     const projected = columns.flatMap((column, index) => [
@@ -673,22 +692,17 @@ export function captureStepBaseline(
     stepId,
     (table) => !renumbers.has(fold(table)),
   );
-  const excused = excusedTables(checks, guarded, named, snapshot.triggerWrites);
-  const rowids = captureRowidBaseline(
-    sqlite,
-    snapshot,
-    (table) => renumbers.has(fold(table)) || excused.has(fold(table)),
+  const rowids = captureRowidBaseline(sqlite, snapshot, (table) =>
+    renumbers.has(fold(table)),
   );
   const writes = new Set(declared.writesTables.map(fold));
   return {
     snapshot,
     rowids,
     drift: captureFtsDrift(sqlite, snapshot),
-    preserved: capturePreserved(sqlite, snapshot, declared),
-    nullKeys: captureNullKeyGroups(
-      sqlite,
-      snapshot,
-      (table) => excused.has(fold(table)) || writes.has(fold(table)),
+    preserved: capturePreserved(sqlite, snapshot, declared, stepId),
+    nullKeys: captureNullKeyGroups(sqlite, snapshot, (table) =>
+      writes.has(fold(table)),
     ),
     normalized: captureNormalized(sqlite, snapshot, declared),
   };
@@ -789,13 +803,16 @@ export function verifyStep(
   const graph = mergeGraphs(before.triggerWrites, after.triggerWrites);
   const excused = excusedTables(checks, guarded, named, graph);
   const implicit = checks === null && guarded !== null;
-  const inScope = (table: string): boolean => !excused.has(fold(table));
+  const mayCreateUndeclared = (table: string): boolean =>
+    excused.has(fold(table));
 
   const renames = new Map(
     Object.entries(declared.tableRenames).map(([from, to]) => [fold(from), to]),
   );
   const resolve = (name: string): string =>
-    after.tables.has(name) ? name : (renames.get(fold(name)) ?? name);
+    tableByName(after.tables, name) !== undefined
+      ? name
+      : (renames.get(fold(name)) ?? name);
   const renameTargets = new Set<string>();
   for (const name of before.tables.keys()) {
     const target = resolve(name);
@@ -835,7 +852,7 @@ export function verifyStep(
     if (after.tables.has(name)) continue;
     const target = resolve(name);
     if (target !== name && after.tables.has(target)) continue;
-    if (!drops.has(fold(name)) && inScope(name)) {
+    if (!drops.has(fold(name))) {
       fail(stepId, `table ${name} was dropped without being declared`);
     }
   }
@@ -844,7 +861,7 @@ export function verifyStep(
     if (
       !creates.has(fold(name)) &&
       !renameTargets.has(fold(name)) &&
-      inScope(name)
+      !mayCreateUndeclared(name)
     ) {
       fail(stepId, `table ${name} was created without being declared`);
     }
@@ -858,7 +875,7 @@ export function verifyStep(
   for (const [name, beforeMeasure] of before.measures) {
     const target = resolve(name);
     const afterMeasure = after.measures.get(target);
-    if (afterMeasure === undefined || !inScope(name)) continue;
+    if (afterMeasure === undefined) continue;
     const delta = declared.rowDeltas[name] ?? 0;
     if (afterMeasure.count - beforeMeasure.count !== delta) {
       fail(
@@ -895,8 +912,7 @@ export function verifyStep(
     if (
       table === undefined ||
       table.keyColumns === null ||
-      table.withoutRowid ||
-      !inScope(name)
+      table.withoutRowid
     ) {
       continue;
     }
@@ -912,7 +928,7 @@ export function verifyStep(
 
   for (const [name, captured] of baseline.nullKeys) {
     const table = after.tables.get(resolve(name));
-    if (table === undefined || !inScope(name) || writes.has(fold(name))) {
+    if (table === undefined || writes.has(fold(name))) {
       continue;
     }
     const entry = copied.get(fold(name));
@@ -945,7 +961,6 @@ export function verifyStep(
   for (const [name, beforeSeq] of before.counters) {
     const target = resolve(name);
     if (!after.tables.has(target) || !before.tables.has(name)) continue;
-    if (!inScope(target)) continue;
     const afterSeq = after.counters.get(target) ?? 0n;
     if (afterSeq < beforeSeq) {
       fail(
@@ -955,7 +970,7 @@ export function verifyStep(
     }
   }
   for (const [name, rows] of after.counterRows) {
-    if (rows > 1 && inScope(name)) {
+    if (rows > 1) {
       fail(stepId, `sqlite_sequence has ${rows} rows for ${name}`);
     }
   }
@@ -963,7 +978,7 @@ export function verifyStep(
   for (const entry of declared.copiedTables) {
     const beforeDigest = baseline.preserved.digests.get(entry.table);
     if (beforeDigest === undefined) continue;
-    const table = after.tables.get(resolve(entry.table));
+    const table = tableByName(after.tables, resolve(entry.table));
     if (table === undefined) {
       fail(stepId, `table ${entry.table} is missing after the step`);
     }

@@ -430,6 +430,64 @@ describe("per-step safety checks", () => {
     });
   });
 
+  it("refuses an undeclared upstream delete from a table it names", async () => {
+    const db = await migratedPopulatedDatabase();
+    const before = fingerprint(db);
+    let thrown: unknown;
+    try {
+      migrateWithFolders(db, {
+        upstreamFolder: upstreamFolderWithCandidates(
+          [
+            {
+              tag: "0144_zz_delete",
+              sql: "DELETE FROM app_settings_values;",
+            },
+          ],
+          sourceFolders.alephFolder,
+        ),
+        alephFolder: sourceFolders.alephFolder,
+      });
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(MigrationStepCheckError);
+    expect((thrown as Error).message).toMatch(/app_settings_values/);
+    expect(fingerprint(db)).toBe(before);
+  });
+
+  it("resolves a declaration whose case differs from the table name", async () => {
+    const db = await migratedPopulatedDatabase();
+    const sql = [
+      "CREATE TABLE zz_app_settings_values (key text PRIMARY KEY NOT NULL, value text, updated_at integer);",
+      "INSERT INTO zz_app_settings_values (key, value, updated_at) SELECT key, NULL, updated_at FROM app_settings_values;",
+      "DROP TABLE app_settings_values;",
+      "ALTER TABLE zz_app_settings_values RENAME TO app_settings_values;",
+    ].join(BREAK);
+    expectRefused(db, sql, /lost or changed preserved data/, {
+      copiedTables: [
+        {
+          table: "APP_SETTINGS_VALUES",
+          preservedColumns: ["key", "value", "updated_at"],
+          columnRenames: {},
+        },
+      ],
+      renumbersRowids: ["app_settings_values"],
+    });
+  });
+
+  it("refuses a declaration that matches no table", async () => {
+    const db = await migratedPopulatedDatabase();
+    expectRefused(db, "SELECT 1;", /zz_missing/, {
+      copiedTables: [
+        {
+          table: "zz_missing",
+          preservedColumns: ["id"],
+          columnRenames: {},
+        },
+      ],
+    });
+  });
+
   it("fails an undeclared Aleph step that changes a table", async () => {
     const db = await migratedPopulatedDatabase();
     expectRefused(
