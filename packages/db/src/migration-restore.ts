@@ -151,6 +151,99 @@ function isCounts(value: unknown): value is Record<string, number> {
   );
 }
 
+const ROWID_ALIASES = ["rowid", "_rowid_", "oid"];
+
+function moduleName(sql: string): string | null {
+  const match =
+    /^\s*CREATE\s+VIRTUAL\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"(?:[^"]|"")*"|`(?:[^`]|``)*`|\[[^\]]*\]|'(?:[^']|'')*'|[^\s(]+)(?:\s*\.\s*(?:"(?:[^"]|"")*"|`(?:[^`]|``)*`|\[[^\]]*\]|[^\s(]+))?\s+USING\s+("(?:[^"]|"")*"|`(?:[^`]|``)*`|\[[^\]]*\]|'(?:[^']|'')*'|[^\s(;]+)/i.exec(
+      sql,
+    );
+  const raw = match?.[1];
+  if (raw === undefined) return null;
+  const first = raw[0];
+  const stripped =
+    first === '"' || first === "`" || first === "'"
+      ? raw.slice(1, -1).replaceAll(first + first, first)
+      : first === "["
+        ? raw.slice(1, -1)
+        : raw;
+  return stripped.toLowerCase();
+}
+
+function usesContentOption(sql: string): boolean {
+  const open = sql.indexOf("(", sql.search(/\bUSING\b/i));
+  if (open === -1) return true;
+  const closers: Record<string, string> = {
+    '"': '"',
+    "`": "`",
+    "'": "'",
+    "[": "]",
+  };
+  const args: string[] = [];
+  let depth = 0;
+  let quote: string | null = null;
+  let current = "";
+  for (let index = open; index < sql.length; index += 1) {
+    const char = sql[index] ?? "";
+    if (quote !== null) {
+      current += char;
+      if (char === quote) quote = null;
+      continue;
+    }
+    if (char in closers) {
+      quote = closers[char] ?? null;
+      current += char;
+      continue;
+    }
+    if (char === "(") {
+      depth += 1;
+      if (depth > 1) current += char;
+      continue;
+    }
+    if (char === ")") {
+      depth -= 1;
+      if (depth === 0) {
+        args.push(current);
+        return args.some((arg) => {
+          const equals = arg.indexOf("=");
+          if (equals === -1) return false;
+          return (
+            arg
+              .slice(0, equals)
+              .trim()
+              .replace(/^["`'[]|["`'\]]$/g, "")
+              .toLowerCase() === "content"
+          );
+        });
+      }
+      current += char;
+      continue;
+    }
+    if (char === "," && depth === 1) {
+      args.push(current);
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  return true;
+}
+
+function rowidAlias(
+  sqlite: Database.Database,
+  schema: string,
+  table: string,
+): string | null {
+  const taken = new Set(
+    (
+      sqlite
+        .prepare(`SELECT name FROM pragma_table_xinfo(?, ?)`)
+        .all(table, schema) as Array<{ name: string }>
+    ).map((column) => column.name.toLowerCase()),
+  );
+  return ROWID_ALIASES.find((alias) => !taken.has(alias)) ?? null;
+}
+
 function assertFtsIndexesRestorable(
   database: Database.Database,
   backupPath: string,
@@ -164,14 +257,41 @@ function assertFtsIndexesRestorable(
   );
   const virtual = database
     .prepare(
-      `SELECT name FROM sqlite_master WHERE type = 'table' AND sql LIKE 'CREATE VIRTUAL TABLE%'`,
+      `SELECT name, sql FROM sqlite_master WHERE type = 'table' AND sql LIKE 'CREATE VIRTUAL TABLE%'`,
     )
-    .all() as Array<{ name: string }>;
-  for (const { name } of virtual) {
-    const isFts5 = names.has(`${name}_config`) && names.has(`${name}_data`);
-    if (isFts5 && !names.has(`${name}_content`)) {
+    .all() as Array<{ name: string; sql: string }>;
+  for (const { name, sql } of virtual) {
+    const module = moduleName(sql);
+    if (module === null) {
+      throw new MigrationRestoreError(
+        `Backup ${backupPath} has the virtual table ${name} whose module could not be read; refusing to restore`,
+      );
+    }
+    if (module !== "fts5") continue;
+    const complete = ["content", "config", "data"].every((suffix) =>
+      names.has(`${name}_${suffix}`),
+    );
+    if (!complete || usesContentOption(sql)) {
       throw new MigrationRestoreError(
         `Backup ${backupPath} contains the contentless or external-content FTS5 table ${name}, whose index a restore cannot preserve; refusing to restore`,
+      );
+    }
+  }
+}
+
+function assertRowidsAddressable(
+  database: Database.Database,
+  backupPath: string,
+): void {
+  const tables = database
+    .prepare(
+      `SELECT name FROM pragma_table_list WHERE schema = 'main' AND type IN ('table', 'virtual') AND wr = 0 AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'`,
+    )
+    .all() as Array<{ name: string }>;
+  for (const { name } of tables) {
+    if (rowidAlias(database, "main", name) === null) {
+      throw new MigrationRestoreError(
+        `Backup ${backupPath} has the table ${name} whose columns shadow rowid, _rowid_ and oid, so its row ids cannot be read; refusing to restore`,
       );
     }
   }
@@ -234,6 +354,7 @@ function verifyBackup(backupPath: string): VerifiedBackup {
   const shape = new Database(realPath, { readonly: true, fileMustExist: true });
   try {
     assertFtsIndexesRestorable(shape, backupPath);
+    assertRowidsAddressable(shape, backupPath);
   } finally {
     shape.close();
   }
@@ -398,13 +519,6 @@ function writableColumns(
     .all(table, schema) as Array<{ name: string; type: string; pk: number }>;
 }
 
-function hasIntegerPrimaryKeyAlias(
-  columns: Array<{ type: string; pk: number }>,
-): boolean {
-  const keys = columns.filter((column) => column.pk > 0);
-  return keys.length === 1 && keys[0]?.type.toUpperCase() === "INTEGER";
-}
-
 function copyTable(
   sqlite: Database.Database,
   table: TableRow,
@@ -412,14 +526,40 @@ function copyTable(
 ): void {
   const columns = writableColumns(sqlite, "bk", table.name);
   const names = columns.map((column) => quoteIdentifier(column.name));
-  const includeRowid =
-    table.wr === 0 && !hasIntegerPrimaryKeyAlias(columns) && !virtual;
-  const virtualRowid = virtual;
-  const targetColumns =
-    includeRowid || virtualRowid ? ["rowid", ...names] : names;
+  const alias =
+    table.wr === 0 || virtual ? rowidAlias(sqlite, "bk", table.name) : null;
+  if ((table.wr === 0 || virtual) && alias === null) {
+    throw new MigrationRestoreError(
+      `The table ${table.name} has no readable rowid; refusing to restore`,
+    );
+  }
+  const targetColumns = alias === null ? names : [alias, ...names];
   sqlite.exec(
     `INSERT INTO main.${quoteIdentifier(table.name)} (${targetColumns.join(", ")}) SELECT ${targetColumns.join(", ")} FROM bk.${quoteIdentifier(table.name)}`,
   );
+}
+
+function verifyRowids(sqlite: Database.Database): void {
+  for (const table of tableList(sqlite, "bk")) {
+    if (table.wr !== 0 && table.type !== "virtual") continue;
+    const alias = rowidAlias(sqlite, "bk", table.name);
+    if (alias === null || alias === "rowid") continue;
+    const columns = writableColumns(sqlite, "bk", table.name).map((column) =>
+      quoteIdentifier(column.name),
+    );
+    const selected = [alias, ...columns].join(", ");
+    const name = quoteIdentifier(table.name);
+    const differing = sqlite
+      .prepare(
+        `SELECT count(*) AS n FROM (SELECT ${selected} FROM main.${name} EXCEPT SELECT ${selected} FROM bk.${name}) UNION ALL SELECT count(*) FROM (SELECT ${selected} FROM bk.${name} EXCEPT SELECT ${selected} FROM main.${name})`,
+      )
+      .all() as Array<{ n: number }>;
+    if (differing.some((row) => row.n !== 0)) {
+      throw new MigrationRestoreError(
+        `Restored row ids of ${table.name} differ from the backup`,
+      );
+    }
+  }
 }
 
 function foreignKeyViolations(
@@ -560,6 +700,7 @@ function verifyRestored(
       "Restored row counts differ from the backup",
     );
   }
+  verifyRowids(sqlite);
   if (contentDigest(sqlite) !== backup.contentDigest) {
     throw new MigrationRestoreError(
       "Restored content (schema, rows or rowids) differs from the backup",

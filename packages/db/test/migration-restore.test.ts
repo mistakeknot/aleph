@@ -487,6 +487,116 @@ describe("restoreMigrationBackup", () => {
     }
   });
 
+  function hiddenRowids(databasePath: string, table: string, alias: string) {
+    const db = new Database(databasePath, { readonly: true });
+    try {
+      return db
+        .prepare(`SELECT ${alias} AS r, id FROM ${table} ORDER BY id`)
+        .all();
+    } finally {
+      db.close();
+    }
+  }
+
+  it("keeps hidden rowids when a column is named rowid", () => {
+    const fixture = scratch(
+      true,
+      `CREATE TABLE shadow (id TEXT PRIMARY KEY, rowid TEXT, payload TEXT); INSERT INTO shadow(_rowid_, id, rowid, payload) VALUES (5, 'a', 'x', 'p'), (99, 'b', 'y', 'q')`,
+    );
+    migrateAway(fixture.databasePath);
+    restoreMigrationBackup(fixture.backupPath);
+    expect(hiddenRowids(fixture.databasePath, "shadow", "_rowid_")).toEqual([
+      { r: 5, id: "a" },
+      { r: 99, id: "b" },
+    ]);
+  });
+
+  it("keeps hidden rowids when columns shadow rowid and _rowid_", () => {
+    const fixture = scratch(
+      true,
+      `CREATE TABLE shadow (id TEXT PRIMARY KEY, rowid TEXT, _rowid_ TEXT); INSERT INTO shadow(oid, id) VALUES (7, 'a'), (42, 'b')`,
+    );
+    migrateAway(fixture.databasePath);
+    restoreMigrationBackup(fixture.backupPath);
+    expect(hiddenRowids(fixture.databasePath, "shadow", "oid")).toEqual([
+      { r: 7, id: "a" },
+      { r: 42, id: "b" },
+    ]);
+  });
+
+  it("refuses before changing anything when all three rowid names are shadowed", () => {
+    const fixture = scratch(
+      true,
+      `CREATE TABLE shadow (id TEXT PRIMARY KEY, rowid TEXT, _rowid_ TEXT, oid TEXT); INSERT INTO shadow VALUES ('a', 'x', 'y', 'z')`,
+    );
+    migrateAway(fixture.databasePath);
+    const before = digestsOf(fixture.databasePath);
+    for (const checkOnly of [true, false]) {
+      expect(() =>
+        restoreMigrationBackup(fixture.backupPath, { checkOnly }),
+      ).toThrow(/shadow rowid, _rowid_ and oid/);
+    }
+    expect(digestsOf(fixture.databasePath)).toEqual(before);
+    expect(brokenCopies(fixture.directory)).toEqual([]);
+  });
+
+  it("keeps hidden rowids when the integer primary key is descending", () => {
+    const fixture = scratch(
+      true,
+      `CREATE TABLE descending (id INTEGER PRIMARY KEY DESC, v TEXT); INSERT INTO descending(rowid, id, v) VALUES (11, 3, 'a'), (30, 1, 'b')`,
+    );
+    migrateAway(fixture.databasePath);
+    restoreMigrationBackup(fixture.backupPath);
+    expect(hiddenRowids(fixture.databasePath, "descending", "rowid")).toEqual([
+      { r: 30, id: 1 },
+      { r: 11, id: 3 },
+    ]);
+  });
+
+  it("restores a rowid-aliasing table named rowid", () => {
+    const fixture = scratch(
+      true,
+      `CREATE TABLE aliased (rowid INTEGER PRIMARY KEY, v TEXT); INSERT INTO aliased VALUES (8, 'a'), (21, 'b')`,
+    );
+    migrateAway(fixture.databasePath);
+    restoreMigrationBackup(fixture.backupPath);
+    const db = new Database(fixture.databasePath, { readonly: true });
+    try {
+      expect(
+        db.prepare("SELECT rowid, v FROM aliased ORDER BY 1").all(),
+      ).toEqual([
+        { rowid: 8, v: "a" },
+        { rowid: 21, v: "b" },
+      ]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("restores an R-tree table that has ordinary geo_config and geo_data tables", () => {
+    const fixture = scratch(
+      true,
+      `CREATE VIRTUAL TABLE geo USING rtree(id, minx, maxx); CREATE TABLE geo_config (k TEXT); CREATE TABLE geo_data (k TEXT); INSERT INTO geo VALUES (3, 1.0, 2.0); INSERT INTO geo_config VALUES ('c'); INSERT INTO geo_data VALUES ('d')`,
+    );
+    migrateAway(fixture.databasePath);
+    expect(() => restoreMigrationBackup(fixture.backupPath)).not.toThrow(
+      /FTS5/,
+    );
+  });
+
+  it("refuses an external-content FTS5 table whose content table is named like a shadow", () => {
+    const fixture = scratch(
+      false,
+      `CREATE TABLE a_content (id INTEGER PRIMARY KEY, body TEXT); INSERT INTO a_content(body) VALUES ('hello'); CREATE VIRTUAL TABLE a USING fts5(body, content='a_content', content_rowid='id')`,
+    );
+    migrateAway(fixture.databasePath);
+    for (const checkOnly of [true, false]) {
+      expect(() =>
+        restoreMigrationBackup(fixture.backupPath, { checkOnly }),
+      ).toThrow(/FTS5 table a\b/);
+    }
+  });
+
   it("recomputes instead of comparing when the sidecar projection differs", () => {
     const fixture = scratch();
     const sidecarPath = `${fixture.backupPath}${SIDECAR_SUFFIX}`;
