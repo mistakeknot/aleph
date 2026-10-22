@@ -103,18 +103,24 @@ function isKeyword(token: Token | undefined, keyword: string): boolean {
   );
 }
 
+interface TableReference {
+  name: string;
+  schema: string | undefined;
+  next: number;
+}
+
 function readTableName(
   tokens: readonly Token[],
   index: number,
-): { name: string; next: number } | undefined {
+): TableReference | undefined {
   const first = tokens[index];
   if (!isName(first)) return undefined;
   const dot = tokens[index + 1];
   const qualified = tokens[index + 2];
   if (dot?.kind === "punct" && dot.value === "." && isName(qualified)) {
-    return { name: qualified.value, next: index + 3 };
+    return { name: qualified.value, schema: first.value, next: index + 3 };
   }
-  return { name: first.value, next: index + 1 };
+  return { name: first.value, schema: undefined, next: index + 1 };
 }
 
 function normalizeTableName(name: string): string {
@@ -127,10 +133,10 @@ function normalizeTableName(name: string): string {
 export function scanRebuiltTables(sql: string): string[] {
   const tokens = tokenize(sql);
   const rebuilt = new Set<string>();
-  const add = (name: string | undefined) => {
-    if (name !== undefined && name.length > 0) {
-      rebuilt.add(normalizeTableName(name));
-    }
+  const add = (table: TableReference | undefined) => {
+    if (table === undefined || table.name.length === 0) return;
+    if (table.schema?.toLowerCase() === "temp") return;
+    rebuilt.add(normalizeTableName(table.name));
   };
   for (let index = 0; index < tokens.length; index += 1) {
     const token = tokens[index];
@@ -142,19 +148,22 @@ export function scanRebuiltTables(sql: string): string[] {
       ) {
         cursor += 2;
       }
-      add(readTableName(tokens, cursor)?.name);
+      add(readTableName(tokens, cursor));
     } else if (
       isKeyword(token, "ALTER") &&
       isKeyword(tokens[index + 1], "TABLE")
     ) {
       const table = readTableName(tokens, index + 2);
-      add(table?.name);
+      add(table);
       if (
         table !== undefined &&
         isKeyword(tokens[table.next], "RENAME") &&
         isKeyword(tokens[table.next + 1], "TO")
       ) {
-        add(readTableName(tokens, table.next + 2)?.name);
+        const target = readTableName(tokens, table.next + 2);
+        if (target !== undefined) {
+          add({ ...target, schema: table.schema });
+        }
       }
     } else if (isKeyword(token, "CREATE")) {
       let cursor = index + 1;
@@ -164,6 +173,7 @@ export function scanRebuiltTables(sql: string): string[] {
       ) {
         cursor += 1;
       }
+      if (isKeyword(tokens[cursor], "VIRTUAL")) cursor += 1;
       if (!isKeyword(tokens[cursor], "TABLE")) continue;
       cursor += 1;
       if (
@@ -173,8 +183,10 @@ export function scanRebuiltTables(sql: string): string[] {
       ) {
         cursor += 3;
       }
-      const created = readTableName(tokens, cursor)?.name;
-      if (created?.toLowerCase().startsWith(NEW_TABLE_PREFIX)) add(created);
+      const created = readTableName(tokens, cursor);
+      if (created?.name.toLowerCase().startsWith(NEW_TABLE_PREFIX)) {
+        add(created);
+      }
     }
   }
   return [...rebuilt].sort();
@@ -249,34 +261,69 @@ function readSchemaObjects(sqlite: Database.Database): SchemaObjectRow[] {
     .all() as SchemaObjectRow[];
 }
 
+interface SchemaIndex {
+  tables: ReadonlySet<string>;
+  views: ReadonlyMap<string, SchemaObjectRow>;
+}
+
+function indexSchema(rows: readonly SchemaObjectRow[]): SchemaIndex {
+  const tables = new Set<string>();
+  const views = new Map<string, SchemaObjectRow>();
+  for (const row of rows) {
+    if (row.type === "table") tables.add(row.name.toLowerCase());
+    if (row.type === "view") views.set(row.name.toLowerCase(), row);
+  }
+  return { tables, views };
+}
+
+function referencedNames(row: SchemaObjectRow, index: SchemaIndex): string[] {
+  const names = new Set<string>();
+  for (const token of tokenize(row.sql ?? "")) {
+    if (token.kind !== "word" && token.kind !== "quoted") continue;
+    const name = token.value.toLowerCase();
+    if (index.tables.has(name) || index.views.has(name)) names.add(name);
+  }
+  return [...names];
+}
+
+function baseTables(
+  name: string,
+  index: SchemaIndex,
+  visited: Set<string>,
+  into: Set<string>,
+): void {
+  if (index.tables.has(name)) {
+    into.add(name);
+    return;
+  }
+  const view = index.views.get(name);
+  if (view === undefined || visited.has(name)) return;
+  visited.add(name);
+  for (const reference of referencedNames(view, index)) {
+    baseTables(reference, index, visited, into);
+  }
+}
+
 function tablesTouchedBy(
   row: SchemaObjectRow,
-  tableNames: ReadonlySet<string>,
+  index: SchemaIndex,
 ): Set<string> {
   const touched = new Set<string>([row.tbl_name.toLowerCase()]);
+  const visited = new Set<string>();
+  baseTables(row.tbl_name.toLowerCase(), index, visited, touched);
   if (row.type !== "trigger" && row.type !== "view") return touched;
-  for (const token of tokenize(row.sql ?? "")) {
-    if (token.kind === "punct") continue;
-    const name = token.value.toLowerCase();
-    if (tableNames.has(name)) touched.add(name);
+  for (const reference of referencedNames(row, index)) {
+    baseTables(reference, index, visited, touched);
   }
   return touched;
 }
 
-function tableNamesOf(rows: readonly SchemaObjectRow[]): Set<string> {
-  return new Set(
-    rows
-      .filter((row) => row.type === "table")
-      .map((row) => row.name.toLowerCase()),
-  );
-}
-
 function schemaByTable(sqlite: Database.Database): Map<string, string[]> {
   const rows = readSchemaObjects(sqlite);
-  const tableNames = tableNamesOf(rows);
+  const index = indexSchema(rows);
   const byTable = new Map<string, string[]>();
   for (const row of rows) {
-    for (const table of tablesTouchedBy(row, tableNames)) {
+    for (const table of tablesTouchedBy(row, index)) {
       const lines = byTable.get(table) ?? [];
       lines.push(`${row.name}|${collapseWhitespace(row.sql)}`);
       byTable.set(table, lines);
@@ -321,10 +368,10 @@ export function expandWithForeignKeyNeighbours(
     if (alteredSet.has(parent)) guarded.add(child);
   }
   const rows = readSchemaObjects(sqlite);
-  const tableNames = tableNamesOf(rows);
+  const index = indexSchema(rows);
   for (const row of rows) {
     if (row.type !== "trigger" && row.type !== "view") continue;
-    const touched = tablesTouchedBy(row, tableNames);
+    const touched = tablesTouchedBy(row, index);
     if ([...touched].some((table) => alteredSet.has(table))) {
       for (const table of touched) guarded.add(table);
     }
@@ -360,25 +407,44 @@ export interface GuardPlanArgs {
   readUpstreamSql: (tag: string) => string;
 }
 
-export function guardPlan(args: GuardPlanArgs): void {
-  verifyFrozenSet(args.frozen, args.input);
-  const frozenTags = new Set(args.frozen.map((step) => step.tag));
-  const pinnedWhen = Math.max(
-    ...args.input.upstream
-      .filter((step) => frozenTags.has(step.tag))
-      .map((step) => step.when),
-    ...args.input.aleph.map((step) => step.when),
-  );
-  const whenByTag = new Map(
-    args.input.upstream.map((step) => [step.tag, step.when]),
-  );
-  for (const tag of nonFrozenUpstreamSteps(args.frozen, args.input)) {
-    const when = whenByTag.get(tag) ?? 0;
-    if (when <= pinnedWhen) {
+function requireIncreasingWhen(
+  plan: MigrationPlan,
+  frozenTags: ReadonlySet<string>,
+): void {
+  let ceiling: { id: string; when: number } | undefined;
+  let inTail = false;
+  for (const step of plan.steps) {
+    if (step.namespace === "upstream" && !frozenTags.has(step.id)) {
+      inTail = true;
+    }
+    if (inTail && ceiling !== undefined && step.when <= ceiling.when) {
+      const label = step.namespace === "upstream" ? "Upstream" : "Aleph";
       throw new MigrationGuardError(
-        `Upstream step ${tag} has when ${when}, which is not after the last frozen or Aleph step (${pinnedWhen})`,
+        `${label} step ${step.id} has when ${step.when}, which is not after the preceding step ${ceiling.id} (${ceiling.when})`,
       );
     }
+    if (ceiling === undefined || step.when > ceiling.when) {
+      ceiling = { id: step.id, when: step.when };
+    }
+  }
+}
+
+export function guardPlan(args: GuardPlanArgs): void {
+  verifyFrozenSet(args.frozen, args.input);
+  const planned = new Set(args.plan.steps.map((step) => step.id));
+  const nonFrozen = nonFrozenUpstreamSteps(args.frozen, args.input);
+  for (const tag of nonFrozen) {
+    if (!planned.has(tag)) {
+      throw new MigrationGuardError(
+        `Upstream step ${tag} is not in the migration plan`,
+      );
+    }
+  }
+  requireIncreasingWhen(
+    args.plan,
+    new Set(args.frozen.map((step) => step.tag)),
+  );
+  for (const tag of nonFrozen) {
     guardUpstreamStep({
       tag,
       sql: args.readUpstreamSql(tag),

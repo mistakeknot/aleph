@@ -303,15 +303,29 @@ export function buildMigrationPlan(input: MigrationPlanInput): MigrationPlan {
     return appended;
   };
 
-  let sinceRunning = new Set<string>();
+  let sinceRunning: string[] = [];
+  let taken = new Set<string>();
+  const supersedesById = new Map(
+    input.aleph.map((step) => [step.id, step.supersedes]),
+  );
   for (const step of input.upstream) {
     const replacement = supersededBy.get(step.tag);
     if (replacement !== undefined) {
-      if (!sinceRunning.has(replacement)) {
+      const position = sinceRunning.indexOf(replacement);
+      if (position === -1) {
         throw new MigrationPlanError(
           `${replacement} supersedes ${step.tag} but does not take its position`,
         );
       }
+      const earlier = sinceRunning
+        .slice(0, position)
+        .find((id) => supersedesById.get(id) !== undefined && !taken.has(id));
+      if (earlier !== undefined) {
+        throw new MigrationPlanError(
+          `${replacement} supersedes ${step.tag} but ${earlier}, which supersedes ${supersedesById.get(earlier)}, comes before it`,
+        );
+      }
+      taken.add(replacement);
       superseded.push({
         namespace: "upstream",
         id: step.tag,
@@ -328,9 +342,10 @@ export function buildMigrationPlan(input: MigrationPlanInput): MigrationPlan {
         when: step.when,
         sha256: step.sha256,
       });
-      sinceRunning = new Set<string>();
+      sinceRunning = [];
+      taken = new Set<string>();
     }
-    for (const id of appendChain(step.tag)) sinceRunning.add(id);
+    sinceRunning.push(...appendChain(step.tag));
   }
 
   if (

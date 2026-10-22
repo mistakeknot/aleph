@@ -12,11 +12,13 @@ import {
   verifyFrozenSet,
 } from "../src/migration-guard.js";
 import {
-  loadMigrationPlan,
+  buildMigrationPlan,
   loadMigrationPlanInput,
   parseAlephAlteredTables,
   parseFrozenUpstream,
+  type AlephStepSource,
   type MigrationPlanInput,
+  type UpstreamStepSource,
 } from "../src/migration-plan.js";
 import {
   applyPlan,
@@ -159,6 +161,128 @@ describe("the Aleph altered tables", () => {
   });
 });
 
+describe("reference extraction", () => {
+  const base =
+    "CREATE TABLE a (id TEXT PRIMARY KEY); CREATE TABLE b (id TEXT PRIMARY KEY); CREATE TABLE c (id TEXT PRIMARY KEY); CREATE TABLE d (id TEXT PRIMARY KEY);";
+
+  function schemas(extra: string): {
+    before: Database.Database;
+    after: Database.Database;
+  } {
+    const before = new Database(":memory:");
+    const after = new Database(":memory:");
+    before.exec(base);
+    after.exec(base);
+    after.exec(extra);
+    return { before, after };
+  }
+
+  it("follows a view through other views to the base tables", () => {
+    const { before, after } = schemas(
+      "CREATE VIEW v1 AS SELECT id FROM b; CREATE VIEW v2 AS SELECT id FROM v1;",
+    );
+    try {
+      expect(computeAlteredTables(before, after)).toEqual(["b", "v1", "v2"]);
+      expect(expandWithForeignKeyNeighbours(after, ["v2"])).toEqual([
+        "b",
+        "v2",
+      ]);
+      expect(expandWithForeignKeyNeighbours(after, ["b"])).toEqual([
+        "b",
+        "v1",
+        "v2",
+      ]);
+    } finally {
+      before.close();
+      after.close();
+    }
+  });
+
+  it("refuses to drop a table that is only reachable through a view chain", () => {
+    const { before, after } = schemas(
+      "CREATE VIEW v1 AS SELECT id FROM b; CREATE VIEW v2 AS SELECT id FROM v1;",
+    );
+    try {
+      const guarded = expandWithForeignKeyNeighbours(after, ["v2"]);
+      expect(guarded).toContain("b");
+      const { input, sqlFor } = withNewUpstreamStep("DROP TABLE b;");
+      expect(() =>
+        guardPlan({
+          frozen,
+          input,
+          plan: buildMigrationPlan(input),
+          guardedTables: guarded,
+          readUpstreamSql: sqlFor,
+        }),
+      ).toThrow(/0144_synthetic rebuilds or alters b/);
+      void before;
+    } finally {
+      before.close();
+      after.close();
+    }
+  });
+
+  it("follows a view chain through three levels and a trigger on a view", () => {
+    const { after, before } = schemas(
+      "CREATE VIEW v1 AS SELECT id FROM c; CREATE VIEW v2 AS SELECT id FROM v1; CREATE VIEW v3 AS SELECT id FROM v2 JOIN a; CREATE TRIGGER t INSTEAD OF INSERT ON v3 BEGIN INSERT INTO d (id) VALUES (new.id); END;",
+    );
+    try {
+      const expected = ["a", "c", "d", "v1", "v2", "v3"];
+      expect(expandWithForeignKeyNeighbours(after, ["c"])).toEqual(expected);
+      expect(expandWithForeignKeyNeighbours(after, ["d"])).toEqual([
+        "a",
+        "c",
+        "d",
+        "v3",
+      ]);
+    } finally {
+      before.close();
+      after.close();
+    }
+  });
+
+  it("terminates on a view that names itself", () => {
+    const { after, before } = schemas(
+      "CREATE VIEW loop AS SELECT id FROM b WHERE id NOT IN (SELECT id FROM loop2); CREATE VIEW loop2 AS SELECT id FROM loop;",
+    );
+    try {
+      expect(expandWithForeignKeyNeighbours(after, ["b"])).toEqual([
+        "b",
+        "loop",
+        "loop2",
+      ]);
+    } finally {
+      before.close();
+      after.close();
+    }
+  });
+
+  it("ignores a table name that only appears inside a string literal", () => {
+    const { before, after } = schemas(
+      "CREATE TRIGGER a_log AFTER INSERT ON a BEGIN INSERT INTO c (id) VALUES ('b'); END;",
+    );
+    try {
+      expect(computeAlteredTables(before, after)).toEqual(["a", "c"]);
+      expect(expandWithForeignKeyNeighbours(after, ["a"])).toEqual(["a", "c"]);
+    } finally {
+      before.close();
+      after.close();
+    }
+  });
+
+  it("still sees a table named by a quoted identifier", () => {
+    const { before, after } = schemas(
+      'CREATE TRIGGER a_log AFTER INSERT ON a BEGIN INSERT INTO c (id) VALUES (new.id); UPDATE "b" SET id = id; END;',
+    );
+    try {
+      expect(computeAlteredTables(before, after)).toEqual(["a", "b", "c"]);
+    } finally {
+      before.close();
+      after.close();
+    }
+  });
+});
+
 describe("the frozen set", () => {
   it("pins every upstream step, so no step is unguarded", () => {
     const input = loadMigrationPlanInput(sourceFolders);
@@ -249,6 +373,97 @@ describe("scanRebuiltTables", () => {
     ).toEqual([]);
   });
 
+  it.each([
+    [
+      "a virtual staging table",
+      "CREATE VIRTUAL TABLE __new_queued_thread_messages USING fts5(a);",
+    ],
+    [
+      "a virtual staging table if not exists",
+      "CREATE VIRTUAL TABLE IF NOT EXISTS main.__new_queued_thread_messages USING fts5(a);",
+    ],
+    [
+      "a quoted virtual staging table",
+      'create virtual table "__NEW_Queued_Thread_Messages" using fts5(a);',
+    ],
+  ])("finds the table behind %s", (_name, sql) => {
+    expect(scanRebuiltTables(sql)).toContain("queued_thread_messages");
+  });
+
+  it.each([
+    ["a temp drop", "DROP TABLE IF EXISTS temp.queued_thread_messages;"],
+    ["a quoted temp drop", 'DROP TABLE "TEMP"."queued_thread_messages";'],
+    [
+      "a temp column add",
+      "ALTER TABLE temp.queued_thread_messages ADD COLUMN a text;",
+    ],
+    [
+      "a temp rename",
+      "ALTER TABLE temp.queued_thread_messages RENAME TO queued_thread_messages_old;",
+    ],
+    [
+      "a temp staging table",
+      "CREATE TABLE temp.__new_queued_thread_messages (id text);",
+    ],
+    [
+      "a virtual temp staging table",
+      "CREATE VIRTUAL TABLE temp.__new_queued_thread_messages USING fts5(a);",
+    ],
+  ])("ignores %s, which never touches main", (_name, sql) => {
+    expect(scanRebuiltTables(sql)).toEqual([]);
+  });
+
+  it.each([
+    [
+      "a comment that ends at its first terminator",
+      "/* a /* b */ DROP TABLE t1; */",
+      ["t1"],
+    ],
+    ["an unterminated comment", "/* DROP TABLE t2;", []],
+    [
+      "comments between the keywords",
+      "DROP /*c*/ TABLE /*d*/ IF /*e*/ EXISTS /*f*/ main /*g*/ . /*h*/ t3;",
+      ["t3"],
+    ],
+    ["a line comment", "-- DROP TABLE t4\nDROP TABLE t5;", ["t5"]],
+    [
+      "a keyword inside a string",
+      "SELECT 'DROP TABLE t6'; DROP TABLE t7;",
+      ["t7"],
+    ],
+    ["a quoted main schema", 'DROP TABLE "main"."t8";', ["t8"]],
+    [
+      "bracket and backtick quoting",
+      "DROP TABLE [t9]; DROP TABLE `t10`;",
+      ["t10", "t9"],
+    ],
+    [
+      "a statement inside a trigger body",
+      "CREATE TRIGGER x AFTER INSERT ON a BEGIN DROP TABLE t11; END;",
+      ["t11"],
+    ],
+    [
+      "a CREATE TABLE AS staging table",
+      "CREATE TABLE __new_t12 AS SELECT 1;",
+      ["t12"],
+    ],
+    [
+      "whitespace-separated rename keywords",
+      "alter\ntable\tt13\nrename\nto t14;",
+      ["t13", "t14"],
+    ],
+  ])("reads %s the way SQLite does", (_name, sql, expected) => {
+    expect(scanRebuiltTables(sql)).toEqual(expected);
+  });
+
+  it("still finds a main table next to a temp one", () => {
+    expect(
+      scanRebuiltTables(
+        "DROP TABLE temp.a; DROP TABLE main.b; ALTER TABLE temp.c RENAME TO d; ALTER TABLE e RENAME TO temp_f;",
+      ),
+    ).toEqual(["b", "e", "temp_f"]);
+  });
+
   it("returns each table once, lower case and sorted", () => {
     expect(
       scanRebuiltTables(
@@ -274,7 +489,7 @@ describe("guardPlan", () => {
       guardPlan({
         frozen,
         input,
-        plan: loadMigrationPlan(sourceFolders),
+        plan: buildMigrationPlan(input),
         guardedTables: guarded,
         readUpstreamSql,
       }),
@@ -297,7 +512,7 @@ describe("guardPlan", () => {
       guardPlan({
         frozen,
         input,
-        plan: loadMigrationPlan(sourceFolders),
+        plan: buildMigrationPlan(input),
         guardedTables: guardedTables(),
         readUpstreamSql: sqlFor,
       }),
@@ -312,7 +527,7 @@ describe("guardPlan", () => {
       guardPlan({
         frozen,
         input,
-        plan: loadMigrationPlan(sourceFolders),
+        plan: buildMigrationPlan(input),
         guardedTables: guardedTables(),
         readUpstreamSql: sqlFor,
       }),
@@ -351,7 +566,7 @@ describe("guardPlan", () => {
         guardPlan({
           frozen,
           input,
-          plan: loadMigrationPlan(sourceFolders),
+          plan: buildMigrationPlan(input),
           guardedTables: guardedTables(),
           readUpstreamSql: sqlFor,
         }),
@@ -368,7 +583,7 @@ describe("guardPlan", () => {
       guardPlan({
         frozen,
         input,
-        plan: loadMigrationPlan(sourceFolders),
+        plan: buildMigrationPlan(input),
         guardedTables: guardedTables(),
         readUpstreamSql: sqlFor,
       }),
@@ -383,7 +598,7 @@ describe("guardPlan", () => {
       guardPlan({
         frozen,
         input,
-        plan: loadMigrationPlan(sourceFolders),
+        plan: buildMigrationPlan(input),
         guardedTables: guardedTables(),
         readUpstreamSql: sqlFor,
       }),
@@ -442,5 +657,177 @@ describe("guardPlan", () => {
     } finally {
       sqlite.close();
     }
+  });
+
+  describe("the when ordering", () => {
+    const anchor = "0142_ex88_slot_triggers";
+    const lastWhen = Math.max(
+      ...loadMigrationPlanInput(sourceFolders).aleph.map((step) => step.when),
+      ...loadMigrationPlanInput(sourceFolders).upstream.map(
+        (step) => step.when,
+      ),
+    );
+
+    function guardInput(input: MigrationPlanInput, sql = "SELECT 1;"): void {
+      guardPlan({
+        frozen,
+        input,
+        plan: buildMigrationPlan(input),
+        guardedTables: guardedTables(),
+        readUpstreamSql: (tag) =>
+          tag.startsWith("0144") || tag.startsWith("0145")
+            ? sql
+            : readUpstreamSql(tag),
+      });
+    }
+
+    function extend(
+      upstream: UpstreamStepSource[],
+      aleph: AlephStepSource[],
+    ): MigrationPlanInput {
+      const base = loadMigrationPlanInput(sourceFolders);
+      return {
+        upstream: [...base.upstream, ...upstream],
+        aleph: [...base.aleph, ...aleph],
+      };
+    }
+
+    function alephStep(
+      id: string,
+      after: string,
+      when: number,
+    ): AlephStepSource {
+      return { id, file: `${id}.sql`, after, when, sha256: id };
+    }
+
+    it("refuses a when equal to the newest earlier step", () => {
+      expect(lastWhen).toBeGreaterThan(0);
+      const { input, sqlFor } = withNewUpstreamStep("SELECT 1;", lastWhen);
+      expect(() =>
+        guardPlan({
+          frozen,
+          input,
+          plan: buildMigrationPlan(input),
+          guardedTables: guardedTables(),
+          readUpstreamSql: sqlFor,
+        }),
+      ).toThrow(/0144_synthetic has when \d+, which is not after/);
+    });
+
+    it("accepts a when one after the newest earlier step", () => {
+      const { input, sqlFor } = withNewUpstreamStep("SELECT 1;", lastWhen + 1);
+      expect(() =>
+        guardPlan({
+          frozen,
+          input,
+          plan: buildMigrationPlan(input),
+          guardedTables: guardedTables(),
+          readUpstreamSql: sqlFor,
+        }),
+      ).not.toThrow();
+    });
+
+    it("refuses a second new upstream step that is not after the first", () => {
+      const input = extend(
+        [
+          { tag: "0144_first", when: lastWhen + 100, sha256: "first" },
+          { tag: "0145_second", when: lastWhen + 50, sha256: "second" },
+        ],
+        [],
+      );
+      expect(() => guardInput(input)).toThrow(
+        /0145_second has when \d+, which is not after the preceding step 0144_first/,
+      );
+    });
+
+    it("accepts new upstream steps with increasing whens", () => {
+      const input = extend(
+        [
+          { tag: "0144_first", when: lastWhen + 50, sha256: "first" },
+          { tag: "0145_second", when: lastWhen + 100, sha256: "second" },
+        ],
+        [],
+      );
+      expect(() => guardInput(input)).not.toThrow();
+    });
+
+    it("accepts an upstream step between A0009 and a later Aleph step", () => {
+      const input = extend(
+        [{ tag: "0144_first", when: lastWhen + 10, sha256: "first" }],
+        [alephStep("A0010", "0144_first", lastWhen + 20)],
+      );
+      expect(
+        buildMigrationPlan(input)
+          .steps.map((step) => step.id)
+          .slice(-3),
+      ).toEqual(
+        ["A0009_queued_message_state", "0144_first", "A0010"].map((id) =>
+          id.startsWith("A0009") ? expect.stringMatching(/^A0009$/) : id,
+        ),
+      );
+      expect(() => guardInput(input)).not.toThrow();
+    });
+
+    it("refuses a later Aleph step older than the upstream step before it", () => {
+      const input = extend(
+        [{ tag: "0144_first", when: lastWhen + 20, sha256: "first" }],
+        [alephStep("A0010", "0144_first", lastWhen + 10)],
+      );
+      expect(() => guardInput(input)).toThrow(
+        /Aleph step A0010 has when \d+, which is not after the preceding step 0144_first/,
+      );
+    });
+
+    it("refuses a new upstream step older than the Aleph step it follows", () => {
+      const input = extend(
+        [{ tag: "0144_first", when: lastWhen - 1, sha256: "first" }],
+        [],
+      );
+      expect(() => guardInput(input)).toThrow(/0144_first has when/);
+    });
+
+    it("accepts a reviewed Aleph step that supersedes a new upstream step", () => {
+      const base = loadMigrationPlanInput(sourceFolders);
+      const input: MigrationPlanInput = {
+        upstream: [
+          ...base.upstream,
+          { tag: "0144_first", when: lastWhen + 10, sha256: "first" },
+        ],
+        aleph: [
+          ...base.aleph,
+          {
+            ...alephStep("A0010", "A0009", lastWhen + 20),
+            supersedes: "0144_first",
+          },
+        ],
+      };
+      const frozenWithNew = [
+        ...frozen,
+        { tag: "0144_first", sha256: "first", supersededBy: "A0010" },
+      ];
+      expect(() =>
+        guardPlan({
+          frozen: frozenWithNew,
+          input,
+          plan: buildMigrationPlan(input),
+          guardedTables: guardedTables(),
+          readUpstreamSql: () => "DROP TABLE queued_thread_messages;",
+        }),
+      ).not.toThrow();
+      void anchor;
+    });
+
+    it("refuses a plan that omits a new upstream step", () => {
+      const { input, sqlFor } = withNewUpstreamStep("SELECT 1;", lastWhen + 1);
+      expect(() =>
+        guardPlan({
+          frozen,
+          input,
+          plan: buildMigrationPlan(loadMigrationPlanInput(sourceFolders)),
+          guardedTables: guardedTables(),
+          readUpstreamSql: sqlFor,
+        }),
+      ).toThrow(/0144_synthetic is not in the migration plan/);
+    });
   });
 });

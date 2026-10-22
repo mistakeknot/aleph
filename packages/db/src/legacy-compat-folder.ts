@@ -31,25 +31,36 @@ function digest(parts: readonly string[]): string {
   return hash.digest("hex").slice(0, 24);
 }
 
+function isPrivateEntry(path: string, kind: "directory" | "file"): boolean {
+  const stat = lstatSync(path);
+  if (kind === "directory" ? !stat.isDirectory() : !stat.isFile()) return false;
+  if (typeof process.getuid === "function" && stat.uid !== process.getuid()) {
+    return false;
+  }
+  return (stat.mode & 0o022) === 0;
+}
+
 function isTrustedCachedFolder(
   target: string,
   journal: string,
   files: ReadonlyArray<{ entry: JournalEntry; sql: string }>,
 ): boolean {
   try {
-    const stat = lstatSync(target);
-    if (!stat.isDirectory() || stat.isSymbolicLink()) return false;
-    if (typeof process.getuid === "function" && stat.uid !== process.getuid()) {
+    const journalPath = join(target, "meta", "_journal.json");
+    if (
+      !isPrivateEntry(target, "directory") ||
+      !isPrivateEntry(join(target, "meta"), "directory") ||
+      !isPrivateEntry(journalPath, "file") ||
+      readFileSync(journalPath, "utf8") !== journal
+    ) {
       return false;
     }
-    if ((stat.mode & 0o022) !== 0) return false;
-    if (readFileSync(join(target, "meta", "_journal.json"), "utf8") !== journal)
-      return false;
-    return files.every(
-      (file) =>
-        readFileSync(join(target, `${file.entry.tag}.sql`), "utf8") ===
-        file.sql,
-    );
+    return files.every((file) => {
+      const path = join(target, `${file.entry.tag}.sql`);
+      return (
+        isPrivateEntry(path, "file") && readFileSync(path, "utf8") === file.sql
+      );
+    });
   } catch {
     return false;
   }
@@ -61,14 +72,19 @@ function writeFolder(
   files: ReadonlyArray<{ entry: JournalEntry; sql: string }>,
 ): void {
   mkdirSync(join(directory, "meta"), { recursive: true, mode: 0o700 });
-  writeFileSync(join(directory, "meta", "_journal.json"), journal);
+  writeFileSync(join(directory, "meta", "_journal.json"), journal, {
+    mode: 0o600,
+  });
   for (const file of files) {
-    writeFileSync(join(directory, `${file.entry.tag}.sql`), file.sql);
+    writeFileSync(join(directory, `${file.entry.tag}.sql`), file.sql, {
+      mode: 0o600,
+    });
   }
 }
 
 export function materializeLegacyCompatibleFolder(
   folders: MigrationPlanFolders,
+  cacheRoot: string = tmpdir(),
 ): string {
   const plan = loadMigrationPlan(folders);
   if (plan.steps.length !== legacyMigrationChain.length) {
@@ -119,10 +135,10 @@ export function materializeLegacyCompatibleFolder(
     2,
   );
   const key = digest([journal, ...files.map((file) => file.sql)]);
-  const target = join(tmpdir(), `bb-migrations-${key}`);
+  const target = join(cacheRoot, `bb-migrations-${key}`);
   if (isTrustedCachedFolder(target, journal, files)) return target;
 
-  const staging = mkdtempSync(join(tmpdir(), "bb-migrations-staging-"));
+  const staging = mkdtempSync(join(cacheRoot, "bb-migrations-staging-"));
   writeFolder(staging, journal, files);
   if (existsSync(target)) return staging;
   try {

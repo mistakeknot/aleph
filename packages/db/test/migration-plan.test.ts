@@ -198,6 +198,20 @@ describe("buildMigrationPlan", () => {
     ).toThrow(/does not take its position/);
   });
 
+  it("refuses replacements that reverse the order of what they supersede", () => {
+    expect(() =>
+      buildMigrationPlan({
+        upstream: upstream("u1", "u2", "u3"),
+        aleph: [
+          aleph("A0001", "u1", { supersedes: "u3" }),
+          aleph("A0002", "A0001", { supersedes: "u2" }),
+        ],
+      }),
+    ).toThrow(
+      /A0002 supersedes u2 but A0001, which supersedes u3, comes before it/,
+    );
+  });
+
   it("refuses two replacements for one step", () => {
     expect(() =>
       buildMigrationPlan({
