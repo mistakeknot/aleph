@@ -705,3 +705,96 @@ function migrateNextCompletedEventOutput(
     threadId: candidate.thread_id,
   };
 }
+
+export const COMPLETED_EVENT_OUTPUT_TRANSFORM_VERSIONS = {
+  completedEventOutputSidecar: COMPLETED_EVENT_OUTPUT_MIGRATION_CURSOR_VERSION,
+  legacyImageGenerationOutputSidecar:
+    COMPLETED_EVENT_OUTPUT_MIGRATION_CURSOR_VERSION,
+} as const;
+
+function isCompletedEventOutputCursorPast(
+  cursor: { lastCreatedAt: number; lastEventId: string } | undefined,
+  max: { created_at: number; id: string } | undefined,
+): boolean {
+  if (!max) {
+    return true;
+  }
+  if (!cursor) {
+    return false;
+  }
+  if (cursor.lastCreatedAt === COMPLETED_EVENT_OUTPUT_MIGRATION_COMPLETED_AT) {
+    return true;
+  }
+  return (
+    cursor.lastCreatedAt > max.created_at ||
+    (cursor.lastCreatedAt === max.created_at && cursor.lastEventId >= max.id)
+  );
+}
+
+export function isThreadPastCompletedEventOutputSweeps(
+  db: DbQueryConnection,
+  threadId: string,
+): boolean {
+  const client = (db as DbConnection).$client;
+  const readCursor = (id: string) =>
+    db
+      .select({
+        lastCreatedAt: maintenanceScanCursors.lastCreatedAt,
+        lastEventId: maintenanceScanCursors.lastEventId,
+      })
+      .from(maintenanceScanCursors)
+      .where(eq(maintenanceScanCursors.id, id))
+      .get();
+  const maxCompleted = client.prepare<
+    [string, string, string],
+    { created_at: number; id: string }
+  >(
+    `
+      SELECT created_at, id
+      FROM events
+      WHERE thread_id = ? AND type = ? AND item_kind = ?
+      ORDER BY created_at DESC, id DESC
+      LIMIT 1
+    `,
+  );
+  for (const target of RETAINED_EVENT_OUTPUT_TARGETS) {
+    const cursor = readCursor(
+      buildCompletedEventOutputCursorId(
+        target,
+        COMPLETED_EVENT_OUTPUT_MIGRATION_CURSOR_POLICY,
+      ),
+    );
+    const max = maxCompleted.get(threadId, "item/completed", target.itemKind);
+    if (!isCompletedEventOutputCursorPast(cursor, max)) {
+      return false;
+    }
+  }
+  const imageCursor = readCursor(
+    buildCompletedEventOutputCursorId(
+      LEGACY_IMAGE_GENERATION_TARGET,
+      LEGACY_IMAGE_GENERATION_MIGRATION_CURSOR_POLICY,
+    ),
+  );
+  const maxUnhandled = client
+    .prepare<[string, string], { id: string }>(
+      `
+        SELECT id
+        FROM events
+        WHERE thread_id = ? AND type = ?
+        ORDER BY id DESC
+        LIMIT 1
+      `,
+    )
+    .get(threadId, "provider/unhandled");
+  if (!maxUnhandled) {
+    return true;
+  }
+  if (!imageCursor) {
+    return false;
+  }
+  return (
+    imageCursor.lastCreatedAt ===
+      COMPLETED_EVENT_OUTPUT_MIGRATION_COMPLETED_AT ||
+    imageCursor.lastEventId >= maxUnhandled.id
+  );
+}
