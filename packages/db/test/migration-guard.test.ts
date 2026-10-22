@@ -845,6 +845,32 @@ describe("scanRebuiltTables", () => {
     expect(scanRebuiltTables(sql)).toEqual(expected);
   });
 
+  it.each([
+    ["EXPLAIN CREATE TEMP TABLE b(id); DROP TABLE b;", ["b"]],
+    ["EXPLAIN QUERY PLAN CREATE TEMP TABLE b(id); DROP TABLE b;", ["b"]],
+    ["EXPLAIN DROP TABLE b;", ["b"]],
+    ["CREATE TEMP TABLE b(id); EXPLAIN DROP TABLE b; DROP TABLE b;", []],
+  ])("ignores EXPLAIN statements for temp tracking: %s", (sql, expected) => {
+    expect(scanRebuiltTables(sql)).toEqual(expected);
+  });
+
+  it("treats only SQLite whitespace as whitespace", () => {
+    expect(
+      scanRebuiltTables(
+        "CREATE TEMP TABLE \u00a0queued_thread_messages(id); DROP TABLE queued_thread_messages;",
+      ),
+    ).toEqual(["queued_thread_messages"]);
+  });
+
+  it("folds only ASCII letters in names", () => {
+    expect(
+      scanRebuiltTables('CREATE TEMP TABLE "\u00c4"(id); DROP TABLE "\u00e4";'),
+    ).toEqual(["\u00e4"]);
+    expect(
+      scanRebuiltTables('CREATE TEMP TABLE "B"(id); DROP TABLE "b";'),
+    ).toEqual([]);
+  });
+
   it("sees the main table again once the temp one is dropped", () => {
     expect(
       scanRebuiltTables(

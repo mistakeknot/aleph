@@ -30,6 +30,16 @@ interface Token {
   value: string;
 }
 
+const SQL_WHITESPACE = /^[ \t\n\f\r]$/;
+
+function foldName(name: string): string {
+  return name.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
+}
+
+function foldKeyword(name: string): string {
+  return name.replace(/[a-z]/g, (letter) => letter.toUpperCase());
+}
+
 const WORD_CHARACTER = /[\w$\u0080-\uffff]/;
 const NEW_TABLE_PREFIX = "__new_";
 
@@ -60,7 +70,7 @@ function tokenize(sql: string): Token[] {
   let index = 0;
   while (index < sql.length) {
     const character = sql.charAt(index);
-    if (/\s/.test(character)) {
+    if (SQL_WHITESPACE.test(character)) {
       index += 1;
     } else if (character === "-" && sql.charAt(index + 1) === "-") {
       const end = sql.indexOf("\n", index);
@@ -101,7 +111,7 @@ function isKeyword(token: Token | undefined, keyword: string): boolean {
   return (
     token !== undefined &&
     token.kind === "word" &&
-    token.value.toUpperCase() === keyword
+    foldKeyword(token.value) === keyword
   );
 }
 
@@ -126,7 +136,7 @@ function readTableName(
 }
 
 function normalizeTableName(name: string): string {
-  const folded = name.toLowerCase();
+  const folded = foldName(name);
   return folded.startsWith(NEW_TABLE_PREFIX)
     ? folded.slice(NEW_TABLE_PREFIX.length)
     : folded;
@@ -138,8 +148,8 @@ export function scanRebuiltTables(sql: string): string[] {
   const tempNames = new Set<string>();
   const isTemporary = (table: TableReference): boolean =>
     table.schema === undefined
-      ? tempNames.has(table.name.toLowerCase())
-      : table.schema.toLowerCase() === "temp";
+      ? tempNames.has(foldName(table.name))
+      : foldName(table.schema) === "temp";
   const add = (table: TableReference | undefined) => {
     if (table === undefined || table.name.length === 0) return;
     if (isTemporary(table)) return;
@@ -147,6 +157,11 @@ export function scanRebuiltTables(sql: string): string[] {
   };
   for (let index = 0; index < tokens.length; index += 1) {
     const token = tokens[index];
+    const explained =
+      isKeyword(tokens[index - 1], "EXPLAIN") ||
+      (isKeyword(tokens[index - 3], "EXPLAIN") &&
+        isKeyword(tokens[index - 2], "QUERY") &&
+        isKeyword(tokens[index - 1], "PLAN"));
     if (isKeyword(token, "ROLLBACK")) {
       tempNames.clear();
     } else if (
@@ -162,8 +177,8 @@ export function scanRebuiltTables(sql: string): string[] {
       }
       const dropped = readTableName(tokens, cursor);
       add(dropped);
-      if (dropped !== undefined && isTemporary(dropped)) {
-        tempNames.delete(dropped.name.toLowerCase());
+      if (!explained && dropped !== undefined && isTemporary(dropped)) {
+        tempNames.delete(foldName(dropped.name));
       }
     } else if (
       isKeyword(token, "ALTER") &&
@@ -179,8 +194,9 @@ export function scanRebuiltTables(sql: string): string[] {
         const target = readTableName(tokens, table.next + 2);
         if (target !== undefined) {
           if (isTemporary(table)) {
-            tempNames.delete(table.name.toLowerCase());
-            tempNames.add(target.name.toLowerCase());
+            if (explained) continue;
+            tempNames.delete(foldName(table.name));
+            tempNames.add(foldName(target.name));
           } else {
             add({ ...target, schema: table.schema });
           }
@@ -205,9 +221,13 @@ export function scanRebuiltTables(sql: string): string[] {
       if (ifNotExists) cursor += 3;
       const created = readTableName(tokens, cursor);
       if (created === undefined) continue;
-      if (temporary || created.schema?.toLowerCase() === "temp") {
-        if (!ifNotExists) tempNames.add(created.name.toLowerCase());
-      } else if (created.name.toLowerCase().startsWith(NEW_TABLE_PREFIX)) {
+      if (explained) continue;
+      if (
+        temporary ||
+        (created.schema !== undefined && foldName(created.schema) === "temp")
+      ) {
+        if (!ifNotExists) tempNames.add(foldName(created.name));
+      } else if (foldName(created.name).startsWith(NEW_TABLE_PREFIX)) {
         rebuilt.add(normalizeTableName(created.name));
       }
     }
@@ -273,7 +293,7 @@ interface SchemaObjectRow {
 }
 
 function collapseWhitespace(sql: string | null): string {
-  return (sql ?? "").replace(/\s+/g, " ").trim();
+  return (sql ?? "").replace(/[ \t\n\f\r]+/g, " ").trim();
 }
 
 function readSchemaObjects(sqlite: Database.Database): SchemaObjectRow[] {
@@ -287,14 +307,15 @@ function readSchemaObjects(sqlite: Database.Database): SchemaObjectRow[] {
 type SchemaDependencies = ReadonlyMap<string, ReadonlySet<string>>;
 
 function dependencyKey(type: string, name: string): string {
-  return `${type}:${name.toLowerCase()}`;
+  return `${type}:${foldName(name)}`;
 }
 
 function quoteIdentifier(name: string): string {
   return `"${name.replaceAll('"', '""')}"`;
 }
 
-const VIRTUAL_TABLE_DECLARATION = /^\s*CREATE\s+VIRTUAL\s+TABLE\b/i;
+const VIRTUAL_TABLE_DECLARATION =
+  /^[ \t\n\f\r]*CREATE[ \t\n\f\r]+VIRTUAL[ \t\n\f\r]+TABLE\b/i;
 
 function moduleArguments(sql: string): Token[][] {
   const tokens = tokenize(sql);
@@ -360,7 +381,7 @@ function contentTableOf(row: SchemaObjectRow): string | undefined {
     ) {
       continue;
     }
-    return value.value.length === 0 ? undefined : value.value.toLowerCase();
+    return value.value.length === 0 ? undefined : foldName(value.value);
   }
   return undefined;
 }
@@ -406,8 +427,8 @@ function findDependencies(
   const triggers = rows.filter((row) => row.type === "trigger");
   if (views.length === 0 && triggers.length === 0) return dependencies;
   const tables = rows.filter((row) => row.type === "table" && row.sql !== null);
-  const everyTable = new Set(tables.map((table) => table.name.toLowerCase()));
-  const taken = new Set(rows.map((row) => row.name.toLowerCase()));
+  const everyTable = new Set(tables.map((table) => foldName(table.name)));
+  const taken = new Set(rows.map((row) => foldName(row.name)));
   let probeName = `__guard_probe_${randomBytes(6).toString("hex")}`;
   while (taken.has(probeName)) {
     probeName = `__guard_probe_${randomBytes(6).toString("hex")}`;
@@ -479,7 +500,7 @@ function findDependencies(
       dependencies.set(key, set);
     }
     for (const table of tables) {
-      const name = table.name.toLowerCase();
+      const name = foldName(table.name);
       probe.exec("BEGIN");
       try {
         try {
@@ -510,7 +531,7 @@ function tablesTouchedBy(
   row: SchemaObjectRow,
   dependencies: SchemaDependencies,
 ): Set<string> {
-  const touched = new Set<string>([row.tbl_name.toLowerCase()]);
+  const touched = new Set<string>([foldName(row.tbl_name)]);
   const keys = [
     dependencyKey("view", row.tbl_name),
     dependencyKey(row.type, row.name),
@@ -569,7 +590,7 @@ export function expandWithForeignKeyNeighbours(
   sqlite: Database.Database,
   altered: readonly string[],
 ): string[] {
-  const alteredSet = new Set(altered.map((table) => table.toLowerCase()));
+  const alteredSet = new Set(altered.map((table) => foldName(table)));
   const edges = sqlite
     .prepare(
       "SELECT m.name AS child, f.\"table\" AS parent FROM sqlite_master m, pragma_foreign_key_list(m.name) f WHERE m.type = 'table'",
@@ -577,8 +598,8 @@ export function expandWithForeignKeyNeighbours(
     .all() as Array<{ child: string; parent: string }>;
   const guarded = new Set(alteredSet);
   for (const edge of edges) {
-    const child = edge.child.toLowerCase();
-    const parent = edge.parent.toLowerCase();
+    const child = foldName(edge.child);
+    const parent = foldName(edge.parent);
     if (alteredSet.has(child)) guarded.add(parent);
     if (alteredSet.has(parent)) guarded.add(child);
   }
@@ -603,9 +624,7 @@ export interface GuardUpstreamStepArgs {
 }
 
 export function guardUpstreamStep(args: GuardUpstreamStepArgs): void {
-  const guarded = new Set(
-    args.guardedTables.map((table) => table.toLowerCase()),
-  );
+  const guarded = new Set(args.guardedTables.map((table) => foldName(table)));
   const rebuilt = scanRebuiltTables(args.sql).filter((table) =>
     guarded.has(table),
   );
