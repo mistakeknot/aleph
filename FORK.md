@@ -427,6 +427,52 @@ that has run 0135 or later cannot go back to a 0.5.x build:
 `validateAppliedMigrationHistory` refuses migrations it does not know, so
 rolling back means restoring a database backup taken before the switch.
 
+### Namespaced migration runner (mk-knexd)
+
+`packages/db/src/migration-runner.ts` (with `migration-plan.ts`,
+`migration-ledger.ts`, `migration-backup.ts`, `migration-restore.ts`,
+`migration-lock.ts`, `migration-guard.ts`, `migration-history.ts`,
+`migration-step-checks.ts` and `legacy-migration-chain.ts`) replaces the single
+Drizzle journal with two namespaces: the frozen upstream folder
+(`drizzle/`, listed in `drizzle-aleph/frozen-upstream.json`) and the
+fork-owned folder `packages/db/drizzle-aleph/` (`A0001` to `A0009`, ordered by
+`manifest.json`, checked by `step-checks.json`). Applied steps are recorded in
+`__bb_migration_ledger`, and `__drizzle_migrations` stays as a compatibility
+log. Before the first namespaced run the runner takes a verified backup
+(`.pre-ns-*` plus `.sidecar.json`) and migrates under the migrating lock.
+
+Sync rule: a new upstream migration is classified ROUTINE only while the S1
+guard, the collision test and the equality test are green and the review is
+clean. Otherwise treat it as a manual step: the timestamp check above no longer
+applies to ROUTINE upstream migrations, since ordering comes from the plan.
+
+Residuals accepted with the build (none blocks release):
+
+- `isLiteralString` over-guards, and a case-only drop-and-recreate is falsely
+  refused; the identifier diff is textual.
+- Restore handles FTS5 tables only in forms known to round-trip.
+  `CONTENT_PROJECTION` stays content-v2.
+- The 4(b) keyless-table rule, `preservedKey` and multiset selection are not
+  implemented.
+- The four JS digest passes run inside the lock. Measured on a real 5.5 GB
+  database: 144 to 152 in about 250 s including the verified 5.0 GB backup,
+  with integrity, foreign keys, FTS and row counts intact.
+- keepAwake skips the backup.
+- The legacy and namespaced runners diverge on S3 rows 18 to 21 (D14 and D15
+  fixtures); the new runner refuses them by name (`MigrationStateUnknown`).
+- Step 6 rollout tests: no crash hook before the backup or between COMMIT and
+  finalize, so two D10 windows are untested; lock wait is not observable
+  without an engine hook (the race test proves both children reached migrate
+  and stayed alive while the lock was held); `thread_pruning_cursors` is
+  excluded from the D9 connection; the D14 and D15 row names are mapped in the
+  describe title.
+- Tier 3 is open: the 0.7.0 binary smoke and a copy of the real database at
+  state 152 after the 0.7.0 install.
+
+A database migrated by this runner cannot go back to 0.7.0 or earlier:
+restore the `.pre-ns-*` backup taken before the switch. The release notes
+(step 8) carry the backup path, the restore steps and this downgrade contract.
+
 ## Project documents
 
 - [Mission](MISSION.md): make long-running, multi-provider coordinator
