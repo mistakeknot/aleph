@@ -461,7 +461,8 @@ here, and none blocks the release):
 - R3: a new upstream `CREATE TRIGGER`, `VIEW` or `INDEX` on a guarded table is
   not blocked. R6: `DROP TRIGGER`, `INDEX` and `VIEW` return no affected
   tables.
-- R4: a stale tampered cache directory is not detected.
+- R4 (retired): the transitional-cache production helper was deleted; the
+  test oracle's cache validates against Git.
 - R5 and R8: circular or unresolvable views, and views that call custom SQL
   functions, widen the guarded set (conservative).
 - R7, R9 and R10: TEMP-table tracking is limited. An unqualified `ALTER` of a
@@ -476,19 +477,28 @@ here, and none blocks the release):
 - Guard behaviour: Aleph statements that fail with "no such table, column,
   index or view" (targets only a candidate creates) are skipped, so the
   protected set comes from trusted schemas only and the skip over-protects;
-  there is no strict candidate-inclusive model. Aleph steps are built
+  there is no strict candidate-inclusive model. `tablesNamedBy` accepts any
+  identifier that resolves even when the mutation target is unknown, so an
+  unknown target is not distinguished from a known one. `isLiteralString`
+  still over-guards. The case-only false refusal is still recorded, not retired: `foldName`
+  folds identifiers by ASCII case, so a drop and recreate that differs only in
+  case can be refused falsely; the identifier diff is textual. Aleph steps are built
   unconditionally in the guard models. Undeclared non-frozen Aleph steps
   (`A0010` and later) get an empty declaration and are strict by design. FK
   identity capture counts only orphans. NULL `created_at` compat rows are
   ignored, as the legacy validator ignores them.
-- Rowids: NULL-key rows are excluded from the rowid check. A table whose
-  columns shadow `rowid`, `_rowid_` and `oid` cannot have its rowids read, so
-  the backup (`migration-backup.ts`), the step checks and the restore refuse it
-  by name. The 4(b) count-bounded keyless rule is not implemented, and
-  `preservedKey` is implicit.
+- Rowids: NULL-key rows are excluded from the rowid check. For a table whose
+  columns shadow `rowid`, `_rowid_` and `oid`, backup creation succeeds, and
+  digest finalization returns status "basic" and keeps the backup with its
+  digests pending; the step checks (`migration-step-checks.ts`) and the restore
+  (`migration-restore.ts`) refuse such a table by name because they cannot
+  read its rowids. The 4(b) count-bounded keyless rule is not implemented (the
+  build's Step 4 residuals are the guard behaviours above and this rule, so no
+  separate list exists), and `preservedKey` is implicit.
 - Restore takes FTS5 tables only in forms known to round-trip.
   `CONTENT_PROJECTION` stays content-v2.
-- Retired: `warnAboutFutureAppliedMigrations` is dead code; the plan's "no new
+- Retired: `warnAboutFutureAppliedMigrations` is live (`migrateWithFolders` calls it)
+  but only warns about timestamps and gives no downgrade protection; the plan's "no new
   CLI flag" conflict with the CLI rule was resolved by adding
   `bb db restore-migration-backup`; the T-E1 timing flake in
   `test/data/transfer-operations.test.ts` is load-sensitive, not a runner
@@ -513,7 +523,7 @@ here, and none blocks the release):
 - Tier 2 schema note: on the real database the migrated result differs from
   the legacy chain's only by `__bb_migration_ledger`. `deferred_thread_messages_legacy`
   is created by migration 0111 and was absent from the real database before and
-  after both runs, because the server drops it after delivering its rows
+  after both runs, because the server drops it only once every row is delivered (`kept === 0`)
   (`apps/server/src/services/threads/legacy-deferred-messages.ts`, `DROP TABLE`
   after delivery); fresh installs and synthetic fixtures have it because the
   server has not started on them. The pre-migration `sqlite_master` row query
