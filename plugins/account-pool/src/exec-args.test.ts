@@ -39,10 +39,49 @@ describe("pool exec argument allowlist", () => {
       ["--print", "--setting-sources=project,local", "hello"],
       ["--print", "--resume=id"],
       ["--print", "--agents={}"],
+      ["--print", "--mcp-config=x.json"],
+      ["--print", "--mcp-config", "x.json", "hello"],
+      ["--print", "--allowedTools", "Bash"],
+      ["--print", "--allowedTools=Bash"],
+      ["--print", "--tools", "Bash", "hello"],
+      ["--print", "--tools=default"],
+      ["--print", "--tools"],
       ["--version"],
       ["--print", "--dangerously-skip-permissions"],
     ]) {
       expect(poolExecArgsAllowed("claude", args)).toBe(false);
     }
+  });
+  it("accepts only capability-removing Claude flags and normalizes empty --tools", () => {
+    expect(
+      parsePoolExecArgs("claude", [
+        "--print",
+        "--strict-mcp-config",
+        "--disable-slash-commands",
+        "--tools",
+        "",
+        "--model",
+        "haiku",
+        "text",
+      ]),
+    ).toEqual([
+      "--print",
+      "--strict-mcp-config",
+      "--disable-slash-commands",
+      "--tools=",
+      "--model=haiku",
+      "--",
+      "text",
+    ]);
+    expect(parsePoolExecArgs("claude", ["-p", "--tools=", "x"])).toEqual([
+      "-p",
+      "--tools=",
+      "--",
+      "x",
+    ]);
+    expect(poolExecArgsAllowed("codex", ["exec", "--tools="])).toBe(false);
+    expect(poolExecArgsAllowed("codex", ["exec", "--strict-mcp-config"])).toBe(
+      false,
+    );
   });
 });
