@@ -244,7 +244,6 @@ function startChild(
   const result = new Promise<ChildResult>((resolveChild, reject) => {
     child.once("error", (error) => {
       clearTimeout(timer);
-      markClosed();
       reject(error);
     });
     child.once("close", (code, signal) => {
