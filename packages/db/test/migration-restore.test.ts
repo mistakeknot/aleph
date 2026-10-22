@@ -597,6 +597,41 @@ describe("restoreMigrationBackup", () => {
     }
   });
 
+  it("refuses an FTS5 table with persistent rank or automerge settings, in --check too", () => {
+    const fixture = scratch(
+      false,
+      `CREATE VIRTUAL TABLE tuned USING fts5(body); INSERT INTO tuned(rowid, body) VALUES (1, 'hello world'), (2, 'hello hello'); INSERT INTO tuned(tuned, rank) VALUES ('rank', 'bm25(10.0)'); INSERT INTO tuned(tuned, rank) VALUES ('automerge', 4)`,
+    );
+    migrateAway(fixture.databasePath);
+    const before = digestsOf(fixture.databasePath);
+    for (const checkOnly of [true, false]) {
+      expect(() =>
+        restoreMigrationBackup(fixture.backupPath, { checkOnly }),
+      ).toThrow(/FTS5 table tuned with persistent settings/);
+    }
+    expect(digestsOf(fixture.databasePath)).toEqual(before);
+    expect(brokenCopies(fixture.directory)).toEqual([]);
+  });
+
+  it("restores an FTS5 table whose quoted name contains USING(", () => {
+    const fixture = scratch(
+      true,
+      `CREATE VIRTUAL TABLE "using(" USING fts5(body); INSERT INTO "using("(rowid, body) VALUES (3, 'hello quoted')`,
+    );
+    migrateAway(fixture.databasePath);
+    restoreMigrationBackup(fixture.backupPath);
+    const db = new Database(fixture.databasePath, { readonly: true });
+    try {
+      expect(
+        db
+          .prepare(`SELECT rowid FROM "using(" WHERE "using(" MATCH 'hello'`)
+          .all(),
+      ).toEqual([{ rowid: 3 }]);
+    } finally {
+      db.close();
+    }
+  });
+
   it("recomputes instead of comparing when the sidecar projection differs", () => {
     const fixture = scratch();
     const sidecarPath = `${fixture.backupPath}${SIDECAR_SUFFIX}`;

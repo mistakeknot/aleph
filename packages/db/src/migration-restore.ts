@@ -153,13 +153,13 @@ function isCounts(value: unknown): value is Record<string, number> {
 
 const ROWID_ALIASES = ["rowid", "_rowid_", "oid"];
 
-function moduleName(sql: string): string | null {
+function moduleClause(sql: string): { module: string; end: number } | null {
   const match =
     /^\s*CREATE\s+VIRTUAL\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"(?:[^"]|"")*"|`(?:[^`]|``)*`|\[[^\]]*\]|'(?:[^']|'')*'|[^\s(]+)(?:\s*\.\s*(?:"(?:[^"]|"")*"|`(?:[^`]|``)*`|\[[^\]]*\]|[^\s(]+))?\s+USING\s+("(?:[^"]|"")*"|`(?:[^`]|``)*`|\[[^\]]*\]|'(?:[^']|'')*'|[^\s(;]+)/i.exec(
       sql,
     );
   const raw = match?.[1];
-  if (raw === undefined) return null;
+  if (match === null || raw === undefined) return null;
   const first = raw[0];
   const stripped =
     first === '"' || first === "`" || first === "'"
@@ -167,11 +167,11 @@ function moduleName(sql: string): string | null {
       : first === "["
         ? raw.slice(1, -1)
         : raw;
-  return stripped.toLowerCase();
+  return { module: stripped.toLowerCase(), end: match[0].length };
 }
 
-function usesContentOption(sql: string): boolean {
-  const open = sql.indexOf("(", sql.search(/\bUSING\b/i));
+function usesContentOption(sql: string, from: number): boolean {
+  const open = sql.indexOf("(", from);
   if (open === -1) return true;
   const closers: Record<string, string> = {
     '"': '"',
@@ -261,19 +261,29 @@ function assertFtsIndexesRestorable(
     )
     .all() as Array<{ name: string; sql: string }>;
   for (const { name, sql } of virtual) {
-    const module = moduleName(sql);
-    if (module === null) {
+    const clause = moduleClause(sql);
+    if (clause === null) {
       throw new MigrationRestoreError(
         `Backup ${backupPath} has the virtual table ${name} whose module could not be read; refusing to restore`,
       );
     }
-    if (module !== "fts5") continue;
+    if (clause.module !== "fts5") continue;
     const complete = ["content", "config", "data"].every((suffix) =>
       names.has(`${name}_${suffix}`),
     );
-    if (!complete || usesContentOption(sql)) {
+    if (!complete || usesContentOption(sql, clause.end)) {
       throw new MigrationRestoreError(
         `Backup ${backupPath} contains the contentless or external-content FTS5 table ${name}, whose index a restore cannot preserve; refusing to restore`,
+      );
+    }
+    const settings = database
+      .prepare(
+        `SELECT count(*) AS n FROM ${quoteIdentifier(`${name}_config`)} WHERE k <> 'version'`,
+      )
+      .get() as { n: number };
+    if (settings.n !== 0) {
+      throw new MigrationRestoreError(
+        `Backup ${backupPath} has the FTS5 table ${name} with persistent settings (such as rank or automerge) that a restore cannot preserve; refusing to restore`,
       );
     }
   }
