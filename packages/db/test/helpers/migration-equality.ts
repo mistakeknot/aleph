@@ -14,6 +14,7 @@ export interface DatabaseDescription {
   sequences: Array<[string, string]>;
   tables: Record<string, TableDigest>;
   ledger: TableDigest;
+  ledgerSchema: string[];
 }
 
 export interface DescribeOptions {
@@ -27,6 +28,19 @@ function frame(tag: string, bytes: Buffer): Buffer {
   const length = Buffer.alloc(8);
   length.writeBigUInt64BE(BigInt(bytes.length));
   return Buffer.concat([Buffer.from(tag, "ascii"), length, bytes]);
+}
+
+interface TextBytes {
+  textBytes: Buffer;
+}
+
+function isTextBytes(value: unknown): value is TextBytes {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "textBytes" in value &&
+    Buffer.isBuffer(value.textBytes)
+  );
 }
 
 function encodeValue(value: unknown): Buffer {
@@ -45,6 +59,7 @@ function encodeValue(value: unknown): Buffer {
   }
   if (typeof value === "string") return frame("t", Buffer.from(value, "utf8"));
   if (Buffer.isBuffer(value)) return frame("b", value);
+  if (isTextBytes(value)) return frame("t", value.textBytes);
   throw new Error(`Unsupported SQLite value type: ${typeof value}`);
 }
 
@@ -114,7 +129,13 @@ export function digestTable(
   const withRowid = !options.ignoreRowid && !isWithoutRowid(sqlite, table);
   const projection = [
     ...(withRowid ? ["rowid"] : []),
-    ...columns.map(quoteIdentifier),
+    ...columns.flatMap((column) => {
+      const quoted = quoteIdentifier(column);
+      return [
+        quoted,
+        `CASE WHEN typeof(${quoted}) = 'text' THEN CAST(${quoted} AS BLOB) END`,
+      ];
+    }),
   ].join(", ");
   const statement = sqlite
     .prepare(`SELECT ${projection} FROM ${quoteIdentifier(table)}`)
@@ -122,7 +143,15 @@ export function digestTable(
     .safeIntegers(true);
   return combineRowHashes(
     (function* () {
-      for (const row of statement.iterate()) yield rowHash(row as unknown[]);
+      const lead = withRowid ? 1 : 0;
+      for (const row of statement.iterate() as Iterable<unknown[]>) {
+        const values: unknown[] = row.slice(0, lead);
+        for (let index = lead; index < row.length; index += 2) {
+          const raw = row[index + 1];
+          values.push(Buffer.isBuffer(raw) ? { textBytes: raw } : row[index]);
+        }
+        yield rowHash(values);
+      }
     })(),
   );
 }
@@ -205,6 +234,23 @@ export function describeLedger(sqlite: Database.Database): TableDigest {
   return digestTable(sqlite, "__drizzle_migrations");
 }
 
+export function describeLedgerSchema(sqlite: Database.Database): string[] {
+  return (
+    sqlite
+      .prepare(
+        "SELECT type, name, tbl_name, sql FROM sqlite_master WHERE tbl_name = '__drizzle_migrations' ORDER BY type, name",
+      )
+      .all() as Array<{
+      type: string;
+      name: string;
+      tbl_name: string;
+      sql: string | null;
+    }>
+  ).map(
+    (row) => `${row.type}|${row.name}|${row.tbl_name}|${normalizeSql(row.sql)}`,
+  );
+}
+
 export function describeDatabase(
   sqlite: Database.Database,
   options: DescribeOptions = {},
@@ -220,12 +266,13 @@ export function describeDatabase(
     sequences: describeSequences(sqlite),
     tables,
     ledger: describeLedger(sqlite),
+    ledgerSchema: describeLedgerSchema(sqlite),
   };
 }
 
 export function contentOnly(
   description: DatabaseDescription,
-): Omit<DatabaseDescription, "ledger"> {
+): Omit<DatabaseDescription, "ledger" | "ledgerSchema"> {
   return {
     schema: description.schema,
     pragmas: description.pragmas,
@@ -241,8 +288,8 @@ export function schemaFingerprint(description: DatabaseDescription): string {
 }
 
 export function diffDescriptions(
-  expected: Omit<DatabaseDescription, "ledger">,
-  actual: Omit<DatabaseDescription, "ledger">,
+  expected: Omit<DatabaseDescription, "ledger" | "ledgerSchema">,
+  actual: Omit<DatabaseDescription, "ledger" | "ledgerSchema">,
 ): string[] {
   const differences: string[] = [];
   const expectedSchema = new Set(expected.schema);

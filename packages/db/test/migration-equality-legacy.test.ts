@@ -1,9 +1,11 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 import {
+  applyFolder,
+  buildTruncatedFolder,
   LEGACY_ORACLE_COMMIT,
   UPSTREAM_ORACLE_COMMIT,
 } from "./helpers/legacy-oracle.js";
@@ -15,6 +17,7 @@ import {
   describeSchema,
   describeSequences,
   diffDescriptions,
+  digestTable,
   rowHash,
   schemaFingerprint,
   type DatabaseDescription,
@@ -49,7 +52,46 @@ interface ReferenceEntry extends Omit<DatabaseDescription, "schema"> {
   pinned: PinnedCounts;
 }
 
+const scenarioPath = resolve(
+  here,
+  "fixtures",
+  "legacy-ledger-scenarios-reference.json",
+);
+
 const TIMEOUT = 300_000;
+
+interface ScenarioSnapshot {
+  description: DatabaseDescription;
+  ledger: ReturnType<typeof ledgerRows>;
+  pinned: PinnedCounts;
+}
+
+function expectScenario(name: string, db: DbConnection): void {
+  const pinned = pinMigrationClock(db.$client);
+  const snapshot: ScenarioSnapshot = {
+    description: describeDatabase(db.$client),
+    ledger: ledgerRows(db.$client),
+    pinned,
+  };
+  const stored: Record<string, ScenarioSnapshot> = existsSync(scenarioPath)
+    ? (JSON.parse(readFileSync(scenarioPath, "utf8")) as Record<
+        string,
+        ScenarioSnapshot
+      >)
+    : {};
+  if (process.env.UPDATE_MIGRATION_EQUALITY_REFERENCE === "1") {
+    if (process.env.CI)
+      throw new Error(
+        "UPDATE_MIGRATION_EQUALITY_REFERENCE must not be set in CI",
+      );
+    stored[name] = snapshot;
+    writeFileSync(
+      scenarioPath,
+      `${JSON.stringify(Object.fromEntries(Object.entries(stored).sort(([a], [b]) => (a < b ? -1 : 1))), null, 2)}\n`,
+    );
+  }
+  expect(snapshot).toEqual(stored[name]);
+}
 
 interface Upgraded {
   description: DatabaseDescription;
@@ -95,6 +137,37 @@ describe("migration equality harness: digest primitives", () => {
     expect(rowHash(["1"])).not.toBe(rowHash([1n]));
     expect(rowHash([null])).not.toBe(rowHash([""]));
     expect(rowHash([Buffer.from("x")])).not.toBe(rowHash(["x"]));
+  });
+
+  it("keeps the original TEXT bytes, not their decoded form", () => {
+    const sqlite = new Database(":memory:");
+    sqlite.exec(
+      "CREATE TABLE a (v TEXT); CREATE TABLE b (v TEXT); INSERT INTO a VALUES (CAST(x'80' AS TEXT)); INSERT INTO b VALUES (CAST(x'81' AS TEXT));",
+    );
+    expect(digestTable(sqlite, "a")).not.toEqual(digestTable(sqlite, "b"));
+    sqlite.exec(
+      "CREATE TABLE c (v TEXT); INSERT INTO c VALUES ('ab'); CREATE TABLE d (v TEXT); INSERT INTO d VALUES (CAST(x'6162' AS TEXT));",
+    );
+    expect(digestTable(sqlite, "c")).toEqual(digestTable(sqlite, "d"));
+    sqlite.close();
+  });
+
+  it("sees the ledger table definition", () => {
+    const make = (hashColumn: string) => {
+      const sqlite = new Database(":memory:");
+      sqlite.exec(
+        `CREATE TABLE __drizzle_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, ${hashColumn}, created_at numeric)`,
+      );
+      sqlite.exec("INSERT INTO __drizzle_migrations (hash) VALUES ('h')");
+      const description = describeDatabase(sqlite);
+      sqlite.close();
+      return description;
+    };
+    const strict = make("hash text NOT NULL");
+    const loose = make("hash text");
+    expect(strict.ledger).toEqual(loose.ledger);
+    expect(strict.ledgerSchema).not.toEqual(loose.ledgerSchema);
+    expect(strict).not.toEqual(loose);
   });
 
   it("keeps INTEGER and REAL values apart, including integral reals", () => {
@@ -283,6 +356,7 @@ describe("migration equality harness: legacy runner as oracle", () => {
               sequences: description.sequences,
               tables: description.tables,
               ledger: description.ledger,
+              ledgerSchema: description.ledgerSchema,
               pinned,
             },
           ]),
@@ -316,6 +390,42 @@ describe("migration equality harness: legacy runner as oracle", () => {
         ).toBeGreaterThan(0);
         expect(after, `prefix ${length}`).toEqual(flags);
       }
+    },
+    TIMEOUT,
+  );
+
+  it(
+    "stages group_with_next before migration 0004 rebuilds queued_thread_messages",
+    async () => {
+      const columnPresent = (sqlite: Database.Database): boolean =>
+        sqlite
+          .prepare(
+            "SELECT 1 FROM pragma_table_info('queued_thread_messages') WHERE name = 'group_with_next'",
+          )
+          .get() !== undefined;
+      const { db: twin, flags } = await groupedPrefixDatabase(4);
+      expect(columnPresent(twin.$client)).toBe(true);
+      const folder = buildTruncatedFolder(5);
+      try {
+        applyFolder(twin.$client, folder);
+      } finally {
+        rmSync(folder, { recursive: true, force: true });
+      }
+      expect(columnPresent(twin.$client)).toBe(false);
+      twin.$client.close();
+
+      const { db } = await groupedPrefixDatabase(4);
+      await expect(legacyMigrate(db)).rejects.toThrow(/DROP INDEX/);
+      const staged: Record<string, number> = {};
+      for (const row of db.$client
+        .prepare(
+          "SELECT id, group_with_next AS flag FROM temp.bb_migration_queued_message_groups",
+        )
+        .all() as Array<{ id: string; flag: number }>)
+        staged[row.id] = row.flag;
+      expect(Object.keys(flags).length).toBeGreaterThan(1);
+      expect(staged).toEqual(flags);
+      db.$client.close();
     },
     TIMEOUT,
   );
@@ -378,6 +488,7 @@ describe("legacy runner behaviour on ledger shapes (S3 rows 8, 16, 18, 20, 21)",
         hash: rows[152]?.hash,
         created_at: rows[152]?.created_at,
       });
+      expectScenario("row16-exact-duplicate", db);
       db.$client.close();
     },
     TIMEOUT,
@@ -401,6 +512,7 @@ describe("legacy runner behaviour on ledger shapes (S3 rows 8, 16, 18, 20, 21)",
       const rows = ledgerRows(db.$client);
       expect(rows).toHaveLength(153);
       expect(rows.filter((row) => row.created_at === null)).toHaveLength(1);
+      expectScenario("row8-stray-null", db);
       db.$client.close();
     },
     TIMEOUT,
@@ -424,6 +536,7 @@ describe("legacy runner behaviour on ledger shapes (S3 rows 8, 16, 18, 20, 21)",
       const rows = ledgerRows(db.$client);
       expect(rows).toHaveLength(153);
       expect(rows.filter((row) => row.created_at === null)).toHaveLength(1);
+      expectScenario("row18-canonical-hash-null", db);
       db.$client.close();
     },
     TIMEOUT,
@@ -441,6 +554,7 @@ describe("legacy runner behaviour on ledger shapes (S3 rows 8, 16, 18, 20, 21)",
         /Missing applied migration timestamps/,
       );
       expect(describeDatabase(db.$client)).toEqual(before);
+      expectScenario("row8-mid-chain-null", db);
       db.$client.close();
     },
     TIMEOUT,
@@ -475,6 +589,7 @@ describe("legacy runner behaviour on ledger shapes (S3 rows 8, 16, 18, 20, 21)",
       ).toEqual([
         expect.stringContaining("table differs: queued_thread_messages"),
       ]);
+      expectScenario("row8-last-null", db);
       db.$client.close();
     },
     TIMEOUT,
@@ -504,6 +619,7 @@ describe("legacy runner behaviour on ledger shapes (S3 rows 8, 16, 18, 20, 21)",
           contentOnly(describeDatabase(db.$client)),
         ).length,
       ).toBeGreaterThan(0);
+      expectScenario("row20-all-null", db);
       db.$client.close();
     },
     TIMEOUT,
@@ -518,6 +634,7 @@ describe("legacy runner behaviour on ledger shapes (S3 rows 8, 16, 18, 20, 21)",
       await expect(legacyMigrate(db)).rejects.toThrow(/thread_pruning_work/);
       expect(describeDatabase(db.$client)).toEqual(before);
       expect(ledgerRows(db.$client)).toHaveLength(144);
+      expectScenario("row21-upstream-ledger", db);
       db.$client.close();
     },
     TIMEOUT,

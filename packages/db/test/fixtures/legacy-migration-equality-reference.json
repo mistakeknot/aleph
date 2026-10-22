@@ -11,7 +11,12 @@
         "integrity_check": "ok",
         "user_version": "0"
       },
-      "sequences": [["environment_variables", "0"]],
+      "sequences": [
+        [
+          "environment_variables",
+          "0"
+        ]
+      ],
       "tables": {
         "aleph_install_requests": {
           "count": 0,
@@ -230,6 +235,10 @@
         "count": 152,
         "digest": "86d3a7f6c30eba3b9aba2061299cfca4"
       },
+      "ledgerSchema": [
+        "index|sqlite_autoindex___drizzle_migrations_1|__drizzle_migrations|",
+        "table|__drizzle_migrations|__drizzle_migrations|CREATE TABLE \"__drizzle_migrations\" ( id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric )"
+      ],
       "pinned": {
         "updatedAt": {
           "plugin_kv": 1,
@@ -249,7 +258,12 @@
         "integrity_check": "ok",
         "user_version": "0"
       },
-      "sequences": [["environment_variables", "0"]],
+      "sequences": [
+        [
+          "environment_variables",
+          "0"
+        ]
+      ],
       "tables": {
         "aleph_install_requests": {
           "count": 0,
@@ -468,6 +482,10 @@
         "count": 152,
         "digest": "86d3a7f6c30eba3b9aba2061299cfca4"
       },
+      "ledgerSchema": [
+        "index|sqlite_autoindex___drizzle_migrations_1|__drizzle_migrations|",
+        "table|__drizzle_migrations|__drizzle_migrations|CREATE TABLE \"__drizzle_migrations\" ( id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric )"
+      ],
       "pinned": {
         "updatedAt": {
           "plugin_kv": 1,
@@ -487,7 +505,12 @@
         "integrity_check": "ok",
         "user_version": "0"
       },
-      "sequences": [["environment_variables", "0"]],
+      "sequences": [
+        [
+          "environment_variables",
+          "0"
+        ]
+      ],
       "tables": {
         "aleph_install_requests": {
           "count": 0,
@@ -706,6 +729,10 @@
         "count": 152,
         "digest": "86d3a7f6c30eba3b9aba2061299cfca4"
       },
+      "ledgerSchema": [
+        "index|sqlite_autoindex___drizzle_migrations_1|__drizzle_migrations|",
+        "table|__drizzle_migrations|__drizzle_migrations|CREATE TABLE \"__drizzle_migrations\" ( id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric )"
+      ],
       "pinned": {
         "updatedAt": {
           "app_settings_values": 3
@@ -722,7 +749,12 @@
         "integrity_check": "ok",
         "user_version": "0"
       },
-      "sequences": [["environment_variables", "0"]],
+      "sequences": [
+        [
+          "environment_variables",
+          "0"
+        ]
+      ],
       "tables": {
         "aleph_install_requests": {
           "count": 0,
@@ -941,6 +973,10 @@
         "count": 152,
         "digest": "86d3a7f6c30eba3b9aba2061299cfca4"
       },
+      "ledgerSchema": [
+        "index|sqlite_autoindex___drizzle_migrations_1|__drizzle_migrations|",
+        "table|__drizzle_migrations|__drizzle_migrations|CREATE TABLE \"__drizzle_migrations\" ( id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric )"
+      ],
       "pinned": {
         "updatedAt": {
           "app_settings_values": 2
@@ -957,7 +993,12 @@
         "integrity_check": "ok",
         "user_version": "0"
       },
-      "sequences": [["environment_variables", "1002"]],
+      "sequences": [
+        [
+          "environment_variables",
+          "1002"
+        ]
+      ],
       "tables": {
         "aleph_install_requests": {
           "count": 0,
@@ -1176,6 +1217,10 @@
         "count": 152,
         "digest": "86d3a7f6c30eba3b9aba2061299cfca4"
       },
+      "ledgerSchema": [
+        "index|sqlite_autoindex___drizzle_migrations_1|__drizzle_migrations|",
+        "table|__drizzle_migrations|__drizzle_migrations|CREATE TABLE \"__drizzle_migrations\" ( id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric )"
+      ],
       "pinned": {
         "updatedAt": {
           "app_settings_values": 2
@@ -1192,7 +1237,12 @@
         "integrity_check": "ok",
         "user_version": "0"
       },
-      "sequences": [["environment_variables", "1002"]],
+      "sequences": [
+        [
+          "environment_variables",
+          "1002"
+        ]
+      ],
       "tables": {
         "aleph_install_requests": {
           "count": 0,
@@ -1411,6 +1461,10 @@
         "count": 152,
         "digest": "86d3a7f6c30eba3b9aba2061299cfca4"
       },
+      "ledgerSchema": [
+        "index|sqlite_autoindex___drizzle_migrations_1|__drizzle_migrations|",
+        "table|__drizzle_migrations|__drizzle_migrations|CREATE TABLE \"__drizzle_migrations\" ( id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric )"
+      ],
       "pinned": {
         "updatedAt": {
           "app_settings_values": 2
@@ -1427,7 +1481,12 @@
         "integrity_check": "ok",
         "user_version": "0"
       },
-      "sequences": [["environment_variables", "1002"]],
+      "sequences": [
+        [
+          "environment_variables",
+          "1002"
+        ]
+      ],
       "tables": {
         "aleph_install_requests": {
           "count": 0,
@@ -1646,6 +1705,10 @@
         "count": 152,
         "digest": "86d3a7f6c30eba3b9aba2061299cfca4"
       },
+      "ledgerSchema": [
+        "index|sqlite_autoindex___drizzle_migrations_1|__drizzle_migrations|",
+        "table|__drizzle_migrations|__drizzle_migrations|CREATE TABLE \"__drizzle_migrations\" ( id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric )"
+      ],
       "pinned": {
         "updatedAt": {
           "app_settings_values": 2
@@ -1662,7 +1725,12 @@
         "integrity_check": "ok",
         "user_version": "0"
       },
-      "sequences": [["environment_variables", "1002"]],
+      "sequences": [
+        [
+          "environment_variables",
+          "1002"
+        ]
+      ],
       "tables": {
         "aleph_install_requests": {
           "count": 0,
@@ -1881,6 +1949,10 @@
         "count": 152,
         "digest": "86d3a7f6c30eba3b9aba2061299cfca4"
       },
+      "ledgerSchema": [
+        "index|sqlite_autoindex___drizzle_migrations_1|__drizzle_migrations|",
+        "table|__drizzle_migrations|__drizzle_migrations|CREATE TABLE \"__drizzle_migrations\" ( id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric )"
+      ],
       "pinned": {
         "updatedAt": {
           "app_settings_values": 1
@@ -1898,8 +1970,14 @@
         "user_version": "0"
       },
       "sequences": [
-        ["environment_variables", "1002"],
-        ["transfer_events", "1002"]
+        [
+          "environment_variables",
+          "1002"
+        ],
+        [
+          "transfer_events",
+          "1002"
+        ]
       ],
       "tables": {
         "aleph_install_requests": {
@@ -2119,6 +2197,10 @@
         "count": 152,
         "digest": "86d3a7f6c30eba3b9aba2061299cfca4"
       },
+      "ledgerSchema": [
+        "index|sqlite_autoindex___drizzle_migrations_1|__drizzle_migrations|",
+        "table|__drizzle_migrations|__drizzle_migrations|CREATE TABLE \"__drizzle_migrations\" ( id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric )"
+      ],
       "pinned": {
         "updatedAt": {
           "app_settings_values": 1
@@ -2136,8 +2218,14 @@
         "user_version": "0"
       },
       "sequences": [
-        ["environment_variables", "1002"],
-        ["transfer_events", "1002"]
+        [
+          "environment_variables",
+          "1002"
+        ],
+        [
+          "transfer_events",
+          "1002"
+        ]
       ],
       "tables": {
         "aleph_install_requests": {
@@ -2357,6 +2445,10 @@
         "count": 152,
         "digest": "86d3a7f6c30eba3b9aba2061299cfca4"
       },
+      "ledgerSchema": [
+        "index|sqlite_autoindex___drizzle_migrations_1|__drizzle_migrations|",
+        "table|__drizzle_migrations|__drizzle_migrations|CREATE TABLE \"__drizzle_migrations\" ( id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric )"
+      ],
       "pinned": {
         "updatedAt": {},
         "onboardingCompletedAtColumn": 0,
@@ -2371,7 +2463,12 @@
         "integrity_check": "ok",
         "user_version": "0"
       },
-      "sequences": [["environment_variables", "0"]],
+      "sequences": [
+        [
+          "environment_variables",
+          "0"
+        ]
+      ],
       "tables": {
         "aleph_install_requests": {
           "count": 0,
@@ -2590,6 +2687,10 @@
         "count": 152,
         "digest": "86d3a7f6c30eba3b9aba2061299cfca4"
       },
+      "ledgerSchema": [
+        "index|sqlite_autoindex___drizzle_migrations_1|__drizzle_migrations|",
+        "table|__drizzle_migrations|__drizzle_migrations|CREATE TABLE \"__drizzle_migrations\" ( id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric )"
+      ],
       "pinned": {
         "updatedAt": {
           "plugin_kv": 1,
@@ -2609,7 +2710,12 @@
         "integrity_check": "ok",
         "user_version": "0"
       },
-      "sequences": [["environment_variables", "0"]],
+      "sequences": [
+        [
+          "environment_variables",
+          "0"
+        ]
+      ],
       "tables": {
         "aleph_install_requests": {
           "count": 0,
@@ -2828,6 +2934,10 @@
         "count": 152,
         "digest": "86d3a7f6c30eba3b9aba2061299cfca4"
       },
+      "ledgerSchema": [
+        "index|sqlite_autoindex___drizzle_migrations_1|__drizzle_migrations|",
+        "table|__drizzle_migrations|__drizzle_migrations|CREATE TABLE \"__drizzle_migrations\" ( id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric )"
+      ],
       "pinned": {
         "updatedAt": {
           "plugin_kv": 1,
@@ -2848,8 +2958,14 @@
         "user_version": "0"
       },
       "sequences": [
-        ["environment_variables", "1002"],
-        ["transfer_events", "1002"]
+        [
+          "environment_variables",
+          "1002"
+        ],
+        [
+          "transfer_events",
+          "1002"
+        ]
       ],
       "tables": {
         "aleph_install_requests": {
@@ -3069,6 +3185,10 @@
         "count": 152,
         "digest": "86d3a7f6c30eba3b9aba2061299cfca4"
       },
+      "ledgerSchema": [
+        "index|sqlite_autoindex___drizzle_migrations_1|__drizzle_migrations|",
+        "table|__drizzle_migrations|__drizzle_migrations|CREATE TABLE \"__drizzle_migrations\" ( id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric )"
+      ],
       "pinned": {
         "updatedAt": {
           "app_settings_values": 1
