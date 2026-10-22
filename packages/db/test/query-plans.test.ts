@@ -32,6 +32,7 @@ import {
   listLatestOpenBackgroundTaskStateRowsForThread,
   listStoredConversationOutlineEventRows,
   listStoredEventRows,
+  listStoredDelegatingItemRowsByItemIds,
   listStoredEventRowsByParentToolCallIds,
   listStoredTurnCompletedKeys,
   listTodoSnapshotEventRowsForThread,
@@ -754,6 +755,35 @@ describe("slow query index plans", () => {
     );
 
     db.$client.close();
+  });
+
+  it("pins delegating parent lookups to the delegating item index", () => {
+    const { db, thread } = setup();
+    try {
+      const insertEvent = db.$client.prepare(`INSERT INTO events
+        (id, thread_id, scope_kind, sequence, type, item_id, item_kind, data, created_at)
+        VALUES (?, ?, 'thread', ?, ?, ?, ?, '{}', 0)`);
+      insertEvent.run("parent-started", thread.id, 1, "item/started", "parent", "toolCall");
+      insertEvent.run("unrelated-started", thread.id, 2, "item/started", "other", "toolCall");
+      insertEvent.run("parent-message", thread.id, 3, "item/started", "parent", "agentMessage");
+      insertEvent.run("parent-completed", thread.id, 4, "item/completed", "parent", "toolCall");
+
+      const captured = captureStatements(db, () => {
+        expect(
+          listStoredDelegatingItemRowsByItemIds(db, {
+            itemIds: ["parent", "absent-parent"],
+            maxInlineOutputChars: null,
+            threadId: thread.id,
+          }).map((row) => row.id),
+        ).toEqual(["parent-started", "parent-completed"]);
+      });
+      expect(captured).toHaveLength(1);
+      expect(queryPlanDetails({ db, ...captured[0]! })).toMatch(
+        /SEARCH events USING INDEX events_delegating_item_lookup_idx \(thread_id=\? AND item_id=\?\)/u,
+      );
+    } finally {
+      db.$client.close();
+    }
   });
 
   it("scans background-task history once without a completed-set join", () => {
