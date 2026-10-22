@@ -149,6 +149,7 @@ function setup(): TestDb {
   const thread = createThread(db, noopNotifier, {
     projectId: project.id,
     providerId: "codex",
+    status: "idle",
   });
   logger.clear();
   return { db, host, logger, project, thread };

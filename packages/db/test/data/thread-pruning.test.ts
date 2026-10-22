@@ -5,7 +5,14 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { eq, sql } from "drizzle-orm";
 import { createConnection } from "../../src/connection.js";
-import { events, threadPruningCursors, threadPruningWork, threads } from "../../src/schema.js";
+import {
+  environments,
+  events,
+  pendingInteractions,
+  threadPruningCursors,
+  threadPruningWork,
+  threads,
+} from "../../src/schema.js";
 import { noopNotifier } from "../../src/notifier.js";
 import { upsertHost } from "../../src/data/hosts.js";
 import { createProject } from "../../src/data/projects.js";
@@ -13,6 +20,7 @@ import { archiveThread, createThread, unarchiveThread } from "../../src/data/thr
 import {
   advanceThreadPruning,
   getNextThreadPruningPolicy,
+  THREAD_PRUNING_POLICIES,
 } from "../../src/data/thread-pruning.js";
 import type { ThreadPruningPolicy } from "../../src/data/thread-pruning.js";
 import {
@@ -38,8 +46,9 @@ function setup() {
   const thread = createThread(db, noopNotifier, {
     projectId: project.id,
     providerId: "codex",
+    status: "idle",
   });
-  return { db, thread, project };
+  return { db, host, thread, project };
 }
 
 type Fixture = ReturnType<typeof setup>;
@@ -93,6 +102,7 @@ describe("thread pruning", () => {
         projectId: f.project.id,
         providerId: "codex",
         lifecycleOwnerThreadId: f.thread.id,
+        status: "idle",
       });
       const work = () => f.db.select().from(threadPruningWork).all();
       expect(() => f.db.transaction((tx) => {
@@ -123,12 +133,153 @@ describe("thread pruning", () => {
     }
   });
 
+  it.each([
+    "active",
+    "starting",
+    "pending interaction",
+    "provisioning environment",
+  ] as const)(
+    "prunes idle threads while another thread is busy with %s, then revisits it",
+    (busy) => {
+      const f = setup();
+      try {
+        const other = createThread(f.db, noopNotifier, {
+          projectId: f.project.id,
+          providerId: "codex",
+          status: "idle",
+        });
+        const idle = { ...f, thread: other };
+        for (let i = 1; i <= 3; i++) {
+          seed(f, i);
+          seed(idle, i);
+        }
+        if (busy === "active" || busy === "starting")
+          f.db
+            .update(threads)
+            .set({ status: busy })
+            .where(eq(threads.id, f.thread.id))
+            .run();
+        if (busy === "pending interaction")
+          f.db
+            .insert(pendingInteractions)
+            .values({
+              id: "interaction",
+              threadId: f.thread.id,
+              status: "pending",
+              payload: "{}",
+              createdAt: 1,
+              updatedAt: 1,
+            })
+            .run();
+        if (busy === "provisioning environment") {
+          f.db
+            .insert(environments)
+            .values({
+              id: "environment",
+              projectId: f.project.id,
+              hostId: f.host.id,
+              providerOwnsPath: false,
+              status: "provisioning",
+              createdAt: 1,
+              updatedAt: 1,
+            })
+            .run();
+          f.db
+            .update(threads)
+            .set({ environmentId: "environment" })
+            .where(eq(threads.id, f.thread.id))
+            .run();
+        }
+        const results = THREAD_PRUNING_POLICIES.flatMap((policy) =>
+          cycle(f, policy),
+        );
+        expect(results.map((result) => result.threadId)).not.toContain(
+          f.thread.id,
+        );
+        expect(sequences(idle)).toEqual([3]);
+        expect(sequences(f)).toEqual([1, 2, 3]);
+        expect(
+          f.db
+            .select({ policy: threadPruningWork.policy })
+            .from(threadPruningWork)
+            .where(eq(threadPruningWork.threadId, f.thread.id))
+            .all(),
+        ).not.toEqual([]);
+        expect(getNextThreadPruningPolicy(f.db, new Set())).toBeNull();
+        f.db
+          .update(threads)
+          .set({ status: "idle", environmentId: null })
+          .where(eq(threads.id, f.thread.id))
+          .run();
+        f.db.delete(pendingInteractions).run();
+        f.db.delete(environments).run();
+        expect(getNextThreadPruningPolicy(f.db, new Set())).not.toBeNull();
+        cycle(f, "rate-limits");
+        expect(sequences(f)).toEqual([3]);
+      } finally {
+        f.db.$client.close();
+      }
+    },
+  );
+
+  it("defers a thread that becomes busy mid-visit and keeps its work", () => {
+    const f = setup();
+    try {
+      for (let i = 1; i <= 6; i++) seed(f, i);
+      const first = advanceThreadPruning(f.db, {
+        policy: "rate-limits",
+        batchSize: 2,
+      });
+      expect(first.threadId).toBe(f.thread.id);
+      expect(first.scanned).toBeLessThanOrEqual(2);
+      expect(sequences(f)).not.toEqual([6]);
+      f.db
+        .update(threads)
+        .set({ status: "active" })
+        .where(eq(threads.id, f.thread.id))
+        .run();
+      const before = sequences(f);
+      expect(getNextThreadPruningPolicy(f.db, new Set())).toBeNull();
+      const deferred = advanceThreadPruning(f.db, "rate-limits");
+      expect(deferred).toMatchObject({
+        action: "thread-deferred",
+        removed: 0,
+        threadId: f.thread.id,
+      });
+      expect(sequences(f)).toEqual(before);
+      expect(
+        f.db
+          .select()
+          .from(threadPruningWork)
+          .where(eq(threadPruningWork.threadId, f.thread.id))
+          .all(),
+      ).not.toEqual([]);
+      expect(
+        f.db
+          .select({ currentThreadId: threadPruningCursors.currentThreadId })
+          .from(threadPruningCursors)
+          .where(eq(threadPruningCursors.policy, "rate-limits"))
+          .all(),
+      ).toEqual([{ currentThreadId: null }]);
+      f.db
+        .update(threads)
+        .set({ status: "idle" })
+        .where(eq(threads.id, f.thread.id))
+        .run();
+      cycle(f, "rate-limits");
+      expect(sequences(f)).toEqual([6]);
+    } finally {
+      f.db.$client.close();
+    }
+  });
+
   it("advances past a thread that becomes dirty again before its next cycle", () => {
     const f = setup();
     try {
       const other = createThread(f.db, noopNotifier, {
         projectId: f.project.id,
         providerId: "codex",
+        status: "idle",
       });
       const [first, second] = [f.thread, other].sort((a, b) =>
         a.id.localeCompare(b.id),
@@ -304,6 +455,7 @@ describe("thread pruning", () => {
         thread: createThread(f.db, noopNotifier, {
           projectId: f.project.id,
           providerId: "codex",
+          status: "idle",
         }),
       };
       for (const fixture of [f, other]) {
@@ -631,6 +783,7 @@ describe("thread pruning", () => {
       const added = createThread(f.db, noopNotifier, {
         projectId: f.project.id,
         providerId: "claude",
+        status: "idle",
       });
       f.db
         .update(threads)

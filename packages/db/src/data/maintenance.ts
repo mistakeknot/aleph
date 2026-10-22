@@ -1,4 +1,14 @@
-import { and, count, eq, inArray, isNotNull, isNull } from "drizzle-orm";
+import {
+  and,
+  count,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  sql,
+  type SQL,
+  type SQLWrapper,
+} from "drizzle-orm";
 import type { DbConnection } from "../connection.js";
 import {
   environments,
@@ -267,6 +277,26 @@ export function isDatabaseMaintenanceIdle(
     activity.activeThreadCount === 0 &&
     activity.activeThreadProvisioningCount === 0
   );
+}
+
+export function isThreadMaintenanceBusy(threadId: SQLWrapper | string): SQL {
+  return sql`EXISTS (
+    SELECT 1 FROM ${threads}
+    LEFT JOIN ${projects} ON ${projects.id} = ${threads.projectId}
+    LEFT JOIN ${environments} ON ${environments.id} = ${threads.environmentId}
+    WHERE ${threads.id} = ${threadId}
+      AND (
+        ${inArray(threads.status, [...ACTIVE_THREAD_STATUSES])}
+        OR ${threads.deletedAt} IS NOT NULL
+        OR ${projects.deletedAt} IS NOT NULL
+        OR ${environments.status} = 'provisioning'
+        OR EXISTS (
+          SELECT 1 FROM ${pendingInteractions}
+          WHERE ${pendingInteractions.threadId} = ${threads.id}
+            AND ${inArray(pendingInteractions.status, [...ACTIVE_PENDING_INTERACTION_STATUSES])}
+        )
+      )
+  )`;
 }
 
 export function listDeferredLegacyTables(db: DbConnection): string[] {
