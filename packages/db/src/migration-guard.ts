@@ -198,17 +198,15 @@ export function scanRebuiltTables(sql: string): string[] {
       if (isKeyword(tokens[cursor], "VIRTUAL")) cursor += 1;
       if (!isKeyword(tokens[cursor], "TABLE")) continue;
       cursor += 1;
-      if (
+      const ifNotExists =
         isKeyword(tokens[cursor], "IF") &&
         isKeyword(tokens[cursor + 1], "NOT") &&
-        isKeyword(tokens[cursor + 2], "EXISTS")
-      ) {
-        cursor += 3;
-      }
+        isKeyword(tokens[cursor + 2], "EXISTS");
+      if (ifNotExists) cursor += 3;
       const created = readTableName(tokens, cursor);
       if (created === undefined) continue;
       if (temporary || created.schema?.toLowerCase() === "temp") {
-        tempNames.add(created.name.toLowerCase());
+        if (!ifNotExists) tempNames.add(created.name.toLowerCase());
       } else if (created.name.toLowerCase().startsWith(NEW_TABLE_PREFIX)) {
         rebuilt.add(normalizeTableName(created.name));
       }
@@ -296,61 +294,73 @@ function quoteIdentifier(name: string): string {
   return `"${name.replaceAll('"', '""')}"`;
 }
 
-const MODULE_ARGUMENTS = /\bUSING\s+[\w"`\[\]]+\s*\(/i;
-const CONTENT_ARGUMENT =
-  /^\s*content\s*=\s*(?:'((?:[^']|'')*)'|"((?:[^"]|"")*)"|(\w+))\s*$/i;
 const VIRTUAL_TABLE_DECLARATION = /^\s*CREATE\s+VIRTUAL\s+TABLE\b/i;
-const CLOSING_QUOTE: Record<string, string> = {
-  "'": "'",
-  '"': '"',
-  "`": "`",
-  "[": "]",
-};
 
-function moduleArguments(sql: string): string[] {
-  const opening = MODULE_ARGUMENTS.exec(sql);
-  if (opening === null) return [];
-  const args: string[] = [];
+function moduleArguments(sql: string): Token[][] {
+  const tokens = tokenize(sql);
+  if (
+    !isKeyword(tokens[0], "CREATE") ||
+    !isKeyword(tokens[1], "VIRTUAL") ||
+    !isKeyword(tokens[2], "TABLE")
+  ) {
+    return [];
+  }
+  let cursor = 3;
+  if (
+    isKeyword(tokens[cursor], "IF") &&
+    isKeyword(tokens[cursor + 1], "NOT") &&
+    isKeyword(tokens[cursor + 2], "EXISTS")
+  ) {
+    cursor += 3;
+  }
+  const table = readTableName(tokens, cursor);
+  if (table === undefined) return [];
+  cursor = table.next;
+  const opening = tokens[cursor + 2];
+  if (
+    !isKeyword(tokens[cursor], "USING") ||
+    !isName(tokens[cursor + 1]) ||
+    opening?.kind !== "punct" ||
+    opening.value !== "("
+  ) {
+    return [];
+  }
+  const args: Token[][] = [];
+  let current: Token[] = [];
   let depth = 1;
-  let current = "";
-  for (let index = opening.index + opening[0].length; index < sql.length;) {
-    const char = sql.charAt(index);
-    const closing = CLOSING_QUOTE[char];
-    if (closing !== undefined) {
-      let end = index + 1;
-      while (end < sql.length && sql.charAt(end) !== closing) end += 1;
-      current += sql.slice(index, end + 1);
-      index = end + 1;
-      continue;
-    }
-    if (char === "(") depth += 1;
-    if (char === ")") {
+  for (const token of tokens.slice(cursor + 3)) {
+    if (token.kind === "punct" && token.value === "(") depth += 1;
+    if (token.kind === "punct" && token.value === ")") {
       depth -= 1;
       if (depth === 0) {
         args.push(current);
         return args;
       }
     }
-    if (char === "," && depth === 1) {
+    if (token.kind === "punct" && token.value === "," && depth === 1) {
       args.push(current);
-      current = "";
+      current = [];
     } else {
-      current += char;
+      current.push(token);
     }
-    index += 1;
   }
   return args;
 }
 
 function contentTableOf(row: SchemaObjectRow): string | undefined {
   if (row.type !== "table" || row.sql === null) return undefined;
-  if (!VIRTUAL_TABLE_DECLARATION.test(row.sql)) return undefined;
   for (const argument of moduleArguments(row.sql)) {
-    const match = CONTENT_ARGUMENT.exec(argument);
-    if (match === null) continue;
-    const raw = match[1] ?? match[2] ?? match[3];
-    if (raw === undefined || raw.length === 0) return undefined;
-    return raw.replaceAll("''", "'").replaceAll('""', '"').toLowerCase();
+    const [option, equals, value] = argument;
+    if (
+      argument.length !== 3 ||
+      !isKeyword(option, "CONTENT") ||
+      equals?.kind !== "punct" ||
+      equals.value !== "=" ||
+      !isName(value)
+    ) {
+      continue;
+    }
+    return value.value.length === 0 ? undefined : value.value.toLowerCase();
   }
   return undefined;
 }

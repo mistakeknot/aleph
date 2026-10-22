@@ -485,6 +485,69 @@ describe("reference extraction", () => {
     }
   });
 
+  it.each([
+    ["content='b'", "b"],
+    ['content="b"', "b"],
+    ["content=`b`", "b"],
+    ["content=[b]", "b"],
+    ["content=b", "b"],
+    ["content = 'b'", "b"],
+  ])("reads a content option written as %s", (option, table) => {
+    const { after } = schemas(
+      `CREATE VIRTUAL TABLE f USING fts5(id, ${option});`,
+    );
+    try {
+      expect(expandWithForeignKeyNeighbours(after, [table])).toEqual([
+        "b",
+        "f",
+      ]);
+    } finally {
+      after.close();
+    }
+  });
+
+  it.each([
+    [
+      "CREATE VIRTUAL /* x */ TABLE f -- y\n USING /* z */ fts5 /* w */ (id, content='b')",
+    ],
+    ["CREATE VIRTUAL TABLE f USING \"fts5\"(id, content='b')"],
+    ["CREATE VIRTUAL TABLE f USING `fts5`(id, content='b')"],
+    ["CREATE VIRTUAL TABLE f USING [fts5](id, content='b')"],
+    ["CREATE VIRTUAL TABLE f USING fts5(id, /* ) */ content='b' /* , */)"],
+  ])("reads the module of %s", (sql) => {
+    const { after } = schemas(sql);
+    try {
+      expect(expandWithForeignKeyNeighbours(after, ["b"])).toEqual(["b", "f"]);
+    } finally {
+      after.close();
+    }
+  });
+
+  it("decodes only the delimiter's own escape in a content option", () => {
+    const { after } = schemas(
+      `CREATE TABLE "b''c"(id); CREATE VIRTUAL TABLE f USING fts5(id, content="b''c");`,
+    );
+    try {
+      expect(expandWithForeignKeyNeighbours(after, ["b''c"])).toEqual([
+        "b''c",
+        "f",
+      ]);
+    } finally {
+      after.close();
+    }
+  });
+
+  it("does not read a module from inside a quoted table name", () => {
+    const { after } = schemas(
+      `CREATE VIRTUAL TABLE "x USING fts5(content='b')" USING fts5(id);`,
+    );
+    try {
+      expect(expandWithForeignKeyNeighbours(after, ["b"])).toEqual(["b"]);
+    } finally {
+      after.close();
+    }
+  });
+
   it("follows full-text content tables through views to the base table", () => {
     const { after } = schemas(
       `CREATE VIEW vb2 AS SELECT id FROM b;
@@ -734,7 +797,6 @@ describe("scanRebuiltTables", () => {
     "CREATE TEMP TABLE __new_b (id); DROP TABLE __new_b;",
     "CREATE TEMP TABLE __new_b (id); ALTER TABLE __new_b RENAME TO c;",
     "CREATE TEMP TABLE t (id); ALTER TABLE t RENAME TO b; DROP TABLE b;",
-    "CREATE TEMPORARY TABLE IF NOT EXISTS b (id); DROP TABLE b;",
     "CREATE TEMP TABLE b (id); ALTER TABLE b RENAME TO c; ALTER TABLE c ADD COLUMN x;",
   ])("keeps a temp table's later statements out of main: %s", (sql) => {
     expect(scanRebuiltTables(sql)).toEqual([]);
@@ -767,6 +829,19 @@ describe("scanRebuiltTables", () => {
     ],
     ["CREATE TEMP TABLE __new_b(id); CREATE TABLE __new_b(id);", ["b"]],
   ])("handles rolled back and shadowed temp names: %s", (sql, expected) => {
+    expect(scanRebuiltTables(sql)).toEqual(expected);
+  });
+
+  it.each([
+    [
+      "CREATE TEMP VIEW b AS SELECT 1; CREATE TEMP TABLE IF NOT EXISTS b(id); DROP VIEW b; DROP TABLE b;",
+      ["b"],
+    ],
+    [
+      "CREATE TEMP TABLE b(id); SAVEPOINT s; ROLLBACK TO s; RELEASE s; DROP TABLE b;",
+      ["b"],
+    ],
+  ])("fails closed when temp tracking is uncertain: %s", (sql, expected) => {
     expect(scanRebuiltTables(sql)).toEqual(expected);
   });
 
