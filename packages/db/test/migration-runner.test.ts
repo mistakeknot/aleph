@@ -640,3 +640,169 @@ describe("NULL created_at compatibility rows", () => {
     },
   );
 });
+
+function upstreamFolderWithCandidates(
+  candidates: ReadonlyArray<{ tag: string; sql: string }>,
+  alephFolder: string,
+): string {
+  const folder = mkdtempSync(join(tmpdir(), "bb-runner-upstream-"));
+  tempDirs.push(folder);
+  cpSync(sourceFolders.upstreamFolder, folder, { recursive: true });
+  const journalPath = join(folder, "meta", "_journal.json");
+  const journal = JSON.parse(readFileSync(journalPath, "utf8")) as {
+    entries: Array<{
+      idx: number;
+      version: string;
+      when: number;
+      tag: string;
+      breakpoints: boolean;
+    }>;
+  };
+  const manifest = JSON.parse(
+    readFileSync(join(alephFolder, "manifest.json"), "utf8"),
+  ) as { steps: Array<{ when: number }> };
+  let when = Math.max(
+    ...journal.entries.map((entry) => entry.when),
+    ...manifest.steps.map((step) => step.when),
+  );
+  for (const candidate of candidates) {
+    const last = journal.entries[journal.entries.length - 1];
+    if (last === undefined) throw new Error("Journal is empty");
+    when += 1000;
+    journal.entries.push({
+      idx: last.idx + 1,
+      version: "6",
+      when,
+      tag: candidate.tag,
+      breakpoints: true,
+    });
+    writeFileSync(join(folder, `${candidate.tag}.sql`), candidate.sql);
+  }
+  writeFileSync(journalPath, JSON.stringify(journal));
+  return folder;
+}
+
+describe("skipped Aleph statements keep their trusted tables protected", () => {
+  it.each([
+    [
+      "app_settings",
+      "ADD COLUMN zz_extra TEXT",
+      "CREATE INDEX zz_idx ON app_settings (zz_extra);",
+      "DROP TABLE app_settings;",
+    ],
+    [
+      "hosts",
+      "ADD COLUMN zz_extra TEXT",
+      "CREATE INDEX zz_idx ON hosts (zz_extra);",
+      "ALTER TABLE hosts ADD COLUMN zz_other TEXT;",
+    ],
+  ])(
+    "refuses the candidate that alters %s once a skipped Aleph index references it",
+    (table, add, index, later) => {
+      const alephFolder = alephFolderWithSteps([{ id: "A0010", sql: index }]);
+      const upstreamFolder = upstreamFolderWithCandidates(
+        [
+          { tag: "0144_zz_alter", sql: `ALTER TABLE ${table} ${add};` },
+          { tag: "0145_zz_later", sql: later },
+        ],
+        alephFolder,
+      );
+      const db = createConnection(":memory:");
+      try {
+        migrate(db);
+        const before = fingerprint(db);
+        expect(() =>
+          migrateWithFolders(db, { upstreamFolder, alephFolder }),
+        ).toThrow(new RegExp(`0144_zz_alter.*${table}`));
+        expect(fingerprint(db)).toBe(before);
+      } finally {
+        closeConnection(db);
+      }
+    },
+  );
+
+  it("still tolerates a skipped Aleph statement on a candidate-created table", () => {
+    const alephFolder = alephFolderWithSteps([
+      { id: "A0010", sql: "CREATE INDEX zz_source_idx ON zz_source (id);" },
+    ]);
+    const upstreamFolder = upstreamFolderWithCandidates(
+      [
+        {
+          tag: "0144_zz_source",
+          sql: "CREATE TABLE zz_source (id TEXT PRIMARY KEY);",
+        },
+        {
+          tag: "0145_zz_source_more",
+          sql: "ALTER TABLE zz_source ADD COLUMN extra TEXT;",
+        },
+      ],
+      alephFolder,
+    );
+    expect(() =>
+      loadAlignedMigrationPlan({ upstreamFolder, alephFolder }),
+    ).not.toThrow();
+  });
+});
+
+describe("compat log occurrence counting", () => {
+  it("counts exact duplicate compat rows once", () => {
+    const sql = "UPDATE app_settings SET updated_at = updated_at;";
+    const folders = (ids: string[]) => ({
+      upstreamFolder: sourceFolders.upstreamFolder,
+      alephFolder: alephFolderWithSteps(ids.map((id) => ({ id, sql }))),
+    });
+    const db = createConnection(":memory:");
+    try {
+      const first = folders(["A0010"]);
+      migrateWithFolders(db, first);
+      const hash = loadAlignedMigrationPlan(first).plan.steps.find(
+        (step) => step.id === "A0010",
+      )?.sha256;
+      db.$client
+        .prepare(
+          "INSERT INTO __drizzle_migrations (hash, created_at) SELECT hash, created_at FROM __drizzle_migrations WHERE hash = ?",
+        )
+        .run(hash);
+      expect(() =>
+        migrateWithFolders(db, folders(["A0010", "A0011"])),
+      ).not.toThrow();
+    } finally {
+      closeConnection(db);
+    }
+  });
+});
+
+describe("compat log with only NULL created_at rows", () => {
+  const createLog =
+    "CREATE TABLE IF NOT EXISTS __drizzle_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, hash TEXT NOT NULL, created_at NUMERIC)";
+
+  it.each([0, 15, 16, 17, 18, 19])(
+    "migrates prefix %i with a stray NULL row like the legacy runner",
+    async (length) => {
+      const seed = (sqlite: DbConnection["$client"]) => {
+        if (length > 0) applyPrefix(sqlite, length);
+        sqlite.exec(createLog);
+        sqlite
+          .prepare(
+            "INSERT INTO __drizzle_migrations (hash, created_at) VALUES ('stray', NULL)",
+          )
+          .run();
+      };
+      const oracle = await openLegacyConnection();
+      try {
+        seed(oracle.$client);
+        await expect(legacyMigrate(oracle)).resolves.not.toThrow();
+      } finally {
+        closeConnection(oracle);
+      }
+      const db = createConnection(":memory:");
+      try {
+        seed(db.$client);
+        expect(() => migrate(db)).not.toThrow();
+        expect(() => migrate(db)).not.toThrow();
+      } finally {
+        closeConnection(db);
+      }
+    },
+  );
+});

@@ -21,10 +21,12 @@ import {
 } from "./migration-ledger.js";
 import {
   computeAlteredTables,
+  foldName,
   expandWithForeignKeyNeighbours,
   guardPlan,
   nonFrozenUpstreamSteps,
   splitMigrationStatements,
+  statementIdentifiers,
   verifyFrozenSet,
 } from "./migration-guard.js";
 import {
@@ -162,8 +164,9 @@ function buildGuardDatabase(
   steps: ReadonlyArray<
     Pick<MigrationPlanStep, "namespace" | "file" | "sha256">
   >,
-): Database.Database {
+): { sqlite: Database.Database; skipped: string[] } {
   const sqlite = new Database(":memory:");
+  const skipped: string[] = [];
   try {
     sqlite.pragma("foreign_keys = OFF");
     stageMigrationTempTables(sqlite, { existing: false, hostId: null });
@@ -181,17 +184,40 @@ function buildGuardDatabase(
               error.message,
             )
           ) {
+            skipped.push(statement);
             continue;
           }
           throw error;
         }
       }
     }
-    return sqlite;
+    return { sqlite, skipped };
   } catch (error) {
     sqlite.close();
     throw error;
   }
+}
+
+function tablesNamedBy(
+  sqlite: Database.Database,
+  statements: readonly string[],
+): string[] {
+  const existing = new Set(
+    (
+      sqlite
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type IN ('table', 'view')",
+        )
+        .all() as Array<{ name: string }>
+    ).map((row) => foldName(row.name)),
+  );
+  return [
+    ...new Set(
+      statements
+        .flatMap((statement) => statementIdentifiers(statement))
+        .filter((name) => existing.has(name)),
+    ),
+  ];
 }
 
 function computeGuardedTables(
@@ -201,7 +227,7 @@ function computeGuardedTables(
   plan: MigrationPlan,
 ): string[] {
   const frozenTags = new Set(frozen.map((step) => step.tag));
-  const upstreamOnly = buildGuardDatabase(
+  const { sqlite: upstreamOnly } = buildGuardDatabase(
     folders,
     input.upstream
       .filter((step) => frozenTags.has(step.tag))
@@ -212,7 +238,7 @@ function computeGuardedTables(
       })),
   );
   try {
-    const withAleph = buildGuardDatabase(
+    const { sqlite: withAleph, skipped } = buildGuardDatabase(
       folders,
       plan.steps.filter(
         (step) => step.namespace === "aleph" || frozenTags.has(step.id),
@@ -220,10 +246,10 @@ function computeGuardedTables(
     );
     try {
       return [
-        ...expandWithForeignKeyNeighbours(
-          withAleph,
-          computeAlteredTables(upstreamOnly, withAleph),
-        ),
+        ...expandWithForeignKeyNeighbours(withAleph, [
+          ...computeAlteredTables(upstreamOnly, withAleph),
+          ...tablesNamedBy(upstreamOnly, skipped),
+        ]),
       ];
     } finally {
       withAleph.close();
@@ -406,10 +432,15 @@ export function computeMigrationState(
     reason: "hash-mismatch" | "missing-created-at";
   }> = [];
   const compatHashCounts = new Map<string, number>();
+  const countedCompatRows = new Set<string>();
   for (const row of compat) {
     if (row.createdAt === null) continue;
+    const rowKey = `${row.createdAt}:${row.hash}`;
+    if (countedCompatRows.has(rowKey)) continue;
+    countedCompatRows.add(rowKey);
     compatHashCounts.set(row.hash, (compatHashCounts.get(row.hash) ?? 0) + 1);
   }
+  const datedCompatRows = compat.filter((row) => row.createdAt !== null).length;
   const consumedHashes = new Map<string, number>();
   for (const [index, step] of aligned.plan.steps.entries()) {
     const hasLedgerRow = ledger.has(stepKey(step.namespace, step.id));
@@ -464,9 +495,9 @@ export function computeMigrationState(
   );
   const done = (state: MigrationStepState | undefined): boolean =>
     state !== undefined && state.kind !== "absent";
-  if (lastDone === -1 && (compat.length > 0 || ledger.size > 0)) {
+  if (lastDone === -1 && (datedCompatRows > 0 || ledger.size > 0)) {
     throw new MigrationStateUnknown(
-      `Database migration history matches no migration step: ${compat.length} compatibility log rows, ${ledger.size} ledger rows`,
+      `Database migration history matches no migration step: ${datedCompatRows} compatibility log rows, ${ledger.size} ledger rows`,
       [],
     );
   }
@@ -585,7 +616,7 @@ export function computeMigrationState(
     .filter((state) => state.kind === "mapped")
     .map((state) => state.index);
   return {
-    existing: lastDone >= 0 || compat.length > 0 || ledger.size > 0,
+    existing: lastDone >= 0 || datedCompatRows > 0 || ledger.size > 0,
     steps,
     lastDone,
     mapped,

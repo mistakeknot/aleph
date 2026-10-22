@@ -36,7 +36,7 @@ interface Token {
 
 const SQL_WHITESPACE = /^[ \t\n\f\r]$/;
 
-function foldName(name: string): string {
+export function foldName(name: string): string {
   return name.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
 }
 
@@ -168,6 +168,16 @@ export function refuseUnmodelledCharacters(sql: string): void {
         )} at offset ${refused.index}, which the guard does not model`,
     );
   }
+}
+
+export function statementIdentifiers(statement: string): string[] {
+  return [
+    ...new Set(
+      tokenize(statement)
+        .filter(isName)
+        .map((token) => normalizeTableName(token.value)),
+    ),
+  ];
 }
 
 export function scanRebuiltTables(sql: string): string[] {

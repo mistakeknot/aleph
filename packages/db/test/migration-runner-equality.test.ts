@@ -14,8 +14,18 @@ import {
 
 const TIMEOUT = 300_000;
 
-async function pendingDeleteDatabase(length: number): Promise<DbConnection> {
+async function pendingDeleteDatabase(
+  length: number,
+  nullRow = false,
+): Promise<DbConnection> {
   const db = await populatedPrefixDatabase(length);
+  if (nullRow) {
+    db.$client
+      .prepare(
+        "INSERT INTO __drizzle_migrations (hash, created_at) VALUES ('stray', NULL)",
+      )
+      .run();
+  }
   db.$client.exec(
     "UPDATE project_operations SET kind = 'delete', state = 'requested' WHERE rowid = 1",
   );
@@ -28,19 +38,22 @@ function describeAfter(db: DbConnection) {
 }
 
 describe("runner equals the legacy runner at deferred-cleanup prefixes", () => {
-  for (const length of [15]) {
+  for (const [length, nullRow] of [
+    [15, false],
+    [15, true],
+  ] as const) {
     it(
-      `matches the legacy runner at populated prefix ${length} with a pending project delete`,
+      `matches the legacy runner at populated prefix ${length} with a pending project delete${nullRow ? " and a NULL created_at row" : ""}`,
       async () => {
-        const legacy = await pendingDeleteDatabase(length);
-        await legacyMigrate(legacy);
+        const legacy = await pendingDeleteDatabase(length, nullRow);
+        await expect(legacyMigrate(legacy)).resolves.toBeUndefined();
         const expected = describeAfter(legacy);
         const hadOperations = legacy.$client
           .prepare("SELECT COUNT(*) AS n FROM project_operations")
           .get() as { n: number };
         legacy.$client.close();
 
-        const candidate = await pendingDeleteDatabase(length);
+        const candidate = await pendingDeleteDatabase(length, nullRow);
         migrate(candidate);
         const actual = describeAfter(candidate);
         const operations = candidate.$client
