@@ -12,6 +12,7 @@ import {
   expectedCompatPair,
   MigrationStateUnknown,
   readCompatLog,
+  ledgerTableExists,
   readLedger,
   readMaxCompatCreatedAt,
   type CompatLogRow,
@@ -53,6 +54,7 @@ export interface MigrationStepState {
   index: number;
   step: MigrationPlanStep;
   kind: MigrationStepKind;
+  matchedHash: string | null;
 }
 
 export interface MigrationState {
@@ -181,19 +183,28 @@ function buildGuardDatabase(
 
 function computeGuardedTables(
   folders: MigrationPlanFolders,
+  frozen: readonly FrozenUpstreamStep[],
   input: MigrationPlanInput,
   plan: MigrationPlan,
 ): string[] {
+  const frozenTags = new Set(frozen.map((step) => step.tag));
   const upstreamOnly = buildGuardDatabase(
     folders,
-    input.upstream.map((step) => ({
-      namespace: "upstream" as const,
-      file: `${step.tag}.sql`,
-      sha256: step.sha256,
-    })),
+    input.upstream
+      .filter((step) => frozenTags.has(step.tag))
+      .map((step) => ({
+        namespace: "upstream" as const,
+        file: `${step.tag}.sql`,
+        sha256: step.sha256,
+      })),
   );
   try {
-    const withAleph = buildGuardDatabase(folders, plan.steps);
+    const withAleph = buildGuardDatabase(
+      folders,
+      plan.steps.filter(
+        (step) => step.namespace === "aleph" || frozenTags.has(step.id),
+      ),
+    );
     try {
       return [
         ...expandWithForeignKeyNeighbours(
@@ -243,7 +254,7 @@ export function loadAlignedMigrationPlan(
   const readFileText = (path: string): string => readFileSync(path, "utf8");
   const guardedTables =
     nonFrozenUpstreamSteps(frozen, input).length > 0
-      ? computeGuardedTables(folders, input, plan)
+      ? computeGuardedTables(folders, frozen, input, plan)
       : [];
   guardPlan({
     frozen,
@@ -272,12 +283,18 @@ function validateLedger(
   aligned: AlignedMigrationPlan,
   ledger: readonly MigrationLedgerRow[],
 ): Map<string, MigrationLedgerRow> {
-  const known = new Map<string, string>();
-  for (const step of aligned.plan.steps) {
-    known.set(stepKey(step.namespace, step.id), step.sha256);
+  const known = new Map<string, ReadonlySet<string>>();
+  for (const [index, step] of aligned.plan.steps.entries()) {
+    known.set(
+      stepKey(step.namespace, step.id),
+      new Set([
+        step.sha256,
+        ...(aligned.legacy[index]?.compatibleHashes ?? []),
+      ]),
+    );
   }
   for (const step of aligned.plan.superseded) {
-    known.set(stepKey(step.namespace, step.id), step.sha256);
+    known.set(stepKey(step.namespace, step.id), new Set([step.sha256]));
   }
   const rows = new Map<string, MigrationLedgerRow>();
   const unknown: string[] = [];
@@ -293,7 +310,7 @@ function validateLedger(
     rows.set(key, row);
     const sha = known.get(key);
     if (sha === undefined) unknown.push(key);
-    else if (sha !== row.sha256) drifted.push(key);
+    else if (!sha.has(row.sha256)) drifted.push(key);
   }
   if (unknown.length > 0) {
     throw new MigrationStateUnknown(
@@ -368,6 +385,8 @@ export function computeMigrationState(
   const pairs = aligned.legacy.map(expectedCompatPair);
   checkDuplicateCompatRows(pairs, compat);
 
+  const ledgerHistory = ledger.size > 0 || ledgerTableExists(sqlite);
+  const missingLedger: string[] = [];
   const steps: MigrationStepState[] = [];
   const violations: Array<{
     pair: ExpectedCompatPair;
@@ -377,17 +396,33 @@ export function computeMigrationState(
     const hasLedgerRow = ledger.has(stepKey(step.namespace, step.id));
     const pair = pairs[index];
     if (pair === undefined) {
-      steps.push({ index, step, kind: hasLedgerRow ? "ledger" : "absent" });
+      if (!hasLedgerRow && compat.some((row) => row.hash === step.sha256)) {
+        missingLedger.push(stepKey(step.namespace, step.id));
+      }
+      steps.push({
+        index,
+        step,
+        kind: hasLedgerRow ? "ledger" : "absent",
+        matchedHash: null,
+      });
       continue;
     }
     const classification = classifyAgainstCompatLog(pair, compat);
     if (classification.kind === "match") {
-      steps.push({ index, step, kind: hasLedgerRow ? "ledger" : "mapped" });
+      if (!hasLedgerRow && ledgerHistory) {
+        missingLedger.push(stepKey(step.namespace, step.id));
+      }
+      steps.push({
+        index,
+        step,
+        kind: hasLedgerRow ? "ledger" : "mapped",
+        matchedHash: classification.hash,
+      });
     } else if (hasLedgerRow || classification.reason === "hash-mismatch") {
       violations.push({ pair, reason: classification.reason });
-      steps.push({ index, step, kind: "absent" });
+      steps.push({ index, step, kind: "absent", matchedHash: null });
     } else {
-      steps.push({ index, step, kind: "absent" });
+      steps.push({ index, step, kind: "absent", matchedHash: null });
     }
   }
 
@@ -408,9 +443,11 @@ export function computeMigrationState(
   const deferredAbsent = deferredIndexes.filter(
     (index) => steps[index]?.kind === "absent",
   );
-  const deferredGap = deferredAbsent.some((index) => index < lastDone);
   const deferredCleanup =
-    lastDone >= 0 && deferredGap && sqliteTableExists(sqlite, "projects")
+    !ledgerHistory &&
+    lastDone >= 0 &&
+    deferredAbsent.length > 0 &&
+    sqliteTableExists(sqlite, "projects")
       ? deferredAbsent
       : [];
 
@@ -422,6 +459,7 @@ export function computeMigrationState(
   const maxCompat = readMaxCompatCreatedAt(sqlite);
   const legacy29 = index29 === undefined ? undefined : pairs[index29];
   const skipLargeValues =
+    !ledgerHistory &&
     lastDone >= 0 &&
     steps[index31]?.kind === "absent" &&
     steps[index32]?.kind === "absent" &&
@@ -439,6 +477,7 @@ export function computeMigrationState(
   const handled = new Set<number>([...deferredCleanup, ...skipLargeValues]);
   const reorderedCleanup = tagIndexes(aligned, REORDERED_CLEANUP_TAGS).filter(
     (index) =>
+      !ledgerHistory &&
       steps[index]?.kind === "absent" &&
       index < lastDone &&
       !handled.has(index),
@@ -476,6 +515,28 @@ export function computeMigrationState(
         "Database migration history is incomplete.",
       ),
       violations.map((violation) => violation.pair.tag),
+    );
+  }
+
+  if (missingLedger.length > 0) {
+    throw new MigrationStateUnknown(
+      `Database migration history is incomplete. Missing migration ledger rows: ${missingLedger.join("; ")}.`,
+      missingLedger,
+    );
+  }
+  const knownCreatedAt = new Set(pairs.map((pair) => pair.createdAt));
+  const knownHashes = new Set(
+    aligned.plan.steps.slice(pairs.length).map((step) => step.sha256),
+  );
+  const unrecognised = compat.filter(
+    (row) =>
+      !(row.createdAt !== null && knownCreatedAt.has(row.createdAt)) &&
+      !knownHashes.has(row.hash),
+  );
+  if (unrecognised.length > 0) {
+    throw new MigrationStateUnknown(
+      `Database migration history lists steps this binary does not know (database is newer than this binary): ${unrecognised.length} compatibility log rows.`,
+      unrecognised.map((row) => row.hash),
     );
   }
 

@@ -3262,7 +3262,7 @@ describe("migrate", () => {
     }
   });
 
-  it("warns when applied migration timestamps are in the future", () => {
+  it("refuses applied migration rows this binary does not know", () => {
     const db = createConnection(":memory:");
     const logger = {
       warn: vi.fn(),
@@ -3277,7 +3277,6 @@ describe("migrate", () => {
       migrate(db, { logger });
       expect(logger.warn).not.toHaveBeenCalled();
 
-      const futureCreatedAt = Date.now() + 60_000;
       db.$client
         .prepare<InsertMigrationParameters>(
           `
@@ -3285,23 +3284,10 @@ describe("migrate", () => {
             VALUES (?, ?)
           `,
         )
-        .run("future-migration-hash", futureCreatedAt);
+        .run("future-migration-hash", Date.now() + 60_000);
 
-      migrate(db, { logger });
-
-      expect(logger.warn).toHaveBeenCalledTimes(1);
-      expect(logger.warn).toHaveBeenCalledWith(
-        {
-          migrations: [
-            {
-              createdAt: futureCreatedAt,
-              hash: "future-migration-hash",
-            },
-          ],
-          now: expect.any(Number),
-        },
-        "Applied database migrations have future timestamps",
-      );
+      expect(() => migrate(db, { logger })).toThrow(/newer than this binary/);
+      expect(logger.warn).not.toHaveBeenCalled();
     } finally {
       closeConnection(db);
       vi.useRealTimers();

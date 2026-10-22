@@ -33,7 +33,7 @@ export interface ExpectedCompatPair {
 }
 
 export type CompatClassification =
-  | { kind: "match" }
+  | { kind: "match"; hash: string }
   | { kind: "violation"; reason: "hash-mismatch" | "missing-created-at" };
 
 export class MigrationStateUnknown extends Error {
@@ -68,13 +68,16 @@ export function classifyAgainstCompatLog(
 ): CompatClassification {
   const sameCreatedAt = rows.filter((row) => row.createdAt === pair.createdAt);
   if (sameCreatedAt.some((row) => row.hash === pair.hash)) {
-    return { kind: "match" };
+    return { kind: "match", hash: pair.hash };
   }
-  if (sameCreatedAt.some((row) => pair.compatibleHashes.includes(row.hash))) {
-    return { kind: "match" };
+  const alternate = sameCreatedAt.find((row) =>
+    pair.compatibleHashes.includes(row.hash),
+  );
+  if (alternate !== undefined) {
+    return { kind: "match", hash: alternate.hash };
   }
   if (sameCreatedAt.length > 0 && pair.publishedWhen === pair.createdAt) {
-    return { kind: "match" };
+    return { kind: "match", hash: pair.hash };
   }
   return {
     kind: "violation",

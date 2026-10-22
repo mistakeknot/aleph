@@ -1029,7 +1029,12 @@ function applyMigrationState(
     }
     insertLedgerRow(
       sqlite,
-      { namespace: step.namespace, tag: step.id, sha256: step.sha256, how },
+      {
+        namespace: step.namespace,
+        tag: step.id,
+        sha256: state.steps[index]?.matchedHash ?? step.sha256,
+        how,
+      },
       now,
     );
     if (how !== "mapped") {
@@ -1147,13 +1152,21 @@ function validateAppliedMigrationHistory(
 }
 
 export function migrate(db: DbConnection, options: MigrateOptions = {}): void {
+  migrateWithFolders(db, resolveMigrationFolders(), options);
+}
+
+export function migrateWithFolders(
+  db: DbConnection,
+  folders: MigrationPlanFolders,
+  options: MigrateOptions = {},
+): void {
   const sqlite = db.$client;
   if (sqlite.pragma("temp_store", { simple: true }) === 2) {
     throw new Error(
       "Database migrations need a file-backed temp store; temp_store is set to MEMORY",
     );
   }
-  const aligned = loadAlignedMigrationPlan(resolveMigrationFolders());
+  const aligned = loadAlignedMigrationPlan(folders);
 
   sqlite.pragma("foreign_keys = OFF");
   try {
