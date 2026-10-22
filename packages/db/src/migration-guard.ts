@@ -70,7 +70,14 @@ function tokenize(sql: string): Token[] {
   let index = 0;
   while (index < sql.length) {
     const character = sql.charAt(index);
-    if (SQL_WHITESPACE.test(character)) {
+    if (
+      SQL_WHITESPACE.test(character) ||
+      character === "\ufeff" ||
+      (character === "\u000b" &&
+        index > 0 &&
+        (SQL_WHITESPACE.test(sql.charAt(index - 1)) ||
+          sql.charAt(index - 1) === "\u000b"))
+    ) {
       index += 1;
     } else if (character === "-" && sql.charAt(index + 1) === "-") {
       const end = sql.indexOf("\n", index);
@@ -143,7 +150,12 @@ function normalizeTableName(name: string): string {
 }
 
 export function scanRebuiltTables(sql: string): string[] {
-  const tokens = tokenize(sql);
+  const tokens = sql
+    .split(STATEMENT_BREAKPOINT)
+    .flatMap((chunk): Token[] => [
+      ...tokenize(chunk),
+      { kind: "punct", value: ";" },
+    ]);
   const rebuilt = new Set<string>();
   const tempNames = new Set<string>();
   const isTemporary = (table: TableReference): boolean =>

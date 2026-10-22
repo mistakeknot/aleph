@@ -871,6 +871,108 @@ describe("scanRebuiltTables", () => {
     ).toEqual([]);
   });
 
+  describe("against real SQLite separators", () => {
+    const separators = [
+      ...Array.from({ length: 0x21 }, (_, code) => code),
+      0x7f,
+      0x85,
+      0xa0,
+      0x200b,
+      0x2028,
+      0x2029,
+      0xfeff,
+    ].map((code) => String.fromCodePoint(code));
+    const placements: Array<[string, (c: string) => string]> = [
+      ["glued", (c) => `DROP TABLE${c}b;`],
+      ["leading", (c) => `DROP TABLE ${c}b;`],
+      ["trailing", (c) => `DROP TABLE b${c};`],
+      ["doubled", (c) => `DROP TABLE ${c}${c}b;`],
+    ];
+
+    it("flags b exactly when SQLite drops b", () => {
+      const checked: string[] = [];
+      for (const separator of separators) {
+        for (const [placement, build] of placements) {
+          const sql = build(separator);
+          const db = new Database(":memory:");
+          try {
+            db.exec("CREATE TABLE b(id);");
+            let executed = true;
+            try {
+              db.exec(sql);
+            } catch {
+              executed = false;
+            }
+            if (!executed) continue;
+            const dropped =
+              db
+                .prepare("SELECT 1 FROM sqlite_master WHERE name = 'b'")
+                .get() === undefined;
+            const flagged = scanRebuiltTables(sql).includes("b");
+            if (flagged !== dropped) {
+              checked.push(
+                `${placement} U+${separator.codePointAt(0)?.toString(16)}: sqlite dropped=${dropped} scanner flagged=${flagged}`,
+              );
+            }
+          } finally {
+            db.close();
+          }
+        }
+      }
+      expect(checked).toEqual([]);
+    });
+
+    it("sees an FTS content table exactly when SQLite does", () => {
+      const mismatches: string[] = [];
+      for (const separator of separators) {
+        for (const placement of ["glued", "leading", "doubled"]) {
+          const lead =
+            placement === "glued"
+              ? separator
+              : placement === "leading"
+                ? ` ${separator}`
+                : ` ${separator}${separator}`;
+          const sql = `CREATE VIRTUAL TABLE f USING fts5(id,${lead}content='b');`;
+          const { after } = (() => {
+            const database = new Database(":memory:");
+            database.exec("CREATE TABLE b(id);");
+            return { after: database };
+          })();
+          try {
+            try {
+              after.exec(sql);
+            } catch {
+              continue;
+            }
+            const external =
+              after
+                .prepare("SELECT 1 FROM sqlite_master WHERE name = 'f_content'")
+                .get() === undefined;
+            const seen = expandWithForeignKeyNeighbours(after, ["b"]).includes(
+              "f",
+            );
+            if (seen !== external) {
+              mismatches.push(
+                `${placement} U+${separator.codePointAt(0)?.toString(16)}: external=${external} seen=${seen}`,
+              );
+            }
+          } finally {
+            after.close();
+          }
+        }
+      }
+      expect(mismatches).toEqual([]);
+    });
+  });
+
+  it("does not let EXPLAIN leak across a statement breakpoint", () => {
+    expect(
+      scanRebuiltTables(
+        "CREATE TEMP TABLE a(x);\nALTER TABLE t ADD c text DEFAULT explain\n--> statement-breakpoint\nDROP TABLE a\n--> statement-breakpoint\nDROP TABLE a;",
+      ),
+    ).toEqual(["a", "t"]);
+  });
+
   it("sees the main table again once the temp one is dropped", () => {
     expect(
       scanRebuiltTables(
