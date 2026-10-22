@@ -3549,6 +3549,50 @@ export function findStoredTimelineCompletedTurnTail(
   ) {
     return undefined;
   }
+  const firstItem = items[0]!;
+  const agentMessageCount = items.filter(
+    (item) => item.itemKind === "agentMessage",
+  ).length;
+  // The projection keeps sent-message commands visible and drops agent
+  // messages without text, so the tail is only exact when no omitted command
+  // looks like a send and every agent message completes with text. These
+  // checks are deliberately looser than the projection: a false match only
+  // falls back to the full turn read.
+  const visibility = db
+    .select({
+      sends: sql<number>`COUNT(CASE WHEN ${events.itemKind} = 'commandExecution'
+        AND ${events.sequence} > ${firstItem.sequence}
+        AND ${events.sequence} < ${leadIn.sequence}
+        AND ${events.itemId} <> ${firstItem.itemId}
+        AND json_extract(${events.data}, '$.item.command') LIKE '%thread%'
+        AND (json_extract(${events.data}, '$.item.command') LIKE '%tell%'
+          OR json_extract(${events.data}, '$.item.command') LIKE '%message%')
+        THEN 1 END)`,
+      textMessages: sql<number>`COUNT(DISTINCT CASE WHEN ${events.type} = 'item/completed'
+        AND ${events.itemKind} = 'agentMessage'
+        AND length(trim(coalesce(json_extract(${events.data}, '$.item.text'), ''))) > 0
+        THEN ${events.itemId} END)`,
+    })
+    .from(sql`${events} INDEXED BY events_thread_type_sequence_idx`)
+    .where(
+      and(
+        eq(events.threadId, args.threadId),
+        inArray(events.type, ["item/started", "item/completed"]),
+        gt(events.sequence, startedSequence),
+        lt(events.sequence, completedSequence),
+        eq(events.turnId, args.turnId),
+        isNull(events.parentToolCallId),
+        ...(args.excludeDiagnosticEvents ? [isNotDiagnosticEvent] : []),
+      ),
+    )
+    .get();
+  if (
+    visibility === undefined ||
+    visibility.sends > 0 ||
+    visibility.textMessages !== agentMessageCount
+  ) {
+    return undefined;
+  }
   const secondItem = items[1];
   return {
     firstItem:
@@ -3578,6 +3622,31 @@ export function listStoredTimelineTurnRangeEventRows(
     )
     .orderBy(events.sequence)
     .all();
+}
+
+export function hasStoredItemEventRowsThroughSequence(
+  db: DbConnection,
+  args: {
+    items: readonly ScopedItemRef[];
+    threadId: string;
+    throughSequence: number;
+  },
+): boolean {
+  const items = dedupeScopedItemRefs(args.items);
+  if (items.length === 0) return false;
+  const row = db
+    .select({ sequence: events.sequence })
+    .from(events)
+    .where(
+      scopedItemRefsPredicate(items, [
+        eq(events.threadId, args.threadId),
+        lte(events.sequence, args.throughSequence),
+        inArray(events.type, ITEM_EVENT_TYPES),
+      ]),
+    )
+    .limit(1)
+    .get();
+  return row !== undefined;
 }
 
 export function listStoredTimelineItemEventRowsByItems(

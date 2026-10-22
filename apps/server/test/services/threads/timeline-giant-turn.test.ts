@@ -49,10 +49,15 @@ function turnOpening(turn: number): RowSpec[] {
   ];
 }
 
-function commandItem(turnId: string, id: string, deltas: number): RowSpec[] {
+function commandItem(
+  turnId: string,
+  id: string,
+  deltas: number,
+  command = `rg pattern ${id}`,
+): RowSpec[] {
   const item = {
     approvalStatus: null,
-    command: `rg pattern ${id}`,
+    command,
     cwd: "/tmp/memo",
     id,
     type: "commandExecution",
@@ -122,15 +127,19 @@ function messageItem(turnId: string, id: string, deltas: number): RowSpec[] {
   return rows;
 }
 
-function workRows(turnId: string, events: number): RowSpec[] {
+function workRows(
+  turnId: string,
+  events: number,
+  prefix = turnId,
+): RowSpec[] {
   const rows: RowSpec[] = [];
   let item = 0;
   while (rows.length < events) {
     item += 1;
     rows.push(
       ...(item % 3 === 0
-        ? messageItem(turnId, `${turnId}-message-${item}`, 30)
-        : commandItem(turnId, `${turnId}-command-${item}`, 20)),
+        ? messageItem(turnId, `${prefix}-message-${item}`, 30)
+        : commandItem(turnId, `${prefix}-command-${item}`, 20)),
     );
   }
   return rows;
@@ -139,13 +148,14 @@ function workRows(turnId: string, events: number): RowSpec[] {
 function seedGiantTurn(
   completed: boolean,
   events = GIANT_TURN_EVENTS,
+  work = workRows("turn-2", events),
 ): RowSpec[] {
   const rows: RowSpec[] = [
     ...turnOpening(1),
     ...workRows("turn-1", 200),
     { data: { status: "completed" }, turnId: "turn-1", type: "turn/completed" },
     ...turnOpening(2),
-    ...workRows("turn-2", events),
+    ...work,
   ];
   if (completed) {
     rows.push({
@@ -259,6 +269,67 @@ describe("one giant turn", () => {
     expect(walked.pages).toBeLessThan(MAX_PAGES);
     expect(walked.latest.rows).toBeGreaterThan(0);
     expect(walked.maxEventRowCount).toBeLessThan(2_000);
+  }, 600_000);
+
+  function expectTailMatchesFullRead(
+    work: RowSpec[],
+    expectBounded: boolean,
+  ): void {
+    withTestThread((testThread) => {
+      appendRows(testThread, seedGiantTurn(true, work.length, work));
+      const build = (eventBudget?: number) =>
+        buildRouteTimelinePage({
+          db: testThread.db,
+          eventBudget,
+          page: { kind: "latest", segmentLimit: 3 },
+          registry,
+          thread: testThread.thread,
+          variant: "default",
+        });
+      const bounded = build();
+      const full = build(1_000_000);
+      if (expectBounded) {
+        expect(bounded.profile.eventRowCount).toBeLessThan(
+          full.profile.eventRowCount / 2,
+        );
+      }
+      const boundedRows = bounded.response.rows;
+      expect(boundedRows.length).toBeGreaterThan(0);
+      expect(boundedRows).toEqual(
+        full.response.rows.slice(-boundedRows.length),
+      );
+    });
+  }
+
+  it("keeps a sent message from the middle of a completed turn", () => {
+    expectTailMatchesFullRead(
+      [
+        ...workRows("turn-2", 2_500),
+        ...commandItem(
+          "turn-2",
+          "turn-2-send",
+          1,
+          'bb thread tell thr_wrkr234567 "status"',
+        ),
+        ...workRows("turn-2", 2_500, "turn-2-after"),
+      ],
+      false,
+    );
+  }, 600_000);
+
+  it("does not count or end on agent messages without text", () => {
+    expectTailMatchesFullRead(
+      [
+        ...workRows("turn-2", 5_000),
+        ...commandItem("turn-2", "turn-2-before-empty-middle", 2),
+        ...messageItem("turn-2", "turn-2-empty-middle", 0),
+        ...commandItem("turn-2", "turn-2-before-visible", 2),
+        ...messageItem("turn-2", "turn-2-visible", 5),
+        ...commandItem("turn-2", "turn-2-before-empty", 2),
+        ...messageItem("turn-2", "turn-2-empty-final", 0),
+      ],
+      false,
+    );
   }, 600_000);
 
   it("collapses a completed turn read from its tail like a full read", () => {

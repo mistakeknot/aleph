@@ -382,6 +382,7 @@ export {
   listStoredTimelineTurnEventRows,
   listStoredTimelineTurnRangeEventRows,
   listStoredTimelineItemEventRowsByItems,
+  hasStoredItemEventRowsThroughSequence,
   findStoredTimelineOpenTurnRowFloor,
   findStoredTimelineCompletedTurnTail,
   listStoredTimelineLongCompletedTurnSpans,

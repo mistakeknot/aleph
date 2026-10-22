@@ -5,9 +5,11 @@ import {
   getDatabaseDataVersion,
   getLatestThreadSequence,
   getThreadEventRewriteGeneration,
+  hasStoredItemEventRowsThroughSequence,
   listStoredEventRowsInSequenceRange,
   scopedItemRefKey,
   type DbConnection,
+  type ScopedItemRef,
   type TimelineWindowHint,
   type StoredEventRow,
 } from "@bb/db";
@@ -252,6 +254,7 @@ function isUnselectedCappedItemRow(
   row: StoredEventRow,
   entry: TimelineSelectionMemoEntry,
   itemKeys: Set<string> | null,
+  appendedStarts: ScopedItemRef[],
 ): boolean {
   if (
     itemKeys === null ||
@@ -262,7 +265,16 @@ function isUnselectedCappedItemRow(
     return false;
   }
   const key = storedEventRowItemKey(row);
-  if (row.type === "item/started") itemKeys.add(key);
+  if (row.type === "item/started" && !itemKeys.has(key)) {
+    // A start is only new if the item has no rows below the window floor;
+    // the caller checks the collected starts in one query.
+    itemKeys.add(key);
+    appendedStarts.push({
+      itemId: row.itemId,
+      scopeKind: row.scopeKind,
+      turnId: row.turnId,
+    });
+  }
   return !itemKeys.has(key);
 }
 
@@ -294,13 +306,25 @@ function listAppendableRows(
   }
   const appendableRows: StoredEventRow[] = [];
   const itemKeys = selectionItemKeys(entry);
+  const appendedStarts: ScopedItemRef[] = [];
   for (const row of appendedRows) {
-    if (isUnselectedCappedItemRow(row, entry, itemKeys)) return null;
+    if (isUnselectedCappedItemRow(row, entry, itemKeys, appendedStarts)) {
+      return null;
+    }
     if (isAppendableRow(row, entry.appendableTurnIds)) {
       appendableRows.push(row);
     } else if (!isIgnorableRow(row)) {
       return null;
     }
+  }
+  if (
+    hasStoredItemEventRowsThroughSequence(db, {
+      items: appendedStarts,
+      threadId: args.threadId,
+      throughSequence: entry.maxSeq,
+    })
+  ) {
+    return null;
   }
   return appendableRows;
 }

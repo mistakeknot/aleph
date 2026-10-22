@@ -278,3 +278,31 @@ describe("one large running turn under a mixed append burst", () => {
     expect(result.staleServed).toBeGreaterThan(MIXED_APPENDS / 2);
   }, 600_000);
 });
+
+describe("a repeated item start below the window floor", () => {
+  it("rebuilds instead of appending the start as a new item", () => {
+    withTestThread((testThread) => {
+      appendRows(testThread, seedRows());
+      const build = (db: typeof testThread.db) =>
+        buildRouteTimelinePage({
+          db,
+          page: { kind: "latest", segmentLimit: 3 },
+          registry,
+          thread: testThread.thread,
+          variant: "default",
+        });
+      expect(build(testThread.db).profile.eventRowCount).toBeLessThan(
+        SEED_EVENTS / 3,
+      );
+      appendRows(testThread, [
+        messageStarted("seed-message-1"),
+        messageDelta("seed-message-1", "restarted\n"),
+      ]);
+      const warm = build(testThread.db);
+      expect(selectionWasReused(warm.profile)).toBe(false);
+      expect(JSON.stringify(warm.response)).toBe(
+        JSON.stringify(build(testThread.coldDb).response),
+      );
+    });
+  }, 600_000);
+});
