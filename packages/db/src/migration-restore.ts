@@ -170,9 +170,17 @@ function moduleClause(sql: string): { module: string; end: number } | null {
   return { module: stripped.toLowerCase(), end: match[0].length };
 }
 
-function usesContentOption(sql: string, from: number): boolean {
-  const open = sql.indexOf("(", from);
-  if (open === -1) return true;
+const FTS5_ROUND_TRIP_OPTIONS = new Set([
+  "tokenize",
+  "prefix",
+  "columnsize",
+  "detail",
+]);
+
+const FTS5_COLUMN =
+  /^\s*(?:"(?:[^"]|"")+"|`(?:[^`]|``)+`|\[[^\]]+\]|'(?:[^']|'')+'|[A-Za-z_][A-Za-z0-9_$]*)(?:\s+UNINDEXED)?\s*$/i;
+
+function splitArguments(sql: string, open: number): string[] | null {
   const closers: Record<string, string> = {
     '"': '"',
     "`": "`",
@@ -204,17 +212,7 @@ function usesContentOption(sql: string, from: number): boolean {
       depth -= 1;
       if (depth === 0) {
         args.push(current);
-        return args.some((arg) => {
-          const equals = arg.indexOf("=");
-          if (equals === -1) return false;
-          return (
-            arg
-              .slice(0, equals)
-              .trim()
-              .replace(/^["`'[]|["`'\]]$/g, "")
-              .toLowerCase() === "content"
-          );
-        });
+        return /^[\s;]*$/.test(sql.slice(index + 1)) ? args : null;
       }
       current += char;
       continue;
@@ -226,7 +224,24 @@ function usesContentOption(sql: string, from: number): boolean {
     }
     current += char;
   }
-  return true;
+  return null;
+}
+
+function fts5DefinitionRoundTrips(sql: string, from: number): boolean {
+  const open = sql.indexOf("(", from);
+  if (open === -1 || !/^\s*$/.test(sql.slice(from, open))) return false;
+  const args = splitArguments(sql, open);
+  if (args === null || args.length === 0) return false;
+  return args.every((arg) => {
+    const equals = arg.indexOf("=");
+    if (equals === -1) return FTS5_COLUMN.test(arg);
+    const key = arg
+      .slice(0, equals)
+      .trim()
+      .replace(/^["`'[]|["`'\]]$/g, "")
+      .toLowerCase();
+    return FTS5_ROUND_TRIP_OPTIONS.has(key);
+  });
 }
 
 function rowidAlias(
@@ -261,6 +276,11 @@ function assertFtsIndexesRestorable(
     )
     .all() as Array<{ name: string; sql: string }>;
   for (const { name, sql } of virtual) {
+    if (sql.includes("--") || sql.includes("/*")) {
+      throw new MigrationRestoreError(
+        `Backup ${backupPath} has the virtual table ${name} whose definition contains an SQL comment; refusing to restore`,
+      );
+    }
     const clause = moduleClause(sql);
     if (clause === null) {
       throw new MigrationRestoreError(
@@ -271,9 +291,9 @@ function assertFtsIndexesRestorable(
     const complete = ["content", "config", "data"].every((suffix) =>
       names.has(`${name}_${suffix}`),
     );
-    if (!complete || usesContentOption(sql, clause.end)) {
+    if (!complete || !fts5DefinitionRoundTrips(sql, clause.end)) {
       throw new MigrationRestoreError(
-        `Backup ${backupPath} contains the contentless or external-content FTS5 table ${name}, whose index a restore cannot preserve; refusing to restore`,
+        `Backup ${backupPath} contains the FTS5 table ${name}, which is contentless, external-content or uses options a restore cannot preserve; refusing to restore`,
       );
     }
     const settings = database

@@ -632,6 +632,73 @@ describe("restoreMigrationBackup", () => {
     }
   });
 
+  it.each([
+    "CREATE VIRTUAL TABLE f USING /*comment*/ fts5(body)",
+    "CREATE VIRTUAL TABLE f USING fts5/*comment*/(body)",
+    "CREATE VIRTUAL TABLE f USING fts5(body, -- note\n tokenize='unicode61')",
+  ])("refuses a virtual table definition with an SQL comment: %s", (ddl) => {
+    const fixture = scratch(
+      false,
+      `${ddl}; INSERT INTO f(rowid, body) VALUES (1, 'hello')`,
+    );
+    migrateAway(fixture.databasePath);
+    const before = digestsOf(fixture.databasePath);
+    for (const checkOnly of [true, false]) {
+      expect(() =>
+        restoreMigrationBackup(fixture.backupPath, { checkOnly }),
+      ).toThrow(/SQL comment/);
+    }
+    expect(digestsOf(fixture.databasePath)).toEqual(before);
+    expect(brokenCopies(fixture.directory)).toEqual([]);
+  });
+
+  it.each([
+    "CREATE VIRTUAL TABLE f USING fts5(body, locale=1)",
+    "CREATE VIRTUAL TABLE f USING fts5(body, contentless_delete=1, content='')",
+  ])(
+    "refuses an FTS5 definition outside the round-trip allowlist: %s",
+    (ddl) => {
+      const fixture = scratch(false, ddl);
+      migrateAway(fixture.databasePath);
+      const before = digestsOf(fixture.databasePath);
+      for (const checkOnly of [true, false]) {
+        expect(() =>
+          restoreMigrationBackup(fixture.backupPath, { checkOnly }),
+        ).toThrow(/FTS5 table f\b/);
+      }
+      expect(digestsOf(fixture.databasePath)).toEqual(before);
+      expect(brokenCopies(fixture.directory)).toEqual([]);
+    },
+  );
+
+  it("refuses locale=1 values written with fts5_locale", () => {
+    const fixture = scratch(
+      false,
+      `CREATE VIRTUAL TABLE loc USING fts5(body, locale=1); INSERT INTO loc(rowid, body) VALUES (1, fts5_locale('en_US', 'hello'))`,
+    );
+    migrateAway(fixture.databasePath);
+    expect(() => restoreMigrationBackup(fixture.backupPath)).toThrow(
+      /FTS5 table loc\b/,
+    );
+  });
+
+  it("restores FTS5 tables that use only the round-trip options", () => {
+    const fixture = scratch(
+      true,
+      `CREATE VIRTUAL TABLE opts USING fts5(title UNINDEXED, "body", tokenize = 'porter unicode61', prefix = '2 3', columnsize = 1, detail = full); INSERT INTO opts(rowid, title, body) VALUES (6, 't', 'running hello')`,
+    );
+    migrateAway(fixture.databasePath);
+    restoreMigrationBackup(fixture.backupPath);
+    const db = new Database(fixture.databasePath, { readonly: true });
+    try {
+      expect(
+        db.prepare("SELECT rowid FROM opts WHERE opts MATCH 'run'").all(),
+      ).toEqual([{ rowid: 6 }]);
+    } finally {
+      db.close();
+    }
+  });
+
   it("recomputes instead of comparing when the sidecar projection differs", () => {
     const fixture = scratch();
     const sidecarPath = `${fixture.backupPath}${SIDECAR_SUFFIX}`;
