@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
   renameSync,
-  rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -28,6 +29,42 @@ function digest(parts: readonly string[]): string {
   const hash = createHash("sha256");
   for (const part of parts) hash.update(`${part.length}:${part}`);
   return hash.digest("hex").slice(0, 24);
+}
+
+function isTrustedCachedFolder(
+  target: string,
+  journal: string,
+  files: ReadonlyArray<{ entry: JournalEntry; sql: string }>,
+): boolean {
+  try {
+    const stat = lstatSync(target);
+    if (!stat.isDirectory() || stat.isSymbolicLink()) return false;
+    if (typeof process.getuid === "function" && stat.uid !== process.getuid()) {
+      return false;
+    }
+    if ((stat.mode & 0o022) !== 0) return false;
+    if (readFileSync(join(target, "meta", "_journal.json"), "utf8") !== journal)
+      return false;
+    return files.every(
+      (file) =>
+        readFileSync(join(target, `${file.entry.tag}.sql`), "utf8") ===
+        file.sql,
+    );
+  } catch {
+    return false;
+  }
+}
+
+function writeFolder(
+  directory: string,
+  journal: string,
+  files: ReadonlyArray<{ entry: JournalEntry; sql: string }>,
+): void {
+  mkdirSync(join(directory, "meta"), { recursive: true, mode: 0o700 });
+  writeFileSync(join(directory, "meta", "_journal.json"), journal);
+  for (const file of files) {
+    writeFileSync(join(directory, `${file.entry.tag}.sql`), file.sql);
+  }
 }
 
 export function materializeLegacyCompatibleFolder(
@@ -83,19 +120,15 @@ export function materializeLegacyCompatibleFolder(
   );
   const key = digest([journal, ...files.map((file) => file.sql)]);
   const target = join(tmpdir(), `bb-migrations-${key}`);
-  if (existsSync(join(target, "meta", "_journal.json"))) return target;
+  if (isTrustedCachedFolder(target, journal, files)) return target;
 
-  const staging = `${target}.${process.pid}.${Date.now()}`;
-  mkdirSync(join(staging, "meta"), { recursive: true });
-  writeFileSync(join(staging, "meta", "_journal.json"), journal);
-  for (const file of files) {
-    writeFileSync(join(staging, `${file.entry.tag}.sql`), file.sql);
-  }
+  const staging = mkdtempSync(join(tmpdir(), "bb-migrations-staging-"));
+  writeFolder(staging, journal, files);
+  if (existsSync(target)) return staging;
   try {
     renameSync(staging, target);
-  } catch (error) {
-    rmSync(staging, { force: true, recursive: true });
-    if (!existsSync(join(target, "meta", "_journal.json"))) throw error;
+  } catch {
+    return isTrustedCachedFolder(target, journal, files) ? target : staging;
   }
   return target;
 }
