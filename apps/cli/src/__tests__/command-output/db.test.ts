@@ -73,7 +73,8 @@ describe("bb db restore-migration-backup", () => {
     const lines = collectLogLines(vi.mocked(console.log));
     expect(lines[0]).toContain("Restored");
     expect(lines[1]).toContain(".broken-");
-    expect(lines[2]).toContain("target (older) binary");
+    expect(lines[2]).toContain("Content digest compared");
+    expect(lines[3]).toContain("target (older) binary");
   });
 
   it("restores over an explicit --database path", async () => {
@@ -88,6 +89,7 @@ describe("bb db restore-migration-backup", () => {
         backupPath,
         "--database",
         other,
+        "--allow-source-mismatch",
         "--json",
       ],
       registerDbCommands,
@@ -97,6 +99,19 @@ describe("bb db restore-migration-backup", () => {
     );
     expect(payload.databasePath).toBe(other);
     expect(rowCount()).toBe(3);
+  });
+
+  it("refuses a --database target with a different name without the override", async () => {
+    const other = join(directory, "other.db");
+    const seed = new Database(other);
+    seed.exec("CREATE TABLE unrelated (x)");
+    seed.close();
+    await expect(
+      runCommand(
+        ["db", "restore-migration-backup", backupPath, "--database", other],
+        registerDbCommands,
+      ),
+    ).rejects.toThrow("process.exit:1");
   });
 
   it("exits 1 with the engine's reason when the backup is refused", async () => {

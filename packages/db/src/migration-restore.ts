@@ -1,8 +1,11 @@
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import {
+  chmodSync,
   closeSync,
+  copyFileSync,
   existsSync,
+  mkdtempSync,
   openSync,
   realpathSync,
   rmSync,
@@ -10,10 +13,13 @@ import {
   statfsSync,
 } from "node:fs";
 import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import Database from "better-sqlite3";
 import {
   BACKUP_MARKER,
+  CONTENT_PROJECTION,
+  SEQUENCE_PROJECTION,
   SIDECAR_SUFFIX,
   contentDigest,
   countUserTables,
@@ -42,7 +48,13 @@ export class MigrationRestoreError extends Error {
 export interface RestoreOptions {
   databasePath?: string;
   checkOnly?: boolean;
+  allowSourceMismatch?: boolean;
 }
+
+export type DigestVerification =
+  | "compared"
+  | "recomputed-projection-differs"
+  | "recomputed-pending";
 
 export interface RestoreResult {
   mode: "check" | "restore";
@@ -52,6 +64,7 @@ export interface RestoreResult {
   tables: number;
   rows: number;
   counts: Record<string, number>;
+  digestVerification: DigestVerification;
   elapsedMs: number;
   nextStep: string;
 }
@@ -69,6 +82,16 @@ interface MasterRow {
   type: string;
   name: string;
   sql: string | null;
+}
+
+function isLockedError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const code = "code" in error ? error.code : undefined;
+  return (
+    code === "SQLITE_BUSY" ||
+    code === "SQLITE_LOCKED" ||
+    (error instanceof Error && error.message.includes("database is locked"))
+  );
 }
 
 function quoteIdentifier(name: string): string {
@@ -113,7 +136,34 @@ interface VerifiedBackup {
   counts: Record<string, number>;
   contentDigest: string;
   sequenceDigest: string;
+  digestVerification: DigestVerification;
   bytes: number;
+}
+
+function isCounts(value: unknown): value is Record<string, number> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.values(value).every(
+      (entry) => typeof entry === "number" && Number.isInteger(entry),
+    )
+  );
+}
+
+function digestsOfPrivateCopy(realPath: string): {
+  content: string;
+  sequence: string;
+} {
+  const directory = mkdtempSync(join(tmpdir(), "bb-restore-verify-"));
+  try {
+    const copy = join(directory, "backup.db");
+    copyFileSync(realPath, copy);
+    chmodSync(copy, 0o600);
+    return digestsOf(copy);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 }
 
 function verifyBackup(backupPath: string): VerifiedBackup {
@@ -135,10 +185,19 @@ function verifyBackup(backupPath: string): VerifiedBackup {
       `Backup ${backupPath} has no readable sidecar`,
     );
   }
+  if (
+    !isCounts(sidecar.counts) ||
+    typeof sidecar.schemaHash !== "string" ||
+    typeof sidecar.source !== "string"
+  ) {
+    throw new MigrationRestoreError(
+      `Backup ${backupPath} has a sidecar missing its counts, schema hash or source`,
+    );
+  }
   const realPath = realpathSync(backupPath);
   const digests = (() => {
     try {
-      return digestsOf(realPath);
+      return digestsOfPrivateCopy(realPath);
     } catch (error) {
       throw new MigrationRestoreError(
         error instanceof Error ? error.message : String(error),
@@ -170,9 +229,15 @@ function verifyBackup(backupPath: string): VerifiedBackup {
   } finally {
     database.close();
   }
-  const finalized = sidecar.digest !== "pending";
+  const digestVerification: DigestVerification =
+    sidecar.digest === "pending"
+      ? "recomputed-pending"
+      : sidecar.projection === CONTENT_PROJECTION &&
+          sidecar.sequenceProjection === SEQUENCE_PROJECTION
+        ? "compared"
+        : "recomputed-projection-differs";
   if (
-    finalized &&
+    digestVerification === "compared" &&
     (sidecar.digest !== digests.content ||
       sidecar.sequenceDigest !== digests.sequence)
   ) {
@@ -186,6 +251,7 @@ function verifyBackup(backupPath: string): VerifiedBackup {
     counts,
     contentDigest: digests.content,
     sequenceDigest: digests.sequence,
+    digestVerification,
     bytes,
   };
 }
@@ -498,6 +564,14 @@ export function restoreMigrationBackup(
   const startedAt = Date.now();
   const databasePath = options.databasePath ?? liveDatabasePathFor(backupPath);
   const verified = verifyBackup(backupPath);
+  if (
+    verified.sidecar.source !== basename(databasePath) &&
+    options.allowSourceMismatch !== true
+  ) {
+    throw new MigrationRestoreError(
+      `Backup ${backupPath} was taken from ${verified.sidecar.source}, not ${basename(databasePath)}; pass allowSourceMismatch (--allow-source-mismatch) to restore it anyway`,
+    );
+  }
   if (options.checkOnly === true) {
     return {
       mode: "check",
@@ -506,6 +580,7 @@ export function restoreMigrationBackup(
       brokenCopyPath: null,
       ...summarize(verified.counts),
       counts: verified.counts,
+      digestVerification: verified.digestVerification,
       elapsedMs: Date.now() - startedAt,
       nextStep: RESTORE_NEXT_STEP,
     };
@@ -593,12 +668,18 @@ export function restoreMigrationBackup(
       brokenCopyPath,
       ...summarize(after),
       counts: after,
+      digestVerification: verified.digestVerification,
       elapsedMs: Date.now() - startedAt,
       nextStep: RESTORE_NEXT_STEP,
     };
   } catch (error) {
     if (brokenCopyPath !== null && statSync(brokenCopyPath).size === 0) {
       rmSync(brokenCopyPath, { force: true });
+    }
+    if (isLockedError(error)) {
+      throw new MigrationRestoreError(
+        `Another process is using ${databasePath}; stop the server and daemon before restoring`,
+      );
     }
     throw error;
   } finally {

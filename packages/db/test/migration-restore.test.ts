@@ -1,7 +1,9 @@
 import {
+  chmodSync,
   existsSync,
   mkdtempSync,
   readdirSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -219,7 +221,10 @@ describe("restoreMigrationBackup", () => {
     const seed = new Database(other);
     seed.exec("CREATE TABLE unrelated (x)");
     seed.close();
-    restoreMigrationBackup(fixture.backupPath, { databasePath: other });
+    restoreMigrationBackup(fixture.backupPath, {
+      databasePath: other,
+      allowSourceMismatch: true,
+    });
     expect(digestsOf(other).content).toBe(fixture.content);
   });
 
@@ -307,6 +312,7 @@ describe("restoreMigrationBackup", () => {
     expect(() =>
       restoreMigrationBackup(fixture.backupPath, {
         databasePath: fixture.backupPath,
+        allowSourceMismatch: true,
       }),
     ).toThrow(/same file/);
   });
@@ -326,6 +332,89 @@ describe("restoreMigrationBackup", () => {
     }
     expect(digestsOf(fixture.databasePath)).toEqual(before);
     expect(brokenCopies(fixture.directory)).toEqual([]);
+  });
+
+  it("--check works on a read-only backup and leaves it byte-identical", () => {
+    const fixture = scratch();
+    chmodSync(fixture.backupPath, 0o444);
+    const before = readFileSync(fixture.backupPath);
+    const result = restoreMigrationBackup(fixture.backupPath, {
+      checkOnly: true,
+    });
+    expect(result.mode).toBe("check");
+    expect(readFileSync(fixture.backupPath).equals(before)).toBe(true);
+  });
+
+  it("recomputes instead of comparing when the sidecar projection differs", () => {
+    const fixture = scratch();
+    const sidecarPath = `${fixture.backupPath}${SIDECAR_SUFFIX}`;
+    const sidecar = JSON.parse(readFileSync(sidecarPath, "utf8"));
+    sidecar.projection = "content-v1";
+    sidecar.digest = "digest-from-an-older-algorithm";
+    writeFileSync(sidecarPath, JSON.stringify(sidecar));
+    migrateAway(fixture.databasePath);
+    const result = restoreMigrationBackup(fixture.backupPath);
+    expect(result.digestVerification).toBe("recomputed-projection-differs");
+    expect(digestsOf(fixture.databasePath).content).toBe(fixture.content);
+  });
+
+  it("reports how the digest was verified", () => {
+    const finalized = scratch();
+    expect(
+      restoreMigrationBackup(finalized.backupPath, { checkOnly: true })
+        .digestVerification,
+    ).toBe("compared");
+    const pending = scratch(false);
+    expect(
+      restoreMigrationBackup(pending.backupPath, { checkOnly: true })
+        .digestVerification,
+    ).toBe("recomputed-pending");
+  });
+
+  it("refuses a backup taken from a differently named database unless overridden", () => {
+    const fixture = scratch();
+    const other = join(fixture.directory, "unrelated.db");
+    const seed = new Database(other);
+    seed.exec("CREATE TABLE unrelated (x); INSERT INTO unrelated VALUES (1)");
+    seed.close();
+    const before = digestsOf(other);
+    expect(() =>
+      restoreMigrationBackup(fixture.backupPath, { databasePath: other }),
+    ).toThrow(/was taken from bb\.db, not unrelated\.db/);
+    expect(digestsOf(other)).toEqual(before);
+    expect(brokenCopies(fixture.directory)).toEqual([]);
+    restoreMigrationBackup(fixture.backupPath, {
+      databasePath: other,
+      allowSourceMismatch: true,
+    });
+    expect(digestsOf(other).content).toBe(fixture.content);
+  });
+
+  it("refuses a sidecar missing its counts or schema hash with a restore error", () => {
+    for (const field of ["counts", "schemaHash"]) {
+      const fixture = scratch();
+      const sidecarPath = `${fixture.backupPath}${SIDECAR_SUFFIX}`;
+      const sidecar = JSON.parse(readFileSync(sidecarPath, "utf8"));
+      delete sidecar[field];
+      writeFileSync(sidecarPath, JSON.stringify(sidecar));
+      expect(() => restoreMigrationBackup(fixture.backupPath)).toThrow(
+        MigrationRestoreError,
+      );
+    }
+  });
+
+  it("maps a locked database to the stop-the-server message", () => {
+    const fixture = scratch();
+    migrateAway(fixture.databasePath);
+    const holder = new Database(fixture.databasePath);
+    holder.exec("BEGIN EXCLUSIVE");
+    try {
+      expect(() => restoreMigrationBackup(fixture.backupPath)).toThrow(
+        /Another process is using .*stop the server and daemon/,
+      );
+    } finally {
+      holder.close();
+    }
   });
 
   it("can be run twice and reaches the same state", () => {

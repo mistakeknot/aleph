@@ -53,7 +53,7 @@ to <dataDir>/logs/cli-errors.jsonl; `bb diagnostics cli-errors [--since 7d]
 [--clear]` tallies or deletes it, and BB_CLI_ERROR_LOG=0 turns logging off.
 
 Roll the local database back to the backup a migration took before it ran with
-`bb db restore-migration-backup <backup> [--database <path>] [--check]`.
+`bb db restore-migration-backup <backup> [--database <path>] [--allow-source-mismatch] [--check]`.
 Stop the server and every process that uses the database first. `--check`
 verifies the backup against its sidecar and changes nothing. A restore
 refuses to run while another process holds the database, rebuilds it from the
