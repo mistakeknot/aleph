@@ -1,4 +1,4 @@
-import type Database from "better-sqlite3";
+import Database from "better-sqlite3";
 import type {
   FrozenUpstreamStep,
   MigrationPlan,
@@ -133,9 +133,14 @@ function normalizeTableName(name: string): string {
 export function scanRebuiltTables(sql: string): string[] {
   const tokens = tokenize(sql);
   const rebuilt = new Set<string>();
+  const tempNames = new Set<string>();
+  const isTemporary = (table: TableReference): boolean =>
+    table.schema === undefined
+      ? tempNames.has(table.name.toLowerCase())
+      : table.schema.toLowerCase() === "temp";
   const add = (table: TableReference | undefined) => {
     if (table === undefined || table.name.length === 0) return;
-    if (table.schema?.toLowerCase() === "temp") return;
+    if (isTemporary(table)) return;
     rebuilt.add(normalizeTableName(table.name));
   };
   for (let index = 0; index < tokens.length; index += 1) {
@@ -148,7 +153,11 @@ export function scanRebuiltTables(sql: string): string[] {
       ) {
         cursor += 2;
       }
-      add(readTableName(tokens, cursor));
+      const dropped = readTableName(tokens, cursor);
+      add(dropped);
+      if (dropped?.schema === undefined && dropped !== undefined) {
+        tempNames.delete(dropped.name.toLowerCase());
+      }
     } else if (
       isKeyword(token, "ALTER") &&
       isKeyword(tokens[index + 1], "TABLE")
@@ -162,7 +171,15 @@ export function scanRebuiltTables(sql: string): string[] {
       ) {
         const target = readTableName(tokens, table.next + 2);
         if (target !== undefined) {
-          add({ ...target, schema: table.schema });
+          const renamed = { ...target, schema: table.schema };
+          if (isTemporary(table)) {
+            if (table.schema === undefined) {
+              tempNames.delete(table.name.toLowerCase());
+              tempNames.add(target.name.toLowerCase());
+            }
+          } else {
+            add(renamed);
+          }
         }
       }
     } else if (isKeyword(token, "CREATE")) {
@@ -176,7 +193,6 @@ export function scanRebuiltTables(sql: string): string[] {
       const temporary = cursor > index + 1;
       if (isKeyword(tokens[cursor], "VIRTUAL")) cursor += 1;
       if (!isKeyword(tokens[cursor], "TABLE")) continue;
-      if (temporary) continue;
       cursor += 1;
       if (
         isKeyword(tokens[cursor], "IF") &&
@@ -186,7 +202,12 @@ export function scanRebuiltTables(sql: string): string[] {
         cursor += 3;
       }
       const created = readTableName(tokens, cursor);
-      if (created?.name.toLowerCase().startsWith(NEW_TABLE_PREFIX)) {
+      if (created === undefined) continue;
+      if (temporary) {
+        if (created.schema === undefined) {
+          tempNames.add(created.name.toLowerCase());
+        }
+      } else if (created.name.toLowerCase().startsWith(NEW_TABLE_PREFIX)) {
         add(created);
       }
     }
@@ -263,129 +284,149 @@ function readSchemaObjects(sqlite: Database.Database): SchemaObjectRow[] {
     .all() as SchemaObjectRow[];
 }
 
-interface SchemaIndex {
-  tables: ReadonlySet<string>;
-  views: ReadonlyMap<string, SchemaObjectRow>;
+type SchemaDependencies = ReadonlyMap<string, ReadonlySet<string>>;
+
+const BROKEN_OBJECT = /error in (trigger|view) (.+?): /;
+
+function brokenObjectName(error: unknown): string | undefined {
+  const message = error instanceof Error ? error.message : String(error);
+  return BROKEN_OBJECT.exec(message)?.[2]?.toLowerCase();
 }
 
-function indexSchema(rows: readonly SchemaObjectRow[]): SchemaIndex {
-  const tables = new Set<string>();
-  const views = new Map<string, SchemaObjectRow>();
-  for (const row of rows) {
-    if (row.type === "table") tables.add(row.name.toLowerCase());
-    if (row.type === "view") views.set(row.name.toLowerCase(), row);
-  }
-  return { tables, views };
+function quoteIdentifier(name: string): string {
+  return `"${name.replaceAll('"', '""')}"`;
 }
 
-const TABLE_POSITION_KEYWORDS = new Set([
-  "INTO",
-  "FROM",
-  "JOIN",
-  "UPDATE",
-  "TABLE",
-  "ON",
-  "REFERENCES",
-]);
-
-const FROM_LIST_ENDERS = new Set([
-  "WHERE",
-  "GROUP",
-  "ORDER",
-  "HAVING",
-  "LIMIT",
-  "WINDOW",
-  "UNION",
-  "INTERSECT",
-  "EXCEPT",
-  "SELECT",
-  "VALUES",
-  "SET",
-  "ON",
-  "USING",
-  "BEGIN",
-  "END",
-  "WHEN",
-  "RETURNING",
-]);
-
-function isTablePosition(tokens: readonly Token[], index: number): boolean {
-  const next = tokens[index + 1];
-  if (next?.kind === "punct" && next.value === ".") return true;
-  const previous = tokens[index - 1];
-  if (previous === undefined) return false;
-  if (previous.kind === "punct" && previous.value === ".") return true;
-  if (previous.kind === "word") {
-    return TABLE_POSITION_KEYWORDS.has(previous.value.toUpperCase());
-  }
-  if (previous.kind === "punct" && previous.value === ",") {
-    for (let cursor = index - 2; cursor >= 0; cursor -= 1) {
-      const candidate = tokens[cursor];
-      if (candidate?.kind === "punct" && candidate.value === ";") return false;
-      if (candidate?.kind !== "word") continue;
-      const word = candidate.value.toUpperCase();
-      if (word === "FROM" || word === "JOIN") return true;
-      if (FROM_LIST_ENDERS.has(word)) return false;
+function findDependencies(
+  sqlite: Database.Database,
+  rows: readonly SchemaObjectRow[],
+): SchemaDependencies {
+  const dependencies = new Map<string, Set<string>>();
+  const views = rows.filter((row) => row.type === "view");
+  const triggers = new Map(
+    rows
+      .filter((row) => row.type === "trigger")
+      .map((row) => [row.name.toLowerCase(), row]),
+  );
+  const tables = rows.filter((row) => row.type === "table" && row.sql !== null);
+  if (views.length === 0 && triggers.size === 0) return dependencies;
+  const everyTable = new Set(tables.map((table) => table.name.toLowerCase()));
+  const record = (object: string, table: string) => {
+    const set = dependencies.get(object) ?? new Set<string>();
+    set.add(table);
+    dependencies.set(object, set);
+  };
+  const viewIsBroken = (probe: Database.Database, name: string): boolean => {
+    try {
+      probe.prepare(`SELECT * FROM ${quoteIdentifier(name)} LIMIT 0`).all();
+      return false;
+    } catch {
+      return true;
     }
-  }
-  return false;
-}
-
-function referencedNames(row: SchemaObjectRow, index: SchemaIndex): string[] {
-  const names = new Set<string>();
-  const tokens = tokenize(row.sql ?? "");
-  for (const [position, token] of tokens.entries()) {
-    if (
-      token.kind !== "word" &&
-      token.kind !== "quoted" &&
-      !(token.kind === "string" && isTablePosition(tokens, position))
-    ) {
-      continue;
+  };
+  const probe = new Database(sqlite.serialize());
+  try {
+    probe.pragma("foreign_keys = OFF");
+    probe.exec("CREATE TABLE __guard_probe (id)");
+    const renameProbe = (): string | undefined => {
+      try {
+        probe.exec("ALTER TABLE __guard_probe RENAME TO __guard_probe2");
+        probe.exec("ALTER TABLE __guard_probe2 RENAME TO __guard_probe");
+        return undefined;
+      } catch (error) {
+        const broken = brokenObjectName(error);
+        if (broken === undefined) {
+          throw new MigrationGuardError(
+            `Could not read the schema dependencies: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+        return broken;
+      }
+    };
+    const dropBroken = (name: string): void => {
+      const view = views.find((row) => row.name.toLowerCase() === name);
+      const trigger = triggers.get(name);
+      if (view !== undefined) {
+        probe.exec(`DROP VIEW IF EXISTS ${quoteIdentifier(view.name)}`);
+      } else if (trigger !== undefined) {
+        probe.exec(`DROP TRIGGER IF EXISTS ${quoteIdentifier(trigger.name)}`);
+      } else {
+        throw new MigrationGuardError(
+          `Could not attribute the broken schema object ${name}`,
+        );
+      }
+    };
+    const unanalyzable = new Set<string>();
+    for (const view of views) {
+      if (viewIsBroken(probe, view.name)) {
+        unanalyzable.add(view.name.toLowerCase());
+        dropBroken(view.name.toLowerCase());
+      }
     }
-    const name = token.value.toLowerCase();
-    if (index.tables.has(name) || index.views.has(name)) names.add(name);
+    for (let broken = renameProbe(); broken !== undefined;) {
+      unanalyzable.add(broken);
+      dropBroken(broken);
+      broken = renameProbe();
+    }
+    for (const object of unanalyzable) {
+      dependencies.set(object, new Set(everyTable));
+    }
+    for (const table of tables) {
+      const name = table.name.toLowerCase();
+      probe.exec("BEGIN");
+      try {
+        try {
+          probe.exec(`DROP TABLE ${quoteIdentifier(table.name)}`);
+        } catch {
+          continue;
+        }
+        for (const view of views) {
+          if (
+            unanalyzable.has(view.name.toLowerCase()) ||
+            !viewIsBroken(probe, view.name)
+          ) {
+            continue;
+          }
+          record(view.name.toLowerCase(), name);
+          probe.exec(`DROP VIEW ${quoteIdentifier(view.name)}`);
+        }
+        for (let broken = renameProbe(); broken !== undefined;) {
+          record(broken, name);
+          dropBroken(broken);
+          broken = renameProbe();
+        }
+      } finally {
+        probe.exec("ROLLBACK");
+      }
+    }
+  } finally {
+    probe.close();
   }
-  return [...names];
-}
-
-function baseTables(
-  name: string,
-  index: SchemaIndex,
-  visited: Set<string>,
-  into: Set<string>,
-): void {
-  if (index.tables.has(name)) {
-    into.add(name);
-    return;
-  }
-  const view = index.views.get(name);
-  if (view === undefined || visited.has(name)) return;
-  visited.add(name);
-  for (const reference of referencedNames(view, index)) {
-    baseTables(reference, index, visited, into);
-  }
+  return dependencies;
 }
 
 function tablesTouchedBy(
   row: SchemaObjectRow,
-  index: SchemaIndex,
+  dependencies: SchemaDependencies,
 ): Set<string> {
   const touched = new Set<string>([row.tbl_name.toLowerCase()]);
-  const visited = new Set<string>();
-  baseTables(row.tbl_name.toLowerCase(), index, visited, touched);
-  if (row.type !== "trigger" && row.type !== "view") return touched;
-  for (const reference of referencedNames(row, index)) {
-    baseTables(reference, index, visited, touched);
+  for (const table of dependencies.get(row.tbl_name.toLowerCase()) ?? []) {
+    touched.add(table);
+  }
+  if (row.type === "trigger" || row.type === "view") {
+    for (const table of dependencies.get(row.name.toLowerCase()) ?? []) {
+      touched.add(table);
+    }
   }
   return touched;
 }
 
 function schemaByTable(sqlite: Database.Database): Map<string, string[]> {
   const rows = readSchemaObjects(sqlite);
-  const index = indexSchema(rows);
+  const dependencies = findDependencies(sqlite, rows);
   const byTable = new Map<string, string[]>();
   for (const row of rows) {
-    for (const table of tablesTouchedBy(row, index)) {
+    for (const table of tablesTouchedBy(row, dependencies)) {
       const lines = byTable.get(table) ?? [];
       lines.push(`${row.name}|${collapseWhitespace(row.sql)}`);
       byTable.set(table, lines);
@@ -430,10 +471,10 @@ export function expandWithForeignKeyNeighbours(
     if (alteredSet.has(parent)) guarded.add(child);
   }
   const rows = readSchemaObjects(sqlite);
-  const index = indexSchema(rows);
+  const dependencies = findDependencies(sqlite, rows);
   for (const row of rows) {
     if (row.type !== "trigger" && row.type !== "view") continue;
-    const touched = tablesTouchedBy(row, index);
+    const touched = tablesTouchedBy(row, dependencies);
     if ([...touched].some((table) => alteredSet.has(table))) {
       for (const table of touched) guarded.add(table);
     }

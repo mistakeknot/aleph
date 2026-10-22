@@ -224,7 +224,7 @@ describe("reference extraction", () => {
 
   it("follows a view chain through three levels and a trigger on a view", () => {
     const { after, before } = schemas(
-      "CREATE VIEW v1 AS SELECT id FROM c; CREATE VIEW v2 AS SELECT id FROM v1; CREATE VIEW v3 AS SELECT id FROM v2 JOIN a; CREATE TRIGGER t INSTEAD OF INSERT ON v3 BEGIN INSERT INTO d (id) VALUES (new.id); END;",
+      "CREATE VIEW v1 AS SELECT id FROM c; CREATE VIEW v2 AS SELECT id FROM v1; CREATE VIEW v3 AS SELECT v2.id FROM v2 JOIN a; CREATE TRIGGER t INSTEAD OF INSERT ON v3 BEGIN INSERT INTO d (id) VALUES (new.id); END;",
     );
     try {
       const expected = ["a", "c", "d", "v1", "v2", "v3"];
@@ -241,13 +241,16 @@ describe("reference extraction", () => {
     }
   });
 
-  it("terminates on a view that names itself", () => {
+  it("treats a view SQLite cannot resolve as touching every table", () => {
     const { after, before } = schemas(
       "CREATE VIEW loop AS SELECT id FROM b WHERE id NOT IN (SELECT id FROM loop2); CREATE VIEW loop2 AS SELECT id FROM loop;",
     );
     try {
       expect(expandWithForeignKeyNeighbours(after, ["b"])).toEqual([
+        "a",
         "b",
+        "c",
+        "d",
         "loop",
         "loop2",
       ]);
@@ -328,6 +331,52 @@ describe("reference extraction", () => {
     );
     try {
       expect(computeAlteredTables(before, after)).toEqual(["a", "c"]);
+    } finally {
+      before.close();
+      after.close();
+    }
+  });
+
+  const triggerOn = (body: string) =>
+    `CREATE TRIGGER a_log AFTER INSERT ON a BEGIN ${body} END;`;
+
+  it.each([
+    "UPDATE OR IGNORE 'b' SET id = id;",
+    "UPDATE OR REPLACE 'b' SET id = id;",
+    "UPDATE OR ABORT 'b' SET id = id;",
+    "UPDATE OR FAIL 'b' SET id = id;",
+    "UPDATE OR ROLLBACK 'b' SET id = id;",
+    "INSERT INTO d SELECT 1 FROM ('b');",
+    "INSERT INTO d SELECT 1 FROM c JOIN ('b');",
+    "INSERT INTO d SELECT 1 FROM c, ('b');",
+    "INSERT INTO d SELECT 1 FROM (SELECT 1) q, 'b';",
+    "INSERT INTO d SELECT 1 FROM c JOIN c AS c2 ON c.id = c2.id, 'b';",
+    "INSERT INTO d SELECT 1 FROM c JOIN c AS c2 USING (id), 'b';",
+    "INSERT INTO d SELECT 1 FROM (SELECT 1 WHERE 1), 'b';",
+  ])(
+    "sees a table the trigger names in a position SQLite resolves: %s",
+    (body) => {
+      const { before, after } = schemas(triggerOn(body));
+      try {
+        expect(expandWithForeignKeyNeighbours(after, ["b"])).toContain("a");
+        expect(computeAlteredTables(before, after)).toContain("b");
+      } finally {
+        before.close();
+        after.close();
+      }
+    },
+  );
+
+  it.each([
+    "INSERT INTO d SELECT 1 FROM json_each(json_array('a', 'b'));",
+    "INSERT INTO d SELECT 1 WHERE new.id IS DISTINCT FROM 'b';",
+    "INSERT INTO d SELECT 1 FROM c JOIN c AS c2 ON 'b';",
+    "INSERT INTO d SELECT 1 WHERE new.id IS NOT DISTINCT FROM 'b';",
+  ])("ignores a literal that only looks like a table: %s", (body) => {
+    const { before, after } = schemas(triggerOn(body));
+    try {
+      expect(expandWithForeignKeyNeighbours(after, ["b"])).not.toContain("a");
+      expect(computeAlteredTables(before, after)).not.toContain("b");
     } finally {
       before.close();
       after.close();
@@ -532,6 +581,30 @@ describe("scanRebuiltTables", () => {
         "DROP TABLE temp.a; DROP TABLE main.b; ALTER TABLE temp.c RENAME TO d; ALTER TABLE e RENAME TO temp_f;",
       ),
     ).toEqual(["b", "e", "temp_f"]);
+  });
+
+  it.each([
+    "CREATE TEMP TABLE __new_b (id); DROP TABLE __new_b;",
+    "CREATE TEMP TABLE __new_b (id); ALTER TABLE __new_b RENAME TO c;",
+    "CREATE TEMP TABLE t (id); ALTER TABLE t RENAME TO b; DROP TABLE b;",
+    "CREATE TEMPORARY TABLE IF NOT EXISTS b (id); DROP TABLE b;",
+    "CREATE TEMP TABLE b (id); ALTER TABLE b RENAME TO c; ALTER TABLE c ADD COLUMN x;",
+  ])("keeps a temp table's later statements out of main: %s", (sql) => {
+    expect(scanRebuiltTables(sql)).toEqual([]);
+  });
+
+  it("sees the main table again once the temp one is dropped", () => {
+    expect(
+      scanRebuiltTables(
+        "CREATE TEMP TABLE b (id); DROP TABLE b; DROP TABLE b;",
+      ),
+    ).toEqual(["b"]);
+  });
+
+  it("still sees an explicit main reference to a name used by a temp table", () => {
+    expect(
+      scanRebuiltTables("CREATE TEMP TABLE b (id); DROP TABLE main.b;"),
+    ).toEqual(["b"]);
   });
 
   it("returns each table once, lower case and sorted", () => {
