@@ -202,6 +202,7 @@ interface ChildResult {
 interface StartedChild {
   child: ChildProcess;
   result: Promise<ChildResult>;
+  closed: Promise<void>;
 }
 
 function startChild(
@@ -231,31 +232,31 @@ function startChild(
   let stderr = "";
   child.stdout.on("data", (chunk: Buffer) => (stdout += chunk.toString()));
   child.stderr.on("data", (chunk: Buffer) => (stderr += chunk.toString()));
-  const timer = setTimeout(() => child.kill("SIGKILL"), TIMEOUT - 30_000);
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    child.kill("SIGKILL");
+  }, TIMEOUT - 30_000);
+  let markClosed: () => void = () => undefined;
+  const closed = new Promise<void>((resolveClosed) => {
+    markClosed = resolveClosed;
+  });
   const result = new Promise<ChildResult>((resolveChild, reject) => {
-    child.once("error", reject);
+    child.once("error", (error) => {
+      clearTimeout(timer);
+      markClosed();
+      reject(error);
+    });
     child.once("close", (code, signal) => {
       clearTimeout(timer);
-      resolveChild({ code, signal, stdout, stderr });
+      markClosed();
+      if (timedOut) reject(new Error(`Child timed out: ${stderr}`));
+      else resolveChild({ code, signal, stdout, stderr });
     });
   });
-  const entry = {
-    child,
-    closed: result.then(
-      () => undefined,
-      () => undefined,
-    ),
-  };
-  liveChildren.add(entry);
-  return { child, result };
-}
-
-function runChild(
-  path: string,
-  point: string,
-  alephFolder = sourceFolders.alephFolder,
-): Promise<ChildResult> {
-  return startChild(path, point, {}, alephFolder).result;
+  result.catch(() => undefined);
+  liveChildren.add({ child, closed });
+  return { child, result, closed };
 }
 
 function delay(ms: number): Promise<void> {
@@ -718,20 +719,34 @@ function connectChildren(raw: Database.Database): string[] {
   return connected;
 }
 
-function childIdentities(
-  raw: Database.Database,
-  columns: string[],
-): Record<string, unknown> {
-  const identities: Record<string, unknown> = {};
+type ChildRows = Record<string, Array<Record<string, unknown>>>;
+
+function childRows(raw: Database.Database, columns: string[]): ChildRows {
+  const rows: ChildRows = {};
   for (const column of columns) {
     const [table, from] = column.split(".");
-    identities[column] = raw
+    rows[column] = raw
       .prepare(
-        `SELECT c.${JSON.stringify(from)} AS parent, count(*) AS n FROM ${JSON.stringify(table)} AS c JOIN threads AS p ON p.id = c.${JSON.stringify(from)} GROUP BY c.${JSON.stringify(from)} ORDER BY 1`,
+        `SELECT c.* FROM ${JSON.stringify(table)} AS c JOIN threads AS p ON p.id = c.${JSON.stringify(from)}`,
       )
-      .all();
+      .all() as Array<Record<string, unknown>>;
   }
-  return identities;
+  return rows;
+}
+
+function survivingChildRows(before: ChildRows, after: ChildRows): string[][] {
+  return [before, after].map((rows) =>
+    Object.keys(before).flatMap((column) => {
+      const kept = Object.keys(before[column]?.[0] ?? {}).filter((name) =>
+        (after[column] ?? []).every((row) => name in row),
+      );
+      return (rows[column] ?? [])
+        .map((row) =>
+          JSON.stringify([column, kept.map((name) => [name, row[name]])]),
+        )
+        .sort();
+    }),
+  );
 }
 
 describe("foreign keys stay enforced across the upgrade", () => {
@@ -742,9 +757,8 @@ describe("foreign keys stay enforced across the upgrade", () => {
       const columns = connectChildren(db.$client);
       expect(columns.length).toBeGreaterThan(10);
       db.$client.pragma("foreign_keys = ON");
-      const identitiesBefore = childIdentities(db.$client, columns);
-      for (const column of columns)
-        expect(identitiesBefore[column]).not.toEqual([]);
+      const rowsBefore = childRows(db.$client, columns);
+      for (const column of columns) expect(rowsBefore[column]).not.toEqual([]);
       const threadsBefore = db.$client
         .prepare("SELECT id FROM threads ORDER BY id")
         .all();
@@ -756,7 +770,12 @@ describe("foreign keys stay enforced across the upgrade", () => {
       expect(
         db.$client.prepare("SELECT id FROM threads ORDER BY id").all(),
       ).toEqual(threadsBefore);
-      expect(childIdentities(db.$client, columns)).toEqual(identitiesBefore);
+      const rowsAfter = childRows(db.$client, columns);
+      const [projectedBefore, projectedAfter] = survivingChildRows(
+        rowsBefore,
+        rowsAfter,
+      );
+      expect(projectedAfter).toEqual(projectedBefore);
       expect(foreignKeyViolations(db)).toEqual(violations);
     },
     TIMEOUT,
@@ -808,8 +827,12 @@ describe("a migration killed in another process", () => {
       const referenceDb = track(createConnection(reference));
       migrate(referenceDb);
 
-      const killed = await runChild(path, "mid-transaction");
+      const marker = join(tempDir(), "died");
+      const killed = await startChild(path, "mid-transaction", {
+        BB_DIE_MARKER: marker,
+      }).result;
       expect(killed.signal).toBe("SIGKILL");
+      expect(existsSync(marker)).toBe(true);
       expect(killed.stdout).not.toContain("migrated");
 
       expect(strictDiff(before, describeFile(path))).toEqual([]);
@@ -834,8 +857,12 @@ describe("a migration killed in another process", () => {
       const referenceDb = track(createConnection(reference));
       migrate(referenceDb);
 
-      const killed = await runChild(path, "after-backup-finalized");
+      const marker = join(tempDir(), "died");
+      const killed = await startChild(path, "after-backup-finalized", {
+        BB_DIE_MARKER: marker,
+      }).result;
       expect(killed.signal).toBe("SIGKILL");
+      expect(existsSync(marker)).toBe(true);
 
       const db = track(createConnection(path));
       const reports: unknown[] = [];
@@ -866,10 +893,11 @@ describe("a migration killed in another process", () => {
         children = [0, 1].map((index) =>
           startChild(path, "none", {
             BB_READY_FILE: join(barrier, `ready-${index}`),
+            BB_BEFORE_MIGRATE_FILE: join(barrier, `go-${index}`),
           }),
         );
         await Promise.all(
-          [0, 1].map((index) => waitForFile(join(barrier, `ready-${index}`))),
+          [0, 1].map((index) => waitForFile(join(barrier, `go-${index}`))),
         );
         await delay(2000);
         for (const { child } of children) {

@@ -12,6 +12,8 @@ if (
   throw new Error("usage: migrate-child <path> <point> <upstream> <aleph>");
 
 function dieNow(): number {
+  if (process.env.BB_DIE_MARKER !== undefined)
+    writeFileSync(process.env.BB_DIE_MARKER, String(process.pid));
   process.kill(process.pid, "SIGKILL");
   return 0;
 }
@@ -25,6 +27,8 @@ if (point === "mid-transaction") {
 }
 if (process.env.BB_READY_FILE !== undefined)
   writeFileSync(process.env.BB_READY_FILE, String(process.pid));
+if (process.env.BB_BEFORE_MIGRATE_FILE !== undefined)
+  writeFileSync(process.env.BB_BEFORE_MIGRATE_FILE, String(process.pid));
 migrateWithFolders(
   db,
   { upstreamFolder, alephFolder },
