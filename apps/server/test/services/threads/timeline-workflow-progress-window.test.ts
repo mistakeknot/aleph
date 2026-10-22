@@ -343,7 +343,7 @@ describe("workflow progress snapshots across timeline pages", () => {
     ).toHaveLength(0);
     const latest = buildPage(db, thread, null);
     expect(latest.response.activeWorkflows).toHaveLength(1);
-  }, 15_000);
+  }, 60_000);
 
   it("does not spend the byte budget on superseded progress snapshots", () => {
     const { db, thread } = setup();

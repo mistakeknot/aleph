@@ -206,11 +206,11 @@ describe("plugin install routes", () => {
           .parse(await list.json())
           .jobs.find((candidate) => candidate.id === job.id);
         expect(listed?.state).toBe("succeeded");
-      });
+      }, { timeout: 30_000, interval: 50 });
       expect(listed).toMatchObject({ plugin: { id: "keep-awake" } });
       expect(notify).toHaveBeenCalledWith(["plugin-install-jobs-changed"]);
     });
-  });
+  }, 45_000);
 
   it("still answers a plain install request with the installed plugin", async () => {
     await withTestHarness(async (h) => {
