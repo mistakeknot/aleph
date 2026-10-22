@@ -17,7 +17,20 @@ import {
   type ExpectedCompatPair,
   type MigrationLedgerHow,
 } from "./migration-ledger.js";
+import {
+  createMigrationBackup,
+  finalizeMigrationBackup,
+  type BackupFinalization,
+  type MigrationBackup,
+} from "./migration-backup.js";
 import { splitMigrationStatements } from "./migration-guard.js";
+import {
+  acquireInUseLock,
+  acquireMigratingLock,
+  isLockableDatabase,
+  MigrationLockTimeout,
+  waitWhileMigrating,
+} from "./migration-lock.js";
 import type { MigrationPlanFolders } from "./migration-plan.js";
 import {
   computeMigrationState,
@@ -96,6 +109,8 @@ export interface MigrationWarningLogger {
 
 export interface MigrateOptions {
   logger?: MigrationWarningLogger;
+  onBackup?: (backup: BackupFinalization) => void;
+  lockWaitCapMs?: number;
 }
 
 interface AppliedMigrationRow {
@@ -1125,6 +1140,30 @@ function readMigrationState(
   }
 }
 
+function readMigrationStateWaiting(
+  sqlite: Database.Database,
+  aligned: AlignedMigrationPlan,
+  options: MigrateOptions,
+): MigrationState {
+  try {
+    return readMigrationState(sqlite, aligned);
+  } catch (error) {
+    if (
+      error instanceof MigrationLockTimeout ||
+      !(
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        error.code === "SQLITE_BUSY"
+      )
+    ) {
+      throw error;
+    }
+    waitWhileMigrating(sqlite, options.lockWaitCapMs);
+    return readMigrationState(sqlite, aligned);
+  }
+}
+
 function validateAppliedMigrationHistory(
   db: DbConnection,
   aligned: AlignedMigrationPlan,
@@ -1167,30 +1206,51 @@ export function migrateWithFolders(
     );
   }
   const aligned = loadAlignedMigrationPlan(folders);
+  acquireInUseLock(sqlite);
 
+  let backup: MigrationBackup | null = null;
   sqlite.pragma("foreign_keys = OFF");
   try {
     assertNoDuplicatePendingInteractionProviderRequests(db);
     if (
-      readMigrationState(sqlite, aligned).needsWrite ||
+      readMigrationStateWaiting(sqlite, aligned, options).needsWrite ||
       keepAwakeSeedPending(db)
     ) {
-      sqlite.exec("BEGIN IMMEDIATE");
+      const migrating = acquireMigratingLock(sqlite, {
+        waitCapMs: options.lockWaitCapMs,
+      });
       try {
-        const state = computeMigrationState(sqlite, aligned);
-        if (state.needsWrite || keepAwakeSeedPending(db)) {
-          applyMigrationState(db, aligned, state);
+        sqlite.exec("BEGIN IMMEDIATE");
+        try {
+          const state = computeMigrationState(sqlite, aligned);
+          if (
+            state.needsWrite &&
+            state.existing &&
+            isLockableDatabase(sqlite)
+          ) {
+            migrating?.setPhase("backup");
+            backup = createMigrationBackup(sqlite.name);
+          }
+          migrating?.setPhase("migrating");
+          if (state.needsWrite || keepAwakeSeedPending(db)) {
+            applyMigrationState(db, aligned, state);
+          }
+          sqlite.exec("COMMIT");
+        } catch (error) {
+          if (sqlite.inTransaction) sqlite.exec("ROLLBACK");
+          throw error;
         }
-        sqlite.exec("COMMIT");
-      } catch (error) {
-        if (sqlite.inTransaction) sqlite.exec("ROLLBACK");
-        throw error;
+      } finally {
+        migrating?.release();
       }
     }
   } finally {
     sqlite.pragma("foreign_keys = ON");
   }
 
+  if (backup !== null) {
+    options.onBackup?.(finalizeMigrationBackup(sqlite.name, backup));
+  }
   warnAboutFutureAppliedMigrations(db, options);
   validateAppliedMigrationHistory(db, aligned);
   validatePendingInteractionsSchema(db);

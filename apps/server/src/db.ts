@@ -42,7 +42,16 @@ export function initDb(
         "Cannot migrate legacy automations without dataDir and logger; refusing to drop kernel automation rows before exporting them for the automations plugin",
       );
     }
-    migrate(db, { logger: options.logger });
+    migrate(db, {
+      logger: options.logger,
+      onBackup: (backup) =>
+        options.logger?.info(
+          { backup },
+          backup.status === "duplicate-removed"
+            ? "Database migration backup duplicated an earlier backup and was removed"
+            : "Database migration backup written; remove old pre-ns backups by hand when no longer needed",
+        ),
+    });
     ensurePersonalProject(db);
   } catch (error) {
     db.$client.close();
