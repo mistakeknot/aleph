@@ -18,6 +18,8 @@ import {
   type DbNotifier,
   type DbTransaction,
 } from "@bb/db";
+import { ensureThreadEventsHot } from "../threads/event-cold-tier/service.js";
+import { pinThreadHistory } from "../threads/event-cold-tier/pins.js";
 import {
   isApprovalPendingInteractionPayload,
   isPluginPendingInteractionPayload,
@@ -502,7 +504,23 @@ export class PendingInteractionLifecycle {
     };
   }
 
-  requestPluginInteraction(
+  async requestPluginInteraction(
+    args: RequestPluginInteractionArgs,
+  ): Promise<PluginInteractionResult> {
+    const releaseHistoryPin = pinThreadHistory(args.threadId);
+    try {
+      const thread = getThread(this.deps.db, args.threadId);
+      if (!thread || thread.deletedAt !== null) {
+        throw new ApiError(404, "invalid_request", "Thread does not exist");
+      }
+      await ensureThreadEventsHot(this.deps, args.threadId);
+      return this.requestHotPluginInteraction(args);
+    } finally {
+      releaseHistoryPin();
+    }
+  }
+
+  private requestHotPluginInteraction(
     args: RequestPluginInteractionArgs,
   ): Promise<PluginInteractionResult> {
     const thread = getThread(this.deps.db, args.threadId);

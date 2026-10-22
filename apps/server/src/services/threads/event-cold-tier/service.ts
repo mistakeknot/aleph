@@ -10,6 +10,7 @@ import {
   estimateColdMoveSize,
   findColdEligibilityFailure,
   getEventColdSegment,
+  getThread,
   getThreadEventColdStateRow,
   getThreadEventHighWaterSequence,
   hashColdEventIds,
@@ -322,15 +323,35 @@ export function assertSelectionPinned(
   }
 }
 
+export interface HotSelectionOptions {
+  deletedFastPath?: boolean;
+}
+
+function isColdDeletedThread(db: DbConnection, threadId: string): boolean {
+  return (
+    (getThread(db, threadId)?.deletedAt ?? null) !== null &&
+    isThreadEventsCold(db, threadId)
+  );
+}
+
 export async function withHotSelectedThreadHistories<T>(
   deps: EventColdTierDeps,
   select: () => readonly string[],
   run: (pinned: ReadonlySet<string>) => T | Promise<T>,
+  options: HotSelectionOptions = {},
 ): Promise<T> {
   for (let attempt = 1; ; attempt += 1) {
     const selected = [...new Set(select())].sort();
-    const release = await pinAndHydrateThreadHistories(deps, selected);
+    const release = pinThreadHistories(selected);
     try {
+      await ensureThreadsEventsHot(
+        deps,
+        options.deletedFastPath === true
+          ? selected.filter(
+              (threadId) => !isColdDeletedThread(deps.db, threadId),
+            )
+          : selected,
+      );
       return await run(new Set(selected));
     } catch (error) {
       if (
@@ -1148,4 +1169,3 @@ export async function runEventColdTierSweep(
 export function isThreadHistoryPinned(threadId: string): boolean {
   return getThreadHistoryPinCount(threadId) > 0;
 }
-

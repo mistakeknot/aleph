@@ -2,6 +2,7 @@ import { retiredUserPostsMode } from "./retired-user-posts.js";
 import {
   abortTransferOperation,
   getLatestThreadSequence,
+  isThreadEventsCold,
   claimNextQueuedThreadMessageGroup,
   claimQueuedThreadMessageGroup,
   createQueuedThreadMessageInTransaction,
@@ -137,6 +138,7 @@ import {
 } from "../lib/lifecycle-api-errors.js";
 import { resolvePromptAttachmentReferences } from "../projects/attachments.js";
 import { requestQueuedMessageDispatch } from "./queued-message-dispatch.js";
+import { pinThreadHistory } from "./event-cold-tier/pins.js";
 import { assertThreadHostAcceptsWork } from "./thread-host-admission.js";
 import {
   ThreadContextClearInProgressError,
@@ -1180,6 +1182,31 @@ async function sendClaimedQueuedMessageForThread(
   deps: LoggedPendingInteractionWorkSessionDeps,
   args: SendClaimedQueuedMessageForThreadArgs,
 ): Promise<ThreadQueuedMessage> {
+  const releasePin = pinThreadHistory(args.thread.id);
+  try {
+    const thread = getThread(deps.db, args.thread.id);
+    if (
+      !thread ||
+      thread.archivedAt !== null ||
+      thread.deletedAt !== null ||
+      isThreadEventsCold(deps.db, thread.id)
+    ) {
+      await releaseQueuedMessageClaims(deps, args.queuedMessages);
+      return toThreadQueuedMessage(args.queuedMessages[0]!);
+    }
+    return await sendPinnedClaimedQueuedMessageForThread(deps, {
+      ...args,
+      thread,
+    });
+  } finally {
+    releasePin();
+  }
+}
+
+async function sendPinnedClaimedQueuedMessageForThread(
+  deps: LoggedPendingInteractionWorkSessionDeps,
+  args: SendClaimedQueuedMessageForThreadArgs,
+): Promise<ThreadQueuedMessage> {
   const notice = await sendClaimedSystemNotice(deps, args);
   if (notice) {
     return notice;
@@ -1276,6 +1303,22 @@ function describeCoreWait(waitingOn: QueuedMessageWaitingOn | null): string {
 }
 
 export async function sendQueuedMessage(
+  deps: LoggedPendingInteractionWorkSessionDeps,
+  args: SendQueuedMessageArgs,
+): Promise<ThreadQueuedMessage> {
+  const entryThread = getThread(deps.db, args.threadId);
+  if (entryThread && isThreadEventsCold(deps.db, entryThread.id)) {
+    throwThreadNotWritable(entryThread, "archived", "Thread is archived");
+  }
+  const releasePin = pinThreadHistory(args.threadId);
+  try {
+    return await sendPinnedQueuedMessage(deps, args);
+  } finally {
+    releasePin();
+  }
+}
+
+async function sendPinnedQueuedMessage(
   deps: LoggedPendingInteractionWorkSessionDeps,
   args: SendQueuedMessageArgs,
 ): Promise<ThreadQueuedMessage> {

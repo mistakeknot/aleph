@@ -5,6 +5,7 @@ import { waitForMachineMaintenance } from "../machines/provider-orchestration.js
 import {
   getQueuedThreadMessage,
   getThread,
+  isThreadEventsCold,
   listDueScheduledQueuedThreadMessages,
   listIdleThreadsWithQueuedMessages,
   listQueuedThreadMessagePluginWaitRefs,
@@ -16,6 +17,7 @@ import {
 import {
   QUEUED_MESSAGE_PLUGIN_WAIT_HOLDER_PREFIX,
   type QueuedMessageWaitingOnKind,
+  type Thread,
 } from "@bb/domain";
 import type { LoggedPendingInteractionWorkSessionDeps } from "../../types.js";
 import { deferAfterResponse } from "../lib/response-deferral.js";
@@ -26,6 +28,7 @@ import {
 import { isDispatchRequeuedRecently } from "./dispatch-hooks.js";
 import { recordQueuedMessageDrainFailure } from "./queue-drain-failure.js";
 import { clearQueuedMessageWait } from "./queue-waits.js";
+import { pinThreadHistory } from "./event-cold-tier/pins.js";
 import {
   createAutomaticQueuedMessageGroupEligibility,
   releaseStaleQueuedMessageDispatchClaims,
@@ -410,6 +413,25 @@ async function attemptAutomaticQueuedMessage(
   if (getQueuedThreadMessage(deps.db, row.id) === null) return;
   const thread = getThread(deps.db, row.threadId);
   if (!thread || thread.deletedAt !== null) return;
+  if (isThreadEventsCold(deps.db, thread.id)) return;
+  const releasePin = pinThreadHistory(thread.id);
+  try {
+    await attemptPinnedAutomaticQueuedMessage(deps, row, thread, args);
+  } finally {
+    releasePin();
+  }
+}
+
+async function attemptPinnedAutomaticQueuedMessage(
+  deps: QueueDispatchDeps,
+  row: QueuedMessageDispatchRef,
+  thread: Thread,
+  args: {
+    now: number;
+    respectRequeuePacing: boolean;
+    retryingFailure: boolean;
+  },
+): Promise<void> {
   try {
     await sendQueuedMessage(deps, {
       claimPolicy: {

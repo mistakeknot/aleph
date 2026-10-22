@@ -18,6 +18,7 @@ import {
 } from "../schema.js";
 import { bumpThreadEventRewriteGeneration } from "./event-rewrite-generation.js";
 import { isThreadMaintenanceBusy } from "./maintenance.js";
+import { isThreadEventsCold, threadEventsNotCold } from "./event-cold-tier.js";
 import {
   getHighWaterMarks,
   pruneContextWindowUsageEventsInTransaction,
@@ -102,7 +103,10 @@ export function getNextThreadPruningPolicy(
 }
 
 function idleWork() {
-  return not(isThreadMaintenanceBusy(threadPruningWork.threadId));
+  return and(
+    not(isThreadMaintenanceBusy(threadPruningWork.threadId)),
+    threadEventsNotCold(threadPruningWork.threadId),
+  );
 }
 
 function isThreadBusy(db: DbQueryConnection, threadId: string): boolean {
@@ -261,6 +265,8 @@ function advanceThreadPruningTransaction(
         if (!thread) {
           action = "missing-thread";
         } else if (threadScope === undefined && isThreadBusy(tx, threadId)) {
+          action = "thread-deferred";
+        } else if (isThreadEventsCold(tx, threadId)) {
           action = "thread-deferred";
         } else if (policy === "rate-limits") {
           const batch = pruneRateLimitSnapshotWindow(tx, {

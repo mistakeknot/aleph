@@ -4,6 +4,7 @@ import {
   typedRoutes,
   type HostDaemonInternalSchema,
 } from "@bb/host-daemon-contract";
+import { withHotThreadHistory } from "../services/threads/event-cold-tier/service.js";
 import { formatPendingInteractionSubjectDetailLines } from "@bb/core-ui";
 import type { PendingInteraction } from "@bb/domain";
 import {
@@ -164,51 +165,53 @@ export function registerInternalInteractiveRequestRoutes(
         );
       }
 
-      const turnStarted = hasStoredTurnStarted(deps.db, {
-        threadId: payload.interaction.threadId,
-        turnId: payload.interaction.turnId,
-      });
-      if (!turnStarted) {
-        deps.logger.warn(
-          {
-            providerId: payload.interaction.providerId,
-            providerRequestId: payload.interaction.providerRequestId,
-            providerThreadId: payload.interaction.providerThreadId,
-            threadId: payload.interaction.threadId,
-            turnId: payload.interaction.turnId,
-          },
-          "interactive request arrived before turn/started; asking daemon to retry",
-        );
-        throw new ApiError(
-          503,
-          "turn_start_not_ready",
-          "Turn start has not been stored yet; retry interactive request registration",
-          true,
-        );
-      }
+      return withHotThreadHistory(deps, payload.interaction.threadId, () => {
+        const turnStarted = hasStoredTurnStarted(deps.db, {
+          threadId: payload.interaction.threadId,
+          turnId: payload.interaction.turnId,
+        });
+        if (!turnStarted) {
+          deps.logger.warn(
+            {
+              providerId: payload.interaction.providerId,
+              providerRequestId: payload.interaction.providerRequestId,
+              providerThreadId: payload.interaction.providerThreadId,
+              threadId: payload.interaction.threadId,
+              turnId: payload.interaction.turnId,
+            },
+            "interactive request arrived before turn/started; asking daemon to retry",
+          );
+          throw new ApiError(
+            503,
+            "turn_start_not_ready",
+            "Turn start has not been stored yet; retry interactive request registration",
+            true,
+          );
+        }
 
-      const registered = deps.pendingInteractions.registerPendingInteraction({
-        interaction: payload.interaction,
-      });
-      if (registered.outcome === "rejected") {
+        const registered = deps.pendingInteractions.registerPendingInteraction({
+          interaction: payload.interaction,
+        });
+        if (registered.outcome === "rejected") {
+          return context.json({
+            outcome: "rejected",
+            reason: registered.reason,
+          });
+        }
+        if (registered.outcome === "created") {
+          requestChildThreadNeedsAttentionNotification(deps, {
+            blockerSummary: buildChildThreadBlockerSummary(
+              registered.interaction,
+            ),
+            childThreadId: registered.interaction.threadId,
+          });
+        }
+
         return context.json({
-          outcome: "rejected",
-          reason: registered.reason,
+          outcome: registered.outcome,
+          interactionId: registered.interaction.id,
+          status: registered.interaction.status,
         });
-      }
-      if (registered.outcome === "created") {
-        requestChildThreadNeedsAttentionNotification(deps, {
-          blockerSummary: buildChildThreadBlockerSummary(
-            registered.interaction,
-          ),
-          childThreadId: registered.interaction.threadId,
-        });
-      }
-
-      return context.json({
-        outcome: registered.outcome,
-        interactionId: registered.interaction.id,
-        status: registered.interaction.status,
       });
     },
   );

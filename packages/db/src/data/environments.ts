@@ -14,6 +14,7 @@ import type { DbNotifier } from "../notifier.js";
 import { environments, threads } from "../schema.js";
 import { createEnvironmentId } from "../ids.js";
 import { hostPathContains, hostPathEquals } from "./host-path-sql.js";
+import { assertThreadEventsNotCold } from "./event-cold-tier.js";
 
 type EnvironmentReadConnection = DbConnection | DbTransaction;
 type EnvironmentWriteConnection = DbConnection | DbTransaction;
@@ -527,6 +528,10 @@ export function getPreparingEnvironment(db: EnvironmentWriteConnection, threadId
   return db.select().from(environments).where(eq(environments.ownerThreadId, threadId)).get() ?? null;
 }
 
+function assertNoColdThreadsBoundToEnvironment(db: EnvironmentWriteConnection, environmentId: string): void {
+  assertThreadEventsNotCold(db, db.select({ id: threads.id }).from(threads).where(eq(threads.environmentId, environmentId)).all().map((row) => row.id));
+}
+
 export function reserveEnvironment(db: EnvironmentWriteConnection, input: Omit<typeof environments.$inferInsert, "id" | "createdAt" | "updatedAt">) {
   return db.transaction((tx) => {
     if (input.ownerThreadId == null) throw new Error("Missing environment preparation owner");
@@ -534,6 +539,7 @@ export function reserveEnvironment(db: EnvironmentWriteConnection, input: Omit<t
     const now = Date.now();
     if (existing !== null) {
       if (existing.teardownStatus !== "removed") throw new Error("Previous environment cleanup is incomplete");
+      assertNoColdThreadsBoundToEnvironment(tx, existing.id);
       return tx.update(environments).set({ ...input, path: null, resource: null, claimPath: null, teardownStatus: null, teardownMessage: null, teardownAttempt: 0, retireAt: null, pendingLog: "", updatedAt: now }).where(eq(environments.id, existing.id)).returning().get()!;
     }
     return tx.insert(environments).values({ ...input, id: createEnvironmentId(), createdAt: now, updatedAt: now }).returning().get();
@@ -583,6 +589,7 @@ export function bindEnvironmentPath(db: DbConnection, provisioning: EnvironmentR
     if (existing === undefined || existing.id === current.id) return current;
     if (existing.teardownStatus !== null || (existing.status !== "ready" && existing.status !== "provisioning")) throw new Error("Workspace is not ready or cleanup is still pending");
     if (existing.ownerThreadId !== null) throw new Error("Workspace is still being prepared by another thread");
+    assertNoColdThreadsBoundToEnvironment(tx, existing.id);
     tx.update(environments).set({ ownerThreadId: null, status: "destroyed", teardownStatus: "removed", claimPath: null, resource: null, path: null }).where(eq(environments.id, current.id)).run();
     return tx.update(environments).set({ ownerThreadId: current.ownerThreadId, attempt: current.attempt, status: existing.status === "ready" ? "ready" : current.status, teardownStatus: current.teardownStatus, retireAt: current.retireAt, statusMessage: current.statusMessage, pendingLog: current.pendingLog, claimPath: current.claimPath, environmentProviderId: existing.environmentProviderId ?? current.environmentProviderId, environmentProviderPluginId: existing.environmentProviderId === null ? current.environmentProviderPluginId : existing.environmentProviderPluginId, environmentProviderSelection: existing.environmentProviderId === null ? current.environmentProviderSelection : existing.environmentProviderSelection, environmentProviderInstanceKey: existing.environmentProviderId === null ? current.environmentProviderInstanceKey : existing.environmentProviderInstanceKey }).where(eq(environments.id, existing.id)).returning().get()!;
   }, { behavior: "immediate" });

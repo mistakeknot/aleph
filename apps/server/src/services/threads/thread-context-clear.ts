@@ -13,6 +13,8 @@ import { appendThreadEvent } from "./thread-events.js";
 import { stopThreadForCurrentState } from "./thread-lifecycle.js";
 import { buildThreadStatusChangeMetadata } from "./thread-runtime-display.js";
 import { requestQueuedMessageDispatch } from "./queued-message-dispatch.js";
+import { pinThreadHistory } from "./event-cold-tier/pins.js";
+import { ensureThreadEventsHot } from "./event-cold-tier/service.js";
 
 export async function clearThreadContext(
   deps: LoggedPendingInteractionWorkSessionDeps,
@@ -23,67 +25,84 @@ export async function clearThreadContext(
   },
 ): Promise<void> {
   await withThreadContextClearGuard(args.thread.id, async () => {
-    const thread = getThread(deps.db, args.thread.id);
-    if (!thread) {
-      throw new ApiError(404, "invalid_request", "Thread not found");
+    const releasePin = pinThreadHistory(args.thread.id);
+    try {
+      await clearPinnedThreadContext(deps, args);
+    } finally {
+      releasePin();
     }
-    if (thread.archivedAt !== null || thread.deletedAt !== null) {
-      throw new ApiError(409, "invalid_request", "Thread is not writable");
-    }
-    if (thread.status !== "idle" && thread.status !== "error") {
-      throw new ApiError(
-        409,
-        "invalid_request",
-        "Context can only be cleared when the thread is idle or failed",
-      );
-    }
-    if (
-      deps.pendingInteractions.hasTurnBoundPendingThreadInteraction(thread.id)
-    ) {
-      throw new ApiError(
-        409,
-        "awaiting_user_interaction",
-        "Resolve the pending interaction before clearing context",
-      );
-    }
-
-    await stopThreadForCurrentState(deps, thread, args.environment);
-    const releasedThread = getThread(deps.db, thread.id);
-    if (
-      !releasedThread ||
-      (releasedThread.status !== "idle" && releasedThread.status !== "error")
-    ) {
-      throw new ApiError(
-        409,
-        "invalid_request",
-        "Thread became active while clearing context",
-      );
-    }
-
-    appendThreadEvent(
-      deps,
-      {
-        threadId: releasedThread.id,
-        environmentId: releasedThread.environmentId,
-        type: "system/operation",
-        scope: threadScope(),
-        data: {
-          operation: THREAD_CONTEXT_CLEAR_OPERATION,
-          operationId: createEventId(),
-          status: "completed",
-          message: THREAD_CONTEXT_CLEARED_DETAIL,
-        },
-      },
-      { beforeAppendInTransaction: args.assertDestinationCurrent },
-    );
-    deps.hub.notifyThread(
-      releasedThread.id,
-      ["history-rewritten", "status-changed"],
-      buildThreadStatusChangeMetadata(deps, releasedThread),
-    );
   });
   requestQueuedMessageDispatch(deps, {
     kind: "thread-ready",
     threadId: args.thread.id,
   });
+}
+
+async function clearPinnedThreadContext(
+  deps: LoggedPendingInteractionWorkSessionDeps,
+  args: {
+    environment: Pick<Environment, "hostId" | "id">;
+    thread: Thread;
+    assertDestinationCurrent?: (tx: DbTransaction) => void;
+  },
+): Promise<void> {
+  const thread = getThread(deps.db, args.thread.id);
+  if (!thread) {
+    throw new ApiError(404, "invalid_request", "Thread not found");
+  }
+  if (thread.archivedAt !== null || thread.deletedAt !== null) {
+    throw new ApiError(409, "invalid_request", "Thread is not writable");
+  }
+  await ensureThreadEventsHot(deps, thread.id);
+  if (thread.status !== "idle" && thread.status !== "error") {
+    throw new ApiError(
+      409,
+      "invalid_request",
+      "Context can only be cleared when the thread is idle or failed",
+    );
+  }
+  if (
+    deps.pendingInteractions.hasTurnBoundPendingThreadInteraction(thread.id)
+  ) {
+    throw new ApiError(
+      409,
+      "awaiting_user_interaction",
+      "Resolve the pending interaction before clearing context",
+    );
+  }
+
+  await stopThreadForCurrentState(deps, thread, args.environment);
+  const releasedThread = getThread(deps.db, thread.id);
+  if (
+    !releasedThread ||
+    (releasedThread.status !== "idle" && releasedThread.status !== "error")
+  ) {
+    throw new ApiError(
+      409,
+      "invalid_request",
+      "Thread became active while clearing context",
+    );
+  }
+
+  appendThreadEvent(
+    deps,
+    {
+      threadId: releasedThread.id,
+      environmentId: releasedThread.environmentId,
+      type: "system/operation",
+      scope: threadScope(),
+      data: {
+        operation: THREAD_CONTEXT_CLEAR_OPERATION,
+        operationId: createEventId(),
+        status: "completed",
+        message: THREAD_CONTEXT_CLEARED_DETAIL,
+      },
+    },
+    { beforeAppendInTransaction: args.assertDestinationCurrent },
+  );
+  deps.hub.notifyThread(
+    releasedThread.id,
+    ["history-rewritten", "status-changed"],
+    buildThreadStatusChangeMetadata(deps, releasedThread),
+  );
 }

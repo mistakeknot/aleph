@@ -1,6 +1,12 @@
 import { advanceEnvironmentProvisioning } from "../environments/environment-engine.js";
 import { revokeThreadDesktopBrowserControl } from "../desktop-browsers.js";
-import { registerThreadHistoryMoveBlocker } from "./event-cold-tier/service.js";
+import { pinThreadHistories } from "./event-cold-tier/pins.js";
+import {
+  assertSelectionPinned,
+  registerThreadHistoryMoveBlocker,
+  withHotSelectedThreadHistories,
+  withHotThreadHistory,
+} from "./event-cold-tier/service.js";
 import {
   providerEnvironmentHasPendingWork,
   refreshProviderRetirement,
@@ -25,6 +31,7 @@ import {
   getHost,
   getLatestThreadInterruptedReason,
   getThread,
+  isThreadEventsCold,
   listThreadIdsStoppedSinceLastTurnStart,
   listThreadIdsWithLatestHostDaemonRestartInterruption,
   listThreadTurnInterruptionEventStates,
@@ -1112,9 +1119,11 @@ export function settleThreadStorageDeleteCommandResult(
   if (!args.report.ok) {
     return emptyCommandResultSideEffects();
   }
-  settleDanglingBackgroundTasksForStoppedThreadInTransaction(args.deps, {
-    threadId: args.command.threadId,
-  });
+  if (!isThreadEventsCold(args.deps.db, args.command.threadId)) {
+    settleDanglingBackgroundTasksForStoppedThreadInTransaction(args.deps, {
+      threadId: args.command.threadId,
+    });
+  }
   markThreadStorageDeleted(args.deps.db, {
     threadId: args.command.threadId,
   });
@@ -1202,7 +1211,9 @@ export function settleThreadPlanCancelCommandResult(
   if (!args.report.ok || !args.report.result.cancelled) {
     return emptyCommandResultSideEffects();
   }
-  const activeTurnId = getActiveTurnId(args.deps, args.command.threadId);
+  const activeTurnId = isThreadEventsCold(args.deps.db, args.command.threadId)
+    ? null
+    : getActiveTurnId(args.deps, args.command.threadId);
   if (activeTurnId !== null && activeTurnId !== args.command.expectedTurnId) {
     return emptyCommandResultSideEffects();
   }
@@ -1542,6 +1553,15 @@ export function requestThreadStopForCurrentState(
   thread: RequestThreadStopForCurrentStateThread,
   environment: RequestThreadStopForCurrentStateEnvironment | null,
 ): void {
+  if (isThreadEventsCold(deps.db, thread.id)) {
+    if (hasLiveThreadStartInFlight(thread.id)) {
+      deps.logger.error(
+        { threadId: thread.id },
+        "Cold thread has a start in flight; stop request skipped",
+      );
+    }
+    return;
+  }
   if (hasLiveThreadRuntime(deps, thread)) {
     if (environment === null) {
       return;
@@ -1565,6 +1585,17 @@ export function requestThreadStopForCurrentState(
 }
 
 export async function stopThreadForCurrentState(
+  deps: RequestThreadStopForCurrentStateDeps,
+  thread: RequestThreadStopForCurrentStateThread,
+  environment: RequestThreadStopForCurrentStateEnvironment | null,
+  options?: { requireStopped: true },
+): Promise<void> {
+  await withHotThreadHistory(deps, thread.id, () =>
+    stopHotThreadForCurrentState(deps, thread, environment, options),
+  );
+}
+
+async function stopHotThreadForCurrentState(
   deps: RequestThreadStopForCurrentStateDeps,
   thread: RequestThreadStopForCurrentStateThread,
   environment: RequestThreadStopForCurrentStateEnvironment | null,
@@ -1783,6 +1814,33 @@ function interruptActiveThreads(
   if (args.threads.length === 0) {
     return { threads: [] };
   }
+  const releaseHistoryPins = pinThreadHistories(
+    args.threads.map((thread) => thread.threadId),
+  );
+  try {
+    const hotThreads = args.threads.filter((thread) => {
+      if (!isThreadEventsCold(deps.db, thread.threadId)) {
+        return true;
+      }
+      deps.logger.error(
+        { threadId: thread.threadId, reason: args.reason },
+        "Cold thread selected for interruption; skipped",
+      );
+      return false;
+    });
+    return interruptHotActiveThreads(deps, { ...args, threads: hotThreads });
+  } finally {
+    releaseHistoryPins();
+  }
+}
+
+function interruptHotActiveThreads(
+  deps: LoggedPendingInteractionWorkSessionDeps,
+  args: InterruptActiveThreadsArgs,
+): InterruptActiveThreadsResult {
+  if (args.threads.length === 0) {
+    return { threads: [] };
+  }
 
   const results: InterruptedActiveThreadResult[] = [];
   const threadIds = args.threads.map((thread) => thread.threadId);
@@ -1987,6 +2045,13 @@ export function finalizeStoppedThreadInTransaction(
   if (!currentThread) {
     return;
   }
+  if (
+    currentThread.deletedAt !== null &&
+    isThreadEventsCold(deps.db, currentThread.id)
+  ) {
+    finalizeDeletedThreadInTransaction(deps, currentThread);
+    return;
+  }
 
   const interruptionReason =
     getLatestThreadInterruptedReason(deps.db, {
@@ -2050,35 +2115,51 @@ export function finalizeStoppedThreadInTransaction(
   }
 
   if (finalizedThread.deletedAt !== null) {
-    deps.pendingInteractions.interruptPendingInteractionsForThreadIdsInTransaction(
-      deps,
-      {
-        threadIds: [finalizedThread.id],
-        reason: "thread-deleted",
-      },
-    );
-    abortPluginToolCallsForThreads([finalizedThread.id], "thread-deleted");
-
-    clearThreadProvisionSchedule(finalizedThread.id);
-    if (
-      finalizedThread.environmentId !== null &&
-      finalizedThread.storageDeletedAt === null
-    )
-      return;
-    if (providerEnvironmentHasPendingWork(deps.db, finalizedThread.id)) return;
-    deleteThread(deps.db, deps.hub, finalizedThread.id);
-    if (finalizedThread.environmentId !== null)
-      refreshProviderRetirement(deps, finalizedThread.environmentId);
+    finalizeDeletedThreadInTransaction(deps, finalizedThread);
   }
+}
+
+function finalizeDeletedThreadInTransaction(
+  deps: FinalizeStoppedThreadTransactionDeps,
+  thread: NonNullable<ReturnType<typeof getThread>>,
+): void {
+  deps.pendingInteractions.interruptPendingInteractionsForThreadIdsInTransaction(
+    deps,
+    {
+      threadIds: [thread.id],
+      reason: "thread-deleted",
+    },
+  );
+  abortPluginToolCallsForThreads([thread.id], "thread-deleted");
+
+  clearThreadProvisionSchedule(thread.id);
+  if (thread.environmentId !== null && thread.storageDeletedAt === null) return;
+  if (providerEnvironmentHasPendingWork(deps.db, thread.id)) return;
+  deleteThread(deps.db, deps.hub, thread.id);
+  if (thread.environmentId !== null)
+    refreshProviderRetirement(deps, thread.environmentId);
 }
 
 export async function reconcileDaemonReportedThreads(
   deps: LoggedPendingInteractionWorkSessionDeps,
   args: ReconcileDaemonReportedThreadsArgs,
 ): Promise<void> {
-  const activeThreadIdSet = new Set(args.activeThreadIds);
+  await withHotSelectedThreadHistories(
+    deps,
+    () =>
+      listDaemonReconciliationPendingThreads(deps.db, args).map(
+        (thread) => thread.id,
+      ),
+    (pinned) => reconcileHotDaemonReportedThreads(deps, args, pinned),
+    { deletedFastPath: true },
+  );
+}
 
-  const pendingThreads = deps.db
+function listDaemonReconciliationPendingThreads(
+  db: LoggedPendingInteractionWorkSessionDeps["db"],
+  args: ReconcileDaemonReportedThreadsArgs,
+) {
+  return db
     .select({
       deletedAt: threads.deletedAt,
       environmentId: environments.id,
@@ -2113,6 +2194,19 @@ export async function reconcileDaemonReportedThreads(
       ),
     )
     .all();
+}
+
+function reconcileHotDaemonReportedThreads(
+  deps: LoggedPendingInteractionWorkSessionDeps,
+  args: ReconcileDaemonReportedThreadsArgs,
+  pinned: ReadonlySet<string>,
+): void {
+  const activeThreadIdSet = new Set(args.activeThreadIds);
+  const pendingThreads = listDaemonReconciliationPendingThreads(deps.db, args);
+  assertSelectionPinned(
+    pendingThreads.map((thread) => thread.id),
+    pinned,
+  );
 
   for (const thread of pendingThreads) {
     if (thread.deletedAt !== null) {
