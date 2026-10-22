@@ -59,6 +59,7 @@ function upgradeDatabase(overrides: AppKeybindingOverrides | undefined) {
   db.$client
     .prepare("DELETE FROM __drizzle_migrations WHERE created_at >= ?")
     .run(migrationTimestamp);
+  db.$client.exec("DROP TABLE IF EXISTS __bb_migration_ledger");
   if (overrides !== undefined) setAppKeybindingOverrides(db, overrides);
   return db;
 }
@@ -139,7 +140,7 @@ describe("pane focus compatibility migration", () => {
         .exec(`CREATE TRIGGER reject_pane_migration BEFORE INSERT ON __drizzle_migrations
         WHEN NEW.created_at = ${migrationTimestamp}
         BEGIN SELECT RAISE(ABORT, 'migration interrupted'); END`);
-      expect(() => migrate(db)).toThrow("Failed to run the query");
+      expect(() => migrate(db)).toThrow("migration interrupted");
       expect(getAppKeybindingOverrides(db)).toEqual(custom);
       expect(
         db.$client

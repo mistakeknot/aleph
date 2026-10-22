@@ -137,5 +137,6 @@ export function rewindQueuedMessageStateMigration(db: DbConnection): void {
     ${preserved}
     ${softDeleteTrigger ? `${softDeleteTrigger.sql};` : ""}
     DELETE FROM __drizzle_migrations WHERE created_at >= ${QUEUED_MESSAGE_STATE_MIGRATION_WHEN};
+    DROP TABLE IF EXISTS __bb_migration_ledger;
   `);
 }

@@ -8,14 +8,14 @@ import {
   legacyMigrationChain,
   legacyMigrationReleases,
 } from "../src/legacy-migration-chain.js";
-import { legacyCompatFolder } from "./helpers/plan-apply.js";
+import { legacyOracleFolder } from "./helpers/plan-apply.js";
 import {
   compatibleMigrationHashes,
   publishedMigrationWhens,
 } from "../src/migration-history.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const drizzleDir = legacyCompatFolder();
+const drizzleDir = legacyOracleFolder();
 
 interface JournalEntry {
   idx: number;

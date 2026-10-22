@@ -2,7 +2,6 @@ import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
-import { materializeLegacyCompatibleFolder } from "../../src/legacy-compat-folder.js";
 import { splitMigrationStatements } from "../../src/migration-guard.js";
 import {
   loadMigrationPlan,
@@ -11,6 +10,10 @@ import {
   type MigrationPlanFolders,
   type MigrationPlanStep,
 } from "../../src/migration-plan.js";
+import {
+  legacyDrizzleFolder,
+  materializeLegacyOracle,
+} from "./legacy-oracle.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const packageDir = resolve(here, "..", "..");
@@ -70,6 +73,7 @@ export function applyUpstreamOnly(
   return sqlite;
 }
 
-export function legacyCompatFolder(): string {
-  return materializeLegacyCompatibleFolder(sourceFolders);
+export function legacyOracleFolder(): string {
+  materializeLegacyOracle();
+  return legacyDrizzleFolder;
 }

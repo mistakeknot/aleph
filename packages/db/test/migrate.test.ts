@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { dropTransferLedgerSchema } from "./helpers/drop-transfer-ledger.js";
-import { legacyCompatFolder } from "./helpers/plan-apply.js";
+import { legacyOracleFolder } from "./helpers/plan-apply.js";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { publishedMigrationWhensByTag } from "../src/migration-history.js";
@@ -243,7 +243,7 @@ interface SeededLargeValueBackfillValues {
   webSearchResult: string;
 }
 
-const legacyCompatDir = legacyCompatFolder();
+const legacyCompatDir = legacyOracleFolder();
 
 const latestMigrationWhen = Math.max(
   ...(
@@ -585,6 +585,11 @@ function dropOnboardingCompletedAtColumn(db: DbConnection): void {
       .prepare("ALTER TABLE app_settings DROP COLUMN onboarding_completed_at")
       .run();
   }
+}
+
+function migrateFromLegacyHistory(db: DbConnection): void {
+  db.$client.exec("DROP TABLE IF EXISTS __bb_migration_ledger");
+  migrate(db);
 }
 
 function resetMigrationsAfterThreadSearch(db: DbConnection): void {
@@ -2429,7 +2434,7 @@ describe("migrate", () => {
       dropThreadSearchLearnedSelectionsTable(db);
 
       restoreLegacyThreadOriginColumn(db);
-      migrate(db);
+      migrateFromLegacyHistory(db);
 
       expect(
         db.$client
@@ -2516,7 +2521,7 @@ describe("migrate", () => {
         .run(threadSearchRowidFtsMigrationWhen);
       resetMigrationsAfterThreadSearch(db);
 
-      expect(() => migrate(db)).not.toThrow();
+      expect(() => migrateFromLegacyHistory(db)).not.toThrow();
 
       expect(
         db.$client
@@ -2610,7 +2615,7 @@ describe("migrate", () => {
       dropThreadSearchLearnedSelectionsTable(db);
 
       restoreLegacyThreadOriginColumn(db);
-      expect(() => migrate(db)).not.toThrow();
+      expect(() => migrateFromLegacyHistory(db)).not.toThrow();
 
       expect(readTableNames(db)).toContain("thread_sections");
       expect(readTableNames(db)).not.toContain("thread_folders");
@@ -2741,7 +2746,7 @@ describe("migrate", () => {
       restoreEnvironmentCleanupRequestedAtColumn(db);
       restoreThreadStopRequestedAtColumn(db);
 
-      migrate(db);
+      migrateFromLegacyHistory(db);
 
       const threadColumns = db.$client
         .prepare<[], TableInfoRow>("PRAGMA table_info(threads)")
@@ -2919,7 +2924,7 @@ describe("migrate", () => {
       dropProvisionalFenceColumns(db);
       dropIdempotentThreadOperationsTable(db);
       dropThreadSearchLearnedSelectionsTable(db);
-      migrate(db);
+      migrateFromLegacyHistory(db);
 
       expect(
         db.$client
@@ -2995,7 +3000,7 @@ describe("migrate", () => {
           cleanupRequestedAtDropMigrationWhen,
         );
 
-      migrate(db);
+      migrateFromLegacyHistory(db);
 
       const environmentColumns = db.$client
         .prepare<[], TableInfoRow>("PRAGMA table_info(environments)")
@@ -3499,7 +3504,7 @@ describe("migrate", () => {
       restoreEnvironmentCleanupRequestedAtColumn(db);
       restoreThreadStopRequestedAtColumn(db);
 
-      migrate(db);
+      migrateFromLegacyHistory(db);
 
       expect(readTableNames(db)).toEqual(
         expect.arrayContaining([
@@ -3653,7 +3658,7 @@ describe("migrate", () => {
         )
         .run(legacyExperimentsMigrationWhen);
 
-      migrate(db);
+      migrateFromLegacyHistory(db);
 
       expect(readLatestAppliedMigrationCreatedAt(db)).toBe(latestMigrationWhen);
       expect(readTableNames(db)).not.toContain("event_large_values");
@@ -3702,7 +3707,7 @@ describe("migrate", () => {
         hash: eventLargeValuesPreOptimizationHash,
       });
 
-      migrate(db);
+      migrateFromLegacyHistory(db);
 
       expect(readAppliedMigrationCreatedAts(db)).toContain(
         eventLargeValuesRestoreMigrationWhen,
@@ -4597,7 +4602,7 @@ describe("migrate", () => {
           );
       `);
 
-      migrate(db);
+      migrateFromLegacyHistory(db);
 
       expect(
         db.$client
@@ -4715,7 +4720,7 @@ describe("environment providers migration", () => {
     const db = createMigratedConnection();
     try {
       seedPreProviderEnvironments(db);
-      migrate(db);
+      migrateFromLegacyHistory(db);
       const rows = db.$client
         .prepare<[], { provider: string; owner: string | null }>(
           "SELECT DISTINCT environment_provider_id AS provider, environment_provider_plugin_id AS owner FROM environments ORDER BY provider",
@@ -4740,7 +4745,7 @@ describe("environment providers migration", () => {
     try {
       seedPreProviderEnvironments(db);
 
-      migrate(db);
+      migrateFromLegacyHistory(db);
 
       expect(
         db.$client
@@ -4830,7 +4835,7 @@ describe("environment providers migration", () => {
            NULL, NULL, 'unmanaged', 'error', 1000, 1000);
       `);
 
-      migrate(db);
+      migrateFromLegacyHistory(db);
 
       expect(
         db.$client
@@ -4903,7 +4908,7 @@ describe("environment providers migration", () => {
     try {
       seedPreProviderEnvironments(db);
 
-      migrate(db);
+      migrateFromLegacyHistory(db);
 
       expect(
         db.$client
@@ -4940,7 +4945,7 @@ describe("environment providers migration", () => {
     try {
       seedPreProviderEnvironments(db);
 
-      migrate(db);
+      migrateFromLegacyHistory(db);
 
       expect(
         db.$client
@@ -4977,7 +4982,7 @@ describe("environment providers migration", () => {
     try {
       seedPreProviderEnvironments(db);
 
-      migrate(db);
+      migrateFromLegacyHistory(db);
 
       expect(readPendingStartContext(db, "thr_worktree_pending")).toEqual({
         kind: "pending",
@@ -5116,7 +5121,7 @@ describe("environment and thread startup ownership migration", () => {
           db.$client.exec(
             "UPDATE environment_launches SET phase = 'cancelled', cancel_pending = 1 WHERE thread_id = 'thr_creating'",
           );
-        migrate(db);
+        migrateFromLegacyHistory(db);
         expect(
           db.$client
             .prepare(

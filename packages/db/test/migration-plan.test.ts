@@ -11,7 +11,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
-import { materializeLegacyCompatibleFolder } from "../src/legacy-compat-folder.js";
+import { createConnection } from "../src/connection.js";
+import { migrate } from "../src/migrate.js";
+import { loadAlignedMigrationPlan } from "../src/migration-runner.js";
 import { legacyMigrationChain } from "../src/legacy-migration-chain.js";
 import {
   buildMigrationPlan,
@@ -266,20 +268,22 @@ describe("the real migration plan", () => {
   });
 
   it("keeps the compatibility log equal to the legacy log", () => {
-    const folder = materializeLegacyCompatibleFolder(sourceFolders);
-    const compatible = JSON.parse(
-      readFileSync(join(folder, "meta", "_journal.json"), "utf8"),
-    ) as { entries: Array<{ tag: string; when: number }> };
-    const legacy = JSON.parse(
-      readFileSync(join(legacyDrizzleFolder, "meta", "_journal.json"), "utf8"),
-    ) as { entries: Array<{ tag: string; when: number }> };
-    expect(compatible.entries.map(({ tag, when }) => ({ tag, when }))).toEqual(
-      legacy.entries.map(({ tag, when }) => ({ tag, when })),
-    );
-    for (const entry of legacy.entries) {
-      expect(readFileSync(join(folder, `${entry.tag}.sql`))).toEqual(
-        readFileSync(join(legacyDrizzleFolder, `${entry.tag}.sql`)),
+    const db = createConnection(":memory:");
+    try {
+      migrate(db);
+      const rows = db.$client
+        .prepare(
+          "SELECT created_at AS createdAt, hash FROM __drizzle_migrations ORDER BY id",
+        )
+        .all();
+      expect(rows).toEqual(
+        legacyMigrationChain.map((entry) => ({
+          createdAt: entry.when,
+          hash: entry.sha256,
+        })),
       );
+    } finally {
+      db.$client.close();
     }
   });
 
@@ -330,12 +334,12 @@ describe("the real migration plan", () => {
     expect(() => loadMigrationPlan(folders)).toThrow(
       /0143_queued_message_state changed/,
     );
-    expect(() => materializeLegacyCompatibleFolder(folders)).toThrow(
+    expect(() => loadAlignedMigrationPlan(folders)).toThrow(
       /0143_queued_message_state changed/,
     );
   });
 
-  it("refuses to materialize a plan that drifts from the mapping table", () => {
+  it("refuses a plan that drifts from the mapping table", () => {
     const alephFolder = mkdtempSync(join(tmpdir(), "bb-plan-drift-"));
     tempDirs.push(alephFolder);
     cpSync(sourceFolders.alephFolder, alephFolder, { recursive: true });
@@ -348,7 +352,7 @@ describe("the real migration plan", () => {
     a4.after = "0138_thread_pruning_work";
     writeFileSync(manifestPath, JSON.stringify(manifest));
     expect(() =>
-      materializeLegacyCompatibleFolder({
+      loadAlignedMigrationPlan({
         upstreamFolder: sourceFolders.upstreamFolder,
         alephFolder,
       }),

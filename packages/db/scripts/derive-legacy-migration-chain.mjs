@@ -72,7 +72,7 @@ const historySource = readFileSync(
   "utf8",
 );
 const migrateSource = readFileSync(
-  new URL("../src/migrate.ts", import.meta.url),
+  new URL("../src/migration-runner.ts", import.meta.url),
   "utf8",
 );
 const compatibleBlock = historySource.slice(
@@ -96,7 +96,7 @@ for (const match of historySource
   publishedWhenByTag.set(match[1], Number(match[2]));
 }
 const reorderedBlock = migrateSource.slice(
-  migrateSource.indexOf("const reorderedCleanupMigrationTags = ["),
+  migrateSource.indexOf("const REORDERED_CLEANUP_TAGS = ["),
 );
 const reorderedTags = new Set(
   [

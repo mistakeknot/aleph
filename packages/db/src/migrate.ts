@@ -1,14 +1,33 @@
-import { migrate as drizzleMigrate } from "drizzle-orm/better-sqlite3/migrator";
-import { readMigrationFiles } from "drizzle-orm/migrator";
-import { materializeLegacyCompatibleFolder } from "./legacy-compat-folder.js";
 import { dirname, join, resolve } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import type Database from "better-sqlite3";
 import type { DbConnection } from "./connection.js";
+import { legacyMigrationChain } from "./legacy-migration-chain.js";
 import {
-  compatibleMigrationHashes,
-  publishedMigrationWhensByTag,
-} from "./migration-history.js";
+  classifyAgainstCompatLog,
+  describeViolations,
+  ensureCompatLog,
+  ensureLedgerTable,
+  expectedCompatPair,
+  insertCompatRow,
+  insertLedgerRow,
+  readCompatLog,
+  readMaxCompatCreatedAt,
+  type ExpectedCompatPair,
+  type MigrationLedgerHow,
+} from "./migration-ledger.js";
+import { splitMigrationStatements } from "./migration-guard.js";
+import type { MigrationPlanFolders } from "./migration-plan.js";
+import {
+  computeMigrationState,
+  isStepPending,
+  loadAlignedMigrationPlan,
+  readPlanStepSql,
+  stageMigrationTempTables,
+  type AlignedMigrationPlan,
+  type MigrationState,
+} from "./migration-runner.js";
 
 export interface ResolveMigrationsFolderForModuleDirArgs {
   moduleDir: string;
@@ -56,28 +75,6 @@ interface ExpectedIndex {
   unique: boolean;
 }
 
-interface MigrationJournalEntry {
-  tag: string;
-  when: number;
-}
-
-interface MigrationJournal {
-  entries: MigrationJournalEntry[];
-}
-
-interface ExpectedAppliedMigration {
-  createdAt: number;
-  hash: string;
-  sql: string[];
-  tag: string;
-}
-
-type DeferredDestructiveCleanupMigrationTag =
-  | "0015_good_lila_cheney"
-  | "0016_salty_arclight"
-  | "0017_terminal_session_runtime_state_honesty"
-  | "0018_natural_crusher_hogan";
-
 type ReorderedCleanupMigrationTag =
   | "0033_drop_cleanup_mode"
   | "0034_drop_stop_requested_at"
@@ -106,23 +103,6 @@ interface AppliedMigrationRow {
   hash: string;
 }
 
-interface AppliedMigrationCreatedAtRow {
-  createdAt: number;
-}
-
-interface AppliedMigrationIdentityRow {
-  createdAt: number | null;
-  hash: string;
-}
-
-interface ExistingMigrationRow {
-  createdAt: number;
-}
-
-interface LatestAppliedMigrationRow {
-  createdAt: number | null;
-}
-
 interface ExistingTableRow {
   name: string;
 }
@@ -138,29 +118,9 @@ interface PendingInteractionProviderRequestDuplicateRow {
   providerThreadId: string;
 }
 
-type AppliedMigrationHistoryViolationReason =
-  | "hash-mismatch"
-  | "missing-created-at";
-
-interface AppliedMigrationHistoryViolation {
-  migration: ExpectedAppliedMigration;
-  reason: AppliedMigrationHistoryViolationReason;
-}
-
 const migrationModuleFilename = fileURLToPath(import.meta.url);
 const migrationModuleDirname = dirname(migrationModuleFilename);
 const migrationJournalPath = join("meta", "_journal.json");
-const deferredDestructiveCleanupMigrationTags = [
-  "0015_good_lila_cheney",
-  "0016_salty_arclight",
-  "0017_terminal_session_runtime_state_honesty",
-  "0018_natural_crusher_hogan",
-] as const satisfies readonly DeferredDestructiveCleanupMigrationTag[];
-const reorderedCleanupMigrationTags = [
-  "0033_drop_cleanup_mode",
-  "0034_drop_stop_requested_at",
-  "0035_warm_kingpin",
-] as const satisfies readonly ReorderedCleanupMigrationTag[];
 const pendingInteractionColumns: ExpectedColumn[] = [
   { name: "id", type: "text", notNull: true, primaryKey: true },
   { name: "thread_id", type: "text", notNull: true, primaryKey: false },
@@ -276,17 +236,6 @@ export function resolveAlephMigrationsFolderForModuleDir(
   );
 }
 
-function resolveMigrationsFolder(): string {
-  return materializeLegacyCompatibleFolder({
-    upstreamFolder: resolveMigrationsFolderForModuleDir({
-      moduleDir: migrationModuleDirname,
-    }),
-    alephFolder: resolveAlephMigrationsFolderForModuleDir({
-      moduleDir: migrationModuleDirname,
-    }),
-  });
-}
-
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -371,38 +320,6 @@ function parseIndexColumnName(value: unknown): string {
   return value.name;
 }
 
-function parseMigrationJournalEntry(value: unknown): MigrationJournalEntry {
-  if (!isObject(value)) {
-    throw new Error("Unexpected migration journal entry shape");
-  }
-
-  const tag = value.tag;
-  const when = value.when;
-  if (typeof tag !== "string" || typeof when !== "number") {
-    throw new Error("Unexpected migration journal entry fields");
-  }
-
-  return { tag, when };
-}
-
-function parseMigrationJournal(value: unknown): MigrationJournal {
-  if (!isObject(value) || !Array.isArray(value.entries)) {
-    throw new Error("Unexpected migration journal shape");
-  }
-
-  return {
-    entries: value.entries.map(parseMigrationJournalEntry),
-  };
-}
-
-function readMigrationJournal(migrationsFolder: string): MigrationJournal {
-  const journal: unknown = JSON.parse(
-    readFileSync(resolve(migrationsFolder, migrationJournalPath), "utf-8"),
-  );
-
-  return parseMigrationJournal(journal);
-}
-
 function getTableInfo(
   db: DbConnection,
   tableName: string,
@@ -478,53 +395,6 @@ function indexExists(
   return getIndexes(db, tableName).some((index) => index.name === indexName);
 }
 
-function readExpectedAppliedMigrations(
-  migrationsFolder: string,
-): ExpectedAppliedMigration[] {
-  const migrationFiles = readMigrationFiles({ migrationsFolder });
-  const journal = readMigrationJournal(migrationsFolder);
-
-  if (migrationFiles.length !== journal.entries.length) {
-    throw new Error(
-      `Migration journal length mismatch: found ${journal.entries.length} journal entries and ${migrationFiles.length} migration files`,
-    );
-  }
-
-  return migrationFiles.map((migration, index) => {
-    const journalEntry = journal.entries[index];
-    if (migration.folderMillis !== journalEntry.when) {
-      throw new Error(
-        `Migration journal timestamp mismatch for ${journalEntry.tag}: journal when=${journalEntry.when}, migration when=${migration.folderMillis}`,
-      );
-    }
-
-    return {
-      createdAt: migration.folderMillis,
-      hash: migration.hash,
-      sql: migration.sql,
-      tag: journalEntry.tag,
-    };
-  });
-}
-
-function readAppliedMigrationCreatedAts(db: DbConnection): Set<number> {
-  if (!tableExists(db, "__drizzle_migrations")) {
-    return new Set();
-  }
-
-  const rows = db.$client
-    .prepare<[], AppliedMigrationCreatedAtRow>(
-      `
-        SELECT created_at AS createdAt
-        FROM __drizzle_migrations
-        WHERE created_at IS NOT NULL
-      `,
-    )
-    .all();
-
-  return new Set(rows.map((row) => row.createdAt));
-}
-
 export function countAppliedMigrations(db: DbConnection): number {
   if (!tableExists(db, "__drizzle_migrations")) {
     return 0;
@@ -540,150 +410,6 @@ export function countAppliedMigrations(db: DbConnection): number {
     .get();
 
   return row?.count ?? 0;
-}
-
-function readLatestAppliedMigrationCreatedAt(db: DbConnection): number | null {
-  if (!tableExists(db, "__drizzle_migrations")) {
-    return null;
-  }
-
-  const row = db.$client
-    .prepare<[], LatestAppliedMigrationRow>(
-      `
-        SELECT MAX(created_at) AS createdAt
-        FROM __drizzle_migrations
-      `,
-    )
-    .get();
-
-  return row?.createdAt ?? null;
-}
-
-function requireExpectedAppliedMigration(
-  migrations: ExpectedAppliedMigration[],
-  tag: string,
-): ExpectedAppliedMigration {
-  const migration = migrations.find((candidate) => candidate.tag === tag);
-  if (migration === undefined) {
-    throw new Error(`Missing expected migration metadata for ${tag}`);
-  }
-
-  return migration;
-}
-
-function markMigrationApplied(
-  db: DbConnection,
-  migration: ExpectedAppliedMigration,
-): void {
-  const existingMigration = db.$client
-    .prepare<[number], ExistingMigrationRow>(
-      `
-        SELECT created_at AS createdAt
-        FROM __drizzle_migrations
-        WHERE created_at = ?
-      `,
-    )
-    .get(migration.createdAt);
-  if (existingMigration !== undefined) {
-    return;
-  }
-
-  db.$client
-    .prepare<[string, number]>(
-      `
-        INSERT INTO __drizzle_migrations (hash, created_at)
-        VALUES (?, ?)
-      `,
-    )
-    .run(migration.hash, migration.createdAt);
-}
-
-function applyMigrationStatements(
-  db: DbConnection,
-  migration: ExpectedAppliedMigration,
-): void {
-  const apply = db.$client.transaction(() => {
-    for (const statement of migration.sql) {
-      db.$client.exec(statement);
-    }
-    markMigrationApplied(db, migration);
-  });
-
-  apply();
-}
-
-function hasPublishedTimestampFallback(
-  expectedMigration: ExpectedAppliedMigration,
-  appliedCreatedAts: Set<number>,
-): boolean {
-  const publishedWhen = publishedMigrationWhensByTag.get(expectedMigration.tag);
-  if (publishedWhen !== expectedMigration.createdAt) {
-    return false;
-  }
-
-  return appliedCreatedAts.has(expectedMigration.createdAt);
-}
-
-function hasAppliedMigrationHash(
-  expectedMigration: ExpectedAppliedMigration,
-  appliedMigrations: AppliedMigrationIdentityRow[],
-): boolean {
-  return appliedMigrations.some(
-    (appliedMigration) =>
-      appliedMigration.createdAt === expectedMigration.createdAt &&
-      appliedMigration.hash === expectedMigration.hash,
-  );
-}
-
-function hasCompatibleMigrationHash(
-  expectedMigration: ExpectedAppliedMigration,
-  appliedMigrations: AppliedMigrationIdentityRow[],
-): boolean {
-  return compatibleMigrationHashes.some(
-    (compatibleMigration) =>
-      compatibleMigration.tag === expectedMigration.tag &&
-      compatibleMigration.when === expectedMigration.createdAt &&
-      appliedMigrations.some(
-        (appliedMigration) =>
-          appliedMigration.createdAt === expectedMigration.createdAt &&
-          appliedMigration.hash === compatibleMigration.hash,
-      ),
-  );
-}
-
-function findAppliedMigrationHistoryViolation(
-  expectedMigration: ExpectedAppliedMigration,
-  appliedMigrations: AppliedMigrationIdentityRow[],
-  appliedCreatedAts: Set<number>,
-): AppliedMigrationHistoryViolation | null {
-  if (hasAppliedMigrationHash(expectedMigration, appliedMigrations)) {
-    return null;
-  }
-
-  if (hasCompatibleMigrationHash(expectedMigration, appliedMigrations)) {
-    return null;
-  }
-
-  if (hasPublishedTimestampFallback(expectedMigration, appliedCreatedAts)) {
-    return null;
-  }
-
-  const reason: AppliedMigrationHistoryViolationReason = appliedCreatedAts.has(
-    expectedMigration.createdAt,
-  )
-    ? "hash-mismatch"
-    : "missing-created-at";
-
-  return {
-    migration: expectedMigration,
-    reason,
-  };
-}
-
-function formatExpectedAppliedMigration(
-  migration: ExpectedAppliedMigration,
-): string {
-  return `${migration.tag} (when=${migration.createdAt}, hash=${migration.hash})`;
 }
 
 function formatExpectedColumn(column: ExpectedColumn): string {
@@ -999,50 +725,6 @@ function applyDeferredOperationStateBackfill(db: DbConnection): void {
   }
 }
 
-function applyDeferredDestructiveLegacyCleanup(
-  db: DbConnection,
-  migrationsFolder: string,
-): void {
-  if (
-    !tableExists(db, "__drizzle_migrations") ||
-    !tableExists(db, "projects")
-  ) {
-    return;
-  }
-
-  const expectedMigrations = readExpectedAppliedMigrations(migrationsFolder);
-  const appliedCreatedAts = readAppliedMigrationCreatedAts(db);
-
-  const cleanupMigrations = deferredDestructiveCleanupMigrationTags.map((tag) =>
-    requireExpectedAppliedMigration(expectedMigrations, tag),
-  );
-  const hasPendingCleanupMigration = cleanupMigrations.some(
-    (migration) => !appliedCreatedAts.has(migration.createdAt),
-  );
-  if (!hasPendingCleanupMigration) {
-    return;
-  }
-
-  const operationBackfillMigration = requireExpectedAppliedMigration(
-    expectedMigrations,
-    "0015_good_lila_cheney",
-  );
-  if (!appliedCreatedAts.has(operationBackfillMigration.createdAt)) {
-    applyDeferredOperationStateBackfill(db);
-    markMigrationApplied(db, operationBackfillMigration);
-    appliedCreatedAts.add(operationBackfillMigration.createdAt);
-  }
-
-  for (const migration of cleanupMigrations) {
-    if (appliedCreatedAts.has(migration.createdAt)) {
-      continue;
-    }
-
-    markMigrationApplied(db, migration);
-    appliedCreatedAts.add(migration.createdAt);
-  }
-}
-
 function applyReorderedCleanupMigration(
   db: DbConnection,
   tag: ReorderedCleanupMigrationTag,
@@ -1115,141 +797,9 @@ function applyReorderedCleanupMigration(
   }
 }
 
-function applyReorderedCleanupMigrations(
-  db: DbConnection,
-  migrationsFolder: string,
-): void {
-  if (!tableExists(db, "__drizzle_migrations")) {
-    return;
-  }
-
-  const expectedMigrations = readExpectedAppliedMigrations(migrationsFolder);
-  const appliedCreatedAts = readAppliedMigrationCreatedAts(db);
-  for (const tag of reorderedCleanupMigrationTags) {
-    const migration = requireExpectedAppliedMigration(expectedMigrations, tag);
-    if (appliedCreatedAts.has(migration.createdAt)) {
-      continue;
-    }
-    applyReorderedCleanupMigration(db, tag);
-    markMigrationApplied(db, migration);
-    appliedCreatedAts.add(migration.createdAt);
-  }
-}
-
-function skipEventLargeValuesRoundTripForInlineEvents(
-  db: DbConnection,
-  migrationsFolder: string,
-): void {
-  if (
-    !tableExists(db, "__drizzle_migrations") ||
-    !tableExists(db, "events") ||
-    tableExists(db, "event_large_values")
-  ) {
-    return;
-  }
-
-  const expectedMigrations = readExpectedAppliedMigrations(migrationsFolder);
-  const appliedCreatedAts = readAppliedMigrationCreatedAts(db);
-  const largeValuesMigration = requireExpectedAppliedMigration(
-    expectedMigrations,
-    "0031_mysterious_zaran",
-  );
-  const restoreMigration = requireExpectedAppliedMigration(
-    expectedMigrations,
-    "0032_restore_event_large_values",
-  );
-  if (
-    appliedCreatedAts.has(largeValuesMigration.createdAt) ||
-    appliedCreatedAts.has(restoreMigration.createdAt)
-  ) {
-    return;
-  }
-
-  const legacyExperimentsMigration = requireExpectedAppliedMigration(
-    expectedMigrations,
-    "0030_popout_chat_experiments",
-  );
-  const dropWorkflowTablesMigration = requireExpectedAppliedMigration(
-    expectedMigrations,
-    "0029_drop_workflow_tables",
-  );
-  const latestAppliedMigrationCreatedAt =
-    readLatestAppliedMigrationCreatedAt(db);
-  if (latestAppliedMigrationCreatedAt === null) {
-    return;
-  }
-
-  if (!appliedCreatedAts.has(legacyExperimentsMigration.createdAt)) {
-    if (
-      latestAppliedMigrationCreatedAt !== dropWorkflowTablesMigration.createdAt
-    ) {
-      return;
-    }
-
-    applyMigrationStatements(db, legacyExperimentsMigration);
-  }
-
-  markMigrationApplied(db, largeValuesMigration);
-  markMigrationApplied(db, restoreMigration);
-}
-
-function stageQueuedMessageGroups(
-  db: DbConnection,
-  migrationsFolder: string,
-): void {
-  const sqlite = db.$client;
-  sqlite.exec(
-    "CREATE TEMP TABLE IF NOT EXISTS bb_migration_queued_message_groups (id TEXT PRIMARY KEY, group_with_next INTEGER NOT NULL)",
-  );
-  sqlite.exec("DELETE FROM bb_migration_queued_message_groups");
-  if (
-    !tableExists(db, "__drizzle_migrations") ||
-    !tableExists(db, "queued_thread_messages") ||
-    !columnExists(db, "queued_thread_messages", "group_with_next")
-  ) {
-    return;
-  }
-  const migration = requireExpectedAppliedMigration(
-    readExpectedAppliedMigrations(migrationsFolder),
-    "0151_queued_message_state",
-  );
-  if (readAppliedMigrationCreatedAts(db).has(migration.createdAt)) {
-    return;
-  }
-  sqlite.exec(
-    "INSERT INTO bb_migration_queued_message_groups (id, group_with_next) SELECT id, group_with_next FROM queued_thread_messages",
-  );
-}
-
 const STAGED_CONNECT_MACHINE_ID_COLUMN = "_bb_connect_machine_id_pending";
 const STAGED_THREAD_STORAGE_DELETED_AT_COLUMN =
   "_bb_thread_storage_deleted_at_pending";
-
-function stageExistingConnectMachineIdColumn(
-  db: DbConnection,
-  migrationsFolder: string,
-): boolean {
-  if (
-    !tableExists(db, "__drizzle_migrations") ||
-    !tableExists(db, "hosts") ||
-    !columnExists(db, "hosts", "connect_machine_id")
-  ) {
-    return false;
-  }
-
-  const migration = requireExpectedAppliedMigration(
-    readExpectedAppliedMigrations(migrationsFolder),
-    "0065_empty_leper_queen",
-  );
-  if (readAppliedMigrationCreatedAts(db).has(migration.createdAt)) {
-    return false;
-  }
-
-  db.$client.exec(
-    `ALTER TABLE hosts RENAME COLUMN connect_machine_id TO ${STAGED_CONNECT_MACHINE_ID_COLUMN}`,
-  );
-  return true;
-}
 
 function restoreStagedConnectMachineIdColumn(db: DbConnection): void {
   if (!columnExists(db, "hosts", STAGED_CONNECT_MACHINE_ID_COLUMN)) {
@@ -1265,30 +815,6 @@ function restoreStagedConnectMachineIdColumn(db: DbConnection): void {
     `UPDATE hosts SET connect_machine_id = ${STAGED_CONNECT_MACHINE_ID_COLUMN};
      ALTER TABLE hosts DROP COLUMN ${STAGED_CONNECT_MACHINE_ID_COLUMN};`,
   );
-}
-
-function stageExistingThreadStorageDeletedAtColumn(
-  db: DbConnection,
-  migrationsFolder: string,
-): boolean {
-  if (
-    !tableExists(db, "__drizzle_migrations") ||
-    !tableExists(db, "threads") ||
-    !columnExists(db, "threads", "storage_deleted_at")
-  ) {
-    return false;
-  }
-  const migration = requireExpectedAppliedMigration(
-    readExpectedAppliedMigrations(migrationsFolder),
-    "0120_perfect_clint_barton",
-  );
-  if (readAppliedMigrationCreatedAts(db).has(migration.createdAt)) {
-    return false;
-  }
-  db.$client.exec(
-    `ALTER TABLE threads RENAME COLUMN storage_deleted_at TO ${STAGED_THREAD_STORAGE_DELETED_AT_COLUMN}`,
-  );
-  return true;
 }
 
 function restoreStagedThreadStorageDeletedAtColumn(db: DbConnection): void {
@@ -1331,6 +857,28 @@ function seedKeepAwakePluginConfiguration(db: DbConnection): void {
   `);
 }
 
+function keepAwakeSeedPending(db: DbConnection): boolean {
+  if (
+    !tableExists(db, "app_settings") ||
+    !columnExists(db, "app_settings", "caffeinate") ||
+    !tableExists(db, "plugin_kv")
+  ) {
+    return false;
+  }
+  return (
+    db.$client
+      .prepare(
+        `SELECT 1 FROM app_settings
+         WHERE id = 'current'
+           AND NOT EXISTS (
+             SELECT 1 FROM plugin_kv
+             WHERE plugin_id = 'keep-awake' AND key = 'configuration'
+           )`,
+      )
+      .get() !== undefined
+  );
+}
+
 function warnAboutFutureAppliedMigrations(
   db: DbConnection,
   options: MigrateOptions,
@@ -1365,135 +913,272 @@ function warnAboutFutureAppliedMigrations(
   );
 }
 
-function validateAppliedMigrationHistory(
-  db: DbConnection,
-  migrationsFolder: string,
-): void {
-  const expectedMigrations = readExpectedAppliedMigrations(migrationsFolder);
-  const appliedMigrations = db.$client
-    .prepare<[], AppliedMigrationIdentityRow>(
-      `
-        SELECT hash, created_at AS createdAt
-        FROM __drizzle_migrations
-      `,
-    )
-    .all();
-  const appliedCreatedAts = new Set(
-    appliedMigrations
-      .map((migration) => migration.createdAt)
-      .filter((createdAt): createdAt is number => createdAt !== null),
-  );
-  const historyViolations = expectedMigrations
-    .map((migration) =>
-      findAppliedMigrationHistoryViolation(
-        migration,
-        appliedMigrations,
-        appliedCreatedAts,
-      ),
-    )
-    .filter(
-      (violation): violation is AppliedMigrationHistoryViolation =>
-        violation !== null,
-    );
+function resolveMigrationFolders(): MigrationPlanFolders {
+  return {
+    upstreamFolder: resolveMigrationsFolderForModuleDir({
+      moduleDir: migrationModuleDirname,
+    }),
+    alephFolder: resolveAlephMigrationsFolderForModuleDir({
+      moduleDir: migrationModuleDirname,
+    }),
+  };
+}
 
-  if (historyViolations.length === 0) {
-    return;
-  }
+function readHostId(sqlite: Database.Database): string | null {
+  if (sqlite.name === ":memory:") return null;
+  const identityPath = join(dirname(sqlite.name), "host-id");
+  if (!existsSync(identityPath)) return null;
+  const hostId = readFileSync(identityPath, "utf8").trim();
+  return hostId.length > 0 ? hostId : null;
+}
 
-  const missingCreatedAtViolations = historyViolations.filter(
-    (violation) => violation.reason === "missing-created-at",
-  );
-  const hashMismatchViolations = historyViolations.filter(
-    (violation) => violation.reason === "hash-mismatch",
-  );
-
-  throw new Error(
-    [
-      "Database migration history is incomplete after migration.",
-      missingCreatedAtViolations.length > 0
-        ? `Missing applied migration timestamps: ${missingCreatedAtViolations
-            .map((violation) =>
-              formatExpectedAppliedMigration(violation.migration),
-            )
-            .join("; ")}.`
-        : null,
-      hashMismatchViolations.length > 0
-        ? `Mismatched applied migration hashes: ${hashMismatchViolations
-            .map((violation) =>
-              formatExpectedAppliedMigration(violation.migration),
-            )
-            .join("; ")}.`
-        : null,
-      missingCreatedAtViolations.length > 0
-        ? "Missing timestamps usually mean Drizzle skipped a migration because its journal timestamp is not newer than the latest applied migration."
-        : null,
-      hashMismatchViolations.length > 0
-        ? "Hash mismatches mean the migration ledger row exists at that timestamp but does not match the current migration file."
-        : null,
-    ]
-      .filter((line): line is string => line !== null)
-      .join(" "),
+function isReorderedCleanupTag(
+  tag: string,
+): tag is ReorderedCleanupMigrationTag {
+  return (
+    tag === "0033_drop_cleanup_mode" ||
+    tag === "0034_drop_stop_requested_at" ||
+    tag === "0035_warm_kingpin"
   );
 }
 
-export function migrate(db: DbConnection, options: MigrateOptions = {}): void {
-  const migrationsFolder = resolveMigrationsFolder();
+function runStepSql(
+  sqlite: Database.Database,
+  aligned: AlignedMigrationPlan,
+  index: number,
+): void {
+  const step = aligned.plan.steps[index];
+  if (step === undefined) {
+    throw new Error(`Migration plan has no step at position ${index}`);
+  }
+  for (const statement of splitMigrationStatements(
+    readPlanStepSql(aligned.folders, step),
+  )) {
+    sqlite.exec(statement);
+  }
+}
+
+function stageConnectMachineIdColumn(
+  db: DbConnection,
+  state: MigrationState,
+): boolean {
+  if (
+    !isStepPending(state, "upstream", "0065_empty_leper_queen") ||
+    !tableExists(db, "hosts") ||
+    !columnExists(db, "hosts", "connect_machine_id")
+  ) {
+    return false;
+  }
+  db.$client.exec(
+    `ALTER TABLE hosts RENAME COLUMN connect_machine_id TO ${STAGED_CONNECT_MACHINE_ID_COLUMN}`,
+  );
+  return true;
+}
+
+function stageThreadStorageDeletedAtColumn(
+  db: DbConnection,
+  state: MigrationState,
+): boolean {
+  if (
+    !isStepPending(state, "upstream", "0120_perfect_clint_barton") ||
+    !tableExists(db, "threads") ||
+    !columnExists(db, "threads", "storage_deleted_at")
+  ) {
+    return false;
+  }
+  db.$client.exec(
+    `ALTER TABLE threads RENAME COLUMN storage_deleted_at TO ${STAGED_THREAD_STORAGE_DELETED_AT_COLUMN}`,
+  );
+  return true;
+}
+
+function stageQueuedMessageGroups(
+  db: DbConnection,
+  state: MigrationState,
+): void {
+  if (
+    !isStepPending(state, "aleph", "A0009") ||
+    !tableExists(db, "queued_thread_messages") ||
+    !columnExists(db, "queued_thread_messages", "group_with_next")
+  ) {
+    return;
+  }
+  db.$client.exec(
+    "INSERT INTO bb_migration_queued_message_groups (id, group_with_next) SELECT id, group_with_next FROM queued_thread_messages",
+  );
+}
+
+function applyMigrationState(
+  db: DbConnection,
+  aligned: AlignedMigrationPlan,
+  state: MigrationState,
+): void {
   const sqlite = db.$client;
+  stageMigrationTempTables(sqlite, {
+    existing: state.existing,
+    hostId: readHostId(sqlite),
+  });
+  ensureLedgerTable(sqlite);
+  ensureCompatLog(sqlite);
+  const now = Date.now();
 
-  const existingInstallation =
-    tableExists(db, "__drizzle_migrations") &&
-    db.$client.prepare("SELECT 1 FROM __drizzle_migrations LIMIT 1").get() !==
-      undefined;
-  sqlite.exec(
-    "CREATE TEMP TABLE IF NOT EXISTS bb_migration_existing_installation (existing INTEGER NOT NULL)",
-  );
-  sqlite.exec("DELETE FROM bb_migration_existing_installation");
-  sqlite
-    .prepare(
-      "INSERT INTO bb_migration_existing_installation (existing) VALUES (?)",
-    )
-    .run(existingInstallation ? 1 : 0);
+  const recordStep = (index: number, how: MigrationLedgerHow): void => {
+    const step = aligned.plan.steps[index];
+    if (step === undefined) {
+      throw new Error(`Migration plan has no step at position ${index}`);
+    }
+    insertLedgerRow(
+      sqlite,
+      { namespace: step.namespace, tag: step.id, sha256: step.sha256, how },
+      now,
+    );
+    if (how !== "mapped") {
+      const legacy = legacyMigrationChain[index];
+      insertCompatRow(
+        sqlite,
+        legacy !== undefined
+          ? { createdAt: legacy.when, hash: legacy.sha256 }
+          : {
+              createdAt: Math.max(
+                step.when,
+                (readMaxCompatCreatedAt(sqlite) ?? 0) + 1,
+              ),
+              hash: step.sha256,
+            },
+      );
+    }
+    for (const replaced of aligned.plan.superseded) {
+      if (replaced.supersededBy !== step.id) continue;
+      insertLedgerRow(
+        sqlite,
+        {
+          namespace: replaced.namespace,
+          tag: replaced.id,
+          sha256: replaced.sha256,
+          how: `superseded-by:${step.id}`,
+        },
+        now,
+      );
+    }
+  };
 
-  sqlite.exec(
-    "CREATE TEMP TABLE IF NOT EXISTS bb_migration_local_host (id TEXT PRIMARY KEY)",
+  for (const index of state.mapped) recordStep(index, "mapped");
+
+  stageQueuedMessageGroups(db, state);
+  const stagedConnectMachineId = stageConnectMachineIdColumn(db, state);
+  const stagedThreadStorageDeletedAt = stageThreadStorageDeletedAtColumn(
+    db,
+    state,
   );
-  sqlite.exec("DELETE FROM bb_migration_local_host");
-  if (sqlite.name !== ":memory:") {
-    const identityPath = join(dirname(sqlite.name), "host-id");
-    if (existsSync(identityPath)) {
-      const hostId = readFileSync(identityPath, "utf8").trim();
-      if (hostId)
-        sqlite
-          .prepare("INSERT INTO bb_migration_local_host (id) VALUES (?)")
-          .run(hostId);
+
+  for (const index of state.deferredCleanup) {
+    if (aligned.plan.steps[index]?.id === "0015_good_lila_cheney") {
+      applyDeferredOperationStateBackfill(db);
+      recordStep(index, "function");
+    } else {
+      recordStep(index, "mark-only");
     }
   }
+  for (const index of state.skipLargeValues) {
+    if (aligned.plan.steps[index]?.id === "0030_popout_chat_experiments") {
+      runStepSql(sqlite, aligned, index);
+      recordStep(index, "applied");
+    } else {
+      recordStep(index, "mark-only");
+    }
+  }
+  for (const index of state.pending) {
+    runStepSql(sqlite, aligned, index);
+    recordStep(index, "applied");
+  }
+
+  if (stagedConnectMachineId) restoreStagedConnectMachineIdColumn(db);
+  if (stagedThreadStorageDeletedAt) {
+    restoreStagedThreadStorageDeletedAtColumn(db);
+  }
+
+  for (const index of state.reorderedCleanup) {
+    const id = aligned.plan.steps[index]?.id;
+    if (id === undefined || !isReorderedCleanupTag(id)) {
+      throw new Error(`Migration step at position ${index} is not a cleanup`);
+    }
+    applyReorderedCleanupMigration(db, id);
+    recordStep(index, "function");
+  }
+  seedKeepAwakePluginConfiguration(db);
+}
+
+function readMigrationState(
+  sqlite: Database.Database,
+  aligned: AlignedMigrationPlan,
+): MigrationState {
+  sqlite.exec("BEGIN");
+  try {
+    return computeMigrationState(sqlite, aligned);
+  } finally {
+    if (sqlite.inTransaction) sqlite.exec("ROLLBACK");
+  }
+}
+
+function validateAppliedMigrationHistory(
+  db: DbConnection,
+  aligned: AlignedMigrationPlan,
+): void {
+  const compat = readCompatLog(db.$client);
+  const violations: Array<{
+    pair: ExpectedCompatPair;
+    reason: "hash-mismatch" | "missing-created-at";
+  }> = [];
+  for (const legacy of aligned.legacy) {
+    const pair = expectedCompatPair(legacy);
+    const classification = classifyAgainstCompatLog(pair, compat);
+    if (classification.kind === "violation") {
+      violations.push({ pair, reason: classification.reason });
+    }
+  }
+  if (violations.length > 0) {
+    throw new Error(
+      describeViolations(
+        violations,
+        "Database migration history is incomplete after migration.",
+      ),
+    );
+  }
+}
+
+export function migrate(db: DbConnection, options: MigrateOptions = {}): void {
+  const sqlite = db.$client;
+  if (sqlite.pragma("temp_store", { simple: true }) === 2) {
+    throw new Error(
+      "Database migrations need a file-backed temp store; temp_store is set to MEMORY",
+    );
+  }
+  const aligned = loadAlignedMigrationPlan(resolveMigrationFolders());
+
   sqlite.pragma("foreign_keys = OFF");
   try {
     assertNoDuplicatePendingInteractionProviderRequests(db);
-    applyDeferredDestructiveLegacyCleanup(db, migrationsFolder);
-    skipEventLargeValuesRoundTripForInlineEvents(db, migrationsFolder);
-    stageQueuedMessageGroups(db, migrationsFolder);
-    const stagedConnectMachineId = stageExistingConnectMachineIdColumn(
-      db,
-      migrationsFolder,
-    );
-    const stagedThreadStorageDeletedAt =
-      stageExistingThreadStorageDeletedAtColumn(db, migrationsFolder);
-    try {
-      drizzleMigrate(db, { migrationsFolder });
-    } finally {
-      if (stagedConnectMachineId) restoreStagedConnectMachineIdColumn(db);
-      if (stagedThreadStorageDeletedAt)
-        restoreStagedThreadStorageDeletedAtColumn(db);
+    if (
+      readMigrationState(sqlite, aligned).needsWrite ||
+      keepAwakeSeedPending(db)
+    ) {
+      sqlite.exec("BEGIN IMMEDIATE");
+      try {
+        const state = computeMigrationState(sqlite, aligned);
+        if (state.needsWrite || keepAwakeSeedPending(db)) {
+          applyMigrationState(db, aligned, state);
+        }
+        sqlite.exec("COMMIT");
+      } catch (error) {
+        if (sqlite.inTransaction) sqlite.exec("ROLLBACK");
+        throw error;
+      }
     }
-    applyReorderedCleanupMigrations(db, migrationsFolder);
-    seedKeepAwakePluginConfiguration(db);
   } finally {
     sqlite.pragma("foreign_keys = ON");
   }
 
   warnAboutFutureAppliedMigrations(db, options);
-  validateAppliedMigrationHistory(db, migrationsFolder);
+  validateAppliedMigrationHistory(db, aligned);
   validatePendingInteractionsSchema(db);
 }
