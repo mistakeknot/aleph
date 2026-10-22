@@ -1,15 +1,19 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 import {
   LEGACY_ORACLE_COMMIT,
   UPSTREAM_ORACLE_COMMIT,
 } from "./helpers/legacy-oracle.js";
+import type { DbConnection } from "../src/connection.js";
 import {
   combineRowHashes,
   contentOnly,
   describeDatabase,
+  describeSchema,
+  describeSequences,
   diffDescriptions,
   rowHash,
   schemaFingerprint,
@@ -17,9 +21,12 @@ import {
 } from "./helpers/migration-equality.js";
 import {
   EQUALITY_PREFIX_LENGTHS,
+  GROUPED_PREFIX_LENGTHS,
+  groupedPrefixDatabase,
   ledgerRows,
   legacyMigrate,
   pinMigrationClock,
+  type PinnedCounts,
   populatedPrefixDatabase,
   populatedUpstreamDatabase,
 } from "./helpers/migration-scenarios.js";
@@ -35,20 +42,51 @@ interface ReferenceFile {
   legacyCommit: string;
   upstreamCommit: string;
   schemaFingerprint: string;
-  prefixes: Record<string, Omit<DatabaseDescription, "schema">>;
+  prefixes: Record<string, ReferenceEntry>;
+}
+
+interface ReferenceEntry extends Omit<DatabaseDescription, "schema"> {
+  pinned: PinnedCounts;
 }
 
 const TIMEOUT = 300_000;
 
-async function upgradeFromPrefix(length: number): Promise<DatabaseDescription> {
-  const db = await populatedPrefixDatabase(length);
+interface Upgraded {
+  description: DatabaseDescription;
+  pinned: PinnedCounts;
+}
+
+async function upgradeDatabase(db: DbConnection): Promise<Upgraded> {
   try {
     await legacyMigrate(db);
-    pinMigrationClock(db.$client);
-    return describeDatabase(db.$client);
+    const pinned = pinMigrationClock(db.$client);
+    return { description: describeDatabase(db.$client), pinned };
   } finally {
     db.$client.close();
   }
+}
+
+async function upgradeFromPrefix(length: number): Promise<Upgraded> {
+  return upgradeDatabase(await populatedPrefixDatabase(length));
+}
+
+async function upgradeGroupedPrefix(
+  length: number,
+): Promise<
+  Upgraded & { flags: Record<string, number>; after: Record<string, number> }
+> {
+  const { db, flags } = await groupedPrefixDatabase(length);
+  const sqlite = db.$client;
+  await legacyMigrate(db);
+  const after: Record<string, number> = {};
+  for (const row of sqlite
+    .prepare("SELECT id, group_with_next AS flag FROM queued_thread_messages")
+    .all() as Array<{ id: string; flag: number }>)
+    after[row.id] = row.flag;
+  const pinned = pinMigrationClock(sqlite);
+  const description = describeDatabase(sqlite);
+  sqlite.close();
+  return { description, pinned, flags, after };
 }
 
 describe("migration equality harness: digest primitives", () => {
@@ -59,6 +97,15 @@ describe("migration equality harness: digest primitives", () => {
     expect(rowHash([Buffer.from("x")])).not.toBe(rowHash(["x"]));
   });
 
+  it("keeps INTEGER and REAL values apart, including integral reals", () => {
+    expect(rowHash([1])).not.toBe(rowHash([1n]));
+    expect(rowHash([1.5])).not.toBe(rowHash([1n]));
+    expect(rowHash([2 ** 53])).not.toBe(rowHash([BigInt(2 ** 53)]));
+    expect(() => rowHash([1n << 63n])).toThrow(/64-bit/);
+    expect(() => rowHash([-(1n << 63n) - 1n])).toThrow(/64-bit/);
+    expect(rowHash([(1n << 63n) - 1n])).toBeTypeOf("bigint");
+  });
+
   it("is order-insensitive but counts duplicate rows", () => {
     const a = rowHash(["a"]);
     const b = rowHash(["b"]);
@@ -66,6 +113,34 @@ describe("migration equality harness: digest primitives", () => {
     expect(combineRowHashes([a, a])).not.toEqual(combineRowHashes([]));
     expect(combineRowHashes([a, a, b])).not.toEqual(combineRowHashes([b]));
     expect(combineRowHashes([a, a]).count).toBe(2);
+  });
+
+  it("keeps whitespace inside quoted literals when comparing schema SQL", () => {
+    const describe = (literal: string, gap: string) => {
+      const sqlite = new Database(":memory:");
+      sqlite.exec(`CREATE TABLE t (a${gap}text DEFAULT '${literal}')`);
+      const lines = describeSchema(sqlite);
+      sqlite.close();
+      return lines;
+    };
+    expect(describe("x  y", " ")).not.toEqual(describe("x y", " "));
+    expect(describe("x y", " ")).toEqual(describe("x y", "\n  "));
+  });
+
+  it("rejects duplicate sqlite_sequence rows and orders the rest", () => {
+    const sqlite = new Database(":memory:");
+    sqlite.exec(
+      "CREATE TABLE a (id INTEGER PRIMARY KEY AUTOINCREMENT); CREATE TABLE b (id INTEGER PRIMARY KEY AUTOINCREMENT); INSERT INTO b DEFAULT VALUES; INSERT INTO a DEFAULT VALUES;",
+    );
+    expect(describeSequences(sqlite)).toEqual([
+      ["a", "1"],
+      ["b", "1"],
+    ]);
+    sqlite.exec("INSERT INTO sqlite_sequence (name, seq) VALUES ('a', 9)");
+    expect(() => describeSequences(sqlite)).toThrow(
+      /Duplicate sqlite_sequence/,
+    );
+    sqlite.close();
   });
 });
 
@@ -108,17 +183,72 @@ describe("migration equality harness: legacy runner as oracle", () => {
   );
 
   it(
-    "detects a duplicated row and a changed autoincrement counter",
+    "detects renumbered rowids, swapped duplicate-text rows, relinked FTS rows, a changed counter and pragma drift",
     async () => {
       const db = await populatedPrefixDatabase(152);
-      const before = describeDatabase(db.$client);
-      db.$client.exec(
+      const sqlite = db.$client;
+      const base = contentOnly(describeDatabase(sqlite));
+      const changed = () =>
+        diffDescriptions(base, contentOnly(describeDatabase(sqlite)));
+
+      const top = (
+        sqlite
+          .prepare("SELECT MAX(rowid) AS top FROM thread_search_segments")
+          .get() as { top: number }
+      ).top;
+      sqlite.exec(
+        `UPDATE thread_search_segments SET rowid = ${top + 1000} WHERE rowid = ${top}`,
+      );
+      expect(changed()).toEqual([
+        expect.stringContaining("table differs: thread_search_segments"),
+      ]);
+      sqlite.exec(
+        `UPDATE thread_search_segments SET rowid = ${top} WHERE rowid = ${top + 1000}`,
+      );
+      expect(changed()).toEqual([]);
+
+      const duplicated = sqlite
+        .prepare(
+          "SELECT rowid FROM thread_search_segments WHERE text = 'duplicated search text' ORDER BY rowid",
+        )
+        .all() as Array<{ rowid: number }>;
+      expect(duplicated).toHaveLength(2);
+      const [first, second] = duplicated;
+      sqlite.exec(
+        `UPDATE thread_search_segments SET rowid = -1 WHERE rowid = ${first?.rowid}; UPDATE thread_search_segments SET rowid = ${first?.rowid} WHERE rowid = ${second?.rowid}; UPDATE thread_search_segments SET rowid = ${second?.rowid} WHERE rowid = -1`,
+      );
+      expect(changed()).toEqual([
+        expect.stringContaining("table differs: thread_search_segments"),
+      ]);
+      sqlite.exec(
+        `UPDATE thread_search_segments SET rowid = -1 WHERE rowid = ${first?.rowid}; UPDATE thread_search_segments SET rowid = ${first?.rowid} WHERE rowid = ${second?.rowid}; UPDATE thread_search_segments SET rowid = ${second?.rowid} WHERE rowid = -1`,
+      );
+      expect(changed()).toEqual([]);
+
+      sqlite.exec(
+        `UPDATE thread_search_segments_fts SET rowid = 9999 WHERE rowid = ${first?.rowid}`,
+      );
+      expect(changed()).toEqual([
+        expect.stringContaining("table differs: thread_search_segments_fts"),
+      ]);
+      sqlite.exec(
+        `UPDATE thread_search_segments_fts SET rowid = ${first?.rowid} WHERE rowid = 9999`,
+      );
+      expect(changed()).toEqual([]);
+
+      sqlite.exec(
         "UPDATE sqlite_sequence SET seq = seq + 1 WHERE name = 'transfer_events'",
       );
-      expect(describeDatabase(db.$client).sequences).not.toEqual(
-        before.sequences,
+      expect(changed()).toEqual(["sqlite_sequence state differs"]);
+      sqlite.exec(
+        "UPDATE sqlite_sequence SET seq = seq - 1 WHERE name = 'transfer_events'",
       );
-      db.$client.close();
+
+      sqlite.pragma("user_version = 7");
+      expect(changed()).toEqual([expect.stringContaining("pragmas differ")]);
+      sqlite.pragma("user_version = 0");
+      expect(changed()).toEqual([]);
+      sqlite.close();
     },
     TIMEOUT,
   );
@@ -126,12 +256,16 @@ describe("migration equality harness: legacy runner as oracle", () => {
   it(
     "upgrades every populated prefix to the pinned reference state",
     async () => {
-      const results: Record<string, DatabaseDescription> = {};
+      const results: Record<string, Upgraded> = {};
       for (const length of EQUALITY_PREFIX_LENGTHS)
         results[String(length)] = await upgradeFromPrefix(length);
+      for (const length of GROUPED_PREFIX_LENGTHS) {
+        const { description, pinned } = await upgradeGroupedPrefix(length);
+        results[`grouped-${length}`] = { description, pinned };
+      }
 
       const fingerprints = new Set(
-        Object.values(results).map((description) =>
+        Object.values(results).map(({ description }) =>
           schemaFingerprint(description),
         ),
       );
@@ -142,19 +276,24 @@ describe("migration equality harness: legacy runner as oracle", () => {
         upstreamCommit: UPSTREAM_ORACLE_COMMIT,
         schemaFingerprint: [...fingerprints][0] ?? "",
         prefixes: Object.fromEntries(
-          Object.entries(results).map(([length, description]) => [
-            length,
+          Object.entries(results).map(([key, { description, pinned }]) => [
+            key,
             {
+              pragmas: description.pragmas,
               sequences: description.sequences,
               tables: description.tables,
               ledger: description.ledger,
+              pinned,
             },
           ]),
         ),
       };
       if (process.env.UPDATE_MIGRATION_EQUALITY_REFERENCE === "1") {
+        if (process.env.CI)
+          throw new Error(
+            "UPDATE_MIGRATION_EQUALITY_REFERENCE must not be set in CI",
+          );
         writeFileSync(referencePath, `${JSON.stringify(current, null, 2)}\n`);
-        return;
       }
       const reference = JSON.parse(
         readFileSync(referencePath, "utf8"),
@@ -163,9 +302,63 @@ describe("migration equality harness: legacy runner as oracle", () => {
     },
     TIMEOUT,
   );
+
+  it(
+    "restores group_with_next through the staging table for every grouped prefix",
+    async () => {
+      for (const length of GROUPED_PREFIX_LENGTHS) {
+        const { flags, after } = await upgradeGroupedPrefix(length);
+        expect(
+          Object.values(flags).filter((flag) => flag === 1).length,
+        ).toBeGreaterThan(0);
+        expect(
+          Object.values(flags).filter((flag) => flag === 0).length,
+        ).toBeGreaterThan(0);
+        expect(after, `prefix ${length}`).toEqual(flags);
+      }
+    },
+    TIMEOUT,
+  );
+
+  it(
+    "keeps an existing onboarding stamp and restamps a null one (migration 0148)",
+    async () => {
+      const kept = await populatedPrefixDatabase(147);
+      kept.$client
+        .prepare(
+          "INSERT INTO app_settings_values (key, value, updated_at) VALUES ('onboardingCompletedAt', ?, 5)",
+        )
+        .run(JSON.stringify("2020-01-01T00:00:00.000Z"));
+      await legacyMigrate(kept);
+      expect(
+        kept.$client
+          .prepare(
+            "SELECT value, updated_at FROM app_settings_values WHERE key = 'onboardingCompletedAt'",
+          )
+          .get(),
+      ).toEqual({ value: '"2020-01-01T00:00:00.000Z"', updated_at: 5 });
+      expect(pinMigrationClock(kept.$client).onboardingCompletedAtValue).toBe(
+        0,
+      );
+      kept.$client.close();
+
+      const nulled = await populatedPrefixDatabase(147);
+      nulled.$client
+        .prepare(
+          "INSERT INTO app_settings_values (key, value, updated_at) VALUES ('onboardingCompletedAt', 'null', 5)",
+        )
+        .run();
+      await legacyMigrate(nulled);
+      const pinned = pinMigrationClock(nulled.$client);
+      expect(pinned.onboardingCompletedAtValue).toBe(1);
+      expect(pinned.updatedAt.app_settings_values).toBe(1);
+      nulled.$client.close();
+    },
+    TIMEOUT,
+  );
 });
 
-describe("legacy runner behaviour on ledger shapes (S3 rows 8, 16, 20, 21)", () => {
+describe("legacy runner behaviour on ledger shapes (S3 rows 8, 16, 18, 20, 21)", () => {
   it(
     "row 16: an exact duplicate ledger row is tolerated and changes nothing",
     async () => {
@@ -179,14 +372,19 @@ describe("legacy runner behaviour on ledger shapes (S3 rows 8, 16, 20, 21)", () 
       expect(diffDescriptions(contentOnly(before), contentOnly(after))).toEqual(
         [],
       );
-      expect(ledgerRows(db.$client)).toHaveLength(153);
+      const rows = ledgerRows(db.$client);
+      expect(rows).toHaveLength(153);
+      expect(rows[151]).toMatchObject({
+        hash: rows[152]?.hash,
+        created_at: rows[152]?.created_at,
+      });
       db.$client.close();
     },
     TIMEOUT,
   );
 
   it(
-    "row 8: an extra NULL created_at row beside complete rows is ignored",
+    "row 8: a stray NULL row with an unknown hash beside complete rows is ignored",
     async () => {
       const db = await populatedPrefixDatabase(152);
       const before = describeDatabase(db.$client);
@@ -200,13 +398,39 @@ describe("legacy runner behaviour on ledger shapes (S3 rows 8, 16, 20, 21)", () 
           contentOnly(describeDatabase(db.$client)),
         ),
       ).toEqual([]);
+      const rows = ledgerRows(db.$client);
+      expect(rows).toHaveLength(153);
+      expect(rows.filter((row) => row.created_at === null)).toHaveLength(1);
       db.$client.close();
     },
     TIMEOUT,
   );
 
   it(
-    "row 8: a NULL created_at on the only row for a step refuses as missing-created-at",
+    "row 18: a NULL row carrying a canonical step hash beside the complete row is ignored",
+    async () => {
+      const db = await populatedPrefixDatabase(152);
+      const before = describeDatabase(db.$client);
+      db.$client.exec(
+        "INSERT INTO __drizzle_migrations (hash, created_at) SELECT hash, NULL FROM __drizzle_migrations WHERE rowid = (SELECT MAX(rowid) - 7 FROM __drizzle_migrations)",
+      );
+      await legacyMigrate(db);
+      expect(
+        diffDescriptions(
+          contentOnly(before),
+          contentOnly(describeDatabase(db.$client)),
+        ),
+      ).toEqual([]);
+      const rows = ledgerRows(db.$client);
+      expect(rows).toHaveLength(153);
+      expect(rows.filter((row) => row.created_at === null)).toHaveLength(1);
+      db.$client.close();
+    },
+    TIMEOUT,
+  );
+
+  it(
+    "row 8: a NULL created_at on a mid-chain step refuses as missing-created-at and leaves the database unchanged",
     async () => {
       const db = await populatedPrefixDatabase(152);
       db.$client.exec(
@@ -216,26 +440,70 @@ describe("legacy runner behaviour on ledger shapes (S3 rows 8, 16, 20, 21)", () 
       await expect(legacyMigrate(db)).rejects.toThrow(
         /Missing applied migration timestamps/,
       );
-      expect(
-        diffDescriptions(
-          contentOnly(before),
-          contentOnly(describeDatabase(db.$client)),
-        ),
-      ).toEqual([]);
+      expect(describeDatabase(db.$client)).toEqual(before);
       db.$client.close();
     },
     TIMEOUT,
   );
 
   it(
-    "row 20: an all-NULL ledger fails with a SQL error after partially re-applying steps",
+    "row 8: a NULL created_at on the last step re-appends it and runs it again",
+    async () => {
+      const { db, flags } = await groupedPrefixDatabase(152);
+      const before = describeDatabase(db.$client);
+      db.$client.exec(
+        "UPDATE __drizzle_migrations SET created_at = NULL WHERE rowid = (SELECT MAX(rowid) FROM __drizzle_migrations)",
+      );
+      await legacyMigrate(db);
+      const rows = ledgerRows(db.$client);
+      expect(rows).toHaveLength(153);
+      expect(rows.filter((row) => row.created_at === null)).toHaveLength(1);
+      expect(rows[152]?.created_at).not.toBeNull();
+      const after: Record<string, number> = {};
+      for (const row of db.$client
+        .prepare(
+          "SELECT id, group_with_next AS flag FROM queued_thread_messages",
+        )
+        .all() as Array<{ id: string; flag: number }>)
+        after[row.id] = row.flag;
+      expect(after).toEqual(flags);
+      expect(
+        diffDescriptions(
+          contentOnly(before),
+          contentOnly(describeDatabase(db.$client)),
+        ),
+      ).toEqual([
+        expect.stringContaining("table differs: queued_thread_messages"),
+      ]);
+      db.$client.close();
+    },
+    TIMEOUT,
+  );
+
+  it(
+    "row 20: an all-NULL ledger fails on a duplicate column after partially re-applying steps",
     async () => {
       const db = await populatedPrefixDatabase(152);
+      const before = describeDatabase(db.$client);
       db.$client.exec("UPDATE __drizzle_migrations SET created_at = NULL");
-      await expect(legacyMigrate(db)).rejects.toThrow(
-        /Failed to run the query/,
+      let failure: unknown;
+      try {
+        await legacyMigrate(db);
+      } catch (error) {
+        failure = error;
+      }
+      expect(failure).toBeInstanceOf(Error);
+      expect((failure as Error).message).toMatch(/Failed to run the query/);
+      expect(String((failure as Error & { cause?: unknown }).cause)).toMatch(
+        /duplicate column name: name/,
       );
       expect(ledgerRows(db.$client).length).toBeGreaterThan(152);
+      expect(
+        diffDescriptions(
+          contentOnly(before),
+          contentOnly(describeDatabase(db.$client)),
+        ).length,
+      ).toBeGreaterThan(0);
       db.$client.close();
     },
     TIMEOUT,

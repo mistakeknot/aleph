@@ -44,7 +44,16 @@ const queuedMessageStates: Array<Record<string, unknown>> = [
   },
 ];
 
+const ROWID_GAPS = [101, 103, 104, 107, 108, 112];
+
+function gappedRowid(row: number): number {
+  return ROWID_GAPS[row] ?? 120 + row;
+}
+
 const rowOverrides: Record<string, RowOverride> = {
+  thread_search_segments: (row) => ({
+    text: row < 2 ? "duplicated search text" : "distinct search text",
+  }),
   project_sources: () => ({ type: "local_path" }),
   events: () => ({ scope_kind: "turn" }),
   queued_thread_messages: (row) => ({
@@ -109,8 +118,19 @@ export function populateDatabase(
         .prepare("SELECT * FROM pragma_table_xinfo(?) WHERE hidden = 0")
         .all(name) as ColumnInfo[]
     ).filter((column) => column.name !== "rowid");
-    const columnList = columns.map((c) => quoteIdentifier(c.name)).join(", ");
-    const placeholders = columns.map(() => "?").join(", ");
+    const keyColumns = columns.filter((column) => column.pk > 0);
+    const hasRowidAlias =
+      keyColumns.length === 1 &&
+      keyColumns[0]?.type.toUpperCase() === "INTEGER";
+    const gapRowids = !hasRowidAlias && !/WITHOUT\s+ROWID/i.test(sql);
+    const columnList = [
+      ...(gapRowids ? ["rowid"] : []),
+      ...columns.map((c) => quoteIdentifier(c.name)),
+    ].join(", ");
+    const placeholders = [
+      ...(gapRowids ? ["?"] : []),
+      ...columns.map(() => "?"),
+    ].join(", ");
     const statement = sqlite.prepare(
       `INSERT INTO ${quoteIdentifier(name)} (${columnList}) VALUES (${placeholders})`,
     );
@@ -126,7 +146,10 @@ export function populateDatabase(
         );
       const merged = { ...base, ...rowOverrides[name]?.(row) };
       if (name === "thread_pruning_cursors") merged.scope = merged.thread_id;
-      const values = columns.map((column) => merged[column.name]);
+      const values = [
+        ...(gapRowids ? [gappedRowid(row)] : []),
+        ...columns.map((column) => merged[column.name]),
+      ];
       try {
         statement.run(...values);
         inserted[name] += 1;

@@ -10,14 +10,18 @@ export interface TableDigest {
 
 export interface DatabaseDescription {
   schema: string[];
+  pragmas: Record<string, string>;
   sequences: Array<[string, string]>;
   tables: Record<string, TableDigest>;
   ledger: TableDigest;
 }
 
 export interface DescribeOptions {
-  includeRowid?: boolean;
+  ignoreRowid?: boolean;
 }
+
+const INT64_MIN = -(1n << 63n);
+const INT64_MAX = (1n << 63n) - 1n;
 
 function frame(tag: string, bytes: Buffer): Buffer {
   const length = Buffer.alloc(8);
@@ -27,15 +31,17 @@ function frame(tag: string, bytes: Buffer): Buffer {
 
 function encodeValue(value: unknown): Buffer {
   if (value === null || value === undefined) return frame("n", Buffer.alloc(0));
-  if (typeof value === "bigint" || typeof value === "number") {
-    if (typeof value === "number" && !Number.isInteger(value)) {
-      const bytes = Buffer.alloc(8);
-      bytes.writeDoubleBE(value);
-      return frame("r", bytes);
-    }
+  if (typeof value === "bigint") {
+    if (value < INT64_MIN || value > INT64_MAX)
+      throw new Error(`INTEGER outside the signed 64-bit range: ${value}`);
     const bytes = Buffer.alloc(8);
-    bytes.writeBigInt64BE(BigInt(value));
+    bytes.writeBigInt64BE(value);
     return frame("i", bytes);
+  }
+  if (typeof value === "number") {
+    const bytes = Buffer.alloc(8);
+    bytes.writeDoubleBE(value);
+    return frame("r", bytes);
   }
   if (typeof value === "string") return frame("t", Buffer.from(value, "utf8"));
   if (Buffer.isBuffer(value)) return frame("b", value);
@@ -74,6 +80,13 @@ export function listUserTables(sqlite: Database.Database): string[] {
     .filter((name) => name !== "__drizzle_migrations");
 }
 
+function isWithoutRowid(sqlite: Database.Database, name: string): boolean {
+  const row = sqlite
+    .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?")
+    .get(name) as { sql: string | null } | undefined;
+  return /\)\s*(?:,\s*STRICT\s*,\s*)?WITHOUT\s+ROWID/i.test(row?.sql ?? "");
+}
+
 function isShadowTable(sqlite: Database.Database, name: string): boolean {
   return (
     (
@@ -98,8 +111,9 @@ export function digestTable(
   )
     .map((row) => row.name)
     .sort();
+  const withRowid = !options.ignoreRowid && !isWithoutRowid(sqlite, table);
   const projection = [
-    ...(options.includeRowid ? ["rowid"] : []),
+    ...(withRowid ? ["rowid"] : []),
     ...columns.map(quoteIdentifier),
   ].join(", ");
   const statement = sqlite
@@ -113,8 +127,15 @@ export function digestTable(
   );
 }
 
+const QUOTED_OR_WHITESPACE =
+  /('(?:[^']|'')*'|"(?:[^"]|"")*"|`(?:[^`]|``)*`|\[[^\]]*\])|\s+/g;
+
 function normalizeSql(sql: string | null): string {
-  return (sql ?? "").replace(/\s+/g, " ").trim();
+  return (sql ?? "")
+    .replace(QUOTED_OR_WHITESPACE, (match, quoted: string | undefined) =>
+      quoted === undefined ? " " : match,
+    )
+    .trim();
 }
 
 export function describeSchema(sqlite: Database.Database): string[] {
@@ -141,18 +162,39 @@ export function describeSequences(
     .prepare("SELECT 1 FROM sqlite_master WHERE name = 'sqlite_sequence'")
     .get();
   if (!exists) return [];
-  const merged = new Map<string, bigint>();
-  for (const row of sqlite
-    .prepare("SELECT name, seq FROM sqlite_sequence")
-    .safeIntegers(true)
-    .all() as Array<{ name: string; seq: bigint }>) {
-    const previous = merged.get(row.name);
-    if (previous === undefined || row.seq > previous)
-      merged.set(row.name, row.seq);
+  const rows = (
+    sqlite
+      .prepare("SELECT name, seq FROM sqlite_sequence ORDER BY rowid")
+      .safeIntegers(true)
+      .all() as Array<{ name: string; seq: bigint }>
+  ).map((row): [string, string] => [row.name, row.seq.toString()]);
+  const seen = new Set<string>();
+  for (const [name] of rows) {
+    if (seen.has(name))
+      throw new Error(`Duplicate sqlite_sequence rows for ${name}`);
+    seen.add(name);
   }
-  return [...merged.entries()]
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([name, seq]) => [name, seq.toString()]);
+  return rows.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+}
+
+export function describePragmas(
+  sqlite: Database.Database,
+): Record<string, string> {
+  const scalar = (pragma: string): string =>
+    String(sqlite.pragma(pragma, { simple: true }));
+  return {
+    application_id: scalar("application_id"),
+    auto_vacuum: scalar("auto_vacuum"),
+    foreign_key_violations: String(
+      (sqlite.pragma("foreign_key_check") as unknown[]).length,
+    ),
+    integrity_check: (
+      sqlite.pragma("integrity_check") as Array<{ integrity_check: string }>
+    )
+      .map((row) => row.integrity_check)
+      .join(";"),
+    user_version: scalar("user_version"),
+  };
 }
 
 export function describeLedger(sqlite: Database.Database): TableDigest {
@@ -174,6 +216,7 @@ export function describeDatabase(
   }
   return {
     schema: describeSchema(sqlite),
+    pragmas: describePragmas(sqlite),
     sequences: describeSequences(sqlite),
     tables,
     ledger: describeLedger(sqlite),
@@ -185,6 +228,7 @@ export function contentOnly(
 ): Omit<DatabaseDescription, "ledger"> {
   return {
     schema: description.schema,
+    pragmas: description.pragmas,
     sequences: description.sequences,
     tables: description.tables,
   };
@@ -207,6 +251,10 @@ export function diffDescriptions(
     if (!actualSchema.has(line)) differences.push(`schema missing: ${line}`);
   for (const line of actualSchema)
     if (!expectedSchema.has(line)) differences.push(`schema extra: ${line}`);
+  if (JSON.stringify(expected.pragmas) !== JSON.stringify(actual.pragmas))
+    differences.push(
+      `pragmas differ: ${JSON.stringify(expected.pragmas)} vs ${JSON.stringify(actual.pragmas)}`,
+    );
   if (JSON.stringify(expected.sequences) !== JSON.stringify(actual.sequences))
     differences.push("sqlite_sequence state differs");
   const names = new Set([

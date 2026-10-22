@@ -679,7 +679,8 @@
       // does nothing without them.
       "passThroughEnv": [
         "UPDATE_PARITY_ROW_COUNTS",
-        "UPDATE_TRANSCRIPT_EXPECTATIONS"
+        "UPDATE_TRANSCRIPT_EXPECTATIONS",
+        "UPDATE_MIGRATION_EQUALITY_REFERENCE"
       ]
     },
     "@bb/desktop#test": {
