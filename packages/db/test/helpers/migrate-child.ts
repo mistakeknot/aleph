@@ -1,3 +1,4 @@
+import { writeFileSync } from "node:fs";
 import { createConnection } from "../../src/connection.js";
 import { migrateWithFolders } from "../../src/migrate.js";
 
@@ -22,6 +23,8 @@ if (point === "mid-transaction") {
     "CREATE TEMP TRIGGER bb_die_mid_migration AFTER INSERT ON __drizzle_migrations WHEN (SELECT count(*) FROM __drizzle_migrations) > 140 BEGIN SELECT bb_die(); END",
   );
 }
+if (process.env.BB_READY_FILE !== undefined)
+  writeFileSync(process.env.BB_READY_FILE, String(process.pid));
 migrateWithFolders(
   db,
   { upstreamFolder, alephFolder },
