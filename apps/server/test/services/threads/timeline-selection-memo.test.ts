@@ -1023,8 +1023,18 @@ describe("latest timeline selection memo", () => {
   it.each([
     {
       name: "resolved deltas are pruned",
-      rewrite: (testThread: TestThread) =>
-        advanceThreadPruning(testThread.db, "resolved-items").removed,
+      rewrite: (testThread: TestThread) => {
+        const setStatus = testThread.db.$client.prepare(
+          "UPDATE threads SET status = ? WHERE id = ?",
+        );
+        setStatus.run("idle", testThread.thread.id);
+        const { removed } = advanceThreadPruning(
+          testThread.db,
+          "resolved-items",
+        );
+        setStatus.run("active", testThread.thread.id);
+        return removed;
+      },
     },
     {
       name: "another connection deletes a delta",

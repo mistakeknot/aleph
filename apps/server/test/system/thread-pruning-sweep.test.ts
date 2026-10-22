@@ -73,9 +73,28 @@ function removedEvents(fields: unknown): boolean {
   );
 }
 
+function removedCount(fields: unknown): number {
+  return typeof fields === "object" &&
+    fields !== null &&
+    "removed" in fields &&
+    typeof fields.removed === "number"
+    ? fields.removed
+    : 0;
+}
+
+function threadSequences(harness: TestAppHarness, threadId: string): number[] {
+  return harness.db
+    .select({ sequence: events.sequence })
+    .from(events)
+    .where(eq(events.threadId, threadId))
+    .orderBy(events.sequence)
+    .all()
+    .map((row) => row.sequence);
+}
+
 const UNTIMED_SWEEP_LIMITS: ThreadPruningSweepLimits = {
+  ...THREAD_PRUNING_SWEEP_LIMITS,
   elapsedBudgetMs: Number.POSITIVE_INFINITY,
-  maxAdvances: THREAD_PRUNING_SWEEP_LIMITS.maxAdvances,
 };
 
 describe("thread pruning sweep", () => {
@@ -122,6 +141,53 @@ describe("thread pruning sweep", () => {
       ]);
       expect(harness.db.select().from(events).all()).toHaveLength(700);
       notify.mockRestore();
+      debug.mockRestore();
+    });
+  });
+
+  it("prunes idle threads in small batches while other threads are active, then revisits them", async () => {
+    await withTestHarness(async (harness) => {
+      const idle = seed(harness, 1200);
+      const active = seed(harness, 300);
+      harness.db
+        .update(threads)
+        .set({ status: "active" })
+        .where(eq(threads.id, active.id))
+        .run();
+      const debug = vi.spyOn(harness.deps.logger, "debug");
+      for (let i = 0; i < 3; i++)
+        await runThreadPruningSweep(harness.deps, UNTIMED_SWEEP_LIMITS);
+      const advanced = debug.mock.calls
+        .filter(([, message]) => message === "Thread pruning policy advanced")
+        .map(([fields]) => fields);
+      expect(advanced.filter(removedEvents).length).toBeGreaterThan(1);
+      for (const fields of advanced) {
+        expect(removedCount(fields)).toBeLessThanOrEqual(
+          THREAD_PRUNING_SWEEP_LIMITS.busyBatchSize,
+        );
+        expect(fields).not.toEqual(
+          expect.objectContaining({ threadId: active.id }),
+        );
+      }
+      expect(debug).toHaveBeenCalledWith(
+        expect.objectContaining({ busy: true }),
+        "Thread pruning sweep finished",
+      );
+      expect(threadSequences(harness, idle.id)).toEqual([1200]);
+      expect(threadSequences(harness, active.id)).toHaveLength(300);
+      harness.db
+        .update(threads)
+        .set({ status: "idle" })
+        .where(eq(threads.id, active.id))
+        .run();
+      debug.mockClear();
+      for (let i = 0; i < 3; i++)
+        await runThreadPruningSweep(harness.deps, UNTIMED_SWEEP_LIMITS);
+      expect(threadSequences(harness, active.id)).toEqual([300]);
+      expect(debug).toHaveBeenCalledWith(
+        expect.objectContaining({ busy: false }),
+        "Thread pruning sweep finished",
+      );
       debug.mockRestore();
     });
   });

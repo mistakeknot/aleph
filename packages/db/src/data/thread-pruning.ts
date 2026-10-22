@@ -8,8 +8,8 @@ import {
   emptyResolvedItemPruningProbe,
 } from "./resolved-item-pruning.js";
 import { pruneRateLimitSnapshotWindow } from "./rate-limit-pruning.js";
-import { and, eq, gt, inArray, sql } from "drizzle-orm";
-import type { DbConnection } from "../connection.js";
+import { and, eq, gt, inArray, not, sql } from "drizzle-orm";
+import type { DbConnection, DbQueryConnection } from "../connection.js";
 import {
   events,
   threadPruningCursors,
@@ -17,6 +17,7 @@ import {
   threads,
 } from "../schema.js";
 import { bumpThreadEventRewriteGeneration } from "./event-rewrite-generation.js";
+import { isThreadMaintenanceBusy } from "./maintenance.js";
 import {
   getHighWaterMarks,
   pruneContextWindowUsageEventsInTransaction,
@@ -38,6 +39,7 @@ const VERSION_BY_POLICY: Record<ThreadPruningPolicy, number> = {
 };
 const BATCH_SIZE = 500;
 const LIVE_BATCH_SIZE = 32;
+const RATE_LIMIT_BATCH_SIZE = 64;
 
 export function getNextThreadPruningPolicy(
   db: DbConnection,
@@ -62,7 +64,12 @@ export function getNextThreadPruningPolicy(
     db
       .select({ threadId: threadPruningWork.threadId })
       .from(threadPruningWork)
-      .where(eq(threadPruningWork.policy, THREAD_PRUNING_PENDING_POLICY))
+      .where(
+        and(
+          eq(threadPruningWork.policy, THREAD_PRUNING_PENDING_POLICY),
+          idleWork(),
+        ),
+      )
       .limit(1)
       .get() !== undefined;
   const pending =
@@ -74,11 +81,14 @@ export function getNextThreadPruningPolicy(
               db
                 .select({ id: threadPruningWork.threadId })
                 .from(threadPruningWork)
-                .where(eq(threadPruningWork.policy, policy))
+                .where(and(eq(threadPruningWork.policy, policy), idleWork()))
                 .limit(1)
                 .get() !== undefined ||
               rows.some(
-                (row) => row.policy === policy && row.currentThreadId !== null,
+                (row) =>
+                  row.policy === policy &&
+                  row.currentThreadId !== null &&
+                  !isThreadBusy(db, row.currentThreadId),
               ),
           ),
         )
@@ -91,13 +101,25 @@ export function getNextThreadPruningPolicy(
   );
 }
 
+function idleWork() {
+  return not(isThreadMaintenanceBusy(threadPruningWork.threadId));
+}
+
+function isThreadBusy(db: DbQueryConnection, threadId: string): boolean {
+  return (
+    db.get<{ busy: number }>(
+      sql`SELECT ${isThreadMaintenanceBusy(threadId)} AS busy`,
+    )?.busy === 1
+  );
+}
+
 function advanceThreadPruningTransaction(
   db: DbConnection,
   policy: ThreadPruningPolicy,
+  batchSize: number,
   threadScope?: string,
 ) {
   const scope = threadScope ?? "";
-  const batchSize = threadScope === undefined ? BATCH_SIZE : LIVE_BATCH_SIZE;
   const result = db.transaction(
     (tx) => {
       drainPendingThreadPruningWork(tx, threadScope);
@@ -159,6 +181,7 @@ function advanceThreadPruningTransaction(
         | "advanced"
         | "cycle-complete"
         | "thread-complete"
+        | "thread-deferred"
         | "missing-thread" = "advanced";
       let removed = 0;
       let scanned = 0;
@@ -176,6 +199,7 @@ function advanceThreadPruningTransaction(
                   and(
                     eq(threadPruningWork.policy, policy),
                     gt(threadPruningWork.threadId, cursor.lastThreadId),
+                    idleWork(),
                   ),
                 )
                 .orderBy(threadPruningWork.threadId)
@@ -193,7 +217,7 @@ function advanceThreadPruningTransaction(
               revision: threadPruningWork.revision,
             })
             .from(threadPruningWork)
-            .where(eq(threadPruningWork.policy, policy))
+            .where(and(eq(threadPruningWork.policy, policy), idleWork()))
             .orderBy(threadPruningWork.threadId)
             .limit(1)
             .get();
@@ -236,12 +260,14 @@ function advanceThreadPruningTransaction(
           .get();
         if (!thread) {
           action = "missing-thread";
+        } else if (threadScope === undefined && isThreadBusy(tx, threadId)) {
+          action = "thread-deferred";
         } else if (policy === "rate-limits") {
           const batch = pruneRateLimitSnapshotWindow(tx, {
             threadId,
             afterSequence: cursor.sequence,
             throughSequence: cursor.upperSequence,
-            limit: threadScope === undefined ? 64 : LIVE_BATCH_SIZE,
+            limit: Math.min(batchSize, RATE_LIMIT_BATCH_SIZE),
           });
           scanned = batch.scanned;
           removed = batch.removed;
@@ -373,7 +399,7 @@ function advanceThreadPruningTransaction(
           }
         }
         if (action !== "advanced") {
-          if (threadScope === undefined)
+          if (threadScope === undefined && action !== "thread-deferred")
             tx.delete(threadPruningWork)
               .where(
                 and(
@@ -419,21 +445,32 @@ function advanceThreadPruningTransaction(
 
 export function advanceThreadPruning(
   db: DbConnection,
-  target: ThreadPruningPolicy | { threadId: string },
+  target:
+    | ThreadPruningPolicy
+    | { policy: ThreadPruningPolicy; batchSize: number }
+    | { threadId: string },
 ) {
   const timeout: unknown = db.$client.pragma("busy_timeout", { simple: true });
   if (typeof timeout !== "number")
     throw new Error("Invalid SQLite busy timeout");
   db.$client.pragma("busy_timeout = 0");
   try {
-    const threadScope =
-      typeof target === "string" ? undefined : target.threadId;
-    const policy =
-      typeof target === "string"
-        ? target
-        : getNextThreadPruningPolicy(db, new Set(), target.threadId);
+    if (typeof target === "string")
+      return advanceThreadPruningTransaction(db, target, BATCH_SIZE);
+    if ("policy" in target)
+      return advanceThreadPruningTransaction(
+        db,
+        target.policy,
+        target.batchSize,
+      );
+    const policy = getNextThreadPruningPolicy(db, new Set(), target.threadId);
     if (policy === null) throw new Error("Missing live pruning policy");
-    return advanceThreadPruningTransaction(db, policy, threadScope);
+    return advanceThreadPruningTransaction(
+      db,
+      policy,
+      LIVE_BATCH_SIZE,
+      target.threadId,
+    );
   } finally {
     db.$client.pragma(`busy_timeout = ${timeout}`);
   }
