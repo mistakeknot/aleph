@@ -1,0 +1,2275 @@
+{
+  "legacyCommit": "07c1ec9ed2",
+  "upstreamCommit": "411eac54ac16d0a3cb57d1de8396d37564884a73",
+  "schemaFingerprint": "897f4cb55735cda675ff11b100c0cd28ec6780f39409ee45bebe8a8dd055c49f",
+  "prefixes": {
+    "35": {
+      "sequences": [
+        [
+          "environment_variables",
+          "0"
+        ]
+      ],
+      "tables": {
+        "aleph_install_requests": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "apikey": {
+          "count": 3,
+          "digest": "66de950655ee8e9c239059953987f447"
+        },
+        "app_settings": {
+          "count": 1,
+          "digest": "6c2a8ffcf7b5883994b2a2bf68828dbb"
+        },
+        "app_settings_values": {
+          "count": 5,
+          "digest": "29e268ed1bd3fa0ab2c430f4fda976bc"
+        },
+        "app_theme": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "deferred_thread_messages_legacy": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "environment_hook_operations": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "environment_variables": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "environments": {
+          "count": 3,
+          "digest": "5005ff19d3cc1ceb344aed06c9f312f0"
+        },
+        "events": {
+          "count": 3,
+          "digest": "1ad1f1e3659108cc15f77f9554292618"
+        },
+        "host_daemon_sessions": {
+          "count": 3,
+          "digest": "0d5a229edc74b9fbf64dc3a8735e9c14"
+        },
+        "hosts": {
+          "count": 3,
+          "digest": "72af5cfb6e29ca99868917f7441e0abc"
+        },
+        "idempotent_thread_operations": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "maintenance_scan_cursors": {
+          "count": 3,
+          "digest": "da70185a7991fd30bf37f123589dcca5"
+        },
+        "pending_interactions": {
+          "count": 3,
+          "digest": "b1e049cf9c443eb197f0b7999fa880d7"
+        },
+        "plugin_artifacts": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "plugin_kv": {
+          "count": 1,
+          "digest": "35b3f3f35fad5603c5eee3756b0af304"
+        },
+        "plugin_marketplace_icons": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "plugin_marketplaces": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "plugin_schedules": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "plugin_settings": {
+          "count": 5,
+          "digest": "6b370f3bfcbf49900da9b094320b2f50"
+        },
+        "plugin_state_snapshots": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "plugins": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "project_attachment_backfills": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "project_attachment_threads": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "project_attachments": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "project_execution_defaults": {
+          "count": 3,
+          "digest": "60b3747712ac7232f0f5c1156c35682b"
+        },
+        "project_sources": {
+          "count": 3,
+          "digest": "821206e1afb031f4af29979b68f5e201"
+        },
+        "projects": {
+          "count": 4,
+          "digest": "fd9eed6b948a8724bdd9fb96ffe80038"
+        },
+        "prompt_history_entries": {
+          "count": 3,
+          "digest": "7b95a5a58a85447f9874ca3c853ba167"
+        },
+        "provider_model_catalogs": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "queued_thread_messages": {
+          "count": 3,
+          "digest": "4850fa5c1c7388711980c381de13baae"
+        },
+        "retained_event_outputs": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "system_experiments": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "terminal_sessions": {
+          "count": 3,
+          "digest": "d8d1e9c71d9f26caa6ff00d169f085fe"
+        },
+        "thread_conversation_outlines": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_dynamic_context_file_states": {
+          "count": 3,
+          "digest": "f20785235e00d6fd6e281d37d6d345b2"
+        },
+        "thread_plugin_metadata": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_pruning_cursors": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_pruning_work": {
+          "count": 12,
+          "digest": "405430568d376bd18030af7f05146dda"
+        },
+        "thread_redirects": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_search_learned_selections": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_search_segments": {
+          "count": 6,
+          "digest": "3d4374e4b579ec120e47f424aebb2a65"
+        },
+        "thread_search_segments_fts": {
+          "count": 6,
+          "digest": "e863f4c3f2b8535d213b5a07017a38c2"
+        },
+        "thread_sections": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_tabs": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "threads": {
+          "count": 3,
+          "digest": "9f878e4c8cb79961a863ee54d1492ad1"
+        },
+        "transfer_entries": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "transfer_events": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "transfer_operations": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "ui_preference_defaults": {
+          "count": 1,
+          "digest": "a4d1befae4d57e7b64e31e24cd3e557a"
+        },
+        "ui_preferences": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "user": {
+          "count": 3,
+          "digest": "9c25fc13529802ebf1f02df6154d263e"
+        }
+      },
+      "ledger": {
+        "count": 152,
+        "digest": "f7ede05fe49be19f0fe1c1fdb706d0f0"
+      }
+    },
+    "64": {
+      "sequences": [
+        [
+          "environment_variables",
+          "0"
+        ]
+      ],
+      "tables": {
+        "aleph_install_requests": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "apikey": {
+          "count": 3,
+          "digest": "66de950655ee8e9c239059953987f447"
+        },
+        "app_settings": {
+          "count": 4,
+          "digest": "fc12c89e7897d48dd380d5f337d9f3c5"
+        },
+        "app_settings_values": {
+          "count": 5,
+          "digest": "29e268ed1bd3fa0ab2c430f4fda976bc"
+        },
+        "app_theme": {
+          "count": 3,
+          "digest": "0d359eb7024d312e38d1e3c35a36ecf3"
+        },
+        "deferred_thread_messages_legacy": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "environment_hook_operations": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "environment_variables": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "environments": {
+          "count": 3,
+          "digest": "5005ff19d3cc1ceb344aed06c9f312f0"
+        },
+        "events": {
+          "count": 3,
+          "digest": "1ad1f1e3659108cc15f77f9554292618"
+        },
+        "host_daemon_sessions": {
+          "count": 3,
+          "digest": "0d5a229edc74b9fbf64dc3a8735e9c14"
+        },
+        "hosts": {
+          "count": 3,
+          "digest": "72af5cfb6e29ca99868917f7441e0abc"
+        },
+        "idempotent_thread_operations": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "maintenance_scan_cursors": {
+          "count": 3,
+          "digest": "da70185a7991fd30bf37f123589dcca5"
+        },
+        "pending_interactions": {
+          "count": 3,
+          "digest": "844fdc62c26a20148242069b4e35c066"
+        },
+        "plugin_artifacts": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "plugin_kv": {
+          "count": 4,
+          "digest": "60748158c9a698c1e1518811c21c5f6e"
+        },
+        "plugin_marketplace_icons": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "plugin_marketplaces": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "plugin_schedules": {
+          "count": 3,
+          "digest": "8bf0da3ef68758b12834ac7a9e20d750"
+        },
+        "plugin_settings": {
+          "count": 8,
+          "digest": "a03a859bc77502a008c51ffcfb368313"
+        },
+        "plugin_state_snapshots": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "plugins": {
+          "count": 3,
+          "digest": "cc98d049db87040cd47c286a13b1e805"
+        },
+        "project_attachment_backfills": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "project_attachment_threads": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "project_attachments": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "project_execution_defaults": {
+          "count": 3,
+          "digest": "60b3747712ac7232f0f5c1156c35682b"
+        },
+        "project_sources": {
+          "count": 3,
+          "digest": "821206e1afb031f4af29979b68f5e201"
+        },
+        "projects": {
+          "count": 4,
+          "digest": "fd9eed6b948a8724bdd9fb96ffe80038"
+        },
+        "prompt_history_entries": {
+          "count": 3,
+          "digest": "7b95a5a58a85447f9874ca3c853ba167"
+        },
+        "provider_model_catalogs": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "queued_thread_messages": {
+          "count": 3,
+          "digest": "4850fa5c1c7388711980c381de13baae"
+        },
+        "retained_event_outputs": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "system_experiments": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "terminal_sessions": {
+          "count": 3,
+          "digest": "d8d1e9c71d9f26caa6ff00d169f085fe"
+        },
+        "thread_conversation_outlines": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_dynamic_context_file_states": {
+          "count": 3,
+          "digest": "f20785235e00d6fd6e281d37d6d345b2"
+        },
+        "thread_plugin_metadata": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_pruning_cursors": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_pruning_work": {
+          "count": 12,
+          "digest": "405430568d376bd18030af7f05146dda"
+        },
+        "thread_redirects": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_search_learned_selections": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_search_segments": {
+          "count": 3,
+          "digest": "bfa6453f4976984ddd46620350e8263d"
+        },
+        "thread_search_segments_fts": {
+          "count": 3,
+          "digest": "dc6ba0a77896911ff3c35d837a22b99c"
+        },
+        "thread_sections": {
+          "count": 3,
+          "digest": "5a5baf6a6b623291bd27fa86a0e95a65"
+        },
+        "thread_tabs": {
+          "count": 3,
+          "digest": "028048a6492f62bdf2e9ba50532de022"
+        },
+        "threads": {
+          "count": 3,
+          "digest": "233200d8a80e4d01a521d65b6eb0615a"
+        },
+        "transfer_entries": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "transfer_events": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "transfer_operations": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "ui_preference_defaults": {
+          "count": 1,
+          "digest": "a4d1befae4d57e7b64e31e24cd3e557a"
+        },
+        "ui_preferences": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "user": {
+          "count": 3,
+          "digest": "9c25fc13529802ebf1f02df6154d263e"
+        }
+      },
+      "ledger": {
+        "count": 152,
+        "digest": "f7ede05fe49be19f0fe1c1fdb706d0f0"
+      }
+    },
+    "89": {
+      "sequences": [
+        [
+          "environment_variables",
+          "0"
+        ]
+      ],
+      "tables": {
+        "aleph_install_requests": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "apikey": {
+          "count": 3,
+          "digest": "66de950655ee8e9c239059953987f447"
+        },
+        "app_settings": {
+          "count": 3,
+          "digest": "595b4687e316a5c1af0cb60083f81d2e"
+        },
+        "app_settings_values": {
+          "count": 3,
+          "digest": "88b79930604cb18b5b4cd82e238d519e"
+        },
+        "app_theme": {
+          "count": 3,
+          "digest": "0d359eb7024d312e38d1e3c35a36ecf3"
+        },
+        "deferred_thread_messages_legacy": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "environment_hook_operations": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "environment_variables": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "environments": {
+          "count": 3,
+          "digest": "5005ff19d3cc1ceb344aed06c9f312f0"
+        },
+        "events": {
+          "count": 3,
+          "digest": "1ad1f1e3659108cc15f77f9554292618"
+        },
+        "host_daemon_sessions": {
+          "count": 3,
+          "digest": "0d5a229edc74b9fbf64dc3a8735e9c14"
+        },
+        "hosts": {
+          "count": 3,
+          "digest": "36394c3acf5be44dfc3891355a0ea7ec"
+        },
+        "idempotent_thread_operations": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "maintenance_scan_cursors": {
+          "count": 3,
+          "digest": "da70185a7991fd30bf37f123589dcca5"
+        },
+        "pending_interactions": {
+          "count": 3,
+          "digest": "844fdc62c26a20148242069b4e35c066"
+        },
+        "plugin_artifacts": {
+          "count": 3,
+          "digest": "6c6facc9b4b2e840750ef9b1fbda05fb"
+        },
+        "plugin_kv": {
+          "count": 3,
+          "digest": "2ac08d6569f942be1b62a49c57116c6a"
+        },
+        "plugin_marketplace_icons": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "plugin_marketplaces": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "plugin_schedules": {
+          "count": 3,
+          "digest": "8bf0da3ef68758b12834ac7a9e20d750"
+        },
+        "plugin_settings": {
+          "count": 3,
+          "digest": "3503765fcab5b90ffb1b6f68c92b53c3"
+        },
+        "plugin_state_snapshots": {
+          "count": 3,
+          "digest": "5d1c2b32cda3a67ad7efa9e051af9912"
+        },
+        "plugins": {
+          "count": 3,
+          "digest": "6686d8ad7917d9eb6f7d04c5717a56ee"
+        },
+        "project_attachment_backfills": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "project_attachment_threads": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "project_attachments": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "project_execution_defaults": {
+          "count": 3,
+          "digest": "60b3747712ac7232f0f5c1156c35682b"
+        },
+        "project_sources": {
+          "count": 3,
+          "digest": "821206e1afb031f4af29979b68f5e201"
+        },
+        "projects": {
+          "count": 4,
+          "digest": "e1d4e38d2a4429cbe7488946ef05a073"
+        },
+        "prompt_history_entries": {
+          "count": 3,
+          "digest": "7b95a5a58a85447f9874ca3c853ba167"
+        },
+        "provider_model_catalogs": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "queued_thread_messages": {
+          "count": 3,
+          "digest": "4850fa5c1c7388711980c381de13baae"
+        },
+        "retained_event_outputs": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "system_experiments": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "terminal_sessions": {
+          "count": 3,
+          "digest": "d8d1e9c71d9f26caa6ff00d169f085fe"
+        },
+        "thread_conversation_outlines": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_dynamic_context_file_states": {
+          "count": 3,
+          "digest": "f20785235e00d6fd6e281d37d6d345b2"
+        },
+        "thread_plugin_metadata": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_pruning_cursors": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_pruning_work": {
+          "count": 12,
+          "digest": "405430568d376bd18030af7f05146dda"
+        },
+        "thread_redirects": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_search_learned_selections": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_search_segments": {
+          "count": 3,
+          "digest": "bfa6453f4976984ddd46620350e8263d"
+        },
+        "thread_search_segments_fts": {
+          "count": 3,
+          "digest": "dc6ba0a77896911ff3c35d837a22b99c"
+        },
+        "thread_sections": {
+          "count": 3,
+          "digest": "0f98c1c86baaab5e2cf5b0beb4fffdfe"
+        },
+        "thread_tabs": {
+          "count": 3,
+          "digest": "028048a6492f62bdf2e9ba50532de022"
+        },
+        "threads": {
+          "count": 3,
+          "digest": "acc9b903d79311aec8d25ab7dd510cb7"
+        },
+        "transfer_entries": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "transfer_events": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "transfer_operations": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "ui_preference_defaults": {
+          "count": 1,
+          "digest": "a4d1befae4d57e7b64e31e24cd3e557a"
+        },
+        "ui_preferences": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "user": {
+          "count": 3,
+          "digest": "9c25fc13529802ebf1f02df6154d263e"
+        }
+      },
+      "ledger": {
+        "count": 152,
+        "digest": "f7ede05fe49be19f0fe1c1fdb706d0f0"
+      }
+    },
+    "119": {
+      "sequences": [
+        [
+          "environment_variables",
+          "0"
+        ]
+      ],
+      "tables": {
+        "aleph_install_requests": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "apikey": {
+          "count": 3,
+          "digest": "66de950655ee8e9c239059953987f447"
+        },
+        "app_settings": {
+          "count": 3,
+          "digest": "595b4687e316a5c1af0cb60083f81d2e"
+        },
+        "app_settings_values": {
+          "count": 5,
+          "digest": "b298cf5aaadadfe9f35711b338e08e5b"
+        },
+        "app_theme": {
+          "count": 3,
+          "digest": "0d359eb7024d312e38d1e3c35a36ecf3"
+        },
+        "deferred_thread_messages_legacy": {
+          "count": 3,
+          "digest": "24526398be1896b3468e9615d65a0acd"
+        },
+        "environment_hook_operations": {
+          "count": 3,
+          "digest": "be69c5b11963f2b358086852897af040"
+        },
+        "environment_variables": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "environments": {
+          "count": 3,
+          "digest": "6c1c756aa2b6ceab63f7654f15b5c1a0"
+        },
+        "events": {
+          "count": 3,
+          "digest": "84cc0fe782463bc3acfb5f6ffccb046d"
+        },
+        "host_daemon_sessions": {
+          "count": 3,
+          "digest": "0d5a229edc74b9fbf64dc3a8735e9c14"
+        },
+        "hosts": {
+          "count": 3,
+          "digest": "f156fd8333c08b56f9764f019b3ef79e"
+        },
+        "idempotent_thread_operations": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "maintenance_scan_cursors": {
+          "count": 3,
+          "digest": "da70185a7991fd30bf37f123589dcca5"
+        },
+        "pending_interactions": {
+          "count": 3,
+          "digest": "844fdc62c26a20148242069b4e35c066"
+        },
+        "plugin_artifacts": {
+          "count": 3,
+          "digest": "f9df9e540dc7156f6cdc9d382b939236"
+        },
+        "plugin_kv": {
+          "count": 3,
+          "digest": "2ac08d6569f942be1b62a49c57116c6a"
+        },
+        "plugin_marketplace_icons": {
+          "count": 3,
+          "digest": "f5d5f01fcacf62b73ed9a1e78309fbd4"
+        },
+        "plugin_marketplaces": {
+          "count": 3,
+          "digest": "bb5610e8aade64bd7df038d2eac4c7db"
+        },
+        "plugin_schedules": {
+          "count": 3,
+          "digest": "8bf0da3ef68758b12834ac7a9e20d750"
+        },
+        "plugin_settings": {
+          "count": 3,
+          "digest": "3503765fcab5b90ffb1b6f68c92b53c3"
+        },
+        "plugin_state_snapshots": {
+          "count": 3,
+          "digest": "5d1c2b32cda3a67ad7efa9e051af9912"
+        },
+        "plugins": {
+          "count": 3,
+          "digest": "2f52983465d7f3c0203c5258005a5e98"
+        },
+        "project_attachment_backfills": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "project_attachment_threads": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "project_attachments": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "project_execution_defaults": {
+          "count": 3,
+          "digest": "60b3747712ac7232f0f5c1156c35682b"
+        },
+        "project_sources": {
+          "count": 3,
+          "digest": "eebc539e5cfa4a305d8f5a877113c765"
+        },
+        "projects": {
+          "count": 4,
+          "digest": "e1d4e38d2a4429cbe7488946ef05a073"
+        },
+        "prompt_history_entries": {
+          "count": 3,
+          "digest": "7b95a5a58a85447f9874ca3c853ba167"
+        },
+        "provider_model_catalogs": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "queued_thread_messages": {
+          "count": 3,
+          "digest": "cfe7908c9eaa9fe8a2fe8b2e3bff78df"
+        },
+        "retained_event_outputs": {
+          "count": 3,
+          "digest": "4437fa855f4f1e6dcfb6bdfd31eb8fa7"
+        },
+        "system_experiments": {
+          "count": 3,
+          "digest": "966c05633f988b3a9c2d62443d4da3cc"
+        },
+        "terminal_sessions": {
+          "count": 3,
+          "digest": "d8d1e9c71d9f26caa6ff00d169f085fe"
+        },
+        "thread_conversation_outlines": {
+          "count": 3,
+          "digest": "9d1035b906a25cb4c12865154281d99b"
+        },
+        "thread_dynamic_context_file_states": {
+          "count": 3,
+          "digest": "f20785235e00d6fd6e281d37d6d345b2"
+        },
+        "thread_plugin_metadata": {
+          "count": 3,
+          "digest": "f7f9f417c0e291a013dfe6eb287dbf10"
+        },
+        "thread_pruning_cursors": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_pruning_work": {
+          "count": 12,
+          "digest": "405430568d376bd18030af7f05146dda"
+        },
+        "thread_redirects": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_search_learned_selections": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_search_segments": {
+          "count": 3,
+          "digest": "bfa6453f4976984ddd46620350e8263d"
+        },
+        "thread_search_segments_fts": {
+          "count": 3,
+          "digest": "dc6ba0a77896911ff3c35d837a22b99c"
+        },
+        "thread_sections": {
+          "count": 3,
+          "digest": "0f98c1c86baaab5e2cf5b0beb4fffdfe"
+        },
+        "thread_tabs": {
+          "count": 3,
+          "digest": "028048a6492f62bdf2e9ba50532de022"
+        },
+        "threads": {
+          "count": 3,
+          "digest": "3753043a1bf3b9adb7e9e3c94d080bb9"
+        },
+        "transfer_entries": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "transfer_events": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "transfer_operations": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "ui_preference_defaults": {
+          "count": 1,
+          "digest": "a4d1befae4d57e7b64e31e24cd3e557a"
+        },
+        "ui_preferences": {
+          "count": 3,
+          "digest": "276e96f7d76f058fc18d2c956d4d1a64"
+        },
+        "user": {
+          "count": 3,
+          "digest": "9c25fc13529802ebf1f02df6154d263e"
+        }
+      },
+      "ledger": {
+        "count": 152,
+        "digest": "f7ede05fe49be19f0fe1c1fdb706d0f0"
+      }
+    },
+    "131": {
+      "sequences": [
+        [
+          "environment_variables",
+          "1002"
+        ]
+      ],
+      "tables": {
+        "aleph_install_requests": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "apikey": {
+          "count": 3,
+          "digest": "66de950655ee8e9c239059953987f447"
+        },
+        "app_settings": {
+          "count": 3,
+          "digest": "595b4687e316a5c1af0cb60083f81d2e"
+        },
+        "app_settings_values": {
+          "count": 5,
+          "digest": "b298cf5aaadadfe9f35711b338e08e5b"
+        },
+        "app_theme": {
+          "count": 3,
+          "digest": "0d359eb7024d312e38d1e3c35a36ecf3"
+        },
+        "deferred_thread_messages_legacy": {
+          "count": 3,
+          "digest": "24526398be1896b3468e9615d65a0acd"
+        },
+        "environment_hook_operations": {
+          "count": 3,
+          "digest": "be69c5b11963f2b358086852897af040"
+        },
+        "environment_variables": {
+          "count": 3,
+          "digest": "041b9041872365bdddd087680d57e366"
+        },
+        "environments": {
+          "count": 3,
+          "digest": "6c1c756aa2b6ceab63f7654f15b5c1a0"
+        },
+        "events": {
+          "count": 3,
+          "digest": "84cc0fe782463bc3acfb5f6ffccb046d"
+        },
+        "host_daemon_sessions": {
+          "count": 3,
+          "digest": "0d5a229edc74b9fbf64dc3a8735e9c14"
+        },
+        "hosts": {
+          "count": 3,
+          "digest": "f156fd8333c08b56f9764f019b3ef79e"
+        },
+        "idempotent_thread_operations": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "maintenance_scan_cursors": {
+          "count": 3,
+          "digest": "da70185a7991fd30bf37f123589dcca5"
+        },
+        "pending_interactions": {
+          "count": 3,
+          "digest": "844fdc62c26a20148242069b4e35c066"
+        },
+        "plugin_artifacts": {
+          "count": 3,
+          "digest": "f9df9e540dc7156f6cdc9d382b939236"
+        },
+        "plugin_kv": {
+          "count": 3,
+          "digest": "2ac08d6569f942be1b62a49c57116c6a"
+        },
+        "plugin_marketplace_icons": {
+          "count": 3,
+          "digest": "f5d5f01fcacf62b73ed9a1e78309fbd4"
+        },
+        "plugin_marketplaces": {
+          "count": 3,
+          "digest": "bb5610e8aade64bd7df038d2eac4c7db"
+        },
+        "plugin_schedules": {
+          "count": 3,
+          "digest": "8bf0da3ef68758b12834ac7a9e20d750"
+        },
+        "plugin_settings": {
+          "count": 3,
+          "digest": "3503765fcab5b90ffb1b6f68c92b53c3"
+        },
+        "plugin_state_snapshots": {
+          "count": 3,
+          "digest": "5d1c2b32cda3a67ad7efa9e051af9912"
+        },
+        "plugins": {
+          "count": 3,
+          "digest": "2f52983465d7f3c0203c5258005a5e98"
+        },
+        "project_attachment_backfills": {
+          "count": 3,
+          "digest": "a8070eacf90a35f8cdb2cfc5b2312bac"
+        },
+        "project_attachment_threads": {
+          "count": 3,
+          "digest": "f4df89e81856f4faa8db4a3f379c5735"
+        },
+        "project_attachments": {
+          "count": 3,
+          "digest": "2f07d1eb91308461e7871da9a7e03012"
+        },
+        "project_execution_defaults": {
+          "count": 3,
+          "digest": "60b3747712ac7232f0f5c1156c35682b"
+        },
+        "project_sources": {
+          "count": 3,
+          "digest": "eebc539e5cfa4a305d8f5a877113c765"
+        },
+        "projects": {
+          "count": 4,
+          "digest": "e1d4e38d2a4429cbe7488946ef05a073"
+        },
+        "prompt_history_entries": {
+          "count": 3,
+          "digest": "7b95a5a58a85447f9874ca3c853ba167"
+        },
+        "provider_model_catalogs": {
+          "count": 3,
+          "digest": "00468cafbfa42982d26c6e8dabef96f5"
+        },
+        "queued_thread_messages": {
+          "count": 3,
+          "digest": "081c2bd7f78e31c5380d4668f080f1f5"
+        },
+        "retained_event_outputs": {
+          "count": 3,
+          "digest": "4437fa855f4f1e6dcfb6bdfd31eb8fa7"
+        },
+        "system_experiments": {
+          "count": 3,
+          "digest": "966c05633f988b3a9c2d62443d4da3cc"
+        },
+        "terminal_sessions": {
+          "count": 3,
+          "digest": "d8d1e9c71d9f26caa6ff00d169f085fe"
+        },
+        "thread_conversation_outlines": {
+          "count": 3,
+          "digest": "9d1035b906a25cb4c12865154281d99b"
+        },
+        "thread_dynamic_context_file_states": {
+          "count": 3,
+          "digest": "f20785235e00d6fd6e281d37d6d345b2"
+        },
+        "thread_plugin_metadata": {
+          "count": 3,
+          "digest": "f7f9f417c0e291a013dfe6eb287dbf10"
+        },
+        "thread_pruning_cursors": {
+          "count": 3,
+          "digest": "2614d18c71d0cf36cf2860857699934a"
+        },
+        "thread_pruning_work": {
+          "count": 12,
+          "digest": "405430568d376bd18030af7f05146dda"
+        },
+        "thread_redirects": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_search_learned_selections": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_search_segments": {
+          "count": 3,
+          "digest": "bfa6453f4976984ddd46620350e8263d"
+        },
+        "thread_search_segments_fts": {
+          "count": 3,
+          "digest": "dc6ba0a77896911ff3c35d837a22b99c"
+        },
+        "thread_sections": {
+          "count": 3,
+          "digest": "0f98c1c86baaab5e2cf5b0beb4fffdfe"
+        },
+        "thread_tabs": {
+          "count": 3,
+          "digest": "028048a6492f62bdf2e9ba50532de022"
+        },
+        "threads": {
+          "count": 3,
+          "digest": "54ba5beddb38d08dcad4ccbe9d72ba4a"
+        },
+        "transfer_entries": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "transfer_events": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "transfer_operations": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "ui_preference_defaults": {
+          "count": 3,
+          "digest": "0f3f1f25e4feef916d60838e4bd34a9d"
+        },
+        "ui_preferences": {
+          "count": 3,
+          "digest": "276e96f7d76f058fc18d2c956d4d1a64"
+        },
+        "user": {
+          "count": 3,
+          "digest": "9c25fc13529802ebf1f02df6154d263e"
+        }
+      },
+      "ledger": {
+        "count": 152,
+        "digest": "f7ede05fe49be19f0fe1c1fdb706d0f0"
+      }
+    },
+    "134": {
+      "sequences": [
+        [
+          "environment_variables",
+          "1002"
+        ]
+      ],
+      "tables": {
+        "aleph_install_requests": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "apikey": {
+          "count": 3,
+          "digest": "66de950655ee8e9c239059953987f447"
+        },
+        "app_settings": {
+          "count": 3,
+          "digest": "595b4687e316a5c1af0cb60083f81d2e"
+        },
+        "app_settings_values": {
+          "count": 5,
+          "digest": "b298cf5aaadadfe9f35711b338e08e5b"
+        },
+        "app_theme": {
+          "count": 3,
+          "digest": "0d359eb7024d312e38d1e3c35a36ecf3"
+        },
+        "deferred_thread_messages_legacy": {
+          "count": 3,
+          "digest": "24526398be1896b3468e9615d65a0acd"
+        },
+        "environment_hook_operations": {
+          "count": 3,
+          "digest": "be69c5b11963f2b358086852897af040"
+        },
+        "environment_variables": {
+          "count": 3,
+          "digest": "041b9041872365bdddd087680d57e366"
+        },
+        "environments": {
+          "count": 3,
+          "digest": "6c1c756aa2b6ceab63f7654f15b5c1a0"
+        },
+        "events": {
+          "count": 3,
+          "digest": "84cc0fe782463bc3acfb5f6ffccb046d"
+        },
+        "host_daemon_sessions": {
+          "count": 3,
+          "digest": "0d5a229edc74b9fbf64dc3a8735e9c14"
+        },
+        "hosts": {
+          "count": 3,
+          "digest": "f156fd8333c08b56f9764f019b3ef79e"
+        },
+        "idempotent_thread_operations": {
+          "count": 3,
+          "digest": "4c0d5723f1a3b4c19f56645da5a58975"
+        },
+        "maintenance_scan_cursors": {
+          "count": 3,
+          "digest": "da70185a7991fd30bf37f123589dcca5"
+        },
+        "pending_interactions": {
+          "count": 3,
+          "digest": "844fdc62c26a20148242069b4e35c066"
+        },
+        "plugin_artifacts": {
+          "count": 3,
+          "digest": "f9df9e540dc7156f6cdc9d382b939236"
+        },
+        "plugin_kv": {
+          "count": 3,
+          "digest": "2ac08d6569f942be1b62a49c57116c6a"
+        },
+        "plugin_marketplace_icons": {
+          "count": 3,
+          "digest": "f5d5f01fcacf62b73ed9a1e78309fbd4"
+        },
+        "plugin_marketplaces": {
+          "count": 3,
+          "digest": "bb5610e8aade64bd7df038d2eac4c7db"
+        },
+        "plugin_schedules": {
+          "count": 3,
+          "digest": "8bf0da3ef68758b12834ac7a9e20d750"
+        },
+        "plugin_settings": {
+          "count": 3,
+          "digest": "3503765fcab5b90ffb1b6f68c92b53c3"
+        },
+        "plugin_state_snapshots": {
+          "count": 3,
+          "digest": "5d1c2b32cda3a67ad7efa9e051af9912"
+        },
+        "plugins": {
+          "count": 3,
+          "digest": "2f52983465d7f3c0203c5258005a5e98"
+        },
+        "project_attachment_backfills": {
+          "count": 3,
+          "digest": "a8070eacf90a35f8cdb2cfc5b2312bac"
+        },
+        "project_attachment_threads": {
+          "count": 3,
+          "digest": "f4df89e81856f4faa8db4a3f379c5735"
+        },
+        "project_attachments": {
+          "count": 3,
+          "digest": "2f07d1eb91308461e7871da9a7e03012"
+        },
+        "project_execution_defaults": {
+          "count": 3,
+          "digest": "60b3747712ac7232f0f5c1156c35682b"
+        },
+        "project_sources": {
+          "count": 3,
+          "digest": "eebc539e5cfa4a305d8f5a877113c765"
+        },
+        "projects": {
+          "count": 4,
+          "digest": "e1d4e38d2a4429cbe7488946ef05a073"
+        },
+        "prompt_history_entries": {
+          "count": 3,
+          "digest": "7b95a5a58a85447f9874ca3c853ba167"
+        },
+        "provider_model_catalogs": {
+          "count": 3,
+          "digest": "00468cafbfa42982d26c6e8dabef96f5"
+        },
+        "queued_thread_messages": {
+          "count": 3,
+          "digest": "081c2bd7f78e31c5380d4668f080f1f5"
+        },
+        "retained_event_outputs": {
+          "count": 3,
+          "digest": "4437fa855f4f1e6dcfb6bdfd31eb8fa7"
+        },
+        "system_experiments": {
+          "count": 3,
+          "digest": "966c05633f988b3a9c2d62443d4da3cc"
+        },
+        "terminal_sessions": {
+          "count": 3,
+          "digest": "d8d1e9c71d9f26caa6ff00d169f085fe"
+        },
+        "thread_conversation_outlines": {
+          "count": 3,
+          "digest": "9d1035b906a25cb4c12865154281d99b"
+        },
+        "thread_dynamic_context_file_states": {
+          "count": 3,
+          "digest": "f20785235e00d6fd6e281d37d6d345b2"
+        },
+        "thread_plugin_metadata": {
+          "count": 3,
+          "digest": "f7f9f417c0e291a013dfe6eb287dbf10"
+        },
+        "thread_pruning_cursors": {
+          "count": 3,
+          "digest": "2614d18c71d0cf36cf2860857699934a"
+        },
+        "thread_pruning_work": {
+          "count": 12,
+          "digest": "405430568d376bd18030af7f05146dda"
+        },
+        "thread_redirects": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_search_learned_selections": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_search_segments": {
+          "count": 3,
+          "digest": "bfa6453f4976984ddd46620350e8263d"
+        },
+        "thread_search_segments_fts": {
+          "count": 3,
+          "digest": "dc6ba0a77896911ff3c35d837a22b99c"
+        },
+        "thread_sections": {
+          "count": 3,
+          "digest": "0f98c1c86baaab5e2cf5b0beb4fffdfe"
+        },
+        "thread_tabs": {
+          "count": 3,
+          "digest": "028048a6492f62bdf2e9ba50532de022"
+        },
+        "threads": {
+          "count": 3,
+          "digest": "bdf74d8f12d1371de792ba8024255ba7"
+        },
+        "transfer_entries": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "transfer_events": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "transfer_operations": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "ui_preference_defaults": {
+          "count": 3,
+          "digest": "0f3f1f25e4feef916d60838e4bd34a9d"
+        },
+        "ui_preferences": {
+          "count": 3,
+          "digest": "276e96f7d76f058fc18d2c956d4d1a64"
+        },
+        "user": {
+          "count": 3,
+          "digest": "9c25fc13529802ebf1f02df6154d263e"
+        }
+      },
+      "ledger": {
+        "count": 152,
+        "digest": "f7ede05fe49be19f0fe1c1fdb706d0f0"
+      }
+    },
+    "135": {
+      "sequences": [
+        [
+          "environment_variables",
+          "1002"
+        ]
+      ],
+      "tables": {
+        "aleph_install_requests": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "apikey": {
+          "count": 3,
+          "digest": "66de950655ee8e9c239059953987f447"
+        },
+        "app_settings": {
+          "count": 3,
+          "digest": "595b4687e316a5c1af0cb60083f81d2e"
+        },
+        "app_settings_values": {
+          "count": 5,
+          "digest": "b298cf5aaadadfe9f35711b338e08e5b"
+        },
+        "app_theme": {
+          "count": 3,
+          "digest": "0d359eb7024d312e38d1e3c35a36ecf3"
+        },
+        "deferred_thread_messages_legacy": {
+          "count": 3,
+          "digest": "24526398be1896b3468e9615d65a0acd"
+        },
+        "environment_hook_operations": {
+          "count": 3,
+          "digest": "be69c5b11963f2b358086852897af040"
+        },
+        "environment_variables": {
+          "count": 3,
+          "digest": "041b9041872365bdddd087680d57e366"
+        },
+        "environments": {
+          "count": 3,
+          "digest": "6c1c756aa2b6ceab63f7654f15b5c1a0"
+        },
+        "events": {
+          "count": 3,
+          "digest": "84cc0fe782463bc3acfb5f6ffccb046d"
+        },
+        "host_daemon_sessions": {
+          "count": 3,
+          "digest": "0d5a229edc74b9fbf64dc3a8735e9c14"
+        },
+        "hosts": {
+          "count": 3,
+          "digest": "f156fd8333c08b56f9764f019b3ef79e"
+        },
+        "idempotent_thread_operations": {
+          "count": 3,
+          "digest": "4c0d5723f1a3b4c19f56645da5a58975"
+        },
+        "maintenance_scan_cursors": {
+          "count": 3,
+          "digest": "da70185a7991fd30bf37f123589dcca5"
+        },
+        "pending_interactions": {
+          "count": 3,
+          "digest": "844fdc62c26a20148242069b4e35c066"
+        },
+        "plugin_artifacts": {
+          "count": 3,
+          "digest": "f9df9e540dc7156f6cdc9d382b939236"
+        },
+        "plugin_kv": {
+          "count": 3,
+          "digest": "2ac08d6569f942be1b62a49c57116c6a"
+        },
+        "plugin_marketplace_icons": {
+          "count": 3,
+          "digest": "f5d5f01fcacf62b73ed9a1e78309fbd4"
+        },
+        "plugin_marketplaces": {
+          "count": 3,
+          "digest": "bb5610e8aade64bd7df038d2eac4c7db"
+        },
+        "plugin_schedules": {
+          "count": 3,
+          "digest": "8bf0da3ef68758b12834ac7a9e20d750"
+        },
+        "plugin_settings": {
+          "count": 3,
+          "digest": "3503765fcab5b90ffb1b6f68c92b53c3"
+        },
+        "plugin_state_snapshots": {
+          "count": 3,
+          "digest": "5d1c2b32cda3a67ad7efa9e051af9912"
+        },
+        "plugins": {
+          "count": 3,
+          "digest": "2f52983465d7f3c0203c5258005a5e98"
+        },
+        "project_attachment_backfills": {
+          "count": 3,
+          "digest": "a8070eacf90a35f8cdb2cfc5b2312bac"
+        },
+        "project_attachment_threads": {
+          "count": 3,
+          "digest": "f4df89e81856f4faa8db4a3f379c5735"
+        },
+        "project_attachments": {
+          "count": 3,
+          "digest": "2f07d1eb91308461e7871da9a7e03012"
+        },
+        "project_execution_defaults": {
+          "count": 3,
+          "digest": "60b3747712ac7232f0f5c1156c35682b"
+        },
+        "project_sources": {
+          "count": 3,
+          "digest": "eebc539e5cfa4a305d8f5a877113c765"
+        },
+        "projects": {
+          "count": 4,
+          "digest": "e1d4e38d2a4429cbe7488946ef05a073"
+        },
+        "prompt_history_entries": {
+          "count": 3,
+          "digest": "7b95a5a58a85447f9874ca3c853ba167"
+        },
+        "provider_model_catalogs": {
+          "count": 3,
+          "digest": "00468cafbfa42982d26c6e8dabef96f5"
+        },
+        "queued_thread_messages": {
+          "count": 3,
+          "digest": "081c2bd7f78e31c5380d4668f080f1f5"
+        },
+        "retained_event_outputs": {
+          "count": 3,
+          "digest": "4437fa855f4f1e6dcfb6bdfd31eb8fa7"
+        },
+        "system_experiments": {
+          "count": 3,
+          "digest": "966c05633f988b3a9c2d62443d4da3cc"
+        },
+        "terminal_sessions": {
+          "count": 3,
+          "digest": "d8d1e9c71d9f26caa6ff00d169f085fe"
+        },
+        "thread_conversation_outlines": {
+          "count": 3,
+          "digest": "9d1035b906a25cb4c12865154281d99b"
+        },
+        "thread_dynamic_context_file_states": {
+          "count": 3,
+          "digest": "f20785235e00d6fd6e281d37d6d345b2"
+        },
+        "thread_plugin_metadata": {
+          "count": 3,
+          "digest": "f7f9f417c0e291a013dfe6eb287dbf10"
+        },
+        "thread_pruning_cursors": {
+          "count": 3,
+          "digest": "2614d18c71d0cf36cf2860857699934a"
+        },
+        "thread_pruning_work": {
+          "count": 12,
+          "digest": "405430568d376bd18030af7f05146dda"
+        },
+        "thread_redirects": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_search_learned_selections": {
+          "count": 3,
+          "digest": "b64cc6310e45e640a73b77a70751c984"
+        },
+        "thread_search_segments": {
+          "count": 3,
+          "digest": "bfa6453f4976984ddd46620350e8263d"
+        },
+        "thread_search_segments_fts": {
+          "count": 3,
+          "digest": "dc6ba0a77896911ff3c35d837a22b99c"
+        },
+        "thread_sections": {
+          "count": 3,
+          "digest": "0f98c1c86baaab5e2cf5b0beb4fffdfe"
+        },
+        "thread_tabs": {
+          "count": 3,
+          "digest": "028048a6492f62bdf2e9ba50532de022"
+        },
+        "threads": {
+          "count": 3,
+          "digest": "bdf74d8f12d1371de792ba8024255ba7"
+        },
+        "transfer_entries": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "transfer_events": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "transfer_operations": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "ui_preference_defaults": {
+          "count": 3,
+          "digest": "0f3f1f25e4feef916d60838e4bd34a9d"
+        },
+        "ui_preferences": {
+          "count": 3,
+          "digest": "276e96f7d76f058fc18d2c956d4d1a64"
+        },
+        "user": {
+          "count": 3,
+          "digest": "9c25fc13529802ebf1f02df6154d263e"
+        }
+      },
+      "ledger": {
+        "count": 152,
+        "digest": "f7ede05fe49be19f0fe1c1fdb706d0f0"
+      }
+    },
+    "141": {
+      "sequences": [
+        [
+          "environment_variables",
+          "1002"
+        ]
+      ],
+      "tables": {
+        "aleph_install_requests": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "apikey": {
+          "count": 3,
+          "digest": "66de950655ee8e9c239059953987f447"
+        },
+        "app_settings": {
+          "count": 3,
+          "digest": "595b4687e316a5c1af0cb60083f81d2e"
+        },
+        "app_settings_values": {
+          "count": 4,
+          "digest": "7e0b10fa6dc8b02a48ac454abd6f6fd0"
+        },
+        "app_theme": {
+          "count": 3,
+          "digest": "0d359eb7024d312e38d1e3c35a36ecf3"
+        },
+        "deferred_thread_messages_legacy": {
+          "count": 3,
+          "digest": "24526398be1896b3468e9615d65a0acd"
+        },
+        "environment_hook_operations": {
+          "count": 3,
+          "digest": "be69c5b11963f2b358086852897af040"
+        },
+        "environment_variables": {
+          "count": 3,
+          "digest": "041b9041872365bdddd087680d57e366"
+        },
+        "environments": {
+          "count": 3,
+          "digest": "6c1c756aa2b6ceab63f7654f15b5c1a0"
+        },
+        "events": {
+          "count": 3,
+          "digest": "84cc0fe782463bc3acfb5f6ffccb046d"
+        },
+        "host_daemon_sessions": {
+          "count": 3,
+          "digest": "0d5a229edc74b9fbf64dc3a8735e9c14"
+        },
+        "hosts": {
+          "count": 3,
+          "digest": "f156fd8333c08b56f9764f019b3ef79e"
+        },
+        "idempotent_thread_operations": {
+          "count": 3,
+          "digest": "4c0d5723f1a3b4c19f56645da5a58975"
+        },
+        "maintenance_scan_cursors": {
+          "count": 3,
+          "digest": "da70185a7991fd30bf37f123589dcca5"
+        },
+        "pending_interactions": {
+          "count": 3,
+          "digest": "844fdc62c26a20148242069b4e35c066"
+        },
+        "plugin_artifacts": {
+          "count": 3,
+          "digest": "f9df9e540dc7156f6cdc9d382b939236"
+        },
+        "plugin_kv": {
+          "count": 3,
+          "digest": "2ac08d6569f942be1b62a49c57116c6a"
+        },
+        "plugin_marketplace_icons": {
+          "count": 3,
+          "digest": "f5d5f01fcacf62b73ed9a1e78309fbd4"
+        },
+        "plugin_marketplaces": {
+          "count": 3,
+          "digest": "bb5610e8aade64bd7df038d2eac4c7db"
+        },
+        "plugin_schedules": {
+          "count": 3,
+          "digest": "8bf0da3ef68758b12834ac7a9e20d750"
+        },
+        "plugin_settings": {
+          "count": 3,
+          "digest": "3503765fcab5b90ffb1b6f68c92b53c3"
+        },
+        "plugin_state_snapshots": {
+          "count": 3,
+          "digest": "5d1c2b32cda3a67ad7efa9e051af9912"
+        },
+        "plugins": {
+          "count": 3,
+          "digest": "0b1475e9673a2f121f861d963f9d747e"
+        },
+        "project_attachment_backfills": {
+          "count": 3,
+          "digest": "a8070eacf90a35f8cdb2cfc5b2312bac"
+        },
+        "project_attachment_threads": {
+          "count": 3,
+          "digest": "f4df89e81856f4faa8db4a3f379c5735"
+        },
+        "project_attachments": {
+          "count": 3,
+          "digest": "2f07d1eb91308461e7871da9a7e03012"
+        },
+        "project_execution_defaults": {
+          "count": 3,
+          "digest": "60b3747712ac7232f0f5c1156c35682b"
+        },
+        "project_sources": {
+          "count": 3,
+          "digest": "eebc539e5cfa4a305d8f5a877113c765"
+        },
+        "projects": {
+          "count": 4,
+          "digest": "e1d4e38d2a4429cbe7488946ef05a073"
+        },
+        "prompt_history_entries": {
+          "count": 3,
+          "digest": "7b95a5a58a85447f9874ca3c853ba167"
+        },
+        "provider_model_catalogs": {
+          "count": 3,
+          "digest": "00468cafbfa42982d26c6e8dabef96f5"
+        },
+        "queued_thread_messages": {
+          "count": 3,
+          "digest": "081c2bd7f78e31c5380d4668f080f1f5"
+        },
+        "retained_event_outputs": {
+          "count": 3,
+          "digest": "4437fa855f4f1e6dcfb6bdfd31eb8fa7"
+        },
+        "system_experiments": {
+          "count": 3,
+          "digest": "966c05633f988b3a9c2d62443d4da3cc"
+        },
+        "terminal_sessions": {
+          "count": 3,
+          "digest": "d8d1e9c71d9f26caa6ff00d169f085fe"
+        },
+        "thread_conversation_outlines": {
+          "count": 3,
+          "digest": "9d1035b906a25cb4c12865154281d99b"
+        },
+        "thread_dynamic_context_file_states": {
+          "count": 3,
+          "digest": "f20785235e00d6fd6e281d37d6d345b2"
+        },
+        "thread_plugin_metadata": {
+          "count": 3,
+          "digest": "f7f9f417c0e291a013dfe6eb287dbf10"
+        },
+        "thread_pruning_cursors": {
+          "count": 3,
+          "digest": "2614d18c71d0cf36cf2860857699934a"
+        },
+        "thread_pruning_work": {
+          "count": 12,
+          "digest": "405430568d376bd18030af7f05146dda"
+        },
+        "thread_redirects": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_search_learned_selections": {
+          "count": 3,
+          "digest": "b64cc6310e45e640a73b77a70751c984"
+        },
+        "thread_search_segments": {
+          "count": 3,
+          "digest": "bfa6453f4976984ddd46620350e8263d"
+        },
+        "thread_search_segments_fts": {
+          "count": 3,
+          "digest": "dc6ba0a77896911ff3c35d837a22b99c"
+        },
+        "thread_sections": {
+          "count": 3,
+          "digest": "0f98c1c86baaab5e2cf5b0beb4fffdfe"
+        },
+        "thread_tabs": {
+          "count": 3,
+          "digest": "028048a6492f62bdf2e9ba50532de022"
+        },
+        "threads": {
+          "count": 3,
+          "digest": "bdf74d8f12d1371de792ba8024255ba7"
+        },
+        "transfer_entries": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "transfer_events": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "transfer_operations": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "ui_preference_defaults": {
+          "count": 3,
+          "digest": "0f3f1f25e4feef916d60838e4bd34a9d"
+        },
+        "ui_preferences": {
+          "count": 3,
+          "digest": "276e96f7d76f058fc18d2c956d4d1a64"
+        },
+        "user": {
+          "count": 3,
+          "digest": "9c25fc13529802ebf1f02df6154d263e"
+        }
+      },
+      "ledger": {
+        "count": 152,
+        "digest": "f7ede05fe49be19f0fe1c1fdb706d0f0"
+      }
+    },
+    "146": {
+      "sequences": [
+        [
+          "environment_variables",
+          "1002"
+        ],
+        [
+          "transfer_events",
+          "1002"
+        ]
+      ],
+      "tables": {
+        "aleph_install_requests": {
+          "count": 3,
+          "digest": "ebb2521045faf17f0095886014a27254"
+        },
+        "apikey": {
+          "count": 3,
+          "digest": "66de950655ee8e9c239059953987f447"
+        },
+        "app_settings": {
+          "count": 3,
+          "digest": "595b4687e316a5c1af0cb60083f81d2e"
+        },
+        "app_settings_values": {
+          "count": 4,
+          "digest": "7e0b10fa6dc8b02a48ac454abd6f6fd0"
+        },
+        "app_theme": {
+          "count": 3,
+          "digest": "2a0a3708065557f2930be2bbfa078640"
+        },
+        "deferred_thread_messages_legacy": {
+          "count": 3,
+          "digest": "24526398be1896b3468e9615d65a0acd"
+        },
+        "environment_hook_operations": {
+          "count": 3,
+          "digest": "be69c5b11963f2b358086852897af040"
+        },
+        "environment_variables": {
+          "count": 3,
+          "digest": "041b9041872365bdddd087680d57e366"
+        },
+        "environments": {
+          "count": 3,
+          "digest": "6c1c756aa2b6ceab63f7654f15b5c1a0"
+        },
+        "events": {
+          "count": 3,
+          "digest": "84cc0fe782463bc3acfb5f6ffccb046d"
+        },
+        "host_daemon_sessions": {
+          "count": 3,
+          "digest": "0d5a229edc74b9fbf64dc3a8735e9c14"
+        },
+        "hosts": {
+          "count": 3,
+          "digest": "f156fd8333c08b56f9764f019b3ef79e"
+        },
+        "idempotent_thread_operations": {
+          "count": 3,
+          "digest": "4c0d5723f1a3b4c19f56645da5a58975"
+        },
+        "maintenance_scan_cursors": {
+          "count": 3,
+          "digest": "da70185a7991fd30bf37f123589dcca5"
+        },
+        "pending_interactions": {
+          "count": 3,
+          "digest": "844fdc62c26a20148242069b4e35c066"
+        },
+        "plugin_artifacts": {
+          "count": 3,
+          "digest": "f9df9e540dc7156f6cdc9d382b939236"
+        },
+        "plugin_kv": {
+          "count": 3,
+          "digest": "2ac08d6569f942be1b62a49c57116c6a"
+        },
+        "plugin_marketplace_icons": {
+          "count": 3,
+          "digest": "f5d5f01fcacf62b73ed9a1e78309fbd4"
+        },
+        "plugin_marketplaces": {
+          "count": 3,
+          "digest": "bb5610e8aade64bd7df038d2eac4c7db"
+        },
+        "plugin_schedules": {
+          "count": 3,
+          "digest": "8bf0da3ef68758b12834ac7a9e20d750"
+        },
+        "plugin_settings": {
+          "count": 3,
+          "digest": "3503765fcab5b90ffb1b6f68c92b53c3"
+        },
+        "plugin_state_snapshots": {
+          "count": 3,
+          "digest": "5d1c2b32cda3a67ad7efa9e051af9912"
+        },
+        "plugins": {
+          "count": 3,
+          "digest": "0b1475e9673a2f121f861d963f9d747e"
+        },
+        "project_attachment_backfills": {
+          "count": 3,
+          "digest": "a8070eacf90a35f8cdb2cfc5b2312bac"
+        },
+        "project_attachment_threads": {
+          "count": 3,
+          "digest": "f4df89e81856f4faa8db4a3f379c5735"
+        },
+        "project_attachments": {
+          "count": 3,
+          "digest": "2f07d1eb91308461e7871da9a7e03012"
+        },
+        "project_execution_defaults": {
+          "count": 3,
+          "digest": "60b3747712ac7232f0f5c1156c35682b"
+        },
+        "project_sources": {
+          "count": 3,
+          "digest": "eebc539e5cfa4a305d8f5a877113c765"
+        },
+        "projects": {
+          "count": 4,
+          "digest": "e1d4e38d2a4429cbe7488946ef05a073"
+        },
+        "prompt_history_entries": {
+          "count": 3,
+          "digest": "7b95a5a58a85447f9874ca3c853ba167"
+        },
+        "provider_model_catalogs": {
+          "count": 3,
+          "digest": "00468cafbfa42982d26c6e8dabef96f5"
+        },
+        "queued_thread_messages": {
+          "count": 3,
+          "digest": "d4e5221cbbb261099dac8ae238c9a847"
+        },
+        "retained_event_outputs": {
+          "count": 3,
+          "digest": "4437fa855f4f1e6dcfb6bdfd31eb8fa7"
+        },
+        "system_experiments": {
+          "count": 3,
+          "digest": "966c05633f988b3a9c2d62443d4da3cc"
+        },
+        "terminal_sessions": {
+          "count": 3,
+          "digest": "d8d1e9c71d9f26caa6ff00d169f085fe"
+        },
+        "thread_conversation_outlines": {
+          "count": 3,
+          "digest": "9d1035b906a25cb4c12865154281d99b"
+        },
+        "thread_dynamic_context_file_states": {
+          "count": 3,
+          "digest": "f20785235e00d6fd6e281d37d6d345b2"
+        },
+        "thread_plugin_metadata": {
+          "count": 3,
+          "digest": "f7f9f417c0e291a013dfe6eb287dbf10"
+        },
+        "thread_pruning_cursors": {
+          "count": 3,
+          "digest": "2614d18c71d0cf36cf2860857699934a"
+        },
+        "thread_pruning_work": {
+          "count": 12,
+          "digest": "405430568d376bd18030af7f05146dda"
+        },
+        "thread_redirects": {
+          "count": 3,
+          "digest": "287bae296d8fb1537686556d70bc8362"
+        },
+        "thread_search_learned_selections": {
+          "count": 3,
+          "digest": "b64cc6310e45e640a73b77a70751c984"
+        },
+        "thread_search_segments": {
+          "count": 3,
+          "digest": "bfa6453f4976984ddd46620350e8263d"
+        },
+        "thread_search_segments_fts": {
+          "count": 3,
+          "digest": "dc6ba0a77896911ff3c35d837a22b99c"
+        },
+        "thread_sections": {
+          "count": 3,
+          "digest": "0f98c1c86baaab5e2cf5b0beb4fffdfe"
+        },
+        "thread_tabs": {
+          "count": 3,
+          "digest": "028048a6492f62bdf2e9ba50532de022"
+        },
+        "threads": {
+          "count": 3,
+          "digest": "bdf74d8f12d1371de792ba8024255ba7"
+        },
+        "transfer_entries": {
+          "count": 3,
+          "digest": "9fbdbe23529fc6870218a1de0071c038"
+        },
+        "transfer_events": {
+          "count": 6,
+          "digest": "96dbda8cc88771ac7708d5ddf58957b9"
+        },
+        "transfer_operations": {
+          "count": 3,
+          "digest": "a41844cd38ee4baa96a801215792c6e4"
+        },
+        "ui_preference_defaults": {
+          "count": 3,
+          "digest": "0f3f1f25e4feef916d60838e4bd34a9d"
+        },
+        "ui_preferences": {
+          "count": 3,
+          "digest": "276e96f7d76f058fc18d2c956d4d1a64"
+        },
+        "user": {
+          "count": 3,
+          "digest": "9c25fc13529802ebf1f02df6154d263e"
+        }
+      },
+      "ledger": {
+        "count": 152,
+        "digest": "f7ede05fe49be19f0fe1c1fdb706d0f0"
+      }
+    },
+    "152": {
+      "sequences": [
+        [
+          "environment_variables",
+          "1002"
+        ],
+        [
+          "transfer_events",
+          "1002"
+        ]
+      ],
+      "tables": {
+        "aleph_install_requests": {
+          "count": 3,
+          "digest": "ebb2521045faf17f0095886014a27254"
+        },
+        "apikey": {
+          "count": 3,
+          "digest": "66de950655ee8e9c239059953987f447"
+        },
+        "app_settings": {
+          "count": 3,
+          "digest": "595b4687e316a5c1af0cb60083f81d2e"
+        },
+        "app_settings_values": {
+          "count": 3,
+          "digest": "c719de131cfce45648102303ca77ad00"
+        },
+        "app_theme": {
+          "count": 3,
+          "digest": "2a0a3708065557f2930be2bbfa078640"
+        },
+        "deferred_thread_messages_legacy": {
+          "count": 3,
+          "digest": "24526398be1896b3468e9615d65a0acd"
+        },
+        "environment_hook_operations": {
+          "count": 3,
+          "digest": "be69c5b11963f2b358086852897af040"
+        },
+        "environment_variables": {
+          "count": 3,
+          "digest": "041b9041872365bdddd087680d57e366"
+        },
+        "environments": {
+          "count": 3,
+          "digest": "6c1c756aa2b6ceab63f7654f15b5c1a0"
+        },
+        "events": {
+          "count": 3,
+          "digest": "84cc0fe782463bc3acfb5f6ffccb046d"
+        },
+        "host_daemon_sessions": {
+          "count": 3,
+          "digest": "0d5a229edc74b9fbf64dc3a8735e9c14"
+        },
+        "hosts": {
+          "count": 3,
+          "digest": "f156fd8333c08b56f9764f019b3ef79e"
+        },
+        "idempotent_thread_operations": {
+          "count": 3,
+          "digest": "4c0d5723f1a3b4c19f56645da5a58975"
+        },
+        "maintenance_scan_cursors": {
+          "count": 3,
+          "digest": "da70185a7991fd30bf37f123589dcca5"
+        },
+        "pending_interactions": {
+          "count": 3,
+          "digest": "844fdc62c26a20148242069b4e35c066"
+        },
+        "plugin_artifacts": {
+          "count": 3,
+          "digest": "f9df9e540dc7156f6cdc9d382b939236"
+        },
+        "plugin_kv": {
+          "count": 3,
+          "digest": "2ac08d6569f942be1b62a49c57116c6a"
+        },
+        "plugin_marketplace_icons": {
+          "count": 3,
+          "digest": "f5d5f01fcacf62b73ed9a1e78309fbd4"
+        },
+        "plugin_marketplaces": {
+          "count": 3,
+          "digest": "9332cee767eb496a683f769693355d3d"
+        },
+        "plugin_schedules": {
+          "count": 3,
+          "digest": "8bf0da3ef68758b12834ac7a9e20d750"
+        },
+        "plugin_settings": {
+          "count": 3,
+          "digest": "3503765fcab5b90ffb1b6f68c92b53c3"
+        },
+        "plugin_state_snapshots": {
+          "count": 3,
+          "digest": "5d1c2b32cda3a67ad7efa9e051af9912"
+        },
+        "plugins": {
+          "count": 3,
+          "digest": "0b1475e9673a2f121f861d963f9d747e"
+        },
+        "project_attachment_backfills": {
+          "count": 3,
+          "digest": "a8070eacf90a35f8cdb2cfc5b2312bac"
+        },
+        "project_attachment_threads": {
+          "count": 3,
+          "digest": "f4df89e81856f4faa8db4a3f379c5735"
+        },
+        "project_attachments": {
+          "count": 3,
+          "digest": "2f07d1eb91308461e7871da9a7e03012"
+        },
+        "project_execution_defaults": {
+          "count": 3,
+          "digest": "60b3747712ac7232f0f5c1156c35682b"
+        },
+        "project_sources": {
+          "count": 3,
+          "digest": "eebc539e5cfa4a305d8f5a877113c765"
+        },
+        "projects": {
+          "count": 4,
+          "digest": "e1d4e38d2a4429cbe7488946ef05a073"
+        },
+        "prompt_history_entries": {
+          "count": 3,
+          "digest": "7b95a5a58a85447f9874ca3c853ba167"
+        },
+        "provider_model_catalogs": {
+          "count": 3,
+          "digest": "00468cafbfa42982d26c6e8dabef96f5"
+        },
+        "queued_thread_messages": {
+          "count": 3,
+          "digest": "a1f72c80afa9d0e88227316238fad40e"
+        },
+        "retained_event_outputs": {
+          "count": 3,
+          "digest": "4437fa855f4f1e6dcfb6bdfd31eb8fa7"
+        },
+        "system_experiments": {
+          "count": 3,
+          "digest": "966c05633f988b3a9c2d62443d4da3cc"
+        },
+        "terminal_sessions": {
+          "count": 3,
+          "digest": "d8d1e9c71d9f26caa6ff00d169f085fe"
+        },
+        "thread_conversation_outlines": {
+          "count": 3,
+          "digest": "9d1035b906a25cb4c12865154281d99b"
+        },
+        "thread_dynamic_context_file_states": {
+          "count": 3,
+          "digest": "f20785235e00d6fd6e281d37d6d345b2"
+        },
+        "thread_plugin_metadata": {
+          "count": 3,
+          "digest": "f7f9f417c0e291a013dfe6eb287dbf10"
+        },
+        "thread_pruning_cursors": {
+          "count": 3,
+          "digest": "1286547ae4f6dd5b36cbee59d83166a4"
+        },
+        "thread_pruning_work": {
+          "count": 3,
+          "digest": "9d7c4966ccfd4b495beda9ac7360858b"
+        },
+        "thread_redirects": {
+          "count": 3,
+          "digest": "287bae296d8fb1537686556d70bc8362"
+        },
+        "thread_search_learned_selections": {
+          "count": 3,
+          "digest": "b64cc6310e45e640a73b77a70751c984"
+        },
+        "thread_search_segments": {
+          "count": 3,
+          "digest": "bfa6453f4976984ddd46620350e8263d"
+        },
+        "thread_search_segments_fts": {
+          "count": 3,
+          "digest": "dc6ba0a77896911ff3c35d837a22b99c"
+        },
+        "thread_sections": {
+          "count": 3,
+          "digest": "0f98c1c86baaab5e2cf5b0beb4fffdfe"
+        },
+        "thread_tabs": {
+          "count": 3,
+          "digest": "028048a6492f62bdf2e9ba50532de022"
+        },
+        "threads": {
+          "count": 3,
+          "digest": "bdf74d8f12d1371de792ba8024255ba7"
+        },
+        "transfer_entries": {
+          "count": 3,
+          "digest": "9fbdbe23529fc6870218a1de0071c038"
+        },
+        "transfer_events": {
+          "count": 6,
+          "digest": "96dbda8cc88771ac7708d5ddf58957b9"
+        },
+        "transfer_operations": {
+          "count": 3,
+          "digest": "a41844cd38ee4baa96a801215792c6e4"
+        },
+        "ui_preference_defaults": {
+          "count": 3,
+          "digest": "0f3f1f25e4feef916d60838e4bd34a9d"
+        },
+        "ui_preferences": {
+          "count": 3,
+          "digest": "276e96f7d76f058fc18d2c956d4d1a64"
+        },
+        "user": {
+          "count": 3,
+          "digest": "9c25fc13529802ebf1f02df6154d263e"
+        }
+      },
+      "ledger": {
+        "count": 152,
+        "digest": "f7ede05fe49be19f0fe1c1fdb706d0f0"
+      }
+    }
+  }
+}
