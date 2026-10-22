@@ -171,7 +171,20 @@ function buildGuardDatabase(
       for (const statement of splitMigrationStatements(
         readPlanStepSql(folders, step),
       )) {
-        sqlite.exec(statement);
+        try {
+          sqlite.exec(statement);
+        } catch (error) {
+          if (
+            step.namespace === "aleph" &&
+            error instanceof Error &&
+            /\bno such (table|column|index|view)\b|has no column named/i.test(
+              error.message,
+            )
+          ) {
+            continue;
+          }
+          throw error;
+        }
       }
     }
     return sqlite;
@@ -392,12 +405,27 @@ export function computeMigrationState(
     pair: ExpectedCompatPair;
     reason: "hash-mismatch" | "missing-created-at";
   }> = [];
+  const compatHashCounts = new Map<string, number>();
+  for (const row of compat) {
+    if (row.createdAt === null) continue;
+    compatHashCounts.set(row.hash, (compatHashCounts.get(row.hash) ?? 0) + 1);
+  }
+  const consumedHashes = new Map<string, number>();
   for (const [index, step] of aligned.plan.steps.entries()) {
     const hasLedgerRow = ledger.has(stepKey(step.namespace, step.id));
     const pair = pairs[index];
     if (pair === undefined) {
-      if (!hasLedgerRow && compat.some((row) => row.hash === step.sha256)) {
-        missingLedger.push(stepKey(step.namespace, step.id));
+      const recorded =
+        (compatHashCounts.get(step.sha256) ?? 0) -
+        (consumedHashes.get(step.sha256) ?? 0);
+      if (recorded > 0) {
+        consumedHashes.set(
+          step.sha256,
+          (consumedHashes.get(step.sha256) ?? 0) + 1,
+        );
+        if (!hasLedgerRow) {
+          missingLedger.push(stepKey(step.namespace, step.id));
+        }
       }
       steps.push({
         index,
@@ -409,6 +437,10 @@ export function computeMigrationState(
     }
     const classification = classifyAgainstCompatLog(pair, compat);
     if (classification.kind === "match") {
+      consumedHashes.set(
+        classification.hash,
+        (consumedHashes.get(classification.hash) ?? 0) + 1,
+      );
       if (!hasLedgerRow && ledgerHistory) {
         missingLedger.push(stepKey(step.namespace, step.id));
       }
@@ -530,7 +562,8 @@ export function computeMigrationState(
   );
   const unrecognised = compat.filter(
     (row) =>
-      !(row.createdAt !== null && knownCreatedAt.has(row.createdAt)) &&
+      row.createdAt !== null &&
+      !knownCreatedAt.has(row.createdAt) &&
       !knownHashes.has(row.hash),
   );
   if (unrecognised.length > 0) {

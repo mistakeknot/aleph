@@ -21,6 +21,7 @@ import { applyPrefix } from "./helpers/legacy-oracle.js";
 import {
   legacyMigrate,
   openLegacyConnection,
+  populatedPrefixDatabase,
 } from "./helpers/migration-scenarios.js";
 import { sourceFolders } from "./helpers/plan-apply.js";
 
@@ -36,7 +37,11 @@ afterEach(() => {
   }
 });
 
-function upstreamFolderWithCandidate(tag: string, sql: string): string {
+function upstreamFolderWithCandidate(
+  tag: string,
+  sql: string,
+  alephFolder: string = sourceFolders.alephFolder,
+): string {
   const folder = mkdtempSync(join(tmpdir(), "bb-runner-upstream-"));
   tempDirs.push(folder);
   cpSync(sourceFolders.upstreamFolder, folder, { recursive: true });
@@ -58,9 +63,10 @@ function upstreamFolderWithCandidate(tag: string, sql: string): string {
     when:
       Math.max(
         last.when,
-        ...loadAlignedMigrationPlan(sourceFolders).plan.steps.map(
-          (step) => step.when,
-        ),
+        ...loadAlignedMigrationPlan({
+          upstreamFolder: sourceFolders.upstreamFolder,
+          alephFolder,
+        }).plan.steps.map((step) => step.when),
       ) + 1000,
     tag,
     breakpoints: true,
@@ -418,4 +424,219 @@ describe("migrate classification", () => {
     ]);
     expect(mismatches).toEqual([]);
   }, 600_000);
+});
+
+describe("populated partial-deferred prefixes", () => {
+  it.each([15, 16, 17, 18, 19])(
+    "matches the legacy runner's schema and row counts from populated prefix %i",
+    async (length) => {
+      const snapshot = (db: DbConnection) => {
+        const sqlite = db.$client;
+        const tables = (
+          sqlite
+            .prepare(
+              "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE '\\_\\_%' ESCAPE '\\' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' AND name NOT LIKE '%\\_fts%' ESCAPE '\\' ORDER BY name",
+            )
+            .all() as Array<{ name: string }>
+        ).map((row) => ({
+          name: row.name,
+          count: (
+            sqlite.prepare(`SELECT COUNT(*) AS n FROM "${row.name}"`).get() as {
+              n: number;
+            }
+          ).n,
+        }));
+        const schema = sqlite
+          .prepare(
+            "SELECT name, COALESCE(sql, '') AS sql FROM sqlite_master WHERE name NOT LIKE '\\_\\_%' ESCAPE '\\' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' ORDER BY type, name",
+          )
+          .all();
+        return { tables, schema };
+      };
+      const oracle = await populatedPrefixDatabase(length);
+      let expected: ReturnType<typeof snapshot> | undefined;
+      try {
+        await legacyMigrate(oracle);
+        expected = snapshot(oracle);
+      } catch {
+        expected = undefined;
+      } finally {
+        closeConnection(oracle);
+      }
+      const subject = await populatedPrefixDatabase(length);
+      try {
+        migrate(subject);
+        if (expected !== undefined) expect(snapshot(subject)).toEqual(expected);
+      } finally {
+        closeConnection(subject);
+      }
+    },
+    120_000,
+  );
+});
+
+function alephFolderWithSteps(
+  extra: ReadonlyArray<{ id: string; sql: string }>,
+): string {
+  const alephFolder = mkdtempSync(join(tmpdir(), "bb-runner-aleph-"));
+  tempDirs.push(alephFolder);
+  cpSync(sourceFolders.alephFolder, alephFolder, { recursive: true });
+  const manifestPath = join(alephFolder, "manifest.json");
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+    steps: Array<{ id: string; file: string; after: string; when: number }>;
+  };
+  for (const step of extra) {
+    const last = manifest.steps[manifest.steps.length - 1];
+    if (last === undefined) throw new Error("Manifest is empty");
+    manifest.steps.push({
+      id: step.id,
+      file: `${step.id}_synthetic.sql`,
+      after: last.id,
+      when: last.when + 1000,
+    });
+    writeFileSync(join(alephFolder, `${step.id}_synthetic.sql`), step.sql);
+  }
+  writeFileSync(manifestPath, JSON.stringify(manifest));
+  return alephFolder;
+}
+
+describe("guard models with candidate upstream steps", () => {
+  const createSource =
+    "CREATE TABLE zz_source (id TEXT PRIMARY KEY);\n--> statement-breakpoint\nALTER TABLE zz_source ADD COLUMN extra TEXT;";
+
+  it("accepts an Aleph step that builds on a candidate-created table", () => {
+    const alephFolder = alephFolderWithSteps([
+      { id: "A0010", sql: "CREATE INDEX zz_source_idx ON zz_source (id);" },
+    ]);
+    const upstreamFolder = upstreamFolderWithCandidate(
+      "0144_zz_source",
+      createSource,
+      alephFolder,
+    );
+    expect(() =>
+      loadAlignedMigrationPlan({ upstreamFolder, alephFolder }),
+    ).not.toThrow();
+  });
+
+  it("allows a candidate to create and alter its own table", () => {
+    const alephFolder = alephFolderWithSteps([
+      { id: "A0010", sql: "SELECT 1;" },
+    ]);
+    const upstreamFolder = upstreamFolderWithCandidate(
+      "0144_zz_source",
+      createSource,
+      alephFolder,
+    );
+    const db = createConnection(":memory:");
+    try {
+      migrateWithFolders(db, { upstreamFolder, alephFolder });
+      expect(
+        db.$client
+          .prepare("SELECT 1 FROM sqlite_master WHERE name = 'zz_source'")
+          .get(),
+      ).toBeDefined();
+    } finally {
+      closeConnection(db);
+    }
+  });
+
+  it("still refuses a candidate that alters a table the Aleph steps alter", () => {
+    const alephFolder = alephFolderWithSteps([
+      { id: "A0010", sql: "SELECT 1;" },
+    ]);
+    const upstreamFolder = upstreamFolderWithCandidate(
+      "0144_zz_threads",
+      "ALTER TABLE threads ADD COLUMN zz_extra TEXT;",
+      alephFolder,
+    );
+    expect(() =>
+      loadAlignedMigrationPlan({ upstreamFolder, alephFolder }),
+    ).toThrow(/0144_zz_threads.*threads/);
+  });
+});
+
+describe("compat log identity handling", () => {
+  it("does not treat a new step with identical SQL as already applied", () => {
+    const sql = "UPDATE app_settings SET updated_at = updated_at;";
+    const folders = (ids: string[]) => ({
+      upstreamFolder: sourceFolders.upstreamFolder,
+      alephFolder: alephFolderWithSteps(ids.map((id) => ({ id, sql }))),
+    });
+    const db = createConnection(":memory:");
+    try {
+      migrateWithFolders(db, folders(["A0010"]));
+      expect(() =>
+        migrateWithFolders(db, folders(["A0010", "A0011"])),
+      ).not.toThrow();
+      const rows = db.$client
+        .prepare(
+          "SELECT tag FROM __bb_migration_ledger WHERE namespace = 'aleph' AND tag IN ('A0010', 'A0011') ORDER BY tag",
+        )
+        .all();
+      expect(rows).toEqual([{ tag: "A0010" }, { tag: "A0011" }]);
+    } finally {
+      closeConnection(db);
+    }
+  });
+
+  it("still refuses a deleted ledger row when identical-SQL steps both ran", () => {
+    const sql = "UPDATE app_settings SET updated_at = updated_at;";
+    const folders = {
+      upstreamFolder: sourceFolders.upstreamFolder,
+      alephFolder: alephFolderWithSteps([
+        { id: "A0010", sql },
+        { id: "A0011", sql },
+      ]),
+    };
+    const db = createConnection(":memory:");
+    try {
+      migrateWithFolders(db, folders);
+      db.$client
+        .prepare("DELETE FROM __bb_migration_ledger WHERE tag = 'A0011'")
+        .run();
+      expect(() => migrateWithFolders(db, folders)).toThrow(
+        /Missing migration ledger rows: aleph:A0011/,
+      );
+    } finally {
+      closeConnection(db);
+    }
+  });
+});
+
+describe("NULL created_at compatibility rows", () => {
+  const canonical = legacyMigrationChain[0]?.sha256 ?? "";
+
+  it.each([
+    ["a stray hash", "stray"],
+    ["a canonical hash", canonical],
+  ])(
+    "opens a complete legacy database with %s and NULL created_at like the legacy runner",
+    async (_label, hash) => {
+      const oracle = await openLegacyConnection();
+      try {
+        applyPrefix(oracle.$client, legacyMigrationChain.length);
+        oracle.$client
+          .prepare(
+            "INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, NULL)",
+          )
+          .run(hash);
+        await legacyMigrate(oracle);
+      } finally {
+        closeConnection(oracle);
+      }
+      const db = createConnection(":memory:");
+      try {
+        applyPrefix(db.$client, legacyMigrationChain.length);
+        db.$client
+          .prepare(
+            "INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, NULL)",
+          )
+          .run(hash);
+        expect(() => migrate(db)).not.toThrow();
+        expect(() => migrate(db)).not.toThrow();
+      } finally {
+        closeConnection(db);
+      }
+    },
+  );
 });
