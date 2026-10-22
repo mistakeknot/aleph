@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { writeFileSync } from "node:fs";
+import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -67,6 +67,44 @@ function chainAt(rev) {
 
 const legacy = chainAt(legacyTipRev);
 const upstream = chainAt(upstreamRev);
+const historySource = readFileSync(
+  new URL("../src/migration-history.ts", import.meta.url),
+  "utf8",
+);
+const migrateSource = readFileSync(
+  new URL("../src/migrate.ts", import.meta.url),
+  "utf8",
+);
+const compatibleBlock = historySource.slice(
+  historySource.indexOf("export const compatibleMigrationHashes"),
+);
+const compatibleHashesByTag = new Map();
+for (const match of compatibleBlock.matchAll(
+  /tag:\s*"([^"]+)",\s*when:\s*(\d+),\s*hash:\s*"([0-9a-f]{64})"/g,
+)) {
+  const list = compatibleHashesByTag.get(match[1]) ?? [];
+  list.push({ when: Number(match[2]), hash: match[3] });
+  compatibleHashesByTag.set(match[1], list);
+}
+const publishedWhenByTag = new Map();
+for (const match of historySource
+  .slice(
+    historySource.indexOf("export const publishedMigrationWhens"),
+    historySource.indexOf("export const compatibleMigrationHashes"),
+  )
+  .matchAll(/tag:\s*"([^"]+)",\s*when:\s*(\d+)/g)) {
+  publishedWhenByTag.set(match[1], Number(match[2]));
+}
+const reorderedBlock = migrateSource.slice(
+  migrateSource.indexOf("const reorderedCleanupMigrationTags = ["),
+);
+const reorderedTags = new Set(
+  [
+    ...reorderedBlock
+      .slice(0, reorderedBlock.indexOf("]"))
+      .matchAll(/"([^"]+)"/g),
+  ].map((match) => match[1]),
+);
 const upstreamBySha = new Map(upstream.map((entry) => [entry.sha256, entry]));
 
 const entries = legacy.map((entry) => {
@@ -173,6 +211,9 @@ lines.push("  relation: LegacyMigrationRelation;");
 lines.push("  target: LegacyMigrationTarget;");
 lines.push("  upstreamWhen?: number;");
 lines.push("  supersedes?: string;");
+lines.push("  publishedWhen?: number;");
+lines.push("  compatibleHashes: readonly string[];");
+lines.push("  reorderedCleanup: boolean;");
 lines.push("}");
 lines.push("");
 lines.push("export interface LegacyMigrationRelease {");
@@ -205,6 +246,13 @@ for (const entry of entries) {
   }
   if (entry.supersedes)
     lines.push(`    supersedes: ${JSON.stringify(entry.supersedes)},`);
+  if (publishedWhenByTag.has(entry.tag))
+    lines.push(`    publishedWhen: ${publishedWhenByTag.get(entry.tag)},`);
+  const alternates = (compatibleHashesByTag.get(entry.tag) ?? [])
+    .filter((alternate) => alternate.when === entry.when)
+    .map((alternate) => alternate.hash);
+  lines.push(`    compatibleHashes: ${JSON.stringify(alternates)},`);
+  lines.push(`    reorderedCleanup: ${reorderedTags.has(entry.tag)},`);
   lines.push("  },");
 }
 lines.push("];");
@@ -224,14 +272,30 @@ lines.push("];");
 lines.push("");
 const output = lines.join("\n");
 
+function formatInPlace(path) {
+  execFileSync("pnpm", ["exec", "oxfmt", path], {
+    cwd: resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", ".."),
+    stdio: "ignore",
+  });
+}
+
 if (check) {
-  const current = execFileSync("cat", [outputPath], { encoding: "utf8" });
-  if (current !== output) {
-    console.error("legacy-migration-chain.ts is out of date");
-    process.exit(1);
+  const scratchPath = outputPath.replace(/\.ts$/, ".check.ts");
+  writeFileSync(scratchPath, output);
+  try {
+    formatInPlace(scratchPath);
+    const generated = readFileSync(scratchPath, "utf8");
+    const current = readFileSync(outputPath, "utf8");
+    if (current !== generated) {
+      console.error("legacy-migration-chain.ts is out of date");
+      process.exit(1);
+    }
+  } finally {
+    unlinkSync(scratchPath);
   }
 } else {
   writeFileSync(outputPath, output);
+  formatInPlace(outputPath);
   console.log(
     `wrote ${entries.length} entries and ${releaseRows.length} releases`,
   );

@@ -18,6 +18,9 @@ export interface LegacyMigrationChainEntry {
   target: LegacyMigrationTarget;
   upstreamWhen?: number;
   supersedes?: string;
+  publishedWhen?: number;
+  compatibleHashes: readonly string[];
+  reorderedCleanup: boolean;
 }
 
 export interface LegacyMigrationRelease {
@@ -40,6 +43,9 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0000_baseline",
     },
+    publishedWhen: 1778891867195,
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 1,
@@ -51,6 +57,9 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0001_terminal_session_user_input",
     },
+    publishedWhen: 1779139400000,
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 2,
@@ -62,6 +71,9 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0002_closed_session_prune_indexes",
     },
+    publishedWhen: 1779139400001,
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 3,
@@ -73,6 +85,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0003_thread_dynamic_context_file_states",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 4,
@@ -84,6 +98,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0004_wild_justice",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 5,
@@ -95,6 +111,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0005_strong_exodus",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 6,
@@ -106,6 +124,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0006_rapid_santa_claus",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 7,
@@ -117,6 +137,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0007_curvy_ezekiel_stane",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 8,
@@ -128,6 +150,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0008_thread_pinning",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 9,
@@ -139,6 +163,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0009_famous_the_hunter",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 10,
@@ -150,6 +176,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0010_brief_james_howlett",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 11,
@@ -161,6 +189,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0011_round_millenium_guard",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 12,
@@ -172,6 +202,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0012_sharp_ogun",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 13,
@@ -183,6 +215,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0013_thread_schedules",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 14,
@@ -194,6 +228,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0014_thread_schedule_kind_default",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 15,
@@ -205,6 +241,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0015_good_lila_cheney",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 16,
@@ -216,6 +254,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0016_salty_arclight",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 17,
@@ -227,6 +267,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0017_terminal_session_runtime_state_honesty",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 18,
@@ -238,6 +280,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0018_natural_crusher_hogan",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 19,
@@ -249,6 +293,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0019_pending_interactions_schema_honesty",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 20,
@@ -260,6 +306,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0020_bitter_ma_gnuci",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 21,
@@ -271,6 +319,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0021_flawless_firelord",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 22,
@@ -282,6 +332,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0022_queued_message_sender_thread",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 23,
@@ -293,6 +345,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0023_wealthy_harpoon",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 24,
@@ -304,6 +358,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0024_dashing_ultimates",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 25,
@@ -315,6 +371,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0025_lyrical_wonder_man",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 26,
@@ -326,6 +384,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0026_salty_aaron_stack",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 27,
@@ -337,6 +397,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0027_majestic_cable",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 28,
@@ -348,6 +410,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0028_clear_skullbuster",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 29,
@@ -359,6 +423,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0029_drop_workflow_tables",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 30,
@@ -370,6 +436,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0030_popout_chat_experiments",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 31,
@@ -381,6 +449,10 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0031_mysterious_zaran",
     },
+    compatibleHashes: [
+      "bc111f5134183c37cf135af70231ec5a79823f9868818fdd8377e1ab3c05a23f",
+    ],
+    reorderedCleanup: false,
   },
   {
     idx: 32,
@@ -392,6 +464,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0032_restore_event_large_values",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 33,
@@ -403,6 +477,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0033_drop_cleanup_mode",
     },
+    compatibleHashes: [],
+    reorderedCleanup: true,
   },
   {
     idx: 34,
@@ -414,6 +490,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0034_drop_stop_requested_at",
     },
+    compatibleHashes: [],
+    reorderedCleanup: true,
   },
   {
     idx: 35,
@@ -425,6 +503,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0035_warm_kingpin",
     },
+    compatibleHashes: [],
+    reorderedCleanup: true,
   },
   {
     idx: 36,
@@ -436,6 +516,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0036_drop_automations_feature",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 37,
@@ -447,6 +529,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0037_gifted_frightful_four",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 38,
@@ -458,6 +542,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0038_thread_source_origin",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 39,
@@ -469,6 +555,10 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0039_thread_search",
     },
+    compatibleHashes: [
+      "025358fe89253aec7f5bd970dc3eb88d0e834f0d58fb9d75329a5d39899340f4",
+    ],
+    reorderedCleanup: false,
   },
   {
     idx: 40,
@@ -480,6 +570,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0040_thread_search_rowid_fts",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 41,
@@ -491,6 +583,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0041_add_automations",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 42,
@@ -502,6 +596,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0042_careful_iron_monger",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 43,
@@ -513,6 +609,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0043_threadless_terminal_sessions",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 44,
@@ -524,6 +622,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0044_flimsy_black_cat",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 45,
@@ -535,6 +635,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0045_unique_monster_badoon",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 46,
@@ -546,6 +648,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0046_thread_folders",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 47,
@@ -557,6 +661,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0047_sharp_martin_li",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 48,
@@ -568,6 +674,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0048_exotic_pandemic",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 49,
@@ -579,6 +687,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0049_wild_nehzno",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 50,
@@ -590,6 +700,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0050_thankful_captain_flint",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 51,
@@ -601,6 +713,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0051_productive_phil_sheldon",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 52,
@@ -612,6 +726,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0052_loud_goblin_queen",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 53,
@@ -623,6 +739,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0053_wise_roulette",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 54,
@@ -634,6 +752,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0054_same_karen_page",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 55,
@@ -645,6 +765,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0055_drop_kernel_automations",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 56,
@@ -656,6 +778,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0056_drop_ui_forking",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 57,
@@ -667,6 +791,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0057_useful_manta",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 58,
@@ -678,6 +804,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0058_confused_catseye",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 59,
@@ -689,6 +817,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0059_stale_power_pack",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 60,
@@ -700,6 +830,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0060_panoramic_xavin",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 61,
@@ -711,6 +843,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0061_dizzy_pete_wisdom",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 62,
@@ -722,6 +856,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0062_jittery_jocasta",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 63,
@@ -733,6 +869,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0063_broken_robbie_robertson",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 64,
@@ -744,6 +882,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0064_nebulous_logan",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 65,
@@ -755,6 +895,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0065_empty_leper_queen",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 66,
@@ -766,6 +908,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0066_smooth_shinko_yamashiro",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 67,
@@ -777,6 +921,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0067_early_warbird",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 68,
@@ -788,6 +934,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0068_productive_excalibur",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 69,
@@ -799,6 +947,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0069_flashy_zaran",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 70,
@@ -810,6 +960,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0070_swift_rattler",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 71,
@@ -821,6 +973,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0071_lovely_hammerhead",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 72,
@@ -832,6 +986,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0072_bizarre_the_liberteens",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 73,
@@ -843,6 +999,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0073_glorious_frightful_four",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 74,
@@ -854,6 +1012,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0074_legal_wither",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 75,
@@ -865,6 +1025,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0075_productive_zeigeist",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 76,
@@ -876,6 +1038,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0076_dazzling_kree",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 77,
@@ -887,6 +1051,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0077_tough_meteorite",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 78,
@@ -898,6 +1064,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0078_permission_modes",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 79,
@@ -909,6 +1077,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0079_side_chat_plugin",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 80,
@@ -920,6 +1090,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0080_groovy_gamma_corps",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 81,
@@ -931,6 +1103,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0081_cold_layla_miller",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 82,
@@ -942,6 +1116,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0082_black_squadron_supreme",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 83,
@@ -953,6 +1129,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0083_host_max_permission_mode",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 84,
@@ -964,6 +1142,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0084_side_chat_plugin_only",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 85,
@@ -975,6 +1155,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0085_glamorous_black_panther",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 86,
@@ -986,6 +1168,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0086_project_scoped_environment_path",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 87,
@@ -997,6 +1181,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0087_brief_khan",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 88,
@@ -1008,6 +1194,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0088_narrow_kronos",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 89,
@@ -1019,6 +1207,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0089_chemical_darwin",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 90,
@@ -1030,6 +1220,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0090_equal_reaper",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 91,
@@ -1041,6 +1233,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0091_daffy_dark_phoenix",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 92,
@@ -1052,6 +1246,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0092_windy_doctor_faustus",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 93,
@@ -1063,6 +1259,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0093_peaceful_thing",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 94,
@@ -1074,6 +1272,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0094_mighty_polaris",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 95,
@@ -1085,6 +1285,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0095_normal_elektra",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 96,
@@ -1096,6 +1298,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0096_heavy_shiva",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 97,
@@ -1107,6 +1311,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0097_whole_blackheart",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 98,
@@ -1118,6 +1324,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0098_rename_curated_marketplace",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 99,
@@ -1129,6 +1337,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0099_flawless_maximus",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 100,
@@ -1140,6 +1350,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0100_flippant_psylocke",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 101,
@@ -1151,6 +1363,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0101_thread_search_prefix_fts",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 102,
@@ -1162,6 +1376,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0102_app_settings_key_value",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 103,
@@ -1173,6 +1389,10 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0103_wandering_mongoose",
     },
+    compatibleHashes: [
+      "79d39e7b68d1db8ba02614fe4cc227cc0c154d77c7183f2e37ed2d8475412993",
+    ],
+    reorderedCleanup: false,
   },
   {
     idx: 104,
@@ -1184,6 +1404,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0104_chunky_redwing",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 105,
@@ -1195,6 +1417,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0105_provider_settings_to_plugins",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 106,
@@ -1206,6 +1430,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0106_thread_state_index",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 107,
@@ -1217,6 +1443,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0107_kind_based_indexes",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 108,
@@ -1228,6 +1456,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0108_deferred_thread_messages",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 109,
@@ -1239,6 +1469,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0109_marketplace_install_stats",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 110,
@@ -1250,6 +1482,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0110_many_kree",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 111,
@@ -1261,6 +1495,10 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0111_known_morph",
     },
+    compatibleHashes: [
+      "eda4daf7f011d8718c21d3fbd71030f30438863cd1e6ceddd32a5052fb3a14cd",
+    ],
+    reorderedCleanup: false,
   },
   {
     idx: 112,
@@ -1272,6 +1510,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0112_steer_on_enter_default",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 113,
@@ -1283,6 +1523,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0113_environment_providers",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 114,
@@ -1294,6 +1536,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0114_public_iron_lad",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 115,
@@ -1305,6 +1549,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0115_ui_preferences",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 116,
@@ -1316,6 +1562,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0116_majestic_swordsman",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 117,
@@ -1327,6 +1575,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0117_machine_providers",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 118,
@@ -1338,6 +1588,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0118_brave_marvel_zombies",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 119,
@@ -1349,6 +1601,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0119_provider_model_catalogs",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 120,
@@ -1360,6 +1614,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0120_perfect_clint_barton",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 121,
@@ -1371,6 +1627,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0121_fluffy_major_mapleleaf",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 122,
@@ -1382,6 +1640,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0122_attachment_accounting",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 123,
@@ -1393,6 +1653,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0123_cheerful_tomorrow_man",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 124,
@@ -1404,6 +1666,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0124_thread_pruning",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 125,
@@ -1415,6 +1679,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0125_silent_guardian",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 126,
@@ -1426,6 +1692,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0126_overconfident_vin_gonzales",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 127,
@@ -1437,6 +1705,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0127_thread_image_metadata",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 128,
@@ -1448,6 +1718,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0128_burly_jazinda",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 129,
@@ -1459,6 +1731,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0129_sidebar_installation_defaults",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 130,
@@ -1470,6 +1744,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0130_busy_synch",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 131,
@@ -1481,6 +1757,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0131_environment_retention_indexes",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 132,
@@ -1492,6 +1770,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "aleph",
       id: "A0001",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 133,
@@ -1503,6 +1783,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "aleph",
       id: "A0002",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 134,
@@ -1514,6 +1796,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "aleph",
       id: "A0003",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 135,
@@ -1526,6 +1810,10 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       id: "0132_thread_drafts",
     },
     upstreamWhen: 1790322211064,
+    compatibleHashes: [
+      "34086c32a5765e290293be611f00de29327ad1903e663f11b93d88eacfb95f7f",
+    ],
+    reorderedCleanup: false,
   },
   {
     idx: 136,
@@ -1537,6 +1825,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0133_remove_thread_drafts",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 137,
@@ -1548,6 +1838,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0134_preserve_pane_focus_bindings",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 138,
@@ -1559,6 +1851,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0135_rename_provider_usage_plugin_id",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 139,
@@ -1570,6 +1864,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0136_plugin_enabled_follows_default",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 140,
@@ -1581,6 +1877,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "upstream",
       id: "0137_stiff_prism",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 141,
@@ -1592,6 +1890,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "aleph",
       id: "A0004",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 142,
@@ -1603,6 +1903,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "aleph",
       id: "A0005",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 143,
@@ -1614,6 +1916,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "aleph",
       id: "A0006",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 144,
@@ -1625,6 +1929,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "aleph",
       id: "A0007",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 145,
@@ -1636,6 +1942,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       namespace: "aleph",
       id: "A0008",
     },
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 146,
@@ -1648,6 +1956,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       id: "0138_thread_pruning_work",
     },
     upstreamWhen: 1791399370294,
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 147,
@@ -1660,6 +1970,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       id: "0139_idle_lifecycle_indexes",
     },
     upstreamWhen: 1791402653913,
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 148,
@@ -1672,6 +1984,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       id: "0140_stamp_onboarding_existing_installs",
     },
     upstreamWhen: 1791411660016,
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 149,
@@ -1684,6 +1998,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       id: "0141_moaning_vector",
     },
     upstreamWhen: 1791414564985,
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 150,
@@ -1696,6 +2012,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       id: "0142_burly_baron_strucker",
     },
     upstreamWhen: 1791840325007,
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
   {
     idx: 151,
@@ -1708,6 +2026,8 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
       id: "A0009",
     },
     supersedes: "0143_queued_message_state",
+    compatibleHashes: [],
+    reorderedCleanup: false,
   },
 ];
 

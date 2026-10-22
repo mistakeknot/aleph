@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -7,6 +8,10 @@ import {
   legacyMigrationChain,
   legacyMigrationReleases,
 } from "../src/legacy-migration-chain.js";
+import {
+  compatibleMigrationHashes,
+  publishedMigrationWhens,
+} from "../src/migration-history.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const drizzleDir = resolve(__dirname, "..", "drizzle");
@@ -88,5 +93,76 @@ describe("legacy migration chain mapping", () => {
       expect(release.length).toBeLessThanOrEqual(legacyMigrationChain.length);
       expect(legacyMigrationChain[release.length - 1]?.tag).toBe(release.tail);
     }
+  });
+
+  it("is reproduced by the derivation script from git history", () => {
+    execFileSync(
+      process.execPath,
+      [
+        resolve(
+          __dirname,
+          "..",
+          "scripts",
+          "derive-legacy-migration-chain.mjs",
+        ),
+        "--check",
+      ],
+      { stdio: "pipe" },
+    );
+  }, 180_000);
+
+  it("pins the supersession of upstream 0143 by A0009 at legacy 0151", () => {
+    const entry = legacyMigrationChain[151];
+    expect(entry?.tag).toBe("0151_queued_message_state");
+    expect(entry?.relation).toBe("aleph-supersedes");
+    expect(entry?.target).toEqual({ namespace: "aleph", id: "A0009" });
+    expect(entry?.supersedes).toBe("0143_queued_message_state");
+    expect(
+      legacyMigrationChain.filter(
+        (candidate) => candidate.supersedes !== undefined,
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("records the compatible hashes and published whens of the validator", () => {
+    const recorded = legacyMigrationChain.flatMap((entry) =>
+      entry.compatibleHashes.map((hash) => ({
+        tag: entry.tag,
+        when: entry.when,
+        hash,
+      })),
+    );
+    expect(recorded).toEqual(
+      compatibleMigrationHashes.map(({ tag, when, hash }) => ({
+        tag,
+        when,
+        hash,
+      })),
+    );
+    const published = legacyMigrationChain
+      .filter((entry) => entry.publishedWhen !== undefined)
+      .map((entry) => ({ tag: entry.tag, when: entry.publishedWhen }));
+    expect(published).toEqual(
+      publishedMigrationWhens.map(({ tag, when }) => ({ tag, when })),
+    );
+  });
+
+  it("classifies exactly the reordered cleanup migrations", () => {
+    expect(
+      legacyMigrationChain
+        .filter((entry) => entry.reorderedCleanup)
+        .map((entry) => entry.tag),
+    ).toEqual([
+      "0033_drop_cleanup_mode",
+      "0034_drop_stop_requested_at",
+      "0035_warm_kingpin",
+    ]);
+  });
+
+  it("keeps all sixteen release rows with the expected distinct prefixes", () => {
+    expect(legacyMigrationReleases).toHaveLength(16);
+    expect(
+      new Set(legacyMigrationReleases.map((release) => release.length)),
+    ).toEqual(new Set([131, 134, 135, 141, 146, 152]));
   });
 });
