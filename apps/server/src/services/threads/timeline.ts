@@ -931,6 +931,7 @@ function ensureLatestTimelineOpenBackgroundTaskStateRows(
 function listLatestTimelineHeadStateRows(
   db: DbConnection,
   threadId: string,
+  maxSeq: number,
 ): StoredEventRow[] {
   return mergeStoredEventRowsById([
     ...listLatestThreadStateEventRowsByThreadIds(db, {
@@ -950,7 +951,7 @@ function listLatestTimelineHeadStateRows(
       kind: THREAD_SESSION_OPTION_SELECTIONS_STATE_KIND,
     }),
     ...listTodoSnapshotEventRowsForThread(db, { threadId }),
-    ...listLatestModelFallbackEventRowsForThread(db, { threadId }),
+    ...listLatestModelFallbackEventRowsForThread(db, { maxSeq, threadId }),
   ]);
 }
 
@@ -1350,7 +1351,7 @@ function selectStandardTimelineEventRows(
       headStateRows:
         page.kind === "latest"
           ? measureThreadTimelineStage(profile, "group-context-query", () =>
-              listLatestTimelineHeadStateRows(db, thread.id).filter(
+              listLatestTimelineHeadStateRows(db, thread.id, maxSeq).filter(
                 (row) =>
                   row.sequence <= maxSeq && !visibleSequences.has(row.sequence),
               ),

@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import { describe, expect, it } from "vitest";
 import { prependOlderTimelineRows } from "@bb/client-core";
+import { getLatestThreadSequence } from "@bb/db";
 import { encodeClientTurnRequestIdNumber } from "@bb/domain";
 import type {
   TimelinePaginationCursor,
@@ -439,6 +440,117 @@ describe("one giant turn", () => {
       ],
       false,
     );
+  }, 600_000);
+
+  it("places a message by its first nonempty text", () => {
+    // An empty delta before the command starts does not place the message;
+    // the projection ignores it and places the message at its later text.
+    const message = messageItem("turn-2", "turn-2-final", 3);
+    const command = commandItem("turn-2", "turn-2-overtaking", 2);
+    expectTailMatchesFullRead(
+      [
+        ...workRows("turn-2", 5_000),
+        ...commandItem("turn-2", "turn-2-lead-in", 2),
+        message[0]!,
+        {
+          data: { itemId: "turn-2-final", delta: "" },
+          itemId: "turn-2-final",
+          turnId: "turn-2",
+          type: "item/agentMessage/delta",
+        },
+        command[0]!,
+        ...message.slice(1),
+        ...command.slice(1),
+      ],
+      false,
+    );
+  }, 600_000);
+
+  it("places a command by output that arrives before its start", () => {
+    // The command's output arrives before the final message's text, so the
+    // projection moves the command ahead of the message it starts after.
+    const message = messageItem("turn-2", "turn-2-final", 3);
+    const command = commandItem("turn-2", "turn-2-early-output", 2);
+    expectTailMatchesFullRead(
+      [
+        ...workRows("turn-2", 5_000),
+        ...commandItem("turn-2", "turn-2-lead-in", 2),
+        message[0]!,
+        command[1]!,
+        ...message.slice(1),
+        command[0]!,
+        ...command.slice(2),
+      ],
+      false,
+    );
+  }, 600_000);
+
+  it("keeps the model fallback of a pinned snapshot", () => {
+    withTestThread((testThread) => {
+      appendRows(
+        testThread,
+        seedGiantTurn(false, 5_000, [
+          {
+            data: {
+              fallbackModel: "gpt-5-mini",
+              message: "Switched from gpt-5 to gpt-5-mini.",
+              originalModel: "gpt-5",
+              reason: "provider",
+            },
+            turnId: "turn-2",
+            type: "provider/modelFallback",
+          },
+          ...workRows("turn-2", 5_000),
+        ]),
+      );
+      const maxSeq = getLatestThreadSequence(testThread.db, {
+        threadId: testThread.thread.id,
+      });
+      const build = (eventBudget?: number) =>
+        buildRouteTimelinePage({
+          db: testThread.db,
+          eventBudget,
+          maxSeq,
+          page: { kind: "latest", segmentLimit: 3 },
+          registry,
+          thread: testThread.thread,
+          variant: "default",
+        });
+      const expectSnapshotFallback = () => {
+        const bounded = build();
+        const full = build(1_000_000);
+        expect(bounded.profile.eventRowCount).toBeLessThan(
+          full.profile.eventRowCount / 2,
+        );
+        expect(full.response.modelFallback?.fallbackModel).toBe("gpt-5-mini");
+        expect(bounded.response.modelFallback).toEqual(
+          full.response.modelFallback,
+        );
+      };
+      expectSnapshotFallback();
+
+      // A newer fallback after the snapshot does not replace its fallback.
+      appendRows(testThread, [
+        {
+          data: {
+            fallbackModel: "gpt-5-nano",
+            message: "Switched from gpt-5-mini to gpt-5-nano.",
+            originalModel: "gpt-5-mini",
+            reason: "provider",
+          },
+          turnId: "turn-2",
+          type: "provider/modelFallback",
+        },
+      ]);
+      expectSnapshotFallback();
+
+      // Nor does a request after the snapshot clear it.
+      appendRows(testThread, [
+        { data: { status: "completed" }, turnId: "turn-2", type: "turn/completed" },
+        ...turnOpening(3),
+      ]);
+      expectSnapshotFallback();
+    });
   }, 600_000);
 
   it("keeps an early model fallback when a running turn is capped", () => {
