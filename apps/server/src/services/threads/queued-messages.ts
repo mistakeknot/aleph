@@ -1191,8 +1191,8 @@ async function sendClaimedQueuedMessageForThread(
       thread.deletedAt !== null ||
       isThreadEventsCold(deps.db, thread.id)
     ) {
-      await releaseQueuedMessageClaims(deps, args.queuedMessages);
-      return toThreadQueuedMessage(args.queuedMessages[0]!);
+      // Every caller releases the claims when the send throws.
+      throw createQueuedMessageClaimLostError();
     }
     return await sendPinnedClaimedQueuedMessageForThread(deps, {
       ...args,

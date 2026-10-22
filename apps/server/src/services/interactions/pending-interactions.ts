@@ -9,6 +9,7 @@ import {
   interruptPendingInteractionsForThreadIds,
   interruptPendingInteractionsForThreads,
   interruptPendingInteractionsForPlugin,
+  isThreadEventsCold,
   listActivePluginPendingInteractions,
   listPendingInteractionsByThread,
   setPendingInteractionInterrupted,
@@ -504,7 +505,18 @@ export class PendingInteractionLifecycle {
     };
   }
 
-  async requestPluginInteraction(
+  requestPluginInteraction(
+    args: RequestPluginInteractionArgs,
+  ): Promise<PluginInteractionResult> {
+    // A hot thread records the interaction synchronously, as before the cold
+    // tier: nothing can move its history before the first await.
+    if (!isThreadEventsCold(this.deps.db, args.threadId)) {
+      return this.requestHotPluginInteraction(args);
+    }
+    return this.requestColdPluginInteraction(args);
+  }
+
+  private async requestColdPluginInteraction(
     args: RequestPluginInteractionArgs,
   ): Promise<PluginInteractionResult> {
     const releaseHistoryPin = pinThreadHistory(args.threadId);
