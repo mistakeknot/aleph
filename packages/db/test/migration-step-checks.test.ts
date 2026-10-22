@@ -233,7 +233,7 @@ describe("per-step safety checks", () => {
       "DROP TABLE app_settings_values;",
       "ALTER TABLE zz_app_settings_values RENAME TO app_settings_values;",
     ].join(BREAK);
-    expectRefused(db, sql, /app_settings_values/, {
+    expectRefused(db, sql, /lost or changed preserved data/, {
       copiedTables: [
         {
           table: "app_settings_values",
@@ -241,9 +241,192 @@ describe("per-step safety checks", () => {
           columnRenames: {},
         },
       ],
-      createsTables: ["zz_app_settings_values"],
-      dropsTables: ["app_settings_values"],
-      tableRenames: { zz_app_settings_values: "app_settings_values" },
+      renumbersRowids: ["app_settings_values"],
+    });
+  });
+
+  it("follows a declared table rename and compares its contents", async () => {
+    const db = await migratedPopulatedDatabase();
+    const rename = "ALTER TABLE app_settings_values RENAME TO zz_renamed;";
+    runA0010(db, rename, {
+      tableRenames: { app_settings_values: "zz_renamed" },
+    });
+    expect(
+      db.$client
+        .prepare("SELECT count(*) AS n FROM zz_renamed")
+        .get() as object,
+    ).toEqual({ n: expect.any(Number) });
+  });
+
+  it("refuses a renamed table whose contents changed", async () => {
+    const db = await migratedPopulatedDatabase();
+    const sql = [
+      "ALTER TABLE app_settings_values RENAME TO zz_renamed;",
+      "UPDATE zz_renamed SET value = value || 'x';",
+    ].join(BREAK);
+    expectRefused(db, sql, /app_settings_values/, {
+      tableRenames: { app_settings_values: "zz_renamed" },
+    });
+  });
+
+  it("compares autoincrement counters without rounding", async () => {
+    const db = await migratedPopulatedDatabase();
+    db.$client
+      .prepare(
+        "INSERT INTO environment_variables (project_id, name, ciphertext, encryption_version, updated_at) VALUES (NULL, 'ZZ', 'c', 1, 1)",
+      )
+      .run();
+    db.$client
+      .prepare(
+        "UPDATE sqlite_sequence SET seq = 9223372036854775807 WHERE name = 'environment_variables'",
+      )
+      .run();
+    expectRefused(
+      db,
+      "UPDATE sqlite_sequence SET seq = 9223372036854775806 WHERE name = 'environment_variables';",
+      /autoincrement counter of environment_variables/,
+    );
+  });
+
+  it("refuses a value change that doubles would round away", async () => {
+    const db = await migratedPopulatedDatabase();
+    db.$client
+      .prepare(
+        "INSERT INTO app_settings_values (key, value, updated_at) VALUES ('zz:big', 'v', 9223372036854775807)",
+      )
+      .run();
+    expectRefused(
+      db,
+      "UPDATE app_settings_values SET updated_at = 9223372036854775806 WHERE key = 'zz:big';",
+      /app_settings_values/,
+    );
+  });
+
+  it("refuses a change to rows that have no key value", async () => {
+    const db = await migratedPopulatedDatabase();
+    db.$client.exec(
+      "CREATE TABLE zz_nullkey (id TEXT PRIMARY KEY, v TEXT); INSERT INTO zz_nullkey (id, v) VALUES (NULL, 'a'), (NULL, 'b'), ('k', 'c');",
+    );
+    expectRefused(
+      db,
+      "UPDATE zz_nullkey SET v = 'changed' WHERE id IS NULL;",
+      /zz_nullkey/,
+    );
+  });
+
+  it("accepts a step that leaves rows without a key value alone", async () => {
+    const db = await migratedPopulatedDatabase();
+    db.$client.exec(
+      "CREATE TABLE zz_nullkey (id TEXT PRIMARY KEY, v TEXT); INSERT INTO zz_nullkey (id, v) VALUES (NULL, 'a'), (NULL, 'b'), ('k', 'c');",
+    );
+    runA0010(db, "SELECT 1;", {});
+  });
+
+  it("accepts A0009 on a pre-state database with a failed row", async () => {
+    const db = await populatedPrefixDatabase(150);
+    openDatabases.push(db);
+    const thread = db.$client
+      .prepare("SELECT id FROM threads LIMIT 1")
+      .get() as { id: string };
+    db.$client
+      .prepare(
+        "INSERT INTO queued_thread_messages (id, thread_id, content, model, reasoning_level, permission_mode, service_tier, failure_reason, failure_count, next_attempt_at, sort_key, created_at, updated_at) VALUES ('zz-q1', ?, 'c', 'm', 'r', 'p', 's', 'boom', 2, 5, 'a0', 1, 1)",
+      )
+      .run(thread.id);
+    migrate(db);
+    expect(
+      db.$client
+        .prepare(
+          "SELECT state, failure_count FROM queued_thread_messages WHERE id = 'zz-q1'",
+        )
+        .get(),
+    ).toEqual({ state: "failed_retrying", failure_count: 2 });
+  });
+
+  it("refuses an A0009 copy that diverges from its declared normalization", async () => {
+    const db = await populatedPrefixDatabase(150);
+    openDatabases.push(db);
+    const thread = db.$client
+      .prepare("SELECT id FROM threads LIMIT 1")
+      .get() as { id: string };
+    db.$client
+      .prepare(
+        "INSERT INTO queued_thread_messages (id, thread_id, content, model, reasoning_level, permission_mode, service_tier, failure_reason, failure_count, next_attempt_at, sort_key, created_at, updated_at) VALUES ('zz-q1', ?, 'c', 'm', 'r', 'p', 's', 'boom', 2, 5, 'a0', 1, 1)",
+      )
+      .run(thread.id);
+    const folder = mkdtempSync(join(tmpdir(), "bb-step-checks-mutated-"));
+    tempDirs.push(folder);
+    cpSync(sourceFolders.alephFolder, folder, { recursive: true });
+    const checksPath = join(folder, "step-checks.json");
+    const checks = JSON.parse(readFileSync(checksPath, "utf8")) as {
+      A0009: {
+        copiedTables: Array<{ normalizedColumns: Record<string, string> }>;
+      };
+    };
+    const normalized = checks.A0009.copiedTables[0]?.normalizedColumns;
+    if (normalized === undefined) throw new Error("A0009 has no declaration");
+    normalized["failure_count"] = `(${normalized["failure_count"]}) + 1`;
+    writeFileSync(checksPath, JSON.stringify(checks));
+    const before = fingerprint(db);
+    let thrown: unknown;
+    try {
+      migrateWithFolders(db, {
+        upstreamFolder: sourceFolders.upstreamFolder,
+        alephFolder: folder,
+      });
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(MigrationStepCheckError);
+    expect((thrown as Error).message).toMatch(/normalized columns differ/);
+    expect(fingerprint(db)).toBe(before);
+  });
+
+  it("refuses an added row that repeats an existing violation", async () => {
+    const db = await migratedPopulatedDatabase();
+    db.$client.pragma("foreign_keys = OFF");
+    db.$client.exec(
+      "CREATE TABLE zz_fk_parent (id integer PRIMARY KEY); CREATE TABLE zz_fk_child (id integer PRIMARY KEY, a integer REFERENCES zz_fk_parent(id)); INSERT INTO zz_fk_child (a) VALUES (99), (99);",
+    );
+    db.$client.pragma("foreign_keys = ON");
+    expectRefused(
+      db,
+      "INSERT INTO zz_fk_child (a) VALUES (99);",
+      /new foreign key violations/,
+      { writesTables: ["zz_fk_child"], rowDeltas: { zz_fk_child: 1 } },
+    );
+  });
+
+  it("accepts a no-op step on a WITHOUT ROWID table", async () => {
+    const db = await migratedPopulatedDatabase();
+    db.$client.exec(
+      "CREATE TABLE zz_norowid (k TEXT PRIMARY KEY, v TEXT) WITHOUT ROWID; INSERT INTO zz_norowid VALUES ('a', '1'), ('b', '2');",
+    );
+    runA0010(db, "SELECT 1;", {});
+  });
+
+  it("accepts an upstream step that changes only the tables it names", async () => {
+    const db = await migratedPopulatedDatabase();
+    migrateWithFolders(db, {
+      upstreamFolder: upstreamFolderWithCandidates(
+        [
+          {
+            tag: "0144_zz_named",
+            sql: [
+              "CREATE TABLE zz_named (id integer PRIMARY KEY, v text);",
+              "INSERT INTO zz_named (id, v) VALUES (1, 'a');",
+              "UPDATE zz_named SET v = 'b';",
+              "CREATE TABLE zz_gone (id integer PRIMARY KEY);",
+              "DROP TABLE zz_gone;",
+            ].join(BREAK),
+          },
+        ],
+        sourceFolders.alephFolder,
+      ),
+      alephFolder: sourceFolders.alephFolder,
+    });
+    expect(db.$client.prepare("SELECT v FROM zz_named").get()).toEqual({
+      v: "b",
     });
   });
 
@@ -274,3 +457,44 @@ describe("per-step safety checks", () => {
     expect(reports).toEqual([{ segment: "frozen", newIdentities: 0 }]);
   });
 });
+
+function upstreamFolderWithCandidates(
+  candidates: ReadonlyArray<{ tag: string; sql: string }>,
+  alephFolder: string,
+): string {
+  const folder = mkdtempSync(join(tmpdir(), "bb-step-checks-upstream-"));
+  tempDirs.push(folder);
+  cpSync(sourceFolders.upstreamFolder, folder, { recursive: true });
+  const journalPath = join(folder, "meta", "_journal.json");
+  const journal = JSON.parse(readFileSync(journalPath, "utf8")) as {
+    entries: Array<{
+      idx: number;
+      version: string;
+      when: number;
+      tag: string;
+      breakpoints: boolean;
+    }>;
+  };
+  const manifest = JSON.parse(
+    readFileSync(join(alephFolder, "manifest.json"), "utf8"),
+  ) as { steps: Array<{ when: number }> };
+  let when = Math.max(
+    ...journal.entries.map((entry) => entry.when),
+    ...manifest.steps.map((step) => step.when),
+  );
+  for (const candidate of candidates) {
+    const last = journal.entries[journal.entries.length - 1];
+    if (last === undefined) throw new Error("Journal is empty");
+    when += 1000;
+    journal.entries.push({
+      idx: last.idx + 1,
+      version: "6",
+      when,
+      tag: candidate.tag,
+      breakpoints: true,
+    });
+    writeFileSync(join(folder, `${candidate.tag}.sql`), candidate.sql);
+  }
+  writeFileSync(journalPath, JSON.stringify(journal));
+  return folder;
+}

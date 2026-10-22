@@ -29,10 +29,25 @@
           "sort_key",
           "created_at",
           "updated_at"
-        ]
+        ],
+        "normalizedColumns": {
+          "group_with_next": "COALESCE((SELECT group_with_next FROM bb_migration_queued_message_groups WHERE id = o.\"id\"), 0)",
+          "state": "CASE WHEN CASE WHEN o.\"claimed_at\" IS NOT NULL AND o.\"claim_token\" IS NOT NULL THEN o.\"claimed_at\" END IS NOT NULL THEN 'claimed' WHEN o.\"failure_reason\" IS NOT NULL AND CASE WHEN o.\"failure_reason\" IS NOT NULL THEN o.\"next_attempt_at\" END IS NOT NULL THEN 'failed_retrying' WHEN o.\"failure_reason\" IS NOT NULL THEN 'failed_exhausted' WHEN o.\"send_at\" IS NOT NULL THEN 'scheduled' WHEN CASE WHEN json_valid(o.\"waiting_on\") THEN o.\"waiting_on\" WHEN o.\"send_at\" IS NOT NULL THEN '{\"kind\":\"time\"}' END IS NOT NULL THEN 'waiting' ELSE 'queued' END",
+          "waiting_on": "CASE WHEN json_valid(o.\"waiting_on\") THEN o.\"waiting_on\" WHEN o.\"send_at\" IS NOT NULL THEN '{\"kind\":\"time\"}' END",
+          "wait_holder": "CASE WHEN json_extract(CASE WHEN json_valid(o.\"waiting_on\") THEN o.\"waiting_on\" WHEN o.\"send_at\" IS NOT NULL THEN '{\"kind\":\"time\"}' END,'$.kind')='plugin' THEN 'plugin:'||json_extract(CASE WHEN json_valid(o.\"waiting_on\") THEN o.\"waiting_on\" WHEN o.\"send_at\" IS NOT NULL THEN '{\"kind\":\"time\"}' END,'$.pluginId') END",
+          "failure_count": "CASE WHEN o.\"failure_reason\" IS NULL THEN 0 WHEN o.\"failure_count\" < 1 THEN 1 ELSE o.\"failure_count\" END",
+          "next_attempt_at": "CASE WHEN o.\"failure_reason\" IS NOT NULL THEN o.\"next_attempt_at\" END",
+          "claimed_at": "CASE WHEN o.\"claimed_at\" IS NOT NULL AND o.\"claim_token\" IS NOT NULL THEN o.\"claimed_at\" END",
+          "claim_token": "CASE WHEN o.\"claimed_at\" IS NOT NULL AND o.\"claim_token\" IS NOT NULL THEN o.\"claim_token\" END"
+        }
       }
     ],
-    "renumbersRowids": ["queued_thread_messages"],
-    "writesTables": ["transfer_entries", "transfer_events"]
+    "renumbersRowids": [
+      "queued_thread_messages"
+    ],
+    "writesTables": [
+      "transfer_entries",
+      "transfer_events"
+    ]
   }
 }

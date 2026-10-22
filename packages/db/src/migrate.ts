@@ -39,6 +39,7 @@ import type {
 import {
   captureForeignKeyIdentities,
   captureStepBaseline,
+  namedTables,
   disposeForeignKeyCapture,
   disposeStepBaseline,
   FROZEN_ALEPH_STEP_IDS,
@@ -1081,10 +1082,20 @@ function runPendingSteps(
       const guarded =
         step.namespace === "upstream" ? aligned.guardedTables : null;
       const foreignKeysBefore = captureForeignKeyIdentities(sqlite, checks);
-      const baseline = captureStepBaseline(sqlite, step.id, checks, guarded);
+      const named =
+        guarded !== null && checks === null
+          ? namedTables(readPlanStepSql(aligned.folders, step))
+          : null;
+      const baseline = captureStepBaseline(
+        sqlite,
+        step.id,
+        checks,
+        guarded,
+        named,
+      );
       try {
         runStepSql(sqlite, aligned, index);
-        verifyStep(sqlite, step.id, checks, guarded, baseline);
+        verifyStep(sqlite, step.id, checks, guarded, named, baseline);
         const foreignKeysAfter = captureForeignKeyIdentities(sqlite);
         try {
           const introduced = newForeignKeyIdentities(

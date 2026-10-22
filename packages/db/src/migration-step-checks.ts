@@ -3,6 +3,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type Database from "better-sqlite3";
 import {
+  splitMigrationStatements,
+  statementIdentifiers,
+} from "./migration-guard.js";
+import {
   COMPAT_LOG_TABLE,
   MIGRATION_LEDGER_TABLE,
 } from "./migration-ledger.js";
@@ -36,6 +40,7 @@ export interface CopiedTableDeclaration {
   table: string;
   preservedColumns: readonly string[];
   columnRenames: Readonly<Record<string, string>>;
+  normalizedColumns: Readonly<Record<string, string>>;
 }
 
 export interface StepChecks {
@@ -143,6 +148,10 @@ function parseStepChecks(id: string, raw: unknown): StepChecks {
           "preservedColumns",
         ),
         columnRenames: stringMap(entry.columnRenames, "columnRenames"),
+        normalizedColumns: stringMap(
+          entry.normalizedColumns,
+          "normalizedColumns",
+        ),
       };
     }),
     rowDeltas,
@@ -173,6 +182,7 @@ interface TableColumn {
 interface UserTable {
   name: string;
   virtual: boolean;
+  withoutRowid: boolean;
   columns: TableColumn[];
   keyColumns: string[] | null;
   nullableKey: boolean;
@@ -186,7 +196,7 @@ interface TableMeasure {
 export interface StepSnapshot {
   tables: Map<string, UserTable>;
   measures: Map<string, TableMeasure>;
-  counters: Map<string, number>;
+  counters: Map<string, bigint>;
   counterRows: Map<string, number>;
   triggerWrites: Map<string, Set<string>>;
 }
@@ -202,9 +212,9 @@ function quote(identifier: string): string {
 function listUserTables(sqlite: Database.Database): UserTable[] {
   const rows = sqlite
     .prepare(
-      "SELECT name, type FROM pragma_table_list WHERE schema = 'main' AND type IN ('table', 'virtual') AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' ORDER BY name",
+      "SELECT name, type, wr FROM pragma_table_list WHERE schema = 'main' AND type IN ('table', 'virtual') AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' ORDER BY name",
     )
-    .all() as Array<{ name: string; type: string }>;
+    .all() as Array<{ name: string; type: string; wr: number }>;
   const tables: UserTable[] = [];
   for (const row of rows) {
     if (row.name === COMPAT_LOG_TABLE || row.name === MIGRATION_LEDGER_TABLE) {
@@ -253,7 +263,14 @@ function listUserTables(sqlite: Database.Database): UserTable[] {
         }
       }
     }
-    tables.push({ name: row.name, virtual, columns, keyColumns, nullableKey });
+    tables.push({
+      name: row.name,
+      virtual,
+      withoutRowid: row.wr === 1,
+      columns,
+      keyColumns,
+      nullableKey,
+    });
   }
   return tables;
 }
@@ -302,19 +319,21 @@ function measureTable(
   const selected = columns
     .flatMap((column) => [quote(column), `typeof(${quote(column)})`])
     .join(", ");
+  const withRowid = options.includeRowid && !table.withoutRowid;
   const statement = sqlite
     .prepare(
-      options.includeRowid
+      withRowid
         ? `SELECT rowid, ${selected} FROM ${quote(table.name)}`
         : `SELECT ${selected} FROM ${quote(table.name)}`,
     )
-    .raw();
+    .raw()
+    .safeIntegers(true);
   let count = 0;
   let digest = 0n;
   for (const row of statement.iterate() as IterableIterator<unknown[]>) {
     const parts: Array<{ type: string; value: unknown }> = [];
     let offset = 0;
-    if (options.includeRowid) {
+    if (withRowid) {
       parts.push({ type: "integer", value: row[0] });
       offset = 1;
     }
@@ -344,12 +363,12 @@ function triggerWriteGraph(
     .all() as Array<{ tableName: string; sql: string }>;
   for (const row of rows) {
     const body = row.sql.slice(row.sql.search(/\bBEGIN\b/i));
-    const written = graph.get(row.tableName) ?? new Set<string>();
+    const written = graph.get(fold(row.tableName)) ?? new Set<string>();
     for (const match of body.matchAll(TRIGGER_WRITE)) {
       const target = match[1];
-      if (target !== undefined) written.add(target);
+      if (target !== undefined) written.add(fold(target));
     }
-    graph.set(row.tableName, written);
+    graph.set(fold(row.tableName), written);
   }
   return graph;
 }
@@ -372,10 +391,10 @@ export function triggerClosure(
 }
 
 function readSequence(sqlite: Database.Database): {
-  counters: Map<string, number>;
+  counters: Map<string, bigint>;
   rows: Map<string, number>;
 } {
-  const counters = new Map<string, number>();
+  const counters = new Map<string, bigint>();
   const rows = new Map<string, number>();
   const exists = sqlite
     .prepare("SELECT 1 FROM sqlite_master WHERE name = 'sqlite_sequence'")
@@ -383,8 +402,10 @@ function readSequence(sqlite: Database.Database): {
   if (exists === undefined) return { counters, rows };
   for (const row of sqlite
     .prepare("SELECT name, seq FROM sqlite_sequence")
-    .all() as Array<{ name: string; seq: number }>) {
-    counters.set(row.name, Math.max(counters.get(row.name) ?? 0, row.seq));
+    .safeIntegers(true)
+    .all() as Array<{ name: string; seq: bigint }>) {
+    const known = counters.get(row.name) ?? 0n;
+    counters.set(row.name, row.seq > known ? row.seq : known);
     rows.set(row.name, (rows.get(row.name) ?? 0) + 1);
   }
   return { counters, rows };
@@ -453,7 +474,12 @@ export function captureRowidBaseline(
 ): RowidBaseline {
   const temp = new Map<string, string>();
   for (const table of snapshot.tables.values()) {
-    if (table.virtual || table.keyColumns === null || skip(table.name))
+    if (
+      table.virtual ||
+      table.withoutRowid ||
+      table.keyColumns === null ||
+      skip(table.name)
+    )
       continue;
     baselineCounter += 1;
     const name = `bb_chk_rowids_${baselineCounter}`;
@@ -528,11 +554,109 @@ function preservedWithKey(
   return [...new Set([...(table.keyColumns ?? []), ...preserved])];
 }
 
+interface TempColumns {
+  temp: string;
+  columns: string[];
+}
+
 export interface StepBaseline {
   snapshot: StepSnapshot;
   rowids: RowidBaseline;
   drift: DriftCapture;
   preserved: PreservedBaseline;
+  nullKeys: Map<string, TempColumns>;
+  normalized: Map<string, TempColumns>;
+}
+
+export function namedTables(sql: string): Set<string> {
+  const names = new Set<string>();
+  for (const statement of splitMigrationStatements(sql)) {
+    for (const name of statementIdentifiers(statement)) names.add(fold(name));
+  }
+  return names;
+}
+
+function excusedTables(
+  checks: StepChecks | null,
+  guarded: ReadonlySet<string> | null,
+  named: ReadonlySet<string> | null,
+  graph: ReadonlyMap<string, ReadonlySet<string>>,
+): Set<string> {
+  if (checks !== null || guarded === null || named === null) {
+    return new Set();
+  }
+  const excused = new Set([...named, ...triggerClosure(graph, named)]);
+  for (const table of guarded) excused.delete(table);
+  return excused;
+}
+
+function mergeGraphs(
+  first: ReadonlyMap<string, ReadonlySet<string>>,
+  second: ReadonlyMap<string, ReadonlySet<string>>,
+): Map<string, Set<string>> {
+  const merged = new Map<string, Set<string>>();
+  for (const graph of [first, second]) {
+    for (const [table, targets] of graph) {
+      const known = merged.get(table) ?? new Set<string>();
+      for (const target of targets) known.add(target);
+      merged.set(table, known);
+    }
+  }
+  return merged;
+}
+
+function captureNullKeyGroups(
+  sqlite: Database.Database,
+  snapshot: StepSnapshot,
+  skip: (table: string) => boolean,
+): Map<string, TempColumns> {
+  const captured = new Map<string, TempColumns>();
+  for (const table of snapshot.tables.values()) {
+    if (table.virtual || !table.nullableKey || skip(table.name)) continue;
+    const missing = `NOT (${keyNotNull(table)})`;
+    const present = sqlite
+      .prepare(
+        `SELECT 1 AS present FROM main.${quote(table.name)} WHERE ${missing} LIMIT 1`,
+      )
+      .get();
+    if (present === undefined) continue;
+    const columns = table.columns.map((column) => column.name);
+    const aliased = columns.map(
+      (column, index) => `${quote(column)} AS c${index}`,
+    );
+    const grouped = columns.map((_, index) => `c${index}`).join(", ");
+    baselineCounter += 1;
+    const name = `bb_chk_nullkeys_${baselineCounter}`;
+    sqlite.exec(
+      `CREATE TEMP TABLE ${name} AS SELECT ${aliased.join(", ")}, count(*) AS n FROM main.${quote(table.name)} WHERE ${missing} GROUP BY ${grouped}`,
+    );
+    captured.set(table.name, { temp: name, columns });
+  }
+  return captured;
+}
+
+function captureNormalized(
+  sqlite: Database.Database,
+  snapshot: StepSnapshot,
+  checks: StepChecks,
+): Map<string, TempColumns> {
+  const captured = new Map<string, TempColumns>();
+  for (const entry of checks.copiedTables) {
+    const table = snapshot.tables.get(entry.table);
+    const columns = Object.keys(entry.normalizedColumns);
+    if (table === undefined || columns.length === 0) continue;
+    const projected = columns.flatMap((column, index) => [
+      `(${entry.normalizedColumns[column]}) AS e${index}`,
+      `typeof(${entry.normalizedColumns[column]}) AS t${index}`,
+    ]);
+    baselineCounter += 1;
+    const name = `bb_chk_norm_${baselineCounter}`;
+    sqlite.exec(
+      `CREATE TEMP TABLE ${name} AS SELECT ${keyJson(table)} AS k, ${projected.join(", ")} FROM main.${quote(table.name)} AS o WHERE ${keyNotNull(table)}`,
+    );
+    captured.set(entry.table, { temp: name, columns });
+  }
+  return captured;
 }
 
 export function captureStepBaseline(
@@ -540,36 +664,110 @@ export function captureStepBaseline(
   stepId: string,
   checks: StepChecks | null,
   guarded: ReadonlySet<string> | null,
+  named: ReadonlySet<string> | null,
 ): StepBaseline {
   const declared = checks ?? EMPTY_STEP_CHECKS;
-  const renumbers = new Set(declared.renumbersRowids);
+  const renumbers = new Set(declared.renumbersRowids.map(fold));
   const snapshot = captureStepSnapshot(
     sqlite,
     stepId,
-    (table) => !renumbers.has(table),
+    (table) => !renumbers.has(fold(table)),
   );
-  const rowids = captureRowidBaseline(sqlite, snapshot, (table) =>
-    shouldSkipRowid(table, renumbers, guarded),
+  const excused = excusedTables(checks, guarded, named, snapshot.triggerWrites);
+  const rowids = captureRowidBaseline(
+    sqlite,
+    snapshot,
+    (table) => renumbers.has(fold(table)) || excused.has(fold(table)),
   );
+  const writes = new Set(declared.writesTables.map(fold));
   return {
     snapshot,
     rowids,
     drift: captureFtsDrift(sqlite, snapshot),
     preserved: capturePreserved(sqlite, snapshot, declared),
+    nullKeys: captureNullKeyGroups(
+      sqlite,
+      snapshot,
+      (table) => excused.has(fold(table)) || writes.has(fold(table)),
+    ),
+    normalized: captureNormalized(sqlite, snapshot, declared),
   };
-}
-
-function shouldSkipRowid(
-  table: string,
-  renumbers: ReadonlySet<string>,
-  guarded: ReadonlySet<string> | null,
-): boolean {
-  if (renumbers.has(table)) return true;
-  return guarded !== null && !guarded.has(fold(table));
 }
 
 function fail(stepId: string, message: string): never {
   throw new MigrationStepCheckError(stepId, message);
+}
+
+function verifyNormalized(
+  sqlite: Database.Database,
+  stepId: string,
+  entry: CopiedTableDeclaration,
+  captured: TempColumns,
+  table: UserTable,
+): void {
+  const pairs = captured.columns.map((column, index) => ({
+    column: entry.columnRenames[column] ?? column,
+    index,
+  }));
+  for (const { column } of pairs) {
+    if (!table.columns.some((candidate) => candidate.name === column)) {
+      fail(stepId, `table ${table.name} lost normalized column ${column}`);
+    }
+  }
+  const mismatch = pairs
+    .map(
+      ({ column, index }) =>
+        `a.${quote(column)} IS NOT b.e${index} OR typeof(a.${quote(column)}) <> b.t${index}`,
+    )
+    .join(" OR ");
+  const selected = pairs.map(({ column }) => quote(column)).join(", ");
+  const row = sqlite
+    .prepare(
+      `SELECT count(*) AS n FROM temp.${captured.temp} b JOIN (SELECT ${keyJson(table)} AS k, ${selected} FROM main.${quote(table.name)} WHERE ${keyNotNull(table)}) a ON a.k = b.k WHERE ${mismatch}`,
+    )
+    .get() as { n: number };
+  if (row.n > 0) {
+    fail(
+      stepId,
+      `table ${table.name} has ${row.n} rows whose normalized columns differ from the declared expressions`,
+    );
+  }
+}
+
+function verifyNullKeyGroups(
+  sqlite: Database.Database,
+  stepId: string,
+  captured: TempColumns,
+  table: UserTable,
+  columnFor: (column: string) => string | null,
+): void {
+  const kept = captured.columns
+    .map((column, index) => ({ target: columnFor(column), index }))
+    .filter(
+      (pair): pair is { target: string; index: number } =>
+        pair.target !== null &&
+        table.columns.some((column) => column.name === pair.target),
+    );
+  if (kept.length === 0) return;
+  const beforeColumns = kept.map(({ index }) => `c${index}`).join(", ");
+  const afterColumns = kept
+    .map(({ target }, position) => `${quote(target)} AS x${position}`)
+    .join(", ");
+  const afterGroup = kept.map((_, position) => `x${position}`).join(", ");
+  const match = kept
+    .map(({ index }, position) => `a.x${position} IS b.c${index}`)
+    .join(" AND ");
+  const row = sqlite
+    .prepare(
+      `SELECT count(*) AS n FROM (SELECT ${beforeColumns}, sum(n) AS n FROM temp.${captured.temp} GROUP BY ${beforeColumns}) b WHERE NOT EXISTS (SELECT 1 FROM (SELECT ${afterColumns}, count(*) AS n FROM main.${quote(table.name)} GROUP BY ${afterGroup}) a WHERE ${match} AND a.n >= b.n)`,
+    )
+    .get() as { n: number };
+  if (row.n > 0) {
+    fail(
+      stepId,
+      `table ${table.name} lost or changed ${row.n} row groups that have no key value`,
+    );
+  }
 }
 
 export function verifyStep(
@@ -577,41 +775,55 @@ export function verifyStep(
   stepId: string,
   checks: StepChecks | null,
   guarded: ReadonlySet<string> | null,
+  named: ReadonlySet<string> | null,
   baseline: StepBaseline,
 ): void {
   const declared = checks ?? EMPTY_STEP_CHECKS;
-  const restricted = checks === null && guarded !== null;
-  const renumbers = new Set(declared.renumbersRowids);
+  const renumbers = new Set(declared.renumbersRowids.map(fold));
   const after = captureStepSnapshot(
     sqlite,
     stepId,
-    (table) => !renumbers.has(table),
+    (table) => !renumbers.has(fold(table)),
   );
   const before = baseline.snapshot;
-  const inScope = (table: string): boolean =>
-    !restricted || (guarded?.has(fold(table)) ?? false);
+  const graph = mergeGraphs(before.triggerWrites, after.triggerWrites);
+  const excused = excusedTables(checks, guarded, named, graph);
+  const implicit = checks === null && guarded !== null;
+  const inScope = (table: string): boolean => !excused.has(fold(table));
 
-  const creates = new Set(declared.createsTables);
-  const drops = new Set(declared.dropsTables);
+  const renames = new Map(
+    Object.entries(declared.tableRenames).map(([from, to]) => [fold(from), to]),
+  );
+  const resolve = (name: string): string =>
+    after.tables.has(name) ? name : (renames.get(fold(name)) ?? name);
+  const renameTargets = new Set<string>();
+  for (const name of before.tables.keys()) {
+    const target = resolve(name);
+    if (target !== name && after.tables.has(target)) {
+      renameTargets.add(fold(target));
+    }
+  }
+
+  const creates = new Set(declared.createsTables.map(fold));
+  const drops = new Set(declared.dropsTables.map(fold));
+  const writes = new Set(declared.writesTables.map(fold));
   const copied = new Map(
-    declared.copiedTables.map((entry) => [entry.table, entry]),
+    declared.copiedTables.map((entry) => [fold(entry.table), entry]),
   );
   const directWrites = new Set([
-    ...declared.writesTables,
+    ...writes,
     ...copied.keys(),
     ...creates,
     ...drops,
   ]);
-  const triggerTargets = triggerClosure(after.triggerWrites, [
-    ...declared.writesTables,
-    ...copied.keys(),
-  ]);
+  const triggerTargets = triggerClosure(graph, [...writes, ...copied.keys()]);
+  const afterByFold = new Set([...after.tables.keys()].map(fold));
   for (const target of triggerTargets) {
     if (
-      after.tables.has(target) &&
+      afterByFold.has(target) &&
       !directWrites.has(target) &&
-      declared.writesTables.length + copied.size > 0 &&
-      !restricted
+      writes.size + copied.size > 0 &&
+      !implicit
     ) {
       fail(
         stepId,
@@ -619,25 +831,33 @@ export function verifyStep(
       );
     }
   }
-  for (const [name, table] of before.tables) {
-    void table;
-    if (!after.tables.has(name) && !drops.has(name) && inScope(name)) {
+  for (const name of before.tables.keys()) {
+    if (after.tables.has(name)) continue;
+    const target = resolve(name);
+    if (target !== name && after.tables.has(target)) continue;
+    if (!drops.has(fold(name)) && inScope(name)) {
       fail(stepId, `table ${name} was dropped without being declared`);
     }
   }
   for (const name of after.tables.keys()) {
-    if (!before.tables.has(name) && !creates.has(name) && inScope(name)) {
+    if (before.tables.has(name)) continue;
+    if (
+      !creates.has(fold(name)) &&
+      !renameTargets.has(fold(name)) &&
+      inScope(name)
+    ) {
       fail(stepId, `table ${name} was created without being declared`);
     }
   }
-  for (const name of drops) {
+  for (const name of declared.dropsTables) {
     if (after.tables.has(name)) {
       fail(stepId, `table ${name} is declared dropped but still exists`);
     }
   }
 
   for (const [name, beforeMeasure] of before.measures) {
-    const afterMeasure = after.measures.get(name);
+    const target = resolve(name);
+    const afterMeasure = after.measures.get(target);
     if (afterMeasure === undefined || !inScope(name)) continue;
     const delta = declared.rowDeltas[name] ?? 0;
     if (afterMeasure.count - beforeMeasure.count !== delta) {
@@ -646,7 +866,7 @@ export function verifyStep(
         `table ${name} row count changed from ${beforeMeasure.count} to ${afterMeasure.count}, expected a change of ${delta}`,
       );
     }
-    if (!directWrites.has(name) && !triggerTargets.has(name)) {
+    if (!directWrites.has(fold(name)) && !triggerTargets.has(fold(name))) {
       if (afterMeasure.digest !== beforeMeasure.digest) {
         fail(
           stepId,
@@ -655,7 +875,7 @@ export function verifyStep(
       }
     }
   }
-  for (const name of creates) {
+  for (const name of declared.createsTables) {
     const table = after.tables.get(name);
     if (table === undefined) {
       fail(stepId, `table ${name} is declared created but does not exist`);
@@ -671,16 +891,41 @@ export function verifyStep(
   }
 
   for (const [name, tempName] of baseline.rowids.temp) {
-    const table = after.tables.get(name);
-    if (table === undefined || table.keyColumns === null) continue;
+    const table = after.tables.get(resolve(name));
+    if (
+      table === undefined ||
+      table.keyColumns === null ||
+      table.withoutRowid ||
+      !inScope(name)
+    ) {
+      continue;
+    }
     const row = sqlite
       .prepare(
-        `SELECT count(*) AS n FROM temp.${tempName} b JOIN (SELECT ${keyJson(table)} AS k, rowid AS r FROM main.${quote(name)} WHERE ${keyNotNull(table)}) a ON a.k = b.k WHERE a.r <> b.r`,
+        `SELECT count(*) AS n FROM temp.${tempName} b JOIN (SELECT ${keyJson(table)} AS k, rowid AS r FROM main.${quote(table.name)} WHERE ${keyNotNull(table)}) a ON a.k = b.k WHERE a.r <> b.r`,
       )
       .get() as { n: number };
     if (row.n > 0) {
       fail(stepId, `table ${name} has ${row.n} rows whose rowid changed`);
     }
+  }
+
+  for (const [name, captured] of baseline.nullKeys) {
+    const table = after.tables.get(resolve(name));
+    if (table === undefined || !inScope(name) || writes.has(fold(name))) {
+      continue;
+    }
+    const entry = copied.get(fold(name));
+    const preserved =
+      entry === undefined ? null : new Set(entry.preservedColumns);
+    verifyNullKeyGroups(sqlite, stepId, captured, table, (column) => {
+      if (preserved !== null && !preserved.has(column)) return null;
+      return (
+        entry?.columnRenames[column] ??
+        declared.columnRenames[name]?.[column] ??
+        column
+      );
+    });
   }
 
   if (baseline.drift.temp !== null && after.tables.has(FTS_TABLE)) {
@@ -698,10 +943,10 @@ export function verifyStep(
   }
 
   for (const [name, beforeSeq] of before.counters) {
-    const target = declared.tableRenames[name] ?? name;
+    const target = resolve(name);
     if (!after.tables.has(target) || !before.tables.has(name)) continue;
     if (!inScope(target)) continue;
-    const afterSeq = after.counters.get(target) ?? 0;
+    const afterSeq = after.counters.get(target) ?? 0n;
     if (afterSeq < beforeSeq) {
       fail(
         stepId,
@@ -716,21 +961,34 @@ export function verifyStep(
   }
 
   for (const entry of declared.copiedTables) {
-    const table = after.tables.get(entry.table);
     const beforeDigest = baseline.preserved.digests.get(entry.table);
-    if (table === undefined || beforeDigest === undefined) continue;
+    if (beforeDigest === undefined) continue;
+    const table = after.tables.get(resolve(entry.table));
+    if (table === undefined) {
+      fail(stepId, `table ${entry.table} is missing after the step`);
+    }
     const renamed = entry.preservedColumns.map(
       (column) => entry.columnRenames[column] ?? column,
     );
+    const columns = preservedWithKey(table, renamed);
+    for (const column of columns) {
+      if (!table.columns.some((candidate) => candidate.name === column)) {
+        fail(stepId, `table ${entry.table} lost preserved column ${column}`);
+      }
+    }
     const measured = measureTable(sqlite, table, {
       includeRowid: false,
-      columns: preservedWithKey(table, renamed),
+      columns,
     });
     if (
       measured.digest !== beforeDigest ||
       measured.count !== baseline.preserved.counts.get(entry.table)
     ) {
       fail(stepId, `table ${entry.table} lost or changed preserved data`);
+    }
+    const normalized = baseline.normalized.get(entry.table);
+    if (normalized !== undefined) {
+      verifyNormalized(sqlite, stepId, entry, normalized, table);
     }
   }
 }
@@ -742,6 +1000,12 @@ export function disposeStepBaseline(
   dropRowidBaseline(sqlite, baseline.rowids);
   if (baseline.drift.temp !== null) {
     sqlite.exec(`DROP TABLE IF EXISTS temp.${baseline.drift.temp}`);
+  }
+  for (const captured of [
+    ...baseline.nullKeys.values(),
+    ...baseline.normalized.values(),
+  ]) {
+    sqlite.exec(`DROP TABLE IF EXISTS temp.${captured.temp}`);
   }
 }
 
@@ -836,7 +1100,7 @@ export function newForeignKeyIdentities(
 ): number {
   const row = sqlite
     .prepare(
-      `SELECT count(*) AS n FROM (SELECT child, childKey, parent, columns, vals, n FROM temp.${after.table} EXCEPT SELECT child, childKey, parent, columns, vals, n FROM temp.${before.table})`,
+      `SELECT count(*) AS n FROM temp.${after.table} a LEFT JOIN temp.${before.table} b ON a.child = b.child AND a.childKey IS b.childKey AND a.parent = b.parent AND a.columns = b.columns AND a.vals IS b.vals WHERE a.n > COALESCE(b.n, 0)`,
     )
     .get() as { n: number };
   return row.n;
