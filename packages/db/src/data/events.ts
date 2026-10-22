@@ -3355,9 +3355,14 @@ export function findStoredTimelineOpenTurnRowFloor(
     }),
     eq(events.turnId, args.turnId),
   );
+  // Turn reads go through the turn-prefixed index, like the full-turn reader:
+  // an old turn that gets a late row would otherwise walk all the thread
+  // history written since it started.
   const counted = db
     .select({ rowCount: sql<number>`COUNT(*)` })
-    .from(sql`${events} INDEXED BY events_thread_sequence_idx`)
+    .from(
+      sql`${events} INDEXED BY events_thread_turn_type_item_sequence_idx`,
+    )
     .where(turnWindow)
     .get();
   const rowCount = counted?.rowCount ?? 0;
@@ -3370,7 +3375,9 @@ export function findStoredTimelineOpenTurnRowFloor(
   if (floorBlock === 0) return { floor: undefined, rowHeadroom };
   const floorRow = db
     .select({ sequence: sql<number>`${events.sequence}` })
-    .from(sql`${events} INDEXED BY events_thread_sequence_idx`)
+    .from(
+      sql`${events} INDEXED BY events_thread_turn_type_item_sequence_idx`,
+    )
     .where(turnWindow)
     .orderBy(events.sequence)
     .limit(1)
@@ -3379,7 +3386,9 @@ export function findStoredTimelineOpenTurnRowFloor(
   if (floorRow === undefined) return { floor: undefined, rowHeadroom };
   const rowStart = db
     .select({ sequence: sql<number>`${events.sequence}` })
-    .from(sql`${events} INDEXED BY events_thread_type_sequence_idx`)
+    .from(
+      sql`${events} INDEXED BY events_thread_turn_type_item_sequence_idx`,
+    )
     .where(
       and(
         eq(events.threadId, args.threadId),
@@ -3483,6 +3492,26 @@ export function findStoredTimelineCompletedTurnTail(
       inArray(events.itemKind, [...COMPLETED_TURN_TAIL_ITEM_KINDS]),
     ),
   );
+  // The tally below walks the turn's whole sequence span to find rows from
+  // other turns. When most of that span belongs to other turns the walk costs
+  // more than the full turn read, so take the full read instead.
+  const spanned = db
+    .select({ rowCount: sql<number>`COUNT(*)` })
+    .from(
+      sql`${events} INDEXED BY events_thread_turn_type_item_sequence_idx`,
+    )
+    .where(
+      and(
+        eq(events.threadId, args.threadId),
+        eq(events.turnId, args.turnId),
+        gt(events.sequence, startedSequence),
+        lt(events.sequence, completedSequence),
+      ),
+    )
+    .get();
+  if (completedSequence - startedSequence - 1 > 2 * (spanned?.rowCount ?? 0)) {
+    return undefined;
+  }
   const tally = db
     .select({
       accepted: sql<number>`COUNT(CASE WHEN ${events.type} = 'turn/input/accepted' THEN 1 END)`,
@@ -3556,11 +3585,14 @@ export function findStoredTimelineCompletedTurnTail(
   // around them and drops agent messages without text. A send anywhere in the
   // turn, omitted or retained, can change what the full read shows or how it
   // counts, so the tail is only exact when no command in the turn looks like a
-  // send and every agent message completes with text. These checks are
+  // send and every agent message completes with text. An item that completes
+  // without a start in the turn is still projected but is not in the started
+  // list the counts come from, so it also falls back. These checks are
   // deliberately looser than the projection: a false match only falls back to
   // the full turn read.
   const visibility = db
     .select({
+      itemIds: sql<number>`COUNT(DISTINCT ${events.itemId})`,
       sends: sql<number>`COUNT(CASE WHEN ${events.itemKind} = 'commandExecution'
         AND json_extract(${events.data}, '$.item.command') LIKE '%thread%'
         AND (json_extract(${events.data}, '$.item.command') LIKE '%tell%'
@@ -3586,6 +3618,7 @@ export function findStoredTimelineCompletedTurnTail(
     .get();
   if (
     visibility === undefined ||
+    visibility.itemIds !== items.length ||
     visibility.sends > 0 ||
     visibility.textMessages !== agentMessageCount
   ) {
@@ -3611,7 +3644,9 @@ export function listStoredTimelineTurnRangeEventRows(
 ): StoredEventRow[] {
   return db
     .select(storedEventRowSqlFields(args.maxInlineOutputChars))
-    .from(sql`${events} INDEXED BY events_thread_sequence_idx`)
+    .from(
+      sql`${events} INDEXED BY events_thread_turn_type_item_sequence_idx`,
+    )
     .where(
       and(
         ...storedTimelineWindowConditions(args),

@@ -34,6 +34,9 @@ import {
   listStoredEventRows,
   listStoredEventRowsByParentToolCallIds,
   listStoredTurnCompletedKeys,
+  findStoredTimelineCompletedTurnTail,
+  findStoredTimelineOpenTurnRowFloor,
+  listStoredTimelineTurnRangeEventRows,
   listTodoSnapshotEventRowsForThread,
 } from "../src/data/events.js";
 import {
@@ -727,6 +730,85 @@ describe("slow query index plans", () => {
     expect(queryPlanDetails({ db, ...query }).split("\n")).toEqual([
       "SEARCH events USING INDEX events_thread_sequence_idx (thread_id=? AND sequence>? AND sequence<?)",
     ]);
+
+    db.$client.close();
+  });
+
+  it("reads one turn's rows through the turn index, not the thread's later history", () => {
+    const { db, thread } = setup();
+    const window = {
+      excludeDiagnosticEvents: true,
+      maxInlineOutputChars: 32_000,
+      sequenceStart: 0,
+      threadId: thread.id,
+    } as const;
+
+    insertEvents(db, noopNotifier, [
+      {
+        threadId: thread.id,
+        sequence: 1,
+        type: "turn/started",
+        scope: turnScope("turn-1"),
+        itemId: null,
+        itemKind: null,
+        parentToolCallId: null,
+        data: JSON.stringify({ providerThreadId: "provider-plan" }),
+      },
+      ...Array.from({ length: 20 }, (_, index) => ({
+        threadId: thread.id,
+        sequence: index + 2,
+        type: "item/started" as const,
+        scope: turnScope("turn-1"),
+        itemId: `item-${index}`,
+        itemKind: "agentMessage" as const,
+        parentToolCallId: null,
+        data: JSON.stringify({
+          providerThreadId: "provider-plan",
+          item: { type: "agentMessage", id: `item-${index}`, text: "" },
+        }),
+      })),
+    ]);
+
+    const plans = (run: () => void) =>
+      captureStatements(db, run).map((query) => queryPlanDetails({ db, ...query }));
+    const turnIndex =
+      /USING (?:COVERING )?INDEX events_thread_turn_type_item_sequence_idx \(thread_id=\? AND turn_id=\?/u;
+
+    // The first two statements look up the turn's start and completion markers,
+    // which are few per thread; every read after them is over the turn's rows.
+    const floor = plans(() =>
+      findStoredTimelineOpenTurnRowFloor(db, {
+        ...window,
+        completedThroughSequence: 30,
+        rowLimit: 4,
+        turnId: "turn-1",
+      }),
+    );
+    expect(floor).toHaveLength(5);
+    for (const plan of floor.slice(2)) expect(plan).toMatch(turnIndex);
+
+    // The span guard runs first and is the read that must not walk other turns.
+    const [spanGuard] = plans(() =>
+      findStoredTimelineCompletedTurnTail(db, {
+        ...window,
+        completedSequence: 30,
+        completedThroughSequence: 30,
+        rowLimit: 4,
+        startedSequence: 1,
+        turnId: "turn-1",
+      }),
+    );
+    expect(spanGuard).toMatch(turnIndex);
+
+    const range = plans(() =>
+      listStoredTimelineTurnRangeEventRows(db, {
+        ...window,
+        beforeSequence: 30,
+        turnId: "turn-1",
+      }),
+    );
+    expect(range).toHaveLength(1);
+    expect(range[0]).toMatch(turnIndex);
 
     db.$client.close();
   });

@@ -1,7 +1,11 @@
 import fs from "node:fs";
 import { describe, expect, it } from "vitest";
+import { prependOlderTimelineRows } from "@bb/client-core";
 import { encodeClientTurnRequestIdNumber } from "@bb/domain";
-import type { TimelinePaginationCursor } from "@bb/server-contract";
+import type {
+  TimelinePaginationCursor,
+  TimelineRow,
+} from "@bb/server-contract";
 import { createTestProviderRegistry } from "../../helpers/provider-registry.js";
 import {
   appendRows,
@@ -180,6 +184,9 @@ interface PageMeasure {
 
 interface WalkMeasure {
   latest: PageMeasure;
+  // The walked pages merged the way the client merges them, beside one
+  // unbudgeted read of the whole thread.
+  merged: { full: TimelineRow[]; walked: TimelineRow[] };
   maxEventRowCount: number;
   maxMs: number;
   maxResponseBytes: number;
@@ -219,6 +226,7 @@ function walkGiantTurn(completed: boolean): WalkMeasure {
     appendRows(testThread, seedGiantTurn(completed));
     let cursor: TimelinePaginationCursor | null = null;
     const pages: PageMeasure[] = [];
+    let walked: TimelineRow[] = [];
     for (;;) {
       const built = buildRouteTimelinePage({
         db: testThread.db,
@@ -231,11 +239,24 @@ function walkGiantTurn(completed: boolean): WalkMeasure {
         variant: "default",
       });
       pages.push(measure(built));
+      walked = prependOlderTimelineRows({
+        loadedRows: walked,
+        olderRows: built.response.rows,
+      });
       cursor = built.response.timelinePage.olderCursor;
       if (cursor === null || pages.length >= MAX_PAGES) break;
     }
+    const full = buildRouteTimelinePage({
+      db: testThread.db,
+      eventBudget: 10_000_000,
+      page: { kind: "latest", segmentLimit: 100_000 },
+      registry,
+      thread: testThread.thread,
+      variant: "default",
+    }).response.rows;
     result = {
       latest: pages[0]!,
+      merged: { full, walked },
       maxEventRowCount: Math.max(...pages.map((page) => page.eventRowCount)),
       maxMs: Math.max(...pages.map((page) => page.ms)),
       maxResponseBytes: Math.max(...pages.map((page) => page.responseBytes)),
@@ -248,7 +269,8 @@ function walkGiantTurn(completed: boolean): WalkMeasure {
 }
 
 function report(label: string, walked: WalkMeasure): void {
-  const line = `${label} ${JSON.stringify(walked)}`;
+  const { merged: _merged, ...measured } = walked;
+  const line = `${label} ${JSON.stringify(measured)}`;
   console.log(line);
   const out = process.env.TIMELINE_BENCH_OUT;
   if (out !== undefined) fs.appendFileSync(out, `${line}\n`);
@@ -259,6 +281,7 @@ describe("one giant turn", () => {
     const walked = walkGiantTurn(false);
     report("GIANT_TURN_RUNNING", walked);
     expect(walked.pages).toBeLessThan(MAX_PAGES);
+    expect(walked.merged.walked).toEqual(walked.merged.full);
     expect(walked.latest.rows).toBeGreaterThan(0);
     expect(walked.maxEventRowCount).toBeLessThan(GIANT_TURN_EVENTS / 20);
   }, 600_000);
@@ -267,6 +290,7 @@ describe("one giant turn", () => {
     const walked = walkGiantTurn(true);
     report("GIANT_TURN_COMPLETED", walked);
     expect(walked.pages).toBeLessThan(MAX_PAGES);
+    expect(walked.merged.walked).toEqual(walked.merged.full);
     expect(walked.latest.rows).toBeGreaterThan(0);
     expect(walked.maxEventRowCount).toBeLessThan(2_000);
   }, 600_000);
@@ -354,6 +378,17 @@ describe("one giant turn", () => {
         ...workRows("turn-2", 5_000),
         ...commandItem("turn-2", "turn-2-lead-in-send", 1, send),
         ...messageItem("turn-2", "turn-2-final", 5),
+      ],
+      false,
+    );
+  }, 600_000);
+
+  it("counts a command that completes without a start", () => {
+    expectTailMatchesFullRead(
+      [
+        ...workRows("turn-2", 2_500),
+        commandItem("turn-2", "turn-2-completion-only", 1).at(-1)!,
+        ...workRows("turn-2", 2_500, "turn-2-after"),
       ],
       false,
     );
