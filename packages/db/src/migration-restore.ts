@@ -155,18 +155,23 @@ function assertFtsIndexesRestorable(
   database: Database.Database,
   backupPath: string,
 ): void {
-  const rows = database
+  const names = new Set(
+    (
+      database
+        .prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`)
+        .all() as Array<{ name: string }>
+    ).map((row) => row.name),
+  );
+  const virtual = database
     .prepare(
-      `SELECT name, sql FROM sqlite_master WHERE type = 'table' AND sql LIKE 'CREATE VIRTUAL TABLE%'`,
+      `SELECT name FROM sqlite_master WHERE type = 'table' AND sql LIKE 'CREATE VIRTUAL TABLE%'`,
     )
-    .all() as Array<{ name: string; sql: string }>;
-  for (const row of rows) {
-    if (
-      /\busing\s+fts5\s*\(/i.test(row.sql) &&
-      /[(,\s]content\s*=/i.test(row.sql)
-    ) {
+    .all() as Array<{ name: string }>;
+  for (const { name } of virtual) {
+    const isFts5 = names.has(`${name}_config`) && names.has(`${name}_data`);
+    if (isFts5 && !names.has(`${name}_content`)) {
       throw new MigrationRestoreError(
-        `Backup ${backupPath} contains the contentless or external-content FTS5 table ${row.name}, whose index a restore cannot preserve; refusing to restore`,
+        `Backup ${backupPath} contains the contentless or external-content FTS5 table ${name}, whose index a restore cannot preserve; refusing to restore`,
       );
     }
   }

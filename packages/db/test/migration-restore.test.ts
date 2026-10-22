@@ -438,26 +438,53 @@ describe("restoreMigrationBackup", () => {
     expect(brokenCopies(fixture.directory)).toEqual([]);
   });
 
-  it.each([
-    ["contentless", "CREATE VIRTUAL TABLE cl USING fts5(body, content='')"],
-    [
-      "external-content",
-      "CREATE TABLE docs (id INTEGER PRIMARY KEY, body TEXT); INSERT INTO docs(body) VALUES ('hello there'); CREATE VIRTUAL TABLE ext USING fts5(body, content='docs', content_rowid='id')",
-    ],
-  ])("refuses a backup holding a %s FTS5 table, in --check too", (_, ddl) => {
+  const quotedModules = ["'fts5'", '"fts5"', "[fts5]", "`fts5`", "fts5"];
+  const contentlessCases = quotedModules.map((module) => ({
+    label: `contentless via ${module}`,
+    ddl: `CREATE VIRTUAL TABLE cl USING ${module}(body, content='')`,
+    insert: "INSERT INTO cl(rowid, body) VALUES (9, 'hello')",
+    table: "cl",
+  }));
+  const externalCases = quotedModules.map((module) => ({
+    label: `external-content via ${module}`,
+    ddl: `CREATE TABLE docs (id INTEGER PRIMARY KEY, body TEXT); INSERT INTO docs(body) VALUES ('hello there'); CREATE VIRTUAL TABLE ext USING ${module}(body, content='docs', content_rowid='id')`,
+    insert: "INSERT INTO ext(rowid, body) VALUES (1, 'hello there')",
+    table: "ext",
+  }));
+
+  it.each([...contentlessCases, ...externalCases])(
+    "refuses a backup holding $label, in --check too",
+    ({ ddl, insert, table }) => {
+      const fixture = scratch(false, `${ddl}; ${insert}`);
+      migrateAway(fixture.databasePath);
+      const before = digestsOf(fixture.databasePath);
+      for (const checkOnly of [true, false]) {
+        expect(() =>
+          restoreMigrationBackup(fixture.backupPath, { checkOnly }),
+        ).toThrow(new RegExp(`FTS5 table ${table}\\b`));
+      }
+      expect(digestsOf(fixture.databasePath)).toEqual(before);
+      expect(brokenCopies(fixture.directory)).toEqual([]);
+    },
+  );
+
+  it("still restores the application's own FTS5 table definition", () => {
     const fixture = scratch(
-      false,
-      `${ddl}; INSERT INTO ${ddl.includes("cl ") ? "cl(rowid, body) VALUES (9, 'hello')" : "ext(rowid, body) VALUES (1, 'hello there')"}`,
+      true,
+      `CREATE VIRTUAL TABLE \`app_fts\` USING fts5(\n  \`text\`,\n  tokenize = 'unicode61',\n  prefix = '2 3'\n); INSERT INTO app_fts(rowid, text) VALUES (4, 'hello app')`,
     );
     migrateAway(fixture.databasePath);
-    const before = digestsOf(fixture.databasePath);
-    for (const checkOnly of [true, false]) {
-      expect(() =>
-        restoreMigrationBackup(fixture.backupPath, { checkOnly }),
-      ).toThrow(/FTS5 table (cl|ext)/);
+    restoreMigrationBackup(fixture.backupPath);
+    const db = new Database(fixture.databasePath, { readonly: true });
+    try {
+      expect(
+        db
+          .prepare("SELECT rowid FROM app_fts WHERE app_fts MATCH 'hello'")
+          .all(),
+      ).toEqual([{ rowid: 4 }]);
+    } finally {
+      db.close();
     }
-    expect(digestsOf(fixture.databasePath)).toEqual(before);
-    expect(brokenCopies(fixture.directory)).toEqual([]);
   });
 
   it("recomputes instead of comparing when the sidecar projection differs", () => {
