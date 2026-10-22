@@ -937,20 +937,24 @@ function listLatestTimelineHeadStateRows(
     ...listLatestThreadStateEventRowsByThreadIds(db, {
       threadIds: [threadId],
       kind: LEGACY_CODEX_GOAL_EXTENSION_KIND,
+      maxSeq,
     }),
     ...listLatestThreadStateEventRowsByThreadIds(db, {
       threadIds: [threadId],
       kind: THREAD_PROVIDER_COMMANDS_STATE_KIND,
+      maxSeq,
     }),
     ...listLatestThreadStateEventRowsByThreadIds(db, {
       threadIds: [threadId],
       kind: THREAD_SESSION_OPTIONS_STATE_KIND,
+      maxSeq,
     }),
     ...listLatestThreadStateEventRowsByThreadIds(db, {
       threadIds: [threadId],
       kind: THREAD_SESSION_OPTION_SELECTIONS_STATE_KIND,
+      maxSeq,
     }),
-    ...listTodoSnapshotEventRowsForThread(db, { threadId }),
+    ...listTodoSnapshotEventRowsForThread(db, { maxSeq, threadId }),
     ...listLatestModelFallbackEventRowsForThread(db, { maxSeq, threadId }),
   ]);
 }

@@ -1160,6 +1160,8 @@ export interface ListStoredEventRowsByParentToolCallIdsArgs {
 export interface ListLatestThreadStateEventRowsByThreadIdsArgs {
   threadIds: readonly string[];
   kind: string;
+  // Read the state as of this sequence; omitted reads the latest.
+  maxSeq?: number;
 }
 
 export interface ListOpenTurnInputAcceptedRowsByThreadIdsArgs {
@@ -1491,6 +1493,7 @@ export function listLatestThreadStateEventRowsByThreadIds(
           WHERE candidate.thread_id = requested.column1
             AND candidate.type ${stateTypesPredicate}
             AND ${kindPredicate}
+            ${args.maxSeq === undefined ? sql`` : sql`AND candidate.sequence <= ${args.maxSeq}`}
           ORDER BY candidate.sequence DESC
           LIMIT 1
         )
@@ -2198,6 +2201,8 @@ export interface ListLatestOpenBackgroundTaskStateRowsForThreadArgs {
 }
 
 export interface ListTodoSnapshotEventRowsForThreadArgs {
+  // The newest snapshot at or before this sequence.
+  maxSeq: number;
   threadId: string;
 }
 
@@ -2211,6 +2216,7 @@ export function listTodoSnapshotEventRowsForThread(
     .where(
       and(
         eq(events.threadId, args.threadId),
+        lte(events.sequence, args.maxSeq),
         sql`((${events.itemKind} = 'planSteps' AND ${events.type} = 'item/completed') OR ${events.type} = 'turn/plan/updated')`,
       ),
     )
@@ -3666,13 +3672,19 @@ export function findStoredTimelineCompletedTurnTail(
   }
   // The projection places an agent message at its first nonempty text, not at
   // its start, builds one from text deltas even without a start, and moves a
-  // command back to output that arrives before its start. The counts and the
-  // adjacency check above use start order, so the tail is only exact when
-  // every item row belongs to a started item and comes at or after its start,
-  // and each agent message's first nonempty text comes before the next item
-  // starts. Anything else falls back to the full turn read.
+  // command back to output that arrives before its start. Summary compaction
+  // keeps only a completed message's first delta, so a compacted build places
+  // the message there or, when that delta is empty, at a later text. The
+  // counts and the adjacency check above use start order, so the tail is only
+  // exact when every item row belongs to a started item and comes at or after
+  // its start, and each agent message's first delta, if any, is its first
+  // nonempty text and comes before the next item starts. Anything else falls
+  // back to the full turn read.
   const itemRows = db
     .select({
+      firstDelta: sql<number | null>`MIN(CASE
+        WHEN ${events.type} = 'item/agentMessage/delta' THEN ${events.sequence}
+        END)`,
       firstRow: sql<number>`MIN(${events.sequence})`,
       firstText: sql<number | null>`MIN(CASE
         WHEN ${events.type} = 'item/agentMessage/delta'
@@ -3702,8 +3714,8 @@ export function findStoredTimelineCompletedTurnTail(
     .groupBy(events.itemId)
     .all();
   const startById = new Map(items.map((item) => [item.itemId, item.sequence]));
-  const firstTextById = new Map<string | null, number | null>(
-    itemRows.map((row) => [row.itemId, row.firstText]),
+  const itemRowsById = new Map<string | null, (typeof itemRows)[number]>(
+    itemRows.map((row) => [row.itemId, row]),
   );
   if (
     itemRows.some((row) => {
@@ -3712,12 +3724,12 @@ export function findStoredTimelineCompletedTurnTail(
     }) ||
     items.some((item, index) => {
       if (item.itemKind !== "agentMessage") return false;
-      const firstText = firstTextById.get(item.itemId);
+      const rows = itemRowsById.get(item.itemId);
+      if (rows === undefined || rows.firstText === null) return true;
       const next = items[index + 1];
       return (
-        firstText === undefined ||
-        firstText === null ||
-        (next !== undefined && firstText > next.sequence)
+        (rows.firstDelta !== null && rows.firstDelta !== rows.firstText) ||
+        (next !== undefined && rows.firstText > next.sequence)
       );
     })
   ) {

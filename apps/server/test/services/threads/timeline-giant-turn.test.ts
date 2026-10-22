@@ -466,6 +466,32 @@ describe("one giant turn", () => {
     );
   }, 600_000);
 
+  it("places a compacted message by its first delta", () => {
+    // Summary compaction keeps only the first delta of a completed message.
+    // When that delta is empty the compacted build places the message at a
+    // later text, after the command that starts in between.
+    const message = messageItem("turn-2", "turn-2-final", 3);
+    const command = commandItem("turn-2", "turn-2-overtaking", 2);
+    expectTailMatchesFullRead(
+      [
+        ...workRows("turn-2", 5_000),
+        ...commandItem("turn-2", "turn-2-lead-in", 2),
+        message[0]!,
+        {
+          data: { itemId: "turn-2-final", delta: "" },
+          itemId: "turn-2-final",
+          turnId: "turn-2",
+          type: "item/agentMessage/delta",
+        },
+        message[1]!,
+        command[0]!,
+        ...message.slice(2),
+        ...command.slice(1),
+      ],
+      false,
+    );
+  }, 600_000);
+
   it("places a command by output that arrives before its start", () => {
     // The command's output arrives before the final message's text, so the
     // projection moves the command ahead of the message it starts after.
@@ -596,6 +622,80 @@ describe("one giant turn", () => {
       ]);
       expect(build().response.modelFallback).toBeNull();
       expect(build(1_000_000).response.modelFallback).toBeNull();
+    });
+  }, 600_000);
+
+  it("keeps the plan of a pinned snapshot", () => {
+    withTestThread((testThread) => {
+      appendRows(
+        testThread,
+        seedGiantTurn(false, 5_000, [
+        {
+          data: {
+            item: {
+              id: "plan-1",
+              status: "completed",
+              steps: [
+                { step: "Shipping the thing", status: "active" },
+                { step: "Write the docs", status: "pending" },
+              ],
+              type: "planSteps",
+            },
+          },
+          itemId: "plan-1",
+          itemKind: "planSteps",
+          turnId: "turn-2",
+          type: "item/completed",
+        },
+          ...workRows("turn-2", 5_000),
+        ]),
+      );
+      const maxSeq = getLatestThreadSequence(testThread.db, {
+        threadId: testThread.thread.id,
+      });
+      const build = (eventBudget?: number) =>
+        buildRouteTimelinePage({
+          db: testThread.db,
+          eventBudget,
+          maxSeq,
+          page: { kind: "latest", segmentLimit: 3 },
+          registry,
+          thread: testThread.thread,
+          variant: "default",
+        });
+      const expectSnapshotPlan = () => {
+        const bounded = build();
+        const full = build(1_000_000);
+        expect(bounded.profile.eventRowCount).toBeLessThan(
+          full.profile.eventRowCount / 2,
+        );
+        expect(
+          full.response.pendingTodos?.items.map((item) => item.text),
+        ).toContain("Write the docs");
+        expect(bounded.response.pendingTodos).toEqual(
+          full.response.pendingTodos,
+        );
+      };
+      expectSnapshotPlan();
+
+      // A newer plan after the snapshot does not replace its plan.
+      appendRows(testThread, [
+        {
+          data: {
+            item: {
+              id: "plan-2",
+              status: "completed",
+              steps: [{ step: "Something else", status: "pending" }],
+              type: "planSteps",
+            },
+          },
+          itemId: "plan-2",
+          itemKind: "planSteps",
+          turnId: "turn-2",
+          type: "item/completed",
+        },
+      ]);
+      expectSnapshotPlan();
     });
   }, 600_000);
 

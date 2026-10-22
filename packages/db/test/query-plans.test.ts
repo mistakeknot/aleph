@@ -934,7 +934,10 @@ describe("slow query index plans", () => {
 
     const captured = captureStatements(db, () => {
       expect(
-        listTodoSnapshotEventRowsForThread(db, { threadId: thread.id }),
+        listTodoSnapshotEventRowsForThread(db, {
+          maxSeq: 100,
+          threadId: thread.id,
+        }),
       ).toEqual([]);
     });
     const query = captured.find((entry) => entry.sql.includes("planSteps"));
@@ -943,7 +946,7 @@ describe("slow query index plans", () => {
     }
     expect(query.sql).not.toContain("json_extract");
     expect(query.sql).not.toContain("tool_name");
-    expect(query.params).toEqual([thread.id, 1]);
+    expect(query.params).toEqual([thread.id, 100, 1]);
     expect(
       queryPlanDetails({ db, params: query.params, sql: query.sql }),
     ).toContain("events_plan_steps_thread_sequence_idx");
