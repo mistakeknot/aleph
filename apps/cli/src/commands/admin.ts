@@ -140,7 +140,6 @@ export function registerAdminCommands(
         ).system.experimental_eventArchiveRehydrate(
           opts.all === true ? { all: true } : { threadId: threadId! },
         );
-        // Set the exit status before printing, so --json fails the same way.
         if (result.scope === "all" && result.failed.length > 0) {
           process.exitCode = 1;
         }

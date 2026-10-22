@@ -91,9 +91,6 @@ export async function exportServerArchive(
           continue;
         }
         if (file.path === COLD_MANIFEST_ARCHIVE_PATH) {
-          // The server may be appending to the manifest. Export its complete
-          // lines as of now, taken after the database snapshot, so the export
-          // never carries a torn line and covers every move the snapshot does.
           const snapshotPath = join(snapshotDir, ...file.path.split("/"));
           await mkdir(dirname(snapshotPath), { recursive: true });
           await snapshotColdManifestPrefix(args.dataDir, snapshotPath);

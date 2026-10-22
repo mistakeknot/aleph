@@ -187,7 +187,6 @@ describe("server archive export", () => {
     withTestHarness(async (harness) => {
       const dataDir = harness.config.dataDir;
       const complete = '{"kind":"pending"}\n{"kind":"committed"}\n';
-      // An append in progress: the last line has no newline yet.
       await writeDataFile(
         dataDir,
         "event-archive/manifest.jsonl",

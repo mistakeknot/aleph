@@ -50,8 +50,6 @@ describe("cold-tier durability under I/O errors", () => {
   });
 
   it("syncs the parent entry on a retry after the first sync failed", async () => {
-    // The first attempt creates event-archive/ and then fails to sync the data
-    // directory that holds its entry.
     syncs.failNext.add(dataDir);
     await expect(durableMkdir(dataDir, "event-archive/thr_a")).rejects.toThrow(
       "injected fsync failure",
@@ -76,7 +74,6 @@ describe("cold-tier durability under I/O errors", () => {
       threadId: "t",
     });
 
-    // The line reaches the file, then the sync fails.
     syncs.failNext.add(coldManifestPath(dataDir));
     await expect(
       manifest.append({

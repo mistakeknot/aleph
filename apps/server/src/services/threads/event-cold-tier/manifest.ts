@@ -141,9 +141,6 @@ export class ColdManifest {
   readonly dataDir: string;
   #lastHash = COLD_MANIFEST_GENESIS_HASH;
   #loaded = false;
-  // Set when an append failed part way: the file may hold the entry or a torn
-  // part of it, so the next append re-reads the file instead of trusting
-  // #lastHash.
   #stale = false;
 
   constructor(dataDir: string) {
@@ -220,8 +217,6 @@ export class ColdManifest {
     let created = false;
     try {
       created = (await handle.stat()).size === 0;
-      // writeFile loops until every byte is written, so a short write cannot
-      // leave a torn line behind a successful return.
       await handle.writeFile(`${JSON.stringify(entry)}\n`);
       await handle.sync();
     } finally {

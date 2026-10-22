@@ -9,19 +9,12 @@ import {
 import { COMPLETED_EVENT_OUTPUT_TRANSFORM_VERSIONS } from "../../src/data/sweeps.js";
 import { createMigratedConnection } from "../../src/testing.js";
 
-// Cold segments store events rows verbatim. A new migration that changes the
-// events table, or a new rehydrate transform, changes what an old segment
-// must become on its way back. These pins fail until the change says how old
-// segments are handled: bump COLD_SEGMENT_FORMAT_VERSION with a reader for
-// the old format, or add a transform version that rehydrate applies.
 
 const PKG_DIR = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../..",
 );
 const DRIZZLE_DIR = path.join(PKG_DIR, "drizzle");
-// Conservative on purpose: any mention of the identifier counts, so quoting,
-// schema qualification, conflict clauses and comments cannot hide a write.
 const EVENTS_IDENTIFIER = /(?<![A-Za-z0-9_$])events(?![A-Za-z0-9_$])/gi;
 
 function eventsMentions(text: string): number {
@@ -68,8 +61,6 @@ function eventsMigrations(): string[] {
     .sort();
 }
 
-// Mentions of `events` in the startup migration: its one events INSERT, the
-// subquery inside it, and the event_large_values table-existence check.
 const MIGRATE_TS_EVENTS_MENTIONS = 3;
 
 describe("cold segment schema compatibility", () => {

@@ -1,14 +1,3 @@
-// Runs the event cold tier once against a copy of bb.db and reports counts,
-// schema facts and timings only: no thread ids, event ids or row contents.
-//
-//   node --conditions=source --import tsx scripts/cold-tier-copy-run.ts \
-//     --source <bb.db> --work <new directory> [--sample 20] [--report <name>]
-//
-// The source is opened read-only and copied with the SQLite online backup API
-// into <work>/data/bb.db, which must not exist yet; <work> is created mode 700.
-// Every write after that goes to the copy, and the report, if named, is a new
-// file directly inside <work>. Delete <work> afterwards. The run exits 1 when
-// any eligible thread was not moved or any check failed.
 import { createHash } from "node:crypto";
 import {
   existsSync,
@@ -97,8 +86,6 @@ function parseArgs(argv: string[]): Args {
   if (!Number.isInteger(sample) || sample < 0) {
     throw new Error("--sample must be a non-negative integer");
   }
-  // The report goes to a new file inside the new work directory, so it can
-  // never alias the source database or anything else that already exists.
   const reportName = values.get("report");
   if (
     reportName !== undefined &&
@@ -271,7 +258,6 @@ async function main(): Promise<void> {
   const report: Record<string, unknown> = {};
   const timings: Record<string, number> = {};
 
-  // Copy.
   if (existsSync(args.work)) {
     throw new Error("--work must not exist yet");
   }
@@ -298,10 +284,6 @@ async function main(): Promise<void> {
     fileMustExist: true,
     readonly: true,
   });
-  // The online backup restarts whenever another connection writes the
-  // source. Against a live server that loops forever at the default 100
-  // pages per step, so copy every remaining page in a single step, which
-  // runs under one read transaction, and abort if it ever restarts.
   let backupSteps = 0;
   try {
     await source.backup(copyPath, {
@@ -343,7 +325,6 @@ async function main(): Promise<void> {
   } as unknown as EventColdTierDeps;
   await prepareEventColdTier(deps);
 
-  // Census.
   process.env.BB_EVENT_COLD_TIER = "dry-run";
   const config = resolveEventColdTierConfig();
   const now = Date.now();
@@ -395,7 +376,6 @@ async function main(): Promise<void> {
       dryRun.candidate === null || eligible.includes(dryRun.candidate),
   };
 
-  // Baseline.
   startedAt = performance.now();
   const sample = pickSample(eligible, args.sample);
   const baseline = new Map<
@@ -420,7 +400,6 @@ async function main(): Promise<void> {
   const predicatesBefore = predicateSnapshot(db);
   timings.baselineMs = elapsed(startedAt);
 
-  // Moves.
   process.env.BB_EVENT_COLD_TIER = "1";
   const sizeBefore = getDatabaseFreelistStats(db);
   const loopDelay = monitorEventLoopDelay({ resolution: 10 });
@@ -430,9 +409,6 @@ async function main(): Promise<void> {
   const phaseMax: Record<string, number> = {};
   let movedRows = 0;
   let movedBytes = 0;
-  // One sweep scans at most one candidate batch, so an empty sweep does not
-  // mean the scan is over: keep sweeping until enough empty sweeps in a row to
-  // wrap the cursor past every candidate. A repeat candidate means a full wrap.
   const maxEmptySweeps =
     Math.ceil(candidates.length / COLD_SWEEP_CANDIDATE_BATCH) + 2;
   let emptySweeps = 0;
@@ -482,7 +458,6 @@ async function main(): Promise<void> {
     shareOfEventsMoved: totals.events === 0 ? 0 : movedRows / totals.events,
   };
 
-  // Verify.
   startedAt = performance.now();
   const segments = listEventColdSegments(db, { lifecycle: "live" });
   let segmentMatches = 0;
@@ -536,7 +511,6 @@ async function main(): Promise<void> {
     },
   };
 
-  // Vacuum.
   startedAt = performance.now();
   const vacuumPasses: number[] = [];
   let freelist = getDatabaseFreelistStats(db);
@@ -561,7 +535,6 @@ async function main(): Promise<void> {
     },
   };
 
-  // Rehydrate.
   const cold = listAllColdThreadIds(db);
   const largest = segments
     .filter((segment) => cold.includes(segment.threadId))
@@ -622,8 +595,6 @@ async function main(): Promise<void> {
   report.timings = timings;
   db.$client.close();
 
-  // Qualification: the run only counts when every eligible thread moved and
-  // every check came back clean.
   const unchanged = (snapshot: Record<string, string>) =>
     Object.keys(predicatesBefore).every(
       (key) => predicatesBefore[key] === snapshot[key],

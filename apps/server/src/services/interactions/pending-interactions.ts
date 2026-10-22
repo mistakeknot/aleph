@@ -508,8 +508,6 @@ export class PendingInteractionLifecycle {
   requestPluginInteraction(
     args: RequestPluginInteractionArgs,
   ): Promise<PluginInteractionResult> {
-    // A hot thread records the interaction synchronously, as before the cold
-    // tier: nothing can move its history before the first await.
     if (!isThreadEventsCold(this.deps.db, args.threadId)) {
       return this.requestHotPluginInteraction(args);
     }

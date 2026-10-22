@@ -62,6 +62,23 @@ directory:
   `bb admin event-archive rehydrate --all`** and check that it reports no
   failures. An older build cannot read cold threads.
 
+## Dry run against a copy
+
+`apps/server/scripts/cold-tier-copy-run.ts` runs the archive once against a
+copy of a database and reports counts, schema facts and timings only: no thread
+ids, event ids or row contents.
+
+```
+node --conditions=source --import tsx scripts/cold-tier-copy-run.ts \
+  --source <bb.db> --work <new directory> [--sample 20] [--report <name>]
+```
+
+It opens the source read-only and copies it with the SQLite online backup API,
+in one step, into `<work>/data/bb.db`. `<work>` must not exist yet and is created
+mode 700. Every later write goes to the copy, and the report, if named, is a new
+file directly inside `<work>`. Delete `<work>` afterwards. The run exits 1 when
+an eligible thread was not moved or any check failed.
+
 ## Turning it off
 
 Unset `BB_EVENT_COLD_TIER` and restart the server: no new moves happen, and

@@ -138,8 +138,6 @@ export async function durableMkdir(
         throw error;
       }
     }
-    // Sync on every call, not only on creation: an earlier attempt may have
-    // created the directory and then failed to sync its entry.
     await fsyncDirectory(current);
     await fsyncDirectory(parent);
   }

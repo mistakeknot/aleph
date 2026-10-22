@@ -249,7 +249,6 @@ describe("cold tier across restarts and restores", () => {
       (await readColdManifestEntries(dataDir)).map((entry) => entry.kind),
     ).toEqual(["pending"]);
 
-    // The process dies here. A new process opens the same files.
     closeDb(db);
     db = openDb(path);
     const deps = makeDeps(db, dataDir);
@@ -389,8 +388,6 @@ describe("cold tier across restarts and restores", () => {
     let db = openDb(path);
     const threadId = seedColdThread(db, "old-transforms");
     const output = "o".repeat(LARGE_OUTPUT_CHARS);
-    // Written raw, as rows were before the sidecar transform existed. A low
-    // sequence keeps it out of the latest-row keeper so it moves cold.
     db.$client
       .prepare(
         `INSERT INTO events (id, thread_id, scope_kind, turn_id, sequence, type, item_id, item_kind, data, created_at)
@@ -407,8 +404,6 @@ describe("cold tier across restarts and restores", () => {
         }),
         Date.now(),
       );
-    // The completed-output sweep has finished without reaching this row, so
-    // the row stays inline until a transform runs on it.
     db.$client
       .prepare(
         `INSERT INTO maintenance_scan_cursors (id, policy, version, item_kind, output_path, last_created_at, last_event_id, updated_at)
@@ -429,7 +424,6 @@ describe("cold tier across restarts and restores", () => {
         )
         .get(),
     ).toEqual({ n: 0 });
-    // A segment written before any transform version existed.
     db.$client
       .prepare(
         "UPDATE event_cold_segments SET transform_versions = '{}' WHERE segment_id = ?",
@@ -482,14 +476,10 @@ describe("cold tier across restarts and restores", () => {
     const restored = await exportAndRestore(db, dataDir);
     expect(late).toMatchObject({ outcome: "moved" });
 
-    // The snapshot predates the late move, so its rows are hot in the
-    // restored database and its file has manifest entries but no row.
     expect(isThreadEventsCold(restored.db, lateId)).toBe(false);
     expect(readRows(restored.db, lateId)).toEqual(lateBefore);
     const restoredDeps = makeDeps(restored.db, restored.dataDir);
     const reconciled = await reconcileEventColdTier(restoredDeps, NOW);
-    // The late segment file postdates the export's file inventory, so the
-    // restore carries its manifest entries without the file or a row.
     expect(reconciled.classes).toMatchObject({
       committed_no_row: { count: 0 },
       referenced: { count: 1 },
