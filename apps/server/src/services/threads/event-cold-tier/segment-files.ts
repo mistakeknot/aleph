@@ -43,11 +43,16 @@ export function isZstdAvailable(): boolean {
 
 function zstdCompress(input: Buffer): Promise<Buffer> {
   return promisify(zlib.zstdCompress)(input, {
-    params: { [zlib.constants.ZSTD_c_compressionLevel]: COLD_SEGMENT_ZSTD_LEVEL },
+    params: {
+      [zlib.constants.ZSTD_c_compressionLevel]: COLD_SEGMENT_ZSTD_LEVEL,
+    },
   });
 }
 
-function zstdDecompress(input: Buffer, maxOutputLength: number): Promise<Buffer> {
+function zstdDecompress(
+  input: Buffer,
+  maxOutputLength: number,
+): Promise<Buffer> {
   return promisify(zlib.zstdDecompress)(input, { maxOutputLength });
 }
 
@@ -89,7 +94,10 @@ export function coldSegmentRelativePath(
   ].join("/");
 }
 
-export function resolveDataDirPath(dataDir: string, relativePath: string): string {
+export function resolveDataDirPath(
+  dataDir: string,
+  relativePath: string,
+): string {
   const resolved = join(dataDir, ...relativePath.split("/"));
   const back = relative(dataDir, resolved);
   if (back.startsWith("..") || back.split(sep).includes("..")) {
@@ -99,7 +107,10 @@ export function resolveDataDirPath(dataDir: string, relativePath: string): strin
 }
 
 export async function fsyncDirectory(path: string): Promise<void> {
-  const handle = await open(path, fsConstants.O_RDONLY | fsConstants.O_DIRECTORY);
+  const handle = await open(
+    path,
+    fsConstants.O_RDONLY | fsConstants.O_DIRECTORY,
+  );
   try {
     await handle.sync();
   } finally {
@@ -123,10 +134,12 @@ export async function durableMkdir(
         if (!info.isDirectory()) {
           throw new Error(`Expected a directory at ${current}`);
         }
-        continue;
+      } else {
+        throw error;
       }
-      throw error;
     }
+    // Sync on every call, not only on creation: an earlier attempt may have
+    // created the directory and then failed to sync its entry.
     await fsyncDirectory(current);
     await fsyncDirectory(parent);
   }
@@ -221,7 +234,10 @@ export async function writeColdSegmentFile(args: {
   if (!readBack.equals(compressed)) {
     throw new Error("Cold segment read-back does not match what was written");
   }
-  const roundTrip = await zstdDecompress(readBack, args.frame.decompressedBytes);
+  const roundTrip = await zstdDecompress(
+    readBack,
+    args.frame.decompressedBytes,
+  );
   if (!roundTrip.equals(args.frame.frame)) {
     throw new Error("Cold segment does not decompress to its frame");
   }
@@ -242,7 +258,12 @@ async function readExactFile(path: string, bytes: number): Promise<Buffer> {
     const buffer = Buffer.alloc(bytes);
     let offset = 0;
     while (offset < bytes) {
-      const { bytesRead } = await handle.read(buffer, offset, bytes - offset, offset);
+      const { bytesRead } = await handle.read(
+        buffer,
+        offset,
+        bytes - offset,
+        offset,
+      );
       if (bytesRead === 0) {
         throw new Error(`Short read at ${path}`);
       }
@@ -301,7 +322,9 @@ export async function readColdSegmentFile(
   ) {
     fail("segment exceeds the read limit");
   }
-  if (target.path !== coldSegmentRelativePath(target.threadId, target.segmentId)) {
+  if (
+    target.path !== coldSegmentRelativePath(target.threadId, target.segmentId)
+  ) {
     fail("segment path does not match its identity");
   }
   const path = resolveDataDirPath(dataDir, target.path);
@@ -309,7 +332,9 @@ export async function readColdSegmentFile(
   try {
     info = await stat(path);
   } catch (error) {
-    return fail(`file missing (${(error as NodeJS.ErrnoException).code ?? "error"})`);
+    return fail(
+      `file missing (${(error as NodeJS.ErrnoException).code ?? "error"})`,
+    );
   }
   if (!info.isFile() || info.size !== target.fileBytes) {
     fail(`file size ${info.size} does not match ${target.fileBytes}`);
@@ -320,9 +345,10 @@ export async function readColdSegmentFile(
   if (sha256Hex(compressed) !== target.fileSha256) {
     fail("file hash mismatch");
   }
-  const frame = await zstdDecompress(compressed, target.decompressedBytes).catch(
-    (error: unknown) => fail(`decompression failed: ${String(error)}`),
-  );
+  const frame = await zstdDecompress(
+    compressed,
+    target.decompressedBytes,
+  ).catch((error: unknown) => fail(`decompression failed: ${String(error)}`));
   if (frame.length !== target.decompressedBytes) {
     fail("decompressed length mismatch");
   }
@@ -435,4 +461,3 @@ export async function listColdArchiveFiles(
   }
   return entries.sort((a, b) => a.path.localeCompare(b.path));
 }
-

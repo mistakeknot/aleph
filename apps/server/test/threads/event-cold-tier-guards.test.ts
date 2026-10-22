@@ -9,9 +9,7 @@ const REPO_ROOT = path.resolve(
   "../../../..",
 );
 const DATA_DIR = path.join(REPO_ROOT, "packages/db/src/data");
-const AUDIT_PATH =
-  process.env.COLD_TIER_READER_AUDIT ??
-  path.join(REPO_ROOT, "docs/cold-tier-reader-audit.md");
+const AUDIT_PATH = path.join(REPO_ROOT, "docs/cold-tier-reader-audit.md");
 const CLASS_PATTERN = /\b(KEEP|HYDRATE|EXCLUDE|GLOBAL|gated)\b/;
 
 function listTsFiles(dir: string): string[] {
@@ -137,7 +135,7 @@ function exportedEventsReaders(): string[] {
     const callees = new Map(
       functions.map((fn) => [fn.name, calledNames(fn.body)]),
     );
-    for (let changed = true; changed; ) {
+    for (let changed = true; changed;) {
       changed = false;
       for (const fn of functions) {
         if (touching.has(fn.name)) continue;
@@ -155,18 +153,16 @@ function exportedEventsReaders(): string[] {
 }
 
 describe("cold tier reader audit guard", () => {
-  it.skipIf(!fs.existsSync(AUDIT_PATH))(
-    "every exported db data function touching events appears in the audit with a class",
-    () => {
-      const audited = parseAuditRows(fs.readFileSync(AUDIT_PATH, "utf8"));
-      const readers = exportedEventsReaders();
-      expect(readers.length).toBeGreaterThan(20);
-      const missing = readers.filter(
-        (entry) => !audited.has(entry.split("#")[1]!),
-      );
-      expect(missing).toEqual([]);
-    },
-  );
+  it("every exported db data function touching events appears in the audit with a class", () => {
+    expect(fs.existsSync(AUDIT_PATH)).toBe(true);
+    const audited = parseAuditRows(fs.readFileSync(AUDIT_PATH, "utf8"));
+    const readers = exportedEventsReaders();
+    expect(readers.length).toBeGreaterThan(20);
+    const missing = readers.filter(
+      (entry) => !audited.has(entry.split("#")[1]!),
+    );
+    expect(missing).toEqual([]);
+  });
 
   it("the scanner finds known events readers and writers", () => {
     const readers = exportedEventsReaders();

@@ -140,6 +140,10 @@ export function registerAdminCommands(
         ).system.experimental_eventArchiveRehydrate(
           opts.all === true ? { all: true } : { threadId: threadId! },
         );
+        // Set the exit status before printing, so --json fails the same way.
+        if (result.scope === "all" && result.failed.length > 0) {
+          process.exitCode = 1;
+        }
         if (outputJson(opts, result)) return;
         if (result.scope === "thread") {
           console.log(
@@ -152,9 +156,6 @@ export function registerAdminCommands(
         console.log(`Rehydrated ${result.rehydrated} threads.`);
         for (const failure of result.failed) {
           console.log(`Failed ${failure.threadId}: ${failure.error}`);
-        }
-        if (result.failed.length > 0) {
-          process.exitCode = 1;
         }
       }),
     );

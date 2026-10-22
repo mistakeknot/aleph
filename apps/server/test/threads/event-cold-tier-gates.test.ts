@@ -235,10 +235,9 @@ describe("cold tier writable-history pins on send and context clear", () => {
 function claimedQueuedRows(harness: TestAppHarness, threadId: string): number {
   return (
     harness.db.$client
-      .prepare<
-        [string],
-        { count: number }
-      >("SELECT COUNT(*) AS count FROM queued_thread_messages WHERE thread_id = ? AND claimed_at IS NOT NULL")
+      .prepare<[string], { count: number }>(
+        "SELECT COUNT(*) AS count FROM queued_thread_messages WHERE thread_id = ? AND claimed_at IS NOT NULL",
+      )
       .get(threadId)?.count ?? 0
   );
 }
@@ -246,10 +245,9 @@ function claimedQueuedRows(harness: TestAppHarness, threadId: string): number {
 function queuedRowCount(harness: TestAppHarness, threadId: string): number {
   return (
     harness.db.$client
-      .prepare<
-        [string],
-        { count: number }
-      >("SELECT COUNT(*) AS count FROM queued_thread_messages WHERE thread_id = ?")
+      .prepare<[string], { count: number }>(
+        "SELECT COUNT(*) AS count FROM queued_thread_messages WHERE thread_id = ?",
+      )
       .get(threadId)?.count ?? 0
   );
 }

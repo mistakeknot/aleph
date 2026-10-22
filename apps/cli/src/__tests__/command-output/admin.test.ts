@@ -124,6 +124,28 @@ describe("bb admin event-archive commands", () => {
     process.exitCode = undefined;
   });
 
+  it("fails a --json rehydrate --all when any thread fails", async () => {
+    const response = {
+      scope: "all",
+      failed: [{ error: "segment unreadable", threadId: "thr_bad" }],
+      rehydrated: 3,
+    };
+    stubServerApi({
+      "v1.system.event-archive.rehydrate.$post": vi.fn(async () => response),
+    });
+
+    await runCommand(
+      ["admin", "event-archive", "rehydrate", "--all", "--json"],
+      register,
+    );
+
+    expect(
+      JSON.parse(collectLogPayloads(vi.mocked(console.log)).join("")),
+    ).toEqual(response);
+    expect(process.exitCode).toBe(1);
+    process.exitCode = undefined;
+  });
+
   it("rejects a thread id together with --all, and neither", async () => {
     const rehydrate = vi.fn();
     stubServerApi({ "v1.system.event-archive.rehydrate.$post": rehydrate });

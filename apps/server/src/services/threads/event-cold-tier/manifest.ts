@@ -141,6 +141,10 @@ export class ColdManifest {
   readonly dataDir: string;
   #lastHash = COLD_MANIFEST_GENESIS_HASH;
   #loaded = false;
+  // Set when an append failed part way: the file may hold the entry or a torn
+  // part of it, so the next append re-reads the file instead of trusting
+  // #lastHash.
+  #stale = false;
 
   constructor(dataDir: string) {
     this.dataDir = dataDir;
@@ -179,6 +183,7 @@ export class ColdManifest {
     }
     this.#lastHash = parsed.entries.at(-1)?.hash ?? COLD_MANIFEST_GENESIS_HASH;
     this.#loaded = true;
+    this.#stale = false;
     return {
       entries: parsed.entries.length,
       quarantinedPath,
@@ -190,7 +195,13 @@ export class ColdManifest {
     if (!this.#loaded) {
       throw new Error("Cold-tier manifest must be recovered before appending");
     }
-    const archiveDir = await durableMkdir(this.dataDir, EVENT_ARCHIVE_DIRECTORY);
+    if (this.#stale) {
+      await this.recover(input.at);
+    }
+    const archiveDir = await durableMkdir(
+      this.dataDir,
+      EVENT_ARCHIVE_DIRECTORY,
+    );
     const withoutHash = {
       at: input.at,
       kind: input.kind,
@@ -199,13 +210,19 @@ export class ColdManifest {
       segmentId: input.segmentId,
       threadId: input.threadId,
     };
-    const entry: ColdManifestEntry = { ...withoutHash, hash: entryHash(withoutHash) };
+    const entry: ColdManifestEntry = {
+      ...withoutHash,
+      hash: entryHash(withoutHash),
+    };
     const path = coldManifestPath(this.dataDir);
+    this.#stale = true;
     const handle = await open(path, "a", 0o600);
     let created = false;
     try {
       created = (await handle.stat()).size === 0;
-      await handle.write(`${JSON.stringify(entry)}\n`);
+      // writeFile loops until every byte is written, so a short write cannot
+      // leave a torn line behind a successful return.
+      await handle.writeFile(`${JSON.stringify(entry)}\n`);
       await handle.sync();
     } finally {
       await handle.close();
@@ -214,6 +231,7 @@ export class ColdManifest {
       await fsyncDirectory(archiveDir);
     }
     this.#lastHash = entry.hash;
+    this.#stale = false;
     return entry;
   }
 }
@@ -242,4 +260,3 @@ export async function snapshotColdManifestPrefix(
   }
   return end;
 }
-

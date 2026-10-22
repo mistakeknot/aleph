@@ -2,11 +2,13 @@
 // schema facts and timings only: no thread ids, event ids or row contents.
 //
 //   node --conditions=source --import tsx scripts/cold-tier-copy-run.ts \
-//     --source <bb.db> --work <new directory> [--sample 20] [--report <file>]
+//     --source <bb.db> --work <new directory> [--sample 20] [--report <name>]
 //
 // The source is opened read-only and copied with the SQLite online backup API
 // into <work>/data/bb.db, which must not exist yet; <work> is created mode 700.
-// Every write after that goes to the copy. Delete <work> afterwards.
+// Every write after that goes to the copy, and the report, if named, is a new
+// file directly inside <work>. Delete <work> afterwards. The run exits 1 when
+// any eligible thread was not moved or any check failed.
 import { createHash } from "node:crypto";
 import {
   existsSync,
@@ -52,6 +54,7 @@ import {
   prepareEventColdTier,
   rehydrateAllThreadEvents,
   rehydrateThreadEvents,
+  COLD_SWEEP_CANDIDATE_BATCH,
   runEventColdTierSweep,
   type EventColdTierDeps,
 } from "../src/services/threads/event-cold-tier/service.js";
@@ -94,8 +97,21 @@ function parseArgs(argv: string[]): Args {
   if (!Number.isInteger(sample) || sample < 0) {
     throw new Error("--sample must be a non-negative integer");
   }
+  // The report goes to a new file inside the new work directory, so it can
+  // never alias the source database or anything else that already exists.
+  const reportName = values.get("report");
+  if (
+    reportName !== undefined &&
+    (reportName === "" ||
+      reportName === "." ||
+      reportName === ".." ||
+      reportName.includes("/") ||
+      reportName === "data")
+  ) {
+    throw new Error("--report must be a plain file name inside --work");
+  }
   return {
-    report: values.get("report") ?? null,
+    report: reportName === undefined ? null : join(work, reportName),
     sample,
     source: resolve(source),
     work,
@@ -358,10 +374,9 @@ async function main(): Promise<void> {
   }
   timings.censusMs = elapsed(startedAt);
   const totals = db.$client
-    .prepare<
-      [],
-      { events: number; threads: number }
-    >("SELECT (SELECT COUNT(*) FROM events) AS events, (SELECT COUNT(*) FROM threads) AS threads")
+    .prepare<[], { events: number; threads: number }>(
+      "SELECT (SELECT COUNT(*) FROM events) AS events, (SELECT COUNT(*) FROM threads) AS threads",
+    )
     .get()!;
   report.census = {
     candidateThreads: candidates.length,
@@ -415,10 +430,22 @@ async function main(): Promise<void> {
   const phaseMax: Record<string, number> = {};
   let movedRows = 0;
   let movedBytes = 0;
+  // One sweep scans at most one candidate batch, so an empty sweep does not
+  // mean the scan is over: keep sweeping until enough empty sweeps in a row to
+  // wrap the cursor past every candidate. A repeat candidate means a full wrap.
+  const maxEmptySweeps =
+    Math.ceil(candidates.length / COLD_SWEEP_CANDIDATE_BATCH) + 2;
+  let emptySweeps = 0;
   startedAt = performance.now();
   for (;;) {
     const sweep = await runEventColdTierSweep(deps, now);
-    if (sweep.candidate === null || seen.has(sweep.candidate)) break;
+    if (sweep.candidate === null) {
+      emptySweeps += 1;
+      if (emptySweeps > maxEmptySweeps) break;
+      continue;
+    }
+    if (seen.has(sweep.candidate)) break;
+    emptySweeps = 0;
     seen.add(sweep.candidate);
     const move = sweep.move!;
     outcomes.push(
@@ -434,7 +461,16 @@ async function main(): Promise<void> {
   }
   timings.movesMs = elapsed(startedAt);
   loopDelay.disable();
+  const movedThreads = new Set(listAllColdThreadIds(db));
+  const eligibleNotAttempted = eligible.filter(
+    (threadId) => !seen.has(threadId),
+  ).length;
+  const eligibleNotMoved = eligible.filter(
+    (threadId) => !movedThreads.has(threadId),
+  ).length;
   report.moves = {
+    eligibleNotAttempted,
+    eligibleNotMoved,
     eventLoopDelayMs: {
       max: Math.round(loopDelay.max / 1e6),
       p99: Math.round(loopDelay.percentile(99) / 1e6),
@@ -586,9 +622,35 @@ async function main(): Promise<void> {
   report.timings = timings;
   db.$client.close();
 
+  // Qualification: the run only counts when every eligible thread moved and
+  // every check came back clean.
+  const unchanged = (snapshot: Record<string, string>) =>
+    Object.keys(predicatesBefore).every(
+      (key) => predicatesBefore[key] === snapshot[key],
+    );
+  const failures = [
+    eligibleNotAttempted > 0 && "eligible_not_attempted",
+    eligibleNotMoved > 0 && "eligible_not_moved",
+    segmentMismatches.length > 0 && "segment_mismatch",
+    keeperMismatches > 0 && "keeper_consumer_mismatch",
+    !unchanged(predicatesCold) && "predicate_changed_while_cold",
+    !unchanged(predicatesAfter) && "predicate_changed_after_rehydrate",
+    largest !== undefined &&
+      (report.largestRehydrate as { outcome: string }).outcome !==
+        "rehydrated" &&
+      "largest_rehydrate_failed",
+    all.failed.length > 0 && "rehydrate_failed",
+    status.coldThreads > 0 && "threads_left_cold",
+    wholeMismatches > 0 && "whole_thread_mismatch",
+  ].filter((failure): failure is string => typeof failure === "string");
+  report.qualification = { failures, passed: failures.length === 0 };
+
   const text = `${JSON.stringify(report, null, 2)}\n`;
-  if (args.report !== null) writeFileSync(args.report, text, { mode: 0o600 });
+  if (args.report !== null) {
+    writeFileSync(args.report, text, { flag: "wx", mode: 0o600 });
+  }
   process.stdout.write(text);
+  if (failures.length > 0) process.exitCode = 1;
 }
 
 await main();

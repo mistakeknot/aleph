@@ -112,10 +112,9 @@ export function forceColdStateRow(db: DbConnection, threadId: string): void {
 export function countThreadEvents(db: DbConnection, threadId: string): number {
   return (
     db.$client
-      .prepare<
-        [string],
-        { count: number }
-      >("SELECT COUNT(*) AS count FROM events WHERE thread_id = ?")
+      .prepare<[string], { count: number }>(
+        "SELECT COUNT(*) AS count FROM events WHERE thread_id = ?",
+      )
       .get(threadId)?.count ?? 0
   );
 }

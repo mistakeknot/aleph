@@ -146,10 +146,9 @@ describe("thread pruning skips cold threads", () => {
 
   function workCount(harness: TestAppHarness, threadId: string): number {
     return harness.db.$client
-      .prepare<
-        [string],
-        { count: number }
-      >("SELECT COUNT(*) AS count FROM thread_pruning_work WHERE thread_id = ?")
+      .prepare<[string], { count: number }>(
+        "SELECT COUNT(*) AS count FROM thread_pruning_work WHERE thread_id = ?",
+      )
       .get(threadId)!.count;
   }
 
@@ -186,10 +185,9 @@ describe("thread pruning skips cold threads", () => {
       expect(countThreadEvents(harness.db, thread.id)).toBe(before);
       expect(workCount(harness, thread.id)).toBeGreaterThan(0);
       const cursors = harness.db.$client
-        .prepare<
-          [string],
-          { current_thread_id: string | null }
-        >("SELECT current_thread_id FROM thread_pruning_cursors WHERE current_thread_id = ?")
+        .prepare<[string], { current_thread_id: string | null }>(
+          "SELECT current_thread_id FROM thread_pruning_cursors WHERE current_thread_id = ?",
+        )
         .all(thread.id);
       expect(cursors).toEqual([]);
     });

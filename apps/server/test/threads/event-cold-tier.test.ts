@@ -173,10 +173,9 @@ function setup() {
 
 function readRows(db: DbConnection, threadId: string): ColdEventRow[] {
   return db.$client
-    .prepare<
-      [string],
-      ColdEventRow
-    >("SELECT * FROM events WHERE thread_id = ? ORDER BY sequence")
+    .prepare<[string], ColdEventRow>(
+      "SELECT * FROM events WHERE thread_id = ? ORDER BY sequence",
+    )
     .all(threadId);
 }
 
