@@ -20,8 +20,13 @@ const PKG_DIR = path.resolve(
   "../..",
 );
 const DRIZZLE_DIR = path.join(PKG_DIR, "drizzle");
-const EVENTS_TABLE_SQL =
-  /\b(TABLE|INTO|UPDATE|FROM|ON|JOIN)\s+[`"]?events[`"]?([^A-Za-z0-9_]|$)/i;
+// Conservative on purpose: any mention of the identifier counts, so quoting,
+// schema qualification, conflict clauses and comments cannot hide a write.
+const EVENTS_IDENTIFIER = /(?<![A-Za-z0-9_$])events(?![A-Za-z0-9_$])/gi;
+
+function eventsMentions(text: string): number {
+  return text.match(EVENTS_IDENTIFIER)?.length ?? 0;
+}
 
 const EVENTS_MIGRATIONS_AT_FORMAT_1 = [
   "0000_baseline",
@@ -40,6 +45,7 @@ const EVENTS_MIGRATIONS_AT_FORMAT_1 = [
   "0104_chunky_redwing",
   "0106_thread_state_index",
   "0107_kind_based_indexes",
+  "0114_public_iron_lad",
   "0116_majestic_swordsman",
   "0125_silent_guardian",
 ];
@@ -53,16 +59,39 @@ function eventsMigrations(): string[] {
   return fs
     .readdirSync(DRIZZLE_DIR)
     .filter((name) => name.endsWith(".sql"))
-    .filter((name) =>
-      EVENTS_TABLE_SQL.test(
-        fs.readFileSync(path.join(DRIZZLE_DIR, name), "utf8"),
-      ),
+    .filter(
+      (name) =>
+        eventsMentions(fs.readFileSync(path.join(DRIZZLE_DIR, name), "utf8")) >
+        0,
     )
     .map((name) => name.replace(/\.sql$/, ""))
     .sort();
 }
 
+// Mentions of `events` in the startup migration: its one events INSERT, the
+// subquery inside it, and the event_large_values table-existence check.
+const MIGRATE_TS_EVENTS_MENTIONS = 3;
+
 describe("cold segment schema compatibility", () => {
+  it("the events scanner sees writes however they are spelled", () => {
+    for (const sql of [
+      "UPDATE OR IGNORE events SET type = 'new' WHERE type = 'old';",
+      "UPDATE main.events SET data = '{}';",
+      "UPDATE /* normalize payloads */ events SET data = '{}';",
+      'UPDATE "events" SET data = \'{}\';',
+      "UPDATE [events] SET data = '{}';",
+      "DELETE FROM`events`;",
+      "INSERT INTO\nevents (id) VALUES ('x');",
+    ])
+      expect(eventsMentions(sql), sql).toBeGreaterThan(0);
+    expect(
+      eventsMentions(
+        "CREATE TABLE thread_events_x (id text); SELECT * FROM my_events;",
+      ),
+    ).toBe(0);
+    expect(eventsMentions("const a = 1;\n`UPDATE events SET x = 1`")).toBe(1);
+  });
+
   it("EVENT_COLD_COLUMNS matches the migrated events table, in any order", () => {
     const db = createMigratedConnection();
     const columns = db.$client
@@ -82,14 +111,16 @@ describe("cold segment schema compatibility", () => {
     ).toEqual(EVENTS_MIGRATIONS_AT_FORMAT_1);
   });
 
-  it("the startup migration writes events in one known place", () => {
+  it("the startup migration mentions events only in known places", () => {
     const source = fs.readFileSync(
       path.join(PKG_DIR, "src/migrate.ts"),
       "utf8",
     );
     expect(
-      source.match(/\b(INSERT|UPDATE|DELETE)\b[^;`]*\bevents\b/gi),
-    ).toHaveLength(1);
+      eventsMentions(source),
+      "src/migrate.ts mentions the events table in a new place. If it writes " +
+        "events, decide how old cold segments get the change, then update this count.",
+    ).toBe(MIGRATE_TS_EVENTS_MENTIONS);
   });
 
   it("every transform version is one rehydrate knows how to apply", () => {
