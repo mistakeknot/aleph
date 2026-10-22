@@ -59,11 +59,17 @@ export const EMPTY_STEP_CHECKS: StepChecks = {
   dropsTables: [],
   writesTables: [],
   copiedTables: [],
-  rowDeltas: {},
+  rowDeltas: nullMap(),
   renumbersRowids: [],
-  tableRenames: {},
-  columnRenames: {},
+  tableRenames: nullMap(),
+  columnRenames: nullMap(),
 };
+
+function nullMap<T>(entries: Iterable<[string, T]> = []): Record<string, T> {
+  const map: Record<string, T> = Object.create(null) as Record<string, T>;
+  for (const [key, value] of entries) map[key] = value;
+  return map;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -78,9 +84,9 @@ function stringList(value: unknown, label: string): string[] {
 }
 
 function stringMap(value: unknown, label: string): Record<string, string> {
-  if (value === undefined) return {};
+  if (value === undefined) return nullMap();
   if (!isRecord(value)) throw new Error(`Step checks ${label} must be a map`);
-  const out: Record<string, string> = {};
+  const out = nullMap<string>();
   for (const [key, item] of Object.entries(value)) {
     if (typeof item !== "string") {
       throw new Error(`Step checks ${label}.${key} must be a string`);
@@ -112,7 +118,7 @@ function parseStepChecks(id: string, raw: unknown): StepChecks {
   if (!Array.isArray(copied)) {
     throw new Error(`Step checks for ${id} copiedTables must be a list`);
   }
-  const rowDeltas: Record<string, number> = {};
+  const rowDeltas = nullMap<number>();
   if (raw.rowDeltas !== undefined) {
     if (!isRecord(raw.rowDeltas)) {
       throw new Error(`Step checks for ${id} rowDeltas must be a map`);
@@ -124,13 +130,13 @@ function parseStepChecks(id: string, raw: unknown): StepChecks {
       rowDeltas[table] = delta;
     }
   }
-  const columnRenames: Record<string, Record<string, string>> = {};
+  const columnRenames = nullMap<Record<string, string>>();
   if (raw.columnRenames !== undefined) {
     if (!isRecord(raw.columnRenames)) {
       throw new Error(`Step checks for ${id} columnRenames must be a map`);
     }
     for (const [table, map] of Object.entries(raw.columnRenames)) {
-      if (fold(table) in columnRenames) {
+      if (Object.hasOwn(columnRenames, fold(table))) {
         throw new Error(
           `Step checks for ${id} declare columnRenames for ${table} twice, differing only by case`,
         );
@@ -165,11 +171,7 @@ function parseStepChecks(id: string, raw: unknown): StepChecks {
     }),
     rowDeltas,
     renumbersRowids: stringList(raw.renumbersRowids, "renumbersRowids"),
-    tableRenames: Object.fromEntries(
-      Object.entries(stringMap(raw.tableRenames, "tableRenames")).map(
-        ([from, to]) => [fold(from), to],
-      ),
-    ),
+    tableRenames: foldKeys(stringMap(raw.tableRenames, "tableRenames")),
     columnRenames,
   };
 }
@@ -219,9 +221,9 @@ function fold(name: string): string {
 }
 
 function foldKeys(map: Record<string, string>): Record<string, string> {
-  const folded: Record<string, string> = {};
+  const folded = nullMap<string>();
   for (const [key, value] of Object.entries(map)) {
-    if (fold(key) in folded) {
+    if (Object.hasOwn(folded, fold(key))) {
       throw new Error(
         `Step checks declare ${key} twice, differing only by case`,
       );

@@ -623,6 +623,42 @@ describe("per-step safety checks", () => {
     ).toThrow(/differing only by case/);
   });
 
+  it("handles tables and columns named like inherited object members", async () => {
+    const db = await migratedPopulatedDatabase();
+    db.$client.exec(
+      'CREATE TABLE "constructor" (id integer PRIMARY KEY, p text); INSERT INTO "constructor" (p) VALUES (\'a\'); CREATE TABLE "__proto__" (id integer PRIMARY KEY, v text); INSERT INTO "__proto__" (v) VALUES (\'b\');',
+    );
+    runA0010(
+      db,
+      [
+        'ALTER TABLE "constructor" RENAME COLUMN p TO q;',
+        'ALTER TABLE "__proto__" RENAME TO zz_proto;',
+      ].join(BREAK),
+      JSON.parse(
+        '{"columnRenames":{"constructor":{"p":"q"}},"tableRenames":{"__proto__":"zz_proto"}}',
+      ) as object,
+    );
+    expect(
+      db.$client.prepare("SELECT v FROM zz_proto").all() as object[],
+    ).toEqual([{ v: "b" }]);
+  });
+
+  it("refuses corruption of a table named like an inherited member", async () => {
+    const db = await migratedPopulatedDatabase();
+    db.$client.exec(
+      'CREATE TABLE "__proto__" (id integer PRIMARY KEY, v text); INSERT INTO "__proto__" (v) VALUES (\'b\');',
+    );
+    expectRefused(
+      db,
+      [
+        'ALTER TABLE "__proto__" RENAME TO zz_proto;',
+        "UPDATE zz_proto SET v = 'x';",
+      ].join(BREAK),
+      /__proto__/,
+      JSON.parse('{"tableRenames":{"__proto__":"zz_proto"}}') as object,
+    );
+  });
+
   it("refuses a declaration that matches no table", async () => {
     const db = await migratedPopulatedDatabase();
     expectRefused(db, "SELECT 1;", /zz_missing/, {
