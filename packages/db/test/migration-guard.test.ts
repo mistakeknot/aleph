@@ -9,6 +9,7 @@ import {
   MigrationGuardError,
   nonFrozenUpstreamSteps,
   scanRebuiltTables,
+  splitMigrationStatements,
   verifyFrozenSet,
 } from "../src/migration-guard.js";
 import {
@@ -46,6 +47,19 @@ const alteredTables = parseAlephAlteredTables(
 
 function readUpstreamSql(tag: string): string {
   return readFileSync(join(sourceFolders.upstreamFolder, `${tag}.sql`), "utf8");
+}
+
+const alephFileById = new Map(
+  loadMigrationPlanInput(sourceFolders).aleph.map((step) => [
+    step.id,
+    step.file,
+  ]),
+);
+
+function readAlephSql(id: string): string {
+  const file = alephFileById.get(id);
+  if (file === undefined) return "SELECT 1;";
+  return readFileSync(join(sourceFolders.alephFolder, file), "utf8");
 }
 
 function guardedTables(): string[] {
@@ -213,6 +227,7 @@ describe("reference extraction", () => {
           input,
           plan: buildMigrationPlan(input),
           guardedTables: guarded,
+          readAlephSql,
           readUpstreamSql: sqlFor,
         }),
       ).toThrow(/0144_synthetic rebuilds or alters b/);
@@ -1068,6 +1083,7 @@ describe("guardPlan", () => {
         input,
         plan: buildMigrationPlan(input),
         guardedTables: guarded,
+        readAlephSql,
         readUpstreamSql,
       }),
     ).not.toThrow();
@@ -1091,9 +1107,45 @@ describe("guardPlan", () => {
         input,
         plan: buildMigrationPlan(input),
         guardedTables: guardedTables(),
+        readAlephSql,
         readUpstreamSql: sqlFor,
       }),
     ).toThrow(/0144_synthetic rebuilds or alters queued_thread_messages/);
+  });
+
+  it.each([
+    ["a trailing NBSP", "DROP TABLE queued_thread_messages\u00a0"],
+    ["a leading U+2028", "\u2028DROP TABLE queued_thread_messages"],
+    ["a trailing BOM", "DROP TABLE queued_thread_messages\ufeff"],
+    [
+      "a trailing NBSP after a breakpoint",
+      "SELECT 1;\n--> statement-breakpoint\nDROP TABLE queued_thread_messages\u00a0",
+    ],
+  ])("refuses a drop of a guarded table hidden by %s", (_label, sql) => {
+    const { input, sqlFor } = withNewUpstreamStep(sql);
+    expect(() =>
+      guardPlan({
+        frozen,
+        input,
+        plan: buildMigrationPlan(input),
+        guardedTables: guardedTables(),
+        readAlephSql,
+        readUpstreamSql: sqlFor,
+      }),
+    ).toThrow(/0144_synthetic rebuilds or alters queued_thread_messages/);
+  });
+
+  it("scans the same trimmed text the executor runs", () => {
+    for (const sql of [
+      "DROP TABLE queued_thread_messages\u00a0",
+      "\u2028DROP TABLE queued_thread_messages",
+      "DROP TABLE queued_thread_messages\ufeff",
+    ]) {
+      expect(scanRebuiltTables(sql)).toEqual(["queued_thread_messages"]);
+      expect(splitMigrationStatements(sql)).toEqual([
+        "DROP TABLE queued_thread_messages",
+      ]);
+    }
   });
 
   it("refuses a new upstream step that rebuilds a merely referenced table", () => {
@@ -1106,6 +1158,7 @@ describe("guardPlan", () => {
         input,
         plan: buildMigrationPlan(input),
         guardedTables: guardedTables(),
+        readAlephSql,
         readUpstreamSql: sqlFor,
       }),
     ).toThrow(/rebuilds or alters projects/);
@@ -1145,6 +1198,7 @@ describe("guardPlan", () => {
           input,
           plan: buildMigrationPlan(input),
           guardedTables: guardedTables(),
+          readAlephSql,
           readUpstreamSql: sqlFor,
         }),
       ).toThrow(/0144_synthetic rebuilds or alters queued_thread_messages/);
@@ -1162,6 +1216,7 @@ describe("guardPlan", () => {
         input,
         plan: buildMigrationPlan(input),
         guardedTables: guardedTables(),
+        readAlephSql,
         readUpstreamSql: sqlFor,
       }),
     ).toThrow(/0144_synthetic has when 1, which is not after/);
@@ -1177,6 +1232,7 @@ describe("guardPlan", () => {
         input,
         plan: buildMigrationPlan(input),
         guardedTables: guardedTables(),
+        readAlephSql,
         readUpstreamSql: sqlFor,
       }),
     ).not.toThrow();
@@ -1245,12 +1301,18 @@ describe("guardPlan", () => {
       ),
     );
 
-    function guardInput(input: MigrationPlanInput, sql = "SELECT 1;"): void {
+    function guardInput(
+      input: MigrationPlanInput,
+      sql = "SELECT 1;",
+      newAlephSql = "SELECT 1;",
+    ): void {
       guardPlan({
         frozen,
         input,
         plan: buildMigrationPlan(input),
         guardedTables: guardedTables(),
+        readAlephSql: (id) =>
+          alephFileById.has(id) ? readAlephSql(id) : newAlephSql,
         readUpstreamSql: (tag) =>
           tag.startsWith("0144") || tag.startsWith("0145")
             ? sql
@@ -1286,9 +1348,28 @@ describe("guardPlan", () => {
           input,
           plan: buildMigrationPlan(input),
           guardedTables: guardedTables(),
+          readAlephSql,
           readUpstreamSql: sqlFor,
         }),
       ).toThrow(/0144_synthetic has when \d+, which is not after/);
+    });
+
+    it("refuses a control character in a new Aleph step", () => {
+      const input = extend([], [alephStep("A0010", "A0009", lastWhen + 1)]);
+      expect(() =>
+        guardInput(
+          input,
+          "SELECT 1;",
+          "SELECT 1;\u0000 CREATE TABLE intended_new_table(id);",
+        ),
+      ).toThrow(/Aleph step A0010: .*U\+0000 at offset 9/);
+    });
+
+    it("accepts a new Aleph step without control characters", () => {
+      const input = extend([], [alephStep("A0010", "A0009", lastWhen + 1)]);
+      expect(() =>
+        guardInput(input, "SELECT 1;", "CREATE TABLE intended_new_table(id);"),
+      ).not.toThrow();
     });
 
     it("accepts a when one after the newest earlier step", () => {
@@ -1299,6 +1380,7 @@ describe("guardPlan", () => {
           input,
           plan: buildMigrationPlan(input),
           guardedTables: guardedTables(),
+          readAlephSql,
           readUpstreamSql: sqlFor,
         }),
       ).not.toThrow();
@@ -1388,6 +1470,7 @@ describe("guardPlan", () => {
           input,
           plan: buildMigrationPlan(input),
           guardedTables: guardedTables(),
+          readAlephSql,
           readUpstreamSql: () => "DROP TABLE queued_thread_messages;",
         }),
       ).not.toThrow();
@@ -1402,6 +1485,7 @@ describe("guardPlan", () => {
           input,
           plan: buildMigrationPlan(loadMigrationPlanInput(sourceFolders)),
           guardedTables: guardedTables(),
+          readAlephSql,
           readUpstreamSql: sqlFor,
         }),
       ).toThrow(/0144_synthetic is not in the migration plan/);

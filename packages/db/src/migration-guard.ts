@@ -16,10 +16,14 @@ export class MigrationGuardError extends Error {
 
 const STATEMENT_BREAKPOINT = "--> statement-breakpoint";
 
+export function trimMigrationStatement(statement: string): string {
+  return statement.trim();
+}
+
 export function splitMigrationStatements(sql: string): string[] {
   return sql
     .split(STATEMENT_BREAKPOINT)
-    .map((statement) => statement.trim())
+    .map(trimMigrationStatement)
     .filter((statement) => statement.length > 0);
 }
 
@@ -151,7 +155,7 @@ function normalizeTableName(name: string): string {
 
 const REFUSED_CONTROL_CHARACTER = /[\u0000-\u0008\u000e-\u001f\u007f]/;
 
-export function scanRebuiltTables(sql: string): string[] {
+export function refuseUnmodelledCharacters(sql: string): void {
   const refused = REFUSED_CONTROL_CHARACTER.exec(sql);
   if (refused !== null) {
     throw new MigrationGuardError(
@@ -164,12 +168,14 @@ export function scanRebuiltTables(sql: string): string[] {
         )} at offset ${refused.index}, which the guard does not model`,
     );
   }
-  const tokens = sql
-    .split(STATEMENT_BREAKPOINT)
-    .flatMap((chunk): Token[] => [
-      ...tokenize(chunk),
-      { kind: "punct", value: ";" },
-    ]);
+}
+
+export function scanRebuiltTables(sql: string): string[] {
+  refuseUnmodelledCharacters(sql);
+  const tokens = splitMigrationStatements(sql).flatMap((chunk): Token[] => [
+    ...tokenize(chunk),
+    { kind: "punct", value: ";" },
+  ]);
   const rebuilt = new Set<string>();
   const tempNames = new Set<string>();
   const isTemporary = (table: TableReference): boolean =>
@@ -667,6 +673,7 @@ export interface GuardPlanArgs {
   plan: MigrationPlan;
   guardedTables: readonly string[];
   readUpstreamSql: (tag: string) => string;
+  readAlephSql: (id: string) => string;
 }
 
 function requireIncreasingWhen(
@@ -706,6 +713,19 @@ export function guardPlan(args: GuardPlanArgs): void {
     args.plan,
     new Set(args.frozen.map((step) => step.tag)),
   );
+  for (const step of args.plan.steps) {
+    if (step.namespace !== "aleph") continue;
+    try {
+      refuseUnmodelledCharacters(args.readAlephSql(step.id));
+    } catch (error) {
+      if (error instanceof MigrationGuardError) {
+        throw new MigrationGuardError(
+          `Aleph step ${step.id}: ${error.message}`,
+        );
+      }
+      throw error;
+    }
+  }
   for (const tag of nonFrozen) {
     guardUpstreamStep({
       tag,
