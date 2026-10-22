@@ -414,6 +414,7 @@ export {
   hydrateRetainedEventOutputRows,
   hydrateRetainedEventOutputRowsWithinDataByteLimit,
   prepareCompletedEventOutputData,
+  prepareLegacyImageGenerationOutputData,
   insertPreparedRetainedEventOutput,
 } from "./retained-event-outputs.js";
 export {

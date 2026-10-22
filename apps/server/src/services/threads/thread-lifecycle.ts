@@ -1,5 +1,6 @@
 import { advanceEnvironmentProvisioning } from "../environments/environment-engine.js";
 import { revokeThreadDesktopBrowserControl } from "../desktop-browsers.js";
+import { registerThreadHistoryMoveBlocker } from "./event-cold-tier/service.js";
 import {
   providerEnvironmentHasPendingWork,
   refreshProviderRetirement,
@@ -227,6 +228,12 @@ export function hasLiveThreadStopInFlight(threadId: string): boolean {
     inFlightThreadRpcGuard.isHeld(threadId, "thread.stop.release")
   );
 }
+
+registerThreadHistoryMoveBlocker((threadId) =>
+  hasLiveThreadStartInFlight(threadId) || hasLiveThreadStopInFlight(threadId)
+    ? "lifecycle_in_flight"
+    : null,
+);
 
 interface ThreadStartSuccessActivationArgs {
   commandStartedAt: number;
