@@ -1,4 +1,6 @@
+import { randomBytes } from "node:crypto";
 import Database from "better-sqlite3";
+import { registerHostPathSqlFunctions } from "./data/host-path-sql.js";
 import type {
   FrozenUpstreamStep,
   MigrationPlan,
@@ -155,7 +157,7 @@ export function scanRebuiltTables(sql: string): string[] {
       }
       const dropped = readTableName(tokens, cursor);
       add(dropped);
-      if (dropped?.schema === undefined && dropped !== undefined) {
+      if (dropped !== undefined && isTemporary(dropped)) {
         tempNames.delete(dropped.name.toLowerCase());
       }
     } else if (
@@ -171,14 +173,11 @@ export function scanRebuiltTables(sql: string): string[] {
       ) {
         const target = readTableName(tokens, table.next + 2);
         if (target !== undefined) {
-          const renamed = { ...target, schema: table.schema };
           if (isTemporary(table)) {
-            if (table.schema === undefined) {
-              tempNames.delete(table.name.toLowerCase());
-              tempNames.add(target.name.toLowerCase());
-            }
+            tempNames.delete(table.name.toLowerCase());
+            tempNames.add(target.name.toLowerCase());
           } else {
-            add(renamed);
+            add({ ...target, schema: table.schema });
           }
         }
       }
@@ -203,10 +202,8 @@ export function scanRebuiltTables(sql: string): string[] {
       }
       const created = readTableName(tokens, cursor);
       if (created === undefined) continue;
-      if (temporary) {
-        if (created.schema === undefined) {
-          tempNames.add(created.name.toLowerCase());
-        }
+      if (temporary || created.schema?.toLowerCase() === "temp") {
+        tempNames.add(created.name.toLowerCase());
       } else if (created.name.toLowerCase().startsWith(NEW_TABLE_PREFIX)) {
         add(created);
       }
@@ -286,15 +283,47 @@ function readSchemaObjects(sqlite: Database.Database): SchemaObjectRow[] {
 
 type SchemaDependencies = ReadonlyMap<string, ReadonlySet<string>>;
 
-const BROKEN_OBJECT = /error in (trigger|view) (.+?): /;
-
-function brokenObjectName(error: unknown): string | undefined {
-  const message = error instanceof Error ? error.message : String(error);
-  return BROKEN_OBJECT.exec(message)?.[2]?.toLowerCase();
+function dependencyKey(type: string, name: string): string {
+  return `${type}:${name.toLowerCase()}`;
 }
 
 function quoteIdentifier(name: string): string {
   return `"${name.replaceAll('"', '""')}"`;
+}
+
+const CONTENT_TABLE_OPTION =
+  /\bcontent\s*=\s*(?:'((?:[^']|'')*)'|"((?:[^"]|"")*)"|(\w+))/i;
+const VIRTUAL_TABLE_DECLARATION = /^\s*CREATE\s+VIRTUAL\s+TABLE\b/i;
+
+function contentTableOf(row: SchemaObjectRow): string | undefined {
+  if (row.type !== "table" || row.sql === null) return undefined;
+  if (!VIRTUAL_TABLE_DECLARATION.test(row.sql)) return undefined;
+  const match = CONTENT_TABLE_OPTION.exec(row.sql);
+  const raw = match?.[1] ?? match?.[2] ?? match?.[3];
+  if (raw === undefined || raw.length === 0) return undefined;
+  return raw.replaceAll("''", "'").replaceAll('""', '"').toLowerCase();
+}
+
+function isVirtualTable(row: SchemaObjectRow): boolean {
+  return (
+    row.type === "table" &&
+    row.sql !== null &&
+    VIRTUAL_TABLE_DECLARATION.test(row.sql)
+  );
+}
+
+function findBrokenObject(
+  error: unknown,
+  candidates: readonly SchemaObjectRow[],
+): SchemaObjectRow | undefined {
+  const message = error instanceof Error ? error.message : String(error);
+  let best: SchemaObjectRow | undefined;
+  for (const row of candidates) {
+    if (row.type !== "view" && row.type !== "trigger") continue;
+    if (!message.startsWith(`error in ${row.type} ${row.name}: `)) continue;
+    if (best === undefined || row.name.length > best.name.length) best = row;
+  }
+  return best;
 }
 
 function findDependencies(
@@ -302,39 +331,55 @@ function findDependencies(
   rows: readonly SchemaObjectRow[],
 ): SchemaDependencies {
   const dependencies = new Map<string, Set<string>>();
-  const views = rows.filter((row) => row.type === "view");
-  const triggers = new Map(
-    rows
-      .filter((row) => row.type === "trigger")
-      .map((row) => [row.name.toLowerCase(), row]),
-  );
-  const tables = rows.filter((row) => row.type === "table" && row.sql !== null);
-  if (views.length === 0 && triggers.size === 0) return dependencies;
-  const everyTable = new Set(tables.map((table) => table.name.toLowerCase()));
-  const record = (object: string, table: string) => {
-    const set = dependencies.get(object) ?? new Set<string>();
+  const record = (key: string, table: string) => {
+    const set = dependencies.get(key) ?? new Set<string>();
     set.add(table);
-    dependencies.set(object, set);
+    dependencies.set(key, set);
   };
-  const viewIsBroken = (probe: Database.Database, name: string): boolean => {
-    try {
-      probe.prepare(`SELECT * FROM ${quoteIdentifier(name)} LIMIT 0`).all();
-      return false;
-    } catch {
-      return true;
-    }
-  };
+  for (const row of rows) {
+    const content = contentTableOf(row);
+    if (content !== undefined)
+      record(dependencyKey("table", row.name), content);
+  }
+  const views = rows.filter((row) => row.type === "view");
+  const triggers = rows.filter((row) => row.type === "trigger");
+  if (views.length === 0 && triggers.length === 0) return dependencies;
+  const tables = rows.filter((row) => row.type === "table" && row.sql !== null);
+  const everyTable = new Set(tables.map((table) => table.name.toLowerCase()));
+  const taken = new Set(rows.map((row) => row.name.toLowerCase()));
+  let probeName = `__guard_probe_${randomBytes(6).toString("hex")}`;
+  while (taken.has(probeName)) {
+    probeName = `__guard_probe_${randomBytes(6).toString("hex")}`;
+  }
+  const renamedProbe = `${probeName}_r`;
   const probe = new Database(sqlite.serialize());
   try {
+    registerHostPathSqlFunctions(probe);
     probe.pragma("foreign_keys = OFF");
-    probe.exec("CREATE TABLE __guard_probe (id)");
-    const renameProbe = (): string | undefined => {
+    probe.exec(`CREATE TABLE ${quoteIdentifier(probeName)} (id)`);
+    const viewIsBroken = (name: string): boolean => {
       try {
-        probe.exec("ALTER TABLE __guard_probe RENAME TO __guard_probe2");
-        probe.exec("ALTER TABLE __guard_probe2 RENAME TO __guard_probe");
+        probe.prepare(`SELECT * FROM ${quoteIdentifier(name)} LIMIT 0`).all();
+        return false;
+      } catch {
+        return true;
+      }
+    };
+    const dropObject = (object: SchemaObjectRow): void => {
+      const keyword = object.type === "view" ? "VIEW" : "TRIGGER";
+      probe.exec(`DROP ${keyword} IF EXISTS ${quoteIdentifier(object.name)}`);
+    };
+    const nextBroken = (): SchemaObjectRow | undefined => {
+      try {
+        probe.exec(
+          `ALTER TABLE ${quoteIdentifier(probeName)} RENAME TO ${quoteIdentifier(renamedProbe)}`,
+        );
+        probe.exec(
+          `ALTER TABLE ${quoteIdentifier(renamedProbe)} RENAME TO ${quoteIdentifier(probeName)}`,
+        );
         return undefined;
       } catch (error) {
-        const broken = brokenObjectName(error);
+        const broken = findBrokenObject(error, rows);
         if (broken === undefined) {
           throw new MigrationGuardError(
             `Could not read the schema dependencies: ${error instanceof Error ? error.message : String(error)}`,
@@ -343,33 +388,34 @@ function findDependencies(
         return broken;
       }
     };
-    const dropBroken = (name: string): void => {
-      const view = views.find((row) => row.name.toLowerCase() === name);
-      const trigger = triggers.get(name);
-      if (view !== undefined) {
-        probe.exec(`DROP VIEW IF EXISTS ${quoteIdentifier(view.name)}`);
-      } else if (trigger !== undefined) {
-        probe.exec(`DROP TRIGGER IF EXISTS ${quoteIdentifier(trigger.name)}`);
-      } else {
-        throw new MigrationGuardError(
-          `Could not attribute the broken schema object ${name}`,
-        );
+    const drainBroken = (onBroken: (object: SchemaObjectRow) => void): void => {
+      const seen = new Set<string>();
+      for (let broken = nextBroken(); broken !== undefined; ) {
+        const key = dependencyKey(broken.type, broken.name);
+        if (seen.has(key)) {
+          throw new MigrationGuardError(
+            `Could not remove the broken schema object ${broken.type} ${broken.name}`,
+          );
+        }
+        seen.add(key);
+        onBroken(broken);
+        dropObject(broken);
+        broken = nextBroken();
       }
     };
     const unanalyzable = new Set<string>();
     for (const view of views) {
-      if (viewIsBroken(probe, view.name)) {
-        unanalyzable.add(view.name.toLowerCase());
-        dropBroken(view.name.toLowerCase());
-      }
+      if (!viewIsBroken(view.name)) continue;
+      unanalyzable.add(dependencyKey("view", view.name));
+      dropObject(view);
     }
-    for (let broken = renameProbe(); broken !== undefined;) {
-      unanalyzable.add(broken);
-      dropBroken(broken);
-      broken = renameProbe();
-    }
-    for (const object of unanalyzable) {
-      dependencies.set(object, new Set(everyTable));
+    drainBroken((object) =>
+      unanalyzable.add(dependencyKey(object.type, object.name)),
+    );
+    for (const key of unanalyzable) {
+      const set = dependencies.get(key) ?? new Set<string>();
+      for (const table of everyTable) set.add(table);
+      dependencies.set(key, set);
     }
     for (const table of tables) {
       const name = table.name.toLowerCase();
@@ -381,20 +427,14 @@ function findDependencies(
           continue;
         }
         for (const view of views) {
-          if (
-            unanalyzable.has(view.name.toLowerCase()) ||
-            !viewIsBroken(probe, view.name)
-          ) {
-            continue;
-          }
-          record(view.name.toLowerCase(), name);
-          probe.exec(`DROP VIEW ${quoteIdentifier(view.name)}`);
+          const key = dependencyKey("view", view.name);
+          if (unanalyzable.has(key) || !viewIsBroken(view.name)) continue;
+          record(key, name);
+          dropObject(view);
         }
-        for (let broken = renameProbe(); broken !== undefined;) {
-          record(broken, name);
-          dropBroken(broken);
-          broken = renameProbe();
-        }
+        drainBroken((object) =>
+          record(dependencyKey(object.type, object.name), name),
+        );
       } finally {
         probe.exec("ROLLBACK");
       }
@@ -410,12 +450,20 @@ function tablesTouchedBy(
   dependencies: SchemaDependencies,
 ): Set<string> {
   const touched = new Set<string>([row.tbl_name.toLowerCase()]);
-  for (const table of dependencies.get(row.tbl_name.toLowerCase()) ?? []) {
-    touched.add(table);
+  const keys = [
+    dependencyKey("view", row.tbl_name),
+    dependencyKey(row.type, row.name),
+  ];
+  for (const key of keys) {
+    for (const table of dependencies.get(key) ?? []) touched.add(table);
   }
-  if (row.type === "trigger" || row.type === "view") {
-    for (const table of dependencies.get(row.name.toLowerCase()) ?? []) {
-      touched.add(table);
+  const pending = [...touched];
+  for (let table = pending.pop(); table !== undefined; table = pending.pop()) {
+    for (const backing of dependencies.get(dependencyKey("table", table)) ??
+      []) {
+      if (touched.has(backing)) continue;
+      touched.add(backing);
+      pending.push(backing);
     }
   }
   return touched;
@@ -473,7 +521,9 @@ export function expandWithForeignKeyNeighbours(
   const rows = readSchemaObjects(sqlite);
   const dependencies = findDependencies(sqlite, rows);
   for (const row of rows) {
-    if (row.type !== "trigger" && row.type !== "view") continue;
+    if (row.type !== "trigger" && row.type !== "view" && !isVirtualTable(row)) {
+      continue;
+    }
     const touched = tablesTouchedBy(row, dependencies);
     if ([...touched].some((table) => alteredSet.has(table))) {
       for (const table of touched) guarded.add(table);

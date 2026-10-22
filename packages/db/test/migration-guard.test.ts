@@ -20,6 +20,7 @@ import {
   type MigrationPlanInput,
   type UpstreamStepSource,
 } from "../src/migration-plan.js";
+import { registerHostPathSqlFunctions } from "../src/data/host-path-sql.js";
 import {
   applyPlan,
   applyUpstreamOnly,
@@ -383,6 +384,107 @@ describe("reference extraction", () => {
     }
   });
 
+  it("attributes a view and a trigger that share a name without looping", () => {
+    const { before, after } = schemas(
+      "CREATE VIEW same AS SELECT id FROM c; CREATE TRIGGER same AFTER INSERT ON a BEGIN INSERT INTO b (id) VALUES (new.id); END;",
+    );
+    try {
+      expect(expandWithForeignKeyNeighbours(after, ["b"])).toEqual(["a", "b"]);
+      expect(expandWithForeignKeyNeighbours(after, ["c"])).toEqual([
+        "c",
+        "same",
+      ]);
+      expect(computeAlteredTables(before, after)).toContain("b");
+    } finally {
+      before.close();
+      after.close();
+    }
+  });
+
+  it("reads a trigger name that contains a colon and a space", () => {
+    const { after } = schemas(
+      'CREATE TRIGGER "x: y" AFTER INSERT ON a BEGIN INSERT INTO b (id) VALUES (new.id); END;',
+    );
+    try {
+      expect(expandWithForeignKeyNeighbours(after, ["b"])).toContain("a");
+    } finally {
+      after.close();
+    }
+  });
+
+  it("does not collide with a table named like the probe", () => {
+    const { after } = schemas(
+      "CREATE TABLE __guard_probe (id); CREATE TABLE __guard_probe_r (id); CREATE VIEW v AS SELECT id FROM b;",
+    );
+    try {
+      expect(expandWithForeignKeyNeighbours(after, ["b"])).toEqual(["b", "v"]);
+    } finally {
+      after.close();
+    }
+  });
+
+  it("resolves the SQL functions the application registers", () => {
+    const { after } = schemas(
+      "CREATE VIEW v AS SELECT bb_host_path_key(id) AS k FROM a;",
+    );
+    try {
+      registerHostPathSqlFunctions(after);
+      expect(expandWithForeignKeyNeighbours(after, ["b"])).toEqual(["b"]);
+      expect(expandWithForeignKeyNeighbours(after, ["a"])).toEqual(["a", "v"]);
+    } finally {
+      after.close();
+    }
+  });
+
+  it("treats a view over an unregistered function as touching every table", () => {
+    const { after } = schemas(
+      "CREATE VIEW v AS SELECT custom_check(id) AS k FROM a;",
+    );
+    try {
+      expect(expandWithForeignKeyNeighbours(after, ["b"])).toEqual([
+        "a",
+        "b",
+        "c",
+        "d",
+        "v",
+      ]);
+    } finally {
+      after.close();
+    }
+  });
+
+  it("follows an external-content full-text table to its backing table", () => {
+    const { after } = schemas(
+      "CREATE VIRTUAL TABLE f USING fts5(id, content='b', content_rowid='rowid'); CREATE VIEW v AS SELECT id FROM f;",
+    );
+    try {
+      expect(expandWithForeignKeyNeighbours(after, ["v"])).toEqual([
+        "b",
+        "f",
+        "v",
+      ]);
+      expect(expandWithForeignKeyNeighbours(after, ["b"])).toEqual([
+        "b",
+        "f",
+        "v",
+      ]);
+      expect(expandWithForeignKeyNeighbours(after, ["b"])).toContain("f");
+    } finally {
+      after.close();
+    }
+  });
+
+  it("does not treat a contentless full-text table as depending on a table", () => {
+    const { after } = schemas(
+      "CREATE VIRTUAL TABLE f USING fts5(id, content='');",
+    );
+    try {
+      expect(expandWithForeignKeyNeighbours(after, ["f"])).toEqual(["f"]);
+    } finally {
+      after.close();
+    }
+  });
+
   it("still sees a table named by a quoted identifier", () => {
     const { before, after } = schemas(
       'CREATE TRIGGER a_log AFTER INSERT ON a BEGIN INSERT INTO c (id) VALUES (new.id); UPDATE "b" SET id = id; END;',
@@ -591,6 +693,26 @@ describe("scanRebuiltTables", () => {
     "CREATE TEMP TABLE b (id); ALTER TABLE b RENAME TO c; ALTER TABLE c ADD COLUMN x;",
   ])("keeps a temp table's later statements out of main: %s", (sql) => {
     expect(scanRebuiltTables(sql)).toEqual([]);
+  });
+
+  it.each([
+    ["CREATE TEMP TABLE b(id); DROP TABLE temp.b; DROP TABLE b;", ["b"]],
+    ["CREATE TABLE temp.b(id); DROP TABLE b;", []],
+    ["CREATE TEMPORARY TABLE temp.x(id); DROP TABLE x;", []],
+    [
+      "CREATE TEMP TABLE t(id); ALTER TABLE temp.t RENAME TO b; DROP TABLE b;",
+      [],
+    ],
+    [
+      "CREATE TEMP TABLE b(id); ALTER TABLE temp.b RENAME TO c; DROP TABLE b;",
+      ["b"],
+    ],
+    [
+      "CREATE TEMP TABLE threads(x); DROP TABLE temp.threads; ALTER TABLE threads ADD COLUMN r;",
+      ["threads"],
+    ],
+  ])("tracks a qualified temp name consistently: %s", (sql, expected) => {
+    expect(scanRebuiltTables(sql)).toEqual(expected);
   });
 
   it("sees the main table again once the temp one is dropped", () => {
