@@ -474,6 +474,51 @@ describe("reference extraction", () => {
     }
   });
 
+  it("ignores a content= that sits inside another option's quoted value", () => {
+    const { after } = schemas(
+      `CREATE VIRTUAL TABLE f USING fts5(id, tokenize="unicode61 tokenchars 'content=fake'", content='b');`,
+    );
+    try {
+      expect(expandWithForeignKeyNeighbours(after, ["b"])).toEqual(["b", "f"]);
+    } finally {
+      after.close();
+    }
+  });
+
+  it("follows full-text content tables through views to the base table", () => {
+    const { after } = schemas(
+      `CREATE VIEW vb2 AS SELECT id FROM b;
+       CREATE VIRTUAL TABLE f2 USING fts5(id, content='vb2');
+       CREATE VIEW vb1 AS SELECT id FROM f2;
+       CREATE VIRTUAL TABLE f1 USING fts5(id, content='vb1');
+       CREATE VIEW v AS SELECT id FROM f1;`,
+    );
+    try {
+      expect(expandWithForeignKeyNeighbours(after, ["b"])).toEqual([
+        "b",
+        "f1",
+        "f2",
+        "v",
+        "vb1",
+        "vb2",
+      ]);
+      expect(expandWithForeignKeyNeighbours(after, ["v"])).toContain("b");
+    } finally {
+      after.close();
+    }
+  });
+
+  it("follows a full-text content view to the table under it", () => {
+    const { after } = schemas(
+      "CREATE VIEW v1 AS SELECT * FROM b; CREATE VIRTUAL TABLE f USING fts5(id, content='v1');",
+    );
+    try {
+      expect(expandWithForeignKeyNeighbours(after, ["b"])).toContain("f");
+    } finally {
+      after.close();
+    }
+  });
+
   it("does not treat a contentless full-text table as depending on a table", () => {
     const { after } = schemas(
       "CREATE VIRTUAL TABLE f USING fts5(id, content='');",
@@ -712,6 +757,16 @@ describe("scanRebuiltTables", () => {
       ["threads"],
     ],
   ])("tracks a qualified temp name consistently: %s", (sql, expected) => {
+    expect(scanRebuiltTables(sql)).toEqual(expected);
+  });
+
+  it.each([
+    [
+      "SAVEPOINT s; CREATE TEMP TABLE b(id); ROLLBACK TO s; RELEASE s; DROP TABLE b;",
+      ["b"],
+    ],
+    ["CREATE TEMP TABLE __new_b(id); CREATE TABLE __new_b(id);", ["b"]],
+  ])("handles rolled back and shadowed temp names: %s", (sql, expected) => {
     expect(scanRebuiltTables(sql)).toEqual(expected);
   });
 

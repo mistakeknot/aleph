@@ -147,7 +147,12 @@ export function scanRebuiltTables(sql: string): string[] {
   };
   for (let index = 0; index < tokens.length; index += 1) {
     const token = tokens[index];
-    if (isKeyword(token, "DROP") && isKeyword(tokens[index + 1], "TABLE")) {
+    if (isKeyword(token, "ROLLBACK")) {
+      tempNames.clear();
+    } else if (
+      isKeyword(token, "DROP") &&
+      isKeyword(tokens[index + 1], "TABLE")
+    ) {
       let cursor = index + 2;
       if (
         isKeyword(tokens[cursor], "IF") &&
@@ -205,7 +210,7 @@ export function scanRebuiltTables(sql: string): string[] {
       if (temporary || created.schema?.toLowerCase() === "temp") {
         tempNames.add(created.name.toLowerCase());
       } else if (created.name.toLowerCase().startsWith(NEW_TABLE_PREFIX)) {
-        add(created);
+        rebuilt.add(normalizeTableName(created.name));
       }
     }
   }
@@ -291,17 +296,63 @@ function quoteIdentifier(name: string): string {
   return `"${name.replaceAll('"', '""')}"`;
 }
 
-const CONTENT_TABLE_OPTION =
-  /\bcontent\s*=\s*(?:'((?:[^']|'')*)'|"((?:[^"]|"")*)"|(\w+))/i;
+const MODULE_ARGUMENTS = /\bUSING\s+[\w"`\[\]]+\s*\(/i;
+const CONTENT_ARGUMENT =
+  /^\s*content\s*=\s*(?:'((?:[^']|'')*)'|"((?:[^"]|"")*)"|(\w+))\s*$/i;
 const VIRTUAL_TABLE_DECLARATION = /^\s*CREATE\s+VIRTUAL\s+TABLE\b/i;
+const CLOSING_QUOTE: Record<string, string> = {
+  "'": "'",
+  '"': '"',
+  "`": "`",
+  "[": "]",
+};
+
+function moduleArguments(sql: string): string[] {
+  const opening = MODULE_ARGUMENTS.exec(sql);
+  if (opening === null) return [];
+  const args: string[] = [];
+  let depth = 1;
+  let current = "";
+  for (let index = opening.index + opening[0].length; index < sql.length;) {
+    const char = sql.charAt(index);
+    const closing = CLOSING_QUOTE[char];
+    if (closing !== undefined) {
+      let end = index + 1;
+      while (end < sql.length && sql.charAt(end) !== closing) end += 1;
+      current += sql.slice(index, end + 1);
+      index = end + 1;
+      continue;
+    }
+    if (char === "(") depth += 1;
+    if (char === ")") {
+      depth -= 1;
+      if (depth === 0) {
+        args.push(current);
+        return args;
+      }
+    }
+    if (char === "," && depth === 1) {
+      args.push(current);
+      current = "";
+    } else {
+      current += char;
+    }
+    index += 1;
+  }
+  return args;
+}
 
 function contentTableOf(row: SchemaObjectRow): string | undefined {
   if (row.type !== "table" || row.sql === null) return undefined;
   if (!VIRTUAL_TABLE_DECLARATION.test(row.sql)) return undefined;
-  const match = CONTENT_TABLE_OPTION.exec(row.sql);
-  const raw = match?.[1] ?? match?.[2] ?? match?.[3];
-  if (raw === undefined || raw.length === 0) return undefined;
-  return raw.replaceAll("''", "'").replaceAll('""', '"').toLowerCase();
+  for (const argument of moduleArguments(row.sql)) {
+    const match = CONTENT_ARGUMENT.exec(argument);
+    if (match === null) continue;
+    const raw = match[1] ?? match[2] ?? match[3];
+    if (raw === undefined || raw.length === 0) return undefined;
+    return raw.replaceAll("''", "'").replaceAll('""', '"').toLowerCase();
+  }
+  return undefined;
 }
 
 function isVirtualTable(row: SchemaObjectRow): boolean {
@@ -390,7 +441,7 @@ function findDependencies(
     };
     const drainBroken = (onBroken: (object: SchemaObjectRow) => void): void => {
       const seen = new Set<string>();
-      for (let broken = nextBroken(); broken !== undefined; ) {
+      for (let broken = nextBroken(); broken !== undefined;) {
         const key = dependencyKey(broken.type, broken.name);
         if (seen.has(key)) {
           throw new MigrationGuardError(
@@ -459,8 +510,11 @@ function tablesTouchedBy(
   }
   const pending = [...touched];
   for (let table = pending.pop(); table !== undefined; table = pending.pop()) {
-    for (const backing of dependencies.get(dependencyKey("table", table)) ??
-      []) {
+    const backings = [
+      ...(dependencies.get(dependencyKey("table", table)) ?? []),
+      ...(dependencies.get(dependencyKey("view", table)) ?? []),
+    ];
+    for (const backing of backings) {
       if (touched.has(backing)) continue;
       touched.add(backing);
       pending.push(backing);
