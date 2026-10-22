@@ -390,11 +390,16 @@ function checkFts(database: Database.Database, path: string): void {
     .all() as Array<{ name: string }>;
   for (const table of tables) {
     try {
-      database
-        .prepare(
-          `INSERT INTO ${quoteIdentifier(table.name)}(${quoteIdentifier(table.name)}, rank) VALUES ('integrity-check', 1)`,
-        )
-        .run();
+      database.exec("BEGIN");
+      try {
+        database
+          .prepare(
+            `INSERT INTO ${quoteIdentifier(table.name)}(${quoteIdentifier(table.name)}, rank) VALUES ('integrity-check', 1)`,
+          )
+          .run();
+      } finally {
+        database.exec("ROLLBACK");
+      }
     } catch (error) {
       throw new MigrationBackupError(
         `${basename(path)} failed the FTS integrity check on ${table.name}: ${error instanceof Error ? error.message : String(error)}`,
@@ -448,7 +453,30 @@ function newestOlderBackup(
   );
 }
 
+export function discardMigrationBackup(backup: MigrationBackup): void {
+  removeIfPresent(backup.path);
+  removeIfPresent(backup.sidecarPath);
+  removeIfPresent(`${backup.path}-journal`);
+  fsyncPath(dirname(backup.path));
+}
+
 export function finalizeMigrationBackup(
+  databasePath: string,
+  backup: MigrationBackup,
+): BackupFinalization {
+  try {
+    return finalizeUnchecked(databasePath, backup);
+  } catch (error) {
+    return {
+      status: "basic",
+      path: backup.path,
+      bytes: backup.bytes,
+      reason: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+function finalizeUnchecked(
   databasePath: string,
   backup: MigrationBackup,
 ): BackupFinalization {

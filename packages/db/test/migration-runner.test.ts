@@ -1,6 +1,7 @@
 import {
   cpSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -8,6 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
+import Database from "better-sqlite3";
 import { afterEach, describe, expect, it } from "vitest";
 import { createConnection, migrate, type DbConnection } from "../src/index.js";
 import { migrateWithFolders } from "../src/migrate.js";
@@ -94,6 +96,35 @@ describe("loadAlignedMigrationPlan candidate steps", () => {
     expect(() =>
       loadAlignedMigrationPlan({ upstreamFolder, alephFolder }),
     ).toThrow(/targets no known table, view, index or trigger/);
+  });
+
+  it("discards the backup and frees the lock when a step fails at runtime", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "bb-runner-fail-"));
+    tempDirs.push(directory);
+    const path = join(directory, "bb.db");
+    const prepared = createConnection(path);
+    applyPrefix(prepared.$client, 131);
+    prepared.$client.close();
+    const alephFolder = alephFolderWithSteps([
+      { id: "A0010", sql: "SELECT abs(-9223372036854775808);" },
+    ]);
+    const upstreamFolder = upstreamFolderWithCandidates([], alephFolder);
+    const db = createConnection(path);
+    try {
+      expect(() =>
+        migrateWithFolders(db, { upstreamFolder, alephFolder }),
+      ).toThrow();
+    } finally {
+      db.$client.close();
+    }
+    expect(
+      readdirSync(directory).filter((e) => e.includes(".pre-ns-")),
+    ).toEqual([]);
+    const probe = new Database(join(directory, "bb.db.migrating.lock"));
+    probe.pragma("busy_timeout = 0");
+    probe.exec("BEGIN EXCLUSIVE");
+    probe.exec("ROLLBACK");
+    probe.close();
   });
 
   it("widens the guard to the trusted table under a candidate-created index", () => {

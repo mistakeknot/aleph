@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   rmSync,
@@ -34,6 +35,7 @@ import {
   MigrationLockTimeout,
   migratingInfoPath,
   migratingLockPath,
+  waitWhileMigrating,
 } from "../src/migration-lock.js";
 import { applyPrefix } from "./helpers/legacy-oracle.js";
 
@@ -174,6 +176,41 @@ describe("migration lock files", () => {
     }
   });
 
+  it("lets a waiter see a held lock and then pass after release", () => {
+    const directory = tempDir();
+    const path = join(directory, "bb.db");
+    const first = createConnection(path);
+    const second = createConnection(path);
+    try {
+      const lock = acquireMigratingLock(first.$client);
+      expect(() => waitWhileMigrating(second.$client, 300)).toThrow(
+        MigrationLockTimeout,
+      );
+      expect(() => waitWhileMigrating(second.$client, 300)).toThrow(
+        MigrationLockTimeout,
+      );
+      lock?.release();
+      expect(() => waitWhileMigrating(second.$client, 300)).not.toThrow();
+    } finally {
+      first.$client.close();
+      second.$client.close();
+    }
+  });
+
+  it("releases the handle when the holder info cannot be written", () => {
+    const directory = tempDir();
+    const path = join(directory, "bb.db");
+    const db = createConnection(path);
+    try {
+      mkdirSync(migratingInfoPath(path));
+      expect(() => acquireMigratingLock(db.$client)).toThrow();
+      expect(heldMigrationLockHandleCount()).toBe(0);
+      expect(lockIsFree(migratingLockPath(path))).toBe(true);
+    } finally {
+      db.$client.close();
+    }
+  });
+
   it("frees the lock when a holder process is killed at each phase", async () => {
     const directory = tempDir();
     const path = join(directory, "bb.db");
@@ -269,6 +306,37 @@ describe("migration backup", () => {
     second.$client.close();
     expect(backupsOf(path)).toEqual([]);
     expect(reports).toEqual([]);
+  });
+
+  it("finalizes the backup even when no onBackup callback is given", () => {
+    const directory = tempDir();
+    const path = legacyFileDatabase(directory, 131);
+    const db = createConnection(path);
+    try {
+      migrate(db);
+    } finally {
+      db.$client.close();
+    }
+    const [backup] = backupsOf(path).filter(
+      (entry) => !entry.endsWith(SIDECAR_SUFFIX),
+    );
+    const sidecar = readSidecar(join(directory, `${backup}${SIDECAR_SUFFIX}`));
+    expect(sidecar?.digest).not.toBe("pending");
+  });
+
+  it("leaves backup bytes unchanged and tolerates a sidecar write failure", () => {
+    const directory = tempDir();
+    const path = scratchDatabase(
+      directory,
+      "CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT); INSERT INTO t(v) VALUES ('a');",
+    );
+    const backup = createMigrationBackup(path);
+    const before = fingerprint(backup.path);
+    rmSync(backup.sidecarPath);
+    mkdirSync(backup.sidecarPath);
+    const report = finalizeMigrationBackup(path, backup);
+    expect(report.status).toBe("basic");
+    expect(fingerprint(backup.path)).toBe(before);
   });
 
   it("leaves the database unchanged when the backup cannot be made", () => {

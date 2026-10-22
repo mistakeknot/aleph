@@ -19,6 +19,7 @@ import {
 } from "./migration-ledger.js";
 import {
   createMigrationBackup,
+  discardMigrationBackup,
   finalizeMigrationBackup,
   type BackupFinalization,
   type MigrationBackup,
@@ -1332,6 +1333,7 @@ export function migrateWithFolders(
           sqlite.exec("COMMIT");
         } catch (error) {
           if (sqlite.inTransaction) sqlite.exec("ROLLBACK");
+          if (backup !== null) discardMigrationBackup(backup);
           throw error;
         }
       } finally {
@@ -1343,7 +1345,8 @@ export function migrateWithFolders(
   }
 
   if (backup !== null) {
-    options.onBackup?.(finalizeMigrationBackup(sqlite.name, backup));
+    const finalization = finalizeMigrationBackup(sqlite.name, backup);
+    options.onBackup?.(finalization);
   }
   warnAboutFutureAppliedMigrations(db, options);
   validateAppliedMigrationHistory(db, aligned);

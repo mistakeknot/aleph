@@ -196,39 +196,47 @@ export function acquireMigratingLock(
     }
   }
   heldHandles.add(lock);
-  const token = randomBytes(8).toString("hex");
-  const databaseBytes = existsSync(databasePath)
-    ? statSync(databasePath).size
-    : 0;
-  const expectedMs = options.expectedMs ?? databaseBytes / 50_000;
-  const writeInfo = (phase: MigrationPhase): void => {
-    writeFileDurably(
-      migratingInfoPath(databasePath),
-      JSON.stringify({
-        pid: process.pid,
-        token,
-        databaseBytes,
-        expectedMs,
-        phase,
-        updatedAt: Date.now(),
-      } satisfies MigrationHolderInfo),
-    );
+  const releaseHandle = (): void => {
+    try {
+      if (lock.inTransaction) lock.exec("ROLLBACK");
+    } finally {
+      heldHandles.delete(lock);
+      lock.close();
+    }
   };
-  writeInfo("classifying");
-  let released = false;
-  return {
-    setPhase: writeInfo,
-    release: () => {
-      if (released) return;
-      released = true;
-      try {
-        lock.exec("ROLLBACK");
-      } finally {
-        heldHandles.delete(lock);
-        lock.close();
-      }
-    },
-  };
+  try {
+    const token = randomBytes(8).toString("hex");
+    const databaseBytes = existsSync(databasePath)
+      ? statSync(databasePath).size
+      : 0;
+    const expectedMs = options.expectedMs ?? databaseBytes / 50_000;
+    const writeInfo = (phase: MigrationPhase): void => {
+      writeFileDurably(
+        migratingInfoPath(databasePath),
+        JSON.stringify({
+          pid: process.pid,
+          token,
+          databaseBytes,
+          expectedMs,
+          phase,
+          updatedAt: Date.now(),
+        } satisfies MigrationHolderInfo),
+      );
+    };
+    writeInfo("classifying");
+    let released = false;
+    return {
+      setPhase: writeInfo,
+      release: () => {
+        if (released) return;
+        released = true;
+        releaseHandle();
+      },
+    };
+  } catch (error) {
+    releaseHandle();
+    throw error;
+  }
 }
 
 export function waitWhileMigrating(
@@ -248,6 +256,7 @@ export function waitWhileMigrating(
         probe.exec("ROLLBACK");
         return;
       } catch (error) {
+        if (probe.inTransaction) probe.exec("ROLLBACK");
         if (!isBusy(error)) throw error;
         if (Date.now() - startedAt >= waitCapMs) {
           const holder = readHolderInfo(sqlite.name);
