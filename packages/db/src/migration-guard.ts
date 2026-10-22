@@ -149,7 +149,21 @@ function normalizeTableName(name: string): string {
     : folded;
 }
 
+const REFUSED_CONTROL_CHARACTER = /[\u0000-\u0008\u000e-\u001f\u007f]/;
+
 export function scanRebuiltTables(sql: string): string[] {
+  const refused = REFUSED_CONTROL_CHARACTER.exec(sql);
+  if (refused !== null) {
+    throw new MigrationGuardError(
+      `Migration SQL contains control character U+${refused[0]
+        .charCodeAt(0)
+        .toString(16)
+        .padStart(
+          4,
+          "0",
+        )} at offset ${refused.index}, which the guard does not model`,
+    );
+  }
   const tokens = sql
     .split(STATEMENT_BREAKPOINT)
     .flatMap((chunk): Token[] => [

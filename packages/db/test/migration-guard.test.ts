@@ -872,6 +872,7 @@ describe("scanRebuiltTables", () => {
   });
 
   describe("against real SQLite separators", () => {
+    const REFUSED = /[\u0000-\u0008\u000e-\u001f\u007f]/;
     const separators = [
       ...Array.from({ length: 0x21 }, (_, code) => code),
       0x7f,
@@ -904,6 +905,10 @@ describe("scanRebuiltTables", () => {
               executed = false;
             }
             if (!executed) continue;
+            if (REFUSED.test(separator)) {
+              expect(() => scanRebuiltTables(sql)).toThrow(/control character/);
+              continue;
+            }
             const dropped =
               db
                 .prepare("SELECT 1 FROM sqlite_master WHERE name = 'b'")
@@ -964,6 +969,55 @@ describe("scanRebuiltTables", () => {
       expect(mismatches).toEqual([]);
     });
   });
+
+  it("scans every real upstream and Aleph step without refusing it", () => {
+    const input = loadMigrationPlanInput(sourceFolders);
+    for (const step of input.upstream) {
+      expect(() => scanRebuiltTables(readUpstreamSql(step.tag))).not.toThrow();
+    }
+    for (const step of input.aleph) {
+      expect(() =>
+        scanRebuiltTables(
+          readFileSync(join(sourceFolders.alephFolder, step.file), "utf8"),
+        ),
+      ).not.toThrow();
+    }
+  });
+
+  it("refuses the NUL repro instead of reading past it", () => {
+    expect(() =>
+      scanRebuiltTables(
+        "SELECT 1;\u0000 CREATE TEMP TABLE b(id);\n--> statement-breakpoint\nDROP TABLE b;",
+      ),
+    ).toThrow(/U\+0000 at offset 9/);
+  });
+
+  it.each([
+    ["a C0 control character", "\u0001"],
+    ["BEL", "\u0007"],
+    ["backspace", "\u0008"],
+    ["shift out", "\u000e"],
+    ["escape", "\u001b"],
+    ["unit separator", "\u001f"],
+    ["delete", "\u007f"],
+  ])("refuses %s anywhere in the SQL", (_label, character) => {
+    for (const sql of [
+      `DROP TABLE b${character};`,
+      `SELECT '${character}';`,
+      `-- ${character}\nDROP TABLE b;`,
+    ]) {
+      expect(() => scanRebuiltTables(sql)).toThrow(MigrationGuardError);
+    }
+  });
+
+  it.each(["\t", "\n", "\f", "\r", "\u000b"])(
+    "accepts the modelled whitespace %j",
+    (character) => {
+      expect(() =>
+        scanRebuiltTables(`DROP TABLE ${character}b;`),
+      ).not.toThrow();
+    },
+  );
 
   it("does not let EXPLAIN leak across a statement breakpoint", () => {
     expect(
