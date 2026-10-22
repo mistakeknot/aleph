@@ -24,6 +24,7 @@ import {
   foldName,
   expandWithForeignKeyNeighbours,
   guardPlan,
+  MigrationGuardError,
   nonFrozenUpstreamSteps,
   splitMigrationStatements,
   statementIdentifiers,
@@ -198,11 +199,70 @@ function buildGuardDatabase(
   }
 }
 
+const MUTATING_VERBS = new Set([
+  "drop",
+  "alter",
+  "insert",
+  "update",
+  "delete",
+  "replace",
+]);
+
+function ownersByName(sqlite: Database.Database): Map<string, Set<string>> {
+  const owners = new Map<string, Set<string>>();
+  const rows = sqlite
+    .prepare(
+      "SELECT type, name, tbl_name FROM sqlite_master WHERE type IN ('table', 'view', 'index', 'trigger')",
+    )
+    .all() as Array<{ type: string; name: string; tbl_name: string }>;
+  for (const row of rows) {
+    const key = foldName(row.name);
+    const owner = foldName(
+      row.type === "table" || row.type === "view" ? row.name : row.tbl_name,
+    );
+    const set = owners.get(key) ?? new Set<string>();
+    set.add(owner);
+    owners.set(key, set);
+  }
+  return owners;
+}
+
 function tablesNamedBy(
-  sqlite: Database.Database,
+  trusted: ReadonlySet<string>,
+  owners: ReadonlyMap<string, ReadonlySet<string>>,
   statements: readonly string[],
 ): string[] {
-  const existing = new Set(
+  const named = new Set<string>();
+  for (const statement of statements) {
+    const identifiers = statementIdentifiers(statement);
+    let resolved = false;
+    for (const identifier of identifiers) {
+      const found = owners.get(identifier);
+      if (found === undefined) continue;
+      resolved = true;
+      for (const owner of found) {
+        if (trusted.has(owner)) named.add(owner);
+      }
+    }
+    const verb = leadingVerb(statement);
+    if (!resolved && MUTATING_VERBS.has(verb)) {
+      throw new MigrationGuardError(
+        `Aleph step statement targets no known table, view, index or trigger and cannot be checked against upstream changes: ${statement.slice(0, 120)}`,
+      );
+    }
+  }
+  return [...named];
+}
+
+function leadingVerb(statement: string): string {
+  const match = /^\s*(?:(?:--[^\n]*\n|\/\*[\s\S]*?\*\/)\s*)*([A-Za-z]+)/.exec(
+    statement,
+  );
+  return match === null ? "" : match[1].toLowerCase();
+}
+
+function trustedTableNames(sqlite: Database.Database): Set<string> {
+  return new Set(
     (
       sqlite
         .prepare(
@@ -211,13 +271,59 @@ function tablesNamedBy(
         .all() as Array<{ name: string }>
     ).map((row) => foldName(row.name)),
   );
-  return [
-    ...new Set(
-      statements
-        .flatMap((statement) => statementIdentifiers(statement))
-        .filter((name) => existing.has(name)),
-    ),
-  ];
+}
+
+function mergeOwners(
+  ...maps: ReadonlyArray<ReadonlyMap<string, ReadonlySet<string>>>
+): Map<string, Set<string>> {
+  const merged = new Map<string, Set<string>>();
+  for (const map of maps) {
+    for (const [key, owners] of map) {
+      const set = merged.get(key) ?? new Set<string>();
+      for (const owner of owners) set.add(owner);
+      merged.set(key, set);
+    }
+  }
+  return merged;
+}
+
+function buildCandidateOwners(
+  folders: MigrationPlanFolders,
+  frozen: readonly FrozenUpstreamStep[],
+  input: MigrationPlanInput,
+): Map<string, Set<string>> {
+  const frozenTags = new Set(frozen.map((step) => step.tag));
+  const { sqlite } = buildGuardDatabase(
+    folders,
+    input.upstream
+      .filter((step) => frozenTags.has(step.tag))
+      .map((step) => ({
+        namespace: "upstream" as const,
+        file: `${step.tag}.sql`,
+        sha256: step.sha256,
+      })),
+  );
+  try {
+    for (const step of input.upstream) {
+      if (frozenTags.has(step.tag)) continue;
+      for (const statement of splitMigrationStatements(
+        readPlanStepSql(folders, {
+          namespace: "upstream",
+          file: `${step.tag}.sql`,
+          sha256: step.sha256,
+        }),
+      )) {
+        try {
+          sqlite.exec(statement);
+        } catch {
+          continue;
+        }
+      }
+    }
+    return ownersByName(sqlite);
+  } finally {
+    sqlite.close();
+  }
 }
 
 function computeGuardedTables(
@@ -248,7 +354,14 @@ function computeGuardedTables(
       return [
         ...expandWithForeignKeyNeighbours(withAleph, [
           ...computeAlteredTables(upstreamOnly, withAleph),
-          ...tablesNamedBy(upstreamOnly, skipped),
+          ...tablesNamedBy(
+            trustedTableNames(upstreamOnly),
+            mergeOwners(
+              ownersByName(upstreamOnly),
+              buildCandidateOwners(folders, frozen, input),
+            ),
+            skipped,
+          ),
         ]),
       ];
     } finally {
@@ -616,7 +729,7 @@ export function computeMigrationState(
     .filter((state) => state.kind === "mapped")
     .map((state) => state.index);
   return {
-    existing: lastDone >= 0 || datedCompatRows > 0 || ledger.size > 0,
+    existing: lastDone >= 0 || compat.length > 0 || ledger.size > 0,
     steps,
     lastDone,
     mapped,

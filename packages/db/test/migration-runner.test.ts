@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createConnection, migrate, type DbConnection } from "../src/index.js";
 import { migrateWithFolders } from "../src/migrate.js";
 import { legacyMigrationChain } from "../src/legacy-migration-chain.js";
+import { statementIdentifiers } from "../src/migration-guard.js";
 import { MigrationStateUnknown } from "../src/migration-ledger.js";
 import {
   computeMigrationState,
@@ -81,6 +82,49 @@ describe("loadAlignedMigrationPlan candidate steps", () => {
     expect(() => loadAlignedMigrationPlan(sourceFolders)).not.toThrow();
   });
 
+  it("refuses an Aleph statement whose target no model knows", () => {
+    const alephFolder = alephFolderWithSteps([
+      { id: "A0010", sql: "ALTER TABLE ghost_table ADD COLUMN extra TEXT;" },
+    ]);
+    const upstreamFolder = upstreamFolderWithCandidate(
+      "0144_synthetic",
+      "CREATE TABLE unrelated_candidate (id TEXT PRIMARY KEY);",
+      alephFolder,
+    );
+    expect(() =>
+      loadAlignedMigrationPlan({ upstreamFolder, alephFolder }),
+    ).toThrow(/targets no known table, view, index or trigger/);
+  });
+
+  it("widens the guard to the trusted table under a candidate-created index", () => {
+    const alephFolder = alephFolderWithSteps([
+      { id: "A0010", sql: "DROP INDEX candidate_idx;" },
+    ]);
+    const upstreamFolder = upstreamFolderWithCandidates(
+      [
+        {
+          tag: "0144_candidate_index",
+          sql: "CREATE INDEX candidate_idx ON hosts (id);",
+        },
+        {
+          tag: "0145_candidate_alter",
+          sql: "ALTER TABLE hosts ADD COLUMN zz_other TEXT;",
+        },
+      ],
+      alephFolder,
+    );
+    expect(() =>
+      loadAlignedMigrationPlan({ upstreamFolder, alephFolder }),
+    ).toThrow(/0145_candidate_alter.*hosts/);
+  });
+
+  it("does not read a table name that only appears in a string literal", () => {
+    expect(
+      statementIdentifiers("UPDATE app_settings SET value = 'threads'"),
+    ).toEqual(["update", "app_settings", "set", "value"]);
+    expect(statementIdentifiers("DROP TABLE 'threads'")).toContain("threads");
+  });
+
   it("refuses a candidate that drops an Aleph-owned table", () => {
     const upstreamFolder = upstreamFolderWithCandidate(
       "0144_synthetic",
@@ -96,6 +140,22 @@ describe("loadAlignedMigrationPlan candidate steps", () => {
 });
 
 describe("computeMigrationState history checks", () => {
+  it("treats a database with only an undated compatibility row as existing", () => {
+    const db = createConnection(":memory:");
+    try {
+      db.$client.exec(
+        "CREATE TABLE __drizzle_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, hash TEXT NOT NULL, created_at NUMERIC)",
+      );
+      db.$client
+        .prepare("INSERT INTO __drizzle_migrations (hash) VALUES (?)")
+        .run("undated");
+      const aligned = loadAlignedMigrationPlan(sourceFolders);
+      expect(computeMigrationState(db.$client, aligned).existing).toBe(true);
+    } finally {
+      closeConnection(db);
+    }
+  });
+
   it("refuses a deleted legacy ledger row instead of recreating it", () => {
     const db = createConnection(":memory:");
     try {

@@ -170,11 +170,37 @@ export function refuseUnmodelledCharacters(sql: string): void {
   }
 }
 
+const STRING_IDENTIFIER_PRECEDERS = new Set([
+  "TABLE",
+  "INDEX",
+  "TRIGGER",
+  "VIEW",
+  "ON",
+  "FROM",
+  "INTO",
+  "UPDATE",
+  "JOIN",
+  "EXISTS",
+  "REFERENCES",
+  "TO",
+  "COLUMN",
+]);
+
 export function statementIdentifiers(statement: string): string[] {
+  const tokens = tokenize(statement);
   return [
     ...new Set(
-      tokenize(statement)
-        .filter(isName)
+      tokens
+        .filter((token, position) => {
+          if (!isName(token)) return false;
+          if (token.kind !== "string") return true;
+          const before = tokens[position - 1];
+          return (
+            before !== undefined &&
+            before.kind === "word" &&
+            STRING_IDENTIFIER_PRECEDERS.has(foldKeyword(before.value))
+          );
+        })
         .map((token) => normalizeTableName(token.value)),
     ),
   ];
