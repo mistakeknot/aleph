@@ -516,6 +516,48 @@ describe("per-step safety checks", () => {
     });
   });
 
+  const upperRename = {
+    tableRenames: { APP_SETTINGS_VALUES: "ZZ_RENAMED" },
+  };
+  const renameSql = "ALTER TABLE app_settings_values RENAME TO zz_renamed;";
+
+  it("accepts an unchanged table renamed to an upper-case declared target", async () => {
+    const db = await migratedPopulatedDatabase();
+    runA0010(db, renameSql, upperRename);
+  });
+
+  it.each([
+    ["corruption", "UPDATE zz_renamed SET value = value || 'x';"],
+    [
+      "deletion",
+      "DELETE FROM zz_renamed WHERE rowid = (SELECT min(rowid) FROM zz_renamed);",
+    ],
+    ["a rowid change", "UPDATE zz_renamed SET rowid = rowid + 100000;"],
+  ])(
+    "refuses %s in a table renamed to an upper-case target",
+    async (_label, mutation) => {
+      const db = await migratedPopulatedDatabase();
+      expectRefused(
+        db,
+        [renameSql, mutation].join(BREAK),
+        /app_settings_values/,
+        upperRename,
+      );
+    },
+  );
+
+  it("does not report an unchanged orphan in a table renamed to an upper-case target", async () => {
+    const db = await migratedPopulatedDatabase();
+    db.$client.pragma("foreign_keys = OFF");
+    db.$client.exec(
+      "CREATE TABLE zz_fk_parent (id integer PRIMARY KEY); CREATE TABLE zz_fk_child (id integer PRIMARY KEY, a integer REFERENCES zz_fk_parent(id)); INSERT INTO zz_fk_child (a) VALUES (99);",
+    );
+    db.$client.pragma("foreign_keys = ON");
+    runA0010(db, "ALTER TABLE zz_fk_child RENAME TO zz_fk_moved;", {
+      tableRenames: { ZZ_FK_CHILD: "ZZ_FK_MOVED" },
+    });
+  });
+
   it("refuses a declaration that matches no table", async () => {
     const db = await migratedPopulatedDatabase();
     expectRefused(db, "SELECT 1;", /zz_missing/, {

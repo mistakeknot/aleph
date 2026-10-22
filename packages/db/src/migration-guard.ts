@@ -353,6 +353,13 @@ function isLiteralString(
   return false;
 }
 
+const COMPOUND_SELECT_KEYWORDS = new Set([
+  "SELECT",
+  "UNION",
+  "INTERSECT",
+  "EXCEPT",
+]);
+
 export function statementIdentifiers(statement: string): string[] {
   const tokens = tokenize(statement);
   let depth = 0;
@@ -368,7 +375,8 @@ export function statementIdentifiers(statement: string): string[] {
         const parent = kinds[depth] ?? "group";
         depth += 1;
         const inner = keywordAt(tokens, position + 1);
-        if (inner === "SELECT" || inner === "WITH") kinds[depth] = "group";
+        if (inner === "SELECT" || inner === "WITH" || inner === "VALUES")
+          kinds[depth] = "group";
         else if (opener === "IN" || opener === "VALUES") kinds[depth] = "list";
         else if (
           before?.kind === "word" &&
@@ -394,6 +402,13 @@ export function statementIdentifiers(statement: string): string[] {
         depth = Math.max(0, depth - 1);
       }
       continue;
+    }
+    if (
+      token.kind === "word" &&
+      kinds[depth] === "list" &&
+      COMPOUND_SELECT_KEYWORDS.has(token.value.toUpperCase())
+    ) {
+      kinds[depth] = "group";
     }
     if (
       token.kind === "string" &&

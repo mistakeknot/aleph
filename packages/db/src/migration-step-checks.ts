@@ -829,10 +829,17 @@ export function verifyStep(
   const renames = new Map(
     Object.entries(declared.tableRenames).map(([from, to]) => [fold(from), to]),
   );
-  const resolve = (name: string): string =>
-    tableByName(after.tables, name) !== undefined
-      ? name
-      : (renames.get(fold(name)) ?? name);
+  const storedName = (name: string): string | undefined => {
+    const table = tableByName(after.tables, name);
+    return table === undefined ? undefined : table.name;
+  };
+  const resolve = (name: string): string => {
+    const direct = storedName(name);
+    if (direct !== undefined) return direct;
+    const renamed = renames.get(fold(name));
+    if (renamed === undefined) return name;
+    return storedName(renamed) ?? renamed;
+  };
   const renameTargets = new Set<string>();
   for (const name of before.tables.keys()) {
     const target = resolve(name);
@@ -1109,8 +1116,8 @@ export function captureForeignKeyIdentities(
           `INSERT INTO temp.${name} SELECT ?, ${childKeyExpr}, ?, ?, ${values}, count(*) FROM main.${quote(child.name)} c WHERE ${nonNull} AND NOT EXISTS (SELECT 1 FROM main.${quote(parentName)} p WHERE ${match}) GROUP BY ${childKeyExpr}, ${values}`,
         )
         .run(
-          mappedChild,
-          renames.tableRenames[fold(parentName)] ?? parentName,
+          fold(mappedChild),
+          fold(renames.tableRenames[fold(parentName)] ?? parentName),
           JSON.stringify(mappedColumns),
         );
     }
