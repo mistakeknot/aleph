@@ -812,6 +812,142 @@ describe("skipped Aleph statements keep their trusted tables protected", () => {
     },
   );
 
+  it.each([
+    ["with IF EXISTS", "DROP INDEX IF EXISTS zz_idx;"],
+    ["without IF EXISTS", "DROP INDEX zz_idx;"],
+  ])(
+    "keeps the owner of a candidate index guarded when an Aleph step drops it %s",
+    (_label, drop) => {
+      const alephFolder = alephFolderWithSteps([{ id: "A0010", sql: drop }]);
+      const upstreamFolder = upstreamFolderWithCandidates(
+        [
+          {
+            tag: "0144_zz_index",
+            sql: "CREATE INDEX zz_idx ON app_settings (updated_at);",
+          },
+          { tag: "0145_zz_drop", sql: "DROP TABLE app_settings;" },
+        ],
+        alephFolder,
+      );
+      expect(() =>
+        loadAlignedMigrationPlan({ upstreamFolder, alephFolder }),
+      ).toThrow(/0145_zz_drop.*app_settings/);
+    },
+  );
+
+  it("keeps the owner of a candidate trigger guarded when an Aleph step drops it", () => {
+    const alephFolder = alephFolderWithSteps([
+      { id: "A0010", sql: "DROP TRIGGER zz_trigger;" },
+    ]);
+    const trigger =
+      "CREATE TRIGGER zz_trigger AFTER INSERT ON app_settings BEGIN SELECT 1; END;";
+    expect(() =>
+      loadAlignedMigrationPlan({
+        upstreamFolder: upstreamFolderWithCandidates(
+          [{ tag: "0144_zz_trigger", sql: trigger }],
+          alephFolder,
+        ),
+        alephFolder,
+      }),
+    ).not.toThrow();
+    expect(() =>
+      loadAlignedMigrationPlan({
+        upstreamFolder: upstreamFolderWithCandidates(
+          [
+            { tag: "0144_zz_trigger", sql: trigger },
+            {
+              tag: "0145_zz_alter",
+              sql: "ALTER TABLE app_settings ADD COLUMN zz_extra TEXT;",
+            },
+          ],
+          alephFolder,
+        ),
+        alephFolder,
+      }),
+    ).toThrow(/0145_zz_alter.*app_settings/);
+  });
+
+  it.each([
+    [
+      "an IS DISTINCT FROM operand",
+      "INSERT INTO zz_source (value) SELECT 'x' WHERE 'y' IS DISTINCT FROM 'app_settings';",
+    ],
+    [
+      "a join predicate",
+      "INSERT INTO zz_source (value) SELECT 'x' FROM zz_source AS a JOIN zz_source AS b ON 'app_settings' = 'app_settings';",
+    ],
+  ])(
+    "does not guard a table named only by a string literal in %s",
+    (_label, statement) => {
+      const alephFolder = alephFolderWithSteps([
+        { id: "A0010", sql: statement },
+      ]);
+      const upstreamFolder = upstreamFolderWithCandidates(
+        [
+          {
+            tag: "0144_zz_source",
+            sql: "CREATE TABLE zz_source (value TEXT);",
+          },
+          {
+            tag: "0145_zz_alter",
+            sql: "ALTER TABLE app_settings ADD COLUMN zz_extra TEXT;",
+          },
+        ],
+        alephFolder,
+      );
+      expect(() =>
+        loadAlignedMigrationPlan({ upstreamFolder, alephFolder }),
+      ).not.toThrow();
+    },
+  );
+
+  it.each([
+    [
+      "an UPDATE OR REPLACE target",
+      "UPDATE OR REPLACE 'app_settings' SET missing_col = 1 WHERE id IN (SELECT id FROM zz_noop);",
+    ],
+    [
+      "a comma-joined FROM item",
+      "INSERT INTO zz_noop (id) SELECT missing_col FROM hosts, 'app_settings';",
+    ],
+  ])(
+    "guards a table named as %s in a skipped Aleph statement",
+    (_label, statement) => {
+      const alephFolder = alephFolderWithSteps([
+        { id: "A0010", sql: statement },
+      ]);
+      const upstreamFolder = upstreamFolderWithCandidates(
+        [
+          { tag: "0144_zz_noop", sql: "CREATE TABLE zz_noop (id TEXT);" },
+          {
+            tag: "0145_zz_alter",
+            sql: "ALTER TABLE app_settings ADD COLUMN zz_extra TEXT;",
+          },
+        ],
+        alephFolder,
+      );
+      expect(() =>
+        loadAlignedMigrationPlan({ upstreamFolder, alephFolder }),
+      ).toThrow(/0145_zz_alter.*app_settings/);
+    },
+  );
+
+  it("refuses a skipped statement behind a CTE that targets no known object", () => {
+    const alephFolder = alephFolderWithSteps([
+      {
+        id: "A0010",
+        sql: "WITH x AS (SELECT 1) DELETE FROM zz_ghost WHERE id IN (SELECT * FROM x);",
+      },
+    ]);
+    const upstreamFolder = upstreamFolderWithCandidates(
+      [{ tag: "0144_zz_other", sql: "CREATE TABLE zz_other (id TEXT);" }],
+      alephFolder,
+    );
+    expect(() =>
+      loadAlignedMigrationPlan({ upstreamFolder, alephFolder }),
+    ).toThrow(/targets no known table/);
+  });
+
   it("keeps the real plan at 25 guarded tables when a candidate only adds a table", () => {
     const upstreamFolder = upstreamFolderWithCandidates(
       [

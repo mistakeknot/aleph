@@ -28,6 +28,7 @@ import {
   nonFrozenUpstreamSteps,
   splitMigrationStatements,
   statementIdentifiers,
+  statementVerb,
   verifyFrozenSet,
 } from "./migration-guard.js";
 import {
@@ -164,6 +165,15 @@ export function readPlanStepSql(
   return bytes.toString("utf8");
 }
 
+const MISSING_OBJECT_ERROR =
+  /\bno such (table|column|index|view|trigger)\b|has no column named/i;
+
+const SCHEMA_CHANGING_VERBS = new Set(["drop", "alter"]);
+
+function schemaVersion(sqlite: Database.Database): number {
+  return sqlite.pragma("schema_version", { simple: true }) as number;
+}
+
 function buildGuardDatabase(
   folders: MigrationPlanFolders,
   steps: ReadonlyArray<
@@ -179,20 +189,26 @@ function buildGuardDatabase(
       for (const statement of splitMigrationStatements(
         readPlanStepSql(folders, step),
       )) {
+        const schemaBefore = schemaVersion(sqlite);
         try {
           sqlite.exec(statement);
         } catch (error) {
           if (
             step.namespace === "aleph" &&
             error instanceof Error &&
-            /\bno such (table|column|index|view)\b|has no column named/i.test(
-              error.message,
-            )
+            MISSING_OBJECT_ERROR.test(error.message)
           ) {
             skipped.push(statement);
             continue;
           }
           throw error;
+        }
+        if (
+          step.namespace === "aleph" &&
+          SCHEMA_CHANGING_VERBS.has(statementVerb(statement)) &&
+          schemaVersion(sqlite) === schemaBefore
+        ) {
+          skipped.push(statement);
         }
       }
     }
@@ -248,7 +264,7 @@ function tablesNamedBy(
         if (trusted.has(owner)) named.add(owner);
       }
     }
-    const verb = leadingVerb(statement);
+    const verb = statementVerb(statement);
     if (!resolved && MUTATING_VERBS.has(verb)) {
       throw new MigrationGuardError(
         `Aleph step statement targets no known table, view, index or trigger and cannot be checked against upstream changes: ${statement.slice(0, 120)}`,
@@ -256,13 +272,6 @@ function tablesNamedBy(
     }
   }
   return [...named];
-}
-
-function leadingVerb(statement: string): string {
-  const match = /^\s*(?:(?:--[^\n]*\n|\/\*[\s\S]*?\*\/)\s*)*([A-Za-z]+)/.exec(
-    statement,
-  );
-  return match === null ? "" : match[1].toLowerCase();
 }
 
 function trustedTableNames(sqlite: Database.Database): Set<string> {
@@ -308,6 +317,7 @@ function buildCandidateOwners(
       })),
   );
   try {
+    let accumulated = ownersByName(sqlite);
     for (const step of input.upstream) {
       if (frozenTags.has(step.tag)) continue;
       for (const statement of splitMigrationStatements(
@@ -319,12 +329,20 @@ function buildCandidateOwners(
       )) {
         try {
           sqlite.exec(statement);
-        } catch {
-          continue;
+        } catch (error) {
+          if (
+            error instanceof Error &&
+            (MISSING_OBJECT_ERROR.test(error.message) ||
+              /already exists|duplicate column name/i.test(error.message))
+          ) {
+            continue;
+          }
+          throw error;
         }
+        accumulated = mergeOwners(accumulated, ownersByName(sqlite));
       }
     }
-    return ownersByName(sqlite);
+    return accumulated;
   } finally {
     sqlite.close();
   }

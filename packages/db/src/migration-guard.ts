@@ -175,35 +175,173 @@ const STRING_IDENTIFIER_PRECEDERS = new Set([
   "INDEX",
   "TRIGGER",
   "VIEW",
-  "ON",
-  "FROM",
   "INTO",
   "UPDATE",
   "JOIN",
-  "EXISTS",
   "REFERENCES",
   "TO",
   "COLUMN",
 ]);
 
+const CONFLICT_RESOLUTIONS = new Set([
+  "REPLACE",
+  "IGNORE",
+  "ROLLBACK",
+  "ABORT",
+  "FAIL",
+]);
+
+const FROM_CLAUSE_ENDERS = new Set([
+  "WHERE",
+  "GROUP",
+  "ORDER",
+  "HAVING",
+  "LIMIT",
+  "UNION",
+  "EXCEPT",
+  "INTERSECT",
+  "WINDOW",
+  "SELECT",
+  "VALUES",
+  "RETURNING",
+  "SET",
+]);
+
+const STATEMENT_VERBS = new Set([
+  "SELECT",
+  "INSERT",
+  "UPDATE",
+  "DELETE",
+  "REPLACE",
+  "VALUES",
+  "DROP",
+  "ALTER",
+  "CREATE",
+  "PRAGMA",
+  "VACUUM",
+  "REINDEX",
+  "ANALYZE",
+  "ATTACH",
+  "DETACH",
+  "BEGIN",
+  "COMMIT",
+  "END",
+  "SAVEPOINT",
+  "RELEASE",
+  "ROLLBACK",
+  "EXPLAIN",
+]);
+
+function keywordAt(
+  tokens: readonly Token[],
+  position: number,
+): string | undefined {
+  const token = tokens[position];
+  return token !== undefined && token.kind === "word"
+    ? foldKeyword(token.value)
+    : undefined;
+}
+
+function isFromKeyword(tokens: readonly Token[], position: number): boolean {
+  return (
+    keywordAt(tokens, position) === "FROM" &&
+    keywordAt(tokens, position - 1) !== "DISTINCT"
+  );
+}
+
+function isTableCreation(tokens: readonly Token[]): "INDEX" | "TRIGGER" | null {
+  if (keywordAt(tokens, 0) !== "CREATE") return null;
+  for (let position = 1; position < tokens.length; position += 1) {
+    const keyword = keywordAt(tokens, position);
+    if (keyword === "INDEX" || keyword === "TRIGGER") return keyword;
+    if (keyword === "TABLE" || keyword === "VIEW") return null;
+  }
+  return null;
+}
+
+export function statementVerb(statement: string): string {
+  const tokens = tokenize(statement);
+  let depth = 0;
+  for (const token of tokens) {
+    if (token.kind === "punct") {
+      if (token.value === "(") depth += 1;
+      else if (token.value === ")") depth -= 1;
+      continue;
+    }
+    if (depth !== 0 || token.kind !== "word") continue;
+    const keyword = foldKeyword(token.value);
+    if (keyword === "WITH" || keyword === "RECURSIVE") continue;
+    if (STATEMENT_VERBS.has(keyword)) return keyword.toLowerCase();
+  }
+  return "";
+}
+
 export function statementIdentifiers(statement: string): string[] {
   const tokens = tokenize(statement);
-  return [
-    ...new Set(
-      tokens
-        .filter((token, position) => {
-          if (!isName(token)) return false;
-          if (token.kind !== "string") return true;
-          const before = tokens[position - 1];
-          return (
-            before !== undefined &&
-            before.kind === "word" &&
-            STRING_IDENTIFIER_PRECEDERS.has(foldKeyword(before.value))
-          );
-        })
-        .map((token) => normalizeTableName(token.value)),
-    ),
-  ];
+  const creation = isTableCreation(tokens);
+  const firstOn = tokens.findIndex(
+    (_, position) => keywordAt(tokens, position) === "ON",
+  );
+  let depth = 0;
+  const inFrom: boolean[] = [false];
+  const identifiers = new Set<string>();
+  for (let position = 0; position < tokens.length; position += 1) {
+    const token = tokens[position];
+    if (token === undefined) continue;
+    if (token.kind === "punct") {
+      if (token.value === "(") {
+        depth += 1;
+        inFrom[depth] = false;
+      } else if (token.value === ")") {
+        inFrom[depth] = false;
+        depth = Math.max(0, depth - 1);
+      }
+      continue;
+    }
+    const keyword = keywordAt(tokens, position);
+    if (keyword !== undefined) {
+      if (isFromKeyword(tokens, position)) inFrom[depth] = true;
+      else if (FROM_CLAUSE_ENDERS.has(keyword)) inFrom[depth] = false;
+    }
+    if (token.kind === "word") {
+      identifiers.add(normalizeTableName(token.value));
+      continue;
+    }
+    if (token.kind !== "string") {
+      identifiers.add(normalizeTableName(token.value));
+      continue;
+    }
+    const before = keywordAt(tokens, position - 1);
+    const beforePunct = tokens[position - 1];
+    let accepted = false;
+    if (before !== undefined) {
+      if (STRING_IDENTIFIER_PRECEDERS.has(before)) accepted = true;
+      else if (before === "FROM")
+        accepted = isFromKeyword(tokens, position - 1);
+      else if (before === "EXISTS") {
+        const guard = keywordAt(tokens, position - 2);
+        accepted = guard === "IF" || guard === "NOT";
+      } else if (before === "ON") {
+        accepted = creation !== null && position - 1 === firstOn;
+      } else if (CONFLICT_RESOLUTIONS.has(before)) {
+        accepted = keywordAt(tokens, position - 2) === "OR";
+      }
+    } else if (beforePunct?.kind === "punct") {
+      if (beforePunct.value === ".") accepted = true;
+      else if (beforePunct.value === ",") accepted = inFrom[depth] === true;
+      else if (beforePunct.value === "(") {
+        const opener = position - 2;
+        accepted =
+          isFromKeyword(tokens, opener) ||
+          keywordAt(tokens, opener) === "JOIN" ||
+          (tokens[opener]?.kind === "punct" &&
+            tokens[opener]?.value === "," &&
+            inFrom[depth - 1] === true);
+      }
+    }
+    if (accepted) identifiers.add(normalizeTableName(token.value));
+  }
+  return [...identifiers];
 }
 
 export function scanRebuiltTables(sql: string): string[] {
