@@ -2220,6 +2220,43 @@ export function listTodoSnapshotEventRowsForThread(
   return row ? [row] : [];
 }
 
+// The model fallback the latest timeline shows: the newest fallback event
+// after the thread's newest turn request, which clears it. A running turn can
+// be read from a floor past the fallback, so the timeline reads it as head
+// state rather than relying on it being in the transcript window.
+export function listLatestModelFallbackEventRowsForThread(
+  db: DbConnection,
+  args: { threadId: string },
+): StoredEventRow[] {
+  const request = db
+    .select({ sequence: sql<number>`${events.sequence}` })
+    .from(sql`${events} INDEXED BY events_thread_type_sequence_idx`)
+    .where(
+      and(
+        eq(events.threadId, args.threadId),
+        eq(events.type, "client/turn/requested"),
+      ),
+    )
+    .orderBy(desc(events.sequence))
+    .limit(1)
+    .get();
+  const row = db
+    .select(storedEventRowSqlFields(null))
+    .from(sql`${events} INDEXED BY events_thread_type_sequence_idx`)
+    .where(
+      and(
+        eq(events.threadId, args.threadId),
+        inArray(events.type, ["provider/modelFallback", "provider/unhandled"]),
+        gt(events.sequence, request?.sequence ?? 0),
+        sql`(${events.type} = 'provider/modelFallback' OR ${isUnhandledModelFallbackData})`,
+      ),
+    )
+    .orderBy(desc(events.sequence))
+    .limit(1)
+    .get();
+  return row ? [row] : [];
+}
+
 export interface ListActiveBackgroundTaskCountsByThreadIdsArgs {
   threadIds: readonly string[];
 }
@@ -3624,6 +3661,59 @@ export function findStoredTimelineCompletedTurnTail(
   ) {
     return undefined;
   }
+  // The projection places an agent message at its first text, not at its
+  // start, and builds one from text deltas even without a start. The counts
+  // and the adjacency check above use start order, so the tail is only exact
+  // when every agent message text belongs to a started message and each
+  // message's first text comes after its own start and before the next item
+  // starts. Anything else falls back to the full turn read.
+  const firstTexts = db
+    .select({
+      itemId: sql<string | null>`${events.itemId}`,
+      sequence: sql<number>`MIN(${events.sequence})`,
+    })
+    .from(
+      sql`${events} INDEXED BY events_thread_turn_type_item_sequence_idx`,
+    )
+    .where(
+      and(
+        eq(events.threadId, args.threadId),
+        eq(events.turnId, args.turnId),
+        inArray(events.type, ["item/agentMessage/delta", "item/completed"]),
+        gt(events.sequence, startedSequence),
+        lt(events.sequence, completedSequence),
+        sql`(${events.type} = 'item/agentMessage/delta' OR ${events.itemKind} = 'agentMessage')`,
+        isNull(events.parentToolCallId),
+        ...(args.excludeDiagnosticEvents ? [isNotDiagnosticEvent] : []),
+      ),
+    )
+    .groupBy(events.itemId)
+    .all();
+  const firstTextById = new Map(
+    firstTexts.map((row) => [row.itemId, row.sequence]),
+  );
+  const startedAgentMessageIds = new Set(
+    items
+      .filter((item) => item.itemKind === "agentMessage")
+      .map((item) => item.itemId),
+  );
+  if (
+    firstTexts.some(
+      (row) => row.itemId === null || !startedAgentMessageIds.has(row.itemId),
+    ) ||
+    items.some((item, index) => {
+      if (item.itemKind !== "agentMessage") return false;
+      const firstText = firstTextById.get(item.itemId);
+      const next = items[index + 1];
+      return (
+        firstText === undefined ||
+        firstText < item.sequence ||
+        (next !== undefined && firstText > next.sequence)
+      );
+    })
+  ) {
+    return undefined;
+  }
   const secondItem = items[1];
   return {
     firstItem:
@@ -3929,19 +4019,22 @@ export function getLatestThreadSystemErrorEventRow(
   );
 }
 
+// A provider/unhandled row that the timeline reads as a model fallback.
+const isUnhandledModelFallbackData = sql`COALESCE((
+  json_extract(${events.data}, '$.rawEvent.method') = 'sdk/message'
+  AND json_extract(${events.data}, '$.rawEvent.params.message.subtype')
+    IN ('model_fallback', 'model_refusal_fallback')
+  AND json_type(${events.data}, '$.rawEvent.params.message.original_model') = 'text'
+  AND length(json_extract(${events.data}, '$.rawEvent.params.message.original_model')) > 0
+  AND json_type(${events.data}, '$.rawEvent.params.message.fallback_model') = 'text'
+  AND length(json_extract(${events.data}, '$.rawEvent.params.message.fallback_model')) > 0
+), 0)`;
+
 const isNotDiagnosticEvent = sql`(
   ${events.type} <> 'provider.env-resolved'
   AND (
     ${events.type} <> 'provider/unhandled'
-    OR COALESCE((
-      json_extract(${events.data}, '$.rawEvent.method') = 'sdk/message'
-      AND json_extract(${events.data}, '$.rawEvent.params.message.subtype')
-        IN ('model_fallback', 'model_refusal_fallback')
-      AND json_type(${events.data}, '$.rawEvent.params.message.original_model') = 'text'
-      AND length(json_extract(${events.data}, '$.rawEvent.params.message.original_model')) > 0
-      AND json_type(${events.data}, '$.rawEvent.params.message.fallback_model') = 'text'
-      AND length(json_extract(${events.data}, '$.rawEvent.params.message.fallback_model')) > 0
-    ), 0)
+    OR ${isUnhandledModelFallbackData}
     OR CASE
       WHEN instr(${events.data}, '"imageGeneration"') = 0 THEN 0
       WHEN json_valid(${events.data}) THEN

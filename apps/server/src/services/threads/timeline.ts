@@ -99,6 +99,7 @@ import {
   listStoredTimelineThreadWindowEventRows,
   listTimelineRootWindowTurnIds,
   listTodoSnapshotEventRowsForThread,
+  listLatestModelFallbackEventRowsForThread,
   listStoredDelegatingItemRowsByItemIds,
   listStoredTurnInputAcceptedRowsByClientRequestIds,
   listStoredTurnRejectedRowsByClientRequestIds,
@@ -949,6 +950,7 @@ function listLatestTimelineHeadStateRows(
       kind: THREAD_SESSION_OPTION_SELECTIONS_STATE_KIND,
     }),
     ...listTodoSnapshotEventRowsForThread(db, { threadId }),
+    ...listLatestModelFallbackEventRowsForThread(db, { threadId }),
   ]);
 }
 

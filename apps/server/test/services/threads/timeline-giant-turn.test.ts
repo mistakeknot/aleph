@@ -409,6 +409,84 @@ describe("one giant turn", () => {
     );
   }, 600_000);
 
+  it("falls back on agent message text that has no start", () => {
+    const deltaOnly = messageItem("turn-2", "turn-2-delta-only", 3);
+    expectTailMatchesFullRead(
+      [
+        ...workRows("turn-2", 2_500),
+        ...deltaOnly.slice(1, -1),
+        ...workRows("turn-2", 2_500, "turn-2-after"),
+        ...commandItem("turn-2", "turn-2-lead-in", 2),
+        ...messageItem("turn-2", "turn-2-final", 5),
+      ],
+      false,
+    );
+  }, 600_000);
+
+  it("places a message by its first text, not its start", () => {
+    // The final message starts before a command but its text arrives after
+    // the command starts, so the projection shows the command first.
+    const message = messageItem("turn-2", "turn-2-final", 3);
+    const command = commandItem("turn-2", "turn-2-overtaking", 2);
+    expectTailMatchesFullRead(
+      [
+        ...workRows("turn-2", 5_000),
+        ...commandItem("turn-2", "turn-2-lead-in", 2),
+        message[0]!,
+        command[0]!,
+        ...message.slice(1),
+        ...command.slice(1),
+      ],
+      false,
+    );
+  }, 600_000);
+
+  it("keeps an early model fallback when a running turn is capped", () => {
+    withTestThread((testThread) => {
+      appendRows(
+        testThread,
+        seedGiantTurn(false, 5_000, [
+          {
+            data: {
+              fallbackModel: "gpt-5-mini",
+              message: "Switched from gpt-5 to gpt-5-mini.",
+              originalModel: "gpt-5",
+              reason: "provider",
+            },
+            turnId: "turn-2",
+            type: "provider/modelFallback",
+          },
+          ...workRows("turn-2", 5_000),
+        ]),
+      );
+      const build = (eventBudget?: number) =>
+        buildRouteTimelinePage({
+          db: testThread.db,
+          eventBudget,
+          page: { kind: "latest", segmentLimit: 3 },
+          registry,
+          thread: testThread.thread,
+          variant: "default",
+        });
+      const bounded = build();
+      const full = build(1_000_000);
+      expect(bounded.profile.eventRowCount).toBeLessThan(
+        full.profile.eventRowCount / 2,
+      );
+      expect(full.response.modelFallback?.fallbackModel).toBe("gpt-5-mini");
+      expect(bounded.response.modelFallback).toEqual(
+        full.response.modelFallback,
+      );
+
+      appendRows(testThread, [
+        { data: { status: "completed" }, turnId: "turn-2", type: "turn/completed" },
+        ...turnOpening(3),
+      ]);
+      expect(build().response.modelFallback).toBeNull();
+      expect(build(1_000_000).response.modelFallback).toBeNull();
+    });
+  }, 600_000);
+
   it("collapses a completed turn read from its tail like a full read", () => {
     withTestThread((testThread) => {
       appendRows(testThread, seedGiantTurn(true, 5_000));

@@ -402,6 +402,7 @@ export {
   listLatestBackgroundTaskStateRowsByItemIds,
   listLatestOpenBackgroundTaskStateRowsForThread,
   listTodoSnapshotEventRowsForThread,
+  listLatestModelFallbackEventRowsForThread,
   listOpenTurnInputAcceptedRowsByThreadIds,
   listOpenBackgroundTaskItemRowsForHost,
   listOpenBackgroundTaskItemRowsForThread,
