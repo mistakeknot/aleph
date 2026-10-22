@@ -317,6 +317,48 @@ describe("one giant turn", () => {
     );
   }, 600_000);
 
+  const send = 'bb thread tell thr_wrkr234567 "status"';
+
+  it("keeps a send that is the first item of a completed turn", () => {
+    expectTailMatchesFullRead(
+      [
+        ...commandItem("turn-2", "turn-2-first-send", 1, send),
+        ...workRows("turn-2", 5_000),
+        ...commandItem("turn-2", "turn-2-lead-in", 2),
+        ...messageItem("turn-2", "turn-2-final", 5),
+      ],
+      false,
+    );
+  }, 600_000);
+
+  it("keeps a first-item send that overlaps the next command", () => {
+    const first = commandItem("turn-2", "turn-2-overlap-send", 1, send);
+    const next = commandItem("turn-2", "turn-2-overlap-next", 1);
+    expectTailMatchesFullRead(
+      [
+        first[0]!,
+        next[0]!,
+        ...first.slice(1),
+        ...next.slice(1),
+        ...workRows("turn-2", 5_000),
+        ...commandItem("turn-2", "turn-2-lead-in", 2),
+        ...messageItem("turn-2", "turn-2-final", 5),
+      ],
+      false,
+    );
+  }, 600_000);
+
+  it("keeps a send that leads in to the final message", () => {
+    expectTailMatchesFullRead(
+      [
+        ...workRows("turn-2", 5_000),
+        ...commandItem("turn-2", "turn-2-lead-in-send", 1, send),
+        ...messageItem("turn-2", "turn-2-final", 5),
+      ],
+      false,
+    );
+  }, 600_000);
+
   it("does not count or end on agent messages without text", () => {
     expectTailMatchesFullRead(
       [

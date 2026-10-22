@@ -3549,21 +3549,19 @@ export function findStoredTimelineCompletedTurnTail(
   ) {
     return undefined;
   }
-  const firstItem = items[0]!;
   const agentMessageCount = items.filter(
     (item) => item.itemKind === "agentMessage",
   ).length;
-  // The projection keeps sent-message commands visible and drops agent
-  // messages without text, so the tail is only exact when no omitted command
-  // looks like a send and every agent message completes with text. These
-  // checks are deliberately looser than the projection: a false match only
-  // falls back to the full turn read.
+  // The projection keeps sent-message commands visible, splits summary groups
+  // around them and drops agent messages without text. A send anywhere in the
+  // turn, omitted or retained, can change what the full read shows or how it
+  // counts, so the tail is only exact when no command in the turn looks like a
+  // send and every agent message completes with text. These checks are
+  // deliberately looser than the projection: a false match only falls back to
+  // the full turn read.
   const visibility = db
     .select({
       sends: sql<number>`COUNT(CASE WHEN ${events.itemKind} = 'commandExecution'
-        AND ${events.sequence} > ${firstItem.sequence}
-        AND ${events.sequence} < ${leadIn.sequence}
-        AND ${events.itemId} <> ${firstItem.itemId}
         AND json_extract(${events.data}, '$.item.command') LIKE '%thread%'
         AND (json_extract(${events.data}, '$.item.command') LIKE '%tell%'
           OR json_extract(${events.data}, '$.item.command') LIKE '%message%')
