@@ -609,6 +609,20 @@ describe("per-step safety checks", () => {
     );
   });
 
+  it("rejects column declarations that differ only by case", async () => {
+    const db = await migratedPopulatedDatabase();
+    expect(() =>
+      runA0010(db, "SELECT 1;", {
+        columnRenames: { zz_t: { p: "A", P: "B" } },
+      }),
+    ).toThrow(/differing only by case/);
+    expect(() =>
+      runA0010(db, "SELECT 1;", {
+        columnRenames: { zz_t: { p: "A" }, ZZ_T: { p: "B" } },
+      }),
+    ).toThrow(/differing only by case/);
+  });
+
   it("refuses a declaration that matches no table", async () => {
     const db = await migratedPopulatedDatabase();
     expectRefused(db, "SELECT 1;", /zz_missing/, {

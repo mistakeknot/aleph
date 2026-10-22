@@ -420,6 +420,12 @@ export function statementIdentifiers(statement: string): string[] {
           kinds[depth] = inValuesRows(tokens, position - 1) ? "list" : parent;
         } else if (before?.kind === "punct" && before.value === "(") {
           kinds[depth] = parent;
+        } else if (
+          before?.kind === "punct" &&
+          before.value !== ")" &&
+          before.value !== ";"
+        ) {
+          kinds[depth] = "list";
         } else kinds[depth] = "group";
       } else if (token.value === ")") {
         depth = Math.max(0, depth - 1);

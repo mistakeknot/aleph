@@ -1065,6 +1065,17 @@ describe("skipped Aleph statements keep their trusted tables protected", () => {
     expect(loadWithStatement(statement)).not.toThrow();
   });
 
+  it.each([
+    "INSERT INTO zz_source VALUES ('a'), (+('app_settings'));",
+    "INSERT INTO zz_source SELECT 'prefix' || ('app_settings');",
+    "INSERT INTO zz_source SELECT 1 WHERE 'x' = ('app_settings');",
+  ])(
+    "does not guard a parenthesised literal after an operator: %s",
+    (statement) => {
+      expect(loadWithStatement(statement)).not.toThrow();
+    },
+  );
+
   it("still guards a subquery in a later VALUES row", () => {
     expect(
       loadWithStatement(

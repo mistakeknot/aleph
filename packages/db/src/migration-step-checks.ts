@@ -130,6 +130,11 @@ function parseStepChecks(id: string, raw: unknown): StepChecks {
       throw new Error(`Step checks for ${id} columnRenames must be a map`);
     }
     for (const [table, map] of Object.entries(raw.columnRenames)) {
+      if (fold(table) in columnRenames) {
+        throw new Error(
+          `Step checks for ${id} declare columnRenames for ${table} twice, differing only by case`,
+        );
+      }
       columnRenames[fold(table)] = foldKeys(
         stringMap(map, `columnRenames.${table}`),
       );
@@ -214,9 +219,16 @@ function fold(name: string): string {
 }
 
 function foldKeys(map: Record<string, string>): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(map).map(([key, value]) => [fold(key), value]),
-  );
+  const folded: Record<string, string> = {};
+  for (const [key, value] of Object.entries(map)) {
+    if (fold(key) in folded) {
+      throw new Error(
+        `Step checks declare ${key} twice, differing only by case`,
+      );
+    }
+    folded[fold(key)] = value;
+  }
+  return folded;
 }
 
 function renamedColumn(
@@ -994,9 +1006,9 @@ export function verifyStep(
     }
     const entry = copied.get(fold(name));
     const preserved =
-      entry === undefined ? null : new Set(entry.preservedColumns);
+      entry === undefined ? null : new Set(entry.preservedColumns.map(fold));
     verifyNullKeyGroups(sqlite, stepId, captured, table, (column) => {
-      if (preserved !== null && !preserved.has(column)) return null;
+      if (preserved !== null && !preserved.has(fold(column))) return null;
       return (
         (entry === undefined
           ? undefined
