@@ -21,8 +21,8 @@ import {
 } from "./migration-ledger.js";
 import {
   computeAlteredTables,
-  foldName,
   expandWithForeignKeyNeighbours,
+  foldName,
   guardPlan,
   MigrationGuardError,
   nonFrozenUpstreamSteps,
@@ -42,6 +42,7 @@ import {
   type MigrationPlanInput,
   type MigrationPlanStep,
 } from "./migration-plan.js";
+import { loadStepChecks, type StepChecks } from "./migration-step-checks.js";
 
 export interface AlignedMigrationPlan {
   folders: MigrationPlanFolders;
@@ -49,6 +50,9 @@ export interface AlignedMigrationPlan {
   frozen: readonly FrozenUpstreamStep[];
   plan: MigrationPlan;
   legacy: readonly LegacyMigrationChainEntry[];
+  frozenTags: ReadonlySet<string>;
+  guardedTables: ReadonlySet<string>;
+  stepChecks: ReadonlyMap<string, StepChecks>;
 }
 
 export type MigrationStepKind = "ledger" | "mapped" | "absent";
@@ -424,7 +428,16 @@ export function loadAlignedMigrationPlan(
     },
   });
 
-  return { folders, input, frozen, plan, legacy: legacyMigrationChain };
+  return {
+    folders,
+    input,
+    frozen,
+    plan,
+    legacy: legacyMigrationChain,
+    frozenTags: new Set(frozen.map((step) => step.tag)),
+    guardedTables: new Set(guardedTables.map((table) => foldName(table))),
+    stepChecks: loadStepChecks(folders.alephFolder),
+  };
 }
 
 function stepKey(namespace: string, id: string): string {

@@ -1,0 +1,38 @@
+{
+  "A0009": {
+    "copiedTables": [
+      {
+        "table": "queued_thread_messages",
+        "preservedColumns": [
+          "id",
+          "system_notice",
+          "thread_id",
+          "content",
+          "sender_thread_id",
+          "origin",
+          "origin_plugin_id",
+          "origin_id",
+          "forward_source_row_id",
+          "requested_by_initiator",
+          "requested_by_thread_id",
+          "model",
+          "reasoning_level",
+          "permission_mode",
+          "service_tier",
+          "send_at",
+          "failure_reason",
+          "payload_kind",
+          "retry_of_turn_request_id",
+          "retry_attempt",
+          "retry_reason",
+          "edit_held_until",
+          "sort_key",
+          "created_at",
+          "updated_at"
+        ]
+      }
+    ],
+    "renumbersRowids": ["queued_thread_messages"],
+    "writesTables": ["transfer_entries", "transfer_events"]
+  }
+}

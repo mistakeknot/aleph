@@ -31,7 +31,20 @@ import {
   MigrationLockTimeout,
   waitWhileMigrating,
 } from "./migration-lock.js";
-import type { MigrationPlanFolders } from "./migration-plan.js";
+import type {
+  MigrationPlanFolders,
+  MigrationPlanStep,
+} from "./migration-plan.js";
+import {
+  captureForeignKeyIdentities,
+  captureStepBaseline,
+  disposeForeignKeyCapture,
+  disposeStepBaseline,
+  FROZEN_ALEPH_STEP_IDS,
+  MigrationStepCheckError,
+  newForeignKeyIdentities,
+  verifyStep,
+} from "./migration-step-checks.js";
 import {
   computeMigrationState,
   isStepPending,
@@ -111,6 +124,12 @@ export interface MigrateOptions {
   logger?: MigrationWarningLogger;
   onBackup?: (backup: BackupFinalization) => void;
   lockWaitCapMs?: number;
+  onForeignKeyReport?: (report: ForeignKeyReport) => void;
+}
+
+export interface ForeignKeyReport {
+  segment: "frozen";
+  newIdentities: number;
 }
 
 interface AppliedMigrationRow {
@@ -1023,10 +1042,88 @@ function stageQueuedMessageGroups(
   );
 }
 
+function runPendingSteps(
+  db: DbConnection,
+  aligned: AlignedMigrationPlan,
+  state: MigrationState,
+  recordStep: (index: number, how: MigrationLedgerHow) => void,
+  options: MigrateOptions,
+): void {
+  const sqlite = db.$client;
+  if (state.pending.length === 0) return;
+  const origin = captureForeignKeyIdentities(sqlite);
+  let frozenSegment = true;
+  try {
+    for (const index of state.pending) {
+      const step = aligned.plan.steps[index];
+      if (step === undefined) {
+        throw new Error(`Migration plan has no step at position ${index}`);
+      }
+      if (isFrozenStep(aligned, step)) {
+        runStepSql(sqlite, aligned, index);
+        recordStep(index, "applied");
+        continue;
+      }
+      if (frozenSegment) {
+        frozenSegment = false;
+        const current = captureForeignKeyIdentities(sqlite);
+        try {
+          options.onForeignKeyReport?.({
+            segment: "frozen",
+            newIdentities: newForeignKeyIdentities(sqlite, origin, current),
+          });
+        } finally {
+          disposeForeignKeyCapture(sqlite, current);
+        }
+      }
+      const checks = aligned.stepChecks.get(step.id) ?? null;
+      const guarded =
+        step.namespace === "upstream" ? aligned.guardedTables : null;
+      const foreignKeysBefore = captureForeignKeyIdentities(sqlite, checks);
+      const baseline = captureStepBaseline(sqlite, step.id, checks, guarded);
+      try {
+        runStepSql(sqlite, aligned, index);
+        verifyStep(sqlite, step.id, checks, guarded, baseline);
+        const foreignKeysAfter = captureForeignKeyIdentities(sqlite);
+        try {
+          const introduced = newForeignKeyIdentities(
+            sqlite,
+            foreignKeysBefore,
+            foreignKeysAfter,
+          );
+          if (introduced > 0) {
+            throw new MigrationStepCheckError(
+              step.id,
+              `${introduced} new foreign key violations`,
+            );
+          }
+        } finally {
+          disposeForeignKeyCapture(sqlite, foreignKeysAfter);
+        }
+      } finally {
+        disposeStepBaseline(sqlite, baseline);
+        disposeForeignKeyCapture(sqlite, foreignKeysBefore);
+      }
+      recordStep(index, "applied");
+    }
+  } finally {
+    disposeForeignKeyCapture(sqlite, origin);
+  }
+}
+
+function isFrozenStep(
+  aligned: AlignedMigrationPlan,
+  step: MigrationPlanStep,
+): boolean {
+  if (step.namespace === "aleph") return FROZEN_ALEPH_STEP_IDS.has(step.id);
+  return aligned.frozenTags.has(step.id);
+}
+
 function applyMigrationState(
   db: DbConnection,
   aligned: AlignedMigrationPlan,
   state: MigrationState,
+  options: MigrateOptions,
 ): void {
   const sqlite = db.$client;
   stageMigrationTempTables(sqlite, {
@@ -1107,10 +1204,7 @@ function applyMigrationState(
       recordStep(index, "mark-only");
     }
   }
-  for (const index of state.pending) {
-    runStepSql(sqlite, aligned, index);
-    recordStep(index, "applied");
-  }
+  runPendingSteps(db, aligned, state, recordStep, options);
 
   if (stagedConnectMachineId) restoreStagedConnectMachineIdColumn(db);
   if (stagedThreadStorageDeletedAt) {
@@ -1233,7 +1327,7 @@ export function migrateWithFolders(
           }
           migrating?.setPhase("migrating");
           if (state.needsWrite || keepAwakeSeedPending(db)) {
-            applyMigrationState(db, aligned, state);
+            applyMigrationState(db, aligned, state, options);
           }
           sqlite.exec("COMMIT");
         } catch (error) {

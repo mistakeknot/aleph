@@ -781,6 +781,23 @@ describe("skipped Aleph statements keep their trusted tables protected", () => {
     },
   );
 
+  it("keeps the real plan at 25 guarded tables when a candidate only adds a table", () => {
+    const upstreamFolder = upstreamFolderWithCandidates(
+      [
+        {
+          tag: "0144_zz_new",
+          sql: "CREATE TABLE zz_new (id TEXT PRIMARY KEY);",
+        },
+      ],
+      sourceFolders.alephFolder,
+    );
+    const aligned = loadAlignedMigrationPlan({
+      upstreamFolder,
+      alephFolder: sourceFolders.alephFolder,
+    });
+    expect(aligned.guardedTables).toHaveLength(25);
+  });
+
   it("still tolerates a skipped Aleph statement on a candidate-created table", () => {
     const alephFolder = alephFolderWithSteps([
       { id: "A0010", sql: "CREATE INDEX zz_source_idx ON zz_source (id);" },
