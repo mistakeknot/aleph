@@ -157,6 +157,45 @@ export function acquireInUseLock(sqlite: Database.Database): void {
   };
 }
 
+export interface ExclusiveInUseLock {
+  readonly lockPath: string;
+  release(): void;
+}
+
+export function acquireExclusiveInUseLock(
+  databasePath: string,
+): ExclusiveInUseLock {
+  const lockPath = inUseLockPath(databasePath);
+  const lock = openLockDatabase(lockPath, 0);
+  try {
+    lock.exec("BEGIN EXCLUSIVE");
+  } catch (error) {
+    lock.close();
+    if (isBusy(error)) {
+      throw new MigrationLockTimeout(
+        `Another process is using ${databasePath}; stop the server and daemon before restoring`,
+        readHolderInfo(databasePath),
+      );
+    }
+    throw error;
+  }
+  heldHandles.add(lock);
+  let released = false;
+  return {
+    lockPath,
+    release: () => {
+      if (released) return;
+      released = true;
+      try {
+        lock.exec("ROLLBACK");
+      } finally {
+        heldHandles.delete(lock);
+        lock.close();
+      }
+    },
+  };
+}
+
 export interface MigratingLock {
   setPhase(phase: MigrationPhase): void;
   release(): void;

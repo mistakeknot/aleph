@@ -408,7 +408,7 @@ function checkFts(database: Database.Database, path: string): void {
   }
 }
 
-function digestsOf(path: string): { content: string; sequence: string } {
+export function digestsOf(path: string): { content: string; sequence: string } {
   const database = new Database(path, { fileMustExist: true });
   try {
     const integrity = database.pragma("integrity_check", { simple: true });
