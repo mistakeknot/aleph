@@ -14,7 +14,12 @@ const CODEX_VALUES: Record<string, readonly string[] | null> = {
   "--output-last-message": null,
   "--color": ["always", "never", "auto"],
 };
-const CLAUDE_FLAGS = new Set(["--print", "-p"]);
+const CLAUDE_FLAGS = new Set([
+  "--print",
+  "-p",
+  "--strict-mcp-config",
+  "--disable-slash-commands",
+]);
 const CLAUDE_VALUES: Record<string, readonly string[] | null> = {
   "--model": null,
   "--output-format": ["text", "json"],
@@ -56,6 +61,12 @@ export function parsePoolExecArgs(
     }
     const equals = arg.indexOf("=");
     const key = equals < 0 ? arg : arg.slice(0, equals);
+    if (provider === "claude" && key === "--tools") {
+      const toolsValue = equals < 0 ? args[++index] : arg.slice(equals + 1);
+      if (toolsValue !== "") return null;
+      options.push("--tools=");
+      continue;
+    }
     if (!Object.hasOwn(values, key)) return null;
     const value = equals < 0 ? args[++index] : arg.slice(equals + 1);
     if (!value || value.startsWith("-")) return null;
