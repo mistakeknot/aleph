@@ -90,6 +90,30 @@ describe("buildMigrationPlan", () => {
     ]);
   });
 
+  it("places a later Aleph step after the one that supersedes", () => {
+    expect(
+      ids({
+        upstream: upstream("u1", "u2", "u3"),
+        aleph: [
+          aleph("A0001", "u1", { supersedes: "u2" }),
+          aleph("A0002", "A0001"),
+        ],
+      }),
+    ).toEqual(["u1", "A0001", "A0002", "u3"]);
+  });
+
+  it("lets a later replacement follow an earlier one", () => {
+    expect(
+      ids({
+        upstream: upstream("u1", "u2", "u3", "u4"),
+        aleph: [
+          aleph("A0001", "u1", { supersedes: "u2" }),
+          aleph("A0002", "A0001", { supersedes: "u3" }),
+        ],
+      }),
+    ).toEqual(["u1", "A0001", "A0002", "u4"]);
+  });
+
   it("refuses an unknown after target", () => {
     expect(() =>
       buildMigrationPlan({
@@ -269,6 +293,32 @@ describe("the real migration plan", () => {
       );
       expect(step.sha256).toBe(legacy?.sha256);
     }
+  });
+
+  it("fails on every load when a frozen pin no longer matches", () => {
+    const alephFolder = mkdtempSync(join(tmpdir(), "bb-plan-pin-"));
+    tempDirs.push(alephFolder);
+    cpSync(sourceFolders.alephFolder, alephFolder, { recursive: true });
+    const frozenPath = join(alephFolder, "frozen-upstream.json");
+    const frozen = JSON.parse(readFileSync(frozenPath, "utf8")) as {
+      steps: Array<{ tag: string; sha256: string }>;
+    };
+    const superseded = frozen.steps.find(
+      (step) => step.tag === "0143_queued_message_state",
+    );
+    if (superseded === undefined) throw new Error("0143 is not frozen");
+    superseded.sha256 = `${superseded.sha256.slice(0, -1)}0`;
+    writeFileSync(frozenPath, JSON.stringify(frozen));
+    const folders = {
+      upstreamFolder: sourceFolders.upstreamFolder,
+      alephFolder,
+    };
+    expect(() => loadMigrationPlan(folders)).toThrow(
+      /0143_queued_message_state changed/,
+    );
+    expect(() => materializeLegacyCompatibleFolder(folders)).toThrow(
+      /0143_queued_message_state changed/,
+    );
   });
 
   it("refuses to materialize a plan that drifts from the mapping table", () => {

@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import Database from "better-sqlite3";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -53,7 +54,10 @@ function guardedTables(): string[] {
   }
 }
 
-function withNewUpstreamStep(sql: string): {
+function withNewUpstreamStep(
+  sql: string,
+  when = 9_999_999_999_999,
+): {
   input: MigrationPlanInput;
   sqlFor: (tag: string) => string;
 } {
@@ -63,7 +67,7 @@ function withNewUpstreamStep(sql: string): {
       ...base,
       upstream: [
         ...base.upstream,
-        { tag: "0144_synthetic", when: 9_999_999_999_999, sha256: "synthetic" },
+        { tag: "0144_synthetic", when, sha256: "synthetic" },
       ],
     },
     sqlFor: (tag) => (tag === "0144_synthetic" ? sql : readUpstreamSql(tag)),
@@ -90,6 +94,168 @@ describe("the Aleph altered tables", () => {
     expect(guarded).toContain("projects");
     expect(alteredTables).not.toContain("projects");
   });
+
+  it("guards the child side of a foreign key edge", () => {
+    const guarded = guardedTables();
+    for (const child of [
+      "thread_tabs",
+      "events",
+      "terminal_sessions",
+      "environments",
+    ]) {
+      expect(alteredTables).not.toContain(child);
+      expect(guarded).toContain(child);
+    }
+  });
+
+  it("matches foreign key neighbours without regard to case", () => {
+    const sqlite = new Database(":memory:");
+    try {
+      sqlite.exec(
+        "CREATE TABLE Parent (id TEXT PRIMARY KEY); CREATE TABLE Child (id TEXT PRIMARY KEY, parent_id TEXT REFERENCES parent(id)); CREATE TABLE Other (id TEXT PRIMARY KEY);",
+      );
+      expect(expandWithForeignKeyNeighbours(sqlite, ["PARENT"])).toEqual([
+        "child",
+        "parent",
+      ]);
+      expect(expandWithForeignKeyNeighbours(sqlite, ["CHILD"])).toEqual([
+        "child",
+        "parent",
+      ]);
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("attributes a trigger or view to every table it references", () => {
+    const before = new Database(":memory:");
+    const after = new Database(":memory:");
+    const base =
+      "CREATE TABLE a (id TEXT PRIMARY KEY); CREATE TABLE b (id TEXT PRIMARY KEY); CREATE TABLE c (id TEXT PRIMARY KEY);";
+    try {
+      before.exec(base);
+      after.exec(base);
+      after.exec(
+        "CREATE TRIGGER a_to_b AFTER INSERT ON a BEGIN INSERT INTO b (id) VALUES (new.id); END;",
+      );
+      expect(computeAlteredTables(before, after)).toEqual(["a", "b"]);
+      expect(expandWithForeignKeyNeighbours(after, ["a"])).toEqual(["a", "b"]);
+      after.exec("DROP TRIGGER a_to_b");
+      after.exec("CREATE VIEW b_and_c AS SELECT b.id FROM b JOIN c");
+      expect(computeAlteredTables(before, after)).toEqual([
+        "b",
+        "b_and_c",
+        "c",
+      ]);
+      expect(expandWithForeignKeyNeighbours(after, ["b"])).toEqual([
+        "b",
+        "b_and_c",
+        "c",
+      ]);
+    } finally {
+      before.close();
+      after.close();
+    }
+  });
+});
+
+describe("the frozen set", () => {
+  it("pins every upstream step, so no step is unguarded", () => {
+    const input = loadMigrationPlanInput(sourceFolders);
+    expect(frozen).toHaveLength(input.upstream.length);
+    expect(nonFrozenUpstreamSteps(frozen, input)).toEqual([]);
+  });
+
+  it("refuses a frozen step missing from the upstream journal", () => {
+    const input = loadMigrationPlanInput(sourceFolders);
+    const trimmed: MigrationPlanInput = {
+      ...input,
+      upstream: input.upstream.filter(
+        (step) => step.tag !== "0036_drop_automations_feature",
+      ),
+    };
+    expect(() => verifyFrozenSet(frozen, trimmed)).toThrow(
+      /0036_drop_automations_feature is missing/,
+    );
+  });
+
+  it("refuses a superseded mark whose replacement does not supersede it", () => {
+    const input = loadMigrationPlanInput(sourceFolders);
+    const unlinked: MigrationPlanInput = {
+      ...input,
+      aleph: input.aleph.map((step) => {
+        const { supersedes: _dropped, ...rest } = step;
+        return rest;
+      }),
+    };
+    expect(() => verifyFrozenSet(frozen, unlinked)).toThrow(
+      /marked superseded by A0009, which does not supersede it/,
+    );
+  });
+});
+
+describe("scanRebuiltTables", () => {
+  it.each([
+    ["a plain drop", "DROP TABLE queued_thread_messages;"],
+    ["a drop if exists", "DROP TABLE IF EXISTS queued_thread_messages;"],
+    ["an uppercase name", "DROP TABLE QUEUED_THREAD_MESSAGES;"],
+    ["a mixed case keyword", "dRoP tAbLe queued_thread_messages;"],
+    ["a schema prefix", "DROP TABLE main.queued_thread_messages;"],
+    ["a quoted schema prefix", 'DROP TABLE "main"."queued_thread_messages";'],
+    ["a single quoted name", "DROP TABLE 'queued_thread_messages';"],
+    ["a backtick name", "DROP TABLE `queued_thread_messages`;"],
+    ["a double quoted name", 'DROP TABLE "queued_thread_messages";'],
+    ["a bracket name", "DROP TABLE [queued_thread_messages];"],
+    ["a block comment", "DROP /* c */ TABLE /* d */ queued_thread_messages;"],
+    ["a line comment", "DROP -- c\nTABLE queued_thread_messages;"],
+    ["newlines", "DROP\n  TABLE\n  queued_thread_messages;"],
+    ["a rename", "ALTER TABLE __new_x RENAME TO queued_thread_messages;"],
+    ["a rename source", "ALTER TABLE queued_thread_messages RENAME TO x;"],
+    [
+      "a column rename",
+      "ALTER TABLE queued_thread_messages RENAME COLUMN a TO b;",
+    ],
+    ["a column add", "ALTER TABLE queued_thread_messages ADD COLUMN a text;"],
+    [
+      "a column add without the keyword",
+      "ALTER TABLE queued_thread_messages ADD a text;",
+    ],
+    ["a column drop", "ALTER TABLE queued_thread_messages DROP COLUMN a;"],
+    [
+      "a qualified column add",
+      "ALTER TABLE main.QUEUED_thread_messages ADD COLUMN a text;",
+    ],
+    [
+      "a standalone staging table",
+      "CREATE TABLE `__new_queued_thread_messages` (id text);",
+    ],
+    [
+      "a staging table if not exists",
+      "CREATE TABLE IF NOT EXISTS __NEW_Queued_Thread_Messages (id text);",
+    ],
+    [
+      "a temporary staging table",
+      "CREATE TEMP TABLE main.__new_queued_thread_messages (id text);",
+    ],
+  ])("finds the table behind %s", (_name, sql) => {
+    expect(scanRebuiltTables(sql)).toContain("queued_thread_messages");
+  });
+
+  it("ignores statements that do not rebuild or alter a table", () => {
+    expect(
+      scanRebuiltTables(
+        "CREATE TABLE fresh (id text); CREATE INDEX i ON queued_thread_messages (id); INSERT INTO queued_thread_messages VALUES ('DROP TABLE x'); -- DROP TABLE y\n/* ALTER TABLE z ADD a */",
+      ),
+    ).toEqual([]);
+  });
+
+  it("returns each table once, lower case and sorted", () => {
+    expect(
+      scanRebuiltTables(
+        "CREATE TABLE __new_B (id text); DROP TABLE B; ALTER TABLE __new_B RENAME TO B; DROP TABLE a;",
+      ),
+    ).toEqual(["a", "b"]);
+  });
 });
 
 describe("guardPlan", () => {
@@ -104,7 +270,6 @@ describe("guardPlan", () => {
     ]) {
       expect(frozen.map((step) => step.tag)).toContain(tag);
     }
-    expect(nonFrozenUpstreamSteps(frozen, input)).toEqual([]);
     expect(() =>
       guardPlan({
         frozen,
@@ -136,7 +301,7 @@ describe("guardPlan", () => {
         guardedTables: guardedTables(),
         readUpstreamSql: sqlFor,
       }),
-    ).toThrow(/0144_synthetic rebuilds queued_thread_messages/);
+    ).toThrow(/0144_synthetic rebuilds or alters queued_thread_messages/);
   });
 
   it("refuses a new upstream step that rebuilds a merely referenced table", () => {
@@ -151,7 +316,63 @@ describe("guardPlan", () => {
         guardedTables: guardedTables(),
         readUpstreamSql: sqlFor,
       }),
-    ).toThrow(/rebuilds projects/);
+    ).toThrow(/rebuilds or alters projects/);
+  });
+
+  it.each([
+    [
+      "a column add",
+      "ALTER TABLE `queued_thread_messages` ADD COLUMN `x` text;",
+    ],
+    [
+      "a column drop",
+      "ALTER TABLE queued_thread_messages DROP COLUMN origin_id;",
+    ],
+    [
+      "a column rename",
+      "ALTER TABLE queued_thread_messages RENAME COLUMN origin_id TO x;",
+    ],
+    [
+      "a standalone staging table",
+      "CREATE TABLE `__new_queued_thread_messages` (`id` text);",
+    ],
+    ["an uppercase drop", "DROP TABLE QUEUED_THREAD_MESSAGES;"],
+    ["a schema qualified drop", "DROP TABLE main.queued_thread_messages;"],
+    ["a single quoted drop", "DROP TABLE 'queued_thread_messages';"],
+    [
+      "a drop with an embedded comment",
+      "DROP /* c */ TABLE queued_thread_messages;",
+    ],
+  ])(
+    "refuses a new upstream step with %s on an altered table",
+    (_name, sql) => {
+      const { input, sqlFor } = withNewUpstreamStep(sql);
+      expect(() =>
+        guardPlan({
+          frozen,
+          input,
+          plan: loadMigrationPlan(sourceFolders),
+          guardedTables: guardedTables(),
+          readUpstreamSql: sqlFor,
+        }),
+      ).toThrow(/0144_synthetic rebuilds or alters queued_thread_messages/);
+    },
+  );
+
+  it("refuses a new upstream step whose when is not after the frozen steps", () => {
+    const { input, sqlFor } = withNewUpstreamStep(
+      "CREATE TABLE `brand_new_table` (`id` text PRIMARY KEY NOT NULL);",
+      1,
+    );
+    expect(() =>
+      guardPlan({
+        frozen,
+        input,
+        plan: loadMigrationPlan(sourceFolders),
+        guardedTables: guardedTables(),
+        readUpstreamSql: sqlFor,
+      }),
+    ).toThrow(/0144_synthetic has when 1, which is not after/);
   });
 
   it("accepts a new upstream step that touches only unrelated tables", () => {

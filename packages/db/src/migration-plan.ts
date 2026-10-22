@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { verifyFrozenSet } from "./migration-guard.js";
 
 export type MigrationNamespace = "upstream" | "aleph";
 
@@ -283,8 +284,8 @@ export function buildMigrationPlan(input: MigrationPlanInput): MigrationPlan {
   const steps: MigrationPlanStep[] = [];
   const superseded: SupersededMigrationStep[] = [];
 
-  const appendChain = (anchor: string): string | undefined => {
-    let last: string | undefined;
+  const appendChain = (anchor: string): string[] => {
+    const appended: string[] = [];
     let next = alephAfter.get(anchor);
     while (next !== undefined) {
       const entry: MigrationPlanStep = {
@@ -296,25 +297,17 @@ export function buildMigrationPlan(input: MigrationPlanInput): MigrationPlan {
       };
       if (next.supersedes !== undefined) entry.supersedes = next.supersedes;
       steps.push(entry);
-      last = next.id;
+      appended.push(next.id);
       next = alephAfter.get(next.id);
     }
-    return last;
+    return appended;
   };
 
-  for (const [index, step] of input.upstream.entries()) {
+  let sinceRunning = new Set<string>();
+  for (const step of input.upstream) {
     const replacement = supersededBy.get(step.tag);
     if (replacement !== undefined) {
-      const predecessor = input.upstream[index - 1];
-      const replacementStep = input.aleph.find(
-        (candidate) => candidate.id === replacement,
-      );
-      const chainEnd = steps[steps.length - 1];
-      if (
-        predecessor === undefined ||
-        replacementStep?.after !== predecessor.tag ||
-        chainEnd?.id !== replacement
-      ) {
+      if (!sinceRunning.has(replacement)) {
         throw new MigrationPlanError(
           `${replacement} supersedes ${step.tag} but does not take its position`,
         );
@@ -335,8 +328,9 @@ export function buildMigrationPlan(input: MigrationPlanInput): MigrationPlan {
         when: step.when,
         sha256: step.sha256,
       });
+      sinceRunning = new Set<string>();
     }
-    appendChain(step.tag);
+    for (const id of appendChain(step.tag)) sinceRunning.add(id);
   }
 
   if (
@@ -383,10 +377,22 @@ export function loadMigrationPlanInput(
   };
 }
 
+export function loadFrozenUpstream(
+  folders: MigrationPlanFolders,
+): FrozenUpstreamStep[] {
+  return parseFrozenUpstream(
+    JSON.parse(
+      readFileSync(join(folders.alephFolder, "frozen-upstream.json"), "utf8"),
+    ),
+  );
+}
+
 export function loadMigrationPlan(
   folders: MigrationPlanFolders,
 ): MigrationPlan {
-  return buildMigrationPlan(loadMigrationPlanInput(folders));
+  const input = loadMigrationPlanInput(folders);
+  verifyFrozenSet(loadFrozenUpstream(folders), input);
+  return buildMigrationPlan(input);
 }
 
 export function planStepPath(
