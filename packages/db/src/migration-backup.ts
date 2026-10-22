@@ -148,6 +148,23 @@ function updateTagged(hash: ReturnType<typeof createHash>, value: unknown) {
   }
 }
 
+const ROWID_ALIASES = ["rowid", "_rowid_", "oid"];
+
+export function rowidAlias(
+  sqlite: Database.Database,
+  schema: string,
+  table: string,
+): string | null {
+  const taken = new Set(
+    (
+      sqlite
+        .prepare(`SELECT name FROM pragma_table_xinfo(?, ?)`)
+        .all(table, schema) as Array<{ name: string }>
+    ).map((column) => column.name.toLowerCase()),
+  );
+  return ROWID_ALIASES.find((alias) => !taken.has(alias)) ?? null;
+}
+
 export function contentDigest(sqlite: Database.Database): string {
   const hash = createHash("sha256");
   for (const row of normalizedSchema(sqlite)) {
@@ -165,18 +182,25 @@ export function contentDigest(sqlite: Database.Database): string {
         .all(table.name) as Array<{ name: string }>
     ).map((column) => quoteIdentifier(column.name));
     const hasRowid = table.wr === 0;
-    const selected = hasRowid ? ["rowid", ...columns] : columns;
-    const orderBy = hasRowid
-      ? "rowid"
-      : (
-          sqlite
-            .prepare(
-              `SELECT name FROM pragma_table_info(?) WHERE pk > 0 ORDER BY pk`,
-            )
-            .all(table.name) as Array<{ name: string }>
-        )
-          .map((column) => quoteIdentifier(column.name))
-          .join(", ");
+    const alias = hasRowid ? rowidAlias(sqlite, "main", table.name) : null;
+    if (hasRowid && alias === null) {
+      throw new MigrationBackupError(
+        `Table ${table.name} shadows every rowid name; its rowids cannot be read`,
+      );
+    }
+    const selected = alias === null ? columns : [alias, ...columns];
+    const orderBy =
+      alias !== null
+        ? alias
+        : (
+            sqlite
+              .prepare(
+                `SELECT name FROM pragma_table_info(?) WHERE pk > 0 ORDER BY pk`,
+              )
+              .all(table.name) as Array<{ name: string }>
+          )
+            .map((column) => quoteIdentifier(column.name))
+            .join(", ");
     updateTagged(hash, table.name);
     const statement = sqlite
       .prepare(

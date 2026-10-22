@@ -386,6 +386,32 @@ describe("backup digests and deduplication", () => {
     renumbered.close();
   });
 
+  it("hashes the hidden rowid of a table with a column named rowid", () => {
+    const directory = tempDir();
+    const left = new Database(join(directory, "a.db"));
+    const right = new Database(join(directory, "b.db"));
+    const schema = "CREATE TABLE t (rowid TEXT, k TEXT UNIQUE);";
+    left.exec(
+      `${schema} INSERT INTO t(_rowid_, rowid, k) VALUES (1, 'v', 'x');`,
+    );
+    right.exec(
+      `${schema} INSERT INTO t(_rowid_, rowid, k) VALUES (9, 'v', 'x');`,
+    );
+    expect(contentDigest(left)).not.toBe(contentDigest(right));
+    left.close();
+    right.close();
+  });
+
+  it("refuses to digest a table that shadows every rowid name", () => {
+    const directory = tempDir();
+    const db = new Database(join(directory, "a.db"));
+    db.exec(
+      "CREATE TABLE t (rowid TEXT, _rowid_ TEXT, oid TEXT, k TEXT UNIQUE); INSERT INTO t VALUES ('a', 'b', 'c', 'x');",
+    );
+    expect(() => contentDigest(db)).toThrow(/shadows every rowid name/);
+    db.close();
+  });
+
   it("keeps sequence state out of the content digest", () => {
     const directory = tempDir();
     const plain = new Database(join(directory, "a.db"));

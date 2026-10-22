@@ -525,19 +525,26 @@ describe("restoreMigrationBackup", () => {
   });
 
   it("refuses before changing anything when all three rowid names are shadowed", () => {
-    const fixture = scratch(
-      true,
+    const directory = tempDir();
+    const databasePath = join(directory, "bb.db");
+    const db = new Database(databasePath);
+    db.exec(SETUP);
+    db.exec(
       `CREATE TABLE shadow (id TEXT PRIMARY KEY, rowid TEXT, _rowid_ TEXT, oid TEXT); INSERT INTO shadow VALUES ('a', 'x', 'y', 'z')`,
     );
-    migrateAway(fixture.databasePath);
-    const before = digestsOf(fixture.databasePath);
+    db.close();
+    const backup = createMigrationBackup(databasePath);
+    const finalization = finalizeMigrationBackup(databasePath, backup);
+    expect(finalization.status).toBe("basic");
+    migrateAway(databasePath);
+    const before = readFileSync(databasePath);
     for (const checkOnly of [true, false]) {
-      expect(() =>
-        restoreMigrationBackup(fixture.backupPath, { checkOnly }),
-      ).toThrow(/shadow rowid, _rowid_ and oid/);
+      expect(() => restoreMigrationBackup(backup.path, { checkOnly })).toThrow(
+        /shadow rowid, _rowid_ and oid/,
+      );
     }
-    expect(digestsOf(fixture.databasePath)).toEqual(before);
-    expect(brokenCopies(fixture.directory)).toEqual([]);
+    expect(readFileSync(databasePath).equals(before)).toBe(true);
+    expect(brokenCopies(directory)).toEqual([]);
   });
 
   it("keeps hidden rowids when the integer primary key is descending", () => {

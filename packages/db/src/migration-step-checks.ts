@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type Database from "better-sqlite3";
+import { rowidAlias } from "./migration-backup.js";
 import {
   splitMigrationStatements,
   statementIdentifiers,
@@ -365,6 +366,16 @@ function hashValues(
   return BigInt(`0x${hash.digest().subarray(0, 16).toString("hex")}`);
 }
 
+function rowidAliasOf(sqlite: Database.Database, table: string): string {
+  const alias = rowidAlias(sqlite, "main", table);
+  if (alias === null) {
+    throw new Error(
+      `Table ${table} shadows every rowid name; its rowids cannot be read`,
+    );
+  }
+  return alias;
+}
+
 function measureTable(
   sqlite: Database.Database,
   table: UserTable,
@@ -375,10 +386,11 @@ function measureTable(
     .flatMap((column) => [quote(column), `typeof(${quote(column)})`])
     .join(", ");
   const withRowid = options.includeRowid && !table.withoutRowid;
+  const alias = withRowid ? rowidAliasOf(sqlite, table.name) : "";
   const statement = sqlite
     .prepare(
       withRowid
-        ? `SELECT rowid, ${selected} FROM ${quote(table.name)}`
+        ? `SELECT ${alias}, ${selected} FROM ${quote(table.name)}`
         : `SELECT ${selected} FROM ${quote(table.name)}`,
     )
     .raw()
@@ -539,7 +551,7 @@ export function captureRowidBaseline(
     baselineCounter += 1;
     const name = `bb_chk_rowids_${baselineCounter}`;
     sqlite.exec(
-      `CREATE TEMP TABLE ${name} AS SELECT ${keyJson(table)} AS k, rowid AS r FROM main.${quote(table.name)} WHERE ${keyNotNull(table)}`,
+      `CREATE TEMP TABLE ${name} AS SELECT ${keyJson(table)} AS k, ${rowidAliasOf(sqlite, table.name)} AS r FROM main.${quote(table.name)} WHERE ${keyNotNull(table)}`,
     );
     temp.set(table.name, name);
   }
@@ -993,7 +1005,7 @@ export function verifyStep(
     }
     const row = sqlite
       .prepare(
-        `SELECT count(*) AS n FROM temp.${tempName} b JOIN (SELECT ${keyJson(table)} AS k, rowid AS r FROM main.${quote(table.name)} WHERE ${keyNotNull(table)}) a ON a.k = b.k WHERE a.r <> b.r`,
+        `SELECT count(*) AS n FROM temp.${tempName} b JOIN (SELECT ${keyJson(table)} AS k, ${rowidAliasOf(sqlite, table.name)} AS r FROM main.${quote(table.name)} WHERE ${keyNotNull(table)}) a ON a.k = b.k WHERE a.r <> b.r`,
       )
       .get() as { n: number };
     if (row.n > 0) {

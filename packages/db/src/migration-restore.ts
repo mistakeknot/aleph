@@ -25,6 +25,7 @@ import {
   countUserTables,
   digestsOf,
   readSidecar,
+  rowidAlias,
   schemaHash,
   sequenceDigest,
   type BackupSidecar,
@@ -150,8 +151,6 @@ function isCounts(value: unknown): value is Record<string, number> {
     )
   );
 }
-
-const ROWID_ALIASES = ["rowid", "_rowid_", "oid"];
 
 type SqlToken =
   | { kind: "word"; value: string }
@@ -329,21 +328,6 @@ function scanVirtualTable(sql: string): VirtualTableScan | null {
     fts5ArgumentsRoundTrip:
       name === "fts5" && fts5ArgumentsRoundTrip(tokens, index + 2),
   };
-}
-
-function rowidAlias(
-  sqlite: Database.Database,
-  schema: string,
-  table: string,
-): string | null {
-  const taken = new Set(
-    (
-      sqlite
-        .prepare(`SELECT name FROM pragma_table_xinfo(?, ?)`)
-        .all(table, schema) as Array<{ name: string }>
-    ).map((column) => column.name.toLowerCase()),
-  );
-  return ROWID_ALIASES.find((alias) => !taken.has(alias)) ?? null;
 }
 
 function assertFtsIndexesRestorable(

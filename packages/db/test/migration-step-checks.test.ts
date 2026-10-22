@@ -183,6 +183,30 @@ describe("per-step safety checks", () => {
     );
   });
 
+  it("sees the hidden rowid of a keyed table with a column named rowid", async () => {
+    const db = await migratedPopulatedDatabase();
+    db.$client.exec(
+      "CREATE TABLE zz_rw (k TEXT PRIMARY KEY, rowid TEXT); INSERT INTO zz_rw (k, rowid) VALUES ('a', 'x'), ('b', 'y');",
+    );
+    expectRefused(db, "UPDATE zz_rw SET _rowid_ = _rowid_ + 1000;", /zz_rw/, {
+      writesTables: ["zz_rw"],
+    });
+  });
+
+  it("refuses a keyed table that shadows every rowid name", async () => {
+    const db = await migratedPopulatedDatabase();
+    db.$client.exec(
+      "CREATE TABLE zz_shadow (k TEXT PRIMARY KEY, rowid TEXT, _rowid_ TEXT, oid TEXT); INSERT INTO zz_shadow VALUES ('a', 'x', 'y', 'z');",
+    );
+    const before = fingerprint(db);
+    expect(() =>
+      runA0010(db, "UPDATE zz_shadow SET oid = 'q';", {
+        writesTables: ["zz_shadow"],
+      }),
+    ).toThrow(/shadows every rowid name/);
+    expect(fingerprint(db)).toBe(before);
+  });
+
   it("refuses a write that reaches a table through a trigger", async () => {
     const db = await migratedPopulatedDatabase();
     const sql = [
