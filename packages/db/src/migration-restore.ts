@@ -151,10 +151,39 @@ function isCounts(value: unknown): value is Record<string, number> {
   );
 }
 
+function assertFtsIndexesRestorable(
+  database: Database.Database,
+  backupPath: string,
+): void {
+  const rows = database
+    .prepare(
+      `SELECT name, sql FROM sqlite_master WHERE type = 'table' AND sql LIKE 'CREATE VIRTUAL TABLE%'`,
+    )
+    .all() as Array<{ name: string; sql: string }>;
+  for (const row of rows) {
+    if (
+      /\busing\s+fts5\s*\(/i.test(row.sql) &&
+      /[(,\s]content\s*=/i.test(row.sql)
+    ) {
+      throw new MigrationRestoreError(
+        `Backup ${backupPath} contains the contentless or external-content FTS5 table ${row.name}, whose index a restore cannot preserve; refusing to restore`,
+      );
+    }
+  }
+}
+
 function digestsOfPrivateCopy(realPath: string): {
   content: string;
   sequence: string;
 } {
+  const required = statSync(realPath).size + DISK_MARGIN_BYTES;
+  const stats = statfsSync(tmpdir());
+  const free = Number(stats.bavail) * Number(stats.bsize);
+  if (free < required) {
+    throw new MigrationRestoreError(
+      `Not enough disk space in ${tmpdir()} to verify the backup: need ${required} bytes, ${free} free`,
+    );
+  }
   const directory = mkdtempSync(join(tmpdir(), "bb-restore-verify-"));
   try {
     const copy = join(directory, "backup.db");
@@ -174,10 +203,12 @@ function verifyBackup(backupPath: string): VerifiedBackup {
   if (bytes === 0) {
     throw new MigrationRestoreError(`Backup ${backupPath} is empty`);
   }
-  if (existsSync(`${backupPath}-journal`)) {
-    throw new MigrationRestoreError(
-      `Backup ${backupPath} has a -journal file beside it; refusing to touch it`,
-    );
+  for (const suffix of ["-journal", "-wal"]) {
+    if (existsSync(`${backupPath}${suffix}`)) {
+      throw new MigrationRestoreError(
+        `Backup ${backupPath} has a ${suffix} file beside it; refusing to touch it`,
+      );
+    }
   }
   const sidecar = readSidecar(`${backupPath}${SIDECAR_SUFFIX}`);
   if (sidecar === null) {
@@ -195,6 +226,12 @@ function verifyBackup(backupPath: string): VerifiedBackup {
     );
   }
   const realPath = realpathSync(backupPath);
+  const shape = new Database(realPath, { readonly: true, fileMustExist: true });
+  try {
+    assertFtsIndexesRestorable(shape, backupPath);
+  } finally {
+    shape.close();
+  }
   const digests = (() => {
     try {
       return digestsOfPrivateCopy(realPath);
@@ -673,7 +710,11 @@ export function restoreMigrationBackup(
       nextStep: RESTORE_NEXT_STEP,
     };
   } catch (error) {
-    if (brokenCopyPath !== null && statSync(brokenCopyPath).size === 0) {
+    if (
+      brokenCopyPath !== null &&
+      existsSync(brokenCopyPath) &&
+      statSync(brokenCopyPath).size === 0
+    ) {
       rmSync(brokenCopyPath, { force: true });
     }
     if (isLockedError(error)) {

@@ -59,7 +59,9 @@ verifies the backup against its sidecar and changes nothing. A restore
 refuses to run while another process holds the database, rebuilds it from the
 backup inside one transaction, verifies row counts, content and sequences, and
 keeps the previous contents in a `.broken-<timestamp>` file beside it. Install
-the older bb binary before restarting. The same operation is exported to code
+the older bb binary before restarting. A backup holding a contentless or
+external-content FTS5 table is refused, because a restore cannot preserve its
+index. The same operation is exported to code
 as `restoreMigrationBackup` from `@bb/db/migration-restore`.
 
 To make a repo work with bb worktrees, run `bb guide environments` for the

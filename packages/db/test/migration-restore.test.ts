@@ -36,6 +36,7 @@ function tempDir(): string {
 
 afterEach(() => {
   for (const directory of tempDirs.splice(0)) {
+    chmodSync(directory, 0o755);
     rmSync(directory, { recursive: true, force: true });
   }
 });
@@ -81,11 +82,12 @@ function digestsOf(path: string): { content: string; sequence: string } {
   }
 }
 
-function scratch(finalize = true): Scratch {
+function scratch(finalize = true, extraSql = ""): Scratch {
   const directory = tempDir();
   const databasePath = join(directory, "bb.db");
   const db = new Database(databasePath);
   db.exec(SETUP);
+  db.exec(extraSql);
   db.close();
   const backup = createMigrationBackup(databasePath);
   if (finalize) finalizeMigrationBackup(databasePath, backup);
@@ -343,6 +345,119 @@ describe("restoreMigrationBackup", () => {
     });
     expect(result.mode).toBe("check");
     expect(readFileSync(fixture.backupPath).equals(before)).toBe(true);
+  });
+
+  it("--check works on a read-only backup in a read-only directory", () => {
+    const fixture = scratch();
+    chmodSync(fixture.backupPath, 0o444);
+    chmodSync(`${fixture.backupPath}${SIDECAR_SUFFIX}`, 0o444);
+    chmodSync(fixture.directory, 0o555);
+    const before = readFileSync(fixture.backupPath);
+    const result = restoreMigrationBackup(fixture.backupPath, {
+      checkOnly: true,
+    });
+    expect(result.mode).toBe("check");
+    expect(readFileSync(fixture.backupPath).equals(before)).toBe(true);
+  });
+
+  it("--check works on a WAL-mode backup", () => {
+    const fixture = scratch(false, "PRAGMA journal_mode = WAL;");
+    const result = restoreMigrationBackup(fixture.backupPath, {
+      checkOnly: true,
+    });
+    expect(result.mode).toBe("check");
+  });
+
+  it("removes its private verification copy after success and failure", () => {
+    const fixture = scratch();
+    const holdingDir = tempDir();
+    const saved = process.env.TMPDIR;
+    process.env.TMPDIR = holdingDir;
+    try {
+      restoreMigrationBackup(fixture.backupPath, { checkOnly: true });
+      expect(readdirSync(holdingDir)).toEqual([]);
+      const tamper = new Database(fixture.backupPath);
+      tamper.exec("UPDATE child SET note = 'tampered' WHERE id = 'c1'");
+      tamper.close();
+      expect(() =>
+        restoreMigrationBackup(fixture.backupPath, { checkOnly: true }),
+      ).toThrow(MigrationRestoreError);
+      expect(readdirSync(holdingDir)).toEqual([]);
+    } finally {
+      if (saved === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = saved;
+    }
+  });
+
+  it("reports an unusable verification directory as a restore error", () => {
+    const fixture = scratch();
+    const saved = process.env.TMPDIR;
+    process.env.TMPDIR = join(fixture.directory, "does-not-exist");
+    try {
+      expect(() =>
+        restoreMigrationBackup(fixture.backupPath, { checkOnly: true }),
+      ).toThrow(MigrationRestoreError);
+    } finally {
+      if (saved === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = saved;
+    }
+  });
+
+  it("refuses a backup with a -wal file beside it", () => {
+    const fixture = scratch();
+    writeFileSync(`${fixture.backupPath}-wal`, "x");
+    expect(() => restoreMigrationBackup(fixture.backupPath)).toThrow(/-wal/);
+  });
+
+  it("refuses a sidecar with no source", () => {
+    const fixture = scratch();
+    const sidecarPath = `${fixture.backupPath}${SIDECAR_SUFFIX}`;
+    const sidecar = JSON.parse(readFileSync(sidecarPath, "utf8"));
+    delete sidecar.source;
+    writeFileSync(sidecarPath, JSON.stringify(sidecar));
+    expect(() => restoreMigrationBackup(fixture.backupPath)).toThrow(
+      MigrationRestoreError,
+    );
+  });
+
+  it("still refuses a corrupt backup when the source guard is overridden", () => {
+    const fixture = scratch();
+    const tamper = new Database(fixture.backupPath);
+    tamper.exec("UPDATE child SET note = 'tampered' WHERE id = 'c1'");
+    tamper.close();
+    const other = join(fixture.directory, "other.db");
+    const seed = new Database(other);
+    seed.exec("CREATE TABLE unrelated (x)");
+    seed.close();
+    expect(() =>
+      restoreMigrationBackup(fixture.backupPath, {
+        databasePath: other,
+        allowSourceMismatch: true,
+      }),
+    ).toThrow(/content differs/);
+    expect(brokenCopies(fixture.directory)).toEqual([]);
+  });
+
+  it.each([
+    ["contentless", "CREATE VIRTUAL TABLE cl USING fts5(body, content='')"],
+    [
+      "external-content",
+      "CREATE TABLE docs (id INTEGER PRIMARY KEY, body TEXT); INSERT INTO docs(body) VALUES ('hello there'); CREATE VIRTUAL TABLE ext USING fts5(body, content='docs', content_rowid='id')",
+    ],
+  ])("refuses a backup holding a %s FTS5 table, in --check too", (_, ddl) => {
+    const fixture = scratch(
+      false,
+      `${ddl}; INSERT INTO ${ddl.includes("cl ") ? "cl(rowid, body) VALUES (9, 'hello')" : "ext(rowid, body) VALUES (1, 'hello there')"}`,
+    );
+    migrateAway(fixture.databasePath);
+    const before = digestsOf(fixture.databasePath);
+    for (const checkOnly of [true, false]) {
+      expect(() =>
+        restoreMigrationBackup(fixture.backupPath, { checkOnly }),
+      ).toThrow(/FTS5 table (cl|ext)/);
+    }
+    expect(digestsOf(fixture.databasePath)).toEqual(before);
+    expect(brokenCopies(fixture.directory)).toEqual([]);
   });
 
   it("recomputes instead of comparing when the sidecar projection differs", () => {
