@@ -475,6 +475,47 @@ describe("per-step safety checks", () => {
     });
   });
 
+  it("refuses corruption of a table declared dropped in another case", async () => {
+    const db = await migratedPopulatedDatabase();
+    expectRefused(
+      db,
+      "UPDATE app_settings_values SET value = 'corrupt';",
+      /still exists/,
+      { dropsTables: ["APP_SETTINGS_VALUES"] },
+    );
+  });
+
+  it("accepts upper-case createsTables and rowDeltas declarations", async () => {
+    const db = await migratedPopulatedDatabase();
+    runA0010(
+      db,
+      [
+        "CREATE TABLE zz_new (id INTEGER PRIMARY KEY);",
+        "INSERT INTO zz_new (id) VALUES (1);",
+      ].join(BREAK),
+      { createsTables: ["ZZ_NEW"], rowDeltas: { ZZ_NEW: 1 } },
+    );
+  });
+
+  it("accepts upper-case rowDeltas and writesTables for an existing table", async () => {
+    const db = await migratedPopulatedDatabase();
+    runA0010(
+      db,
+      "DELETE FROM app_settings_values WHERE rowid = (SELECT min(rowid) FROM app_settings_values);",
+      {
+        writesTables: ["APP_SETTINGS_VALUES"],
+        rowDeltas: { APP_SETTINGS_VALUES: -1 },
+      },
+    );
+  });
+
+  it("accepts an upper-case tableRenames declaration", async () => {
+    const db = await migratedPopulatedDatabase();
+    runA0010(db, "ALTER TABLE app_settings_values RENAME TO zz_renamed;", {
+      tableRenames: { APP_SETTINGS_VALUES: "zz_renamed" },
+    });
+  });
+
   it("refuses a declaration that matches no table", async () => {
     const db = await migratedPopulatedDatabase();
     expectRefused(db, "SELECT 1;", /zz_missing/, {

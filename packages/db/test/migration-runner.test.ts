@@ -972,6 +972,27 @@ describe("skipped Aleph statements keep their trusted tables protected", () => {
     },
   );
 
+  it.each([
+    "DELETE FROM zz_source WHERE value IN (SELECT 1 FROM zz_source, 'app_settings');",
+    "DELETE FROM zz_source WHERE value IN (SELECT hosts.id FROM hosts, 'app_settings');",
+    "DELETE FROM zz_source WHERE EXISTS (SELECT 1 FROM zz_source,'app_settings');",
+    "DELETE FROM zz_source WHERE value = lower((SELECT 1 FROM zz_source, 'app_settings'));",
+    "INSERT INTO zz_source VALUES ((SELECT 1 FROM zz_source, 'app_settings'));",
+    "DELETE FROM zz_source WHERE value IN (WITH q AS (SELECT 1) SELECT 1 FROM q, 'app_settings');",
+  ])("guards a table named inside a nested subquery: %s", (statement) => {
+    const alephFolder = alephFolderWithSteps([{ id: "A0010", sql: statement }]);
+    const upstreamFolder = upstreamFolderWithCandidates(
+      [
+        { tag: "0144_zz_source", sql: "CREATE TABLE zz_source (value TEXT);" },
+        { tag: "0145_zz_drop", sql: "DROP TABLE app_settings;" },
+      ],
+      alephFolder,
+    );
+    expect(() =>
+      loadAlignedMigrationPlan({ upstreamFolder, alephFolder }),
+    ).toThrow(/0145_zz_drop.*app_settings/);
+  });
+
   it("does not guard a table named only inside literal lists", () => {
     const alephFolder = alephFolderWithSteps([
       {

@@ -130,7 +130,7 @@ function parseStepChecks(id: string, raw: unknown): StepChecks {
       throw new Error(`Step checks for ${id} columnRenames must be a map`);
     }
     for (const [table, map] of Object.entries(raw.columnRenames)) {
-      columnRenames[table] = stringMap(map, `columnRenames.${table}`);
+      columnRenames[fold(table)] = stringMap(map, `columnRenames.${table}`);
     }
   }
   return {
@@ -156,7 +156,11 @@ function parseStepChecks(id: string, raw: unknown): StepChecks {
     }),
     rowDeltas,
     renumbersRowids: stringList(raw.renumbersRowids, "renumbersRowids"),
-    tableRenames: stringMap(raw.tableRenames, "tableRenames"),
+    tableRenames: Object.fromEntries(
+      Object.entries(stringMap(raw.tableRenames, "tableRenames")).map(
+        ([from, to]) => [fold(from), to],
+      ),
+    ),
     columnRenames,
   };
 }
@@ -806,6 +810,22 @@ export function verifyStep(
   const mayCreateUndeclared = (table: string): boolean =>
     excused.has(fold(table));
 
+  const hasAfter = (name: string): boolean =>
+    tableByName(after.tables, name) !== undefined;
+  const deltas = new Map(
+    Object.entries(declared.rowDeltas).map(([name, delta]) => [
+      fold(name),
+      delta,
+    ]),
+  );
+  const tableColumnRenames = new Map(
+    Object.entries(declared.columnRenames).map(([name, map]) => [
+      fold(name),
+      map,
+    ]),
+  );
+  const columnRenameFor = (name: string, column: string): string | undefined =>
+    tableColumnRenames.get(fold(name))?.[column];
   const renames = new Map(
     Object.entries(declared.tableRenames).map(([from, to]) => [fold(from), to]),
   );
@@ -816,7 +836,7 @@ export function verifyStep(
   const renameTargets = new Set<string>();
   for (const name of before.tables.keys()) {
     const target = resolve(name);
-    if (target !== name && after.tables.has(target)) {
+    if (target !== name && hasAfter(target)) {
       renameTargets.add(fold(target));
     }
   }
@@ -849,9 +869,9 @@ export function verifyStep(
     }
   }
   for (const name of before.tables.keys()) {
-    if (after.tables.has(name)) continue;
+    if (hasAfter(name)) continue;
     const target = resolve(name);
-    if (target !== name && after.tables.has(target)) continue;
+    if (target !== name && hasAfter(target)) continue;
     if (!drops.has(fold(name))) {
       fail(stepId, `table ${name} was dropped without being declared`);
     }
@@ -867,7 +887,7 @@ export function verifyStep(
     }
   }
   for (const name of declared.dropsTables) {
-    if (after.tables.has(name)) {
+    if (hasAfter(name)) {
       fail(stepId, `table ${name} is declared dropped but still exists`);
     }
   }
@@ -876,7 +896,7 @@ export function verifyStep(
     const target = resolve(name);
     const afterMeasure = after.measures.get(target);
     if (afterMeasure === undefined) continue;
-    const delta = declared.rowDeltas[name] ?? 0;
+    const delta = deltas.get(fold(name)) ?? 0;
     if (afterMeasure.count - beforeMeasure.count !== delta) {
       fail(
         stepId,
@@ -893,12 +913,12 @@ export function verifyStep(
     }
   }
   for (const name of declared.createsTables) {
-    const table = after.tables.get(name);
+    const table = tableByName(after.tables, name);
     if (table === undefined) {
       fail(stepId, `table ${name} is declared created but does not exist`);
     }
-    const expected = declared.rowDeltas[name] ?? 0;
-    const actual = after.measures.get(name)?.count ?? 0;
+    const expected = deltas.get(fold(name)) ?? 0;
+    const actual = tableByName(after.measures, name)?.count ?? 0;
     if (actual !== expected) {
       fail(
         stepId,
@@ -937,14 +957,12 @@ export function verifyStep(
     verifyNullKeyGroups(sqlite, stepId, captured, table, (column) => {
       if (preserved !== null && !preserved.has(column)) return null;
       return (
-        entry?.columnRenames[column] ??
-        declared.columnRenames[name]?.[column] ??
-        column
+        entry?.columnRenames[column] ?? columnRenameFor(name, column) ?? column
       );
     });
   }
 
-  if (baseline.drift.temp !== null && after.tables.has(FTS_TABLE)) {
+  if (baseline.drift.temp !== null && hasAfter(FTS_TABLE)) {
     const row = sqlite
       .prepare(
         `SELECT count(*) AS n FROM (${driftSql()} EXCEPT SELECT side, id, text FROM temp.${baseline.drift.temp})`,
@@ -960,8 +978,8 @@ export function verifyStep(
 
   for (const [name, beforeSeq] of before.counters) {
     const target = resolve(name);
-    if (!after.tables.has(target) || !before.tables.has(name)) continue;
-    const afterSeq = after.counters.get(target) ?? 0n;
+    if (!hasAfter(target) || !before.tables.has(name)) continue;
+    const afterSeq = tableByName(after.counters, target) ?? 0n;
     if (afterSeq < beforeSeq) {
       fail(
         stepId,
@@ -1082,9 +1100,9 @@ export function captureForeignKeyIdentities(
           ? "''"
           : `json_array(${keyColumns.map((key) => `c.${quote(key)}`).join(", ")})`;
       const values = `json_array(${childColumns.map((column) => `c.${quote(column)}`).join(", ")})`;
-      const mappedChild = renames.tableRenames[child.name] ?? child.name;
+      const mappedChild = renames.tableRenames[fold(child.name)] ?? child.name;
       const mappedColumns = childColumns.map(
-        (column) => renames.columnRenames[child.name]?.[column] ?? column,
+        (column) => renames.columnRenames[fold(child.name)]?.[column] ?? column,
       );
       sqlite
         .prepare(
@@ -1092,7 +1110,7 @@ export function captureForeignKeyIdentities(
         )
         .run(
           mappedChild,
-          renames.tableRenames[parentName] ?? parentName,
+          renames.tableRenames[fold(parentName)] ?? parentName,
           JSON.stringify(mappedColumns),
         );
     }

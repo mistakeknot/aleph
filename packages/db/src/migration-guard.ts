@@ -367,7 +367,9 @@ export function statementIdentifiers(statement: string): string[] {
         const before = tokens[position - 1];
         const parent = kinds[depth] ?? "group";
         depth += 1;
-        if (opener === "IN" || opener === "VALUES") kinds[depth] = "list";
+        const inner = keywordAt(tokens, position + 1);
+        if (inner === "SELECT" || inner === "WITH") kinds[depth] = "group";
+        else if (opener === "IN" || opener === "VALUES") kinds[depth] = "list";
         else if (
           before?.kind === "word" &&
           opener !== undefined &&
