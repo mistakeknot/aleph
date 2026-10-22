@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "a1401b47-32c9-4811-9823-7e216e518bdf",
-  "prevId": "f909d66b-b58a-45f2-a338-525589322794",
+  "id": "9e6f7780-3c7a-45f2-a31a-6ceb6b044796",
+  "prevId": "3c5b3d60-3afa-4b68-99cd-965067462339",
   "tables": {
     "app_settings": {
       "name": "app_settings",
@@ -1786,6 +1786,14 @@
           "notNull": true,
           "autoincrement": false,
           "default": true
+        },
+        "enabled_follows_default": {
+          "name": "enabled_follows_default",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
         },
         "removed_at": {
           "name": "removed_at",
@@ -4776,20 +4784,6 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
-        },
-        "provisional_fence_epoch": {
-          "name": "provisional_fence_epoch",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "provisional_fence_verified_epoch": {
-          "name": "provisional_fence_verified_epoch",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
         }
       },
       "indexes": {
@@ -5046,172 +5040,6 @@
       "indexes": {},
       "foreignKeys": {},
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "idempotent_thread_operations": {
-      "name": "idempotent_thread_operations",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "scope": {
-          "name": "scope",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "idempotency_key": {
-          "name": "idempotency_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'accepted'"
-        },
-        "send_at": {
-          "name": "send_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "result_json": {
-          "name": "result_json",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "error_message": {
-          "name": "error_message",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "idempotent_thread_operations_scope_key_idx": {
-          "name": "idempotent_thread_operations_scope_key_idx",
-          "columns": [
-            "scope",
-            "idempotency_key"
-          ],
-          "isUnique": true
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "thread_search_learned_selections": {
-      "name": "thread_search_learned_selections",
-      "columns": {
-        "query_text": {
-          "name": "query_text",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "thread_id": {
-          "name": "thread_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "selection_count": {
-          "name": "selection_count",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 1
-        },
-        "last_selected_at": {
-          "name": "last_selected_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "thread_search_learned_selections_query_idx": {
-          "name": "thread_search_learned_selections_query_idx",
-          "columns": [
-            "query_text"
-          ],
-          "isUnique": false
-        },
-        "thread_search_learned_selections_thread_idx": {
-          "name": "thread_search_learned_selections_thread_idx",
-          "columns": [
-            "thread_id"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "thread_search_learned_selections_thread_id_threads_id_fk": {
-          "name": "thread_search_learned_selections_thread_id_threads_id_fk",
-          "tableFrom": "thread_search_learned_selections",
-          "tableTo": "threads",
-          "columnsFrom": [
-            "thread_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "thread_search_learned_selections_query_text_thread_id_pk": {
-          "columns": [
-            "query_text",
-            "thread_id"
-          ],
-          "name": "thread_search_learned_selections_query_text_thread_id_pk"
-        }
-      },
       "uniqueConstraints": {},
       "checkConstraints": {}
     }

@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "04d6da4f-2739-4592-93ba-f180fef0767d",
-  "prevId": "cc016252-595e-4d63-985a-f2a52e1270d3",
+  "id": "a1401b47-32c9-4811-9823-7e216e518bdf",
+  "prevId": "f909d66b-b58a-45f2-a338-525589322794",
   "tables": {
     "app_settings": {
       "name": "app_settings",
@@ -1535,89 +1535,6 @@
           ],
           "isUnique": true,
           "where": "\"hosts\".\"destroyed_at\" is null"
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "idempotent_thread_operations": {
-      "name": "idempotent_thread_operations",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "scope": {
-          "name": "scope",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "idempotency_key": {
-          "name": "idempotency_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'accepted'"
-        },
-        "send_at": {
-          "name": "send_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "result_json": {
-          "name": "result_json",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "error_message": {
-          "name": "error_message",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "idempotent_thread_operations_scope_key_idx": {
-          "name": "idempotent_thread_operations_scope_key_idx",
-          "columns": [
-            "scope",
-            "idempotency_key"
-          ],
-          "isUnique": true
         }
       },
       "foreignKeys": {},
@@ -4785,20 +4702,6 @@
         "origin_plugin_id": {
           "name": "origin_plugin_id",
           "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "provisional_fence_epoch": {
-          "name": "provisional_fence_epoch",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "provisional_fence_verified_epoch": {
-          "name": "provisional_fence_verified_epoch",
-          "type": "integer",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false

@@ -519,7 +519,7 @@ describe("legacy runner behaviour on ledger shapes (S3 rows 8, 16, 18, 20, 21)",
   );
 
   it(
-    "row 18: a NULL row carrying a canonical step hash beside the complete row is ignored",
+    "row 8: a NULL row carrying a canonical step hash beside the complete row is ignored",
     async () => {
       const db = await populatedPrefixDatabase(152);
       const before = describeDatabase(db.$client);
@@ -536,7 +536,65 @@ describe("legacy runner behaviour on ledger shapes (S3 rows 8, 16, 18, 20, 21)",
       const rows = ledgerRows(db.$client);
       expect(rows).toHaveLength(153);
       expect(rows.filter((row) => row.created_at === null)).toHaveLength(1);
-      expectScenario("row18-canonical-hash-null", db);
+      expectScenario("row8-canonical-hash-null", db);
+      db.$client.close();
+    },
+    TIMEOUT,
+  );
+
+  it(
+    "row 18: an unrecognised row with a past created_at is accepted and changes nothing",
+    async () => {
+      const db = await populatedPrefixDatabase(152);
+      const before = describeDatabase(db.$client);
+      db.$client.exec(
+        "INSERT INTO __drizzle_migrations (hash, created_at) VALUES ('unknown-dev-branch-hash', 1790298785171)",
+      );
+      await legacyMigrate(db);
+      expect(
+        diffDescriptions(
+          contentOnly(before),
+          contentOnly(describeDatabase(db.$client)),
+        ),
+      ).toEqual([]);
+      expect(ledgerRows(db.$client)).toHaveLength(153);
+      expectScenario("row18-unknown-past", db);
+      db.$client.close();
+    },
+    TIMEOUT,
+  );
+
+  it(
+    "row 9 and 18: an unrecognised row with a future created_at is accepted and warns once",
+    async () => {
+      const db = await populatedPrefixDatabase(152);
+      const before = describeDatabase(db.$client);
+      db.$client.exec(
+        "INSERT INTO __drizzle_migrations (hash, created_at) VALUES ('unknown-future-hash', 4102444800000)",
+      );
+      const warnings: Array<{ message: string; migrations: unknown }> = [];
+      await legacyMigrate(db, {
+        logger: {
+          warn: (fields, message) =>
+            warnings.push({ message, migrations: fields.migrations }),
+        },
+      });
+      expect(warnings).toEqual([
+        {
+          message: "Applied database migrations have future timestamps",
+          migrations: [
+            { hash: "unknown-future-hash", createdAt: 4102444800000 },
+          ],
+        },
+      ]);
+      expect(
+        diffDescriptions(
+          contentOnly(before),
+          contentOnly(describeDatabase(db.$client)),
+        ),
+      ).toEqual([]);
+      expect(ledgerRows(db.$client)).toHaveLength(153);
+      expectScenario("row18-unknown-future", db);
       db.$client.close();
     },
     TIMEOUT,
@@ -565,6 +623,7 @@ describe("legacy runner behaviour on ledger shapes (S3 rows 8, 16, 18, 20, 21)",
     async () => {
       const { db, flags } = await groupedPrefixDatabase(152);
       const before = describeDatabase(db.$client);
+      const qtmBefore = digestTable(db.$client, "queued_thread_messages");
       db.$client.exec(
         "UPDATE __drizzle_migrations SET created_at = NULL WHERE rowid = (SELECT MAX(rowid) FROM __drizzle_migrations)",
       );
@@ -581,6 +640,20 @@ describe("legacy runner behaviour on ledger shapes (S3 rows 8, 16, 18, 20, 21)",
         .all() as Array<{ id: string; flag: number }>)
         after[row.id] = row.flag;
       expect(after).toEqual(flags);
+      const qtmAfter = digestTable(db.$client, "queued_thread_messages");
+      expect(qtmAfter).not.toEqual(qtmBefore);
+      expect({ qtmBefore, qtmAfter }).toMatchInlineSnapshot(`
+        {
+          "qtmAfter": {
+            "count": 3,
+            "digest": "3994632346e51c2246282bc862112c4d",
+          },
+          "qtmBefore": {
+            "count": 3,
+            "digest": "e8d206eb84135a7d776cb3a5e1c0725b",
+          },
+        }
+      `);
       expect(
         diffDescriptions(
           contentOnly(before),

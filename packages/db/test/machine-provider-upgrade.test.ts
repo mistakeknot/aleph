@@ -1,10 +1,10 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { readMigrationFiles } from "drizzle-orm/migrator";
 import { expect, it } from "vitest";
 import { createConnection, migrate } from "../src/index.js";
+import { legacyCompatFolder } from "./helpers/plan-apply.js";
 
 it("upgrades the merged environment schema and preserves existing hosts", () => {
   const directory = mkdtempSync(join(tmpdir(), "bb-machine-upgrade-"));
@@ -12,7 +12,7 @@ it("upgrades the merged environment schema and preserves existing hosts", () => 
   const db = createConnection(join(directory, "bb.db"));
   try {
     const migrations = readMigrationFiles({
-      migrationsFolder: fileURLToPath(new URL("../drizzle", import.meta.url)),
+      migrationsFolder: legacyCompatFolder(),
     });
     db.$client.exec(
       'CREATE TABLE "__drizzle_migrations" (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric)',

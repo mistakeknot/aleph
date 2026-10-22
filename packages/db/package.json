@@ -21,7 +21,8 @@
   },
   "types": "./src/index.ts",
   "files": [
-    "drizzle"
+    "drizzle",
+    "drizzle-aleph"
   ],
   "scripts": {
     "clean": "rimraf dist tsconfig.tsbuildinfo",

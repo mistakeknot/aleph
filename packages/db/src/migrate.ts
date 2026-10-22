@@ -1,5 +1,6 @@
 import { migrate as drizzleMigrate } from "drizzle-orm/better-sqlite3/migrator";
 import { readMigrationFiles } from "drizzle-orm/migrator";
+import { materializeLegacyCompatibleFolder } from "./legacy-compat-folder.js";
 import { dirname, join, resolve } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -254,9 +255,35 @@ export function resolveMigrationsFolderForModuleDir(
   );
 }
 
+const alephManifestPath = "manifest.json";
+
+export function resolveAlephMigrationsFolderForModuleDir(
+  args: ResolveMigrationsFolderForModuleDirArgs,
+): string {
+  const candidates = [
+    resolve(args.moduleDir, "..", "drizzle-aleph"),
+    resolve(args.moduleDir, "drizzle-aleph"),
+  ];
+
+  for (const candidate of candidates) {
+    if (existsSync(resolve(candidate, alephManifestPath))) {
+      return candidate;
+    }
+  }
+
+  throw new Error(
+    `Missing Aleph database migrations. Expected ${alephManifestPath} under one of: ${candidates.join(", ")}`,
+  );
+}
+
 function resolveMigrationsFolder(): string {
-  return resolveMigrationsFolderForModuleDir({
-    moduleDir: migrationModuleDirname,
+  return materializeLegacyCompatibleFolder({
+    upstreamFolder: resolveMigrationsFolderForModuleDir({
+      moduleDir: migrationModuleDirname,
+    }),
+    alephFolder: resolveAlephMigrationsFolderForModuleDir({
+      moduleDir: migrationModuleDirname,
+    }),
   });
 }
 

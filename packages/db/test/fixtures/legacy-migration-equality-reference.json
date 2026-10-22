@@ -11,12 +11,7 @@
         "integrity_check": "ok",
         "user_version": "0"
       },
-      "sequences": [
-        [
-          "environment_variables",
-          "0"
-        ]
-      ],
+      "sequences": [["environment_variables", "0"]],
       "tables": {
         "aleph_install_requests": {
           "count": 0,
@@ -258,12 +253,7 @@
         "integrity_check": "ok",
         "user_version": "0"
       },
-      "sequences": [
-        [
-          "environment_variables",
-          "0"
-        ]
-      ],
+      "sequences": [["environment_variables", "0"]],
       "tables": {
         "aleph_install_requests": {
           "count": 0,
@@ -505,12 +495,7 @@
         "integrity_check": "ok",
         "user_version": "0"
       },
-      "sequences": [
-        [
-          "environment_variables",
-          "0"
-        ]
-      ],
+      "sequences": [["environment_variables", "0"]],
       "tables": {
         "aleph_install_requests": {
           "count": 0,
@@ -749,12 +734,7 @@
         "integrity_check": "ok",
         "user_version": "0"
       },
-      "sequences": [
-        [
-          "environment_variables",
-          "0"
-        ]
-      ],
+      "sequences": [["environment_variables", "0"]],
       "tables": {
         "aleph_install_requests": {
           "count": 0,
@@ -993,12 +973,7 @@
         "integrity_check": "ok",
         "user_version": "0"
       },
-      "sequences": [
-        [
-          "environment_variables",
-          "1002"
-        ]
-      ],
+      "sequences": [["environment_variables", "1002"]],
       "tables": {
         "aleph_install_requests": {
           "count": 0,
@@ -1237,12 +1212,7 @@
         "integrity_check": "ok",
         "user_version": "0"
       },
-      "sequences": [
-        [
-          "environment_variables",
-          "1002"
-        ]
-      ],
+      "sequences": [["environment_variables", "1002"]],
       "tables": {
         "aleph_install_requests": {
           "count": 0,
@@ -1481,12 +1451,7 @@
         "integrity_check": "ok",
         "user_version": "0"
       },
-      "sequences": [
-        [
-          "environment_variables",
-          "1002"
-        ]
-      ],
+      "sequences": [["environment_variables", "1002"]],
       "tables": {
         "aleph_install_requests": {
           "count": 0,
@@ -1725,12 +1690,7 @@
         "integrity_check": "ok",
         "user_version": "0"
       },
-      "sequences": [
-        [
-          "environment_variables",
-          "1002"
-        ]
-      ],
+      "sequences": [["environment_variables", "1002"]],
       "tables": {
         "aleph_install_requests": {
           "count": 0,
@@ -1970,14 +1930,8 @@
         "user_version": "0"
       },
       "sequences": [
-        [
-          "environment_variables",
-          "1002"
-        ],
-        [
-          "transfer_events",
-          "1002"
-        ]
+        ["environment_variables", "1002"],
+        ["transfer_events", "1002"]
       ],
       "tables": {
         "aleph_install_requests": {
@@ -2218,14 +2172,8 @@
         "user_version": "0"
       },
       "sequences": [
-        [
-          "environment_variables",
-          "1002"
-        ],
-        [
-          "transfer_events",
-          "1002"
-        ]
+        ["environment_variables", "1002"],
+        ["transfer_events", "1002"]
       ],
       "tables": {
         "aleph_install_requests": {
@@ -2463,12 +2411,7 @@
         "integrity_check": "ok",
         "user_version": "0"
       },
-      "sequences": [
-        [
-          "environment_variables",
-          "0"
-        ]
-      ],
+      "sequences": [["environment_variables", "0"]],
       "tables": {
         "aleph_install_requests": {
           "count": 0,
@@ -2710,12 +2653,7 @@
         "integrity_check": "ok",
         "user_version": "0"
       },
-      "sequences": [
-        [
-          "environment_variables",
-          "0"
-        ]
-      ],
+      "sequences": [["environment_variables", "0"]],
       "tables": {
         "aleph_install_requests": {
           "count": 0,
@@ -2958,14 +2896,8 @@
         "user_version": "0"
       },
       "sequences": [
-        [
-          "environment_variables",
-          "1002"
-        ],
-        [
-          "transfer_events",
-          "1002"
-        ]
+        ["environment_variables", "1002"],
+        ["transfer_events", "1002"]
       ],
       "tables": {
         "aleph_install_requests": {

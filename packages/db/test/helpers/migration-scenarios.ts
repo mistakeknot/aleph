@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import type { DbConnection } from "../../src/connection.js";
+import type { MigrateOptions } from "../../src/migrate.js";
 import {
   applyFolder,
   applyPrefix,
@@ -177,9 +178,12 @@ export async function populatedUpstreamDatabase(): Promise<DbConnection> {
   return db;
 }
 
-export async function legacyMigrate(db: DbConnection): Promise<void> {
+export async function legacyMigrate(
+  db: DbConnection,
+  options?: MigrateOptions,
+): Promise<void> {
   const { migrate } = await loadLegacyRunner();
-  migrate(db);
+  migrate(db, options);
 }
 
 export function ledgerRows(

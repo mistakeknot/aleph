@@ -1,0 +1,14 @@
+{
+  "tables": [
+    "aleph_install_requests",
+    "app_theme",
+    "idempotent_thread_operations",
+    "queued_thread_messages",
+    "thread_redirects",
+    "thread_search_learned_selections",
+    "threads",
+    "transfer_entries",
+    "transfer_events",
+    "transfer_operations"
+  ]
+}

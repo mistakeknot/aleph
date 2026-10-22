@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "cc016252-595e-4d63-985a-f2a52e1270d3",
+  "id": "f909d66b-b58a-45f2-a338-525589322794",
   "prevId": "5a2c6d7f-ecbd-404b-baee-91c38a401c76",
   "tables": {
     "app_settings": {
@@ -4671,6 +4671,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "draft": {
+          "name": "draft",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "parent_thread_id": {
           "name": "parent_thread_id",
           "type": "text",
@@ -4702,20 +4709,6 @@
         "origin_plugin_id": {
           "name": "origin_plugin_id",
           "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "provisional_fence_epoch": {
-          "name": "provisional_fence_epoch",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "provisional_fence_verified_epoch": {
-          "name": "provisional_fence_verified_epoch",
-          "type": "integer",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false

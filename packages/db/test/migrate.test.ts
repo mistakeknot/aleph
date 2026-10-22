@@ -1,8 +1,8 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { dropTransferLedgerSchema } from "./helpers/drop-transfer-ledger.js";
+import { legacyCompatFolder } from "./helpers/plan-apply.js";
 import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 import { publishedMigrationWhensByTag } from "../src/migration-history.js";
 import {
   dropIdleLifecycleIndexes,
@@ -243,15 +243,12 @@ interface SeededLargeValueBackfillValues {
   webSearchResult: string;
 }
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
+const legacyCompatDir = legacyCompatFolder();
 
 const latestMigrationWhen = Math.max(
   ...(
     JSON.parse(
-      readFileSync(
-        resolve(__dirname, "../drizzle/meta/_journal.json"),
-        "utf-8",
-      ),
+      readFileSync(resolve(legacyCompatDir, "meta/_journal.json"), "utf-8"),
     ) as { entries: { when: number }[] }
   ).entries.map((entry) => entry.when),
 );
@@ -402,123 +399,83 @@ const eventParentToolCallPreJsonValidMigrationHash =
 const eventLargeValuesPreOptimizationHash =
   "bc111f5134183c37cf135af70231ec5a79823f9868818fdd8377e1ab3c05a23f";
 const queuedMessageSortKeyMigrationPath = resolve(
-  __dirname,
-  "..",
-  "drizzle",
+  legacyCompatDir,
   "0004_wild_justice.sql",
 );
 const pluginCatalogMigrationPath = resolve(
-  __dirname,
-  "..",
-  "drizzle",
+  legacyCompatDir,
   "0072_bizarre_the_liberteens.sql",
 );
 const sideChatVisibilityBackfillMigrationPath = resolve(
-  __dirname,
-  "..",
-  "drizzle",
+  legacyCompatDir,
   "0079_side_chat_plugin.sql",
 );
 const sideChatPluginOnlyMigrationPath = resolve(
-  __dirname,
-  "..",
-  "drizzle",
+  legacyCompatDir,
   "0084_side_chat_plugin_only.sql",
 );
 const experimentKeyValueMigrationPath = resolve(
-  __dirname,
-  "..",
-  "drizzle",
+  legacyCompatDir,
   "0090_equal_reaper.sql",
 );
 const appSettingsKeyValueMigrationPath = resolve(
-  __dirname,
-  "..",
-  "drizzle",
+  legacyCompatDir,
   "0102_app_settings_key_value.sql",
 );
 const steerOnEnterDefaultMigrationPath = resolve(
-  __dirname,
-  "..",
-  "drizzle",
+  legacyCompatDir,
   "0112_steer_on_enter_default.sql",
 );
 const stampOnboardingMigrationPath = resolve(
-  __dirname,
-  "..",
-  "drizzle",
+  legacyCompatDir,
   "0148_stamp_onboarding_existing_installs.sql",
 );
 const retainedEventOutputsMigrationPath = resolve(
-  __dirname,
-  "..",
-  "drizzle",
+  legacyCompatDir,
   "0114_public_iron_lad.sql",
 );
 const providerSettingsToPluginsMigrationPath = resolve(
-  __dirname,
-  "..",
-  "drizzle",
+  legacyCompatDir,
   "0105_provider_settings_to_plugins.sql",
 );
 const retireRequestedAtMigrationPath = resolve(
-  __dirname,
-  "..",
-  "drizzle",
+  legacyCompatDir,
   "0091_daffy_dark_phoenix.sql",
 );
 const pluginArtifactCheckoutRootMigrationPath = resolve(
-  __dirname,
-  "..",
-  "drizzle",
+  legacyCompatDir,
   "0094_mighty_polaris.sql",
 );
 const namedMarketplaceCatalogMigrationPath = resolve(
-  __dirname,
-  "..",
-  "drizzle",
+  legacyCompatDir,
   "0095_normal_elektra.sql",
 );
 const curatedMarketplaceRenameMigrationPath = resolve(
-  __dirname,
-  "..",
-  "drizzle",
+  legacyCompatDir,
   "0098_rename_curated_marketplace.sql",
 );
 const providerUsagePluginIdMigrationPath = resolve(
-  __dirname,
-  "..",
-  "drizzle",
+  legacyCompatDir,
   "0138_rename_provider_usage_plugin_id.sql",
 );
 const sidebarOrderingMigrationPath = resolve(
-  __dirname,
-  "..",
-  "drizzle",
+  legacyCompatDir,
   "0005_strong_exodus.sql",
 );
 const threadPinningMigrationPath = resolve(
-  __dirname,
-  "..",
-  "drizzle",
+  legacyCompatDir,
   "0008_thread_pinning.sql",
 );
 const pendingInteractionSchemaHonestyMigrationPath = resolve(
-  __dirname,
-  "..",
-  "drizzle",
+  legacyCompatDir,
   "0019_pending_interactions_schema_honesty.sql",
 );
 const eventLargeValuesMigrationPath = resolve(
-  __dirname,
-  "..",
-  "drizzle",
+  legacyCompatDir,
   "0031_mysterious_zaran.sql",
 );
 const machineProvidersMigrationPath = resolve(
-  __dirname,
-  "..",
-  "drizzle",
+  legacyCompatDir,
   "0117_machine_providers.sql",
 );
 function closeConnection(db: DbConnection): void {
@@ -5100,10 +5057,7 @@ describe("environment and thread startup ownership migration", () => {
         dropIdempotentThreadOperationsTable(db);
         dropThreadSearchLearnedSelectionsTable(db);
         const legacySchema = readFileSync(
-          resolve(
-            dirname(fileURLToPath(import.meta.url)),
-            "../drizzle/0113_environment_providers.sql",
-          ),
+          resolve(legacyCompatDir, "0113_environment_providers.sql"),
           "utf8",
         ).split("--> statement-breakpoint")[0]!;
         db.$client.exec(legacySchema);

@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "fb6f3cd3-0e1c-42d7-a10a-2b1c1811a738",
-  "prevId": "b1330ee7-a399-45b8-9b57-5936bfd0af12",
+  "id": "d4b02fa4-a3e0-473f-bbc2-0cee3c0d4606",
+  "prevId": "5d5a1cb9-1fe8-406a-920a-2734560120b2",
   "tables": {
     "app_settings": {
       "name": "app_settings",
@@ -1528,6 +1528,14 @@
           ],
           "isUnique": false
         },
+        "hosts_pending_provider_idx": {
+          "name": "hosts_pending_provider_idx",
+          "columns": [
+            "machine_provider_id"
+          ],
+          "isUnique": false,
+          "where": "\"hosts\".\"destroyed_at\" IS NULL AND \"hosts\".\"phase\" <> 'destroyed'"
+        },
         "hosts_live_launch_key_idx": {
           "name": "hosts_live_launch_key_idx",
           "columns": [
@@ -1535,89 +1543,6 @@
           ],
           "isUnique": true,
           "where": "\"hosts\".\"destroyed_at\" is null"
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "idempotent_thread_operations": {
-      "name": "idempotent_thread_operations",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "scope": {
-          "name": "scope",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "idempotency_key": {
-          "name": "idempotency_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'accepted'"
-        },
-        "send_at": {
-          "name": "send_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "result_json": {
-          "name": "result_json",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "error_message": {
-          "name": "error_message",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "idempotent_thread_operations_scope_key_idx": {
-          "name": "idempotent_thread_operations_scope_key_idx",
-          "columns": [
-            "scope",
-            "idempotency_key"
-          ],
-          "isUnique": true
         }
       },
       "foreignKeys": {},
@@ -2443,6 +2368,13 @@
         },
         "source_git_ref": {
           "name": "source_git_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "source_git_subdirectory": {
+          "name": "source_git_subdirectory",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -3682,6 +3614,13 @@
           "autoincrement": false,
           "default": false
         },
+        "state": {
+          "name": "state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
         "send_at": {
           "name": "send_at",
           "type": "integer",
@@ -3768,16 +3707,9 @@
           "notNull": false,
           "autoincrement": false
         },
-        "origin_id": {
-          "name": "origin_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "forward_source_row_id": {
-          "name": "forward_source_row_id",
-          "type": "text",
+        "edit_held_until": {
+          "name": "edit_held_until",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -3805,22 +3737,6 @@
         }
       },
       "indexes": {
-        "qtm_one_slot_per_source": {
-          "name": "qtm_one_slot_per_source",
-          "columns": [
-            "forward_source_row_id"
-          ],
-          "isUnique": true,
-          "where": "\"queued_thread_messages\".\"forward_source_row_id\" IS NOT NULL"
-        },
-        "qtm_one_live_copy": {
-          "name": "qtm_one_live_copy",
-          "columns": [
-            "origin_id"
-          ],
-          "isUnique": true,
-          "where": "\"queued_thread_messages\".\"forward_source_row_id\" IS NULL AND \"queued_thread_messages\".\"origin_id\" IS NOT NULL"
-        },
         "queued_thread_messages_thread_created_idx": {
           "name": "queued_thread_messages_thread_created_idx",
           "columns": [
@@ -3842,11 +3758,20 @@
         "queued_thread_messages_due_idx": {
           "name": "queued_thread_messages_due_idx",
           "columns": [
+            "state",
             "send_at",
             "id"
           ],
-          "isUnique": false,
-          "where": "\"queued_thread_messages\".\"send_at\" IS NOT NULL AND \"queued_thread_messages\".\"claimed_at\" IS NULL AND \"queued_thread_messages\".\"claim_token\" IS NULL"
+          "isUnique": false
+        },
+        "queued_thread_messages_retry_idx": {
+          "name": "queued_thread_messages_retry_idx",
+          "columns": [
+            "state",
+            "next_attempt_at",
+            "id"
+          ],
+          "isUnique": false
         },
         "queued_thread_messages_wait_holder_idx": {
           "name": "queued_thread_messages_wait_holder_idx",
@@ -3875,7 +3800,28 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "checkConstraints": {}
+      "checkConstraints": {
+        "queued_thread_messages_state_check": {
+          "name": "queued_thread_messages_state_check",
+          "value": "CASE \"queued_thread_messages\".\"state\"\n        WHEN 'claimed' THEN \"queued_thread_messages\".\"claimed_at\" IS NOT NULL\n        WHEN 'failed_retrying' THEN \"queued_thread_messages\".\"claimed_at\" IS NULL AND \"queued_thread_messages\".\"failure_reason\" IS NOT NULL AND \"queued_thread_messages\".\"next_attempt_at\" IS NOT NULL\n        WHEN 'failed_exhausted' THEN \"queued_thread_messages\".\"claimed_at\" IS NULL AND \"queued_thread_messages\".\"failure_reason\" IS NOT NULL AND \"queued_thread_messages\".\"next_attempt_at\" IS NULL\n        WHEN 'scheduled' THEN \"queued_thread_messages\".\"claimed_at\" IS NULL AND \"queued_thread_messages\".\"failure_reason\" IS NULL AND \"queued_thread_messages\".\"send_at\" IS NOT NULL\n        WHEN 'waiting' THEN \"queued_thread_messages\".\"claimed_at\" IS NULL AND \"queued_thread_messages\".\"failure_reason\" IS NULL AND \"queued_thread_messages\".\"send_at\" IS NULL AND \"queued_thread_messages\".\"waiting_on\" IS NOT NULL\n        WHEN 'queued' THEN \"queued_thread_messages\".\"claimed_at\" IS NULL AND \"queued_thread_messages\".\"failure_reason\" IS NULL AND \"queued_thread_messages\".\"send_at\" IS NULL AND \"queued_thread_messages\".\"waiting_on\" IS NULL\n        ELSE 0\n      END"
+        },
+        "queued_thread_messages_claim_check": {
+          "name": "queued_thread_messages_claim_check",
+          "value": "(\"queued_thread_messages\".\"claimed_at\" IS NULL) = (\"queued_thread_messages\".\"claim_token\" IS NULL)"
+        },
+        "queued_thread_messages_failure_check": {
+          "name": "queued_thread_messages_failure_check",
+          "value": "(\"queued_thread_messages\".\"failure_reason\" IS NULL AND \"queued_thread_messages\".\"failure_count\" = 0 AND \"queued_thread_messages\".\"next_attempt_at\" IS NULL)\n        OR (\"queued_thread_messages\".\"failure_reason\" IS NOT NULL AND \"queued_thread_messages\".\"failure_count\" > 0)"
+        },
+        "queued_thread_messages_schedule_check": {
+          "name": "queued_thread_messages_schedule_check",
+          "value": "\"queued_thread_messages\".\"send_at\" IS NULL OR \"queued_thread_messages\".\"waiting_on\" IS NOT NULL"
+        },
+        "queued_thread_messages_wait_holder_check": {
+          "name": "queued_thread_messages_wait_holder_check",
+          "value": "\"queued_thread_messages\".\"wait_holder\" IS (CASE WHEN json_extract(\"queued_thread_messages\".\"waiting_on\", '$.kind') = 'plugin' THEN 'plugin:' || json_extract(\"queued_thread_messages\".\"waiting_on\", '$.pluginId') END)"
+        }
+      }
     },
     "retained_event_outputs": {
       "name": "retained_event_outputs",
@@ -4421,6 +4367,14 @@
           "autoincrement": false,
           "default": 0
         },
+        "work_revision": {
+          "name": "work_revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
         "cycle": {
           "name": "cycle",
           "type": "integer",
@@ -4524,82 +4478,11 @@
         }
       }
     },
-    "thread_redirects": {
-      "name": "thread_redirects",
+    "thread_pruning_work": {
+      "name": "thread_pruning_work",
       "columns": {
-        "source_thread_id": {
-          "name": "source_thread_id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "successor_thread_id": {
-          "name": "successor_thread_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "op_id": {
-          "name": "op_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "thread_redirects_source_thread_id_threads_id_fk": {
-          "name": "thread_redirects_source_thread_id_threads_id_fk",
-          "tableFrom": "thread_redirects",
-          "tableTo": "threads",
-          "columnsFrom": [
-            "source_thread_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "thread_redirects_successor_thread_id_threads_id_fk": {
-          "name": "thread_redirects_successor_thread_id_threads_id_fk",
-          "tableFrom": "thread_redirects",
-          "tableTo": "threads",
-          "columnsFrom": [
-            "successor_thread_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "thread_redirects_op_id_transfer_operations_id_fk": {
-          "name": "thread_redirects_op_id_transfer_operations_id_fk",
-          "tableFrom": "thread_redirects",
-          "tableTo": "transfer_operations",
-          "columnsFrom": [
-            "op_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "thread_search_learned_selections": {
-      "name": "thread_search_learned_selections",
-      "columns": {
-        "query_text": {
-          "name": "query_text",
+        "policy": {
+          "name": "policy",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -4612,39 +4495,18 @@
           "notNull": true,
           "autoincrement": false
         },
-        "selection_count": {
-          "name": "selection_count",
+        "revision": {
+          "name": "revision",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
           "default": 1
-        },
-        "last_selected_at": {
-          "name": "last_selected_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
         }
       },
       "indexes": {
-        "thread_search_learned_selections_query_idx": {
-          "name": "thread_search_learned_selections_query_idx",
-          "columns": [
-            "query_text"
-          ],
-          "isUnique": false
-        },
-        "thread_search_learned_selections_thread_idx": {
-          "name": "thread_search_learned_selections_thread_idx",
+        "thread_pruning_work_thread_idx": {
+          "name": "thread_pruning_work_thread_idx",
           "columns": [
             "thread_id"
           ],
@@ -4652,9 +4514,9 @@
         }
       },
       "foreignKeys": {
-        "thread_search_learned_selections_thread_id_threads_id_fk": {
-          "name": "thread_search_learned_selections_thread_id_threads_id_fk",
-          "tableFrom": "thread_search_learned_selections",
+        "thread_pruning_work_thread_id_threads_id_fk": {
+          "name": "thread_pruning_work_thread_id_threads_id_fk",
+          "tableFrom": "thread_pruning_work",
           "tableTo": "threads",
           "columnsFrom": [
             "thread_id"
@@ -4667,12 +4529,12 @@
         }
       },
       "compositePrimaryKeys": {
-        "thread_search_learned_selections_query_text_thread_id_pk": {
+        "thread_pruning_work_policy_thread_id_pk": {
           "columns": [
-            "query_text",
+            "policy",
             "thread_id"
           ],
-          "name": "thread_search_learned_selections_query_text_thread_id_pk"
+          "name": "thread_pruning_work_policy_thread_id_pk"
         }
       },
       "uniqueConstraints": {},
@@ -4990,20 +4852,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "provisional_fence_epoch": {
-          "name": "provisional_fence_epoch",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "provisional_fence_verified_epoch": {
-          "name": "provisional_fence_verified_epoch",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "visibility": {
           "name": "visibility",
           "type": "text",
@@ -5169,6 +5017,14 @@
           ],
           "isUnique": false
         },
+        "threads_deleted_cleanup_idx": {
+          "name": "threads_deleted_cleanup_idx",
+          "columns": [
+            "deleted_at"
+          ],
+          "isUnique": false,
+          "where": "\"threads\".\"deleted_at\" IS NOT NULL"
+        },
         "threads_environment_archived_deleted_idx": {
           "name": "threads_environment_archived_deleted_idx",
           "columns": [
@@ -5267,262 +5123,6 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "transfer_entries": {
-      "name": "transfer_entries",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "op_id": {
-          "name": "op_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "origin_id": {
-          "name": "origin_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "source_row_id": {
-          "name": "source_row_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "source_sort_key": {
-          "name": "source_sort_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "target_row_id": {
-          "name": "target_row_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "detail": {
-          "name": "detail",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "state": {
-          "name": "state",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "transfer_entries_op_id_transfer_operations_id_fk": {
-          "name": "transfer_entries_op_id_transfer_operations_id_fk",
-          "tableFrom": "transfer_entries",
-          "tableTo": "transfer_operations",
-          "columnsFrom": [
-            "op_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "transfer_events": {
-      "name": "transfer_events",
-      "columns": {
-        "event_id": {
-          "name": "event_id",
-          "type": "integer",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": true
-        },
-        "op_id": {
-          "name": "op_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "entry_id": {
-          "name": "entry_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "state": {
-          "name": "state",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "payload": {
-          "name": "payload",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "emitted_at": {
-          "name": "emitted_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "transfer_events_op_id_transfer_operations_id_fk": {
-          "name": "transfer_events_op_id_transfer_operations_id_fk",
-          "tableFrom": "transfer_events",
-          "tableTo": "transfer_operations",
-          "columnsFrom": [
-            "op_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "transfer_operations": {
-      "name": "transfer_operations",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "project_id": {
-          "name": "project_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "operation_key": {
-          "name": "operation_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "request_hash": {
-          "name": "request_hash",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "source_thread_id": {
-          "name": "source_thread_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "target_thread_id": {
-          "name": "target_thread_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "state": {
-          "name": "state",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "result_json": {
-          "name": "result_json",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "acked_at": {
-          "name": "acked_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "transfer_operations_project_key_idx": {
-          "name": "transfer_operations_project_key_idx",
-          "columns": [
-            "project_id",
-            "operation_key"
-          ],
-          "isUnique": true
-        }
-      },
-      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
