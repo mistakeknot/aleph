@@ -699,6 +699,35 @@ describe("one giant turn", () => {
     });
   }, 600_000);
 
+  it("reads a completed turn in full when an error follows its completion", () => {
+    withTestThread((testThread) => {
+      appendRows(testThread, [
+        ...seedGiantTurn(true, 5_000),
+        {
+          data: { message: "Late failure" },
+          turnId: "turn-2",
+          type: "system/error",
+        },
+      ]);
+      const build = (eventBudget?: number) =>
+        buildRouteTimelinePage({
+          db: testThread.db,
+          eventBudget,
+          page: { kind: "latest", segmentLimit: 3 },
+          registry,
+          thread: testThread.thread,
+          variant: "default",
+        });
+      const bounded = build();
+      const full = build(1_000_000);
+      const boundedRows = bounded.response.rows;
+      expect(boundedRows.length).toBeGreaterThan(0);
+      expect(boundedRows).toEqual(
+        full.response.rows.slice(-boundedRows.length),
+      );
+    });
+  }, 600_000);
+
   it("collapses a completed turn read from its tail like a full read", () => {
     withTestThread((testThread) => {
       appendRows(testThread, seedGiantTurn(true, 5_000));

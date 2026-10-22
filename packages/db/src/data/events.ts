@@ -3558,6 +3558,28 @@ export function findStoredTimelineCompletedTurnTail(
   if (completedSequence - startedSequence - 1 > 2 * (spanned?.rowCount ?? 0)) {
     return undefined;
   }
+  // The checks below cover only the span before completion. A row of the turn
+  // that the window reads after completion, such as a late error, can become
+  // the turn's terminal message and change the summary count, so take the
+  // full read when one exists.
+  const late = db
+    .select({ sequence: sql<number>`${events.sequence}` })
+    .from(
+      sql`${events} INDEXED BY events_thread_turn_type_item_sequence_idx`,
+    )
+    .where(
+      and(
+        eq(events.turnId, args.turnId),
+        lte(events.sequence, args.completedThroughSequence),
+        ...storedTimelineWindowConditions({
+          ...args,
+          sequenceStart: completedSequence + 1,
+        }),
+      ),
+    )
+    .limit(1)
+    .get();
+  if (late !== undefined) return undefined;
   const tally = db
     .select({
       accepted: sql<number>`COUNT(CASE WHEN ${events.type} = 'turn/input/accepted' THEN 1 END)`,
