@@ -434,44 +434,102 @@ rolling back means restoring a database backup taken before the switch.
 `migration-lock.ts`, `migration-guard.ts`, `migration-history.ts`,
 `migration-step-checks.ts` and `legacy-migration-chain.ts`) replaces the single
 Drizzle journal with two namespaces: the frozen upstream folder
-(`drizzle/`, listed in `drizzle-aleph/frozen-upstream.json`) and the
+(`drizzle/`, pinned by `drizzle-aleph/frozen-upstream.json`) and the
 fork-owned folder `packages/db/drizzle-aleph/` (`A0001` to `A0009`, ordered by
 `manifest.json`, checked by `step-checks.json`). Applied steps are recorded in
 `__bb_migration_ledger`, and `__drizzle_migrations` stays as a compatibility
 log. Before the first namespaced run the runner takes a verified backup
 (`.pre-ns-*` plus `.sidecar.json`) and migrates under the migrating lock.
 
-Sync rule: a new upstream migration is classified ROUTINE only while the S1
-guard, the collision test and the equality test are green and the review is
-clean. Otherwise treat it as a manual step: the timestamp check above no longer
-applies to ROUTINE upstream migrations, since ordering comes from the plan.
+Sync rule. An upstream migration after the frozen set is accepted without
+manual work only while all of these hold: `guardPlan` in
+`packages/db/src/migration-guard.ts` passes (frozen-set verification, the
+undeclared-candidate checks on guarded tables, and the collision and equality
+tests in `packages/db/test`); the candidate's `when` is strictly greater than
+every preceding step's, which `requireIncreasingWhen` in the same file
+enforces (currently above A0009's 1792452368229, so the timestamp check in
+"Fork-owned migrations" above still applies, but a failure is a named refusal
+at plan load rather than a boot outage); and the review is clean. Anything
+else is a manual step.
 
-Residuals accepted with the build (none blocks release):
+Accepted residuals (R-numbers are the build's review labels; each is recorded
+here, and none blocks the release):
 
-- `isLiteralString` over-guards, and a case-only drop-and-recreate is falsely
-  refused; the identifier diff is textual.
-- Restore handles FTS5 tables only in forms known to round-trip.
+- R1: the byte-identical `drizzle/` test needs the 411eac54 Git objects, so it
+  runs only in a clone that has them.
+- R2: data-only Aleph steps are invisible to `aleph-altered-tables.json`.
+- R3: a new upstream `CREATE TRIGGER`, `VIEW` or `INDEX` on a guarded table is
+  not blocked. R6: `DROP TRIGGER`, `INDEX` and `VIEW` return no affected
+  tables.
+- R4: a stale tampered cache directory is not detected.
+- R5 and R8: circular or unresolvable views, and views that call custom SQL
+  functions, widen the guarded set (conservative).
+- R7, R9 and R10: TEMP-table tracking is limited. An unqualified `ALTER` of a
+  temp-created `__new_` table is ignored, any `ROLLBACK` token clears the
+  tracking, and `CREATE TEMP ... IF NOT EXISTS` is not tracked.
+- R11: the step 3 harness is not cited for D2, D3 and D4.
+- R12: frozen steps are trusted by hash; the runtime does not rescan them for
+  control characters. R13 is not a gap: the refusal does apply to Aleph steps
+  through `readAlephSql`.
+- R14: A0009's `writesTables` exempts `transfer_entries` and `transfer_events`
+  from digest equality, because its trigger closure writes them.
+- Guard behaviour: Aleph statements that fail with "no such table, column,
+  index or view" (targets only a candidate creates) are skipped, so the
+  protected set comes from trusted schemas only and the skip over-protects;
+  there is no strict candidate-inclusive model. Aleph steps are built
+  unconditionally in the guard models. Undeclared non-frozen Aleph steps
+  (`A0010` and later) get an empty declaration and are strict by design. FK
+  identity capture counts only orphans. NULL `created_at` compat rows are
+  ignored, as the legacy validator ignores them.
+- Rowids: NULL-key rows are excluded from the rowid check. A table whose
+  columns shadow `rowid`, `_rowid_` and `oid` cannot have its rowids read, so
+  the backup (`migration-backup.ts`), the step checks and the restore refuse it
+  by name. The 4(b) count-bounded keyless rule is not implemented, and
+  `preservedKey` is implicit.
+- Restore takes FTS5 tables only in forms known to round-trip.
   `CONTENT_PROJECTION` stays content-v2.
-- The 4(b) keyless-table rule, `preservedKey` and multiset selection are not
-  implemented.
-- The four JS digest passes run inside the lock. Measured on a real 5.5 GB
-  database: 144 to 152 in about 250 s including the verified 5.0 GB backup,
-  with integrity, foreign keys, FTS and row counts intact.
+- Retired: `warnAboutFutureAppliedMigrations` is dead code; the plan's "no new
+  CLI flag" conflict with the CLI rule was resolved by adding
+  `bb db restore-migration-backup`; the T-E1 timing flake in
+  `test/data/transfer-operations.test.ts` is load-sensitive, not a runner
+  defect.
+- Divergences from the legacy chain: the legacy runner refuses unpopulated
+  prefixes 1 to 14 and the namespaced runner migrates them; they also differ
+  on S3 rows 18 to 21 (the D14 and D15 fixtures), which the namespaced runner
+  refuses by name (`MigrationStateUnknown`). `migrateWithFolders` is an
+  internal seam for tests.
 - keepAwake skips the backup.
-- The legacy and namespaced runners diverge on S3 rows 18 to 21 (D14 and D15
-  fixtures); the new runner refuses them by name (`MigrationStateUnknown`).
-- Step 6 rollout tests: no crash hook before the backup or between COMMIT and
-  finalize, so two D10 windows are untested; lock wait is not observable
-  without an engine hook (the race test proves both children reached migrate
-  and stayed alive while the lock was held); `thread_pruning_cursors` is
-  excluded from the D9 connection; the D14 and D15 row names are mapped in the
+- Cost: the backup copy, check and count are about four passes over the file,
+  and per-step digest checks run inside the migrating lock; the backup content
+  and sequence digest finalization runs after the lock is released. On a real
+  5.5 GB database, 144 to 152 took about 250 s including the verified 5.0 GB
+  backup, with integrity, foreign keys, FTS and row counts intact.
+- Step 6 rollout tests: there is no crash hook before the backup or between
+  COMMIT and finalize, so two D10 windows are untested. Lock wait is not
+  observable without an engine hook; the race test shows both children reached
+  migrate and stayed alive while the lock was held. `thread_pruning_cursors` is
+  excluded from the D9 connection. The D14 and D15 row names are mapped in the
   describe title.
-- Tier 3 is open: the 0.7.0 binary smoke and a copy of the real database at
-  state 152 after the 0.7.0 install.
+- Tier 2 schema note: on the real database the migrated result differs from
+  the legacy chain's only by `__bb_migration_ledger`. `deferred_thread_messages_legacy`
+  is created by migration 0111 and was absent from the real database before and
+  after both runs, because the server drops it after delivering its rows
+  (`apps/server/src/services/threads/legacy-deferred-messages.ts`, `DROP TABLE`
+  after delivery); fresh installs and synthetic fixtures have it because the
+  server has not started on them. The pre-migration `sqlite_master` row query
+  was not captured before the copies were deleted, so this is the source-based
+  explanation, not a recorded observation.
+- Tier 3 is open: the real 0.7.0 binary check and a copy of the real database
+  at state 152 after the 0.7.0 install.
 
-A database migrated by this runner cannot go back to 0.7.0 or earlier:
-restore the `.pre-ns-*` backup taken before the switch. The release notes
-(step 8) carry the backup path, the restore steps and this downgrade contract.
+Downgrade contract. The rollback window is 0.7.0 only, and only while the
+database is still within the frozen chain (state 131 to 152); after a
+genuinely new step it is unsupported, and the answer is to restore the
+`.pre-ns-*` backup taken before the switch. The legacy runner does not enforce
+this: the tests show it opens databases migrated by the namespaced runner at
+131 through 152. Whether the real 0.7.0 binary does so is the Tier 3 check.
+The release notes (step 8) carry the backup path, the restore steps and this
+contract.
 
 ## Project documents
 
