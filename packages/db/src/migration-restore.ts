@@ -153,21 +153,76 @@ function isCounts(value: unknown): value is Record<string, number> {
 
 const ROWID_ALIASES = ["rowid", "_rowid_", "oid"];
 
-function moduleClause(sql: string): { module: string; end: number } | null {
-  const match =
-    /^\s*CREATE\s+VIRTUAL\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"(?:[^"]|"")*"|`(?:[^`]|``)*`|\[[^\]]*\]|'(?:[^']|'')*'|[^\s(]+)(?:\s*\.\s*(?:"(?:[^"]|"")*"|`(?:[^`]|``)*`|\[[^\]]*\]|[^\s(]+))?\s+USING\s+("(?:[^"]|"")*"|`(?:[^`]|``)*`|\[[^\]]*\]|'(?:[^']|'')*'|[^\s(;]+)/i.exec(
-      sql,
-    );
-  const raw = match?.[1];
-  if (match === null || raw === undefined) return null;
-  const first = raw[0];
-  const stripped =
-    first === '"' || first === "`" || first === "'"
-      ? raw.slice(1, -1).replaceAll(first + first, first)
-      : first === "["
-        ? raw.slice(1, -1)
-        : raw;
-  return { module: stripped.toLowerCase(), end: match[0].length };
+type SqlToken =
+  | { kind: "word"; value: string }
+  | { kind: "identifier"; value: string }
+  | { kind: "string"; value: string }
+  | { kind: "punct"; value: string }
+  | { kind: "comment"; value: string };
+
+const CLOSING_QUOTES: Record<string, string> = {
+  '"': '"',
+  "`": "`",
+  "'": "'",
+  "[": "]",
+};
+
+function isWordCharacter(char: string): boolean {
+  return /[A-Za-z0-9_$]/.test(char) || char.charCodeAt(0) > 127;
+}
+
+function tokenizeSql(sql: string): SqlToken[] | null {
+  const tokens: SqlToken[] = [];
+  let index = 0;
+  while (index < sql.length) {
+    const char = sql[index] ?? "";
+    if (/\s/.test(char)) {
+      index += 1;
+    } else if (char === "-" && sql[index + 1] === "-") {
+      const end = sql.indexOf("\n", index);
+      tokens.push({ kind: "comment", value: "--" });
+      index = end === -1 ? sql.length : end + 1;
+    } else if (char === "/" && sql[index + 1] === "*") {
+      const end = sql.indexOf("*/", index + 2);
+      if (end === -1) return null;
+      tokens.push({ kind: "comment", value: "/*" });
+      index = end + 2;
+    } else if (char in CLOSING_QUOTES) {
+      const close = CLOSING_QUOTES[char] ?? char;
+      let value = "";
+      let cursor = index + 1;
+      let closed = false;
+      while (cursor < sql.length) {
+        const next = sql[cursor] ?? "";
+        if (next === close) {
+          if (close !== "]" && sql[cursor + 1] === close) {
+            value += close;
+            cursor += 2;
+            continue;
+          }
+          closed = true;
+          cursor += 1;
+          break;
+        }
+        value += next;
+        cursor += 1;
+      }
+      if (!closed) return null;
+      tokens.push({ kind: char === "'" ? "string" : "identifier", value });
+      index = cursor;
+    } else if (isWordCharacter(char)) {
+      let cursor = index;
+      while (cursor < sql.length && isWordCharacter(sql[cursor] ?? " ")) {
+        cursor += 1;
+      }
+      tokens.push({ kind: "word", value: sql.slice(index, cursor) });
+      index = cursor;
+    } else {
+      tokens.push({ kind: "punct", value: char });
+      index += 1;
+    }
+  }
+  return tokens;
 }
 
 const FTS5_ROUND_TRIP_OPTIONS = new Set([
@@ -177,71 +232,103 @@ const FTS5_ROUND_TRIP_OPTIONS = new Set([
   "detail",
 ]);
 
-const FTS5_COLUMN =
-  /^\s*(?:"(?:[^"]|"")+"|`(?:[^`]|``)+`|\[[^\]]+\]|'(?:[^']|'')+'|[A-Za-z_][A-Za-z0-9_$]*)(?:\s+UNINDEXED)?\s*$/i;
-
-function splitArguments(sql: string, open: number): string[] | null {
-  const closers: Record<string, string> = {
-    '"': '"',
-    "`": "`",
-    "'": "'",
-    "[": "]",
-  };
-  const args: string[] = [];
-  let depth = 0;
-  let quote: string | null = null;
-  let current = "";
-  for (let index = open; index < sql.length; index += 1) {
-    const char = sql[index] ?? "";
-    if (quote !== null) {
-      current += char;
-      if (char === quote) quote = null;
-      continue;
-    }
-    if (char in closers) {
-      quote = closers[char] ?? null;
-      current += char;
-      continue;
-    }
-    if (char === "(") {
-      depth += 1;
-      if (depth > 1) current += char;
-      continue;
-    }
-    if (char === ")") {
-      depth -= 1;
-      if (depth === 0) {
-        args.push(current);
-        return /^[\s;]*$/.test(sql.slice(index + 1)) ? args : null;
-      }
-      current += char;
-      continue;
-    }
-    if (char === "," && depth === 1) {
-      args.push(current);
-      current = "";
-      continue;
-    }
-    current += char;
-  }
-  return null;
+function isName(token: SqlToken | undefined): token is SqlToken {
+  return (
+    token !== undefined &&
+    (token.kind === "word" ||
+      token.kind === "identifier" ||
+      token.kind === "string")
+  );
 }
 
-function fts5DefinitionRoundTrips(sql: string, from: number): boolean {
-  const open = sql.indexOf("(", from);
-  if (open === -1 || !/^\s*$/.test(sql.slice(from, open))) return false;
-  const args = splitArguments(sql, open);
-  if (args === null || args.length === 0) return false;
+function isWord(token: SqlToken | undefined, word: string): boolean {
+  return (
+    token?.kind === "word" && token.value.toLowerCase() === word.toLowerCase()
+  );
+}
+
+function isPunct(token: SqlToken | undefined, value: string): boolean {
+  return token?.kind === "punct" && token.value === value;
+}
+
+function fts5ArgumentsRoundTrip(tokens: SqlToken[], from: number): boolean {
+  if (!isPunct(tokens[from], "(")) return false;
+  const args: SqlToken[][] = [[]];
+  let depth = 1;
+  let index = from + 1;
+  for (; index < tokens.length && depth > 0; index += 1) {
+    const token = tokens[index] as SqlToken;
+    if (isPunct(token, "(")) depth += 1;
+    if (isPunct(token, ")")) depth -= 1;
+    if (depth === 0) break;
+    if (depth === 1 && isPunct(token, ",")) args.push([]);
+    else args[args.length - 1]?.push(token);
+  }
+  if (depth !== 0) return false;
+  if (!tokens.slice(index + 1).every((token) => isPunct(token, ";"))) {
+    return false;
+  }
   return args.every((arg) => {
-    const equals = arg.indexOf("=");
-    if (equals === -1) return FTS5_COLUMN.test(arg);
-    const key = arg
-      .slice(0, equals)
-      .trim()
-      .replace(/^["`'[]|["`'\]]$/g, "")
-      .toLowerCase();
-    return FTS5_ROUND_TRIP_OPTIONS.has(key);
+    if (isName(arg[0]) && arg.length === 1) return true;
+    if (isName(arg[0]) && arg.length === 2 && isWord(arg[1], "UNINDEXED")) {
+      return true;
+    }
+    return (
+      isName(arg[0]) &&
+      isPunct(arg[1], "=") &&
+      isName(arg[2]) &&
+      arg.length === 3 &&
+      FTS5_ROUND_TRIP_OPTIONS.has(arg[0].value.toLowerCase())
+    );
   });
+}
+
+interface VirtualTableScan {
+  hasComment: boolean;
+  module: string | null;
+  fts5ArgumentsRoundTrip: boolean;
+}
+
+function scanVirtualTable(sql: string): VirtualTableScan | null {
+  const tokens = tokenizeSql(sql);
+  if (tokens === null) return null;
+  const hasComment = tokens.some((token) => token.kind === "comment");
+  const unreadable = {
+    hasComment,
+    module: null,
+    fts5ArgumentsRoundTrip: false,
+  };
+  if (hasComment) return unreadable;
+  let index = 0;
+  for (const word of ["CREATE", "VIRTUAL", "TABLE"]) {
+    if (!isWord(tokens[index], word)) return unreadable;
+    index += 1;
+  }
+  if (isWord(tokens[index], "IF")) {
+    if (
+      !isWord(tokens[index + 1], "NOT") ||
+      !isWord(tokens[index + 2], "EXISTS")
+    ) {
+      return unreadable;
+    }
+    index += 3;
+  }
+  if (!isName(tokens[index])) return unreadable;
+  index += 1;
+  if (isPunct(tokens[index], ".")) {
+    if (!isName(tokens[index + 1])) return unreadable;
+    index += 2;
+  }
+  if (!isWord(tokens[index], "USING")) return unreadable;
+  const module = tokens[index + 1];
+  if (!isName(module)) return unreadable;
+  const name = module.value.toLowerCase();
+  return {
+    hasComment,
+    module: name,
+    fts5ArgumentsRoundTrip:
+      name === "fts5" && fts5ArgumentsRoundTrip(tokens, index + 2),
+  };
 }
 
 function rowidAlias(
@@ -276,22 +363,22 @@ function assertFtsIndexesRestorable(
     )
     .all() as Array<{ name: string; sql: string }>;
   for (const { name, sql } of virtual) {
-    if (sql.includes("--") || sql.includes("/*")) {
+    const scan = scanVirtualTable(sql);
+    if (scan?.hasComment === true) {
       throw new MigrationRestoreError(
         `Backup ${backupPath} has the virtual table ${name} whose definition contains an SQL comment; refusing to restore`,
       );
     }
-    const clause = moduleClause(sql);
-    if (clause === null) {
+    if (scan === null || scan.module === null) {
       throw new MigrationRestoreError(
         `Backup ${backupPath} has the virtual table ${name} whose module could not be read; refusing to restore`,
       );
     }
-    if (clause.module !== "fts5") continue;
+    if (scan.module !== "fts5") continue;
     const complete = ["content", "config", "data"].every((suffix) =>
       names.has(`${name}_${suffix}`),
     );
-    if (!complete || !fts5DefinitionRoundTrips(sql, clause.end)) {
+    if (!complete || !scan.fts5ArgumentsRoundTrip) {
       throw new MigrationRestoreError(
         `Backup ${backupPath} contains the FTS5 table ${name}, which is contentless, external-content or uses options a restore cannot preserve; refusing to restore`,
       );

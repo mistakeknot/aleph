@@ -699,6 +699,57 @@ describe("restoreMigrationBackup", () => {
     }
   });
 
+  it("restores an FTS5 table whose quoted column name contains =", () => {
+    const fixture = scratch(
+      true,
+      `CREATE VIRTUAL TABLE eq USING fts5("a=b", "a,b"); INSERT INTO eq(rowid, "a=b", "a,b") VALUES (3, 'alpha', 'beta')`,
+    );
+    migrateAway(fixture.databasePath);
+    restoreMigrationBackup(fixture.backupPath);
+    const db = new Database(fixture.databasePath, { readonly: true });
+    try {
+      expect(
+        db.prepare("SELECT rowid FROM eq WHERE eq MATCH 'alpha'").all(),
+      ).toEqual([{ rowid: 3 }]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("restores an FTS5 table whose quoted option value contains comment markers", () => {
+    const fixture = scratch(
+      true,
+      `CREATE VIRTUAL TABLE marks USING fts5(body, tokenize='unicode61 tokenchars ''--/*'''); INSERT INTO marks(rowid, body) VALUES (2, 'hello')`,
+    );
+    migrateAway(fixture.databasePath);
+    restoreMigrationBackup(fixture.backupPath);
+    const db = new Database(fixture.databasePath, { readonly: true });
+    try {
+      expect(
+        db.prepare("SELECT rowid FROM marks WHERE marks MATCH 'hello'").all(),
+      ).toEqual([{ rowid: 2 }]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("restores an FTS5 table whose bare column name is not ASCII", () => {
+    const fixture = scratch(
+      true,
+      `CREATE VIRTUAL TABLE uni USING fts5(café); INSERT INTO uni(rowid, café) VALUES (5, 'latte')`,
+    );
+    migrateAway(fixture.databasePath);
+    restoreMigrationBackup(fixture.backupPath);
+    const db = new Database(fixture.databasePath, { readonly: true });
+    try {
+      expect(
+        db.prepare("SELECT rowid FROM uni WHERE uni MATCH 'latte'").all(),
+      ).toEqual([{ rowid: 5 }]);
+    } finally {
+      db.close();
+    }
+  });
+
   it("recomputes instead of comparing when the sidecar projection differs", () => {
     const fixture = scratch();
     const sidecarPath = `${fixture.backupPath}${SIDECAR_SUFFIX}`;
