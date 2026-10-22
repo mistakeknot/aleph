@@ -641,9 +641,15 @@ export function computeMigrationState(
   );
   const done = (state: MigrationStepState | undefined): boolean =>
     state !== undefined && state.kind !== "absent";
-  if (lastDone === -1 && (datedCompatRows > 0 || ledger.size > 0)) {
+  const undatedCompatRows = compat.length - datedCompatRows;
+  if (
+    lastDone === -1 &&
+    (datedCompatRows > 0 ||
+      ledger.size > 0 ||
+      (undatedCompatRows > 0 && sqliteTableExists(sqlite, "projects")))
+  ) {
     throw new MigrationStateUnknown(
-      `Database migration history matches no migration step: ${datedCompatRows} compatibility log rows, ${ledger.size} ledger rows`,
+      `Database migration history matches no migration step: ${datedCompatRows} compatibility log rows, ${undatedCompatRows} undated compatibility log rows, ${ledger.size} ledger rows`,
       [],
     );
   }
