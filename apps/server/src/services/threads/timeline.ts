@@ -305,6 +305,7 @@ interface TimelineWindowRowsArgs {
 interface TimelineWindowParentedRowsArgs extends TimelineWindowRowsArgs {
   excludeDiagnosticEvents: boolean;
   maxInlineOutputChars: InlineOutputCharLimit;
+  lookups?: TimelineWindowParentedRowsLookups;
   sequenceBounds: {
     beforeSequence: number | undefined;
     sequenceStart: number;
@@ -313,6 +314,11 @@ interface TimelineWindowParentedRowsArgs extends TimelineWindowRowsArgs {
 
 interface TimelineWindowParentedRowsResult {
   rows: StoredEventRow[];
+}
+
+interface TimelineWindowParentedRowsLookups {
+  fetchedChildToolCallIds: Set<string>;
+  lookedUpParentToolCallIds: Set<string>;
 }
 
 interface SelectClientRequestContextRowsArgs {
@@ -541,7 +547,10 @@ function ensureTimelineWindowParentedRows(
   let rows = [...args.rows];
   const rowIds = new Set(rows.map((row) => row.id));
   const visibleToolCallIds = new Set(collectStoredDelegatingItemIds(rows));
-  const fetchedChildToolCallIds = new Set<string>();
+  const fetchedChildToolCallIds =
+    args.lookups?.fetchedChildToolCallIds ?? new Set<string>();
+  const lookedUpParentToolCallIds =
+    args.lookups?.lookedUpParentToolCallIds ?? new Set<string>();
 
   while (true) {
     const toolCallIdsToFetch = [...visibleToolCallIds].filter(
@@ -578,8 +587,13 @@ function ensureTimelineWindowParentedRows(
   }
 
   const missingParentToolCallIds = collectStoredParentToolCallIds(rows).filter(
-    (parentToolCallId) => !visibleToolCallIds.has(parentToolCallId),
+    (parentToolCallId) =>
+      !visibleToolCallIds.has(parentToolCallId) &&
+      !lookedUpParentToolCallIds.has(parentToolCallId),
   );
+  for (const parentToolCallId of missingParentToolCallIds) {
+    lookedUpParentToolCallIds.add(parentToolCallId);
+  }
   const parentRows = listStoredDelegatingItemRowsByItemIds(db, {
     itemIds: missingParentToolCallIds,
     maxInlineOutputChars: args.maxInlineOutputChars,
@@ -1140,6 +1154,10 @@ function selectStandardTimelineEventRows(
   let rowHeadroom = 2 * turnRowCap;
   const cappedTurnIds = new Set<string>();
   const completedTurnSummaryCounts = new Map<string, number>();
+  const parentedRowsLookups: TimelineWindowParentedRowsLookups = {
+    fetchedChildToolCallIds: new Set(),
+    lookedUpParentToolCallIds: new Set(),
+  };
   rows = measureThreadTimelineStage(profile, "group-context-query", () => {
     let selectedRows = rows;
     for (;;) {
@@ -1243,6 +1261,7 @@ function selectStandardTimelineEventRows(
       selectedRows = ensureTimelineWindowParentedRows(db, {
         threadId: thread.id,
         rows: selectedRows,
+        lookups: parentedRowsLookups,
         maxInlineOutputChars,
         excludeDiagnosticEvents,
         sequenceBounds: {

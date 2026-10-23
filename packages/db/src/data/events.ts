@@ -1705,10 +1705,8 @@ export function listStoredDelegatingItemRowsByItemIds(
   }
 
   return db
-    .select(
-      storedEventRowFieldsWithInlineOutputLimit(args.maxInlineOutputChars),
-    )
-    .from(events)
+    .select(storedEventRowSqlFields(args.maxInlineOutputChars))
+    .from(sql`${events} INDEXED BY events_delegating_item_lookup_idx`)
     .where(
       and(
         eq(events.threadId, args.threadId),
