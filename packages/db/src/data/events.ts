@@ -78,6 +78,10 @@ import {
   prepareCompletedEventOutputData,
 } from "./retained-event-outputs.js";
 import { queryInSqliteVariableBatches } from "./sqlite-variable-batches.js";
+import {
+  assertThreadEventsNotCold,
+  threadEventsNotCold,
+} from "./event-cold-tier.js";
 
 const STORED_EVENT_SEQUENCE_LOOKUP_CHUNK_SIZE = 250;
 const CLIENT_TURN_REQUEST_KEY_BATCH_SIZE = 995;
@@ -305,6 +309,7 @@ export function deleteThreadEventSuffixInTransaction(
   db: DbTransaction,
   args: DeleteThreadEventSuffixArgs,
 ): DeleteThreadEventSuffixResult {
+  assertThreadEventsNotCold(db, [args.threadId]);
   db.delete(promptHistoryEntries)
     .where(
       and(
@@ -450,9 +455,11 @@ export function insertEvents(
     (tx) => {
       let insertedCount = 0;
       const insertedInputIndexes: number[] = [];
-      const highWaterMarks = getHighWaterMarks(tx, [
+      const threadIds = [
         ...new Set(eventInputs.map((input) => input.threadId)),
-      ]);
+      ];
+      assertThreadEventsNotCold(tx, threadIds);
+      const highWaterMarks = getHighWaterMarks(tx, threadIds);
       for (const [index, input] of eventInputs.entries()) {
         const createdAt = input.createdAt ?? Date.now();
         const turnId = getThreadEventScopeTurnId(input.scope) ?? null;
@@ -754,6 +761,7 @@ export function appendDaemonEventsInTransaction(
   }
 
   const threadIds = [...new Set(eventInputs.map((input) => input.threadId))];
+  assertThreadEventsNotCold(db, threadIds);
   const highWaterMarks = getHighWaterMarks(db, threadIds);
   const nextSequencesByThreadId = new Map(
     threadIds.map((threadId) => [
@@ -881,6 +889,10 @@ export function copyStoredThreadEventsInTransaction(
   if (args.rows.length === 0) {
     return 0;
   }
+  assertThreadEventsNotCold(db, [
+    args.targetThreadId,
+    ...new Set(args.rows.map((row) => row.threadId)),
+  ]);
   const highWaterMarks = getHighWaterMarks(db, [args.targetThreadId]);
   let sequence = (highWaterMarks[args.targetThreadId] ?? 0) + 1;
   const now = Date.now();
@@ -962,6 +974,7 @@ export function appendStoredThreadEventsInTransaction(
 
   const now = Date.now();
   const threadIds = [...new Set(eventArgs.map((args) => args.threadId))];
+  assertThreadEventsNotCold(db, threadIds);
   const highWaterMarks = getHighWaterMarks(db, threadIds);
   const nextSequencesByThreadId = new Map(
     threadIds.map((threadId) => [
@@ -1160,6 +1173,7 @@ export interface ListStoredEventRowsByParentToolCallIdsArgs {
 export interface ListLatestThreadStateEventRowsByThreadIdsArgs {
   threadIds: readonly string[];
   kind: string;
+  maxSeq?: number;
 }
 
 export interface ListOpenTurnInputAcceptedRowsByThreadIdsArgs {
@@ -1491,6 +1505,7 @@ export function listLatestThreadStateEventRowsByThreadIds(
           WHERE candidate.thread_id = requested.column1
             AND candidate.type ${stateTypesPredicate}
             AND ${kindPredicate}
+            ${args.maxSeq === undefined ? sql`` : sql`AND candidate.sequence <= ${args.maxSeq}`}
           ORDER BY candidate.sequence DESC
           LIMIT 1
         )
@@ -2198,6 +2213,7 @@ export interface ListLatestOpenBackgroundTaskStateRowsForThreadArgs {
 }
 
 export interface ListTodoSnapshotEventRowsForThreadArgs {
+  maxSeq: number;
   threadId: string;
 }
 
@@ -2211,7 +2227,43 @@ export function listTodoSnapshotEventRowsForThread(
     .where(
       and(
         eq(events.threadId, args.threadId),
+        lte(events.sequence, args.maxSeq),
         sql`((${events.itemKind} = 'planSteps' AND ${events.type} = 'item/completed') OR ${events.type} = 'turn/plan/updated')`,
+      ),
+    )
+    .orderBy(desc(events.sequence))
+    .limit(1)
+    .get();
+  return row ? [row] : [];
+}
+
+export function listLatestModelFallbackEventRowsForThread(
+  db: DbConnection,
+  args: { maxSeq: number; threadId: string },
+): StoredEventRow[] {
+  const request = db
+    .select({ sequence: sql<number>`${events.sequence}` })
+    .from(sql`${events} INDEXED BY events_thread_type_sequence_idx`)
+    .where(
+      and(
+        eq(events.threadId, args.threadId),
+        eq(events.type, "client/turn/requested"),
+        lte(events.sequence, args.maxSeq),
+      ),
+    )
+    .orderBy(desc(events.sequence))
+    .limit(1)
+    .get();
+  const row = db
+    .select(storedEventRowSqlFields(null))
+    .from(sql`${events} INDEXED BY events_thread_type_sequence_idx`)
+    .where(
+      and(
+        eq(events.threadId, args.threadId),
+        inArray(events.type, ["provider/modelFallback", "provider/unhandled"]),
+        gt(events.sequence, request?.sequence ?? 0),
+        lte(events.sequence, args.maxSeq),
+        sql`(${events.type} = 'provider/modelFallback' OR ${isUnhandledModelFallbackData})`,
       ),
     )
     .orderBy(desc(events.sequence))
@@ -3307,6 +3359,490 @@ export function listStoredTimelineTurnEventRows(
   }).sort((left, right) => left.sequence - right.sequence);
 }
 
+export function countStoredTimelineTurnAgentMessageDeltas(
+  db: DbConnection,
+  args: ListStoredTimelineWindowEventRowsArgs & { turnIds: readonly string[] },
+): number {
+  if (args.turnIds.length === 0) return 0;
+  return queryInSqliteVariableBatches({
+    values: args.turnIds,
+    variableCountPerValue: 1,
+    dedupeKey: (turnId) => turnId,
+    fixedVariableCount: 32,
+    queryBatch: (turnIds) => [
+      db
+        .select({ rowCount: sql<number>`COUNT(*)` })
+        .from(
+          sql`${events} INDEXED BY events_thread_turn_type_item_sequence_idx`,
+        )
+        .where(
+          and(
+            ...storedTimelineWindowConditions(args),
+            inArray(events.turnId, [...turnIds]),
+            eq(events.type, "item/agentMessage/delta"),
+          ),
+        )
+        .get()?.rowCount ?? 0,
+    ],
+  }).reduce((total, rowCount) => total + rowCount, 0);
+}
+
+export interface FindStoredTimelineOpenTurnRowFloorArgs extends ListStoredTimelineWindowEventRowsArgs {
+  completedThroughSequence: number;
+  rowLimit: number;
+  turnId: string;
+}
+
+export interface StoredTimelineOpenTurnRowFloor {
+  floor: number | undefined;
+  rowHeadroom: number;
+}
+
+export function findStoredTimelineOpenTurnRowFloor(
+  db: DbConnection,
+  args: FindStoredTimelineOpenTurnRowFloorArgs,
+): StoredTimelineOpenTurnRowFloor | undefined {
+  const turnRows = and(
+    eq(events.threadId, args.threadId),
+    eq(events.turnId, args.turnId),
+  );
+  const completed = db
+    .select({ sequence: events.sequence })
+    .from(events)
+    .where(
+      and(
+        turnRows,
+        eq(events.type, "turn/completed"),
+        lte(events.sequence, args.completedThroughSequence),
+      ),
+    )
+    .limit(1)
+    .get();
+  if (completed !== undefined) return undefined;
+  const started = db
+    .select({ sequence: sql<number | null>`MIN(${events.sequence})` })
+    .from(events)
+    .where(and(turnRows, eq(events.type, "turn/started")))
+    .get();
+  if (started?.sequence === null || started?.sequence === undefined) {
+    return undefined;
+  }
+  const rowLimit = Math.max(1, args.rowLimit);
+  const turnWindow = and(
+    ...storedTimelineWindowConditions({
+      ...args,
+      sequenceStart: Math.max(args.sequenceStart, started.sequence),
+    }),
+    eq(events.turnId, args.turnId),
+  );
+  const counted = db
+    .select({ rowCount: sql<number>`COUNT(*)` })
+    .from(
+      sql`${events} INDEXED BY events_thread_turn_type_item_sequence_idx`,
+    )
+    .where(turnWindow)
+    .get();
+  const rowCount = counted?.rowCount ?? 0;
+  const halfBlock = Math.floor(rowLimit / 2);
+  const floorBlock = Math.max(
+    0,
+    Math.floor((rowCount + halfBlock) / rowLimit) - 1,
+  );
+  const rowHeadroom = (floorBlock + 2) * rowLimit - halfBlock - rowCount;
+  if (floorBlock === 0) return { floor: undefined, rowHeadroom };
+  const floorRow = db
+    .select({ sequence: sql<number>`${events.sequence}` })
+    .from(
+      sql`${events} INDEXED BY events_thread_turn_type_item_sequence_idx`,
+    )
+    .where(turnWindow)
+    .orderBy(events.sequence)
+    .limit(1)
+    .offset(floorBlock * rowLimit)
+    .get();
+  if (floorRow === undefined) return { floor: undefined, rowHeadroom };
+  const rowStart = db
+    .select({ sequence: sql<number>`${events.sequence}` })
+    .from(
+      sql`${events} INDEXED BY events_thread_turn_type_item_sequence_idx`,
+    )
+    .where(
+      and(
+        eq(events.threadId, args.threadId),
+        eq(events.type, "item/started"),
+        gt(events.sequence, Math.max(args.sequenceStart, started.sequence)),
+        lte(events.sequence, floorRow.sequence),
+        eq(events.turnId, args.turnId),
+        isNull(events.parentToolCallId),
+        ...(args.excludeDiagnosticEvents ? [isNotDiagnosticEvent] : []),
+      ),
+    )
+    .orderBy(desc(events.sequence))
+    .limit(1)
+    .get();
+  return { floor: rowStart?.sequence, rowHeadroom };
+}
+
+const COMPLETED_TURN_TAIL_EVENT_TYPES = [
+  "item/started",
+  "item/completed",
+  "item/commandExecution/outputDelta",
+  "item/agentMessage/delta",
+  "turn/input/accepted",
+] as const;
+
+const COMPLETED_TURN_TAIL_ITEM_KINDS = [
+  "commandExecution",
+  "agentMessage",
+] as const;
+
+export interface StoredTimelineCompletedTurnTail {
+  firstItem: { beforeSequence: number; sequenceStart: number } | undefined;
+  leadInSequence: number;
+  summaryCount: number;
+}
+
+export interface StoredTimelineCompletedTurnSpan {
+  completedSequence: number;
+  startedSequence: number;
+}
+
+export function listStoredTimelineLongCompletedTurnSpans(
+  db: DbConnection,
+  args: {
+    completedThroughSequence: number;
+    rowLimit: number;
+    sequenceStart: number;
+    threadId: string;
+    turnIds: readonly string[];
+  },
+): Map<string, StoredTimelineCompletedTurnSpan> {
+  const spans = new Map<string, StoredTimelineCompletedTurnSpan>();
+  if (args.turnIds.length === 0) return spans;
+  const bounds = db
+    .select({
+      completedSequence: sql<
+        number | null
+      >`MIN(CASE WHEN ${events.type} = 'turn/completed' AND ${events.sequence} <= ${args.completedThroughSequence} THEN ${events.sequence} END)`,
+      startedSequence: sql<
+        number | null
+      >`MIN(CASE WHEN ${events.type} = 'turn/started' THEN ${events.sequence} END)`,
+      turnId: events.turnId,
+    })
+    .from(events)
+    .where(
+      and(
+        eq(events.threadId, args.threadId),
+        inArray(events.turnId, [...args.turnIds]),
+        inArray(events.type, ["turn/started", "turn/completed"]),
+      ),
+    )
+    .groupBy(events.turnId)
+    .all();
+  for (const { completedSequence, startedSequence, turnId } of bounds) {
+    if (
+      turnId === null ||
+      completedSequence === null ||
+      startedSequence === null ||
+      startedSequence < args.sequenceStart ||
+      completedSequence - startedSequence <= Math.max(1, args.rowLimit) + 1
+    ) {
+      continue;
+    }
+    spans.set(turnId, { completedSequence, startedSequence });
+  }
+  return spans;
+}
+
+export function findStoredTimelineCompletedTurnTail(
+  db: DbConnection,
+  args: FindStoredTimelineOpenTurnRowFloorArgs &
+    StoredTimelineCompletedTurnSpan,
+): StoredTimelineCompletedTurnTail | undefined {
+  const { completedSequence, startedSequence } = args;
+  const tailRow = and(
+    eq(events.turnId, args.turnId),
+    isNull(events.parentToolCallId),
+    inArray(events.type, [...COMPLETED_TURN_TAIL_EVENT_TYPES]),
+    or(
+      isNull(events.itemKind),
+      inArray(events.itemKind, [...COMPLETED_TURN_TAIL_ITEM_KINDS]),
+    ),
+  );
+  const spanned = db
+    .select({ rowCount: sql<number>`COUNT(*)` })
+    .from(
+      sql`${events} INDEXED BY events_thread_turn_type_item_sequence_idx`,
+    )
+    .where(
+      and(
+        eq(events.threadId, args.threadId),
+        eq(events.turnId, args.turnId),
+        gt(events.sequence, startedSequence),
+        lt(events.sequence, completedSequence),
+      ),
+    )
+    .get();
+  if (completedSequence - startedSequence - 1 > 2 * (spanned?.rowCount ?? 0)) {
+    return undefined;
+  }
+  const late = db
+    .select({ sequence: sql<number>`${events.sequence}` })
+    .from(
+      sql`${events} INDEXED BY events_thread_turn_type_item_sequence_idx`,
+    )
+    .where(
+      and(
+        eq(events.turnId, args.turnId),
+        lte(events.sequence, args.completedThroughSequence),
+        ...storedTimelineWindowConditions({
+          ...args,
+          sequenceStart: completedSequence + 1,
+        }),
+      ),
+    )
+    .limit(1)
+    .get();
+  if (late !== undefined) return undefined;
+  const tally = db
+    .select({
+      accepted: sql<number>`COUNT(CASE WHEN ${events.type} = 'turn/input/accepted' THEN 1 END)`,
+      foreign: sql<number>`COUNT(CASE WHEN ${tailRow} THEN NULL ELSE 1 END)`,
+      rowCount: sql<number>`COUNT(CASE WHEN ${events.turnId} = ${args.turnId} THEN 1 END)`,
+    })
+    .from(sql`${events} INDEXED BY events_thread_sequence_idx`)
+    .where(
+      and(
+        ...storedTimelineWindowConditions({
+          ...args,
+          beforeSequence: completedSequence,
+          sequenceStart: startedSequence + 1,
+        }),
+      ),
+    )
+    .get();
+  if (
+    tally === undefined ||
+    tally.rowCount <= Math.max(1, args.rowLimit) ||
+    tally.foreign > 0 ||
+    tally.accepted > 1
+  ) {
+    return undefined;
+  }
+  const items = db
+    .select({
+      itemId: sql<string | null>`${events.itemId}`,
+      itemKind: sql<string | null>`${events.itemKind}`,
+      sequence: sql<number>`${events.sequence}`,
+    })
+    .from(sql`${events} INDEXED BY events_thread_type_sequence_idx`)
+    .where(
+      and(
+        eq(events.threadId, args.threadId),
+        eq(events.type, "item/started"),
+        gt(events.sequence, startedSequence),
+        lt(events.sequence, completedSequence),
+        eq(events.turnId, args.turnId),
+        isNull(events.parentToolCallId),
+        ...(args.excludeDiagnosticEvents ? [isNotDiagnosticEvent] : []),
+      ),
+    )
+    .orderBy(events.sequence)
+    .all();
+  const terminalIndex = items
+    .map((item) => item.itemKind)
+    .lastIndexOf("agentMessage");
+  const leadIn = items[terminalIndex - 1];
+  if (
+    leadIn === undefined ||
+    leadIn.itemKind !== "commandExecution" ||
+    items
+      .slice(terminalIndex + 1)
+      .some((item) => item.itemKind !== "commandExecution") ||
+    new Set(items.map((item) => item.itemId)).size !== items.length ||
+    items.some(
+      (item, index) =>
+        item.itemId === null ||
+        (index > 0 &&
+          item.itemKind === "agentMessage" &&
+          items[index - 1]!.itemKind === "agentMessage"),
+    )
+  ) {
+    return undefined;
+  }
+  const agentMessageCount = items.filter(
+    (item) => item.itemKind === "agentMessage",
+  ).length;
+  const visibility = db
+    .select({
+      itemIds: sql<number>`COUNT(DISTINCT ${events.itemId})`,
+      sends: sql<number>`COUNT(CASE WHEN ${events.itemKind} = 'commandExecution'
+        AND json_extract(${events.data}, '$.item.command') LIKE '%thread%'
+        AND (json_extract(${events.data}, '$.item.command') LIKE '%tell%'
+          OR json_extract(${events.data}, '$.item.command') LIKE '%message%')
+        THEN 1 END)`,
+      textMessages: sql<number>`COUNT(DISTINCT CASE WHEN ${events.type} = 'item/completed'
+        AND ${events.itemKind} = 'agentMessage'
+        AND length(trim(coalesce(json_extract(${events.data}, '$.item.text'), ''))) > 0
+        THEN ${events.itemId} END)`,
+    })
+    .from(sql`${events} INDEXED BY events_thread_type_sequence_idx`)
+    .where(
+      and(
+        eq(events.threadId, args.threadId),
+        inArray(events.type, ["item/started", "item/completed"]),
+        gt(events.sequence, startedSequence),
+        lt(events.sequence, completedSequence),
+        eq(events.turnId, args.turnId),
+        isNull(events.parentToolCallId),
+        ...(args.excludeDiagnosticEvents ? [isNotDiagnosticEvent] : []),
+      ),
+    )
+    .get();
+  if (
+    visibility === undefined ||
+    visibility.itemIds !== items.length ||
+    visibility.sends > 0 ||
+    visibility.textMessages !== agentMessageCount
+  ) {
+    return undefined;
+  }
+  const itemRows = db
+    .select({
+      firstDelta: sql<number | null>`MIN(CASE
+        WHEN ${events.type} = 'item/agentMessage/delta' THEN ${events.sequence}
+        END)`,
+      firstRow: sql<number>`MIN(${events.sequence})`,
+      firstText: sql<number | null>`MIN(CASE
+        WHEN ${events.type} = 'item/agentMessage/delta'
+          AND length(coalesce(json_extract(${events.data}, '$.delta'), '')) > 0
+          THEN ${events.sequence}
+        WHEN ${events.type} = 'item/completed'
+          AND ${events.itemKind} = 'agentMessage'
+          AND length(coalesce(json_extract(${events.data}, '$.item.text'), '')) > 0
+          THEN ${events.sequence}
+        END)`,
+      itemId: sql<string>`${events.itemId}`,
+    })
+    .from(
+      sql`${events} INDEXED BY events_thread_turn_type_item_sequence_idx`,
+    )
+    .where(
+      and(
+        eq(events.threadId, args.threadId),
+        eq(events.turnId, args.turnId),
+        gt(events.sequence, startedSequence),
+        lt(events.sequence, completedSequence),
+        isNotNull(events.itemId),
+        isNull(events.parentToolCallId),
+        ...(args.excludeDiagnosticEvents ? [isNotDiagnosticEvent] : []),
+      ),
+    )
+    .groupBy(events.itemId)
+    .all();
+  const startById = new Map(items.map((item) => [item.itemId, item.sequence]));
+  const itemRowsById = new Map<string | null, (typeof itemRows)[number]>(
+    itemRows.map((row) => [row.itemId, row]),
+  );
+  if (
+    itemRows.some((row) => {
+      const start = startById.get(row.itemId);
+      return start === undefined || row.firstRow < start;
+    }) ||
+    items.some((item, index) => {
+      if (item.itemKind !== "agentMessage") return false;
+      const rows = itemRowsById.get(item.itemId);
+      if (rows === undefined || rows.firstText === null) return true;
+      const next = items[index + 1];
+      return (
+        (rows.firstDelta !== null && rows.firstDelta !== rows.firstText) ||
+        (next !== undefined && rows.firstText > next.sequence)
+      );
+    })
+  ) {
+    return undefined;
+  }
+  const secondItem = items[1];
+  return {
+    firstItem:
+      terminalIndex < 2 || secondItem === undefined
+        ? undefined
+        : {
+            beforeSequence: secondItem.sequence,
+            sequenceStart: items[0]!.sequence,
+          },
+    leadInSequence: leadIn.sequence,
+    summaryCount: terminalIndex,
+  };
+}
+
+export function listStoredTimelineTurnRangeEventRows(
+  db: DbConnection,
+  args: ListStoredTimelineWindowEventRowsArgs & { turnId: string },
+): StoredEventRow[] {
+  return db
+    .select(storedEventRowSqlFields(args.maxInlineOutputChars))
+    .from(
+      sql`${events} INDEXED BY events_thread_turn_type_item_sequence_idx`,
+    )
+    .where(
+      and(
+        ...storedTimelineWindowConditions(args),
+        eq(events.turnId, args.turnId),
+      ),
+    )
+    .orderBy(events.sequence)
+    .all();
+}
+
+export function hasStoredItemEventRowsThroughSequence(
+  db: DbConnection,
+  args: {
+    items: readonly ScopedItemRef[];
+    threadId: string;
+    throughSequence: number;
+  },
+): boolean {
+  const items = dedupeScopedItemRefs(args.items);
+  if (items.length === 0) return false;
+  const row = db
+    .select({ sequence: events.sequence })
+    .from(events)
+    .where(
+      scopedItemRefsPredicate(items, [
+        eq(events.threadId, args.threadId),
+        lte(events.sequence, args.throughSequence),
+        inArray(events.type, ITEM_EVENT_TYPES),
+      ]),
+    )
+    .limit(1)
+    .get();
+  return row !== undefined;
+}
+
+export function listStoredTimelineItemEventRowsByItems(
+  db: DbConnection,
+  args: ListStoredTimelineWindowEventRowsArgs & {
+    items: readonly ScopedItemRef[];
+  },
+): StoredEventRow[] {
+  const items = dedupeScopedItemRefs(args.items);
+  if (items.length === 0) return [];
+  return db
+    .select(
+      storedEventRowFieldsWithInlineOutputLimit(args.maxInlineOutputChars),
+    )
+    .from(events)
+    .where(
+      scopedItemRefsPredicate(items, [
+        ...storedTimelineWindowConditions(args),
+        inArray(events.type, ITEM_EVENT_TYPES),
+      ]),
+    )
+    .orderBy(events.sequence)
+    .all();
+}
+
 export function listTimelineRootWindowTurnIds(
   db: DbConnection,
   args: ListStoredTimelineWindowEventRowsArgs,
@@ -3531,19 +4067,21 @@ export function getLatestThreadSystemErrorEventRow(
   );
 }
 
+const isUnhandledModelFallbackData = sql`COALESCE((
+  json_extract(${events.data}, '$.rawEvent.method') = 'sdk/message'
+  AND json_extract(${events.data}, '$.rawEvent.params.message.subtype')
+    IN ('model_fallback', 'model_refusal_fallback')
+  AND json_type(${events.data}, '$.rawEvent.params.message.original_model') = 'text'
+  AND length(json_extract(${events.data}, '$.rawEvent.params.message.original_model')) > 0
+  AND json_type(${events.data}, '$.rawEvent.params.message.fallback_model') = 'text'
+  AND length(json_extract(${events.data}, '$.rawEvent.params.message.fallback_model')) > 0
+), 0)`;
+
 const isNotDiagnosticEvent = sql`(
   ${events.type} <> 'provider.env-resolved'
   AND (
     ${events.type} <> 'provider/unhandled'
-    OR COALESCE((
-      json_extract(${events.data}, '$.rawEvent.method') = 'sdk/message'
-      AND json_extract(${events.data}, '$.rawEvent.params.message.subtype')
-        IN ('model_fallback', 'model_refusal_fallback')
-      AND json_type(${events.data}, '$.rawEvent.params.message.original_model') = 'text'
-      AND length(json_extract(${events.data}, '$.rawEvent.params.message.original_model')) > 0
-      AND json_type(${events.data}, '$.rawEvent.params.message.fallback_model') = 'text'
-      AND length(json_extract(${events.data}, '$.rawEvent.params.message.fallback_model')) > 0
-    ), 0)
+    OR ${isUnhandledModelFallbackData}
     OR CASE
       WHEN instr(${events.data}, '"imageGeneration"') = 0 THEN 0
       WHEN json_valid(${events.data}) THEN
@@ -4226,6 +4764,7 @@ export function listOpenBackgroundTaskItemRowsForHost(
         eq(events.itemKind, "backgroundTask"),
         inArray(events.type, [startedType, progressType]),
         isNotNull(events.itemId),
+        threadEventsNotCold(events.threadId),
         notExists(
           db
             .select({ one: sql`1` })
@@ -4281,6 +4820,7 @@ export function listOpenBackgroundTaskItemRowsForThread(
         eq(events.itemKind, "backgroundTask"),
         inArray(events.type, [startedType, progressType]),
         isNotNull(events.itemId),
+        threadEventsNotCold(events.threadId),
         notExists(
           db
             .select({ one: sql`1` })

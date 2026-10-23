@@ -902,14 +902,14 @@ describe("latest timeline selection memo", () => {
       expect(selectionWasReused(lagging.profile)).toBe(false);
       expect({
         activeWorkflows: lagging.response.activeWorkflows,
-        goal: lagging.response.goal,
+        goal: lagging.response.goal?.objective,
         maxSeq: lagging.response.maxSeq,
-        pendingTodos: lagging.response.pendingTodos,
+        todos: lagging.response.pendingTodos?.items.map((item) => item.text),
       }).toEqual({
         activeWorkflows: [],
-        goal: null,
+        goal: "first goal",
         maxSeq: laggingSeq,
-        pendingTodos: null,
+        todos: ["Ship it", "Ship it docs"],
       });
 
       expectWarmEqualsCold(testThread, singleSegmentArgs, "head snapshot");
@@ -1023,8 +1023,18 @@ describe("latest timeline selection memo", () => {
   it.each([
     {
       name: "resolved deltas are pruned",
-      rewrite: (testThread: TestThread) =>
-        advanceThreadPruning(testThread.db, "resolved-items").removed,
+      rewrite: (testThread: TestThread) => {
+        const setStatus = testThread.db.$client.prepare(
+          "UPDATE threads SET status = ? WHERE id = ?",
+        );
+        setStatus.run("idle", testThread.thread.id);
+        const { removed } = advanceThreadPruning(
+          testThread.db,
+          "resolved-items",
+        );
+        setStatus.run("active", testThread.thread.id);
+        return removed;
+      },
     },
     {
       name: "another connection deletes a delta",

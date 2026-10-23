@@ -920,9 +920,7 @@ describe("in-turn timeline windows", () => {
     expect(unbudgeted.response.timelinePage.olderCursor).toBeNull();
 
     const budgeted = buildPage(db, thread, 100, null);
-    expect(budgeted.profile.eventRowCount).toBe(
-      unbudgeted.profile.eventRowCount,
-    );
+    expect(budgeted.profile.eventRowCount).toBeLessThanOrEqual(2 * 100);
     expect(budgeted.response.rows.length).toBeLessThan(
       unbudgeted.response.rows.length,
     );
@@ -1478,7 +1476,36 @@ describe("in-turn timeline windows", () => {
     }
     expect(delegation.status).toBe("completed");
     expect(delegation.childRows).toBeNull();
-    expect(page.response.timelinePage.olderCursor).toBeNull();
+    const olderCursor = page.response.timelinePage.olderCursor;
+    expect(olderCursor).not.toBeNull();
+    const olderPage = buildPage(
+      db,
+      thread,
+      100,
+      olderCursor,
+      20,
+      THREAD_TIMELINE_EVENT_DATA_BYTE_LIMIT,
+      false,
+      true,
+    );
+    expect(olderPage.response.timelinePage.olderCursor).toBeNull();
+    expect(
+      prependOlderTimelineRows({
+        olderRows: olderPage.response.rows,
+        loadedRows: page.response.rows,
+      }),
+    ).toEqual(
+      buildPage(
+        db,
+        thread,
+        LARGE_BUDGET,
+        null,
+        20,
+        THREAD_TIMELINE_EVENT_DATA_BYTE_LIMIT,
+        false,
+        true,
+      ).response.rows,
+    );
 
     const firstPage = buildTurnDetailsPage(db, thread, {
       deferContent: true,
@@ -2123,10 +2150,14 @@ describe("background tasks across an in-turn window", () => {
     expect(budgeted.response.timelinePage.olderCursor?.anchorId).toMatch(
       /^timeline-v3:/,
     );
-    expect(budgeted.profile.eventRowCount).toBeGreaterThan(600);
+    expect(budgeted.profile.eventRowCount).toBeLessThanOrEqual(2 * 100);
+    const unbudgeted = buildPage(db, thread, LARGE_BUDGET, null);
+    expect(budgeted.response.rows.length).toBeLessThan(
+      unbudgeted.response.rows.length,
+    );
     expect(budgeted.response.activeWorkflows).toHaveLength(1);
     expect(budgeted.response.activeWorkflows).toEqual(
-      buildPage(db, thread, LARGE_BUDGET, null).response.activeWorkflows,
+      unbudgeted.response.activeWorkflows,
     );
   });
 

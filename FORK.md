@@ -349,7 +349,7 @@ Beyond upstream, Aleph carries:
 - **Model picker.** Switching a thread's provider in place when the local
   handoff plugin is running.
 - **No upstream update offers.** See [Updates](#updates).
-- **Release qualification.** `scripts/ci-zklw-release-check.sh`, run by the
+- **Release qualification.** `scripts/ci-release-check.sh`, run by the
   fork's CI worker in a credential-free guest.
 - **Thecla theme, default for new installs.** A built-in palette (rose,
   orchid pink, and cyan on deep black) that new installs and never-configured

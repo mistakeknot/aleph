@@ -34,6 +34,9 @@ import {
   listStoredEventRows,
   listStoredEventRowsByParentToolCallIds,
   listStoredTurnCompletedKeys,
+  findStoredTimelineCompletedTurnTail,
+  findStoredTimelineOpenTurnRowFloor,
+  listStoredTimelineTurnRangeEventRows,
   listTodoSnapshotEventRowsForThread,
 } from "../src/data/events.js";
 import {
@@ -149,6 +152,7 @@ function setup(): TestDb {
   const thread = createThread(db, noopNotifier, {
     projectId: project.id,
     providerId: "codex",
+    status: "idle",
   });
   logger.clear();
   return { db, host, logger, project, thread };
@@ -731,6 +735,84 @@ describe("slow query index plans", () => {
     db.$client.close();
   });
 
+  it("reads one turn's rows through the turn index, not the thread's later history", () => {
+    const { db, thread } = setup();
+    const window = {
+      excludeDiagnosticEvents: true,
+      maxInlineOutputChars: 32_000,
+      sequenceStart: 0,
+      threadId: thread.id,
+    } as const;
+
+    insertEvents(db, noopNotifier, [
+      {
+        threadId: thread.id,
+        sequence: 1,
+        type: "turn/started",
+        scope: turnScope("turn-1"),
+        itemId: null,
+        itemKind: null,
+        parentToolCallId: null,
+        data: JSON.stringify({ providerThreadId: "provider-plan" }),
+      },
+      ...Array.from({ length: 20 }, (_, index) => ({
+        threadId: thread.id,
+        sequence: index + 2,
+        type: "item/started" as const,
+        scope: turnScope("turn-1"),
+        itemId: `item-${index}`,
+        itemKind: "agentMessage" as const,
+        parentToolCallId: null,
+        data: JSON.stringify({
+          providerThreadId: "provider-plan",
+          item: { type: "agentMessage", id: `item-${index}`, text: "" },
+        }),
+      })),
+    ]);
+
+    const plans = (run: () => void) =>
+      captureStatements(db, run).map((query) =>
+        queryPlanDetails({ db, ...query }),
+      );
+    const turnIndex =
+      /USING (?:COVERING )?INDEX events_thread_turn_type_item_sequence_idx \(thread_id=\? AND turn_id=\?/u;
+
+    const floor = plans(() =>
+      findStoredTimelineOpenTurnRowFloor(db, {
+        ...window,
+        completedThroughSequence: 30,
+        rowLimit: 4,
+        turnId: "turn-1",
+      }),
+    );
+    expect(floor).toHaveLength(5);
+    for (const plan of floor.slice(2)) expect(plan).toMatch(turnIndex);
+
+    const [spanGuard] = plans(() =>
+      findStoredTimelineCompletedTurnTail(db, {
+        ...window,
+        completedSequence: 30,
+        completedThroughSequence: 30,
+        rowLimit: 4,
+        startedSequence: 1,
+        turnId: "turn-1",
+      }),
+    );
+    expect(spanGuard).toMatch(turnIndex);
+
+    const range = plans(() =>
+      listStoredTimelineTurnRangeEventRows(db, {
+        ...window,
+        beforeSequence: 30,
+        turnId: "turn-1",
+      }),
+    );
+    expect(range).toHaveLength(1);
+    expect(range[0]).toMatch(turnIndex);
+
+    db.$client.close();
+  });
+
   it("loads parented timeline rows through the normalized parent index", () => {
     const { db, thread } = setup();
 
@@ -852,7 +934,10 @@ describe("slow query index plans", () => {
 
     const captured = captureStatements(db, () => {
       expect(
-        listTodoSnapshotEventRowsForThread(db, { threadId: thread.id }),
+        listTodoSnapshotEventRowsForThread(db, {
+          maxSeq: 100,
+          threadId: thread.id,
+        }),
       ).toEqual([]);
     });
     const query = captured.find((entry) => entry.sql.includes("planSteps"));
@@ -861,7 +946,7 @@ describe("slow query index plans", () => {
     }
     expect(query.sql).not.toContain("json_extract");
     expect(query.sql).not.toContain("tool_name");
-    expect(query.params).toEqual([thread.id, 1]);
+    expect(query.params).toEqual([thread.id, 100, 1]);
     expect(
       queryPlanDetails({ db, params: query.params, sql: query.sql }),
     ).toContain("events_plan_steps_thread_sequence_idx");

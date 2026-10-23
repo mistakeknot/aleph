@@ -67,6 +67,7 @@ import {
 } from "../../services/threads/thread-send.js";
 import { acceptThreadSendRequest } from "../../services/threads/thread-send-request.js";
 import { editThreadMessage } from "../../services/threads/thread-edit-message.js";
+import { withHotThreadHistory } from "../../services/threads/event-cold-tier/service.js";
 import { clearThreadContext } from "../../services/threads/thread-context-clear.js";
 import {
   buildExecutionOptions,
@@ -706,33 +707,35 @@ export function registerThreadActionRoutes(app: Hono, deps: AppDeps): void {
   post(routes.unarchive, (context) => {
     const thread = requirePublicThread(deps.db, context.req.param("id"));
     if (thread.archivedAt === null) return context.json({ ok: true });
-    const providerThreadId = getLastProviderThreadId(deps, thread.id);
-    if (!unarchiveThread(deps.db, deps.hub, thread.id)) {
-      if (getThread(deps.db, thread.id)?.archivedAt === null)
-        return context.json({ ok: true });
-      throw new ApiError(
-        409,
-        "invalid_request",
-        "Lifecycle owner must be unarchived first",
-      );
-    }
-    const unarchivedThread = getThread(deps.db, thread.id);
-    if (unarchivedThread !== null) {
-      if (unarchivedThread.environmentId !== null)
-        refreshProviderRetirement(deps, unarchivedThread.environmentId);
-      emitPluginThreadUnarchived(unarchivedThread);
-    }
-    const environment = thread.environmentId
-      ? getEnvironment(deps.db, thread.environmentId)
-      : null;
-    if (providerThreadId && environment) {
-      dispatchThreadUnarchiveCommand(deps, {
-        environment,
-        providerThreadId,
-        thread,
-      });
-    }
-    return context.json({ ok: true });
+    return withHotThreadHistory(deps, thread.id, () => {
+      const providerThreadId = getLastProviderThreadId(deps, thread.id);
+      if (!unarchiveThread(deps.db, deps.hub, thread.id)) {
+        if (getThread(deps.db, thread.id)?.archivedAt === null)
+          return context.json({ ok: true });
+        throw new ApiError(
+          409,
+          "invalid_request",
+          "Lifecycle owner must be unarchived first",
+        );
+      }
+      const unarchivedThread = getThread(deps.db, thread.id);
+      if (unarchivedThread !== null) {
+        if (unarchivedThread.environmentId !== null)
+          refreshProviderRetirement(deps, unarchivedThread.environmentId);
+        emitPluginThreadUnarchived(unarchivedThread);
+      }
+      const environment = thread.environmentId
+        ? getEnvironment(deps.db, thread.environmentId)
+        : null;
+      if (providerThreadId && environment) {
+        dispatchThreadUnarchiveCommand(deps, {
+          environment,
+          providerThreadId,
+          thread,
+        });
+      }
+      return context.json({ ok: true });
+    });
   });
 
   post(routes.restoreEnvironment, (context) => {

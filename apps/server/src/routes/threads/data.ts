@@ -30,6 +30,7 @@ import type { AppDeps } from "../../types.js";
 import { COMMAND_TIMEOUT_MS } from "../../constants.js";
 import { ApiError } from "../../errors.js";
 import { requirePublicThread } from "../../services/lib/entity-lookup.js";
+import { withHotThreadHistory } from "../../services/threads/event-cold-tier/service.js";
 import { callHostRetryableOnlineRpc } from "../../services/hosts/online-rpc.js";
 import { requireThreadStorageTarget } from "../../services/threads/thread-storage.js";
 import { toThreadQueuedMessage } from "../../services/threads/thread-queued-messages.js";
@@ -151,6 +152,15 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
   });
   const routes = publicApiRoutes.threads;
   const timelineWindows = createThreadTimelineWindows(deps);
+  const withHotPublicThread = <T>(
+    threadId: string,
+    run: (thread: Thread) => T,
+  ): Promise<T> => {
+    requirePublicThread(deps.db, threadId);
+    return withHotThreadHistory(deps, threadId, () =>
+      run(requirePublicThread(deps.db, threadId)),
+    );
+  };
   const conversationOutlineCache = new Map<
     string,
     ThreadConversationOutlineResponse["items"]
@@ -212,126 +222,133 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
     return context.json(result.metadata);
   });
 
-  get(routes.context, (context) => {
-    const thread = requirePublicThread(deps.db, context.req.param("id"));
-    const sequenceStart =
-      getLatestCompletedThreadContextClearSequence(deps.db, {
+  get(routes.context, (context) =>
+    withHotPublicThread(context.req.param("id"), (thread) => {
+      const sequenceStart =
+        getLatestCompletedThreadContextClearSequence(deps.db, {
+          threadId: thread.id,
+        }) ?? 0;
+      const rows = listContextWindowUsageRows(deps.db, {
         threadId: thread.id,
-      }) ?? 0;
-    const rows = listContextWindowUsageRows(deps.db, {
-      threadId: thread.id,
-      sequenceStart,
-    });
-    return context.json({
-      usage: extractThreadContextWindowUsage(rows.map(toThreadEventWithMeta)),
-    });
-  });
+        sequenceStart,
+      });
+      return context.json({
+        usage: extractThreadContextWindowUsage(rows.map(toThreadEventWithMeta)),
+      });
+    }),
+  );
 
-  get(routes.timeline, (context, query) => {
-    const thread = requirePublicThread(deps.db, context.req.param("id"));
-    return context.json(
-      timelineWindows.read(
-        thread,
-        {
-          deferContent: query.deferContent === "true",
-          includeNestedRows: query.includeNestedRows === "true",
-          page: parseThreadTimelinePage(query),
-          summaryOnly: query.summaryOnly === "true",
-        },
-        parseOptionalInteger(query.afterSequence, "afterSequence"),
-      ),
-    );
-  });
-
-  get(routes.conversationOutline, (context, query) => {
-    const thread = requirePublicThread(deps.db, context.req.param("id"));
-    const selectItems = (items: ThreadConversationOutlineResponse["items"]) =>
-      query.role === undefined
-        ? items
-        : items.filter((item) => item.role === query.role);
-
-    const outlineSequence = getLatestStoredConversationOutlineSequence(
-      deps.db,
-      { threadId: thread.id },
-    );
-    const outlineOptions = resolveConversationRowsOptions(thread);
-    const { maxSeq } = outlineOptions;
-    const cacheKey = JSON.stringify([
-      thread.id,
-      getDatabaseDataVersion(deps.db),
-      buildThreadConversationOutlineProjectionKey(
-        thread,
-        outlineSequence,
-        outlineOptions,
-      ),
-    ]);
-    const cached = conversationOutlineCache.get(cacheKey);
-    if (cached !== undefined) {
-      conversationOutlineCache.delete(cacheKey);
-      conversationOutlineCache.set(cacheKey, cached);
-      return context.json({ items: selectItems(cached), maxSeq });
-    }
-    const response = loadThreadConversationOutline(deps.db, thread, {
-      ...outlineOptions,
-      outlineSequence,
-    });
-    conversationOutlineCache.set(cacheKey, response.items);
-    while (
-      conversationOutlineCache.size > CONVERSATION_OUTLINE_CACHE_MAX_ENTRIES
-    ) {
-      const oldest = conversationOutlineCache.keys().next().value;
-      if (oldest === undefined) {
-        break;
-      }
-      conversationOutlineCache.delete(oldest);
-    }
-    return context.json({ ...response, items: selectItems(response.items) });
-  });
-
-  get(routes.message, (context, query) => {
-    const thread = requirePublicThread(deps.db, context.req.param("id"));
-    const seq = context.req.param("seq");
-    if (!/^\d+$/.test(seq)) {
-      throw new ApiError(
-        400,
-        "invalid_request",
-        "Message seq must be a non-negative integer",
+  get(routes.timeline, (context, query) =>
+    withHotPublicThread(context.req.param("id"), (thread) => {
+      return context.json(
+        timelineWindows.read(
+          thread,
+          {
+            deferContent: query.deferContent === "true",
+            includeNestedRows: query.includeNestedRows === "true",
+            page: parseThreadTimelinePage(query),
+            summaryOnly: query.summaryOnly === "true",
+          },
+          parseOptionalInteger(query.afterSequence, "afterSequence"),
+        ),
       );
-    }
-    return context.json(
-      getThreadMessage(deps.db, thread, {
-        ...resolveConversationRowsOptions(thread),
-        seq: parseInteger(seq, "seq"),
-        before: parseOptionalInteger(query.before, "before") ?? 0,
-        after: parseOptionalInteger(query.after, "after") ?? 0,
-      }),
-    );
-  });
+    }),
+  );
 
-  get(routes.timelineTurnSummaryDetails, (context, query) => {
-    const thread = requirePublicThread(deps.db, context.req.param("id"));
-    const settings = getAppSettings(deps.db);
-    return context.json(
-      buildTimelineTurnSummaryDetails(deps.db, thread, {
-        beforeCursor: query.beforeCursor,
-        deferContent: query.deferContent === "true",
-        itemId: query.itemId ?? null,
-        completedTurnDisplay: resolveThreadCompletedTurnDisplay(
-          deps,
-          settings,
-          thread.providerId,
+  get(routes.conversationOutline, (context, query) =>
+    withHotPublicThread(context.req.param("id"), (thread) => {
+      const selectItems = (
+        items: ThreadConversationOutlineResponse["items"],
+      ) =>
+        query.role === undefined
+          ? items
+          : items.filter((item) => item.role === query.role);
+
+      const outlineSequence = getLatestStoredConversationOutlineSequence(
+        deps.db,
+        { threadId: thread.id },
+      );
+      const outlineOptions = resolveConversationRowsOptions(thread);
+      const { maxSeq } = outlineOptions;
+      const cacheKey = JSON.stringify([
+        thread.id,
+        getDatabaseDataVersion(deps.db),
+        buildThreadConversationOutlineProjectionKey(
+          thread,
+          outlineSequence,
+          outlineOptions,
         ),
-        includeDiagnosticOperations: settings.showDiagnosticEvents,
-        providerDisplayName: resolveThreadProviderDisplayName(
-          deps,
-          thread.providerId,
-        ),
-        turnId: query.turnId,
-        sourceSeqStart: parseInteger(query.sourceSeqStart, "sourceSeqStart"),
-        sourceSeqEnd: parseInteger(query.sourceSeqEnd, "sourceSeqEnd"),
-      }),
-    );
-  });
+      ]);
+      const cached = conversationOutlineCache.get(cacheKey);
+      if (cached !== undefined) {
+        conversationOutlineCache.delete(cacheKey);
+        conversationOutlineCache.set(cacheKey, cached);
+        return context.json({ items: selectItems(cached), maxSeq });
+      }
+      const response = loadThreadConversationOutline(deps.db, thread, {
+        ...outlineOptions,
+        outlineSequence,
+      });
+      conversationOutlineCache.set(cacheKey, response.items);
+      while (
+        conversationOutlineCache.size > CONVERSATION_OUTLINE_CACHE_MAX_ENTRIES
+      ) {
+        const oldest = conversationOutlineCache.keys().next().value;
+        if (oldest === undefined) {
+          break;
+        }
+        conversationOutlineCache.delete(oldest);
+      }
+      return context.json({ ...response, items: selectItems(response.items) });
+    }),
+  );
+
+  get(routes.message, (context, query) =>
+    withHotPublicThread(context.req.param("id"), (thread) => {
+      const seq = context.req.param("seq");
+      if (!/^\d+$/.test(seq)) {
+        throw new ApiError(
+          400,
+          "invalid_request",
+          "Message seq must be a non-negative integer",
+        );
+      }
+      return context.json(
+        getThreadMessage(deps.db, thread, {
+          ...resolveConversationRowsOptions(thread),
+          seq: parseInteger(seq, "seq"),
+          before: parseOptionalInteger(query.before, "before") ?? 0,
+          after: parseOptionalInteger(query.after, "after") ?? 0,
+        }),
+      );
+    }),
+  );
+
+  get(routes.timelineTurnSummaryDetails, (context, query) =>
+    withHotPublicThread(context.req.param("id"), (thread) => {
+      const settings = getAppSettings(deps.db);
+      return context.json(
+        buildTimelineTurnSummaryDetails(deps.db, thread, {
+          beforeCursor: query.beforeCursor,
+          deferContent: query.deferContent === "true",
+          itemId: query.itemId ?? null,
+          completedTurnDisplay: resolveThreadCompletedTurnDisplay(
+            deps,
+            settings,
+            thread.providerId,
+          ),
+          includeDiagnosticOperations: settings.showDiagnosticEvents,
+          providerDisplayName: resolveThreadProviderDisplayName(
+            deps,
+            thread.providerId,
+          ),
+          turnId: query.turnId,
+          sourceSeqStart: parseInteger(query.sourceSeqStart, "sourceSeqStart"),
+          sourceSeqEnd: parseInteger(query.sourceSeqEnd, "sourceSeqEnd"),
+        }),
+      );
+    }),
+  );
 
   get(routes.output, (context) => {
     requirePublicThread(deps.db, context.req.param("id"));
@@ -366,24 +383,25 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
     );
   });
 
-  get(routes.events, (context, query) => {
-    requirePublicThread(deps.db, context.req.param("id"));
-    return context.json(
-      listThreadEventRows(deps.db, {
-        threadId: context.req.param("id"),
-        afterSeq: parseOptionalInteger(query.afterSeq, "afterSeq"),
-        beforeSeq: parseOptionalInteger(query.beforeSeq, "beforeSeq"),
-        limit: parseBoundedPositiveOptionalInteger({
-          defaultValue: THREAD_EVENT_LIST_PAGE_SIZE,
-          max: THREAD_EVENT_LIST_PAGE_SIZE,
-          name: "limit",
-          value: query.limit,
+  get(routes.events, (context, query) =>
+    withHotPublicThread(context.req.param("id"), (thread) => {
+      return context.json(
+        listThreadEventRows(deps.db, {
+          threadId: thread.id,
+          afterSeq: parseOptionalInteger(query.afterSeq, "afterSeq"),
+          beforeSeq: parseOptionalInteger(query.beforeSeq, "beforeSeq"),
+          limit: parseBoundedPositiveOptionalInteger({
+            defaultValue: THREAD_EVENT_LIST_PAGE_SIZE,
+            max: THREAD_EVENT_LIST_PAGE_SIZE,
+            name: "limit",
+            value: query.limit,
+          }),
+          order: query.order,
+          types: parseThreadEventTypes(query.types),
         }),
-        order: query.order,
-        types: parseThreadEventTypes(query.types),
-      }),
-    );
-  });
+      );
+    }),
+  );
 
   get(routes.eventWait, async (context, query) => {
     const threadId = context.req.param("id");
@@ -404,19 +422,22 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
       findThreadEvent(deps.db, { threadId, type: eventType, afterSeq });
 
     const deadline = Date.now() + waitMs;
-    let match = findMatch();
-    while (!match) {
-      const remaining = deadline - Date.now();
-      if (remaining <= 0) break;
-      const waiter = deps.hub.registerThreadEventWaiter(threadId, remaining);
-      match = findMatch();
-      if (match) {
-        waiter.cancel();
-        break;
+    const match = await withHotThreadHistory(deps, threadId, async () => {
+      let found = findMatch();
+      while (!found) {
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) break;
+        const waiter = deps.hub.registerThreadEventWaiter(threadId, remaining);
+        found = findMatch();
+        if (found) {
+          waiter.cancel();
+          break;
+        }
+        await waiter.promise;
+        found = findMatch();
       }
-      await waiter.promise;
-      match = findMatch();
-    }
+      return found;
+    });
 
     if (!match) {
       return new Response(null, { status: 204 });

@@ -1,5 +1,9 @@
 import { prepareCachedQuery } from "../connection.js";
 import { markThreadPruningPolicyWork } from "./thread-pruning-work.js";
+import {
+  ColdThreadHistoryError,
+  isThreadEventsCold,
+} from "./event-cold-tier.js";
 import { copyProjectAttachmentOwnership } from "./project-attachments.js";
 import { deleteThreadSearchLearnedSelections } from "./thread-search-learned-selections.js";
 import {
@@ -1574,6 +1578,18 @@ export function listLiveThreadsInEnvironment(
     .all();
 }
 
+export function listThreadIdsInEnvironment(
+  db: ThreadWriteConnection,
+  environmentId: string,
+): string[] {
+  return db
+    .select({ id: threads.id })
+    .from(threads)
+    .where(eq(threads.environmentId, environmentId))
+    .all()
+    .map((row) => row.id);
+}
+
 export function countNonDeletedAssignedChildThreads(
   db: DbConnection,
   args: CountNonDeletedAssignedChildThreadsArgs,
@@ -2547,6 +2563,7 @@ export function unarchiveThread(
     (tx) => {
       const current = getThread(tx, id);
       if (current?.deletedAt !== null) return null;
+      if (isThreadEventsCold(tx, id)) throw new ColdThreadHistoryError([id]);
       if (current.lifecycleOwnerThreadId) {
         const owner = getThread(tx, current.lifecycleOwnerThreadId);
         if (!owner || owner.archivedAt !== null || owner.deletedAt !== null)
@@ -2646,6 +2663,15 @@ export function applyThreadLifecycleEventInTransaction(
       detail: evaluation.detail,
       reason: evaluation.noop,
     };
+  }
+
+  if (
+    (evaluation.to === "starting" ||
+      evaluation.to === "active" ||
+      evaluation.to === "stopping") &&
+    isThreadEventsCold(db, args.threadId)
+  ) {
+    throw new ColdThreadHistoryError([args.threadId]);
   }
 
   const now = Date.now();

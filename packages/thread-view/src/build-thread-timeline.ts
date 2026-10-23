@@ -1220,7 +1220,7 @@ export function buildThreadTimelineFromEvents(
       : extractThreadSessionOptions(stateEvents),
     modelFallback: !args.options.isLatestPage
       ? null
-      : extractThreadTimelineModelFallback(args.events),
+      : extractThreadTimelineModelFallback(stateEvents),
     pendingTodos: !args.options.isLatestPage
       ? null
       : extractThreadTimelinePendingTodos(

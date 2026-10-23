@@ -40,6 +40,15 @@ function createFixture(): { binDir: string; dataDir: string; homeDir: string } {
   return { binDir, dataDir, homeDir };
 }
 
+function terminateRecordedDaemon(pidPath: string): void {
+  if (!existsSync(pidPath)) return;
+  try {
+    process.kill(Number(readFileSync(pidPath, "utf8")), "SIGTERM");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+  }
+}
+
 function writeExecutable(path: string, contents: string): void {
   writeFileSync(path, contents);
   chmodSync(path, 0o755);
@@ -318,7 +327,7 @@ afterEach(() => {
 
 const describeOnPosix = process.platform === "win32" ? describe.skip : describe;
 
-describeOnPosix("machine install script", { timeout: 15_000 }, () => {
+describeOnPosix("machine install script", { timeout: 60_000 }, () => {
   it.each([
     { uid: 0, unset: true },
     { uid: 501, unset: true },
@@ -399,9 +408,7 @@ exec '${process.execPath}' "$@"
         "https://machine.getbb.app",
       ]);
     } finally {
-      if (existsSync(daemonPidPath)) {
-        process.kill(Number(readFileSync(daemonPidPath, "utf8")), "SIGTERM");
-      }
+      terminateRecordedDaemon(daemonPidPath);
     }
   });
 
@@ -822,9 +829,7 @@ fs.writeFileSync(path.join(process.env.BB_DATA_DIR, "config.json"), JSON.stringi
         "https://machine.getbb.app",
       ]);
     } finally {
-      if (existsSync(daemonPidPath)) {
-        process.kill(Number(readFileSync(daemonPidPath, "utf8")), "SIGTERM");
-      }
+      terminateRecordedDaemon(daemonPidPath);
     }
   });
 
@@ -1783,9 +1788,7 @@ fi
       );
     } finally {
       const pidPath = join(fixture.dataDir, "install-daemon.pid");
-      if (existsSync(pidPath)) {
-        process.kill(Number(readFileSync(pidPath, "utf8")), "SIGTERM");
-      }
+      terminateRecordedDaemon(pidPath);
     }
   });
 

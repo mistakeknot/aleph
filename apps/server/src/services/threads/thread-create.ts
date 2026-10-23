@@ -16,6 +16,7 @@ import type { LoggedPendingInteractionWorkSessionDeps } from "../../types.js";
 import { ApiError } from "../../errors.js";
 import { ensureHostSessionReadyForWork } from "../hosts/host-lifecycle.js";
 import { buildExecutionOptions } from "./thread-commands.js";
+import { pinThreadHistory } from "./event-cold-tier/pins.js";
 import {
   copyForkSourceHistory,
   resolveThreadForkPoint,
@@ -561,13 +562,38 @@ function resolveCreateThreadPluginMetadata(
   };
 }
 
+type CreateThreadFromRequestOptions = {
+  providerInput?: ThreadCreateServiceRequestInput["input"];
+  forkSourceEnvironmentId?: string;
+};
+
 export async function createThreadFromRequest(
   deps: ThreadCreateDeps,
   rawRequestInput: ThreadCreateServiceRequestInput,
-  options: {
-    providerInput?: ThreadCreateServiceRequestInput["input"];
-    forkSourceEnvironmentId?: string;
-  } = {},
+  options: CreateThreadFromRequestOptions = {},
+) {
+  const sourceThreadId =
+    rawRequestInput.sourceThreadId ??
+    ((rawRequestInput.originKind ?? null) !== null
+      ? rawRequestInput.parentThreadId
+      : undefined);
+  const releaseSourceHistory =
+    sourceThreadId === undefined ? null : pinThreadHistory(sourceThreadId);
+  try {
+    return await createThreadFromRequestWithSourcePinned(
+      deps,
+      rawRequestInput,
+      options,
+    );
+  } finally {
+    releaseSourceHistory?.();
+  }
+}
+
+async function createThreadFromRequestWithSourcePinned(
+  deps: ThreadCreateDeps,
+  rawRequestInput: ThreadCreateServiceRequestInput,
+  options: CreateThreadFromRequestOptions,
 ) {
   const project = requirePublicProjectForThreadCreate(
     deps,

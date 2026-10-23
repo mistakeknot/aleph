@@ -12,6 +12,7 @@ export const SERVER_OWNED_TOP_LEVEL_FILES: readonly string[] = [
 ];
 export const SERVER_OWNED_TOP_LEVEL_DIRECTORIES: readonly string[] = [
   "attachments",
+  "event-archive",
   "skills",
   "theme",
 ];

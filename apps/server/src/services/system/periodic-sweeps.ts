@@ -16,6 +16,10 @@ import {
 import { and, eq, isNull, isNotNull, inArray } from "drizzle-orm";
 import { sweepMachineLifecycles } from "../machines/provider-orchestration.js";
 import {
+  prepareEventColdTier,
+  runEventColdTierSweep,
+} from "../threads/event-cold-tier/service.js";
+import {
   CLOSED_SESSION_ROW_RETENTION_MS,
   compactDatabase,
   DATABASE_COMPACTION_MIN_RECLAIMABLE_BYTES,
@@ -497,6 +501,17 @@ export function createThreadEventPruningJob(
   };
 }
 
+export function createThreadEventColdTierJob(): PeriodicSweepJob {
+  return {
+    cadenceMs: 0,
+    category: "retention",
+    name: "thread-event-cold-tier",
+    run: async (deps, now) => {
+      await runEventColdTierSweep(deps, now);
+    },
+  };
+}
+
 const PERIODIC_SWEEP_JOBS: PeriodicSweepJob[] = [
   {
     cadenceMs: 0,
@@ -599,6 +614,7 @@ const PERIODIC_SWEEP_JOBS: PeriodicSweepJob[] = [
     run: (deps, now) => deps.pluginSchedules.sweepDueSchedules(now),
   },
   createThreadEventPruningJob(THREAD_PRUNING_SWEEP_LIMITS),
+  createThreadEventColdTierJob(),
   {
     cadenceMs: DATABASE_MAINTENANCE_CHECK_INTERVAL_MS,
     category: "maintenance",
@@ -637,6 +653,14 @@ export async function runStartupRecoverySweep(
   await drainTransferLedger(deps);
   await runEnvironmentProvisioningSweep(deps);
   await runThreadLifecycleSweep(deps);
+  try {
+    await prepareEventColdTier(deps);
+  } catch (error) {
+    deps.logger.error(
+      { error: error instanceof Error ? error.message : String(error) },
+      "Cold-tier startup recovery failed",
+    );
+  }
 }
 
 export async function runPeriodicSweeps(

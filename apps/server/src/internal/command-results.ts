@@ -1,3 +1,4 @@
+import { listThreadIdsInEnvironment, type DbQueryConnection } from "@bb/db";
 import type {
   HostDaemonCommand,
   HostDaemonSettledCommandType,
@@ -71,6 +72,38 @@ const commandResultSideEffectHandlers: CommandResultSideEffectHandlers = {
     });
   },
 } satisfies CommandResultSideEffectHandlers;
+
+export interface SettlementThreadSelection {
+  deletedFastPath: boolean;
+  select: (db: DbQueryConnection) => readonly string[];
+}
+
+const DELETED_FAST_PATH_COMMAND_TYPES: ReadonlySet<ParsedCommandType> = new Set(
+  ["environment.attach", "thread.storage.delete", "thread.plan.cancel"],
+);
+
+export function selectSettlementThreads(
+  command: HostDaemonCommand,
+): SettlementThreadSelection {
+  const deletedFastPath = DELETED_FAST_PATH_COMMAND_TYPES.has(
+    command.type as ParsedCommandType,
+  );
+  if (
+    command.type === "environment.attach" ||
+    command.type === "environment.attach.cancel"
+  ) {
+    const environmentId = command.environmentId;
+    return {
+      deletedFastPath,
+      select: (db) => listThreadIdsInEnvironment(db, environmentId),
+    };
+  }
+  if ("threadId" in command && typeof command.threadId === "string") {
+    const threadId = command.threadId;
+    return { deletedFastPath, select: () => [threadId] };
+  }
+  return { deletedFastPath, select: () => [] };
+}
 
 export function handleLiveCommandResultSideEffects<
   TType extends ParsedCommandType,

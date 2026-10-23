@@ -103,8 +103,8 @@ function releaseRunningJob(release: ReleaseCallback | null): void {
 }
 
 const UNTIMED_SWEEP_LIMITS: ThreadPruningSweepLimits = {
+  ...THREAD_PRUNING_SWEEP_LIMITS,
   elapsedBudgetMs: Number.POSITIVE_INFINITY,
-  maxAdvances: THREAD_PRUNING_SWEEP_LIMITS.maxAdvances,
 };
 
 describe("runPeriodicSweeps", () => {

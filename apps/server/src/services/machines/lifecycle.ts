@@ -21,6 +21,7 @@ import {
 import { appendSystemErrorEvent } from "../threads/thread-events.js";
 import { threadScope } from "@bb/domain";
 import { stopThreadForCurrentState } from "../threads/thread-lifecycle.js";
+import { withHotThreadHistory } from "../threads/event-cold-tier/service.js";
 
 const RETRY_MS = 10_000;
 const preparingPauses = new WeakMap<
@@ -127,26 +128,10 @@ export async function maintainMachine(
           ),
         )
         .all();
-      for (const thread of active)
-        appendSystemErrorEvent(deps, {
-          threadId: thread.id,
-          environmentId: thread.environmentId,
-          scope: threadScope(),
-          code: "machine_maintenance",
-          message:
-            "Machine preservation is interrupting this turn. Its result is not a successful completion. Continue with a new turn after the machine resumes.",
-        });
-      await Promise.all(
-        active.map((thread) =>
-          stopThreadForCurrentState(
-            deps,
-            thread,
-            thread.environmentId === null
-              ? null
-              : { id: thread.environmentId, hostId },
-            { requireStopped: true },
-          ),
-        ),
+      await withHotThreadHistory(
+        deps,
+        active.map((thread) => thread.id),
+        () => stopActiveThreadsForMaintenance(deps, active, hostId),
       );
       const stillActive = deps.db
         .select({ id: threads.id })
@@ -256,4 +241,32 @@ async function boundedDrain(
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function stopActiveThreadsForMaintenance(
+  deps: LoggedPendingInteractionWorkSessionDeps,
+  active: readonly Parameters<typeof stopThreadForCurrentState>[1][],
+  hostId: string,
+): Promise<void> {
+  for (const thread of active)
+    appendSystemErrorEvent(deps, {
+      threadId: thread.id,
+      environmentId: thread.environmentId,
+      scope: threadScope(),
+      code: "machine_maintenance",
+      message:
+        "Machine preservation is interrupting this turn. Its result is not a successful completion. Continue with a new turn after the machine resumes.",
+    });
+  await Promise.all(
+    active.map((thread) =>
+      stopThreadForCurrentState(
+        deps,
+        thread,
+        thread.environmentId === null
+          ? null
+          : { id: thread.environmentId, hostId },
+        { requireStopped: true },
+      ),
+    ),
+  );
 }

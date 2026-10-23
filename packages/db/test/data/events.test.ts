@@ -90,6 +90,7 @@ function setup() {
   const thread = createThread(db, noopNotifier, {
     projectId: project.id,
     providerId: "codex",
+    status: "idle",
   });
   return { db, project, thread };
 }

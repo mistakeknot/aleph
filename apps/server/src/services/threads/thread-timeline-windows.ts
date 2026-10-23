@@ -1,5 +1,10 @@
 import { performance } from "node:perf_hooks";
-import { getAppSettings, getLatestThreadSequence, getThread } from "@bb/db";
+import {
+  getAppSettings,
+  getLatestThreadSequence,
+  getThread,
+  isThreadEventsCold,
+} from "@bb/db";
 import {
   DEFAULT_COMPLETED_TURN_DISPLAY,
   type AppSettings,
@@ -213,6 +218,9 @@ export function createThreadTimelineWindows(
     const segmentLimit =
       target.segmentLimit ?? THREAD_TIMELINE_DEFAULT_SEGMENT_LIMIT;
     if (segmentLimit > THREAD_TIMELINE_SEGMENT_LIMIT_MAX) {
+      return null;
+    }
+    if (isThreadEventsCold(deps.db, thread.id)) {
       return null;
     }
     const { response } = buildWindow(

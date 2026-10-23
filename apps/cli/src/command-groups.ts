@@ -121,6 +121,11 @@ export const CORE_COMMAND_GROUPS: readonly CommandGroup[] = [
     (m) => (program) => m.registerGuideCommand(program),
   ),
   group(
+    "admin",
+    () => import("./commands/admin.js"),
+    (m) => (program, deps) => m.registerAdminCommands(program, deps.getUrl),
+  ),
+  group(
     "diagnostics",
     () => import("./commands/diagnostics.js"),
     (m) => (program) => m.registerDiagnosticsCommands(program),

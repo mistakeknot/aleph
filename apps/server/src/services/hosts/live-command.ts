@@ -18,7 +18,19 @@ import {
   type LiveHostCommandFailureResultReportForType,
   type LiveHostCommandSuccessResultReportForType,
 } from "../../internal/command-result-side-effects.js";
-import { handleLiveCommandResultSideEffects } from "../../internal/command-results.js";
+import {
+  handleLiveCommandResultSideEffects,
+  selectSettlementThreads,
+  type SettlementThreadSelection,
+} from "../../internal/command-results.js";
+import {
+  pinThreadHistory,
+  type ThreadHistoryPinRelease,
+} from "../threads/event-cold-tier/pins.js";
+import {
+  assertSelectionPinned,
+  withHotSelectedThreadHistories,
+} from "../threads/event-cold-tier/service.js";
 import { NotificationBuffer } from "../lib/notification-buffer.js";
 import {
   callHostOnlineRpcForWork,
@@ -185,24 +197,34 @@ async function runPostCommitActions(
 
 export async function runLiveHostCommandSettlement(
   deps: CommandResultSideEffectsDeps,
+  selection: SettlementThreadSelection,
   settle: (
     settlementDeps: CommandResultSettlementDeps,
   ) => CommandResultSideEffectsResult,
 ): Promise<void> {
-  const notificationBuffer = new NotificationBuffer();
-  const sideEffects = deps.db.transaction(
-    (tx) =>
-      settle(
-        buildCommandResultSettlementDeps({
-          db: tx,
-          deps,
-          hub: notificationBuffer,
-        }),
-      ),
-    { behavior: "immediate" },
+  await withHotSelectedThreadHistories(
+    deps,
+    () => selection.select(deps.db),
+    async (pinned) => {
+      const notificationBuffer = new NotificationBuffer();
+      const sideEffects = deps.db.transaction(
+        (tx) => {
+          assertSelectionPinned(selection.select(tx), pinned);
+          return settle(
+            buildCommandResultSettlementDeps({
+              db: tx,
+              deps,
+              hub: notificationBuffer,
+            }),
+          );
+        },
+        { behavior: "immediate" },
+      );
+      notificationBuffer.flushInto(deps.hub);
+      await runPostCommitActions(deps, sideEffects.postCommitActions);
+    },
+    { deletedFastPath: selection.deletedFastPath },
   );
-  notificationBuffer.flushInto(deps.hub);
-  await runPostCommitActions(deps, sideEffects.postCommitActions);
 }
 
 async function applyLiveHostCommandReport<
@@ -211,8 +233,11 @@ async function applyLiveHostCommandReport<
   deps: CommandResultSideEffectsDeps,
   args: ApplyLiveHostCommandReportArgs<TType>,
 ): Promise<void> {
-  await runLiveHostCommandSettlement(deps, (settlementDeps) =>
-    handleLiveCommandResultSideEffects(settlementDeps, args),
+  await runLiveHostCommandSettlement(
+    deps,
+    selectSettlementThreads(args.command),
+    (settlementDeps) =>
+      handleLiveCommandResultSideEffects(settlementDeps, args),
   );
 }
 
@@ -227,6 +252,28 @@ export function createLiveHostCommandExecution(
 }
 
 export async function runLiveHostCommand<
+  TType extends HostDaemonSettledCommandType,
+>(
+  deps: CommandResultSideEffectsDeps,
+  args: RunLiveHostCommandArgs<TType>,
+): Promise<HostDaemonCommandResult<TType>> {
+  const releaseHistoryPin = pinLiveHostCommandThread(args.command);
+  try {
+    return await runPinnedLiveHostCommand(deps, args);
+  } finally {
+    releaseHistoryPin();
+  }
+}
+
+function pinLiveHostCommandThread(
+  command: HostDaemonCommand,
+): ThreadHistoryPinRelease {
+  return "threadId" in command && typeof command.threadId === "string"
+    ? pinThreadHistory(command.threadId)
+    : () => {};
+}
+
+async function runPinnedLiveHostCommand<
   TType extends HostDaemonSettledCommandType,
 >(
   deps: CommandResultSideEffectsDeps,
@@ -315,6 +362,7 @@ export function startLiveHostCommand<
 ): void {
   const execution =
     args.execution ?? createLiveHostCommandExecution(args.hostId);
+  const releaseHistoryPin = pinLiveHostCommandThread(args.command);
   void runLiveHostCommand(deps, { ...args, execution })
     .catch((error) => {
       const normalized =
@@ -347,6 +395,8 @@ export function startLiveHostCommand<
           { err: error, commandType: args.command.type },
           "Live command settled callback failed",
         );
+      } finally {
+        releaseHistoryPin();
       }
     });
 }

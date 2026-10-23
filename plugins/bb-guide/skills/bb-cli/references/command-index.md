@@ -324,6 +324,16 @@ This index lists every command path that the core CLI registers, including alias
 
 - `bb guide`
 
+## admin
+
+- `bb admin`
+- `bb admin event-archive`
+- `bb admin event-archive status`
+- `bb admin event-archive rehydrate`
+- `bb admin event-archive reconcile`
+
+`bb admin event-archive rehydrate` takes a thread ID or `--all`.
+
 ## diagnostics
 
 - `bb diagnostics`
