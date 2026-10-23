@@ -23,6 +23,10 @@ import {
 } from "./system-message-kind.js";
 import { getLastThreadOutput, getThreadTurnOutput } from "./thread-data.js";
 import {
+  pinThreadHistory,
+  type ThreadHistoryPinRelease,
+} from "./event-cold-tier/pins.js";
+import {
   decideParentWake,
   isChildTurnSelfInitiated,
   recordDeliveredChildOutput,
@@ -45,6 +49,7 @@ export interface ChildThreadTurnNotificationBatchItem {
 
 interface ChildThreadTurnNotificationBatch {
   items: ChildThreadTurnNotificationBatchItem[];
+  pinReleases: ThreadHistoryPinRelease[];
   timer: ReturnType<typeof setTimeout>;
 }
 
@@ -510,7 +515,20 @@ async function flushChildThreadTurnNotificationBatch(
     return;
   }
   childThreadTurnNotificationBatches.delete(parentThreadId);
+  try {
+    await deliverChildThreadTurnNotificationBatch(deps, parentThreadId, batch);
+  } finally {
+    for (const release of batch.pinReleases) {
+      release();
+    }
+  }
+}
 
+async function deliverChildThreadTurnNotificationBatch(
+  deps: LoggedPendingInteractionWorkSessionDeps,
+  parentThreadId: string,
+  batch: ChildThreadTurnNotificationBatch,
+): Promise<void> {
   let items: ChildThreadTurnNotificationBatchItem[] = [];
   try {
     items = selectWakingChildThreadTurnNotificationItems(deps, {
@@ -587,6 +605,7 @@ function queueChildThreadTurnNotificationBatchItem(
     );
     if (existingIndex === -1) {
       existingBatch.items.push(item);
+      existingBatch.pinReleases.push(pinThreadHistory(args.childThread.id));
     } else {
       const previous = existingBatch.items[existingIndex];
       existingBatch.items[existingIndex] =
@@ -607,6 +626,7 @@ function queueChildThreadTurnNotificationBatchItem(
 
   childThreadTurnNotificationBatches.set(args.parentThreadId, {
     items: [item],
+    pinReleases: [pinThreadHistory(args.childThread.id)],
     timer: scheduleChildThreadTurnNotificationBatchFlush(
       deps,
       args.parentThreadId,

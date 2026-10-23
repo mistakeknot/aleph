@@ -1,4 +1,5 @@
 import { countUnarchivedThreadDescendants } from "../../services/threads/thread-archive.js";
+import { withHotThreadHistory } from "../../services/threads/event-cold-tier/service.js";
 import { cancelAbandonedProviderCreations } from "../../services/threads/thread-environment-providers.js";
 import {
   THREAD_SEARCH_LIMIT_PER_GROUP_DEFAULT,
@@ -498,93 +499,97 @@ export function registerThreadBaseRoutes(app: Hono, deps: AppDeps): void {
         toThreadResponseFromThread(deps, { thread: result.thread }),
       );
     }
-    if (payload.parentThreadId) {
-      assertValidParentThread(deps, {
-        childThreadId: thread.id,
-        parentThreadId: payload.parentThreadId,
-      });
-    }
-
-    if ("model" in payload || "reasoningLevel" in payload) {
-      await applyThreadExecutionOverride(deps, {
-        thread,
-        patch: {
-          ...("model" in payload ? { model: payload.model } : {}),
-          ...("reasoningLevel" in payload
-            ? { reasoningLevel: payload.reasoningLevel }
-            : {}),
-        },
-      });
-    }
-
-    if (payload.sessionOptions !== undefined) {
-      applyThreadSessionOptionPatch(deps, {
-        thread,
-        patch: payload.sessionOptions,
-      });
-    }
-
-    const metadataUpdate: UpdateThreadInput = {};
-    if ("title" in payload) {
-      metadataUpdate.title = payload.title;
-    }
-    const sectionId = payload.sectionId;
-    if (sectionId !== undefined) {
-      if (sectionId !== null) {
-        requireThreadSection(deps, sectionId);
-      }
-      metadataUpdate.sectionId = sectionId;
-    } else if (
-      payload.parentThreadId === null &&
-      thread.parentThreadId !== null
-    ) {
-      metadataUpdate.sectionId =
-        getThread(deps.db, thread.parentThreadId)?.sectionId ?? null;
-    }
-    if ("parentThreadId" in payload) {
-      metadataUpdate.parentThreadId = payload.parentThreadId;
-    }
-    if ("visibility" in payload) {
-      metadataUpdate.visibility = payload.visibility;
-    }
-    const updated =
-      Object.keys(metadataUpdate).length > 0
-        ? updateThread(deps.db, deps.hub, thread.id, metadataUpdate)
-        : requirePublicThread(deps.db, thread.id);
-    if (!updated) {
-      throw new ApiError(404, "thread_not_found", "Thread not found");
-    }
-
-    if (
-      payload.title &&
-      payload.title !== thread.title &&
-      updated.environmentId
-    ) {
-      const environment = requireEnvironment(deps.db, updated.environmentId);
-      if (environment.status === "ready" && environment.path) {
-        dispatchThreadRenameCommand(deps, {
-          environment: {
-            id: environment.id,
-            hostId: environment.hostId,
-          },
-          providerId: updated.providerId,
-          threadId: updated.id,
-          title: payload.title,
+    return withHotThreadHistory(deps, thread.id, async () => {
+      if (payload.parentThreadId) {
+        assertValidParentThread(deps, {
+          childThreadId: thread.id,
+          parentThreadId: payload.parentThreadId,
         });
       }
-    }
 
-    if (
-      "parentThreadId" in payload &&
-      payload.parentThreadId !== thread.parentThreadId
-    ) {
-      await handleThreadOwnershipChange(deps, {
-        previousThread: thread,
-        updatedThread: updated,
-      });
-    }
+      if ("model" in payload || "reasoningLevel" in payload) {
+        await applyThreadExecutionOverride(deps, {
+          thread,
+          patch: {
+            ...("model" in payload ? { model: payload.model } : {}),
+            ...("reasoningLevel" in payload
+              ? { reasoningLevel: payload.reasoningLevel }
+              : {}),
+          },
+        });
+      }
 
-    return context.json(toThreadResponseFromThread(deps, { thread: updated }));
+      if (payload.sessionOptions !== undefined) {
+        applyThreadSessionOptionPatch(deps, {
+          thread,
+          patch: payload.sessionOptions,
+        });
+      }
+
+      const metadataUpdate: UpdateThreadInput = {};
+      if ("title" in payload) {
+        metadataUpdate.title = payload.title;
+      }
+      const sectionId = payload.sectionId;
+      if (sectionId !== undefined) {
+        if (sectionId !== null) {
+          requireThreadSection(deps, sectionId);
+        }
+        metadataUpdate.sectionId = sectionId;
+      } else if (
+        payload.parentThreadId === null &&
+        thread.parentThreadId !== null
+      ) {
+        metadataUpdate.sectionId =
+          getThread(deps.db, thread.parentThreadId)?.sectionId ?? null;
+      }
+      if ("parentThreadId" in payload) {
+        metadataUpdate.parentThreadId = payload.parentThreadId;
+      }
+      if ("visibility" in payload) {
+        metadataUpdate.visibility = payload.visibility;
+      }
+      const updated =
+        Object.keys(metadataUpdate).length > 0
+          ? updateThread(deps.db, deps.hub, thread.id, metadataUpdate)
+          : requirePublicThread(deps.db, thread.id);
+      if (!updated) {
+        throw new ApiError(404, "thread_not_found", "Thread not found");
+      }
+
+      if (
+        payload.title &&
+        payload.title !== thread.title &&
+        updated.environmentId
+      ) {
+        const environment = requireEnvironment(deps.db, updated.environmentId);
+        if (environment.status === "ready" && environment.path) {
+          dispatchThreadRenameCommand(deps, {
+            environment: {
+              id: environment.id,
+              hostId: environment.hostId,
+            },
+            providerId: updated.providerId,
+            threadId: updated.id,
+            title: payload.title,
+          });
+        }
+      }
+
+      if (
+        "parentThreadId" in payload &&
+        payload.parentThreadId !== thread.parentThreadId
+      ) {
+        await handleThreadOwnershipChange(deps, {
+          previousThread: thread,
+          updatedThread: updated,
+        });
+      }
+
+      return context.json(
+        toThreadResponseFromThread(deps, { thread: updated }),
+      );
+    });
   });
 
   del(routes.delete, async (context, payload) => {

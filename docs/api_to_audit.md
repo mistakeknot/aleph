@@ -3059,6 +3059,30 @@ machine through the host daemon (enrolled machines get `~/.local/bin/bb` from
 `install-machine.sh` today), and after exercising real Windows and macOS
 installs.
 
+## `PluginBbSdk.system.experimental_eventArchiveStatus`, `experimental_eventArchiveRehydrate`, and `experimental_eventArchiveReconcile`
+
+`experimental_eventArchiveStatus()` reports the event archive's effective
+configuration (`mode` `off`, `dry-run`, or `on`; the archived-age and rehot
+windows in milliseconds; the per-thread byte limit and whether it was
+clamped), the cold-thread count, the move queue depth, segment rows by
+lifecycle, whether zstd is available, and every file under
+`<dataDir>/event-archive/` by class (`referenced`, `ended`,
+`committed_no_row`, `uncertain`, `aborted`, `unknown`) with counts and bytes,
+plus inconsistencies and live segments whose file is missing.
+`experimental_eventArchiveRehydrate({ threadId } | { all: true })` moves
+history back into the database: one thread returns `scope: "thread"` with an
+`outcome` of `rehydrated` or `already_hot`, row count, and timings; `all`
+returns `scope: "all"` with the rehydrated count and per-thread failures. An
+unknown thread fails with `404 thread_not_found`.
+`experimental_eventArchiveReconcile()` marks live segments of deleted threads
+orphaned, writes missing manifest commits, and returns the classification
+with the orphaned and repaired segment IDs. All three refuse machine
+credentials with 403. Core caller: `bb admin event-archive`.
+
+Stabilize after the first runs against a production-sized database, after
+deciding whether rehydrate `all` should run in caller-sized batches and report
+progress, and after phase 2 decides which classes become deletion candidates.
+
 ## `PluginBbSdk.hosts.experimental_discoverRepos`
 
 `hosts.experimental_discoverRepos({ hostId })` lists up to 10 git

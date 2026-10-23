@@ -13,10 +13,16 @@ import {
   type ServerArchiveSourceFile,
 } from "@bb/server-archive";
 import type { ServerLogger } from "../../types.js";
+import {
+  COLD_MANIFEST_FILE,
+  snapshotColdManifestPrefix,
+} from "../threads/event-cold-tier/manifest.js";
+import { EVENT_ARCHIVE_DIRECTORY } from "../threads/event-cold-tier/segment-files.js";
 import { listOldCopyEntries } from "./switch.js";
 
 const SERVER_DATABASE_ARCHIVE_PATH = "bb.db";
 const SNAPSHOT_DIR_NAME = "snapshot";
+const COLD_MANIFEST_ARCHIVE_PATH = `${EVENT_ARCHIVE_DIRECTORY}/${COLD_MANIFEST_FILE}`;
 
 export interface ExportServerArchiveArgs {
   appVersion: string;
@@ -82,6 +88,13 @@ export async function exportServerArchive(
     for (const entry of inventory.entries) {
       for (const file of entry.files) {
         if (file.path === SERVER_DATABASE_ARCHIVE_PATH) {
+          continue;
+        }
+        if (file.path === COLD_MANIFEST_ARCHIVE_PATH) {
+          const snapshotPath = join(snapshotDir, ...file.path.split("/"));
+          await mkdir(dirname(snapshotPath), { recursive: true });
+          await snapshotColdManifestPrefix(args.dataDir, snapshotPath);
+          files.push({ archivePath: file.path, sourcePath: snapshotPath });
           continue;
         }
         if (!file.sqliteDatabase) {

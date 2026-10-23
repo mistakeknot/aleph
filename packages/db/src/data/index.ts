@@ -92,6 +92,7 @@ export {
   listActiveHostThreads,
   listActiveVisiblePinnedThreadRootsWithPendingInteractionState,
   listLiveThreadsInEnvironment,
+  listThreadIdsInEnvironment,
   listThreadMentionRowsByIds,
   listNonDeletedChildThreads,
   listThreadEnvironmentAssignmentsOnHost,
@@ -422,6 +423,7 @@ export {
   hydrateRetainedEventOutputRows,
   hydrateRetainedEventOutputRowsWithinDataByteLimit,
   prepareCompletedEventOutputData,
+  prepareLegacyImageGenerationOutputData,
   insertPreparedRetainedEventOutput,
 } from "./retained-event-outputs.js";
 export {
@@ -575,9 +577,13 @@ export {
   DEFAULT_COMPLETED_EVENT_OUTPUT_MIGRATION_SCAN_LIMIT,
   DEFAULT_LEGACY_IMAGE_GENERATION_MIGRATION_SCAN_LIMIT,
   migrateNextCompletedEventItemOutput,
+  COMPLETED_EVENT_OUTPUT_TRANSFORM_VERSIONS,
+  isThreadPastCompletedEventOutputSweeps,
   migrateNextLegacyImageGenerationOutput,
   pruneClosedSessions,
 } from "./sweeps.js";
+
+export * from "./event-cold-tier.js";
 export {
   compactDatabase,
   dropDeferredLegacyTables,

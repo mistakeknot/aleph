@@ -7,6 +7,7 @@ import {
   type ThreadMetadataGenerationOutcome,
 } from "./title-generation.js";
 import { runtimeErrorLogFields } from "../lib/error-log-fields.js";
+import { withHotThreadHistory } from "./event-cold-tier/service.js";
 
 interface ThreadMetadataInferenceArgs {
   input: PromptInput[];
@@ -44,6 +45,15 @@ function metadataCompletedEntry(
 }
 
 export async function inferThreadMetadata(
+  deps: LoggedWorkSessionDeps,
+  args: ThreadMetadataInferenceArgs,
+): Promise<ThreadMetadataInferenceResult> {
+  return withHotThreadHistory(deps, args.threadId, () =>
+    inferHotThreadMetadata(deps, args),
+  );
+}
+
+async function inferHotThreadMetadata(
   deps: LoggedWorkSessionDeps,
   args: ThreadMetadataInferenceArgs,
 ): Promise<ThreadMetadataInferenceResult> {

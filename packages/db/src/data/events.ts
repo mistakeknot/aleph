@@ -78,6 +78,10 @@ import {
   prepareCompletedEventOutputData,
 } from "./retained-event-outputs.js";
 import { queryInSqliteVariableBatches } from "./sqlite-variable-batches.js";
+import {
+  assertThreadEventsNotCold,
+  threadEventsNotCold,
+} from "./event-cold-tier.js";
 
 const STORED_EVENT_SEQUENCE_LOOKUP_CHUNK_SIZE = 250;
 const CLIENT_TURN_REQUEST_KEY_BATCH_SIZE = 995;
@@ -305,6 +309,7 @@ export function deleteThreadEventSuffixInTransaction(
   db: DbTransaction,
   args: DeleteThreadEventSuffixArgs,
 ): DeleteThreadEventSuffixResult {
+  assertThreadEventsNotCold(db, [args.threadId]);
   db.delete(promptHistoryEntries)
     .where(
       and(
@@ -450,9 +455,11 @@ export function insertEvents(
     (tx) => {
       let insertedCount = 0;
       const insertedInputIndexes: number[] = [];
-      const highWaterMarks = getHighWaterMarks(tx, [
+      const threadIds = [
         ...new Set(eventInputs.map((input) => input.threadId)),
-      ]);
+      ];
+      assertThreadEventsNotCold(tx, threadIds);
+      const highWaterMarks = getHighWaterMarks(tx, threadIds);
       for (const [index, input] of eventInputs.entries()) {
         const createdAt = input.createdAt ?? Date.now();
         const turnId = getThreadEventScopeTurnId(input.scope) ?? null;
@@ -754,6 +761,7 @@ export function appendDaemonEventsInTransaction(
   }
 
   const threadIds = [...new Set(eventInputs.map((input) => input.threadId))];
+  assertThreadEventsNotCold(db, threadIds);
   const highWaterMarks = getHighWaterMarks(db, threadIds);
   const nextSequencesByThreadId = new Map(
     threadIds.map((threadId) => [
@@ -881,6 +889,10 @@ export function copyStoredThreadEventsInTransaction(
   if (args.rows.length === 0) {
     return 0;
   }
+  assertThreadEventsNotCold(db, [
+    args.targetThreadId,
+    ...new Set(args.rows.map((row) => row.threadId)),
+  ]);
   const highWaterMarks = getHighWaterMarks(db, [args.targetThreadId]);
   let sequence = (highWaterMarks[args.targetThreadId] ?? 0) + 1;
   const now = Date.now();
@@ -962,6 +974,7 @@ export function appendStoredThreadEventsInTransaction(
 
   const now = Date.now();
   const threadIds = [...new Set(eventArgs.map((args) => args.threadId))];
+  assertThreadEventsNotCold(db, threadIds);
   const highWaterMarks = getHighWaterMarks(db, threadIds);
   const nextSequencesByThreadId = new Map(
     threadIds.map((threadId) => [
@@ -4751,6 +4764,7 @@ export function listOpenBackgroundTaskItemRowsForHost(
         eq(events.itemKind, "backgroundTask"),
         inArray(events.type, [startedType, progressType]),
         isNotNull(events.itemId),
+        threadEventsNotCold(events.threadId),
         notExists(
           db
             .select({ one: sql`1` })
@@ -4806,6 +4820,7 @@ export function listOpenBackgroundTaskItemRowsForThread(
         eq(events.itemKind, "backgroundTask"),
         inArray(events.type, [startedType, progressType]),
         isNotNull(events.itemId),
+        threadEventsNotCold(events.threadId),
         notExists(
           db
             .select({ one: sql`1` })

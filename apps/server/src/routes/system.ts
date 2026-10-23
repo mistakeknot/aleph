@@ -17,6 +17,7 @@ import {
   getStoredMusicPairing,
   getStoredMusicPreferences,
   getStoredThemeId,
+  getThread,
   hasActiveThreadAttention,
   setAppSettings,
   setAppKeybindingOverrides,
@@ -60,6 +61,12 @@ import {
 } from "../services/plugins/plugin-machine-provider-registry.js";
 import type { ServerAppDeps, ServerRuntimeConfig } from "../types.js";
 import type { AlephUpdateService } from "../services/system/aleph-update.js";
+import {
+  getEventColdTierStatus,
+  reconcileEventColdTier,
+  rehydrateAllThreadEvents,
+  rehydrateThreadEvents,
+} from "../services/threads/event-cold-tier/service.js";
 import type { PluginService } from "../services/plugins/plugin-service.js";
 import { ApiError } from "../errors.js";
 import {
@@ -821,6 +828,33 @@ export function registerSystemRoutes(
     );
   });
 
+  get(routes.eventArchive, async (context) => {
+    assertEventArchiveAllowed(context);
+    return context.json(await getEventColdTierStatus(deps));
+  });
+
+  post(routes.eventArchiveRehydrate, async (context, body) => {
+    assertEventArchiveAllowed(context);
+    if ("all" in body) {
+      return context.json({
+        scope: "all" as const,
+        ...(await rehydrateAllThreadEvents(deps)),
+      });
+    }
+    if (getThread(deps.db, body.threadId) === null) {
+      throw new ApiError(404, "thread_not_found", "Thread not found");
+    }
+    return context.json({
+      scope: "thread" as const,
+      result: await rehydrateThreadEvents(deps, body.threadId),
+    });
+  });
+
+  post(routes.eventArchiveReconcile, async (context) => {
+    assertEventArchiveAllowed(context);
+    return context.json(await reconcileEventColdTier(deps));
+  });
+
   get(routes.cliCommand, async (context) =>
     context.json(await deps.cliCommand.getStatus()),
   );
@@ -888,6 +922,18 @@ export function assertAlephOwnerSession(
       403,
       "forbidden",
       "Aleph updates need the x-aleph-update header",
+    );
+  }
+}
+
+function assertEventArchiveAllowed(
+  context: Parameters<typeof getGateAuthKind>[0],
+): void {
+  if (getGateAuthKind(context) === "machine") {
+    throw new ApiError(
+      403,
+      "forbidden",
+      "Machine credentials cannot manage the event archive",
     );
   }
 }

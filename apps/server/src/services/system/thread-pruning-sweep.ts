@@ -9,12 +9,16 @@ import {
 import type { AppDeps } from "../../types.js";
 
 export interface ThreadPruningSweepLimits {
+  busyBatchSize: number;
   elapsedBudgetMs: number;
+  idleBatchSize: number;
   maxAdvances: number;
 }
 
 export const THREAD_PRUNING_SWEEP_LIMITS: ThreadPruningSweepLimits = {
+  busyBatchSize: 64,
   elapsedBudgetMs: 50,
+  idleBatchSize: 500,
   maxAdvances: 64,
 };
 
@@ -31,25 +35,23 @@ export async function runThreadPruningSweep(
   let removedBytes = 0;
   let maxAdvanceMs = 0;
   let reason = "budget";
+  let busy = false;
   try {
     while (
       advances < limits.maxAdvances &&
       performance.now() - startedAt < limits.elapsedBudgetMs &&
       completed.size < THREAD_PRUNING_POLICIES.length
     ) {
-      const activity = getDatabaseMaintenanceActivity(deps.db);
-      if (!isDatabaseMaintenanceIdle(activity)) {
-        reason = "busy";
-        deps.logger.debug(
-          { activity, advances },
-          "Thread pruning skipped while app work is active",
-        );
-        break;
-      }
       const policy = getNextThreadPruningPolicy(deps.db, completed);
       if (policy === null) break;
+      busy = !isDatabaseMaintenanceIdle(
+        getDatabaseMaintenanceActivity(deps.db),
+      );
       const advanceStartedAt = performance.now();
-      const result = advanceThreadPruning(deps.db, policy);
+      const result = advanceThreadPruning(deps.db, {
+        policy,
+        batchSize: busy ? limits.busyBatchSize : limits.idleBatchSize,
+      });
       const advanceElapsedMs = performance.now() - advanceStartedAt;
       maxAdvanceMs = Math.max(maxAdvanceMs, advanceElapsedMs);
       if (advanceElapsedMs >= 50)
@@ -81,6 +83,7 @@ export async function runThreadPruningSweep(
     deps.logger.debug(
       {
         advances,
+        busy,
         removed,
         scanned,
         removedBytes,

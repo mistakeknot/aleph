@@ -890,6 +890,25 @@ Timeline builds slower than 150 ms log `Thread timeline build blocked the event
 loop`, and event-loop stalls over 500 ms log `Event loop stalled`, both at
 `info`.
 
+## Event archive
+
+The event archive moves the event history of long-archived threads out of
+`bb.db` into compressed segment files under `<dataDir>/event-archive/`, and
+moves it back when the thread is read, unarchived or messaged. It is off by
+default and is read at server start. See
+[event-archive.md](event-archive.md) for backups, restores and downgrades.
+
+| Variable                          | Default           | Meaning                                                                                                        |
+| --------------------------------- | ----------------- | -------------------------------------------------------------------------------------------------------------- |
+| `BB_EVENT_COLD_TIER`              | off               | `1` moves threads; `dry-run` logs candidates with their rows and bytes and moves nothing; anything else is off |
+| `BB_EVENT_COLD_MIN_ARCHIVED_DAYS` | 14                | Days a thread must have been archived before its history moves                                                 |
+| `BB_EVENT_COLD_REHOT_DAYS`        | 7                 | Days a thread whose history moved back waits before it can move again                                          |
+| `BB_EVENT_COLD_MAX_THREAD_BYTES`  | 33554432 (32 MiB) | Largest thread history moved in one segment; values above 240 MiB are clamped to 240 MiB                       |
+
+With the variable unset, cold threads still move back on read. Invalid numbers
+fall back to the default. `bb admin event-archive status` reports the
+effective values.
+
 ## Plugins
 
 Plugins are on by default. Builtin plugins ship with bb; the official plugins
@@ -1089,8 +1108,8 @@ The builtin Layer groups plugin is disabled on fresh installations. Enable it
 under Settings → Installed plugins or with `bb plugin enable bb--layer-groups`.
 It provisions sidebar pace-layer sections from a pace-layer registry JSON file.
 
-| Key            | Default      | Allowed values          | Behavior                                                |
-| -------------- | ------------ | ----------------------- | ------------------------------------------------------- |
+| Key            | Default      | Allowed values          | Behavior                                                 |
+| -------------- | ------------ | ----------------------- | -------------------------------------------------------- |
 | `mode`         | `preview`    | `preview`, `apply`      | Preview reports actions; apply creates missing sections. |
 | `registryPath` | empty string | Path to a registry JSON | Empty leaves provisioning unconfigured.                  |
 
