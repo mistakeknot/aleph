@@ -770,12 +770,12 @@ describe("slow query index plans", () => {
     ]);
 
     const plans = (run: () => void) =>
-      captureStatements(db, run).map((query) => queryPlanDetails({ db, ...query }));
+      captureStatements(db, run).map((query) =>
+        queryPlanDetails({ db, ...query }),
+      );
     const turnIndex =
       /USING (?:COVERING )?INDEX events_thread_turn_type_item_sequence_idx \(thread_id=\? AND turn_id=\?/u;
 
-    // The first two statements look up the turn's start and completion markers,
-    // which are few per thread; every read after them is over the turn's rows.
     const floor = plans(() =>
       findStoredTimelineOpenTurnRowFloor(db, {
         ...window,
@@ -787,7 +787,6 @@ describe("slow query index plans", () => {
     expect(floor).toHaveLength(5);
     for (const plan of floor.slice(2)) expect(plan).toMatch(turnIndex);
 
-    // The span guard runs first and is the read that must not walk other turns.
     const [spanGuard] = plans(() =>
       findStoredTimelineCompletedTurnTail(db, {
         ...window,

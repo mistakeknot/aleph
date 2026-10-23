@@ -1160,7 +1160,6 @@ export interface ListStoredEventRowsByParentToolCallIdsArgs {
 export interface ListLatestThreadStateEventRowsByThreadIdsArgs {
   threadIds: readonly string[];
   kind: string;
-  // Read the state as of this sequence; omitted reads the latest.
   maxSeq?: number;
 }
 
@@ -2201,7 +2200,6 @@ export interface ListLatestOpenBackgroundTaskStateRowsForThreadArgs {
 }
 
 export interface ListTodoSnapshotEventRowsForThreadArgs {
-  // The newest snapshot at or before this sequence.
   maxSeq: number;
   threadId: string;
 }
@@ -2226,11 +2224,6 @@ export function listTodoSnapshotEventRowsForThread(
   return row ? [row] : [];
 }
 
-// The model fallback the latest timeline shows at maxSeq: the newest fallback
-// event after the newest turn request, which clears it, both at or before
-// maxSeq. A running turn can be read from a floor past the fallback, so the
-// timeline reads it as head state rather than relying on it being in the
-// transcript window.
 export function listLatestModelFallbackEventRowsForThread(
   db: DbConnection,
   args: { maxSeq: number; threadId: string },
@@ -3353,6 +3346,34 @@ export function listStoredTimelineTurnEventRows(
   }).sort((left, right) => left.sequence - right.sequence);
 }
 
+export function countStoredTimelineTurnAgentMessageDeltas(
+  db: DbConnection,
+  args: ListStoredTimelineWindowEventRowsArgs & { turnIds: readonly string[] },
+): number {
+  if (args.turnIds.length === 0) return 0;
+  return queryInSqliteVariableBatches({
+    values: args.turnIds,
+    variableCountPerValue: 1,
+    dedupeKey: (turnId) => turnId,
+    fixedVariableCount: 32,
+    queryBatch: (turnIds) => [
+      db
+        .select({ rowCount: sql<number>`COUNT(*)` })
+        .from(
+          sql`${events} INDEXED BY events_thread_turn_type_item_sequence_idx`,
+        )
+        .where(
+          and(
+            ...storedTimelineWindowConditions(args),
+            inArray(events.turnId, [...turnIds]),
+            eq(events.type, "item/agentMessage/delta"),
+          ),
+        )
+        .get()?.rowCount ?? 0,
+    ],
+  }).reduce((total, rowCount) => total + rowCount, 0);
+}
+
 export interface FindStoredTimelineOpenTurnRowFloorArgs extends ListStoredTimelineWindowEventRowsArgs {
   completedThroughSequence: number;
   rowLimit: number;
@@ -3401,9 +3422,6 @@ export function findStoredTimelineOpenTurnRowFloor(
     }),
     eq(events.turnId, args.turnId),
   );
-  // Turn reads go through the turn-prefixed index, like the full-turn reader:
-  // an old turn that gets a late row would otherwise walk all the thread
-  // history written since it started.
   const counted = db
     .select({ rowCount: sql<number>`COUNT(*)` })
     .from(
@@ -3538,9 +3556,6 @@ export function findStoredTimelineCompletedTurnTail(
       inArray(events.itemKind, [...COMPLETED_TURN_TAIL_ITEM_KINDS]),
     ),
   );
-  // The tally below walks the turn's whole sequence span to find rows from
-  // other turns. When most of that span belongs to other turns the walk costs
-  // more than the full turn read, so take the full read instead.
   const spanned = db
     .select({ rowCount: sql<number>`COUNT(*)` })
     .from(
@@ -3558,10 +3573,6 @@ export function findStoredTimelineCompletedTurnTail(
   if (completedSequence - startedSequence - 1 > 2 * (spanned?.rowCount ?? 0)) {
     return undefined;
   }
-  // The checks below cover only the span before completion. A row of the turn
-  // that the window reads after completion, such as a late error, can become
-  // the turn's terminal message and change the summary count, so take the
-  // full read when one exists.
   const late = db
     .select({ sequence: sql<number>`${events.sequence}` })
     .from(
@@ -3649,15 +3660,6 @@ export function findStoredTimelineCompletedTurnTail(
   const agentMessageCount = items.filter(
     (item) => item.itemKind === "agentMessage",
   ).length;
-  // The projection keeps sent-message commands visible, splits summary groups
-  // around them and drops agent messages without text. A send anywhere in the
-  // turn, omitted or retained, can change what the full read shows or how it
-  // counts, so the tail is only exact when no command in the turn looks like a
-  // send and every agent message completes with text. An item that completes
-  // without a start in the turn is still projected but is not in the started
-  // list the counts come from, so it also falls back. These checks are
-  // deliberately looser than the projection: a false match only falls back to
-  // the full turn read.
   const visibility = db
     .select({
       itemIds: sql<number>`COUNT(DISTINCT ${events.itemId})`,
@@ -3692,16 +3694,6 @@ export function findStoredTimelineCompletedTurnTail(
   ) {
     return undefined;
   }
-  // The projection places an agent message at its first nonempty text, not at
-  // its start, builds one from text deltas even without a start, and moves a
-  // command back to output that arrives before its start. Summary compaction
-  // keeps only a completed message's first delta, so a compacted build places
-  // the message there or, when that delta is empty, at a later text. The
-  // counts and the adjacency check above use start order, so the tail is only
-  // exact when every item row belongs to a started item and comes at or after
-  // its start, and each agent message's first delta, if any, is its first
-  // nonempty text and comes before the next item starts. Anything else falls
-  // back to the full turn read.
   const itemRows = db
     .select({
       firstDelta: sql<number | null>`MIN(CASE
@@ -4062,7 +4054,6 @@ export function getLatestThreadSystemErrorEventRow(
   );
 }
 
-// A provider/unhandled row that the timeline reads as a model fallback.
 const isUnhandledModelFallbackData = sql`COALESCE((
   json_extract(${events.data}, '$.rawEvent.method') = 'sdk/message'
   AND json_extract(${events.data}, '$.rawEvent.params.message.subtype')

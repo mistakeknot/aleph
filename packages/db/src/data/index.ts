@@ -380,6 +380,7 @@ export {
   scopedItemRefKey,
   listStoredTimelineWindowEventRows,
   listStoredTimelineTurnEventRows,
+  countStoredTimelineTurnAgentMessageDeltas,
   listStoredTimelineTurnRangeEventRows,
   listStoredTimelineItemEventRowsByItems,
   hasStoredItemEventRowsThroughSequence,

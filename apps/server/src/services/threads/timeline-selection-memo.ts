@@ -24,6 +24,7 @@ export interface TimelineEventRowSelection {
   ownedSequenceStart: number;
   ownedSequenceEnd: number;
   hasOlderSegments: boolean;
+  omittedAgentMessageDeltaCount?: number;
   paginationPage: ThreadTimelinePageRequest;
   rows: StoredEventRow[];
   headStateRows: StoredEventRow[];
@@ -266,8 +267,6 @@ function isUnselectedCappedItemRow(
   }
   const key = storedEventRowItemKey(row);
   if (row.type === "item/started" && !itemKeys.has(key)) {
-    // A start is only new if the item has no rows below the window floor;
-    // the caller checks the collected starts in one query.
     itemKeys.add(key);
     appendedStarts.push({
       itemId: row.itemId,
@@ -307,7 +306,11 @@ function listAppendableRows(
   const appendableRows: StoredEventRow[] = [];
   const itemKeys = selectionItemKeys(entry);
   const appendedStarts: ScopedItemRef[] = [];
+  const summarizedTurnIds = entry.selection.completedTurnSummaryCounts;
   for (const row of appendedRows) {
+    if (row.turnId !== null && summarizedTurnIds?.has(row.turnId)) {
+      return null;
+    }
     if (isUnselectedCappedItemRow(row, entry, itemKeys, appendedStarts)) {
       return null;
     }

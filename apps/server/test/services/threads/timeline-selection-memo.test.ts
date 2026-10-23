@@ -900,8 +900,6 @@ describe("latest timeline selection memo", () => {
         "lagging snapshot",
       );
       expect(selectionWasReused(lagging.profile)).toBe(false);
-      // Head state is read as of the snapshot: the earlier goal and plan,
-      // never the ones appended after it.
       expect({
         activeWorkflows: lagging.response.activeWorkflows,
         goal: lagging.response.goal?.objective,

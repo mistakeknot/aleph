@@ -13,7 +13,12 @@ import {
   withTestThread,
   type RowSpec,
 } from "../../helpers/timeline-cache-fixture.js";
-import { buildRouteTimelinePage } from "../../provider-corpus/corpus-harness.js";
+import { clearTimelineOrderingContextCache } from "../../../src/services/threads/timeline-context-order.js";
+import {
+  buildRouteTimelinePage,
+  clearCrossBuildTimelineCaches,
+  selectionWasReused,
+} from "../../provider-corpus/corpus-harness.js";
 
 const registry = await createTestProviderRegistry();
 const GIANT_TURN_EVENTS = 40_000;
@@ -132,11 +137,7 @@ function messageItem(turnId: string, id: string, deltas: number): RowSpec[] {
   return rows;
 }
 
-function workRows(
-  turnId: string,
-  events: number,
-  prefix = turnId,
-): RowSpec[] {
+function workRows(turnId: string, events: number, prefix = turnId): RowSpec[] {
   const rows: RowSpec[] = [];
   let item = 0;
   while (rows.length < events) {
@@ -185,8 +186,6 @@ interface PageMeasure {
 
 interface WalkMeasure {
   latest: PageMeasure;
-  // The walked pages merged the way the client merges them, beside one
-  // unbudgeted read of the whole thread.
   merged: { full: TimelineRow[]; walked: TimelineRow[] };
   maxEventRowCount: number;
   maxMs: number;
@@ -425,8 +424,6 @@ describe("one giant turn", () => {
   }, 600_000);
 
   it("places a message by its first text, not its start", () => {
-    // The final message starts before a command but its text arrives after
-    // the command starts, so the projection shows the command first.
     const message = messageItem("turn-2", "turn-2-final", 3);
     const command = commandItem("turn-2", "turn-2-overtaking", 2);
     expectTailMatchesFullRead(
@@ -443,8 +440,6 @@ describe("one giant turn", () => {
   }, 600_000);
 
   it("places a message by its first nonempty text", () => {
-    // An empty delta before the command starts does not place the message;
-    // the projection ignores it and places the message at its later text.
     const message = messageItem("turn-2", "turn-2-final", 3);
     const command = commandItem("turn-2", "turn-2-overtaking", 2);
     expectTailMatchesFullRead(
@@ -467,9 +462,6 @@ describe("one giant turn", () => {
   }, 600_000);
 
   it("places a compacted message by its first delta", () => {
-    // Summary compaction keeps only the first delta of a completed message.
-    // When that delta is empty the compacted build places the message at a
-    // later text, after the command that starts in between.
     const message = messageItem("turn-2", "turn-2-final", 3);
     const command = commandItem("turn-2", "turn-2-overtaking", 2);
     expectTailMatchesFullRead(
@@ -493,8 +485,6 @@ describe("one giant turn", () => {
   }, 600_000);
 
   it("places a command by output that arrives before its start", () => {
-    // The command's output arrives before the final message's text, so the
-    // projection moves the command ahead of the message it starts after.
     const message = messageItem("turn-2", "turn-2-final", 3);
     const command = commandItem("turn-2", "turn-2-early-output", 2);
     expectTailMatchesFullRead(
@@ -555,7 +545,6 @@ describe("one giant turn", () => {
       };
       expectSnapshotFallback();
 
-      // A newer fallback after the snapshot does not replace its fallback.
       appendRows(testThread, [
         {
           data: {
@@ -570,9 +559,12 @@ describe("one giant turn", () => {
       ]);
       expectSnapshotFallback();
 
-      // Nor does a request after the snapshot clear it.
       appendRows(testThread, [
-        { data: { status: "completed" }, turnId: "turn-2", type: "turn/completed" },
+        {
+          data: { status: "completed" },
+          turnId: "turn-2",
+          type: "turn/completed",
+        },
         ...turnOpening(3),
       ]);
       expectSnapshotFallback();
@@ -617,7 +609,11 @@ describe("one giant turn", () => {
       );
 
       appendRows(testThread, [
-        { data: { status: "completed" }, turnId: "turn-2", type: "turn/completed" },
+        {
+          data: { status: "completed" },
+          turnId: "turn-2",
+          type: "turn/completed",
+        },
         ...turnOpening(3),
       ]);
       expect(build().response.modelFallback).toBeNull();
@@ -630,23 +626,23 @@ describe("one giant turn", () => {
       appendRows(
         testThread,
         seedGiantTurn(false, 5_000, [
-        {
-          data: {
-            item: {
-              id: "plan-1",
-              status: "completed",
-              steps: [
-                { step: "Shipping the thing", status: "active" },
-                { step: "Write the docs", status: "pending" },
-              ],
-              type: "planSteps",
+          {
+            data: {
+              item: {
+                id: "plan-1",
+                status: "completed",
+                steps: [
+                  { step: "Shipping the thing", status: "active" },
+                  { step: "Write the docs", status: "pending" },
+                ],
+                type: "planSteps",
+              },
             },
+            itemId: "plan-1",
+            itemKind: "planSteps",
+            turnId: "turn-2",
+            type: "item/completed",
           },
-          itemId: "plan-1",
-          itemKind: "planSteps",
-          turnId: "turn-2",
-          type: "item/completed",
-        },
           ...workRows("turn-2", 5_000),
         ]),
       );
@@ -678,7 +674,6 @@ describe("one giant turn", () => {
       };
       expectSnapshotPlan();
 
-      // A newer plan after the snapshot does not replace its plan.
       appendRows(testThread, [
         {
           data: {
@@ -731,6 +726,91 @@ describe("one giant turn", () => {
   it("collapses a completed turn read from its tail like a full read", () => {
     withTestThread((testThread) => {
       appendRows(testThread, seedGiantTurn(true, 5_000));
+      const build = (eventBudget?: number) =>
+        buildRouteTimelinePage({
+          db: testThread.db,
+          eventBudget,
+          page: { kind: "latest", segmentLimit: 3 },
+          registry,
+          thread: testThread.thread,
+          variant: "default",
+        });
+      const bounded = build();
+      const full = build(1_000_000);
+      expect(bounded.profile.eventRowCount).toBeLessThan(
+        full.profile.eventRowCount / 2,
+      );
+      const boundedRows = bounded.response.rows;
+      expect(boundedRows.length).toBeGreaterThan(0);
+      expect(boundedRows).toEqual(
+        full.response.rows.slice(-boundedRows.length),
+      );
+    });
+  }, 600_000);
+
+  it("rebuilds a memoized tail read when its completed turn gains rows", () => {
+    withTestThread((testThread) => {
+      appendRows(testThread, seedGiantTurn(true, 5_000));
+      const build = (db: typeof testThread.db) =>
+        buildRouteTimelinePage({
+          db,
+          page: { kind: "latest", segmentLimit: 3 },
+          registry,
+          thread: testThread.thread,
+          variant: "default",
+        });
+      build(testThread.db);
+      appendRows(testThread, [
+        ...commandItem("turn-2", "turn-2-late-command", 2),
+        ...messageItem("turn-2", "turn-2-late-message", 3),
+      ]);
+      const warm = build(testThread.db);
+      clearCrossBuildTimelineCaches(testThread.coldDb);
+      clearTimelineOrderingContextCache(testThread.coldDb);
+      const cold = build(testThread.coldDb);
+      expect(selectionWasReused(warm.profile)).toBe(false);
+      expect(JSON.stringify(warm.response)).toBe(JSON.stringify(cold.response));
+    });
+  }, 600_000);
+
+  it("compacts a capped running turn like a full read", () => {
+    withTestThread((testThread) => {
+      const message = "turn-2-empty-first";
+      appendRows(
+        testThread,
+        seedGiantTurn(false, 5_000, [
+          ...workRows("turn-2", 5_000),
+          {
+            data: { item: { id: message, text: "", type: "agentMessage" } },
+            itemId: message,
+            itemKind: "agentMessage",
+            turnId: "turn-2",
+            type: "item/started",
+          },
+          {
+            data: { itemId: message, delta: "" },
+            itemId: message,
+            turnId: "turn-2",
+            type: "item/agentMessage/delta",
+          },
+          {
+            data: { itemId: message, delta: "late text" },
+            itemId: message,
+            turnId: "turn-2",
+            type: "item/agentMessage/delta",
+          },
+          {
+            data: {
+              item: { id: message, text: "late text", type: "agentMessage" },
+            },
+            itemId: message,
+            itemKind: "agentMessage",
+            turnId: "turn-2",
+            type: "item/completed",
+          },
+          ...commandItem("turn-2", "turn-2-tail-command", 40),
+        ]),
+      );
       const build = (eventBudget?: number) =>
         buildRouteTimelinePage({
           db: testThread.db,

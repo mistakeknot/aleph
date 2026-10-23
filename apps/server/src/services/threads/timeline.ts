@@ -96,6 +96,7 @@ import {
   listLatestOpenBackgroundTaskStateRowsForThread,
   listStoredTimelineWindowEventRows,
   listStoredTimelineTurnEventRows,
+  countStoredTimelineTurnAgentMessageDeltas,
   listStoredTimelineThreadWindowEventRows,
   listTimelineRootWindowTurnIds,
   listTodoSnapshotEventRowsForThread,
@@ -1263,6 +1264,21 @@ function selectStandardTimelineEventRows(
     return selectedRows;
   });
   const windowHasOlder = hasOlder || cappedSequenceStart !== undefined;
+  const omittedAgentMessageDeltaCount =
+    cappedTurnIds.size === 0
+      ? 0
+      : countStoredTimelineTurnAgentMessageDeltas(db, {
+          ...windowArgs,
+          sequenceStart: epochSequenceStart,
+          beforeSequence: maxSeq + 1,
+          turnIds: [...cappedTurnIds],
+        }) -
+        rows.filter(
+          (row) =>
+            row.type === "item/agentMessage/delta" &&
+            row.turnId !== null &&
+            cappedTurnIds.has(row.turnId),
+        ).length;
   const contextStart = rows.reduce(
     (start, row) => Math.min(start, row.sequence),
     sequenceStart,
@@ -1370,6 +1386,7 @@ function selectStandardTimelineEventRows(
       ownedSequenceStart: cappedSequenceStart ?? sequenceStart,
       ownedSequenceEnd: beforeSequence,
       hasOlderSegments: windowHasOlder,
+      omittedAgentMessageDeltaCount,
       paginationPage:
         contentCursor === undefined ? page : { ...page, segmentLimit: 1 },
       rows: ensureTimelineWindowTurnStartedRows(db, {
@@ -1576,7 +1593,11 @@ function buildThreadTimelineInternal(
   const decodedEvents = measureThreadTimelineStage(
     profile,
     "summary-compaction",
-    () => compactThreadTimelineSummaryEvents(decodedRawEvents),
+    () =>
+      compactThreadTimelineSummaryEvents(
+        decodedRawEvents,
+        eventSelection.omittedAgentMessageDeltaCount ?? 0,
+      ),
   );
   profile.compactedEventCount = decodedEvents.length;
   const contextWindowUsageRows = measureThreadTimelineStage(
