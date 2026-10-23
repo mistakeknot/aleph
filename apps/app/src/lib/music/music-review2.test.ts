@@ -150,7 +150,9 @@ describe("round 2 rendered regressions", () => {
   });
 });
 
-it("reports median governor CPU cost below 0.15 ms per changed step", () => {
+const MEAN_BOUND = 0.12;
+
+it("keeps governor CPU cost below 0.15 ms per changed step by median and below the aggregate mean bound", () => {
   const governor = new MotionGovernor();
   const batches = 9;
   const perBatch = 700;
@@ -172,8 +174,10 @@ it("reports median governor CPU cost below 0.15 ms per changed step", () => {
   }
   means.sort((x, y) => x - y);
   const median = means[Math.floor(batches / 2)];
+  const mean = means.reduce((sum, value) => sum + value, 0) / batches;
   console.log(
-    `Governor median CPU ms/step: ${median.toFixed(6)} (${batches} batches of ${perBatch} changed requests)`,
+    `Governor CPU ms/step: median ${median.toFixed(6)} mean ${mean.toFixed(6)} (${batches} batches of ${perBatch} changed requests)`,
   );
   expect(median).toBeLessThan(0.15);
+  expect(mean).toBeLessThan(MEAN_BOUND);
 }, 30_000);
