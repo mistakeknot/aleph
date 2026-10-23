@@ -902,14 +902,14 @@ describe("latest timeline selection memo", () => {
       expect(selectionWasReused(lagging.profile)).toBe(false);
       expect({
         activeWorkflows: lagging.response.activeWorkflows,
-        goal: lagging.response.goal,
+        goal: lagging.response.goal?.objective,
         maxSeq: lagging.response.maxSeq,
-        pendingTodos: lagging.response.pendingTodos,
+        todos: lagging.response.pendingTodos?.items.map((item) => item.text),
       }).toEqual({
         activeWorkflows: [],
-        goal: null,
+        goal: "first goal",
         maxSeq: laggingSeq,
-        pendingTodos: null,
+        todos: ["Ship it", "Ship it docs"],
       });
 
       expectWarmEqualsCold(testThread, singleSegmentArgs, "head snapshot");

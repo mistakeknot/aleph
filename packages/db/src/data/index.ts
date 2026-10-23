@@ -381,6 +381,13 @@ export {
   scopedItemRefKey,
   listStoredTimelineWindowEventRows,
   listStoredTimelineTurnEventRows,
+  countStoredTimelineTurnAgentMessageDeltas,
+  listStoredTimelineTurnRangeEventRows,
+  listStoredTimelineItemEventRowsByItems,
+  hasStoredItemEventRowsThroughSequence,
+  findStoredTimelineOpenTurnRowFloor,
+  findStoredTimelineCompletedTurnTail,
+  listStoredTimelineLongCompletedTurnSpans,
   listStoredTimelineThreadWindowEventRows,
   listTimelineRootWindowTurnIds,
   listStoredDelegatingItemRowsByItemIds,
@@ -397,6 +404,7 @@ export {
   listLatestBackgroundTaskStateRowsByItemIds,
   listLatestOpenBackgroundTaskStateRowsForThread,
   listTodoSnapshotEventRowsForThread,
+  listLatestModelFallbackEventRowsForThread,
   listOpenTurnInputAcceptedRowsByThreadIds,
   listOpenBackgroundTaskItemRowsForHost,
   listOpenBackgroundTaskItemRowsForThread,
@@ -436,6 +444,10 @@ export type {
   ThreadClientTurnRequestKey,
   StoredTurnRequestEventRow,
   HasThreadCompletedAnyOtherTurnArgs,
+  ListStoredTimelineWindowEventRowsArgs,
+  StoredTimelineOpenTurnRowFloor,
+  StoredTimelineCompletedTurnSpan,
+  StoredTimelineCompletedTurnTail,
 } from "./events.js";
 
 export {
