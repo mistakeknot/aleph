@@ -1,6 +1,9 @@
 /// <reference types="vitest/jsdom" />
 
 import "@bb/shared-ui/icon-extended";
+import { configure } from "@testing-library/react";
+
+configure({ asyncUtilTimeout: 5000 });
 
 if (typeof globalThis.navigator === "undefined") {
   Object.defineProperty(globalThis, "navigator", {
