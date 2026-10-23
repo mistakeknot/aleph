@@ -231,3 +231,18 @@ The inventory guard found six exported db functions that read `events` with no c
 | claimNextQueuedThreadMessageGroup @ queued-thread-messages.ts     | R/W | pause predicate inside the claim transaction   | queued-messages.ts:1404                          | no                     | **EXCLUDE**: reached from `sendNextQueuedMessageIfPresent`, whose archive check and claim run in one synchronous section                           |
 | listIdleThreadsWithQueuedMessages @ queued-thread-messages.ts     | R   | cross-thread pause `notExists` (drain list)    | queued-message-dispatch.ts:560                   | yes                    | **gated** by gate 18: each candidate goes through `attemptAutomaticQueuedMessage`, which returns on a cold thread (queued-message-dispatch.ts:416) |
 | isThreadPastCompletedEventOutputSweeps @ sweeps.ts:734            | R   | sweep cursors against the thread's newest rows | event-cold-tier.ts:425 (move eligibility)        | yes                    | **EXCLUDE**: runs only before a move, on a hot thread                                                                                              |
+
+## r11 additions (paged timeline reads)
+
+The paged timeline added eight exported db functions that read `events`. Every caller is inside the timeline service (`timelineWindows.read`, routes/threads/data.ts:244), which runs inside `withHotPublicThread` and so hydrates a cold thread first (boundary 1 in section 5). These rows only name them.
+
+| Function                                                   | R/W | Reads                                         | Callers                        | Archived reach | Class                  |
+| ---------------------------------------------------------- | --- | --------------------------------------------- | ------------------------------ | -------------- | ---------------------- |
+| listLatestModelFallbackEventRowsForThread @ events.ts:2240 | R   | newest model-fallback rows up to maxSeq       | timeline.ts:959                | yes            | **HYDRATE** (timeline) |
+| countStoredTimelineTurnAgentMessageDeltas @ events.ts:3362 | R   | count of a capped turn's agent-message deltas | timeline.ts:1270               | yes            | **HYDRATE** (timeline) |
+| findStoredTimelineOpenTurnRowFloor @ events.ts:3401        | R   | row floor of a capped open turn               | timeline.ts:975                | yes            | **HYDRATE** (timeline) |
+| listStoredTimelineLongCompletedTurnSpans @ events.ts:3510  | R   | completed turns over the row budget           | timeline.ts:1169               | yes            | **HYDRATE** (timeline) |
+| findStoredTimelineCompletedTurnTail @ events.ts:3557       | R   | tail start of a long completed turn           | timeline.ts:1183               | yes            | **HYDRATE** (timeline) |
+| listStoredTimelineTurnRangeEventRows @ events.ts:3779      | R   | turn rows in a sequence range                 | timeline.ts:997,1198           | yes            | **HYDRATE** (timeline) |
+| hasStoredItemEventRowsThroughSequence @ events.ts:3798     | R   | existence of earlier rows for appended items  | timeline-selection-memo.ts:324 | yes            | **HYDRATE** (timeline) |
+| listStoredTimelineItemEventRowsByItems @ events.ts:3823    | R   | head-state rows for selected items            | timeline.ts:1028               | yes            | **HYDRATE** (timeline) |
