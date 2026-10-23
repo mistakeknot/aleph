@@ -14,7 +14,10 @@ const PKG_DIR = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../..",
 );
-const DRIZZLE_DIR = path.join(PKG_DIR, "drizzle");
+const MIGRATION_DIRS = [
+  path.join(PKG_DIR, "drizzle"),
+  path.join(PKG_DIR, "drizzle-aleph"),
+];
 const EVENTS_IDENTIFIER = /(?<![A-Za-z0-9_$])events(?![A-Za-z0-9_$])/gi;
 
 function eventsMentions(text: string): number {
@@ -49,16 +52,16 @@ const REHYDRATE_TRANSFORMS = {
 };
 
 function eventsMigrations(): string[] {
-  return fs
-    .readdirSync(DRIZZLE_DIR)
-    .filter((name) => name.endsWith(".sql"))
-    .filter(
-      (name) =>
-        eventsMentions(fs.readFileSync(path.join(DRIZZLE_DIR, name), "utf8")) >
-        0,
-    )
-    .map((name) => name.replace(/\.sql$/, ""))
-    .sort();
+  return MIGRATION_DIRS.flatMap((dir) =>
+    fs
+      .readdirSync(dir)
+      .filter((name) => name.endsWith(".sql"))
+      .filter(
+        (name) =>
+          eventsMentions(fs.readFileSync(path.join(dir, name), "utf8")) > 0,
+      )
+      .map((name) => name.replace(/\.sql$/, "")),
+  ).sort();
 }
 
 const MIGRATE_TS_EVENTS_MENTIONS = 2;
