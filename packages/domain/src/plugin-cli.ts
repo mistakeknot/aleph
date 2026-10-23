@@ -1,6 +1,7 @@
 export const RESERVED_BB_CLI_COMMANDS: readonly string[] = [
   "admin",
   "browser",
+  "db",
   "diagnostics",
   "environment",
   "file",
