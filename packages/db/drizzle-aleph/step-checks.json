@@ -49,5 +49,11 @@
       "transfer_entries",
       "transfer_events"
     ]
+  },
+  "A0010": {
+    "createsTables": [
+      "event_cold_segments",
+      "thread_event_cold_state"
+    ]
   }
 }

@@ -547,7 +547,7 @@ const triggerScenarios: TriggerScenario[] = [
 ];
 
 describe("triggers after an upgrade", () => {
-  describe.each([131, 146, 152])("from prefix %i", (length) => {
+  describe.each([131, 146, 153])("from prefix %i", (length) => {
     it.each(triggerScenarios)("$name", (scenario) => {
       expect(scenario.run(upgradedDatabase(length))).toEqual(scenario.expected);
     });
@@ -556,7 +556,7 @@ describe("triggers after an upgrade", () => {
   it.each(triggerScenarios)(
     "$name, and the scenario fails without it",
     (scenario) => {
-      const upgraded = upgradedDatabase(152);
+      const upgraded = upgradedDatabase(153);
       upgraded.db.$client.exec(scenario.dropped);
       expect(scenario.run(upgraded)).not.toEqual(scenario.expected);
     },
@@ -605,7 +605,7 @@ describe("the previous runner opens a migrated database", () => {
   });
 
   it("still serves the previous release's statements on the result", async () => {
-    const db = track(await populatedPrefixDatabase(152));
+    const db = track(await populatedPrefixDatabase(153));
     migrate(db);
     const violations = foreignKeyViolations(db);
     const eventCount = (): number =>
@@ -645,7 +645,7 @@ describe("the previous runner opens a migrated database", () => {
 
 describe("downgrade honesty", () => {
   it("lets the previous runner open a database that has one genuinely new step and keeps the new table", async () => {
-    const db = track(await populatedPrefixDatabase(152));
+    const db = track(await populatedPrefixDatabase(153));
     migrate(db);
     const alephFolder = alephFolderWithSyntheticStep(
       "CREATE TABLE zz_after_release (id TEXT PRIMARY KEY);",
@@ -749,7 +749,7 @@ function survivingChildRows(before: ChildRows, after: ChildRows): string[][] {
 }
 
 describe("foreign keys stay enforced across the upgrade", () => {
-  it.each([131, 152])(
+  it.each([131, 153])(
     "keeps every connected row that references threads from prefix %i",
     async (length) => {
       const db = track(await populatedPrefixDatabase(length));
@@ -783,7 +783,7 @@ describe("foreign keys stay enforced across the upgrade", () => {
   it(
     "rolls back a step that leaves a new foreign key violation and keeps the database intact",
     async () => {
-      const db = track(await populatedPrefixDatabase(152));
+      const db = track(await populatedPrefixDatabase(153));
       migrate(db);
       const before = describeDatabase(db.$client);
       const settledBefore = settledRows(db.$client);
@@ -938,7 +938,7 @@ describe("ledger shapes the classifier refuses before any step runs (D14: S3 row
   }
 
   it("refuses an unknown past row on a full legacy ledger", async () => {
-    const db = track(await populatedPrefixDatabase(152));
+    const db = track(await populatedPrefixDatabase(153));
     db.$client
       .prepare(
         "INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)",
@@ -948,7 +948,7 @@ describe("ledger shapes the classifier refuses before any step runs (D14: S3 row
   });
 
   it("refuses an unknown future row on a full legacy ledger", async () => {
-    const db = track(await populatedPrefixDatabase(152));
+    const db = track(await populatedPrefixDatabase(153));
     db.$client
       .prepare(
         "INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)",
@@ -958,7 +958,7 @@ describe("ledger shapes the classifier refuses before any step runs (D14: S3 row
   });
 
   it("refuses a junk hash at the created_at of a canonical step", async () => {
-    const db = track(await populatedPrefixDatabase(152));
+    const db = track(await populatedPrefixDatabase(153));
     db.$client.exec(
       "INSERT INTO __drizzle_migrations (hash, created_at) SELECT 'junk-hash', created_at FROM __drizzle_migrations WHERE rowid = 70",
     );
@@ -966,7 +966,7 @@ describe("ledger shapes the classifier refuses before any step runs (D14: S3 row
   });
 
   it("refuses a ledger whose every created_at is NULL", async () => {
-    const db = track(await populatedPrefixDatabase(152));
+    const db = track(await populatedPrefixDatabase(153));
     db.$client.exec("UPDATE __drizzle_migrations SET created_at = NULL");
     expectRefusedUnchanged(db);
   });

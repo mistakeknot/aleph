@@ -16,17 +16,17 @@ export function alephFolderWithSyntheticStep(
   const last = manifest.steps[manifest.steps.length - 1];
   if (last === undefined) throw new Error("Manifest is empty");
   manifest.steps.push({
-    id: "A0010",
-    file: "A0010_synthetic.sql",
+    id: "A0011",
+    file: "A0011_synthetic.sql",
     after: last.id,
     when: last.when + 1000,
   });
   writeFileSync(manifestPath, JSON.stringify(manifest));
-  writeFileSync(join(folder, "A0010_synthetic.sql"), sql);
+  writeFileSync(join(folder, "A0011_synthetic.sql"), sql);
   if (checks !== undefined) {
     const checksPath = join(folder, "step-checks.json");
     const existing = JSON.parse(readFileSync(checksPath, "utf8")) as object;
-    writeFileSync(checksPath, JSON.stringify({ ...existing, A0010: checks }));
+    writeFileSync(checksPath, JSON.stringify({ ...existing, A0011: checks }));
   }
   return folder;
 }

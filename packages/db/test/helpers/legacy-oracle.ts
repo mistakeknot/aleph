@@ -18,10 +18,10 @@ import { migrate as drizzleMigrate } from "drizzle-orm/better-sqlite3/migrator";
 import type { DbConnection } from "../../src/connection.js";
 import type { MigrateOptions } from "../../src/migrate.js";
 
-export const LEGACY_ORACLE_COMMIT = "07c1ec9ed2";
+export const LEGACY_ORACLE_COMMIT = "1c201c2f57";
 export const UPSTREAM_ORACLE_COMMIT =
   "411eac54ac16d0a3cb57d1de8396d37564884a73";
-export const LEGACY_CHAIN_LENGTH = 152;
+export const LEGACY_CHAIN_LENGTH = 153;
 
 const here = dirname(fileURLToPath(import.meta.url));
 const packageDir = resolve(here, "..", "..");

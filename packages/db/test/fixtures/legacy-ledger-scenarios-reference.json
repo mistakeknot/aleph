@@ -17,6 +17,9 @@
         "index|environments_provider_instance_idx|environments|CREATE INDEX `environments_provider_instance_idx` ON `environments` (`environment_provider_id`,`environment_provider_instance_key`)",
         "index|environments_provider_lifecycle_idx|environments|CREATE INDEX `environments_provider_lifecycle_idx` ON `environments` (`environment_provider_id`) WHERE \"environments\".\"status\" <> 'destroyed' OR \"environments\".\"teardown_status\" IS NOT 'removed'",
         "index|environments_status_idx|environments|CREATE INDEX `environments_status_idx` ON `environments` (`status`)",
+        "index|event_cold_segments_lifecycle_idx|event_cold_segments|CREATE INDEX `event_cold_segments_lifecycle_idx` ON `event_cold_segments` (`lifecycle`)",
+        "index|event_cold_segments_path_idx|event_cold_segments|CREATE UNIQUE INDEX `event_cold_segments_path_idx` ON `event_cold_segments` (`path`)",
+        "index|event_cold_segments_thread_idx|event_cold_segments|CREATE INDEX `event_cold_segments_thread_idx` ON `event_cold_segments` (`thread_id`)",
         "index|events_background_task_thread_type_item_sequence_idx|events|CREATE INDEX `events_background_task_thread_type_item_sequence_idx` ON `events` (`thread_id`,`type`,`item_id`,`sequence`) WHERE \"events\".\"item_kind\" = 'backgroundTask'",
         "index|events_completed_item_truncation_idx|events|CREATE INDEX `events_completed_item_truncation_idx` ON `events` (`item_kind`,`created_at`,`id`) WHERE `type` = 'item/completed'",
         "index|events_delegating_item_lookup_idx|events|CREATE INDEX `events_delegating_item_lookup_idx` ON `events` (`thread_id`,`item_id`,`sequence`,`item_kind`) WHERE \"events\".\"item_kind\" IN ('toolCall', 'delegation')",
@@ -76,6 +79,7 @@
         "index|terminal_sessions_host_status_idx|terminal_sessions|CREATE INDEX `terminal_sessions_host_status_idx` ON `terminal_sessions` (`host_id`,`status`)",
         "index|terminal_sessions_thread_status_updated_idx|terminal_sessions|CREATE INDEX `terminal_sessions_thread_status_updated_idx` ON `terminal_sessions` (`thread_id`,`status`,`updated_at`)",
         "index|thread_dynamic_context_file_states_thread_file_idx|thread_dynamic_context_file_states|CREATE UNIQUE INDEX `thread_dynamic_context_file_states_thread_file_idx` ON `thread_dynamic_context_file_states` (`thread_id`,`file_key`)",
+        "index|thread_event_cold_state_state_idx|thread_event_cold_state|CREATE INDEX `thread_event_cold_state_state_idx` ON `thread_event_cold_state` (`state`)",
         "index|thread_pruning_cursors_thread_idx|thread_pruning_cursors|CREATE INDEX `thread_pruning_cursors_thread_idx` ON `thread_pruning_cursors` (`thread_id`)",
         "index|thread_pruning_work_thread_idx|thread_pruning_work|CREATE INDEX `thread_pruning_work_thread_idx` ON `thread_pruning_work` (`thread_id`)",
         "index|thread_search_learned_selections_query_idx|thread_search_learned_selections|CREATE INDEX `thread_search_learned_selections_query_idx` ON `thread_search_learned_selections` (`query_text`)",
@@ -108,6 +112,7 @@
         "table|environment_hook_operations|environment_hook_operations|CREATE TABLE `environment_hook_operations` ( `id` text PRIMARY KEY NOT NULL, `operation_id` text NOT NULL, `host_id` text NOT NULL, `path` text NOT NULL, `kind` text NOT NULL, `started_at` integer NOT NULL, `finished_at` integer, `error` text )",
         "table|environment_variables|environment_variables|CREATE TABLE `environment_variables` ( `id` integer PRIMARY KEY AUTOINCREMENT NOT NULL, `project_id` text, `name` text NOT NULL, `ciphertext` text NOT NULL, `encryption_version` integer NOT NULL, `note` text, `updated_at` integer NOT NULL, FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade )",
         "table|environments|environments|CREATE TABLE `environments` ( `id` text PRIMARY KEY NOT NULL, `project_id` text NOT NULL, `host_id` text NOT NULL, `path` text, `is_git_repo` integer DEFAULT false NOT NULL, `is_worktree` integer DEFAULT false NOT NULL, `branch_name` text, `base_branch` text, `default_branch` text, `merge_base_branch` text, `status` text DEFAULT 'provisioning' NOT NULL, `created_at` integer NOT NULL, `updated_at` integer NOT NULL, `name` text, `environment_provider_id` text, `environment_provider_plugin_id` text, `provider_owns_path` integer DEFAULT false NOT NULL, `environment_provider_selection` text, `environment_provider_instance_key` text, `retire_at` integer, `teardown_attempt` integer DEFAULT 0 NOT NULL, `teardown_status` text, `teardown_message` text, `resource` text, `owner_thread_id` text, `attempt` integer DEFAULT 0 NOT NULL, `status_message` text, `pending_log` text DEFAULT '' NOT NULL, `claim_path` text, FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade, FOREIGN KEY (`host_id`) REFERENCES `hosts`(`id`) ON UPDATE no action ON DELETE cascade )",
+        "table|event_cold_segments|event_cold_segments|CREATE TABLE `event_cold_segments` ( `segment_id` text PRIMARY KEY NOT NULL, `thread_id` text NOT NULL, `lifecycle` text NOT NULL, `path` text NOT NULL, `first_sequence` integer NOT NULL, `last_sequence` integer NOT NULL, `row_count` integer NOT NULL, `event_ids_sha256` text NOT NULL, `body_sha256` text NOT NULL, `file_sha256` text NOT NULL, `file_bytes` integer NOT NULL, `header_bytes` integer NOT NULL, `decompressed_bytes` integer NOT NULL, `format_version` integer NOT NULL, `transform_versions` text NOT NULL, `created_at` integer NOT NULL, `ended_at` integer )",
         "table|events|events|CREATE TABLE \"events\" ( `id` text PRIMARY KEY NOT NULL, `thread_id` text NOT NULL, `environment_id` text, `scope_kind` text NOT NULL, `turn_id` text, `provider_thread_id` text, `sequence` integer NOT NULL, `type` text NOT NULL, `item_id` text, `item_kind` text, `data` text DEFAULT '{}' NOT NULL, `created_at` integer NOT NULL, `parent_tool_call_id` text, FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade, FOREIGN KEY (`environment_id`) REFERENCES `environments`(`id`) ON UPDATE no action ON DELETE set null, CONSTRAINT `events_scope_shape_check` CHECK ( ( (`scope_kind` = 'turn' AND `turn_id` IS NOT NULL) OR (`scope_kind` = 'thread' AND `turn_id` IS NULL) ) ) )",
         "table|host_daemon_sessions|host_daemon_sessions|CREATE TABLE `host_daemon_sessions` ( `id` text PRIMARY KEY NOT NULL, `host_id` text NOT NULL, `instance_id` text NOT NULL, `host_name` text NOT NULL, `data_dir` text NOT NULL, `protocol_version` integer NOT NULL, `heartbeat_interval_ms` integer NOT NULL, `lease_timeout_ms` integer NOT NULL, `status` text NOT NULL, `lease_expires_at` integer NOT NULL, `closed_at` integer, `close_reason` text, `created_at` integer NOT NULL, `updated_at` integer NOT NULL, FOREIGN KEY (`host_id`) REFERENCES `hosts`(`id`) ON UPDATE no action ON DELETE cascade )",
         "table|hosts|hosts|CREATE TABLE `hosts` ( `id` text PRIMARY KEY NOT NULL, `name` text NOT NULL, `type` text NOT NULL, `destroyed_at` integer, `last_seen_at` integer, `created_at` integer NOT NULL, `updated_at` integer NOT NULL , `last_rejected_protocol_version` integer, `connect_machine_id` text, `max_permission_mode` text DEFAULT 'full' NOT NULL, `machine_provider_id` text, `launch_key` text, `machine_inputs` text, `machine_attempt` integer DEFAULT 0 NOT NULL, `pending_log` text DEFAULT '' NOT NULL, `machine_operation_id` text, `server_access_provider_id` text, `server_access_grant_id` text, `resource` text, `phase` text DEFAULT 'active' NOT NULL, `suspended_at` integer, `status_message` text, `suspend_retry_at` integer, `remove_retry_at` integer, `teardown_attempt` integer DEFAULT 0 NOT NULL, `teardown_status` text)",
@@ -136,6 +141,7 @@
         "table|terminal_sessions|terminal_sessions|CREATE TABLE \"terminal_sessions\" ( `id` text PRIMARY KEY NOT NULL, `thread_id` text, `environment_id` text, `host_id` text NOT NULL, `daemon_session_id` text, `title` text NOT NULL, `initial_cwd` text NOT NULL, `cols` integer NOT NULL, `rows` integer NOT NULL, `status` text NOT NULL, `exit_code` integer, `close_reason` text, `created_at` integer NOT NULL, `updated_at` integer NOT NULL, `last_user_input_at` integer, FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade, FOREIGN KEY (`environment_id`) REFERENCES `environments`(`id`) ON UPDATE no action ON DELETE cascade, FOREIGN KEY (`host_id`) REFERENCES `hosts`(`id`) ON UPDATE no action ON DELETE cascade, FOREIGN KEY (`daemon_session_id`) REFERENCES `host_daemon_sessions`(`id`) ON UPDATE no action ON DELETE set null )",
         "table|thread_conversation_outlines|thread_conversation_outlines|CREATE TABLE `thread_conversation_outlines` ( `thread_id` text PRIMARY KEY NOT NULL, `projection_key` text NOT NULL, `items_json` text NOT NULL, FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade )",
         "table|thread_dynamic_context_file_states|thread_dynamic_context_file_states|CREATE TABLE `thread_dynamic_context_file_states` ( `thread_id` text NOT NULL, `file_key` text NOT NULL, `content_status` text NOT NULL, `content_hash` text NOT NULL, `shown_at` integer NOT NULL, `created_at` integer NOT NULL, `updated_at` integer NOT NULL, FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade )",
+        "table|thread_event_cold_state|thread_event_cold_state|CREATE TABLE `thread_event_cold_state` ( `thread_id` text PRIMARY KEY NOT NULL, `state` text NOT NULL, `live_segment_id` text, `last_rehydrated_at` integer, FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade, CONSTRAINT \"thread_event_cold_state_shape_check\" CHECK(( (\"thread_event_cold_state\".\"state\" = 'cold' AND \"thread_event_cold_state\".\"live_segment_id\" IS NOT NULL) OR (\"thread_event_cold_state\".\"state\" = 'hot' AND \"thread_event_cold_state\".\"live_segment_id\" IS NULL) )) )",
         "table|thread_plugin_metadata|thread_plugin_metadata|CREATE TABLE `thread_plugin_metadata` ( `thread_id` text NOT NULL, `plugin_id` text NOT NULL, `metadata_json` text NOT NULL, PRIMARY KEY(`thread_id`, `plugin_id`), FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade )",
         "table|thread_pruning_cursors|thread_pruning_cursors|CREATE TABLE `thread_pruning_cursors` ( `policy` text NOT NULL, `scope` text DEFAULT '' NOT NULL, `thread_id` text, `version` integer NOT NULL, `last_thread_id` text DEFAULT '' NOT NULL, `current_thread_id` text, `step` integer DEFAULT 0 NOT NULL, `sequence` integer DEFAULT 0 NOT NULL, `upper_sequence` integer DEFAULT 0 NOT NULL, `cycle` integer DEFAULT 0 NOT NULL, `latest_root_sequence` integer DEFAULT 0 NOT NULL, `latest_context_sequence` integer DEFAULT 0 NOT NULL, `probe_event_id` text, `probe_phase` integer DEFAULT 0 NOT NULL, `probe_sequence` integer DEFAULT 0 NOT NULL, `probe_witness_id` text, `updated_at` integer NOT NULL, `work_revision` integer DEFAULT 0 NOT NULL, PRIMARY KEY(`policy`, `scope`), FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade, CONSTRAINT \"thread_pruning_cursors_scope_check\" CHECK(\"thread_pruning_cursors\".\"scope\" = coalesce(\"thread_pruning_cursors\".\"thread_id\", '')) )",
         "table|thread_pruning_work|thread_pruning_work|CREATE TABLE `thread_pruning_work` ( `policy` text NOT NULL, `thread_id` text NOT NULL, `revision` integer DEFAULT 1 NOT NULL, PRIMARY KEY(`policy`, `thread_id`), FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade )",
@@ -175,13 +181,19 @@
       "pragmas": {
         "application_id": "0",
         "auto_vacuum": "2",
-        "foreign_key_violations": "135",
+        "foreign_key_violations": "138",
         "integrity_check": "ok",
         "user_version": "0"
       },
       "sequences": [
-        ["environment_variables", "1002"],
-        ["transfer_events", "1002"]
+        [
+          "environment_variables",
+          "1002"
+        ],
+        [
+          "transfer_events",
+          "1002"
+        ]
       ],
       "tables": {
         "aleph_install_requests": {
@@ -219,6 +231,10 @@
         "environments": {
           "count": 3,
           "digest": "4158d521d4d2cf26d2da28e475212634"
+        },
+        "event_cold_segments": {
+          "count": 3,
+          "digest": "969771f5b7995e595583789dff9ac7ff"
         },
         "events": {
           "count": 3,
@@ -332,6 +348,10 @@
           "count": 3,
           "digest": "9ef42439461125339517d11513bd527c"
         },
+        "thread_event_cold_state": {
+          "count": 3,
+          "digest": "b8823d8dbe61b5a0ac41834c822d4b81"
+        },
         "thread_plugin_metadata": {
           "count": 3,
           "digest": "f559a1a7947d92b0dbe2636e5ab4fd4e"
@@ -398,8 +418,8 @@
         }
       },
       "ledger": {
-        "count": 153,
-        "digest": "3ffbc8e9f31a4a3bb2b2ad40c2eb1021"
+        "count": 154,
+        "digest": "dbe5d2bc8f62d9d2e8372a3980f691be"
       },
       "ledgerSchema": [
         "index|sqlite_autoindex___drizzle_migrations_1|__drizzle_migrations|",
@@ -1169,8 +1189,13 @@
       },
       {
         "rowid": 153,
-        "hash": "2642bb0bee9ae5e0645940aa81f06a8ea145f1b015151f0818ef188ad6ce3769",
-        "created_at": 1792452368229
+        "hash": "d56565154f2317d7c67ff2d037ec59609dbc917b93b7cc2c1d9e4a2459244d4f",
+        "created_at": 1792668833813
+      },
+      {
+        "rowid": 154,
+        "hash": "d56565154f2317d7c67ff2d037ec59609dbc917b93b7cc2c1d9e4a2459244d4f",
+        "created_at": 1792668833813
       }
     ],
     "pinned": {
@@ -1197,6 +1222,9 @@
         "index|environments_provider_instance_idx|environments|CREATE INDEX `environments_provider_instance_idx` ON `environments` (`environment_provider_id`,`environment_provider_instance_key`)",
         "index|environments_provider_lifecycle_idx|environments|CREATE INDEX `environments_provider_lifecycle_idx` ON `environments` (`environment_provider_id`) WHERE \"environments\".\"status\" <> 'destroyed' OR \"environments\".\"teardown_status\" IS NOT 'removed'",
         "index|environments_status_idx|environments|CREATE INDEX `environments_status_idx` ON `environments` (`status`)",
+        "index|event_cold_segments_lifecycle_idx|event_cold_segments|CREATE INDEX `event_cold_segments_lifecycle_idx` ON `event_cold_segments` (`lifecycle`)",
+        "index|event_cold_segments_path_idx|event_cold_segments|CREATE UNIQUE INDEX `event_cold_segments_path_idx` ON `event_cold_segments` (`path`)",
+        "index|event_cold_segments_thread_idx|event_cold_segments|CREATE INDEX `event_cold_segments_thread_idx` ON `event_cold_segments` (`thread_id`)",
         "index|events_background_task_thread_type_item_sequence_idx|events|CREATE INDEX `events_background_task_thread_type_item_sequence_idx` ON `events` (`thread_id`,`type`,`item_id`,`sequence`) WHERE \"events\".\"item_kind\" = 'backgroundTask'",
         "index|events_completed_item_truncation_idx|events|CREATE INDEX `events_completed_item_truncation_idx` ON `events` (`item_kind`,`created_at`,`id`) WHERE `type` = 'item/completed'",
         "index|events_delegating_item_lookup_idx|events|CREATE INDEX `events_delegating_item_lookup_idx` ON `events` (`thread_id`,`item_id`,`sequence`,`item_kind`) WHERE \"events\".\"item_kind\" IN ('toolCall', 'delegation')",
@@ -1256,6 +1284,7 @@
         "index|terminal_sessions_host_status_idx|terminal_sessions|CREATE INDEX `terminal_sessions_host_status_idx` ON `terminal_sessions` (`host_id`,`status`)",
         "index|terminal_sessions_thread_status_updated_idx|terminal_sessions|CREATE INDEX `terminal_sessions_thread_status_updated_idx` ON `terminal_sessions` (`thread_id`,`status`,`updated_at`)",
         "index|thread_dynamic_context_file_states_thread_file_idx|thread_dynamic_context_file_states|CREATE UNIQUE INDEX `thread_dynamic_context_file_states_thread_file_idx` ON `thread_dynamic_context_file_states` (`thread_id`,`file_key`)",
+        "index|thread_event_cold_state_state_idx|thread_event_cold_state|CREATE INDEX `thread_event_cold_state_state_idx` ON `thread_event_cold_state` (`state`)",
         "index|thread_pruning_cursors_thread_idx|thread_pruning_cursors|CREATE INDEX `thread_pruning_cursors_thread_idx` ON `thread_pruning_cursors` (`thread_id`)",
         "index|thread_pruning_work_thread_idx|thread_pruning_work|CREATE INDEX `thread_pruning_work_thread_idx` ON `thread_pruning_work` (`thread_id`)",
         "index|thread_search_learned_selections_query_idx|thread_search_learned_selections|CREATE INDEX `thread_search_learned_selections_query_idx` ON `thread_search_learned_selections` (`query_text`)",
@@ -1288,6 +1317,7 @@
         "table|environment_hook_operations|environment_hook_operations|CREATE TABLE `environment_hook_operations` ( `id` text PRIMARY KEY NOT NULL, `operation_id` text NOT NULL, `host_id` text NOT NULL, `path` text NOT NULL, `kind` text NOT NULL, `started_at` integer NOT NULL, `finished_at` integer, `error` text )",
         "table|environment_variables|environment_variables|CREATE TABLE `environment_variables` ( `id` integer PRIMARY KEY AUTOINCREMENT NOT NULL, `project_id` text, `name` text NOT NULL, `ciphertext` text NOT NULL, `encryption_version` integer NOT NULL, `note` text, `updated_at` integer NOT NULL, FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade )",
         "table|environments|environments|CREATE TABLE `environments` ( `id` text PRIMARY KEY NOT NULL, `project_id` text NOT NULL, `host_id` text NOT NULL, `path` text, `is_git_repo` integer DEFAULT false NOT NULL, `is_worktree` integer DEFAULT false NOT NULL, `branch_name` text, `base_branch` text, `default_branch` text, `merge_base_branch` text, `status` text DEFAULT 'provisioning' NOT NULL, `created_at` integer NOT NULL, `updated_at` integer NOT NULL, `name` text, `environment_provider_id` text, `environment_provider_plugin_id` text, `provider_owns_path` integer DEFAULT false NOT NULL, `environment_provider_selection` text, `environment_provider_instance_key` text, `retire_at` integer, `teardown_attempt` integer DEFAULT 0 NOT NULL, `teardown_status` text, `teardown_message` text, `resource` text, `owner_thread_id` text, `attempt` integer DEFAULT 0 NOT NULL, `status_message` text, `pending_log` text DEFAULT '' NOT NULL, `claim_path` text, FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade, FOREIGN KEY (`host_id`) REFERENCES `hosts`(`id`) ON UPDATE no action ON DELETE cascade )",
+        "table|event_cold_segments|event_cold_segments|CREATE TABLE `event_cold_segments` ( `segment_id` text PRIMARY KEY NOT NULL, `thread_id` text NOT NULL, `lifecycle` text NOT NULL, `path` text NOT NULL, `first_sequence` integer NOT NULL, `last_sequence` integer NOT NULL, `row_count` integer NOT NULL, `event_ids_sha256` text NOT NULL, `body_sha256` text NOT NULL, `file_sha256` text NOT NULL, `file_bytes` integer NOT NULL, `header_bytes` integer NOT NULL, `decompressed_bytes` integer NOT NULL, `format_version` integer NOT NULL, `transform_versions` text NOT NULL, `created_at` integer NOT NULL, `ended_at` integer )",
         "table|events|events|CREATE TABLE \"events\" ( `id` text PRIMARY KEY NOT NULL, `thread_id` text NOT NULL, `environment_id` text, `scope_kind` text NOT NULL, `turn_id` text, `provider_thread_id` text, `sequence` integer NOT NULL, `type` text NOT NULL, `item_id` text, `item_kind` text, `data` text DEFAULT '{}' NOT NULL, `created_at` integer NOT NULL, `parent_tool_call_id` text, FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade, FOREIGN KEY (`environment_id`) REFERENCES `environments`(`id`) ON UPDATE no action ON DELETE set null, CONSTRAINT `events_scope_shape_check` CHECK ( ( (`scope_kind` = 'turn' AND `turn_id` IS NOT NULL) OR (`scope_kind` = 'thread' AND `turn_id` IS NULL) ) ) )",
         "table|host_daemon_sessions|host_daemon_sessions|CREATE TABLE `host_daemon_sessions` ( `id` text PRIMARY KEY NOT NULL, `host_id` text NOT NULL, `instance_id` text NOT NULL, `host_name` text NOT NULL, `data_dir` text NOT NULL, `protocol_version` integer NOT NULL, `heartbeat_interval_ms` integer NOT NULL, `lease_timeout_ms` integer NOT NULL, `status` text NOT NULL, `lease_expires_at` integer NOT NULL, `closed_at` integer, `close_reason` text, `created_at` integer NOT NULL, `updated_at` integer NOT NULL, FOREIGN KEY (`host_id`) REFERENCES `hosts`(`id`) ON UPDATE no action ON DELETE cascade )",
         "table|hosts|hosts|CREATE TABLE `hosts` ( `id` text PRIMARY KEY NOT NULL, `name` text NOT NULL, `type` text NOT NULL, `destroyed_at` integer, `last_seen_at` integer, `created_at` integer NOT NULL, `updated_at` integer NOT NULL , `last_rejected_protocol_version` integer, `connect_machine_id` text, `max_permission_mode` text DEFAULT 'full' NOT NULL, `machine_provider_id` text, `launch_key` text, `machine_inputs` text, `machine_attempt` integer DEFAULT 0 NOT NULL, `pending_log` text DEFAULT '' NOT NULL, `machine_operation_id` text, `server_access_provider_id` text, `server_access_grant_id` text, `resource` text, `phase` text DEFAULT 'active' NOT NULL, `suspended_at` integer, `status_message` text, `suspend_retry_at` integer, `remove_retry_at` integer, `teardown_attempt` integer DEFAULT 0 NOT NULL, `teardown_status` text)",
@@ -1316,6 +1346,7 @@
         "table|terminal_sessions|terminal_sessions|CREATE TABLE \"terminal_sessions\" ( `id` text PRIMARY KEY NOT NULL, `thread_id` text, `environment_id` text, `host_id` text NOT NULL, `daemon_session_id` text, `title` text NOT NULL, `initial_cwd` text NOT NULL, `cols` integer NOT NULL, `rows` integer NOT NULL, `status` text NOT NULL, `exit_code` integer, `close_reason` text, `created_at` integer NOT NULL, `updated_at` integer NOT NULL, `last_user_input_at` integer, FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade, FOREIGN KEY (`environment_id`) REFERENCES `environments`(`id`) ON UPDATE no action ON DELETE cascade, FOREIGN KEY (`host_id`) REFERENCES `hosts`(`id`) ON UPDATE no action ON DELETE cascade, FOREIGN KEY (`daemon_session_id`) REFERENCES `host_daemon_sessions`(`id`) ON UPDATE no action ON DELETE set null )",
         "table|thread_conversation_outlines|thread_conversation_outlines|CREATE TABLE `thread_conversation_outlines` ( `thread_id` text PRIMARY KEY NOT NULL, `projection_key` text NOT NULL, `items_json` text NOT NULL, FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade )",
         "table|thread_dynamic_context_file_states|thread_dynamic_context_file_states|CREATE TABLE `thread_dynamic_context_file_states` ( `thread_id` text NOT NULL, `file_key` text NOT NULL, `content_status` text NOT NULL, `content_hash` text NOT NULL, `shown_at` integer NOT NULL, `created_at` integer NOT NULL, `updated_at` integer NOT NULL, FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade )",
+        "table|thread_event_cold_state|thread_event_cold_state|CREATE TABLE `thread_event_cold_state` ( `thread_id` text PRIMARY KEY NOT NULL, `state` text NOT NULL, `live_segment_id` text, `last_rehydrated_at` integer, FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade, CONSTRAINT \"thread_event_cold_state_shape_check\" CHECK(( (\"thread_event_cold_state\".\"state\" = 'cold' AND \"thread_event_cold_state\".\"live_segment_id\" IS NOT NULL) OR (\"thread_event_cold_state\".\"state\" = 'hot' AND \"thread_event_cold_state\".\"live_segment_id\" IS NULL) )) )",
         "table|thread_plugin_metadata|thread_plugin_metadata|CREATE TABLE `thread_plugin_metadata` ( `thread_id` text NOT NULL, `plugin_id` text NOT NULL, `metadata_json` text NOT NULL, PRIMARY KEY(`thread_id`, `plugin_id`), FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade )",
         "table|thread_pruning_cursors|thread_pruning_cursors|CREATE TABLE `thread_pruning_cursors` ( `policy` text NOT NULL, `scope` text DEFAULT '' NOT NULL, `thread_id` text, `version` integer NOT NULL, `last_thread_id` text DEFAULT '' NOT NULL, `current_thread_id` text, `step` integer DEFAULT 0 NOT NULL, `sequence` integer DEFAULT 0 NOT NULL, `upper_sequence` integer DEFAULT 0 NOT NULL, `cycle` integer DEFAULT 0 NOT NULL, `latest_root_sequence` integer DEFAULT 0 NOT NULL, `latest_context_sequence` integer DEFAULT 0 NOT NULL, `probe_event_id` text, `probe_phase` integer DEFAULT 0 NOT NULL, `probe_sequence` integer DEFAULT 0 NOT NULL, `probe_witness_id` text, `updated_at` integer NOT NULL, `work_revision` integer DEFAULT 0 NOT NULL, PRIMARY KEY(`policy`, `scope`), FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade, CONSTRAINT \"thread_pruning_cursors_scope_check\" CHECK(\"thread_pruning_cursors\".\"scope\" = coalesce(\"thread_pruning_cursors\".\"thread_id\", '')) )",
         "table|thread_pruning_work|thread_pruning_work|CREATE TABLE `thread_pruning_work` ( `policy` text NOT NULL, `thread_id` text NOT NULL, `revision` integer DEFAULT 1 NOT NULL, PRIMARY KEY(`policy`, `thread_id`), FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade )",
@@ -1355,13 +1386,19 @@
       "pragmas": {
         "application_id": "0",
         "auto_vacuum": "2",
-        "foreign_key_violations": "135",
+        "foreign_key_violations": "138",
         "integrity_check": "ok",
         "user_version": "0"
       },
       "sequences": [
-        ["environment_variables", "1002"],
-        ["transfer_events", "1002"]
+        [
+          "environment_variables",
+          "1002"
+        ],
+        [
+          "transfer_events",
+          "1002"
+        ]
       ],
       "tables": {
         "aleph_install_requests": {
@@ -1399,6 +1436,10 @@
         "environments": {
           "count": 3,
           "digest": "4158d521d4d2cf26d2da28e475212634"
+        },
+        "event_cold_segments": {
+          "count": 3,
+          "digest": "969771f5b7995e595583789dff9ac7ff"
         },
         "events": {
           "count": 3,
@@ -1512,6 +1553,10 @@
           "count": 3,
           "digest": "9ef42439461125339517d11513bd527c"
         },
+        "thread_event_cold_state": {
+          "count": 3,
+          "digest": "b8823d8dbe61b5a0ac41834c822d4b81"
+        },
         "thread_plugin_metadata": {
           "count": 3,
           "digest": "f559a1a7947d92b0dbe2636e5ab4fd4e"
@@ -1578,8 +1623,8 @@
         }
       },
       "ledger": {
-        "count": 153,
-        "digest": "8e557c62ab7a177c25762034ef950b38"
+        "count": 154,
+        "digest": "6a1ce68e327bc372d910f0122ae7e4ed"
       },
       "ledgerSchema": [
         "index|sqlite_autoindex___drizzle_migrations_1|__drizzle_migrations|",
@@ -2349,6 +2394,11 @@
       },
       {
         "rowid": 153,
+        "hash": "d56565154f2317d7c67ff2d037ec59609dbc917b93b7cc2c1d9e4a2459244d4f",
+        "created_at": 1792668833813
+      },
+      {
+        "rowid": 154,
         "hash": "unknown-future-hash",
         "created_at": 4102444800000
       }
@@ -2377,6 +2427,9 @@
         "index|environments_provider_instance_idx|environments|CREATE INDEX `environments_provider_instance_idx` ON `environments` (`environment_provider_id`,`environment_provider_instance_key`)",
         "index|environments_provider_lifecycle_idx|environments|CREATE INDEX `environments_provider_lifecycle_idx` ON `environments` (`environment_provider_id`) WHERE \"environments\".\"status\" <> 'destroyed' OR \"environments\".\"teardown_status\" IS NOT 'removed'",
         "index|environments_status_idx|environments|CREATE INDEX `environments_status_idx` ON `environments` (`status`)",
+        "index|event_cold_segments_lifecycle_idx|event_cold_segments|CREATE INDEX `event_cold_segments_lifecycle_idx` ON `event_cold_segments` (`lifecycle`)",
+        "index|event_cold_segments_path_idx|event_cold_segments|CREATE UNIQUE INDEX `event_cold_segments_path_idx` ON `event_cold_segments` (`path`)",
+        "index|event_cold_segments_thread_idx|event_cold_segments|CREATE INDEX `event_cold_segments_thread_idx` ON `event_cold_segments` (`thread_id`)",
         "index|events_background_task_thread_type_item_sequence_idx|events|CREATE INDEX `events_background_task_thread_type_item_sequence_idx` ON `events` (`thread_id`,`type`,`item_id`,`sequence`) WHERE \"events\".\"item_kind\" = 'backgroundTask'",
         "index|events_completed_item_truncation_idx|events|CREATE INDEX `events_completed_item_truncation_idx` ON `events` (`item_kind`,`created_at`,`id`) WHERE `type` = 'item/completed'",
         "index|events_delegating_item_lookup_idx|events|CREATE INDEX `events_delegating_item_lookup_idx` ON `events` (`thread_id`,`item_id`,`sequence`,`item_kind`) WHERE \"events\".\"item_kind\" IN ('toolCall', 'delegation')",
@@ -2436,6 +2489,7 @@
         "index|terminal_sessions_host_status_idx|terminal_sessions|CREATE INDEX `terminal_sessions_host_status_idx` ON `terminal_sessions` (`host_id`,`status`)",
         "index|terminal_sessions_thread_status_updated_idx|terminal_sessions|CREATE INDEX `terminal_sessions_thread_status_updated_idx` ON `terminal_sessions` (`thread_id`,`status`,`updated_at`)",
         "index|thread_dynamic_context_file_states_thread_file_idx|thread_dynamic_context_file_states|CREATE UNIQUE INDEX `thread_dynamic_context_file_states_thread_file_idx` ON `thread_dynamic_context_file_states` (`thread_id`,`file_key`)",
+        "index|thread_event_cold_state_state_idx|thread_event_cold_state|CREATE INDEX `thread_event_cold_state_state_idx` ON `thread_event_cold_state` (`state`)",
         "index|thread_pruning_cursors_thread_idx|thread_pruning_cursors|CREATE INDEX `thread_pruning_cursors_thread_idx` ON `thread_pruning_cursors` (`thread_id`)",
         "index|thread_pruning_work_thread_idx|thread_pruning_work|CREATE INDEX `thread_pruning_work_thread_idx` ON `thread_pruning_work` (`thread_id`)",
         "index|thread_search_learned_selections_query_idx|thread_search_learned_selections|CREATE INDEX `thread_search_learned_selections_query_idx` ON `thread_search_learned_selections` (`query_text`)",
@@ -2468,6 +2522,7 @@
         "table|environment_hook_operations|environment_hook_operations|CREATE TABLE `environment_hook_operations` ( `id` text PRIMARY KEY NOT NULL, `operation_id` text NOT NULL, `host_id` text NOT NULL, `path` text NOT NULL, `kind` text NOT NULL, `started_at` integer NOT NULL, `finished_at` integer, `error` text )",
         "table|environment_variables|environment_variables|CREATE TABLE `environment_variables` ( `id` integer PRIMARY KEY AUTOINCREMENT NOT NULL, `project_id` text, `name` text NOT NULL, `ciphertext` text NOT NULL, `encryption_version` integer NOT NULL, `note` text, `updated_at` integer NOT NULL, FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade )",
         "table|environments|environments|CREATE TABLE `environments` ( `id` text PRIMARY KEY NOT NULL, `project_id` text NOT NULL, `host_id` text NOT NULL, `path` text, `is_git_repo` integer DEFAULT false NOT NULL, `is_worktree` integer DEFAULT false NOT NULL, `branch_name` text, `base_branch` text, `default_branch` text, `merge_base_branch` text, `status` text DEFAULT 'provisioning' NOT NULL, `created_at` integer NOT NULL, `updated_at` integer NOT NULL, `name` text, `environment_provider_id` text, `environment_provider_plugin_id` text, `provider_owns_path` integer DEFAULT false NOT NULL, `environment_provider_selection` text, `environment_provider_instance_key` text, `retire_at` integer, `teardown_attempt` integer DEFAULT 0 NOT NULL, `teardown_status` text, `teardown_message` text, `resource` text, `owner_thread_id` text, `attempt` integer DEFAULT 0 NOT NULL, `status_message` text, `pending_log` text DEFAULT '' NOT NULL, `claim_path` text, FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade, FOREIGN KEY (`host_id`) REFERENCES `hosts`(`id`) ON UPDATE no action ON DELETE cascade )",
+        "table|event_cold_segments|event_cold_segments|CREATE TABLE `event_cold_segments` ( `segment_id` text PRIMARY KEY NOT NULL, `thread_id` text NOT NULL, `lifecycle` text NOT NULL, `path` text NOT NULL, `first_sequence` integer NOT NULL, `last_sequence` integer NOT NULL, `row_count` integer NOT NULL, `event_ids_sha256` text NOT NULL, `body_sha256` text NOT NULL, `file_sha256` text NOT NULL, `file_bytes` integer NOT NULL, `header_bytes` integer NOT NULL, `decompressed_bytes` integer NOT NULL, `format_version` integer NOT NULL, `transform_versions` text NOT NULL, `created_at` integer NOT NULL, `ended_at` integer )",
         "table|events|events|CREATE TABLE \"events\" ( `id` text PRIMARY KEY NOT NULL, `thread_id` text NOT NULL, `environment_id` text, `scope_kind` text NOT NULL, `turn_id` text, `provider_thread_id` text, `sequence` integer NOT NULL, `type` text NOT NULL, `item_id` text, `item_kind` text, `data` text DEFAULT '{}' NOT NULL, `created_at` integer NOT NULL, `parent_tool_call_id` text, FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade, FOREIGN KEY (`environment_id`) REFERENCES `environments`(`id`) ON UPDATE no action ON DELETE set null, CONSTRAINT `events_scope_shape_check` CHECK ( ( (`scope_kind` = 'turn' AND `turn_id` IS NOT NULL) OR (`scope_kind` = 'thread' AND `turn_id` IS NULL) ) ) )",
         "table|host_daemon_sessions|host_daemon_sessions|CREATE TABLE `host_daemon_sessions` ( `id` text PRIMARY KEY NOT NULL, `host_id` text NOT NULL, `instance_id` text NOT NULL, `host_name` text NOT NULL, `data_dir` text NOT NULL, `protocol_version` integer NOT NULL, `heartbeat_interval_ms` integer NOT NULL, `lease_timeout_ms` integer NOT NULL, `status` text NOT NULL, `lease_expires_at` integer NOT NULL, `closed_at` integer, `close_reason` text, `created_at` integer NOT NULL, `updated_at` integer NOT NULL, FOREIGN KEY (`host_id`) REFERENCES `hosts`(`id`) ON UPDATE no action ON DELETE cascade )",
         "table|hosts|hosts|CREATE TABLE `hosts` ( `id` text PRIMARY KEY NOT NULL, `name` text NOT NULL, `type` text NOT NULL, `destroyed_at` integer, `last_seen_at` integer, `created_at` integer NOT NULL, `updated_at` integer NOT NULL , `last_rejected_protocol_version` integer, `connect_machine_id` text, `max_permission_mode` text DEFAULT 'full' NOT NULL, `machine_provider_id` text, `launch_key` text, `machine_inputs` text, `machine_attempt` integer DEFAULT 0 NOT NULL, `pending_log` text DEFAULT '' NOT NULL, `machine_operation_id` text, `server_access_provider_id` text, `server_access_grant_id` text, `resource` text, `phase` text DEFAULT 'active' NOT NULL, `suspended_at` integer, `status_message` text, `suspend_retry_at` integer, `remove_retry_at` integer, `teardown_attempt` integer DEFAULT 0 NOT NULL, `teardown_status` text)",
@@ -2496,6 +2551,7 @@
         "table|terminal_sessions|terminal_sessions|CREATE TABLE \"terminal_sessions\" ( `id` text PRIMARY KEY NOT NULL, `thread_id` text, `environment_id` text, `host_id` text NOT NULL, `daemon_session_id` text, `title` text NOT NULL, `initial_cwd` text NOT NULL, `cols` integer NOT NULL, `rows` integer NOT NULL, `status` text NOT NULL, `exit_code` integer, `close_reason` text, `created_at` integer NOT NULL, `updated_at` integer NOT NULL, `last_user_input_at` integer, FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade, FOREIGN KEY (`environment_id`) REFERENCES `environments`(`id`) ON UPDATE no action ON DELETE cascade, FOREIGN KEY (`host_id`) REFERENCES `hosts`(`id`) ON UPDATE no action ON DELETE cascade, FOREIGN KEY (`daemon_session_id`) REFERENCES `host_daemon_sessions`(`id`) ON UPDATE no action ON DELETE set null )",
         "table|thread_conversation_outlines|thread_conversation_outlines|CREATE TABLE `thread_conversation_outlines` ( `thread_id` text PRIMARY KEY NOT NULL, `projection_key` text NOT NULL, `items_json` text NOT NULL, FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade )",
         "table|thread_dynamic_context_file_states|thread_dynamic_context_file_states|CREATE TABLE `thread_dynamic_context_file_states` ( `thread_id` text NOT NULL, `file_key` text NOT NULL, `content_status` text NOT NULL, `content_hash` text NOT NULL, `shown_at` integer NOT NULL, `created_at` integer NOT NULL, `updated_at` integer NOT NULL, FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade )",
+        "table|thread_event_cold_state|thread_event_cold_state|CREATE TABLE `thread_event_cold_state` ( `thread_id` text PRIMARY KEY NOT NULL, `state` text NOT NULL, `live_segment_id` text, `last_rehydrated_at` integer, FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade, CONSTRAINT \"thread_event_cold_state_shape_check\" CHECK(( (\"thread_event_cold_state\".\"state\" = 'cold' AND \"thread_event_cold_state\".\"live_segment_id\" IS NOT NULL) OR (\"thread_event_cold_state\".\"state\" = 'hot' AND \"thread_event_cold_state\".\"live_segment_id\" IS NULL) )) )",
         "table|thread_plugin_metadata|thread_plugin_metadata|CREATE TABLE `thread_plugin_metadata` ( `thread_id` text NOT NULL, `plugin_id` text NOT NULL, `metadata_json` text NOT NULL, PRIMARY KEY(`thread_id`, `plugin_id`), FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade )",
         "table|thread_pruning_cursors|thread_pruning_cursors|CREATE TABLE `thread_pruning_cursors` ( `policy` text NOT NULL, `scope` text DEFAULT '' NOT NULL, `thread_id` text, `version` integer NOT NULL, `last_thread_id` text DEFAULT '' NOT NULL, `current_thread_id` text, `step` integer DEFAULT 0 NOT NULL, `sequence` integer DEFAULT 0 NOT NULL, `upper_sequence` integer DEFAULT 0 NOT NULL, `cycle` integer DEFAULT 0 NOT NULL, `latest_root_sequence` integer DEFAULT 0 NOT NULL, `latest_context_sequence` integer DEFAULT 0 NOT NULL, `probe_event_id` text, `probe_phase` integer DEFAULT 0 NOT NULL, `probe_sequence` integer DEFAULT 0 NOT NULL, `probe_witness_id` text, `updated_at` integer NOT NULL, `work_revision` integer DEFAULT 0 NOT NULL, PRIMARY KEY(`policy`, `scope`), FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade, CONSTRAINT \"thread_pruning_cursors_scope_check\" CHECK(\"thread_pruning_cursors\".\"scope\" = coalesce(\"thread_pruning_cursors\".\"thread_id\", '')) )",
         "table|thread_pruning_work|thread_pruning_work|CREATE TABLE `thread_pruning_work` ( `policy` text NOT NULL, `thread_id` text NOT NULL, `revision` integer DEFAULT 1 NOT NULL, PRIMARY KEY(`policy`, `thread_id`), FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade )",
@@ -2535,13 +2591,19 @@
       "pragmas": {
         "application_id": "0",
         "auto_vacuum": "2",
-        "foreign_key_violations": "135",
+        "foreign_key_violations": "138",
         "integrity_check": "ok",
         "user_version": "0"
       },
       "sequences": [
-        ["environment_variables", "1002"],
-        ["transfer_events", "1002"]
+        [
+          "environment_variables",
+          "1002"
+        ],
+        [
+          "transfer_events",
+          "1002"
+        ]
       ],
       "tables": {
         "aleph_install_requests": {
@@ -2579,6 +2641,10 @@
         "environments": {
           "count": 3,
           "digest": "4158d521d4d2cf26d2da28e475212634"
+        },
+        "event_cold_segments": {
+          "count": 3,
+          "digest": "969771f5b7995e595583789dff9ac7ff"
         },
         "events": {
           "count": 3,
@@ -2692,6 +2758,10 @@
           "count": 3,
           "digest": "9ef42439461125339517d11513bd527c"
         },
+        "thread_event_cold_state": {
+          "count": 3,
+          "digest": "b8823d8dbe61b5a0ac41834c822d4b81"
+        },
         "thread_plugin_metadata": {
           "count": 3,
           "digest": "f559a1a7947d92b0dbe2636e5ab4fd4e"
@@ -2758,8 +2828,8 @@
         }
       },
       "ledger": {
-        "count": 153,
-        "digest": "374bc5e537b5ed4041e5d7b950970d92"
+        "count": 154,
+        "digest": "ae0d108d190f387979777049e2a48938"
       },
       "ledgerSchema": [
         "index|sqlite_autoindex___drizzle_migrations_1|__drizzle_migrations|",
@@ -3529,6 +3599,11 @@
       },
       {
         "rowid": 153,
+        "hash": "d56565154f2317d7c67ff2d037ec59609dbc917b93b7cc2c1d9e4a2459244d4f",
+        "created_at": 1792668833813
+      },
+      {
+        "rowid": 154,
         "hash": "unknown-dev-branch-hash",
         "created_at": 1790298785171
       }
@@ -3557,6 +3632,9 @@
         "index|environments_provider_instance_idx|environments|CREATE INDEX `environments_provider_instance_idx` ON `environments` (`environment_provider_id`,`environment_provider_instance_key`)",
         "index|environments_provider_lifecycle_idx|environments|CREATE INDEX `environments_provider_lifecycle_idx` ON `environments` (`environment_provider_id`) WHERE \"environments\".\"status\" <> 'destroyed' OR \"environments\".\"teardown_status\" IS NOT 'removed'",
         "index|environments_status_idx|environments|CREATE INDEX `environments_status_idx` ON `environments` (`status`)",
+        "index|event_cold_segments_lifecycle_idx|event_cold_segments|CREATE INDEX `event_cold_segments_lifecycle_idx` ON `event_cold_segments` (`lifecycle`)",
+        "index|event_cold_segments_path_idx|event_cold_segments|CREATE UNIQUE INDEX `event_cold_segments_path_idx` ON `event_cold_segments` (`path`)",
+        "index|event_cold_segments_thread_idx|event_cold_segments|CREATE INDEX `event_cold_segments_thread_idx` ON `event_cold_segments` (`thread_id`)",
         "index|events_background_task_thread_type_item_sequence_idx|events|CREATE INDEX `events_background_task_thread_type_item_sequence_idx` ON `events` (`thread_id`,`type`,`item_id`,`sequence`) WHERE \"events\".\"item_kind\" = 'backgroundTask'",
         "index|events_completed_item_truncation_idx|events|CREATE INDEX `events_completed_item_truncation_idx` ON `events` (`item_kind`,`created_at`,`id`) WHERE `type` = 'item/completed'",
         "index|events_delegating_item_lookup_idx|events|CREATE INDEX `events_delegating_item_lookup_idx` ON `events` (`thread_id`,`item_id`,`sequence`,`item_kind`) WHERE \"events\".\"item_kind\" IN ('toolCall', 'delegation')",
@@ -3616,6 +3694,7 @@
         "index|terminal_sessions_host_status_idx|terminal_sessions|CREATE INDEX `terminal_sessions_host_status_idx` ON `terminal_sessions` (`host_id`,`status`)",
         "index|terminal_sessions_thread_status_updated_idx|terminal_sessions|CREATE INDEX `terminal_sessions_thread_status_updated_idx` ON `terminal_sessions` (`thread_id`,`status`,`updated_at`)",
         "index|thread_dynamic_context_file_states_thread_file_idx|thread_dynamic_context_file_states|CREATE UNIQUE INDEX `thread_dynamic_context_file_states_thread_file_idx` ON `thread_dynamic_context_file_states` (`thread_id`,`file_key`)",
+        "index|thread_event_cold_state_state_idx|thread_event_cold_state|CREATE INDEX `thread_event_cold_state_state_idx` ON `thread_event_cold_state` (`state`)",
         "index|thread_pruning_cursors_thread_idx|thread_pruning_cursors|CREATE INDEX `thread_pruning_cursors_thread_idx` ON `thread_pruning_cursors` (`thread_id`)",
         "index|thread_pruning_work_thread_idx|thread_pruning_work|CREATE INDEX `thread_pruning_work_thread_idx` ON `thread_pruning_work` (`thread_id`)",
         "index|thread_search_learned_selections_query_idx|thread_search_learned_selections|CREATE INDEX `thread_search_learned_selections_query_idx` ON `thread_search_learned_selections` (`query_text`)",
@@ -3648,6 +3727,7 @@
         "table|environment_hook_operations|environment_hook_operations|CREATE TABLE `environment_hook_operations` ( `id` text PRIMARY KEY NOT NULL, `operation_id` text NOT NULL, `host_id` text NOT NULL, `path` text NOT NULL, `kind` text NOT NULL, `started_at` integer NOT NULL, `finished_at` integer, `error` text )",
         "table|environment_variables|environment_variables|CREATE TABLE `environment_variables` ( `id` integer PRIMARY KEY AUTOINCREMENT NOT NULL, `project_id` text, `name` text NOT NULL, `ciphertext` text NOT NULL, `encryption_version` integer NOT NULL, `note` text, `updated_at` integer NOT NULL, FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade )",
         "table|environments|environments|CREATE TABLE `environments` ( `id` text PRIMARY KEY NOT NULL, `project_id` text NOT NULL, `host_id` text NOT NULL, `path` text, `is_git_repo` integer DEFAULT false NOT NULL, `is_worktree` integer DEFAULT false NOT NULL, `branch_name` text, `base_branch` text, `default_branch` text, `merge_base_branch` text, `status` text DEFAULT 'provisioning' NOT NULL, `created_at` integer NOT NULL, `updated_at` integer NOT NULL, `name` text, `environment_provider_id` text, `environment_provider_plugin_id` text, `provider_owns_path` integer DEFAULT false NOT NULL, `environment_provider_selection` text, `environment_provider_instance_key` text, `retire_at` integer, `teardown_attempt` integer DEFAULT 0 NOT NULL, `teardown_status` text, `teardown_message` text, `resource` text, `owner_thread_id` text, `attempt` integer DEFAULT 0 NOT NULL, `status_message` text, `pending_log` text DEFAULT '' NOT NULL, `claim_path` text, FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade, FOREIGN KEY (`host_id`) REFERENCES `hosts`(`id`) ON UPDATE no action ON DELETE cascade )",
+        "table|event_cold_segments|event_cold_segments|CREATE TABLE `event_cold_segments` ( `segment_id` text PRIMARY KEY NOT NULL, `thread_id` text NOT NULL, `lifecycle` text NOT NULL, `path` text NOT NULL, `first_sequence` integer NOT NULL, `last_sequence` integer NOT NULL, `row_count` integer NOT NULL, `event_ids_sha256` text NOT NULL, `body_sha256` text NOT NULL, `file_sha256` text NOT NULL, `file_bytes` integer NOT NULL, `header_bytes` integer NOT NULL, `decompressed_bytes` integer NOT NULL, `format_version` integer NOT NULL, `transform_versions` text NOT NULL, `created_at` integer NOT NULL, `ended_at` integer )",
         "table|events|events|CREATE TABLE \"events\" ( `id` text PRIMARY KEY NOT NULL, `thread_id` text NOT NULL, `environment_id` text, `scope_kind` text NOT NULL, `turn_id` text, `provider_thread_id` text, `sequence` integer NOT NULL, `type` text NOT NULL, `item_id` text, `item_kind` text, `data` text DEFAULT '{}' NOT NULL, `created_at` integer NOT NULL, `parent_tool_call_id` text, FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade, FOREIGN KEY (`environment_id`) REFERENCES `environments`(`id`) ON UPDATE no action ON DELETE set null, CONSTRAINT `events_scope_shape_check` CHECK ( ( (`scope_kind` = 'turn' AND `turn_id` IS NOT NULL) OR (`scope_kind` = 'thread' AND `turn_id` IS NULL) ) ) )",
         "table|host_daemon_sessions|host_daemon_sessions|CREATE TABLE `host_daemon_sessions` ( `id` text PRIMARY KEY NOT NULL, `host_id` text NOT NULL, `instance_id` text NOT NULL, `host_name` text NOT NULL, `data_dir` text NOT NULL, `protocol_version` integer NOT NULL, `heartbeat_interval_ms` integer NOT NULL, `lease_timeout_ms` integer NOT NULL, `status` text NOT NULL, `lease_expires_at` integer NOT NULL, `closed_at` integer, `close_reason` text, `created_at` integer NOT NULL, `updated_at` integer NOT NULL, FOREIGN KEY (`host_id`) REFERENCES `hosts`(`id`) ON UPDATE no action ON DELETE cascade )",
         "table|hosts|hosts|CREATE TABLE `hosts` ( `id` text PRIMARY KEY NOT NULL, `name` text NOT NULL, `type` text NOT NULL, `destroyed_at` integer, `last_seen_at` integer, `created_at` integer NOT NULL, `updated_at` integer NOT NULL , `last_rejected_protocol_version` integer, \"connect_machine_id\" text, `max_permission_mode` text DEFAULT 'full' NOT NULL, `machine_provider_id` text, `launch_key` text, `machine_inputs` text, `machine_attempt` integer DEFAULT 0 NOT NULL, `pending_log` text DEFAULT '' NOT NULL, `machine_operation_id` text, `server_access_provider_id` text, `server_access_grant_id` text, `resource` text, `phase` text DEFAULT 'active' NOT NULL, `suspended_at` integer, `status_message` text, `suspend_retry_at` integer, `remove_retry_at` integer, `teardown_attempt` integer DEFAULT 0 NOT NULL, `teardown_status` text)",
@@ -3676,6 +3756,7 @@
         "table|terminal_sessions|terminal_sessions|CREATE TABLE \"terminal_sessions\" ( `id` text PRIMARY KEY NOT NULL, `thread_id` text, `environment_id` text, `host_id` text NOT NULL, `daemon_session_id` text, `title` text NOT NULL, `initial_cwd` text NOT NULL, `cols` integer NOT NULL, `rows` integer NOT NULL, `status` text NOT NULL, `exit_code` integer, `close_reason` text, `created_at` integer NOT NULL, `updated_at` integer NOT NULL, `last_user_input_at` integer, FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade, FOREIGN KEY (`environment_id`) REFERENCES `environments`(`id`) ON UPDATE no action ON DELETE cascade, FOREIGN KEY (`host_id`) REFERENCES `hosts`(`id`) ON UPDATE no action ON DELETE cascade, FOREIGN KEY (`daemon_session_id`) REFERENCES `host_daemon_sessions`(`id`) ON UPDATE no action ON DELETE set null )",
         "table|thread_conversation_outlines|thread_conversation_outlines|CREATE TABLE `thread_conversation_outlines` ( `thread_id` text PRIMARY KEY NOT NULL, `projection_key` text NOT NULL, `items_json` text NOT NULL, FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade )",
         "table|thread_dynamic_context_file_states|thread_dynamic_context_file_states|CREATE TABLE `thread_dynamic_context_file_states` ( `thread_id` text NOT NULL, `file_key` text NOT NULL, `content_status` text NOT NULL, `content_hash` text NOT NULL, `shown_at` integer NOT NULL, `created_at` integer NOT NULL, `updated_at` integer NOT NULL, FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade )",
+        "table|thread_event_cold_state|thread_event_cold_state|CREATE TABLE `thread_event_cold_state` ( `thread_id` text PRIMARY KEY NOT NULL, `state` text NOT NULL, `live_segment_id` text, `last_rehydrated_at` integer, FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade, CONSTRAINT \"thread_event_cold_state_shape_check\" CHECK(( (\"thread_event_cold_state\".\"state\" = 'cold' AND \"thread_event_cold_state\".\"live_segment_id\" IS NOT NULL) OR (\"thread_event_cold_state\".\"state\" = 'hot' AND \"thread_event_cold_state\".\"live_segment_id\" IS NULL) )) )",
         "table|thread_plugin_metadata|thread_plugin_metadata|CREATE TABLE `thread_plugin_metadata` ( `thread_id` text NOT NULL, `plugin_id` text NOT NULL, `metadata_json` text NOT NULL, PRIMARY KEY(`thread_id`, `plugin_id`), FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade )",
         "table|thread_pruning_cursors|thread_pruning_cursors|CREATE TABLE `thread_pruning_cursors` ( `policy` text NOT NULL, `scope` text DEFAULT '' NOT NULL, `thread_id` text, `version` integer NOT NULL, `last_thread_id` text DEFAULT '' NOT NULL, `current_thread_id` text, `step` integer DEFAULT 0 NOT NULL, `sequence` integer DEFAULT 0 NOT NULL, `upper_sequence` integer DEFAULT 0 NOT NULL, `cycle` integer DEFAULT 0 NOT NULL, `latest_root_sequence` integer DEFAULT 0 NOT NULL, `latest_context_sequence` integer DEFAULT 0 NOT NULL, `probe_event_id` text, `probe_phase` integer DEFAULT 0 NOT NULL, `probe_sequence` integer DEFAULT 0 NOT NULL, `probe_witness_id` text, `updated_at` integer NOT NULL, `work_revision` integer DEFAULT 0 NOT NULL, PRIMARY KEY(`policy`, `scope`), FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade, CONSTRAINT \"thread_pruning_cursors_scope_check\" CHECK(\"thread_pruning_cursors\".\"scope\" = coalesce(\"thread_pruning_cursors\".\"thread_id\", '')) )",
         "table|thread_pruning_work|thread_pruning_work|CREATE TABLE `thread_pruning_work` ( `policy` text NOT NULL, `thread_id` text NOT NULL, `revision` integer DEFAULT 1 NOT NULL, PRIMARY KEY(`policy`, `thread_id`), FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade )",
@@ -3715,13 +3796,19 @@
       "pragmas": {
         "application_id": "0",
         "auto_vacuum": "2",
-        "foreign_key_violations": "135",
+        "foreign_key_violations": "138",
         "integrity_check": "ok",
         "user_version": "0"
       },
       "sequences": [
-        ["environment_variables", "1002"],
-        ["transfer_events", "1002"]
+        [
+          "environment_variables",
+          "1002"
+        ],
+        [
+          "transfer_events",
+          "1002"
+        ]
       ],
       "tables": {
         "aleph_install_requests": {
@@ -3759,6 +3846,10 @@
         "environments": {
           "count": 3,
           "digest": "4158d521d4d2cf26d2da28e475212634"
+        },
+        "event_cold_segments": {
+          "count": 3,
+          "digest": "969771f5b7995e595583789dff9ac7ff"
         },
         "events": {
           "count": 3,
@@ -3872,6 +3963,10 @@
           "count": 3,
           "digest": "9ef42439461125339517d11513bd527c"
         },
+        "thread_event_cold_state": {
+          "count": 3,
+          "digest": "b8823d8dbe61b5a0ac41834c822d4b81"
+        },
         "thread_plugin_metadata": {
           "count": 3,
           "digest": "f559a1a7947d92b0dbe2636e5ab4fd4e"
@@ -3938,8 +4033,8 @@
         }
       },
       "ledger": {
-        "count": 156,
-        "digest": "72c40618bae5160fb659390891b5d5da"
+        "count": 157,
+        "digest": "31bee713a0621ba8332e982517d312cd"
       },
       "ledgerSchema": [
         "index|sqlite_autoindex___drizzle_migrations_1|__drizzle_migrations|",
@@ -4709,21 +4804,26 @@
       },
       {
         "rowid": 153,
+        "hash": "d56565154f2317d7c67ff2d037ec59609dbc917b93b7cc2c1d9e4a2459244d4f",
+        "created_at": null
+      },
+      {
+        "rowid": 154,
         "hash": "13e38883e758cf412c1abcdaa5674935fdcbb2871a90444c92e573d667a174ea",
         "created_at": 1780687798957
       },
       {
-        "rowid": 154,
+        "rowid": 155,
         "hash": "ad30180db07c6834b5427e499a367f29df316cea064dda7d921d40b656593ee7",
         "created_at": 1780692763264
       },
       {
-        "rowid": 155,
+        "rowid": 156,
         "hash": "d486b030fcfdbfa6a9a75ebb3b000cf5fc2ed07601422edcc5aff54b797c733d",
         "created_at": 1780718665310
       },
       {
-        "rowid": 156,
+        "rowid": 157,
         "hash": "6f911713459414248e4ff5559984bb2d4c21b465ea80875907cd3e554c8f9382",
         "created_at": 1780719536955
       }
@@ -4888,7 +4988,12 @@
         "integrity_check": "ok",
         "user_version": "0"
       },
-      "sequences": [["environment_variables", "1002"]],
+      "sequences": [
+        [
+          "environment_variables",
+          "1002"
+        ]
+      ],
       "tables": {
         "apikey": {
           "count": 3,
@@ -5830,6 +5935,9 @@
         "index|environments_provider_instance_idx|environments|CREATE INDEX `environments_provider_instance_idx` ON `environments` (`environment_provider_id`,`environment_provider_instance_key`)",
         "index|environments_provider_lifecycle_idx|environments|CREATE INDEX `environments_provider_lifecycle_idx` ON `environments` (`environment_provider_id`) WHERE \"environments\".\"status\" <> 'destroyed' OR \"environments\".\"teardown_status\" IS NOT 'removed'",
         "index|environments_status_idx|environments|CREATE INDEX `environments_status_idx` ON `environments` (`status`)",
+        "index|event_cold_segments_lifecycle_idx|event_cold_segments|CREATE INDEX `event_cold_segments_lifecycle_idx` ON `event_cold_segments` (`lifecycle`)",
+        "index|event_cold_segments_path_idx|event_cold_segments|CREATE UNIQUE INDEX `event_cold_segments_path_idx` ON `event_cold_segments` (`path`)",
+        "index|event_cold_segments_thread_idx|event_cold_segments|CREATE INDEX `event_cold_segments_thread_idx` ON `event_cold_segments` (`thread_id`)",
         "index|events_background_task_thread_type_item_sequence_idx|events|CREATE INDEX `events_background_task_thread_type_item_sequence_idx` ON `events` (`thread_id`,`type`,`item_id`,`sequence`) WHERE \"events\".\"item_kind\" = 'backgroundTask'",
         "index|events_completed_item_truncation_idx|events|CREATE INDEX `events_completed_item_truncation_idx` ON `events` (`item_kind`,`created_at`,`id`) WHERE `type` = 'item/completed'",
         "index|events_delegating_item_lookup_idx|events|CREATE INDEX `events_delegating_item_lookup_idx` ON `events` (`thread_id`,`item_id`,`sequence`,`item_kind`) WHERE \"events\".\"item_kind\" IN ('toolCall', 'delegation')",
@@ -5889,6 +5997,7 @@
         "index|terminal_sessions_host_status_idx|terminal_sessions|CREATE INDEX `terminal_sessions_host_status_idx` ON `terminal_sessions` (`host_id`,`status`)",
         "index|terminal_sessions_thread_status_updated_idx|terminal_sessions|CREATE INDEX `terminal_sessions_thread_status_updated_idx` ON `terminal_sessions` (`thread_id`,`status`,`updated_at`)",
         "index|thread_dynamic_context_file_states_thread_file_idx|thread_dynamic_context_file_states|CREATE UNIQUE INDEX `thread_dynamic_context_file_states_thread_file_idx` ON `thread_dynamic_context_file_states` (`thread_id`,`file_key`)",
+        "index|thread_event_cold_state_state_idx|thread_event_cold_state|CREATE INDEX `thread_event_cold_state_state_idx` ON `thread_event_cold_state` (`state`)",
         "index|thread_pruning_cursors_thread_idx|thread_pruning_cursors|CREATE INDEX `thread_pruning_cursors_thread_idx` ON `thread_pruning_cursors` (`thread_id`)",
         "index|thread_pruning_work_thread_idx|thread_pruning_work|CREATE INDEX `thread_pruning_work_thread_idx` ON `thread_pruning_work` (`thread_id`)",
         "index|thread_search_learned_selections_query_idx|thread_search_learned_selections|CREATE INDEX `thread_search_learned_selections_query_idx` ON `thread_search_learned_selections` (`query_text`)",
@@ -5921,6 +6030,7 @@
         "table|environment_hook_operations|environment_hook_operations|CREATE TABLE `environment_hook_operations` ( `id` text PRIMARY KEY NOT NULL, `operation_id` text NOT NULL, `host_id` text NOT NULL, `path` text NOT NULL, `kind` text NOT NULL, `started_at` integer NOT NULL, `finished_at` integer, `error` text )",
         "table|environment_variables|environment_variables|CREATE TABLE `environment_variables` ( `id` integer PRIMARY KEY AUTOINCREMENT NOT NULL, `project_id` text, `name` text NOT NULL, `ciphertext` text NOT NULL, `encryption_version` integer NOT NULL, `note` text, `updated_at` integer NOT NULL, FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade )",
         "table|environments|environments|CREATE TABLE `environments` ( `id` text PRIMARY KEY NOT NULL, `project_id` text NOT NULL, `host_id` text NOT NULL, `path` text, `is_git_repo` integer DEFAULT false NOT NULL, `is_worktree` integer DEFAULT false NOT NULL, `branch_name` text, `base_branch` text, `default_branch` text, `merge_base_branch` text, `status` text DEFAULT 'provisioning' NOT NULL, `created_at` integer NOT NULL, `updated_at` integer NOT NULL, `name` text, `environment_provider_id` text, `environment_provider_plugin_id` text, `provider_owns_path` integer DEFAULT false NOT NULL, `environment_provider_selection` text, `environment_provider_instance_key` text, `retire_at` integer, `teardown_attempt` integer DEFAULT 0 NOT NULL, `teardown_status` text, `teardown_message` text, `resource` text, `owner_thread_id` text, `attempt` integer DEFAULT 0 NOT NULL, `status_message` text, `pending_log` text DEFAULT '' NOT NULL, `claim_path` text, FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade, FOREIGN KEY (`host_id`) REFERENCES `hosts`(`id`) ON UPDATE no action ON DELETE cascade )",
+        "table|event_cold_segments|event_cold_segments|CREATE TABLE `event_cold_segments` ( `segment_id` text PRIMARY KEY NOT NULL, `thread_id` text NOT NULL, `lifecycle` text NOT NULL, `path` text NOT NULL, `first_sequence` integer NOT NULL, `last_sequence` integer NOT NULL, `row_count` integer NOT NULL, `event_ids_sha256` text NOT NULL, `body_sha256` text NOT NULL, `file_sha256` text NOT NULL, `file_bytes` integer NOT NULL, `header_bytes` integer NOT NULL, `decompressed_bytes` integer NOT NULL, `format_version` integer NOT NULL, `transform_versions` text NOT NULL, `created_at` integer NOT NULL, `ended_at` integer )",
         "table|events|events|CREATE TABLE \"events\" ( `id` text PRIMARY KEY NOT NULL, `thread_id` text NOT NULL, `environment_id` text, `scope_kind` text NOT NULL, `turn_id` text, `provider_thread_id` text, `sequence` integer NOT NULL, `type` text NOT NULL, `item_id` text, `item_kind` text, `data` text DEFAULT '{}' NOT NULL, `created_at` integer NOT NULL, `parent_tool_call_id` text, FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade, FOREIGN KEY (`environment_id`) REFERENCES `environments`(`id`) ON UPDATE no action ON DELETE set null, CONSTRAINT `events_scope_shape_check` CHECK ( ( (`scope_kind` = 'turn' AND `turn_id` IS NOT NULL) OR (`scope_kind` = 'thread' AND `turn_id` IS NULL) ) ) )",
         "table|host_daemon_sessions|host_daemon_sessions|CREATE TABLE `host_daemon_sessions` ( `id` text PRIMARY KEY NOT NULL, `host_id` text NOT NULL, `instance_id` text NOT NULL, `host_name` text NOT NULL, `data_dir` text NOT NULL, `protocol_version` integer NOT NULL, `heartbeat_interval_ms` integer NOT NULL, `lease_timeout_ms` integer NOT NULL, `status` text NOT NULL, `lease_expires_at` integer NOT NULL, `closed_at` integer, `close_reason` text, `created_at` integer NOT NULL, `updated_at` integer NOT NULL, FOREIGN KEY (`host_id`) REFERENCES `hosts`(`id`) ON UPDATE no action ON DELETE cascade )",
         "table|hosts|hosts|CREATE TABLE `hosts` ( `id` text PRIMARY KEY NOT NULL, `name` text NOT NULL, `type` text NOT NULL, `destroyed_at` integer, `last_seen_at` integer, `created_at` integer NOT NULL, `updated_at` integer NOT NULL , `last_rejected_protocol_version` integer, `connect_machine_id` text, `max_permission_mode` text DEFAULT 'full' NOT NULL, `machine_provider_id` text, `launch_key` text, `machine_inputs` text, `machine_attempt` integer DEFAULT 0 NOT NULL, `pending_log` text DEFAULT '' NOT NULL, `machine_operation_id` text, `server_access_provider_id` text, `server_access_grant_id` text, `resource` text, `phase` text DEFAULT 'active' NOT NULL, `suspended_at` integer, `status_message` text, `suspend_retry_at` integer, `remove_retry_at` integer, `teardown_attempt` integer DEFAULT 0 NOT NULL, `teardown_status` text)",
@@ -5949,6 +6059,7 @@
         "table|terminal_sessions|terminal_sessions|CREATE TABLE \"terminal_sessions\" ( `id` text PRIMARY KEY NOT NULL, `thread_id` text, `environment_id` text, `host_id` text NOT NULL, `daemon_session_id` text, `title` text NOT NULL, `initial_cwd` text NOT NULL, `cols` integer NOT NULL, `rows` integer NOT NULL, `status` text NOT NULL, `exit_code` integer, `close_reason` text, `created_at` integer NOT NULL, `updated_at` integer NOT NULL, `last_user_input_at` integer, FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade, FOREIGN KEY (`environment_id`) REFERENCES `environments`(`id`) ON UPDATE no action ON DELETE cascade, FOREIGN KEY (`host_id`) REFERENCES `hosts`(`id`) ON UPDATE no action ON DELETE cascade, FOREIGN KEY (`daemon_session_id`) REFERENCES `host_daemon_sessions`(`id`) ON UPDATE no action ON DELETE set null )",
         "table|thread_conversation_outlines|thread_conversation_outlines|CREATE TABLE `thread_conversation_outlines` ( `thread_id` text PRIMARY KEY NOT NULL, `projection_key` text NOT NULL, `items_json` text NOT NULL, FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade )",
         "table|thread_dynamic_context_file_states|thread_dynamic_context_file_states|CREATE TABLE `thread_dynamic_context_file_states` ( `thread_id` text NOT NULL, `file_key` text NOT NULL, `content_status` text NOT NULL, `content_hash` text NOT NULL, `shown_at` integer NOT NULL, `created_at` integer NOT NULL, `updated_at` integer NOT NULL, FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade )",
+        "table|thread_event_cold_state|thread_event_cold_state|CREATE TABLE `thread_event_cold_state` ( `thread_id` text PRIMARY KEY NOT NULL, `state` text NOT NULL, `live_segment_id` text, `last_rehydrated_at` integer, FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade, CONSTRAINT \"thread_event_cold_state_shape_check\" CHECK(( (\"thread_event_cold_state\".\"state\" = 'cold' AND \"thread_event_cold_state\".\"live_segment_id\" IS NOT NULL) OR (\"thread_event_cold_state\".\"state\" = 'hot' AND \"thread_event_cold_state\".\"live_segment_id\" IS NULL) )) )",
         "table|thread_plugin_metadata|thread_plugin_metadata|CREATE TABLE `thread_plugin_metadata` ( `thread_id` text NOT NULL, `plugin_id` text NOT NULL, `metadata_json` text NOT NULL, PRIMARY KEY(`thread_id`, `plugin_id`), FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade )",
         "table|thread_pruning_cursors|thread_pruning_cursors|CREATE TABLE `thread_pruning_cursors` ( `policy` text NOT NULL, `scope` text DEFAULT '' NOT NULL, `thread_id` text, `version` integer NOT NULL, `last_thread_id` text DEFAULT '' NOT NULL, `current_thread_id` text, `step` integer DEFAULT 0 NOT NULL, `sequence` integer DEFAULT 0 NOT NULL, `upper_sequence` integer DEFAULT 0 NOT NULL, `cycle` integer DEFAULT 0 NOT NULL, `latest_root_sequence` integer DEFAULT 0 NOT NULL, `latest_context_sequence` integer DEFAULT 0 NOT NULL, `probe_event_id` text, `probe_phase` integer DEFAULT 0 NOT NULL, `probe_sequence` integer DEFAULT 0 NOT NULL, `probe_witness_id` text, `updated_at` integer NOT NULL, `work_revision` integer DEFAULT 0 NOT NULL, PRIMARY KEY(`policy`, `scope`), FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade, CONSTRAINT \"thread_pruning_cursors_scope_check\" CHECK(\"thread_pruning_cursors\".\"scope\" = coalesce(\"thread_pruning_cursors\".\"thread_id\", '')) )",
         "table|thread_pruning_work|thread_pruning_work|CREATE TABLE `thread_pruning_work` ( `policy` text NOT NULL, `thread_id` text NOT NULL, `revision` integer DEFAULT 1 NOT NULL, PRIMARY KEY(`policy`, `thread_id`), FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade )",
@@ -5988,13 +6099,19 @@
       "pragmas": {
         "application_id": "0",
         "auto_vacuum": "2",
-        "foreign_key_violations": "135",
+        "foreign_key_violations": "138",
         "integrity_check": "ok",
         "user_version": "0"
       },
       "sequences": [
-        ["environment_variables", "1002"],
-        ["transfer_events", "1002"]
+        [
+          "environment_variables",
+          "1002"
+        ],
+        [
+          "transfer_events",
+          "1002"
+        ]
       ],
       "tables": {
         "aleph_install_requests": {
@@ -6032,6 +6149,10 @@
         "environments": {
           "count": 3,
           "digest": "4158d521d4d2cf26d2da28e475212634"
+        },
+        "event_cold_segments": {
+          "count": 3,
+          "digest": "969771f5b7995e595583789dff9ac7ff"
         },
         "events": {
           "count": 3,
@@ -6145,6 +6266,10 @@
           "count": 3,
           "digest": "9ef42439461125339517d11513bd527c"
         },
+        "thread_event_cold_state": {
+          "count": 3,
+          "digest": "b8823d8dbe61b5a0ac41834c822d4b81"
+        },
         "thread_plugin_metadata": {
           "count": 3,
           "digest": "f559a1a7947d92b0dbe2636e5ab4fd4e"
@@ -6211,8 +6336,8 @@
         }
       },
       "ledger": {
-        "count": 153,
-        "digest": "4e0babaec0395079f2bfe1bfe4f1705f"
+        "count": 154,
+        "digest": "4943dd9401d81cf08aecf847a7797b7d"
       },
       "ledgerSchema": [
         "index|sqlite_autoindex___drizzle_migrations_1|__drizzle_migrations|",
@@ -6982,7 +7107,12 @@
       },
       {
         "rowid": 153,
-        "hash": "2dd8b8a614e5f06a67bc89738d177b6dbe4be84de3604e884ad49dd5f7cafa61",
+        "hash": "d56565154f2317d7c67ff2d037ec59609dbc917b93b7cc2c1d9e4a2459244d4f",
+        "created_at": 1792668833813
+      },
+      {
+        "rowid": 154,
+        "hash": "956790b1d94c23ac41f229685cad7a01db9faac5d1f7bc1161ae5232be794428",
         "created_at": null
       }
     ],
@@ -7010,6 +7140,9 @@
         "index|environments_provider_instance_idx|environments|CREATE INDEX `environments_provider_instance_idx` ON `environments` (`environment_provider_id`,`environment_provider_instance_key`)",
         "index|environments_provider_lifecycle_idx|environments|CREATE INDEX `environments_provider_lifecycle_idx` ON `environments` (`environment_provider_id`) WHERE \"environments\".\"status\" <> 'destroyed' OR \"environments\".\"teardown_status\" IS NOT 'removed'",
         "index|environments_status_idx|environments|CREATE INDEX `environments_status_idx` ON `environments` (`status`)",
+        "index|event_cold_segments_lifecycle_idx|event_cold_segments|CREATE INDEX `event_cold_segments_lifecycle_idx` ON `event_cold_segments` (`lifecycle`)",
+        "index|event_cold_segments_path_idx|event_cold_segments|CREATE UNIQUE INDEX `event_cold_segments_path_idx` ON `event_cold_segments` (`path`)",
+        "index|event_cold_segments_thread_idx|event_cold_segments|CREATE INDEX `event_cold_segments_thread_idx` ON `event_cold_segments` (`thread_id`)",
         "index|events_background_task_thread_type_item_sequence_idx|events|CREATE INDEX `events_background_task_thread_type_item_sequence_idx` ON `events` (`thread_id`,`type`,`item_id`,`sequence`) WHERE \"events\".\"item_kind\" = 'backgroundTask'",
         "index|events_completed_item_truncation_idx|events|CREATE INDEX `events_completed_item_truncation_idx` ON `events` (`item_kind`,`created_at`,`id`) WHERE `type` = 'item/completed'",
         "index|events_delegating_item_lookup_idx|events|CREATE INDEX `events_delegating_item_lookup_idx` ON `events` (`thread_id`,`item_id`,`sequence`,`item_kind`) WHERE \"events\".\"item_kind\" IN ('toolCall', 'delegation')",
@@ -7069,6 +7202,7 @@
         "index|terminal_sessions_host_status_idx|terminal_sessions|CREATE INDEX `terminal_sessions_host_status_idx` ON `terminal_sessions` (`host_id`,`status`)",
         "index|terminal_sessions_thread_status_updated_idx|terminal_sessions|CREATE INDEX `terminal_sessions_thread_status_updated_idx` ON `terminal_sessions` (`thread_id`,`status`,`updated_at`)",
         "index|thread_dynamic_context_file_states_thread_file_idx|thread_dynamic_context_file_states|CREATE UNIQUE INDEX `thread_dynamic_context_file_states_thread_file_idx` ON `thread_dynamic_context_file_states` (`thread_id`,`file_key`)",
+        "index|thread_event_cold_state_state_idx|thread_event_cold_state|CREATE INDEX `thread_event_cold_state_state_idx` ON `thread_event_cold_state` (`state`)",
         "index|thread_pruning_cursors_thread_idx|thread_pruning_cursors|CREATE INDEX `thread_pruning_cursors_thread_idx` ON `thread_pruning_cursors` (`thread_id`)",
         "index|thread_pruning_work_thread_idx|thread_pruning_work|CREATE INDEX `thread_pruning_work_thread_idx` ON `thread_pruning_work` (`thread_id`)",
         "index|thread_search_learned_selections_query_idx|thread_search_learned_selections|CREATE INDEX `thread_search_learned_selections_query_idx` ON `thread_search_learned_selections` (`query_text`)",
@@ -7101,6 +7235,7 @@
         "table|environment_hook_operations|environment_hook_operations|CREATE TABLE `environment_hook_operations` ( `id` text PRIMARY KEY NOT NULL, `operation_id` text NOT NULL, `host_id` text NOT NULL, `path` text NOT NULL, `kind` text NOT NULL, `started_at` integer NOT NULL, `finished_at` integer, `error` text )",
         "table|environment_variables|environment_variables|CREATE TABLE `environment_variables` ( `id` integer PRIMARY KEY AUTOINCREMENT NOT NULL, `project_id` text, `name` text NOT NULL, `ciphertext` text NOT NULL, `encryption_version` integer NOT NULL, `note` text, `updated_at` integer NOT NULL, FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade )",
         "table|environments|environments|CREATE TABLE `environments` ( `id` text PRIMARY KEY NOT NULL, `project_id` text NOT NULL, `host_id` text NOT NULL, `path` text, `is_git_repo` integer DEFAULT false NOT NULL, `is_worktree` integer DEFAULT false NOT NULL, `branch_name` text, `base_branch` text, `default_branch` text, `merge_base_branch` text, `status` text DEFAULT 'provisioning' NOT NULL, `created_at` integer NOT NULL, `updated_at` integer NOT NULL, `name` text, `environment_provider_id` text, `environment_provider_plugin_id` text, `provider_owns_path` integer DEFAULT false NOT NULL, `environment_provider_selection` text, `environment_provider_instance_key` text, `retire_at` integer, `teardown_attempt` integer DEFAULT 0 NOT NULL, `teardown_status` text, `teardown_message` text, `resource` text, `owner_thread_id` text, `attempt` integer DEFAULT 0 NOT NULL, `status_message` text, `pending_log` text DEFAULT '' NOT NULL, `claim_path` text, FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade, FOREIGN KEY (`host_id`) REFERENCES `hosts`(`id`) ON UPDATE no action ON DELETE cascade )",
+        "table|event_cold_segments|event_cold_segments|CREATE TABLE `event_cold_segments` ( `segment_id` text PRIMARY KEY NOT NULL, `thread_id` text NOT NULL, `lifecycle` text NOT NULL, `path` text NOT NULL, `first_sequence` integer NOT NULL, `last_sequence` integer NOT NULL, `row_count` integer NOT NULL, `event_ids_sha256` text NOT NULL, `body_sha256` text NOT NULL, `file_sha256` text NOT NULL, `file_bytes` integer NOT NULL, `header_bytes` integer NOT NULL, `decompressed_bytes` integer NOT NULL, `format_version` integer NOT NULL, `transform_versions` text NOT NULL, `created_at` integer NOT NULL, `ended_at` integer )",
         "table|events|events|CREATE TABLE \"events\" ( `id` text PRIMARY KEY NOT NULL, `thread_id` text NOT NULL, `environment_id` text, `scope_kind` text NOT NULL, `turn_id` text, `provider_thread_id` text, `sequence` integer NOT NULL, `type` text NOT NULL, `item_id` text, `item_kind` text, `data` text DEFAULT '{}' NOT NULL, `created_at` integer NOT NULL, `parent_tool_call_id` text, FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade, FOREIGN KEY (`environment_id`) REFERENCES `environments`(`id`) ON UPDATE no action ON DELETE set null, CONSTRAINT `events_scope_shape_check` CHECK ( ( (`scope_kind` = 'turn' AND `turn_id` IS NOT NULL) OR (`scope_kind` = 'thread' AND `turn_id` IS NULL) ) ) )",
         "table|host_daemon_sessions|host_daemon_sessions|CREATE TABLE `host_daemon_sessions` ( `id` text PRIMARY KEY NOT NULL, `host_id` text NOT NULL, `instance_id` text NOT NULL, `host_name` text NOT NULL, `data_dir` text NOT NULL, `protocol_version` integer NOT NULL, `heartbeat_interval_ms` integer NOT NULL, `lease_timeout_ms` integer NOT NULL, `status` text NOT NULL, `lease_expires_at` integer NOT NULL, `closed_at` integer, `close_reason` text, `created_at` integer NOT NULL, `updated_at` integer NOT NULL, FOREIGN KEY (`host_id`) REFERENCES `hosts`(`id`) ON UPDATE no action ON DELETE cascade )",
         "table|hosts|hosts|CREATE TABLE `hosts` ( `id` text PRIMARY KEY NOT NULL, `name` text NOT NULL, `type` text NOT NULL, `destroyed_at` integer, `last_seen_at` integer, `created_at` integer NOT NULL, `updated_at` integer NOT NULL , `last_rejected_protocol_version` integer, `connect_machine_id` text, `max_permission_mode` text DEFAULT 'full' NOT NULL, `machine_provider_id` text, `launch_key` text, `machine_inputs` text, `machine_attempt` integer DEFAULT 0 NOT NULL, `pending_log` text DEFAULT '' NOT NULL, `machine_operation_id` text, `server_access_provider_id` text, `server_access_grant_id` text, `resource` text, `phase` text DEFAULT 'active' NOT NULL, `suspended_at` integer, `status_message` text, `suspend_retry_at` integer, `remove_retry_at` integer, `teardown_attempt` integer DEFAULT 0 NOT NULL, `teardown_status` text)",
@@ -7129,6 +7264,7 @@
         "table|terminal_sessions|terminal_sessions|CREATE TABLE \"terminal_sessions\" ( `id` text PRIMARY KEY NOT NULL, `thread_id` text, `environment_id` text, `host_id` text NOT NULL, `daemon_session_id` text, `title` text NOT NULL, `initial_cwd` text NOT NULL, `cols` integer NOT NULL, `rows` integer NOT NULL, `status` text NOT NULL, `exit_code` integer, `close_reason` text, `created_at` integer NOT NULL, `updated_at` integer NOT NULL, `last_user_input_at` integer, FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade, FOREIGN KEY (`environment_id`) REFERENCES `environments`(`id`) ON UPDATE no action ON DELETE cascade, FOREIGN KEY (`host_id`) REFERENCES `hosts`(`id`) ON UPDATE no action ON DELETE cascade, FOREIGN KEY (`daemon_session_id`) REFERENCES `host_daemon_sessions`(`id`) ON UPDATE no action ON DELETE set null )",
         "table|thread_conversation_outlines|thread_conversation_outlines|CREATE TABLE `thread_conversation_outlines` ( `thread_id` text PRIMARY KEY NOT NULL, `projection_key` text NOT NULL, `items_json` text NOT NULL, FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade )",
         "table|thread_dynamic_context_file_states|thread_dynamic_context_file_states|CREATE TABLE `thread_dynamic_context_file_states` ( `thread_id` text NOT NULL, `file_key` text NOT NULL, `content_status` text NOT NULL, `content_hash` text NOT NULL, `shown_at` integer NOT NULL, `created_at` integer NOT NULL, `updated_at` integer NOT NULL, FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade )",
+        "table|thread_event_cold_state|thread_event_cold_state|CREATE TABLE `thread_event_cold_state` ( `thread_id` text PRIMARY KEY NOT NULL, `state` text NOT NULL, `live_segment_id` text, `last_rehydrated_at` integer, FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade, CONSTRAINT \"thread_event_cold_state_shape_check\" CHECK(( (\"thread_event_cold_state\".\"state\" = 'cold' AND \"thread_event_cold_state\".\"live_segment_id\" IS NOT NULL) OR (\"thread_event_cold_state\".\"state\" = 'hot' AND \"thread_event_cold_state\".\"live_segment_id\" IS NULL) )) )",
         "table|thread_plugin_metadata|thread_plugin_metadata|CREATE TABLE `thread_plugin_metadata` ( `thread_id` text NOT NULL, `plugin_id` text NOT NULL, `metadata_json` text NOT NULL, PRIMARY KEY(`thread_id`, `plugin_id`), FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade )",
         "table|thread_pruning_cursors|thread_pruning_cursors|CREATE TABLE `thread_pruning_cursors` ( `policy` text NOT NULL, `scope` text DEFAULT '' NOT NULL, `thread_id` text, `version` integer NOT NULL, `last_thread_id` text DEFAULT '' NOT NULL, `current_thread_id` text, `step` integer DEFAULT 0 NOT NULL, `sequence` integer DEFAULT 0 NOT NULL, `upper_sequence` integer DEFAULT 0 NOT NULL, `cycle` integer DEFAULT 0 NOT NULL, `latest_root_sequence` integer DEFAULT 0 NOT NULL, `latest_context_sequence` integer DEFAULT 0 NOT NULL, `probe_event_id` text, `probe_phase` integer DEFAULT 0 NOT NULL, `probe_sequence` integer DEFAULT 0 NOT NULL, `probe_witness_id` text, `updated_at` integer NOT NULL, `work_revision` integer DEFAULT 0 NOT NULL, PRIMARY KEY(`policy`, `scope`), FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade, CONSTRAINT \"thread_pruning_cursors_scope_check\" CHECK(\"thread_pruning_cursors\".\"scope\" = coalesce(\"thread_pruning_cursors\".\"thread_id\", '')) )",
         "table|thread_pruning_work|thread_pruning_work|CREATE TABLE `thread_pruning_work` ( `policy` text NOT NULL, `thread_id` text NOT NULL, `revision` integer DEFAULT 1 NOT NULL, PRIMARY KEY(`policy`, `thread_id`), FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade )",
@@ -7173,8 +7309,14 @@
         "user_version": "0"
       },
       "sequences": [
-        ["environment_variables", "1002"],
-        ["transfer_events", "1002"]
+        [
+          "environment_variables",
+          "1002"
+        ],
+        [
+          "transfer_events",
+          "1002"
+        ]
       ],
       "tables": {
         "aleph_install_requests": {
@@ -7212,6 +7354,10 @@
         "environments": {
           "count": 3,
           "digest": "4158d521d4d2cf26d2da28e475212634"
+        },
+        "event_cold_segments": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
         },
         "events": {
           "count": 3,
@@ -7325,6 +7471,10 @@
           "count": 3,
           "digest": "9ef42439461125339517d11513bd527c"
         },
+        "thread_event_cold_state": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
         "thread_plugin_metadata": {
           "count": 3,
           "digest": "f559a1a7947d92b0dbe2636e5ab4fd4e"
@@ -7391,8 +7541,8 @@
         }
       },
       "ledger": {
-        "count": 153,
-        "digest": "dc79189fbc5a8028cb5711d77282c105"
+        "count": 154,
+        "digest": "6d9f39f24548e85ee0b8ed39e442d434"
       },
       "ledgerSchema": [
         "index|sqlite_autoindex___drizzle_migrations_1|__drizzle_migrations|",
@@ -8164,6 +8314,11 @@
         "rowid": 153,
         "hash": "2642bb0bee9ae5e0645940aa81f06a8ea145f1b015151f0818ef188ad6ce3769",
         "created_at": 1792452368229
+      },
+      {
+        "rowid": 154,
+        "hash": "d56565154f2317d7c67ff2d037ec59609dbc917b93b7cc2c1d9e4a2459244d4f",
+        "created_at": 1792668833813
       }
     ],
     "pinned": {
@@ -8190,6 +8345,9 @@
         "index|environments_provider_instance_idx|environments|CREATE INDEX `environments_provider_instance_idx` ON `environments` (`environment_provider_id`,`environment_provider_instance_key`)",
         "index|environments_provider_lifecycle_idx|environments|CREATE INDEX `environments_provider_lifecycle_idx` ON `environments` (`environment_provider_id`) WHERE \"environments\".\"status\" <> 'destroyed' OR \"environments\".\"teardown_status\" IS NOT 'removed'",
         "index|environments_status_idx|environments|CREATE INDEX `environments_status_idx` ON `environments` (`status`)",
+        "index|event_cold_segments_lifecycle_idx|event_cold_segments|CREATE INDEX `event_cold_segments_lifecycle_idx` ON `event_cold_segments` (`lifecycle`)",
+        "index|event_cold_segments_path_idx|event_cold_segments|CREATE UNIQUE INDEX `event_cold_segments_path_idx` ON `event_cold_segments` (`path`)",
+        "index|event_cold_segments_thread_idx|event_cold_segments|CREATE INDEX `event_cold_segments_thread_idx` ON `event_cold_segments` (`thread_id`)",
         "index|events_background_task_thread_type_item_sequence_idx|events|CREATE INDEX `events_background_task_thread_type_item_sequence_idx` ON `events` (`thread_id`,`type`,`item_id`,`sequence`) WHERE \"events\".\"item_kind\" = 'backgroundTask'",
         "index|events_completed_item_truncation_idx|events|CREATE INDEX `events_completed_item_truncation_idx` ON `events` (`item_kind`,`created_at`,`id`) WHERE `type` = 'item/completed'",
         "index|events_delegating_item_lookup_idx|events|CREATE INDEX `events_delegating_item_lookup_idx` ON `events` (`thread_id`,`item_id`,`sequence`,`item_kind`) WHERE \"events\".\"item_kind\" IN ('toolCall', 'delegation')",
@@ -8249,6 +8407,7 @@
         "index|terminal_sessions_host_status_idx|terminal_sessions|CREATE INDEX `terminal_sessions_host_status_idx` ON `terminal_sessions` (`host_id`,`status`)",
         "index|terminal_sessions_thread_status_updated_idx|terminal_sessions|CREATE INDEX `terminal_sessions_thread_status_updated_idx` ON `terminal_sessions` (`thread_id`,`status`,`updated_at`)",
         "index|thread_dynamic_context_file_states_thread_file_idx|thread_dynamic_context_file_states|CREATE UNIQUE INDEX `thread_dynamic_context_file_states_thread_file_idx` ON `thread_dynamic_context_file_states` (`thread_id`,`file_key`)",
+        "index|thread_event_cold_state_state_idx|thread_event_cold_state|CREATE INDEX `thread_event_cold_state_state_idx` ON `thread_event_cold_state` (`state`)",
         "index|thread_pruning_cursors_thread_idx|thread_pruning_cursors|CREATE INDEX `thread_pruning_cursors_thread_idx` ON `thread_pruning_cursors` (`thread_id`)",
         "index|thread_pruning_work_thread_idx|thread_pruning_work|CREATE INDEX `thread_pruning_work_thread_idx` ON `thread_pruning_work` (`thread_id`)",
         "index|thread_search_learned_selections_query_idx|thread_search_learned_selections|CREATE INDEX `thread_search_learned_selections_query_idx` ON `thread_search_learned_selections` (`query_text`)",
@@ -8281,6 +8440,7 @@
         "table|environment_hook_operations|environment_hook_operations|CREATE TABLE `environment_hook_operations` ( `id` text PRIMARY KEY NOT NULL, `operation_id` text NOT NULL, `host_id` text NOT NULL, `path` text NOT NULL, `kind` text NOT NULL, `started_at` integer NOT NULL, `finished_at` integer, `error` text )",
         "table|environment_variables|environment_variables|CREATE TABLE `environment_variables` ( `id` integer PRIMARY KEY AUTOINCREMENT NOT NULL, `project_id` text, `name` text NOT NULL, `ciphertext` text NOT NULL, `encryption_version` integer NOT NULL, `note` text, `updated_at` integer NOT NULL, FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade )",
         "table|environments|environments|CREATE TABLE `environments` ( `id` text PRIMARY KEY NOT NULL, `project_id` text NOT NULL, `host_id` text NOT NULL, `path` text, `is_git_repo` integer DEFAULT false NOT NULL, `is_worktree` integer DEFAULT false NOT NULL, `branch_name` text, `base_branch` text, `default_branch` text, `merge_base_branch` text, `status` text DEFAULT 'provisioning' NOT NULL, `created_at` integer NOT NULL, `updated_at` integer NOT NULL, `name` text, `environment_provider_id` text, `environment_provider_plugin_id` text, `provider_owns_path` integer DEFAULT false NOT NULL, `environment_provider_selection` text, `environment_provider_instance_key` text, `retire_at` integer, `teardown_attempt` integer DEFAULT 0 NOT NULL, `teardown_status` text, `teardown_message` text, `resource` text, `owner_thread_id` text, `attempt` integer DEFAULT 0 NOT NULL, `status_message` text, `pending_log` text DEFAULT '' NOT NULL, `claim_path` text, FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade, FOREIGN KEY (`host_id`) REFERENCES `hosts`(`id`) ON UPDATE no action ON DELETE cascade )",
+        "table|event_cold_segments|event_cold_segments|CREATE TABLE `event_cold_segments` ( `segment_id` text PRIMARY KEY NOT NULL, `thread_id` text NOT NULL, `lifecycle` text NOT NULL, `path` text NOT NULL, `first_sequence` integer NOT NULL, `last_sequence` integer NOT NULL, `row_count` integer NOT NULL, `event_ids_sha256` text NOT NULL, `body_sha256` text NOT NULL, `file_sha256` text NOT NULL, `file_bytes` integer NOT NULL, `header_bytes` integer NOT NULL, `decompressed_bytes` integer NOT NULL, `format_version` integer NOT NULL, `transform_versions` text NOT NULL, `created_at` integer NOT NULL, `ended_at` integer )",
         "table|events|events|CREATE TABLE \"events\" ( `id` text PRIMARY KEY NOT NULL, `thread_id` text NOT NULL, `environment_id` text, `scope_kind` text NOT NULL, `turn_id` text, `provider_thread_id` text, `sequence` integer NOT NULL, `type` text NOT NULL, `item_id` text, `item_kind` text, `data` text DEFAULT '{}' NOT NULL, `created_at` integer NOT NULL, `parent_tool_call_id` text, FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade, FOREIGN KEY (`environment_id`) REFERENCES `environments`(`id`) ON UPDATE no action ON DELETE set null, CONSTRAINT `events_scope_shape_check` CHECK ( ( (`scope_kind` = 'turn' AND `turn_id` IS NOT NULL) OR (`scope_kind` = 'thread' AND `turn_id` IS NULL) ) ) )",
         "table|host_daemon_sessions|host_daemon_sessions|CREATE TABLE `host_daemon_sessions` ( `id` text PRIMARY KEY NOT NULL, `host_id` text NOT NULL, `instance_id` text NOT NULL, `host_name` text NOT NULL, `data_dir` text NOT NULL, `protocol_version` integer NOT NULL, `heartbeat_interval_ms` integer NOT NULL, `lease_timeout_ms` integer NOT NULL, `status` text NOT NULL, `lease_expires_at` integer NOT NULL, `closed_at` integer, `close_reason` text, `created_at` integer NOT NULL, `updated_at` integer NOT NULL, FOREIGN KEY (`host_id`) REFERENCES `hosts`(`id`) ON UPDATE no action ON DELETE cascade )",
         "table|hosts|hosts|CREATE TABLE `hosts` ( `id` text PRIMARY KEY NOT NULL, `name` text NOT NULL, `type` text NOT NULL, `destroyed_at` integer, `last_seen_at` integer, `created_at` integer NOT NULL, `updated_at` integer NOT NULL , `last_rejected_protocol_version` integer, `connect_machine_id` text, `max_permission_mode` text DEFAULT 'full' NOT NULL, `machine_provider_id` text, `launch_key` text, `machine_inputs` text, `machine_attempt` integer DEFAULT 0 NOT NULL, `pending_log` text DEFAULT '' NOT NULL, `machine_operation_id` text, `server_access_provider_id` text, `server_access_grant_id` text, `resource` text, `phase` text DEFAULT 'active' NOT NULL, `suspended_at` integer, `status_message` text, `suspend_retry_at` integer, `remove_retry_at` integer, `teardown_attempt` integer DEFAULT 0 NOT NULL, `teardown_status` text)",
@@ -8309,6 +8469,7 @@
         "table|terminal_sessions|terminal_sessions|CREATE TABLE \"terminal_sessions\" ( `id` text PRIMARY KEY NOT NULL, `thread_id` text, `environment_id` text, `host_id` text NOT NULL, `daemon_session_id` text, `title` text NOT NULL, `initial_cwd` text NOT NULL, `cols` integer NOT NULL, `rows` integer NOT NULL, `status` text NOT NULL, `exit_code` integer, `close_reason` text, `created_at` integer NOT NULL, `updated_at` integer NOT NULL, `last_user_input_at` integer, FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade, FOREIGN KEY (`environment_id`) REFERENCES `environments`(`id`) ON UPDATE no action ON DELETE cascade, FOREIGN KEY (`host_id`) REFERENCES `hosts`(`id`) ON UPDATE no action ON DELETE cascade, FOREIGN KEY (`daemon_session_id`) REFERENCES `host_daemon_sessions`(`id`) ON UPDATE no action ON DELETE set null )",
         "table|thread_conversation_outlines|thread_conversation_outlines|CREATE TABLE `thread_conversation_outlines` ( `thread_id` text PRIMARY KEY NOT NULL, `projection_key` text NOT NULL, `items_json` text NOT NULL, FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade )",
         "table|thread_dynamic_context_file_states|thread_dynamic_context_file_states|CREATE TABLE `thread_dynamic_context_file_states` ( `thread_id` text NOT NULL, `file_key` text NOT NULL, `content_status` text NOT NULL, `content_hash` text NOT NULL, `shown_at` integer NOT NULL, `created_at` integer NOT NULL, `updated_at` integer NOT NULL, FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade )",
+        "table|thread_event_cold_state|thread_event_cold_state|CREATE TABLE `thread_event_cold_state` ( `thread_id` text PRIMARY KEY NOT NULL, `state` text NOT NULL, `live_segment_id` text, `last_rehydrated_at` integer, FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade, CONSTRAINT \"thread_event_cold_state_shape_check\" CHECK(( (\"thread_event_cold_state\".\"state\" = 'cold' AND \"thread_event_cold_state\".\"live_segment_id\" IS NOT NULL) OR (\"thread_event_cold_state\".\"state\" = 'hot' AND \"thread_event_cold_state\".\"live_segment_id\" IS NULL) )) )",
         "table|thread_plugin_metadata|thread_plugin_metadata|CREATE TABLE `thread_plugin_metadata` ( `thread_id` text NOT NULL, `plugin_id` text NOT NULL, `metadata_json` text NOT NULL, PRIMARY KEY(`thread_id`, `plugin_id`), FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade )",
         "table|thread_pruning_cursors|thread_pruning_cursors|CREATE TABLE `thread_pruning_cursors` ( `policy` text NOT NULL, `scope` text DEFAULT '' NOT NULL, `thread_id` text, `version` integer NOT NULL, `last_thread_id` text DEFAULT '' NOT NULL, `current_thread_id` text, `step` integer DEFAULT 0 NOT NULL, `sequence` integer DEFAULT 0 NOT NULL, `upper_sequence` integer DEFAULT 0 NOT NULL, `cycle` integer DEFAULT 0 NOT NULL, `latest_root_sequence` integer DEFAULT 0 NOT NULL, `latest_context_sequence` integer DEFAULT 0 NOT NULL, `probe_event_id` text, `probe_phase` integer DEFAULT 0 NOT NULL, `probe_sequence` integer DEFAULT 0 NOT NULL, `probe_witness_id` text, `updated_at` integer NOT NULL, `work_revision` integer DEFAULT 0 NOT NULL, PRIMARY KEY(`policy`, `scope`), FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade, CONSTRAINT \"thread_pruning_cursors_scope_check\" CHECK(\"thread_pruning_cursors\".\"scope\" = coalesce(\"thread_pruning_cursors\".\"thread_id\", '')) )",
         "table|thread_pruning_work|thread_pruning_work|CREATE TABLE `thread_pruning_work` ( `policy` text NOT NULL, `thread_id` text NOT NULL, `revision` integer DEFAULT 1 NOT NULL, PRIMARY KEY(`policy`, `thread_id`), FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade )",
@@ -8348,13 +8509,19 @@
       "pragmas": {
         "application_id": "0",
         "auto_vacuum": "2",
-        "foreign_key_violations": "135",
+        "foreign_key_violations": "138",
         "integrity_check": "ok",
         "user_version": "0"
       },
       "sequences": [
-        ["environment_variables", "1002"],
-        ["transfer_events", "1002"]
+        [
+          "environment_variables",
+          "1002"
+        ],
+        [
+          "transfer_events",
+          "1002"
+        ]
       ],
       "tables": {
         "aleph_install_requests": {
@@ -8392,6 +8559,10 @@
         "environments": {
           "count": 3,
           "digest": "4158d521d4d2cf26d2da28e475212634"
+        },
+        "event_cold_segments": {
+          "count": 3,
+          "digest": "969771f5b7995e595583789dff9ac7ff"
         },
         "events": {
           "count": 3,
@@ -8505,6 +8676,10 @@
           "count": 3,
           "digest": "9ef42439461125339517d11513bd527c"
         },
+        "thread_event_cold_state": {
+          "count": 3,
+          "digest": "b8823d8dbe61b5a0ac41834c822d4b81"
+        },
         "thread_plugin_metadata": {
           "count": 3,
           "digest": "f559a1a7947d92b0dbe2636e5ab4fd4e"
@@ -8571,8 +8746,8 @@
         }
       },
       "ledger": {
-        "count": 152,
-        "digest": "8b6e1ddf13a66557b21deec26d4042df"
+        "count": 153,
+        "digest": "d2b96d49bb741ccb972e9f8a988eb881"
       },
       "ledgerSchema": [
         "index|sqlite_autoindex___drizzle_migrations_1|__drizzle_migrations|",
@@ -9313,12 +9488,12 @@
       {
         "rowid": 147,
         "hash": "cdfcfc577badf3ead0d14bbd585a9b69a7f8b8e3ae0c9c4c1925e73df1d54ba7",
-        "created_at": null
+        "created_at": 1792434368229
       },
       {
         "rowid": 148,
         "hash": "bd05585327645a26ce4f11dc8bbc5d21d987537cd48cd282ab324ad393cb232e",
-        "created_at": 1792437968229
+        "created_at": null
       },
       {
         "rowid": 149,
@@ -9339,6 +9514,11 @@
         "rowid": 152,
         "hash": "2642bb0bee9ae5e0645940aa81f06a8ea145f1b015151f0818ef188ad6ce3769",
         "created_at": 1792452368229
+      },
+      {
+        "rowid": 153,
+        "hash": "d56565154f2317d7c67ff2d037ec59609dbc917b93b7cc2c1d9e4a2459244d4f",
+        "created_at": 1792668833813
       }
     ],
     "pinned": {
@@ -9365,6 +9545,9 @@
         "index|environments_provider_instance_idx|environments|CREATE INDEX `environments_provider_instance_idx` ON `environments` (`environment_provider_id`,`environment_provider_instance_key`)",
         "index|environments_provider_lifecycle_idx|environments|CREATE INDEX `environments_provider_lifecycle_idx` ON `environments` (`environment_provider_id`) WHERE \"environments\".\"status\" <> 'destroyed' OR \"environments\".\"teardown_status\" IS NOT 'removed'",
         "index|environments_status_idx|environments|CREATE INDEX `environments_status_idx` ON `environments` (`status`)",
+        "index|event_cold_segments_lifecycle_idx|event_cold_segments|CREATE INDEX `event_cold_segments_lifecycle_idx` ON `event_cold_segments` (`lifecycle`)",
+        "index|event_cold_segments_path_idx|event_cold_segments|CREATE UNIQUE INDEX `event_cold_segments_path_idx` ON `event_cold_segments` (`path`)",
+        "index|event_cold_segments_thread_idx|event_cold_segments|CREATE INDEX `event_cold_segments_thread_idx` ON `event_cold_segments` (`thread_id`)",
         "index|events_background_task_thread_type_item_sequence_idx|events|CREATE INDEX `events_background_task_thread_type_item_sequence_idx` ON `events` (`thread_id`,`type`,`item_id`,`sequence`) WHERE \"events\".\"item_kind\" = 'backgroundTask'",
         "index|events_completed_item_truncation_idx|events|CREATE INDEX `events_completed_item_truncation_idx` ON `events` (`item_kind`,`created_at`,`id`) WHERE `type` = 'item/completed'",
         "index|events_delegating_item_lookup_idx|events|CREATE INDEX `events_delegating_item_lookup_idx` ON `events` (`thread_id`,`item_id`,`sequence`,`item_kind`) WHERE \"events\".\"item_kind\" IN ('toolCall', 'delegation')",
@@ -9424,6 +9607,7 @@
         "index|terminal_sessions_host_status_idx|terminal_sessions|CREATE INDEX `terminal_sessions_host_status_idx` ON `terminal_sessions` (`host_id`,`status`)",
         "index|terminal_sessions_thread_status_updated_idx|terminal_sessions|CREATE INDEX `terminal_sessions_thread_status_updated_idx` ON `terminal_sessions` (`thread_id`,`status`,`updated_at`)",
         "index|thread_dynamic_context_file_states_thread_file_idx|thread_dynamic_context_file_states|CREATE UNIQUE INDEX `thread_dynamic_context_file_states_thread_file_idx` ON `thread_dynamic_context_file_states` (`thread_id`,`file_key`)",
+        "index|thread_event_cold_state_state_idx|thread_event_cold_state|CREATE INDEX `thread_event_cold_state_state_idx` ON `thread_event_cold_state` (`state`)",
         "index|thread_pruning_cursors_thread_idx|thread_pruning_cursors|CREATE INDEX `thread_pruning_cursors_thread_idx` ON `thread_pruning_cursors` (`thread_id`)",
         "index|thread_pruning_work_thread_idx|thread_pruning_work|CREATE INDEX `thread_pruning_work_thread_idx` ON `thread_pruning_work` (`thread_id`)",
         "index|thread_search_learned_selections_query_idx|thread_search_learned_selections|CREATE INDEX `thread_search_learned_selections_query_idx` ON `thread_search_learned_selections` (`query_text`)",
@@ -9456,6 +9640,7 @@
         "table|environment_hook_operations|environment_hook_operations|CREATE TABLE `environment_hook_operations` ( `id` text PRIMARY KEY NOT NULL, `operation_id` text NOT NULL, `host_id` text NOT NULL, `path` text NOT NULL, `kind` text NOT NULL, `started_at` integer NOT NULL, `finished_at` integer, `error` text )",
         "table|environment_variables|environment_variables|CREATE TABLE `environment_variables` ( `id` integer PRIMARY KEY AUTOINCREMENT NOT NULL, `project_id` text, `name` text NOT NULL, `ciphertext` text NOT NULL, `encryption_version` integer NOT NULL, `note` text, `updated_at` integer NOT NULL, FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade )",
         "table|environments|environments|CREATE TABLE `environments` ( `id` text PRIMARY KEY NOT NULL, `project_id` text NOT NULL, `host_id` text NOT NULL, `path` text, `is_git_repo` integer DEFAULT false NOT NULL, `is_worktree` integer DEFAULT false NOT NULL, `branch_name` text, `base_branch` text, `default_branch` text, `merge_base_branch` text, `status` text DEFAULT 'provisioning' NOT NULL, `created_at` integer NOT NULL, `updated_at` integer NOT NULL, `name` text, `environment_provider_id` text, `environment_provider_plugin_id` text, `provider_owns_path` integer DEFAULT false NOT NULL, `environment_provider_selection` text, `environment_provider_instance_key` text, `retire_at` integer, `teardown_attempt` integer DEFAULT 0 NOT NULL, `teardown_status` text, `teardown_message` text, `resource` text, `owner_thread_id` text, `attempt` integer DEFAULT 0 NOT NULL, `status_message` text, `pending_log` text DEFAULT '' NOT NULL, `claim_path` text, FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade, FOREIGN KEY (`host_id`) REFERENCES `hosts`(`id`) ON UPDATE no action ON DELETE cascade )",
+        "table|event_cold_segments|event_cold_segments|CREATE TABLE `event_cold_segments` ( `segment_id` text PRIMARY KEY NOT NULL, `thread_id` text NOT NULL, `lifecycle` text NOT NULL, `path` text NOT NULL, `first_sequence` integer NOT NULL, `last_sequence` integer NOT NULL, `row_count` integer NOT NULL, `event_ids_sha256` text NOT NULL, `body_sha256` text NOT NULL, `file_sha256` text NOT NULL, `file_bytes` integer NOT NULL, `header_bytes` integer NOT NULL, `decompressed_bytes` integer NOT NULL, `format_version` integer NOT NULL, `transform_versions` text NOT NULL, `created_at` integer NOT NULL, `ended_at` integer )",
         "table|events|events|CREATE TABLE \"events\" ( `id` text PRIMARY KEY NOT NULL, `thread_id` text NOT NULL, `environment_id` text, `scope_kind` text NOT NULL, `turn_id` text, `provider_thread_id` text, `sequence` integer NOT NULL, `type` text NOT NULL, `item_id` text, `item_kind` text, `data` text DEFAULT '{}' NOT NULL, `created_at` integer NOT NULL, `parent_tool_call_id` text, FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade, FOREIGN KEY (`environment_id`) REFERENCES `environments`(`id`) ON UPDATE no action ON DELETE set null, CONSTRAINT `events_scope_shape_check` CHECK ( ( (`scope_kind` = 'turn' AND `turn_id` IS NOT NULL) OR (`scope_kind` = 'thread' AND `turn_id` IS NULL) ) ) )",
         "table|host_daemon_sessions|host_daemon_sessions|CREATE TABLE `host_daemon_sessions` ( `id` text PRIMARY KEY NOT NULL, `host_id` text NOT NULL, `instance_id` text NOT NULL, `host_name` text NOT NULL, `data_dir` text NOT NULL, `protocol_version` integer NOT NULL, `heartbeat_interval_ms` integer NOT NULL, `lease_timeout_ms` integer NOT NULL, `status` text NOT NULL, `lease_expires_at` integer NOT NULL, `closed_at` integer, `close_reason` text, `created_at` integer NOT NULL, `updated_at` integer NOT NULL, FOREIGN KEY (`host_id`) REFERENCES `hosts`(`id`) ON UPDATE no action ON DELETE cascade )",
         "table|hosts|hosts|CREATE TABLE `hosts` ( `id` text PRIMARY KEY NOT NULL, `name` text NOT NULL, `type` text NOT NULL, `destroyed_at` integer, `last_seen_at` integer, `created_at` integer NOT NULL, `updated_at` integer NOT NULL , `last_rejected_protocol_version` integer, `connect_machine_id` text, `max_permission_mode` text DEFAULT 'full' NOT NULL, `machine_provider_id` text, `launch_key` text, `machine_inputs` text, `machine_attempt` integer DEFAULT 0 NOT NULL, `pending_log` text DEFAULT '' NOT NULL, `machine_operation_id` text, `server_access_provider_id` text, `server_access_grant_id` text, `resource` text, `phase` text DEFAULT 'active' NOT NULL, `suspended_at` integer, `status_message` text, `suspend_retry_at` integer, `remove_retry_at` integer, `teardown_attempt` integer DEFAULT 0 NOT NULL, `teardown_status` text)",
@@ -9484,6 +9669,7 @@
         "table|terminal_sessions|terminal_sessions|CREATE TABLE \"terminal_sessions\" ( `id` text PRIMARY KEY NOT NULL, `thread_id` text, `environment_id` text, `host_id` text NOT NULL, `daemon_session_id` text, `title` text NOT NULL, `initial_cwd` text NOT NULL, `cols` integer NOT NULL, `rows` integer NOT NULL, `status` text NOT NULL, `exit_code` integer, `close_reason` text, `created_at` integer NOT NULL, `updated_at` integer NOT NULL, `last_user_input_at` integer, FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade, FOREIGN KEY (`environment_id`) REFERENCES `environments`(`id`) ON UPDATE no action ON DELETE cascade, FOREIGN KEY (`host_id`) REFERENCES `hosts`(`id`) ON UPDATE no action ON DELETE cascade, FOREIGN KEY (`daemon_session_id`) REFERENCES `host_daemon_sessions`(`id`) ON UPDATE no action ON DELETE set null )",
         "table|thread_conversation_outlines|thread_conversation_outlines|CREATE TABLE `thread_conversation_outlines` ( `thread_id` text PRIMARY KEY NOT NULL, `projection_key` text NOT NULL, `items_json` text NOT NULL, FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade )",
         "table|thread_dynamic_context_file_states|thread_dynamic_context_file_states|CREATE TABLE `thread_dynamic_context_file_states` ( `thread_id` text NOT NULL, `file_key` text NOT NULL, `content_status` text NOT NULL, `content_hash` text NOT NULL, `shown_at` integer NOT NULL, `created_at` integer NOT NULL, `updated_at` integer NOT NULL, FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade )",
+        "table|thread_event_cold_state|thread_event_cold_state|CREATE TABLE `thread_event_cold_state` ( `thread_id` text PRIMARY KEY NOT NULL, `state` text NOT NULL, `live_segment_id` text, `last_rehydrated_at` integer, FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade, CONSTRAINT \"thread_event_cold_state_shape_check\" CHECK(( (\"thread_event_cold_state\".\"state\" = 'cold' AND \"thread_event_cold_state\".\"live_segment_id\" IS NOT NULL) OR (\"thread_event_cold_state\".\"state\" = 'hot' AND \"thread_event_cold_state\".\"live_segment_id\" IS NULL) )) )",
         "table|thread_plugin_metadata|thread_plugin_metadata|CREATE TABLE `thread_plugin_metadata` ( `thread_id` text NOT NULL, `plugin_id` text NOT NULL, `metadata_json` text NOT NULL, PRIMARY KEY(`thread_id`, `plugin_id`), FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade )",
         "table|thread_pruning_cursors|thread_pruning_cursors|CREATE TABLE `thread_pruning_cursors` ( `policy` text NOT NULL, `scope` text DEFAULT '' NOT NULL, `thread_id` text, `version` integer NOT NULL, `last_thread_id` text DEFAULT '' NOT NULL, `current_thread_id` text, `step` integer DEFAULT 0 NOT NULL, `sequence` integer DEFAULT 0 NOT NULL, `upper_sequence` integer DEFAULT 0 NOT NULL, `cycle` integer DEFAULT 0 NOT NULL, `latest_root_sequence` integer DEFAULT 0 NOT NULL, `latest_context_sequence` integer DEFAULT 0 NOT NULL, `probe_event_id` text, `probe_phase` integer DEFAULT 0 NOT NULL, `probe_sequence` integer DEFAULT 0 NOT NULL, `probe_witness_id` text, `updated_at` integer NOT NULL, `work_revision` integer DEFAULT 0 NOT NULL, PRIMARY KEY(`policy`, `scope`), FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade, CONSTRAINT \"thread_pruning_cursors_scope_check\" CHECK(\"thread_pruning_cursors\".\"scope\" = coalesce(\"thread_pruning_cursors\".\"thread_id\", '')) )",
         "table|thread_pruning_work|thread_pruning_work|CREATE TABLE `thread_pruning_work` ( `policy` text NOT NULL, `thread_id` text NOT NULL, `revision` integer DEFAULT 1 NOT NULL, PRIMARY KEY(`policy`, `thread_id`), FOREIGN KEY (`thread_id`) REFERENCES `threads`(`id`) ON UPDATE no action ON DELETE cascade )",
@@ -9523,13 +9709,19 @@
       "pragmas": {
         "application_id": "0",
         "auto_vacuum": "2",
-        "foreign_key_violations": "135",
+        "foreign_key_violations": "138",
         "integrity_check": "ok",
         "user_version": "0"
       },
       "sequences": [
-        ["environment_variables", "1002"],
-        ["transfer_events", "1002"]
+        [
+          "environment_variables",
+          "1002"
+        ],
+        [
+          "transfer_events",
+          "1002"
+        ]
       ],
       "tables": {
         "aleph_install_requests": {
@@ -9567,6 +9759,10 @@
         "environments": {
           "count": 3,
           "digest": "4158d521d4d2cf26d2da28e475212634"
+        },
+        "event_cold_segments": {
+          "count": 3,
+          "digest": "969771f5b7995e595583789dff9ac7ff"
         },
         "events": {
           "count": 3,
@@ -9680,6 +9876,10 @@
           "count": 3,
           "digest": "9ef42439461125339517d11513bd527c"
         },
+        "thread_event_cold_state": {
+          "count": 3,
+          "digest": "b8823d8dbe61b5a0ac41834c822d4b81"
+        },
         "thread_plugin_metadata": {
           "count": 3,
           "digest": "f559a1a7947d92b0dbe2636e5ab4fd4e"
@@ -9746,8 +9946,8 @@
         }
       },
       "ledger": {
-        "count": 153,
-        "digest": "591b028ac28d314b753a6a2d196d64f5"
+        "count": 154,
+        "digest": "e353de1a47119e96ba9eaf38025dc93e"
       },
       "ledgerSchema": [
         "index|sqlite_autoindex___drizzle_migrations_1|__drizzle_migrations|",
@@ -10517,6 +10717,11 @@
       },
       {
         "rowid": 153,
+        "hash": "d56565154f2317d7c67ff2d037ec59609dbc917b93b7cc2c1d9e4a2459244d4f",
+        "created_at": 1792668833813
+      },
+      {
+        "rowid": 154,
         "hash": "stray",
         "created_at": null
       }

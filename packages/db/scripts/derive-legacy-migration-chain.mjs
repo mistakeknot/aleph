@@ -8,7 +8,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const outputPath = resolve(here, "..", "src", "legacy-migration-chain.ts");
 const check = process.argv.includes("--check");
 
-const legacyTipRev = "07c1ec9ed2";
+const legacyTipRev = "1c201c2f57";
 const upstreamRev = "411eac54ac16d0a3cb57d1de8396d37564884a73";
 const journalPath = "packages/db/drizzle/meta/_journal.json";
 
@@ -28,7 +28,7 @@ const releases = [
   { name: "0.6.2", rev: "3b0ca1cfd3" },
   { name: "0.6.3", rev: "d5cd7d9f2e" },
   { name: "main-0.6.4", rev: "29736aaba5" },
-  { name: "0.7.0", rev: "07c1ec9ed2" },
+  { name: "0.7.0", rev: "1c201c2f57" },
 ];
 
 const alephOnly = new Map([
@@ -40,6 +40,7 @@ const alephOnly = new Map([
   [143, "A0006"],
   [144, "A0007"],
   [145, "A0008"],
+  [152, "A0010"],
 ]);
 const superseding = new Map([
   [151, { id: "A0009", supersedes: "0143_queued_message_state" }],

@@ -2029,6 +2029,19 @@ export const legacyMigrationChain: readonly LegacyMigrationChainEntry[] = [
     compatibleHashes: [],
     reorderedCleanup: false,
   },
+  {
+    idx: 152,
+    tag: "0152_event_cold_tier",
+    when: 1792668833813,
+    sha256: "d56565154f2317d7c67ff2d037ec59609dbc917b93b7cc2c1d9e4a2459244d4f",
+    relation: "aleph-only",
+    target: {
+      namespace: "aleph",
+      id: "A0010",
+    },
+    compatibleHashes: [],
+    reorderedCleanup: false,
+  },
 ];
 
 export const legacyMigrationReleases: readonly LegacyMigrationRelease[] = [
@@ -2124,8 +2137,8 @@ export const legacyMigrationReleases: readonly LegacyMigrationRelease[] = [
   },
   {
     name: "0.7.0",
-    commit: "07c1ec9ed24462a161eba77b00018815ba162a32",
-    length: 152,
-    tail: "0151_queued_message_state",
+    commit: "1c201c2f57adfd8634ba76f5def704f4ac8566b2",
+    length: 153,
+    tail: "0152_event_cold_tier",
   },
 ];

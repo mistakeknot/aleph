@@ -1,7 +1,7 @@
 {
-  "legacyCommit": "07c1ec9ed2",
+  "legacyCommit": "1c201c2f57",
   "upstreamCommit": "411eac54ac16d0a3cb57d1de8396d37564884a73",
-  "schemaFingerprint": "897f4cb55735cda675ff11b100c0cd28ec6780f39409ee45bebe8a8dd055c49f",
+  "schemaFingerprint": "b7ffdad6650283dd3798e9e32a616ebdeec09ef9699eb376923927283c92efed",
   "prefixes": {
     "35": {
       "pragmas": {
@@ -11,7 +11,12 @@
         "integrity_check": "ok",
         "user_version": "0"
       },
-      "sequences": [["environment_variables", "0"]],
+      "sequences": [
+        [
+          "environment_variables",
+          "0"
+        ]
+      ],
       "tables": {
         "aleph_install_requests": {
           "count": 0,
@@ -48,6 +53,10 @@
         "environments": {
           "count": 3,
           "digest": "a54f6c0a4fbb9c46cd7eba3bbe5d355c"
+        },
+        "event_cold_segments": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
         },
         "events": {
           "count": 3,
@@ -161,6 +170,10 @@
           "count": 3,
           "digest": "9ef42439461125339517d11513bd527c"
         },
+        "thread_event_cold_state": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
         "thread_plugin_metadata": {
           "count": 0,
           "digest": "00000000000000000000000000000000"
@@ -227,8 +240,8 @@
         }
       },
       "ledger": {
-        "count": 152,
-        "digest": "86d3a7f6c30eba3b9aba2061299cfca4"
+        "count": 153,
+        "digest": "4abfb16a0674719cd2d54ed70f367e8f"
       },
       "ledgerSchema": [
         "index|sqlite_autoindex___drizzle_migrations_1|__drizzle_migrations|",
@@ -253,7 +266,12 @@
         "integrity_check": "ok",
         "user_version": "0"
       },
-      "sequences": [["environment_variables", "0"]],
+      "sequences": [
+        [
+          "environment_variables",
+          "0"
+        ]
+      ],
       "tables": {
         "aleph_install_requests": {
           "count": 0,
@@ -290,6 +308,10 @@
         "environments": {
           "count": 3,
           "digest": "a54f6c0a4fbb9c46cd7eba3bbe5d355c"
+        },
+        "event_cold_segments": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
         },
         "events": {
           "count": 3,
@@ -403,6 +425,10 @@
           "count": 3,
           "digest": "9ef42439461125339517d11513bd527c"
         },
+        "thread_event_cold_state": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
         "thread_plugin_metadata": {
           "count": 0,
           "digest": "00000000000000000000000000000000"
@@ -469,8 +495,8 @@
         }
       },
       "ledger": {
-        "count": 152,
-        "digest": "86d3a7f6c30eba3b9aba2061299cfca4"
+        "count": 153,
+        "digest": "4abfb16a0674719cd2d54ed70f367e8f"
       },
       "ledgerSchema": [
         "index|sqlite_autoindex___drizzle_migrations_1|__drizzle_migrations|",
@@ -495,7 +521,12 @@
         "integrity_check": "ok",
         "user_version": "0"
       },
-      "sequences": [["environment_variables", "0"]],
+      "sequences": [
+        [
+          "environment_variables",
+          "0"
+        ]
+      ],
       "tables": {
         "aleph_install_requests": {
           "count": 0,
@@ -532,6 +563,10 @@
         "environments": {
           "count": 3,
           "digest": "a54f6c0a4fbb9c46cd7eba3bbe5d355c"
+        },
+        "event_cold_segments": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
         },
         "events": {
           "count": 3,
@@ -645,6 +680,10 @@
           "count": 3,
           "digest": "9ef42439461125339517d11513bd527c"
         },
+        "thread_event_cold_state": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
         "thread_plugin_metadata": {
           "count": 0,
           "digest": "00000000000000000000000000000000"
@@ -711,8 +750,8 @@
         }
       },
       "ledger": {
-        "count": 152,
-        "digest": "86d3a7f6c30eba3b9aba2061299cfca4"
+        "count": 153,
+        "digest": "4abfb16a0674719cd2d54ed70f367e8f"
       },
       "ledgerSchema": [
         "index|sqlite_autoindex___drizzle_migrations_1|__drizzle_migrations|",
@@ -734,7 +773,12 @@
         "integrity_check": "ok",
         "user_version": "0"
       },
-      "sequences": [["environment_variables", "0"]],
+      "sequences": [
+        [
+          "environment_variables",
+          "0"
+        ]
+      ],
       "tables": {
         "aleph_install_requests": {
           "count": 0,
@@ -771,6 +815,10 @@
         "environments": {
           "count": 3,
           "digest": "4158d521d4d2cf26d2da28e475212634"
+        },
+        "event_cold_segments": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
         },
         "events": {
           "count": 3,
@@ -884,6 +932,10 @@
           "count": 3,
           "digest": "9ef42439461125339517d11513bd527c"
         },
+        "thread_event_cold_state": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
         "thread_plugin_metadata": {
           "count": 3,
           "digest": "f559a1a7947d92b0dbe2636e5ab4fd4e"
@@ -950,8 +1002,8 @@
         }
       },
       "ledger": {
-        "count": 152,
-        "digest": "86d3a7f6c30eba3b9aba2061299cfca4"
+        "count": 153,
+        "digest": "4abfb16a0674719cd2d54ed70f367e8f"
       },
       "ledgerSchema": [
         "index|sqlite_autoindex___drizzle_migrations_1|__drizzle_migrations|",
@@ -973,7 +1025,12 @@
         "integrity_check": "ok",
         "user_version": "0"
       },
-      "sequences": [["environment_variables", "1002"]],
+      "sequences": [
+        [
+          "environment_variables",
+          "1002"
+        ]
+      ],
       "tables": {
         "aleph_install_requests": {
           "count": 0,
@@ -1010,6 +1067,10 @@
         "environments": {
           "count": 3,
           "digest": "4158d521d4d2cf26d2da28e475212634"
+        },
+        "event_cold_segments": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
         },
         "events": {
           "count": 3,
@@ -1122,6 +1183,10 @@
         "thread_dynamic_context_file_states": {
           "count": 3,
           "digest": "9ef42439461125339517d11513bd527c"
+        },
+        "thread_event_cold_state": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
         },
         "thread_plugin_metadata": {
           "count": 3,
@@ -1189,8 +1254,8 @@
         }
       },
       "ledger": {
-        "count": 152,
-        "digest": "86d3a7f6c30eba3b9aba2061299cfca4"
+        "count": 153,
+        "digest": "4abfb16a0674719cd2d54ed70f367e8f"
       },
       "ledgerSchema": [
         "index|sqlite_autoindex___drizzle_migrations_1|__drizzle_migrations|",
@@ -1212,7 +1277,12 @@
         "integrity_check": "ok",
         "user_version": "0"
       },
-      "sequences": [["environment_variables", "1002"]],
+      "sequences": [
+        [
+          "environment_variables",
+          "1002"
+        ]
+      ],
       "tables": {
         "aleph_install_requests": {
           "count": 0,
@@ -1249,6 +1319,10 @@
         "environments": {
           "count": 3,
           "digest": "4158d521d4d2cf26d2da28e475212634"
+        },
+        "event_cold_segments": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
         },
         "events": {
           "count": 3,
@@ -1361,6 +1435,10 @@
         "thread_dynamic_context_file_states": {
           "count": 3,
           "digest": "9ef42439461125339517d11513bd527c"
+        },
+        "thread_event_cold_state": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
         },
         "thread_plugin_metadata": {
           "count": 3,
@@ -1428,8 +1506,8 @@
         }
       },
       "ledger": {
-        "count": 152,
-        "digest": "86d3a7f6c30eba3b9aba2061299cfca4"
+        "count": 153,
+        "digest": "4abfb16a0674719cd2d54ed70f367e8f"
       },
       "ledgerSchema": [
         "index|sqlite_autoindex___drizzle_migrations_1|__drizzle_migrations|",
@@ -1451,7 +1529,12 @@
         "integrity_check": "ok",
         "user_version": "0"
       },
-      "sequences": [["environment_variables", "1002"]],
+      "sequences": [
+        [
+          "environment_variables",
+          "1002"
+        ]
+      ],
       "tables": {
         "aleph_install_requests": {
           "count": 0,
@@ -1488,6 +1571,10 @@
         "environments": {
           "count": 3,
           "digest": "4158d521d4d2cf26d2da28e475212634"
+        },
+        "event_cold_segments": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
         },
         "events": {
           "count": 3,
@@ -1600,6 +1687,10 @@
         "thread_dynamic_context_file_states": {
           "count": 3,
           "digest": "9ef42439461125339517d11513bd527c"
+        },
+        "thread_event_cold_state": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
         },
         "thread_plugin_metadata": {
           "count": 3,
@@ -1667,8 +1758,8 @@
         }
       },
       "ledger": {
-        "count": 152,
-        "digest": "86d3a7f6c30eba3b9aba2061299cfca4"
+        "count": 153,
+        "digest": "4abfb16a0674719cd2d54ed70f367e8f"
       },
       "ledgerSchema": [
         "index|sqlite_autoindex___drizzle_migrations_1|__drizzle_migrations|",
@@ -1690,7 +1781,12 @@
         "integrity_check": "ok",
         "user_version": "0"
       },
-      "sequences": [["environment_variables", "1002"]],
+      "sequences": [
+        [
+          "environment_variables",
+          "1002"
+        ]
+      ],
       "tables": {
         "aleph_install_requests": {
           "count": 0,
@@ -1727,6 +1823,10 @@
         "environments": {
           "count": 3,
           "digest": "4158d521d4d2cf26d2da28e475212634"
+        },
+        "event_cold_segments": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
         },
         "events": {
           "count": 3,
@@ -1840,6 +1940,10 @@
           "count": 3,
           "digest": "9ef42439461125339517d11513bd527c"
         },
+        "thread_event_cold_state": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
         "thread_plugin_metadata": {
           "count": 3,
           "digest": "f559a1a7947d92b0dbe2636e5ab4fd4e"
@@ -1906,8 +2010,8 @@
         }
       },
       "ledger": {
-        "count": 152,
-        "digest": "86d3a7f6c30eba3b9aba2061299cfca4"
+        "count": 153,
+        "digest": "4abfb16a0674719cd2d54ed70f367e8f"
       },
       "ledgerSchema": [
         "index|sqlite_autoindex___drizzle_migrations_1|__drizzle_migrations|",
@@ -1930,8 +2034,14 @@
         "user_version": "0"
       },
       "sequences": [
-        ["environment_variables", "1002"],
-        ["transfer_events", "1002"]
+        [
+          "environment_variables",
+          "1002"
+        ],
+        [
+          "transfer_events",
+          "1002"
+        ]
       ],
       "tables": {
         "aleph_install_requests": {
@@ -1969,6 +2079,10 @@
         "environments": {
           "count": 3,
           "digest": "4158d521d4d2cf26d2da28e475212634"
+        },
+        "event_cold_segments": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
         },
         "events": {
           "count": 3,
@@ -2082,6 +2196,10 @@
           "count": 3,
           "digest": "9ef42439461125339517d11513bd527c"
         },
+        "thread_event_cold_state": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
         "thread_plugin_metadata": {
           "count": 3,
           "digest": "f559a1a7947d92b0dbe2636e5ab4fd4e"
@@ -2148,8 +2266,8 @@
         }
       },
       "ledger": {
-        "count": 152,
-        "digest": "86d3a7f6c30eba3b9aba2061299cfca4"
+        "count": 153,
+        "digest": "4abfb16a0674719cd2d54ed70f367e8f"
       },
       "ledgerSchema": [
         "index|sqlite_autoindex___drizzle_migrations_1|__drizzle_migrations|",
@@ -2163,17 +2281,23 @@
         "onboardingCompletedAtValue": 1
       }
     },
-    "152": {
+    "153": {
       "pragmas": {
         "application_id": "0",
         "auto_vacuum": "2",
-        "foreign_key_violations": "135",
+        "foreign_key_violations": "138",
         "integrity_check": "ok",
         "user_version": "0"
       },
       "sequences": [
-        ["environment_variables", "1002"],
-        ["transfer_events", "1002"]
+        [
+          "environment_variables",
+          "1002"
+        ],
+        [
+          "transfer_events",
+          "1002"
+        ]
       ],
       "tables": {
         "aleph_install_requests": {
@@ -2211,6 +2335,10 @@
         "environments": {
           "count": 3,
           "digest": "4158d521d4d2cf26d2da28e475212634"
+        },
+        "event_cold_segments": {
+          "count": 3,
+          "digest": "969771f5b7995e595583789dff9ac7ff"
         },
         "events": {
           "count": 3,
@@ -2324,6 +2452,10 @@
           "count": 3,
           "digest": "9ef42439461125339517d11513bd527c"
         },
+        "thread_event_cold_state": {
+          "count": 3,
+          "digest": "b8823d8dbe61b5a0ac41834c822d4b81"
+        },
         "thread_plugin_metadata": {
           "count": 3,
           "digest": "f559a1a7947d92b0dbe2636e5ab4fd4e"
@@ -2390,8 +2522,8 @@
         }
       },
       "ledger": {
-        "count": 152,
-        "digest": "86d3a7f6c30eba3b9aba2061299cfca4"
+        "count": 153,
+        "digest": "4abfb16a0674719cd2d54ed70f367e8f"
       },
       "ledgerSchema": [
         "index|sqlite_autoindex___drizzle_migrations_1|__drizzle_migrations|",
@@ -2411,7 +2543,12 @@
         "integrity_check": "ok",
         "user_version": "0"
       },
-      "sequences": [["environment_variables", "0"]],
+      "sequences": [
+        [
+          "environment_variables",
+          "0"
+        ]
+      ],
       "tables": {
         "aleph_install_requests": {
           "count": 0,
@@ -2448,6 +2585,10 @@
         "environments": {
           "count": 3,
           "digest": "a54f6c0a4fbb9c46cd7eba3bbe5d355c"
+        },
+        "event_cold_segments": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
         },
         "events": {
           "count": 3,
@@ -2561,6 +2702,10 @@
           "count": 3,
           "digest": "9ef42439461125339517d11513bd527c"
         },
+        "thread_event_cold_state": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
         "thread_plugin_metadata": {
           "count": 0,
           "digest": "00000000000000000000000000000000"
@@ -2627,8 +2772,8 @@
         }
       },
       "ledger": {
-        "count": 152,
-        "digest": "86d3a7f6c30eba3b9aba2061299cfca4"
+        "count": 153,
+        "digest": "4abfb16a0674719cd2d54ed70f367e8f"
       },
       "ledgerSchema": [
         "index|sqlite_autoindex___drizzle_migrations_1|__drizzle_migrations|",
@@ -2653,7 +2798,12 @@
         "integrity_check": "ok",
         "user_version": "0"
       },
-      "sequences": [["environment_variables", "0"]],
+      "sequences": [
+        [
+          "environment_variables",
+          "0"
+        ]
+      ],
       "tables": {
         "aleph_install_requests": {
           "count": 0,
@@ -2690,6 +2840,10 @@
         "environments": {
           "count": 3,
           "digest": "a54f6c0a4fbb9c46cd7eba3bbe5d355c"
+        },
+        "event_cold_segments": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
         },
         "events": {
           "count": 3,
@@ -2803,6 +2957,10 @@
           "count": 3,
           "digest": "9ef42439461125339517d11513bd527c"
         },
+        "thread_event_cold_state": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
         "thread_plugin_metadata": {
           "count": 0,
           "digest": "00000000000000000000000000000000"
@@ -2869,8 +3027,8 @@
         }
       },
       "ledger": {
-        "count": 152,
-        "digest": "86d3a7f6c30eba3b9aba2061299cfca4"
+        "count": 153,
+        "digest": "4abfb16a0674719cd2d54ed70f367e8f"
       },
       "ledgerSchema": [
         "index|sqlite_autoindex___drizzle_migrations_1|__drizzle_migrations|",
@@ -2896,8 +3054,14 @@
         "user_version": "0"
       },
       "sequences": [
-        ["environment_variables", "1002"],
-        ["transfer_events", "1002"]
+        [
+          "environment_variables",
+          "1002"
+        ],
+        [
+          "transfer_events",
+          "1002"
+        ]
       ],
       "tables": {
         "aleph_install_requests": {
@@ -2935,6 +3099,10 @@
         "environments": {
           "count": 3,
           "digest": "4158d521d4d2cf26d2da28e475212634"
+        },
+        "event_cold_segments": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
         },
         "events": {
           "count": 3,
@@ -3048,6 +3216,10 @@
           "count": 3,
           "digest": "9ef42439461125339517d11513bd527c"
         },
+        "thread_event_cold_state": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
         "thread_plugin_metadata": {
           "count": 3,
           "digest": "f559a1a7947d92b0dbe2636e5ab4fd4e"
@@ -3114,8 +3286,8 @@
         }
       },
       "ledger": {
-        "count": 152,
-        "digest": "86d3a7f6c30eba3b9aba2061299cfca4"
+        "count": 153,
+        "digest": "4abfb16a0674719cd2d54ed70f367e8f"
       },
       "ledgerSchema": [
         "index|sqlite_autoindex___drizzle_migrations_1|__drizzle_migrations|",

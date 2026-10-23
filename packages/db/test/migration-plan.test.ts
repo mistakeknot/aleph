@@ -303,7 +303,7 @@ describe("the real migration plan", () => {
   it("reads each source file's hash into the plan", () => {
     const input = loadMigrationPlanInput(sourceFolders);
     expect(input.upstream).toHaveLength(144);
-    expect(input.aleph).toHaveLength(9);
+    expect(input.aleph).toHaveLength(10);
     const plan = loadMigrationPlan(sourceFolders);
     for (const step of plan.steps) {
       const legacy = legacyMigrationChain.find(

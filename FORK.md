@@ -435,8 +435,10 @@ rolling back means restoring a database backup taken before the switch.
 `migration-step-checks.ts` and `legacy-migration-chain.ts`) replaces the single
 Drizzle journal with two namespaces: the frozen upstream folder
 (`drizzle/`, pinned by `drizzle-aleph/frozen-upstream.json`) and the
-fork-owned folder `packages/db/drizzle-aleph/` (`A0001` to `A0009`, ordered by
-`manifest.json`, checked by `step-checks.json`). Applied steps are recorded in
+fork-owned folder `packages/db/drizzle-aleph/` (`A0001` to `A0010`, ordered by
+`manifest.json`, checked by `step-checks.json`; `A0010` is the event cold tier that
+main carries as upstream-numbered `0152_event_cold_tier`, which the legacy chain
+maps to it). Applied steps are recorded in
 `__bb_migration_ledger`, and `__drizzle_migrations` stays as a compatibility
 log. Before the first namespaced run the runner takes a verified backup
 (`.pre-ns-*` plus `.sidecar.json`) and migrates under the migrating lock.
@@ -447,7 +449,7 @@ manual work only while all of these hold: `guardPlan` in
 undeclared-candidate checks on guarded tables, and the collision and equality
 tests in `packages/db/test`); the candidate's `when` is strictly greater than
 every preceding step's, which `requireIncreasingWhen` in the same file
-enforces (currently above A0009's 1792452368229, so the timestamp check in
+enforces (currently above A0010's 1792668833813, so the timestamp check in
 "Fork-owned migrations" above still applies, but a failure is a named refusal
 at plan load rather than a boot outage); and the review is clean. Anything
 else is a manual step.

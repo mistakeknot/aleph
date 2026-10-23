@@ -56,6 +56,7 @@ const rowOverrides: Record<string, RowOverride> = {
   }),
   project_sources: () => ({ type: "local_path" }),
   events: () => ({ scope_kind: "turn" }),
+  thread_event_cold_state: () => ({ state: "hot", live_segment_id: null }),
   queued_thread_messages: (row) => ({
     forward_source_row_id: null,
     claimed_at: null,

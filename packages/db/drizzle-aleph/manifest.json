@@ -54,6 +54,12 @@
       "after": "0142_burly_baron_strucker",
       "when": 1792452368229,
       "supersedes": "0143_queued_message_state"
+    },
+    {
+      "id": "A0010",
+      "file": "A0010_event_cold_tier.sql",
+      "after": "A0009",
+      "when": 1792668833813
     }
   ]
 }

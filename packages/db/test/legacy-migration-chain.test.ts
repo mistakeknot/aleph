@@ -164,6 +164,6 @@ describe("legacy migration chain mapping", () => {
     expect(legacyMigrationReleases).toHaveLength(16);
     expect(
       new Set(legacyMigrationReleases.map((release) => release.length)),
-    ).toEqual(new Set([131, 134, 135, 141, 146, 152]));
+    ).toEqual(new Set([131, 134, 135, 141, 146, 153]));
   });
 });

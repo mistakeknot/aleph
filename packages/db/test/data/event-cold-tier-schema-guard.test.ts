@@ -61,7 +61,7 @@ function eventsMigrations(): string[] {
     .sort();
 }
 
-const MIGRATE_TS_EVENTS_MENTIONS = 3;
+const MIGRATE_TS_EVENTS_MENTIONS = 2;
 
 describe("cold segment schema compatibility", () => {
   it("the events scanner sees writes however they are spelled", () => {

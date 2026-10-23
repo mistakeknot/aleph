@@ -10,7 +10,7 @@ import {
 } from "./legacy-oracle.js";
 import { populateDatabase } from "./populate.js";
 
-export const RELEASE_PREFIX_LENGTHS = [131, 134, 135, 141, 146, 152] as const;
+export const RELEASE_PREFIX_LENGTHS = [131, 134, 135, 141, 146, 153] as const;
 export const EARLY_PREFIX_LENGTHS = [35, 64, 89, 119] as const;
 export const GROUPED_PREFIX_LENGTHS = [35, 64, 146] as const;
 export const EQUALITY_PREFIX_LENGTHS = [

@@ -29,7 +29,7 @@ function fingerprint(db: DbConnection): string {
   return createHash("sha256").update(db.$client.serialize()).digest("hex");
 }
 
-function alephFolderWithA0010(sql: string, checks?: object): string {
+function alephFolderWithA0011(sql: string, checks?: object): string {
   const folder = mkdtempSync(join(tmpdir(), "bb-step-checks-aleph-"));
   tempDirs.push(folder);
   cpSync(sourceFolders.alephFolder, folder, { recursive: true });
@@ -40,29 +40,29 @@ function alephFolderWithA0010(sql: string, checks?: object): string {
   const last = manifest.steps[manifest.steps.length - 1];
   if (last === undefined) throw new Error("Manifest is empty");
   manifest.steps.push({
-    id: "A0010",
-    file: "A0010_synthetic.sql",
+    id: "A0011",
+    file: "A0011_synthetic.sql",
     after: last.id,
     when: last.when + 1000,
   });
   writeFileSync(manifestPath, JSON.stringify(manifest));
-  writeFileSync(join(folder, "A0010_synthetic.sql"), sql);
+  writeFileSync(join(folder, "A0011_synthetic.sql"), sql);
   if (checks !== undefined) {
     const checksPath = join(folder, "step-checks.json");
     const existing = JSON.parse(readFileSync(checksPath, "utf8")) as object;
-    writeFileSync(checksPath, JSON.stringify({ ...existing, A0010: checks }));
+    writeFileSync(checksPath, JSON.stringify({ ...existing, A0011: checks }));
   }
   return folder;
 }
 
 async function migratedPopulatedDatabase(): Promise<DbConnection> {
-  const db = await populatedPrefixDatabase(152);
+  const db = await populatedPrefixDatabase(153);
   openDatabases.push(db);
   migrate(db);
   return db;
 }
 
-function runA0010(
+function runA0011(
   db: DbConnection,
   sql: string,
   checks?: object,
@@ -72,7 +72,7 @@ function runA0010(
     db,
     {
       upstreamFolder: sourceFolders.upstreamFolder,
-      alephFolder: alephFolderWithA0010(sql, checks),
+      alephFolder: alephFolderWithA0011(sql, checks),
     },
     options,
   );
@@ -87,7 +87,7 @@ function expectRefused(
   const before = fingerprint(db);
   let thrown: unknown;
   try {
-    runA0010(db, sql, checks);
+    runA0011(db, sql, checks);
   } catch (error) {
     thrown = error;
   }
@@ -112,13 +112,13 @@ describe("per-step safety checks", () => {
 
   it("accepts a declared no-op step", async () => {
     const db = await migratedPopulatedDatabase();
-    runA0010(db, "SELECT 1;", {});
+    runA0011(db, "SELECT 1;", {});
     expect(
       db.$client
         .prepare(
           "SELECT count(*) AS n FROM __bb_migration_ledger WHERE tag LIKE ?",
         )
-        .get("A0010%"),
+        .get("A0011%"),
     ).toEqual({ n: 1 });
   });
 
@@ -133,7 +133,7 @@ describe("per-step safety checks", () => {
 
   it("accepts a declared table create", async () => {
     const db = await migratedPopulatedDatabase();
-    runA0010(db, "CREATE TABLE zz_new (id INTEGER PRIMARY KEY);", {
+    runA0011(db, "CREATE TABLE zz_new (id INTEGER PRIMARY KEY);", {
       createsTables: ["zz_new"],
     });
     expect(
@@ -168,7 +168,7 @@ describe("per-step safety checks", () => {
 
   it("accepts a declared content change", async () => {
     const db = await migratedPopulatedDatabase();
-    runA0010(db, "UPDATE app_settings_values SET value = value || 'x';", {
+    runA0011(db, "UPDATE app_settings_values SET value = value || 'x';", {
       writesTables: ["app_settings_values"],
     });
   });
@@ -200,7 +200,7 @@ describe("per-step safety checks", () => {
     );
     const before = fingerprint(db);
     expect(() =>
-      runA0010(db, "UPDATE zz_shadow SET oid = 'q';", {
+      runA0011(db, "UPDATE zz_shadow SET oid = 'q';", {
         writesTables: ["zz_shadow"],
       }),
     ).toThrow(/shadows every rowid name/);
@@ -272,7 +272,7 @@ describe("per-step safety checks", () => {
   it("follows a declared table rename and compares its contents", async () => {
     const db = await migratedPopulatedDatabase();
     const rename = "ALTER TABLE app_settings_values RENAME TO zz_renamed;";
-    runA0010(db, rename, {
+    runA0011(db, rename, {
       tableRenames: { app_settings_values: "zz_renamed" },
     });
     expect(
@@ -343,7 +343,7 @@ describe("per-step safety checks", () => {
     db.$client.exec(
       "CREATE TABLE zz_nullkey (id TEXT PRIMARY KEY, v TEXT); INSERT INTO zz_nullkey (id, v) VALUES (NULL, 'a'), (NULL, 'b'), ('k', 'c');",
     );
-    runA0010(db, "SELECT 1;", {});
+    runA0011(db, "SELECT 1;", {});
   });
 
   it("accepts A0009 on a pre-state database with a failed row", async () => {
@@ -426,7 +426,7 @@ describe("per-step safety checks", () => {
     db.$client.exec(
       "CREATE TABLE zz_norowid (k TEXT PRIMARY KEY, v TEXT) WITHOUT ROWID; INSERT INTO zz_norowid VALUES ('a', '1'), ('b', '2');",
     );
-    runA0010(db, "SELECT 1;", {});
+    runA0011(db, "SELECT 1;", {});
   });
 
   it("accepts an upstream step that changes only the tables it names", async () => {
@@ -511,7 +511,7 @@ describe("per-step safety checks", () => {
 
   it("accepts upper-case createsTables and rowDeltas declarations", async () => {
     const db = await migratedPopulatedDatabase();
-    runA0010(
+    runA0011(
       db,
       [
         "CREATE TABLE zz_new (id INTEGER PRIMARY KEY);",
@@ -523,7 +523,7 @@ describe("per-step safety checks", () => {
 
   it("accepts upper-case rowDeltas and writesTables for an existing table", async () => {
     const db = await migratedPopulatedDatabase();
-    runA0010(
+    runA0011(
       db,
       "DELETE FROM app_settings_values WHERE rowid = (SELECT min(rowid) FROM app_settings_values);",
       {
@@ -535,7 +535,7 @@ describe("per-step safety checks", () => {
 
   it("accepts an upper-case tableRenames declaration", async () => {
     const db = await migratedPopulatedDatabase();
-    runA0010(db, "ALTER TABLE app_settings_values RENAME TO zz_renamed;", {
+    runA0011(db, "ALTER TABLE app_settings_values RENAME TO zz_renamed;", {
       tableRenames: { APP_SETTINGS_VALUES: "zz_renamed" },
     });
   });
@@ -547,7 +547,7 @@ describe("per-step safety checks", () => {
 
   it("accepts an unchanged table renamed to an upper-case declared target", async () => {
     const db = await migratedPopulatedDatabase();
-    runA0010(db, renameSql, upperRename);
+    runA0011(db, renameSql, upperRename);
   });
 
   it.each([
@@ -577,7 +577,7 @@ describe("per-step safety checks", () => {
       "CREATE TABLE zz_fk_parent (id integer PRIMARY KEY); CREATE TABLE zz_fk_child (id integer PRIMARY KEY, a integer REFERENCES zz_fk_parent(id)); INSERT INTO zz_fk_child (a) VALUES (99);",
     );
     db.$client.pragma("foreign_keys = ON");
-    runA0010(db, "ALTER TABLE zz_fk_child RENAME TO zz_fk_moved;", {
+    runA0011(db, "ALTER TABLE zz_fk_child RENAME TO zz_fk_moved;", {
       tableRenames: { ZZ_FK_CHILD: "ZZ_FK_MOVED" },
     });
   });
@@ -589,14 +589,14 @@ describe("per-step safety checks", () => {
       "CREATE TABLE zz_fk_parent (id integer PRIMARY KEY); CREATE TABLE zz_fk_child (id integer PRIMARY KEY, p integer REFERENCES zz_fk_parent(id)); INSERT INTO zz_fk_child (p) VALUES (99);",
     );
     db.$client.pragma("foreign_keys = ON");
-    runA0010(db, "ALTER TABLE zz_fk_child RENAME COLUMN p TO q;", {
+    runA0011(db, "ALTER TABLE zz_fk_child RENAME COLUMN p TO q;", {
       columnRenames: { ZZ_FK_CHILD: { P: "Q" } },
     });
   });
 
   it("accepts a copied table with upper-case preserved and renamed columns", async () => {
     const db = await migratedPopulatedDatabase();
-    runA0010(
+    runA0011(
       db,
       "ALTER TABLE app_settings_values RENAME COLUMN value TO zz_v;",
       {
@@ -636,12 +636,12 @@ describe("per-step safety checks", () => {
   it("rejects column declarations that differ only by case", async () => {
     const db = await migratedPopulatedDatabase();
     expect(() =>
-      runA0010(db, "SELECT 1;", {
+      runA0011(db, "SELECT 1;", {
         columnRenames: { zz_t: { p: "A", P: "B" } },
       }),
     ).toThrow(/differing only by case/);
     expect(() =>
-      runA0010(db, "SELECT 1;", {
+      runA0011(db, "SELECT 1;", {
         columnRenames: { zz_t: { p: "A" }, ZZ_T: { p: "B" } },
       }),
     ).toThrow(/differing only by case/);
@@ -652,7 +652,7 @@ describe("per-step safety checks", () => {
     db.$client.exec(
       'CREATE TABLE "constructor" (id integer PRIMARY KEY, p text); INSERT INTO "constructor" (p) VALUES (\'a\'); CREATE TABLE "__proto__" (id integer PRIMARY KEY, v text); INSERT INTO "__proto__" (v) VALUES (\'b\');',
     );
-    runA0010(
+    runA0011(
       db,
       [
         'ALTER TABLE "constructor" RENAME COLUMN p TO q;',

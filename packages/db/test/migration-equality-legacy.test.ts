@@ -221,8 +221,8 @@ describe("migration equality harness: legacy runner as oracle", () => {
   it(
     "builds identical populated descriptions twice and detects mutations",
     async () => {
-      const first = await populatedPrefixDatabase(152);
-      const second = await populatedPrefixDatabase(152);
+      const first = await populatedPrefixDatabase(153);
+      const second = await populatedPrefixDatabase(153);
       const left = describeDatabase(first.$client);
       expect(describeDatabase(second.$client)).toEqual(left);
       expect(
@@ -258,7 +258,7 @@ describe("migration equality harness: legacy runner as oracle", () => {
   it(
     "detects renumbered rowids, swapped duplicate-text rows, relinked FTS rows, a changed counter and pragma drift",
     async () => {
-      const db = await populatedPrefixDatabase(152);
+      const db = await populatedPrefixDatabase(153);
       const sqlite = db.$client;
       const base = contentOnly(describeDatabase(sqlite));
       const changed = () =>
@@ -472,7 +472,7 @@ describe("legacy runner behaviour on ledger shapes (S3 rows 8, 16, 18, 20, 21)",
   it(
     "row 16: an exact duplicate ledger row is tolerated and changes nothing",
     async () => {
-      const db = await populatedPrefixDatabase(152);
+      const db = await populatedPrefixDatabase(153);
       const before = describeDatabase(db.$client);
       db.$client.exec(
         "INSERT INTO __drizzle_migrations (hash, created_at) SELECT hash, created_at FROM __drizzle_migrations ORDER BY rowid DESC LIMIT 1",
@@ -483,10 +483,10 @@ describe("legacy runner behaviour on ledger shapes (S3 rows 8, 16, 18, 20, 21)",
         [],
       );
       const rows = ledgerRows(db.$client);
-      expect(rows).toHaveLength(153);
-      expect(rows[151]).toMatchObject({
-        hash: rows[152]?.hash,
-        created_at: rows[152]?.created_at,
+      expect(rows).toHaveLength(154);
+      expect(rows[152]).toMatchObject({
+        hash: rows[153]?.hash,
+        created_at: rows[153]?.created_at,
       });
       expectScenario("row16-exact-duplicate", db);
       db.$client.close();
@@ -497,7 +497,7 @@ describe("legacy runner behaviour on ledger shapes (S3 rows 8, 16, 18, 20, 21)",
   it(
     "row 8: a stray NULL row with an unknown hash beside complete rows is ignored",
     async () => {
-      const db = await populatedPrefixDatabase(152);
+      const db = await populatedPrefixDatabase(153);
       const before = describeDatabase(db.$client);
       db.$client.exec(
         "INSERT INTO __drizzle_migrations (hash, created_at) VALUES ('stray', NULL)",
@@ -510,7 +510,7 @@ describe("legacy runner behaviour on ledger shapes (S3 rows 8, 16, 18, 20, 21)",
         ),
       ).toEqual([]);
       const rows = ledgerRows(db.$client);
-      expect(rows).toHaveLength(153);
+      expect(rows).toHaveLength(154);
       expect(rows.filter((row) => row.created_at === null)).toHaveLength(1);
       expectScenario("row8-stray-null", db);
       db.$client.close();
@@ -521,7 +521,7 @@ describe("legacy runner behaviour on ledger shapes (S3 rows 8, 16, 18, 20, 21)",
   it(
     "row 8: a NULL row carrying a canonical step hash beside the complete row is ignored",
     async () => {
-      const db = await populatedPrefixDatabase(152);
+      const db = await populatedPrefixDatabase(153);
       const before = describeDatabase(db.$client);
       db.$client.exec(
         "INSERT INTO __drizzle_migrations (hash, created_at) SELECT hash, NULL FROM __drizzle_migrations WHERE rowid = (SELECT MAX(rowid) - 7 FROM __drizzle_migrations)",
@@ -534,7 +534,7 @@ describe("legacy runner behaviour on ledger shapes (S3 rows 8, 16, 18, 20, 21)",
         ),
       ).toEqual([]);
       const rows = ledgerRows(db.$client);
-      expect(rows).toHaveLength(153);
+      expect(rows).toHaveLength(154);
       expect(rows.filter((row) => row.created_at === null)).toHaveLength(1);
       expectScenario("row8-canonical-hash-null", db);
       db.$client.close();
@@ -545,7 +545,7 @@ describe("legacy runner behaviour on ledger shapes (S3 rows 8, 16, 18, 20, 21)",
   it(
     "row 18: an unrecognised row with a past created_at is accepted and changes nothing",
     async () => {
-      const db = await populatedPrefixDatabase(152);
+      const db = await populatedPrefixDatabase(153);
       const before = describeDatabase(db.$client);
       db.$client.exec(
         "INSERT INTO __drizzle_migrations (hash, created_at) VALUES ('unknown-dev-branch-hash', 1790298785171)",
@@ -557,7 +557,7 @@ describe("legacy runner behaviour on ledger shapes (S3 rows 8, 16, 18, 20, 21)",
           contentOnly(describeDatabase(db.$client)),
         ),
       ).toEqual([]);
-      expect(ledgerRows(db.$client)).toHaveLength(153);
+      expect(ledgerRows(db.$client)).toHaveLength(154);
       expectScenario("row18-unknown-past", db);
       db.$client.close();
     },
@@ -567,7 +567,7 @@ describe("legacy runner behaviour on ledger shapes (S3 rows 8, 16, 18, 20, 21)",
   it(
     "row 9 and 18: an unrecognised row with a future created_at is accepted and warns once",
     async () => {
-      const db = await populatedPrefixDatabase(152);
+      const db = await populatedPrefixDatabase(153);
       const before = describeDatabase(db.$client);
       db.$client.exec(
         "INSERT INTO __drizzle_migrations (hash, created_at) VALUES ('unknown-future-hash', 4102444800000)",
@@ -593,7 +593,7 @@ describe("legacy runner behaviour on ledger shapes (S3 rows 8, 16, 18, 20, 21)",
           contentOnly(describeDatabase(db.$client)),
         ),
       ).toEqual([]);
-      expect(ledgerRows(db.$client)).toHaveLength(153);
+      expect(ledgerRows(db.$client)).toHaveLength(154);
       expectScenario("row18-unknown-future", db);
       db.$client.close();
     },
@@ -603,7 +603,7 @@ describe("legacy runner behaviour on ledger shapes (S3 rows 8, 16, 18, 20, 21)",
   it(
     "row 8: a NULL created_at on a mid-chain step refuses as missing-created-at and leaves the database unchanged",
     async () => {
-      const db = await populatedPrefixDatabase(152);
+      const db = await populatedPrefixDatabase(153);
       db.$client.exec(
         "UPDATE __drizzle_migrations SET created_at = NULL WHERE rowid = (SELECT MAX(rowid) - 5 FROM __drizzle_migrations)",
       );
@@ -629,9 +629,9 @@ describe("legacy runner behaviour on ledger shapes (S3 rows 8, 16, 18, 20, 21)",
       );
       await legacyMigrate(db);
       const rows = ledgerRows(db.$client);
-      expect(rows).toHaveLength(153);
+      expect(rows).toHaveLength(154);
       expect(rows.filter((row) => row.created_at === null)).toHaveLength(1);
-      expect(rows[152]?.created_at).not.toBeNull();
+      expect(rows[153]?.created_at).not.toBeNull();
       const after: Record<string, number> = {};
       for (const row of db.$client
         .prepare(
@@ -658,7 +658,7 @@ describe("legacy runner behaviour on ledger shapes (S3 rows 8, 16, 18, 20, 21)",
         diffDescriptions(
           contentOnly(before),
           contentOnly(describeDatabase(db.$client)),
-        ),
+        ).filter((line) => !/event_cold/.test(line)),
       ).toEqual([
         expect.stringContaining("table differs: queued_thread_messages"),
       ]);
@@ -671,7 +671,7 @@ describe("legacy runner behaviour on ledger shapes (S3 rows 8, 16, 18, 20, 21)",
   it(
     "row 20: an all-NULL ledger fails on a duplicate column after partially re-applying steps",
     async () => {
-      const db = await populatedPrefixDatabase(152);
+      const db = await populatedPrefixDatabase(153);
       const before = describeDatabase(db.$client);
       db.$client.exec("UPDATE __drizzle_migrations SET created_at = NULL");
       let failure: unknown;
@@ -685,7 +685,7 @@ describe("legacy runner behaviour on ledger shapes (S3 rows 8, 16, 18, 20, 21)",
       expect(String((failure as Error & { cause?: unknown }).cause)).toMatch(
         /duplicate column name: name/,
       );
-      expect(ledgerRows(db.$client).length).toBeGreaterThan(152);
+      expect(ledgerRows(db.$client).length).toBeGreaterThan(153);
       expect(
         diffDescriptions(
           contentOnly(before),

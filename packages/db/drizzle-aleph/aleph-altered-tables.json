@@ -2,8 +2,10 @@
   "tables": [
     "aleph_install_requests",
     "app_theme",
+    "event_cold_segments",
     "idempotent_thread_operations",
     "queued_thread_messages",
+    "thread_event_cold_state",
     "thread_redirects",
     "thread_search_learned_selections",
     "threads",
