@@ -4,6 +4,11 @@ import {
   requireThreadLifecycleEventApplied,
 } from "@bb/db";
 import type { DbConnection, DbTransaction, EnvironmentRow } from "@bb/db";
+import {
+  pinThreadHistory,
+  type ThreadHistoryPinRelease,
+} from "./event-cold-tier/pins.js";
+import { ensureThreadEventsHot } from "./event-cold-tier/service.js";
 import type {
   ClientTurnRequestId,
   PromptInput,
@@ -490,7 +495,43 @@ export async function sendThreadMessage(
   );
 }
 
+export async function pinWritableThreadHistory(
+  deps: LoggedPendingInteractionWorkSessionDeps,
+  threadId: string,
+): Promise<ThreadHistoryPinRelease> {
+  const release = pinThreadHistory(threadId);
+  try {
+    const current = getThread(deps.db, threadId);
+    if (current?.archivedAt) {
+      throwThreadNotWritable(current, "archived", "Thread is archived");
+    }
+    if (current && current.deletedAt !== null) {
+      throwThreadNotWritable(current, "deleted", "Thread is deleted");
+    }
+    await ensureThreadEventsHot(deps, threadId);
+    return release;
+  } catch (error) {
+    release();
+    throw error;
+  }
+}
+
 async function sendThreadMessageWithoutContextClear(
+  deps: LoggedPendingInteractionWorkSessionDeps,
+  args: SendThreadMessageArgs,
+): Promise<void> {
+  const releaseHistoryPin = await pinWritableThreadHistory(
+    deps,
+    args.thread.id,
+  );
+  try {
+    await sendHotThreadMessageWithoutContextClear(deps, args);
+  } finally {
+    releaseHistoryPin();
+  }
+}
+
+async function sendHotThreadMessageWithoutContextClear(
   deps: LoggedPendingInteractionWorkSessionDeps,
   args: SendThreadMessageArgs,
 ): Promise<void> {

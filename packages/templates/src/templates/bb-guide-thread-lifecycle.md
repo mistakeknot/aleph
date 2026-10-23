@@ -73,6 +73,13 @@ Lifecycle:
   bb thread unarchive [id]                 Unarchive a thread
     --self                                 Unarchive current thread
 
+  When the server runs with the event archive on (`BB_EVENT_COLD_TIER=1`), the
+  history of a thread archived for 14 days or more moves out of the database
+  into `<dataDir>/event-archive/`. Opening, unarchiving, or messaging the thread
+  moves its history back first, so nothing changes for the reader except a
+  short wait. `bb admin event-archive status` shows what is archived, and
+  `bb admin event-archive rehydrate <id>|--all` moves history back by hand.
+
   bb thread restore-environment [id]       Restore a destroyed workspace
     --self                                 Restore current thread
 

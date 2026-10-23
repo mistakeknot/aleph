@@ -24,6 +24,10 @@ import type {
   SystemAppUpdateQuery,
   SystemAppUpdateStatus,
   SystemCliCommandStatus,
+  EventArchiveReconcileResponse,
+  EventArchiveRehydrateRequest,
+  EventArchiveRehydrateResponse,
+  EventArchiveStatus,
   SystemAttentionResponse,
   SystemConfigReloadResponse,
   SystemConfigResponse,
@@ -103,6 +107,15 @@ export interface SystemCliCommandArgs {
 }
 
 export type SystemCliCommandStatusResult = SystemCliCommandStatus;
+
+export interface SystemEventArchiveArgs {
+  signal?: AbortSignal;
+}
+
+export type SystemEventArchiveStatusResult = EventArchiveStatus;
+export type SystemEventArchiveRehydrateArgs = EventArchiveRehydrateRequest;
+export type SystemEventArchiveRehydrateResult = EventArchiveRehydrateResponse;
+export type SystemEventArchiveReconcileResult = EventArchiveReconcileResponse;
 
 export interface SystemVoiceTranscriptionArgs {
   file: Blob;
@@ -242,6 +255,13 @@ export interface SystemArea {
   ): Promise<SystemCliCommandStatusResult>;
   experimental_installCliCommand(): Promise<SystemCliCommandStatusResult>;
   experimental_removeCliCommand(): Promise<SystemCliCommandStatusResult>;
+  experimental_eventArchiveStatus(
+    args?: SystemEventArchiveArgs,
+  ): Promise<SystemEventArchiveStatusResult>;
+  experimental_eventArchiveRehydrate(
+    args: SystemEventArchiveRehydrateArgs,
+  ): Promise<SystemEventArchiveRehydrateResult>;
+  experimental_eventArchiveReconcile(): Promise<SystemEventArchiveReconcileResult>;
 }
 
 function versionQuery(args: SystemVersionArgs | undefined): SystemVersionQuery {
@@ -511,6 +531,26 @@ export function createSystemArea(args: CreateSdkAreaArgs): SystemArea {
     async experimental_removeCliCommand() {
       return transport.readJson(
         transport.api.v1.system["cli-command"].remove.$post({}),
+      );
+    },
+    async experimental_eventArchiveStatus(input) {
+      return transport.readJson(
+        transport.api.v1.system["event-archive"].$get(
+          {},
+          ...signalRequestArgs(input?.signal),
+        ),
+      );
+    },
+    async experimental_eventArchiveRehydrate(input) {
+      return transport.readJson(
+        transport.api.v1.system["event-archive"].rehydrate.$post({
+          json: input,
+        }),
+      );
+    },
+    async experimental_eventArchiveReconcile() {
+      return transport.readJson(
+        transport.api.v1.system["event-archive"].reconcile.$post({}),
       );
     },
   };

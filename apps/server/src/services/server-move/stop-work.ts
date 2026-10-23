@@ -3,6 +3,7 @@ import { getThread, listRunningThreads } from "@bb/db";
 import { threadScope } from "@bb/domain";
 import type { LoggedPendingInteractionWorkSessionDeps } from "../../types.js";
 import { appendSystemErrorEvent } from "../threads/thread-events.js";
+import { withHotThreadHistory } from "../threads/event-cold-tier/service.js";
 import { stopThreadForCurrentState } from "../threads/thread-lifecycle.js";
 
 const RUNNING_WORK_POLL_MS = 250;
@@ -14,6 +15,16 @@ export interface StopRunningServerWorkArgs {
 }
 
 async function stopRunningThread(
+  deps: LoggedPendingInteractionWorkSessionDeps,
+  row: { hostId: string | null; id: string },
+  targetHostName: string,
+): Promise<void> {
+  await withHotThreadHistory(deps, row.id, () =>
+    stopHotRunningThread(deps, row, targetHostName),
+  );
+}
+
+async function stopHotRunningThread(
   deps: LoggedPendingInteractionWorkSessionDeps,
   row: { hostId: string | null; id: string },
   targetHostName: string,

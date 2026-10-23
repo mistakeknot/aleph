@@ -53,6 +53,10 @@ import {
   sendThreadMessage,
 } from "./thread-send.js";
 import { requestThreadStopForCurrentState } from "./thread-lifecycle.js";
+import {
+  type EventColdTierDeps,
+  withHotThreadHistory,
+} from "./event-cold-tier/service.js";
 import { getLeadingAgentOnlyInput } from "./deferred-first-turn-context.js";
 
 type ThreadRewindPrepareCommand = Extract<
@@ -420,13 +424,24 @@ function rewindPrepareCommandFromStart(
   return { type: "thread.rewind.prepare", ...context, ...args };
 }
 
-export async function editThreadMessage(
+type EditThreadMessageArgs = {
+  environment: Parameters<typeof requireReadyThreadEnvironment>[0];
+  payload: EditMessageRequest;
+  thread: Thread;
+};
+
+export function editThreadMessage(
+  deps: LoggedPendingInteractionWorkSessionDeps & EventColdTierDeps,
+  args: EditThreadMessageArgs,
+): Promise<EditMessageResponse> {
+  return withHotThreadHistory(deps, args.thread.id, () =>
+    editHotThreadMessage(deps, args),
+  );
+}
+
+async function editHotThreadMessage(
   deps: LoggedPendingInteractionWorkSessionDeps,
-  args: {
-    environment: Parameters<typeof requireReadyThreadEnvironment>[0];
-    payload: EditMessageRequest;
-    thread: Thread;
-  },
+  args: EditThreadMessageArgs,
 ): Promise<EditMessageResponse> {
   if (!deps.providerRegistry.supportsSessionRewind(args.thread.providerId)) {
     conflict(`Editing messages is not supported for ${args.thread.providerId}`);

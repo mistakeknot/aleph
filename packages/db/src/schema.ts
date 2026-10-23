@@ -918,6 +918,72 @@ export const retainedEventOutputs = sqliteTable(
   ],
 );
 
+export const threadEventColdStateValues = ["hot", "cold"] as const;
+export type ThreadEventColdState = (typeof threadEventColdStateValues)[number];
+
+export const threadEventColdState = sqliteTable(
+  "thread_event_cold_state",
+  {
+    threadId: text("thread_id")
+      .primaryKey()
+      .references(() => threads.id, { onDelete: "cascade" }),
+    state: text("state", { enum: threadEventColdStateValues })
+      .$type<ThreadEventColdState>()
+      .notNull(),
+    liveSegmentId: text("live_segment_id"),
+    lastRehydratedAt: integer("last_rehydrated_at"),
+  },
+  (table) => [
+    index("thread_event_cold_state_state_idx").on(table.state),
+    check(
+      "thread_event_cold_state_shape_check",
+      sql`(
+        (${table.state} = 'cold' AND ${table.liveSegmentId} IS NOT NULL)
+        OR
+        (${table.state} = 'hot' AND ${table.liveSegmentId} IS NULL)
+      )`,
+    ),
+  ],
+);
+
+export const eventColdSegmentLifecycleValues = [
+  "live",
+  "rehydrated",
+  "orphaned",
+] as const;
+export type EventColdSegmentLifecycle =
+  (typeof eventColdSegmentLifecycleValues)[number];
+
+export const eventColdSegments = sqliteTable(
+  "event_cold_segments",
+  {
+    segmentId: text("segment_id").primaryKey(),
+    threadId: text("thread_id").notNull(),
+    lifecycle: text("lifecycle", { enum: eventColdSegmentLifecycleValues })
+      .$type<EventColdSegmentLifecycle>()
+      .notNull(),
+    path: text("path").notNull(),
+    firstSequence: integer("first_sequence").notNull(),
+    lastSequence: integer("last_sequence").notNull(),
+    rowCount: integer("row_count").notNull(),
+    eventIdsSha256: text("event_ids_sha256").notNull(),
+    bodySha256: text("body_sha256").notNull(),
+    fileSha256: text("file_sha256").notNull(),
+    fileBytes: integer("file_bytes").notNull(),
+    headerBytes: integer("header_bytes").notNull(),
+    decompressedBytes: integer("decompressed_bytes").notNull(),
+    formatVersion: integer("format_version").notNull(),
+    transformVersions: text("transform_versions").notNull(),
+    createdAt: integer("created_at").notNull(),
+    endedAt: integer("ended_at"),
+  },
+  (table) => [
+    index("event_cold_segments_thread_idx").on(table.threadId),
+    index("event_cold_segments_lifecycle_idx").on(table.lifecycle),
+    uniqueIndex("event_cold_segments_path_idx").on(table.path),
+  ],
+);
+
 export const threadPruningCursors = sqliteTable(
   "thread_pruning_cursors",
   {

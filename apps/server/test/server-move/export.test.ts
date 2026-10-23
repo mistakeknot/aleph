@@ -182,4 +182,40 @@ describe("server archive export", () => {
       });
       expect(manifest.serverMoveExperiment).toBe(true);
     }));
+
+  it("exports only the cold manifest's complete lines", () =>
+    withTestHarness(async (harness) => {
+      const dataDir = harness.config.dataDir;
+      const complete = '{"kind":"pending"}\n{"kind":"committed"}\n';
+      await writeDataFile(
+        dataDir,
+        "event-archive/manifest.jsonl",
+        `${complete}{"kind":"pend`,
+      );
+      await writeDataFile(dataDir, "event-archive/thr_1/seg.jsonl.zst", "z");
+
+      const archive = await exportServerArchive({
+        appVersion: harness.config.appVersion,
+        dataDir,
+        db: harness.db,
+        fileName: "server.tar.gz",
+        logger: harness.deps.logger,
+        now: 1_700_000_000_000,
+        sourceServerHostId: null,
+        workDir: join(dataDir, "server-export", "export-1"),
+      });
+
+      const destination = await makeTempDir();
+      await extractServerArchive({
+        archivePath: archive.path,
+        destinationDir: destination,
+      });
+      const files = join(destination, "files", "event-archive");
+      expect(await readFile(join(files, "manifest.jsonl"), "utf8")).toBe(
+        complete,
+      );
+      expect(
+        await readFile(join(files, "thr_1", "seg.jsonl.zst"), "utf8"),
+      ).toBe("z");
+    }));
 });
