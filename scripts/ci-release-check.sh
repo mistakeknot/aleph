@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Manual zklw CI qualification for the bb-app Account Pooler release.
+# Manual CI qualification for the bb-app Account Pooler release.
 # The fleet worker runs this in a fresh, credential-free Ubuntu guest.
 set -euo pipefail
 
@@ -47,17 +47,26 @@ fi
 pnpm install --frozen-lockfile
 node scripts/check-source-nul.mjs
 node .github/workflows/check-version-lockstep.mjs
-pnpm exec turbo run typecheck test \
+pnpm exec turbo run typecheck \
   --filter=@bb/app --filter=@bb/config --filter=bb-app --concurrency=2 --env-mode=loose
+pnpm exec turbo run test \
+  --filter=@bb/app --filter=@bb/config --filter=bb-app --concurrency=2 --env-mode=loose \
+  -- --testTimeout=30000 --maxWorkers=4
 pnpm exec turbo run typecheck --filter=@bb/server --concurrency=2 --env-mode=loose
 # The runbook's default five-second Vitest timeout fails under parallel load.
 # Preserve every assertion while allowing the installer and machine tests time.
-pnpm exec turbo run test --filter=@bb/server --concurrency=2 --env-mode=loose -- --testTimeout=30000
-env -u CODEX_HOME pnpm exec turbo run test typecheck --concurrency=2 --env-mode=loose \
+pnpm exec turbo run test --filter=@bb/server --concurrency=2 --env-mode=loose -- --testTimeout=30000 --maxWorkers=4
+env -u CODEX_HOME pnpm exec turbo run test --concurrency=2 --env-mode=loose \
+  --filter=bb-plugin-account-pool --filter=bb-plugin-connect \
+  --filter=bb-plugin-provider-codex --filter=@get-bb/plugin-sdk \
+  --filter=@bb/templates --filter=@bb/cli -- --testTimeout=30000 --maxWorkers=4
+env -u CODEX_HOME pnpm exec turbo run typecheck --concurrency=2 --env-mode=loose \
   --filter=bb-plugin-account-pool --filter=bb-plugin-connect \
   --filter=bb-plugin-provider-codex --filter=@get-bb/plugin-sdk \
   --filter=@bb/templates --filter=@bb/cli
-pnpm exec turbo run test typecheck lint --concurrency=2 --env-mode=loose \
+pnpm exec turbo run test --concurrency=2 --env-mode=loose \
+  --filter=bb-plugin-thread-list -- --testTimeout=30000 --maxWorkers=4
+pnpm exec turbo run typecheck lint --concurrency=2 --env-mode=loose \
   --filter=bb-plugin-thread-list
 pnpm exec turbo run lint --concurrency=2 --env-mode=loose \
   --filter=bb-plugin-account-pool
