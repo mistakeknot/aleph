@@ -303,6 +303,7 @@ interface SessionConstructionConfig {
 }
 
 interface ClaudeLiveSessionSettings {
+  fullAccessApprovalsEnabled: boolean;
   memoryEnabled: boolean;
   model?: string;
   providerSubagentsEnabled: boolean;
@@ -1032,6 +1033,7 @@ function toInitialLiveSessionSettings(
   params: SessionConstructionParams,
 ): ClaudeLiveSessionSettings {
   return {
+    fullAccessApprovalsEnabled: params.fullAccessApprovalsEnabled,
     memoryEnabled: params.memoryEnabled ?? true,
     ...(params.model !== undefined ? { model: params.model } : {}),
     providerSubagentsEnabled: params.providerSubagentsEnabled ?? true,
@@ -1050,6 +1052,8 @@ function withTurnLiveSessionSettings(
   const model = params.model ?? current.model;
   const reasoningLevel = params.reasoningLevel ?? current.reasoningLevel;
   return {
+    fullAccessApprovalsEnabled:
+      params.fullAccessApprovalsEnabled ?? current.fullAccessApprovalsEnabled,
     memoryEnabled: params.memoryEnabled ?? current.memoryEnabled,
     ...(model !== undefined ? { model } : {}),
     providerSubagentsEnabled:
@@ -2168,7 +2172,8 @@ function createCanUseTool(threadIdRef: ThreadIdRef): CanUseTool {
 
     if (
       threadSession.attachment.permissionMode === "bypassPermissions" &&
-      !isBypassPermissionsAvailable()
+      (!isBypassPermissionsAvailable() ||
+        !threadSession.attachment.liveSettings.fullAccessApprovalsEnabled)
     ) {
       return {
         behavior: "allow",
