@@ -685,9 +685,9 @@ describe("loadPluginApp", () => {
     expect(mounted.inspection.experimental_clipboardWrites).toEqual([
       { text: "plain", html: "<b>rich</b>" },
     ]);
-    await expect(
-      experimental_copyToClipboard({ text: "later" }),
-    ).resolves.toBe(false);
+    await expect(experimental_copyToClipboard({ text: "later" })).resolves.toBe(
+      false,
+    );
 
     const slot = renderSlot(captured.navPanels[0]!, { subPath: "" });
     await expect(
@@ -944,6 +944,22 @@ describe("loadPluginApp", () => {
     ).rejects.toThrow(
       '"experimental_sidebarAccessory" must be a React component',
     );
+    await expect(
+      loadPluginApp(
+        definePluginApp((builder) => {
+          builder.slots.navPanel({
+            id: "panel",
+            title: "Panel",
+            icon: "FileText",
+            path: "panel",
+            component: Panel,
+            experimental_sidebarIconBadge: "nope" as never,
+          });
+        }),
+      ),
+    ).rejects.toThrow(
+      '"experimental_sidebarIconBadge" must be a React component',
+    );
     await expect(loadPluginApp({ default: { nope: true } })).rejects.toThrow(
       "not definePluginApp(...)",
     );
@@ -968,6 +984,28 @@ describe("loadPluginApp", () => {
 
     expect(captured.navPanels[0]?.experimental_sidebarAccessory).toBe(
       SidebarAccessory,
+    );
+  });
+
+  it("captures a nav panel experimental sidebar icon badge", async () => {
+    function SidebarIconBadge() {
+      return <span>3</span>;
+    }
+    const captured = await loadPluginApp(
+      definePluginApp((builder) => {
+        builder.slots.navPanel({
+          id: "inbox",
+          title: "Inbox",
+          icon: "Inbox",
+          path: "inbox",
+          component: Panel,
+          experimental_sidebarIconBadge: SidebarIconBadge,
+        });
+      }),
+    );
+
+    expect(captured.navPanels[0]?.experimental_sidebarIconBadge).toBe(
+      SidebarIconBadge,
     );
   });
 

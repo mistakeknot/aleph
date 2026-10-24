@@ -7,8 +7,8 @@ import { PluginContext } from "./plugin-context";
 import { useOptionalPaneContext } from "@/views/thread-detail/PaneContext";
 import { getPluginPagePanelStateId } from "./plugin-page-panel-state";
 
-class HeaderContentBoundary extends Component<
-  { pluginId: string; children: ReactNode },
+export class NavPanelSlotBoundary extends Component<
+  { pluginId: string; slot: string; children: ReactNode },
   { crashed: boolean }
 > {
   override state = { crashed: false };
@@ -17,9 +17,12 @@ class HeaderContentBoundary extends Component<
     return { crashed: true };
   }
 
-  override componentDidCatch(error: Error): void {
+  override componentDidCatch(error: unknown): void {
+    const reason = String(
+      (error as Error | null | undefined)?.message ?? error,
+    );
     console.warn(
-      `[plugin:${this.props.pluginId}] navPanel headerContent crashed and is hidden: ${error.message}`,
+      `[plugin:${this.props.pluginId}] navPanel ${this.props.slot} crashed and is hidden: ${reason}`,
     );
   }
 
@@ -67,9 +70,10 @@ export function PluginPanelHeaderActions({
   return (
     <div className="flex shrink-0 items-center gap-2">
       {HeaderContent === undefined ? null : (
-        <HeaderContentBoundary
+        <NavPanelSlotBoundary
           key={`${panel.pluginId}/${panel.id}/${panel.generation}`}
           pluginId={panel.pluginId}
+          slot="headerContent"
         >
           <PluginContext.Provider value={panel.pluginId}>
             <div
@@ -80,7 +84,7 @@ export function PluginPanelHeaderActions({
               <HeaderContent subPath={subPath} />
             </div>
           </PluginContext.Provider>
-        </HeaderContentBoundary>
+        </NavPanelSlotBoundary>
       )}
       {paneActions}
       <div data-plugin-right-panel-toggle-portal={panelStateId} />

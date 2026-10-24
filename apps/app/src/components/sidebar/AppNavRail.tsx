@@ -1,6 +1,7 @@
 import {
   forwardRef,
   useEffect,
+  useId,
   useRef,
   useState,
   type ComponentProps,
@@ -28,6 +29,8 @@ import { useIsCompactViewport } from "@bb/shared-ui/hooks/use-compact-viewport";
 import { cn } from "@bb/shared-ui/lib/utils";
 import { Popover, PopoverAnchor, PopoverContent } from "@bb/shared-ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@bb/shared-ui/tooltip";
+import { PluginContext } from "@/components/plugin/plugin-context";
+import { NavPanelSlotBoundary } from "@/components/plugin/PluginPanelHeader";
 import { useIsSidebarFramed } from "@/components/ui/sidebar.js";
 import { AppCommandShortcutPill } from "@/components/commands/AppCommandShortcutHint";
 import { useAppCommandShortcut } from "@/components/commands/AppCommandProvider";
@@ -37,6 +40,7 @@ import {
   MACOS_WINDOW_DRAG_CLASS,
   shouldUseMacosDesktopChrome,
 } from "@/lib/bb-desktop";
+import { usePluginCss } from "@/lib/plugin-css";
 import { getRootComposeRoutePath } from "@/lib/route-paths";
 import { NAV_RAIL_WIDTH_CLASS } from "./navRailWidth";
 import { useSidebarHeaderControlAxisClass } from "./SidebarChrome";
@@ -48,6 +52,7 @@ import {
 } from "./SidebarNavigationModel";
 import {
   NEW_THREAD_NAVIGATION_ITEM_ID,
+  type SidebarNavigationIconBadge,
   type SidebarNavigationItem,
 } from "./sidebarNavigationItems";
 import { PROJECT_LIST_ACTION_BUTTON_CLASS } from "@bb/shared-ui/sidebar-row-classes";
@@ -100,6 +105,41 @@ const RailButton = forwardRef<HTMLButtonElement, RailButtonProps>(
 );
 RailButton.displayName = "RailButton";
 
+const RAIL_ICON_BADGE_CLASS = cn(
+  "pointer-events-none absolute right-0 top-0 flex h-4 min-w-4 max-w-8 items-center justify-center overflow-hidden",
+  "rounded-full bg-primary px-1 text-2xs font-medium tabular-nums text-primary-foreground empty:hidden",
+);
+
+function RailIconBadge({
+  badge,
+  id,
+}: {
+  badge: SidebarNavigationIconBadge;
+  id: string;
+}) {
+  const Badge = badge.component;
+  usePluginCss(badge.pluginId);
+  return (
+    <NavPanelSlotBoundary
+      key={`${badge.pluginId}/${badge.panelId}/${badge.generation}`}
+      pluginId={badge.pluginId}
+      slot="experimental_sidebarIconBadge"
+    >
+      <PluginContext.Provider value={badge.pluginId}>
+        <div
+          id={id}
+          data-bb-plugin-root=""
+          data-bb-plugin={badge.pluginId}
+          data-testid="nav-rail-icon-badge"
+          className={RAIL_ICON_BADGE_CLASS}
+        >
+          <Badge />
+        </div>
+      </PluginContext.Provider>
+    </NavPanelSlotBoundary>
+  );
+}
+
 function RailItem({
   item,
   onCustomize,
@@ -113,11 +153,12 @@ function RailItem({
   const split = useSidebarNavigationSplit(item.id);
   const [disablePending, setDisablePending] = useState(false);
   const isPluginItem = item.pluginId !== null;
+  const badgeId = useId();
 
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
-        <span className="flex" data-nav-rail-item={item.id}>
+        <span className="relative flex" data-nav-rail-item={item.id}>
           <RailButton
             label={
               item.shortcut
@@ -128,6 +169,7 @@ function RailItem({
             disabled={item.isDisabled}
             aria-busy={item.isLoading || undefined}
             aria-keyshortcuts={item.shortcut?.ariaKeyShortcuts}
+            aria-describedby={item.iconBadge ? badgeId : undefined}
             className={cn(item.isLoading && "opacity-60")}
             {...split.splitProps}
             onClick={(event) =>
@@ -141,6 +183,9 @@ function RailItem({
               className={RAIL_ICON_CLASS}
             />
           </RailButton>
+          {item.iconBadge ? (
+            <RailIconBadge badge={item.iconBadge} id={badgeId} />
+          ) : null}
         </span>
       </ContextMenuTrigger>
       <ContextMenuContent

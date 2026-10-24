@@ -93,7 +93,7 @@ Slot props contracts (versioned, additive-only):
   back/forward then walks panel-internal history (prefer this over hash
   routing).
   Registration:
-  `{ id, title, icon, path, component, fixedTabs?, experimental_sidebarAccessory?, headerContent? }`.
+  `{ id, title, icon, path, component, fixedTabs?, experimental_sidebarAccessory?, experimental_sidebarIconBadge?, headerContent? }`.
   The host renders your compact plugin icon + `title` into the shared app
   header (the same title bar as Settings pages) with your optional
   `headerContent` component as the header actions on the right — so do not
@@ -148,6 +148,15 @@ target? })`. Inside the fixed-tab component,
   a live count or short status beside the panel's navigation entry. The SDK
   accepts it, but no host surface mounts it, because the navigation rail is
   icon-only. Experimental: see `docs/api_to_audit.md`.
+
+  `experimental_sidebarIconBadge` is a no-props component for a small live
+  count at the top-right corner of the panel's icon in the navigation rail.
+  The host draws the pill around it, shows it in every viewport, and hides the
+  pill while the component renders nothing, so return `null` for zero and
+  otherwise render only the short text, with no colors of your own. Never
+  return whitespace-only output, which would leave an empty pill. The text is
+  also the icon button's accessible description. A component that throws is
+  hidden. Experimental: see `docs/api_to_audit.md`.
 
 - `threadPanelAction` → an entry in the thread right panel's new-tab
   Actions list (next to "Start side chat" / "Start terminal"), labeled

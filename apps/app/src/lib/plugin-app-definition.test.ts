@@ -444,6 +444,7 @@ describe("collectPluginAppRegistrations", () => {
         path: "panel",
         component: Component,
         experimental_sidebarAccessory: Component,
+        experimental_sidebarIconBadge: Component,
         headerContent: Component,
       });
       app.slots.threadPanelAction({
@@ -1055,6 +1056,21 @@ describe("collectPluginAppRegistrations", () => {
       /"experimental_sidebarAccessory" must be a React component/,
     ],
     [
+      "nav panel with a non-component experimental sidebar icon badge",
+      () =>
+        definePluginApp((app) => {
+          app.slots.navPanel({
+            id: "x",
+            title: "X",
+            icon: "columns",
+            path: "x",
+            component: Component,
+            experimental_sidebarIconBadge: "nope" as never,
+          });
+        }),
+      /"experimental_sidebarIconBadge" must be a React component/,
+    ],
+    [
       "message directive with uppercase id",
       () =>
         definePluginApp((app) => {
@@ -1156,6 +1172,27 @@ describe("collectPluginAppRegistrations", () => {
       collectPluginAppRegistrations(definition).navPanels[0],
     ).toMatchObject({
       experimental_sidebarAccessory: SidebarAccessory,
+    });
+  });
+
+  it("keeps an experimental_sidebarIconBadge registration", () => {
+    function SidebarIconBadge() {
+      return null;
+    }
+    const definition = definePluginApp((app) => {
+      app.slots.navPanel({
+        id: "board",
+        title: "Board",
+        icon: "columns",
+        path: "board",
+        component: Component,
+        experimental_sidebarIconBadge: SidebarIconBadge,
+      });
+    });
+    expect(
+      collectPluginAppRegistrations(definition).navPanels[0],
+    ).toMatchObject({
+      experimental_sidebarIconBadge: SidebarIconBadge,
     });
   });
 });

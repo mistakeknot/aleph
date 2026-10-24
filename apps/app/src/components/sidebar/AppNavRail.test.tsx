@@ -8,7 +8,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { createStore, Provider } from "jotai";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import {
@@ -467,6 +467,182 @@ describe("AppNavRail", () => {
     expect(railButton("Docs")).toBeDefined();
     expect(accessoryMounted).not.toHaveBeenCalled();
     expect(rail().textContent).not.toContain("492/1");
+  });
+
+  describe("plugin icon badge", () => {
+    function registerDocsBadge(badge: (() => ReactNode) | undefined) {
+      setPluginSlotRegistrations(
+        "garden",
+        registrationSet({
+          navPanels: [
+            {
+              id: "docs",
+              title: "Docs",
+              icon: "BookOpen",
+              path: "docs",
+              component: () => null,
+              ...(badge ? { experimental_sidebarIconBadge: badge } : {}),
+            },
+          ],
+        }),
+      );
+    }
+
+    function docsItem(): HTMLElement {
+      const item = rail().querySelector<HTMLElement>(
+        '[data-nav-rail-item="garden/docs"]',
+      );
+      if (!item) throw new Error("Expected the Docs rail item");
+      return item;
+    }
+
+    it("draws the badge at the icon corner of its own row only", () => {
+      registerDocsBadge(() => <span>7</span>);
+
+      renderRail(THREAD_PATH);
+
+      const badge = within(docsItem()).getByTestId("nav-rail-icon-badge");
+      expect(badge.textContent).toBe("7");
+      expect(badge.className).toContain("absolute");
+      expect(badge.className).toContain("right-0");
+      expect(badge.className).toContain("top-0");
+      expect(badge.className).toContain("pointer-events-none");
+      expect(badge.className).not.toContain("group-hover");
+      expect(badge.getAttribute("data-bb-plugin")).toBe("garden");
+      expect(railButton("Docs").getAttribute("aria-label")).toBe("Docs");
+      expect(railButton("Docs").contains(badge)).toBe(false);
+      expect(
+        rail().querySelectorAll('[data-testid="nav-rail-icon-badge"]'),
+      ).toHaveLength(1);
+    });
+
+    it("renders no badge element without a registration", () => {
+      registerDocsBadge(undefined);
+
+      renderRail(THREAD_PATH);
+
+      expect(
+        rail().querySelector('[data-testid="nav-rail-icon-badge"]'),
+      ).toBeNull();
+    });
+
+    it("leaves the pill empty, and so hidden, while the component renders nothing", () => {
+      registerDocsBadge(() => null);
+
+      renderRail(THREAD_PATH);
+
+      const badge = within(docsItem()).getByTestId("nav-rail-icon-badge");
+      expect(badge.matches(":empty")).toBe(true);
+      expect(badge.className).toContain("empty:hidden");
+    });
+
+    it("follows the live value of the component", () => {
+      const listeners = new Set<(count: number) => void>();
+      function Count() {
+        const [count, setCount] = useState(0);
+        useEffect(() => {
+          listeners.add(setCount);
+          return () => {
+            listeners.delete(setCount);
+          };
+        }, []);
+        return count === 0 ? null : <span>{count}</span>;
+      }
+      registerDocsBadge(Count);
+
+      renderRail(THREAD_PATH);
+      const badge = within(docsItem()).getByTestId("nav-rail-icon-badge");
+      expect(badge.matches(":empty")).toBe(true);
+
+      act(() => listeners.forEach((set) => set(3)));
+      expect(badge.textContent).toBe("3");
+
+      act(() => listeners.forEach((set) => set(0)));
+      expect(badge.matches(":empty")).toBe(true);
+    });
+
+    it("is shown on a compact viewport", () => {
+      registerDocsBadge(() => <span>7</span>);
+
+      renderRail(THREAD_PATH, { isCompactViewport: true });
+
+      expect(
+        within(docsItem()).getByTestId("nav-rail-icon-badge").textContent,
+      ).toBe("7");
+    });
+
+    it("hides a crashing badge without breaking the row", () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      registerDocsBadge(() => {
+        throw new Error("boom");
+      });
+
+      renderRail(THREAD_PATH);
+
+      expect(railButton("Docs")).toBeDefined();
+      expect(
+        rail().querySelector('[data-testid="nav-rail-icon-badge"]'),
+      ).toBeNull();
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "navPanel experimental_sidebarIconBadge crashed and is hidden: boom",
+        ),
+      );
+      warn.mockRestore();
+      error.mockRestore();
+    });
+
+    it("hides a badge that throws null without breaking the row", () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      registerDocsBadge(() => {
+        throw null;
+      });
+
+      renderRail(THREAD_PATH);
+
+      expect(railButton("Docs")).toBeDefined();
+      expect(
+        rail().querySelector('[data-testid="nav-rail-icon-badge"]'),
+      ).toBeNull();
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "navPanel experimental_sidebarIconBadge crashed and is hidden: null",
+        ),
+      );
+      warn.mockRestore();
+      error.mockRestore();
+    });
+
+    it("exposes the count as the icon button's accessible description", () => {
+      registerDocsBadge(() => <span>7</span>);
+
+      renderRail(THREAD_PATH);
+
+      const describedBy = railButton("Docs").getAttribute("aria-describedby");
+      expect(describedBy).toBeTruthy();
+      const badge = within(docsItem()).getByTestId("nav-rail-icon-badge");
+      expect(badge.id).toBe(describedBy);
+      expect(document.getElementById(describedBy ?? "")?.textContent).toBe("7");
+    });
+
+    it("leaves other rail buttons without a description", () => {
+      registerDocsBadge(() => <span>7</span>);
+
+      renderRail(THREAD_PATH);
+
+      expect(railButton("Home").getAttribute("aria-describedby")).toBeNull();
+    });
+
+    it("does not intercept clicks on the icon", () => {
+      registerDocsBadge(() => <span>7</span>);
+
+      renderRail(THREAD_PATH);
+      fireEvent.click(railButton("Docs"));
+
+      expect(pathname()).toBe(DOCS_PATH);
+    });
   });
 
   it("keeps hidden destinations out of the rail", () => {
