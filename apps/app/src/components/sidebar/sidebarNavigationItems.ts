@@ -1,3 +1,4 @@
+import type { ComponentType } from "react";
 import type { PluginNavPanelChromeEntry } from "@/lib/plugin-nav-panel-chrome";
 import {
   AUTOMATIONS_PLUGIN_ID,
@@ -33,6 +34,13 @@ export type SidebarNavigationItemIcon =
   | { kind: "host"; name: "new-thread" | "search" | "extensions" | "skills" }
   | { kind: "plugin"; pluginId: string; icon: string | null };
 
+export interface SidebarNavigationIconBadge {
+  pluginId: string;
+  panelId: string;
+  generation: number;
+  component: ComponentType;
+}
+
 export interface SidebarNavigationItem {
   id: string;
   label: string;
@@ -43,6 +51,7 @@ export interface SidebarNavigationItem {
   isLoading: boolean;
   pluginId: string | null;
   shortcut: SidebarNavigationShortcut | null;
+  iconBadge: SidebarNavigationIconBadge | null;
 }
 
 export interface SidebarNavigationActions {
@@ -163,6 +172,19 @@ export interface SidebarNavigationItemState {
   shortcut: SidebarNavigationShortcut | null;
 }
 
+function toSidebarNavigationIconBadge(
+  row: SidebarNavigationRow,
+): SidebarNavigationIconBadge | null {
+  const panel = row.panelEntry?.panel;
+  if (!panel?.experimental_sidebarIconBadge) return null;
+  return {
+    pluginId: panel.pluginId,
+    panelId: panel.id,
+    generation: panel.generation,
+    component: panel.experimental_sidebarIconBadge,
+  };
+}
+
 export function toSidebarNavigationItem(
   row: SidebarNavigationRow,
   state: SidebarNavigationItemState,
@@ -177,6 +199,7 @@ export function toSidebarNavigationItem(
     isLoading: row.panelEntry !== null && row.panelEntry.panel === null,
     pluginId: row.ownerPluginId,
     shortcut: state.shortcut,
+    iconBadge: toSidebarNavigationIconBadge(row),
   };
 }
 
@@ -220,7 +243,9 @@ export function isSameSidebarNavigationItem(
     left.isLoading === right.isLoading &&
     left.pluginId === right.pluginId &&
     left.shortcut?.label === right.shortcut?.label &&
-    left.shortcut?.ariaKeyShortcuts === right.shortcut?.ariaKeyShortcuts
+    left.shortcut?.ariaKeyShortcuts === right.shortcut?.ariaKeyShortcuts &&
+    left.iconBadge?.component === right.iconBadge?.component &&
+    left.iconBadge?.generation === right.iconBadge?.generation
   );
 }
 

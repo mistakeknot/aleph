@@ -1259,6 +1259,38 @@ Docs: `frontend-core-slots.md`.
    short statuses, and decide whether a dedicated label prop or host-rendered
    status semantics are needed.
 
+## `PluginNavPanelRegistration.experimental_sidebarIconBadge`
+
+**Experimental (new).** The navigation rail's own row for a nav panel mounts it
+today; the tasks plugin does not use it yet.
+
+A no-props component for a small live count at the top-right corner of the
+panel's icon in the icon-only navigation rail. The host draws the pill
+(background, size, position), mounts the component inside it in every
+viewport, hides the pill through `:empty` while the component renders
+nothing, and hides a component that throws. Core caller: `AppNavRail`
+(`RailIconBadge`) reads it from the same `SidebarNavigationItem` the rail
+already renders, so the rail is the only surface and no parallel path exists.
+
+Docs: `frontend-core-slots.md`.
+
+**Audit before stabilizing.**
+
+1. **Component versus value.** Same question as
+   `experimental_sidebarAccessory`: confirm real consumers need
+   component-owned live state rather than a host-held number plus an update
+   primitive.
+2. **Overflow and portals.** The pill clips ordinary descendants
+   (`max-w-8`, `overflow-hidden`) but cannot constrain content portalled
+   elsewhere. Decide whether to enforce a non-component value.
+3. **Accessibility.** The badge text sits beside, not inside, the rail button,
+   so the button's accessible name is unchanged. Decide whether a label or
+   status semantics are needed for counts.
+4. **Other surfaces.** The "More" menu and the customize sheet do not show it.
+   Decide whether hidden destinations should carry their count.
+5. **Unify with `experimental_sidebarAccessory`.** Decide whether the two
+   fields collapse into one once a host surface for the accessory exists.
+
 ## `PluginContentScriptContext.experimental_setThreadRowStatus`
 
 **Kept experimental (2026-08-22).** The collapsed-section status rollup

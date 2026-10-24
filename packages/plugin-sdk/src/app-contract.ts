@@ -718,6 +718,17 @@ export interface PluginNavPanelRegistration {
    */
   experimental_sidebarAccessory?: ComponentType;
   /**
+   * Optional component for a small live count drawn at the top-right corner
+   * of this panel's icon in the navigation rail. It receives no props so it
+   * can own the value through the ordinary SDK hooks. The host draws the pill
+   * around it, keeps it visible in every viewport, and hides the pill while
+   * the component renders nothing, so render only the short text (such as a
+   * count) and return null to hide it. A component that throws is hidden.
+   *
+   * Experimental: see docs/api_to_audit.md.
+   */
+  experimental_sidebarIconBadge?: ComponentType;
+  /**
    * Optional component rendered on the right side of the shared title bar
    * (e.g. a sync button or a count). Contained separately from the body: a
    * throwing headerContent is hidden without breaking the title bar.

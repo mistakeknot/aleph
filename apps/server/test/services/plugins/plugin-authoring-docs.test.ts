@@ -463,6 +463,7 @@ const NAV_PANEL_REGISTRATION_FIELDS = [
   "component",
   "fixedTabs",
   "experimental_sidebarAccessory",
+  "experimental_sidebarIconBadge",
   "headerContent",
 ] as const satisfies readonly (keyof PluginNavPanelRegistration)[];
 
