@@ -312,18 +312,16 @@ describe("server skeleton", () => {
     }
   });
 
-  it("warns when startup finds future-dated applied migrations", () => {
+  it("refuses startup when applied migrations include rows this binary does not know", () => {
     const dataDir = mkdtempSync(join(tmpdir(), "bb-server-db-startup-"));
     try {
       const dbPath = join(dataDir, "bb.db");
       const seedDb = initDb(dbPath);
-      let futureCreatedAt: number;
       try {
         const latestMigrationCreatedAt =
           readLatestAppliedMigrationCreatedAt(seedDb);
         vi.useFakeTimers();
         vi.setSystemTime(latestMigrationCreatedAt + 10_000);
-        futureCreatedAt = Date.now() + 60_000;
         seedDb.$client
           .prepare<InsertMigrationParameters>(
             `
@@ -331,7 +329,7 @@ describe("server skeleton", () => {
               VALUES (?, ?)
             `,
           )
-          .run("future-migration-hash", futureCreatedAt);
+          .run("future-migration-hash", Date.now() + 60_000);
       } finally {
         seedDb.$client.close();
       }
@@ -342,23 +340,8 @@ describe("server skeleton", () => {
         info: vi.fn(),
         warn: vi.fn(),
       };
-      const db = initDb(dbPath, { logger });
-      try {
-        expect(logger.warn).toHaveBeenCalledWith(
-          {
-            migrations: [
-              {
-                createdAt: futureCreatedAt,
-                hash: "future-migration-hash",
-              },
-            ],
-            now: expect.any(Number),
-          },
-          "Applied database migrations have future timestamps",
-        );
-      } finally {
-        db.$client.close();
-      }
+      expect(() => initDb(dbPath, { logger })).toThrow(/newer than this binary/);
+      expect(logger.warn).not.toHaveBeenCalled();
     } finally {
       rmSync(dataDir, { force: true, recursive: true });
       vi.useRealTimers();

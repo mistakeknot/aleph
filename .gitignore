@@ -101,3 +101,6 @@ provider-recordings/raw/
 
 /.clavain/
 .ci-health/
+
+# legacy migration oracle (materialised from git by test helper)
+packages/db/.legacy-oracle/

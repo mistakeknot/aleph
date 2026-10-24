@@ -1,0 +1,3305 @@
+{
+  "legacyCommit": "1c201c2f57",
+  "upstreamCommit": "411eac54ac16d0a3cb57d1de8396d37564884a73",
+  "schemaFingerprint": "b7ffdad6650283dd3798e9e32a616ebdeec09ef9699eb376923927283c92efed",
+  "prefixes": {
+    "35": {
+      "pragmas": {
+        "application_id": "0",
+        "auto_vacuum": "2",
+        "foreign_key_violations": "63",
+        "integrity_check": "ok",
+        "user_version": "0"
+      },
+      "sequences": [
+        [
+          "environment_variables",
+          "0"
+        ]
+      ],
+      "tables": {
+        "aleph_install_requests": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "apikey": {
+          "count": 3,
+          "digest": "b6adeee37f178cfd940583f4d89761db"
+        },
+        "app_settings": {
+          "count": 1,
+          "digest": "243a618588479ab3944fdb825401fa7b"
+        },
+        "app_settings_values": {
+          "count": 5,
+          "digest": "ee582150fb52e28e10b64f10174b0cab"
+        },
+        "app_theme": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "deferred_thread_messages_legacy": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "environment_hook_operations": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "environment_variables": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "environments": {
+          "count": 3,
+          "digest": "a54f6c0a4fbb9c46cd7eba3bbe5d355c"
+        },
+        "event_cold_segments": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "events": {
+          "count": 3,
+          "digest": "cb7ecd732dbf71e63259cc718779f825"
+        },
+        "host_daemon_sessions": {
+          "count": 3,
+          "digest": "e4e5e575bc3977daafb05047460c2629"
+        },
+        "hosts": {
+          "count": 3,
+          "digest": "eae5f8b6af415fbe516242376251dc63"
+        },
+        "idempotent_thread_operations": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "maintenance_scan_cursors": {
+          "count": 3,
+          "digest": "a39a22a1eca6d4863a6c5efd3c79504f"
+        },
+        "pending_interactions": {
+          "count": 3,
+          "digest": "722edac7873a3dc1209d8c83ae9ad0aa"
+        },
+        "plugin_artifacts": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "plugin_kv": {
+          "count": 1,
+          "digest": "1d567f765061ee3a4e5dcf75d01fd69a"
+        },
+        "plugin_marketplace_icons": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "plugin_marketplaces": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "plugin_schedules": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "plugin_settings": {
+          "count": 5,
+          "digest": "da8d0edb68b52de05f2485ca476db7c4"
+        },
+        "plugin_state_snapshots": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "plugins": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "project_attachment_backfills": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "project_attachment_threads": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "project_attachments": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "project_execution_defaults": {
+          "count": 3,
+          "digest": "53de19794dff6ad66905674e4c3d8e52"
+        },
+        "project_sources": {
+          "count": 3,
+          "digest": "6538a1c814e2546e939ae497c0b4eec8"
+        },
+        "projects": {
+          "count": 4,
+          "digest": "bb8102ed2d13ba14d691677d8f7b936a"
+        },
+        "prompt_history_entries": {
+          "count": 3,
+          "digest": "8a9e6ab9de62ce2afed6a821b060e5a0"
+        },
+        "provider_model_catalogs": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "queued_thread_messages": {
+          "count": 3,
+          "digest": "05e104b6ba295a52a5dd9c3a6f04b192"
+        },
+        "retained_event_outputs": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "system_experiments": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "terminal_sessions": {
+          "count": 3,
+          "digest": "cbd702d00bbbdf36808104115c7ca2b7"
+        },
+        "thread_conversation_outlines": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_dynamic_context_file_states": {
+          "count": 3,
+          "digest": "9ef42439461125339517d11513bd527c"
+        },
+        "thread_event_cold_state": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_plugin_metadata": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_pruning_cursors": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_pruning_work": {
+          "count": 12,
+          "digest": "5f6cfc924e514f1a0ada31eee1ab2b1c"
+        },
+        "thread_redirects": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_search_learned_selections": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_search_segments": {
+          "count": 6,
+          "digest": "3b7269415d06751f3572576c082fd057"
+        },
+        "thread_search_segments_fts": {
+          "count": 6,
+          "digest": "62d40db9664db1f015d1c3ae15096606"
+        },
+        "thread_sections": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_tabs": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "threads": {
+          "count": 3,
+          "digest": "a31b05fd08fbee6b7bd25d5203618c91"
+        },
+        "transfer_entries": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "transfer_events": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "transfer_operations": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "ui_preference_defaults": {
+          "count": 1,
+          "digest": "4dacad42e625e7caa26ff781f7112e68"
+        },
+        "ui_preferences": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "user": {
+          "count": 3,
+          "digest": "4fe315068f74a152f9a4d2a9bcaf82ba"
+        }
+      },
+      "ledger": {
+        "count": 153,
+        "digest": "4abfb16a0674719cd2d54ed70f367e8f"
+      },
+      "ledgerSchema": [
+        "index|sqlite_autoindex___drizzle_migrations_1|__drizzle_migrations|",
+        "table|__drizzle_migrations|__drizzle_migrations|CREATE TABLE \"__drizzle_migrations\" ( id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric )"
+      ],
+      "pinned": {
+        "updatedAt": {
+          "plugin_kv": 1,
+          "plugin_settings": 5,
+          "app_settings": 1,
+          "app_settings_values": 5
+        },
+        "onboardingCompletedAtColumn": 1,
+        "onboardingCompletedAtValue": 1
+      }
+    },
+    "64": {
+      "pragmas": {
+        "application_id": "0",
+        "auto_vacuum": "2",
+        "foreign_key_violations": "75",
+        "integrity_check": "ok",
+        "user_version": "0"
+      },
+      "sequences": [
+        [
+          "environment_variables",
+          "0"
+        ]
+      ],
+      "tables": {
+        "aleph_install_requests": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "apikey": {
+          "count": 3,
+          "digest": "b6adeee37f178cfd940583f4d89761db"
+        },
+        "app_settings": {
+          "count": 4,
+          "digest": "2348171b9a8a077e036530c00c35714a"
+        },
+        "app_settings_values": {
+          "count": 5,
+          "digest": "ee582150fb52e28e10b64f10174b0cab"
+        },
+        "app_theme": {
+          "count": 3,
+          "digest": "4c5399f922552513b8ca6bf3bd3956ea"
+        },
+        "deferred_thread_messages_legacy": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "environment_hook_operations": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "environment_variables": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "environments": {
+          "count": 3,
+          "digest": "a54f6c0a4fbb9c46cd7eba3bbe5d355c"
+        },
+        "event_cold_segments": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "events": {
+          "count": 3,
+          "digest": "cb7ecd732dbf71e63259cc718779f825"
+        },
+        "host_daemon_sessions": {
+          "count": 3,
+          "digest": "e4e5e575bc3977daafb05047460c2629"
+        },
+        "hosts": {
+          "count": 3,
+          "digest": "eae5f8b6af415fbe516242376251dc63"
+        },
+        "idempotent_thread_operations": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "maintenance_scan_cursors": {
+          "count": 3,
+          "digest": "a39a22a1eca6d4863a6c5efd3c79504f"
+        },
+        "pending_interactions": {
+          "count": 3,
+          "digest": "3bd9a0d1fde15c83e5490439e946a8e5"
+        },
+        "plugin_artifacts": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "plugin_kv": {
+          "count": 4,
+          "digest": "0358f8be85299ca0ff71001b8d3a4e40"
+        },
+        "plugin_marketplace_icons": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "plugin_marketplaces": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "plugin_schedules": {
+          "count": 3,
+          "digest": "2c5b6b58a1e89097119e20b053a0a1af"
+        },
+        "plugin_settings": {
+          "count": 8,
+          "digest": "5b20caa1b34cc79d78133463a49c6710"
+        },
+        "plugin_state_snapshots": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "plugins": {
+          "count": 3,
+          "digest": "a74fcb09d169d1c86d5f5a99052a11ef"
+        },
+        "project_attachment_backfills": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "project_attachment_threads": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "project_attachments": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "project_execution_defaults": {
+          "count": 3,
+          "digest": "53de19794dff6ad66905674e4c3d8e52"
+        },
+        "project_sources": {
+          "count": 3,
+          "digest": "6538a1c814e2546e939ae497c0b4eec8"
+        },
+        "projects": {
+          "count": 4,
+          "digest": "bb8102ed2d13ba14d691677d8f7b936a"
+        },
+        "prompt_history_entries": {
+          "count": 3,
+          "digest": "8a9e6ab9de62ce2afed6a821b060e5a0"
+        },
+        "provider_model_catalogs": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "queued_thread_messages": {
+          "count": 3,
+          "digest": "05e104b6ba295a52a5dd9c3a6f04b192"
+        },
+        "retained_event_outputs": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "system_experiments": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "terminal_sessions": {
+          "count": 3,
+          "digest": "1a0c14af651e42d0d6b3d68992835ca0"
+        },
+        "thread_conversation_outlines": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_dynamic_context_file_states": {
+          "count": 3,
+          "digest": "9ef42439461125339517d11513bd527c"
+        },
+        "thread_event_cold_state": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_plugin_metadata": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_pruning_cursors": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_pruning_work": {
+          "count": 12,
+          "digest": "5f6cfc924e514f1a0ada31eee1ab2b1c"
+        },
+        "thread_redirects": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_search_learned_selections": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_search_segments": {
+          "count": 3,
+          "digest": "e29b04f95f62025f25d41ab871032067"
+        },
+        "thread_search_segments_fts": {
+          "count": 3,
+          "digest": "9134da80612280b8e41dba9e79361f0b"
+        },
+        "thread_sections": {
+          "count": 3,
+          "digest": "b552c9c03dcb3a6c98cca61111e3fb08"
+        },
+        "thread_tabs": {
+          "count": 3,
+          "digest": "10de9c2175a602ba1c6cf2f6ccc4ef40"
+        },
+        "threads": {
+          "count": 3,
+          "digest": "d201dff8ca7b981115ef4a1dcf8fa2cc"
+        },
+        "transfer_entries": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "transfer_events": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "transfer_operations": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "ui_preference_defaults": {
+          "count": 1,
+          "digest": "4dacad42e625e7caa26ff781f7112e68"
+        },
+        "ui_preferences": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "user": {
+          "count": 3,
+          "digest": "4fe315068f74a152f9a4d2a9bcaf82ba"
+        }
+      },
+      "ledger": {
+        "count": 153,
+        "digest": "4abfb16a0674719cd2d54ed70f367e8f"
+      },
+      "ledgerSchema": [
+        "index|sqlite_autoindex___drizzle_migrations_1|__drizzle_migrations|",
+        "table|__drizzle_migrations|__drizzle_migrations|CREATE TABLE \"__drizzle_migrations\" ( id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric )"
+      ],
+      "pinned": {
+        "updatedAt": {
+          "plugin_kv": 1,
+          "plugin_settings": 5,
+          "app_settings": 1,
+          "app_settings_values": 5
+        },
+        "onboardingCompletedAtColumn": 4,
+        "onboardingCompletedAtValue": 1
+      }
+    },
+    "89": {
+      "pragmas": {
+        "application_id": "0",
+        "auto_vacuum": "2",
+        "foreign_key_violations": "78",
+        "integrity_check": "ok",
+        "user_version": "0"
+      },
+      "sequences": [
+        [
+          "environment_variables",
+          "0"
+        ]
+      ],
+      "tables": {
+        "aleph_install_requests": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "apikey": {
+          "count": 3,
+          "digest": "b6adeee37f178cfd940583f4d89761db"
+        },
+        "app_settings": {
+          "count": 3,
+          "digest": "1015cd61b9d4f7bd7f08bec451a8480a"
+        },
+        "app_settings_values": {
+          "count": 3,
+          "digest": "e4661198fce88599a09b3b1e0540e116"
+        },
+        "app_theme": {
+          "count": 3,
+          "digest": "4c5399f922552513b8ca6bf3bd3956ea"
+        },
+        "deferred_thread_messages_legacy": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "environment_hook_operations": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "environment_variables": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "environments": {
+          "count": 3,
+          "digest": "a54f6c0a4fbb9c46cd7eba3bbe5d355c"
+        },
+        "event_cold_segments": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "events": {
+          "count": 3,
+          "digest": "cb7ecd732dbf71e63259cc718779f825"
+        },
+        "host_daemon_sessions": {
+          "count": 3,
+          "digest": "e4e5e575bc3977daafb05047460c2629"
+        },
+        "hosts": {
+          "count": 3,
+          "digest": "f6a16cf64b21619c95ab82299083ffb0"
+        },
+        "idempotent_thread_operations": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "maintenance_scan_cursors": {
+          "count": 3,
+          "digest": "a39a22a1eca6d4863a6c5efd3c79504f"
+        },
+        "pending_interactions": {
+          "count": 3,
+          "digest": "3bd9a0d1fde15c83e5490439e946a8e5"
+        },
+        "plugin_artifacts": {
+          "count": 3,
+          "digest": "355a07d3ff6e5621869ea0b9598b0b4d"
+        },
+        "plugin_kv": {
+          "count": 3,
+          "digest": "44f1dead66f520d97f55c1487ffe2bcc"
+        },
+        "plugin_marketplace_icons": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "plugin_marketplaces": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "plugin_schedules": {
+          "count": 3,
+          "digest": "2c5b6b58a1e89097119e20b053a0a1af"
+        },
+        "plugin_settings": {
+          "count": 3,
+          "digest": "eddb53fd2b0978802df965c84a8f13bf"
+        },
+        "plugin_state_snapshots": {
+          "count": 3,
+          "digest": "e22da9f5c408df4e97f11eb531bd39d3"
+        },
+        "plugins": {
+          "count": 3,
+          "digest": "cd11da79de047fe69faf2460e0fe77d7"
+        },
+        "project_attachment_backfills": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "project_attachment_threads": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "project_attachments": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "project_execution_defaults": {
+          "count": 3,
+          "digest": "53de19794dff6ad66905674e4c3d8e52"
+        },
+        "project_sources": {
+          "count": 3,
+          "digest": "6538a1c814e2546e939ae497c0b4eec8"
+        },
+        "projects": {
+          "count": 4,
+          "digest": "d92ee6803f57632bd3668e249286658e"
+        },
+        "prompt_history_entries": {
+          "count": 3,
+          "digest": "8a9e6ab9de62ce2afed6a821b060e5a0"
+        },
+        "provider_model_catalogs": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "queued_thread_messages": {
+          "count": 3,
+          "digest": "05e104b6ba295a52a5dd9c3a6f04b192"
+        },
+        "retained_event_outputs": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "system_experiments": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "terminal_sessions": {
+          "count": 3,
+          "digest": "1a0c14af651e42d0d6b3d68992835ca0"
+        },
+        "thread_conversation_outlines": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_dynamic_context_file_states": {
+          "count": 3,
+          "digest": "9ef42439461125339517d11513bd527c"
+        },
+        "thread_event_cold_state": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_plugin_metadata": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_pruning_cursors": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_pruning_work": {
+          "count": 12,
+          "digest": "5f6cfc924e514f1a0ada31eee1ab2b1c"
+        },
+        "thread_redirects": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_search_learned_selections": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_search_segments": {
+          "count": 3,
+          "digest": "e29b04f95f62025f25d41ab871032067"
+        },
+        "thread_search_segments_fts": {
+          "count": 3,
+          "digest": "9134da80612280b8e41dba9e79361f0b"
+        },
+        "thread_sections": {
+          "count": 3,
+          "digest": "1c9dc584ba546089cf0c4406a4d930b2"
+        },
+        "thread_tabs": {
+          "count": 3,
+          "digest": "10de9c2175a602ba1c6cf2f6ccc4ef40"
+        },
+        "threads": {
+          "count": 3,
+          "digest": "dc0ccc24661b46b702e219440b4f66f0"
+        },
+        "transfer_entries": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "transfer_events": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "transfer_operations": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "ui_preference_defaults": {
+          "count": 1,
+          "digest": "4dacad42e625e7caa26ff781f7112e68"
+        },
+        "ui_preferences": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "user": {
+          "count": 3,
+          "digest": "4fe315068f74a152f9a4d2a9bcaf82ba"
+        }
+      },
+      "ledger": {
+        "count": 153,
+        "digest": "4abfb16a0674719cd2d54ed70f367e8f"
+      },
+      "ledgerSchema": [
+        "index|sqlite_autoindex___drizzle_migrations_1|__drizzle_migrations|",
+        "table|__drizzle_migrations|__drizzle_migrations|CREATE TABLE \"__drizzle_migrations\" ( id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric )"
+      ],
+      "pinned": {
+        "updatedAt": {
+          "app_settings_values": 3
+        },
+        "onboardingCompletedAtColumn": 0,
+        "onboardingCompletedAtValue": 1
+      }
+    },
+    "119": {
+      "pragmas": {
+        "application_id": "0",
+        "auto_vacuum": "2",
+        "foreign_key_violations": "87",
+        "integrity_check": "ok",
+        "user_version": "0"
+      },
+      "sequences": [
+        [
+          "environment_variables",
+          "0"
+        ]
+      ],
+      "tables": {
+        "aleph_install_requests": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "apikey": {
+          "count": 3,
+          "digest": "b6adeee37f178cfd940583f4d89761db"
+        },
+        "app_settings": {
+          "count": 3,
+          "digest": "1015cd61b9d4f7bd7f08bec451a8480a"
+        },
+        "app_settings_values": {
+          "count": 5,
+          "digest": "9ef7a3502c2f779b2183bbd49a640fd7"
+        },
+        "app_theme": {
+          "count": 3,
+          "digest": "4c5399f922552513b8ca6bf3bd3956ea"
+        },
+        "deferred_thread_messages_legacy": {
+          "count": 3,
+          "digest": "3f2b93cd6d5a6c878c71fb3977df700e"
+        },
+        "environment_hook_operations": {
+          "count": 3,
+          "digest": "5a1e3d007844021b7d5765e5133a52a9"
+        },
+        "environment_variables": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "environments": {
+          "count": 3,
+          "digest": "4158d521d4d2cf26d2da28e475212634"
+        },
+        "event_cold_segments": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "events": {
+          "count": 3,
+          "digest": "3c497ca829ab0b23d628ae881a2d061f"
+        },
+        "host_daemon_sessions": {
+          "count": 3,
+          "digest": "e4e5e575bc3977daafb05047460c2629"
+        },
+        "hosts": {
+          "count": 3,
+          "digest": "3b05312a358f943bb81f72e7ebc38599"
+        },
+        "idempotent_thread_operations": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "maintenance_scan_cursors": {
+          "count": 3,
+          "digest": "a39a22a1eca6d4863a6c5efd3c79504f"
+        },
+        "pending_interactions": {
+          "count": 3,
+          "digest": "3bd9a0d1fde15c83e5490439e946a8e5"
+        },
+        "plugin_artifacts": {
+          "count": 3,
+          "digest": "09e31ba5919eb25fb94364a84e86b8ab"
+        },
+        "plugin_kv": {
+          "count": 3,
+          "digest": "44f1dead66f520d97f55c1487ffe2bcc"
+        },
+        "plugin_marketplace_icons": {
+          "count": 3,
+          "digest": "21f95a794343eb3c4b71530448fc394f"
+        },
+        "plugin_marketplaces": {
+          "count": 3,
+          "digest": "edcb1dff4c240fa20faf59bc95935d51"
+        },
+        "plugin_schedules": {
+          "count": 3,
+          "digest": "2c5b6b58a1e89097119e20b053a0a1af"
+        },
+        "plugin_settings": {
+          "count": 3,
+          "digest": "eddb53fd2b0978802df965c84a8f13bf"
+        },
+        "plugin_state_snapshots": {
+          "count": 3,
+          "digest": "e22da9f5c408df4e97f11eb531bd39d3"
+        },
+        "plugins": {
+          "count": 3,
+          "digest": "75fff92d11b2330c8c55821c9a0327c8"
+        },
+        "project_attachment_backfills": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "project_attachment_threads": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "project_attachments": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "project_execution_defaults": {
+          "count": 3,
+          "digest": "53de19794dff6ad66905674e4c3d8e52"
+        },
+        "project_sources": {
+          "count": 3,
+          "digest": "412c83f52d9074b345a2ef650a7a5104"
+        },
+        "projects": {
+          "count": 4,
+          "digest": "d92ee6803f57632bd3668e249286658e"
+        },
+        "prompt_history_entries": {
+          "count": 3,
+          "digest": "8a9e6ab9de62ce2afed6a821b060e5a0"
+        },
+        "provider_model_catalogs": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "queued_thread_messages": {
+          "count": 3,
+          "digest": "7ca592833a5e24feddeeb4b07ea71011"
+        },
+        "retained_event_outputs": {
+          "count": 3,
+          "digest": "4f24e93a8596ce6e503edcfa01b25bd6"
+        },
+        "system_experiments": {
+          "count": 3,
+          "digest": "598c3dcc32a42d5be578e6d6c70c1afe"
+        },
+        "terminal_sessions": {
+          "count": 3,
+          "digest": "1a0c14af651e42d0d6b3d68992835ca0"
+        },
+        "thread_conversation_outlines": {
+          "count": 3,
+          "digest": "ec8c9ba16aded05d2e51050fa206a336"
+        },
+        "thread_dynamic_context_file_states": {
+          "count": 3,
+          "digest": "9ef42439461125339517d11513bd527c"
+        },
+        "thread_event_cold_state": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_plugin_metadata": {
+          "count": 3,
+          "digest": "f559a1a7947d92b0dbe2636e5ab4fd4e"
+        },
+        "thread_pruning_cursors": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_pruning_work": {
+          "count": 12,
+          "digest": "5f6cfc924e514f1a0ada31eee1ab2b1c"
+        },
+        "thread_redirects": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_search_learned_selections": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_search_segments": {
+          "count": 3,
+          "digest": "e29b04f95f62025f25d41ab871032067"
+        },
+        "thread_search_segments_fts": {
+          "count": 3,
+          "digest": "9134da80612280b8e41dba9e79361f0b"
+        },
+        "thread_sections": {
+          "count": 3,
+          "digest": "1c9dc584ba546089cf0c4406a4d930b2"
+        },
+        "thread_tabs": {
+          "count": 3,
+          "digest": "10de9c2175a602ba1c6cf2f6ccc4ef40"
+        },
+        "threads": {
+          "count": 3,
+          "digest": "7535368a9fe4e89de66a1897331508c2"
+        },
+        "transfer_entries": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "transfer_events": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "transfer_operations": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "ui_preference_defaults": {
+          "count": 1,
+          "digest": "4dacad42e625e7caa26ff781f7112e68"
+        },
+        "ui_preferences": {
+          "count": 3,
+          "digest": "d844661aa67a03bc4b90e6fa512a55e4"
+        },
+        "user": {
+          "count": 3,
+          "digest": "4fe315068f74a152f9a4d2a9bcaf82ba"
+        }
+      },
+      "ledger": {
+        "count": 153,
+        "digest": "4abfb16a0674719cd2d54ed70f367e8f"
+      },
+      "ledgerSchema": [
+        "index|sqlite_autoindex___drizzle_migrations_1|__drizzle_migrations|",
+        "table|__drizzle_migrations|__drizzle_migrations|CREATE TABLE \"__drizzle_migrations\" ( id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric )"
+      ],
+      "pinned": {
+        "updatedAt": {
+          "app_settings_values": 2
+        },
+        "onboardingCompletedAtColumn": 0,
+        "onboardingCompletedAtValue": 1
+      }
+    },
+    "131": {
+      "pragmas": {
+        "application_id": "0",
+        "auto_vacuum": "2",
+        "foreign_key_violations": "111",
+        "integrity_check": "ok",
+        "user_version": "0"
+      },
+      "sequences": [
+        [
+          "environment_variables",
+          "1002"
+        ]
+      ],
+      "tables": {
+        "aleph_install_requests": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "apikey": {
+          "count": 3,
+          "digest": "b6adeee37f178cfd940583f4d89761db"
+        },
+        "app_settings": {
+          "count": 3,
+          "digest": "1015cd61b9d4f7bd7f08bec451a8480a"
+        },
+        "app_settings_values": {
+          "count": 5,
+          "digest": "9ef7a3502c2f779b2183bbd49a640fd7"
+        },
+        "app_theme": {
+          "count": 3,
+          "digest": "4c5399f922552513b8ca6bf3bd3956ea"
+        },
+        "deferred_thread_messages_legacy": {
+          "count": 3,
+          "digest": "3f2b93cd6d5a6c878c71fb3977df700e"
+        },
+        "environment_hook_operations": {
+          "count": 3,
+          "digest": "5a1e3d007844021b7d5765e5133a52a9"
+        },
+        "environment_variables": {
+          "count": 3,
+          "digest": "b8f8360e4529cfc9c12507a9e149962c"
+        },
+        "environments": {
+          "count": 3,
+          "digest": "4158d521d4d2cf26d2da28e475212634"
+        },
+        "event_cold_segments": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "events": {
+          "count": 3,
+          "digest": "3c497ca829ab0b23d628ae881a2d061f"
+        },
+        "host_daemon_sessions": {
+          "count": 3,
+          "digest": "e4e5e575bc3977daafb05047460c2629"
+        },
+        "hosts": {
+          "count": 3,
+          "digest": "3b05312a358f943bb81f72e7ebc38599"
+        },
+        "idempotent_thread_operations": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "maintenance_scan_cursors": {
+          "count": 3,
+          "digest": "a39a22a1eca6d4863a6c5efd3c79504f"
+        },
+        "pending_interactions": {
+          "count": 3,
+          "digest": "3bd9a0d1fde15c83e5490439e946a8e5"
+        },
+        "plugin_artifacts": {
+          "count": 3,
+          "digest": "09e31ba5919eb25fb94364a84e86b8ab"
+        },
+        "plugin_kv": {
+          "count": 3,
+          "digest": "44f1dead66f520d97f55c1487ffe2bcc"
+        },
+        "plugin_marketplace_icons": {
+          "count": 3,
+          "digest": "21f95a794343eb3c4b71530448fc394f"
+        },
+        "plugin_marketplaces": {
+          "count": 3,
+          "digest": "edcb1dff4c240fa20faf59bc95935d51"
+        },
+        "plugin_schedules": {
+          "count": 3,
+          "digest": "2c5b6b58a1e89097119e20b053a0a1af"
+        },
+        "plugin_settings": {
+          "count": 3,
+          "digest": "eddb53fd2b0978802df965c84a8f13bf"
+        },
+        "plugin_state_snapshots": {
+          "count": 3,
+          "digest": "e22da9f5c408df4e97f11eb531bd39d3"
+        },
+        "plugins": {
+          "count": 3,
+          "digest": "75fff92d11b2330c8c55821c9a0327c8"
+        },
+        "project_attachment_backfills": {
+          "count": 3,
+          "digest": "21a6e6d0b4e16c2fde5290722268589c"
+        },
+        "project_attachment_threads": {
+          "count": 3,
+          "digest": "ed23c05db2b0c9828b9038c983fcc33f"
+        },
+        "project_attachments": {
+          "count": 3,
+          "digest": "f20d3a5ffe382045de9bdf431478d4cc"
+        },
+        "project_execution_defaults": {
+          "count": 3,
+          "digest": "53de19794dff6ad66905674e4c3d8e52"
+        },
+        "project_sources": {
+          "count": 3,
+          "digest": "412c83f52d9074b345a2ef650a7a5104"
+        },
+        "projects": {
+          "count": 4,
+          "digest": "d92ee6803f57632bd3668e249286658e"
+        },
+        "prompt_history_entries": {
+          "count": 3,
+          "digest": "8a9e6ab9de62ce2afed6a821b060e5a0"
+        },
+        "provider_model_catalogs": {
+          "count": 3,
+          "digest": "5aa0f3680d4e6486aa38388e7f801733"
+        },
+        "queued_thread_messages": {
+          "count": 3,
+          "digest": "3cffe646f303cd25cbd38011f091881f"
+        },
+        "retained_event_outputs": {
+          "count": 3,
+          "digest": "4f24e93a8596ce6e503edcfa01b25bd6"
+        },
+        "system_experiments": {
+          "count": 3,
+          "digest": "598c3dcc32a42d5be578e6d6c70c1afe"
+        },
+        "terminal_sessions": {
+          "count": 3,
+          "digest": "1a0c14af651e42d0d6b3d68992835ca0"
+        },
+        "thread_conversation_outlines": {
+          "count": 3,
+          "digest": "ec8c9ba16aded05d2e51050fa206a336"
+        },
+        "thread_dynamic_context_file_states": {
+          "count": 3,
+          "digest": "9ef42439461125339517d11513bd527c"
+        },
+        "thread_event_cold_state": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_plugin_metadata": {
+          "count": 3,
+          "digest": "f559a1a7947d92b0dbe2636e5ab4fd4e"
+        },
+        "thread_pruning_cursors": {
+          "count": 3,
+          "digest": "f3d012324bc77a6f02c3ac9b34fac60a"
+        },
+        "thread_pruning_work": {
+          "count": 12,
+          "digest": "5f6cfc924e514f1a0ada31eee1ab2b1c"
+        },
+        "thread_redirects": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_search_learned_selections": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_search_segments": {
+          "count": 3,
+          "digest": "e29b04f95f62025f25d41ab871032067"
+        },
+        "thread_search_segments_fts": {
+          "count": 3,
+          "digest": "9134da80612280b8e41dba9e79361f0b"
+        },
+        "thread_sections": {
+          "count": 3,
+          "digest": "1c9dc584ba546089cf0c4406a4d930b2"
+        },
+        "thread_tabs": {
+          "count": 3,
+          "digest": "10de9c2175a602ba1c6cf2f6ccc4ef40"
+        },
+        "threads": {
+          "count": 3,
+          "digest": "05c9d335e874d6a68a3533346c241f1b"
+        },
+        "transfer_entries": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "transfer_events": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "transfer_operations": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "ui_preference_defaults": {
+          "count": 3,
+          "digest": "1d7f438abd090d088e410d717c54dbc7"
+        },
+        "ui_preferences": {
+          "count": 3,
+          "digest": "d844661aa67a03bc4b90e6fa512a55e4"
+        },
+        "user": {
+          "count": 3,
+          "digest": "4fe315068f74a152f9a4d2a9bcaf82ba"
+        }
+      },
+      "ledger": {
+        "count": 153,
+        "digest": "4abfb16a0674719cd2d54ed70f367e8f"
+      },
+      "ledgerSchema": [
+        "index|sqlite_autoindex___drizzle_migrations_1|__drizzle_migrations|",
+        "table|__drizzle_migrations|__drizzle_migrations|CREATE TABLE \"__drizzle_migrations\" ( id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric )"
+      ],
+      "pinned": {
+        "updatedAt": {
+          "app_settings_values": 2
+        },
+        "onboardingCompletedAtColumn": 0,
+        "onboardingCompletedAtValue": 1
+      }
+    },
+    "134": {
+      "pragmas": {
+        "application_id": "0",
+        "auto_vacuum": "2",
+        "foreign_key_violations": "111",
+        "integrity_check": "ok",
+        "user_version": "0"
+      },
+      "sequences": [
+        [
+          "environment_variables",
+          "1002"
+        ]
+      ],
+      "tables": {
+        "aleph_install_requests": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "apikey": {
+          "count": 3,
+          "digest": "b6adeee37f178cfd940583f4d89761db"
+        },
+        "app_settings": {
+          "count": 3,
+          "digest": "1015cd61b9d4f7bd7f08bec451a8480a"
+        },
+        "app_settings_values": {
+          "count": 5,
+          "digest": "9ef7a3502c2f779b2183bbd49a640fd7"
+        },
+        "app_theme": {
+          "count": 3,
+          "digest": "4c5399f922552513b8ca6bf3bd3956ea"
+        },
+        "deferred_thread_messages_legacy": {
+          "count": 3,
+          "digest": "3f2b93cd6d5a6c878c71fb3977df700e"
+        },
+        "environment_hook_operations": {
+          "count": 3,
+          "digest": "5a1e3d007844021b7d5765e5133a52a9"
+        },
+        "environment_variables": {
+          "count": 3,
+          "digest": "b8f8360e4529cfc9c12507a9e149962c"
+        },
+        "environments": {
+          "count": 3,
+          "digest": "4158d521d4d2cf26d2da28e475212634"
+        },
+        "event_cold_segments": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "events": {
+          "count": 3,
+          "digest": "3c497ca829ab0b23d628ae881a2d061f"
+        },
+        "host_daemon_sessions": {
+          "count": 3,
+          "digest": "e4e5e575bc3977daafb05047460c2629"
+        },
+        "hosts": {
+          "count": 3,
+          "digest": "3b05312a358f943bb81f72e7ebc38599"
+        },
+        "idempotent_thread_operations": {
+          "count": 3,
+          "digest": "d99307a8665995a2a78049a41201dd22"
+        },
+        "maintenance_scan_cursors": {
+          "count": 3,
+          "digest": "a39a22a1eca6d4863a6c5efd3c79504f"
+        },
+        "pending_interactions": {
+          "count": 3,
+          "digest": "3bd9a0d1fde15c83e5490439e946a8e5"
+        },
+        "plugin_artifacts": {
+          "count": 3,
+          "digest": "09e31ba5919eb25fb94364a84e86b8ab"
+        },
+        "plugin_kv": {
+          "count": 3,
+          "digest": "44f1dead66f520d97f55c1487ffe2bcc"
+        },
+        "plugin_marketplace_icons": {
+          "count": 3,
+          "digest": "21f95a794343eb3c4b71530448fc394f"
+        },
+        "plugin_marketplaces": {
+          "count": 3,
+          "digest": "edcb1dff4c240fa20faf59bc95935d51"
+        },
+        "plugin_schedules": {
+          "count": 3,
+          "digest": "2c5b6b58a1e89097119e20b053a0a1af"
+        },
+        "plugin_settings": {
+          "count": 3,
+          "digest": "eddb53fd2b0978802df965c84a8f13bf"
+        },
+        "plugin_state_snapshots": {
+          "count": 3,
+          "digest": "e22da9f5c408df4e97f11eb531bd39d3"
+        },
+        "plugins": {
+          "count": 3,
+          "digest": "75fff92d11b2330c8c55821c9a0327c8"
+        },
+        "project_attachment_backfills": {
+          "count": 3,
+          "digest": "21a6e6d0b4e16c2fde5290722268589c"
+        },
+        "project_attachment_threads": {
+          "count": 3,
+          "digest": "ed23c05db2b0c9828b9038c983fcc33f"
+        },
+        "project_attachments": {
+          "count": 3,
+          "digest": "f20d3a5ffe382045de9bdf431478d4cc"
+        },
+        "project_execution_defaults": {
+          "count": 3,
+          "digest": "53de19794dff6ad66905674e4c3d8e52"
+        },
+        "project_sources": {
+          "count": 3,
+          "digest": "412c83f52d9074b345a2ef650a7a5104"
+        },
+        "projects": {
+          "count": 4,
+          "digest": "d92ee6803f57632bd3668e249286658e"
+        },
+        "prompt_history_entries": {
+          "count": 3,
+          "digest": "8a9e6ab9de62ce2afed6a821b060e5a0"
+        },
+        "provider_model_catalogs": {
+          "count": 3,
+          "digest": "5aa0f3680d4e6486aa38388e7f801733"
+        },
+        "queued_thread_messages": {
+          "count": 3,
+          "digest": "3cffe646f303cd25cbd38011f091881f"
+        },
+        "retained_event_outputs": {
+          "count": 3,
+          "digest": "4f24e93a8596ce6e503edcfa01b25bd6"
+        },
+        "system_experiments": {
+          "count": 3,
+          "digest": "598c3dcc32a42d5be578e6d6c70c1afe"
+        },
+        "terminal_sessions": {
+          "count": 3,
+          "digest": "1a0c14af651e42d0d6b3d68992835ca0"
+        },
+        "thread_conversation_outlines": {
+          "count": 3,
+          "digest": "ec8c9ba16aded05d2e51050fa206a336"
+        },
+        "thread_dynamic_context_file_states": {
+          "count": 3,
+          "digest": "9ef42439461125339517d11513bd527c"
+        },
+        "thread_event_cold_state": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_plugin_metadata": {
+          "count": 3,
+          "digest": "f559a1a7947d92b0dbe2636e5ab4fd4e"
+        },
+        "thread_pruning_cursors": {
+          "count": 3,
+          "digest": "f3d012324bc77a6f02c3ac9b34fac60a"
+        },
+        "thread_pruning_work": {
+          "count": 12,
+          "digest": "5f6cfc924e514f1a0ada31eee1ab2b1c"
+        },
+        "thread_redirects": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_search_learned_selections": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_search_segments": {
+          "count": 3,
+          "digest": "e29b04f95f62025f25d41ab871032067"
+        },
+        "thread_search_segments_fts": {
+          "count": 3,
+          "digest": "9134da80612280b8e41dba9e79361f0b"
+        },
+        "thread_sections": {
+          "count": 3,
+          "digest": "1c9dc584ba546089cf0c4406a4d930b2"
+        },
+        "thread_tabs": {
+          "count": 3,
+          "digest": "10de9c2175a602ba1c6cf2f6ccc4ef40"
+        },
+        "threads": {
+          "count": 3,
+          "digest": "3c5d7cfe33dc77f0543953522186dfa3"
+        },
+        "transfer_entries": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "transfer_events": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "transfer_operations": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "ui_preference_defaults": {
+          "count": 3,
+          "digest": "1d7f438abd090d088e410d717c54dbc7"
+        },
+        "ui_preferences": {
+          "count": 3,
+          "digest": "d844661aa67a03bc4b90e6fa512a55e4"
+        },
+        "user": {
+          "count": 3,
+          "digest": "4fe315068f74a152f9a4d2a9bcaf82ba"
+        }
+      },
+      "ledger": {
+        "count": 153,
+        "digest": "4abfb16a0674719cd2d54ed70f367e8f"
+      },
+      "ledgerSchema": [
+        "index|sqlite_autoindex___drizzle_migrations_1|__drizzle_migrations|",
+        "table|__drizzle_migrations|__drizzle_migrations|CREATE TABLE \"__drizzle_migrations\" ( id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric )"
+      ],
+      "pinned": {
+        "updatedAt": {
+          "app_settings_values": 2
+        },
+        "onboardingCompletedAtColumn": 0,
+        "onboardingCompletedAtValue": 1
+      }
+    },
+    "135": {
+      "pragmas": {
+        "application_id": "0",
+        "auto_vacuum": "2",
+        "foreign_key_violations": "114",
+        "integrity_check": "ok",
+        "user_version": "0"
+      },
+      "sequences": [
+        [
+          "environment_variables",
+          "1002"
+        ]
+      ],
+      "tables": {
+        "aleph_install_requests": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "apikey": {
+          "count": 3,
+          "digest": "b6adeee37f178cfd940583f4d89761db"
+        },
+        "app_settings": {
+          "count": 3,
+          "digest": "1015cd61b9d4f7bd7f08bec451a8480a"
+        },
+        "app_settings_values": {
+          "count": 5,
+          "digest": "9ef7a3502c2f779b2183bbd49a640fd7"
+        },
+        "app_theme": {
+          "count": 3,
+          "digest": "4c5399f922552513b8ca6bf3bd3956ea"
+        },
+        "deferred_thread_messages_legacy": {
+          "count": 3,
+          "digest": "3f2b93cd6d5a6c878c71fb3977df700e"
+        },
+        "environment_hook_operations": {
+          "count": 3,
+          "digest": "5a1e3d007844021b7d5765e5133a52a9"
+        },
+        "environment_variables": {
+          "count": 3,
+          "digest": "b8f8360e4529cfc9c12507a9e149962c"
+        },
+        "environments": {
+          "count": 3,
+          "digest": "4158d521d4d2cf26d2da28e475212634"
+        },
+        "event_cold_segments": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "events": {
+          "count": 3,
+          "digest": "3c497ca829ab0b23d628ae881a2d061f"
+        },
+        "host_daemon_sessions": {
+          "count": 3,
+          "digest": "e4e5e575bc3977daafb05047460c2629"
+        },
+        "hosts": {
+          "count": 3,
+          "digest": "3b05312a358f943bb81f72e7ebc38599"
+        },
+        "idempotent_thread_operations": {
+          "count": 3,
+          "digest": "d99307a8665995a2a78049a41201dd22"
+        },
+        "maintenance_scan_cursors": {
+          "count": 3,
+          "digest": "a39a22a1eca6d4863a6c5efd3c79504f"
+        },
+        "pending_interactions": {
+          "count": 3,
+          "digest": "3bd9a0d1fde15c83e5490439e946a8e5"
+        },
+        "plugin_artifacts": {
+          "count": 3,
+          "digest": "09e31ba5919eb25fb94364a84e86b8ab"
+        },
+        "plugin_kv": {
+          "count": 3,
+          "digest": "44f1dead66f520d97f55c1487ffe2bcc"
+        },
+        "plugin_marketplace_icons": {
+          "count": 3,
+          "digest": "21f95a794343eb3c4b71530448fc394f"
+        },
+        "plugin_marketplaces": {
+          "count": 3,
+          "digest": "edcb1dff4c240fa20faf59bc95935d51"
+        },
+        "plugin_schedules": {
+          "count": 3,
+          "digest": "2c5b6b58a1e89097119e20b053a0a1af"
+        },
+        "plugin_settings": {
+          "count": 3,
+          "digest": "eddb53fd2b0978802df965c84a8f13bf"
+        },
+        "plugin_state_snapshots": {
+          "count": 3,
+          "digest": "e22da9f5c408df4e97f11eb531bd39d3"
+        },
+        "plugins": {
+          "count": 3,
+          "digest": "75fff92d11b2330c8c55821c9a0327c8"
+        },
+        "project_attachment_backfills": {
+          "count": 3,
+          "digest": "21a6e6d0b4e16c2fde5290722268589c"
+        },
+        "project_attachment_threads": {
+          "count": 3,
+          "digest": "ed23c05db2b0c9828b9038c983fcc33f"
+        },
+        "project_attachments": {
+          "count": 3,
+          "digest": "f20d3a5ffe382045de9bdf431478d4cc"
+        },
+        "project_execution_defaults": {
+          "count": 3,
+          "digest": "53de19794dff6ad66905674e4c3d8e52"
+        },
+        "project_sources": {
+          "count": 3,
+          "digest": "412c83f52d9074b345a2ef650a7a5104"
+        },
+        "projects": {
+          "count": 4,
+          "digest": "d92ee6803f57632bd3668e249286658e"
+        },
+        "prompt_history_entries": {
+          "count": 3,
+          "digest": "8a9e6ab9de62ce2afed6a821b060e5a0"
+        },
+        "provider_model_catalogs": {
+          "count": 3,
+          "digest": "5aa0f3680d4e6486aa38388e7f801733"
+        },
+        "queued_thread_messages": {
+          "count": 3,
+          "digest": "3cffe646f303cd25cbd38011f091881f"
+        },
+        "retained_event_outputs": {
+          "count": 3,
+          "digest": "4f24e93a8596ce6e503edcfa01b25bd6"
+        },
+        "system_experiments": {
+          "count": 3,
+          "digest": "598c3dcc32a42d5be578e6d6c70c1afe"
+        },
+        "terminal_sessions": {
+          "count": 3,
+          "digest": "1a0c14af651e42d0d6b3d68992835ca0"
+        },
+        "thread_conversation_outlines": {
+          "count": 3,
+          "digest": "ec8c9ba16aded05d2e51050fa206a336"
+        },
+        "thread_dynamic_context_file_states": {
+          "count": 3,
+          "digest": "9ef42439461125339517d11513bd527c"
+        },
+        "thread_event_cold_state": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_plugin_metadata": {
+          "count": 3,
+          "digest": "f559a1a7947d92b0dbe2636e5ab4fd4e"
+        },
+        "thread_pruning_cursors": {
+          "count": 3,
+          "digest": "f3d012324bc77a6f02c3ac9b34fac60a"
+        },
+        "thread_pruning_work": {
+          "count": 12,
+          "digest": "5f6cfc924e514f1a0ada31eee1ab2b1c"
+        },
+        "thread_redirects": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_search_learned_selections": {
+          "count": 3,
+          "digest": "bac477f2368ecd76b1cd1d95cba0a09e"
+        },
+        "thread_search_segments": {
+          "count": 3,
+          "digest": "e29b04f95f62025f25d41ab871032067"
+        },
+        "thread_search_segments_fts": {
+          "count": 3,
+          "digest": "9134da80612280b8e41dba9e79361f0b"
+        },
+        "thread_sections": {
+          "count": 3,
+          "digest": "1c9dc584ba546089cf0c4406a4d930b2"
+        },
+        "thread_tabs": {
+          "count": 3,
+          "digest": "10de9c2175a602ba1c6cf2f6ccc4ef40"
+        },
+        "threads": {
+          "count": 3,
+          "digest": "3c5d7cfe33dc77f0543953522186dfa3"
+        },
+        "transfer_entries": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "transfer_events": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "transfer_operations": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "ui_preference_defaults": {
+          "count": 3,
+          "digest": "1d7f438abd090d088e410d717c54dbc7"
+        },
+        "ui_preferences": {
+          "count": 3,
+          "digest": "d844661aa67a03bc4b90e6fa512a55e4"
+        },
+        "user": {
+          "count": 3,
+          "digest": "4fe315068f74a152f9a4d2a9bcaf82ba"
+        }
+      },
+      "ledger": {
+        "count": 153,
+        "digest": "4abfb16a0674719cd2d54ed70f367e8f"
+      },
+      "ledgerSchema": [
+        "index|sqlite_autoindex___drizzle_migrations_1|__drizzle_migrations|",
+        "table|__drizzle_migrations|__drizzle_migrations|CREATE TABLE \"__drizzle_migrations\" ( id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric )"
+      ],
+      "pinned": {
+        "updatedAt": {
+          "app_settings_values": 2
+        },
+        "onboardingCompletedAtColumn": 0,
+        "onboardingCompletedAtValue": 1
+      }
+    },
+    "141": {
+      "pragmas": {
+        "application_id": "0",
+        "auto_vacuum": "2",
+        "foreign_key_violations": "114",
+        "integrity_check": "ok",
+        "user_version": "0"
+      },
+      "sequences": [
+        [
+          "environment_variables",
+          "1002"
+        ]
+      ],
+      "tables": {
+        "aleph_install_requests": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "apikey": {
+          "count": 3,
+          "digest": "b6adeee37f178cfd940583f4d89761db"
+        },
+        "app_settings": {
+          "count": 3,
+          "digest": "1015cd61b9d4f7bd7f08bec451a8480a"
+        },
+        "app_settings_values": {
+          "count": 4,
+          "digest": "c1243bef783328908dead8290ebd1523"
+        },
+        "app_theme": {
+          "count": 3,
+          "digest": "4c5399f922552513b8ca6bf3bd3956ea"
+        },
+        "deferred_thread_messages_legacy": {
+          "count": 3,
+          "digest": "3f2b93cd6d5a6c878c71fb3977df700e"
+        },
+        "environment_hook_operations": {
+          "count": 3,
+          "digest": "5a1e3d007844021b7d5765e5133a52a9"
+        },
+        "environment_variables": {
+          "count": 3,
+          "digest": "b8f8360e4529cfc9c12507a9e149962c"
+        },
+        "environments": {
+          "count": 3,
+          "digest": "4158d521d4d2cf26d2da28e475212634"
+        },
+        "event_cold_segments": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "events": {
+          "count": 3,
+          "digest": "3c497ca829ab0b23d628ae881a2d061f"
+        },
+        "host_daemon_sessions": {
+          "count": 3,
+          "digest": "e4e5e575bc3977daafb05047460c2629"
+        },
+        "hosts": {
+          "count": 3,
+          "digest": "3b05312a358f943bb81f72e7ebc38599"
+        },
+        "idempotent_thread_operations": {
+          "count": 3,
+          "digest": "d99307a8665995a2a78049a41201dd22"
+        },
+        "maintenance_scan_cursors": {
+          "count": 3,
+          "digest": "a39a22a1eca6d4863a6c5efd3c79504f"
+        },
+        "pending_interactions": {
+          "count": 3,
+          "digest": "3bd9a0d1fde15c83e5490439e946a8e5"
+        },
+        "plugin_artifacts": {
+          "count": 3,
+          "digest": "09e31ba5919eb25fb94364a84e86b8ab"
+        },
+        "plugin_kv": {
+          "count": 3,
+          "digest": "44f1dead66f520d97f55c1487ffe2bcc"
+        },
+        "plugin_marketplace_icons": {
+          "count": 3,
+          "digest": "21f95a794343eb3c4b71530448fc394f"
+        },
+        "plugin_marketplaces": {
+          "count": 3,
+          "digest": "edcb1dff4c240fa20faf59bc95935d51"
+        },
+        "plugin_schedules": {
+          "count": 3,
+          "digest": "2c5b6b58a1e89097119e20b053a0a1af"
+        },
+        "plugin_settings": {
+          "count": 3,
+          "digest": "eddb53fd2b0978802df965c84a8f13bf"
+        },
+        "plugin_state_snapshots": {
+          "count": 3,
+          "digest": "e22da9f5c408df4e97f11eb531bd39d3"
+        },
+        "plugins": {
+          "count": 3,
+          "digest": "e955a08fd29289935df7f74b872a92f6"
+        },
+        "project_attachment_backfills": {
+          "count": 3,
+          "digest": "21a6e6d0b4e16c2fde5290722268589c"
+        },
+        "project_attachment_threads": {
+          "count": 3,
+          "digest": "ed23c05db2b0c9828b9038c983fcc33f"
+        },
+        "project_attachments": {
+          "count": 3,
+          "digest": "f20d3a5ffe382045de9bdf431478d4cc"
+        },
+        "project_execution_defaults": {
+          "count": 3,
+          "digest": "53de19794dff6ad66905674e4c3d8e52"
+        },
+        "project_sources": {
+          "count": 3,
+          "digest": "412c83f52d9074b345a2ef650a7a5104"
+        },
+        "projects": {
+          "count": 4,
+          "digest": "d92ee6803f57632bd3668e249286658e"
+        },
+        "prompt_history_entries": {
+          "count": 3,
+          "digest": "8a9e6ab9de62ce2afed6a821b060e5a0"
+        },
+        "provider_model_catalogs": {
+          "count": 3,
+          "digest": "5aa0f3680d4e6486aa38388e7f801733"
+        },
+        "queued_thread_messages": {
+          "count": 3,
+          "digest": "3cffe646f303cd25cbd38011f091881f"
+        },
+        "retained_event_outputs": {
+          "count": 3,
+          "digest": "4f24e93a8596ce6e503edcfa01b25bd6"
+        },
+        "system_experiments": {
+          "count": 3,
+          "digest": "598c3dcc32a42d5be578e6d6c70c1afe"
+        },
+        "terminal_sessions": {
+          "count": 3,
+          "digest": "1a0c14af651e42d0d6b3d68992835ca0"
+        },
+        "thread_conversation_outlines": {
+          "count": 3,
+          "digest": "ec8c9ba16aded05d2e51050fa206a336"
+        },
+        "thread_dynamic_context_file_states": {
+          "count": 3,
+          "digest": "9ef42439461125339517d11513bd527c"
+        },
+        "thread_event_cold_state": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_plugin_metadata": {
+          "count": 3,
+          "digest": "f559a1a7947d92b0dbe2636e5ab4fd4e"
+        },
+        "thread_pruning_cursors": {
+          "count": 3,
+          "digest": "f3d012324bc77a6f02c3ac9b34fac60a"
+        },
+        "thread_pruning_work": {
+          "count": 12,
+          "digest": "5f6cfc924e514f1a0ada31eee1ab2b1c"
+        },
+        "thread_redirects": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_search_learned_selections": {
+          "count": 3,
+          "digest": "bac477f2368ecd76b1cd1d95cba0a09e"
+        },
+        "thread_search_segments": {
+          "count": 3,
+          "digest": "e29b04f95f62025f25d41ab871032067"
+        },
+        "thread_search_segments_fts": {
+          "count": 3,
+          "digest": "9134da80612280b8e41dba9e79361f0b"
+        },
+        "thread_sections": {
+          "count": 3,
+          "digest": "1c9dc584ba546089cf0c4406a4d930b2"
+        },
+        "thread_tabs": {
+          "count": 3,
+          "digest": "10de9c2175a602ba1c6cf2f6ccc4ef40"
+        },
+        "threads": {
+          "count": 3,
+          "digest": "3c5d7cfe33dc77f0543953522186dfa3"
+        },
+        "transfer_entries": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "transfer_events": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "transfer_operations": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "ui_preference_defaults": {
+          "count": 3,
+          "digest": "1d7f438abd090d088e410d717c54dbc7"
+        },
+        "ui_preferences": {
+          "count": 3,
+          "digest": "d844661aa67a03bc4b90e6fa512a55e4"
+        },
+        "user": {
+          "count": 3,
+          "digest": "4fe315068f74a152f9a4d2a9bcaf82ba"
+        }
+      },
+      "ledger": {
+        "count": 153,
+        "digest": "4abfb16a0674719cd2d54ed70f367e8f"
+      },
+      "ledgerSchema": [
+        "index|sqlite_autoindex___drizzle_migrations_1|__drizzle_migrations|",
+        "table|__drizzle_migrations|__drizzle_migrations|CREATE TABLE \"__drizzle_migrations\" ( id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric )"
+      ],
+      "pinned": {
+        "updatedAt": {
+          "app_settings_values": 1
+        },
+        "onboardingCompletedAtColumn": 0,
+        "onboardingCompletedAtValue": 1
+      }
+    },
+    "146": {
+      "pragmas": {
+        "application_id": "0",
+        "auto_vacuum": "2",
+        "foreign_key_violations": "132",
+        "integrity_check": "ok",
+        "user_version": "0"
+      },
+      "sequences": [
+        [
+          "environment_variables",
+          "1002"
+        ],
+        [
+          "transfer_events",
+          "1002"
+        ]
+      ],
+      "tables": {
+        "aleph_install_requests": {
+          "count": 3,
+          "digest": "e778dc7daf6105384f9264248d28668f"
+        },
+        "apikey": {
+          "count": 3,
+          "digest": "b6adeee37f178cfd940583f4d89761db"
+        },
+        "app_settings": {
+          "count": 3,
+          "digest": "1015cd61b9d4f7bd7f08bec451a8480a"
+        },
+        "app_settings_values": {
+          "count": 4,
+          "digest": "c1243bef783328908dead8290ebd1523"
+        },
+        "app_theme": {
+          "count": 3,
+          "digest": "a8a98dcc37ae7a76278fceaeba54e618"
+        },
+        "deferred_thread_messages_legacy": {
+          "count": 3,
+          "digest": "3f2b93cd6d5a6c878c71fb3977df700e"
+        },
+        "environment_hook_operations": {
+          "count": 3,
+          "digest": "5a1e3d007844021b7d5765e5133a52a9"
+        },
+        "environment_variables": {
+          "count": 3,
+          "digest": "b8f8360e4529cfc9c12507a9e149962c"
+        },
+        "environments": {
+          "count": 3,
+          "digest": "4158d521d4d2cf26d2da28e475212634"
+        },
+        "event_cold_segments": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "events": {
+          "count": 3,
+          "digest": "3c497ca829ab0b23d628ae881a2d061f"
+        },
+        "host_daemon_sessions": {
+          "count": 3,
+          "digest": "e4e5e575bc3977daafb05047460c2629"
+        },
+        "hosts": {
+          "count": 3,
+          "digest": "3b05312a358f943bb81f72e7ebc38599"
+        },
+        "idempotent_thread_operations": {
+          "count": 3,
+          "digest": "d99307a8665995a2a78049a41201dd22"
+        },
+        "maintenance_scan_cursors": {
+          "count": 3,
+          "digest": "a39a22a1eca6d4863a6c5efd3c79504f"
+        },
+        "pending_interactions": {
+          "count": 3,
+          "digest": "3bd9a0d1fde15c83e5490439e946a8e5"
+        },
+        "plugin_artifacts": {
+          "count": 3,
+          "digest": "09e31ba5919eb25fb94364a84e86b8ab"
+        },
+        "plugin_kv": {
+          "count": 3,
+          "digest": "44f1dead66f520d97f55c1487ffe2bcc"
+        },
+        "plugin_marketplace_icons": {
+          "count": 3,
+          "digest": "21f95a794343eb3c4b71530448fc394f"
+        },
+        "plugin_marketplaces": {
+          "count": 3,
+          "digest": "edcb1dff4c240fa20faf59bc95935d51"
+        },
+        "plugin_schedules": {
+          "count": 3,
+          "digest": "2c5b6b58a1e89097119e20b053a0a1af"
+        },
+        "plugin_settings": {
+          "count": 3,
+          "digest": "eddb53fd2b0978802df965c84a8f13bf"
+        },
+        "plugin_state_snapshots": {
+          "count": 3,
+          "digest": "e22da9f5c408df4e97f11eb531bd39d3"
+        },
+        "plugins": {
+          "count": 3,
+          "digest": "e955a08fd29289935df7f74b872a92f6"
+        },
+        "project_attachment_backfills": {
+          "count": 3,
+          "digest": "21a6e6d0b4e16c2fde5290722268589c"
+        },
+        "project_attachment_threads": {
+          "count": 3,
+          "digest": "ed23c05db2b0c9828b9038c983fcc33f"
+        },
+        "project_attachments": {
+          "count": 3,
+          "digest": "f20d3a5ffe382045de9bdf431478d4cc"
+        },
+        "project_execution_defaults": {
+          "count": 3,
+          "digest": "53de19794dff6ad66905674e4c3d8e52"
+        },
+        "project_sources": {
+          "count": 3,
+          "digest": "412c83f52d9074b345a2ef650a7a5104"
+        },
+        "projects": {
+          "count": 4,
+          "digest": "d92ee6803f57632bd3668e249286658e"
+        },
+        "prompt_history_entries": {
+          "count": 3,
+          "digest": "8a9e6ab9de62ce2afed6a821b060e5a0"
+        },
+        "provider_model_catalogs": {
+          "count": 3,
+          "digest": "5aa0f3680d4e6486aa38388e7f801733"
+        },
+        "queued_thread_messages": {
+          "count": 3,
+          "digest": "f9455149eb36be85468873d292bdcb50"
+        },
+        "retained_event_outputs": {
+          "count": 3,
+          "digest": "4f24e93a8596ce6e503edcfa01b25bd6"
+        },
+        "system_experiments": {
+          "count": 3,
+          "digest": "598c3dcc32a42d5be578e6d6c70c1afe"
+        },
+        "terminal_sessions": {
+          "count": 3,
+          "digest": "1a0c14af651e42d0d6b3d68992835ca0"
+        },
+        "thread_conversation_outlines": {
+          "count": 3,
+          "digest": "ec8c9ba16aded05d2e51050fa206a336"
+        },
+        "thread_dynamic_context_file_states": {
+          "count": 3,
+          "digest": "9ef42439461125339517d11513bd527c"
+        },
+        "thread_event_cold_state": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_plugin_metadata": {
+          "count": 3,
+          "digest": "f559a1a7947d92b0dbe2636e5ab4fd4e"
+        },
+        "thread_pruning_cursors": {
+          "count": 3,
+          "digest": "f3d012324bc77a6f02c3ac9b34fac60a"
+        },
+        "thread_pruning_work": {
+          "count": 12,
+          "digest": "5f6cfc924e514f1a0ada31eee1ab2b1c"
+        },
+        "thread_redirects": {
+          "count": 3,
+          "digest": "2f22741123eedf471064fd1c8affe5d5"
+        },
+        "thread_search_learned_selections": {
+          "count": 3,
+          "digest": "bac477f2368ecd76b1cd1d95cba0a09e"
+        },
+        "thread_search_segments": {
+          "count": 3,
+          "digest": "e29b04f95f62025f25d41ab871032067"
+        },
+        "thread_search_segments_fts": {
+          "count": 3,
+          "digest": "9134da80612280b8e41dba9e79361f0b"
+        },
+        "thread_sections": {
+          "count": 3,
+          "digest": "1c9dc584ba546089cf0c4406a4d930b2"
+        },
+        "thread_tabs": {
+          "count": 3,
+          "digest": "10de9c2175a602ba1c6cf2f6ccc4ef40"
+        },
+        "threads": {
+          "count": 3,
+          "digest": "3c5d7cfe33dc77f0543953522186dfa3"
+        },
+        "transfer_entries": {
+          "count": 3,
+          "digest": "49b7d67fcf8929ff472ab67aa0728080"
+        },
+        "transfer_events": {
+          "count": 6,
+          "digest": "09b5b1ee73208d2cdd69e5e913f2d80c"
+        },
+        "transfer_operations": {
+          "count": 3,
+          "digest": "7511dcb214052f8bbf2dad145bb539e2"
+        },
+        "ui_preference_defaults": {
+          "count": 3,
+          "digest": "1d7f438abd090d088e410d717c54dbc7"
+        },
+        "ui_preferences": {
+          "count": 3,
+          "digest": "d844661aa67a03bc4b90e6fa512a55e4"
+        },
+        "user": {
+          "count": 3,
+          "digest": "4fe315068f74a152f9a4d2a9bcaf82ba"
+        }
+      },
+      "ledger": {
+        "count": 153,
+        "digest": "4abfb16a0674719cd2d54ed70f367e8f"
+      },
+      "ledgerSchema": [
+        "index|sqlite_autoindex___drizzle_migrations_1|__drizzle_migrations|",
+        "table|__drizzle_migrations|__drizzle_migrations|CREATE TABLE \"__drizzle_migrations\" ( id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric )"
+      ],
+      "pinned": {
+        "updatedAt": {
+          "app_settings_values": 1
+        },
+        "onboardingCompletedAtColumn": 0,
+        "onboardingCompletedAtValue": 1
+      }
+    },
+    "153": {
+      "pragmas": {
+        "application_id": "0",
+        "auto_vacuum": "2",
+        "foreign_key_violations": "138",
+        "integrity_check": "ok",
+        "user_version": "0"
+      },
+      "sequences": [
+        [
+          "environment_variables",
+          "1002"
+        ],
+        [
+          "transfer_events",
+          "1002"
+        ]
+      ],
+      "tables": {
+        "aleph_install_requests": {
+          "count": 3,
+          "digest": "e778dc7daf6105384f9264248d28668f"
+        },
+        "apikey": {
+          "count": 3,
+          "digest": "b6adeee37f178cfd940583f4d89761db"
+        },
+        "app_settings": {
+          "count": 3,
+          "digest": "1015cd61b9d4f7bd7f08bec451a8480a"
+        },
+        "app_settings_values": {
+          "count": 3,
+          "digest": "d72a9b321c92a87299e6180bbd117c81"
+        },
+        "app_theme": {
+          "count": 3,
+          "digest": "a8a98dcc37ae7a76278fceaeba54e618"
+        },
+        "deferred_thread_messages_legacy": {
+          "count": 3,
+          "digest": "3f2b93cd6d5a6c878c71fb3977df700e"
+        },
+        "environment_hook_operations": {
+          "count": 3,
+          "digest": "5a1e3d007844021b7d5765e5133a52a9"
+        },
+        "environment_variables": {
+          "count": 3,
+          "digest": "b8f8360e4529cfc9c12507a9e149962c"
+        },
+        "environments": {
+          "count": 3,
+          "digest": "4158d521d4d2cf26d2da28e475212634"
+        },
+        "event_cold_segments": {
+          "count": 3,
+          "digest": "969771f5b7995e595583789dff9ac7ff"
+        },
+        "events": {
+          "count": 3,
+          "digest": "3c497ca829ab0b23d628ae881a2d061f"
+        },
+        "host_daemon_sessions": {
+          "count": 3,
+          "digest": "e4e5e575bc3977daafb05047460c2629"
+        },
+        "hosts": {
+          "count": 3,
+          "digest": "3b05312a358f943bb81f72e7ebc38599"
+        },
+        "idempotent_thread_operations": {
+          "count": 3,
+          "digest": "d99307a8665995a2a78049a41201dd22"
+        },
+        "maintenance_scan_cursors": {
+          "count": 3,
+          "digest": "a39a22a1eca6d4863a6c5efd3c79504f"
+        },
+        "pending_interactions": {
+          "count": 3,
+          "digest": "3bd9a0d1fde15c83e5490439e946a8e5"
+        },
+        "plugin_artifacts": {
+          "count": 3,
+          "digest": "09e31ba5919eb25fb94364a84e86b8ab"
+        },
+        "plugin_kv": {
+          "count": 3,
+          "digest": "44f1dead66f520d97f55c1487ffe2bcc"
+        },
+        "plugin_marketplace_icons": {
+          "count": 3,
+          "digest": "21f95a794343eb3c4b71530448fc394f"
+        },
+        "plugin_marketplaces": {
+          "count": 3,
+          "digest": "c1cc8ebee862cb244e97f9f68243fa1d"
+        },
+        "plugin_schedules": {
+          "count": 3,
+          "digest": "2c5b6b58a1e89097119e20b053a0a1af"
+        },
+        "plugin_settings": {
+          "count": 3,
+          "digest": "eddb53fd2b0978802df965c84a8f13bf"
+        },
+        "plugin_state_snapshots": {
+          "count": 3,
+          "digest": "e22da9f5c408df4e97f11eb531bd39d3"
+        },
+        "plugins": {
+          "count": 3,
+          "digest": "e955a08fd29289935df7f74b872a92f6"
+        },
+        "project_attachment_backfills": {
+          "count": 3,
+          "digest": "21a6e6d0b4e16c2fde5290722268589c"
+        },
+        "project_attachment_threads": {
+          "count": 3,
+          "digest": "ed23c05db2b0c9828b9038c983fcc33f"
+        },
+        "project_attachments": {
+          "count": 3,
+          "digest": "f20d3a5ffe382045de9bdf431478d4cc"
+        },
+        "project_execution_defaults": {
+          "count": 3,
+          "digest": "53de19794dff6ad66905674e4c3d8e52"
+        },
+        "project_sources": {
+          "count": 3,
+          "digest": "412c83f52d9074b345a2ef650a7a5104"
+        },
+        "projects": {
+          "count": 4,
+          "digest": "d92ee6803f57632bd3668e249286658e"
+        },
+        "prompt_history_entries": {
+          "count": 3,
+          "digest": "8a9e6ab9de62ce2afed6a821b060e5a0"
+        },
+        "provider_model_catalogs": {
+          "count": 3,
+          "digest": "5aa0f3680d4e6486aa38388e7f801733"
+        },
+        "queued_thread_messages": {
+          "count": 3,
+          "digest": "0ae858257d179e09d273d5c51990fed1"
+        },
+        "retained_event_outputs": {
+          "count": 3,
+          "digest": "4f24e93a8596ce6e503edcfa01b25bd6"
+        },
+        "system_experiments": {
+          "count": 3,
+          "digest": "598c3dcc32a42d5be578e6d6c70c1afe"
+        },
+        "terminal_sessions": {
+          "count": 3,
+          "digest": "1a0c14af651e42d0d6b3d68992835ca0"
+        },
+        "thread_conversation_outlines": {
+          "count": 3,
+          "digest": "ec8c9ba16aded05d2e51050fa206a336"
+        },
+        "thread_dynamic_context_file_states": {
+          "count": 3,
+          "digest": "9ef42439461125339517d11513bd527c"
+        },
+        "thread_event_cold_state": {
+          "count": 3,
+          "digest": "b8823d8dbe61b5a0ac41834c822d4b81"
+        },
+        "thread_plugin_metadata": {
+          "count": 3,
+          "digest": "f559a1a7947d92b0dbe2636e5ab4fd4e"
+        },
+        "thread_pruning_cursors": {
+          "count": 3,
+          "digest": "688cc46417474f89274987600c214630"
+        },
+        "thread_pruning_work": {
+          "count": 3,
+          "digest": "681e645270e23b63e0f4cb16cac3d320"
+        },
+        "thread_redirects": {
+          "count": 3,
+          "digest": "2f22741123eedf471064fd1c8affe5d5"
+        },
+        "thread_search_learned_selections": {
+          "count": 3,
+          "digest": "bac477f2368ecd76b1cd1d95cba0a09e"
+        },
+        "thread_search_segments": {
+          "count": 3,
+          "digest": "e29b04f95f62025f25d41ab871032067"
+        },
+        "thread_search_segments_fts": {
+          "count": 3,
+          "digest": "9134da80612280b8e41dba9e79361f0b"
+        },
+        "thread_sections": {
+          "count": 3,
+          "digest": "1c9dc584ba546089cf0c4406a4d930b2"
+        },
+        "thread_tabs": {
+          "count": 3,
+          "digest": "10de9c2175a602ba1c6cf2f6ccc4ef40"
+        },
+        "threads": {
+          "count": 3,
+          "digest": "3c5d7cfe33dc77f0543953522186dfa3"
+        },
+        "transfer_entries": {
+          "count": 3,
+          "digest": "49b7d67fcf8929ff472ab67aa0728080"
+        },
+        "transfer_events": {
+          "count": 6,
+          "digest": "09b5b1ee73208d2cdd69e5e913f2d80c"
+        },
+        "transfer_operations": {
+          "count": 3,
+          "digest": "7511dcb214052f8bbf2dad145bb539e2"
+        },
+        "ui_preference_defaults": {
+          "count": 3,
+          "digest": "1d7f438abd090d088e410d717c54dbc7"
+        },
+        "ui_preferences": {
+          "count": 3,
+          "digest": "d844661aa67a03bc4b90e6fa512a55e4"
+        },
+        "user": {
+          "count": 3,
+          "digest": "4fe315068f74a152f9a4d2a9bcaf82ba"
+        }
+      },
+      "ledger": {
+        "count": 153,
+        "digest": "4abfb16a0674719cd2d54ed70f367e8f"
+      },
+      "ledgerSchema": [
+        "index|sqlite_autoindex___drizzle_migrations_1|__drizzle_migrations|",
+        "table|__drizzle_migrations|__drizzle_migrations|CREATE TABLE \"__drizzle_migrations\" ( id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric )"
+      ],
+      "pinned": {
+        "updatedAt": {},
+        "onboardingCompletedAtColumn": 0,
+        "onboardingCompletedAtValue": 0
+      }
+    },
+    "grouped-35": {
+      "pragmas": {
+        "application_id": "0",
+        "auto_vacuum": "2",
+        "foreign_key_violations": "63",
+        "integrity_check": "ok",
+        "user_version": "0"
+      },
+      "sequences": [
+        [
+          "environment_variables",
+          "0"
+        ]
+      ],
+      "tables": {
+        "aleph_install_requests": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "apikey": {
+          "count": 3,
+          "digest": "b6adeee37f178cfd940583f4d89761db"
+        },
+        "app_settings": {
+          "count": 1,
+          "digest": "243a618588479ab3944fdb825401fa7b"
+        },
+        "app_settings_values": {
+          "count": 5,
+          "digest": "ee582150fb52e28e10b64f10174b0cab"
+        },
+        "app_theme": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "deferred_thread_messages_legacy": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "environment_hook_operations": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "environment_variables": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "environments": {
+          "count": 3,
+          "digest": "a54f6c0a4fbb9c46cd7eba3bbe5d355c"
+        },
+        "event_cold_segments": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "events": {
+          "count": 3,
+          "digest": "cb7ecd732dbf71e63259cc718779f825"
+        },
+        "host_daemon_sessions": {
+          "count": 3,
+          "digest": "e4e5e575bc3977daafb05047460c2629"
+        },
+        "hosts": {
+          "count": 3,
+          "digest": "eae5f8b6af415fbe516242376251dc63"
+        },
+        "idempotent_thread_operations": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "maintenance_scan_cursors": {
+          "count": 3,
+          "digest": "a39a22a1eca6d4863a6c5efd3c79504f"
+        },
+        "pending_interactions": {
+          "count": 3,
+          "digest": "722edac7873a3dc1209d8c83ae9ad0aa"
+        },
+        "plugin_artifacts": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "plugin_kv": {
+          "count": 1,
+          "digest": "1d567f765061ee3a4e5dcf75d01fd69a"
+        },
+        "plugin_marketplace_icons": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "plugin_marketplaces": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "plugin_schedules": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "plugin_settings": {
+          "count": 5,
+          "digest": "da8d0edb68b52de05f2485ca476db7c4"
+        },
+        "plugin_state_snapshots": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "plugins": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "project_attachment_backfills": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "project_attachment_threads": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "project_attachments": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "project_execution_defaults": {
+          "count": 3,
+          "digest": "53de19794dff6ad66905674e4c3d8e52"
+        },
+        "project_sources": {
+          "count": 3,
+          "digest": "6538a1c814e2546e939ae497c0b4eec8"
+        },
+        "projects": {
+          "count": 4,
+          "digest": "bb8102ed2d13ba14d691677d8f7b936a"
+        },
+        "prompt_history_entries": {
+          "count": 3,
+          "digest": "8a9e6ab9de62ce2afed6a821b060e5a0"
+        },
+        "provider_model_catalogs": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "queued_thread_messages": {
+          "count": 3,
+          "digest": "4eba66ce070572718cdeb12045354d50"
+        },
+        "retained_event_outputs": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "system_experiments": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "terminal_sessions": {
+          "count": 3,
+          "digest": "cbd702d00bbbdf36808104115c7ca2b7"
+        },
+        "thread_conversation_outlines": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_dynamic_context_file_states": {
+          "count": 3,
+          "digest": "9ef42439461125339517d11513bd527c"
+        },
+        "thread_event_cold_state": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_plugin_metadata": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_pruning_cursors": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_pruning_work": {
+          "count": 12,
+          "digest": "5f6cfc924e514f1a0ada31eee1ab2b1c"
+        },
+        "thread_redirects": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_search_learned_selections": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_search_segments": {
+          "count": 6,
+          "digest": "3b7269415d06751f3572576c082fd057"
+        },
+        "thread_search_segments_fts": {
+          "count": 6,
+          "digest": "62d40db9664db1f015d1c3ae15096606"
+        },
+        "thread_sections": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_tabs": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "threads": {
+          "count": 3,
+          "digest": "a31b05fd08fbee6b7bd25d5203618c91"
+        },
+        "transfer_entries": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "transfer_events": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "transfer_operations": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "ui_preference_defaults": {
+          "count": 1,
+          "digest": "4dacad42e625e7caa26ff781f7112e68"
+        },
+        "ui_preferences": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "user": {
+          "count": 3,
+          "digest": "4fe315068f74a152f9a4d2a9bcaf82ba"
+        }
+      },
+      "ledger": {
+        "count": 153,
+        "digest": "4abfb16a0674719cd2d54ed70f367e8f"
+      },
+      "ledgerSchema": [
+        "index|sqlite_autoindex___drizzle_migrations_1|__drizzle_migrations|",
+        "table|__drizzle_migrations|__drizzle_migrations|CREATE TABLE \"__drizzle_migrations\" ( id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric )"
+      ],
+      "pinned": {
+        "updatedAt": {
+          "plugin_kv": 1,
+          "plugin_settings": 5,
+          "app_settings": 1,
+          "app_settings_values": 5
+        },
+        "onboardingCompletedAtColumn": 1,
+        "onboardingCompletedAtValue": 1
+      }
+    },
+    "grouped-64": {
+      "pragmas": {
+        "application_id": "0",
+        "auto_vacuum": "2",
+        "foreign_key_violations": "75",
+        "integrity_check": "ok",
+        "user_version": "0"
+      },
+      "sequences": [
+        [
+          "environment_variables",
+          "0"
+        ]
+      ],
+      "tables": {
+        "aleph_install_requests": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "apikey": {
+          "count": 3,
+          "digest": "b6adeee37f178cfd940583f4d89761db"
+        },
+        "app_settings": {
+          "count": 4,
+          "digest": "2348171b9a8a077e036530c00c35714a"
+        },
+        "app_settings_values": {
+          "count": 5,
+          "digest": "ee582150fb52e28e10b64f10174b0cab"
+        },
+        "app_theme": {
+          "count": 3,
+          "digest": "4c5399f922552513b8ca6bf3bd3956ea"
+        },
+        "deferred_thread_messages_legacy": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "environment_hook_operations": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "environment_variables": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "environments": {
+          "count": 3,
+          "digest": "a54f6c0a4fbb9c46cd7eba3bbe5d355c"
+        },
+        "event_cold_segments": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "events": {
+          "count": 3,
+          "digest": "cb7ecd732dbf71e63259cc718779f825"
+        },
+        "host_daemon_sessions": {
+          "count": 3,
+          "digest": "e4e5e575bc3977daafb05047460c2629"
+        },
+        "hosts": {
+          "count": 3,
+          "digest": "eae5f8b6af415fbe516242376251dc63"
+        },
+        "idempotent_thread_operations": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "maintenance_scan_cursors": {
+          "count": 3,
+          "digest": "a39a22a1eca6d4863a6c5efd3c79504f"
+        },
+        "pending_interactions": {
+          "count": 3,
+          "digest": "3bd9a0d1fde15c83e5490439e946a8e5"
+        },
+        "plugin_artifacts": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "plugin_kv": {
+          "count": 4,
+          "digest": "0358f8be85299ca0ff71001b8d3a4e40"
+        },
+        "plugin_marketplace_icons": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "plugin_marketplaces": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "plugin_schedules": {
+          "count": 3,
+          "digest": "2c5b6b58a1e89097119e20b053a0a1af"
+        },
+        "plugin_settings": {
+          "count": 8,
+          "digest": "5b20caa1b34cc79d78133463a49c6710"
+        },
+        "plugin_state_snapshots": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "plugins": {
+          "count": 3,
+          "digest": "a74fcb09d169d1c86d5f5a99052a11ef"
+        },
+        "project_attachment_backfills": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "project_attachment_threads": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "project_attachments": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "project_execution_defaults": {
+          "count": 3,
+          "digest": "53de19794dff6ad66905674e4c3d8e52"
+        },
+        "project_sources": {
+          "count": 3,
+          "digest": "6538a1c814e2546e939ae497c0b4eec8"
+        },
+        "projects": {
+          "count": 4,
+          "digest": "bb8102ed2d13ba14d691677d8f7b936a"
+        },
+        "prompt_history_entries": {
+          "count": 3,
+          "digest": "8a9e6ab9de62ce2afed6a821b060e5a0"
+        },
+        "provider_model_catalogs": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "queued_thread_messages": {
+          "count": 3,
+          "digest": "4eba66ce070572718cdeb12045354d50"
+        },
+        "retained_event_outputs": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "system_experiments": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "terminal_sessions": {
+          "count": 3,
+          "digest": "1a0c14af651e42d0d6b3d68992835ca0"
+        },
+        "thread_conversation_outlines": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_dynamic_context_file_states": {
+          "count": 3,
+          "digest": "9ef42439461125339517d11513bd527c"
+        },
+        "thread_event_cold_state": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_plugin_metadata": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_pruning_cursors": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_pruning_work": {
+          "count": 12,
+          "digest": "5f6cfc924e514f1a0ada31eee1ab2b1c"
+        },
+        "thread_redirects": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_search_learned_selections": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_search_segments": {
+          "count": 3,
+          "digest": "e29b04f95f62025f25d41ab871032067"
+        },
+        "thread_search_segments_fts": {
+          "count": 3,
+          "digest": "9134da80612280b8e41dba9e79361f0b"
+        },
+        "thread_sections": {
+          "count": 3,
+          "digest": "b552c9c03dcb3a6c98cca61111e3fb08"
+        },
+        "thread_tabs": {
+          "count": 3,
+          "digest": "10de9c2175a602ba1c6cf2f6ccc4ef40"
+        },
+        "threads": {
+          "count": 3,
+          "digest": "d201dff8ca7b981115ef4a1dcf8fa2cc"
+        },
+        "transfer_entries": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "transfer_events": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "transfer_operations": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "ui_preference_defaults": {
+          "count": 1,
+          "digest": "4dacad42e625e7caa26ff781f7112e68"
+        },
+        "ui_preferences": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "user": {
+          "count": 3,
+          "digest": "4fe315068f74a152f9a4d2a9bcaf82ba"
+        }
+      },
+      "ledger": {
+        "count": 153,
+        "digest": "4abfb16a0674719cd2d54ed70f367e8f"
+      },
+      "ledgerSchema": [
+        "index|sqlite_autoindex___drizzle_migrations_1|__drizzle_migrations|",
+        "table|__drizzle_migrations|__drizzle_migrations|CREATE TABLE \"__drizzle_migrations\" ( id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric )"
+      ],
+      "pinned": {
+        "updatedAt": {
+          "plugin_kv": 1,
+          "plugin_settings": 5,
+          "app_settings": 1,
+          "app_settings_values": 5
+        },
+        "onboardingCompletedAtColumn": 4,
+        "onboardingCompletedAtValue": 1
+      }
+    },
+    "grouped-146": {
+      "pragmas": {
+        "application_id": "0",
+        "auto_vacuum": "2",
+        "foreign_key_violations": "132",
+        "integrity_check": "ok",
+        "user_version": "0"
+      },
+      "sequences": [
+        [
+          "environment_variables",
+          "1002"
+        ],
+        [
+          "transfer_events",
+          "1002"
+        ]
+      ],
+      "tables": {
+        "aleph_install_requests": {
+          "count": 3,
+          "digest": "e778dc7daf6105384f9264248d28668f"
+        },
+        "apikey": {
+          "count": 3,
+          "digest": "b6adeee37f178cfd940583f4d89761db"
+        },
+        "app_settings": {
+          "count": 3,
+          "digest": "1015cd61b9d4f7bd7f08bec451a8480a"
+        },
+        "app_settings_values": {
+          "count": 4,
+          "digest": "c1243bef783328908dead8290ebd1523"
+        },
+        "app_theme": {
+          "count": 3,
+          "digest": "a8a98dcc37ae7a76278fceaeba54e618"
+        },
+        "deferred_thread_messages_legacy": {
+          "count": 3,
+          "digest": "3f2b93cd6d5a6c878c71fb3977df700e"
+        },
+        "environment_hook_operations": {
+          "count": 3,
+          "digest": "5a1e3d007844021b7d5765e5133a52a9"
+        },
+        "environment_variables": {
+          "count": 3,
+          "digest": "b8f8360e4529cfc9c12507a9e149962c"
+        },
+        "environments": {
+          "count": 3,
+          "digest": "4158d521d4d2cf26d2da28e475212634"
+        },
+        "event_cold_segments": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "events": {
+          "count": 3,
+          "digest": "3c497ca829ab0b23d628ae881a2d061f"
+        },
+        "host_daemon_sessions": {
+          "count": 3,
+          "digest": "e4e5e575bc3977daafb05047460c2629"
+        },
+        "hosts": {
+          "count": 3,
+          "digest": "3b05312a358f943bb81f72e7ebc38599"
+        },
+        "idempotent_thread_operations": {
+          "count": 3,
+          "digest": "d99307a8665995a2a78049a41201dd22"
+        },
+        "maintenance_scan_cursors": {
+          "count": 3,
+          "digest": "a39a22a1eca6d4863a6c5efd3c79504f"
+        },
+        "pending_interactions": {
+          "count": 3,
+          "digest": "3bd9a0d1fde15c83e5490439e946a8e5"
+        },
+        "plugin_artifacts": {
+          "count": 3,
+          "digest": "09e31ba5919eb25fb94364a84e86b8ab"
+        },
+        "plugin_kv": {
+          "count": 3,
+          "digest": "44f1dead66f520d97f55c1487ffe2bcc"
+        },
+        "plugin_marketplace_icons": {
+          "count": 3,
+          "digest": "21f95a794343eb3c4b71530448fc394f"
+        },
+        "plugin_marketplaces": {
+          "count": 3,
+          "digest": "edcb1dff4c240fa20faf59bc95935d51"
+        },
+        "plugin_schedules": {
+          "count": 3,
+          "digest": "2c5b6b58a1e89097119e20b053a0a1af"
+        },
+        "plugin_settings": {
+          "count": 3,
+          "digest": "eddb53fd2b0978802df965c84a8f13bf"
+        },
+        "plugin_state_snapshots": {
+          "count": 3,
+          "digest": "e22da9f5c408df4e97f11eb531bd39d3"
+        },
+        "plugins": {
+          "count": 3,
+          "digest": "e955a08fd29289935df7f74b872a92f6"
+        },
+        "project_attachment_backfills": {
+          "count": 3,
+          "digest": "21a6e6d0b4e16c2fde5290722268589c"
+        },
+        "project_attachment_threads": {
+          "count": 3,
+          "digest": "ed23c05db2b0c9828b9038c983fcc33f"
+        },
+        "project_attachments": {
+          "count": 3,
+          "digest": "f20d3a5ffe382045de9bdf431478d4cc"
+        },
+        "project_execution_defaults": {
+          "count": 3,
+          "digest": "53de19794dff6ad66905674e4c3d8e52"
+        },
+        "project_sources": {
+          "count": 3,
+          "digest": "412c83f52d9074b345a2ef650a7a5104"
+        },
+        "projects": {
+          "count": 4,
+          "digest": "d92ee6803f57632bd3668e249286658e"
+        },
+        "prompt_history_entries": {
+          "count": 3,
+          "digest": "8a9e6ab9de62ce2afed6a821b060e5a0"
+        },
+        "provider_model_catalogs": {
+          "count": 3,
+          "digest": "5aa0f3680d4e6486aa38388e7f801733"
+        },
+        "queued_thread_messages": {
+          "count": 3,
+          "digest": "955f002689af3f89ca8fab04acbd9001"
+        },
+        "retained_event_outputs": {
+          "count": 3,
+          "digest": "4f24e93a8596ce6e503edcfa01b25bd6"
+        },
+        "system_experiments": {
+          "count": 3,
+          "digest": "598c3dcc32a42d5be578e6d6c70c1afe"
+        },
+        "terminal_sessions": {
+          "count": 3,
+          "digest": "1a0c14af651e42d0d6b3d68992835ca0"
+        },
+        "thread_conversation_outlines": {
+          "count": 3,
+          "digest": "ec8c9ba16aded05d2e51050fa206a336"
+        },
+        "thread_dynamic_context_file_states": {
+          "count": 3,
+          "digest": "9ef42439461125339517d11513bd527c"
+        },
+        "thread_event_cold_state": {
+          "count": 0,
+          "digest": "00000000000000000000000000000000"
+        },
+        "thread_plugin_metadata": {
+          "count": 3,
+          "digest": "f559a1a7947d92b0dbe2636e5ab4fd4e"
+        },
+        "thread_pruning_cursors": {
+          "count": 3,
+          "digest": "f3d012324bc77a6f02c3ac9b34fac60a"
+        },
+        "thread_pruning_work": {
+          "count": 12,
+          "digest": "5f6cfc924e514f1a0ada31eee1ab2b1c"
+        },
+        "thread_redirects": {
+          "count": 3,
+          "digest": "2f22741123eedf471064fd1c8affe5d5"
+        },
+        "thread_search_learned_selections": {
+          "count": 3,
+          "digest": "bac477f2368ecd76b1cd1d95cba0a09e"
+        },
+        "thread_search_segments": {
+          "count": 3,
+          "digest": "e29b04f95f62025f25d41ab871032067"
+        },
+        "thread_search_segments_fts": {
+          "count": 3,
+          "digest": "9134da80612280b8e41dba9e79361f0b"
+        },
+        "thread_sections": {
+          "count": 3,
+          "digest": "1c9dc584ba546089cf0c4406a4d930b2"
+        },
+        "thread_tabs": {
+          "count": 3,
+          "digest": "10de9c2175a602ba1c6cf2f6ccc4ef40"
+        },
+        "threads": {
+          "count": 3,
+          "digest": "3c5d7cfe33dc77f0543953522186dfa3"
+        },
+        "transfer_entries": {
+          "count": 3,
+          "digest": "49b7d67fcf8929ff472ab67aa0728080"
+        },
+        "transfer_events": {
+          "count": 6,
+          "digest": "09b5b1ee73208d2cdd69e5e913f2d80c"
+        },
+        "transfer_operations": {
+          "count": 3,
+          "digest": "7511dcb214052f8bbf2dad145bb539e2"
+        },
+        "ui_preference_defaults": {
+          "count": 3,
+          "digest": "1d7f438abd090d088e410d717c54dbc7"
+        },
+        "ui_preferences": {
+          "count": 3,
+          "digest": "d844661aa67a03bc4b90e6fa512a55e4"
+        },
+        "user": {
+          "count": 3,
+          "digest": "4fe315068f74a152f9a4d2a9bcaf82ba"
+        }
+      },
+      "ledger": {
+        "count": 153,
+        "digest": "4abfb16a0674719cd2d54ed70f367e8f"
+      },
+      "ledgerSchema": [
+        "index|sqlite_autoindex___drizzle_migrations_1|__drizzle_migrations|",
+        "table|__drizzle_migrations|__drizzle_migrations|CREATE TABLE \"__drizzle_migrations\" ( id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric )"
+      ],
+      "pinned": {
+        "updatedAt": {
+          "app_settings_values": 1
+        },
+        "onboardingCompletedAtColumn": 0,
+        "onboardingCompletedAtValue": 1
+      }
+    }
+  }
+}

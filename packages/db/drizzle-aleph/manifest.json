@@ -1,0 +1,65 @@
+{
+  "steps": [
+    {
+      "id": "A0001",
+      "file": "A0001_aromatic_alice.sql",
+      "after": "0131_environment_retention_indexes",
+      "when": 1790349911647
+    },
+    {
+      "id": "A0002",
+      "file": "A0002_hot_joshua_kane.sql",
+      "after": "A0001",
+      "when": 1790350024036
+    },
+    {
+      "id": "A0003",
+      "file": "A0003_flaky_miracleman.sql",
+      "after": "A0002",
+      "when": 1790477193524
+    },
+    {
+      "id": "A0004",
+      "file": "A0004_fixed_imperial_guard.sql",
+      "after": "0137_stiff_prism",
+      "when": 1791464912065
+    },
+    {
+      "id": "A0005",
+      "file": "A0005_ex88_slot_triggers.sql",
+      "after": "A0004",
+      "when": 1791472689884
+    },
+    {
+      "id": "A0006",
+      "file": "A0006_ex88_slot_fill_waits.sql",
+      "after": "A0005",
+      "when": 1791478574764
+    },
+    {
+      "id": "A0007",
+      "file": "A0007_fast_jimmy_woo.sql",
+      "after": "A0006",
+      "when": 1792361180203
+    },
+    {
+      "id": "A0008",
+      "file": "A0008_aleph_install_requests.sql",
+      "after": "A0007",
+      "when": 1792430768229
+    },
+    {
+      "id": "A0009",
+      "file": "A0009_queued_message_state.sql",
+      "after": "0142_burly_baron_strucker",
+      "when": 1792452368229,
+      "supersedes": "0143_queued_message_state"
+    },
+    {
+      "id": "A0010",
+      "file": "A0010_event_cold_tier.sql",
+      "after": "A0009",
+      "when": 1792668833813
+    }
+  ]
+}

@@ -7,6 +7,7 @@ import type { PromptInput } from "@bb/domain";
 import { createConnection } from "../../src/connection.js";
 import { migrate } from "../../src/migrate.js";
 import { noopNotifier } from "../../src/notifier.js";
+import { legacyOracleFolder } from "../helpers/plan-apply.js";
 import { upsertHost } from "../../src/data/hosts.js";
 import { createProject } from "../../src/data/projects.js";
 import {
@@ -141,7 +142,7 @@ describe("origin identity (T-O3 and T-L1; v4 T-O1/T-O2 are outbox tests and are 
       .run(row.id);
     expect(getQueuedThreadMessage(db, row.id)?.originId).toBeNull();
     const sql = readFileSync(
-      new URL("../../drizzle/0141_fixed_imperial_guard.sql", import.meta.url),
+      join(legacyOracleFolder(), "0141_fixed_imperial_guard.sql"),
       "utf8",
     );
     const backfill = sql

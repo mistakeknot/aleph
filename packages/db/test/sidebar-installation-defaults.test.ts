@@ -114,6 +114,7 @@ describe.each(["project", "thread", "preference"] as const)(
           db.$client
             .prepare("DELETE FROM __drizzle_migrations WHERE created_at >= ?")
             .run(SIDEBAR_INSTALLATION_DEFAULTS_MIGRATION_TIMESTAMP);
+          db.$client.exec("DROP TABLE IF EXISTS __bb_migration_ledger");
           migrate(db);
           expect(
             db.$client.prepare("SELECT * FROM ui_preference_defaults").all(),

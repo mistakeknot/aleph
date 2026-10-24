@@ -13,6 +13,16 @@
       "types": "./src/internal-environment-lifecycle.ts",
       "default": "./src/internal-environment-lifecycle.ts"
     },
+    "./migration-backup": {
+      "source": "./src/migration-backup.ts",
+      "types": "./src/migration-backup.ts",
+      "default": "./src/migration-backup.ts"
+    },
+    "./migration-restore": {
+      "source": "./src/migration-restore.ts",
+      "types": "./src/migration-restore.ts",
+      "default": "./src/migration-restore.ts"
+    },
     "./testing": {
       "source": "./src/testing.ts",
       "types": "./src/testing.ts",
@@ -21,7 +31,8 @@
   },
   "types": "./src/index.ts",
   "files": [
-    "drizzle"
+    "drizzle",
+    "drizzle-aleph"
   ],
   "scripts": {
     "clean": "rimraf dist tsconfig.tsbuildinfo",

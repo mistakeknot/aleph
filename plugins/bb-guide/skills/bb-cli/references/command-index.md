@@ -339,6 +339,11 @@ This index lists every command path that the core CLI registers, including alias
 - `bb diagnostics`
 - `bb diagnostics cli-errors`
 
+## db
+
+- `bb db`
+- `bb db restore-migration-backup`
+
 ## voice
 
 - `bb voice`
