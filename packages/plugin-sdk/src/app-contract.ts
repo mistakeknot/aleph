@@ -723,7 +723,9 @@ export interface PluginNavPanelRegistration {
    * can own the value through the ordinary SDK hooks. The host draws the pill
    * around it, keeps it visible in every viewport, and hides the pill while
    * the component renders nothing, so render only the short text (such as a
-   * count) and return null to hide it. A component that throws is hidden.
+   * count) and return null to hide it; whitespace-only output still shows an
+   * empty pill. The text is also exposed as the icon button's accessible
+   * description. A component that throws is hidden.
    *
    * Experimental: see docs/api_to_audit.md.
    */

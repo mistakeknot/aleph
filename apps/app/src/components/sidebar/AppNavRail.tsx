@@ -1,6 +1,7 @@
 import {
   forwardRef,
   useEffect,
+  useId,
   useRef,
   useState,
   type ComponentProps,
@@ -109,7 +110,13 @@ const RAIL_ICON_BADGE_CLASS = cn(
   "rounded-full bg-primary px-1 text-2xs font-medium tabular-nums text-primary-foreground empty:hidden",
 );
 
-function RailIconBadge({ badge }: { badge: SidebarNavigationIconBadge }) {
+function RailIconBadge({
+  badge,
+  id,
+}: {
+  badge: SidebarNavigationIconBadge;
+  id: string;
+}) {
   const Badge = badge.component;
   usePluginCss(badge.pluginId);
   return (
@@ -120,6 +127,7 @@ function RailIconBadge({ badge }: { badge: SidebarNavigationIconBadge }) {
     >
       <PluginContext.Provider value={badge.pluginId}>
         <div
+          id={id}
           data-bb-plugin-root=""
           data-bb-plugin={badge.pluginId}
           data-testid="nav-rail-icon-badge"
@@ -145,6 +153,7 @@ function RailItem({
   const split = useSidebarNavigationSplit(item.id);
   const [disablePending, setDisablePending] = useState(false);
   const isPluginItem = item.pluginId !== null;
+  const badgeId = useId();
 
   return (
     <ContextMenu>
@@ -160,6 +169,7 @@ function RailItem({
             disabled={item.isDisabled}
             aria-busy={item.isLoading || undefined}
             aria-keyshortcuts={item.shortcut?.ariaKeyShortcuts}
+            aria-describedby={item.iconBadge ? badgeId : undefined}
             className={cn(item.isLoading && "opacity-60")}
             {...split.splitProps}
             onClick={(event) =>
@@ -173,7 +183,9 @@ function RailItem({
               className={RAIL_ICON_CLASS}
             />
           </RailButton>
-          {item.iconBadge ? <RailIconBadge badge={item.iconBadge} /> : null}
+          {item.iconBadge ? (
+            <RailIconBadge badge={item.iconBadge} id={badgeId} />
+          ) : null}
         </span>
       </ContextMenuTrigger>
       <ContextMenuContent

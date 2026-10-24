@@ -593,6 +593,48 @@ describe("AppNavRail", () => {
       error.mockRestore();
     });
 
+    it("hides a badge that throws null without breaking the row", () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      registerDocsBadge(() => {
+        throw null;
+      });
+
+      renderRail(THREAD_PATH);
+
+      expect(railButton("Docs")).toBeDefined();
+      expect(
+        rail().querySelector('[data-testid="nav-rail-icon-badge"]'),
+      ).toBeNull();
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "navPanel experimental_sidebarIconBadge crashed and is hidden: null",
+        ),
+      );
+      warn.mockRestore();
+      error.mockRestore();
+    });
+
+    it("exposes the count as the icon button's accessible description", () => {
+      registerDocsBadge(() => <span>7</span>);
+
+      renderRail(THREAD_PATH);
+
+      const describedBy = railButton("Docs").getAttribute("aria-describedby");
+      expect(describedBy).toBeTruthy();
+      const badge = within(docsItem()).getByTestId("nav-rail-icon-badge");
+      expect(badge.id).toBe(describedBy);
+      expect(document.getElementById(describedBy ?? "")?.textContent).toBe("7");
+    });
+
+    it("leaves other rail buttons without a description", () => {
+      registerDocsBadge(() => <span>7</span>);
+
+      renderRail(THREAD_PATH);
+
+      expect(railButton("Home").getAttribute("aria-describedby")).toBeNull();
+    });
+
     it("does not intercept clicks on the icon", () => {
       registerDocsBadge(() => <span>7</span>);
 

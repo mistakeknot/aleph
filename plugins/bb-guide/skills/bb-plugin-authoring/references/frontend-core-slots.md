@@ -153,8 +153,10 @@ target? })`. Inside the fixed-tab component,
   count at the top-right corner of the panel's icon in the navigation rail.
   The host draws the pill around it, shows it in every viewport, and hides the
   pill while the component renders nothing, so return `null` for zero and
-  otherwise render only the short text, with no colors of your own. A
-  component that throws is hidden. Experimental: see `docs/api_to_audit.md`.
+  otherwise render only the short text, with no colors of your own. Never
+  return whitespace-only output, which would leave an empty pill. The text is
+  also the icon button's accessible description. A component that throws is
+  hidden. Experimental: see `docs/api_to_audit.md`.
 
 - `threadPanelAction` → an entry in the thread right panel's new-tab
   Actions list (next to "Start side chat" / "Start terminal"), labeled

@@ -17,9 +17,12 @@ export class NavPanelSlotBoundary extends Component<
     return { crashed: true };
   }
 
-  override componentDidCatch(error: Error): void {
+  override componentDidCatch(error: unknown): void {
+    const reason = String(
+      (error as Error | null | undefined)?.message ?? error,
+    );
     console.warn(
-      `[plugin:${this.props.pluginId}] navPanel ${this.props.slot} crashed and is hidden: ${error.message}`,
+      `[plugin:${this.props.pluginId}] navPanel ${this.props.slot} crashed and is hidden: ${reason}`,
     );
   }
 
