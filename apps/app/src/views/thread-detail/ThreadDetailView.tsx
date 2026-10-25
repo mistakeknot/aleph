@@ -62,7 +62,6 @@ import {
   useUpdateThread,
 } from "../../hooks/mutations/thread-state-mutations";
 import {
-  useCreateThreadQueuedMessage,
   useEditThreadMessage,
   useSendThreadMessage,
 } from "../../hooks/mutations/thread-runtime-mutations";
@@ -778,7 +777,6 @@ function ThreadDetailViewInternal(
   });
   const sendMessage = useSendThreadMessage();
   const editMessage = useEditThreadMessage();
-  const createQueuedMessage = useCreateThreadQueuedMessage();
   const requestEnvironmentAction = useRequestEnvironmentAction();
   const markThreadRead = useMarkThreadRead();
   const updateEnvironment = useUpdateEnvironment();
@@ -925,7 +923,6 @@ function ThreadDetailViewInternal(
     !hasPendingInteraction &&
     sentMessageEditSession === null &&
     !sendMessage.isPending &&
-    !createQueuedMessage.isPending &&
     !editMessage.isPending &&
     !(timelineLoading && timelineRows.length === 0);
   const sentMessageEditEntryRef = useRef({ canEditSentMessages, thread });
