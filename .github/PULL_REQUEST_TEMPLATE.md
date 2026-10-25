@@ -16,6 +16,14 @@
 
 <!-- Tests added (they fail before, pass after), commands run (turbo typecheck/test filters), manual checks. -->
 
+## Merge Danger
+
+<!-- Orders reviewer attention only. It never waives a required review, receipt or approval. Delete nothing; write "none observed" if you did not observe the evidence. -->
+
+- Door: <!-- one-way (data-migration | external-message | signing-or-production | deploy-timer) plus why, or two-way plus how to undo -->
+- Blast Radius: <!-- one line, 1-200 characters: what else a bad merge would touch -->
+- Evidence: <!-- one line: before -> after, from a command you ran, a test or a screenshot -->
+
 Fixes #
 
 <!-- Agents: end with the line below. -->
