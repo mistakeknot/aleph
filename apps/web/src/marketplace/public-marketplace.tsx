@@ -391,7 +391,7 @@ function Shelf({
   const viewHref = builtIn
     ? `#${shelf.id}`
     : notable
-      ? "/marketplace?sort=recently-added"
+      ? `/marketplace?collection=${encodeURIComponent(shelf.id)}`
       : marketplaceIndexPath(shelf.id);
   return (
     <section
@@ -407,17 +407,15 @@ function Shelf({
           </h2>
           {description === undefined ? null : <p>{description}</p>}
         </div>
-        {expanded ? null : (
+        {expanded ? null : notable ? (
+          <MarketplaceLink href={viewHref}>View all</MarketplaceLink>
+        ) : (
           <a
             href={viewHref}
             onClick={(event) => {
               event.preventDefault();
               if (builtIn) {
                 setExpanded(true);
-                return;
-              }
-              if (notable) {
-                onSelect(undefined, "recently-added");
                 return;
               }
               onSelect(shelf.id);
@@ -429,7 +427,9 @@ function Shelf({
       </div>
       <PluginGrid
         manifest={manifest}
-        entries={expanded ? shelf.entries : shelf.entries.slice(0, 3)}
+        entries={
+          expanded ? shelf.entries : shelf.entries.slice(0, notable ? 6 : 3)
+        }
         stats={stats}
       />
     </section>
@@ -722,35 +722,46 @@ function MarketplaceBrowser({
   hero: boolean;
 }) {
   const [query, setQuery] = useState("");
+  const collection = marketplaceShelves(manifest, entries).find(
+    (shelf) => shelf.kind === "collection" && shelf.id === state.collection,
+  );
   const options = marketplaceCategoryOptions(manifest, entries);
-  const activeCategory = options.some((option) => option.id === state.category)
-    ? state.category
-    : undefined;
+  const activeCategory =
+    collection === undefined &&
+    options.some((option) => option.id === state.category)
+      ? state.category
+      : undefined;
   useMarketplacePageAnalytics(
     { category: activeCategory, sort: state.sort },
     analyticsAuthor,
   );
-  const searched = filterMarketplaceEntries(manifest, entries, query);
+  const searched = filterMarketplaceEntries(
+    manifest,
+    collection?.entries ?? entries,
+    query,
+  );
   const filtered = filterMarketplaceCategory(
     manifest,
     searched,
     activeCategory,
   );
   const displayed =
-    state.sort === undefined
+    collection !== undefined || state.sort === undefined
       ? filtered
       : sortMarketplaceEntries(filtered, state.sort, stats);
   const activeOption = options.find((option) => option.id === activeCategory);
   const categoryHeading =
-    activeOption === undefined || query.trim().length > 0
+    collection ??
+    (activeOption === undefined || query.trim().length > 0
       ? undefined
       : {
           label: activeOption.label,
           description: manifest.categories.find(
             (category) => category.id === activeOption.id,
           )?.description,
-        };
+        });
   const isFlat =
+    collection !== undefined ||
     query.trim().length > 0 ||
     activeCategory !== undefined ||
     state.sort !== undefined;
@@ -759,11 +770,19 @@ function MarketplaceBrowser({
       <MarketplaceToolbar
         options={options}
         query={query}
-        state={{ category: activeCategory, sort: state.sort }}
+        state={{
+          category: activeCategory,
+          sort: collection === undefined ? state.sort : undefined,
+        }}
         onQueryChange={setQuery}
         onStateChange={onStateChange}
         hero={hero}
       />
+      {collection === undefined ? null : (
+        <p>
+          <MarketplaceLink href="/marketplace">All plugins</MarketplaceLink>
+        </p>
+      )}
       <div className="marketplace-results" aria-live="polite">
         {displayed.length === 0 ? (
           <MarketplaceState

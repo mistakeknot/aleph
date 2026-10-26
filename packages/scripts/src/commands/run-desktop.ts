@@ -101,11 +101,13 @@ export function toDesktopLaunchProcessEnv(args: {
     config: args.config,
   });
   delete env.BB_DEV_APP_PORT;
+  env.BB_DESKTOP_DEV_ICON = "1";
   env.BB_DESKTOP_OPEN_DEVTOOLS = args.baseEnv.BB_DESKTOP_OPEN_DEVTOOLS ?? "0";
   env.BB_DESKTOP_USER_DATA_DIR = resolveDesktopUserDataDir(
     args.baseEnv,
     args.config,
   );
+  env.BB_SKIP_ONBOARDING ??= "1";
   env.BB_TELEMETRY = "false";
   env.NODE_ENV = "production";
   return env;

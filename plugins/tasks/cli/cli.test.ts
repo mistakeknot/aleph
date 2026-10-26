@@ -1576,37 +1576,36 @@ describe("bb tasks CLI", () => {
                   : null,
           }),
         },
-        environments: {
-          pullRequest: async ({ environmentId }: { environmentId: string }) =>
-            environmentId === "env_absent"
-              ? { outcome: "absent" }
-              : {
-                  outcome: "available",
-                  pullRequest: {
-                    number: 12,
-                    title: "BB-15 Show PRs in tasks",
-                    state: "draft",
-                    url: "https://github.com/acme/bb/pull/12",
-                    baseRefName: "main",
-                    headRefName: "bb/bb-15",
-                    updatedAt: "2026-07-16T10:00:00.000Z",
-                    checks: {
-                      state: "pending",
-                      totalCount: 1,
-                      passedCount: 0,
-                      failedCount: 0,
-                      pendingCount: 1,
-                    },
-                    review: { state: "none", reviewRequestCount: 0 },
-                    mergeability: {
-                      state: "draft",
-                      mergeStateStatus: null,
-                      mergeable: null,
-                    },
-                    attention: "draft",
+        plugins: githubPrStatusRpc((environmentId) =>
+          environmentId === "env_absent"
+            ? { outcome: "absent" }
+            : {
+                outcome: "available",
+                pullRequest: {
+                  number: 12,
+                  title: "BB-15 Show PRs in tasks",
+                  state: "draft",
+                  url: "https://github.com/acme/bb/pull/12",
+                  baseRefName: "main",
+                  headRefName: "bb/bb-15",
+                  updatedAt: "2026-07-16T10:00:00.000Z",
+                  checks: {
+                    state: "pending",
+                    totalCount: 1,
+                    passedCount: 0,
+                    failedCount: 0,
+                    pendingCount: 1,
                   },
+                  review: { state: "none", reviewRequestCount: 0 },
+                  mergeability: {
+                    state: "draft",
+                    mergeStateStatus: null,
+                    mergeable: null,
+                  },
+                  attention: "draft",
                 },
-        },
+              },
+        ),
       },
     });
     await plugin(bb);
@@ -1676,12 +1675,10 @@ describe("bb tasks CLI", () => {
             environmentId: "env_down",
           }),
         },
-        environments: {
-          pullRequest: async () => ({
-            outcome: "unavailable",
-            message: "gh pr view failed: authentication required",
-          }),
-        },
+        plugins: githubPrStatusRpc(() => ({
+          outcome: "unavailable",
+          message: "gh pr view failed: authentication required",
+        })),
       },
     });
     await plugin(bb);
@@ -2358,3 +2355,17 @@ describe("bb tasks CLI", () => {
     await harness.dispose();
   });
 });
+
+function githubPrStatusRpc(lookup: (environmentId: string) => unknown) {
+  return {
+    async callRpc<TOutput>(args: {
+      input?: unknown;
+      outputSchema: { parse(value: unknown): TOutput };
+    }): Promise<TOutput> {
+      const { keys } = args.input as { keys: string[] };
+      return args.outputSchema.parse(
+        Object.fromEntries(keys.map((key) => [key, lookup(key)])),
+      );
+    },
+  };
+}

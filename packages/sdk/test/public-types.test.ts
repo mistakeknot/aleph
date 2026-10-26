@@ -244,6 +244,9 @@ type ExpectedRealtimeKey = "subscribe";
 
 type ExpectedEnvironmentsKey =
   | "experimental_cleanup"
+  | "experimental_clearDiffViewed"
+  | "experimental_diffViewed"
+  | "experimental_markDiffViewed"
   | "archiveThreads"
   | "commit"
   | "delete"
@@ -255,11 +258,7 @@ type ExpectedEnvironmentsKey =
   | "diffFiles"
   | "diffPatch"
   | "get"
-  | "markPullRequestDraft"
-  | "markPullRequestReady"
-  | "mergePullRequest"
   | "paths"
-  | "pullRequest"
   | "status"
   | "update";
 

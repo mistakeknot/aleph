@@ -28,6 +28,7 @@ export interface BuildSessionOptionsArgs {
   workflowsEnabled: boolean;
   chromeEnabled: boolean;
   disable1MContext: boolean;
+  artifactsEnabled: boolean;
   sandboxEnabled: boolean;
   memoryEnabled?: boolean;
   promptCacheTtl?: "5m" | "1h";
@@ -90,6 +91,18 @@ function buildFlagSettings(params: BuildSessionOptionsArgs): Settings {
     ultracode: params.reasoningLevel === "ultracode",
     ...(params.promptCacheTtl ? { promptCacheTtl: params.promptCacheTtl } : {}),
     fastMode: params.serviceTier === "fast",
+  };
+}
+
+export function buildClaudeFeatureEnv(
+  params: Pick<
+    BuildSessionOptionsArgs,
+    "artifactsEnabled" | "disable1MContext"
+  >,
+): Record<string, string> {
+  return {
+    CLAUDE_CODE_DISABLE_1M_CONTEXT: params.disable1MContext ? "1" : "0",
+    ...(params.artifactsEnabled ? { CLAUDE_CODE_ARTIFACT: "1" } : {}),
   };
 }
 
@@ -274,7 +287,7 @@ export function buildSessionOptions(
     model,
     env: {
       ...env,
-      CLAUDE_CODE_DISABLE_1M_CONTEXT: params.disable1MContext ? "1" : "0",
+      ...buildClaudeFeatureEnv(params),
     },
     permissionMode: params.permissionMode,
     allowBypassPermissions: params.permissionScope === "full",

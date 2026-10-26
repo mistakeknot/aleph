@@ -7,7 +7,10 @@ import {
   noopNotifier,
   type DbConnection,
 } from "../src/index.js";
-import { rewindQueuedMessageStateMigration } from "./helpers/rewind.js";
+import {
+  dropThreadParentNotificationsColumn,
+  rewindQueuedMessageStateMigration,
+} from "./helpers/rewind.js";
 
 interface LegacyQueuedRow {
   id: string;
@@ -44,7 +47,11 @@ const limiter = JSON.stringify({
   reason: "4 of 4 running",
 });
 
-function rewoundDatabase(): { db: DbConnection; threadId: string } {
+function rewoundDatabase(): {
+  db: DbConnection;
+  targetId: string;
+  threadId: string;
+} {
   const db = createConnection(":memory:");
   migrate(db);
   const thread = createThread(db, noopNotifier, {
@@ -52,8 +59,16 @@ function rewoundDatabase(): { db: DbConnection; threadId: string } {
     providerId: "test-provider",
     status: "idle",
   });
+  // Created before the rewind: dropping parent_notifications leaves the
+  // current createThread insert without its column.
+  const target = createThread(db, noopNotifier, {
+    projectId: PERSONAL_PROJECT_ID,
+    providerId: "test-provider",
+    status: "idle",
+  });
   rewindQueuedMessageStateMigration(db);
-  return { db, threadId: thread.id };
+  dropThreadParentNotificationsColumn(db);
+  return { db, targetId: target.id, threadId: thread.id };
 }
 
 function insertLegacyRow(
@@ -430,15 +445,10 @@ describe("queued message state migration", () => {
   });
 
   it("keeps Aleph's slot rows, origin ids, indexes and triggers", () => {
-    const { db, threadId } = rewoundDatabase();
+    const { db, targetId, threadId } = rewoundDatabase();
     try {
-      const target = createThread(db, noopNotifier, {
-        projectId: PERSONAL_PROJECT_ID,
-        providerId: "test-provider",
-        status: "idle",
-      });
       insertLegacyRow(db, threadId, { id: "source", waitingOn: busy });
-      insertLegacyRow(db, target.id, {
+      insertLegacyRow(db, targetId, {
         id: "slot",
         claimedAt: 2000,
         claimToken: "slot:source",

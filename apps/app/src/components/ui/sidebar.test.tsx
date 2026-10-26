@@ -7,7 +7,7 @@ import {
   render,
   screen,
 } from "@testing-library/react";
-import { memo } from "react";
+import { memo, startTransition, useState } from "react";
 import { flushSync } from "react-dom";
 import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -25,10 +25,43 @@ import {
   useSidebar,
   useSidebarKeepsCollapsedRail,
 } from "./sidebar";
+import { setCompactSecondaryPanelSwipeOpening } from "./secondary-panel-shelf-visibility";
+import { buildBridgeInjectionScript } from "@bb/mobile-bridge";
+import { resetNativeShellForTests } from "@/lib/native-shell/native-shell";
+
+function installNativeShell() {
+  Object.defineProperty(window, "ReactNativeWebView", {
+    configurable: true,
+    value: { postMessage: () => {} },
+  });
+  // eslint-disable-next-line no-new-func
+  new Function(
+    "window",
+    buildBridgeInjectionScript({
+      bridgeVersion: 2,
+      appVersion: "0.46.1",
+      platform: "ios",
+      profileMode: "direct",
+      secureContext: true,
+      safeArea: { top: 0, right: 0, bottom: 0, left: 0 },
+      capabilities: [],
+      nativeDownloads: true,
+    }),
+  )(window);
+  resetNativeShellForTests();
+}
+
+function uninstallNativeShell() {
+  Reflect.deleteProperty(window, "ReactNativeWebView");
+  Reflect.deleteProperty(window, "bb");
+  resetNativeShellForTests();
+}
 
 afterEach(() => {
+  uninstallNativeShell();
   cleanup();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   vi.useRealTimers();
 });
 
@@ -373,18 +406,40 @@ describe("framed desktop sidebar", () => {
     const body = screen.getByTestId("body");
     expect(screen.getByTestId("framed-probe").textContent).toBe("true");
     expect(screen.getByTestId("wrapper").dataset.framed).toBe("");
-    expect(body.classList.contains("rounded-tl-xl")).toBe(true);
-    expect(body.classList.contains("rounded-bl-xl")).toBe(true);
-    expect(inset.classList.contains("rounded-tl-xl")).toBe(false);
-    expect(inset.classList.contains("rounded-bl-xl")).toBe(false);
+    expect(
+      screen
+        .getByTestId("wrapper")
+        .classList.contains("pl-(--bb-window-frame-leading-lip)"),
+    ).toBe(false);
+    expect(
+      screen
+        .getByTestId("wrapper")
+        .style.getPropertyValue("--bb-window-card-collapsed-left"),
+    ).toBe("52px");
+    expect(body.classList.contains("rounded-tl-(--bb-frame-card-radius)")).toBe(
+      true,
+    );
+    expect(body.classList.contains("rounded-bl-(--bb-frame-card-radius)")).toBe(
+      true,
+    );
+    expect(
+      inset.classList.contains("before:rounded-tl-(--bb-frame-card-radius)"),
+    ).toBe(false);
+    expect(
+      inset.classList.contains("before:rounded-bl-(--bb-frame-card-radius)"),
+    ).toBe(false);
 
     fireEvent.click(screen.getByRole("button", { name: "Toggle Sidebar" }));
 
-    expect(inset.classList.contains("rounded-tl-xl")).toBe(true);
-    expect(inset.classList.contains("rounded-bl-xl")).toBe(true);
+    expect(
+      inset.classList.contains("before:rounded-tl-(--bb-frame-card-radius)"),
+    ).toBe(true);
+    expect(
+      inset.classList.contains("before:rounded-bl-(--bb-frame-card-radius)"),
+    ).toBe(true);
   });
 
-  it("keeps a lip of window frame beside and below the card", () => {
+  it("keeps a lip of window frame on both sides of and below the card", () => {
     render(
       <CompactViewportOverrideProvider isCompactViewport={false}>
         <SidebarProvider framed data-testid="wrapper">
@@ -398,12 +453,31 @@ describe("framed desktop sidebar", () => {
     const inset = screen.getByTestId("inset");
     expect(wrapper.classList.contains("pr-(--bb-window-frame-lip)")).toBe(true);
     expect(wrapper.classList.contains("pb-(--bb-window-frame-lip)")).toBe(true);
+    expect(
+      wrapper.classList.contains("pl-(--bb-window-frame-leading-lip)"),
+    ).toBe(true);
+    expect(
+      wrapper.style.getPropertyValue("--bb-window-card-collapsed-left"),
+    ).toBe("var(--bb-window-frame-leading-lip)");
+    expect(screen.getByTestId("panel").className).toContain(
+      "left-(--bb-window-frame-leading-lip)",
+    );
     expect(screen.getByTestId("panel").className).toContain(
       "var(--bb-shell-height)_-_var(--bb-window-frame-top)_-_var(--bb-window-frame-lip)",
     );
-    for (const edge of ["rounded-tr-xl", "rounded-br-xl", "border-r"]) {
+    for (const edge of [
+      "before:rounded-tr-(--bb-frame-card-radius)",
+      "before:rounded-br-(--bb-frame-card-radius)",
+      "before:border-r",
+      "px-px",
+      "pb-px",
+    ]) {
       expect(inset.classList.contains(edge)).toBe(true);
     }
+    expect(inset.classList.contains("-mt-(--bb-window-title-bar-height)")).toBe(
+      true,
+    );
+    expect(screen.getByTestId("window-title-bar-drag-region")).toBeTruthy();
   });
 
   it("leaves compact viewports and unframed sidebars as they were", () => {
@@ -445,6 +519,56 @@ describe("SidebarContent", () => {
     render(<SidebarContent data-testid="content">Rows</SidebarContent>);
 
     expect(screen.getByTestId("content").classList).toContain("bg-sidebar");
+  });
+
+  it("publishes its scrollbar lane and keeps it current when the scrollbar style changes", () => {
+    const observers: {
+      callback: ResizeObserverCallback;
+      instance: ResizeObserver;
+      targets: Set<Element>;
+    }[] = [];
+    class StubResizeObserver {
+      private readonly targets = new Set<Element>();
+      constructor(callback: ResizeObserverCallback) {
+        observers.push({
+          callback,
+          instance: this as unknown as ResizeObserver,
+          targets: this.targets,
+        });
+      }
+      observe(target: Element) {
+        this.targets.add(target);
+      }
+      unobserve(target: Element) {
+        this.targets.delete(target);
+      }
+      disconnect() {
+        this.targets.clear();
+      }
+    }
+    vi.stubGlobal("ResizeObserver", StubResizeObserver);
+    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(256);
+    const clientWidth = vi
+      .spyOn(Element.prototype, "clientWidth", "get")
+      .mockReturnValue(246);
+
+    render(<SidebarContent data-testid="content">Rows</SidebarContent>);
+    const content = screen.getByTestId("content");
+    expect(content.style.getPropertyValue("--bb-sidebar-scrollbar-lane")).toBe(
+      "10px",
+    );
+
+    clientWidth.mockReturnValue(256);
+    act(() => {
+      for (const { callback, instance, targets } of observers) {
+        if (targets.has(content)) {
+          callback([], instance);
+        }
+      }
+    });
+    expect(content.style.getPropertyValue("--bb-sidebar-scrollbar-lane")).toBe(
+      "0px",
+    );
   });
 });
 
@@ -863,6 +987,71 @@ describe("mobile sidebar persistence", () => {
     expect(getMobilePanel()?.dataset.state).toBe("open");
   });
 
+  it("slides closed in the commit that shows the destination of a pending navigation", async () => {
+    vi.useFakeTimers();
+    let isDestinationReady = false;
+    let resolveDestination = () => {};
+    const destinationReady = new Promise<void>((resolve) => {
+      resolveDestination = resolve;
+    });
+    function Destination() {
+      if (!isDestinationReady) throw destinationReady;
+      return <p>Destination</p>;
+    }
+    function NavigationHarness() {
+      const { closeMobileSidebar } = useSidebar();
+      const [route, setRoute] = useState<"origin" | "destination">("origin");
+      return (
+        <>
+          <Sidebar>
+            <button
+              type="button"
+              onClick={() => {
+                closeMobileSidebar();
+                startTransition(() => {
+                  setRoute("destination");
+                });
+              }}
+            >
+              Open destination
+            </button>
+          </Sidebar>
+          <SidebarInset>
+            <SidebarTrigger />
+            {route === "origin" ? <p>Origin</p> : <Destination />}
+          </SidebarInset>
+        </>
+      );
+    }
+    render(
+      <CompactViewportOverrideProvider isCompactViewport>
+        <SidebarProvider>
+          <NavigationHarness />
+        </SidebarProvider>
+      </CompactViewportOverrideProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Toggle Sidebar" }));
+    settleMobileToggle();
+    fireEvent.click(screen.getByRole("button", { name: "Open destination" }));
+
+    expect(screen.getByText("Origin")).toBeTruthy();
+    expect(getShelfRevealTranslate()).not.toBe(SHELF_CLOSED_TRANSLATE);
+    settleMobileToggle();
+    expect(getMobilePanel()?.dataset.state).toBe("open");
+
+    isDestinationReady = true;
+    await act(async () => {
+      resolveDestination();
+      await destinationReady;
+    });
+
+    expect(screen.getByText("Destination")).toBeTruthy();
+    expect(getShelfRevealTranslate()).toBe(SHELF_CLOSED_TRANSLATE);
+    settleMobileToggle();
+    expect(getMobilePanel()?.dataset.state).toBe("closed");
+  });
+
   it("traps Tab between the trigger and the open drawer", () => {
     vi.useFakeTimers();
     render(
@@ -1101,6 +1290,51 @@ describe("mobile sidebar interrupted swipe sessions", () => {
     },
   );
 
+  it.each(["touch", "pointer"] as const)(
+    "ignores a %s swipe that starts in the browser edge strip",
+    (kind) => {
+      vi.useFakeTimers();
+      renderSelectableSwipeHarness();
+      const prose = screen.getByText("Selectable message prose");
+
+      if (kind === "touch") {
+        fireTouch(prose, "touchstart", createTouch(8, 160));
+        fireTouch(window, "touchmove", createTouch(60, 160));
+        fireTouchEnd(window, createTouch(190, 160));
+      } else {
+        firePointer(prose, "pointerdown", 8, 160);
+        firePointer(window, "pointermove", 60, 160);
+        firePointer(window, "pointerup", 190, 160);
+      }
+
+      settleMobileToggle();
+      expect(getMobilePanel()?.dataset.state).not.toBe("open");
+    },
+  );
+
+  it.each(["touch", "pointer"] as const)(
+    "opens from a %s swipe that starts at the screen edge inside the native shell",
+    (kind) => {
+      vi.useFakeTimers();
+      installNativeShell();
+      renderSelectableSwipeHarness();
+      const prose = screen.getByText("Selectable message prose");
+
+      if (kind === "touch") {
+        fireTouch(prose, "touchstart", createTouch(2, 160));
+        fireTouch(window, "touchmove", createTouch(60, 160));
+        fireTouchEnd(window, createTouch(190, 160));
+      } else {
+        firePointer(prose, "pointerdown", 2, 160);
+        firePointer(window, "pointermove", 60, 160);
+        firePointer(window, "pointerup", 190, 160);
+      }
+
+      settleMobileToggle();
+      expect(getMobilePanel()?.dataset.state).toBe("open");
+    },
+  );
+
   it("closes a short swipe that pauses before release", () => {
     vi.useFakeTimers();
     renderSelectableSwipeHarness();
@@ -1223,6 +1457,20 @@ describe("mobile sidebar text-selection arbitration", () => {
 
     expect(getMobilePanel()?.dataset.state).toBe("open");
     expect(getMobilePanel()?.textContent).toContain("Sidebar content");
+  });
+
+  it("yields a right swipe while the right panel is being swiped open", () => {
+    renderSelectableSwipeHarness();
+    const prose = screen.getByText("Selectable message prose");
+
+    setCompactSecondaryPanelSwipeOpening(true);
+    try {
+      fireTouch(prose, "touchstart", createTouch(120, 160));
+      fireTouch(window, "touchmove", createTouch(260, 164));
+      expect(getMobilePanel()?.dataset.state).toBe("closed");
+    } finally {
+      setCompactSecondaryPanelSwipeOpening(false);
+    }
   });
 
   it("defers the horizontal-scroll-region probe until horizontal intent", () => {

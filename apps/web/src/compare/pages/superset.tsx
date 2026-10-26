@@ -1,3 +1,4 @@
+import { FAQ_PLUGIN_TRUST } from "../plugin-trust";
 import { WINDOWS_DOWNLOAD_URL } from "../../landing/site";
 import {
   BB_ROWS,
@@ -13,6 +14,7 @@ import {
   FAQ_REVIEW,
   FAQ_SUBSCRIPTIONS,
   cell,
+  linkedCell,
   faqFree,
   faqPhone,
   faqPlatforms,
@@ -65,10 +67,13 @@ export const comparison: Comparison = {
       rows: [
         {
           ...BB_ROWS.pricing,
-          competitor: price(
-            "$0 solo",
-            "$15 per user / month for teams, billed yearly",
-          ),
+          competitor: {
+            ...price(
+              "$0 solo",
+              "Pro $20 per user / month, or $15 billed yearly",
+            ),
+            href: "https://superset.sh/pricing",
+          },
         },
         { ...BB_ROWS.license, competitor: cell("no", "Elastic License 2.0") },
       ],
@@ -118,7 +123,14 @@ export const comparison: Comparison = {
     {
       title: "Integrations",
       rows: [
-        { ...BB_ROWS.marketplace, competitor: cell("partial", "Themes only") },
+        {
+          ...BB_ROWS.marketplace,
+          competitor: linkedCell(
+            "partial",
+            "Themes only; first-party plugins in limited access",
+            "https://docs.superset.sh/plugins/overview",
+          ),
+        },
         {
           ...BB_ROWS.linear,
           competitor: cell("yes", "Two-way issue sync", true),
@@ -279,6 +291,7 @@ export const comparison: Comparison = {
       title: "Working in bb",
       items: [
         FAQ_CUSTOMIZE,
+        FAQ_PLUGIN_TRUST,
         faqScript(null),
         FAQ_REVIEW,
         faqSchedule("Superset’s automations only repeat and need Pro."),

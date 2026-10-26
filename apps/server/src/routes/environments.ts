@@ -1,15 +1,22 @@
 import { joinHostPathSegments } from "../services/lib/host-path.js";
-import { cleanupEnvironment } from "../services/environments/environment-engine.js";
+import {
+  cleanupEnvironment,
+  recoverEnvironmentCleanup,
+} from "../services/environments/environment-engine.js";
 import { parsePaginationQuery } from "../services/lib/validation.js";
 import {
+  clearDiffViewedFiles,
   countLiveThreadsInEnvironment,
+  listDiffViewedFiles,
   listEnvironments,
+  markDiffViewedFile,
   updateEnvironmentMetadata,
+  type DiffViewedFileScope,
 } from "@bb/db";
 import {
   environmentStatusValues,
   type EnvironmentStatus,
-  type ThreadPullRequest,
+  type WorkspaceDiffTarget,
 } from "@bb/domain";
 import {
   publicApiRoutes,
@@ -18,7 +25,6 @@ import {
   type EnvironmentDiffFileQuery,
   type EnvironmentDiffQuery,
   type PublicApiSchema,
-  type PullRequestMergeMethod,
 } from "@bb/server-contract";
 import type { Hono } from "hono";
 import type { AppDeps } from "../types.js";
@@ -62,13 +68,13 @@ import {
 } from "./path-list-policy.js";
 import {
   requireWorkspaceCommandTarget,
+  workspaceReadCacheKey,
   type WorkspaceCommandTarget,
 } from "../services/environments/workspace-command-target.js";
 import {
   callEnvironmentWorkspaceStatus,
   callEnvironmentWorkspaceStatusForWork,
 } from "../services/environments/workspace-status.js";
-import { assembleThreadPullRequest } from "../services/environments/pull-request.js";
 import {
   requireAvailableWorkspaceDiff,
   requireAvailableWorkspaceStatus,
@@ -100,24 +106,6 @@ async function mapNoChangesTo409<TResult>(
   }
 }
 
-async function mapPullRequestActionFailureTo409<TResult>(
-  run: () => Promise<TResult>,
-): Promise<TResult> {
-  try {
-    return await run();
-  } catch (error) {
-    if (
-      error instanceof ApiError &&
-      (error.body.code === "git_host_command_failed" ||
-        error.body.code === "git_host_cli_unavailable" ||
-        error.body.code === "invalid_request")
-    ) {
-      throw new ApiError(409, "pull_request_action_failed", error.body.message);
-    }
-    throw error;
-  }
-}
-
 function toWorkspaceDiffTarget(query: EnvironmentDiffQuery) {
   switch (query.target) {
     case "uncommitted":
@@ -144,107 +132,11 @@ function toWorkspaceDiffTarget(query: EnvironmentDiffQuery) {
   }
 }
 
-function workspaceReadCacheKey(target: WorkspaceCommandTarget): string {
-  return JSON.stringify(target.workspaceContext);
-}
-
 function workspaceStatusCacheKey(
   target: WorkspaceCommandTarget,
   mergeBaseBranch: string | undefined,
 ): string {
   return `${workspaceReadCacheKey(target)} ${mergeBaseBranch ?? ""}`;
-}
-
-async function getPullRequestForWorkspaceTarget(
-  deps: AppDeps,
-  target: ReturnType<typeof requireWorkspaceCommandTarget>,
-): Promise<ThreadPullRequest | null> {
-  const result = await callHostRetryableOnlineRpcForWork(deps, {
-    hostId: target.hostId,
-    timeoutMs: COMMAND_TIMEOUT_MS,
-    command: {
-      type: "workspace.pull_request",
-      environmentId: target.environmentId,
-      workspaceContext: target.workspaceContext,
-    },
-  });
-  return result.outcome === "available"
-    ? assembleThreadPullRequest(result.pullRequest)
-    : null;
-}
-
-function requirePullRequest(
-  pullRequest: ThreadPullRequest | null,
-): ThreadPullRequest {
-  if (!pullRequest) {
-    throw new ApiError(
-      409,
-      "pull_request_unavailable",
-      "No pull request found",
-    );
-  }
-  return pullRequest;
-}
-
-function assertCanMarkPullRequestReady(pullRequest: ThreadPullRequest): void {
-  if (pullRequest.state !== "draft") {
-    throw new ApiError(409, "invalid_request", "Pull request is not a draft");
-  }
-}
-
-function assertCanConvertPullRequestToDraft(
-  pullRequest: ThreadPullRequest,
-): void {
-  if (pullRequest.state !== "open") {
-    throw new ApiError(409, "invalid_request", "Pull request is not open");
-  }
-}
-
-function assertCanMergePullRequest(pullRequest: ThreadPullRequest): void {
-  if (
-    pullRequest.state !== "open" ||
-    pullRequest.mergeability.state !== "mergeable"
-  ) {
-    throw new ApiError(
-      409,
-      "pull_request_not_mergeable",
-      "Pull request is not currently mergeable",
-    );
-  }
-}
-
-async function runPullRequestAction(
-  deps: AppDeps,
-  environment: ReturnType<typeof requireReadyEnvironment>,
-  action:
-    | { operation: "ready" }
-    | { operation: "draft" }
-    | { operation: "merge"; method: PullRequestMergeMethod },
-  assertState: (pullRequest: ThreadPullRequest) => void,
-): Promise<void> {
-  if (!environment.isGitRepo) {
-    throw new ApiError(
-      409,
-      "invalid_request",
-      "Pull request actions require a git environment",
-    );
-  }
-  const target = requireWorkspaceCommandTarget(environment);
-  const pullRequest = await getPullRequestForWorkspaceTarget(deps, target);
-  assertState(requirePullRequest(pullRequest));
-
-  await mapPullRequestActionFailureTo409(() =>
-    runLiveCommandAndWait(deps, {
-      hostId: target.hostId,
-      timeoutMs: COMMAND_TIMEOUT_MS,
-      command: {
-        type: "workspace.pull_request_action",
-        ...action,
-        environmentId: target.environmentId,
-        workspaceContext: target.workspaceContext,
-      },
-    }),
-  );
 }
 
 function resolveDiffFileRef(
@@ -280,12 +172,40 @@ function resolveGitDiffWorkspaceTarget(deps: AppDeps, environmentId: string) {
   return requireWorkspaceCommandTarget(environment);
 }
 
+function diffViewedTargetKey(target: WorkspaceDiffTarget): string {
+  switch (target.type) {
+    case "uncommitted":
+      return "uncommitted";
+    case "branch_committed":
+    case "all":
+      return `${target.type}:${target.mergeBaseBranch}`;
+    case "commit":
+      return `commit:${target.sha.toLowerCase()}`;
+    default: {
+      const _exhaustive: never = target;
+      return _exhaustive;
+    }
+  }
+}
+
+function resolveDiffViewedScope(
+  deps: AppDeps,
+  environmentId: string,
+  target: WorkspaceDiffTarget,
+): DiffViewedFileScope {
+  const environment = requireEnvironment(deps.db, environmentId);
+  return {
+    environmentId: environment.id,
+    targetKey: diffViewedTargetKey(target),
+  };
+}
+
 export function registerEnvironmentRoutes(app: Hono, deps: AppDeps): void {
-  const { del, get, patch, post } = typedRoutes<PublicApiSchema>(app, {
+  const { del, get, patch, post, put } = typedRoutes<PublicApiSchema>(app, {
     onValidationError: (msg) => new ApiError(400, "invalid_request", msg),
   });
   const routes = publicApiRoutes.environments;
-  post(routes.cleanup, (context) => {
+  post(routes.cleanup, async (context, query) => {
     const environment = requireEnvironment(deps.db, context.req.param("id"));
     if (
       countLiveThreadsInEnvironment(deps.db, {
@@ -297,6 +217,10 @@ export function registerEnvironmentRoutes(app: Hono, deps: AppDeps): void {
         "invalid_request",
         "Environment still has live threads",
       );
+    if (query?.recover === "true") {
+      await recoverEnvironmentCleanup(deps, environment.id);
+      return context.json({ ok: true } as const);
+    }
     if (!cleanupEnvironment(deps, environment.id))
       throw new ApiError(
         409,
@@ -411,7 +335,6 @@ export function registerEnvironmentRoutes(app: Hono, deps: AppDeps): void {
       key: workspaceStatusCacheKey(target, query.mergeBaseBranch),
       load: () =>
         callEnvironmentWorkspaceStatus(deps, {
-          environment,
           target,
           ...(query.mergeBaseBranch
             ? { mergeBaseBranch: query.mergeBaseBranch }
@@ -428,42 +351,6 @@ export function registerEnvironmentRoutes(app: Hono, deps: AppDeps): void {
       outcome: "available",
       workspace: result.workspaceStatus,
     });
-  });
-
-  get(routes.pullRequest, async (context) => {
-    const environment = requireReadyEnvironment(
-      deps.db,
-      context.req.param("id"),
-    );
-    if (!environment.isGitRepo) {
-      return context.json({ outcome: "absent" });
-    }
-    const target = requireWorkspaceCommandTarget(environment);
-    const result = await deps.workspaceReadCaches.pullRequest.read({
-      environmentId: environment.id,
-      hostId: target.hostId,
-      key: workspaceReadCacheKey(target),
-      load: () =>
-        callHostRetryableOnlineRpc(deps, {
-          hostId: target.hostId,
-          timeoutMs: COMMAND_TIMEOUT_MS,
-          command: {
-            type: "workspace.pull_request",
-            environmentId: target.environmentId,
-            workspaceContext: target.workspaceContext,
-          },
-        }),
-    });
-    if (result.outcome === "available") {
-      return context.json({
-        outcome: "available",
-        pullRequest: assembleThreadPullRequest(result.pullRequest),
-      });
-    }
-    if (result.outcome === "unavailable") {
-      return context.json({ outcome: "unavailable", message: result.message });
-    }
-    return context.json({ outcome: "absent" });
   });
 
   get(routes.diff, async (context, query) => {
@@ -501,16 +388,28 @@ export function registerEnvironmentRoutes(app: Hono, deps: AppDeps): void {
     if (target === null) {
       return context.json(NON_GIT_DIFF_NOT_APPLICABLE);
     }
-    const result = await callHostRetryableOnlineRpc(deps, {
+    const ignoreWhitespace = query.ignoreWhitespace === "true";
+    const result = await deps.workspaceReadCaches.diffFiles.read({
+      environmentId: target.environmentId,
       hostId: target.hostId,
-      timeoutMs: COMMAND_TIMEOUT_MS,
-      command: {
-        type: "workspace.diffFiles",
-        environmentId: target.environmentId,
-        workspaceContext: target.workspaceContext,
+      key: JSON.stringify({
         target: toWorkspaceDiffTarget(query),
-        maxFiles: WORKSPACE_DIFF_MAX_FILES,
-      },
+        ignoreWhitespace,
+        workspaceContext: target.workspaceContext,
+      }),
+      load: () =>
+        callHostRetryableOnlineRpc(deps, {
+          hostId: target.hostId,
+          timeoutMs: COMMAND_TIMEOUT_MS,
+          command: {
+            type: "workspace.diffFiles",
+            environmentId: target.environmentId,
+            workspaceContext: target.workspaceContext,
+            target: toWorkspaceDiffTarget(query),
+            maxFiles: WORKSPACE_DIFF_MAX_FILES,
+            ignoreWhitespace,
+          },
+        }),
     });
     if (result.outcome === "unavailable") {
       return context.json({
@@ -532,6 +431,7 @@ export function registerEnvironmentRoutes(app: Hono, deps: AppDeps): void {
           target: toWorkspaceDiffTarget(query),
           paths: initialPatchPaths,
           maxBytesPerFile: DIFF_FILE_PATCH_MAX_BYTES,
+          ignoreWhitespace,
         },
       });
       if (patchResult.outcome === "available") {
@@ -563,6 +463,7 @@ export function registerEnvironmentRoutes(app: Hono, deps: AppDeps): void {
         target: payload.target,
         paths: payload.paths,
         maxBytesPerFile: DIFF_FILE_PATCH_MAX_BYTES,
+        ignoreWhitespace: payload.ignoreWhitespace ?? false,
       },
     });
     if (result.outcome === "unavailable") {
@@ -575,6 +476,52 @@ export function registerEnvironmentRoutes(app: Hono, deps: AppDeps): void {
       outcome: "available",
       patches: result.patches,
     });
+  });
+
+  get(routes.diffViewed, (context, query) => {
+    const scope = resolveDiffViewedScope(
+      deps,
+      context.req.param("id"),
+      toWorkspaceDiffTarget(query),
+    );
+    return context.json({ files: listDiffViewedFiles(deps.db, scope, null) });
+  });
+
+  post(routes.queryDiffViewed, (context, payload) => {
+    const scope = resolveDiffViewedScope(
+      deps,
+      context.req.param("id"),
+      toWorkspaceDiffTarget(payload),
+    );
+    return context.json({
+      files: listDiffViewedFiles(deps.db, scope, payload.paths),
+    });
+  });
+
+  put(routes.markDiffViewed, (context, payload) => {
+    const scope = resolveDiffViewedScope(
+      deps,
+      context.req.param("id"),
+      payload.target,
+    );
+    markDiffViewedFile(deps.db, {
+      ...scope,
+      path: payload.path,
+      revision: payload.revision,
+    });
+    deps.hub.notifyEnvironment(scope.environmentId, ["diff-viewed-changed"]);
+    return context.json({ ok: true as const });
+  });
+
+  del(routes.clearDiffViewed, (context, payload) => {
+    const scope = resolveDiffViewedScope(
+      deps,
+      context.req.param("id"),
+      payload.target,
+    );
+    clearDiffViewedFiles(deps.db, { ...scope, path: payload.path ?? null });
+    deps.hub.notifyEnvironment(scope.environmentId, ["diff-viewed-changed"]);
+    return context.json({ ok: true as const });
   });
 
   get(routes.diffFile, async (context, query) => {
@@ -682,122 +629,73 @@ export function registerEnvironmentRoutes(app: Hono, deps: AppDeps): void {
     }
   });
 
-  post(routes.actions, async (context, payload) => {
+  post(routes.actions, async (context) => {
     const environment = requireReadyEnvironment(
       deps.db,
       context.req.param("id"),
     );
 
     try {
-      switch (payload.action) {
-        case "commit": {
-          const target = requireWorkspaceCommandTarget(environment);
-          const { workspaceContext } = target;
+      const target = requireWorkspaceCommandTarget(environment);
+      const { workspaceContext } = target;
 
-          const [statusResult, diffResult] = await Promise.all([
-            callEnvironmentWorkspaceStatusForWork(deps, {
-              environment,
-              target,
-            }),
-            callHostRetryableOnlineRpcForWork(deps, {
-              hostId: target.hostId,
-              timeoutMs: COMMAND_TIMEOUT_MS,
-              command: {
-                type: "workspace.diff",
-                environmentId: target.environmentId,
-                workspaceContext,
-                target: { type: "uncommitted" },
-                maxDiffBytes: AI_MAX_DIFF_BYTES,
-                maxFileListBytes: AI_MAX_FILE_LIST_BYTES,
-                maxUntrackedFiles: WORKSPACE_DIFF_MAX_FILES,
-              },
-            }),
-          ]);
-          const workspaceStatus = requireAvailableWorkspaceStatus(statusResult);
-          const workspaceDiff = requireAvailableWorkspaceDiff(diffResult);
-          if (!workspaceStatus.workingTree.hasUncommittedChanges) {
-            throw new ApiError(
-              409,
-              "no_changes",
-              "No uncommitted changes to commit",
-            );
-          }
-
-          const aiMessage = await generateCommitMessage(deps, {
-            diffDescription: "uncommitted changes",
-            shortstat: workspaceDiff.shortstat,
-            files: workspaceDiff.files,
-            patch: workspaceDiff.diff,
-          });
-          const commitMessage = aiMessage ?? COMMIT_FALLBACK_MESSAGE;
-
-          const result = await mapNoChangesTo409(
-            "No uncommitted changes to commit",
-            () =>
-              runLiveCommandAndWait(deps, {
-                hostId: target.hostId,
-                timeoutMs: COMMAND_TIMEOUT_MS,
-                command: {
-                  type: "workspace.commit",
-                  environmentId: target.environmentId,
-                  workspaceContext,
-                  message: commitMessage,
-                },
-              }),
-          );
-          return context.json({
-            ok: true,
-            action: "commit",
-            message: `Created commit ${result.commitSha}`,
-            commitSha: result.commitSha,
-            commitSubject: result.commitSubject,
-          });
-        }
-        case "pull_request_ready": {
-          await runPullRequestAction(
-            deps,
-            environment,
-            { operation: "ready" },
-            assertCanMarkPullRequestReady,
-          );
-          return context.json({
-            ok: true,
-            action: "pull_request_ready",
-            message: "Pull request marked ready",
-          });
-        }
-        case "pull_request_draft": {
-          await runPullRequestAction(
-            deps,
-            environment,
-            { operation: "draft" },
-            assertCanConvertPullRequestToDraft,
-          );
-          return context.json({
-            ok: true,
-            action: "pull_request_draft",
-            message: "Pull request converted to draft",
-          });
-        }
-        case "pull_request_merge": {
-          await runPullRequestAction(
-            deps,
-            environment,
-            { operation: "merge", method: payload.options.method },
-            assertCanMergePullRequest,
-          );
-          return context.json({
-            ok: true,
-            action: "pull_request_merge",
-            method: payload.options.method,
-            message: "Pull request merge started",
-          });
-        }
-        default: {
-          const _exhaustive: never = payload;
-          throw new Error(`Unhandled environment action: ${_exhaustive}`);
-        }
+      const [statusResult, diffResult] = await Promise.all([
+        callEnvironmentWorkspaceStatusForWork(deps, {
+          target,
+        }),
+        callHostRetryableOnlineRpcForWork(deps, {
+          hostId: target.hostId,
+          timeoutMs: COMMAND_TIMEOUT_MS,
+          command: {
+            type: "workspace.diff",
+            environmentId: target.environmentId,
+            workspaceContext,
+            target: { type: "uncommitted" },
+            maxDiffBytes: AI_MAX_DIFF_BYTES,
+            maxFileListBytes: AI_MAX_FILE_LIST_BYTES,
+            maxUntrackedFiles: WORKSPACE_DIFF_MAX_FILES,
+          },
+        }),
+      ]);
+      const workspaceStatus = requireAvailableWorkspaceStatus(statusResult);
+      const workspaceDiff = requireAvailableWorkspaceDiff(diffResult);
+      if (!workspaceStatus.workingTree.hasUncommittedChanges) {
+        throw new ApiError(
+          409,
+          "no_changes",
+          "No uncommitted changes to commit",
+        );
       }
+
+      const aiMessage = await generateCommitMessage(deps, {
+        diffDescription: "uncommitted changes",
+        shortstat: workspaceDiff.shortstat,
+        files: workspaceDiff.files,
+        patch: workspaceDiff.diff,
+      });
+      const commitMessage = aiMessage ?? COMMIT_FALLBACK_MESSAGE;
+
+      const result = await mapNoChangesTo409(
+        "No uncommitted changes to commit",
+        () =>
+          runLiveCommandAndWait(deps, {
+            hostId: target.hostId,
+            timeoutMs: COMMAND_TIMEOUT_MS,
+            command: {
+              type: "workspace.commit",
+              environmentId: target.environmentId,
+              workspaceContext,
+              message: commitMessage,
+            },
+          }),
+      );
+      return context.json({
+        ok: true,
+        action: "commit",
+        message: `Created commit ${result.commitSha}`,
+        commitSha: result.commitSha,
+        commitSubject: result.commitSubject,
+      });
     } finally {
       deps.workspaceReadCaches.invalidateEnvironment(environment.id);
     }

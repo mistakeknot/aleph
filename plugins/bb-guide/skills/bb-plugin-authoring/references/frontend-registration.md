@@ -55,19 +55,21 @@ export default definePluginApp((app) => {
     icon: "Columns",
     path: "board",
     component: Board,
-    fixedTabs: [
-      {
-        panelId: "board",
-        id: "navigation",
-        title: "Navigation",
-        icon: "PanelRight",
-        component: BoardNavigation,
-        layout: "flush",
-      },
-    ],
-    experimental_sidebarAccessory: OpenIssueCount,
+    experimental_useBadge: useOpenIssueBadge,
   });
-  app.slots.threadPanelAction({
+  app.slots.experimental_tab({
+    context: { kind: "nav-panel", panelId: "board" },
+    availability: "fixed",
+    id: "navigation",
+    title: "Navigation",
+    icon: "PanelRight",
+    component: BoardNavigation,
+    layout: "flush",
+  });
+  app.slots.experimental_tab({
+    context: { kind: "thread" },
+    availability: "action",
+    icon: "FileText",
     id: "issue",
     title: "Open issue",
     component: IssuePanel,
@@ -135,6 +137,12 @@ export default definePluginApp((app) => {
     description: "One flat list, newest thread on top.",
     component: InboxList,
   });
+  app.slots.experimental_sidebarNavigation({
+    id: "compact",
+    title: "Compact navigation",
+    placement: "list",
+    component: CompactSidebarNavigation,
+  });
 });
 ```
 
@@ -162,6 +170,52 @@ state in the component, never in a module-level singleton.
 A common pairing with a replaced sidebar: hide child threads from the list and
 surface them here instead, filtering `experimental_useSidebarThreads()` by
 `parentThreadId === threadId`.
+
+### Rows and sections in the thread Info tab
+
+`app.slots.experimental_threadInfoRow` adds a row to the Info tab's details
+block; `app.slots.experimental_threadInfoSection` adds a section below it. bb's
+own rows and sections are registrations of the same `{ id, group, order?,
+component }` shape, drawn with the SDK's Info components (frontend-components.md).
+
+```tsx
+app.slots.experimental_threadInfoSection({ id: "automations", group: SECTION_GROUPS.related, order: 0, component: Automations });
+function Automations({ threadId }: ExperimentalThreadInfoProps) {
+  const items = useItems(threadId);
+  if (items.length === 0) return null;
+  return (
+    <InfoSection label="Automations" count={items.length}>
+      <InfoList items={items} getKey={(item) => item.id} limit={3}
+        renderItem={(item) => <InfoListRow leading={<Glyph />} name={item.name} onSelect={...} />} />
+    </InfoSection>
+  );
+}
+```
+
+Components receive `{ threadId, projectId, environment }` and mount once per
+visible thread; `environment` is `{ id }`, or null when the thread has no
+environment, its host is not active, or it is not a usable checkout. Return
+null to show nothing. A row renders `experimental_DetailRow`.
+Entries sort by `group`, then `order` within it (unset last), then registration
+order, bb's first on a tie, as thread actions do. Join one of bb's groups from
+`experimental_THREAD_INFO_ROW_GROUPS` or `experimental_THREAD_INFO_SECTION_GROUPS`
+(bb's entries use orders 10, 20, 30 within a group), or name your own group to
+sort it where its string falls. Inside a section slot `experimental_InfoSection` collapses and bb
+remembers it per registration. A crash removes only that row or section.
+
+### Context beside a thread's composer
+
+`app.slots.experimental_threadContextSegment({ id, title, group, order?, summary, action?, details?, useVisible? })`
+adds a segment to the context row above an open thread's composer; bb's parent
+thread and changed files use it too. `group`/`order` sort as for Info rows; bb's
+groups are `experimental_THREAD_CONTEXT_SEGMENT_GROUPS`, and any other string
+sorts in place (GitHub PR Status uses `"2_pullRequest"`). Each component mounts
+in its own crash boundary: `summary` in the row, `action` at its end, `details`
+below it. Props carry `threadId`, `projectId`, `environment` (null without a
+usable environment or when "Show Git changes" is off), the visible `segments`
+as `{ key, pluginId }` in row order (`key` is `<pluginId>/<id>`; bb's own use
+`bb--core`), and `isExpanded`/`onToggle` (one segment is expanded at a time).
+`useVisible(input)` false leaves it out.
 
 ### An action in every thread menu
 
@@ -226,9 +280,8 @@ passing its own rename editor as `requestRename` and list-only entries as
 and ref it receives onto your button, or the menu never opens. `experimental_useThreadActions(thread, { keys })` returns bound
 actions for quick-action buttons, and
 `experimental_useThreadActionRegistrations()` lists every action's static
-title and icon for a picker. Keys are `bb--core/<id>` and `<pluginId>/<id>`.
-
-For the header bar's center status chip slot, read references/frontend-app-header-status.md.
+title and icon for a picker. Keys are `bb--core/<id>` and `<pluginId>/<id>`. For the header
+bar's center status chip slot, read references/frontend-app-header-status.md.
 
 ### A control in the Browser toolbar
 
@@ -273,6 +326,12 @@ this plugin and tab. `world: "main"` runs beside page scripts (for example to
 read framework state on DOM nodes) and binds `bb` to `null`. Anything installed
 is lost when the document navigates; check again when `url` changes.
 
+### Sidebar navigation and header
+
+Drawing the sidebar navigation (`experimental_sidebarNavigation`) and its
+controls beside the sidebar toggle (`headerComponent`) are covered in
+frontend-sidebar-navigation.md.
+
 ### Replacing the sidebar thread list
 
 `app.slots.experimental_threadList` is the one **exclusive** slot: only one
@@ -284,7 +343,7 @@ Sidebar**. The choice is per client. bb ships its own list as the bundled
 `thread-list` plugin; there is no separate built-in list.
 
 Your component gets the scrolling list and nothing else. The New-thread button,
-the navigation rail, and the footer stay host-rendered —
+the navigation, and the footer stay host-rendered —
 other plugins live in two of those, so a replaced list must not remove them.
 Put your own controls at the top of your scroll area instead.
 
@@ -371,10 +430,8 @@ const splitLayout = useSidebarSplitLayout(); // { panes: [{ paneId, rect, thread
 // <experimental_ProviderIcon providerKind="environment" provider={entry} />:
 const { providers: environmentProviders } = useEnvironmentProviders();
 
-// Pull requests are per row and opt-in — a lookup hits the git host, so it is
-// deliberately NOT on the thread payload every sidebar loads:
-const { pullRequest } = experimental_useSidebarThreadPullRequest(thread.id);
-// → { isLoading, pullRequest: { number, title, url, state, attention } | null }
+// Pull requests: read the GitHub PR Status plugin by thread.environment?.id
+// (references/frontend-pull-requests.md).
 
 const navigate = useBbNavigate();
 const sdk = useSdk();
@@ -395,6 +452,9 @@ Unit-test a list with `renderSlot(...)` from `@get-bb/plugin-sdk/testing/app`:
 seed rows with the `sidebarThreads` option (plus `sidebarDraftThreadIds`,
 `sidebarRowStatuses`, and `sidebarShortcuts` for the per-row hooks) and assert against
 `inspection.navigateCalls` and `inspection.sdkCalls`.
+
+**Pull requests on a row.** Read them from the bundled GitHub PR Status
+plugin; see references/frontend-pull-requests.md.
 
 **Splits.** Rows can drag out to the split area:
 
@@ -434,26 +494,7 @@ silently stop working:
 <a data-sidebar-thread-shortcut-target="" data-sidebar-thread-id={thread.id}>
 ```
 
-### The provider directory
+## Tab API migration
 
-`experimental_useProviders()` returns `{ status, providers }` — every
-registered agent provider in picker order, as the same `ProviderInfo` the
-host's composer reads (`id`, `pluginId`, `displayName`, `family`, `icon`,
-`logoUrl`, `available`, `capabilities`, `maintenance`, `extensionKinds`,
-`composerActions`, and the declared `strings`, `reasoningLevels`,
-`serviceTiers`). It reads the host's own cached roster, so
-it costs no extra request. Use it whenever a surface shows a thread's or
-automation's provider: never vendor provider names or copy in a plugin.
-
-```tsx
-const { providers } = experimental_useProviders();
-const name =
-  providers.find((provider) => provider.id === thread.providerId)
-    ?.displayName ?? thread.providerId;
-```
-
-`status` is `"loading"` until the roster arrives and `"error"` when the request
-failed; `providers` is empty in both cases, so fall back to the id. The
-backend counterpart is `bb.sdk.providers.list()`. Keep the hook in the plugin
-entry (`app.tsx`) and pass names down as props, so view components stay pure
-and testable outside the plugin runtime.
+See [the unified tab contract and migration examples](frontend-core-slots.md#tab-api-migration)
+for replacing legacy registrations while preserving published bundles and saved tabs.

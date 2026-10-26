@@ -387,12 +387,14 @@ interface HeldSkillOpen {
 interface ClaudeThreadDialectState {
   mirror: ClaudeTurnMirror;
   cumulativeTokens: ThreadEventTokenUsageBreakdown;
+  promptCacheTtlMs: number | undefined;
   latestRequestContextTokens: number | undefined;
   latestProviderCheckpointId: string | undefined;
   lastModelFallback:
     | (ClaudeModelFallbackTransition & { segment: number })
     | undefined;
   armedHardRateLimitRejection: { detail: string; segment: number } | undefined;
+  mainRunIdle: boolean;
   selectedModelContextWindow: number | null;
   suppressUnacceptedTurnStart: boolean;
   openCompaction: { segment: number } | undefined;
@@ -406,10 +408,12 @@ function createThreadState(): ClaudeThreadDialectState {
   return {
     mirror: { turnOpen: false, responseStarted: false, segment: 0 },
     cumulativeTokens: ZERO_TOKEN_USAGE,
+    promptCacheTtlMs: undefined,
     latestRequestContextTokens: undefined,
     latestProviderCheckpointId: undefined,
     lastModelFallback: undefined,
     armedHardRateLimitRejection: undefined,
+    mainRunIdle: false,
     selectedModelContextWindow: null,
     suppressUnacceptedTurnStart: false,
     openCompaction: undefined,
@@ -465,7 +469,35 @@ export function createClaudeDeltaTranslator(
   function mirrorCloseTurn(state: ClaudeThreadDialectState): void {
     state.mirror.turnOpen = false;
     state.armedHardRateLimitRejection = undefined;
+    state.mainRunIdle = false;
     state.startedTools.clear();
+  }
+
+  function holdTurnForBackgroundWork(
+    state: ClaudeThreadDialectState,
+  ): ThreadDelta[] {
+    if (state.mainRunIdle) {
+      return [];
+    }
+    state.mainRunIdle = true;
+    return [{ kind: "turn.mainRun", state: "idle" }];
+  }
+
+  function resumeMainRun(
+    state: ClaudeThreadDialectState,
+    type: ClaudeSdkMessageType,
+    context: ClaudeDeltaTranslationContext | undefined,
+  ): ThreadDelta[] {
+    if (
+      !state.mainRunIdle ||
+      !state.mirror.turnOpen ||
+      context?.parentToolCallId !== undefined ||
+      (type !== "assistant" && type !== "stream_event")
+    ) {
+      return [];
+    }
+    state.mainRunIdle = false;
+    return [{ kind: "turn.mainRun", state: "running" }];
   }
 
   function withMirror(
@@ -825,7 +857,7 @@ export function createClaudeDeltaTranslator(
         state.latestProviderCheckpointId = providerCheckpointId;
       }
       if (hasCompletionBlockingClaudeTasks(state.tasksById)) {
-        return deltas;
+        return [...deltas, ...holdTurnForBackgroundWork(state)];
       }
       deltas.push(
         ...withMirror(state, [
@@ -1094,11 +1126,16 @@ export function createClaudeDeltaTranslator(
         state.cumulativeTokens,
         tokenUsage.last,
       );
+      state.promptCacheTtlMs =
+        tokenUsage.promptCacheTtlMs ?? state.promptCacheTtlMs;
       deltas.push({
         kind: "usage",
         total: state.cumulativeTokens,
         last: tokenUsage.last,
         modelContextWindow: tokenUsage.modelContextWindow,
+        ...(state.promptCacheTtlMs === undefined
+          ? {}
+          : { promptCacheTtlMs: state.promptCacheTtlMs }),
       });
     }
 
@@ -1134,7 +1171,7 @@ export function createClaudeDeltaTranslator(
     }
     state.armedHardRateLimitRejection = undefined;
     if (!failed && hasCompletionBlockingClaudeTasks(state.tasksById)) {
-      return deltas;
+      return [...deltas, ...holdTurnForBackgroundWork(state)];
     }
     state.suppressUnacceptedTurnStart = failed;
     deltas.push(
@@ -1193,13 +1230,15 @@ export function createClaudeDeltaTranslator(
       return [];
     }
     const state = stateFor(context);
+    const resumed = resumeMainRun(state, messageType.data.type, context);
     if (messageType.data.type === "stream_event") {
       const deltas = translateStreamEvent(event, state, context);
       return deltas.length === 0
-        ? deltas
-        : [...releaseHeldSkillOpen(state, event), ...deltas];
+        ? resumed
+        : [...resumed, ...releaseHeldSkillOpen(state, event), ...deltas];
     }
     return [
+      ...resumed,
       ...releaseHeldSkillOpen(state, event),
       ...translateSdkMessageOfType(
         event,

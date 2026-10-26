@@ -17,7 +17,7 @@ import "@bb/shared-ui/icon-extended";
 import { useMutation } from "@tanstack/react-query";
 import { buildPluginEditThreadPrompt } from "@bb/shared-ui/resource-edit-prompt";
 import { appToast } from "@/components/ui/app-toast";
-import { OverflowFade } from "@/components/ui/overflow-fade";
+import { OverflowFade } from "@bb/shared-ui/overflow-fade";
 import { useScrollOverflowState } from "@/components/thread/timeline/useScrollOverflowState";
 import {
   ConfirmDeleteDialog,
@@ -31,10 +31,7 @@ import {
   pluginDetailLocation,
   withoutPluginListing,
 } from "@/components/plugin/plugin-detail-key";
-import {
-  ResourceListState,
-  useResourceRouteLabel,
-} from "@bb/shared-ui/resource-list";
+import { ResourceListState } from "@bb/shared-ui/resource-list";
 import { Skeleton } from "@bb/shared-ui/skeleton";
 import { PluginsOverview } from "@/components/plugin/PluginsOverview";
 import {
@@ -267,12 +264,6 @@ function PluginDetailToolView({ detailKey }: { detailKey: string }) {
       catalogQuery.data?.entries ?? [],
       { allowSourceFallback: false },
     );
-  useResourceRouteLabel(
-    selectedPlugin?.name ??
-      selectedPlugin?.id ??
-      selectedCatalogEntry?.displayName ??
-      null,
-  );
   const pendingPluginId =
     pluginToggle.isPending && pluginToggle.variables
       ? pluginToggle.variables.id

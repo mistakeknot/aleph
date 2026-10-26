@@ -375,8 +375,11 @@ const OPTIONAL_SERVER_FIELD_GROUPS: readonly OptionalServerFieldGroup[] = [
   },
   {
     reason:
-      "Thread creation may omit visibility for backward compatibility; the server fills visible at the creation boundary.",
-    fields: ["createThreadRequestSchema.visibility"],
+      "Thread creation may omit visibility and parentNotifications; the server fills visible and auto at the creation boundary.",
+    fields: [
+      "createThreadRequestSchema.visibility",
+      "createThreadRequestSchema.parentNotifications",
+    ],
   },
   {
     reason:
@@ -465,10 +468,12 @@ const OPTIONAL_SERVER_FIELD_GROUPS: readonly OptionalServerFieldGroup[] = [
   },
   {
     reason:
-      "Queued and follow-up messages omit senderThreadId unless the request originates from another thread.",
+      "Thread creation, queued messages, and follow-up messages omit their sender unless the request originates from another thread or, for sends, a plugin.",
     fields: [
       "createQueuedMessageRequestSchema.senderThreadId",
       "sendMessageRequestSchema.senderThreadId",
+      "createThreadRequestSchema.senderThreadId",
+      "sendMessageRequestSchema.originPluginId",
     ],
   },
   {
@@ -506,6 +511,7 @@ const OPTIONAL_SERVER_FIELD_GROUPS: readonly OptionalServerFieldGroup[] = [
       "pinThreadQuerySchema.ifUnpinned",
       "unpinThreadQuerySchema.ifPinnedAt",
       "reorderPinnedThreadRequestSchema.ifSortKeys",
+      "updateThreadRequestSchema.parentNotifications",
     ],
   },
   {
@@ -572,6 +578,7 @@ const OPTIONAL_SERVER_FIELD_GROUPS: readonly OptionalServerFieldGroup[] = [
       "threadListQuerySchema.parentThreadId",
       "threadListQuerySchema.projectId",
       "threadListQuerySchema.sourceThreadId",
+      "threadListQuerySchema.threadIds",
       "threadListQuerySchema.unsectioned",
     ],
   },
@@ -595,10 +602,11 @@ const OPTIONAL_SERVER_FIELD_GROUPS: readonly OptionalServerFieldGroup[] = [
   },
   {
     reason:
-      "Context snapshots are omitted when the latest measurement has no breakdown, and session cost when the provider reports none.",
+      "Context snapshots are omitted when the latest measurement has no breakdown, session cost when the provider reports none, and the compaction offer time unless the compactExpiredCache experiment is on and the provider reported a prompt-cache lifetime for a context of at least 100k tokens.",
     fields: [
       "threadTimelineResponseSchema.contextWindowUsage.snapshot",
       "threadTimelineResponseSchema.contextWindowUsage.cost",
+      "threadTimelineResponseSchema.contextWindowUsage.compactionOfferAt",
     ],
   },
   {
@@ -631,10 +639,11 @@ const OPTIONAL_SERVER_FIELD_GROUPS: readonly OptionalServerFieldGroup[] = [
   },
   {
     reason:
-      "sendAt is present only when the caller is scheduling the dispatch; omission means attempt the dispatch now, which allocates no queued row at all when nothing blocks it.",
+      "sendAt is present only when the caller is scheduling the dispatch, and compactFirst only when it asks to compact before the message; omission means attempt the dispatch now, which allocates no queued row at all when nothing blocks it.",
     fields: [
       "createThreadRequestSchema.sendAt",
       "sendMessageRequestSchema.sendAt",
+      "sendMessageRequestSchema.compactFirst",
     ],
   },
   {
@@ -1284,6 +1293,7 @@ describe("server-contract canonical schemas", () => {
           originKind: null,
           originPluginId: null,
           visibility: "visible",
+          parentNotifications: "auto",
           archivedAt: null,
           pinnedAt: null,
           pinSortKey: null,
@@ -1385,32 +1395,6 @@ describe("server-contract canonical schemas", () => {
       action: "commit",
     });
 
-    expect(
-      environmentActionRequestSchema.parse({
-        action: "pull_request_ready",
-      }),
-    ).toMatchObject({
-      action: "pull_request_ready",
-    });
-
-    expect(
-      environmentActionRequestSchema.parse({
-        action: "pull_request_merge",
-        options: { method: "rebase" },
-      }),
-    ).toMatchObject({
-      action: "pull_request_merge",
-      options: { method: "rebase" },
-    });
-
-    expect(
-      environmentActionRequestSchema.parse({
-        action: "pull_request_draft",
-      }),
-    ).toMatchObject({
-      action: "pull_request_draft",
-    });
-
     expect(() =>
       environmentActionRequestSchema.parse({
         action: "squash_merge",
@@ -1421,7 +1405,7 @@ describe("server-contract canonical schemas", () => {
     expect(() =>
       environmentActionRequestSchema.parse({
         action: "pull_request_merge",
-        options: { method: "admin" },
+        options: { method: "squash" },
       }),
     ).toThrow();
 
@@ -1452,28 +1436,6 @@ describe("server-contract canonical schemas", () => {
         ok: true,
       }),
     ).toThrow();
-
-    expect(
-      contract.environmentActionResponseSchema.parse({
-        action: "pull_request_merge",
-        method: "squash",
-        message: "Pull request merge started",
-        ok: true,
-      }),
-    ).toMatchObject({
-      action: "pull_request_merge",
-      method: "squash",
-    });
-
-    expect(
-      contract.environmentActionResponseSchema.parse({
-        action: "pull_request_draft",
-        message: "Pull request converted to draft",
-        ok: true,
-      }),
-    ).toMatchObject({
-      action: "pull_request_draft",
-    });
 
     expect(
       updateEnvironmentRequestSchema.parse({

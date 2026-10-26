@@ -70,6 +70,7 @@ import {
   type ClosedPanelContentTab,
   type PluginDetailHistoryTarget,
 } from "./recentlyClosedPanelTabs";
+import { usePendingTerminalIds } from "@/components/thread/terminal/pending-terminals";
 import { pruneTerminalTabsInFixedPanelState } from "./terminalPanelTabs";
 
 interface UseThreadFileTabsParams {
@@ -171,6 +172,7 @@ function isReopenableSecondaryPanelTab(
       return true;
     case "thread-info":
     case "git-diff":
+    case "plugin-fixed":
     case "plugin-page-fixed":
     case "terminal":
       return false;
@@ -436,15 +438,22 @@ export function useThreadFileTabs({
     updateFixedPanelTabsState,
   ]);
 
+  const pendingTerminalIds = usePendingTerminalIds();
   useEffect(() => {
     if (!isPanelStateResolved || terminalSessions === undefined) return;
     updateFixedPanelTabsState((state) =>
       pruneTerminalTabsInFixedPanelState({
+        pendingTerminalIds,
         state,
         terminalSessions,
       }),
     );
-  }, [isPanelStateResolved, terminalSessions, updateFixedPanelTabsState]);
+  }, [
+    isPanelStateResolved,
+    pendingTerminalIds,
+    terminalSessions,
+    updateFixedPanelTabsState,
+  ]);
 
   const { fileOpeners } = usePluginSlots();
   const fileOpenerPreference = useFileOpenerPreferenceValue();

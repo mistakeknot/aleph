@@ -14,6 +14,7 @@ import {
   dropMarketplaceSourceGitSubdirectoryColumn,
   dropMusicModeColumns,
   dropPluginEnabledFollowsDefaultColumn,
+  dropThreadParentNotificationsColumn,
   dropQueuedMessageEditHeldUntilColumn,
   rewindThreadPruningWork,
 } from "./helpers/rewind.js";
@@ -111,6 +112,7 @@ describe.each(["project", "thread", "preference"] as const)(
           dropPluginEnabledFollowsDefaultColumn(db);
           dropQueuedMessageEditHeldUntilColumn(db);
           dropMarketplaceSourceGitSubdirectoryColumn(db);
+          dropThreadParentNotificationsColumn(db);
           db.$client
             .prepare("DELETE FROM __drizzle_migrations WHERE created_at >= ?")
             .run(SIDEBAR_INSTALLATION_DEFAULTS_MIGRATION_TIMESTAMP);

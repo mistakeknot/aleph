@@ -6,7 +6,7 @@ import {
   hostStorageContract,
   type MeasuredTarget,
 } from "./host-contract.js";
-import { readThreads } from "./sdk-data.js";
+import { readThreads, readThreadsById } from "./sdk-data.js";
 import { LARGE_FILE_MIN_BYTES } from "./rules.js";
 import { developerStorageScanSchema } from "./storage-types.js";
 import type {
@@ -77,8 +77,7 @@ function withoutRemoved(scan: Scan, removal: Removal): Scan {
       ),
     largeFiles: scan.largeFiles.filter(
       (entry) =>
-        !removal.entries.has(entry.name) &&
-        !removal.largeFiles.has(entry.name),
+        !removal.entries.has(entry.name) && !removal.largeFiles.has(entry.name),
     ),
     developerStorage: developer && {
       ...developer,
@@ -96,8 +95,38 @@ const clearableArchived = (
   thread.archivedAt + ARCHIVE_UNDO_GRACE_MS <= Date.now() &&
   thread.pinnedAt === null &&
   !["starting", "active", "stopping"].includes(thread.status);
+const hostPath = (value: string) =>
+  value.replaceAll("\\", "/").replace(/\/$/, "");
+function entriesHoldingWorkspaces(
+  rootPath: string,
+  environments: Environment[],
+) {
+  const root = `${hostPath(rootPath)}/`;
+  const workspaces = new Map<string, string>();
+  for (const env of environments) {
+    if (
+      env.path === null ||
+      env.status === "destroyed" ||
+      env.lifecycle.teardown?.status === "removed"
+    )
+      continue;
+    const envPath = hostPath(env.path);
+    if (!envPath.startsWith(root)) continue;
+    const [name] = envPath.slice(root.length).split("/");
+    if (name && !workspaces.has(name)) workspaces.set(name, env.path);
+  }
+  return workspaces;
+}
 const isStorageEntry = (name: string) =>
   /^(thr_[a-zA-Z0-9]+|\.bb-trash-[a-zA-Z0-9_-]+)$/.test(name);
+
+class StorageLocationUnavailable extends Error {
+  constructor() {
+    super(
+      "Scan the machine to identify a unique storage location for this thread",
+    );
+  }
+}
 
 export function createStorage(
   bb: BbPluginApi,
@@ -107,6 +136,8 @@ export function createStorage(
   bb.storage.migrate(db, [
     "CREATE TABLE scans (host_id TEXT PRIMARY KEY, result_json TEXT NOT NULL)",
     "CREATE TABLE archive_cleanup (thread_id TEXT PRIMARY KEY, archived_at INTEGER NOT NULL)",
+    "ALTER TABLE archive_cleanup ADD COLUMN failure_count INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE archive_cleanup ADD COLUMN next_attempt_at INTEGER NOT NULL DEFAULT 0",
   ]);
   const worker = bb.hosts.experimental_client({
     contract: hostStorageContract,
@@ -218,6 +249,9 @@ export function createStorage(
     }
     return environments;
   }
+  async function workspaceEntries(hostId: string, rootPath: string) {
+    return entriesHoldingWorkspaces(rootPath, await readEnvironments(hostId));
+  }
   function leftoverEnvironments(
     environments: Environment[],
     threads: Thread[],
@@ -260,11 +294,17 @@ export function createStorage(
     scan: Scan,
     context: () => ReturnType<typeof readReportContext>,
   ): Promise<HostStorageReport> {
-    const [{ threads, projects }, allEnvironments] = await Promise.all([
-      context(),
-      readEnvironments(hostId),
-    ]);
+    const [{ threads, projects }, allEnvironments, machine] = await Promise.all(
+      [context(), readEnvironments(hostId), bb.sdk.hosts.get({ hostId })],
+    );
     const byId = new Map(threads.map((thread) => [thread.id, thread]));
+    const workspaces =
+      machine.threadStorageRootPath === null
+        ? new Map<string, string>()
+        : entriesHoldingWorkspaces(
+            machine.threadStorageRootPath,
+            allEnvironments,
+          );
     const environments = new Map(
       leftoverEnvironments(allEnvironments, threads).map((env) => [
         env.id,
@@ -296,7 +336,9 @@ export function createStorage(
       const thread = byId.get(entry.name);
       return thread ? [{ ...entry, thread }] : [];
     });
-    const orphans = scan.entries.filter((entry) => !byId.has(entry.name));
+    const orphans = scan.entries.filter(
+      (entry) => !byId.has(entry.name) && !workspaces.has(entry.name),
+    );
     const worktrees = scan.worktrees.flatMap((entry) => {
       const env = environments.get(entry.environmentId);
       return env && env.path === entry.path
@@ -322,8 +364,15 @@ export function createStorage(
     );
     const clearable = scan.largeFiles.filter((entry) => {
       const thread = byId.get(entry.name);
-      return thread !== undefined && clearableArchived(thread);
+      return (
+        thread !== undefined &&
+        clearableArchived(thread) &&
+        !workspaces.has(entry.name)
+      );
     });
+    const clearableOwned = owned.filter(
+      (entry) => clearableArchived(entry.thread) && !workspaces.has(entry.name),
+    );
     return {
       hostId,
       scannedAt: scan.scannedAt,
@@ -344,9 +393,8 @@ export function createStorage(
         archivedBytes: sum(hiddenArchived),
       },
       archivedFiles: {
-        threadCount: owned.filter((entry) => clearableArchived(entry.thread))
-          .length,
-        bytes: sum(owned.filter((entry) => clearableArchived(entry.thread))),
+        threadCount: clearableOwned.length,
+        bytes: sum(clearableOwned),
       },
       archivedLargeFiles: {
         threadCount: clearable.length,
@@ -390,16 +438,17 @@ export function createStorage(
         ? {
             ...scan.developerStorage,
             entries: scan.developerStorage.entries.map((entry) => {
-              const sourcePath = entry.sourcePath
-                ?.replaceAll("\\", "/")
-                .replace(/\/$/, "");
+              const sourcePath =
+                entry.sourcePath === null
+                  ? undefined
+                  : hostPath(entry.sourcePath);
               const environmentIds = new Set(
                 allEnvironments
                   .filter(
                     (env) =>
                       sourcePath !== undefined &&
-                      env.path?.replaceAll("\\", "/").replace(/\/$/, "") ===
-                        sourcePath,
+                      env.path !== null &&
+                      hostPath(env.path) === sourcePath,
                   )
                   .map((env) => env.id),
               );
@@ -683,9 +732,17 @@ export function createStorage(
     let bytes = 0;
     for (let offset = 0; offset < entries.length; offset += 100) {
       lifecycle.signal.throwIfAborted();
-      const current = await readThreads(bb, lifecycle.signal);
-      const byId = new Map(current.map((thread) => [thread.id, thread]));
-      const batch = entries.slice(offset, offset + 100).filter((entry) => {
+      const candidates = entries.slice(offset, offset + 100);
+      const [byId, workspaces] = await Promise.all([
+        readThreadsById(
+          bb,
+          candidates.map((entry) => entry.name),
+          lifecycle.signal,
+        ),
+        workspaceEntries(hostId, rootPath),
+      ]);
+      const batch = candidates.filter((entry) => {
+        if (workspaces.has(entry.name)) return false;
         const thread = byId.get(entry.name);
         return eligibility === "orphan"
           ? thread === undefined
@@ -720,15 +777,10 @@ export function createStorage(
       const cached = read(hostId);
       if (!cached)
         throw new Error("Scan the machine before removing orphaned storage");
-      const [rootPath, threads] = await Promise.all([
-        storageRoot(hostId),
-        readThreads(bb, lifecycle.signal),
-      ]);
-      const ids = new Set(threads.map((thread) => thread.id));
       const removed = await discard(
         hostId,
-        rootPath,
-        cached.entries.filter((entry) => !ids.has(entry.name)),
+        await storageRoot(hostId),
+        cached.entries,
       );
       return {
         removedCount: removed.count,
@@ -745,28 +797,25 @@ export function createStorage(
       const cached = read(hostId);
       if (!cached)
         throw new Error("Scan the machine before clearing large files");
-      const [rootPath, threads] = await Promise.all([
-        storageRoot(hostId),
-        readThreads(bb, lifecycle.signal),
-      ]);
-      const byId = new Map(threads.map((thread) => [thread.id, thread]));
-      const names = cached.largeFiles
-        .filter((entry) => {
-          const thread = byId.get(entry.name);
-          return thread !== undefined && clearableArchived(thread);
-        })
-        .map((entry) => entry.name);
+      const rootPath = await storageRoot(hostId);
+      const names = cached.largeFiles.map((entry) => entry.name);
       let fileCount = 0;
       let bytes = 0;
       for (let offset = 0; offset < names.length; offset += 100) {
         lifecycle.signal.throwIfAborted();
-        const current = await readThreads(bb, lifecycle.signal);
-        const eligible = new Set(
-          current.filter(clearableArchived).map((thread) => thread.id),
-        );
-        const batch = names
-          .slice(offset, offset + 100)
-          .filter((name) => eligible.has(name));
+        const candidates = names.slice(offset, offset + 100);
+        const [byId, workspaces] = await Promise.all([
+          readThreadsById(bb, candidates, lifecycle.signal),
+          workspaceEntries(hostId, rootPath),
+        ]);
+        const batch = candidates.filter((name) => {
+          const thread = byId.get(name);
+          return (
+            thread !== undefined &&
+            clearableArchived(thread) &&
+            !workspaces.has(name)
+          );
+        });
         if (batch.length === 0) continue;
         const { removed } = await worker.call(
           "discardLargeFiles",
@@ -850,17 +899,10 @@ export function createStorage(
         throw new Error(
           "Scan the machine before clearing archived thread files",
         );
-      const [rootPath, threads] = await Promise.all([
-        storageRoot(hostId),
-        readThreads(bb, lifecycle.signal),
-      ]);
-      const eligible = new Set(
-        threads.filter(clearableArchived).map((thread) => thread.id),
-      );
       const removed = await discard(
         hostId,
-        rootPath,
-        cached.entries.filter((entry) => eligible.has(entry.name)),
+        await storageRoot(hostId),
+        cached.entries,
         progress,
         "archived",
       );
@@ -968,13 +1010,18 @@ export function createStorage(
   }
   async function startClearLargeFiles({ hostId }: { hostId: string | null }) {
     const candidates = await largeFileTargets(hostId);
-    const threads = await readThreads(bb, lifecycle.signal);
-    const eligible = new Set(
-      threads.filter(clearableArchived).map((thread) => thread.id),
-    );
-    const targets = candidates.filter((target) =>
-      read(target)?.largeFiles.some((entry) => eligible.has(entry.name)),
-    );
+    const targets: string[] = [];
+    for (const target of candidates) {
+      const names = (read(target)?.largeFiles ?? []).map((entry) => entry.name);
+      const byId = await readThreadsById(bb, names, lifecycle.signal);
+      if (
+        names.some((name) => {
+          const thread = byId.get(name);
+          return thread !== undefined && clearableArchived(thread);
+        })
+      )
+        targets.push(target);
+    }
     for (const target of candidates) {
       await requireHost(target, true);
       if (!read(target))
@@ -1061,10 +1108,7 @@ export function createStorage(
     void job.finally(() => jobs.delete(job));
     return job;
   }
-  async function removeMissingDevelopment(
-    hostId: string,
-    release: () => void,
-  ) {
+  async function removeMissingDevelopment(hostId: string, release: () => void) {
     let handedOff = false;
     try {
       await requireHost(hostId, true);
@@ -1152,9 +1196,7 @@ export function createStorage(
         .all(threadId);
       const match = matches[0];
       if (matches.length !== 1 || match === undefined)
-        throw new Error(
-          "Scan the machine to identify a unique storage location for this thread",
-        );
+        throw new StorageLocationUnavailable();
       hostId = match.host_id;
     }
     await requireHost(hostId, true);
@@ -1177,6 +1219,15 @@ export function createStorage(
         if (["starting", "active", "stopping"].includes(current.status))
           throw new Error("Stop the thread before clearing its storage");
       }
+      const workspace = (await workspaceEntries(hostId, rootPath)).get(
+        threadId,
+      );
+      if (workspace !== undefined) {
+        if (archivedAt !== null) return { ok: true as const };
+        throw new Error(
+          `This thread’s storage contains the workspace ${workspace}, which an environment still uses`,
+        );
+      }
       await worker.call(
         "discard",
         { rootPath, names: [threadId], recreate: true },
@@ -1191,7 +1242,7 @@ export function createStorage(
   let cleaningArchives = false;
   function queueArchivedStorage(threadId: string, archivedAt: number) {
     db.prepare(
-      "INSERT INTO archive_cleanup (thread_id, archived_at) VALUES (?, ?) ON CONFLICT(thread_id) DO UPDATE SET archived_at = excluded.archived_at",
+      "INSERT INTO archive_cleanup (thread_id, archived_at) VALUES (?, ?) ON CONFLICT(thread_id) DO UPDATE SET archived_at = excluded.archived_at, failure_count = 0, next_attempt_at = 0 WHERE archive_cleanup.archived_at != excluded.archived_at",
     ).run(threadId, archivedAt);
   }
   function cancelArchivedStorage(threadId: string) {
@@ -1211,11 +1262,18 @@ export function createStorage(
     return job;
   }
   async function drainPendingArchives(enabled: () => Promise<boolean>) {
+    if (!(await enabled())) {
+      db.prepare("DELETE FROM archive_cleanup").run();
+      return;
+    }
     const pending = db
-      .prepare<[], { thread_id: string; archived_at: number }>(
-        "SELECT thread_id, archived_at FROM archive_cleanup ORDER BY archived_at",
+      .prepare<
+        [number],
+        { thread_id: string; archived_at: number; failure_count: number }
+      >(
+        "SELECT thread_id, archived_at, failure_count FROM archive_cleanup WHERE next_attempt_at <= ? ORDER BY archived_at",
       )
-      .all();
+      .all(Date.now());
     for (const entry of pending) {
       if (lifecycle.signal.aborted) return;
       if (!(await enabled())) {
@@ -1240,10 +1298,27 @@ export function createStorage(
           "DELETE FROM archive_cleanup WHERE thread_id = ? AND archived_at = ?",
         ).run(entry.thread_id, entry.archived_at);
       } catch (error) {
-        if (error instanceof Error && "status" in error && error.status === 404) {
+        if (
+          error instanceof Error &&
+          "status" in error &&
+          error.status === 404
+        ) {
           cancelArchivedStorage(entry.thread_id);
           continue;
         }
+        const missingLocation = error instanceof StorageLocationUnavailable;
+        const delay = missingLocation
+          ? 3_600_000
+          : Math.min(3_600_000, 60_000 * 2 ** Math.min(entry.failure_count, 6));
+        db.prepare(
+          "UPDATE archive_cleanup SET failure_count = ?, next_attempt_at = ? WHERE thread_id = ? AND archived_at = ?",
+        ).run(
+          missingLocation ? 0 : Math.min(entry.failure_count + 1, 7),
+          Date.now() + delay,
+          entry.thread_id,
+          entry.archived_at,
+        );
+        if (missingLocation) continue;
         bb.log.warn(
           `Could not clear archived storage for ${entry.thread_id}: ${error instanceof Error ? error.message : String(error)}`,
         );

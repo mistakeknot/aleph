@@ -2,11 +2,11 @@ import type { ReactNode } from "react";
 import type { EnvironmentDisplayHostContext } from "@bb/core-ui";
 import {
   ParentSelectorRow,
+  ParentNotificationsRow,
   EnvironmentRow,
   WorkspacePathRow,
   BranchRow,
   MergeBaseRow,
-  PullRequestRow,
   GitStatusRow,
   ArchivedRow,
   ThreadMetadataCard,
@@ -22,7 +22,6 @@ import {
   STORY_COMMITTED_MERGE_BASE,
   STORY_DIRTY_WORKING_TREE,
   makeEnvironment,
-  makePullRequest,
   makeThread,
   makeWorkspaceStatus,
 } from "./ThreadMetadataContent.fixtures";
@@ -130,6 +129,37 @@ export function ParentSelector() {
             onRetryParentThreads={noop}
             defaultOpen
           />
+        </RowStage>
+      </StoryRow>
+    </StoryCard>
+  );
+}
+
+export function ParentNotifications() {
+  const thread = makeThread({
+    parentThreadId: "thr_codex_parent",
+    parentNotifications: "stuck",
+  });
+  return (
+    <StoryCard>
+      <StoryRow label="child, stuck">
+        <RowStage>
+          <ParentSelectorRow
+            thread={thread}
+            projectId={baseProps.projectId}
+            parentThreadProjectId={null}
+            parentThreadDisplayName="Codex Parent"
+            parentThreads={parentThreads}
+            canAssignToParent={false}
+            canTakeOverThread
+            isLoadingParentThreads={false}
+            isParentThreadsError={false}
+            updateThreadPending={false}
+            onAssignParent={noop}
+            onParentSelectorOpenChange={noop}
+            onRetryParentThreads={noop}
+          />
+          <ParentNotificationsRow thread={thread} />
         </RowStage>
       </StoryRow>
     </StoryCard>
@@ -321,270 +351,6 @@ export function MergeBase() {
   );
 }
 
-export function PullRequest() {
-  const readyPullRequest = makePullRequest();
-  const passingPullRequest = makePullRequest({
-    mergeability: {
-      state: "unknown",
-      mergeStateStatus: "UNKNOWN",
-      mergeable: "UNKNOWN",
-    },
-    attention: "none",
-  });
-  const noChecksPullRequest = makePullRequest({
-    checks: {
-      state: "no_checks",
-      totalCount: 0,
-      passedCount: 0,
-      failedCount: 0,
-      pendingCount: 0,
-    },
-    review: {
-      state: "none",
-      reviewRequestCount: 0,
-    },
-    attention: "none",
-  });
-  const unknownChecksPullRequest = makePullRequest({
-    checks: {
-      state: "unknown",
-      totalCount: 1,
-      passedCount: 0,
-      failedCount: 0,
-      pendingCount: 0,
-    },
-    review: {
-      state: "none",
-      reviewRequestCount: 0,
-    },
-    mergeability: {
-      state: "unknown",
-      mergeStateStatus: "UNKNOWN",
-      mergeable: "UNKNOWN",
-    },
-    attention: "none",
-  });
-  const failingPullRequest = makePullRequest({
-    checks: {
-      state: "failing",
-      totalCount: 3,
-      passedCount: 2,
-      failedCount: 1,
-      pendingCount: 0,
-    },
-    attention: "checks_failed",
-  });
-  const pendingPullRequest = makePullRequest({
-    checks: {
-      state: "pending",
-      totalCount: 3,
-      passedCount: 2,
-      failedCount: 0,
-      pendingCount: 1,
-    },
-    attention: "checks_pending",
-  });
-  const changesRequestedPullRequest = makePullRequest({
-    review: {
-      state: "changes_requested",
-      reviewRequestCount: 0,
-    },
-    attention: "changes_requested",
-  });
-  const reviewRequestedPullRequest = makePullRequest({
-    review: {
-      state: "review_requested",
-      reviewRequestCount: 2,
-    },
-    attention: "review_requested",
-  });
-  const conflictsPullRequest = makePullRequest({
-    mergeability: {
-      state: "conflicts",
-      mergeStateStatus: "DIRTY",
-      mergeable: "CONFLICTING",
-    },
-    attention: "conflicts",
-  });
-  const blockedPullRequest = makePullRequest({
-    mergeability: {
-      state: "blocked",
-      mergeStateStatus: "BLOCKED",
-      mergeable: "UNKNOWN",
-    },
-    attention: "blocked",
-  });
-  const draftMergeability = {
-    state: "draft",
-    mergeStateStatus: "DRAFT",
-    mergeable: "UNKNOWN",
-  } as const;
-  const draftPassingPullRequest = makePullRequest({
-    state: "draft",
-    mergeability: draftMergeability,
-    attention: "draft",
-  });
-  const draftFailingPullRequest = makePullRequest({
-    state: "draft",
-    checks: {
-      state: "failing",
-      totalCount: 3,
-      passedCount: 2,
-      failedCount: 1,
-      pendingCount: 0,
-    },
-    mergeability: draftMergeability,
-    attention: "checks_failed",
-  });
-  const draftNoChecksPullRequest = makePullRequest({
-    state: "draft",
-    checks: {
-      state: "no_checks",
-      totalCount: 0,
-      passedCount: 0,
-      failedCount: 0,
-      pendingCount: 0,
-    },
-    mergeability: draftMergeability,
-    attention: "draft",
-  });
-  const draftUnknownChecksPullRequest = makePullRequest({
-    state: "draft",
-    checks: {
-      state: "unknown",
-      totalCount: 1,
-      passedCount: 0,
-      failedCount: 0,
-      pendingCount: 0,
-    },
-    mergeability: draftMergeability,
-    attention: "draft",
-  });
-  const draftPullRequest = makePullRequest({
-    state: "draft",
-    checks: {
-      state: "pending",
-      totalCount: 3,
-      passedCount: 2,
-      failedCount: 0,
-      pendingCount: 1,
-    },
-    mergeability: draftMergeability,
-    attention: "draft",
-  });
-  const draftChangesRequestedPullRequest = makePullRequest({
-    state: "draft",
-    review: {
-      state: "changes_requested",
-      reviewRequestCount: 0,
-    },
-    mergeability: draftMergeability,
-    attention: "changes_requested",
-  });
-  const mergedPullRequest = makePullRequest({
-    state: "merged",
-    attention: "merged",
-  });
-  const closedPullRequest = makePullRequest({
-    state: "closed",
-    attention: "closed",
-  });
-  return (
-    <StoryCard>
-      <StoryRow label="open, ready to merge">
-        <RowStage>
-          <PullRequestRow pullRequest={readyPullRequest} />
-        </RowStage>
-      </StoryRow>
-      <StoryRow label="open, checks passing">
-        <RowStage>
-          <PullRequestRow pullRequest={passingPullRequest} />
-        </RowStage>
-      </StoryRow>
-      <StoryRow label="open, no checks">
-        <RowStage>
-          <PullRequestRow pullRequest={noChecksPullRequest} />
-        </RowStage>
-      </StoryRow>
-      <StoryRow label="open, checks unknown">
-        <RowStage>
-          <PullRequestRow pullRequest={unknownChecksPullRequest} />
-        </RowStage>
-      </StoryRow>
-      <StoryRow label="open, checks failing">
-        <RowStage>
-          <PullRequestRow pullRequest={failingPullRequest} />
-        </RowStage>
-      </StoryRow>
-      <StoryRow label="open, checks pending">
-        <RowStage>
-          <PullRequestRow pullRequest={pendingPullRequest} />
-        </RowStage>
-      </StoryRow>
-      <StoryRow label="open, changes requested">
-        <RowStage>
-          <PullRequestRow pullRequest={changesRequestedPullRequest} />
-        </RowStage>
-      </StoryRow>
-      <StoryRow label="open, review requested">
-        <RowStage>
-          <PullRequestRow pullRequest={reviewRequestedPullRequest} />
-        </RowStage>
-      </StoryRow>
-      <StoryRow label="open, conflicts">
-        <RowStage>
-          <PullRequestRow pullRequest={conflictsPullRequest} />
-        </RowStage>
-      </StoryRow>
-      <StoryRow label="open, blocked">
-        <RowStage>
-          <PullRequestRow pullRequest={blockedPullRequest} />
-        </RowStage>
-      </StoryRow>
-      <StoryRow label="draft, checks passing">
-        <RowStage>
-          <PullRequestRow pullRequest={draftPassingPullRequest} />
-        </RowStage>
-      </StoryRow>
-      <StoryRow label="draft, checks failing">
-        <RowStage>
-          <PullRequestRow pullRequest={draftFailingPullRequest} />
-        </RowStage>
-      </StoryRow>
-      <StoryRow label="draft, no checks">
-        <RowStage>
-          <PullRequestRow pullRequest={draftNoChecksPullRequest} />
-        </RowStage>
-      </StoryRow>
-      <StoryRow label="draft, checks unknown">
-        <RowStage>
-          <PullRequestRow pullRequest={draftUnknownChecksPullRequest} />
-        </RowStage>
-      </StoryRow>
-      <StoryRow label="draft, checks pending">
-        <RowStage>
-          <PullRequestRow pullRequest={draftPullRequest} />
-        </RowStage>
-      </StoryRow>
-      <StoryRow label="draft, changes requested">
-        <RowStage>
-          <PullRequestRow pullRequest={draftChangesRequestedPullRequest} />
-        </RowStage>
-      </StoryRow>
-      <StoryRow label="merged">
-        <RowStage>
-          <PullRequestRow pullRequest={mergedPullRequest} />
-        </RowStage>
-      </StoryRow>
-      <StoryRow label="closed">
-        <RowStage>
-          <PullRequestRow pullRequest={closedPullRequest} />
-        </RowStage>
-      </StoryRow>
-    </StoryCard>
-  );
-}
-
 export function GitStatus() {
   return (
     <StoryCard>
@@ -624,6 +390,7 @@ export function GitStatus() {
                 baseRef: "main",
                 aheadCount: 5,
                 behindCount: 0,
+                squashMergeCheckComplete: true,
                 hasCommittedUnmergedChanges: true,
                 commits: [],
                 insertions: 0,
@@ -648,6 +415,7 @@ export function GitStatus() {
                 baseRef: "main",
                 aheadCount: 0,
                 behindCount: 3,
+                squashMergeCheckComplete: true,
                 hasCommittedUnmergedChanges: false,
                 commits: [],
                 insertions: 0,
@@ -672,6 +440,7 @@ export function GitStatus() {
                 baseRef: "main",
                 aheadCount: 4,
                 behindCount: 2,
+                squashMergeCheckComplete: true,
                 hasCommittedUnmergedChanges: true,
                 commits: [],
                 insertions: 0,
@@ -772,6 +541,7 @@ export function Commits() {
                 baseRef: "main",
                 aheadCount: STORY_AHEAD_COMMITS.length,
                 behindCount: 0,
+                squashMergeCheckComplete: true,
                 hasCommittedUnmergedChanges: true,
                 commits: STORY_AHEAD_COMMITS,
                 insertions: 0,

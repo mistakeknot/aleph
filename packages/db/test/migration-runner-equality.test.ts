@@ -11,6 +11,7 @@ import {
   pinMigrationClock,
   populatedPrefixDatabase,
 } from "./helpers/migration-scenarios.js";
+import { applyPostOracleSteps } from "./helpers/post-oracle-steps.js";
 
 const TIMEOUT = 300_000;
 
@@ -47,6 +48,7 @@ describe("runner equals the legacy runner at deferred-cleanup prefixes", () => {
       async () => {
         const legacy = await pendingDeleteDatabase(length, nullRow);
         await expect(legacyMigrate(legacy)).resolves.toBeUndefined();
+        applyPostOracleSteps(legacy.$client);
         const expected = describeAfter(legacy);
         const hadOperations = legacy.$client
           .prepare("SELECT COUNT(*) AS n FROM project_operations")

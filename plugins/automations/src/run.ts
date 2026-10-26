@@ -2,7 +2,7 @@ import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import {
   closeAutomationRun,
-  disableAutomationsForDeletedThread,
+  disableAutomationsForTargetThread,
   getAutomation,
   listRunningAutomationRuns,
   listRunningAutomationRunsByThread,
@@ -89,12 +89,20 @@ function renderAutomationDueMessage(args: {
   return `[bb automation due:${args.automationId}]\n\n${args.prompt}`;
 }
 
-function isThreadReusable(thread: SdkThread): boolean {
-  return (
-    thread.deletedAt === null &&
-    thread.archivedAt === null &&
-    (thread.status === "idle" || thread.status === "active")
-  );
+function unusableThreadReason(thread: SdkThread): string | null {
+  if (thread.deletedAt !== null) return "was deleted";
+  if (thread.archivedAt !== null) return "was archived";
+  switch (thread.status) {
+    case "idle":
+    case "active":
+      return null;
+    case "error":
+      return "is in an error state";
+    case "pending":
+    case "starting":
+    case "stopping":
+      return `is ${thread.status}`;
+  }
 }
 
 interface AgentRunArgs {
@@ -195,15 +203,16 @@ async function reuseTargetThreadForRun(
     if (!isThreadGoneError(error)) throw error;
     closeRunForUnusableTargetThread(bb, db, {
       ...args,
-      detail: errorMessage(error),
+      reason: "no longer exists",
     });
     return;
   }
 
-  if (!isThreadReusable(thread)) {
+  const unusableReason = unusableThreadReason(thread);
+  if (unusableReason !== null) {
     closeRunForUnusableTargetThread(bb, db, {
       ...args,
-      detail: "missing, deleted, archived, or not runnable",
+      reason: unusableReason,
     });
     return;
   }
@@ -238,22 +247,22 @@ async function reuseTargetThreadForRun(
 function closeRunForUnusableTargetThread(
   bb: Pick<BbPluginApi, "log">,
   db: Db,
-  args: AgentRunArgs & { targetThreadId: string; detail: string },
+  args: AgentRunArgs & { targetThreadId: string; reason: string },
 ): void {
   const now = Date.now();
-  disableAutomationsForDeletedThread(db, {
+  const error = `Target thread ${args.targetThreadId} ${args.reason}`;
+  disableAutomationsForTargetThread(db, {
     threadId: args.targetThreadId,
+    error,
     now,
   });
   closeAutomationRun(db, {
     runId: args.run.id,
     status: "failed",
-    error: `Target thread ${args.targetThreadId} is unavailable: ${args.detail}`,
+    error,
     now,
   });
-  bb.log.error(
-    `Automation ${args.automation.id} target thread ${args.targetThreadId} is unavailable: ${args.detail}`,
-  );
+  bb.log.error(`Automation ${args.automation.id} paused: ${error}`);
 }
 
 export async function executeScriptRun(
@@ -455,8 +464,9 @@ export function disableAutomationsForDeletedThreadEvent(
   db: Db,
   threadId: string,
 ): void {
-  const disabled = disableAutomationsForDeletedThread(db, {
+  const disabled = disableAutomationsForTargetThread(db, {
     threadId,
+    error: `Target thread ${threadId} was deleted`,
     now: Date.now(),
   });
   for (const automation of disabled) {

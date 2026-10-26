@@ -15,7 +15,7 @@ import {
   COMPACT_THREAD_TIMELINE_SEGMENT_LIMIT,
 } from "../cache-owners/thread-timeline-push-owner";
 import { systemConfigQueryKey, threadTimelineQueryKey } from "./query-keys";
-import { useThreadTimeline } from "./thread-queries";
+import { useThreadTimeline } from "./thread-panel-queries";
 
 vi.mock("@/lib/sdk", () => ({
   sdk: {

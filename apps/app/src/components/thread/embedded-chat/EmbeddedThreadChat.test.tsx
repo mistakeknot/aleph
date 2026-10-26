@@ -96,7 +96,7 @@ vi.mock("@/components/promptbox/FollowUpPromptBox", async () => {
           value={composer.message}
           onChange={(event) => composer.onChangeMessage(event.target.value, [])}
         />
-        <button type="button" onClick={composer.onSubmit}>
+        <button type="button" onClick={() => composer.onSubmit()}>
           Send
         </button>
         <BottomHostDraftProbe host={pluginComposerHost ?? null} />
@@ -153,7 +153,7 @@ vi.mock("@/components/ui/bottom-anchored-scroll-body", () => ({
   ),
 }));
 
-vi.mock("@/components/ui/overflow-fade", () => ({
+vi.mock("@bb/shared-ui/overflow-fade", () => ({
   OverflowFade: ({ tone }: { tone: string }) => (
     <div data-testid="embedded-chat-overflow-fade" data-tone={tone} />
   ),
@@ -212,26 +212,18 @@ vi.mock("@/hooks/useThreadCreationOptions", () => ({
   }),
 }));
 
-vi.mock("@/hooks/usePromptMentions", () => ({
-  usePromptMentions: () => ({
-    triggers: [],
-    results: { groups: [], suggestions: [] },
-    isLoading: false,
-    isError: false,
-    setQuery: vi.fn(),
-  }),
-}));
+vi.mock("@/hooks/usePromptMentions", async () =>
+  (await import("@/test/fixtures/composer-search")).fakePromptMentionsModule(),
+);
 
-vi.mock("@/hooks/useCommandSuggestions", () => ({
-  useCommandSuggestions: () => ({
-    triggers: [],
-    suggestions: [],
-    isLoading: false,
-    isError: false,
-    hasMore: false,
-    isLoadingMore: false,
-    loadMore: vi.fn(),
-  }),
+vi.mock("@/hooks/useCommandSuggestions", async () =>
+  (
+    await import("@/test/fixtures/composer-search")
+  ).fakeCommandSuggestionsModule(),
+);
+
+vi.mock("@/hooks/queries/thread-panel-queries", () => ({
+  useThreadQueuedMessages: () => ({ data: mocks.queuedMessages }),
 }));
 
 vi.mock("@/hooks/queries/thread-queries", () => ({
@@ -247,7 +239,6 @@ vi.mock("@/hooks/queries/thread-queries", () => ({
           }
         : undefined,
   }),
-  useThreadQueuedMessages: () => ({ data: mocks.queuedMessages }),
   useThreadPendingInteractions: () => ({
     data: mocks.pendingInteractions,
     isError: mocks.pendingInteractionsIsError,

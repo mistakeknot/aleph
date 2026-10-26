@@ -5,7 +5,10 @@ import {
   type BbPluginApi,
   type PluginAgentConfigurationContext,
 } from "../../backend-contract.js";
-import { defineRpcContract } from "../../rpc-contract.js";
+import {
+  defineRpcContract,
+  experimental_PluginRpcRefusal,
+} from "../../rpc-contract.js";
 import { RESERVED_BB_CLI_COMMANDS } from "../../internal/host-policy.js";
 import {
   createFakePluginHost,
@@ -99,6 +102,36 @@ describe("server", () => {
       "https://bb.example.test",
     );
     expect(unset.bb.server.experimental_appUrl).toBeNull();
+  });
+
+  it("records tunnel ingress handles, shares an audience, and closes them on dispose", async () => {
+    const { bb, harness } = createFakePluginHost();
+    const first = await bb.server.internal_DO_NOT_USE_openTunnelIngress({
+      audience: "server:srv_1",
+    });
+    const shared = await bb.server.internal_DO_NOT_USE_openTunnelIngress({
+      audience: "server:srv_1",
+    });
+    const other = await bb.server.internal_DO_NOT_USE_openTunnelIngress({
+      audience: "server:srv_2",
+    });
+    expect(shared.baseUrl).toBe(first.baseUrl);
+    expect(other.baseUrl).not.toBe(first.baseUrl);
+    await expect(
+      bb.server.internal_DO_NOT_USE_openTunnelIngress({ audience: "" }),
+    ).rejects.toThrow(/non-empty audience/);
+
+    await first.close();
+    expect(
+      harness.internal_DO_NOT_USE_tunnelIngresses.map((entry) => entry.closed),
+    ).toEqual([true, false, false]);
+
+    await harness.dispose();
+    expect(
+      harness.internal_DO_NOT_USE_tunnelIngresses.every(
+        (entry) => entry.closed,
+      ),
+    ).toBe(true);
   });
 });
 
@@ -620,6 +653,32 @@ describe("rpc", () => {
     await expect(harness.callRpc("nonFinite")).rejects.toMatchObject({
       code: "non_json_result",
     });
+  });
+
+  it("preserves typed refusals and does not invalidate refused writes", async () => {
+    const { bb, harness } = createFakePluginHost();
+    const contract = defineRpcContract({
+      save: {
+        input: z.null(),
+        output: z.null(),
+        invalidates: () => ["private"],
+      },
+    });
+    bb.rpc.register(contract, {
+      save: () => {
+        throw new experimental_PluginRpcRefusal({
+          code: "forbidden",
+          message: "Private",
+          issues: [{ message: "Caller denied" }],
+        });
+      },
+    });
+    await expect(harness.callRpc("save")).rejects.toMatchObject({
+      code: "forbidden",
+      message: "Private",
+      issues: [{ message: "Caller denied" }],
+    });
+    expect(harness.experimental_rpcInvalidations).toEqual([]);
   });
 
   it("rejects invalid and duplicate registrations", () => {

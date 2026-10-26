@@ -196,6 +196,7 @@ describe("round 6: background-task diagnostics", () => {
     status: "failed",
     taskStatus: "failed",
     skipTranscript: false,
+    foreground: false,
   };
   for (const type of [
     "item/backgroundTask/progress",

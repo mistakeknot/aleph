@@ -30,7 +30,7 @@ import {
   setPluginSdkPin,
   type PluginPackageLayoutMigration,
 } from "@bb/templates/plugin-scaffold";
-import { action } from "../action.js";
+import { action, CliExitError } from "../action.js";
 import { cliFetch, createCliBbSdk } from "../client.js";
 import {
   buildPluginApp,
@@ -845,12 +845,22 @@ export function registerPluginCommands(
               : jsonValueSchema.parse(
                   JSON.parse(await readFile(opts.inputFile, "utf8")),
                 );
-          const result = await createCliBbSdk(getUrl()).plugins.callRpc({
-            pluginId,
-            method,
-            input,
-            outputSchema: jsonValueSchema,
-          });
+          const result = await createCliBbSdk(getUrl())
+            .plugins.callRpc({
+              pluginId,
+              method,
+              input,
+              outputSchema: jsonValueSchema,
+            })
+            .catch((error: unknown) => {
+              if (error instanceof BbHttpError && error.code !== null) {
+                throw new CliExitError(`${error.code}: ${error.message}`, 1, {
+                  code: error.code,
+                  hint: null,
+                });
+              }
+              throw error;
+            });
           if (opts.json) {
             outputJson(opts, result);
             return;
@@ -1640,6 +1650,8 @@ export function registerPluginCommands(
         const files = [server.jsPath, server.mapPath, server.metaPath];
         if (hasApp) {
           const app = await buildPluginApp(rootDir, bbVersion, toolchain);
+          for (const warning of app.migrationWarnings)
+            console.warn(`warning: ${warning}`);
           files.push(app.jsPath, app.cssPath, app.metaPath);
         }
         if (hasHost) {
@@ -1689,12 +1701,14 @@ export function registerPluginCommands(
             };
           },
           buildApp: async () => {
-            await buildPluginApp(
+            const app = await buildPluginApp(
               rootDir,
               resolveBbCliVersion(),
               await cliBuildToolchain(),
               { minify: false },
             );
+            for (const warning of app.migrationWarnings)
+              console.warn(`warning: ${warning}`);
           },
           buildHost: async () => {
             await buildPluginHost(
@@ -1777,16 +1791,30 @@ export function registerPluginCommands(
       .option("--json", "Output JSON")
       .action(
         action(async (id: string, opts: JsonOutputOptions) => {
-          const result = pluginMutationResponseSchema.parse(
+          const response = pluginMutationResponseSchema.parse(
             await callPlugins(
               getUrl(),
               `/${encodeURIComponent(id)}/${name}`,
               "POST",
             ),
           );
+          const failedPlugin =
+            name === "enable" &&
+            response.plugin?.enabled === true &&
+            response.plugin.status === "error"
+              ? response.plugin
+              : null;
+          const result = failedPlugin
+            ? {
+                ...response,
+                ok: false,
+                error:
+                  failedPlugin.statusDetail ?? `plugin "${id}" failed to load`,
+              }
+            : response;
           if (outputMutationJson(opts, result)) return;
+          if (result.plugin) printPlugin(result.plugin);
           if (!result.ok || !result.plugin) exitWithError(result);
-          printPlugin(result.plugin);
         }),
       );
   }

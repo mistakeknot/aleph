@@ -1,11 +1,13 @@
 import {
+  HOST_DAEMON_COMPATIBLE_PROTOCOL_VERSIONS,
   HOST_DAEMON_PROTOCOL_VERSION,
   type HostDaemonInternalSchema,
 } from "@bb/host-daemon-contract";
 import type { Hono } from "hono";
 import { hc } from "hono/client";
 import { describe, expect, it } from "vitest";
-import { getHost, updateHost, upsertHost } from "@bb/db";
+import { getHost, setAppSettings, updateHost, upsertHost } from "@bb/db";
+import { defaultAppSettings } from "@bb/domain";
 import {
   createTestDaemonHostKey,
   startTestServer,
@@ -71,6 +73,10 @@ describe("internal session protocol version", () => {
       const hostKey = createTestDaemonHostKey({ hostId });
       upsertHost(server.db, server.hub, { id: hostId, name: "Resuming Host" });
       updateHost(server.db, server.hub, hostId, { phase: "resuming" });
+      setAppSettings(server.db, {
+        ...defaultAppSettings,
+        idleProviderSessionTimeoutMinutes: 5,
+      });
 
       const response = await fetch(`${server.baseUrl}/internal/session/open`, {
         method: "POST",
@@ -94,6 +100,9 @@ describe("internal session protocol version", () => {
       });
 
       expect(response.status).toBe(201);
+      expect(await response.json()).toMatchObject({
+        idleProviderSessionTimeoutMinutes: 5,
+      });
     } finally {
       await server.close();
     }
@@ -108,7 +117,8 @@ describe("internal session protocol version", () => {
         name: "Protocol Host",
       });
       const daemonClient = createHostDaemonClient(server.baseUrl, hostKey);
-      const staleProtocolVersion = HOST_DAEMON_PROTOCOL_VERSION - 1;
+      const staleProtocolVersion =
+        Math.min(...HOST_DAEMON_COMPATIBLE_PROTOCOL_VERSIONS) - 1;
 
       const priorProtocolResponse = await fetch(
         `${server.baseUrl}/internal/session/open`,

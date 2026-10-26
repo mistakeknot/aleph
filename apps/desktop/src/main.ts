@@ -1,3 +1,4 @@
+import { createDesktopLogger } from "./desktop-logger.js";
 import { spawn } from "node:child_process";
 import { attachServerUpdateControl } from "./server-update-control.js";
 import { registerServerChoiceIpc } from "./server-choice-ipc.js";
@@ -199,7 +200,6 @@ import {
   createDesktopAutoUpdateService,
   createElectronAutoUpdaterAdapter,
   shouldEnableDesktopAutoUpdate,
-  type DesktopAutoUpdateLogger,
   type DesktopAutoUpdateService,
 } from "./desktop-auto-update.js";
 import { mergeDesktopUpdateInfo } from "./desktop-update-info.js";
@@ -228,6 +228,7 @@ import {
   CLOSE_WINDOW_REQUEST_TIMEOUT_MS,
 } from "./desktop-window-command-ipc.js";
 import {
+  BB_BROWSER_PARTITION,
   createDesktopBrowserViewManager,
   type DesktopBrowserViewManager,
 } from "./desktop-browser-view.js";
@@ -564,7 +565,7 @@ function getCurrentDesktopInfo(): BbDesktopInfo | null {
   }
   return {
     ...info,
-    serverDaemonLogsAvailable: shouldEnableServerDaemonLogsMenu(),
+    serverDaemonLogsAvailable: true,
   };
 }
 
@@ -581,6 +582,7 @@ function zoomWebContents(
   if (!target) {
     return;
   }
+  if (desktopWindowFactory?.zoom(target.id, command)) return;
   target.setZoomFactor(nextZoomFactor(target.getZoomFactor(), command));
 }
 
@@ -664,17 +666,7 @@ function sendDesktopWindowStateChanged(
   );
 }
 
-const desktopLogger: DesktopAutoUpdateLogger = {
-  error(message) {
-    process.stderr.write(`${message}\n`);
-  },
-  info(message) {
-    process.stderr.write(`${message}\n`);
-  },
-  warn(message) {
-    process.stderr.write(`${message}\n`);
-  },
-};
+const desktopLogger = createDesktopLogger({ logDir: formatLogDirectory() });
 
 function resolveDataDirFromEnv(args: ResolveDataDirFromEnvArgs): string {
   const rawDataDir = args.env.BB_DATA_DIR?.trim();
@@ -715,13 +707,6 @@ function createDesktopPathContext(): DesktopPathContext {
     isPackaged: app.isPackaged,
     resourcesPath: process.resourcesPath,
   };
-}
-
-function shouldEnableServerDaemonLogsMenu(): boolean {
-  return (
-    (process.platform === "darwin" || process.platform === "win32") &&
-    currentRuntime?.ownership === "spawned"
-  );
 }
 
 const closeWindowRequests = createCloseWindowRequestTracker(
@@ -800,6 +785,20 @@ function buildMenuServerItems(connectServers: ConnectServerRef[]) {
 function buildServerMenuArgs(): ServerMenuArgs {
   const connectServers = listMenuConnectServers();
   return {
+    isMac: process.platform === "darwin",
+    showBuiltinServer: serverTargetStore?.getShowBuiltinServer() ?? true,
+    toggleBuiltinServer() {
+      if (serverTargetStore === null) return;
+      void serverTargetStore
+        .setShowBuiltinServer(!serverTargetStore.getShowBuiltinServer())
+        .then(refreshApplicationMenu)
+        .catch((error: unknown) => {
+          desktopLogger.warn(
+            `[desktop] could not save server visibility: ${error instanceof Error ? error.message : String(error)}`,
+          );
+          refreshApplicationMenu();
+        });
+    },
     addServer() {
       void openSetServerUrlDialog(true);
     },
@@ -936,13 +935,12 @@ function refreshApplicationMenu(): void {
       }
       requestRendererWindowClose(browserWindow);
     },
-    openServerDaemonLogs() {
-      void openServerDaemonLogs();
+    openLocalLogs() {
+      void openLocalLogs();
     },
     onServerMenuWillShow() {
       connectServerSync?.onListRequested();
     },
-    serverDaemonLogsMenuEnabled: shouldEnableServerDaemonLogsMenu(),
   });
 }
 
@@ -954,9 +952,6 @@ function setCurrentRuntime(runtime: DesktopRuntime | null): void {
     connectServerSync?.onRuntimeReady();
   }
   refreshApplicationMenu();
-  if (runtime?.ownership !== "spawned") {
-    closeServerDaemonLogsWindow();
-  }
   sendDesktopInfoChanged();
 }
 
@@ -1086,7 +1081,7 @@ async function refreshSystemConfig(
       return;
     }
     const message = error instanceof Error ? error.message : String(error);
-    process.stderr.write(`Could not refresh system config: ${message}\n`);
+    desktopLogger.warn(`Could not refresh system config: ${message}`);
   }
 }
 
@@ -1217,11 +1212,14 @@ async function authenticateConnectTarget(
   targetHandle: string,
   isCurrent: () => boolean,
 ): Promise<ConnectDesktopSessionResult> {
-  const cookieStore = session.defaultSession.cookies;
+  const cookieStores = [
+    session.defaultSession.cookies,
+    session.fromPartition(BB_BROWSER_PARTITION).cookies,
+  ] as const;
   let cachedFailure: ConnectDesktopSessionResult | null = null;
   if (cachedConnectCredential !== null) {
     const cachedResult = await installConnectDesktopSession({
-      cookieStore,
+      cookieStores,
       mintCookie: createCredentialCookieSource({
         credential: cachedConnectCredential,
       }),
@@ -1253,7 +1251,7 @@ async function authenticateConnectTarget(
   const movedCredential = await readLocalServerMoveCredential(remoteServerUrl);
   if (movedCredential !== null) {
     const movedResult = await installConnectDesktopSession({
-      cookieStore,
+      cookieStores,
       mintCookie: createCredentialCookieSource({
         credential: movedCredential,
       }),
@@ -1269,7 +1267,7 @@ async function authenticateConnectTarget(
   );
   if (accountCookie !== null) {
     const accountResult = await installConnectDesktopSession({
-      cookieStore,
+      cookieStores,
       mintCookie: createAccountCookieSource({
         accountCookie,
         remoteServerUrl,
@@ -1303,7 +1301,7 @@ async function authenticateConnectTarget(
     );
   }
   const localResult = await installConnectDesktopSession({
-    cookieStore,
+    cookieStores,
     mintCookie: createLocalServerCookieSource({
       localServerUrl: currentRuntime.serverUrl,
     }),
@@ -2082,6 +2080,7 @@ async function openSetServerUrlDialog(add = false): Promise<void> {
   await serverTargetStore.setCustomServerUrl(
     result.kind === "set" ? result.url : null,
     {
+      availableConnectServers: listMenuConnectServers(),
       ...(previousUrl === null ? {} : { replacedUrl: previousUrl }),
       ...(result.kind === "set" && !(add && result.name === null)
         ? { name: result.name }
@@ -2102,26 +2101,7 @@ function sendLogViewerSnapshot(args: SendLogViewerSnapshotArgs): void {
   });
 }
 
-function closeServerDaemonLogsWindow(): void {
-  logViewerTailer?.stop();
-  logViewerTailer = null;
-  logViewerLineBuffer?.stop();
-  logViewerLineBuffer = null;
-
-  const browserWindow = logViewerWindow;
-  logViewerWindow = null;
-  if (browserWindow !== null && !browserWindow.isDestroyed()) {
-    browserWindow.close();
-  }
-}
-
 async function handleOpenLogsFolder(): Promise<LogViewerOpenLogsFolderResult> {
-  if (!shouldEnableServerDaemonLogsMenu()) {
-    throw new Error(
-      "Server and daemon logs are only available for owned runtimes",
-    );
-  }
-
   const logDir = formatLogDirectory();
   const errorMessage = await shell.openPath(logDir);
   if (errorMessage.length > 0) {
@@ -2152,7 +2132,7 @@ async function loadLogViewerWindow(
     minHeight: 520,
     minWidth: 840,
     show: false,
-    title: "Aleph - Server & Daemon Logs",
+    title: "Aleph - Local Logs",
     titleBarStyle: "default",
     webPreferences: {
       contextIsolation: true,
@@ -2212,8 +2192,8 @@ async function loadLogViewerWindow(
   await tailer.start();
 }
 
-async function openServerDaemonLogs(): Promise<void> {
-  if (!shouldEnableServerDaemonLogsMenu() || logViewerPreloadPath === null) {
+async function openLocalLogs(): Promise<void> {
+  if (logViewerPreloadPath === null) {
     return;
   }
 
@@ -2265,6 +2245,11 @@ async function loadLoadingView(): Promise<void> {
 }
 
 async function loadStartupError(args: LoadStartupErrorArgs): Promise<void> {
+  desktopLogger.error(
+    args.logs.length === 0
+      ? `[desktop] ${args.title}: ${args.details}`
+      : `[desktop] ${args.title}: ${args.details}\nbb-app output:\n${args.logs}`,
+  );
   await loadActionView({
     ...args,
     details:
@@ -2377,7 +2362,13 @@ async function finishQuit(): Promise<void> {
   desktopAutoUpdateService?.stop();
   desktopBrowserViewManager?.destroyAll();
   desktopFindViewManager?.destroyAll();
-  await desktopWindowFactory?.persistOpenWindows();
+  await desktopWindowFactory
+    ?.persistOpenWindows()
+    .catch((error) =>
+      desktopLogger.error(
+        `Could not save desktop window state: ${String(error)}`,
+      ),
+    );
   await stopOwnedRuntime();
 }
 
@@ -2432,7 +2423,7 @@ function registerDesktopUpdateIpc(): void {
     return getSenderDesktopWindowState(event);
   });
   ipcMain.handle(BB_DESKTOP_OPEN_SERVER_DAEMON_LOGS_CHANNEL, async () => {
-    await openServerDaemonLogs();
+    await openLocalLogs();
   });
   ipcMain.handle(BB_DESKTOP_OPEN_DATA_DIRECTORY_CHANNEL, async () => {
     await openDataDirectory();
@@ -2946,7 +2937,10 @@ async function runDesktopApp(): Promise<void> {
   }
 
   const paths = createDesktopPathContext();
+  const devIcon =
+    !paths.isPackaged || process.env.BB_DESKTOP_DEV_ICON === "1";
   const iconPath = resolveDesktopIconPath({
+    devIcon,
     packagedIconFileName: DESKTOP_RELEASE_INFO.iconFileName,
     paths,
   });
@@ -3013,11 +3007,7 @@ async function runDesktopApp(): Promise<void> {
   });
   assertPathExists({ label: "app icon", path: iconPath });
 
-  if (
-    process.platform === "darwin" &&
-    app.dock !== undefined &&
-    !paths.isPackaged
-  ) {
+  if (process.platform === "darwin" && app.dock !== undefined && devIcon) {
     app.dock.setIcon(iconPath);
   }
   await reapStaleOwnedRuntime({
@@ -3321,6 +3311,8 @@ async function runDesktopApp(): Promise<void> {
   );
   desktopBrowserBrokerClient = createDesktopBrowserBrokerClient({
     broker: desktopBrowserBroker,
+    fetchImpl: (input, init) =>
+      net.fetch(input instanceof URL ? input.toString() : input, init),
     dataDir,
     homeDir: homedir(),
     getServerUrl() {
@@ -3410,7 +3402,6 @@ async function runDesktopApp(): Promise<void> {
 void runDesktopApp().catch((error) => {
   const message =
     error instanceof Error ? (error.stack ?? error.message) : String(error);
-  process.stderr.write(`${message}\n`);
   void loadStartupError({
     details: message,
     logs: "",

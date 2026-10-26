@@ -84,10 +84,10 @@ function withNewUpstreamStep(
       ...base,
       upstream: [
         ...base.upstream,
-        { tag: "0144_synthetic", when, sha256: "synthetic" },
+        { tag: "0147_synthetic", when, sha256: "synthetic" },
       ],
     },
-    sqlFor: (tag) => (tag === "0144_synthetic" ? sql : readUpstreamSql(tag)),
+    sqlFor: (tag) => (tag === "0147_synthetic" ? sql : readUpstreamSql(tag)),
   };
 }
 
@@ -230,7 +230,7 @@ describe("reference extraction", () => {
           readAlephSql,
           readUpstreamSql: sqlFor,
         }),
-      ).toThrow(/0144_synthetic rebuilds or alters b/);
+      ).toThrow(/0147_synthetic rebuilds or alters b/);
       void before;
     } finally {
       before.close();
@@ -1110,7 +1110,7 @@ describe("guardPlan", () => {
         readAlephSql,
         readUpstreamSql: sqlFor,
       }),
-    ).toThrow(/0144_synthetic rebuilds or alters queued_thread_messages/);
+    ).toThrow(/0147_synthetic rebuilds or alters queued_thread_messages/);
   });
 
   it.each([
@@ -1132,7 +1132,7 @@ describe("guardPlan", () => {
         readAlephSql,
         readUpstreamSql: sqlFor,
       }),
-    ).toThrow(/0144_synthetic rebuilds or alters queued_thread_messages/);
+    ).toThrow(/0147_synthetic rebuilds or alters queued_thread_messages/);
   });
 
   it("scans the same trimmed text the executor runs", () => {
@@ -1201,7 +1201,7 @@ describe("guardPlan", () => {
           readAlephSql,
           readUpstreamSql: sqlFor,
         }),
-      ).toThrow(/0144_synthetic rebuilds or alters queued_thread_messages/);
+      ).toThrow(/0147_synthetic rebuilds or alters queued_thread_messages/);
     },
   );
 
@@ -1219,7 +1219,7 @@ describe("guardPlan", () => {
         readAlephSql,
         readUpstreamSql: sqlFor,
       }),
-    ).toThrow(/0144_synthetic has when 1, which is not after/);
+    ).toThrow(/0147_synthetic has when 1, which is not after/);
   });
 
   it("accepts a new upstream step that touches only unrelated tables", () => {
@@ -1314,7 +1314,7 @@ describe("guardPlan", () => {
         readAlephSql: (id) =>
           alephFileById.has(id) ? readAlephSql(id) : newAlephSql,
         readUpstreamSql: (tag) =>
-          tag.startsWith("0144") || tag.startsWith("0145")
+          tag.startsWith("0147") || tag.startsWith("0148")
             ? sql
             : readUpstreamSql(tag),
       });
@@ -1351,22 +1351,28 @@ describe("guardPlan", () => {
           readAlephSql,
           readUpstreamSql: sqlFor,
         }),
-      ).toThrow(/0144_synthetic has when \d+, which is not after/);
+      ).toThrow(/0147_synthetic has when \d+, which is not after/);
     });
 
     it("refuses a control character in a new Aleph step", () => {
-      const input = extend([], [alephStep("A0011", "A0010", lastWhen + 1)]);
+      const input = extend(
+        [],
+        [alephStep("A0012", "0146_diff_viewed_files", lastWhen + 1)],
+      );
       expect(() =>
         guardInput(
           input,
           "SELECT 1;",
           "SELECT 1;\u0000 CREATE TABLE intended_new_table(id);",
         ),
-      ).toThrow(/Aleph step A0011: .*U\+0000 at offset 9/);
+      ).toThrow(/Aleph step A0012: .*U\+0000 at offset 9/);
     });
 
     it("accepts a new Aleph step without control characters", () => {
-      const input = extend([], [alephStep("A0011", "A0010", lastWhen + 1)]);
+      const input = extend(
+        [],
+        [alephStep("A0012", "0146_diff_viewed_files", lastWhen + 1)],
+      );
       expect(() =>
         guardInput(input, "SELECT 1;", "CREATE TABLE intended_new_table(id);"),
       ).not.toThrow();
@@ -1389,58 +1395,56 @@ describe("guardPlan", () => {
     it("refuses a second new upstream step that is not after the first", () => {
       const input = extend(
         [
-          { tag: "0144_first", when: lastWhen + 100, sha256: "first" },
-          { tag: "0145_second", when: lastWhen + 50, sha256: "second" },
+          { tag: "0147_first", when: lastWhen + 100, sha256: "first" },
+          { tag: "0148_second", when: lastWhen + 50, sha256: "second" },
         ],
         [],
       );
       expect(() => guardInput(input)).toThrow(
-        /0145_second has when \d+, which is not after the preceding step 0144_first/,
+        /0148_second has when \d+, which is not after the preceding step 0147_first/,
       );
     });
 
     it("accepts new upstream steps with increasing whens", () => {
       const input = extend(
         [
-          { tag: "0144_first", when: lastWhen + 50, sha256: "first" },
-          { tag: "0145_second", when: lastWhen + 100, sha256: "second" },
+          { tag: "0147_first", when: lastWhen + 50, sha256: "first" },
+          { tag: "0148_second", when: lastWhen + 100, sha256: "second" },
         ],
         [],
       );
       expect(() => guardInput(input)).not.toThrow();
     });
 
-    it("accepts an upstream step between A0010 and a later Aleph step", () => {
+    it("accepts an upstream step between 0146 and a later Aleph step", () => {
       const input = extend(
-        [{ tag: "0144_first", when: lastWhen + 10, sha256: "first" }],
-        [alephStep("A0011", "0144_first", lastWhen + 20)],
+        [{ tag: "0147_first", when: lastWhen + 10, sha256: "first" }],
+        [alephStep("A0012", "0147_first", lastWhen + 20)],
       );
       expect(
         buildMigrationPlan(input)
           .steps.map((step) => step.id)
           .slice(-3),
-      ).toEqual(
-        ["A0010", "0144_first", "A0011"],
-      );
+      ).toEqual(["0146_diff_viewed_files", "0147_first", "A0012"]);
       expect(() => guardInput(input)).not.toThrow();
     });
 
     it("refuses a later Aleph step older than the upstream step before it", () => {
       const input = extend(
-        [{ tag: "0144_first", when: lastWhen + 20, sha256: "first" }],
-        [alephStep("A0011", "0144_first", lastWhen + 10)],
+        [{ tag: "0147_first", when: lastWhen + 20, sha256: "first" }],
+        [alephStep("A0012", "0147_first", lastWhen + 10)],
       );
       expect(() => guardInput(input)).toThrow(
-        /Aleph step A0011 has when \d+, which is not after the preceding step 0144_first/,
+        /Aleph step A0012 has when \d+, which is not after the preceding step 0147_first/,
       );
     });
 
     it("refuses a new upstream step older than the Aleph step it follows", () => {
       const input = extend(
-        [{ tag: "0144_first", when: lastWhen - 1, sha256: "first" }],
+        [{ tag: "0147_first", when: lastWhen - 1, sha256: "first" }],
         [],
       );
-      expect(() => guardInput(input)).toThrow(/0144_first has when/);
+      expect(() => guardInput(input)).toThrow(/0147_first has when/);
     });
 
     it("accepts a reviewed Aleph step that supersedes a new upstream step", () => {
@@ -1448,19 +1452,19 @@ describe("guardPlan", () => {
       const input: MigrationPlanInput = {
         upstream: [
           ...base.upstream,
-          { tag: "0144_first", when: lastWhen + 10, sha256: "first" },
+          { tag: "0147_first", when: lastWhen + 10, sha256: "first" },
         ],
         aleph: [
           ...base.aleph,
           {
-            ...alephStep("A0011", "A0010", lastWhen + 20),
-            supersedes: "0144_first",
+            ...alephStep("A0012", "0146_diff_viewed_files", lastWhen + 20),
+            supersedes: "0147_first",
           },
         ],
       };
       const frozenWithNew = [
         ...frozen,
-        { tag: "0144_first", sha256: "first", supersededBy: "A0011" },
+        { tag: "0147_first", sha256: "first", supersededBy: "A0012" },
       ];
       expect(() =>
         guardPlan({
@@ -1486,7 +1490,7 @@ describe("guardPlan", () => {
           readAlephSql,
           readUpstreamSql: sqlFor,
         }),
-      ).toThrow(/0144_synthetic is not in the migration plan/);
+      ).toThrow(/0147_synthetic is not in the migration plan/);
     });
   });
 });

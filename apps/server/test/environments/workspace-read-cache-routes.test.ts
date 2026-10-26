@@ -1,6 +1,6 @@
 import { updateHost } from "@bb/db";
 import { describe, expect, it } from "vitest";
-import type { GitHostPullRequest, WorkspaceWorkingTree } from "@bb/domain";
+import type { WorkspaceWorkingTree } from "@bb/domain";
 import type { HostDaemonOnlineRpcResult } from "@bb/host-daemon-contract";
 import {
   listQueuedCommands,
@@ -40,29 +40,6 @@ function workspaceStatus(
       checkout: { kind: "branch", branchName: currentBranch, headSha: null },
       mergeBase: null,
     },
-  };
-}
-
-function rawPullRequest(
-  overrides: Partial<GitHostPullRequest> = {},
-): GitHostPullRequest {
-  return {
-    number: 42,
-    title: "Cache the PR probe",
-    state: "OPEN",
-    url: "https://github.com/acme/bb/pull/42",
-    isDraft: false,
-    baseRefName: "main",
-    headRefName: "bb/pr-cache",
-    updatedAt: "2026-06-16T12:30:00Z",
-    autoMerge: false,
-    inMergeQueue: false,
-    checks: [],
-    reviewDecision: null,
-    reviewRequestCount: 0,
-    mergeStateStatus: "CLEAN",
-    mergeable: "MERGEABLE",
-    ...overrides,
   };
 }
 
@@ -161,66 +138,10 @@ describe("workspace read caches on the environment routes", () => {
     });
   });
 
-  it("serves repeated pull request reads from one gh probe until git-refs-changed", async () => {
-    await withTestHarness(async (harness) => {
-      const { environment } = seedGitEnvironment(harness, "pull-request");
-      const url = `/api/v1/environments/${environment.id}/pull-request`;
-
-      const first = harness.app.request(url);
-      const second = harness.app.request(url);
-      const pullRequestCommand = await waitForQueuedCommand(
-        harness,
-        ({ command }) =>
-          command.type === "workspace.pull_request" &&
-          command.environmentId === environment.id,
-      );
-      await reportQueuedCommandSuccess(harness, pullRequestCommand, {
-        outcome: "available",
-        pullRequest: rawPullRequest({ isDraft: true }),
-      });
-      for (const response of await Promise.all([first, second])) {
-        expect(response.status).toBe(200);
-        await expect(readJson(response)).resolves.toMatchObject({
-          outcome: "available",
-          pullRequest: { number: 42, state: "draft" },
-        });
-      }
-
-      const third = await harness.app.request(url);
-      expect(third.status).toBe(200);
-      await expect(readJson(third)).resolves.toMatchObject({
-        pullRequest: { number: 42, state: "draft" },
-      });
-      expect(
-        listQueuedCommands(harness, "workspace.pull_request"),
-      ).toHaveLength(0);
-
-      harness.hub.notifyEnvironment(environment.id, ["git-refs-changed"]);
-      const fourth = harness.app.request(url);
-      const refreshedCommand = await waitForQueuedCommandAfter(
-        harness,
-        pullRequestCommand.row.cursor,
-        ({ command }) =>
-          command.type === "workspace.pull_request" &&
-          command.environmentId === environment.id,
-      );
-      await reportQueuedCommandSuccess(harness, refreshedCommand, {
-        outcome: "available",
-        pullRequest: rawPullRequest({ isDraft: false }),
-      });
-      const fourthResponse = await fourth;
-      expect(fourthResponse.status).toBe(200);
-      await expect(readJson(fourthResponse)).resolves.toMatchObject({
-        pullRequest: { number: 42, state: "open" },
-      });
-    });
-  });
-
-  it("drops the cached status and pull request when the commit action mutates the workspace", async () => {
+  it("drops the cached status when the commit action mutates the workspace", async () => {
     await withTestHarness(async (harness) => {
       const { environment } = seedGitEnvironment(harness, "commit-action");
       const statusUrl = `/api/v1/environments/${environment.id}/status`;
-      const pullRequestUrl = `/api/v1/environments/${environment.id}/pull-request`;
 
       const dirtyRead = harness.app.request(statusUrl);
       const dirtyCommand = await waitForQueuedCommand(
@@ -237,18 +158,6 @@ describe("workspace read caches on the environment routes", () => {
       await expect(readJson(await dirtyRead)).resolves.toMatchObject({
         workspace: { workingTree: { state: "untracked" } },
       });
-      const pullRequestRead = harness.app.request(pullRequestUrl);
-      const pullRequestCommand = await waitForQueuedCommand(
-        harness,
-        ({ command }) =>
-          command.type === "workspace.pull_request" &&
-          command.environmentId === environment.id,
-      );
-      await reportQueuedCommandSuccess(harness, pullRequestCommand, {
-        outcome: "absent",
-      });
-      expect((await pullRequestRead).status).toBe(200);
-
       const commitResponse = harness.app.request(
         `/api/v1/environments/${environment.id}/actions`,
         {
@@ -259,7 +168,7 @@ describe("workspace read caches on the environment routes", () => {
       );
       const preflightCommand = await waitForQueuedCommandAfter(
         harness,
-        pullRequestCommand.row.cursor,
+        dirtyCommand.row.cursor,
         ({ command }) =>
           command.type === "workspace.status" &&
           command.environmentId === environment.id,
@@ -315,28 +224,12 @@ describe("workspace read caches on the environment routes", () => {
       await expect(readJson(refreshedResponse)).resolves.toMatchObject({
         workspace: { workingTree: { state: "clean" } },
       });
-
-      const refreshedPullRequestRead = harness.app.request(pullRequestUrl);
-      const refreshedPullRequestCommand = await waitForQueuedCommandAfter(
-        harness,
-        commitCommand.row.cursor,
-        ({ command }) =>
-          command.type === "workspace.pull_request" &&
-          command.environmentId === environment.id,
-      );
-      await reportQueuedCommandSuccess(harness, refreshedPullRequestCommand, {
-        outcome: "available",
-        pullRequest: rawPullRequest(),
-      });
-      await expect(
-        readJson(await refreshedPullRequestRead),
-      ).resolves.toMatchObject({ pullRequest: { number: 42 } });
     });
   });
 });
 
 it.each(["suspended", "suspending"] as const)(
-  "does not send passive status or PR RPCs to a %s machine",
+  "does not send passive status RPCs to a %s machine",
   async (phase) => {
     await withTestHarness(async (h) => {
       const { host, environment } = seedGitEnvironment(h, phase);
@@ -345,14 +238,11 @@ it.each(["suspended", "suspending"] as const)(
         machineProviderId: "test-paused-provider",
         suspendedAt: phase === "suspended" ? Date.now() : null,
       });
-      for (const path of ["status", "pull-request"]) {
-        const response = await h.app.request(
-          `/api/v1/environments/${environment.id}/${path}`,
-        );
-        expect(response.status).not.toBe(404);
-        expect(listQueuedCommands(h, "workspace.status")).toHaveLength(0);
-        expect(listQueuedCommands(h, "workspace.pull_request")).toHaveLength(0);
-      }
+      const response = await h.app.request(
+        `/api/v1/environments/${environment.id}/status`,
+      );
+      expect(response.status).not.toBe(404);
+      expect(listQueuedCommands(h, "workspace.status")).toHaveLength(0);
     });
   },
 );

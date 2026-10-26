@@ -211,7 +211,7 @@ describe("guide fixture boundaries", () => {
     const tabStrip = markup.slice(0, markup.indexOf("data-guide-tab-body="));
 
     expect(tabStrip).toMatch(
-      /data-guide-fixture="right-panel-fixed-tabs"[\s\S]*data-guide-tab="info"[\s\S]*data-guide-tab="code-renderers"/,
+      /data-guide-fixture="right-panel-fixed-tabs"[\s\S]*data-guide-tab="thread-info"[\s\S]*data-guide-tab="code-renderers"/,
     );
     expect(tabStrip).toMatch(
       /data-guide-fixture="right-panel-content-tabs"[\s\S]*data-guide-tab="thread-panel"[\s\S]*data-guide-tab="file-opener"/,
@@ -268,6 +268,31 @@ describe("guide fixture boundaries", () => {
     );
   });
 
+  it("draws a plugin row and section among bb's own in the Info tab", () => {
+    const markup = renderWireframe(
+      createElement(AppShellRightPanel, {
+        activeTab: "thread-info",
+        onTabSelect: vi.fn(),
+      }),
+    );
+    const contract = anatomy.surfaceFixtures["thread-info"];
+    const body = markup.slice(
+      markup.indexOf('data-guide-fixture="thread-info"'),
+    );
+
+    for (const label of contract.labels.anchor) {
+      expect(body).toContain(label);
+    }
+    for (const classAnchor of contract.fixtureClassAnchors) {
+      expect(body, `missing fixture class ${classAnchor}`).toContain(
+        classAnchor,
+      );
+    }
+    expect(body.indexOf("Branch")).toBeLessThan(body.indexOf("Deploy"));
+    expect(body.indexOf("Automations")).toBeLessThan(body.indexOf("Commits"));
+    expect(body.match(/data-guide-region="thread-info"/g)).toHaveLength(2);
+  });
+
   it("shows the app-wide plugin overlay above the host layout", () => {
     const markup = renderWireframe(createElement(AppShellWireframe));
     const contract = anatomy.surfaceFixtures["app-overlay"];
@@ -300,7 +325,12 @@ describe("guide fixture boundaries", () => {
     expect(railEnd).toBeGreaterThan(railStart);
     expect(rail).toContain('data-guide-region="nav-panel"');
     expect(rail).toContain('class="sr-only">Your panel');
-    expect(markup).not.toContain("sidebar-navigation");
+    expect(
+      markup.lastIndexOf('data-guide-region="sidebar-navigation"', railStart),
+    ).toBeGreaterThan(-1);
+    expect(markup).toMatch(
+      /data-guide-badge="sidebar-navigation"[\s\S]*?data-guide-badge-placement="start"/,
+    );
   });
 
   it("grows the app window within capped viewport-fit bounds while retaining loose timeline spacing", () => {

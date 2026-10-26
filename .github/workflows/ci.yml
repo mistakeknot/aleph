@@ -25,6 +25,7 @@ jobs:
     outputs:
       selection: ${{ steps.select.outputs.selection }}
       base: ${{ steps.comparison.outputs.base }}
+      dependencies: ${{ steps.dependencies.outputs.required }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -61,24 +62,30 @@ jobs:
           BASE_SHA: ${{ steps.comparison.outputs.base }}
         run: echo "required=$(node scripts/ci-dependencies-changed.mjs "$BASE_SHA")" >> "$GITHUB_OUTPUT"
 
-      - name: Setup dependency validation tools
-        if: steps.dependencies.outputs.required == 'true'
-        uses: ./.github/actions/setup-workspace-tools
-        with:
-          node-version: ${{ env.PRIMARY_NODE_VERSION }}
-          pnpm-version: ${{ env.PNPM_VERSION }}
-
-      - name: Validate frozen dependency installation
-        if: steps.dependencies.outputs.required == 'true'
-        timeout-minutes: 5
-        run: bash .github/actions/setup-workspace/install-dependencies.sh --ignore-scripts
-
       - name: Check provider-literal ratchet
         env:
           BASE_BRANCH: ${{ github.base_ref || github.event.repository.default_branch }}
         run: |
           git fetch --no-tags --depth=1 origin "$BASE_BRANCH" || true
           node scripts/check-provider-literal-ratchet.mjs --base "origin/$BASE_BRANCH"
+
+  dependencies:
+    name: Validate dependencies
+    needs: plan
+    if: ${{ needs.plan.outputs.dependencies == 'true' }}
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: ./.github/actions/setup-workspace-tools
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+          pnpm-version: ${{ env.PNPM_VERSION }}
+      - name: Validate frozen dependency installation
+        timeout-minutes: 5
+        run: bash .github/actions/setup-workspace/install-dependencies.sh --ignore-scripts
 
   windows-foundation:
     needs: plan
@@ -120,9 +127,9 @@ jobs:
           TURBO_CACHE_RESTORE_OUTCOME: ${{ steps.cache.outcome }}
         run: bash .github/actions/setup-workspace/install-dependencies.sh --ignore-scripts --filter bb --filter "@bb/process-utils..." --filter "@bb/host-workspace..." --filter "@bb/host-watcher..." --filter "@bb/agent-runtime..." --filter "@bb/provider-bridge-protocol..." --filter "@bb/provider-bridge-acp..." --filter "@bb/host-daemon-contract..." --filter "@bb/config..." --filter "@bb/db..." --filter "bb-plugin-provider-acp..." --filter "bb-plugin-provider-codex..." --filter "bb-plugin-provider-claude-code..." --filter "bb-plugin-echo-provider..." --filter "@bb/app..."
 
-      - name: Typecheck and test foundation packages
+      - name: Lint and test foundation packages
         shell: bash
-        run: pnpm exec turbo run lint typecheck test --filter=@bb/process-utils --filter=@bb/host-workspace --filter=@bb/host-watcher --filter=@bb/agent-runtime --filter=@bb/provider-bridge-protocol --filter=@bb/provider-bridge-acp --filter=@bb/host-daemon-contract --filter=@bb/config --filter=@bb/db --cache-dir="${TURBO_CACHE_DIR:-.turbo/cache}" --continue --concurrency=2 --output-logs=new-only --summarize
+        run: pnpm exec turbo run lint test --filter=@bb/process-utils --filter=@bb/host-workspace --filter=@bb/host-watcher --filter=@bb/agent-runtime --filter=@bb/provider-bridge-protocol --filter=@bb/provider-bridge-acp --filter=@bb/host-daemon-contract --filter=@bb/config --filter=@bb/db --cache-dir="${TURBO_CACHE_DIR:-.turbo/cache}" --continue --concurrency=2 --output-logs=new-only --summarize
 
       - name: Bound saved Turbo cache
         run: node scripts/prune-turbo-cache.mjs --dir .turbo/cache --max-size-mb 256 --keep-run-summaries .turbo/runs
@@ -148,6 +155,11 @@ jobs:
 
       - name: Setup pnpm
         run: npm install --global pnpm@${{ env.PNPM_VERSION }} --ignore-scripts
+
+      - name: Restore React Compiler cache
+        timeout-minutes: 1
+        continue-on-error: true
+        uses: ./.github/actions/cache-react-compiler
 
       - name: Restore workspace caches
         id: cache
@@ -206,6 +218,11 @@ jobs:
 
       - name: Setup pnpm
         run: npm install --global pnpm@${{ env.PNPM_VERSION }} --ignore-scripts
+
+      - name: Restore React Compiler cache
+        timeout-minutes: 1
+        continue-on-error: true
+        uses: ./.github/actions/cache-react-compiler
 
       - name: Restore workspace caches
         id: cache
@@ -272,6 +289,12 @@ jobs:
       - name: Setup pnpm
         run: npm install --global pnpm@${{ env.PNPM_VERSION }} --ignore-scripts
 
+      - name: Restore React Compiler cache
+        if: ${{ contains(matrix.filter, '--filter=@bb/demo-server') }}
+        timeout-minutes: 1
+        continue-on-error: true
+        uses: ./.github/actions/cache-react-compiler
+
       - name: Restore workspace caches
         id: cache
         timeout-minutes: 1
@@ -312,10 +335,10 @@ jobs:
 
       - name: Setup Bun
         if: ${{ matrix.shard == 'plugins-1' }}
-        uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76
+        timeout-minutes: 4
+        uses: ./.github/actions/setup-bun
         with:
-          bun-version: "1.3.14"
-          no-cache: true
+          version: "1.3.14"
 
       - name: Test on Windows
         shell: cmd
@@ -415,6 +438,11 @@ jobs:
           node-version: ${{ env.PRIMARY_NODE_VERSION }}
           pnpm-version: ${{ env.PNPM_VERSION }}
 
+      - name: Restore React Compiler cache
+        timeout-minutes: 1
+        continue-on-error: true
+        uses: ./.github/actions/cache-react-compiler
+
       - name: Restore workspace caches
         id: cache
         timeout-minutes: 1
@@ -511,6 +539,12 @@ jobs:
           node-version: ${{ env.PRIMARY_NODE_VERSION }}
           pnpm-version: ${{ env.PNPM_VERSION }}
 
+      - name: Restore React Compiler cache
+        if: ${{ contains(matrix.filter, '--filter=@bb/demo-server') }}
+        timeout-minutes: 1
+        continue-on-error: true
+        uses: ./.github/actions/cache-react-compiler
+
       - name: Restore workspace caches
         id: cache
         timeout-minutes: 1
@@ -549,10 +583,10 @@ jobs:
 
       - name: Setup Bun
         if: ${{ startsWith(matrix.shard, 'packages-') || matrix.shard == 'plugins' }}
-        uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76
+        timeout-minutes: 4
+        uses: ./.github/actions/setup-bun
         with:
-          bun-version: "1.3.14"
-          no-cache: true
+          version: "1.3.14"
 
       - name: Install Electron runtime libraries
         if: ${{ contains(matrix.filter, '--filter=@bb/desktop') }}
@@ -565,6 +599,10 @@ jobs:
           BB_CI_TEST_SHARD: ${{ matrix.vitestShard }}
           VITEST_MAX_WORKERS: "2"
         run: ${{ contains(matrix.filter, '--filter=@bb/desktop') && 'xvfb-run -a' || '' }} pnpm exec turbo run test ${{ matrix.filter }} --cache-dir="${TURBO_CACHE_DIR:-.turbo/cache}" --output-logs=new-only --summarize --concurrency=4
+
+      - name: Test native browser address interactions
+        if: ${{ contains(matrix.filter, '--filter=@bb/desktop') }}
+        run: xvfb-run -a pnpm exec turbo run smoke:browser-address --filter=@bb/desktop --output-logs=new-only
 
       - name: Upload test timings
         if: ${{ !cancelled() }}
@@ -650,10 +688,10 @@ jobs:
 
       - name: Setup Bun
         if: steps.selection.outputs.count != '0'
-        uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76
+        timeout-minutes: 4
+        uses: ./.github/actions/setup-bun
         with:
-          bun-version: "1.3.14"
-          no-cache: true
+          version: "1.3.14"
 
       - name: Build, typecheck, and test forkable plugins outside the workspace
         if: steps.selection.outputs.count != '0'
@@ -776,6 +814,11 @@ jobs:
           node-version: ${{ matrix.node-version }}
           pnpm-version: ${{ env.PNPM_VERSION }}
 
+      - name: Restore React Compiler cache
+        timeout-minutes: 1
+        continue-on-error: true
+        uses: ./.github/actions/cache-react-compiler
+
       - name: Restore workspace caches
         id: cache
         timeout-minutes: 1
@@ -848,6 +891,11 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           pnpm-version: ${{ env.PNPM_VERSION }}
+
+      - name: Restore React Compiler cache
+        timeout-minutes: 1
+        continue-on-error: true
+        uses: ./.github/actions/cache-react-compiler
 
       - name: Restore workspace caches
         id: cache

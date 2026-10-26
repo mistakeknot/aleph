@@ -44,7 +44,7 @@ import { COMMAND_TIMEOUT_MS } from "../constants.js";
 import { ApiError } from "../errors.js";
 import {
   copyProjectAttachments,
-  readAttachment,
+  createAttachmentContentResponse,
   storeAttachment,
 } from "../services/projects/attachments.js";
 import {
@@ -53,7 +53,11 @@ import {
   requirePublicProject,
   requirePublicStandardProject,
 } from "../services/lib/entity-lookup.js";
-import { isWindowsHostPath, PROMPT_HISTORY_ENTRY_LIMIT } from "@bb/domain";
+import {
+  isWindowsHostPath,
+  PROMPT_HISTORY_ENTRY_LIMIT,
+  type ThreadProviderCommand,
+} from "@bb/domain";
 import { toThreadListEntryResponses } from "../services/threads/thread-runtime-display.js";
 import { callHostRetryableOnlineRpc } from "../services/hosts/online-rpc.js";
 import {
@@ -68,7 +72,6 @@ import {
   readProjectSkill,
   writeProjectSkill,
 } from "../services/skills/skill-listing.js";
-import { requestMatchesEntityTag } from "../services/hosts/daemon-file-response.js";
 import { parseBoundedPositiveOptionalInteger } from "../services/lib/validation.js";
 import {
   buildCommandListResponse,
@@ -101,13 +104,13 @@ import {
   scanProviderNativeRoots,
 } from "../services/providers/native-roots.js";
 import { assertUsableHostId } from "../services/hosts/primary-host.js";
+import { resolveBridgeLaunchForProviderId } from "../services/system/provider-bridge-launch.js";
 import {
   resolveProjectCommandWorkspace,
   resolveProjectWorkspaceTarget,
 } from "../services/projects/project-workspace.js";
 
 type ProjectResponseProjectFields = Omit<ProjectResponse, "sources">;
-const ATTACHMENT_CONTENT_CACHE_CONTROL = "private, immutable, max-age=31536000";
 
 function toProjectResponseProjectFields(
   project: ProjectResponseProjectFields,
@@ -326,6 +329,35 @@ function assertPathMatchesHostPlatform(
       "invalid_request",
       "This machine uses POSIX paths. Use an absolute path like /home/me/repo.",
     );
+  }
+}
+
+async function listProviderLiveCommandsBestEffort(
+  deps: AppDeps,
+  args: { hostId: string; providerId: string; cwd: string | null },
+): Promise<ThreadProviderCommand[]> {
+  const bridgeLaunch = resolveBridgeLaunchForProviderId(deps, args.providerId);
+  if (bridgeLaunch === null) {
+    return [];
+  }
+  try {
+    const result = await callHostRetryableOnlineRpc(deps, {
+      hostId: args.hostId,
+      timeoutMs: COMMAND_TIMEOUT_MS,
+      command: {
+        type: "provider.list_commands",
+        providerId: args.providerId,
+        bridgeLaunch,
+        cwd: args.cwd,
+      },
+    });
+    return result.commands;
+  } catch (error) {
+    deps.logger.warn(
+      { err: error, hostId: args.hostId, providerId: args.providerId },
+      "Unable to list the provider's live commands; offering scanned commands only",
+    );
+    return [];
   }
 }
 
@@ -685,6 +717,7 @@ export function registerProjectRoutes(app: Hono, deps: AppDeps): void {
       timeoutMs: COMMAND_TIMEOUT_MS,
       command: {
         type: "host.list_files",
+        followRootSymlink: false,
         path: target.path,
         ...(query.query ? { query: query.query } : {}),
         limit,
@@ -771,8 +804,13 @@ export function registerProjectRoutes(app: Hono, deps: AppDeps): void {
             workspacePath: workspace.cwd,
             includeAgentInstructions: false,
           });
-    const [result, workspaceSkills] = await Promise.all([
+    const [result, liveCommands, workspaceSkills] = await Promise.all([
       listProviderCommands(),
+      listProviderLiveCommandsBestEffort(deps, {
+        hostId: workspace.hostId,
+        providerId: query.provider,
+        cwd: workspace.cwd,
+      }),
       readWorkspaceSkills(),
     ]);
     const skillCatalog = resolveSkillCatalog(deps, {
@@ -782,6 +820,7 @@ export function registerProjectRoutes(app: Hono, deps: AppDeps): void {
     return context.json(
       buildCommandListResponse({
         commands: result.commands,
+        liveCommands,
         includeBuiltinCompact: deps.providerRegistry.supportsManualCompaction(
           query.provider,
         ),
@@ -975,28 +1014,11 @@ export function registerProjectRoutes(app: Hono, deps: AppDeps): void {
 
   get(routes.attachmentContent, async (context, query) => {
     requirePublicProject(deps.db, context.req.param("id"));
-    const attachment = await readAttachment(
-      deps.config.dataDir,
-      context.req.param("id"),
-      query.path,
-    );
-    const headers = new Headers({
-      "cache-control": ATTACHMENT_CONTENT_CACHE_CONTROL,
-      "content-type": attachment.mimeType ?? "application/octet-stream",
-      etag: attachment.etag,
-    });
-    if (
-      requestMatchesEntityTag(
-        context.req.header("if-none-match"),
-        attachment.etag,
-      )
-    ) {
-      return new Response(null, { status: 304, headers });
-    }
-    headers.set("content-length", String(attachment.content.byteLength));
-    return new Response(new Uint8Array(attachment.content), {
-      status: 200,
-      headers,
+    return createAttachmentContentResponse({
+      dataDir: deps.config.dataDir,
+      projectId: context.req.param("id"),
+      path: query.path,
+      request: context.req.raw,
     });
   });
 }

@@ -60,6 +60,13 @@
       "file": "A0010_event_cold_tier.sql",
       "after": "A0009",
       "when": 1792668833813
+    },
+    {
+      "id": "A0011",
+      "file": "A0011_thread_parent_notifications.sql",
+      "after": "A0010",
+      "when": 1792668833814,
+      "supersedes": "0144_thread_parent_notifications"
     }
   ]
 }

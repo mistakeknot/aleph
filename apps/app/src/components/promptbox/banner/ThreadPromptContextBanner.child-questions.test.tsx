@@ -14,10 +14,9 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PendingInteraction } from "@bb/domain";
 import {
-  ThreadPromptContextBanner,
+  ThreadChildThreadsBanner,
   type ChildThreadQuestion,
   type ThreadPromptChildThreadsSection,
-  type ThreadPromptContextBannerExpandedSection,
 } from "./ThreadPromptContextBanner";
 
 const mocks = vi.hoisted(() => ({
@@ -115,23 +114,12 @@ function Harness({
   childThreads: ThreadPromptChildThreadsSection;
   initiallyExpanded: boolean;
 }) {
-  const [expandedSection, setExpandedSection] =
-    useState<ThreadPromptContextBannerExpandedSection | null>(
-      initiallyExpanded ? "childThreads" : null,
-    );
+  const [isExpanded, setIsExpanded] = useState(initiallyExpanded);
   return (
-    <ThreadPromptContextBanner
-      gitSection={null}
-      gitSectionPending={false}
-      archivedSection={null}
-      environmentGoneSection={null}
-      parentThreadSection={null}
-      childThreadsSection={childThreads}
-      pullRequestSection={null}
-      expandedSection={expandedSection}
-      onToggleSection={(next) =>
-        setExpandedSection((current) => (current === next ? null : next))
-      }
+    <ThreadChildThreadsBanner
+      childThreads={childThreads}
+      isExpanded={isExpanded}
+      onExpandedChange={setIsExpanded}
     />
   );
 }

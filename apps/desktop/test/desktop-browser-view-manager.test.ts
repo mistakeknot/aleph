@@ -1,4 +1,9 @@
-import type { RenderProcessGoneDetails, WebContentsView } from "electron";
+import type {
+  MenuItemConstructorOptions,
+  RenderProcessGoneDetails,
+  WebContentsView,
+} from "electron";
+import { Menu } from "electron";
 import { once } from "node:events";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -11,7 +16,7 @@ import {
   desktopBrowserRegistrationSchema,
   desktopBrowserChangedSchema,
 } from "@bb/host-daemon-contract";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BbDesktopBrowserViewBounds } from "@bb/desktop-contract";
 import { resolveDesktopBrowserAppCommand } from "../src/desktop-browser-shortcuts.js";
 import { createDesktopBrowserCdpAdapter } from "../src/desktop-browser-cdp-adapter.js";
@@ -102,6 +107,11 @@ type FakeDidFailLoadListener = (
 ) => void;
 
 interface FakeContextMenuParams {
+  mediaType: "image" | "none";
+  hasImageContents: boolean;
+  selectionText: string;
+  x: number;
+  y: number;
   editFlags: {
     canCopy: boolean;
     canCut: boolean;
@@ -173,7 +183,18 @@ interface FakeWebContentsEventMap {
   "media-started-playing": FakeVoidWebContentsListener;
   "did-navigate": FakeDidNavigateListener;
   "did-navigate-in-page": FakeDidNavigateInPageListener;
-  "did-start-navigation": FakeVoidWebContentsListener;
+  "did-start-navigation": (event: {
+    url: string;
+    isMainFrame: boolean;
+  }) => void;
+  "did-redirect-navigation": (event: {
+    url: string;
+    isMainFrame: boolean;
+  }) => void;
+  "page-favicon-updated": (
+    event: FakeWebContentsEvent,
+    favicons: string[],
+  ) => void;
   "page-title-updated": FakePageTitleUpdatedListener;
   "did-fail-load": FakeDidFailLoadListener;
   "context-menu": FakeContextMenuListener;
@@ -195,17 +216,28 @@ interface FakeSessionEvent {
   preventDefault(): void;
 }
 
-type FakeSessionListener = (event: FakeSessionEvent) => void;
+type FakeSessionListener = (
+  event: FakeSessionEvent,
+  item: { once(event: "done", listener: () => void): void },
+  contents: object | undefined,
+) => void;
 
 type FakePermissionRequestHandler = (
   webContents: unknown,
   permission: string,
   callback: (granted: boolean) => void,
+  details?: {
+    requestingUrl: string;
+    isMainFrame: boolean;
+    mediaTypes?: string[];
+  },
 ) => void;
 
 type FakePermissionCheckHandler = (
   webContents: unknown,
   permission: string,
+  requestingOrigin?: string,
+  details?: { isMainFrame: boolean; mediaType: string },
 ) => boolean;
 
 interface FakeWindowOpenDetails {
@@ -365,6 +397,11 @@ const electronMock = vi.hoisted(() => {
 
   class FakeWebContents {
     public readonly debugger = new FakeDebugger();
+    public readonly copyImageAt = vi.fn<(x: number, y: number) => void>();
+    emitContextMenu(params: FakeContextMenuParams): void {
+      for (const listener of this.listeners["context-menu"])
+        listener({}, params);
+    }
     public audioMuted = false;
     public readonly mainFrame = {
       framesInSubtree: [
@@ -426,6 +463,8 @@ const electronMock = vi.hoisted(() => {
       "did-navigate": [],
       "did-navigate-in-page": [],
       "did-start-navigation": [],
+      "did-redirect-navigation": [],
+      "page-favicon-updated": [],
       "page-title-updated": [],
       "did-fail-load": [],
       "context-menu": [],
@@ -441,6 +480,12 @@ const electronMock = vi.hoisted(() => {
     }
 
     public readonly navigationHistory = {
+      getAllEntries: () => [{ url: this.getURL(), title: this.getTitle() }],
+      getActiveIndex: () => 0,
+      length: () => 1,
+      restore: vi.fn(async ({ entries }: { entries: { url: string }[] }) => {
+        await this.loadURL(entries[0]!.url);
+      }),
       canGoBack: (): boolean => this.canGoBackResult,
       canGoForward: (): boolean => this.canGoForwardResult,
       goBack: (): void => {
@@ -527,8 +572,18 @@ const electronMock = vi.hoisted(() => {
       if (index !== -1) this.listeners[eventName].splice(index, 1);
     }
 
-    emitDidStartNavigation(): void {
-      for (const listener of this.listeners["did-start-navigation"]) listener();
+    emitDidStartNavigation(url = this.url, isMainFrame = true): void {
+      for (const listener of this.listeners["did-start-navigation"])
+        listener({ url, isMainFrame });
+    }
+
+    emitDidRedirectNavigation(url: string, isMainFrame = true): void {
+      for (const listener of this.listeners["did-redirect-navigation"])
+        listener({ url, isMainFrame });
+    }
+
+    emitDidStopLoading(): void {
+      for (const listener of this.listeners["did-stop-loading"]) listener();
     }
 
     reload(): void {
@@ -643,6 +698,12 @@ const electronMock = vi.hoisted(() => {
       this.url = url;
       for (const listener of this.listeners["did-navigate-in-page"]) {
         listener(fakeWebContentsEvent, url, true);
+      }
+    }
+
+    emitPageFaviconUpdated(favicons: string[]): void {
+      for (const listener of this.listeners["page-favicon-updated"]) {
+        listener(fakeWebContentsEvent, favicons);
       }
     }
 
@@ -831,6 +892,8 @@ const electronMock = vi.hoisted(() => {
   const fakeParkingWindows: FakeBaseWindow[] = [];
 
   return {
+    showMessageBox: vi.fn(),
+    askForMediaAccess: vi.fn(),
     fakeCapturedImage,
     fakeSessions,
     fakeViews,
@@ -876,10 +939,17 @@ const electronMock = vi.hoisted(() => {
 });
 
 vi.mock("electron", () => ({
+  Menu: {
+    buildFromTemplate: vi.fn<
+      (template: MenuItemConstructorOptions[]) => { popup(): void }
+    >(() => ({ popup() {} })),
+  },
   BaseWindow: electronMock.BaseWindow,
   BrowserWindow: electronMock.FakeBrowserWindow,
   WebContentsView: electronMock.FakeWebContentsView,
   session: electronMock.session,
+  dialog: { showMessageBox: electronMock.showMessageBox },
+  systemPreferences: { askForMediaAccess: electronMock.askForMediaAccess },
   nativeImage: { createFromBuffer: () => electronMock.fakeCapturedImage },
 }));
 
@@ -959,6 +1029,9 @@ class FakeHostWindow implements DesktopBrowserHostWindow {
 
 beforeEach(() => {
   vi.useRealTimers();
+  vi.mocked(Menu.buildFromTemplate).mockClear();
+  electronMock.showMessageBox.mockReset().mockResolvedValue({ response: 1 });
+  electronMock.askForMediaAccess.mockReset().mockResolvedValue(true);
   electronMock.fakeSessions.length = 0;
   electronMock.fakeViews.length = 0;
   electronMock.fakeWindows.length = 0;
@@ -1679,6 +1752,53 @@ describe("DesktopBrowserCdpAdapter", () => {
     page.detach();
   });
 
+  it.each(["", "https://example.com/original"])(
+    "reports the destination before navigation commits from %s",
+    (initialUrl) => {
+      const { hostWindow, view } = createRendererRecoveryFixture(91);
+      void view.webContents.loadURL(initialUrl);
+      const expectUrl = (url: string) =>
+        expect(hostWindow.webContents.sentPayloads.at(-1)).toMatchObject({
+          url,
+        });
+
+      view.webContents.emitDidStartNavigation("https://example.com/next");
+      expectUrl("https://example.com/next");
+      view.webContents.emitDidStartNavigation("https://frame.example", false);
+      expectUrl("https://example.com/next");
+      view.webContents.emitDidRedirectNavigation(
+        "https://example.com/redirect",
+      );
+      expectUrl("https://example.com/redirect");
+      view.webContents.emitDidRedirectNavigation(
+        "https://frame.example/redirect",
+        false,
+      );
+      expectUrl("https://example.com/redirect");
+      view.webContents.emitDidNavigate("https://example.com/final");
+      expectUrl("https://example.com/final");
+      view.webContents.emitDidStartNavigation("https://example.com/cancelled");
+      expectUrl("https://example.com/cancelled");
+      view.webContents.emitDidStopLoading();
+      expectUrl("https://example.com/final");
+      view.webContents.emitDidStartNavigation("https://unreachable.example");
+      view.webContents.emitDidFailLoad({
+        errorCode: -105,
+        errorDescription: "ERR_NAME_NOT_RESOLVED",
+        validatedURL: "https://unreachable.example",
+        isMainFrame: true,
+      });
+      view.webContents.emitDidStopLoading();
+      expectUrl("https://unreachable.example");
+      view.webContents.emitDidStartNavigation("https://example.com/recovered");
+      view.webContents.emitDidNavigate("https://example.com/recovered");
+      expect(hostWindow.webContents.sentPayloads.at(-1)).toMatchObject({
+        url: "https://example.com/recovered",
+        errorText: null,
+      });
+    },
+  );
+
   it("routes lifecycle callbacks only for registered scoped tabs and forwards manager notifications", async () => {
     const { manager, adapter, scope, view, createTab, activateTab, closeTab } =
       createCdpAdapterFixture();
@@ -1831,6 +1951,55 @@ describe("DesktopBrowserCdpAdapter", () => {
 });
 
 describe("DesktopBrowserViewManager", () => {
+  it.each([
+    { mediaType: "image", hasImageContents: true, offersCopy: true },
+    { mediaType: "image", hasImageContents: false, offersCopy: true },
+    { mediaType: "none", hasImageContents: false, offersCopy: false },
+  ] as const)(
+    "handles image copying for $mediaType with contents=$hasImageContents",
+    ({ mediaType, hasImageContents, offersCopy }) => {
+      const hostWindow = new FakeHostWindow({
+        webContentsId: 1,
+        contentBounds: { width: 1000, height: 800 },
+      });
+      const manager = createDesktopBrowserViewManager();
+      attachBrowserTab({
+        hostWindow,
+        manager,
+        tabId: "browser:image",
+        url: "https://example.com/image.png",
+      });
+      const contents = requireFakeView(0).webContents;
+      contents.emitContextMenu({
+        mediaType,
+        hasImageContents,
+        x: 42,
+        y: 63,
+        selectionText: "",
+        editFlags: {
+          canCopy: false,
+          canCut: false,
+          canPaste: false,
+          canRedo: false,
+          canSelectAll: true,
+          canUndo: false,
+        },
+      });
+      const template = vi.mocked(Menu.buildFromTemplate).mock.calls.at(-1)?.[0];
+      const item = template?.find((entry) => entry.label === "Copy Image");
+      expect(Boolean(item)).toBe(offersCopy);
+      if (offersCopy) {
+        expect(item?.enabled).toBe(hasImageContents);
+        if (hasImageContents) {
+          if (!item?.click) throw new Error("Missing image copy action");
+          Reflect.apply(item.click, undefined, []);
+          expect(contents.copyImageAt).toHaveBeenCalledWith(42, 63);
+        }
+      }
+      manager.destroyAll();
+    },
+  );
+
   it("pauses media inside nested open shadow roots when hidden", async () => {
     const hostWindow = new FakeHostWindow({
       webContentsId: 1,
@@ -2693,7 +2862,7 @@ describe("DesktopBrowserViewManager", () => {
     expect(observedLoads).toEqual([["about:blank"]]);
   });
 
-  it("preserves background navigation when revealing a tab with a stale persisted URL", () => {
+  it("preserves navigation when revealing a tab but loads every explicit navigation", () => {
     const { manager, hostWindow, view } = createRendererRecoveryFixture(91);
     manager.setVisible({
       hostWindow,
@@ -2727,6 +2896,16 @@ describe("DesktopBrowserViewManager", () => {
     });
     expect(view.webContents.loadURLCalls).toEqual([
       "https://example.com/original",
+      "https://example.com/explicit",
+    ]);
+
+    manager.navigate({
+      hostWindow,
+      request: { tabId: "browser:a", url: "https://example.com/explicit" },
+    });
+    expect(view.webContents.loadURLCalls).toEqual([
+      "https://example.com/original",
+      "https://example.com/explicit",
       "https://example.com/explicit",
     ]);
   });
@@ -2819,6 +2998,136 @@ describe("DesktopBrowserViewManager", () => {
         threadId: "thread-1",
       }),
     ).toEqual([]);
+  });
+
+  it("publishes favicons, retains them within an origin, and restores cached icons when returning", () => {
+    const manager = createDesktopBrowserViewManager();
+    const hostWindow = new FakeHostWindow({
+      contentBounds: { width: 700, height: 450 },
+      webContentsId: 91,
+    });
+    attachBrowserTab({
+      manager,
+      hostWindow,
+      tabId: "browser:a",
+      url: "https://example.com",
+    });
+    const view = requireFakeView(0);
+    const favicon = () =>
+      hostWindow.webContents.sentPayloads
+        .slice()
+        .reverse()
+        .find((payload) => "faviconUrl" in payload);
+    view.webContents.emitPageFaviconUpdated([
+      "file:///private/icon.png",
+      "https://example.com/icon.png",
+      "https://example.com/icon-large.png",
+    ]);
+    expect(favicon()).toMatchObject({
+      tabId: "browser:a",
+      faviconUrl: "https://example.com/icon.png",
+      faviconUrls: [
+        "https://example.com/icon.png",
+        "https://example.com/icon-large.png",
+      ],
+    });
+    view.webContents.emitDidNavigate("https://example.com");
+    expect(favicon()).toMatchObject({
+      faviconUrl: "https://example.com/icon.png",
+    });
+    view.webContents.emitDidNavigateInPage("https://example.com/#section");
+    expect(favicon()).toMatchObject({
+      faviconUrl: "https://example.com/icon.png",
+    });
+    view.webContents.emitDidNavigate("https://example.com/another-page");
+    expect(favicon()).toMatchObject({
+      faviconUrl: "https://example.com/icon.png",
+    });
+    view.webContents.emitPageFaviconUpdated([]);
+    expect(favicon()).toMatchObject({
+      faviconUrl: "https://example.com/icon.png",
+    });
+    view.webContents.emitPageFaviconUpdated([
+      "https://example.com/favicon.ico",
+    ]);
+    expect(favicon()).toMatchObject({
+      faviconUrls: [
+        "https://example.com/favicon.ico",
+        "https://example.com/icon.png",
+        "https://example.com/icon-large.png",
+      ],
+    });
+    view.webContents.emitPageFaviconUpdated(["https://example.com/icon.png"]);
+    view.webContents.emitDidNavigate("https://other.example");
+    expect(favicon()).toMatchObject({ faviconUrl: null });
+    view.webContents.emitDidNavigate("https://example.com/return");
+    expect(favicon()).toMatchObject({
+      faviconUrl: "https://example.com/icon.png",
+    });
+    attachBrowserTab({
+      manager,
+      hostWindow,
+      tabId: "browser:reopened",
+      url: "https://example.com/reopened",
+    });
+    requireFakeView(1).webContents.emitDidNavigate(
+      "https://example.com/reopened",
+    );
+    expect(favicon()).toMatchObject({
+      tabId: "browser:reopened",
+      faviconUrl: "https://example.com/icon.png",
+    });
+
+    view.webContents.emitPageFaviconUpdated(["javascript:alert(1)"]);
+    expect(favicon()).toMatchObject({ faviconUrl: null });
+  });
+
+  it("bounds cached favicon origins and isolates them between servers", () => {
+    const manager = createDesktopBrowserViewManager();
+    manager.setServerOrigin("https://server-a.example");
+    const hostWindow = new FakeHostWindow({
+      contentBounds: { width: 700, height: 450 },
+      webContentsId: 91,
+    });
+    attachBrowserTab({
+      manager,
+      hostWindow,
+      tabId: "browser:cache",
+      url: "https://site-0.example",
+    });
+    const view = requireFakeView(0);
+    for (let index = 0; index <= 40; index++) {
+      view.webContents.emitDidNavigate(`https://site-${index}.example`);
+      view.webContents.emitPageFaviconUpdated([
+        `https://site-${index}.example/icon.png`,
+      ]);
+    }
+    const latest = () =>
+      hostWindow.webContents.sentPayloads
+        .slice()
+        .reverse()
+        .find((payload) => "faviconUrl" in payload);
+    view.webContents.emitDidNavigate("https://site-0.example");
+    expect(latest()).toMatchObject({ faviconUrl: null, faviconUrls: [] });
+    view.webContents.emitDidNavigate("https://site-40.example");
+    expect(latest()).toMatchObject({
+      faviconUrl: "https://site-40.example/icon.png",
+    });
+    manager.setServerOrigin("https://server-b.example");
+    attachBrowserTab({
+      manager,
+      hostWindow,
+      tabId: "browser:cache",
+      url: "https://site-40.example",
+    });
+    requireFakeView(1).webContents.emitDidNavigate("https://site-40.example");
+    expect(latest()).toMatchObject({ faviconUrl: null, faviconUrls: [] });
+    manager.setServerOrigin("https://server-a.example");
+    view.webContents.emitDidNavigate("https://site-39.example");
+    expect(latest()).toMatchObject({
+      faviconUrl: "https://site-39.example/icon.png",
+    });
+    manager.destroyAll();
   });
 
   it("notifies subscribers of native creation and hidden navigation until unsubscribed", () => {
@@ -4200,6 +4509,70 @@ describe("DesktopBrowserViewManager", () => {
     expect(reloadingView.visible).toBe(true);
   });
 
+  it.each(["allow", "deny", "navigate", "system-deny", "dialog-error"])(
+    "handles microphone consent: %s",
+    async (outcome) => {
+      const { view } = createRendererRecoveryFixture(74);
+      const browserSession = electronMock.fakeSessions.at(-1)!;
+      const request = browserSession.permissionRequestHandler!;
+      const check = browserSession.permissionCheckHandler!;
+      const url = view.webContents.getURL();
+      const origin = new URL(url).origin;
+      const details = {
+        requestingUrl: url,
+        isMainFrame: true,
+        mediaTypes: ["audio"],
+      };
+      const checkDetails = { isMainFrame: true, mediaType: "audio" };
+      expect(check(view.webContents, "media", origin, checkDetails)).toBe(
+        false,
+      );
+      electronMock.showMessageBox.mockImplementation(async () => {
+        if (outcome === "navigate")
+          await view.webContents.loadURL("https://other.example/");
+        if (outcome === "dialog-error") throw new Error("Dialog unavailable");
+        return { response: outcome === "deny" ? 0 : 1 };
+      });
+      electronMock.askForMediaAccess.mockResolvedValue(
+        outcome !== "system-deny",
+      );
+      const granted = await new Promise<boolean>((resolve) =>
+        request(view.webContents, "media", resolve, details),
+      );
+      const expected =
+        outcome === "allow" ||
+        (outcome === "system-deny" && process.platform !== "darwin");
+      expect(granted).toBe(expected);
+      expect(electronMock.showMessageBox).toHaveBeenCalledWith(
+        expect.objectContaining({ detail: expect.stringContaining(origin) }),
+      );
+      expect(check(view.webContents, "media", origin, checkDetails)).toBe(
+        expected,
+      );
+      expect(
+        check(view.webContents, "media", "https://other.example", checkDetails),
+      ).toBe(false);
+      expect(
+        check(view.webContents, "media", origin, {
+          ...checkDetails,
+          mediaType: "video",
+        }),
+      ).toBe(false);
+      for (const deniedDetails of [
+        { ...details, mediaTypes: ["video"] },
+        { ...details, mediaTypes: ["audio", "video"] },
+        { ...details, mediaTypes: [] },
+        { ...details, isMainFrame: false },
+      ]) {
+        expect(
+          await new Promise<boolean>((resolve) =>
+            request(view.webContents, "media", resolve, deniedDetails),
+          ),
+        ).toBe(false);
+      }
+    },
+  );
+
   it("allows clipboard-sanitized-write but denies clipboard-read and device permissions", () => {
     const manager = createDesktopBrowserViewManager({
       partition: "persist:test",
@@ -4241,10 +4614,561 @@ describe("DesktopBrowserViewManager", () => {
 
     const requestGrants: boolean[] = [];
     for (const permission of permissions) {
-      requestHandler(null, permission, (granted) => {
-        requestGrants.push(granted);
-      });
+      requestHandler(
+        requireFakeView(0).webContents,
+        permission,
+        (granted) => {
+          requestGrants.push(granted);
+        },
+        { requestingUrl: "https://example.com/", isMainFrame: true },
+      );
     }
     expect(requestGrants).toEqual([true, false, false, false, false]);
+  });
+});
+describe("hidden browser retention", () => {
+  const SWEEP_MS = 30_000;
+
+  function hideTab(
+    manager: DesktopBrowserViewManager,
+    hostWindow: FakeHostWindow,
+    tabId: string,
+  ): void {
+    manager.setVisible({ hostWindow, request: { tabId, visible: false } });
+  }
+
+  function liveViewCount(): number {
+    return electronMock.fakeViews.filter(
+      (view) => !view.webContents.isDestroyed(),
+    ).length;
+  }
+
+  function evictedFixture() {
+    vi.useFakeTimers();
+    const fixture = createRendererRecoveryFixture(91);
+    hideTab(fixture.manager, fixture.hostWindow, "browser:a");
+    vi.advanceTimersByTime(6 * 60_000);
+    expect(fixture.view.webContents.isDestroyed()).toBe(true);
+    const tab = fixture.manager.listTabs({
+      hostWebContentsId: 91,
+      threadId: null,
+    })[0]!;
+    return { ...fixture, tab };
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("evicts the oldest hidden renderers, restores navigation on reveal, and forgets closed cold tabs", () => {
+    vi.useFakeTimers();
+    const manager = createDesktopBrowserViewManager();
+    const hostWindow = new FakeHostWindow({
+      webContentsId: 1,
+      contentBounds: { width: 1000, height: 800 },
+    });
+    for (let index = 0; index < 7; index++) {
+      attachBrowserTab({
+        hostWindow,
+        manager,
+        tabId: `browser:${index}`,
+        url: `https://example.com/${index}`,
+      });
+      if (index < 6) hideTab(manager, hostWindow, `browser:${index}`);
+      vi.advanceTimersByTime(10);
+    }
+    vi.advanceTimersByTime(SWEEP_MS);
+    expect(liveViewCount()).toBe(5);
+    expect(requireFakeView(0).webContents.isDestroyed()).toBe(true);
+    expect(requireFakeView(1).webContents.isDestroyed()).toBe(true);
+    expect(requireFakeView(6).webContents.isDestroyed()).toBe(false);
+    const tabs = manager.listTabs({ hostWebContentsId: 1, threadId: null });
+    expect(tabs).toHaveLength(7);
+    const bounds = { x: 10, y: 20, width: 400, height: 300 };
+    manager.setBounds({ hostWindow, request: { tabId: "browser:0", bounds } });
+    manager.stop({ hostWindow, tabId: "browser:0" });
+    manager.focus({ hostWindow, tabId: "browser:0" });
+    expect(electronMock.fakeViews).toHaveLength(7);
+    manager.setVisibleWithoutFocus({
+      hostWindow,
+      request: { tabId: "browser:0", visible: true },
+    });
+    const restored = requireFakeView(7);
+    expect(restored.visible).toBe(true);
+    expect(restored.boundsCalls.at(-1)).toEqual(bounds);
+    expect(restored.webContents.navigationHistory.restore).toHaveBeenCalledWith(
+      { entries: [{ url: "https://example.com/0", title: "" }], index: 0 },
+    );
+    expect(
+      manager
+        .listTabs({ hostWebContentsId: 1, threadId: null })
+        .find((tab) => tab.tabId === "browser:0")?.generation,
+    ).toBe(tabs.find((tab) => tab.tabId === "browser:0")?.generation);
+    manager.detach({ hostWindow, tabId: "browser:1" });
+    manager.attach({
+      hostWindow,
+      request: {
+        tabId: "browser:1",
+        threadId: "thread-1",
+        url: "https://example.com/1",
+        bounds: { x: 0, y: 0, width: 500, height: 400 },
+        visible: true,
+        existingOnly: true,
+      },
+    });
+    expect(electronMock.fakeViews).toHaveLength(8);
+    manager.destroyAll();
+  });
+
+  it("keeps a page restored for an agent hidden and muted", async () => {
+    const { manager, tab } = evictedFixture();
+    const capture = manager.captureTab({
+      hostWebContentsId: 91,
+      ...tab,
+      maxWidth: 640,
+      maxHeight: 640,
+      quality: 70,
+    });
+    const restored = requireFakeView(1);
+    expect(restored.visible).toBe(false);
+    expect(restored.webContents.audioMuted).toBe(true);
+    await vi.waitFor(() =>
+      expect(restored.webContents.pendingCaptureResolvers).toHaveLength(1),
+    );
+    restored.webContents.pendingCaptureResolvers.shift()!(
+      electronMock.fakeCapturedImage,
+    );
+    await capture;
+    manager.destroyAll();
+  });
+
+  it("reattaches a hidden cold tab without recreating its page", () => {
+    const { manager, hostWindow } = evictedFixture();
+    const sent = hostWindow.webContents.sentPayloads.length;
+    manager.attach({
+      hostWindow,
+      request: {
+        tabId: "browser:a",
+        threadId: "thread-1",
+        url: "https://example.com/original",
+        bounds: { x: 0, y: 0, width: 300, height: 200 },
+        visible: false,
+      },
+    });
+    expect(electronMock.fakeViews).toHaveLength(1);
+    expect(hostWindow.webContents.sentPayloads.slice(sent)).toEqual([
+      expect.objectContaining({
+        tabId: "browser:a",
+        url: "https://example.com/original",
+        isLoading: false,
+      }),
+    ]);
+    manager.destroyAll();
+  });
+
+  it("closes a cold tab without recreating its page", () => {
+    const { manager, tab } = evictedFixture();
+    manager.closeTab({ hostWebContentsId: 91, ...tab });
+    expect(electronMock.fakeViews).toHaveLength(1);
+    expect(
+      manager.listTabs({ hostWebContentsId: 91, threadId: null }),
+    ).toHaveLength(0);
+    manager.destroyAll();
+  });
+
+  it("pins a user page from lease acquisition until release even before a CDP connection opens", async () => {
+    vi.useFakeTimers();
+    const { manager, hostWindow, view } = createRendererRecoveryFixture(91);
+    const broker = createDesktopBrowserBroker({
+      manager,
+      product: "Chrome/test",
+    });
+    broker.registerWindow(hostWindow);
+    broker.setHostId("host-1");
+    const instance = broker.listInstances()[0]!;
+    const scope = {
+      instanceId: instance.instanceId,
+      generation: instance.generation,
+      threadId: "thread-1",
+    };
+    try {
+      await broker.execute({
+        type: "desktop.browser.acquire_control",
+        ...scope,
+        leaseId: "retention",
+        tabIds: ["browser:a"],
+        controllerLabel: "Agent",
+        expiresAt: Date.now() + 10 * 60_000,
+      });
+      hideTab(manager, hostWindow, "browser:a");
+      vi.advanceTimersByTime(6 * 60_000);
+      expect(view.webContents.isDestroyed()).toBe(false);
+      expect(view.webContents.debugger.isAttached()).toBe(false);
+      await broker.execute({
+        type: "desktop.browser.release_control",
+        ...scope,
+        leaseId: "retention",
+      });
+      vi.advanceTimersByTime(SWEEP_MS);
+      expect(view.webContents.isDestroyed()).toBe(true);
+    } finally {
+      broker.dispose();
+      manager.destroyAll();
+    }
+  });
+
+  it("keeps downloads, control leases, debugger sessions, and agent-created pages alive beyond the idle deadline", () => {
+    vi.useFakeTimers();
+    const manager = createDesktopBrowserViewManager();
+    const hostWindow = new FakeHostWindow({
+      webContentsId: 1,
+      contentBounds: { width: 1000, height: 800 },
+    });
+    for (const tabId of [
+      "download",
+      "lease",
+      "automation",
+      "debugger",
+      "ordinary",
+    ]) {
+      attachBrowserTab({
+        hostWindow,
+        manager,
+        tabId,
+        url: `https://example.com/${tabId}`,
+      });
+      hideTab(manager, hostWindow, tabId);
+    }
+    const download = requireFakeView(0).webContents;
+    const completions: Array<() => void> = [];
+    for (let index = 0; index < 2; index++) {
+      electronMock.fakeSessions[0]!.willDownloadListeners[0]!(
+        { preventDefault() {} },
+        {
+          once(_event, listener) {
+            completions.push(listener);
+          },
+        },
+        download,
+      );
+    }
+    const lease = manager
+      .listTabs({ hostWebContentsId: 1, threadId: null })
+      .find((tab) => tab.tabId === "lease")!;
+    manager.setTabLeased({ hostWebContentsId: 1, ...lease }, true);
+    const automation = manager
+      .getAutomationTabs({ hostWebContentsId: 1, threadId: "thread-1" })
+      .find((tab) => tab.tabId === "automation")!;
+    manager.setAutomationControlled(automation.webContents, true);
+    requireFakeView(3).webContents.debugger.attach("1.3");
+    manager.createTab({
+      hostWindow,
+      tabId: "agent",
+      threadId: "thread-1",
+      url: "https://example.com/agent",
+      viewport: { width: 800, height: 600 },
+    });
+    vi.advanceTimersByTime(6 * 60_000);
+    expect(requireFakeView(4).webContents.isDestroyed()).toBe(true);
+    for (const index of [0, 1, 2, 3, 5])
+      expect(requireFakeView(index).webContents.isDestroyed()).toBe(false);
+    completions[0]!();
+    vi.advanceTimersByTime(SWEEP_MS);
+    expect(download.isDestroyed()).toBe(false);
+    completions[1]!();
+    manager.setTabLeased({ hostWebContentsId: 1, ...lease }, false);
+    manager.setAutomationControlled(automation.webContents, false);
+    requireFakeView(3).webContents.debugger.detach();
+    vi.advanceTimersByTime(SWEEP_MS);
+    for (const index of [0, 1, 2, 3])
+      expect(requireFakeView(index).webContents.isDestroyed()).toBe(true);
+    expect(requireFakeView(5).webContents.isDestroyed()).toBe(false);
+    manager.destroyAll();
+  });
+
+  it.each(["capture", "evaluate"] as const)(
+    "keeps a page alive through an in-flight %s and counts it as use",
+    async (operation) => {
+      vi.useFakeTimers();
+      const { manager, hostWindow, view } = createRendererRecoveryFixture(91);
+      hideTab(manager, hostWindow, "browser:a");
+      vi.advanceTimersByTime(SWEEP_MS - 1000);
+      const tab = manager.listTabs({
+        hostWebContentsId: 91,
+        threadId: null,
+      })[0]!;
+      let release = () => {};
+      const evaluation = new Promise<unknown>((resolve) => {
+        release = () => resolve({ ok: true, value: null });
+      });
+      const evaluate = vi
+        .spyOn(view.webContents, "executeJavaScript")
+        .mockReturnValue(evaluation);
+      const pending =
+        operation === "capture"
+          ? manager.captureTab({
+              hostWebContentsId: 91,
+              ...tab,
+              maxWidth: 640,
+              maxHeight: 640,
+              quality: 70,
+            })
+          : manager.evaluate({
+              hostWindow,
+              request: {
+                tabId: tab.tabId,
+                expression: "null",
+                world: "main",
+                channel: "test",
+              },
+            });
+      for (let index = 0; index < 5; index++) {
+        const tabId = `pressure:${index}`;
+        attachBrowserTab({
+          hostWindow,
+          manager,
+          tabId,
+          url: `https://example.com/${index}`,
+        });
+        hideTab(manager, hostWindow, tabId);
+        vi.advanceTimersByTime(10);
+      }
+      try {
+        vi.advanceTimersByTime(1000);
+        expect(view.webContents.isDestroyed()).toBe(false);
+        expect(requireFakeView(1).webContents.isDestroyed()).toBe(true);
+        if (operation === "capture") {
+          await vi.waitFor(() =>
+            expect(view.webContents.pendingCaptureResolvers).toHaveLength(1),
+          );
+          view.webContents.pendingCaptureResolvers.shift()!(
+            electronMock.fakeCapturedImage,
+          );
+        } else release();
+        await pending;
+        vi.advanceTimersByTime(SWEEP_MS);
+        expect(view.webContents.isDestroyed()).toBe(false);
+        expect(requireFakeView(2).webContents.isDestroyed()).toBe(true);
+      } finally {
+        evaluate.mockRestore();
+        manager.destroyAll();
+      }
+    },
+  );
+
+  it("still sweeps while another page is used more often than the sweep interval", async () => {
+    vi.useFakeTimers();
+    const manager = createDesktopBrowserViewManager();
+    const hostWindow = new FakeHostWindow({
+      webContentsId: 1,
+      contentBounds: { width: 1000, height: 800 },
+    });
+    attachBrowserTab({
+      hostWindow,
+      manager,
+      tabId: "busy",
+      url: "https://example.com/busy",
+    });
+    attachBrowserTab({
+      hostWindow,
+      manager,
+      tabId: "idle",
+      url: "https://example.com/idle",
+    });
+    hideTab(manager, hostWindow, "idle");
+    const busy = requireFakeView(0).webContents;
+    const evaluate = vi
+      .spyOn(busy, "executeJavaScript")
+      .mockResolvedValue({ ok: true, value: null });
+    try {
+      for (let elapsed = 0; elapsed < 6 * 60_000; elapsed += 500) {
+        await manager.evaluate({
+          hostWindow,
+          request: {
+            tabId: "busy",
+            expression: "null",
+            world: "main",
+            channel: "test",
+          },
+        });
+        vi.advanceTimersByTime(500);
+      }
+      expect(requireFakeView(1).webContents.isDestroyed()).toBe(true);
+    } finally {
+      evaluate.mockRestore();
+      manager.destroyAll();
+    }
+  });
+
+  it("evicts parked server pages and discards cold entries when their window closes", () => {
+    vi.useFakeTimers();
+    const manager = createDesktopBrowserViewManager();
+    const hostWindow = new FakeHostWindow({
+      webContentsId: 1,
+      contentBounds: { width: 1000, height: 800 },
+    });
+    manager.setServerOrigin("https://first.example");
+    attachBrowserTab({
+      hostWindow,
+      manager,
+      tabId: "parked",
+      url: "https://example.com/parked",
+    });
+    manager.setServerOrigin("https://second.example");
+    vi.advanceTimersByTime(6 * 60_000);
+    expect(requireFakeView(0).webContents.isDestroyed()).toBe(true);
+    manager.setServerOrigin("https://first.example");
+    expect(
+      manager.listTabs({ hostWebContentsId: 1, threadId: null }),
+    ).toHaveLength(1);
+    manager.releaseWindow(1);
+    expect(
+      manager.listTabs({ hostWebContentsId: 1, threadId: null }),
+    ).toHaveLength(0);
+    manager.destroyAll();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe("archived thread discarding", () => {
+  const SWEEP_MS = 30_000;
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function setDiscarded(
+    manager: DesktopBrowserViewManager,
+    hostWindow: FakeHostWindow,
+    discarded: boolean,
+  ): void {
+    manager.setThreadDiscarded({
+      hostWindow,
+      request: { threadId: "thread-1", discarded },
+    });
+  }
+
+  function hideTab(
+    manager: DesktopBrowserViewManager,
+    hostWindow: FakeHostWindow,
+    tabId: string,
+  ): void {
+    manager.setVisible({ hostWindow, request: { tabId, visible: false } });
+  }
+
+  it("evicts the thread's hidden pages at once, including agent tabs and downloads, and keeps leased pages until the lease ends", () => {
+    vi.useFakeTimers();
+    const manager = createDesktopBrowserViewManager();
+    const hostWindow = new FakeHostWindow({
+      webContentsId: 1,
+      contentBounds: { width: 1000, height: 800 },
+    });
+    for (const [tabId, threadId] of [
+      ["ordinary", "thread-1"],
+      ["download", "thread-1"],
+      ["leased", "thread-1"],
+      ["other", "thread-other"],
+    ] as const) {
+      attachBrowserTab({
+        hostWindow,
+        manager,
+        tabId,
+        threadId,
+        url: `https://example.com/${tabId}`,
+      });
+      hideTab(manager, hostWindow, tabId);
+    }
+    manager.createTab({
+      hostWindow,
+      tabId: "agent",
+      threadId: "thread-1",
+      url: "https://example.com/agent",
+      viewport: { width: 800, height: 600 },
+    });
+    electronMock.fakeSessions[0]!.willDownloadListeners[0]!(
+      { preventDefault() {} },
+      { once() {} },
+      requireFakeView(1).webContents,
+    );
+    const leased = manager
+      .listTabs({ hostWebContentsId: 1, threadId: "thread-1" })
+      .find((tab) => tab.tabId === "leased")!;
+    manager.setTabLeased({ hostWebContentsId: 1, ...leased }, true);
+
+    setDiscarded(manager, hostWindow, true);
+
+    for (const index of [0, 1, 4])
+      expect(requireFakeView(index).webContents.isDestroyed()).toBe(true);
+    for (const index of [2, 3])
+      expect(requireFakeView(index).webContents.isDestroyed()).toBe(false);
+    expect(
+      manager
+        .listTabs({ hostWebContentsId: 1, threadId: "thread-1" })
+        .map((tab) => tab.tabId)
+        .sort(),
+    ).toEqual(["agent", "download", "leased", "ordinary"]);
+
+    manager.setTabLeased({ hostWebContentsId: 1, ...leased }, false);
+    vi.advanceTimersByTime(SWEEP_MS);
+    expect(requireFakeView(2).webContents.isDestroyed()).toBe(true);
+    expect(requireFakeView(3).webContents.isDestroyed()).toBe(false);
+    manager.destroyAll();
+  });
+
+  it("evicts a visible page once it is hidden, and leaves pages to the idle rule after unarchiving", async () => {
+    vi.useFakeTimers();
+    const { manager, hostWindow, view } = createRendererRecoveryFixture(91);
+
+    setDiscarded(manager, hostWindow, true);
+    expect(view.webContents.isDestroyed()).toBe(false);
+    hideTab(manager, hostWindow, "browser:a");
+    await Promise.resolve();
+    expect(view.webContents.isDestroyed()).toBe(true);
+
+    manager.setVisible({
+      hostWindow,
+      request: { tabId: "browser:a", visible: true },
+    });
+    const restored = requireFakeView(1);
+    expect(restored.webContents.navigationHistory.restore).toHaveBeenCalled();
+    setDiscarded(manager, hostWindow, false);
+    hideTab(manager, hostWindow, "browser:a");
+    await Promise.resolve();
+    expect(restored.webContents.isDestroyed()).toBe(false);
+    vi.advanceTimersByTime(6 * 60_000);
+    expect(restored.webContents.isDestroyed()).toBe(true);
+    manager.destroyAll();
+  });
+
+  it("restores an evicted agent tab as an agent tab", async () => {
+    vi.useFakeTimers();
+    const manager = createDesktopBrowserViewManager();
+    const hostWindow = new FakeHostWindow({
+      webContentsId: 1,
+      contentBounds: { width: 1000, height: 800 },
+    });
+    manager.createTab({
+      hostWindow,
+      tabId: "agent",
+      threadId: "thread-1",
+      url: "https://example.com/agent",
+      viewport: { width: 800, height: 600 },
+    });
+    setDiscarded(manager, hostWindow, true);
+    expect(requireFakeView(0).webContents.isDestroyed()).toBe(true);
+    setDiscarded(manager, hostWindow, false);
+
+    await manager.evaluate({
+      hostWindow,
+      request: {
+        tabId: "agent",
+        expression: "null",
+        world: "main",
+        channel: "test",
+      },
+    });
+    vi.advanceTimersByTime(6 * 60_000);
+    expect(requireFakeView(1).webContents.isDestroyed()).toBe(false);
+    manager.destroyAll();
   });
 });

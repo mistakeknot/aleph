@@ -39,7 +39,7 @@ export const DESKTOP_DOWNLOADS: Record<DesktopPlatform, DesktopDownload> = {
   windows: {
     label: "Windows (Alpha)",
     buttonLabel: "Download for Windows",
-    note: "x64, alpha",
+    note: "x64 · alpha",
     installerExtension: ".exe",
     versionFeedUrl: `${DOWNLOAD_RELEASE_ASSET_BASE_URL}/desktop-version-windows.json`,
     redirectPath: "/download/windows",
@@ -59,11 +59,11 @@ export const UTM_PARAM_NAMES = [
   "utm_content",
 ] as const;
 
+export const CLICK_ID_PARAM_NAMES = ["gclid", "gbraid", "wbraid"] as const;
+
 export const CAMPAIGN_PARAM_NAMES = [
   ...UTM_PARAM_NAMES,
-  "gclid",
-  "gbraid",
-  "wbraid",
+  ...CLICK_ID_PARAM_NAMES,
 ] as const;
 
 export function downloadHref(

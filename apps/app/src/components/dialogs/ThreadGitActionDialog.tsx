@@ -1,10 +1,9 @@
 import type { FormEvent } from "react";
+import { DetailCard, DetailRow } from "@/components/ui/detail-card.js";
 import {
-  DetailCard,
-  DetailRow,
-  DetailRowIconLabel,
-} from "@/components/ui/detail-card.js";
-import type { ThreadGitStatusDisplay } from "@/components/workspace/workspace-status";
+  SquashMergeInfo,
+  type ThreadGitStatusDisplay,
+} from "@/components/workspace/workspace-status";
 import { ChangedFilesDetailRow } from "@/components/workspace/ChangedFilesDetailRow";
 import type { WorkspaceChangedFilesSection } from "@/components/workspace/workspace-change-summary";
 import { Button } from "@bb/shared-ui/button";
@@ -88,28 +87,14 @@ export function ThreadGitActionDialogContent({
         {branchName || gitStatusDisplay || shouldShowChangedFilesRow ? (
           <DetailCard appearance="flat">
             {branchName ? (
-              <DetailRow
-                label={
-                  <DetailRowIconLabel icon="GitBranch">
-                    Branch
-                  </DetailRowIconLabel>
-                }
-                valueClassName="min-w-0 truncate"
-              >
+              <DetailRow icon="GitBranch" label="Branch">
                 <span className="block truncate" title={branchName}>
                   {branchName}
                 </span>
               </DetailRow>
             ) : null}
             {gitStatusDisplay ? (
-              <DetailRow
-                label={
-                  <DetailRowIconLabel icon="FileDiff">
-                    Git status
-                  </DetailRowIconLabel>
-                }
-                valueClassName="min-w-0"
-              >
+              <DetailRow icon="FileDiff" label="Git status">
                 <div
                   className="flex min-w-0 items-baseline gap-2 whitespace-nowrap"
                   title={`${gitStatusDisplay.label} ${gitStatusDisplay.summary}`.trim()}
@@ -120,6 +105,7 @@ export function ThreadGitActionDialogContent({
                   <span className="min-w-0 truncate text-muted-foreground">
                     {gitStatusDisplay.summary}
                   </span>
+                  {gitStatusDisplay.warning ? <SquashMergeInfo /> : null}
                 </div>
               </DetailRow>
             ) : null}

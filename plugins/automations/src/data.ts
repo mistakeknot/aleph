@@ -485,6 +485,22 @@ export function listAutomationsForProject(
     .map(requiredAutomationRow);
 }
 
+export function listAutomationsTargetingThread(
+  db: Db,
+  targetThreadId: string,
+): AutomationRow[] {
+  return db
+    .prepare(
+      `SELECT
+         ${AUTOMATION_COLUMNS}
+       FROM automations
+       WHERE target_thread_id = ?
+       ORDER BY created_at DESC, id DESC`,
+    )
+    .all(targetThreadId)
+    .map(requiredAutomationRow);
+}
+
 export function listAllAutomations(db: Db): AutomationRow[] {
   return db
     .prepare(
@@ -1025,25 +1041,20 @@ export function listAutomationRuns(
   return rows.map(requiredRunRow);
 }
 
-export function disableAutomationsForDeletedThread(
+export function disableAutomationsForTargetThread(
   db: Db,
-  args: { threadId: string; now: number },
+  args: { threadId: string; error: string; now: number },
 ): AutomationRow[] {
-  db.prepare(
-    `UPDATE automations SET
-       enabled = 0,
-       next_run_at = NULL,
-       last_error = 'target thread deleted',
-       updated_at = @now
-     WHERE target_thread_id = @threadId AND enabled = 1`,
-  ).run(args);
   return db
     .prepare(
-      `SELECT
-         ${AUTOMATION_COLUMNS}
-       FROM automations
-       WHERE target_thread_id = @threadId AND last_error = 'target thread deleted'
-       ORDER BY updated_at DESC`,
+      `UPDATE automations SET
+         enabled = 0,
+         next_run_at = NULL,
+         last_error = @error,
+         updated_at = @now
+       WHERE target_thread_id = @threadId AND enabled = 1
+       RETURNING
+         ${AUTOMATION_COLUMNS}`,
     )
     .all(args)
     .map(requiredAutomationRow);

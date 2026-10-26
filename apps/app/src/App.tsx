@@ -426,7 +426,10 @@ export function AppRoutes() {
             element={
               <Suspense
                 fallback={
-                  <RouteLoadingSkeleton isBoundedPane={false}>
+                  <RouteLoadingSkeleton
+                    isBoundedPane={false}
+                    variant={isRootComposeView ? "root-compose" : "default"}
+                  >
                     {isThreadView ? <ThreadTimelineLoadingSkeleton /> : null}
                   </RouteLoadingSkeleton>
                 }

@@ -4,6 +4,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -97,7 +98,6 @@ import {
 import { WorkRowBody } from "./TimelineRowDetails.js";
 import { TimelineDetailScroll } from "./TimelineDetailScroll.js";
 import { Button } from "@bb/shared-ui/button";
-import { AutoHeightContainer } from "../../ui/height-transition.js";
 import { Icon, type IconName } from "@bb/shared-ui/icon";
 import { presentationTintStyle } from "./presentation-display.js";
 import { usePluginIconUrl } from "@/lib/plugin-logos";
@@ -106,9 +106,9 @@ import {
   isPluginRenderableWorkRow,
   usePluginTimelineRenderer,
 } from "./PluginTimelineRendererBody.js";
-import type { PromptMentionLinkResolver } from "@/components/promptbox/editor/prompt-mention-link";
+import type { PromptMentionLinkResolver } from "@bb/client-core";
 import {
-  TimelineScrollRestoreRowIdContext,
+  TimelineScrollRestoreContext,
   useBottomAnchoredScroll,
 } from "@/components/ui/bottom-anchored-scroll-body.js";
 import {
@@ -120,7 +120,6 @@ import {
 import {
   joinSignatureParts,
   timelineRowRenderSignature,
-  timelineRowsSignature,
 } from "@bb/client-core";
 import {
   TOP_LEVEL_TIMELINE_ROW_INTRINSIC_SIZE_CLASS_NAME,
@@ -130,7 +129,7 @@ import {
 import { NESTED_TIMELINE_GROUP_LINE_CLASS_NAME } from "./timeline-nested-group-line.js";
 import { GeneratedConversationMessage } from "./GeneratedConversationMessage.js";
 import { copyToClipboardWithToast } from "@/lib/clipboard";
-import { useThreadTimelineTurnSummaryDetails } from "@/hooks/queries/thread-queries";
+import { useThreadTimelineTurnSummaryDetails } from "@/hooks/queries/thread-panel-queries";
 import { type ThreadTimelineTurnSummaryDetailsQueryIdentity } from "@/hooks/queries/query-keys";
 import {
   useSenderThreadMetadataById,
@@ -550,23 +549,6 @@ function useTimelineSearchExpansionRowIds(
     }
     return combinedRowIds;
   }, [inheritedRowIds, rows, target, threadId]);
-}
-
-function timelineHeightSnapRevision(rows: readonly TimelineRow[]): string {
-  const firstRowId = rows[0]?.id;
-
-  for (let index = rows.length - 1; index >= 0; index -= 1) {
-    const row = rows[index];
-    if (row?.kind === "turn") {
-      return joinSignatureParts([
-        firstRowId,
-        row.id,
-        row.sourceSeqStart,
-        row.sourceSeqEnd,
-      ]);
-    }
-  }
-  return joinSignatureParts([firstRowId, "active"]);
 }
 
 function useTimelineViewRowsCache(): GetTimelineViewRows {
@@ -1068,12 +1050,12 @@ function TimelineUnreadDivider({ autoScroll }: TimelineUnreadDividerProps) {
   const dividerRef = useRef<HTMLDivElement>(null);
   const hasScrolledRef = useRef(false);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!autoScroll || !bottomAnchor || hasScrolledRef.current) {
       return;
     }
 
-    const timeoutId = window.setTimeout(() => {
+    const frameId = window.requestAnimationFrame(() => {
       const divider = dividerRef.current;
       if (!divider) {
         return;
@@ -1083,9 +1065,9 @@ function TimelineUnreadDivider({ autoScroll }: TimelineUnreadDividerProps) {
       bottomAnchor.scrollElementIntoViewClampedToMaxScroll({
         element: divider,
       });
-    }, 0);
+    });
 
-    return () => window.clearTimeout(timeoutId);
+    return () => window.cancelAnimationFrame(frameId);
   }, [autoScroll, bottomAnchor]);
 
   return (
@@ -1112,7 +1094,6 @@ function TimelineSystemDetailBlock({
     <TimelineDetailScroll
       size="base"
       streaming={streaming}
-      contentKey={detail}
       className="overflow-hidden rounded-lg border border-border bg-card"
     >
       <pre className="whitespace-pre-wrap break-words px-4 py-3 font-mono text-xs leading-tight text-subtle-foreground opacity-70">
@@ -1200,11 +1181,7 @@ function TimelineExpandableBodyContent({
       const isFrontier =
         row.kind === "bundle-summary" && row.id === activeLatestBundleId;
       return (
-        <TimelineDetailScroll
-          size="summary"
-          streaming={isFrontier}
-          contentKey={timelineRowsSignature(row.children)}
-        >
+        <TimelineDetailScroll size="summary" streaming={isFrontier}>
           {list}
         </TimelineDetailScroll>
       );
@@ -1534,7 +1511,6 @@ function DelegationRowBody({ row }: { row: TimelineViewDelegationWorkRow }) {
     <TimelineDetailScroll
       size="delegation"
       streaming={delegationActive}
-      contentKey={`${row.childRows === null ? "deferred" : timelineRowsSignature(row.childRows)}|${row.output.length}`}
       className={NESTED_TIMELINE_GROUP_LINE_CLASS_NAME}
     >
       <div className="flex flex-col gap-3">
@@ -2010,17 +1986,15 @@ function TimelineRowItemWrapper({
       ref={composedRef}
       data-timeline-row-id={row.id}
       data-timeline-window-key={row.id}
-      data-index={windowedState.itemIndex}
       className={
         isTopLevel && !windowedState.windowingEnabled
           ? TOP_LEVEL_TIMELINE_ROW_INTRINSIC_SIZE_CLASS_NAME
           : undefined
       }
       style={
-        windowedState.itemStyle ??
-        (isTopLevel && !windowedState.windowingEnabled
+        isTopLevel && !windowedState.windowingEnabled
           ? timelineRowContainmentStyle(row)
-          : undefined)
+          : undefined
       }
     >
       {children}
@@ -2061,7 +2035,7 @@ function TimelineRowsList({
 }: TimelineRowsListProps) {
   const { threadId } = useTimelineRendererStaticContext();
   const bottomAnchor = useBottomAnchoredScroll();
-  const scrollRestoreRowId = useContext(TimelineScrollRestoreRowIdContext);
+  const scrollRestore = useContext(TimelineScrollRestoreContext);
   const detailScrollRoot = useContext(TimelineWindowingScrollRootContext);
   const inheritedMeasurements = useContext(
     TimelineWindowingMeasurementsContext,
@@ -2105,25 +2079,11 @@ function TimelineRowsList({
     for (const rowId of stableSearchExpandedRowIds) {
       keys.add(rowId);
     }
-    if (spacing === "top-level" && scrollRestoreRowId !== null) {
-      keys.add(scrollRestoreRowId);
-    }
     if (spacing === "top-level" && navigationTargetRowId != null) {
       keys.add(navigationTargetRowId);
     }
     return keys;
-  }, [
-    items,
-    rows,
-    scrollRestoreRowId,
-    spacing,
-    stableSearchExpandedRowIds,
-    navigationTargetRowId,
-  ]);
-  const getWindowingScrollElement =
-    detailScrollRoot?.getScrollElement ??
-    bottomAnchor?.getScrollElement ??
-    null;
+  }, [items, rows, spacing, stableSearchExpandedRowIds, navigationTargetRowId]);
   const isTopLevelList = spacing === "top-level";
   const { measureRef: messageColumnWidthSourceRef, width: messageColumnWidth } =
     useMeasuredWidth({ enabled: isTopLevelList });
@@ -2156,9 +2116,16 @@ function TimelineRowsList({
                 : 28;
             }}
             gap={spacing === "bundle" ? 0 : 8}
-            getScrollElement={getWindowingScrollElement}
+            initialWindowAnchor={
+              isTopLevelList && detailScrollRoot === null ? scrollRestore : null
+            }
             itemKeys={itemKeys}
             measurements={measurements}
+            positionKeeper={
+              detailScrollRoot?.positionKeeper ??
+              bottomAnchor?.positionKeeper ??
+              null
+            }
             pinnedToEnd={
               isTopLevelList &&
               detailScrollRoot === null &&
@@ -2174,9 +2141,7 @@ function TimelineRowsList({
                   <div
                     key={item.id}
                     ref={windowedState.itemRef}
-                    data-index={windowedState.itemIndex}
                     data-timeline-window-key={`divider:${item.id}`}
-                    style={windowedState.itemStyle}
                   >
                     <TimelineUnreadDivider
                       autoScroll={unreadDividerAutoScroll}
@@ -2225,7 +2190,6 @@ function ThreadTimelineRowsForTimelineView(props: ThreadTimelineRowsProps) {
     () => getViewRows(props.timelineRows),
     [getViewRows, props.timelineRows],
   );
-  const heightSnapRevision = timelineHeightSnapRevision(props.timelineRows);
   const latestActionableAssistantMessageId = useMemo(
     () => findLastActionableAssistantMessageId(rows),
     [rows],
@@ -2337,6 +2301,8 @@ function ThreadTimelineRowsForTimelineView(props: ThreadTimelineRowsProps) {
   const dismissSelection = useCallback(() => {
     setActiveSelection(null);
   }, []);
+  const [selectionMenuLayer, setSelectionMenuLayer] =
+    useState<HTMLDivElement | null>(null);
   const handleSelectionAddToChat = useCallback(
     (
       text: string,
@@ -2471,10 +2437,7 @@ function ThreadTimelineRowsForTimelineView(props: ThreadTimelineRowsProps) {
                       <TimelineWindowingMeasurementsContext.Provider
                         value={windowingMeasurements}
                       >
-                        <AutoHeightContainer
-                          snapRevision={heightSnapRevision}
-                          animateGrowth={!scopeActive}
-                        >
+                        <div className="relative">
                           <TimelineRowsList
                             hasOlderTimelineRows={props.hasOlderTimelineRows}
                             isLoadingOlderTimelineRows={
@@ -2496,7 +2459,13 @@ function ThreadTimelineRowsForTimelineView(props: ThreadTimelineRowsProps) {
                               props.unreadDividerPlacement ?? null
                             }
                           />
-                        </AutoHeightContainer>
+                          {hasSelectionActions ? (
+                            <div
+                              ref={setSelectionMenuLayer}
+                              className="pointer-events-none absolute inset-0 z-10 [contain:layout]"
+                            />
+                          ) : null}
+                        </div>
                       </TimelineWindowingMeasurementsContext.Provider>
                       {hasSelectionActions ? (
                         <TimelineSelectionMenu
@@ -2504,6 +2473,7 @@ function ThreadTimelineRowsForTimelineView(props: ThreadTimelineRowsProps) {
                           onAddToChat={selectionAddToChatHandler}
                           pluginActions={selectionPluginActions}
                           onDismiss={dismissSelection}
+                          container={selectionMenuLayer}
                         />
                       ) : null}
                     </TimelineTurnStateContext.Provider>

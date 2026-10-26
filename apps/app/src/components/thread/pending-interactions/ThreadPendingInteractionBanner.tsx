@@ -7,7 +7,10 @@ import {
   formatPendingInteractionSubjectDetailLines,
   type PendingInteractionToolUseAsk,
 } from "@bb/core-ui";
-import { extractShellCommandFromString } from "@bb/thread-view";
+import {
+  extractShellCommandFromString,
+  formatShellCommandForDisplay,
+} from "@bb/thread-view";
 import {
   isPluginPendingInteraction,
   type ApprovalPendingInteractionPayload,
@@ -260,7 +263,7 @@ function PlanReviewRequestBanner({
             <MarkdownPreview content={plan} className="text-xs" />
           </div>
           {planFilePath ? (
-            <p className="truncate border-t border-border px-3 py-2 font-mono text-xs text-muted-foreground">
+            <p className="break-all border-t border-border px-3 py-2 font-mono text-xs text-muted-foreground">
               {planFilePath}
             </p>
           ) : null}
@@ -507,14 +510,15 @@ function CommandPreview({
   detailLines: readonly string[];
 }) {
   const [showsAllLines, setShowsAllLines] = useState(false);
-  const lines = command.split("\n");
+  const displayCommand = formatShellCommandForDisplay(command);
+  const lines = displayCommand.split("\n");
   const hiddenLineCount = Math.max(
     0,
     lines.length - COMMAND_PREVIEW_LINE_COUNT,
   );
   const visibleCommand =
     showsAllLines || hiddenLineCount === 0
-      ? command
+      ? displayCommand
       : lines.slice(0, COMMAND_PREVIEW_LINE_COUNT).join("\n");
   return (
     <div

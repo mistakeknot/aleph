@@ -334,6 +334,10 @@ export class RuntimeManager {
     return this.entries.get(environmentId);
   }
 
+  hasPendingEnvironmentProvision(environmentId: string): boolean {
+    return this.pendingEnvironmentProvisions.has(environmentId);
+  }
+
   async getOrAwait(environmentId: string): Promise<RuntimeEntry | undefined> {
     const existing = this.entries.get(environmentId);
     if (existing) {

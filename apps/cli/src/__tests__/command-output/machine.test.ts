@@ -70,13 +70,22 @@ describe("bb machine command output", () => {
     registerMachineCommands(program, () => "http://server");
 
   it("polls the creating host until it becomes active", async () => {
+    vi.useFakeTimers();
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
     const get = vi.fn(async () => hosts[1]);
     stubServerApi({
       "v1.hosts.$post": vi.fn(async () => creating),
       "v1.hosts.:id.enrollment-command.$get": vi.fn(async () => null),
       "v1.hosts.:id.$get": get,
     });
-    await runCommand(["machine", "create", "--provider", "ssh"], register);
+    const command = runCommand(
+      ["machine", "create", "--provider", "ssh"],
+      register,
+    );
+    await vi.runAllTimersAsync();
+    await command;
     expect(get).toHaveBeenCalledOnce();
     expect(collectLogPayloads(vi.mocked(console.log))).toEqual([
       "Machine laptop created",
@@ -126,6 +135,10 @@ describe("bb machine command output", () => {
   });
 
   it("prints the manual enrollment command while following", async () => {
+    vi.useFakeTimers();
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
     const command = "curl -fsSL https://machine.example/install.sh | sh";
     stubServerApi({
       "v1.hosts.$post": vi.fn(async () => creating),
@@ -135,11 +148,20 @@ describe("bb machine command output", () => {
       })),
       "v1.hosts.:id.$get": vi.fn(async () => hosts[1]),
     });
-    await runCommand(["machine", "create", "--provider", "manual"], register);
+    const running = runCommand(
+      ["machine", "create", "--provider", "manual"],
+      register,
+    );
+    await vi.runAllTimersAsync();
+    await running;
     expect(collectLogPayloads(vi.mocked(console.error))).toContain(command);
   });
 
   it("waits for delayed manual enrollment readiness and prints the command once", async () => {
+    vi.useFakeTimers();
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
     const command = "curl -fsSL https://machine.example/install.sh | sh";
     const enrollment = vi
       .fn()
@@ -155,7 +177,12 @@ describe("bb machine command output", () => {
       "v1.hosts.:id.enrollment-command.$get": enrollment,
       "v1.hosts.:id.$get": get,
     });
-    await runCommand(["machine", "create", "--provider", "manual"], register);
+    const running = runCommand(
+      ["machine", "create", "--provider", "manual"],
+      register,
+    );
+    await vi.runAllTimersAsync();
+    await running;
     expect(
       collectLogPayloads(vi.mocked(console.error)).filter(
         (value) => value === command,
@@ -225,7 +252,10 @@ describe("bb machine command output", () => {
       );
 
       if (command === "remove") {
-        expect(remove).toHaveBeenCalledWith({ param: { id: pending.id } });
+        expect(remove).toHaveBeenCalledWith({
+          param: { id: pending.id },
+          query: {},
+        });
       } else {
         expect(
           JSON.parse(String(vi.mocked(console.log).mock.calls[0]?.[0])),
@@ -379,7 +409,31 @@ describe("bb machine command output", () => {
 
     await runCommand(["machine", "remove", "laptop", "--yes"], register);
 
-    expect(remove).toHaveBeenCalledWith({ param: { id: "host-remote" } });
+    expect(remove).toHaveBeenCalledWith({
+      param: { id: "host-remote" },
+      query: {},
+    });
+    expect(collectLogPayloads(vi.mocked(console.log))).toEqual([
+      "Machine host-remote removed",
+    ]);
+  });
+
+  it("bb machine remove --force skips cleanup for a stranded machine", async () => {
+    const remove = vi.fn(async () => undefined);
+    stubServerApi({
+      "v1.hosts.$get": vi.fn(async () => hosts),
+      "v1.hosts.:id.$delete": remove,
+    });
+
+    await runCommand(
+      ["machine", "remove", "laptop", "--force", "--yes"],
+      register,
+    );
+
+    expect(remove).toHaveBeenCalledWith({
+      param: { id: "host-remote" },
+      query: { force: "true" },
+    });
     expect(collectLogPayloads(vi.mocked(console.log))).toEqual([
       "Machine host-remote removed",
     ]);

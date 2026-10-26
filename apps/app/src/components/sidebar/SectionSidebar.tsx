@@ -7,6 +7,7 @@ import { cn } from "@bb/shared-ui/lib/utils";
 import {
   SidebarContent,
   useCloseMobileSidebar,
+  useIsSidebarFramed,
 } from "@/components/ui/sidebar.js";
 import {
   SidebarResizeHandle,
@@ -15,6 +16,7 @@ import {
 import { PROJECT_LIST_ACTION_BUTTON_CLASS } from "@bb/shared-ui/sidebar-row-classes";
 import { SIDEBAR_STANDARD_ROW_PADDING_CLASS } from "@bb/shared-ui/sidebar-row-classes";
 import { CHROME_SECTION_LABEL_CLASS } from "@bb/shared-ui/chrome-style-tokens";
+import { RouteNavigationCallbackContext } from "@/components/ui/app-route-anchor";
 
 export function SectionSidebarIcon({ name }: { name: IconName }) {
   return <Icon name={name} className={COARSE_POINTER_ICON_SIZE_CLASS} />;
@@ -98,18 +100,24 @@ export function SectionSidebarLabel({ children }: { children: ReactNode }) {
 }
 
 export function SectionSidebar({
+  backTo,
   children,
   headerSlot,
   isResizing,
   onResizeMouseDown,
   testIdPrefix,
+  title,
 }: {
+  backTo: string | null;
   children: ReactNode;
   headerSlot?: ReactNode;
   isResizing: boolean;
   onResizeMouseDown: (event: ReactMouseEvent<HTMLDivElement>) => void;
   testIdPrefix: string;
+  title: string;
 }) {
+  const isFramed = useIsSidebarFramed();
+  const closeOnMobile = useCloseMobileSidebar();
   return (
     <div
       data-testid={`${testIdPrefix}-sidebar-body`}
@@ -128,8 +136,28 @@ export function SectionSidebar({
           )
         }
       />
+      {backTo === null ? null : (
+        <div className="shrink-0 px-2 py-2">
+          <SectionSidebarRow active={false} label="Back to app" to={backTo}>
+            <SectionSidebarIcon name="ChevronLeft" />
+          </SectionSidebarRow>
+        </div>
+      )}
       <SidebarContent>
-        <div className="min-w-0 px-2">{children}</div>
+        <div
+          className={cn(
+            "min-w-0 px-2 pb-2.5 max-md:pointer-coarse:pb-1.5",
+            isFramed &&
+              "pb-[max(0px,calc(var(--bb-app-chrome-row-height)/2_-_1px_-_var(--bb-sidebar-row-height)/2))]",
+          )}
+        >
+          {backTo === null ? null : (
+            <SectionSidebarLabel>{title}</SectionSidebarLabel>
+          )}
+          <RouteNavigationCallbackContext.Provider value={closeOnMobile}>
+            {children}
+          </RouteNavigationCallbackContext.Provider>
+        </div>
       </SidebarContent>
       <SidebarResizeHandle
         testId={`${testIdPrefix}-sidebar-resize-handle`}

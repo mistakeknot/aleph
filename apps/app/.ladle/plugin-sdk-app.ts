@@ -1,8 +1,13 @@
 import { pluginSdkAppImplementation } from "../src/lib/plugin-sdk-app-impl";
+import {
+  useStoryComposerCommandSearch,
+  useStoryComposerMentionSearch,
+} from "./composer-search-story";
 
 export type * from "@get-bb/plugin-sdk";
 
 export const {
+  experimental_ThreadStatusGlyph,
   experimental_Icon,
   experimental_ProviderIcon,
   definePluginApp,
@@ -36,7 +41,6 @@ export const {
   experimental_ThreadActionsMenu,
   experimental_ThreadActionsContextMenu,
   experimental_THREAD_ACTION_GROUPS,
-  experimental_useSidebarThreadPullRequest,
   experimental_useSidebarThreadSplit,
   useSidebarThreadDraft,
   useSidebarThreadDraftIds,
@@ -51,4 +55,25 @@ export const {
   experimental_useCodeTheme,
   experimental_copyToClipboard,
   experimental_usePluginId,
+  experimental_useComposerRenderer,
+  experimental_useThreadTitleDisplayText,
+  experimental_useComposerContributions,
+  experimental_ComposerRoot,
+  experimental_VoiceInputButton,
+  experimental_VoiceRecordingBar,
+  experimental_FailedVoiceRecordings,
+  experimental_ShortcutHint,
+  experimental_ImageLightbox,
+  experimental_PromptMentionIcon,
+  experimental_describePromptMention,
+  experimental_promptMentionClipboardAttributes,
+  experimental_readPromptMentionClipboard,
+  experimental_PluginIcon,
+  experimental_ThreadTitleText,
+  experimental_VoiceInputTextarea,
 } = pluginSdkAppImplementation;
+
+export const experimental_useComposerMentionSearch =
+  useStoryComposerMentionSearch;
+export const experimental_useComposerCommandSearch =
+  useStoryComposerCommandSearch;

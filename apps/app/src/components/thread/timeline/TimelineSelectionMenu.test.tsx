@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { useLayoutEffect, useRef, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { COMPACT_VIEWPORT_QUERY } from "@bb/shared-ui/hooks/use-compact-viewport";
@@ -50,7 +56,78 @@ function mockPointerCoarse() {
   }));
 }
 
+function mockLiveSelection(rect: DOMRect | null) {
+  vi.spyOn(window, "getSelection").mockReturnValue({
+    rangeCount: rect === null ? 0 : 1,
+    isCollapsed: rect === null,
+    getRangeAt: () => ({
+      getClientRects: () => ({ length: 1, item: () => rect }),
+      getBoundingClientRect: () => rect,
+    }),
+    removeAllRanges: () => {},
+  } as unknown as Selection);
+}
+
 describe("TimelineSelectionMenu", () => {
+  it("stays actionable while a scroll moves the selection", () => {
+    const onAddToChat = vi.fn();
+    const onDismiss = vi.fn();
+    render(
+      <>
+        <div data-testid="scroller" />
+        <TimelineSelectionMenu
+          selection={makeSelection()}
+          onAddToChat={onAddToChat}
+          onDismiss={onDismiss}
+        />
+      </>,
+    );
+    mockLiveSelection(new DOMRect(10, 40, 100, 20));
+
+    fireEvent.scroll(screen.getByTestId("scroller"));
+    fireEvent.click(screen.getByRole("button", { name: "Add to chat" }));
+
+    expect(onAddToChat).toHaveBeenCalledWith("selected text");
+  });
+
+  it("dismisses once a scroll moves the selection out of view", () => {
+    const onDismiss = vi.fn();
+    render(
+      <>
+        <div data-testid="scroller" />
+        <TimelineSelectionMenu
+          selection={makeSelection()}
+          onAddToChat={vi.fn()}
+          onDismiss={onDismiss}
+        />
+      </>,
+    );
+    mockLiveSelection(new DOMRect(10, -40, 100, 20));
+
+    fireEvent.scroll(screen.getByTestId("scroller"));
+
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it("dismisses on scroll once the selection is gone", () => {
+    const onDismiss = vi.fn();
+    render(
+      <>
+        <div data-testid="scroller" />
+        <TimelineSelectionMenu
+          selection={makeSelection()}
+          onAddToChat={vi.fn()}
+          onDismiss={onDismiss}
+        />
+      </>,
+    );
+    mockLiveSelection(null);
+
+    fireEvent.scroll(screen.getByTestId("scroller"));
+
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
   it("renders from a pointer release point without a physical anchor node", () => {
     const { container } = render(
       <TimelineSelectionMenu
@@ -63,6 +140,56 @@ describe("TimelineSelectionMenu", () => {
     expect(screen.getByRole("button", { name: "Add to chat" })).toBeTruthy();
     expect(container.querySelector('[aria-hidden="true"]')).toBeNull();
   });
+
+  it.each([
+    { edge: "left", release: { x: 300, y: 400 } },
+    { edge: "right", release: { x: 1120, y: 400 } },
+    { edge: "top", release: { x: 600, y: 20 } },
+  ])(
+    "keeps the menu inside the timeline for a release past its $edge edge",
+    async ({ release }) => {
+      const timeline = new DOMRect(320, 48, 780, 752);
+      function ClippedTimeline() {
+        const [layer, setLayer] = useState<HTMLDivElement | null>(null);
+        return (
+          <div data-testid="timeline" style={{ overflow: "hidden" }}>
+            <div ref={setLayer} />
+            <TimelineSelectionMenu
+              selection={makeSelection({ anchorPoint: release })}
+              onAddToChat={vi.fn()}
+              onDismiss={vi.fn()}
+              container={layer}
+            />
+          </div>
+        );
+      }
+      vi.spyOn(
+        HTMLElement.prototype,
+        "getBoundingClientRect",
+      ).mockImplementation(function (this: HTMLElement) {
+        return this.dataset.testid === "timeline"
+          ? timeline
+          : new DOMRect(0, 0, 0, 0);
+      });
+      render(<ClippedTimeline />);
+
+      await waitFor(() => {
+        const wrapper = document.querySelector<HTMLElement>(
+          "[data-radix-popper-content-wrapper]",
+        );
+        const match = /translate\((-?[\d.]+)px, (-?[\d.]+)px\)/u.exec(
+          wrapper?.style.transform ?? "",
+        );
+        expect(match).not.toBeNull();
+        const x = Number(match?.[1]);
+        const y = Number(match?.[2]);
+        expect(x).toBeGreaterThanOrEqual(timeline.left);
+        expect(x).toBeLessThanOrEqual(timeline.right);
+        expect(y).toBeGreaterThanOrEqual(timeline.top);
+        expect(y).toBeLessThanOrEqual(timeline.bottom);
+      });
+    },
+  );
 
   it("uses the selected anchor side when positioning from a pointer release", () => {
     render(

@@ -85,6 +85,8 @@ function recoverableMessageKey(
   switch (message.type) {
     case "connect-tunnel.identity":
       return "connect-tunnel.identity";
+    case "connect-next.status":
+      return "connect-next.status";
     case "environment-change":
       return `environment-change\u0000${message.environmentId}\u0000${message.change}`;
     case "environment-metadata-change":
@@ -353,6 +355,9 @@ export class ServerConnection {
       this.session = session;
       this.machineEnvironmentRevision = session.machineEnvironment.revision;
       this.options.onMachineEnvironment?.(session.machineEnvironment);
+      this.options.onIdleProviderSessionTimeout?.(
+        session.idleProviderSessionTimeoutMinutes,
+      );
       return session;
     } catch (error) {
       if (
@@ -650,6 +655,13 @@ export class ServerConnection {
       return;
     }
 
+    if (message.data.type === "provider-session-policy.replace") {
+      this.options.onIdleProviderSessionTimeout?.(
+        message.data.idleProviderSessionTimeoutMinutes,
+      );
+      return;
+    }
+
     if (message.data.type === "machine-environment.replace") {
       if (message.data.environment.revision > this.machineEnvironmentRevision) {
         this.machineEnvironmentRevision = message.data.environment.revision;
@@ -715,6 +727,22 @@ export class ServerConnection {
           "Connect shares handler failed",
         );
       });
+      return;
+    }
+
+    if (message.data.type === "connect-next.replace") {
+      const nextMessage = message.data;
+      try {
+        this.options.onConnectNextReplace?.(nextMessage);
+      } catch (error) {
+        this.options.logger.warn(
+          {
+            generation: nextMessage.generation,
+            ...runtimeErrorLogFields(error),
+          },
+          "Connect next handler failed",
+        );
+      }
       return;
     }
 

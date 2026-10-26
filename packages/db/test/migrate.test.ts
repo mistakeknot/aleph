@@ -9,6 +9,7 @@ import {
   dropMarketplaceSourceGitSubdirectoryColumn,
   dropMusicModeColumns,
   dropPluginEnabledFollowsDefaultColumn,
+  dropThreadParentNotificationsColumn,
   dropQueuedMessageEditHeldUntilColumn,
   rewindQueuedMessageStateMigration,
   rewindThreadPruningWork,
@@ -245,12 +246,17 @@ interface SeededLargeValueBackfillValues {
 
 const legacyCompatDir = legacyOracleFolder();
 
+// The oracle folder is pinned before the newest upstream steps, so the latest
+// applied `created_at` comes from whichever journal reaches further.
 const latestMigrationWhen = Math.max(
-  ...(
-    JSON.parse(
-      readFileSync(resolve(legacyCompatDir, "meta/_journal.json"), "utf-8"),
-    ) as { entries: { when: number }[] }
-  ).entries.map((entry) => entry.when),
+  ...[legacyCompatDir, resolve(import.meta.dirname, "../drizzle")].flatMap(
+    (folder) =>
+      (
+        JSON.parse(
+          readFileSync(resolve(folder, "meta/_journal.json"), "utf-8"),
+        ) as { entries: { when: number }[] }
+      ).entries.map((entry) => entry.when),
+  ),
 );
 
 function restoreWideExperimentsTable(db: DbConnection): void {
@@ -592,6 +598,23 @@ function migrateFromLegacyHistory(db: DbConnection): void {
   migrate(db);
 }
 
+// A legacy database never recorded the steps planned after the pinned oracle
+// (upstream 0144 as A0011, 0145, 0146). Rewind them so a ledger-less open
+// treats them as pending instead of as recorded-but-unledgered.
+function rewindPostOracleSteps(db: DbConnection): void {
+  dropThreadParentNotificationsColumn(db);
+  const oracleWhen = Math.max(
+    ...(
+      JSON.parse(
+        readFileSync(resolve(legacyCompatDir, "meta/_journal.json"), "utf-8"),
+      ) as { entries: { when: number }[] }
+    ).entries.map((entry) => entry.when),
+  );
+  db.$client
+    .prepare<[number]>("DELETE FROM __drizzle_migrations WHERE created_at > ?")
+    .run(oracleWhen);
+}
+
 function resetMigrationsAfterThreadSearch(db: DbConnection): void {
   restoreLegacyThreadOriginColumn(db);
   dropRewindAddedTables(db);
@@ -692,6 +715,7 @@ function rewindEnvironmentProvisioningMigration(db: DbConnection): void {
   dropPluginEnabledFollowsDefaultColumn(db);
   dropQueuedMessageEditHeldUntilColumn(db);
   dropMarketplaceSourceGitSubdirectoryColumn(db);
+  dropThreadParentNotificationsColumn(db);
   db.$client.exec("DROP TRIGGER IF EXISTS threads_lifecycle_owner_insert");
   db.$client.exec("DROP TRIGGER IF EXISTS threads_lifecycle_owner_immutable");
   db.$client.exec("DROP INDEX IF EXISTS threads_lifecycle_owner_idx");
@@ -738,6 +762,7 @@ function rewindEnvironmentProvisioningMigration(db: DbConnection): void {
 
 function dropQueuedMessageAttemptColumns(db: DbConnection): void {
   rewindQueuedMessageStateMigration(db);
+  dropThreadParentNotificationsColumn(db);
   const columns = db.$client
     .prepare<[], TableInfoRow>("PRAGMA table_info(queued_thread_messages)")
     .all();
@@ -839,6 +864,7 @@ function rewindMachineProvidersMigration(db: DbConnection): void {
   rewindThreadPruningWork(db);
   dropQueuedMessageEditHeldUntilColumn(db);
   dropMarketplaceSourceGitSubdirectoryColumn(db);
+  dropThreadParentNotificationsColumn(db);
   db.$client.exec("DROP TABLE IF EXISTS ui_preference_defaults");
   db.$client.exec("DROP TABLE IF EXISTS idempotent_thread_operations");
   dropTransferLedgerSchema(db);
@@ -1779,9 +1805,11 @@ describe("migrate", () => {
         showKeyboardHints: false,
         showGitChanges: true,
         steerActiveThreadOnEnter: true,
+        terminalCopyOnSelect: true,
         confirmThreadArchive: true,
         showDiagnosticEvents: true,
         keepHistoryAfterContextClear: false,
+        summarizeShellCommands: true,
         providerOrder: [],
         defaultProviderId: null,
         providerCompletedTurnDisplay: {},
@@ -1792,7 +1820,9 @@ describe("migrate", () => {
         allowFastServiceTier: true,
         telemetryEnabled: true,
         managedBranchPrefix: "bb/",
+        idleProviderSessionTimeoutMinutes: 30,
         onboardingCompletedAt: "2026-08-01T00:00:00.000Z",
+        earlyAdopter: false,
       });
       expect(
         db.$client
@@ -2999,6 +3029,7 @@ describe("migrate", () => {
           stopRequestedAtDropMigrationWhen,
           cleanupRequestedAtDropMigrationWhen,
         );
+      rewindPostOracleSteps(db);
 
       migrateFromLegacyHistory(db);
 
@@ -3303,6 +3334,7 @@ describe("migrate", () => {
       rewindThreadPruningWork(db);
       dropQueuedMessageEditHeldUntilColumn(db);
       dropMarketplaceSourceGitSubdirectoryColumn(db);
+      dropThreadParentNotificationsColumn(db);
       db.$client.prepare("DROP INDEX projects_deleted_idx").run();
       db.$client.prepare("ALTER TABLE projects DROP COLUMN deleted_at").run();
       db.$client.prepare("ALTER TABLE events ADD producer_event_id text").run();

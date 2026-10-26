@@ -325,7 +325,7 @@ describe("electron-builder signing config", () => {
   it("passes the standalone platform through to better-sqlite3 prebuild-install", () => {
     const { options } = nativeModulesScript.parseStandaloneArguments([
       "/tmp/linux-unpacked",
-      "--electron-version=44.3.0",
+      "--electron-version=44.9.3",
       "--arch=x64",
       "--platform=linux",
     ]);
@@ -342,7 +342,7 @@ describe("electron-builder signing config", () => {
       }),
     ).toEqual([
       "--runtime=electron",
-      "--target=44.3.0",
+      "--target=44.9.3",
       "--arch=x64",
       "--platform=linux",
     ]);
@@ -352,12 +352,12 @@ describe("electron-builder signing config", () => {
     expect(
       nativeModulesScript.resolveBetterSqlite3PrebuildArguments({
         arch: "arm64",
-        electronVersion: "44.3.0",
+        electronVersion: "44.9.3",
         platform: "darwin",
       }),
     ).toEqual([
       "--runtime=electron",
-      "--target=44.3.0",
+      "--target=44.9.3",
       "--arch=arm64",
       "--platform=darwin",
     ]);
@@ -478,7 +478,7 @@ describe("electron-builder signing config", () => {
       );
       await mkdir(resolve(nodeModules, "@parcel/watcher"), { recursive: true });
       const result = await runNativePrepScript(appOutDir, [
-        "--electron-version=44.3.0",
+        "--electron-version=44.9.3",
       ]);
       expect(result.stderr).toBe("");
       expect(result.exitCode).toBe(0);
@@ -489,7 +489,7 @@ describe("electron-builder signing config", () => {
       );
       await writeFile(binaryPath, "invalid native binary");
       const invalidResult = await runNativePrepScript(appOutDir, [
-        "--electron-version=44.3.0",
+        "--electron-version=44.9.3",
       ]);
       expect(invalidResult.exitCode).not.toBe(0);
       expect(invalidResult.stderr).toContain(binaryPath);

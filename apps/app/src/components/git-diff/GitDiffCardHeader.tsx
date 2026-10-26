@@ -5,7 +5,7 @@ import { DiffStatsTally } from "@/components/ui/diff-stats-tally.js";
 import { FilePathLink } from "@/components/ui/file-path-link.js";
 import { Icon } from "@bb/shared-ui/icon";
 import { OpenInEditorButton } from "@/components/ui/open-in-editor-button.js";
-import { TruncateStart } from "@/components/ui/truncate-start.js";
+import { TruncateStart } from "@bb/shared-ui/truncate-start";
 import { resolveAbsoluteFilePath } from "@/lib/absolute-file-path";
 import { formatByteSize } from "@/lib/format-byte-size";
 import { cn } from "@bb/shared-ui/lib/utils";
@@ -122,8 +122,8 @@ export function GitDiffCardHeader({
     isCollapsed !== undefined && onToggleCollapsed !== undefined;
 
   return (
-    <div className="flex w-full min-w-0 items-center justify-between gap-2">
-      <span className="flex min-w-0 items-center">
+    <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1">
+      <span className="flex min-w-0 grow basis-48 items-center">
         {supportsCollapse ? (
           <button
             type="button"
@@ -192,8 +192,7 @@ export function GitDiffCardHeader({
           ) : null}
         </span>
       </span>
-      <span className="flex shrink-0 items-center gap-1">
-        {actionSlot}
+      <span className="ml-auto flex shrink-0 items-center gap-2">
         {statSlot ?? (
           <DiffStatsTally
             insertions={headerInsertions}
@@ -202,6 +201,7 @@ export function GitDiffCardHeader({
             className="text-xs"
           />
         )}
+        {actionSlot}
       </span>
     </div>
   );

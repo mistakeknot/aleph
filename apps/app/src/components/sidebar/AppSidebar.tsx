@@ -9,7 +9,7 @@ import { flushSync } from "react-dom";
 import { cn } from "@bb/shared-ui/lib/utils";
 import { THREAD_JUMP_APP_COMMAND_IDS } from "@bb/domain";
 import { useNavigate } from "react-router-dom";
-import { OverflowFade } from "@/components/ui/overflow-fade.js";
+import { OverflowFade } from "@bb/shared-ui/overflow-fade";
 import {
   Sidebar,
   SidebarCollapsibleBody,
@@ -44,6 +44,7 @@ import {
 } from "./sidebarThreadShortcuts";
 import {
   useAppCommandHandler,
+  useAppCommandShortcut,
   useAppCommandShortcuts,
   useIsAppCommandModifierHeld,
   useIndexedAppCommandHandlers,
@@ -53,9 +54,22 @@ import { SidebarNavigationModelProvider } from "./SidebarNavigationModel";
 import { SIDEBAR_FOOTER_MORE_ID } from "./sidebarFooterPreferences";
 import { LazySidebarFooterCustomize } from "./LazySidebarFooterCustomize";
 import {
-  NavRailNewThreadButton,
-  type NavRailCustomizeState,
-} from "./AppNavRail";
+  CHROME_ROW_HEIGHT_CLASS,
+  getBbDesktopInfo,
+  MACOS_WINDOW_DRAG_CLASS,
+  shouldUseMacosDesktopChrome,
+} from "@/lib/bb-desktop";
+import { NavRailSettingsButton } from "./NavRailSettingsButton";
+import { SidebarNavigationHeader } from "./SidebarNavigationHeader";
+import {
+  SidebarNavigationProviderMount,
+  SidebarNavigationRegion,
+  useSidebarNavigationCustomize,
+} from "./SidebarNavigationHost";
+import {
+  sidebarNavigationPlacement,
+  type ResolvedSidebarNavigation,
+} from "./sidebarNavigationProvider";
 
 import { NAV_RAIL_WIDTH_CLASS } from "./navRailWidth";
 
@@ -65,19 +79,23 @@ interface AppSidebarProps {
   onResizeMouseDown: (event: React.MouseEvent<HTMLDivElement>) => void;
   isResizing: boolean;
   isBodyHidden: boolean;
-  renderRail: (customize: NavRailCustomizeState) => ReactNode;
+  navigation: ResolvedSidebarNavigation;
+  settingsRoutePath: string;
+  isSettingsActive: boolean;
   alternateBody: ReactNode;
-  railFooter: ReactNode;
 }
 
 export function AppSidebar({
   onResizeMouseDown,
   isResizing,
   isBodyHidden,
-  renderRail,
+  navigation,
+  settingsRoutePath,
+  isSettingsActive,
   alternateBody,
-  railFooter,
 }: AppSidebarProps) {
+  const placement = sidebarNavigationPlacement(navigation);
+  const [desktopInfo] = useState(getBbDesktopInfo);
   const isFramed = useIsSidebarFramed();
   const threadListReplacement = useThreadListReplacement();
   const { threadId: activeThreadId } = useRouteState();
@@ -87,7 +105,10 @@ export function AppSidebar({
   const isThreadListVisible =
     !isBodyHidden && (isCompactViewport ? openMobile : open);
   const [isFooterCustomizing, setFooterCustomizing] = useState(false);
-  const [isNavigationCustomizing, setNavigationCustomizing] = useState(false);
+  const navigationCustomize = useSidebarNavigationCustomize(() =>
+    setFooterCustomizing(false),
+  );
+  const setNavigationCustomizing = navigationCustomize.setCustomizing;
   const [threadShortcutKeysById, setThreadShortcutKeysById] = useState<
     ReadonlyMap<string, SidebarThreadShortcutPresentation>
   >(EMPTY_SIDEBAR_THREAD_SHORTCUT_KEYS);
@@ -99,6 +120,7 @@ export function AppSidebar({
     THREAD_JUMP_APP_COMMAND_IDS,
   );
   const isAppCommandModifierHeld = useIsAppCommandModifierHeld();
+  const settingsShortcut = useAppCommandShortcut("settings.open");
   const pluginSidebarFooter = usePluginSidebarFooterDisclosure();
 
   const handleNewChat = useCallback(() => {
@@ -175,7 +197,7 @@ export function AppSidebar({
     if (!isCompactViewport) return;
     if (!openMobile || isBodyHidden) setFooterCustomizing(false);
     if (!openMobile) setNavigationCustomizing(false);
-  }, [isBodyHidden, isCompactViewport, openMobile]);
+  }, [isBodyHidden, isCompactViewport, openMobile, setNavigationCustomizing]);
   const activateVisibleThreadShortcut = useCallback(
     (index: number) => (isBodyHidden ? false : activateThreadShortcut(index)),
     [activateThreadShortcut, isBodyHidden],
@@ -199,20 +221,121 @@ export function AppSidebar({
     hideThreadShortcuts();
   }, [hideThreadShortcuts, isAppCommandModifierHeld, showThreadShortcuts]);
 
+  const navigationRegion = (className: string) => (
+    <SidebarNavigationRegion
+      placement={placement}
+      customize={navigationCustomize}
+      className={className}
+    >
+      {placement === "rail" && !isFramed ? (
+        <div
+          aria-hidden="true"
+          className={cn(
+            CHROME_ROW_HEIGHT_CLASS,
+            "shrink-0",
+            shouldUseMacosDesktopChrome(desktopInfo) && MACOS_WINDOW_DRAG_CLASS,
+          )}
+        />
+      ) : null}
+      {placement === "rail" ? (
+        <div
+          className={cn(
+            "flex min-h-0 flex-1 flex-col",
+            isFramed ? "pt-2.5" : "pt-1",
+          )}
+        >
+          <SidebarNavigationProviderMount resolved={navigation} />
+        </div>
+      ) : (
+        <SidebarNavigationProviderMount resolved={navigation} />
+      )}
+    </SidebarNavigationRegion>
+  );
+
+  const footer = (
+    <SidebarFooter
+      className={cn(
+        "w-full justify-center pl-(--bb-frame-footer-inset) pointer-fine:pl-[calc(var(--bb-frame-footer-inset)_+_(2rem_-_var(--bb-title-bar-control-size))/2)] pointer-fine:[&_[data-sidebar=menu-button]]:size-(--bb-title-bar-control-size) [&_[data-sidebar=menu-button]]:ring-inset pointer-fine:[&_[data-sidebar=menu]]:gap-0.5",
+        isFramed
+          ? cn(
+              "h-(--bb-app-chrome-row-height) py-0",
+              placement === "rail" && "-mb-px",
+            )
+          : "pb-(--bb-frame-footer-inset)",
+      )}
+    >
+      <SidebarMenu
+        className={cn(
+          "flex-row items-center gap-1",
+          isFooterCustomizing && "hidden",
+        )}
+      >
+        <PluginSidebarFooterItems
+          onCustomize={() => {
+            pluginSidebarFooter.dismiss();
+            setNavigationCustomizing(false);
+            setFooterCustomizing(true);
+          }}
+          activeDisclosureKey={pluginSidebarFooter.activeKey}
+          onDisclosureCommand={pluginSidebarFooter.handleCommand}
+          hoverPreview={pluginSidebarFooter.hoverPreview}
+          previewDisclosureKey={pluginSidebarFooter.previewKey}
+          onNavigate={closeOnMobile}
+          builtInActions={[
+            ...(placement === "list"
+              ? [
+                  {
+                    id: "settings" as const,
+                    href: settingsRoutePath,
+                    ariaLabel: settingsShortcut
+                      ? `Settings (${settingsShortcut.label})`
+                      : "Settings",
+                    ariaKeyShortcuts: settingsShortcut?.ariaKeyshortcuts,
+                    onActivate: () => {
+                      closeOnMobile();
+                      void navigate(settingsRoutePath);
+                    },
+                  },
+                ]
+              : []),
+            {
+              id: "mobile",
+              href: "/settings/mobile",
+              onActivate: () => {
+                closeOnMobile();
+                void navigate("/settings/mobile");
+              },
+            },
+            {
+              id: "report-bug",
+              onActivate: () => {
+                closeOnMobile();
+                openUrlInExternalBrowser(BUG_REPORT_NEW_ISSUE_URL);
+              },
+            },
+          ]}
+        />
+        <SidebarPluginAttentionGlyph
+          className={SIDEBAR_FOOTER_ACTION_CLASS}
+          onNavigate={closeOnMobile}
+        />
+        <SidebarUpdatesBadge onNavigate={closeOnMobile} />
+      </SidebarMenu>
+    </SidebarFooter>
+  );
+
   const body = (
     <>
       <SidebarTopReserveRow
         testId="app-sidebar-top-reserve-row"
         headerSlot={
-          <div
-            data-testid="nav-rail-header"
-            data-sidebar-header-slot=""
-            className="flex h-full min-w-0 flex-1 items-center"
-          >
-            <NavRailNewThreadButton />
-          </div>
+          navigation.kind === "plugin" &&
+          navigation.slot.headerComponent !== undefined ? (
+            <SidebarNavigationHeader resolved={navigation} />
+          ) : undefined
         }
       />
+      {placement === "list" ? navigationRegion("shrink-0") : null}
       <SidebarContent>
         <ThreadActionSurfaceVisibility visible={isThreadListVisible}>
           <PluginThreadList
@@ -247,6 +370,7 @@ export function AppSidebar({
           />
         )}
       </div>
+      {placement === "list" ? footer : null}
       <SidebarResizeHandle
         testId="app-sidebar-resize-handle"
         isResizing={isResizing}
@@ -261,21 +385,31 @@ export function AppSidebar({
         onNavigate={closeOnMobile}
         onNewChat={handleNewChat}
         onSearchThreads={closeOnMobile}
+        onOpenCustomize={navigationCustomize.open}
         splitEnabled
       >
         <Sidebar ref={sidebarRef}>
-          <div className="flex min-h-0 flex-1">
-            {renderRail({
-              isOpen: isNavigationCustomizing,
-              onOpenChange: setNavigationCustomizing,
-            })}
+          <div className="grid min-h-0 flex-1 grid-cols-[auto_minmax(0,1fr)] grid-rows-[minmax(0,1fr)_auto]">
+            {placement === "rail"
+              ? navigationRegion(
+                  cn(
+                    "relative z-10 flex shrink-0 flex-col",
+                    NAV_RAIL_WIDTH_CLASS,
+                    !isFramed &&
+                      "-mt-[env(safe-area-inset-top)] bg-surface-recessed pt-[env(safe-area-inset-top)]",
+                  ),
+                )
+              : null}
             <SidebarCollapsibleBody
               data-testid="nav-rail-sidebar-body"
-              className={
-                isFramed
-                  ? "rounded-bl-none border-b-0 [clip-path:inset(0_-6px_0_0_round_0.75rem_0_0_0)]"
-                  : undefined
-              }
+              className={cn(
+                "col-start-2 row-start-1",
+                (isBodyHidden || placement === "list") && "row-span-2",
+                isFramed &&
+                  !isBodyHidden &&
+                  placement === "rail" &&
+                  "rounded-bl-none border-b-0 [clip-path:inset(0_-6px_0_0_round_var(--bb-frame-card-radius)_0_0_0)]",
+              )}
             >
               <div
                 data-testid="app-sidebar-body"
@@ -286,76 +420,36 @@ export function AppSidebar({
               </div>
               {alternateBody}
             </SidebarCollapsibleBody>
-          </div>
-          <div
-            data-testid="sidebar-footer-row"
-            className="flex shrink-0 items-stretch"
-          >
-            <div
-              className={cn(
-                "flex shrink-0 items-center justify-center py-2",
-                NAV_RAIL_WIDTH_CLASS,
-                isFramed && "border-b border-transparent",
-                !isFramed &&
-                  "bg-surface-recessed -mb-[env(safe-area-inset-bottom)] pb-[calc(0.5rem_+_env(safe-area-inset-bottom))]",
-              )}
-            >
-              {railFooter}
-            </div>
-            <SidebarCollapsibleBody
-              contentInFlow
-              className={cn(
-                isFramed &&
-                  "rounded-tl-none border-t-0 [clip-path:inset(0_-6px_0_0_round_0_0_0_0.75rem)]",
-              )}
-            >
-              <SidebarFooter
-                hidden={isBodyHidden}
-                className="w-full justify-center"
+            {placement === "rail" ? (
+              <div
+                className={cn(
+                  "col-start-1 row-start-2 flex shrink-0 items-center justify-center",
+                  NAV_RAIL_WIDTH_CLASS,
+                  isFramed
+                    ? "h-(--bb-app-chrome-row-height)"
+                    : "bg-surface-recessed -mb-[env(safe-area-inset-bottom)] pt-2 pb-[calc(var(--bb-frame-footer-inset)_+_env(safe-area-inset-bottom))]",
+                )}
               >
-                <SidebarMenu
-                  className={cn(
-                    "flex-row items-center gap-1",
-                    isFooterCustomizing && "hidden",
-                  )}
-                >
-                  <PluginSidebarFooterItems
-                    onCustomize={() => {
-                      pluginSidebarFooter.dismiss();
-                      setNavigationCustomizing(false);
-                      setFooterCustomizing(true);
-                    }}
-                    activeDisclosureKey={pluginSidebarFooter.activeKey}
-                    onDisclosureCommand={pluginSidebarFooter.handleCommand}
-                    onNavigate={closeOnMobile}
-                    hoverPreview={pluginSidebarFooter.hoverPreview}
-                    previewDisclosureKey={pluginSidebarFooter.previewKey}
-                    builtInActions={[
-                      {
-                        id: "mobile",
-                        href: "/settings/mobile",
-                        onActivate: () => {
-                          closeOnMobile();
-                          void navigate("/settings/mobile");
-                        },
-                      },
-                      {
-                        id: "report-bug",
-                        onActivate: () => {
-                          closeOnMobile();
-                          openUrlInExternalBrowser(BUG_REPORT_NEW_ISSUE_URL);
-                        },
-                      },
-                    ]}
-                  />
-                  <SidebarPluginAttentionGlyph
-                    className={SIDEBAR_FOOTER_ACTION_CLASS}
-                    onNavigate={closeOnMobile}
-                  />
-                  <SidebarUpdatesBadge onNavigate={closeOnMobile} />
-                </SidebarMenu>
-              </SidebarFooter>
-            </SidebarCollapsibleBody>
+                <NavRailSettingsButton
+                  isSettingsActive={isSettingsActive}
+                  settingsRoutePath={settingsRoutePath}
+                />
+              </div>
+            ) : null}
+            {placement === "rail" ? (
+              <SidebarCollapsibleBody
+                data-testid="sidebar-footer-body"
+                contentInFlow
+                hidden={isBodyHidden}
+                className={cn(
+                  "col-start-2 row-start-2",
+                  isFramed &&
+                    "rounded-tl-none border-t-0 [clip-path:inset(0_-6px_0_0_round_0_0_0_var(--bb-frame-card-radius))]",
+                )}
+              >
+                {footer}
+              </SidebarCollapsibleBody>
+            ) : null}
           </div>
         </Sidebar>
       </SidebarNavigationModelProvider>

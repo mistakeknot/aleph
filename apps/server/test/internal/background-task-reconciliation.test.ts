@@ -48,6 +48,7 @@ function backgroundTaskItemData(args: {
       status: args.status,
       taskStatus: args.taskStatus,
       skipTranscript: false,
+      foreground: false,
       workflowName: "fixture-mini",
       usage: { totalTokens: 100, toolUses: 2, durationMs: 1500 },
     },
@@ -421,6 +422,10 @@ describe("background-task lifecycle reconciliation triggers", () => {
         ),
       ).toEqual([
         {
+          type: "provider-session-policy.replace",
+          idleProviderSessionTimeoutMinutes: 30,
+        },
+        {
           type: "machine-environment.replace",
           environment: { revision: expect.any(Number), entries: [] },
         },
@@ -462,6 +467,10 @@ describe("background-task lifecycle reconciliation triggers", () => {
           hostDaemonServerWsMessageSchema.parse(JSON.parse(message)),
         ),
       ).toEqual([
+        {
+          type: "provider-session-policy.replace",
+          idleProviderSessionTimeoutMinutes: 30,
+        },
         {
           type: "machine-environment.replace",
           environment: { revision: expect.any(Number), entries: [] },

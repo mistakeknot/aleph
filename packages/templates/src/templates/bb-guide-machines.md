@@ -47,6 +47,9 @@ does not prove reachability.
   bb machine resume <id-or-name>          Resume a machine (already active is a no-op)
   bb machine retry-cleanup <id-or-name>   Retry failed teardown now
   bb machine remove <id-or-name> [--yes]  Revoke and remove a machine
+    --force                               Finish removing a disconnected machine whose
+                                          environment cleanup failed; the provider's
+                                          removal still runs
   bb machine provider-cli status <machine>
   bb machine provider-cli install <machine> <provider-id>
     --action <install|update>
@@ -89,7 +92,14 @@ explicit request, not a timer: for a machine core records as suspended, it runs
 the provider's save-and-stop operation, and the CLI polls until completion.
 Active machines and lifecycle operations already in progress are left alone.
 Retry cleanup is accepted only for a retiring machine whose provider teardown
-failed.
+failed. `bb machine remove --force` / `hosts.delete({ hostId, force: true })`
+finishes removing a persistent machine that is disconnected and whose
+environment cleanup failed, for example because the computer no longer exists:
+it marks the machine's environments destroyed without running their teardown on
+the machine (files stay on its disk), then runs the provider's removal and
+revokes the machine. It is refused (409) while the machine is connected,
+before teardown has failed, or when no environment cleanup is blocking removal;
+use retry cleanup then.
 
 Machines installed from Settings run as launchd or systemd services with
 `--auto-update`: when the server is upgraded, each daemon updates its private
@@ -99,9 +109,11 @@ remove `--auto-update` from the launchd plist or systemd user unit and reload
 that service; foreground `bb-app host-daemon` runs leave it off unless you pass
 `--auto-update`.
 
-Service stdout and stderr are appended to `logs/server-stdio.log` and
-`logs/host-daemon-stdio.log` under the selected data directory, including
-startup errors. Follow them with `tail -F`.
+Application logs rotate in `logs/server.N.log` and `logs/host-daemon.N.log`
+under the selected data directory. Startup errors, crashes, and other output
+that bypasses the logger are appended to `logs/server-stdio.log` and
+`logs/host-daemon-stdio.log`; a file over 10 MB is renamed to `-stdio.1.log`
+when its service starts. Follow them with `tail -F`.
 
 Updates commands
 

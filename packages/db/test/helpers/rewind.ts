@@ -68,6 +68,15 @@ export function dropMarketplaceSourceGitSubdirectoryColumn(
   }
 }
 
+export function dropThreadParentNotificationsColumn(db: DbConnection): void {
+  const columns = db.$client
+    .prepare<[], { name: string }>("PRAGMA table_info(threads)")
+    .all();
+  if (columns.some((column) => column.name === "parent_notifications")) {
+    db.$client.exec("ALTER TABLE threads DROP COLUMN parent_notifications");
+  }
+}
+
 export const QUEUED_MESSAGE_STATE_MIGRATION_WHEN = 1792452368229;
 
 interface QueuedTableColumn {

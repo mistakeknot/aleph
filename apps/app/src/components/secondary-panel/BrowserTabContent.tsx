@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
   type FormEvent,
+  type KeyboardEvent,
   type RefObject,
   type ReactNode,
 } from "react";
@@ -44,6 +45,7 @@ import {
   BrowserFindBar,
   type BrowserFindMatches,
 } from "./BrowserFindBar";
+import { BrowserAddressInput } from "./BrowserAddressInput";
 import { BrowserNewTabScreen } from "./BrowserNewTabScreen";
 import {
   registerBrowserView,
@@ -56,7 +58,11 @@ import {
   useAppCommandHandler,
   useAppCommandShortcut,
 } from "@/components/commands/AppCommandProvider";
-import type { AppShortcutPresentation } from "@/lib/app-keybindings";
+import { isMacKeyboardPlatform } from "@bb/domain";
+import {
+  browserPlatform,
+  type AppShortcutPresentation,
+} from "@/lib/app-keybindings";
 import { isLocalOnlyUrl } from "@/lib/loopback-hostname";
 import { PluginBrowserToolbarActions } from "@/components/plugin/PluginBrowserToolbarActions";
 
@@ -74,6 +80,7 @@ interface BrowserTabContentProps {
   environmentId: string | null;
   threadId: string;
   onUpdate: (args: UpdateBrowserTabArgs) => void;
+  onOpenInNewTab: ((url: string) => void) | null;
 }
 
 export interface BrowserAddressFocusRequest {
@@ -90,6 +97,7 @@ interface BrowserChromeProps {
   onAddressChange: (value: string) => void;
   onAddressFocus: () => void;
   onAddressBlur: () => void;
+  onAddressKeyDown: (event: KeyboardEvent<HTMLInputElement>) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onBack: () => void;
   onForward: () => void;
@@ -158,6 +166,10 @@ function browserViewBoundsFromElement(
   });
 }
 
+function isPanelLayoutTransition(propertyName: string): boolean {
+  return propertyName === "flex-grow" || propertyName === "flex-basis";
+}
+
 function browserViewBoundsEqual(args: BrowserViewBoundsEqualArgs): boolean {
   return (
     args.a.x === args.b.x &&
@@ -189,6 +201,7 @@ function BrowserChrome({
   onAddressChange,
   onAddressFocus,
   onAddressBlur,
+  onAddressKeyDown,
   onSubmit,
   onBack,
   onForward,
@@ -264,22 +277,19 @@ function BrowserChrome({
                 aria-hidden
               />
             )}
-            <input
+            <BrowserAddressInput
               ref={addressInputRef}
-              type="text"
               value={addressValue}
               onChange={(event) => onAddressChange(event.target.value)}
               onFocus={onAddressFocus}
               onBlur={onAddressBlur}
-              placeholder="Enter a URL"
+              onKeyDown={onAddressKeyDown}
               aria-label={
                 locationShortcut
                   ? `Address and search bar (${locationShortcut.label})`
                   : "Address and search bar"
               }
               aria-keyshortcuts={locationShortcut?.ariaKeyshortcuts}
-              autoComplete="off"
-              spellCheck={false}
               className={cn(
                 "min-w-0 flex-1 bg-transparent font-mono text-foreground outline-none placeholder:font-sans placeholder:text-muted-foreground",
                 COARSE_POINTER_TEXT_SM_CLASS,
@@ -395,6 +405,7 @@ export function BrowserTabContent({
   environmentId,
   threadId,
   onUpdate,
+  onOpenInNewTab,
 }: BrowserTabContentProps) {
   const locationShortcut = useAppCommandShortcut("browser.focusLocation");
   const reloadShortcut = useAppCommandShortcut("browser.reload");
@@ -639,11 +650,27 @@ export function BrowserTabContent({
       return;
     }
 
+    const syncAfterPanelLayoutTransition = (event: TransitionEvent) => {
+      if (isPanelLayoutTransition(event.propertyName)) {
+        syncBoundsIfChanged();
+      }
+    };
+
     window.addEventListener(
       BROWSER_VIEW_BOUNDS_SYNC_EVENT,
       syncBoundsIfChanged,
     );
     window.addEventListener("resize", syncBoundsIfChanged);
+    document.addEventListener(
+      "transitionend",
+      syncAfterPanelLayoutTransition,
+      true,
+    );
+    document.addEventListener(
+      "transitioncancel",
+      syncAfterPanelLayoutTransition,
+      true,
+    );
 
     return () => {
       window.removeEventListener(
@@ -651,6 +678,16 @@ export function BrowserTabContent({
         syncBoundsIfChanged,
       );
       window.removeEventListener("resize", syncBoundsIfChanged);
+      document.removeEventListener(
+        "transitionend",
+        syncAfterPanelLayoutTransition,
+        true,
+      );
+      document.removeEventListener(
+        "transitioncancel",
+        syncAfterPanelLayoutTransition,
+        true,
+      );
     };
   }, [desktopBrowser, syncBoundsIfChanged]);
 
@@ -759,6 +796,43 @@ export function BrowserTabContent({
       navigateToInput(addressDraft);
     },
     [addressDraft, navigateToInput],
+  );
+
+  const handleAddressKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLInputElement>) => {
+      if (event.nativeEvent.isComposing) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        setAddressDraft(currentUrl);
+        const input = event.currentTarget;
+        window.requestAnimationFrame(() => {
+          if (document.activeElement === input) input.select();
+        });
+        return;
+      }
+      if (
+        onOpenInNewTab === null ||
+        event.key !== "Enter" ||
+        event.shiftKey ||
+        event.ctrlKey
+      ) {
+        return;
+      }
+      const isMac = isMacKeyboardPlatform(browserPlatform());
+      const opensNewTab = isMac
+        ? event.metaKey && !event.altKey
+        : event.altKey && !event.metaKey;
+      if (!opensNewTab) return;
+      event.preventDefault();
+      const url = resolveBrowserAddressInput(addressDraft);
+      if (url === null) return;
+      setAddressDraft(currentUrl);
+      setIsEditing(false);
+      addressInputRef.current?.blur();
+      onOpenInNewTab(url);
+    },
+    [addressDraft, currentUrl, onOpenInNewTab],
   );
 
   const handleAddressFocus = useCallback(() => {
@@ -921,6 +995,7 @@ export function BrowserTabContent({
         onAddressChange={setAddressDraft}
         onAddressFocus={handleAddressFocus}
         onAddressBlur={() => setIsEditing(false)}
+        onAddressKeyDown={handleAddressKeyDown}
         onSubmit={handleAddressSubmit}
         onBack={() => {
           desktopBrowser.goBack(tabId);

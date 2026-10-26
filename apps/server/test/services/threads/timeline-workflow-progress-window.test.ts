@@ -71,6 +71,7 @@ function workflowTaskData(args: {
       status: args.status,
       taskStatus: args.status === "pending" ? "running" : "completed",
       skipTranscript: false,
+      foreground: false,
       workflowName: "sweep",
       parentToolCallId: WORKFLOW_CALL_ID,
       workflow: {
@@ -291,6 +292,8 @@ function buildPage(
     eventBudget,
     includeClearedContextHistory: false,
     includeDiagnosticOperations: false,
+    compactionOfferEnabled: false,
+    summarizeShellCommands: true,
     includeNestedRows: false,
     maxInlineOutputChars: 32_000,
     maxSeq: 0,

@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { RETIRED_PLUGIN_SUCCESSORS } from "@bb/domain";
 
 export interface BundledPluginDefinition {
   name: string;
@@ -75,6 +76,11 @@ export const BUILTIN_PLUGINS = [
     defaultEnabled: true,
   },
   {
+    name: "connect-next",
+    pluginId: "bb--connect-next",
+    defaultEnabled: false,
+  },
+  {
     name: "environment-project-checkout",
     pluginId: "environment-project-checkout",
     defaultEnabled: true,
@@ -140,11 +146,6 @@ export const BUILTIN_PLUGINS = [
     defaultEnabled: true,
   },
   {
-    name: "provider-acp-next",
-    pluginId: "bb--provider-acp-next",
-    defaultEnabled: false,
-  },
-  {
     name: "keep-awake",
     pluginId: "keep-awake",
     defaultEnabled: true,
@@ -165,6 +166,11 @@ export const BUILTIN_PLUGINS = [
     defaultEnabled: true,
   },
   {
+    name: "github-pr-status",
+    pluginId: "bb--github-pr-status",
+    defaultEnabled: true,
+  },
+  {
     name: "secrets",
     pluginId: "secrets",
     defaultEnabled: true,
@@ -177,6 +183,11 @@ export const BUILTIN_PLUGINS = [
   {
     name: "thread-list",
     pluginId: "thread-list",
+    defaultEnabled: true,
+  },
+  {
+    name: "navigation",
+    pluginId: "navigation",
     defaultEnabled: true,
   },
   {
@@ -218,6 +229,11 @@ export const BUILTIN_PLUGINS = [
     name: "workflows",
     pluginId: "workflows",
     defaultEnabled: false,
+  },
+  {
+    name: "composer",
+    pluginId: "bb--composer",
+    defaultEnabled: true,
   },
 ].map((plugin): BundledPluginDefinition => ({
   ...plugin,
@@ -270,20 +286,26 @@ export const BUNDLED_PLUGINS: readonly BundledPluginDefinition[] = [
   ...OFFICIAL_PLUGINS,
 ];
 
-export interface BundledPluginReplacement {
+export interface RetiredBundledPlugin {
   pluginId: string;
-  replaces: string;
+  successorPluginId: string;
   carriedSettings: readonly string[];
 }
 
-export const BUNDLED_PLUGIN_REPLACEMENTS: readonly BundledPluginReplacement[] =
-  [
-    {
-      pluginId: "bb--provider-acp-next",
-      replaces: "provider-acp",
-      carriedSettings: ["customAgents"],
-    },
-  ];
+const RETIRED_PLUGIN_CARRIED_SETTINGS: Readonly<
+  Record<string, readonly string[]>
+> = {
+  "bb--provider-acp-next": ["customAgents"],
+};
+
+export const RETIRED_BUNDLED_PLUGINS: readonly RetiredBundledPlugin[] =
+  Object.entries(RETIRED_PLUGIN_SUCCESSORS).map(
+    ([pluginId, successorPluginId]) => ({
+      pluginId,
+      successorPluginId,
+      carriedSettings: RETIRED_PLUGIN_CARRIED_SETTINGS[pluginId] ?? [],
+    }),
+  );
 
 const builtinPluginsModuleDir = path.dirname(fileURLToPath(import.meta.url));
 

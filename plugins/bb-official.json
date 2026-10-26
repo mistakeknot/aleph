@@ -30,6 +30,10 @@
     "category": "cloud-and-remote",
     "screenshots": []
   },
+  "connect-next": {
+    "category": "cloud-and-remote",
+    "screenshots": []
+  },
   "custom-instructions": {
     "category": "memory-and-context",
     "screenshots": []
@@ -66,10 +70,6 @@
     "category": "agents-and-providers",
     "screenshots": []
   },
-  "provider-acp-next": {
-    "category": "agents-and-providers",
-    "screenshots": []
-  },
   "keep-awake": {
     "category": "utilities",
     "screenshots": []
@@ -102,7 +102,15 @@
     "category": "tasks-and-workflows",
     "screenshots": []
   },
+  "navigation": {
+    "category": "thread-management",
+    "screenshots": []
+  },
   "thread-list": {
+    "category": "thread-management",
+    "screenshots": []
+  },
+  "composer": {
     "category": "thread-management",
     "screenshots": []
   },
@@ -123,6 +131,10 @@
     "screenshots": []
   },
   "github": {
+    "category": "code-and-reviews",
+    "screenshots": []
+  },
+  "github-pr-status": {
     "category": "code-and-reviews",
     "screenshots": []
   },

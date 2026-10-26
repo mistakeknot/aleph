@@ -1,9 +1,11 @@
+import { useMemo } from "react";
 import {
   mutationOptions,
   type QueryClient,
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
+import { useTaggedMutation } from "@bb/query-tags";
 import type {
   RecordThreadSearchSelectionRequest,
   ThreadArchiveAllResponse,
@@ -13,16 +15,13 @@ import type {
 import { sdk } from "@/lib/sdk";
 import type { LifecycleErrorOperation } from "@/lib/lifecycle-errors";
 import {
-  applyThreadPinStateResult,
   applyThreadReadStateResult,
   applyThreadUpdateResult,
   beginArchiveThreadAndChildrenTransaction,
   beginDeleteThreadTransaction,
-  beginPinThreadTransaction,
   beginThreadReadStateTransaction,
   beginThreadMetadataTransaction,
   beginUnarchiveThreadTransaction,
-  beginUnpinThreadTransaction,
   rollbackArchiveThreadsTransaction,
   rollbackDeleteThreadTransaction,
   rollbackThreadListMutationTransaction,
@@ -31,12 +30,12 @@ import {
   settleArchiveThreadsTransaction,
   settleDeleteThreadTransaction,
   settleThreadListMembershipMutation,
-  settleThreadReadStateTransaction,
-  settleThreadPatchTransaction,
+  succeedThreadListMutationTransaction,
   type ArchiveThreadsTransaction,
   type DeleteThreadTransaction,
   type ThreadListMutationTransaction,
 } from "../cache-owners/thread-state-cache-owner";
+import { coreThreadMutations } from "./thread-mutation-batcher";
 
 interface ThreadMutationRequest {
   id: string;
@@ -118,11 +117,13 @@ export function updateThreadMutationOptions(
         transaction: context,
       });
     },
-    onSuccess: (thread) => {
-      applyThreadUpdateResult({ queryClient, thread });
-    },
-    onSettled: (_data, _error, _variables, context) => {
-      settleThreadPatchTransaction(context);
+    onSuccess: (thread, request, context) => {
+      applyThreadUpdateResult({
+        queryClient,
+        thread,
+        request,
+        transaction: context,
+      });
     },
   });
 }
@@ -132,70 +133,38 @@ export function useUpdateThread(options?: UpdateThreadMutationOptions) {
   return useMutation(updateThreadMutationOptions(queryClient, options));
 }
 
-export function usePinThread() {
+function useThreadPinStateMutation(
+  operation: "pin" | "unpin",
+  errorMessage: string,
+) {
   const queryClient = useQueryClient();
-
-  return useMutation({
-    meta: {
-      errorMessage: "Failed to pin thread.",
-    },
-    mutationFn: ({ id }: ThreadMutationRequest) =>
-      sdk.threads.pin({ threadId: id }),
-    onMutate: async ({ id }): Promise<ThreadListMutationTransaction> =>
-      beginPinThreadTransaction({
-        pinnedAt: Date.now(),
-        queryClient,
+  const { mutate } = useTaggedMutation<ThreadMutationRequest, ThreadResponse>({
+    client: queryClient,
+    meta: { errorMessage },
+    call: async ({ id }) => ({
+      result: await coreThreadMutations(queryClient)[operation]({
         threadId: id,
       }),
-    onError: (_error, variables, context) => {
-      rollbackThreadListMutationTransaction({
-        queryClient,
-        threadId: variables.id,
-        transaction: context,
-      });
-    },
-    onSuccess: (thread) => {
-      applyThreadPinStateResult({ queryClient, thread, pinSortKey: null });
-    },
-    onSettled: (_data, _error, variables, context) => {
-      settleThreadPatchTransaction(context);
-      settleThreadListMembershipMutation({
-        queryClient,
-        threadId: variables.id,
-      });
-    },
+      invalidated: [],
+    }),
   });
+  return useMemo(
+    () => ({
+      mutate: (request: ThreadMutationRequest) => {
+        mutate(request).catch(() => {});
+      },
+      mutateAsync: mutate,
+    }),
+    [mutate],
+  );
+}
+
+export function usePinThread() {
+  return useThreadPinStateMutation("pin", "Failed to pin thread.");
 }
 
 export function useUnpinThread() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    meta: {
-      errorMessage: "Failed to unpin thread.",
-    },
-    mutationFn: ({ id }: ThreadMutationRequest) =>
-      sdk.threads.unpin({ threadId: id }),
-    onMutate: async ({ id }): Promise<ThreadListMutationTransaction> =>
-      beginUnpinThreadTransaction({ queryClient, threadId: id }),
-    onError: (_error, variables, context) => {
-      rollbackThreadListMutationTransaction({
-        queryClient,
-        threadId: variables.id,
-        transaction: context,
-      });
-    },
-    onSuccess: (thread) => {
-      applyThreadPinStateResult({ queryClient, thread, pinSortKey: null });
-    },
-    onSettled: (_data, _error, variables, context) => {
-      settleThreadPatchTransaction(context);
-      settleThreadListMembershipMutation({
-        queryClient,
-        threadId: variables.id,
-      });
-    },
-  });
+  return useThreadPinStateMutation("unpin", "Failed to unpin thread.");
 }
 
 export function useArchiveThreadAndChildren() {
@@ -259,8 +228,10 @@ export function useUnarchiveThread() {
         transaction: context,
       });
     },
-    onSettled: (_data, _error, variables, context) => {
-      settleThreadPatchTransaction(context);
+    onSuccess: (_data, _variables, context) => {
+      succeedThreadListMutationTransaction(context);
+    },
+    onSettled: (_data, _error, variables) => {
       settleThreadListMembershipMutation({
         queryClient,
         threadId: variables.id,
@@ -279,7 +250,7 @@ export function useRestoreThreadEnvironment() {
     mutationFn: ({ id }: ThreadMutationRequest): Promise<ThreadResponse> =>
       sdk.threads.restoreEnvironment({ threadId: id }),
     onSuccess: (thread) => {
-      applyThreadUpdateResult({ queryClient, thread });
+      settleThreadListMembershipMutation({ queryClient, threadId: thread.id });
     },
   });
 }
@@ -315,13 +286,16 @@ export function useDeleteThread() {
   });
 }
 
-export function markThreadReadMutationOptions(queryClient: QueryClient) {
+export function markThreadReadMutationOptions(
+  queryClient: QueryClient,
+  threadSdk = sdk.threads,
+) {
   return mutationOptions({
     meta: {
       errorMessage: "Failed to mark thread read.",
       showErrorToast: false,
     },
-    mutationFn: (input: ThreadReadMutationInput) => sdk.threads.markRead(input),
+    mutationFn: (input: ThreadReadMutationInput) => threadSdk.markRead(input),
     onMutate: (input): Promise<ThreadReadStateTransaction> =>
       beginThreadReadStateTransaction({
         lastReadAt: Date.now(),
@@ -335,11 +309,8 @@ export function markThreadReadMutationOptions(queryClient: QueryClient) {
         transaction: context,
       });
     },
-    onSuccess: (thread) => {
-      applyThreadReadStateResult({ queryClient, thread });
-    },
-    onSettled: (_data, _error, _input, transaction) => {
-      settleThreadReadStateTransaction({ queryClient, transaction });
+    onSuccess: (thread, _input, context) => {
+      applyThreadReadStateResult({ queryClient, thread, transaction: context });
     },
   });
 }
@@ -359,14 +330,16 @@ export function useMarkThreadRead() {
   return useMutation(markThreadReadMutationOptions(queryClient));
 }
 
-export function markThreadUnreadMutationOptions(queryClient: QueryClient) {
+export function markThreadUnreadMutationOptions(
+  queryClient: QueryClient,
+  threadSdk = sdk.threads,
+) {
   return mutationOptions({
     meta: {
       errorMessage: "Failed to mark thread unread.",
       showErrorToast: false,
     },
-    mutationFn: (input: ThreadReadMutationInput) =>
-      sdk.threads.markUnread(input),
+    mutationFn: (input: ThreadReadMutationInput) => threadSdk.markUnread(input),
     onMutate: (input): Promise<ThreadReadStateTransaction> =>
       beginThreadReadStateTransaction({
         lastReadAt: null,
@@ -380,11 +353,8 @@ export function markThreadUnreadMutationOptions(queryClient: QueryClient) {
         transaction: context,
       });
     },
-    onSuccess: (thread) => {
-      applyThreadReadStateResult({ queryClient, thread });
-    },
-    onSettled: (_data, _error, _input, transaction) => {
-      settleThreadReadStateTransaction({ queryClient, transaction });
+    onSuccess: (thread, _input, context) => {
+      applyThreadReadStateResult({ queryClient, thread, transaction: context });
     },
   });
 }

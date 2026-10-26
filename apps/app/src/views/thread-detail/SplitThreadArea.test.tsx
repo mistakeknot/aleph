@@ -14,6 +14,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -44,8 +45,8 @@ import {
   usePromptDraftStorage,
   type PromptDraftScope,
 } from "@/hooks/usePromptDraftStorage";
+import { registerPaneComposerFocus } from "@/lib/pane-composer-focus";
 import { createBbDesktopApi } from "@/test/bb-desktop-test-utils";
-import { resourceRouteLabelAtom } from "@/components/layout/resourceRouteLabelAtom";
 import {
   resetPluginSlotStoreForTest,
   setPluginSlotRegistrations,
@@ -63,12 +64,6 @@ import { RouteNavigationProvider } from "@/components/ui/app-route-anchor";
 import { SplitThreadArea } from "./SplitThreadArea";
 import { applyThreadOpenToLayout } from "./splitThreadNavigation";
 import { makePluginRegistrationSet } from "@/test/fixtures/plugins";
-import { EMPTY_ORDERED_MENTION_SUGGESTIONS } from "@bb/client-core";
-import {
-  INERT_TYPEAHEAD_COMMAND_CONFIG,
-  PromptBoxInternal,
-} from "@/components/promptbox/PromptBoxInternal";
-import { subscribeComposerFocusRequests } from "@/lib/composer-focus-requests";
 import { LocationProbe } from "@/test/location-probe";
 
 const threadStore = vi.hoisted(
@@ -227,6 +222,7 @@ vi.mock("react-resizable-panels", async () => {
 
 vi.mock("@/components/ui/sidebar.js", () => ({
   useIsSidebarShowing: () => sidebarState.showing,
+  useOptionalIsSidebarShowing: () => sidebarState.showing,
   useSidebarKeepsCollapsedRail: () => false,
   useIsSidebarFramed: () => false,
 }));
@@ -296,6 +292,11 @@ vi.mock("@/components/plugin/PluginPanelRightPanelHost", () => ({
   },
 }));
 
+/**
+ * A contenteditable stand-in for the composer editor: it shows the stored
+ * draft, registers with the pane composer focus registry the way the real
+ * composer root does, and puts the caret at the end of the draft on focus.
+ */
 function ThreadComposerFixture({
   scope,
   label,
@@ -304,34 +305,39 @@ function ThreadComposerFixture({
   label: string;
 }) {
   const draft = usePromptDraftStorage(scope);
-  const [focusNonce, setFocusNonce] = useState(0);
-  useEffect(
-    () =>
-      subscribeComposerFocusRequests(draft.storageKey, () => {
-        setFocusNonce((nonce) => nonce + 1);
-      }),
-    [draft.storageKey],
-  );
+  const editorRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const element = editorRef.current;
+    if (element === null) return;
+    element.textContent = draft.text;
+  }, [draft.text]);
+  useEffect(() => {
+    const element = editorRef.current;
+    if (element === null) return;
+    return registerPaneComposerFocus(element, () => {
+      element.focus();
+      const range = document.createRange();
+      const textNode = element.firstChild;
+      if (textNode !== null && textNode.nodeType === Node.TEXT_NODE) {
+        range.setStart(textNode, textNode.textContent?.length ?? 0);
+      } else {
+        range.selectNodeContents(element);
+      }
+      range.collapse(true);
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      return document.activeElement === element;
+    });
+  }, []);
   return (
-    <PromptBoxInternal
-      value={draft.text}
-      mentionRanges={draft.mentions}
-      onChange={draft.setTextAndMentions}
-      onSubmit={() => {}}
-      autoFocus={false}
-      focusEndKey={focusNonce}
-      placeholder={label}
-      mentionMenuPlacement="bottom"
-      typeahead={{
-        mention: {
-          results: EMPTY_ORDERED_MENTION_SUGGESTIONS,
-          isLoading: false,
-          isRefreshing: false,
-          isError: false,
-          onQueryChange: () => {},
-        },
-        command: INERT_TYPEAHEAD_COMMAND_CONFIG,
-      }}
+    <div
+      ref={editorRef}
+      role="textbox"
+      aria-label={label}
+      contentEditable
+      suppressContentEditableWarning
+      tabIndex={0}
     />
   );
 }
@@ -397,6 +403,18 @@ vi.mock("./LazyThreadDetailView", () => ({
       projectId,
       threadId,
     });
+    const composerRootRef = useRef<HTMLDivElement>(null);
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
+    useEffect(() => {
+      const root = composerRootRef.current;
+      if (root === null) return;
+      return registerPaneComposerFocus(root, () => {
+        const textarea = textareaRef.current;
+        if (textarea === null || textarea.disabled) return false;
+        textarea.focus();
+        return true;
+      });
+    }, []);
     return (
       <div
         data-testid={`pane-${threadId}`}
@@ -413,8 +431,9 @@ vi.mock("./LazyThreadDetailView", () => ({
             label={`Message ${threadId}`}
           />
         ) : (
-          <div data-promptbox="">
+          <div ref={composerRootRef}>
             <textarea
+              ref={textareaRef}
               data-testid={`draft-${threadId}`}
               value={draft.text}
               onChange={(event) =>
@@ -881,25 +900,12 @@ describe("SplitThreadArea", () => {
       const first = await screen.findByRole("textbox", {
         name: "Message thr-a",
       });
-      const focus = vi.fn();
-      const unsubscribe = subscribeComposerFocusRequests(
-        getPromptDraftAccessor({
-          kind: "thread",
-          projectId: PERSONAL_PROJECT_ID,
-          threadId: "thr-b",
-        }).storageKey,
-        focus,
-      );
-      try {
-        act(() => first.focus());
-        act(() => {
-          expect(commandHandlers.get("pane.focus.2")?.()).toBe(true);
-        });
-        expect(store.get(splitLayoutAtom)?.focusedPaneId).toBe("pane-2");
-        expect(focus).not.toHaveBeenCalled();
-      } finally {
-        unsubscribe();
-      }
+      act(() => first.focus());
+      act(() => {
+        expect(commandHandlers.get("pane.focus.2")?.()).toBe(true);
+      });
+      expect(store.get(splitLayoutAtom)?.focusedPaneId).toBe("pane-2");
+      expect(document.activeElement).toBe(first);
     },
   );
 
@@ -1025,24 +1031,11 @@ describe("SplitThreadArea", () => {
       layout,
       routeAwareContent: true,
     });
-    const focus = vi.fn();
-    const unsubscribe = subscribeComposerFocusRequests(
-      getPromptDraftAccessor({
-        kind: "thread",
-        projectId: PERSONAL_PROJECT_ID,
-        threadId: "thr-a",
-      }).storageKey,
-      focus,
-    );
-    try {
-      act(() => {
-        expect(commandHandlers.get("pane.focus.next")?.()).toBe(true);
-      });
-      expect(store.get(splitLayoutAtom)?.focusedPaneId).toBe("pane-2");
-      expect(focus).not.toHaveBeenCalled();
-    } finally {
-      unsubscribe();
-    }
+    act(() => {
+      expect(commandHandlers.get("pane.focus.next")?.()).toBe(true);
+    });
+    expect(store.get(splitLayoutAtom)?.focusedPaneId).toBe("pane-2");
+    expect(document.activeElement).not.toBe(screen.getByTestId("draft-thr-a"));
   });
 
   it("hosts Browser-tab navigation on compact plugin-panel routes", async () => {
@@ -2824,9 +2817,13 @@ describe("SplitThreadArea", () => {
       (await screen.findByText(path))
         .closest("header")
         ?.querySelector('[data-testid="app-page-header-content-row"]');
-    expect((await contentRow("top-left"))?.className).toContain("pl-[104px]");
+    expect((await contentRow("top-left"))?.className).toContain(
+      "pl-(--bb-macos-collapsed-top-left-reserve)",
+    );
     for (const path of ["top-right", "bottom-left", "bottom-right"]) {
-      expect((await contentRow(path))?.className).not.toContain("pl-[104px]");
+      expect((await contentRow(path))?.className).not.toContain(
+        "pl-(--bb-macos-collapsed-top-left-reserve)",
+      );
     }
 
     expect(screen.getAllByRole("button", { name: /Full Screen/ })).toHaveLength(
@@ -2994,7 +2991,7 @@ describe("SplitThreadArea", () => {
     );
   });
 
-  it("uses automation breadcrumbs in the split-owned plugin header", async () => {
+  it("uses page-owned breadcrumbs in the split-owned plugin header", async () => {
     setPluginSlotRegistrations(
       "automations",
       makePluginRegistrationSet({
@@ -3005,6 +3002,12 @@ describe("SplitThreadArea", () => {
             icon: "Clock",
             path: "automations",
             component: () => <div>Automation detail</div>,
+            experimental_usePageTitle: () => ({
+              breadcrumbs: [
+                { label: "Installed", to: "/plugins/automations/automations" },
+                { label: "Weekly review" },
+              ],
+            }),
           },
         ],
         threadPanelActions: [],
@@ -3019,7 +3022,7 @@ describe("SplitThreadArea", () => {
       panelPath: "automations",
       subPath: "proj_personal/weekly-review",
     };
-    const store = renderSplitArea({
+    renderSplitArea({
       path: "/plugins/automations/automations/proj_personal/weekly-review",
       layout: {
         root: { type: "pane", paneId: "pane-automation", content },
@@ -3031,14 +3034,9 @@ describe("SplitThreadArea", () => {
     const breadcrumb = await screen.findByRole("navigation", {
       name: "Breadcrumb",
     });
-    expect(breadcrumb.textContent).toContain("Automations");
     expect(breadcrumb.textContent).toContain("Installed");
-    expect(breadcrumb.textContent).toContain("weekly-review");
-
-    store.set(resourceRouteLabelAtom, "Weekly review");
-    await waitFor(() =>
-      expect(breadcrumb.textContent).toContain("Weekly review"),
-    );
+    expect(breadcrumb.textContent).toContain("Weekly review");
+    expect(screen.getByText("Automations")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("link", { name: "Installed" }));
     expect(screen.getByTestId("location").textContent).toBe(

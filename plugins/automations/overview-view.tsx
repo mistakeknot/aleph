@@ -50,7 +50,7 @@ import {
   oneShotLifecycleAllowsToggle,
   PERSONAL_PROJECT_ID,
 } from "./lib/format-schedule.js";
-import { AutomationMetadataItem } from "./metadata.js";
+import { AutomationMetadataItem, automationErrorMessage } from "./metadata.js";
 import { AutomationActionsMenu } from "./actions-menu.js";
 
 const AUTOMATION_STATUS_FILTER_OPTIONS = [
@@ -118,7 +118,7 @@ function AutomationRowLeading({
 }: {
   automation: AutomationResponse;
 }) {
-  if (automation.lastRunStatus === "failed") {
+  if (automationErrorMessage(automation) !== null) {
     return (
       <Icon
         name="CircleX"
@@ -218,6 +218,8 @@ function AutomationRowMetadata({
           runCount: automation.runCount,
           lastRunStatus: automation.lastRunStatus,
         });
+  const errorMessage =
+    automation === null ? null : automationErrorMessage(automation);
   return (
     <ResourceMeta
       items={[
@@ -240,6 +242,15 @@ function AutomationRowMetadata({
           >
             {scheduleMetadata.text}
           </AutomationMetadataItem>
+        ) : null,
+        errorMessage !== null ? (
+          <span
+            data-automation-error=""
+            className="text-destructive"
+            title={errorMessage}
+          >
+            {errorMessage}
+          </span>
         ) : null,
         automation === null ? "The stored configuration cannot be read." : null,
       ]}
@@ -402,7 +413,9 @@ function AutomationProblemRow({
   );
 }
 
-function automationProblemLabel(automation: AutomationReadProblem): string {
+export function automationProblemLabel(
+  automation: AutomationReadProblem,
+): string {
   return automation.problem === "missing-agent-prompt"
     ? "Prompt required"
     : "Invalid data";

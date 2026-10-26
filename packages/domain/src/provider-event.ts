@@ -9,7 +9,6 @@ import {
   systemProviderTurnWatchdogEventDataSchema,
   systemThreadProvisioningEventDataSchema,
   systemUserQuestionLifecycleEventDataSchema,
-  systemEventTypeValues,
   systemThreadInterruptedEventDataSchema,
   clientTurnLifecycleEventDataSchema,
   turnRequestEventDataSchema,
@@ -29,7 +28,8 @@ import {
 import { threadTimelineGoalStatusSchema } from "./thread-timeline-goal.js";
 import { threadEventItemPresentationSchema } from "./item-presentation.js";
 import { extensionKindSchema } from "./provider-extension-kind.js";
-
+import { threadUsageCostSchema } from "./thread-usage-cost.js";
+export { threadUsageCostSchema } from "./thread-usage-cost.js";
 export const threadEventItemStatusSchema = z.enum([
   "pending",
   "completed",
@@ -301,10 +301,6 @@ export type ThreadEventTokenUsageBreakdown = z.infer<
   typeof threadEventTokenUsageBreakdownSchema
 >;
 
-export const threadUsageCostSchema = z.object({
-  amount: z.number().nonnegative(),
-  currency: z.string().min(1),
-});
 export type ThreadUsageCost = z.infer<typeof threadUsageCostSchema>;
 
 const threadEventContextWindowUsageSchema = z.object({
@@ -318,10 +314,13 @@ export type ThreadEventContextWindowUsage = z.infer<
   typeof threadEventContextWindowUsageSchema
 >;
 
+export const promptCacheTtlMsSchema = z.number().int().positive();
+
 const threadEventTokenUsageSchema = z.object({
   total: threadEventTokenUsageBreakdownSchema,
   last: threadEventTokenUsageBreakdownSchema,
   modelContextWindow: z.number().nullable(),
+  promptCacheTtlMs: promptCacheTtlMsSchema.optional(),
 });
 
 export const threadEventWarningCategorySchema = z.enum([
@@ -370,6 +369,7 @@ export const threadEventBackgroundTaskItemSchema = z.object({
   status: threadEventItemStatusSchema,
   taskStatus: backgroundTaskStatusSchema,
   skipTranscript: z.boolean(),
+  foreground: z.boolean(),
   workflowName: z.string().optional(),
   workflow: workflowProgressSnapshotSchema.optional(),
   usage: backgroundTaskUsageSchema.optional(),
@@ -420,6 +420,7 @@ export const threadEventItemSchema = z.discriminatedUnion("type", [
     changes: z.array(threadEventFileChangeSchema),
     status: threadEventItemStatusSchema,
     approvalStatus: threadEventItemApprovalStatusSchema,
+    error: z.string().optional(),
     ...itemPresentationField,
     parentToolCallId: z.string().optional(),
   }),
@@ -627,6 +628,12 @@ const unscopedProviderEventSchema = z.discriminatedUnion("type", [
     explanation: z.string().optional(),
   }),
   z.object({
+    type: z.literal("turn/mainRun/updated"),
+    threadId: z.string(),
+    providerThreadId: z.string(),
+    state: z.enum(["idle", "running"]),
+  }),
+  z.object({
     type: z.literal("turn/diff/updated"),
     threadId: z.string(),
     providerThreadId: z.string(),
@@ -714,9 +721,6 @@ export type ProviderUnhandledEvent = Extract<
   ProviderEvent,
   { type: "provider/unhandled" }
 >;
-const providerEventTypeValues = unscopedProviderEventSchema.options.map(
-  (option) => option.shape.type.value,
-);
 
 const unscopedSystemEventSchema = z.discriminatedUnion("type", [
   z
@@ -847,14 +851,8 @@ export function isThreadEventWithItem(
       return false;
   }
 }
-export const threadEventTypeValues = [
-  ...providerEventTypeValues,
-  ...systemEventTypeValues,
-] as const;
-const threadEventTypeSet = new Set<string>(threadEventTypeValues);
-export const threadEventTypeSchema = z
-  .string()
-  .refine(
-    (value): value is ThreadEventType => threadEventTypeSet.has(value),
-    "Invalid thread event type",
-  );
+
+export {
+  threadEventTypeValues,
+  threadEventTypeSchema,
+} from "./thread-event-types.js";

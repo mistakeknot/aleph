@@ -8,6 +8,7 @@ import { ThreadTitleMentionResourcesProvider } from "@/components/thread/ThreadT
 import { createQueryClientTestHarness } from "@/test/queryClientTestHarness";
 import { archivedThreadsListQueryKey } from "@/hooks/queries/query-keys";
 import { PluginThreadTitle } from "./PluginThreadTitle";
+import { SidebarThreadEntriesTestProvider } from "@/test/sidebarThreadEntriesTestProvider";
 
 const state = vi.hoisted(() => ({
   threads: [] as ThreadListEntry[],
@@ -44,13 +45,15 @@ describe("PluginThreadTitle", () => {
     ];
     const { wrapper } = createQueryClientTestHarness();
     render(
-      <ThreadTitleMentionResourcesProvider
-        sectionNamesById={new Map([["sec_slop", "Slop Cop"]])}
-        projectNamesById={new Map()}
-        threadById={new Map()}
-      >
-        <PluginThreadTitle threadId="thr_1" />
-      </ThreadTitleMentionResourcesProvider>,
+      <SidebarThreadEntriesTestProvider>
+        <ThreadTitleMentionResourcesProvider
+          sectionNamesById={new Map([["sec_slop", "Slop Cop"]])}
+          projectNamesById={new Map()}
+          threadById={new Map()}
+        >
+          <PluginThreadTitle threadId="thr_1" />
+        </ThreadTitleMentionResourcesProvider>
+      </SidebarThreadEntriesTestProvider>,
       { wrapper },
     );
     expect(screen.getByText("Triage")).toBeTruthy();
@@ -69,10 +72,10 @@ describe("PluginThreadTitle", () => {
     ];
     const { wrapper } = createQueryClientTestHarness();
     const { container } = render(
-      <>
+      <SidebarThreadEntriesTestProvider>
         <PluginThreadTitle threadId="thr_2" />
         <PluginThreadTitle threadId="thr_missing" />
-      </>,
+      </SidebarThreadEntriesTestProvider>,
       { wrapper },
     );
     expect(screen.getByText("Untitled work")).toBeTruthy();
@@ -92,7 +95,12 @@ describe("PluginThreadTitle", () => {
         ],
       ],
     });
-    render(<PluginThreadTitle threadId="thr_archived" />, { wrapper });
+    render(
+      <SidebarThreadEntriesTestProvider>
+        <PluginThreadTitle threadId="thr_archived" />
+      </SidebarThreadEntriesTestProvider>,
+      { wrapper },
+    );
     expect(screen.getByText("Archived investigation")).toBeTruthy();
   });
 });

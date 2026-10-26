@@ -6,6 +6,23 @@ import {
 } from "../src/tool-call-parsing.js";
 
 describe("tool-call shell parsing", () => {
+  it("keeps returned shell summaries independent across callers", () => {
+    const command = "rg independent src";
+    const first = parseShellCommandIntents(command);
+    first[0]!.cmd = "changed";
+    first.length = 0;
+    expect(parseShellCommandIntents(command)).toEqual([
+      { type: "search", cmd: command, query: "independent", path: "src" },
+    ]);
+    const writing = "cat independent > result.txt";
+    parseShellCommandIntents(writing).push({
+      type: "read",
+      cmd: writing,
+      name: "cat",
+      path: "independent",
+    });
+    expect(parseShellCommandIntents(writing)).toEqual([]);
+  });
   it("treats quoted shell operators as literal arguments", () => {
     expect(parseShellCommandIntents('grep "a|b" "src > docs.txt"')).toEqual([
       {
@@ -22,6 +39,18 @@ describe("tool-call shell parsing", () => {
         name: "cat",
         path: ">",
       },
+    ]);
+  });
+
+  it.each([
+    ["rg pre'quoted'\"tail\" src", "prequotedtail"],
+    [String.raw`rg 'a\b|c;d' src`, String.raw`a\b|c;d`],
+    [String.raw`rg "a\qb\"c" src`, String.raw`a\qb"c`],
+    [String.raw`rg a\ b\|c src`, "a b|c"],
+    ["rg ''needle src", "needle"],
+  ])("preserves mixed quoted and escaped token runs: %s", (command, query) => {
+    expect(parseShellCommandIntents(command)).toEqual([
+      { type: "search", cmd: command, query, path: "src" },
     ]);
   });
 
@@ -75,20 +104,13 @@ describe("tool-call shell parsing", () => {
     ]);
   });
 
-  it("treats unquoted newlines as shell segment boundaries", () => {
+  it("does not promote later searches after a non-exploratory first command", () => {
     const command =
       "git ls-tree -d main packages/ | head -30\n" +
       'echo "==="\n' +
       "git show main:.gitignore 2>/dev/null | grep -E 'legacy-audit|timeline-replay' || echo \"(no matches)\"";
 
-    expect(parseShellCommandIntents(command)).toEqual([
-      {
-        type: "search",
-        cmd: command,
-        query: "legacy-audit|timeline-replay",
-        path: null,
-      },
-    ]);
+    expect(parseShellCommandIntents(command)).toEqual([]);
   });
 });
 

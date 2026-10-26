@@ -81,7 +81,8 @@ export const sdkUsageSchema = z
         ephemeral_1h_input_tokens: z.number().nonnegative().optional(),
       })
       .nullable()
-      .optional(),
+      .optional()
+      .catch(undefined),
   })
   .passthrough();
 export type ClaudeSdkUsage = z.infer<typeof sdkUsageSchema>;
@@ -244,6 +245,7 @@ export const claudeTaskStartedMessageSchema = claudeSystemMessageSchema
     workflow_name: z.string().optional(),
     prompt: z.string().optional(),
     skip_transcript: z.boolean().optional(),
+    is_backgrounded: z.boolean().optional(),
   })
   .passthrough();
 

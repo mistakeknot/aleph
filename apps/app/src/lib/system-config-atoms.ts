@@ -31,6 +31,7 @@ const unavailableSystemConfig: SystemConfigResponse = {
   performanceDiagnosticsAvailable: false,
   experiments: {
     changelogPreview: false,
+    compactExpiredCache: false,
     serverMove: false,
     performanceDiagnostics: false,
     timelinePush: false,
@@ -38,7 +39,11 @@ const unavailableSystemConfig: SystemConfigResponse = {
   appearance: defaultAppTheme,
   customThemes: [],
   pluginThemes: [],
-  featureFlags: { placeholder: false, timelineWindowEventBudget: 1_500 },
+  featureFlags: {
+    placeholder: false,
+    initiatorTelemetry: true,
+    timelineWindowEventBudget: 1_500,
+  },
   hostDaemonPort: null,
   localHelperPorts: [],
   serverUrl: "",

@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull, type SQL } from "drizzle-orm";
+import { and, asc, count, eq, inArray, isNull, type SQL } from "drizzle-orm";
 import type {
   TerminalSessionCloseReason,
   TerminalSessionStatus,
@@ -16,6 +16,7 @@ export interface CreateTerminalSessionInput {
   daemonSessionId: string | null;
   environmentId: string | null;
   hostId: string;
+  id?: string;
   initialCwd: string;
   now?: number;
   rows: number;
@@ -34,6 +35,7 @@ export type TerminalSessionScope = TerminalStatusScope &
     | { daemonSessionId: string; kind: "daemon"; terminalId?: string }
     | { environmentId: string; kind: "environment" }
     | { hostId: string; kind: "host" }
+    | { cwd: string | null; hostId: string; kind: "host-path" }
     | { kind: "terminal"; terminalId: string }
     | { kind: "thread"; threadId: string }
     | { environmentId: string; kind: "threadless-environment" }
@@ -108,6 +110,16 @@ function terminalScope(
       break;
     case "host":
       scoped = eq(terminalSessions.hostId, scope.hostId);
+      break;
+    case "host-path":
+      scoped = and(
+        eq(terminalSessions.hostId, scope.hostId),
+        isNull(terminalSessions.threadId),
+        isNull(terminalSessions.environmentId),
+        scope.cwd === null
+          ? undefined
+          : eq(terminalSessions.initialCwd, scope.cwd),
+      );
       break;
     case "terminal":
       scoped = eq(terminalSessions.id, scope.terminalId);
@@ -191,7 +203,7 @@ export function createTerminalSession(
   return db
     .insert(terminalSessions)
     .values({
-      id: createTerminalSessionId(),
+      id: input.id ?? createTerminalSessionId(),
       threadId: input.threadId,
       environmentId: input.environmentId,
       hostId: input.hostId,
@@ -228,6 +240,24 @@ export function listTerminalSessions(
     )
     .orderBy(asc(terminalSessions.createdAt), asc(terminalSessions.id))
     .all();
+}
+
+export function countTerminalSessions(
+  db: TerminalSessionConnection,
+  args: ListTerminalSessionsArgs,
+): number {
+  return db
+    .select({ count: count() })
+    .from(terminalSessions)
+    .where(
+      terminalScope(
+        args.scope,
+        args.visible
+          ? inArray(terminalSessions.status, NON_TERMINAL_SESSION_STATUSES)
+          : undefined,
+      ),
+    )
+    .get()!.count;
 }
 
 export function getTerminalSession(

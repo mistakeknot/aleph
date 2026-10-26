@@ -609,10 +609,11 @@ export function ThreadSearchPaletteMode({
                             : `${option.row.id}:${option.row.primaryText}`
                         }
                         className={cn(
-                          "flex min-w-0 items-center rounded-md",
+                          "flex min-w-0 cursor-pointer select-none items-center rounded-md",
                           index === activeIndex &&
                             "bg-state-hover text-foreground",
                         )}
+                        onClick={() => selectOption(option, index)}
                         onPointerMove={() => highlightOption(index)}
                       >
                         <div
@@ -627,12 +628,11 @@ export function ThreadSearchPaletteMode({
                                 : "Show more threads"
                           }
                           className={cn(
-                            "flex min-w-0 flex-1 cursor-pointer items-center rounded-md px-2 py-1.5",
+                            "flex min-w-0 flex-1 items-center rounded-md px-2 py-1.5",
                             option.row === null
                               ? "gap-1.5 text-xs text-subtle-foreground"
                               : "min-h-11 gap-3 text-left text-sm",
                           )}
-                          onClick={() => selectOption(option, index)}
                         >
                           {option.row === null ? (
                             <>
@@ -662,7 +662,10 @@ export function ThreadSearchPaletteMode({
                               (index !== activeIndex || !canSplit) &&
                                 "invisible",
                             )}
-                            onClick={() => selectOption(option, index, true)}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              selectOption(option, index, true);
+                            }}
                           >
                             <span className="mr-1">Open in split</span>
                             <PaletteShortcut>{`${splitModifier} ↵`}</PaletteShortcut>

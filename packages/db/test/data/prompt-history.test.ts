@@ -1,6 +1,6 @@
+import { createMigratedConnection } from "../../src/testing.js";
 import { describe, expect, it } from "vitest";
 import type { PromptHistoryScope, PromptInput } from "@bb/domain";
-import { createConnection } from "../../src/connection.js";
 import {
   createProject,
   createPromptHistoryEntry,
@@ -9,18 +9,16 @@ import {
   markThreadDeleted,
   upsertHost,
 } from "../../src/data/index.js";
-import { migrate } from "../../src/migrate.js";
 import { noopNotifier } from "../../src/notifier.js";
 
-type TestDb = ReturnType<typeof createConnection>;
+type TestDb = ReturnType<typeof createMigratedConnection>;
 
 function text(text: string): PromptInput {
   return { type: "text", text, mentions: [] };
 }
 
 function setup() {
-  const db = createConnection(":memory:");
-  migrate(db);
+  const db = createMigratedConnection();
   const host = upsertHost(db, noopNotifier, { name: "test-host" });
   const firstProject = createProject(db, noopNotifier, {
     name: "First",

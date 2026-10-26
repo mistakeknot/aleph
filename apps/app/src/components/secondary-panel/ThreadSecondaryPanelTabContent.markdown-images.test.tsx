@@ -56,7 +56,7 @@ vi.mock("@/hooks/queries/project-queries", () => ({
   ),
 }));
 
-vi.mock("@/hooks/queries/thread-queries", () => ({
+vi.mock("@/hooks/queries/thread-panel-queries", () => ({
   useThreadHostFilePreview: (
     _threadId: string,
     _environmentId: string,

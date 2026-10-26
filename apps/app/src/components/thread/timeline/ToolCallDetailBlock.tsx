@@ -32,6 +32,7 @@ function CollapsibleHeader({ toolName, argEntries }: CollapsibleHeaderProps) {
   const [expanded, setExpanded] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const overflows = useIsOverflowing({
+    axis: "vertical",
     elementRef: ref,
     enabled: !expanded,
     measurementKey: `${toolName}\u0000${JSON.stringify(argEntries)}`,
@@ -94,7 +95,6 @@ export function ToolCallDetailBlock({
         size="base"
         overflowX="hidden"
         streaming={streaming}
-        contentKey={output}
         scrollClassName="px-4 py-3 font-mono text-xs leading-tight text-foreground opacity-70"
       >
         <CollapsibleHeader toolName={toolName} argEntries={argEntries} />

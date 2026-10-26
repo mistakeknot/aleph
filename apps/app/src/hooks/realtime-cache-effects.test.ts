@@ -1,3 +1,9 @@
+import {
+  CORE_TAG_SCOPE,
+  pluginTagScope,
+  runTaggedRead,
+  taggedQueryOptions,
+} from "@bb/query-tags";
 import { machineEnvironmentQueryKey } from "./queries/query-keys";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { QueryObserver } from "@tanstack/react-query";
@@ -18,7 +24,6 @@ import {
   archivedThreadsListQueryKey,
   environmentDiffFilesQueryKey,
   environmentDiffPatchQueryKey,
-  environmentPullRequestQueryKey,
   environmentQueryKey,
   environmentWorkStatusQueryKey,
   hostPathExistenceQueryKey,
@@ -165,6 +170,171 @@ function createRealtimeEffectsTestContext(
     terminalKey,
   };
 }
+
+describe("core tag realtime refresh", () => {
+  it.each([true, false])(
+    "refreshes tagged data across visibility changes (visible: %s)",
+    async (visible) => {
+      const client = createAppQueryClient();
+      const visibility = createFakeVisibility();
+      const effects = createRealtimeCacheEffects({
+        queryClient: client,
+        visibility,
+      });
+      let value = 1;
+      const observer = new QueryObserver(client, {
+        queryKey: ["tagged"],
+        staleTime: Infinity,
+        ...taggedQueryOptions<number>(client, ["tagged"], {
+          scope: CORE_TAG_SCOPE,
+          tagsOf: () => ["preferences"],
+        }),
+        queryFn: ({ queryKey }) =>
+          runTaggedRead(client, queryKey, async () => value),
+      });
+      const stop = observer.subscribe(() => {});
+      try {
+        await vi.waitFor(() =>
+          expect(observer.getCurrentResult().data).toBe(1),
+        );
+        visibility.setVisible(visible);
+        value = 2;
+        effects.handleChanged({
+          type: "changed",
+          entity: "tags",
+          tags: ["preferences"],
+        });
+        if (!visible) {
+          expect(observer.getCurrentResult().data).toBe(1);
+          visibility.setVisible(true);
+        }
+        await vi.waitFor(() =>
+          expect(observer.getCurrentResult().data).toBe(2),
+        );
+      } finally {
+        stop();
+        effects.dispose();
+        client.clear();
+      }
+    },
+  );
+});
+
+describe("resuming released watches", () => {
+  it("refreshes only the data the released watches were keeping live", async () => {
+    vi.useFakeTimers();
+    const { effects, queryClient } = createRealtimeEffectsTestContext();
+    queryClient.setQueryData(threadQueryKey("thr_1"), {
+      id: "thr_1",
+      environmentId: "env-thread",
+    });
+    const observe = (
+      queryKey: readonly unknown[],
+      tagged?: { scope: string; tag: string },
+    ) => {
+      const queryFn = vi.fn(async () => "value");
+      const observer = new QueryObserver(queryClient, {
+        queryKey,
+        staleTime: Infinity,
+        refetchOnWindowFocus: false,
+        ...(tagged
+          ? taggedQueryOptions<string>(queryClient, queryKey, {
+              scope: tagged.scope,
+              tagsOf: () => [tagged.tag],
+            })
+          : {}),
+        queryFn: tagged
+          ? ({ queryKey: key }) => runTaggedRead(queryClient, key, queryFn)
+          : queryFn,
+      });
+      return { queryFn, stop: observer.subscribe(() => {}) };
+    };
+    const reads = {
+      environment: observe(environmentWorkStatusQueryKey("env-1", "main")),
+      threadEnvironment: observe(
+        environmentWorkStatusQueryKey("env-thread", "main"),
+      ),
+      otherEnvironment: observe(
+        environmentWorkStatusQueryKey("env-other", "main"),
+      ),
+      pluginRead: observe(["plugin-rpc", "usage", "getUsage"], {
+        scope: pluginTagScope("usage"),
+        tag: "usage",
+      }),
+    };
+    try {
+      await vi.advanceTimersByTimeAsync(0);
+      for (const read of Object.values(reads)) read.queryFn.mockClear();
+
+      effects.handleResumed([]);
+      await vi.advanceTimersByTimeAsync(500);
+      for (const read of Object.values(reads))
+        expect(read.queryFn).not.toHaveBeenCalled();
+
+      effects.handleResumed([
+        { kind: "environment-detail", environmentId: "env-1" },
+        { kind: "thread-detail", threadId: "thr_1" },
+        {
+          kind: "plugin-read",
+          pluginId: "usage",
+          method: "getUsage",
+          read: { input: null },
+        },
+        { kind: "thread-list" },
+      ]);
+      await vi.advanceTimersByTimeAsync(500);
+
+      expect(reads.environment.queryFn).toHaveBeenCalled();
+      expect(reads.threadEnvironment.queryFn).toHaveBeenCalled();
+      expect(reads.otherEnvironment.queryFn).not.toHaveBeenCalled();
+      expect(reads.pluginRead.queryFn).toHaveBeenCalledTimes(1);
+    } finally {
+      for (const read of Object.values(reads)) read.stop();
+      effects.dispose();
+    }
+  });
+});
+
+describe("core tag reconnect refresh", () => {
+  it("re-reads core tagged data after a reconnect but not on the first connect", async () => {
+    const client = createAppQueryClient();
+    const effects = createRealtimeCacheEffects({
+      queryClient: client,
+      visibility: createFakeVisibility(),
+    });
+    let value = 1;
+    const queryKey = ["core-tagged-read"];
+    const observer = new QueryObserver(client, {
+      queryKey,
+      staleTime: Infinity,
+      refetchOnWindowFocus: false,
+      ...taggedQueryOptions<number>(client, queryKey, {
+        scope: CORE_TAG_SCOPE,
+        tagsOf: () => ["core-tagged-read"],
+      }),
+      queryFn: ({ queryKey: key }) =>
+        runTaggedRead(client, key, async () => value),
+    });
+    const stop = observer.subscribe(() => {});
+    try {
+      await vi.waitFor(() => expect(observer.getCurrentResult().data).toBe(1));
+      value = 2;
+      effects.handleConnected({ reconnected: false });
+      await Promise.resolve();
+      expect(observer.getCurrentResult().data).toBe(1);
+
+      effects.handleConnected({
+        reconnected: true,
+        disconnectedAt: Date.now() - 1_000,
+      });
+      await vi.waitFor(() => expect(observer.getCurrentResult().data).toBe(2));
+    } finally {
+      stop();
+      effects.dispose();
+      client.clear();
+    }
+  });
+});
 
 describe("createRealtimeCacheEffects", () => {
   it.each(
@@ -1226,57 +1396,6 @@ describe("createRealtimeCacheEffects", () => {
     effects.dispose();
   });
 
-  it.each(["thread detail", "sidebar navigation"] as const)(
-    "refetches the active environment pull request from %s when a turn completes",
-    async (cacheSource) => {
-      vi.useFakeTimers();
-      const { effects, queryClient } = createRealtimeEffectsTestContext();
-      const pullRequestKey = environmentPullRequestQueryKey("env-1");
-      const nextPullRequest = {
-        outcome: "available",
-        pullRequest: { number: 42 },
-      };
-      const pullRequestQueryFn = vi.fn(async () => nextPullRequest);
-      if (cacheSource === "thread detail") {
-        queryClient.setQueryData(threadQueryKey("thr_1"), {
-          environmentId: "env-1",
-          id: "thr_1",
-        });
-      } else {
-        queryClient.setQueryData(sidebarNavigationQueryKey(), {
-          personalProject: { threads: [] },
-          projects: [
-            {
-              threads: [{ environmentId: "env-1", id: "thr_1" }],
-            },
-          ],
-        });
-      }
-      queryClient.setQueryData(pullRequestKey, { outcome: "absent" });
-      const pullRequestObserver = new QueryObserver(queryClient, {
-        queryFn: pullRequestQueryFn,
-        queryKey: pullRequestKey,
-        staleTime: Infinity,
-      });
-      const unsubscribePullRequest = pullRequestObserver.subscribe(() => {});
-
-      effects.handleChanged({
-        type: "changed",
-        entity: "thread",
-        id: "thr_1",
-        metadata: { eventTypes: ["turn/completed"] },
-        changes: ["events-appended"],
-      });
-      await vi.advanceTimersByTimeAsync(50);
-
-      expect(pullRequestQueryFn).toHaveBeenCalledTimes(1);
-      expect(queryClient.getQueryData(pullRequestKey)).toEqual(nextPullRequest);
-
-      unsubscribePullRequest();
-      effects.dispose();
-    },
-  );
-
   it("invalidates cached thread search results when environment metadata changes", () => {
     vi.useFakeTimers();
     const { effects, queryClient } = createRealtimeEffectsTestContext();
@@ -1458,11 +1577,17 @@ describe("createRealtimeCacheEffects", () => {
   it("refetches the active diff TOC and work-status queries while retaining rendered patch cache for work-status changes", async () => {
     vi.useFakeTimers();
     const { effects, queryClient } = createRealtimeEffectsTestContext();
-    const diffFilesKey = environmentDiffFilesQueryKey("env-1", "all", "main");
+    const diffFilesKey = environmentDiffFilesQueryKey(
+      "env-1",
+      "all",
+      "main",
+      false,
+    );
     const diffPatchKey = environmentDiffPatchQueryKey(
       "env-1",
       "all",
       "main",
+      false,
       "file.ts",
     );
     const workStatusKey = environmentWorkStatusQueryKey("env-1", "main");
@@ -1518,37 +1643,6 @@ describe("createRealtimeCacheEffects", () => {
 
     unsubscribeDiffFiles();
     unsubscribeWorkStatus();
-    effects.dispose();
-  });
-
-  it("does not refetch the environment pull request for work-status changes", async () => {
-    vi.useFakeTimers();
-    const { effects, queryClient } = createRealtimeEffectsTestContext();
-    const pullRequestKey = environmentPullRequestQueryKey("env-1");
-    const pullRequestQueryFn = vi.fn(async () => ({ outcome: "absent" }));
-    const pullRequestObserver = new QueryObserver(queryClient, {
-      queryFn: pullRequestQueryFn,
-      queryKey: pullRequestKey,
-      staleTime: Infinity,
-    });
-    const unsubscribePullRequest = pullRequestObserver.subscribe(() => {});
-    await vi.advanceTimersByTimeAsync(0);
-    pullRequestQueryFn.mockClear();
-
-    effects.handleChanged({
-      type: "changed",
-      entity: "environment",
-      id: "env-1",
-      changes: ["work-status-changed"],
-    });
-    await vi.advanceTimersByTimeAsync(500);
-
-    expect(pullRequestQueryFn).not.toHaveBeenCalled();
-    expect(queryClient.getQueryState(pullRequestKey)?.isInvalidated).toBe(
-      false,
-    );
-
-    unsubscribePullRequest();
     effects.dispose();
   });
 
@@ -3055,8 +3149,8 @@ describe("createRealtimeCacheEffects", () => {
         ).toBe(true),
       );
 
-      effects.handleResumed();
-      effects.handleResumed();
+      effects.handleResumed([]);
+      effects.handleResumed([]);
 
       await vi.waitFor(() => expect(sidebarFn).toHaveBeenCalledTimes(2));
       expect(threadFn).toHaveBeenCalledTimes(2);
@@ -3093,7 +3187,7 @@ describe("createRealtimeCacheEffects", () => {
     const unsubscribe = observer.subscribe(() => {});
     visibility.setVisible(false);
 
-    effects.handleResumed();
+    effects.handleResumed([]);
 
     expect(sidebarFn).not.toHaveBeenCalled();
     unsubscribe();

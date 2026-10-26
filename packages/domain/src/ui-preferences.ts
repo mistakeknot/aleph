@@ -46,7 +46,9 @@ export const UI_PREFERENCE_KEYS = [
   "sidebar.hiddenFooterItems",
   "sidebar.pluginPanelOrder",
   "sidebar.visiblePluginPanels",
+  "sidebar.navigationProvider",
   "sidebar.threadListProvider",
+  "composer.provider",
   "infoPanel.collapsedSections",
 ] as const;
 export type UiPreferenceKey = (typeof UI_PREFERENCE_KEYS)[number];
@@ -124,12 +126,21 @@ export const uiPreferenceDefinitions = {
   "sidebar.pluginPanelOrder": defineUiPreference(
     uiPreferenceStringListSchema,
     [],
-    "Order of navigation entries in the sidebar navigation strip.",
+    "Order of sidebar navigation destinations.",
   ),
   "sidebar.visiblePluginPanels": defineUiPreference(
     uiPreferenceStringListSchema.nullable(),
     null,
-    "Navigation entries shown in the sidebar navigation strip; null shows every entry.",
+    "Sidebar navigation destinations shown; null shows every destination.",
+  ),
+  "sidebar.navigationProvider": defineUiPreference(
+    uiPreferenceStringSchema.transform((value) =>
+      value === "__builtin__" || value === "navigation/navigation"
+        ? "__automatic__"
+        : value,
+    ),
+    "__automatic__",
+    "Plugin that draws the sidebar navigation: navigation/rail (the bundled Navigation plugin's icon rail on the sidebar's left edge), navigation/top-list (its labeled rows above the thread list), another plugin key, or __automatic__ for the first navigation from a plugin other than the bundled one, falling back to navigation/rail. Legacy __builtin__ and navigation/navigation resolve to __automatic__.",
   ),
   "sidebar.threadListProvider": defineUiPreference(
     uiPreferenceStringSchema.transform((value) =>
@@ -138,10 +149,15 @@ export const uiPreferenceDefinitions = {
     "__automatic__",
     "Plugin that renders the sidebar thread list, or __automatic__ for the first installed thread list plugin other than the bundled thread-list/thread-list, falling back to it. Legacy __builtin__ resolves to thread-list/thread-list.",
   ),
+  "composer.provider": defineUiPreference(
+    uiPreferenceStringSchema,
+    "__automatic__",
+    "Plugin that draws the composer's input box: a plugin key such as bb--composer/composer, or __automatic__ for the first composer from a plugin you installed, then the bundled Composer plugin. With no composer plugin enabled, no composer is shown.",
+  ),
   "infoPanel.collapsedSections": defineUiPreference(
     uiPreferenceStringListSchema,
     [],
-    "Thread Info panel section ids that are collapsed, such as commits, uncommittedChanges, forks, or threadStorage.",
+    "Thread Info panel section ids that are collapsed, such as commits, uncommittedChanges, forks, threadStorage, or <pluginId>/<sectionId> for plugin sections.",
   ),
 } as const satisfies Record<UiPreferenceKey, UiPreferenceDefinition>;
 

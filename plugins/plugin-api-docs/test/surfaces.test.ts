@@ -15,6 +15,7 @@ function surfaceIds(groupId: string): string[] {
 describe("product-map surfaces", () => {
   it("keeps app-window annotations in column-major visual reading order", () => {
     const ordered = [
+      "sidebar-navigation",
       "nav-panel",
       "thread-row-status",
       "thread-list",
@@ -27,6 +28,7 @@ describe("product-map surfaces", () => {
       "code-fence-renderers",
       "message-actions",
       "pending-interaction",
+      "thread-info",
       "code-renderers",
       "browser-toolbar",
       "thread-panel",
@@ -41,8 +43,9 @@ describe("product-map surfaces", () => {
     expect(surfaceIds("command-palette")).toEqual(["command-palette-actions"]);
   });
 
-  it("reads composer annotations from the banner through the draft and action row", () => {
+  it("reads composer annotations from the box, then the banner through the draft and action row", () => {
     const ordered = [
+      "composer-replacement",
       "composer-banners",
       "composer-state",
       "mention-provider",
