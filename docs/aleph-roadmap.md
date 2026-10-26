@@ -1,5 +1,7 @@
 # Aleph — Roadmap
 
+> **Superseded by [roadmap.md](roadmap.md)**, the Now / Next / Later map. This file is kept for its outcome tables until the next review.
+
 **Last reviewed:** 2026-09-24. **Current release:** `0.43.4+aleph.1`.
 
 [Vision](aleph-vision.md) · [Backlog](aleph-backlog.md) · [Journeys](cujs/README.md) ·
