@@ -33,6 +33,7 @@ export interface PersistedWindowStateEntry extends PersistedWindowState {
 
 export interface PersistedWindowStateFile {
   windows: PersistedWindowStateEntry[];
+  zoomFactor: number;
 }
 
 export interface DisplayWorkArea {

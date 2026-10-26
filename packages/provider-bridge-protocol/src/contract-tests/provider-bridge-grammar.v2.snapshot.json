@@ -155,6 +155,10 @@
       "diff": "required",
       "providerTurnId": "optional"
     },
+    "turn.mainRun": {
+      "kind": "required",
+      "state": "required"
+    },
     "turn.open": {
       "kind": "required",
       "providerTurnId": "optional",
@@ -174,6 +178,7 @@
       "total": "required",
       "last": "required",
       "modelContextWindow": "required",
+      "promptCacheTtlMs": "optional",
       "providerTurnId": "optional"
     }
   },
@@ -190,6 +195,7 @@
       "status": "required",
       "taskStatus": "required",
       "skipTranscript": "required",
+      "foreground": "optional",
       "workflowName": "optional",
       "workflow": "optional",
       "usage": "optional",
@@ -300,7 +306,8 @@
     "approvalEnforcedBy": "default",
     "grammarVersions": "default",
     "steerMode": "default",
-    "skills": "default"
+    "skills": "default",
+    "commands": "default"
   },
   "recoveryNotification": {
     "threadId": "optional",
@@ -309,6 +316,7 @@
     "retryable": "required"
   },
   "requestMethods": [
+    "commands/list",
     "initialize",
     "model/list",
     "provider/health",

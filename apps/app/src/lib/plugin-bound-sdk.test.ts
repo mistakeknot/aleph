@@ -214,7 +214,6 @@ describe("bindSdkToPlugin", () => {
         makeThreadWithRuntime({ id, parentThreadId: null }),
       );
     }
-    const cancelQueries = vi.spyOn(queryClient, "cancelQueries");
     const bound = bindSdkToPlugin(sdk, "thread-list", queryClient);
 
     const updates = ["thr_1", "thr_2"].map((threadId) =>
@@ -231,7 +230,7 @@ describe("bindSdkToPlugin", () => {
         ),
       ).toEqual(["thr_parent", "thr_parent"]);
     });
-    expect(cancelQueries).toHaveBeenCalledTimes(4);
+    expect(threads.update).toHaveBeenCalledTimes(2);
 
     for (const id of ["thr_1", "thr_2"]) {
       pending
@@ -686,7 +685,7 @@ describe("bindSdkToPlugin", () => {
 
       await vi.waitFor(() => {
         expect(sidebarIds()).toEqual([]);
-        expect(listIds()).toEqual(["thr_other", "thr_archived"]);
+        expect(listIds()).toEqual(["thr_other"]);
       });
       expect(environments.archiveThreads).toHaveBeenCalledWith({
         environmentId: "env_1",
@@ -708,7 +707,11 @@ describe("bindSdkToPlugin", () => {
         pending.reject(new Error("archive failed"));
         await expect(archive).rejects.toThrow("archive failed");
         expect(sidebarIds()).toEqual(["thr_1", "thr_2", "thr_child"]);
-        expect(listIds()).toEqual(entries.map((thread) => thread.id));
+        expect(listIds()).toEqual(
+          entries
+            .filter((thread) => thread.archivedAt === null)
+            .map((thread) => thread.id),
+        );
         expect(
           queryClient.getQueryData<ReturnType<typeof makeThreadWithRuntime>>(
             threadQueryKey("thr_1"),
@@ -721,7 +724,7 @@ describe("bindSdkToPlugin", () => {
         });
         await expect(archive).resolves.toMatchObject({ ok: true });
         expect(sidebarIds()).toEqual([]);
-        expect(listIds()).toEqual(["thr_other", "thr_archived"]);
+        expect(listIds()).toEqual(["thr_other"]);
       }
       expect(
         queryClient

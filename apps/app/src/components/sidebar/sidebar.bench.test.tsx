@@ -50,6 +50,7 @@ import {
 import { makePluginRegistrationSet } from "@/test/fixtures/plugins";
 import { collectPluginAppRegistrations } from "@get-bb/plugin-sdk/internal/plugin-app-collector";
 import { PluginThreadList } from "./PluginThreadList";
+import { SidebarThreadEntriesTestProvider } from "@/test/sidebarThreadEntriesTestProvider";
 
 const BENCH_ENABLED = process.env.BB_SIDEBAR_BENCH === "1";
 const THREAD_COUNT = Number(process.env.BB_SIDEBAR_BENCH_THREADS ?? 3000);
@@ -109,13 +110,38 @@ function stubPluginRpcFetch(): void {
             }),
           ),
         };
+      } else if (method === "threadNotifications.keyed") {
+        const { keys } = z
+          .object({ keys: z.array(z.string()) })
+          .parse(JSON.parse(String(init?.body)));
+        notificationListRequests.push(keys);
+        result = Object.fromEntries(
+          keys.map((id) => [
+            id,
+            CONFIGURED_NOTIFICATION_LEVELS.get(id) ?? {
+              own: "inherit",
+              ancestorCap: null,
+            },
+          ]),
+        );
       } else if (method === "setPreference" || method === "resetPreference") {
         result = JSON.parse(String(init?.body ?? "{}"));
       }
-      return new Response(JSON.stringify({ ok: true, result }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          result,
+          keyTags: Object.fromEntries(
+            notificationListRequests
+              .at(-1)
+              ?.map((id) => [id, [`thread:${id}`]]) ?? [],
+          ),
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      );
     },
   );
 }
@@ -383,13 +409,15 @@ async function runScenario(
     <TooltipProvider>
       <JotaiProvider store={createStore()}>
         <QueryClientProvider client={queryClient}>
-          <MemoryRouter>
-            <SidebarProvider>
-              <Sidebar>
-                <SidebarContent>{body}</SidebarContent>
-              </Sidebar>
-            </SidebarProvider>
-          </MemoryRouter>
+          <SidebarThreadEntriesTestProvider>
+            <MemoryRouter>
+              <SidebarProvider>
+                <Sidebar>
+                  <SidebarContent>{body}</SidebarContent>
+                </Sidebar>
+              </SidebarProvider>
+            </MemoryRouter>
+          </SidebarThreadEntriesTestProvider>
         </QueryClientProvider>
       </JotaiProvider>
     </TooltipProvider>
@@ -609,24 +637,26 @@ describe("hidden sidebar thread list", () => {
       <TooltipProvider>
         <JotaiProvider store={createStore()}>
           <QueryClientProvider client={seedQueryClient(250)}>
-            <MemoryRouter>
-              <SidebarProvider>
-                <Sidebar>
-                  <SidebarContent>
-                    <ThreadActionCollectors
-                      coreRegistrations={CORE_THREAD_ACTIONS}
-                      requestRename={() => {}}
-                    />
-                    <ThreadActionSurfaceVisibility visible={false}>
-                      <PluginThreadList
-                        replacement={replacement}
-                        onNavigate={() => {}}
+            <SidebarThreadEntriesTestProvider>
+              <MemoryRouter>
+                <SidebarProvider>
+                  <Sidebar>
+                    <SidebarContent>
+                      <ThreadActionCollectors
+                        coreRegistrations={CORE_THREAD_ACTIONS}
+                        requestRename={() => {}}
                       />
-                    </ThreadActionSurfaceVisibility>
-                  </SidebarContent>
-                </Sidebar>
-              </SidebarProvider>
-            </MemoryRouter>
+                      <ThreadActionSurfaceVisibility visible={false}>
+                        <PluginThreadList
+                          replacement={replacement}
+                          onNavigate={() => {}}
+                        />
+                      </ThreadActionSurfaceVisibility>
+                    </SidebarContent>
+                  </Sidebar>
+                </SidebarProvider>
+              </MemoryRouter>
+            </SidebarThreadEntriesTestProvider>
           </QueryClientProvider>
         </JotaiProvider>
       </TooltipProvider>,

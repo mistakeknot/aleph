@@ -79,9 +79,9 @@ import {
   PromptStackCollapseRow,
   useDisclosureFocusHandoff,
 } from "@bb/shared-ui/prompt-stack-disclosure";
-import { PROMPT_STACK_ROW_ACTION_TAKEOVER_CLASS } from "@/components/promptbox/banner/prompt-banner-actions";
+import { PROMPT_STACK_ROW_ACTION_TAKEOVER_CLASS } from "@bb/shared-ui/prompt-banner-actions";
 import { useScrollOverflowState } from "@/components/thread/timeline/useScrollOverflowState";
-import { OverflowFade } from "@/components/ui/overflow-fade";
+import { OverflowFade } from "@bb/shared-ui/overflow-fade";
 import { InlineMessageEditorFrame } from "@/components/promptbox/InlineMessageEditorFrame";
 import { useBottomAnchoredScroll } from "@/components/ui/bottom-anchored-scroll-body";
 import {
@@ -100,7 +100,7 @@ import {
   preserveLeadQueuedMessageGroupAfterReorder,
   type QueuedMessageReorderRequest,
 } from "@/lib/queued-message-reorder";
-import type { PromptMentionLinkResolver } from "@/components/promptbox/editor/prompt-mention-link";
+import type { PromptMentionLinkResolver } from "@bb/client-core";
 import {
   PromptMentionPill,
   shiftMentionsToTextRange,

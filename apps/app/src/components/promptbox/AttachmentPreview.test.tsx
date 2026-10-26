@@ -1,12 +1,33 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render as renderWithoutHost,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clearLocalAttachmentPreviews,
   registerLocalAttachmentPreview,
 } from "@/lib/attachment-local-previews";
-import { AttachmentPreview } from "./AttachmentPreview";
+import { loadAttachmentPreview } from "@/test/fixtures/composer-plugin-modules";
+import { ComposerRendererTestHost } from "@/test/fixtures/composer-renderer";
+
+vi.mock("@/hooks/usePromptMentions", async () =>
+  (await import("@/test/fixtures/composer-search")).fakePromptMentionsModule(),
+);
+vi.mock("@/hooks/useCommandSuggestions", async () =>
+  (
+    await import("@/test/fixtures/composer-search")
+  ).fakeCommandSuggestionsModule(),
+);
+
+const AttachmentPreview = await loadAttachmentPreview();
+
+const render = (
+  ui: Parameters<typeof renderWithoutHost>[0],
+  options?: Parameters<typeof renderWithoutHost>[1],
+) => renderWithoutHost(ui, { wrapper: ComposerRendererTestHost, ...options });
 
 describe("AttachmentPreview", () => {
   const revoked: string[] = [];
@@ -137,7 +158,7 @@ describe("AttachmentPreview", () => {
     expect(revoked).toEqual(["blob:local-1"]);
   });
 
-  it("renders a just-picked image from its local object URL and revokes it on remove", () => {
+  it("renders a just-picked image from its local object URL", () => {
     registerLocalAttachmentPreview(
       "photo-1-abc.png",
       new Blob([new Uint8Array([1, 2, 3])], { type: "image/png" }),
@@ -183,7 +204,6 @@ describe("AttachmentPreview", () => {
 
     fireEvent.click(getByLabelText("Remove photo.png"));
     expect(onRemoveAttachment).toHaveBeenCalledWith("photo-1-abc.png");
-    expect(revoked).toEqual(["blob:local-1"]);
   });
 
   it("keeps composer focus when a touch on remove synthesizes mousedown", () => {

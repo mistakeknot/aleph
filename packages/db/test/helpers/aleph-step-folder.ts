@@ -15,18 +15,26 @@ export function alephFolderWithSyntheticStep(
   };
   const last = manifest.steps[manifest.steps.length - 1];
   if (last === undefined) throw new Error("Manifest is empty");
+  const journal = JSON.parse(
+    readFileSync(
+      join(sourceFolders.upstreamFolder, "meta/_journal.json"),
+      "utf8",
+    ),
+  ) as { entries: Array<{ tag: string; when: number }> };
+  const lastUpstream = journal.entries[journal.entries.length - 1];
+  if (lastUpstream === undefined) throw new Error("Journal is empty");
   manifest.steps.push({
-    id: "A0011",
-    file: "A0011_synthetic.sql",
-    after: last.id,
-    when: last.when + 1000,
+    id: "A0012",
+    file: "A0012_synthetic.sql",
+    after: lastUpstream.tag,
+    when: Math.max(last.when, lastUpstream.when) + 1000,
   });
   writeFileSync(manifestPath, JSON.stringify(manifest));
-  writeFileSync(join(folder, "A0011_synthetic.sql"), sql);
+  writeFileSync(join(folder, "A0012_synthetic.sql"), sql);
   if (checks !== undefined) {
     const checksPath = join(folder, "step-checks.json");
     const existing = JSON.parse(readFileSync(checksPath, "utf8")) as object;
-    writeFileSync(checksPath, JSON.stringify({ ...existing, A0011: checks }));
+    writeFileSync(checksPath, JSON.stringify({ ...existing, A0012: checks }));
   }
   return folder;
 }

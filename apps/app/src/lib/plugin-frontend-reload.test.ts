@@ -119,14 +119,17 @@ function makeDeps(initial: PluginFrontendCandidate[] = []): TestReconcileDeps {
     importModule: vi.fn(async (_url: string): Promise<unknown> =>
       pluginModule("hello"),
     ),
+    importRetryDelaysMs: [] as readonly number[],
     applyCss: vi.fn(),
+    prefetchCss: vi.fn(),
+    prefetchModule: vi.fn(),
     retainCss: vi.fn(() => vi.fn()),
     resetCrashedSlots: vi.fn(),
     setRegistrations: vi.fn(),
     removeRegistrations: vi.fn(),
     beginSlotBatch: () => () => {},
     warn: vi.fn(),
-    routePluginId: () => null,
+    priorityPluginIds: () => [],
     mountTimeoutMs: undefined as number | undefined,
   };
 }
@@ -244,14 +247,17 @@ describe("reconcilePluginFrontends", () => {
     const deps: PluginFrontendReconcileDeps = {
       fetchCandidates,
       importModule: async () => pluginModule("hello"),
+      importRetryDelaysMs: [],
       applyCss: vi.fn(),
+      prefetchCss: vi.fn(),
+      prefetchModule: vi.fn(),
       retainCss: vi.fn(() => vi.fn()),
       resetCrashedSlots: vi.fn(),
       setRegistrations: setPluginSlotRegistrations,
       removeRegistrations: removePluginSlotRegistrations,
       beginSlotBatch: () => () => {},
       warn: vi.fn(),
-      routePluginId: () => null,
+      priorityPluginIds: () => [],
     };
 
     await reconcilePluginFrontends(state, deps);
@@ -567,6 +573,32 @@ describe("reconcilePluginFrontends", () => {
     expect(state.records.get("hello")?.status).toBe("loaded");
   });
 
+  it("retries a failed import with a fresh module URL within the same reconcile", async () => {
+    const state = createPluginFrontendReconcileState();
+    const deps = makeDeps([candidate("hello", "v1")]);
+    deps.importRetryDelaysMs = [0, 0];
+    deps.importModule
+      .mockRejectedValueOnce(
+        new TypeError("Failed to fetch dynamically imported module"),
+      )
+      .mockRejectedValueOnce(
+        new TypeError("Failed to fetch dynamically imported module"),
+      );
+
+    await reconcilePluginFrontends(state, deps);
+
+    expect(deps.importModule.mock.calls.map(([url]) => url)).toEqual([
+      "/api/v1/plugins/hello/assets/app.js?h=v1",
+      "/api/v1/plugins/hello/assets/app.js?h=v1&bb_retry=1",
+      "/api/v1/plugins/hello/assets/app.js?h=v1&bb_retry=2",
+    ]);
+    expect(state.records.get("hello")?.status).toBe("loaded");
+    expect(deps.setRegistrations).toHaveBeenCalledWith(
+      "hello",
+      expect.anything(),
+    );
+  });
+
   it("mounts once, skips repeated reconciliation, and disposes exactly once on reload and removal", async () => {
     const state = createPluginFrontendReconcileState();
     const deps = makeDeps([candidate("hello", "v1")]);
@@ -842,6 +874,40 @@ describe("reconcilePluginFrontends", () => {
         message: "candidate exploded",
       },
     });
+  });
+
+  it("activates a plugin that still passes experimental_sidebarAccessory and warns about it", async () => {
+    const state = createPluginFrontendReconcileState();
+    const deps = makeDeps([candidate("hello", "v1")]);
+    function Panel() {
+      return null;
+    }
+    deps.importModule.mockResolvedValueOnce({
+      default: definePluginApp((app) => {
+        app.slots.navPanel({
+          id: "board",
+          title: "Board",
+          icon: "Columns",
+          path: "board",
+          component: Panel,
+          experimental_sidebarAccessory: Panel,
+        } as never);
+      }),
+    });
+
+    await reconcilePluginFrontends(state, deps);
+
+    expect(state.appliedHashes.has("hello")).toBe(true);
+    expect(state.diagnostics.get("hello")?.lastFailure).toBeNull();
+    expect(deps.setRegistrations).toHaveBeenCalledWith(
+      "hello",
+      expect.objectContaining({
+        navPanels: [expect.objectContaining({ id: "board" })],
+      }),
+    );
+    expect(deps.warn).toHaveBeenCalledWith(
+      '[plugin:hello] slots.navPanel: "experimental_sidebarAccessory" is ignored: it was replaced by "experimental_useBadge", a hook returning a badge value, in SDK 0.6.53',
+    );
   });
 
   it("contains a throwing replacement setup and deactivates the stale generation", async () => {

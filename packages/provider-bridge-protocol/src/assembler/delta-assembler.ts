@@ -559,6 +559,7 @@ export function createDeltaAssembler(
         status: shape.status,
         taskStatus: shape.taskStatus,
         skipTranscript: shape.skipTranscript,
+        foreground: shape.foreground ?? false,
         ...(shape.workflowName === undefined
           ? {}
           : { workflowName: shape.workflowName }),
@@ -875,6 +876,12 @@ export function createDeltaAssembler(
     delegationSummary?: string;
   }
 
+  function fileChangeErrorField(close: CloseFields): { error?: string } {
+    return close.status === "failed" && close.resultText?.trim()
+      ? { error: close.resultText }
+      : {};
+  }
+
   function completeStartedItem(
     started: ThreadEventItem,
     close: CloseFields,
@@ -908,6 +915,7 @@ export function createDeltaAssembler(
             changes: started.changes,
             status: close.status,
             approvalStatus: started.approvalStatus,
+            ...fileChangeErrorField(close),
           },
           parent,
         );
@@ -1017,6 +1025,7 @@ export function createDeltaAssembler(
             changes: buildFileChanges(shape),
             status: close.status,
             approvalStatus: close.approvalStatus ?? null,
+            ...fileChangeErrorField(close),
           },
           parentToolCallId,
         );
@@ -1849,6 +1858,9 @@ export function createDeltaAssembler(
             total: { ...delta.total },
             last: { ...delta.last },
             modelContextWindow: delta.modelContextWindow,
+            ...(delta.promptCacheTtlMs === undefined
+              ? {}
+              : { promptCacheTtlMs: delta.promptCacheTtlMs }),
           },
         });
         return;
@@ -1997,6 +2009,20 @@ export function createDeltaAssembler(
           rawEvent: delta.raw,
           scope: turnId === undefined ? threadScope() : turnScope(turnId),
           ...(parentToolCallId === undefined ? {} : { parentToolCallId }),
+        });
+        return;
+      }
+
+      case "turn.mainRun": {
+        if (state.currentTurnId === undefined) {
+          return;
+        }
+        events.push({
+          type: "turn/mainRun/updated",
+          threadId: UNSTAMPED_THREAD_ID,
+          providerThreadId: "",
+          scope: turnScope(state.currentTurnId),
+          state: delta.state,
         });
         return;
       }

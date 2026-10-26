@@ -1,3 +1,6 @@
+import { experimental_PluginRpcCallError } from "../rpc-contract.js";
+import { rpcInvalidationTags, rpcResponseTags } from "../internal/rpc-tags.js";
+import type { ContractTagDeclarations } from "@bb/domain";
 import {
   environmentCompositionSchema,
   validateServerAccessProviderDeclaration,
@@ -32,6 +35,7 @@ import {
   normalizePluginAgentConfiguration,
   normalizeRealtimePayload,
   normalizeRpcJsonResult,
+  readPluginRpcRefusal,
   normalizeRpcRegistration,
   publishRpcMethod,
   normalizeWebSocketRouteRegistration,
@@ -77,6 +81,8 @@ import type {
   PluginHttpHandler,
   PluginHosts,
   PluginSharedPortTunnelIdentity,
+  InternalDoNotUsePluginHostNextTunnelStatus,
+  InternalDoNotUsePluginNextTunnelConfig,
   PluginInteractionRequest,
   PluginInteractionResult,
   PluginKvStorage,
@@ -322,12 +328,22 @@ export interface FakePluginRegistrations {
   aiServiceRegistrations: PluginAiServiceDeclaration[];
 }
 
+/** One handle opened through `bb.server.internal_DO_NOT_USE_openTunnelIngress`. */
+export interface InternalDoNotUseFakeTunnelIngress {
+  readonly audience: string;
+  readonly baseUrl: string;
+  /** True once the plugin closed the handle or the host disposed it. */
+  readonly closed: boolean;
+}
+
 /** Read-only state for assertions after a plugin registers or handles work. */
 export interface FakePluginInspectionState {
   readonly pluginId: string;
   /** Every `bb.log` line, in order. */
   readonly logEntries: FakeLogEntry[];
   /** Every `bb.realtime.publish`, payload normalized like the wire. */
+  experimental_onRpcInvalidation(listener: () => void): () => void;
+  readonly experimental_rpcInvalidations: (readonly string[] | null)[];
   readonly realtimeSignals: FakeRealtimeSignal[];
   /** Every `bb.status.needsConfiguration` message, in order. */
   readonly needsConfigurationMessages: string[];
@@ -340,10 +356,21 @@ export interface FakePluginInspectionState {
   /** Recorded `bb.sdk` calls + stub control. */
   readonly sdk: FakeSdkHarness;
   readonly registrations: FakePluginRegistrations;
+  /** Every `bb.server.internal_DO_NOT_USE_openTunnelIngress` handle, in order. */
+  readonly internal_DO_NOT_USE_tunnelIngresses: readonly InternalDoNotUseFakeTunnelIngress[];
   readonly sharedPortDeclarations: Array<{
     hostId: string;
     ports: number[];
   }>;
+  /** The last `bb.hosts.internal_DO_NOT_USE_setNextTunnels` config, or null. */
+  readonly internal_DO_NOT_USE_nextTunnelConfig: InternalDoNotUsePluginNextTunnelConfig | null;
+  /**
+   * Replace what `bb.hosts.internal_DO_NOT_USE_nextTunnelStatuses` returns and call
+   * every `internal_DO_NOT_USE_onNextTunnelStatusChange` listener.
+   */
+  internal_DO_NOT_USE_setNextTunnelStatuses(
+    statuses: readonly InternalDoNotUsePluginHostNextTunnelStatus[],
+  ): void;
   /** Calls made through bb.hosts.experimental_client, after input validation. */
   readonly experimental_hostRpcCalls: readonly ExperimentalFakeHostRpcCall[];
   readonly pendingInteractions: readonly (PluginInteractionRequest & {
@@ -597,6 +624,7 @@ function jsonRoundTrip(value: unknown, what: string): unknown {
 }
 
 interface FakeRpcRecord {
+  declarations: ContractTagDeclarations<unknown, unknown>;
   publication: ReturnType<typeof publishRpcMethod>;
   inputSchema: StandardSchemaV1;
   outputSchema: StandardSchemaV1;
@@ -620,10 +648,7 @@ interface FakeHostSignalSubscription {
 }
 
 function throwRpcError(error: PluginRpcError): never {
-  const thrown = new Error(error.message);
-  Reflect.set(thrown, "code", error.code);
-  if (error.issues !== undefined) Reflect.set(thrown, "issues", error.issues);
-  throw thrown;
+  throw new experimental_PluginRpcCallError(error);
 }
 
 interface FakePluginPersistentState {
@@ -631,6 +656,8 @@ interface FakePluginPersistentState {
   storageRoot: string;
   storedSettings: Map<string, PluginSettingValue>;
 }
+
+const FAKE_TUNNEL_INGRESS_FIRST_PORT = 41_000;
 
 const fakeHostDisposers = new WeakMap<
   FakePluginHarness,
@@ -853,7 +880,24 @@ function createFakePluginHostInternal(
 
   // --- rpc ---
   const rpcHandlers = new Map<string, FakeRpcRecord>();
+  const rpcInvalidations: (readonly string[] | null)[] = [];
+  const invalidationListeners = new Set<() => void>();
   const rpc: PluginRpc = {
+    experimental_whileWatched(method) {
+      assertLive();
+      if (!rpcHandlers.has(method))
+        throw new Error(`Unknown RPC method: ${method}`);
+    },
+    experimental_invalidate(tags) {
+      assertLive();
+      for (const listener of invalidationListeners) listener();
+      rpcInvalidations.push(rpcInvalidationTags.parse(tags));
+    },
+    experimental_invalidateAll() {
+      assertLive();
+      for (const listener of invalidationListeners) listener();
+      rpcInvalidations.push(null);
+    },
     register(contract, handlers, registrationOptions) {
       assertLive();
       for (const [name, record] of normalizeRpcRegistration(
@@ -1114,7 +1158,39 @@ function createFakePluginHostInternal(
       assertLive();
       return dataDir;
     },
+    async internal_DO_NOT_USE_openTunnelIngress(ingressOptions) {
+      assertLive();
+      const audience: unknown = ingressOptions?.audience;
+      if (typeof audience !== "string" || audience.length === 0) {
+        throw new Error(
+          "bb.server.internal_DO_NOT_USE_openTunnelIngress needs a non-empty audience",
+        );
+      }
+      const shared = tunnelIngresses.find(
+        (entry) => entry.audience === audience && !entry.closed,
+      );
+      const entry = {
+        audience,
+        baseUrl:
+          shared?.baseUrl ??
+          `http://127.0.0.1:${FAKE_TUNNEL_INGRESS_FIRST_PORT + tunnelIngresses.length}`,
+        closed: false,
+      };
+      tunnelIngresses.push(entry);
+      const close = async (): Promise<void> => {
+        entry.closed = true;
+        const index = disposeHooks.indexOf(close);
+        if (index !== -1) disposeHooks.splice(index, 1);
+      };
+      disposeHooks.push(close);
+      return { baseUrl: entry.baseUrl, close };
+    },
   };
+  const tunnelIngresses: Array<{
+    audience: string;
+    baseUrl: string;
+    closed: boolean;
+  }> = [];
 
   // --- sdk ---
   const { sdk, harness: sdkHarness } = createFakeSdk({
@@ -1220,6 +1296,9 @@ function createFakePluginHostInternal(
 
   const sharedPortDeclarations: FakePluginHarness["sharedPortDeclarations"] =
     [];
+  let nextTunnelConfig: InternalDoNotUsePluginNextTunnelConfig | null = null;
+  let nextTunnelStatuses: InternalDoNotUsePluginHostNextTunnelStatus[] = [];
+  const nextTunnelListeners = new Set<() => void>();
   const hostRpcCalls: ExperimentalFakeHostRpcCall[] = [];
   const hostWorkerExitSubscriptions: FakeHostWorkerExitSubscription[] = [];
   const hostSignalSubscriptions: FakeHostSignalSubscription[] = [];
@@ -1364,9 +1443,29 @@ function createFakePluginHostInternal(
         sharedPortDeclarations[existingIndex] = replacement;
       }
     },
+    internal_DO_NOT_USE_setNextTunnels(config) {
+      assertLive();
+      nextTunnelConfig =
+        config === null
+          ? null
+          : { domain: config.domain, server: { ...config.server } };
+    },
+    internal_DO_NOT_USE_nextTunnelStatuses() {
+      assertLive();
+      return structuredClone(nextTunnelStatuses);
+    },
+    internal_DO_NOT_USE_onNextTunnelStatusChange(listener) {
+      assertLive();
+      nextTunnelListeners.add(listener);
+      return () => {
+        nextTunnelListeners.delete(listener);
+      };
+    },
   };
   disposeHooks.push(() => {
     sharedPortDeclarations.length = 0;
+    nextTunnelConfig = null;
+    nextTunnelListeners.clear();
   });
 
   const events: PluginEvents = {
@@ -1600,12 +1699,27 @@ function createFakePluginHostInternal(
     },
     pluginId,
     logEntries,
+    experimental_onRpcInvalidation(listener) {
+      invalidationListeners.add(listener);
+      return () => {
+        invalidationListeners.delete(listener);
+      };
+    },
+    experimental_rpcInvalidations: rpcInvalidations,
     realtimeSignals,
     needsConfigurationMessages,
     get recheckCount() {
       return requestedDrains;
     },
+    internal_DO_NOT_USE_tunnelIngresses: tunnelIngresses,
     sharedPortDeclarations,
+    get internal_DO_NOT_USE_nextTunnelConfig() {
+      return nextTunnelConfig;
+    },
+    internal_DO_NOT_USE_setNextTunnelStatuses(statuses) {
+      nextTunnelStatuses = structuredClone([...statuses]);
+      for (const listener of [...nextTunnelListeners]) listener();
+    },
     experimental_hostRpcCalls: hostRpcCalls,
     sdk: sdkHarness,
     registrations: {
@@ -1807,6 +1921,8 @@ function createFakePluginHostInternal(
           },
         });
       } catch (error) {
+        const refusal = readPluginRpcRefusal(error);
+        if (refusal !== null) return throwRpcError(refusal);
         return throwRpcError({
           code: "handler_error",
           message: errorMessage(error),
@@ -1818,7 +1934,14 @@ function createFakePluginHostInternal(
         "output",
         throwRpcError,
       );
-      return normalizeRpcJsonResult(validatedOutput, throwRpcError);
+      const jsonResult = normalizeRpcJsonResult(validatedOutput, throwRpcError);
+      const { invalidated } = rpcResponseTags(
+        record.declarations,
+        validatedInput,
+        validatedOutput,
+      );
+      if (invalidated.length > 0) rpc.experimental_invalidate(invalidated);
+      return jsonResult;
     },
 
     async runCli(argv, ctx = {}) {

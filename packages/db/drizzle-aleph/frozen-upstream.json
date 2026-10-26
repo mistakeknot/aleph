@@ -576,6 +576,19 @@
       "tag": "0143_queued_message_state",
       "sha256": "49c11f683673c7ec8f583f3ce20a5b24e300b144eadda999c7ec6f9600d800a3",
       "supersededBy": "A0009"
+    },
+    {
+      "tag": "0144_thread_parent_notifications",
+      "sha256": "b56954240864756e3184bcd8ebd30f67927fd01aee72f6a9ec00741e1da0b5d7",
+      "supersededBy": "A0011"
+    },
+    {
+      "tag": "0145_terminal_sessions_status_thread_index",
+      "sha256": "92c4be7657b30b05170a6bd5ab42ad9ced9483d4d644b4ddc8de395ff783193f"
+    },
+    {
+      "tag": "0146_diff_viewed_files",
+      "sha256": "9fec044e3b7902083cde83067c20b03b3e71076a25bb3e6a0e56090f2a92ac3c"
     }
   ]
 }

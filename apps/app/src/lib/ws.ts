@@ -1,4 +1,5 @@
 import ReconnectingWebSocket from "partysocket/ws";
+import { realtimeSubscriptionTargetSchema } from "@bb/domain";
 import {
   changedMessageLenientSchema,
   pluginSignalLenientSchema,
@@ -39,7 +40,9 @@ export type WebSocketConnectedEvent =
     };
 type ConnectedCallback = (event: WebSocketConnectedEvent) => void;
 type ConnectionStateCallback = () => void;
-type ResumedCallback = () => void;
+type ResumedCallback = (
+  releasedTargets: readonly RealtimeSubscriptionTarget[],
+) => void;
 export type WebSocketConnectionState =
   | "connecting"
   | "connected"
@@ -107,6 +110,8 @@ export class WebSocketManager {
   private pongTimer: ReturnType<typeof setTimeout> | null = null;
   private pongDeadline = 0;
   private hiddenAt: number | null = null;
+  private releaseTimer: ReturnType<typeof setTimeout> | null = null;
+  private watchesReleased = false;
   private readonly minReconnectionDelay =
     REALTIME_MIN_RECONNECTION_DELAY_MS +
     Math.random() * REALTIME_RECONNECTION_DELAY_JITTER_MS;
@@ -143,9 +148,11 @@ export class WebSocketManager {
       this.hasConnected = true;
       this.setConnectionState("connected");
       this.startPingLoop();
-      for (const subscription of this.subscriptions.values()) {
-        this.sendMessage({ type: "subscribe", target: subscription.target });
-      }
+      if (this.watchesReleased)
+        this.sendMessage({ type: "visibility", visible: false });
+      const targets = this.activeSubscriptionTargets();
+      if (targets.length > 0)
+        this.sendMessage({ type: "subscribe", targets });
       const event: WebSocketConnectedEvent = reconnected
         ? { reconnected, disconnectedAt: disconnectedAt ?? Date.now() }
         : { reconnected };
@@ -215,6 +222,7 @@ export class WebSocketManager {
     }
     if (!this.browserEvents.isDocumentVisible()) {
       this.hiddenAt ??= Date.now();
+      this.scheduleWatchRelease();
     }
     const unsubscribeVisibility = this.browserEvents.subscribeToVisibility(
       () => {
@@ -234,15 +242,17 @@ export class WebSocketManager {
     if (!this.browserEvents.isDocumentVisible()) {
       this.hiddenAt ??= Date.now();
       this.stopPingLoop();
+      this.scheduleWatchRelease();
       return;
     }
     const hiddenAt = this.hiddenAt;
     this.hiddenAt = null;
+    const releasedTargets = this.resumeWatching();
     if (
       hiddenAt !== null &&
       Date.now() - hiddenAt >= REALTIME_RESUME_HIDDEN_THRESHOLD_MS
     ) {
-      this.notifyResumed();
+      this.notifyResumed(releasedTargets);
     }
     this.probeOrReconnect();
     this.startPingLoop();
@@ -252,16 +262,51 @@ export class WebSocketManager {
     if (!this.browserEvents.isDocumentVisible()) {
       return;
     }
-    this.notifyResumed();
+    this.notifyResumed([]);
     this.probeOrReconnect();
   }
 
-  private notifyResumed(): void {
+  private scheduleWatchRelease(): void {
+    if (this.releaseTimer !== null || this.watchesReleased) {
+      return;
+    }
+    this.releaseTimer = setTimeout(() => {
+      this.releaseTimer = null;
+      if (this.browserEvents.isDocumentVisible()) {
+        return;
+      }
+      this.watchesReleased = true;
+      this.sendMessage({ type: "visibility", visible: false });
+    }, REALTIME_RESUME_HIDDEN_THRESHOLD_MS);
+  }
+
+  private resumeWatching(): RealtimeSubscriptionTarget[] {
+    if (this.releaseTimer !== null) {
+      clearTimeout(this.releaseTimer);
+      this.releaseTimer = null;
+    }
+    if (!this.watchesReleased) {
+      return [];
+    }
+    this.watchesReleased = false;
+    this.sendMessage({ type: "visibility", visible: true });
+    return this.activeSubscriptionTargets();
+  }
+
+  private activeSubscriptionTargets(): RealtimeSubscriptionTarget[] {
+    return [...this.subscriptions.values()]
+      .filter((subscription) => subscription.count > 0)
+      .map((subscription) => subscription.target);
+  }
+
+  private notifyResumed(
+    releasedTargets: readonly RealtimeSubscriptionTarget[],
+  ): void {
     if (!this.socket) {
       return;
     }
     for (const callback of this.resumedCallbacks) {
-      callback();
+      callback(releasedTargets);
     }
   }
 
@@ -431,6 +476,11 @@ export class WebSocketManager {
       this.unsubscribeBrowserEvents = null;
     }
     this.hiddenAt = null;
+    if (this.releaseTimer !== null) {
+      clearTimeout(this.releaseTimer);
+      this.releaseTimer = null;
+    }
+    this.watchesReleased = false;
     if (this.socket) {
       this.socket.close();
       this.socket = null;
@@ -445,6 +495,13 @@ export class WebSocketManager {
       existing.count += 1;
       return;
     }
+    if (!realtimeSubscriptionTargetSchema.safeParse(target).success) {
+      console.error(
+        "Skipped invalid realtime subscription target",
+        target.kind,
+      );
+      return;
+    }
 
     this.subscriptions.set(key, { count: 1, target });
     if (this.socket?.readyState === WebSocket.OPEN) {
@@ -455,18 +512,22 @@ export class WebSocketManager {
   unsubscribe(target: RealtimeSubscriptionTarget): void {
     const key = realtimeSubscriptionTargetKey(target);
     const existing = this.subscriptions.get(key);
-    if (!existing) {
+    if (!existing || existing.count === 0) {
       return;
     }
-    if (existing.count > 1) {
-      existing.count -= 1;
+    existing.count -= 1;
+    if (existing.count > 0) {
       return;
     }
-
-    this.subscriptions.delete(key);
-    if (this.socket?.readyState === WebSocket.OPEN) {
-      this.sendMessage({ type: "unsubscribe", target });
-    }
+    queueMicrotask(() => {
+      if (this.subscriptions.get(key) !== existing || existing.count > 0) {
+        return;
+      }
+      this.subscriptions.delete(key);
+      if (this.socket?.readyState === WebSocket.OPEN) {
+        this.sendMessage({ type: "unsubscribe", target });
+      }
+    });
   }
 
   onChanged(callback: ChangeCallback): () => void {

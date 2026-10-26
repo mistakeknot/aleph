@@ -427,6 +427,22 @@ that has run 0135 or later cannot go back to a 0.5.x build:
 `validateAppliedMigrationHistory` refuses migrations it does not know, so
 rolling back means restoring a database backup taken before the switch.
 
+The 0.47.0 sync brought upstream migrations 0144 to 0146 into the tail of
+`drizzle/`. Their upstream `when` values predate `A0010`'s (1792668833813), so
+`requireIncreasingWhen` in `migration-guard.ts` would refuse the plan. Their
+journal `when` values were raised to 1792668833814 through 1792668833816 with
+the SQL unchanged. Repeat this on the next sync for any upstream step whose
+`when` is not above the preceding ceiling.
+
+Upstream 0144 adds `threads.parent_notifications`, and `threads` is an
+Aleph-altered table, so `guardUpstreamStep` refuses it unless it is frozen and
+superseded. `A0011_thread_parent_notifications` carries the same `ALTER TABLE`
+as a fork step that supersedes 0144; 0144 to 0146 are listed in
+`frozen-upstream.json`, and `step-checks.json` declares the tables A0011
+writes. The legacy oracle in the db tests stays at 0.46.1 (153 steps); tests
+that compare against it replay the three later upstream steps with
+`applyPostOracleSteps`.
+
 ### Namespaced migration runner (mk-knexd)
 
 `packages/db/src/migration-runner.ts` (with `migration-plan.ts`,
@@ -435,7 +451,7 @@ rolling back means restoring a database backup taken before the switch.
 `migration-step-checks.ts` and `legacy-migration-chain.ts`) replaces the single
 Drizzle journal with two namespaces: the frozen upstream folder
 (`drizzle/`, pinned by `drizzle-aleph/frozen-upstream.json`) and the
-fork-owned folder `packages/db/drizzle-aleph/` (`A0001` to `A0010`, ordered by
+fork-owned folder `packages/db/drizzle-aleph/` (`A0001` to `A0011`, ordered by
 `manifest.json`, checked by `step-checks.json`; `A0010` is the event cold tier that
 main carries as upstream-numbered `0152_event_cold_tier`, which the legacy chain
 maps to it). Applied steps are recorded in

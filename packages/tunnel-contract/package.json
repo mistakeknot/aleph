@@ -8,16 +8,21 @@
       "source": "./src/index.ts",
       "types": "./src/index.ts",
       "default": "./src/index.ts"
+    },
+    "./next": {
+      "source": "./src/next.ts",
+      "types": "./src/next.ts",
+      "default": "./src/next.ts"
     }
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsrs --noEmit",
     "test": "vitest run --config vitest.config.ts"
   },
   "devDependencies": {
     "@bb/tsconfig": "workspace:*",
+    "tsrs": "0.18.0-ts7.1.0-dev.20260929",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
-    "typescript-7": "npm:typescript@^7.0.2",
     "vitest": "^3.0.0"
   }
 }

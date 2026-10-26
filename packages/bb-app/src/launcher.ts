@@ -2810,7 +2810,7 @@ export async function runBbServer(
 Usage:
   bb-server [--data-dir <path>] [--server-bind-host <host>] [--server-port <port>]
 
-Service stdout and stderr append to <data-dir>/logs/server-stdio.log.
+Logs rotate in <data-dir>/logs/server.N.log. Startup errors and crashes append to <data-dir>/logs/server-stdio.log.
 Exits with code 3 without starting when the server on this data directory moved to another machine, unless a move back to this computer is in progress.
 `);
     return;
@@ -2840,7 +2840,7 @@ Exits with code 3 without starting when the server on this data directory moved 
   });
   assertBbAppArtifacts(runtime.context);
 
-  log(" ", dim(`logs: ${runtime.context.logDir}/server-stdio.log`));
+  log(" ", dim(`logs: ${runtime.context.logDir}/`));
   const childProcess = spawnLoggedProcess({
     command: process.execPath,
     args: [runtime.context.serverEntry],
@@ -2920,9 +2920,6 @@ async function runHostDaemonOnly(args: RunHostDaemonOnlyArgs): Promise<void> {
       logDir: args.context.logDir,
       processName: "daemon",
     });
-  const firstRun = startDaemon();
-  let currentRun: ManagedProcessRun = firstRun;
-
   let shuttingDown = false;
 
   const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
@@ -2940,6 +2937,9 @@ async function runHostDaemonOnly(args: RunHostDaemonOnlyArgs): Promise<void> {
       void shutdown(signal);
     },
   );
+
+  const firstRun = startDaemon();
+  let currentRun: ManagedProcessRun = firstRun;
 
   const supervise = args.supervise && command.kind === "start";
   const readiness = new AbortController();

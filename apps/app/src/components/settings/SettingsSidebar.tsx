@@ -23,7 +23,7 @@ import {
   SIDEBAR_ROW_INTERACTIVE_STATE_CLASS,
   SIDEBAR_STANDARD_ROW_PADDING_CLASS,
 } from "@bb/shared-ui/sidebar-row-classes";
-import { AppCommandShortcutPill } from "@/components/commands/AppCommandShortcutHint";
+import { ShortcutPill } from "@bb/shared-ui/shortcut-pill";
 import { PluginIcon } from "@/components/plugin/PluginIcon";
 import {
   SectionSidebar,
@@ -53,6 +53,7 @@ import { usePluginSettingSearch } from "./usePluginSettingSearch";
 import { useSettingsSearchConditions } from "./useSettingsSearchConditions";
 
 interface SettingsSidebarProps {
+  backTo: string | null;
   onResizeMouseDown: (event: ReactMouseEvent<HTMLDivElement>) => void;
   isResizing: boolean;
 }
@@ -189,7 +190,7 @@ function SettingsSearchField({
           <Icon name="X" aria-hidden />
         </Button>
       ) : (
-        <AppCommandShortcutPill
+        <ShortcutPill
           shortcut={SETTINGS_SEARCH_SHORTCUT}
           className="mr-1 max-md:pointer-coarse:hidden"
         />
@@ -289,6 +290,7 @@ function SettingsSearchResults({
 }
 
 export function SettingsSidebarContent({
+  backTo,
   onResizeMouseDown,
   isResizing,
   navigation,
@@ -373,6 +375,8 @@ export function SettingsSidebarContent({
 
   return (
     <SectionSidebar
+      backTo={backTo}
+      title="Settings"
       isResizing={isResizing}
       onResizeMouseDown={onResizeMouseDown}
       testIdPrefix={testIdPrefix}
@@ -490,6 +494,7 @@ export function SettingsSidebarContent({
 }
 
 export function SettingsSidebar({
+  backTo,
   onResizeMouseDown,
   isResizing,
 }: SettingsSidebarProps) {
@@ -503,6 +508,7 @@ export function SettingsSidebar({
 
   return (
     <SettingsSidebarContent
+      backTo={backTo}
       isResizing={isResizing}
       navigation={navigation}
       onResizeMouseDown={onResizeMouseDown}

@@ -13,6 +13,7 @@ import {
   type PluginContentScriptContext,
   type PluginContentScriptRegistration,
   type PluginDiffRendererProps,
+  type ExperimentalComposerProps,
   type PluginFileOpenerProps,
   type PluginHomepageSectionProps,
   type PluginHttpAuthMode,
@@ -37,13 +38,18 @@ import {
   type ExperimentalPluginCommandPaletteSearchRegistration,
   type PluginSourceCodeRendererProps,
   type PluginThreadHeaderActionProps,
+  type ExperimentalThreadContextSegmentProps,
+  type ExperimentalThreadInfoProps,
   type PluginThreadActionItemInput,
   type ExperimentalPluginBrowserToolbarActionProps,
   type PluginThreadListProps,
+  type ExperimentalSidebarNavigationProps,
+  type ExperimentalSidebarNavigationRegistration,
+  type ExperimentalSidebarHeaderProps,
   type PluginSidebarFooterActionRegistration,
   type PluginMessageTransfer,
   type PluginThreadEventPayloads,
-  type PluginThreadPanelProps,
+  type ExperimentalThreadActionTabProps,
   type ThreadChatMessageAction,
   type ThreadChatProps,
 } from "@get-bb/plugin-sdk";
@@ -161,7 +167,7 @@ const PUBLIC_PLUGIN_SDK_EXPORT_NAMES = [
       join(REPO_ROOT, "packages/plugin-sdk/bundled-types", filename),
       "utf8",
     ),
-  ),
+  ).filter((name) => !name.startsWith("InternalDoNotUse")),
 );
 
 const BB_PLUGIN_API_KEYS = [
@@ -279,18 +285,23 @@ type SlotPropsByName = {
   settingsSection: PluginSettingsSectionProps;
   experimental_appOverlay: ExperimentalAppOverlayProps;
   navPanel: PluginNavPanelProps;
-  threadPanelAction: PluginThreadPanelProps;
+  experimental_tab: ExperimentalThreadActionTabProps | PluginNavPanelProps;
   experimental_newThreadPanelAction: PluginNewThreadPanelProps;
   pendingInteraction: PluginPendingInteractionProps;
   sidebarFooterAction: PluginSidebarFooterActionProps;
   experimental_threadList: PluginThreadListProps;
+  experimental_sidebarNavigation: ExperimentalSidebarNavigationProps;
   experimental_threadHeaderAction: PluginThreadHeaderActionProps;
   experimental_appHeaderStatus: PluginAppHeaderStatusProps;
+  experimental_threadContextSegment: ExperimentalThreadContextSegmentProps;
+  experimental_threadInfoRow: ExperimentalThreadInfoProps;
+  experimental_threadInfoSection: ExperimentalThreadInfoProps;
   experimental_threadAction: PluginThreadActionItemInput<unknown>;
   experimental_browserToolbarAction: ExperimentalPluginBrowserToolbarActionProps;
   fileOpener: PluginFileOpenerProps;
   experimental_sourceCodeRenderer: PluginSourceCodeRendererProps;
   experimental_diffRenderer: PluginDiffRendererProps;
+  experimental_composer: ExperimentalComposerProps;
   messageDirective: PluginMessageDirectiveProps;
   experimental_codeFenceRenderer: ExperimentalCodeFenceRendererProps;
   messageAction: PluginMessageActionContext;
@@ -301,6 +312,8 @@ type SlotPropsByName = {
   experimental_machineProviderInputs: PluginMachineProviderInputsProps;
   experimental_commandPaletteSearch: ExperimentalPluginCommandPaletteSearchRegistration;
 };
+
+type SlotPropKeys<T> = T extends unknown ? keyof T : never;
 
 type MissingSlot = Exclude<keyof PluginAppSlots, keyof SlotPropsByName>;
 const _assertAllSlotsListed: MissingSlot extends never ? true : never = true;
@@ -359,7 +372,7 @@ const FRONTEND_SLOT_PROP_FIELDS = {
   settingsSection: [],
   experimental_appOverlay: [],
   navPanel: ["subPath"],
-  threadPanelAction: ["threadId", "params"],
+  experimental_tab: ["threadId", "subPath", "params"],
   experimental_newThreadPanelAction: ["projectId", "params"],
   pendingInteraction: ["interaction", "submit", "cancel"],
   sidebarFooterAction: [],
@@ -382,6 +395,16 @@ const FRONTEND_SLOT_PROP_FIELDS = {
     "availableWidth",
     "openSettings",
   ],
+  experimental_threadContextSegment: [
+    "threadId",
+    "projectId",
+    "environment",
+    "segments",
+    "isExpanded",
+    "onToggle",
+  ],
+  experimental_threadInfoRow: ["threadId", "projectId", "environment"],
+  experimental_threadInfoSection: ["threadId", "projectId", "environment"],
   experimental_threadAction: ["thread", "data", "sdk", "navigate"],
   experimental_browserToolbarAction: [
     "threadId",
@@ -407,6 +430,7 @@ const FRONTEND_SLOT_PROP_FIELDS = {
     "experimental_fullFileContents",
     "Original",
   ],
+  experimental_composer: [],
   messageDirective: ["attributes", "source", "message", "openWorkspaceFile"],
   experimental_codeFenceRenderer: [
     "code",
@@ -440,13 +464,18 @@ const FRONTEND_SLOT_PROP_FIELDS = {
   ],
   experimental_machineProviderInputs: ["value", "onChange"],
   experimental_commandPaletteSearch: ["id", "title", "search"],
+  experimental_sidebarNavigation: [
+    "isCompactViewport",
+    "placement",
+    "experimental_Original",
+  ],
 } as const satisfies {
-  [S in keyof SlotPropsByName]: readonly (keyof SlotPropsByName[S])[];
+  [S in keyof SlotPropsByName]: readonly SlotPropKeys<SlotPropsByName[S]>[];
 };
 
 type MissingSlotPropField = {
   [S in keyof SlotPropsByName]: Exclude<
-    keyof SlotPropsByName[S],
+    SlotPropKeys<SlotPropsByName[S]>,
     (typeof FRONTEND_SLOT_PROP_FIELDS)[S][number]
   >;
 }[keyof SlotPropsByName];
@@ -455,16 +484,49 @@ const _assertAllSlotPropFieldsListed: MissingSlotPropField extends never
   : never = true;
 void _assertAllSlotPropFieldsListed;
 
+const SIDEBAR_NAVIGATION_REGISTRATION_FIELDS = [
+  "id",
+  "title",
+  "description",
+  "placement",
+  "component",
+  "headerComponent",
+] as const satisfies readonly (keyof ExperimentalSidebarNavigationRegistration)[];
+
+type MissingSidebarNavigationRegistrationField = Exclude<
+  keyof ExperimentalSidebarNavigationRegistration,
+  (typeof SIDEBAR_NAVIGATION_REGISTRATION_FIELDS)[number]
+>;
+const _assertAllSidebarNavigationRegistrationFieldsListed: MissingSidebarNavigationRegistrationField extends never
+  ? true
+  : never = true;
+void _assertAllSidebarNavigationRegistrationFieldsListed;
+
+const SIDEBAR_HEADER_PROP_FIELDS = [
+  "width",
+  "controlSize",
+  "isCompactViewport",
+] as const satisfies readonly (keyof ExperimentalSidebarHeaderProps)[];
+
+type MissingSidebarHeaderPropField = Exclude<
+  keyof ExperimentalSidebarHeaderProps,
+  (typeof SIDEBAR_HEADER_PROP_FIELDS)[number]
+>;
+const _assertAllSidebarHeaderPropFieldsListed: MissingSidebarHeaderPropField extends never
+  ? true
+  : never = true;
+void _assertAllSidebarHeaderPropFieldsListed;
+
 const NAV_PANEL_REGISTRATION_FIELDS = [
   "id",
   "title",
   "icon",
   "path",
   "component",
-  "fixedTabs",
-  "experimental_sidebarAccessory",
-  "experimental_sidebarIconBadge",
+  "experimental_useBadge",
+  "experimental_usePageTitle",
   "headerContent",
+  "experimental_sidebar",
 ] as const satisfies readonly (keyof PluginNavPanelRegistration)[];
 
 type MissingNavPanelRegistrationField = Exclude<
@@ -781,6 +843,18 @@ describe("bb-plugin-authoring skill", () => {
     expect(readReference("testing.md")).toContain(
       "Thread events are observe-only; there are exactly seven",
     );
+  });
+
+  it("documents every sidebar navigation registration field and header prop", () => {
+    for (const field of [
+      ...SIDEBAR_NAVIGATION_REGISTRATION_FIELDS,
+      ...SIDEBAR_HEADER_PROP_FIELDS,
+    ]) {
+      expect(
+        skill,
+        `sidebar navigation field "${field}" is not documented in the skill`,
+      ).toContain(field);
+    }
   });
 
   it("documents every navPanel registration field", () => {

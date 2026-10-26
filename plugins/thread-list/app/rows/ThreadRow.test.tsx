@@ -42,6 +42,7 @@ import {
   sidebarProviderIconColorsAtom,
   sidebarShowProviderIconsAtom,
 } from "../preferences/atoms.js";
+import { SidebarProjectsContext } from "../model/use-sidebar-data.js";
 import type { ThreadRowOptions } from "./ThreadRow.js";
 import {
   preferenceValueAtom,
@@ -59,7 +60,11 @@ const { SidebarDraftPresenceSync } =
   await import("../list/sidebarDraftPresence.js");
 const { ThreadRowNavigationProvider } =
   await import("./threadRowNavigation.js");
-const { resetSidebarTitleDoubleClickForTest, ThreadRow } =
+const {
+  resetSidebarTitleDoubleClickForTest,
+  SidebarProvidersContext,
+  ThreadRow,
+} =
   await import("./ThreadRow.js");
 
 const DEFAULT_OPTIONS: ThreadRowOptions = {
@@ -89,6 +94,8 @@ function activity(
 
 interface HarnessProps {
   thread: PluginSidebarThread;
+  projects?: PluginSidebarProject[];
+  providers?: PluginProvidersState["providers"];
   isCompactViewport?: boolean;
   crossProjectId?: string | null;
   isActive?: boolean;
@@ -100,6 +107,8 @@ interface HarnessProps {
 
 function ThreadRowHarness({
   thread,
+  projects = [],
+  providers = [],
   isCompactViewport,
   crossProjectId = null,
   isActive = false,
@@ -117,7 +126,9 @@ function ThreadRowHarness({
     />
   );
   const content = (
-    <TooltipProvider>
+    <SidebarProjectsContext.Provider value={projects}>
+      <SidebarProvidersContext.Provider value={providers}>
+      <TooltipProvider>
       <SidebarDraftPresenceSync />
       <ThreadRowNavigationProvider>
         <SidebarRenameProvider>
@@ -145,7 +156,9 @@ function ThreadRowHarness({
           </CustomizeRowActionsContext.Provider>
         </SidebarRenameProvider>
       </ThreadRowNavigationProvider>
-    </TooltipProvider>
+      </TooltipProvider>
+      </SidebarProvidersContext.Provider>
+    </SidebarProjectsContext.Provider>
   );
   return isCompactViewport === undefined ? (
     content
@@ -186,7 +199,7 @@ function renderThreadRow({
 } {
   const slot = renderSlot(
     { component: ThreadRowHarness },
-    { thread, ...harness },
+    { thread, projects, providers, ...harness },
     {
       sidebarThreads: { threads: [thread], projects },
       providers: { providers },
@@ -211,7 +224,12 @@ function renderThreadRow({
   return Object.assign(slot, {
     rerenderThreadRow(nextThread: PluginSidebarThread) {
       slot.lifecycle.rerender(
-        <ThreadRowHarness thread={nextThread} {...harness} />,
+        <ThreadRowHarness
+          thread={nextThread}
+          projects={projects}
+          providers={providers}
+          {...harness}
+        />,
       );
     },
   });
@@ -1259,7 +1277,7 @@ describe("ThreadRow", () => {
   });
 
   it.each([true, false])(
-    "gives a parent title the action space while actions are hidden (collapsed: %s)",
+    "reserves quick-action space after parent disclosure (collapsed: %s)",
     (isCollapsed) => {
       const onToggleCollapsed = vi.fn();
       renderThreadRow({
@@ -1281,22 +1299,24 @@ describe("ThreadRow", () => {
       const toggle = screen.getByRole("button", {
         name: /(?:Expand|Collapse) Nested discussion/,
       });
-      const titleContainer = toggle.parentElement;
       const link = screen.getByRole("link", {
         name: "Open Nested discussion with enough text to fill the sidebar width",
       });
-      const navigationTarget = link.parentElement;
-      const titleWrapper = link.nextElementSibling;
       expect(
-        titleContainer?.classList.contains("bb-sidebar-hover-actions-inset"),
-      ).toBe(false);
-      expect(
-        titleContainer?.classList.contains(
+        link.parentElement?.classList.contains(
           "pr-(--bb-sidebar-hover-actions-inset)",
         ),
-      ).toBe(false);
-      expect(navigationTarget?.classList.contains("flex-1")).toBe(true);
-      expect(titleWrapper?.classList.contains("flex-1")).toBe(false);
+      ).toBe(true);
+      const row = link.closest("[data-sidebar-rename-row]");
+      expect(
+        Array.from(row?.querySelectorAll("button") ?? [], (button) =>
+          button.getAttribute("aria-label"),
+        ),
+      ).toEqual([
+        toggle.getAttribute("aria-label"),
+        "Archive",
+        "Thread actions",
+      ]);
       fireEvent.click(toggle);
       expect(onToggleCollapsed).toHaveBeenCalledWith("thr_test");
     },
@@ -1638,16 +1658,15 @@ describe("ThreadRow", () => {
     expect(screen.getByText("Thread")).not.toBeNull();
   });
 
-  it("navigates instead of renaming when the title is double-tapped on a compact viewport", async () => {
+  it("renames inline after a fine-pointer double click on a compact viewport", async () => {
     renderThreadRow({ isCompactViewport: true });
     const link = screen.getByRole("link", { name: "Open Thread" });
-
     expect(fireEvent.click(link)).toBe(true);
-    expect(fireEvent.click(link)).toBe(true);
-    fireEvent.doubleClick(screen.getByText("Thread"));
-    await act(async () => new Promise(requestAnimationFrame));
-
-    expect(screen.queryByRole("textbox", { name: "Thread name" })).toBeNull();
+    expect(fireEvent.click(link)).toBe(false);
+    expect(
+      await screen.findByRole("textbox", { name: "Thread name" }),
+    ).toHaveProperty("value", "Thread");
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("does not start a sortable drag while editing the title", async () => {

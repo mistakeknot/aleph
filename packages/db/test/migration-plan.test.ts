@@ -38,6 +38,20 @@ import { applyPlan, sourceFolders } from "./helpers/plan-apply.js";
 
 const tempDirs: string[] = [];
 
+// The pinned legacy chain predates upstream 0144 to 0146. Those upstream
+// steps (0144 is superseded by A0011) are checked separately from the
+// legacy equality comparisons.
+const POST_ORACLE_UPSTREAM = [
+  "0144_thread_parent_notifications",
+  "0145_terminal_sessions_status_thread_index",
+  "0146_diff_viewed_files",
+];
+const POST_ORACLE_PLAN_IDS = [
+  "A0011",
+  "0145_terminal_sessions_status_thread_index",
+  "0146_diff_viewed_files",
+];
+
 afterEach(() => {
   for (const dir of tempDirs.splice(0)) {
     rmSync(dir, { force: true, recursive: true });
@@ -241,9 +255,28 @@ describe("the real migration plan", () => {
       })) {
         if (!entry.isFile()) continue;
         const path = join(entry.parentPath, entry.name);
-        tree[path.slice(folder.length)] = createHash("sha256")
-          .update(readFileSync(path))
-          .digest("hex");
+        const relative = path.slice(folder.length);
+        if (
+          POST_ORACLE_UPSTREAM.some((tag) => relative.includes(tag.slice(0, 4)))
+        ) {
+          continue;
+        }
+        const bytes =
+          relative === "/meta/_journal.json"
+            ? Buffer.from(
+                JSON.stringify(
+                  (
+                    JSON.parse(readFileSync(path, "utf8")) as {
+                      entries: Array<{ tag: string }>;
+                    }
+                  ).entries.filter(
+                    (journalEntry) =>
+                      !POST_ORACLE_UPSTREAM.includes(journalEntry.tag),
+                  ),
+                ),
+              )
+            : readFileSync(path);
+        tree[relative] = createHash("sha256").update(bytes).digest("hex");
       }
       return tree;
     };
@@ -255,7 +288,9 @@ describe("the real migration plan", () => {
   it("orders upstream and Aleph steps exactly as the legacy chain", () => {
     const plan = loadMigrationPlan(sourceFolders);
     expect(
-      plan.steps.map((step) => ({ namespace: step.namespace, id: step.id })),
+      plan.steps
+        .filter((step) => !POST_ORACLE_PLAN_IDS.includes(step.id))
+        .map((step) => ({ namespace: step.namespace, id: step.id })),
     ).toEqual(
       legacyMigrationChain.map((entry) => ({
         namespace: entry.target.namespace,
@@ -264,6 +299,7 @@ describe("the real migration plan", () => {
     );
     expect(plan.superseded.map((step) => step.id)).toEqual([
       "0143_queued_message_state",
+      "0144_thread_parent_notifications",
     ]);
   });
 
@@ -276,11 +312,14 @@ describe("the real migration plan", () => {
           "SELECT created_at AS createdAt, hash FROM __drizzle_migrations ORDER BY id",
         )
         .all();
-      expect(rows).toEqual(
+      expect(rows.slice(0, legacyMigrationChain.length)).toEqual(
         legacyMigrationChain.map((entry) => ({
           createdAt: entry.when,
           hash: entry.sha256,
         })),
+      );
+      expect(rows).toHaveLength(
+        legacyMigrationChain.length + POST_ORACLE_PLAN_IDS.length,
       );
     } finally {
       db.$client.close();
@@ -292,6 +331,14 @@ describe("the real migration plan", () => {
     const planned = applyPlan();
     try {
       applyFolder(legacy, legacyDrizzleFolder);
+      for (const tag of POST_ORACLE_UPSTREAM) {
+        legacy.exec(
+          readFileSync(
+            join(sourceFolders.upstreamFolder, `${tag}.sql`),
+            "utf8",
+          ).replaceAll("--> statement-breakpoint", ""),
+        );
+      }
       expect(describeSchema(planned)).toEqual(describeSchema(legacy));
       expect(describeSequences(planned)).toEqual(describeSequences(legacy));
     } finally {
@@ -302,10 +349,11 @@ describe("the real migration plan", () => {
 
   it("reads each source file's hash into the plan", () => {
     const input = loadMigrationPlanInput(sourceFolders);
-    expect(input.upstream).toHaveLength(144);
-    expect(input.aleph).toHaveLength(10);
+    expect(input.upstream).toHaveLength(147);
+    expect(input.aleph).toHaveLength(11);
     const plan = loadMigrationPlan(sourceFolders);
     for (const step of plan.steps) {
+      if (POST_ORACLE_PLAN_IDS.includes(step.id)) continue;
       const legacy = legacyMigrationChain.find(
         (entry) => entry.target.id === step.id,
       );

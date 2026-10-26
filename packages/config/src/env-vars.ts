@@ -235,7 +235,7 @@ export const BB_APP_INSTALL_KIND_ENV = defineEnvVar<AppInstallKind>({
 
 export const BB_APP_SOURCE_ORIGIN_ENV = defineEnvVar<AppSourceOrigin>({
   description:
-    "Internal marker the bb-app launcher hands its server child for source checkouts: official when the origin remote is github.com/get-bb/bb, fork for any other origin, none without one.",
+    "Internal marker the bb-app launcher hands its server child for source checkouts: official when the origin remote is github.com/get-bb/bb or github.com/ymichael/bb, fork for any other origin, none without one.",
   name: APP_SOURCE_ORIGIN_ENV_NAME,
   parse: parseAppSourceOriginEnvValue,
 });
@@ -275,6 +275,13 @@ export const BB_MARKETPLACE_URL_ENV = defineEnvVar<string>({
   parse: parseOptionalUrlEnvValue,
 });
 
+export const BB_CONNECT_GATE_KEYS_URL_ENV = defineEnvVar<string>({
+  description:
+    "URL of the bb connect next gate public key set the server's tunnel ingress verifies gate assertions with. Point it at a local file server to test the ingress.",
+  name: "BB_CONNECT_GATE_KEYS_URL",
+  parse: parseRequiredUrlEnvValue,
+});
+
 export const BB_POSTHOG_API_KEY_ENV = defineEnvVar<string>({
   description:
     "PostHog project API key for anonymous usage telemetry. Telemetry is disabled when empty.",
@@ -289,6 +296,13 @@ export const BB_PERF_DIAGNOSTICS_ENV = defineEnvVar<boolean>({
   parse: parseBooleanEnvValue,
 });
 
+export const BB_SKIP_ONBOARDING_ENV = defineEnvVar<boolean>({
+  description:
+    "Mark first-run setup as completed at server startup so the setup screen is skipped. Settings can still replay it.",
+  name: "BB_SKIP_ONBOARDING",
+  parse: parseBooleanEnvValue,
+});
+
 export const BB_TELEMETRY_ENV = defineEnvVar<boolean>({
   description:
     "Anonymous usage telemetry (app starts, thread creation counts, user message counts, and plugin installs, tagged with app version, install kind, and OS and Node versions). Set to false to opt out.",
@@ -300,6 +314,13 @@ export const BB_FF_PLACEHOLDER_ENV = defineEnvVar<boolean>({
   description:
     "Permanent placeholder feature flag. Non-functional keep-alive so the flag system has at least one entry; do not gate behavior on it.",
   name: "BB_FF_PLACEHOLDER",
+  parse: parseBooleanEnvValue,
+});
+
+export const BB_FF_INITIATOR_TELEMETRY_ENV = defineEnvVar<boolean>({
+  description:
+    "Adds a fixed initiator value (user, agent, automation, plugin or system) to anonymous thread_created and user_message_sent telemetry. On by default; set false to omit it.",
+  name: "BB_FF_INITIATOR_TELEMETRY",
   parse: parseBooleanEnvValue,
 });
 
@@ -406,6 +427,10 @@ export const DEFAULT_BB_TELEMETRY = true;
 export const DEFAULT_BB_DEV_APP_HOST = "";
 export const DEFAULT_BB_MARKETPLACE_URL =
   "https://getbb.app/marketplace/v2/marketplace.json";
+export const DEFAULT_BB_CONNECT_GATE_KEYS_URL =
+  "https://getbb.app/.well-known/bb-connect-gate-keys.json";
 export const DEFAULT_BB_FF_PLACEHOLDER = defaultFeatureFlags.placeholder;
+export const DEFAULT_BB_FF_INITIATOR_TELEMETRY =
+  defaultFeatureFlags.initiatorTelemetry;
 export const DEFAULT_BB_FF_TIMELINE_WINDOW_EVENT_BUDGET =
   defaultFeatureFlags.timelineWindowEventBudget;

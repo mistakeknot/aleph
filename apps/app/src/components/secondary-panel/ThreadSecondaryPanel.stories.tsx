@@ -1,3 +1,5 @@
+import { ThreadDiffFixedTabContent } from "./git-diff/thread-diff-registration";
+import { ThreadInfoFixedTabContent } from "@/components/secondary-panel/thread-info-registration";
 import {
   useCallback,
   useEffect,
@@ -38,7 +40,6 @@ import {
 } from "./ThreadMetadataContent";
 import {
   baseProps as baseMetadataProps,
-  makePullRequest,
   makeWorkspaceStatus,
 } from "./ThreadMetadataContent.fixtures";
 import { resolveRightPanelFileIconName } from "./rightPanelFileVisuals";
@@ -68,6 +69,8 @@ function createStoryFixedTabs(
     {
       ariaLabel: "Show thread info panel",
       label: "Info",
+      contentFillsRegion: true,
+      renderContent: () => <ThreadInfoFixedTabContent />,
       leadingVisual: <Icon name="Info" />,
       onSelect: () => onSelectPanel("thread-info"),
       tab: createThreadInfoFixedPanelTab(),
@@ -78,6 +81,8 @@ function createStoryFixedTabs(
           {
             ariaLabel: "Show diff panel",
             label: "Diff",
+            contentFillsRegion: true,
+            renderContent: () => <ThreadDiffFixedTabContent />,
             leadingVisual: <Icon name="FileDiff" />,
             onSelect: () => onSelectPanel("git-diff"),
             tab: createGitDiffFixedPanelTab(),
@@ -187,6 +192,7 @@ const representativeWorkspaceStatus = makeWorkspaceStatus({
     baseRef: "main",
     aheadCount: INFO_COMMITS.length,
     behindCount: 0,
+    squashMergeCheckComplete: true,
     hasCommittedUnmergedChanges: true,
     commits: INFO_COMMITS,
     insertions: 86,
@@ -222,10 +228,6 @@ function RepresentativeInfoContent() {
   });
   const props: ThreadMetadataContentProps = {
     ...baseMetadataProps,
-    pullRequest: makePullRequest({
-      number: 947,
-      title: "Use the sidebar surface throughout the right panel",
-    }),
     selectedMergeBaseBranch: "main",
     workspaceStatus: representativeWorkspaceStatus,
     storage: {

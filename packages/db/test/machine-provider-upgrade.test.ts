@@ -6,6 +6,9 @@ import { expect, it } from "vitest";
 import { createConnection, migrate } from "../src/index.js";
 import { legacyOracleFolder } from "./helpers/plan-apply.js";
 
+// A0011, 0145 and 0146 postdate the pinned legacy chain.
+const POST_ORACLE_STEPS = 3;
+
 it("upgrades the merged environment schema and preserves existing hosts", () => {
   const directory = mkdtempSync(join(tmpdir(), "bb-machine-upgrade-"));
   writeFileSync(join(directory, "host-id"), "local-host\n");
@@ -67,14 +70,14 @@ it("upgrades the merged environment schema and preserves existing hosts", () => 
       db.$client
         .prepare("SELECT count(*) AS count FROM __drizzle_migrations")
         .get(),
-    ).toEqual({ count: migrations.length });
+    ).toEqual({ count: migrations.length + POST_ORACLE_STEPS });
     expect(db.$client.pragma("foreign_key_check")).toEqual([]);
     migrate(db);
     expect(
       db.$client
         .prepare("SELECT count(*) AS count FROM __drizzle_migrations")
         .get(),
-    ).toEqual({ count: migrations.length });
+    ).toEqual({ count: migrations.length + POST_ORACLE_STEPS });
   } finally {
     db.$client.close();
     rmSync(directory, { recursive: true, force: true });

@@ -4,9 +4,18 @@ type ReleaseMeta = {
 };
 
 export const RELEASE_META: Record<string, ReleaseMeta> = {
+  "0.47.0+aleph.0.8.0": {
+    date: "October 25, 2026",
+    headline: "Aleph 0.8.0: synced to upstream bb 0.47.0",
+  },
   "0.46.1+aleph.0.7.0": {
     date: "October 20, 2026",
     headline: "Aleph 0.7.0: synced to upstream bb 0.46.1",
+  },
+  "0.47.0": {
+    date: "October 23, 2026",
+    headline:
+      "Customizable navigation, new and improved ACP support, and diff review",
   },
   "0.46.1": {
     date: "October 15, 2026",

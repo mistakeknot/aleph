@@ -1,9 +1,11 @@
+import { FAQ_PLUGIN_TRUST } from "../plugin-trust";
 import type { CompareHighlight, Comparison } from "../compare-types";
 import {
   BB_ROWS,
   FAQ_AGENTS,
   FAQ_REVIEW,
   cell,
+  linkedCell,
   price,
 } from "../compare-content";
 import { AGENTS_COPY, agentsSection } from "../compare-sections";
@@ -43,7 +45,11 @@ export const comparison: Comparison = {
         {
           feature: "Active development",
           bb: cell("yes", "Weekly releases"),
-          competitor: cell("partial", "No release since April"),
+          competitor: linkedCell(
+            "partial",
+            "Last release April 2026 (0.1.44)",
+            "https://github.com/BloopAI/vibe-kanban/releases/tag/v0.1.44-20260424091429",
+          ),
         },
       ],
     },
@@ -91,7 +97,7 @@ export const comparison: Comparison = {
               in April 2026 and said it would remove cloud projects, issues, and
               organizations. The open-source app continues as a community
               project, but version 0.1.44 turned off Projects for everyone, and
-              there hasn’t been a release since. Local workspaces still run.
+              its last release was 0.1.44, in April. Local workspaces still run.
             </p>
           ),
         },
@@ -149,6 +155,7 @@ export const comparison: Comparison = {
             </ol>
           ),
         },
+        FAQ_PLUGIN_TRUST,
         FAQ_REVIEW,
         FAQ_AGENTS,
       ],

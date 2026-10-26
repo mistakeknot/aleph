@@ -31,29 +31,23 @@ stats survive reloads and reset on remove). The surface that asks is
 `bb.experimental_hooks`, below, where core acts on your answer.
 
 Eighteen events. The seven `thread.*` ones are thread lifecycle. `interaction.pending`
-fires after core commits a pending interaction row. The four `message.*` ones
-fire when a dispatch is queued behind a wait, when a queued row's waits all
-clear and it dispatches, when the queued row is cancelled, or when a queue
-transfer record is delivered. Every listener sees every queued row, so a plugin
-that only wants its own filters on `entry?.waitingOn?.kind === "plugin" && entry.waitingOn.pluginId === bb.pluginId`
+fires after core commits a pending interaction row. The four `message.*` ones fire when a
+dispatch is queued behind a wait (again when a row's wait is rewritten), when a queued row's
+waits all clear and it dispatches, when the queued row is cancelled, or when a queue transfer
+record is delivered. Every listener sees every queued row, so a plugin that only wants its own
+filters on `entry?.waitingOn?.kind === "plugin" && entry.waitingOn.pluginId === bb.pluginId`
 (`entry` is `null` in some `message.transferred` events, so keep the `?.`).
-`message.queued` fires again when a row's wait is rewritten, because a row that
-moved from one wait to another is news to whoever was waiting on the old one.
+`message.transferred` announces one durable fact of a queue transfer. `entry` is the landed
+`ThreadQueuedMessage`, or `null` with no landed row (a `pending` or `terminal` `slot`,
+`redirected`, `residual`, `not_forwardable`, or a vanished row). `transfer` (`PluginMessageTransfer`)
+has `eventId`, `operationId`, `entryId`, `kind`, `state`, `rowId`, `sourceRowId` and `originId`.
+Delivery is at-least-once: core awaits every listener, and if one throws it redelivers the same
+`eventId` to all of them, including to listeners that already handled it successfully, so handle
+each `eventId` idempotently. A landed row held by a wait also fires `message.queued` with it.
 
-`message.transferred` announces one durable fact of a queue transfer. `entry` is
-the landed `ThreadQueuedMessage`, or `null` with no landed row (a `pending` or
-`terminal` `slot`, `redirected`, `residual`, `not_forwardable`, or a vanished
-row). `transfer` (`PluginMessageTransfer`) has `eventId`, `operationId`,
-`entryId`, `kind`, `state`, `rowId`, `sourceRowId` and `originId`. Delivery is
-at-least-once: core awaits every listener, and if one throws it redelivers the
-same `eventId`, including to listeners that already handled it successfully, so
-handle each `eventId` idempotently. A landed row held by a plugin or time wait
-also fires `message.queued` with the same `transfer`.
-
-`message.cancelled` fires when the user removes a queued row before it ever dispatched — the
-only signal for that removal. A plugin holding external resources for a waiting message (a sandbox
-mid-provision via an environment provider, a reserved slot) releases them here; archive/delete of
-the whole thread fires the thread event instead.
+`message.cancelled` fires when the user removes a queued row before it dispatched, and is the only
+signal for that removal: release resources held for a waiting message (a sandbox, a slot) there.
+Archiving the whole thread fires the thread event.
 
 `turn.failed` fires after a turn failed and the thread has already landed in `error`. Its
 payload (`PluginTurnFailedEvent`) is ids and failure facts only — `threadId`, the failed
@@ -296,7 +290,9 @@ a fresh environment. It is one long call with no overall timeout and must be
 idempotent for `pathKey`: after a process or plugin restart, core calls it
 again with the same attempt and pathKey. Return `created` with `path`,
 explicit `ownsPath` and optional `mergeBaseBranch`, or `failed` with a
-message; a failed create is terminal, and a retry is an explicit new attempt
+message. When core reuses an environment row your provider already owns at
+that path, a reported `mergeBaseBranch` replaces the recorded one, `null`
+clears it, and omitting it keeps it; a failed create is terminal, and a retry is an explicit new attempt
 on the same environment row after cleanup. `report.step` and `report.log`
 stream durable progress while the call runs.
 
@@ -443,7 +439,13 @@ Failures use stable codes: `invalid_json`, `invalid_input`, `handler_error`,
 `invalid_output`, `non_json_result`, and `unknown_method`; validation failures
 also carry normalized `{ message, path? }[]` issues. Unknown methods return
 404, invalid JSON/input returns 400, and handler/output/serialization failures
-return 500. Results must be strict JSON values: cyclic objects, bigint,
+return 500. Throw `new experimental_PluginRpcRefusal({ code, message, issues? })`
+from `@get-bb/plugin-sdk` for expected refusals:
+`forbidden` → 403, `not_found` → 404, `conflict` → 409, `invalid` → 422.
+Codes and optional `PluginRpcValidationIssue[]` issues reach callers in the error envelope.
+Refusals do not increment handler error counts or change status detail.
+A refused mutation rejects, rolls back shared optimistic updates, and publishes no invalidations. `bb plugin rpc call` prints the code and message and exits non-zero.
+Results must be strict JSON values: cyclic objects, bigint,
 undefined/functions, class instances, symbol keys, and non-finite numbers are
 rejected rather than coerced or silently dropped.
 

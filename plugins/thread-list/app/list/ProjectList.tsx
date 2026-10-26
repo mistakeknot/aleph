@@ -18,7 +18,11 @@ import {
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { toast } from "sonner";
 import type { SidebarThread } from "../model/sidebar-thread.js";
-import { useBbNavigate, useSdk } from "@get-bb/plugin-sdk/app";
+import {
+  experimental_useProviders,
+  useBbNavigate,
+  useSdk,
+} from "@get-bb/plugin-sdk/app";
 import {
   SidebarRenameProvider,
   useSidebarRename,
@@ -26,6 +30,7 @@ import {
 } from "../rows/SidebarInlineRename.js";
 import { useDialogState } from "@/components/ui/use-dialog-state";
 import { ThreadRowNavigationProvider } from "../rows/threadRowNavigation.js";
+import { SidebarProvidersContext } from "../rows/ThreadRow.js";
 import {
   buildProjectThreadGroups,
   getProjectThreadItemDescendants,
@@ -118,6 +123,7 @@ import { useSidebarModeSectionOrder } from "./useSidebarModeSectionOrder.js";
 import { useReadStatusGrouping } from "./useReadStatusGrouping.js";
 import { haveSameOrder } from "../model/stored-order.js";
 import {
+  SidebarProjectsContext,
   useSidebarData,
   useSidebarMachineHosts,
   type SidebarProject,
@@ -1302,6 +1308,7 @@ function ProjectListComponent({
 }: ProjectListProps) {
   const sdk = useSdk();
   const navigate = useBbNavigate();
+  const { providers } = experimental_useProviders();
   const { status, sections, projects, personalProject, archived } =
     useSidebarData();
   const personalProjectId = personalProject?.id ?? null;
@@ -1688,7 +1695,7 @@ function ProjectListComponent({
     );
   }
 
-  return (
+  const content = (
     <SidebarHeaderActionsProvider
       value={{
         onNewSection: handleOpenCreateSectionDialog,
@@ -1819,6 +1826,13 @@ function ProjectListComponent({
       {sectionDeleteDialogContent}
       <ProviderIconColorsDialog />
     </SidebarHeaderActionsProvider>
+  );
+  return (
+    <SidebarProjectsContext.Provider value={projects}>
+      <SidebarProvidersContext.Provider value={providers}>
+        {content}
+      </SidebarProvidersContext.Provider>
+    </SidebarProjectsContext.Provider>
   );
 }
 

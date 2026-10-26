@@ -1,5 +1,9 @@
 import { execa } from "execa";
-import { extname } from "node:path";
+import {
+  runVcsProcess,
+  type VcsProcessPriority,
+} from "./vcs-process-scheduler.js";
+import { basename, extname } from "node:path";
 import { whichCommandSync } from "which-command";
 import { createProcessStop } from "./managed-process.js";
 import {
@@ -8,6 +12,7 @@ import {
 } from "./process-group.js";
 
 interface ExecPortableFileOptions {
+  priority?: VcsProcessPriority;
   cwd: string;
   env: NodeJS.ProcessEnv;
   maxBuffer: number;
@@ -17,36 +22,64 @@ interface ExecPortableFileOptions {
   onStderr?: (chunk: string) => void;
 }
 
+export function resolvePortableCommand(
+  command: string,
+  options: { cwd: string; env: NodeJS.ProcessEnv },
+): string | undefined {
+  const envKeys = Object.keys(options.env).sort();
+  const pathKey = envKeys.find((key) => key.toUpperCase() === "PATH");
+  const pathExtKey = envKeys.find((key) => key.toUpperCase() === "PATHEXT");
+  const commandExtension = extname(command);
+  const pathExt = options.env[pathExtKey ?? "PATHEXT"];
+  return whichCommandSync(command, {
+    cwd: options.cwd,
+    path: options.env[pathKey ?? "PATH"],
+    pathExt: commandExtension
+      ? `${commandExtension};${pathExt ?? ".EXE;.COM;.CMD;.BAT"}`
+      : pathExt,
+  });
+}
+
 export async function execPortableFile(
   command: string,
   args: string[],
   options: ExecPortableFileOptions,
 ): Promise<{ stdout: string; stderr: string }> {
+  const executable = basename(command)
+    .toLowerCase()
+    .replace(/\.(exe|cmd|bat)$/u, "");
+  if (executable === "git" || executable === "gh") {
+    return runVcsProcess(
+      executable,
+      args,
+      () => execPortableFileUnbounded(command, args, options),
+      {
+        priority: options.priority,
+        signal: options.signal,
+      },
+    );
+  }
+  return execPortableFileUnbounded(command, args, options);
+}
+
+async function execPortableFileUnbounded(
+  command: string,
+  args: string[],
+  options: ExecPortableFileOptions,
+): Promise<{ stdout: string; stderr: string }> {
   if (options.signal?.aborted) throw options.signal.reason;
-  if (process.platform === "win32") {
-    const envKeys = Object.keys(options.env).sort();
-    const pathKey = envKeys.find((key) => key.toUpperCase() === "PATH");
-    const pathExtKey = envKeys.find((key) => key.toUpperCase() === "PATHEXT");
-    const commandExtension = extname(command);
-    const pathExt = options.env[pathExtKey ?? "PATHEXT"];
-    if (
-      whichCommandSync(command, {
-        cwd: options.cwd,
-        path: options.env[pathKey ?? "PATH"],
-        pathExt: commandExtension
-          ? `${commandExtension};${pathExt ?? ".EXE;.COM;.CMD;.BAT"}`
-          : pathExt,
-      }) === undefined
-    ) {
-      throw Object.assign(new Error(`spawn ${command} ENOENT`), {
-        code: "ENOENT",
-        syscall: `spawn ${command}`,
-        stdout: "",
-        stderr: "",
-        signal: null,
-        killed: false,
-      });
-    }
+  if (
+    process.platform === "win32" &&
+    resolvePortableCommand(command, options) === undefined
+  ) {
+    throw Object.assign(new Error(`spawn ${command} ENOENT`), {
+      code: "ENOENT",
+      syscall: `spawn ${command}`,
+      stdout: "",
+      stderr: "",
+      signal: null,
+      killed: false,
+    });
   }
   const subprocess = execa(command, args, {
     cwd: options.cwd,

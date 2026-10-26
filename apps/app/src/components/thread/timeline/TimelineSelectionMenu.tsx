@@ -11,13 +11,18 @@ import { Icon, type IconName } from "@bb/shared-ui/icon";
 import { preventOverlayTriggerSelection } from "@bb/shared-ui/overlay-trigger";
 import { usePortalScopeProps } from "@/lib/portal-scope";
 import { PluginItemIcon, pluginIconName } from "@/components/plugin/PluginIcon";
-import type { MessageProseSelection } from "./SelectableMessageProse.js";
+import {
+  firstClientRect,
+  readSelectedMessageMarkdown,
+  type MessageProseSelection,
+} from "./SelectableMessageProse.js";
 import type { ThreadTimelinePluginMessageAction } from "./types.js";
 
 const SELECTION_ACTION_BUTTON_CLASS =
   "inline-flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 text-xs text-foreground transition-colors hover:bg-surface-recessed focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring select-none max-md:pointer-coarse:min-h-7 max-md:pointer-coarse:px-2 max-md:pointer-coarse:py-1";
+const SELECTION_MENU_COLLISION_PADDING = 8;
 const SELECTION_MENU_CONTENT_CLASS =
-  "z-50 flex w-auto items-center gap-0.5 rounded-md border bg-popover p-0.5 text-popover-foreground shadow-md outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95";
+  "pointer-events-auto z-50 flex w-auto items-center gap-0.5 rounded-md border bg-popover p-0.5 text-popover-foreground shadow-md outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95";
 
 interface SelectionAction {
   icon: IconName;
@@ -32,6 +37,97 @@ export interface TimelineSelectionMenuProps {
   onAddToChat?: (text: string) => void;
   pluginActions?: readonly ThreadTimelinePluginMessageAction[];
   onDismiss: () => void;
+  container?: HTMLElement | null;
+}
+
+interface SelectionAnchorElement {
+  contextElement?: Element;
+  getBoundingClientRect: () => DOMRect;
+  hold: () => void;
+  release: () => void;
+}
+
+const DETACHED_ANCHOR: SelectionAnchorElement = {
+  getBoundingClientRect: () => new DOMRect(0, 0, 0, 0),
+  hold: () => {},
+  release: () => {},
+};
+
+function liveSelectionRange(): Range | null {
+  const live = window.getSelection();
+  if (live === null || live.rangeCount === 0 || live.isCollapsed) return null;
+  return live.getRangeAt(0);
+}
+
+function findClippingAncestor(element: HTMLElement): HTMLElement | undefined {
+  for (
+    let ancestor = element.parentElement;
+    ancestor !== null;
+    ancestor = ancestor.parentElement
+  ) {
+    const style = getComputedStyle(ancestor);
+    if (style.overflowX !== "visible" || style.overflowY !== "visible") {
+      return ancestor;
+    }
+  }
+  return undefined;
+}
+
+function clampWithin(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
+function visibleBounds(boundary: HTMLElement | undefined): DOMRect {
+  return (
+    boundary?.getBoundingClientRect() ??
+    new DOMRect(0, 0, window.innerWidth, window.innerHeight)
+  );
+}
+
+function createSelectionAnchor(
+  selection: MessageProseSelection,
+  boundary: HTMLElement | undefined,
+): SelectionAnchorElement {
+  const side = selection.anchorSide ?? "top";
+  const bounds = typeof window === "undefined" ? null : visibleBounds(boundary);
+  const inset = SELECTION_MENU_COLLISION_PADDING;
+  const pointLeft =
+    selection.anchorPoint?.x ?? selection.rect.left + selection.rect.width / 2;
+  const pointTop =
+    selection.anchorPoint?.y ??
+    (side === "bottom" ? selection.rect.bottom : selection.rect.top);
+  const left =
+    bounds === null
+      ? pointLeft
+      : clampWithin(pointLeft, bounds.left + inset, bounds.right - inset);
+  const top =
+    bounds === null
+      ? pointTop
+      : clampWithin(pointTop, bounds.top + inset, bounds.bottom - inset);
+  const range = typeof window === "undefined" ? null : liveSelectionRange();
+  const start = range?.startContainer ?? null;
+  const contextElement =
+    start instanceof Element ? start : (start?.parentElement ?? undefined);
+  const liveRect = () => {
+    const rect = range === null ? null : firstClientRect(range);
+    return new DOMRect(
+      left + (rect === null ? 0 : rect.left - selection.rect.left),
+      top + (rect === null ? 0 : rect.top - selection.rect.top),
+      0,
+      0,
+    );
+  };
+  let held: DOMRect | null = null;
+  return {
+    ...(contextElement === undefined ? {} : { contextElement }),
+    getBoundingClientRect: () => held ?? liveRect(),
+    hold: () => {
+      held = liveRect();
+    },
+    release: () => {
+      held = null;
+    },
+  };
 }
 
 function ActionButton({
@@ -109,37 +205,38 @@ export function TimelineSelectionMenu({
   onAddToChat,
   pluginActions = [],
   onDismiss,
+  container,
 }: TimelineSelectionMenuProps) {
-  const open = selection !== null;
   const portalScopeProps = usePortalScopeProps();
 
   useEffect(() => {
-    if (!open || typeof window === "undefined") return;
-    const dismiss = () => onDismiss();
-    window.addEventListener("scroll", dismiss, true);
-    window.addEventListener("resize", dismiss);
-    return () => {
-      window.removeEventListener("scroll", dismiss, true);
-      window.removeEventListener("resize", dismiss);
+    if (selection === null || typeof window === "undefined") return;
+    const dismissWhenSelectionLeaves = () => {
+      const range = liveSelectionRange();
+      const rect = range === null ? null : firstClientRect(range);
+      if (rect === null || rect.bottom < 0 || rect.top > window.innerHeight) {
+        onDismiss();
+      }
     };
-  }, [open, onDismiss]);
+    window.addEventListener("scroll", dismissWhenSelectionLeaves, true);
+    window.addEventListener("resize", dismissWhenSelectionLeaves);
+    return () => {
+      window.removeEventListener("scroll", dismissWhenSelectionLeaves, true);
+      window.removeEventListener("resize", dismissWhenSelectionLeaves);
+    };
+  }, [selection, onDismiss]);
 
   const anchorSide = selection?.anchorSide ?? "top";
-  const anchorLeft =
-    selection?.anchorPoint?.x ??
-    (selection === null ? 0 : selection.rect.left + selection.rect.width / 2);
-  const anchorTop =
-    selection?.anchorPoint?.y ??
-    (selection === null
-      ? 0
-      : anchorSide === "bottom"
-        ? selection.rect.bottom
-        : selection.rect.top);
+  const collisionBoundary = useMemo(
+    () => (container ? findClippingAncestor(container) : undefined),
+    [container],
+  );
   const virtualAnchor = useMemo(
-    () => ({
-      getBoundingClientRect: () => new DOMRect(anchorLeft, anchorTop, 0, 0),
-    }),
-    [anchorLeft, anchorTop],
+    () =>
+      selection === null
+        ? DETACHED_ANCHOR
+        : createSelectionAnchor(selection, collisionBoundary),
+    [selection, collisionBoundary],
   );
   const virtualAnchorRef = useRef(virtualAnchor);
   virtualAnchorRef.current = virtualAnchor;
@@ -153,7 +250,9 @@ export function TimelineSelectionMenu({
             icon: "MessageSquarePlus" as const,
             label: "Add to chat",
             onSelect: (currentSelection: MessageProseSelection) =>
-              onAddToChat(currentSelection.text),
+              onAddToChat(
+                readSelectedMessageMarkdown() ?? currentSelection.text,
+              ),
           },
         ]
       : []),
@@ -175,14 +274,17 @@ export function TimelineSelectionMenu({
       }}
     >
       <PopoverPrimitive.Anchor virtualRef={virtualAnchorRef} />
-      <PopoverPrimitive.Portal>
+      <PopoverPrimitive.Portal container={container ?? undefined}>
         <PopoverPrimitive.Content
           {...portalScopeProps}
           side={anchorSide}
           align="center"
           sideOffset={6}
-          collisionPadding={8}
+          collisionPadding={SELECTION_MENU_COLLISION_PADDING}
+          collisionBoundary={collisionBoundary}
           className={SELECTION_MENU_CONTENT_CLASS}
+          onPointerEnter={() => virtualAnchorRef.current.hold()}
+          onPointerLeave={() => virtualAnchorRef.current.release()}
           onEscapeKeyDown={() => onDismiss()}
           onOpenAutoFocus={(event) => event.preventDefault()}
           onCloseAutoFocus={(event) => event.preventDefault()}

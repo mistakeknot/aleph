@@ -332,6 +332,7 @@ export function PluginSidebarFooterItems({
   const isCompactViewport = useIsCompactViewport();
   const previousHidden = useRef(preferences.hidden);
   const customizeAfterClose = useRef(false);
+  const footerShownAfterClose = useRef<boolean | null>(null);
   const menuRef = useRef<HTMLUListElement>(null);
   const moreRef = useRef<HTMLButtonElement>(null);
   useMeasureSidebarFooterCapacity(menuRef, moreRef);
@@ -361,7 +362,14 @@ export function PluginSidebarFooterItems({
   function customize() {
     customizeAfterClose.current = true;
   }
+  function setFooterShown(shown: boolean) {
+    if (isCompactViewport) preferences.setFooterShown(shown);
+    else footerShownAfterClose.current = shown;
+  }
   function handleCloseAutoFocus(event: Event) {
+    const footerShown = footerShownAfterClose.current;
+    footerShownAfterClose.current = null;
+    if (footerShown !== null) preferences.setFooterShown(footerShown);
     if (!customizeAfterClose.current) return;
     event.preventDefault();
     customizeAfterClose.current = false;
@@ -557,7 +565,7 @@ export function PluginSidebarFooterItems({
                 </DropdownMenuItem>
                 {items.length > 0 && (
                   <DropdownMenuItem
-                    onSelect={() => preferences.setFooterShown(footerHidden)}
+                    onSelect={() => setFooterShown(footerHidden)}
                   >
                     <Icon name={footerHidden ? "Eye" : "EyeOff"} />
                     {footerHidden ? "Show footer" : "Hide footer"}

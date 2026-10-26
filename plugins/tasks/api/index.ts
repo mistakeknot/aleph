@@ -1,4 +1,5 @@
 import type { BbPluginApi, PluginRpcHandlers } from "@get-bb/plugin-sdk";
+import { z } from "zod";
 import {
   createTasksStore,
   type Attachment as StoredAttachment,
@@ -460,27 +461,57 @@ interface TaskPullRequestsResult {
   unavailableThreadIds: string[];
 }
 
-const PULL_REQUEST_LOOKUP_CONCURRENCY = 4;
+const GITHUB_PR_STATUS_PLUGIN_ID = "bb--github-pr-status";
+const PULL_REQUEST_KEYS_PER_READ = 200;
 
-async function mapWithConcurrency<T, R>(
-  items: readonly T[],
-  limit: number,
-  work: (item: T) => Promise<R>,
-): Promise<R[]> {
-  const results = new Array<R>(items.length);
-  let nextIndex = 0;
-  const workers = Array.from(
-    { length: Math.min(limit, items.length) },
-    async () => {
-      while (nextIndex < items.length) {
-        const index = nextIndex;
-        nextIndex += 1;
-        results[index] = await work(items[index]!);
-      }
-    },
-  );
-  await Promise.all(workers);
-  return results;
+const environmentPullRequestsSchema = z.record(
+  z.string(),
+  z.discriminatedUnion("outcome", [
+    z.object({
+      outcome: z.literal("available"),
+      pullRequest: z.object({
+        url: z.string().url(),
+        number: z.number().int().positive(),
+        title: z.string(),
+        state: z.enum(["open", "draft", "merged", "closed"]),
+        updatedAt: z.string(),
+      }),
+    }),
+    z.object({ outcome: z.literal("absent") }),
+    z.object({ outcome: z.literal("unavailable"), message: z.string() }),
+  ]),
+);
+type EnvironmentPullRequests = z.infer<typeof environmentPullRequestsSchema>;
+
+async function readEnvironmentPullRequests(
+  bb: BbPluginApi,
+  environmentIds: readonly string[],
+): Promise<EnvironmentPullRequests> {
+  const rows: EnvironmentPullRequests = {};
+  for (
+    let start = 0;
+    start < environmentIds.length;
+    start += PULL_REQUEST_KEYS_PER_READ
+  ) {
+    const keys = environmentIds.slice(
+      start,
+      start + PULL_REQUEST_KEYS_PER_READ,
+    );
+    try {
+      Object.assign(
+        rows,
+        await bb.sdk.plugins.callRpc({
+          pluginId: GITHUB_PR_STATUS_PLUGIN_ID,
+          method: "pullRequests",
+          input: { keys },
+          outputSchema: environmentPullRequestsSchema,
+        }),
+      );
+    } catch (error) {
+      bb.log.debug(`pull request lookup failed: ${errorMessage(error)}`);
+    }
+  }
+  return rows;
 }
 
 async function listTaskPullRequests(
@@ -509,52 +540,29 @@ async function listTaskPullRequests(
   );
 
   const byUrl = new Map<string, TaskPullRequest>();
-  await mapWithConcurrency(
-    [...threadIdsByEnvironment.entries()],
-    PULL_REQUEST_LOOKUP_CONCURRENCY,
-    async ([environmentId, threadIds]) => {
-      let result: Awaited<
-        ReturnType<BbPluginApi["sdk"]["environments"]["pullRequest"]>
-      >;
-      try {
-        result = await bb.sdk.environments.pullRequest({ environmentId });
-      } catch {
-        for (const threadId of threadIds) unavailable.add(threadId);
-        return;
-      }
-      if (result.outcome === "unavailable") {
-        for (const threadId of threadIds) unavailable.add(threadId);
-        return;
-      }
-      if (result.outcome === "absent") return;
-      const { pullRequest } = result;
-      const existing = byUrl.get(pullRequest.url);
-      if (!existing) {
-        byUrl.set(pullRequest.url, {
-          url: pullRequest.url,
-          number: pullRequest.number,
-          title: pullRequest.title,
-          state: pullRequest.state,
-          updatedAt: pullRequest.updatedAt,
-          threadIds: [...threadIds],
-        });
-        return;
-      }
-      const threadIdUnion = [...existing.threadIds, ...threadIds];
-      if (pullRequest.updatedAt.localeCompare(existing.updatedAt) > 0) {
-        byUrl.set(pullRequest.url, {
-          url: pullRequest.url,
-          number: pullRequest.number,
-          title: pullRequest.title,
-          state: pullRequest.state,
-          updatedAt: pullRequest.updatedAt,
-          threadIds: threadIdUnion,
-        });
-      } else {
-        existing.threadIds = threadIdUnion;
-      }
-    },
-  );
+  const rows = await readEnvironmentPullRequests(bb, [
+    ...threadIdsByEnvironment.keys(),
+  ]);
+  for (const [environmentId, threadIds] of threadIdsByEnvironment) {
+    const result = rows[environmentId];
+    if (result === undefined || result.outcome === "unavailable") {
+      for (const threadId of threadIds) unavailable.add(threadId);
+      continue;
+    }
+    if (result.outcome === "absent") continue;
+    const { pullRequest } = result;
+    const existing = byUrl.get(pullRequest.url);
+    if (!existing) {
+      byUrl.set(pullRequest.url, { ...pullRequest, threadIds: [...threadIds] });
+      continue;
+    }
+    const threadIdUnion = [...existing.threadIds, ...threadIds];
+    if (pullRequest.updatedAt.localeCompare(existing.updatedAt) > 0) {
+      byUrl.set(pullRequest.url, { ...pullRequest, threadIds: threadIdUnion });
+    } else {
+      existing.threadIds = threadIdUnion;
+    }
+  }
 
   const threadOrder = new Map(
     taskThreads.map((taskThread, index) => [taskThread.threadId, index]),

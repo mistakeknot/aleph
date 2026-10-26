@@ -48,7 +48,7 @@ experimental_openFilePreview(options), experimental_openFileExternally(options),
 experimental_openTerminal({ terminalId }) }`.
   `toCompose` opens the root compose screen; pass `initialPrompt` to seed the
   composer draft and `focusPrompt: true` to focus it. The panel
-  opener opens one of the current plugin's registered `threadPanelAction` tabs
+  opener opens one of the current plugin's registered `experimental_tab` with thread context and action availability tabs
   in a thread, or its `experimental_newThreadPanelAction` tabs on the New
   thread screen, and returns whether the host accepted it; it returns false on
   plugin pages, which have no panel actions.
@@ -107,12 +107,18 @@ experimental_openTerminal({ terminalId }) }`.
   - Save `composer.draft`, then restore it with `composer.replace(saved)`.
     For an LLM rewrite, map preserved mention placeholders to explicit ranges
     in the resulting text and replace text and mentions together.
-  - `submit({ sendAt? , experimental_data? })` submits exactly as pressing
-    Enter would (send, or queue while the thread is busy). It waits for
-    uploads in progress, then rejects with `submittingBlockedReason` when the
-    send button would refuse. `experimental_data` reaches dispatch hooks on
-    the initial attempt, namespaced with your plugin id. The queued-message
-    and sent-message editors reject.
+  - `submit({ experimental_mode?, sendAt?, experimental_data? })` submits the
+    draft through the on-screen composer's own queue or steer handler. Omit
+    `experimental_mode` to do what Enter does for this user; pass
+    `"queue-if-active"` or `"steer-if-active"`, the `bb.sdk.threads.send`
+    modes, to queue behind or add to the running turn (both start a turn when
+    none is running). `sendAt` makes that action wait until the given time,
+    and `experimental_data` reaches dispatch hooks on the initial attempt,
+    namespaced with your plugin id. The options combine freely. It rejects an
+    empty draft, waits for uploads in progress, then rejects with the reason
+    when the shortcut could not run; it rejects when the send fails, after bb
+    shows its usual error toast. The queued-message and sent-message editors
+    reject.
   - `setSelection({ projectId?, environment?, providerId?, model?,
 reasoningLevel?, serviceTier?, permissionMode? })` sets the pickers as if
     picked by hand and resolves with the settled selection; omitted fields keep
@@ -258,9 +264,10 @@ composer.
   files, and drop `@hugeicons/core-free-icons` and `@hugeicons/react` from
   `dependencies`. A git install keeps every version's `node_modules` on the
   user's disk, and the full hugeicons set is over 100 MB per copy.
-- `toast`: `import { toast } from "sonner"` — runtime-shimmed to the host's
-  Toaster (`toast.success("Saved")` just works; never mount your own
-  `<Toaster>`).
+- `toast`: `import { toast } from "sonner"` — runtime-shimmed to bb's own
+  toast, so `toast.success("Saved")` looks like bb's toasts and lands in the
+  notification center; `toast.custom` keeps your rendering. Never mount your
+  own `<Toaster>`.
 - Never bundled (runtime-shimmed, import freely): react, the portaling
   radix families (`@radix-ui/react-dialog`, `-alert-dialog`, `-popover`,
   `-select`, `-dropdown-menu`, `-context-menu`, `-menubar`, `-hover-card`,
@@ -307,3 +314,49 @@ define custom `@theme` colors and never hand-set `oklch(...)`/gray
 literals: the build's Tailwind pass emits default-theme utilities only, and
 hardcoded colors break custom palettes. `tw-animate-css` utilities also
 compile in plugin builds.
+
+## Optimistic RPC updates
+
+`experimental_useRpcMutation({ contract, method, optimistic(input, cache) { ... } })`
+predicts loaded reads before sending the write. `cache.update(method, readInput,
+updater)` targets a plain read; `cache.updateKey(method, key, updater)` targets
+one keyed row. Failed writes remove their own prediction.
+
+The updater callbacks must be pure and synchronous: they may run many times
+as pending predictions replay over new confirmed data or after another write
+rolls back. Return a new value without mutating cached data or captured inputs,
+performing side effects, or generating IDs, timestamps, or random values.
+Generate any such values once before calling `mutate` and include them in the
+mutation input so every replay uses the same values.
+
+## Live RPC reads and write acknowledgement
+
+All live hooks take `{ contract, method, ... }` and infer their types without
+explicit generic arguments. Plain queries add `input`; mutations add optional
+`optimistic`. Use `experimental_useRpcKeyedQuery({ contract, method, keys, select? })` for
+contract-inferred rows and selection results. Keyed methods accept `{ keys }`
+and return a record containing every requested key. Tags are plain strings;
+reads and writes use matching strings to declare their dependencies.
+
+`data` retains the last successful value and optimistic predictions during
+refreshes and refresh errors. Plain reads start undefined; keyed selections
+receive loaded rows, initially an empty record. `isLoading` means an enabled
+read is fetching never-loaded requested data. `isFetching` includes background
+attempts; keyed views share method activity. `error` is the last completed
+failure, cleared on success; retrying a first load clears its old error while
+loading. `refetch` forces an attempt, waits through retries, and records any
+failure in `error` without rejecting or discarding existing data.
+
+Reads stay fresh for two seconds without polling. Focus does not refetch while
+BB's realtime connection is healthy. While disconnected, focus/browser-online
+events recheck stale active reads; BB reconnect invalidates all plugin reads
+regardless of freshness. Page hiding cancels active attempts and resume restarts
+those cancelled reads. Invalidations refresh immediately. Network/abort failures
+retry twice at 250 ms; HTTP failures do not retry. Writes never retry automatically. `mutate`, `isPending`, and `pendingInputs` finish at write
+acknowledgement, while confirmed reads replace shared predictions later.
+
+Live hook errors and rejected mutations use `experimental_PluginRpcCallError`.
+Its `code` is required; use a fallback when switching because error codes may
+grow. Unknown server codes become `unknown_error` with the original `serverCode`.
+Client failures use `transport_error` or `invalid_response`. The CLI preserves
+unrecognized codes in text and JSON output.

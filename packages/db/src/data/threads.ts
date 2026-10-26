@@ -30,6 +30,7 @@ import type {
   ThreadLifecycleEvent,
   ThreadLifecycleNoopReason,
   ThreadOriginKind,
+  ThreadParentNotifications,
   ThreadSearchSourceKind,
   ThreadStatus,
   ThreadVisibility,
@@ -288,6 +289,7 @@ export interface CreateThreadInput {
   pluginMetadata?: { pluginId: string; metadata: JsonObject } | null;
   startupContext?: string;
   visibility?: ThreadVisibility;
+  parentNotifications?: ThreadParentNotifications;
 }
 
 export class InvalidLifecycleOwnerError extends Error {
@@ -354,6 +356,7 @@ export function createThread(
           originKind,
           originPluginId: input.originPluginId ?? null,
           visibility,
+          parentNotifications: input.parentNotifications ?? "auto",
           lastReadAt: now,
           latestAttentionAt: now,
           createdAt: now,
@@ -455,6 +458,7 @@ export interface ListThreadsOptions {
   sourceThreadId?: string;
   originKind?: ThreadOriginKind;
   originPluginId?: string;
+  threadIds?: readonly string[];
   limit?: number;
   offset?: number;
   includeHidden?: boolean;
@@ -727,6 +731,9 @@ function buildListThreadsFilters(options: ListThreadsOptions) {
       ? eq(threads.environmentId, options.environmentId)
       : undefined,
     options.hostId ? eq(environments.hostId, options.hostId) : undefined,
+    options.threadIds === undefined
+      ? undefined
+      : inArray(threads.id, [...options.threadIds]),
     options.sectionId ? eq(threads.sectionId, options.sectionId) : undefined,
     options.unsectioned ? isNull(threads.sectionId) : undefined,
     nonDeletedThreads(),
@@ -1494,6 +1501,7 @@ export function listThreadsWithPendingInteractionState(
   db: DbConnection,
   options: ListThreadsOptions,
 ): ThreadWithPendingInteractionState[] {
+  if (options.threadIds?.length === 0) return [];
   let query = threadWithPendingInteractionBaseQuery(db)
     .where(and(...buildListThreadsFilters(options)))
     .orderBy(...buildListThreadsOrderBy(options))
@@ -1998,6 +2006,7 @@ export interface UpdateThreadInput {
   parentThreadId?: string | null;
   title?: string | null;
   visibility?: ThreadVisibility;
+  parentNotifications?: ThreadParentNotifications;
 }
 
 export function updateThread(
@@ -2015,6 +2024,12 @@ export function updateThread(
   if ("title" in input || "sectionId" in input) changes.push("title-changed");
   if ("lastReadAt" in input) changes.push("read-state-changed");
   if ("visibility" in input && input.visibility !== existing.visibility) {
+    changes.push("title-changed");
+  }
+  if (
+    "parentNotifications" in input &&
+    input.parentNotifications !== existing.parentNotifications
+  ) {
     changes.push("title-changed");
   }
   if (
@@ -2041,6 +2056,9 @@ export function updateThread(
   }
   if ("parentThreadId" in input) set.parentThreadId = input.parentThreadId;
   if ("visibility" in input) set.visibility = input.visibility;
+  if ("parentNotifications" in input) {
+    set.parentNotifications = input.parentNotifications;
+  }
 
   const updated = db
     .update(threads)
@@ -2445,8 +2463,19 @@ function lifecycleThreadTreeIdsForThread(threadId: string): SQL {
   return lifecycleThreadTreeIds(sql`SELECT ${threadId}`);
 }
 
-export function lifecycleThreadTreeIdsForProject(projectId: string): SQL {
-  return lifecycleThreadTreeIds(
+function deletionThreadTreeIds(seed: SQL): SQL {
+  return sql`(WITH RECURSIVE descendants(id) AS (
+    ${seed} UNION SELECT t.id FROM threads t JOIN descendants
+      ON t.lifecycle_owner_thread_id = descendants.id OR t.parent_thread_id = descendants.id
+  ) SELECT id FROM descendants)`;
+}
+
+function deletionThreadTreeIdsForThread(threadId: string): SQL {
+  return deletionThreadTreeIds(sql`SELECT ${threadId}`);
+}
+
+export function deletionThreadTreeIdsForProject(projectId: string): SQL {
+  return deletionThreadTreeIds(
     sql`SELECT id FROM threads WHERE project_id = ${projectId}`,
   );
 }
@@ -2462,11 +2491,11 @@ export function listLifecycleThreadDependents(
     .all();
 }
 
-export function listLifecycleThreadTree(db: DbQueryConnection, id: string) {
+export function listThreadDeletionTree(db: DbQueryConnection, id: string) {
   return db
     .select()
     .from(threads)
-    .where(inArray(threads.id, lifecycleThreadTreeIdsForThread(id)))
+    .where(inArray(threads.id, deletionThreadTreeIdsForThread(id)))
     .all();
 }
 
@@ -2483,7 +2512,7 @@ export function markThreadDeleted(
     })
     .where(
       and(
-        inArray(threads.id, lifecycleThreadTreeIdsForThread(args.threadId)),
+        inArray(threads.id, deletionThreadTreeIdsForThread(args.threadId)),
         isNull(threads.deletedAt),
       ),
     )

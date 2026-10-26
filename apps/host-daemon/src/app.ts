@@ -1,3 +1,4 @@
+import path from "node:path";
 import { HOST_DAEMON_RESTART_EXIT_CODE } from "@bb/config/machine-service";
 import {
   disposeAgentProcessScopes,
@@ -29,7 +30,12 @@ import {
   type RuntimeManagerOptions,
 } from "./runtime-manager.js";
 import { WatchManager } from "./watch-manager.js";
-import { ConnectTunnelClient } from "./connect-tunnel/index.js";
+import {
+  ConnectTunnelClient,
+  resolveTrustedConnectGate,
+} from "./connect-tunnel/index.js";
+import { MachineNextTunnel, machineNextFrpDir } from "./connect-next/index.js";
+import { defaultTrustedCertificates, resolveFrpc } from "@bb/frp-client";
 import { TerminalManager } from "./terminals/terminal-manager.js";
 import {
   createServerClient,
@@ -68,7 +74,6 @@ interface SessionState {
 
 const INTERACTIVE_INTERRUPT_RETRY_DELAY_MS = 1_000;
 const INTERACTIVE_INTERRUPT_MAX_RETRY_DELAY_MS = 60_000;
-const IDLE_PROVIDER_SESSION_REAP_AFTER_MS = 30 * 60 * 1000;
 const IDLE_PROVIDER_SESSION_REAP_INTERVAL_MS = 5 * 60 * 1000;
 const RUNTIME_SHELL_ENV_REFRESH_TTL_MS = 10_000;
 
@@ -83,6 +88,7 @@ type IdleProviderSessionReaperIntervalFn = (
 ) => IdleProviderSessionReaperTimer;
 
 interface IdleProviderSessionReaper {
+  setTimeoutMinutes(value: number): void;
   stop(): void;
 }
 
@@ -136,6 +142,7 @@ export interface HostDaemonApp {
   runtimeManager: RuntimeManager;
   watchManager: WatchManager;
   connectTunnel: ConnectTunnelClient;
+  machineNextTunnel: MachineNextTunnel;
   terminalManager: TerminalManager;
   router: CommandRouter;
   connection: ServerConnection;
@@ -150,15 +157,16 @@ interface PendingInteractiveInterruptRequest {
 export function startIdleProviderSessionReaper(
   args: StartIdleProviderSessionReaperArgs,
 ): IdleProviderSessionReaper {
+  let timeoutMinutes: number | null = null;
   let running = false;
   const timer = args.setIntervalFn(() => {
-    if (running) {
+    if (running || timeoutMinutes === null) {
       return;
     }
     running = true;
     void args.runtimeManager
       .reapIdleProviderSessions({
-        idleForMs: IDLE_PROVIDER_SESSION_REAP_AFTER_MS,
+        idleForMs: timeoutMinutes * 60_000,
         nowMs: args.nowMs(),
       })
       .then((result) => {
@@ -192,6 +200,9 @@ export function startIdleProviderSessionReaper(
   }, IDLE_PROVIDER_SESSION_REAP_INTERVAL_MS);
   timer.unref();
   return {
+    setTimeoutMinutes(value) {
+      timeoutMinutes = value;
+    },
     stop() {
       timer.clear();
     },
@@ -504,6 +515,28 @@ export async function createHostDaemonApp(
       );
     },
   });
+  const machineNextTunnel = new MachineNextTunnel({
+    frpDir: machineNextFrpDir(options.dataDir),
+    trustedBaseDomain: () => {
+      try {
+        return resolveTrustedConnectGate(options.serverUrl).baseDomain;
+      } catch {
+        return null;
+      }
+    },
+    machineCredential: options.serverHeaders?.["x-bb-connect-machine"],
+    ensureIdentity: () => connectTunnel.ensureTunnelIdentity(),
+    resolveBinary: () =>
+      resolveFrpc({
+        dataDir: path.dirname(machineNextFrpDir(options.dataDir)),
+        env: process.env,
+      }),
+    trustedCertificates: () => defaultTrustedCertificates(process.env),
+    logger: options.logger,
+    onStatusChange: (status) => {
+      sendServerMessage({ type: "connect-next.status", status });
+    },
+  });
   runtimeManager = new RuntimeManager({
     bridgeBundleDir: options.bridgeBundleDir,
     createRuntime: options.createRuntime,
@@ -774,6 +807,8 @@ export async function createHostDaemonApp(
     runtimeManager,
     listModels: (args) =>
       withMaintenanceRuntime((runtime) => runtime.listModels(args)),
+    listCommands: (args) =>
+      withMaintenanceRuntime((runtime) => runtime.listCommands(args)),
     providerHealth: (args) =>
       withMaintenanceRuntime((runtime) => runtime.providerHealth(args)),
     providerUsage: (args) =>
@@ -825,6 +860,8 @@ export async function createHostDaemonApp(
     onServerMoved: (notice) => serverMove.handleServerMoved(notice),
     onMachineEnvironment: (environment) =>
       machineEnvironment.replace(environment.entries),
+    onIdleProviderSessionTimeout: (value) =>
+      idleProviderSessionReaper.setTimeoutMinutes(value),
     createWebSocket: options.createWebSocket,
     getActiveThreads: () => runtimeManager.listActiveThreads(),
     getUndeliveredEventThreadIds: () => eventSink.listUndeliveredThreadIds(),
@@ -846,11 +883,24 @@ export async function createHostDaemonApp(
         generation: message.generation,
         ports: message.ports,
       });
+      void machineNextTunnel.setPorts(connectTunnel.status().ports);
+    },
+    onConnectNextReplace: (message) => {
+      machineNextTunnel.replace({
+        generation: message.generation,
+        config: message.config,
+      });
     },
     onTerminalMessage: (message) => terminalManager.handleMessage(message),
     onSessionOpened: async (session) => {
       sessionState.value = session.sessionId;
       connectTunnel.replaceAuthoritativeShareSet(session.connectShares);
+      machineNextTunnel.replaceAuthoritative(session.connectNext);
+      void machineNextTunnel.setPorts(connectTunnel.status().ports);
+      sendServerMessage({
+        type: "connect-next.status",
+        status: machineNextTunnel.status(),
+      });
       await pluginHostManager.reconcileGenerations(
         session.pluginHostGenerations,
       );
@@ -883,6 +933,8 @@ export async function createHostDaemonApp(
     setSession: (session) => {
       sessionState.value = session?.sessionId ?? null;
       desktopBrowserBroker.setConnected(session !== null);
+      if (session === null) machineNextTunnel.sessionLost();
+      else machineNextTunnel.sessionRestored();
       if (session === null) {
         terminalManager.releaseOutputFlowControl();
         clearInteractiveInterruptRetry();
@@ -940,6 +992,7 @@ export async function createHostDaemonApp(
       await options.closeMachineAuthProxy?.();
       await localApi?.close();
       connectTunnel.shutdown();
+      await machineNextTunnel.shutdown();
       await watchManager.shutdown();
       disposeParcelWatcherBackend();
       await terminalManager.shutdownAll();
@@ -990,6 +1043,7 @@ export async function createHostDaemonApp(
     runtimeManager,
     watchManager,
     connectTunnel,
+    machineNextTunnel,
     terminalManager,
     router,
     connection,

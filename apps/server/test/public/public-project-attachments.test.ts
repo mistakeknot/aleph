@@ -77,6 +77,13 @@ describe("public project attachments", () => {
         expect(content.headers.get("content-length")).toBe(
           String(fixture.bytes.byteLength),
         );
+        const partial = await harness.app.request(contentUrl, {
+          headers: { range: "bytes=0-1" },
+        });
+        expect(partial.status).toBe(206);
+        expect(new Uint8Array(await partial.arrayBuffer())).toEqual(
+          fixture.bytes.subarray(0, 2),
+        );
         const etag = content.headers.get("etag");
         expect(etag).toMatch(/^"[^"]+"$/u);
         const revalidated = await harness.app.request(contentUrl, {

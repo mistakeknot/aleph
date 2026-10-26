@@ -149,7 +149,7 @@ Each bundled plugin documents its commands and behavior in its own skill.
   `bb concurrency-limit status|global|host`; see the `concurrency-limit`
   skill.
 - Provider retry (builtin): queues an automatic retry after provider
-  overloads and subscription-window limits.
+  overloads, server or connection errors, and subscription-window limits.
   `bb provider-retry status|explain|retry|cancel`; see the `provider-retry`
   skill.
 - Thread list (builtin): owns the sidebar's layout preferences, synced to
@@ -360,7 +360,7 @@ plugins.
 
 `bb plugin rpc list [plugin-id] [--method <exact-name>] [--json]` lists discoverable methods from running plugins, optionally restricted to one plugin. `bb plugin rpc inspect <plugin-id> [method] [--json]` dumps registration and method descriptions plus input/output JSON Schemas. Copy the relevant schema into your consumer and call the existing plugin RPC endpoint. Discovery is opt-in advertising, not access control; method names may carry versions such as `provider-usage.v1.listResources`.
 
-`bb plugin rpc call <plugin-id> <method> [--input-file <json-path>] [--json]` invokes a method using server-side schema validation. Omitting the input file sends JSON null. Input files avoid putting sensitive values in command arguments.
+`bb plugin rpc call <plugin-id> <method> [--input-file <json-path>] [--json]` invokes a method using server-side schema validation. Omitting the input file sends JSON null. Input files avoid putting sensitive values in command arguments. Handler refusals print their code and message and exit non-zero: `forbidden` (403), `not_found` (404), `conflict` (409), or `invalid` (422).
 
 ### Background updates
 

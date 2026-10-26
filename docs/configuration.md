@@ -63,9 +63,9 @@ These entries are startup-only:
 - `BB_APP_SURFACE`, `BB_APP_URL` (when set through `bb-app env`),
   `BB_DATA_DIR`, `BB_DEV_APP_PORT`, and `BB_EXTERNAL_URL`
 - `BB_HOST_DAEMON_PORT` and `BB_INHERITED_SKILLS_ROOTS`
-- `BB_LOG_LEVEL`, `BB_MANAGED_DEV_BUILTIN_PLUGIN_HOT_RELOAD`,
-  `BB_MARKETPLACE_URL`, `BB_PERF_DIAGNOSTICS`, `BB_POSTHOG_API_KEY`, and
-  `BB_TELEMETRY`
+- `BB_CONNECT_GATE_KEYS_URL`, `BB_LOG_LEVEL`,
+  `BB_MANAGED_DEV_BUILTIN_PLUGIN_HOT_RELOAD`, `BB_MARKETPLACE_URL`,
+  `BB_PERF_DIAGNOSTICS`, `BB_POSTHOG_API_KEY`, and `BB_TELEMETRY`
 - `BB_SERVER_BIND_HOST`, `BB_SERVER_PORT`, and all `BB_FF_*` feature flags
 
 Setting or unsetting one still reloads any other pending changes, but running
@@ -214,6 +214,7 @@ disabled and nothing is sent or logged, so check it first if you expect them.
 | `BB_APP_URL`                   | `bb-app config`                                    | Optional for remote use | Human-facing app URL used for generated links, allowed browser origins, and the allowed DNS hostname for requests. Leave empty for local-only use. Live when set with `bb-app config`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `BB_EXTERNAL_URL`              | `bb-app env`, or environment                       | Startup-only            | Internet-facing HTTPS base URL for generated public links; the fallback for `machineServerUrl`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `BB_MARKETPLACE_URL`           | `bb-app env`, or environment                       | Startup-only testing    | Manifest URL of the reserved `bb-community` marketplace. Default `https://getbb.app/marketplace/v2/marketplace.json` (falls back to v1 on 404); a custom URL is requested without fallback. Changes only `bb-community`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `BB_CONNECT_GATE_KEYS_URL`     | `bb-app env`, or environment                       | Startup-only testing    | Public key set the bb connect next tunnel ingress verifies gate assertions with. Default `https://getbb.app/.well-known/bb-connect-gate-keys.json`. See [connect-next.md](connect-next.md).                                                                                |
 | `BB_SERVER_URL`                | `bb-app config`                                    | Remote CLI/host use     | Server targeted by the standalone `bb` CLI and `host-daemon` commands on this machine. Defaults to `http://127.0.0.1:38886`. It does not change where `npx bb-app` binds.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `BB_SERVER_BIND_HOST`          | `bb-app env`, environment, or `--server-bind-host` | Startup-only            | Server listener host: `127.0.0.1` (default) or `0.0.0.0`. Not a `bb-app config` key. See [Startup Flags](#startup-flags).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `BB_SERVER_PORT`               | `bb-app env`, environment, or `--server-port`      | Startup-only            | HTTP listener port. Defaults to `38886`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
@@ -226,6 +227,7 @@ disabled and nothing is sent or logged, so check it first if you expect them.
 | `BB_AGENT_MEMORY_HIGH`         | Host-daemon environment                            | Startup-only tuning     | Optional `MemoryHigh` throttle on all agents together when `BB_AGENT_CGROUP=systemd`: bytes with an optional `K`, `M`, `G` or `T` suffix (`48G`), or a percentage of RAM (`75%`). Above it the kernel reclaims agent memory first, which keeps page cache for the server's database. Unset or invalid means no limit, and clears a limit set earlier.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `BB_LOG_LEVEL`                 | `bb-app config`                                    | Startup-only debugging  | `trace`, `debug`, `info`, `warn`, `error`, or `fatal`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `BB_TELEMETRY`                 | `bb-app env`, or environment                       | Startup-only            | `false` always disables anonymous usage telemetry, overriding the `telemetryEnabled` setting.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `BB_SKIP_ONBOARDING`           | Environment                                        | Startup-only            | Default false. `1` marks first-run setup completed at startup when it is not yet, so the setup screen is skipped. Settings → General can still replay it. `pnpm dev`, `pnpm start:worktree`, and `pnpm desktop:worktree` default it to `1`; an explicit `0` retains setup. |
 | `BB_PERF_DIAGNOSTICS`          | `bb-app env`, environment, or `--perf-diagnostics` | Startup-only            | Default false. Permits the `performanceDiagnostics` experiment; see [Experiments](#experiments).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `BB_CLI_ERROR_LOG`             | Environment of the `bb` process                    | Optional                | `0` stops the CLI recording failed invocations (command path, error code, no argument values) to `<dataDir>/logs/cli-errors.jsonl`. See `bb guide overview`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `BB_ACCOUNT_POOL_PARENT_URL`   | Set by a parent bb server for opted-in threads     | Nested bb servers       | Parent Account Pooler hub. Set only for served threads in the parent's `nestedLaunchThreadIds` (default `[]`); others get it blank. When present the plugin is enabled on first run and proxies to that parent; `bb pool parent isolate` opts out. Read at startup; list changes affect later agent sessions and do not revoke running servers. Not a `bb-app config` key.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
@@ -246,6 +248,8 @@ configuration.
 
 ## General settings
 
+`idleProviderSessionTimeoutMinutes` (default `30`) sets how long an agent can sit idle after its last turn before every machine stops its provider process to free memory. Allowed values are `0` (ASAP), `5`, `10`, `30`, and `60`. Use Settings → Providers → Configuration → Release idle agent sessions, `bb settings general idleProviderSessionTimeoutMinutes 5`, or SDK `system.updateGeneralSettings({ ...config.generalSettings, idleProviderSessionTimeoutMinutes: 5 })`. Read `config` with `system.config()` or inspect the value with `bb settings show`. Changes apply live and on reconnect. Machines check every five minutes, so release can take up to five minutes beyond the timeout. Only restorable sessions without active, pending, or background work are eligible; threads keep their history and resume on the next message. Manual `bb thread stop` still works. This is not a memory or loaded-process limit.
+
 Server-wide preferences, stored in the bb database and applied live to every
 client. Set them in Settings, with `bb settings general <key> <value>`, or with
 SDK `system.updateGeneralSettings`, which takes the full settings object (read
@@ -259,21 +263,35 @@ for the command surface.
 | `confirmThreadArchive`                                                     | `true`                              | Settings → General → Thread archive confirmation. `false` archives a thread and its children in the app without a confirmation popup; the toast still offers Undo. CLI and SDK archives never prompt.                                                                                                                                                                                                                                                                                                                                          |
 | `showGitChanges`                                                           | `true`                              | Settings → General → Show Git changes and Commit button. `false` hides the untracked, uncommitted, and committed file summary and expanded file list above every thread composer, that shelf's pull-request status and actions, and the Commit action in the thread header and overflow menu. Thread relationships and workspace warnings stay visible.                                                                                                                                                                                        |
 | `keepHistoryAfterContextClear`                                             | `false`                             | Settings → General → Show messages from before a context clear. When `false`, a thread's timeline, conversation outline, and message lookup start at its latest `Context cleared` boundary; `true` keeps earlier messages, which load on scroll and appear in the outline and `bb thread log --message`. Clearing always starts a fresh provider conversation and resets the context meter.                                                                                                                                                    |
+| `summarizeShellCommands`                                                   | `true`                              | Settings → General → Summarize shell commands. `true` titles a shell command that runs `ls`, `find`, `grep`, `rg`, `cat`, `head`, `tail`, `nl`, or `sed -n` with a summary such as `Searched for X`, and the row does not expand. `false` titles every shell command row with its command (`Running …`, `Ran …`), expands it to the command and its output, and counts it as a command in step summaries. Native read and search tool rows keep their titles.                                                                                  |
 | `streamerMode`                                                             | `false`                             | Settings → General. Hides every `customModels` entry from the web and mobile pickers, `bb provider models`, and `sdk.providers.models`, for example before a screen share. Entries stay in `config.json`; a thread that names a hidden model still runs, and default model resolution keeps the full list, so a provider whose only models are custom still starts. A composer whose stored selection is hidden falls back to the provider default and records it on the next send; reselect the custom model after turning streamer mode off. |
 | `allowFastServiceTier`                                                     | `true`                              | Settings → Providers. `false` hides the service tier control and runs every new turn at the default tier, including explicit requests for another tier (`fast`, Codex `ultrafast`, or any tier a provider lists), automations, and queued messages. Completed turns and project defaults saved while off keep the default tier.                                                                                                                                                                                                                |
 | `managedBranchPrefix`                                                      | `bb/`                               | Settings → General → New branch prefix. Prefix for branches bb creates for worktrees and new checkout branches (`bb/fix-login-flow-thr_ab12cd34ef`); empty for none. At most 64 characters and must start a valid git branch name (no space or leading `-`). Existing branches and worktrees keep their names.                                                                                                                                                                                                                                 |
 | `providerOrder`                                                            | `[]`                                | Settings → Providers (move a provider up or down). JSON list of provider ids that lead the picker, such as `'["claude-code","codex"]'`; unlisted ids follow in plugin install order and unknown ids are ignored.                                                                                                                                                                                                                                                                                                                               |
 | `defaultProviderId`                                                        | `null`                              | Settings → Providers. Provider for new threads when neither caller nor project chose one; `null` means the first available provider in picker order.                                                                                                                                                                                                                                                                                                                                                                                           |
 | `telemetryEnabled`                                                         | `true`                              | Settings → General → Privacy & diagnostics → Share anonymous usage data. Takes effect immediately; `BB_TELEMETRY=false` overrides it.                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `earlyAdopter`                                                             | `false`                             | Settings → Experiments → Become an early adopter. Turns on experiments marked Early adopter unless you set them yourself; see [Experiments](#experiments).                                                                                                                                                                                                                                                                                                                                                                                     |
 | `machineServerUrl`, `defaultMachineAccess`, `machineGitCredentialsEnabled` | See [Multi-machine](#multi-machine) | Machine access and credential forwarding.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 
-Older clients that omit `showGitChanges` or `keepHistoryAfterContextClear`
-preserve the saved value. For older SDK callers, the general-settings API still
-accepts and returns `showUnhandledProviderEvents` as a deprecated alias of
-`showDiagnosticEvents`, and an existing value is preserved; when a
-read-modify-write payload contains conflicting values, the one changed from the
-saved setting wins. Codex memory and native subagents live on the Codex
-provider plugin; Claude Code's options are under
+**Terminal clipboard.** Settings → General → Terminals → Copy on select
+(`terminalCopyOnSelect`, default `true`) copies completed terminal selections
+exactly and shows a "Selection copied" notification. Selections in messages,
+files, and prompt editors are unchanged. Disable it with
+`bb settings general terminalCopyOnSelect off` or SDK
+`system.updateGeneralSettings`, preserving the other general settings.
+The server persists it across windows and restarts; older clients that omit it
+preserve the saved value. Explicit Copy/Paste remain available when it is off.
+On Linux browsers with native primary-selection support, middle-click focuses
+the terminal and pastes the primary selection independently of this setting.
+Unsupported browsers never substitute unrelated regular clipboard contents.
+
+Older clients that omit `showGitChanges`, `keepHistoryAfterContextClear`,
+`summarizeShellCommands`, or `earlyAdopter` preserve the saved value. For older SDK callers, the
+general-settings API still accepts and returns `showUnhandledProviderEvents` as
+a deprecated alias of `showDiagnosticEvents`, and an existing value is
+preserved; when a read-modify-write payload contains conflicting values, the one
+changed from the saved setting wins. Codex memory and native subagents live on
+the Codex provider plugin; Claude Code's options are under
 [Claude Code provider](#claude-code-provider).
 
 **Composer keys.** The prompt box uses plain-text editing; Markdown delimiters
@@ -303,7 +321,7 @@ lists what `bb project discover` and
 **Anonymous usage telemetry.** PostHog events carry a random install id, app
 version, install kind, platform, OS release, architecture, and Node version.
 The server sends `app_started`, `telemetry_disabled`, `thread_created`,
-`user_message_sent`, and `plugin_installed`. The app reports setup-guide and
+`user_message_sent`, `turn_finished`, and `plugin_installed`. The app reports setup-guide and
 first-send events through `POST /api/v1/system/telemetry/events`
 (`sdk.system.experimental_recordTelemetryEvent`): `onboarding_started`,
 `onboarding_step_reached`, `onboarding_step_completed`,
@@ -314,6 +332,20 @@ ids, account details, prompts, project or file names, terminal output, error
 messages, or session ids. Sign-in `exited` means the command exited before
 readiness was observed, not that authentication succeeded; `new_thread_submit`
 `accepted` means the thread was created, not that the provider answered.
+By default (`BB_FF_INITIATOR_TELEMETRY=false` turns it off), `thread_created` and `user_message_sent` also carry
+`initiator`: `user`, `agent`, `automation` (started by the automations
+plugin), `plugin` (any other plugin), or `system` (bb's own retries and follow-ups). Sends from a plugin carry its ID (the plugin SDK adds `originPluginId`), so automation
+runs into an existing thread report `automation`. `bb thread spawn` run inside a thread
+sends that thread as `senderThreadId`; the new thread reports `agent` when the sender has a
+turn running, and `user` otherwise.
+
+`turn_finished` sends only `outcome` (`succeeded`, `failed`, or `stopped`),
+`error_category` (`none`, `auth`, `billing`, `rate_limit`, `limit_reached`,
+`provider_unavailable`, `start_failed`, `process_exited`, `host_lost`, or `other`),
+`provider` (a shipped built-in provider ID, otherwise `other`), and
+`install_turn_number`, in addition to the standard event properties. The stored
+per-install number increments atomically on each enabled finish. It pauses while
+telemetry is off and resumes at the next number when enabled again.
 
 ## AI services
 
@@ -530,7 +562,7 @@ Control-arrow editing. `pane.focus.previous` / `pane.focus.next` and
 | Window    | Find in window                               | `Mod+F`                     | Desktop                  |
 | Window    | Settings                                     | `Mod+,`                     | All clients              |
 | Window    | Open data directory                          | Unassigned                  | Desktop                  |
-| Window    | Open server and daemon logs                  | Unassigned                  | macOS desktop            |
+| Window    | Open local logs                              | Unassigned                  | Desktop                  |
 | Window    | Show all notifications                       | Unassigned                  | All clients              |
 | Plugins   | Turn plugin safe mode on / off               | Unassigned                  | All clients              |
 | Panel     | New tab / close tab / toggle                 | `Mod+T` / `Mod+W` / `Mod+J` | All clients              |
@@ -624,12 +656,9 @@ code execution and only works with a co-located daemon. The `customAcpAgents`
 key in `config.json` is no longer read. Known agents, OpenCode launch settings,
 and OpenCode Go usage are covered by the `acp-provider` skill.
 
-The rebuilt adapter ships as the builtin plugin "ACP providers [New adapter]"
-(`bb--provider-acp-next`), off by default. It registers the same provider ids,
-and only one ACP plugin runs at a time: enabling it disables "ACP providers",
-disabling it re-enables that plugin, and `customAgents` follows the switch. It
-adds the official ACP registry (`bb acp registry`, `bb acp add <agent-id>`,
-`bb acp remove <agent-id>`); an added agent is a `customAgents` entry running
+Agents from the official ACP registry can be added in the same settings
+section or with `bb acp registry`, `bb acp add <agent-id>`, and
+`bb acp remove <agent-id>`. An added agent is a `customAgents` entry running
 the registry's `npx` or `uvx` package on the thread's host.
 
 ## Custom Models
@@ -815,27 +844,45 @@ list|get|set|reset` or `sdk.system.uiPreferences` (see
 | Key                           | Value                                                                                                                                                  |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `sidebar.threadListProvider`  | Plugin key or `__automatic__` (default): the first installed thread list plugin other than the bundled `thread-list/thread-list`, else the bundled one |
-| `sidebar.pluginPanelOrder`    | Rail destination order                                                                                                                                 |
-| `sidebar.visiblePluginPanels` | Rail destinations shown, or `null` for every destination                                                                                               |
+| `sidebar.navigationProvider`  | Plugin key or `__automatic__` (default): the first navigation from a plugin other than the bundled Navigation plugin, else its `navigation/rail`       |
+| `sidebar.pluginPanelOrder`    | Navigation destination order                                                                                                                           |
+| `sidebar.visiblePluginPanels` | Navigation destinations shown, or `null` for every destination                                                                                         |
 | `sidebar.footerOrder`         | Footer action order                                                                                                                                    |
 | `sidebar.hiddenFooterItems`   | Footer actions moved into More                                                                                                                         |
-| `infoPanel.collapsedSections` | Collapsed thread Info panel sections (`commits`, `uncommittedChanges`, `childThreads`, `forks`, `threadStorage`)                                       |
+| `infoPanel.collapsedSections` | Collapsed thread Info panel sections (`commits`, `uncommittedChanges`, `childThreads`, `forks`, `threadStorage`, or `<pluginId>/<sectionId>`)          |
 
 A legacy `__builtin__` thread list selection resolves to the bundled plugin.
-Footer IDs are `builtin:mobile`, `builtin:report-bug`, and
+Footer IDs are `builtin:settings` (top list layout only), `builtin:mobile`,
+`builtin:report-bug`, and
 `plugin:<encoded pluginId>/<encoded registrationId>`; unknown and
 disabled-plugin IDs are retained, and new actions default to visible. The
 footer can also be edited from its More menu or Settings → Appearance → Sidebar
 footer.
 
-A vertical rail on the left edge of the sidebar holds Home (the last thread),
+The bundled Navigation plugin draws the navigation. Its default layout,
+`navigation/rail`, is a vertical rail on the left edge of the sidebar that holds Home (the last thread),
 the visible destinations (Plugins, Skills, plugin panels), More (hidden
-destinations and Customize rail), and Settings at the bottom. New thread sits
-in the sidebar header and cannot be hidden. The list beside the rail swaps
+destinations and Customize navigation), and Settings at the bottom. New thread sits
+in the sidebar header and cannot be hidden from the rail. The list beside the rail swaps
 between the thread list, Plugins, Skills, and Settings; collapsing the sidebar
 leaves only the rail. On narrow windows and phones the rail sits inside the
 drawer. In the macOS desktop app, wide windows add a title bar with the window
 controls, Back and Forward, and the sidebar toggle.
+
+With `sidebar.navigationProvider` set to `navigation/top-list` (Settings →
+Appearance → Navigation), there is no rail. The visible destinations, New
+thread among them, and More (hidden destinations and Customize navigation) are
+labeled rows above the thread list, with plugin panel badges at the end of
+their row. New thread can be reordered and hidden like any other row.
+Settings is a footer action, and the Settings, Plugins, and Skills lists start
+with a Back to app row. Collapsing hides the whole sidebar, and the macOS
+desktop app keeps the window controls over the sidebar instead of a separate
+title bar. A navigation plugin gets the rail or list layout its registration
+declares, and a list navigation can bring its own controls beside the sidebar
+toggle; legacy `__builtin__` and `navigation/navigation` read as
+`__automatic__`. Disabling the Navigation plugin with no other navigation
+plugin installed leaves the list layout with no destinations; Settings stays
+in the footer.
 
 The layout keys `sidebar.organizationMode`, `sidebar.threadGrouping.environment`,
 `sidebar.chronologicalSort`, `sidebar.sortDirection`, the three section-order
@@ -853,8 +900,24 @@ Experimental surfaces are changed in Settings → Experiments or with
 `bb settings experiment <key> <true|false>`. All experiments start off.
 bb stores only the experiments you set; the others follow the shipped default.
 
+The `earlyAdopter` general setting (the Become an early adopter banner on
+Settings → Experiments, `bb settings general earlyAdopter on`) switches the
+shipped default to the early adopter default: experiments marked Early adopter
+(currently `timelinePush` and `compactExpiredCache`) turn on, and the rest stay
+off. An experiment you set yourself keeps your value either way.
+`/system/config` and `sdk.system.config()` return the resolved values in
+`experiments`.
+
 - `changelogPreview` shows the latest release notes as a dismissible card on
   Settings → Updates.
+- `compactExpiredCache` (on for early adopters) reports `compactionOfferAt` on a thread's context
+  usage (timeline `contextWindowUsage` and `bb thread context`) once the
+  provider has reported a prompt-cache lifetime, the provider supports manual
+  compaction, and the context holds at least 100k tokens. After that time the
+  composer shows a Compact chip beside the context meter; while it is on, the
+  next send passes `compactFirst` so the server runs `/compact` and queues the
+  message behind it. Clicking the chip keeps the full history for that one
+  send.
 - `serverMove` enables Move server here in Settings → Machines,
   `bb server move`, `bb server export`, and old server copy deletion; while off
   those routes return 403 `server_move_experiment_disabled` (status and cancel
@@ -980,11 +1043,12 @@ skills.
 
 ### Claude Code provider
 
-| Setting            | Default | Effect                                                                                                                                                                                                                            |
-| ------------------ | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `disable1MContext` | `false` | Sets `CLAUDE_CODE_DISABLE_1M_CONTEXT=1` (`0` when off).                                                                                                                                                                           |
-| `chromeEnabled`    | `false` | Starts Claude Code with `--chrome` for Claude in Chrome tools, which bb otherwise leaves off even when the interactive `claude` CLI enables them; the host needs the extension and a claude.ai login (API-key sessions stay off). |
-| `sandboxEnabled`   | `true`  | Runs Bash in Claude Code's sandbox in Accept Edits and Approve for me modes; `false` uses Claude Code's own approvals and sandbox settings.                                                                                       |
+| Setting            | Default | Effect                                                                                                                                                                                                                                                                |
+| ------------------ | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `disable1MContext` | `false` | Sets `CLAUDE_CODE_DISABLE_1M_CONTEXT=1` (`0` when off).                                                                                                                                                                                                               |
+| `chromeEnabled`    | `false` | Starts Claude Code with `--chrome` for Claude in Chrome tools, which bb otherwise leaves off even when the interactive `claude` CLI enables them; the host needs the extension and a claude.ai login (API-key sessions stay off).                                     |
+| `artifactsEnabled` | `false` | Sets `CLAUDE_CODE_ARTIFACT=1` so Claude Code loads its Artifact tools (read, publish, and edit claude.ai artifacts), which it withholds from SDK sessions by default; when off, bb leaves any inherited value alone. Claude may publish private pages without asking. |
+| `sandboxEnabled`   | `true`  | Runs Bash in Claude Code's sandbox in Accept Edits and Approve for me modes; `false` uses Claude Code's own approvals and sandbox settings.                                                                                                                           |
 
 Set them with `bb plugin config provider-claude-code set <key> <value>`. A
 change restarts the thread's Claude process before its next turn, keeping the
@@ -1225,6 +1289,28 @@ the bb mobile app (`bb connect machine-code`, see `bb guide machines`). Mobile
 builds, the optional `GOOGLE_SERVICES_JSON` Firebase config, and publishing
 are documented in [`apps/mobile/README.md`](../apps/mobile/README.md).
 
+### Connect next (beta)
+
+The builtin connect-next plugin is disabled by default. Enabled
+(`bb plugin enable bb--connect-next`) and switched on, it also makes this server
+reachable at `https://<label>.next.getbb.app` through the Fly gate, next to
+its connect address. The domain follows the bb account: `next.<host of the
+account's base URL>` (`next.vibecodethis.site` on staging). While it is on,
+every enrolled machine's daemon also serves the ports shared from it with
+`bb connect expose <port> --host <machine>` at
+`https://<machine-label>--<port>.next.getbb.app`, downloading `frpc` into
+`<daemon data dir>/connect-next/frp/`. See the `connect-next` skill and
+[`connect-next.md`](connect-next.md).
+
+| Connect next setting | Default | Effect                                                                      |
+| -------------------- | ------- | --------------------------------------------------------------------------- |
+| `enabled`            | `true`  | "Reach this bb at its next address (beta)". Also `bb connect-next on\|off`. |
+
+| Variable                 | Effect                                                                                                                            |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
+| `BB_CONNECT_FRPC`        | Path of an `frpc` binary to run instead of the frp 0.71.0 release the plugin (or a host daemon) downloads and verifies.           |
+| `BB_CONNECT_NEXT_SERVER` | `ws://host:port` or `wss://host:port` of the frp server to dial instead of `wss://tunnel.<next domain>` derived from the account. |
+
 ### Modal machines
 
 The Modal sandbox plugin creates machines on Modal. Its settings:
@@ -1331,9 +1417,12 @@ For source development only, `pnpm dev`, `pnpm start:worktree`,
   directory plus a short hash. The server and Vite bind to loopback; an
   explicit `BB_DEV_APP_HOST` overrides the Vite listener, and remote HTTP dev
   through it also needs `BB_SERVER_BIND_HOST=0.0.0.0` for realtime updates.
+  It defaults `BB_SKIP_ONBOARDING` to `1`, so new instances skip the first-run
+  setup screen; set `BB_SKIP_ONBOARDING=0` to retain setup or replay it from Settings.
 - `pnpm start:worktree` loads the same cascade and checkout-specific data
   directory and ports, builds production artifacts, and serves the bundle from
-  the main server (no Vite or hot reload). Telemetry stays disabled. Its data
+  the main server (no Vite or hot reload). Telemetry stays disabled and
+  first-run setup is skipped, as with `pnpm dev`. Its data
   directory, ports, inherited skills, listener host, and telemetry policy take
   precedence over that instance's `config.json` or `env.json`.
 - `pnpm start:worktree-remote` does the same but binds the main server to
@@ -1368,3 +1457,17 @@ provider child. Recordings can contain secrets; redact them with
 App production builds cache React Compiler output at
 `<git-common-dir>/bb-cache/react-compiler`; it has no configuration and can be
 deleted while no build runs.
+
+Desktop Settings → Server → **Show This Mac** (or **Show This Computer** off macOS)
+defaults to checked and is disabled while This Mac/Computer is selected.
+Unchecking hides the built-in server from server choices
+while another server is active and alternatives exist. It stays listed when
+active or when it is the only choice. This setting does not stop the local
+runtime or change the active server.
+
+The desktop stores `showBuiltinServer: false` in `<userData>/server-target.json`;
+missing means shown, and saving the default omits the field. Other top-level
+metadata is preserved. This is a desktop-local preference, with no server
+settings CLI/SDK endpoint. Builds with tolerant readers ignore the field and
+may drop it on save; older strict readers can reject the whole file, so keep a
+backup before rolling back to a build predating the tolerant-reader fix #5286.

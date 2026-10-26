@@ -1,4 +1,4 @@
-import { and, eq, gt, isNull } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull } from "drizzle-orm";
 import {
   CONNECT_SESSION_EXPIRES_IN_SECONDS,
   CONNECT_SESSION_UPDATE_AGE_SECONDS,
@@ -19,8 +19,29 @@ const SESSION_REFRESH_BEFORE_EXPIRY_MS =
   (CONNECT_SESSION_EXPIRES_IN_SECONDS - CONNECT_SESSION_UPDATE_AGE_SECONDS) *
   1000;
 
+export const LOOKUP_JOIN_TIMEOUT_MS = 2_000;
+const LOOKUP_POLL_MS = 10;
+
+type LookupOutcome<T> = { ok: true; value: T } | { ok: false; error: unknown };
+
+interface InFlightLookup<T> {
+  startedAt: number;
+  outcome: LookupOutcome<T> | null;
+}
+
+async function awaitOutcome<T>(
+  lookup: InFlightLookup<T>,
+): Promise<LookupOutcome<T> | null> {
+  const deadline = lookup.startedAt + LOOKUP_JOIN_TIMEOUT_MS;
+  while (lookup.outcome === null && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, LOOKUP_POLL_MS));
+  }
+  return lookup.outcome;
+}
+
 export class SettledLookupCache<T> {
   private readonly entries = new Map<string, { value: T; expires: number }>();
+  private readonly lookups = new Map<string, InFlightLookup<T>>();
   private generation = 0;
 
   async read(
@@ -33,21 +54,48 @@ export class SettledLookupCache<T> {
     },
   ): Promise<T> {
     if (!options.fresh) {
-      const hit = this.entries.get(key);
-      if (hit && hit.expires > options.now) return hit.value;
-      if (hit) this.entries.delete(key);
+      for (;;) {
+        const hit = this.entries.get(key);
+        if (hit && hit.expires > options.now) return hit.value;
+        if (hit) this.entries.delete(key);
+        const inFlight = this.lookups.get(key);
+        if (
+          inFlight === undefined ||
+          Date.now() - inFlight.startedAt >= LOOKUP_JOIN_TIMEOUT_MS
+        ) {
+          break;
+        }
+        const outcome = await awaitOutcome(inFlight);
+        if (outcome?.ok === true) return outcome.value;
+        if (outcome?.ok === false) throw outcome.error;
+      }
     }
     const generation = this.generation;
-    const value = await options.load();
-    if (generation === this.generation) {
-      this.entries.set(key, { value, expires: options.expires(value) });
+    const lookup: InFlightLookup<T> = { startedAt: Date.now(), outcome: null };
+    this.lookups.set(key, lookup);
+    try {
+      const value = await options.load();
+      lookup.outcome = { ok: true, value };
+      if (generation === this.generation) {
+        this.entries.set(key, { value, expires: options.expires(value) });
+      }
+      return value;
+    } catch (error) {
+      lookup.outcome = { ok: false, error };
+      throw error;
+    } finally {
+      if (this.lookups.get(key) === lookup) this.lookups.delete(key);
     }
-    return value;
   }
 
   delete(key: string): void {
     this.entries.delete(key);
+    this.lookups.delete(key);
     this.generation += 1;
+  }
+
+  prime(key: string, value: T, expires: number): void {
+    this.entries.set(key, { value, expires });
   }
 }
 
@@ -103,6 +151,85 @@ export async function resolveLabel(
     expires: () => now + LABEL_TTL_MS,
     load: () => lookupLabel(label, db),
   });
+}
+
+export async function resolveLabels(
+  labels: readonly string[],
+  db: ConnectDb,
+): Promise<Map<string, ResolvedLabel | null>> {
+  const wanted = [...new Set(labels)];
+  const resolved = new Map<string, ResolvedLabel | null>();
+  if (wanted.length === 0) return resolved;
+  const now = Date.now();
+  const [serverRows, machineRows] = await Promise.all([
+    db
+      .select({
+        label: server.subdomain,
+        userId: server.userId,
+        serverId: server.id,
+        credentialHash: server.credentialHash,
+        revokedAt: server.revokedAt,
+        lastSeenAt: server.lastSeenAt,
+      })
+      .from(server)
+      .where(inArray(server.subdomain, wanted))
+      .all(),
+    db
+      .select({
+        label: machine.subdomain,
+        userId: machine.userId,
+        accountHandle: profile.handle,
+        machineId: machine.id,
+        credentialHash: machine.credentialHash,
+        revokedAt: machine.revokedAt,
+        lastSeenAt: machine.lastSeenAt,
+        generation: labelClaim.generation,
+      })
+      .from(machine)
+      .innerJoin(profile, eq(profile.userId, machine.userId))
+      .innerJoin(
+        labelClaim,
+        and(
+          eq(labelClaim.label, machine.subdomain),
+          eq(labelClaim.kind, "machine"),
+          eq(labelClaim.ownerId, machine.id),
+        ),
+      )
+      .where(inArray(machine.subdomain, wanted))
+      .all(),
+  ]);
+  for (const label of wanted) resolved.set(label, null);
+  for (const row of machineRows) {
+    if (row.label === null) continue;
+    resolved.set(row.label, {
+      kind: "machine",
+      routingKey: machineRoutingKey(row.label, row.generation),
+      userId: row.userId,
+      accountHandle: row.accountHandle,
+      machine: {
+        id: row.machineId,
+        credentialHash: row.credentialHash,
+        revokedAt: row.revokedAt,
+        lastSeenAt: row.lastSeenAt,
+      },
+    });
+  }
+  for (const row of serverRows) {
+    resolved.set(row.label, {
+      kind: "server",
+      userId: row.userId,
+      server: {
+        id: row.serverId,
+        credentialHash: row.credentialHash,
+        revokedAt: row.revokedAt,
+        lastSeenAt: row.lastSeenAt,
+      },
+    });
+  }
+  for (const [label, value] of resolved) {
+    labelCache.prime(label, value, now + LABEL_TTL_MS);
+  }
+  return resolved;
 }
 
 async function lookupLabel(
@@ -197,21 +324,34 @@ export async function verifySessionCookieDetails(
   if (dot <= 0) return null;
 
   const now = Date.now();
-  const cachedSession = await sessionCache.read(decoded, {
-    now,
-    expires: (looked) =>
-      looked === null
-        ? now + SESSION_TTL_MS
-        : Math.min(now + SESSION_TTL_MS, looked.expiresAt),
-    load: () =>
-      lookupCachedSession(
-        decoded.slice(0, dot),
-        decoded.slice(dot + 1),
-        secret,
-        db,
-        now,
-      ),
-  });
+  let loaded = false;
+  const read = (fresh: boolean) =>
+    sessionCache.read(decoded, {
+      now,
+      fresh,
+      expires: (looked) =>
+        looked === null
+          ? now + SESSION_TTL_MS
+          : Math.min(now + SESSION_TTL_MS, looked.expiresAt),
+      load: () => {
+        loaded = true;
+        return lookupCachedSession(
+          decoded.slice(0, dot),
+          decoded.slice(dot + 1),
+          secret,
+          db,
+          now,
+        );
+      },
+    });
+  let cachedSession = await read(false);
+  if (
+    !loaded &&
+    cachedSession !== null &&
+    verifiedSession(cachedSession, now).needsRefresh
+  ) {
+    cachedSession = await read(true);
+  }
   return cachedSession === null ? null : verifiedSession(cachedSession, now);
 }
 

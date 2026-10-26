@@ -7,7 +7,9 @@ const PROJECT_ID = "proj_test";
 const THREAD_ID = "thr_target";
 
 async function createHost(
-  threadReadError = new Error("temporary thread read failure"),
+  readThread: () => Promise<unknown> = async () => {
+    throw new Error("temporary thread read failure");
+  },
 ) {
   const host = createFakePluginHost({
     pluginId: "automations",
@@ -55,7 +57,7 @@ async function createHost(
       },
       threads: {
         async get() {
-          throw threadReadError;
+          return readThread();
         },
         async send() {
           return { ok: true };
@@ -151,35 +153,55 @@ describe("target thread read failures", () => {
     await host.harness.dispose();
   });
 
-  it("disables target automations after a verified missing-thread error", async () => {
-    const host = await createHost(
-      Object.assign(new Error("thread not found"), { status: 404 }),
-    );
-    const service = createService(host);
-    const first = await createTargetAutomation(service, "First target");
-    const second = await createTargetAutomation(service, "Second target");
-
-    await service.run({
-      projectId: PROJECT_ID,
-      automationId: first.id,
-    });
-
-    await waitForFailedRun(service, first.id);
-    const states = await Promise.all([
-      service.get({ projectId: PROJECT_ID, automationId: first.id }),
-      service.get({ projectId: PROJECT_ID, automationId: second.id }),
-    ]);
-    expect(states).toMatchObject([
-      {
-        enabled: false,
-        lastError: "Target thread thr_target is unavailable: thread not found",
+  it.each([
+    {
+      cause: "a verified missing thread",
+      readThread: async () => {
+        throw Object.assign(new Error("thread not found"), { status: 404 });
       },
-      {
-        enabled: false,
-        lastError: "target thread deleted",
-      },
-    ]);
+      error: "Target thread thr_target no longer exists",
+    },
+    {
+      cause: "an archived thread",
+      readThread: async () => ({
+        id: THREAD_ID,
+        status: "idle",
+        archivedAt: 1,
+        deletedAt: null,
+      }),
+      error: "Target thread thr_target was archived",
+    },
+  ])(
+    "disables target automations with the reason for $cause",
+    async ({ readThread, error }) => {
+      const host = await createHost(readThread);
+      const service = createService(host);
+      const first = await createTargetAutomation(service, "First target");
+      const second = await createTargetAutomation(service, "Second target");
 
-    await host.harness.dispose();
-  });
+      await service.run({
+        projectId: PROJECT_ID,
+        automationId: first.id,
+      });
+
+      await waitForFailedRun(service, first.id);
+      expect(
+        service.runs({
+          projectId: PROJECT_ID,
+          automationId: first.id,
+          limit: 1,
+        }).runs[0],
+      ).toMatchObject({ status: "failed", threadId: null, error });
+      const states = await Promise.all([
+        service.get({ projectId: PROJECT_ID, automationId: first.id }),
+        service.get({ projectId: PROJECT_ID, automationId: second.id }),
+      ]);
+      expect(states).toMatchObject([
+        { enabled: false, lastError: error },
+        { enabled: false, lastError: error },
+      ]);
+
+      await host.harness.dispose();
+    },
+  );
 });

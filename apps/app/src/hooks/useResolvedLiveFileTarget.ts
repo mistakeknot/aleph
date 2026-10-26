@@ -4,7 +4,7 @@ import type { OpenInTargetContext } from "@bb/host-daemon-contract";
 import type { Environment } from "@bb/domain";
 import type { ThreadStorageLocationResponse } from "@bb/server-contract";
 import { useEnvironment } from "@/hooks/queries/environment-queries";
-import { useThreadStorageLocation } from "@/hooks/queries/thread-queries";
+import { useThreadStorageLocation } from "@/hooks/queries/thread-panel-queries";
 import { useHostDaemon } from "@/hooks/useHostDaemon";
 
 type ResolvedLiveFileTarget =

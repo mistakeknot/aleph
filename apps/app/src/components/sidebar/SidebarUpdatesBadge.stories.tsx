@@ -125,10 +125,12 @@ export function MachineNotices() {
       ) : (
         <SidebarProvider className="h-screen bg-background">
           <AppLayoutSidebar
-            mode="app"
+            routeSidebar={null}
+            isSettingsActive={false}
             isResizing={false}
             onResizeMouseDown={() => {}}
             settingsRoutePath="/settings/machines"
+            backToAppRoutePath={null}
           />
           <SidebarInset>
             <main className="space-y-6 p-6">

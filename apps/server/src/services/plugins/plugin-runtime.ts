@@ -1,3 +1,8 @@
+import {
+  realtimeSubscriptionTargetKey,
+  type PluginReadSubscriptionTarget,
+} from "@bb/domain";
+import { logPluginBuildWarnings } from "./plugin-log.js";
 import type { MachineEnrollmentService } from "../machines/machine-services.js";
 import { AsyncLocalStorage } from "node:async_hooks";
 import {
@@ -12,7 +17,7 @@ import {
   realpathSync,
   type FSWatcher,
 } from "node:fs";
-import { readFile, readdir, stat } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { dirname, extname, join, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire, registerHooks } from "node:module";
@@ -28,13 +33,14 @@ import {
   type Thread,
   type ThreadQueuedMessage,
 } from "@bb/domain";
-import {
-  buildPluginApp,
-  buildPluginHost,
-  isIgnoredPluginDevPath,
-} from "@bb/plugin-build";
+import { buildPluginApp } from "@bb/plugin-build";
 import { PluginHostArtifactRegistry } from "./plugin-host-artifact-registry.js";
 import { getPluginBuildToolchain } from "./build-toolchain.js";
+import {
+  buildMutablePluginHost,
+  isMutableArtifactStale,
+  isMutablePluginHostReusable,
+} from "./mutable-plugin-artifacts.js";
 import { createNodeBbSdk, type BbSdk } from "@bb/sdk";
 import {
   getInstalledPlugin,
@@ -961,7 +967,13 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
 
   function buildThreadDto(thread: Thread) {
     return toThreadResponseFromThread(
-      { db: deps.db, hub: deps.hub },
+      {
+        db: deps.db,
+        hub: deps.hub,
+        providerRegistry: deps.providerRegistry ?? {
+          supportsSessionRewind: () => false,
+        },
+      },
       { thread },
     );
   }
@@ -1102,43 +1114,6 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
     return true;
   }
 
-  async function isMutableAppBundleStale(rootDir: string): Promise<boolean> {
-    let artifactMtimeMs: number;
-    try {
-      artifactMtimeMs = (await stat(join(rootDir, "dist", "app.js"))).mtimeMs;
-    } catch {
-      return true;
-    }
-
-    const pendingDirectories = [""];
-    while (pendingDirectories.length > 0) {
-      const relativeDirectory = pendingDirectories.pop();
-      if (relativeDirectory === undefined) break;
-      const directory = join(rootDir, relativeDirectory);
-      let entries;
-      try {
-        const directoryStats = await stat(directory);
-        if (directoryStats.mtimeMs > artifactMtimeMs) return true;
-        entries = await readdir(directory, { withFileTypes: true });
-      } catch {
-        return true;
-      }
-
-      for (const entry of entries) {
-        const relativePath = join(relativeDirectory, entry.name);
-        if (isIgnoredPluginDevPath(relativePath)) continue;
-        try {
-          const entryStats = await stat(join(rootDir, relativePath));
-          if (entryStats.mtimeMs > artifactMtimeMs) return true;
-        } catch {
-          return true;
-        }
-        if (entry.isDirectory()) pendingDirectories.push(relativePath);
-      }
-    }
-    return false;
-  }
-
   type ResolvedServerEntry = {
     path: string;
     digest: string;
@@ -1277,18 +1252,24 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
       const meta = await readPluginAppBundleMeta(row.rootDir);
       const sdkChanged = meta?.sdkVersion !== PLUGIN_SDK_VERSION;
       const sourceChanged =
-        !sdkChanged && (await isMutableAppBundleStale(row.rootDir));
+        !sdkChanged && (await isMutableArtifactStale(row.rootDir, "app"));
       if (sdkChanged || sourceChanged) {
         const reason = sdkChanged
           ? `built with SDK ${meta?.sdkVersion ?? "unknown"}, running SDK is ${PLUGIN_SDK_VERSION}`
           : "plugin source is newer than dist/app.js";
         logger.info(`plugin ${row.id}: rebuilding frontend bundle (${reason})`);
         try {
-          await buildPluginApp(
+          const app = await buildPluginApp(
             row.rootDir,
             deps.appVersion,
             await getPluginBuildToolchain(deps),
           );
+          logPluginBuildWarnings({
+            dataDir: deps.dataDir,
+            logger,
+            pluginId: row.id,
+            warnings: app.migrationWarnings,
+          });
           setDevBuildProblem(row.id, "frontend", null);
         } catch (error) {
           const message =
@@ -1324,12 +1305,24 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
         artifact: "host",
       })
     ) {
-      await buildPluginHost(
-        row.rootDir,
-        deps.appVersion,
-        await getPluginBuildToolchain(deps),
-      );
-      setDevBuildProblem(row.id, "host", null);
+      if (
+        !(await isMutablePluginHostReusable({
+          dataDir: deps.dataDir,
+          pluginId: row.id,
+          pluginVersion: manifest.version,
+          rootDir: row.rootDir,
+          bbVersion: deps.appVersion,
+        }))
+      ) {
+        await buildMutablePluginHost({
+          dataDir: deps.dataDir,
+          pluginId: row.id,
+          rootDir: row.rootDir,
+          bbVersion: deps.appVersion,
+          toolchain: await getPluginBuildToolchain(deps),
+        });
+        setDevBuildProblem(row.id, "host", null);
+      }
     }
     const jsPath = join(row.rootDir, "dist", "host.js");
     const metaPath = join(row.rootDir, "dist", "host.meta.json");
@@ -1673,6 +1666,39 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
       getAppUrl: deps.getAppUrl ?? (() => null),
       getLoopbackBaseUrl: () => boundLoopbackBaseUrl,
       rpcCaller: rpcCallers.issue(row.id),
+      invalidateRpc: (tags) => deps.hub.notifyPluginChanged(row.id, tags),
+      whileRpcWatched: (method, handler) => {
+        const active = new Map<string, AbortController>();
+        const isWatchedRead = (target: PluginReadSubscriptionTarget) =>
+          target.pluginId === row.id && target.method === method;
+        const stop = deps.hub.onWatchedTargets(["plugin-read"], (change) => {
+          for (const target of change.stopped.filter(isWatchedRead)) {
+            const key = realtimeSubscriptionTargetKey(target);
+            active.get(key)?.abort();
+            active.delete(key);
+          }
+          for (const target of change.started.filter(isWatchedRead)) {
+            const controller = new AbortController();
+            active.set(realtimeSubscriptionTargetKey(target), controller);
+            void Promise.resolve()
+              .then(() => {
+                if (!controller.signal.aborted)
+                  return handler(target.read, controller.signal);
+              })
+              .catch((error: unknown) => {
+                if (!controller.signal.aborted)
+                  deps.logger.warn(
+                    `Plugin ${row.id} watched RPC failed: ${String(error)}`,
+                  );
+              });
+          }
+        });
+        return () => {
+          stop();
+          for (const controller of active.values()) controller.abort();
+          active.clear();
+        };
+      },
       publishSignal: (channel, payload) => {
         deps.hub.notifyPluginSignal(row.id, channel, payload);
       },
@@ -1746,6 +1772,20 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
           ports,
         });
       },
+      setNextTunnels: (config) => {
+        if (!deps.sharedPorts) {
+          throw new Error("host shared-port control plane is unavailable");
+        }
+        deps.sharedPorts.setNextTunnelConfig(row.id, config);
+      },
+      nextTunnelStatuses: () =>
+        (deps.sharedPorts?.listNextTunnelStatuses() ?? []).map((entry) => ({
+          hostId: entry.hostId,
+          hostName: entry.hostName,
+          ...entry.status,
+        })),
+      onNextTunnelStatusChange: (listener) =>
+        deps.sharedPorts?.onNextTunnelStatusChange(listener) ?? (() => {}),
       replaceDeclaredSharedPorts: (declarations) => {
         if (declarations.length > 0 && !deps.sharedPorts) {
           throw new Error("host shared-port control plane is unavailable");
@@ -1766,6 +1806,12 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
           ...args,
           artifact: hostArtifactCandidate,
         });
+      },
+      openTunnelIngress: (audience) => {
+        if (!deps.openTunnelIngress) {
+          throw new Error("tunnel ingress is unavailable in this plugin host");
+        }
+        return deps.openTunnelIngress(audience);
       },
       registerAiService: (declaration) =>
         deps.aiServices.register({
@@ -1921,6 +1967,7 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
       );
     }
     disposeUnavailableProviderRegistrations(row.id);
+    deps.hub.notifyPluginChanged(row.id, null);
     loaded.set(row.id, plugin);
     appBundles.set(row.id, appBundleCandidate.snapshot);
     if (hostArtifactCandidate === null) hostArtifacts.delete(row.id);
@@ -2020,6 +2067,7 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
     const plugin = loaded.get(id);
     if (!plugin) return;
     loaded.delete(id);
+    deps.hub.notifyPluginChanged(id, null);
     await disposePluginInstance(id, plugin);
     releaseMutableRoots(plugin.moduleRootUrls);
     hostArtifacts.delete(id);

@@ -14,11 +14,17 @@ import {
 
 const mocks = vi.hoisted(() => ({
   bootPluginFrontends: vi.fn(async () => {}),
+  releaseSplitPreloads: vi.fn(),
   systemConfigData: undefined as unknown,
+}));
+
+vi.mock("@/lib/split-prefetch", () => ({
+  holdSplitPreloads: () => mocks.releaseSplitPreloads,
 }));
 
 vi.mock("@/lib/plugin-frontend-lazy", () => ({
   bootPluginFrontends: mocks.bootPluginFrontends,
+  whenPriorityPluginFrontendsLoaded: () => new Promise(() => {}),
 }));
 
 vi.mock("@/hooks/queries/system-queries", () => ({
@@ -42,7 +48,9 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
-  mocks.bootPluginFrontends.mockClear();
+  mocks.bootPluginFrontends.mockReset();
+  mocks.bootPluginFrontends.mockImplementation(async () => {});
+  mocks.releaseSplitPreloads.mockClear();
   resetPluginFrontendBootStateForTest();
 });
 
@@ -105,5 +113,20 @@ describe("usePluginFrontendBoot", () => {
       finishBoot();
     });
     expect(result.current).toBe(true);
+  });
+
+  it("holds split preloads until every plugin frontend has loaded", async () => {
+    let finishBoot: () => void = () => {};
+    mocks.bootPluginFrontends.mockImplementation(
+      () => new Promise<void>((resolve) => (finishBoot = resolve)),
+    );
+    window.history.replaceState(null, "", "/plugins/tasks/board");
+    renderHook(() => usePluginFrontendBoot());
+    await flushMicrotasks();
+    expect(mocks.bootPluginFrontends).toHaveBeenCalledTimes(1);
+    expect(mocks.releaseSplitPreloads).not.toHaveBeenCalled();
+
+    await act(async () => finishBoot());
+    expect(mocks.releaseSplitPreloads).toHaveBeenCalled();
   });
 });

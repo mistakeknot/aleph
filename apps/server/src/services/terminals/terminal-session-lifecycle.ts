@@ -5,6 +5,7 @@ import {
   createTerminalSession,
   getSessionById,
   getTerminalSession,
+  countTerminalSessions,
   listTerminalSessions,
   updateTerminalSession,
   updateTerminalSessions,
@@ -277,6 +278,7 @@ interface GetTerminalArgs {
 
 interface TerminalCreatePayload {
   cols: number;
+  id?: string;
   rows: number;
   start?: NonNullable<CreateTerminalRequest["start"]>;
   title?: string;
@@ -686,7 +688,14 @@ export class TerminalSessionLifecycle {
   }
 
   async createTerminal(args: CreateTerminalArgs): Promise<TerminalSession> {
-    const { target } = args.payload;
+    const { id, target } = args.payload;
+    if (id !== undefined && getTerminalById(this.options.db, id)) {
+      throw new ApiError(
+        409,
+        "terminal_id_conflict",
+        `Terminal session ${id} already exists`,
+      );
+    }
     const existingSessionCount = this.countExistingSessionsForTarget(target);
     const launchTarget =
       target.kind === "thread"
@@ -704,30 +713,24 @@ export class TerminalSessionLifecycle {
     switch (target.kind) {
       case "thread": {
         const thread = requirePublicThread(this.options.db, target.threadId);
-        return listTerminalSessions(this.options.db, {
+        return countTerminalSessions(this.options.db, {
           scope: { kind: "thread", threadId: thread.id },
           visible: false,
-        }).length;
+        });
       }
       case "environment":
-        return listTerminalSessions(this.options.db, {
+        return countTerminalSessions(this.options.db, {
           scope: {
             environmentId: target.environmentId,
             kind: "threadless-environment",
           },
           visible: false,
-        }).length;
+        });
       case "host_path":
-        return listTerminalSessions(this.options.db, {
-          scope: { kind: "all" },
+        return countTerminalSessions(this.options.db, {
+          scope: { kind: "host-path", hostId: target.hostId, cwd: target.cwd },
           visible: true,
-        }).filter(
-          (session) =>
-            session.threadId === null &&
-            session.environmentId === null &&
-            session.hostId === target.hostId &&
-            (target.cwd === null || session.initialCwd === target.cwd),
-        ).length;
+        });
     }
   }
 
@@ -757,6 +760,7 @@ export class TerminalSessionLifecycle {
       daemonSessionId: daemonSession.id,
       environmentId: launchTarget.environmentId,
       hostId: launchTarget.hostId,
+      id: args.payload.id,
       initialCwd: launchTarget.initialCwd,
       rows: args.payload.rows,
       status: "starting",
@@ -1588,10 +1592,7 @@ export class TerminalSessionLifecycle {
         return;
       case "visibility":
         if (this.outputAckSocketVisibility.has(args.socket)) {
-          this.outputAckSocketVisibility.set(
-            args.socket,
-            args.message.visible,
-          );
+          this.outputAckSocketVisibility.set(args.socket, args.message.visible);
         }
         this.outputFlow.setVisible(
           args.terminalId,

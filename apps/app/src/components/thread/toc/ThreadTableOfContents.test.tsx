@@ -24,12 +24,12 @@ vi.mock("@/components/ui/bottom-anchored-scroll-body.js", () => ({
   useBottomAnchoredScroll: vi.fn(),
 }));
 
-vi.mock("@/hooks/queries/thread-queries", () => ({
+vi.mock("@/hooks/queries/thread-panel-queries", () => ({
   useThreadConversationOutline: vi.fn(),
 }));
 
 import { useBottomAnchoredScroll } from "@/components/ui/bottom-anchored-scroll-body.js";
-import { useThreadConversationOutline } from "@/hooks/queries/thread-queries";
+import { useThreadConversationOutline } from "@/hooks/queries/thread-panel-queries";
 import {
   sidebarNavigationQueryKey,
   threadListQueryKey,
@@ -47,6 +47,7 @@ import {
   makeProjectWithThreadsResponse,
   makeSidebarBootstrapResponse,
 } from "@/test/fixtures/projects";
+import { createInertScrollPositionKeeper } from "@/test/scroll-position-keeper";
 
 class ResizeObserverMock implements ResizeObserver {
   constructor(private readonly callback: ResizeObserverCallback) {}
@@ -329,7 +330,7 @@ beforeEach(() => {
     scrollToBottom: vi.fn(),
     scrollElementIntoView,
     scrollElementIntoViewClampedToMaxScroll: vi.fn(),
-    captureScrollAnchor: vi.fn(),
+    positionKeeper: createInertScrollPositionKeeper(),
     holdContentPosition: vi.fn(),
   } as unknown as ReturnType<typeof useBottomAnchoredScroll>);
 

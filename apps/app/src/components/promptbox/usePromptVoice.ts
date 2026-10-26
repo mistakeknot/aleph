@@ -1,16 +1,10 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-  type RefObject,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, type RefObject } from "react";
 import { useVoiceInput } from "@/hooks/useVoiceInput";
 import { transcribeVoiceInput } from "@/lib/api";
-import type { PromptBoxHandle, PromptVoiceConfig } from "./PromptBoxInternal";
+import type { VoiceDelivery } from "@/lib/voice-recording-store";
+import type { PromptBoxHandle, PromptVoiceConfig } from "./ComposerBox";
 import {
-  createPromptVoiceIntent,
-  transcribeAfterCompletionTransition,
+  deliverPromptVoiceTranscript,
   type PromptVoiceDraftTarget,
 } from "./prompt-voice-intent";
 
@@ -29,80 +23,79 @@ async function requestVoiceTranscription({
 
 export function usePromptVoice(
   promptBoxRef: RefObject<PromptBoxHandle | null>,
-  draft?: PromptVoiceDraftTarget,
+  draft: PromptVoiceDraftTarget | undefined,
+  recordingKey: string | null,
 ): PromptVoiceConfig {
-  const [intent] = useState(createPromptVoiceIntent);
+  const mountedRef = useRef(true);
   useEffect(() => {
-    intent.setMounted(true);
+    mountedRef.current = true;
     return () => {
-      intent.setMounted(false);
+      mountedRef.current = false;
     };
-  }, [intent]);
+  }, []);
 
   const onTranscript = useCallback(
-    (text: string) =>
-      intent.deliverTranscript(text, {
+    (text: string, delivery: VoiceDelivery) =>
+      deliverPromptVoiceTranscript(text, delivery, {
+        mounted: mountedRef.current,
         promptBox: promptBoxRef.current,
         draft,
       }),
-    [draft, intent, promptBoxRef],
+    [draft, promptBoxRef],
   );
 
   const getPromptContext = useCallback(
-    () => promptBoxRef.current?.getTextBeforeCursor(),
+    () => promptBoxRef.current?.voice?.textBeforeCursor() ?? undefined,
     [promptBoxRef],
   );
 
-  const onTranscribe = useCallback(
-    (args: Parameters<typeof requestVoiceTranscription>[0]) =>
-      transcribeAfterCompletionTransition(
-        () => requestVoiceTranscription(args),
-        () => promptBoxRef.current?.playVoiceCompletionTransition(),
-        args.signal,
-      ),
+  const playCompletionTransition = useCallback(
+    () => promptBoxRef.current?.voice?.playCompletionTransition(),
     [promptBoxRef],
   );
 
   const voiceInput = useVoiceInput({
+    recordingKey,
     onTranscript,
-    onTranscribe,
+    onTranscribe: requestVoiceTranscription,
     getPromptContext,
+    playCompletionTransition,
   });
 
-  const stop = useCallback(() => {
-    if (intent.claimStop(voiceInput.state, false)) voiceInput.stop();
-  }, [intent, voiceInput]);
-  const send = useCallback(() => {
-    if (intent.claimStop(voiceInput.state, true)) voiceInput.stop();
-  }, [intent, voiceInput]);
-  const cancel = useCallback(() => {
-    intent.cancel();
-    voiceInput.cancel();
-  }, [intent, voiceInput]);
-  useEffect(() => {
-    intent.settle(voiceInput.state);
-  }, [intent, voiceInput.state]);
+  const { stop: stopVoiceInput } = voiceInput;
+  const stop = useCallback(() => stopVoiceInput("insert"), [stopVoiceInput]);
+  const send = useCallback(() => stopVoiceInput("send"), [stopVoiceInput]);
 
   return useMemo<PromptVoiceConfig>(
     () => ({
       state: voiceInput.state,
+      delivery: voiceInput.delivery,
       microphoneWarning: voiceInput.microphoneWarning,
       isSupported: voiceInput.isSupported,
       stream: voiceInput.stream,
+      failedRecordings: voiceInput.failedRecordings,
       start: voiceInput.start,
       stop,
       send,
-      cancel,
+      retry: voiceInput.retry,
+      discard: voiceInput.discard,
+      download: voiceInput.download,
+      cancel: voiceInput.cancel,
     }),
     [
       voiceInput.state,
+      voiceInput.delivery,
       voiceInput.microphoneWarning,
       voiceInput.isSupported,
       voiceInput.stream,
+      voiceInput.failedRecordings,
       voiceInput.start,
       stop,
       send,
-      cancel,
+      voiceInput.retry,
+      voiceInput.discard,
+      voiceInput.download,
+      voiceInput.cancel,
     ],
   );
 }

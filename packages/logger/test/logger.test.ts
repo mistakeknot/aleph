@@ -29,6 +29,7 @@ async function runLoggerInSubprocess(args: {
   dataDir: string;
   component: string;
   message: string;
+  stdoutFd?: number;
   timestampMs: number;
   timezone: string;
 }): Promise<SubprocessLoggerResult> {
@@ -61,18 +62,18 @@ async function runLoggerInSubprocess(args: {
       ["--conditions=source", "--import", "tsx", "-e", script],
       {
         env: childEnv,
-        stdio: ["ignore", "pipe", "pipe"],
+        stdio: ["ignore", args.stdoutFd ?? "pipe", "pipe"],
       },
     );
 
     let stdout = "";
     let stderr = "";
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk: string) => {
+    child.stdout?.setEncoding("utf8");
+    child.stderr?.setEncoding("utf8");
+    child.stdout?.on("data", (chunk: string) => {
       stdout += chunk;
     });
-    child.stderr.on("data", (chunk: string) => {
+    child.stderr?.on("data", (chunk: string) => {
       stderr += chunk;
     });
     child.once("error", reject);
@@ -170,6 +171,47 @@ describe("createLogger", () => {
     expect(getComponentLogFiles(logDir, "server").length).toBeGreaterThan(1);
   });
 
+  it("keeps the most recently written rotated files from earlier processes regardless of their numbers", async () => {
+    const dataDir = createTempDir();
+    const logDir = path.join(dataDir, "logs");
+    fs.mkdirSync(logDir, { recursive: true });
+    const hoursAgoByFile = {
+      "server.1.log": 1,
+      "server.104.log": 2,
+      "server.2.log": 3,
+      "server.3.log": 4,
+      "server.103.log": 5,
+      "server.100.log": 6,
+      "server.101.log": 7,
+      "server.102.log": 8,
+    };
+    for (const [entry, hoursAgo] of Object.entries(hoursAgoByFile)) {
+      const filePath = path.join(logDir, entry);
+      fs.writeFileSync(filePath, "");
+      const mtime = new Date(Date.now() - hoursAgo * 60 * 60 * 1000);
+      fs.utimesSync(filePath, mtime, mtime);
+    }
+    fs.writeFileSync(path.join(logDir, "server-stdio.log"), "capture");
+    fs.writeFileSync(path.join(logDir, "host-daemon.1.log"), "");
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("BB_DATA_DIR", dataDir);
+
+    const { createLogger } = await importFreshLogger();
+    createLogger({ component: "server" });
+
+    expect(getComponentLogFiles(logDir, "server")).toEqual([
+      "server.1.log",
+      "server.2.log",
+      "server.3.log",
+      "server.103.log",
+      "server.104.log",
+    ]);
+    expect(fs.readFileSync(path.join(logDir, "server-stdio.log"), "utf8")).toBe(
+      "capture",
+    );
+    expect(fs.existsSync(path.join(logDir, "host-daemon.1.log"))).toBe(true);
+  });
+
   it("delivers log lines to both the file and the process stdout in worker mode", async () => {
     const dataDir = createTempDir();
     const logDir = path.join(dataDir, "logs");
@@ -196,6 +238,33 @@ describe("createLogger", () => {
       msg: message,
       time: timestampMs,
     });
+  });
+
+  it("keeps log lines out of stdout when stdout is a plain file", async () => {
+    const dataDir = createTempDir();
+    const logDir = path.join(dataDir, "logs");
+    const stdoutPath = path.join(dataDir, "server-stdio.log");
+    const message = `stdout-file-${Date.now()}`;
+    const stdoutFd = fs.openSync(stdoutPath, "a");
+
+    try {
+      const result = await runLoggerInSubprocess({
+        component: "behavior-check",
+        dataDir,
+        message,
+        stdoutFd,
+        timestampMs: Date.parse("2026-08-08T02:53:23.000Z"),
+        timezone: "UTC",
+      });
+      expect(result.exitCode).toBe(0);
+    } finally {
+      fs.closeSync(stdoutFd);
+    }
+
+    expect(fs.readFileSync(stdoutPath, "utf8")).toBe("");
+    expect(readComponentLogLines(logDir, "behavior-check")).toMatchObject([
+      { msg: message },
+    ]);
   });
 
   it("uses an explicit data directory when provided", async () => {

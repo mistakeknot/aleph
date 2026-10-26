@@ -164,6 +164,7 @@ function renderBrowserDeck({
       canShowNativeBrowserView={canShowNativeBrowserView}
       threadId="thread-1"
       onUpdate={() => {}}
+      onOpenInNewTab={null}
     />,
   );
 }
@@ -260,11 +261,30 @@ describe("BrowserTabDeck native browser first-show ordering", () => {
       canShowNativeBrowserView
       threadId="thread-1"
       onUpdate={() => {}}
+      onOpenInNewTab={null}
     />
   );
   const savedTab = (saved: Partial<typeof desktopTarget>) => ({
     ...makeBrowserTab("native-tab", "https://example.com/saved"),
     desktopTarget: { ...desktopTarget, ...saved },
+  });
+
+  it("reveals tabs without a saved owner on mount and return while ownership is unavailable", async () => {
+    const { api, visibilityWithoutFocus } = createRecordingBrowserApi();
+    api.getTarget = async () => null;
+    installDesktopBrowser(api);
+    const tab = makeBrowserTab("local-tab", "https://example.com/saved");
+
+    for (let visit = 0; visit < 2; visit += 1) {
+      visibilityWithoutFocus.length = 0;
+      const view = render(renderTargetDeck(tab));
+      await act(async () => {});
+      expect(visibilityWithoutFocus).toContainEqual({
+        tabId: tab.id,
+        visible: true,
+      });
+      view.unmount();
+    }
   });
 
   it("shows the saved URL instead of attaching a tab from another machine", async () => {
@@ -524,6 +544,7 @@ describe("BrowserTabDeck native browser first-show ordering", () => {
         canShowNativeBrowserView
         threadId="thread-1"
         onUpdate={() => {}}
+        onOpenInNewTab={null}
       />
     );
     const view = render(deck(null));
@@ -574,6 +595,7 @@ describe("BrowserTabDeck native browser first-show ordering", () => {
         canShowNativeBrowserView={true}
         threadId="thread-1"
         onUpdate={() => {}}
+        onOpenInNewTab={null}
       />,
     );
 
@@ -618,6 +640,7 @@ describe("BrowserTabDeck native browser first-show ordering", () => {
         canShowNativeBrowserView={false}
         threadId="thread-1"
         onUpdate={() => {}}
+        onOpenInNewTab={null}
       />,
     );
     await waitFor(() => {
@@ -642,6 +665,7 @@ describe("BrowserTabDeck native browser first-show ordering", () => {
         canShowNativeBrowserView={true}
         threadId="thread-1"
         onUpdate={() => {}}
+        onOpenInNewTab={null}
       />,
     );
     await waitFor(() => {
@@ -666,6 +690,57 @@ describe("BrowserTabDeck native browser first-show ordering", () => {
     expect(restoredShowIndex).toBeGreaterThan(restoredBoundsIndex);
   });
 
+  it("follows the content box when a neighbouring panel's layout transition finishes", async () => {
+    const { api, bounds, visibilityWithoutFocus } =
+      createRecordingBrowserApi();
+    installDesktopBrowser(api);
+    renderBrowserDeck({ canShowNativeBrowserView: true });
+    await waitFor(() => {
+      expect(visibilityWithoutFocus.at(-1)).toEqual({
+        tabId: "tab-url",
+        visible: true,
+      });
+    });
+    const neighbourPanel = document.createElement("div");
+    document.body.append(neighbourPanel);
+    const settleAt = (rect: DOMRect, type: string, propertyName: string) => {
+      Object.defineProperty(Element.prototype, "getBoundingClientRect", {
+        configurable: true,
+        value: () => rect,
+      });
+      const event = new Event(type, { bubbles: true });
+      Object.defineProperty(event, "propertyName", { value: propertyName });
+      act(() => {
+        neighbourPanel.dispatchEvent(event);
+      });
+    };
+
+    settleAt(new DOMRect(52, 24, 420, 260), "transitionend", "opacity");
+    expect(bounds.at(-1)?.bounds).toEqual({
+      x: 12,
+      y: 24,
+      width: 420,
+      height: 260,
+    });
+
+    settleAt(new DOMRect(52, 24, 420, 260), "transitionend", "flex-grow");
+    expect(bounds.at(-1)?.bounds).toEqual({
+      x: 52,
+      y: 24,
+      width: 420,
+      height: 260,
+    });
+
+    settleAt(new DOMRect(40, 24, 420, 260), "transitioncancel", "flex-basis");
+    expect(bounds.at(-1)?.bounds).toEqual({
+      x: 40,
+      y: 24,
+      width: 420,
+      height: 260,
+    });
+    neighbourPanel.remove();
+  });
+
   it("keeps an unfocused split view hidden on a legacy desktop focus bridge", async () => {
     const { api, attachments, visibility } = createRecordingBrowserApi();
     const { focus: _focus, onFocus: _onFocus, ...legacyApi } = api;
@@ -680,6 +755,7 @@ describe("BrowserTabDeck native browser first-show ordering", () => {
         canHandleBrowserCommands={false}
         threadId="thread-1"
         onUpdate={() => {}}
+        onOpenInNewTab={null}
       />,
     );
 
@@ -701,6 +777,7 @@ describe("BrowserTabDeck native browser first-show ordering", () => {
         canHandleBrowserCommands={false}
         threadId="thread-1"
         onUpdate={() => {}}
+        onOpenInNewTab={null}
       />,
     );
 
@@ -731,6 +808,7 @@ describe("BrowserTabDeck native browser first-show ordering", () => {
         canShowNativeBrowserView={true}
         threadId="thread-1"
         onUpdate={() => {}}
+        onOpenInNewTab={null}
       />,
     );
 
@@ -754,6 +832,7 @@ describe("BrowserTabDeck native browser first-show ordering", () => {
         canShowNativeBrowserView
         threadId="thread-1"
         onUpdate={() => {}}
+        onOpenInNewTab={null}
       />
     );
     const view = render(renderTab(false));

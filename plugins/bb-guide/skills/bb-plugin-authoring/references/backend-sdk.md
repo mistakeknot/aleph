@@ -41,8 +41,9 @@ signatures (see "Looking up the exact API" in distribution.md).
 - `experimental_promptHistory`: `list`
 - `environments`: `list` `listProviders` `get` `update` `delete` `status`
   `paths` `commit` `archiveThreads` `diff` `diffFile` `diffFiles`
-  `diffBranches` `diffPatch` `pullRequest` `markPullRequestDraft`
-  `markPullRequestReady` `mergePullRequest` `experimental_cleanup`
+  `diffBranches` `diffPatch` `experimental_cleanup`
+  `experimental_diffViewed` `experimental_markDiffViewed`
+  `experimental_clearDiffViewed`
 - `hosts`: `list` `get` `update` `delete` `directory` `pathsExist`
   `pickFolder` `cloneDefaultPath` `providerCliStatus` `installProviderCli`
   `retryUpdate` `experimental_listProviders` `experimental_create`
@@ -227,9 +228,12 @@ const timeline = await bb.sdk.threads.timeline({ threadId });
 await bb.sdk.threads.update({ threadId, title: "Fix the flaky test" });
 ```
 
-`threads.list` filters on `projectId`, `environmentId`, `parentThreadId`, `sourceThreadId`,
-`sectionId`, `originKind`, `originPluginId`, `archived`, `unsectioned`,
-`hasParent`, and `includeHidden`, and it pages with `limit` and `offset`.
+`threads.list` filters on `projectId`, `environmentId`, `hostId`,
+`parentThreadId`, `sourceThreadId`, `sectionId`, `originKind`,
+`originPluginId`, `archived`, `unsectioned`, `hasParent`, and `includeHidden`,
+and it pages with `limit` and `offset`. `threadIds` (at most 200) narrows it to
+those threads and leaves out unknown or deleted IDs, so it also answers which
+of a set of threads still exist.
 `threads.update` writes `title`, `sectionId`, `parentThreadId`, `model`,
 `reasoningLevel`, and `visibility`. Use `threads.timeline` (or
 `threads.output` for the last assistant text) to read a thread's messages.
@@ -349,3 +353,9 @@ path-shaped `baseUrl`. Append individually encoded relative path segments to
 serve browser assets from that confined host root. This is the preferred
 transport for plugin images and sandboxed HTML with sibling-relative assets;
 preview URLs expire and never reveal the host id or absolute root.
+
+Caller-gated RPC handlers can throw `new experimental_PluginRpcRefusal({
+code: "forbidden", message: "Only the connect plugin can call this method" })`
+from `@get-bb/plugin-sdk`. `bb.sdk.plugins.callRpc` rejects with a `BbHttpError`
+whose `code` is `forbidden` and `status` is 403. See `backend-events.md` for
+the refusal codes, optional validation issues and mutation rollback behavior.

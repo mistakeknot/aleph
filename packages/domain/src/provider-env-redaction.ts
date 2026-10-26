@@ -1073,6 +1073,7 @@ export const EVENT_TYPE_POLICIES = {
   "thread/identity": "authored",
   "turn/started": "authored",
   "turn/completed": "diagnostic",
+  "turn/mainRun/updated": "diagnostic",
   "turn/input/accepted": "authored",
   "thread/name/updated": "authored",
   "thread/compacted": "authored",

@@ -10,7 +10,7 @@ import {
   useRpc,
   type PluginNavPanelProps,
   type PluginRpcResult,
-  type PluginThreadPanelProps,
+  type ExperimentalThreadActionTabProps,
 } from "@get-bb/plugin-sdk/app";
 import {
   buildSuggestions,
@@ -1368,11 +1368,12 @@ function FileDiffCard({
   const [open, setOpen] = useState(false);
   return (
     <div className="overflow-hidden rounded-lg border border-border bg-card">
-      <div className="flex w-full items-center gap-2 px-3 py-2 hover:bg-accent/50">
+      <div className="relative flex w-full select-none items-center gap-2 px-3 py-2 hover:bg-accent/50">
         <button
           type="button"
-          className="shrink-0 text-xs text-muted-foreground"
+          className="shrink-0 text-xs text-muted-foreground after:absolute after:inset-0 after:content-['']"
           aria-label={`${open ? "Collapse" : "Expand"} ${file.path} diff`}
+          aria-expanded={open}
           onClick={() => setOpen((prev) => !prev)}
         >
           {open ? "▾" : "▸"}
@@ -1383,7 +1384,7 @@ function FileDiffCard({
           </span>
         ) : (
           <FileLink
-            className="min-w-0 flex-1 truncate font-mono text-xs text-foreground hover:underline"
+            className="relative min-w-0 flex-1 truncate font-mono text-xs text-foreground hover:underline"
             target={{
               kind: "workspace",
               environmentId,
@@ -1846,7 +1847,7 @@ function PullPickerList({
   );
 }
 
-function PullPanelTab({ threadId }: PluginThreadPanelProps) {
+function PullPanelTab({ threadId }: ExperimentalThreadActionTabProps) {
   const rpc = useRpc<typeof githubRpcContract>();
   const [resolved, setResolved] = useState(false);
   const [selected, setSelected] = useState<{
@@ -2235,7 +2236,9 @@ export default definePluginApp((app) => {
     component: GithubPanel,
     headerContent: PanelHeader,
   });
-  app.slots.threadPanelAction({
+  app.slots.experimental_tab({
+    context: { kind: "thread" },
+    availability: "action",
     id: "pull",
     title: "GitHub PR",
     icon: "Github",

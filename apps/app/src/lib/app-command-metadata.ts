@@ -94,7 +94,7 @@ export const APP_COMMAND_GROUPS: readonly AppCommandGroup[] = [
       command(
         "app.back",
         "Back to app",
-        "Return from Settings, Plugins, or Skills to the app.",
+        "Return from Settings, Plugins, Skills, or a plugin page with its own sidebar to the app.",
       ),
       command(
         "history.back",
@@ -211,8 +211,8 @@ export const APP_COMMAND_GROUPS: readonly AppCommandGroup[] = [
       ),
       command(
         "logs.openServerDaemon",
-        "Open server and daemon logs",
-        "Open the desktop log viewer for the bb server and host daemon.",
+        "Open local logs",
+        "Open local desktop, server, and host daemon logs.",
       ),
       command(
         "dataDirectory.open",

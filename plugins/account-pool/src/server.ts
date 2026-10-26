@@ -305,9 +305,10 @@ export function createAccountPoolPlugin(
     };
     const canServeThread = async (
       provider: PoolProvider,
-      threadId: string,
+      threadId: string | null,
     ): Promise<boolean> =>
-      !(await routing.isBypassed(threadId)) && (await canServe(provider));
+      (threadId === null || !(await routing.isBypassed(threadId))) &&
+      (await canServe(provider));
     const poolExecHost = bb.hosts.experimental_client({
       contract: poolExecHostContract,
     });
@@ -415,21 +416,27 @@ export function createAccountPoolPlugin(
         provider: PoolProvider,
         serving: (token: string) => Promise<PoolEnvEntry[]>,
       ) =>
-      async (context: { threadId: string; hostId: string }) => {
-        if (await canServeThread(provider, context.threadId)) {
-          await bb.storage.kv.set(`retry-route:${context.threadId}`, provider);
+      async (context: { threadId: string | null; hostId: string }) => {
+        const { threadId } = context;
+        if (await canServeThread(provider, threadId)) {
           const token = await hubTokens.forHost(context.hostId);
-          if (provider === "claude") {
-            await routing.recordRouted(context.threadId, context.hostId);
+          if (threadId !== null) {
+            await bb.storage.kv.set(`retry-route:${threadId}`, provider);
+            if (provider === "claude") {
+              await routing.recordRouted(threadId, context.hostId);
+            }
           }
           return [
             ...(await serving(token)),
-            ...(currentSettings.nestedLaunchThreadIds.includes(context.threadId)
+            ...(threadId !== null &&
+            currentSettings.nestedLaunchThreadIds.includes(threadId)
               ? markerEntries(token)
               : blankMarkerEntries),
           ];
         }
-        await bb.storage.kv.delete(`retry-route:${context.threadId}`);
+        if (threadId !== null) {
+          await bb.storage.kv.delete(`retry-route:${threadId}`);
+        }
         return parentPool === null
           ? blankMarkerEntries
           : [...neutralized(provider), ...blankMarkerEntries];

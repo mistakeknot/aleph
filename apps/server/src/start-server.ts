@@ -17,6 +17,7 @@ import {
   listRunningThreads,
   listStoredAlephInstallRequests,
   updateStoredAlephInstallRequest,
+  setAppSettings,
 } from "@bb/db";
 import { initDb } from "./db.js";
 import { createApp } from "./server.js";
@@ -157,6 +158,15 @@ export async function runServer(
       logger,
     });
   }
+  if (serverConfig.BB_SKIP_ONBOARDING) {
+    const settings = getAppSettings(db);
+    if (settings.onboardingCompletedAt === null) {
+      setAppSettings(db, {
+        ...settings,
+        onboardingCompletedAt: new Date().toISOString(),
+      });
+    }
+  }
   const serverMoveRun =
     pendingServerMove === null
       ? await reconcileServerMoveRunAtBoot({
@@ -182,6 +192,7 @@ export async function runServer(
     appVersion: serverConfig.BB_APP_VERSION,
     builtinSkillsRootPath: resolveBuiltinSkillsRootPath(),
     marketplaceUrl: serverConfig.BB_MARKETPLACE_URL,
+    connectGateKeysUrl: serverConfig.BB_CONNECT_GATE_KEYS_URL,
     customModels: [],
     dataDir: serverConfig.BB_DATA_DIR,
     featureFlags: serverConfig.featureFlags,
@@ -337,6 +348,7 @@ export async function runServer(
     pluginCatalogService,
     pluginService,
     serverMove,
+    tunnelIngress,
   } = createApp(
     {
       alephUpdate,
@@ -541,6 +553,7 @@ export async function runServer(
           resolve();
         });
       });
+      await tunnelIngress.closeAll();
       await closeWebSockets();
       await closeServer;
     })();

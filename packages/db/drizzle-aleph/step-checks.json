@@ -55,5 +55,14 @@
       "event_cold_segments",
       "thread_event_cold_state"
     ]
+  },
+  "A0011": {
+    "writesTables": [
+      "threads",
+      "thread_redirects",
+      "queued_thread_messages",
+      "transfer_entries",
+      "transfer_events"
+    ]
   }
 }

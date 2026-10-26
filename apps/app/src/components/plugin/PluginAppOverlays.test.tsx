@@ -29,6 +29,7 @@ import { resetAllCrashedPluginSlotsForTest } from "./PluginSlotMount";
 import { PluginAppOverlays } from "./PluginAppOverlays";
 import { makePluginRegistrationSet as registrationSet } from "@/test/fixtures/plugins";
 import { LocationProbe } from "@/test/location-probe";
+import { SidebarThreadEntriesTestProvider } from "@/test/sidebarThreadEntriesTestProvider";
 
 vi.mock("@/components/dialogs/ThreadDeleteDialog", () => ({
   ThreadDeleteDialog: () => null,
@@ -187,14 +188,16 @@ describe("PluginAppOverlays", () => {
 
     render(
       <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={["/projects/proj_1/threads/thr_1"]}>
-          <RouteNavigationProvider>
-            <ThreadActionsProvider>
-              <PluginAppOverlays />
-              <LocationProbe />
-            </ThreadActionsProvider>
-          </RouteNavigationProvider>
-        </MemoryRouter>
+        <SidebarThreadEntriesTestProvider>
+          <MemoryRouter initialEntries={["/projects/proj_1/threads/thr_1"]}>
+            <RouteNavigationProvider>
+              <ThreadActionsProvider>
+                <PluginAppOverlays />
+                <LocationProbe />
+              </ThreadActionsProvider>
+            </RouteNavigationProvider>
+          </MemoryRouter>
+        </SidebarThreadEntriesTestProvider>
       </QueryClientProvider>,
     );
 

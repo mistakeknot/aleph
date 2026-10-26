@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { ThreadPullRequest, WorkspaceStatus } from "@bb/domain";
+import type { WorkspaceStatus } from "@bb/domain";
 import {
   setupCommandOutputTestEnvironment,
   collectLogLines,
@@ -48,6 +48,7 @@ describe("bb environment command output", () => {
       baseRef: "def456",
       aheadCount: 2,
       behindCount: 0,
+      squashMergeCheckComplete: true,
       hasCommittedUnmergedChanges: true,
       commits: [],
       files: [],
@@ -56,35 +57,6 @@ describe("bb environment command output", () => {
       lineStatsComplete: true,
       fileCount: 0,
     },
-  };
-
-  const pullRequest: ThreadPullRequest = {
-    number: 701,
-    title: "Environment inspection parity",
-    state: "open",
-    url: "https://github.com/example/bb/pull/701",
-    baseRefName: "main",
-    headRefName: "bb/environment-cli",
-    updatedAt: "2026-07-14T12:00:00.000Z",
-    autoMerge: false,
-    inMergeQueue: false,
-    checks: {
-      state: "passing",
-      totalCount: 2,
-      passedCount: 2,
-      failedCount: 0,
-      pendingCount: 0,
-    },
-    review: {
-      state: "review_required",
-      reviewRequestCount: 1,
-    },
-    mergeability: {
-      state: "mergeable",
-      mergeStateStatus: "CLEAN",
-      mergeable: "MERGEABLE",
-    },
-    attention: "ready_to_merge",
   };
 
   it("does not list a squash-merge command in help", async () => {
@@ -358,6 +330,25 @@ describe("bb environment command output", () => {
     );
   });
 
+  it("qualifies status counts when squash detection is incomplete", async () => {
+    const workspace = structuredClone(workspaceStatus);
+    if (!workspace.mergeBase) throw new Error("Missing comparison fixture");
+    workspace.mergeBase.squashMergeCheckComplete = false;
+    stubServerApi({
+      "v1.environments.:id.status.$get": vi.fn(async () => ({
+        outcome: "available",
+        workspace,
+      })),
+    });
+    await runCommand(["environment", "status", "env-incomplete"], register);
+    expect(collectLogLines(vi.mocked(console.log))).toEqual(
+      expect.arrayContaining([
+        "Ahead: 2",
+        "Squash-merge check incomplete; counts may include already-merged commits.",
+      ]),
+    );
+  });
+
   it("bb environment status --json preserves the canonical response", async () => {
     const response = {
       outcome: "available",
@@ -413,79 +404,6 @@ describe("bb environment command output", () => {
     expect(collectLogLines(vi.mocked(console.log))).toContain(
       "Status unavailable: Workspace status is not available for non-git environments",
     );
-  });
-
-  it("bb environment pull-request show reports absence and presence", async () => {
-    const get = vi
-      .fn()
-      .mockResolvedValueOnce({ outcome: "absent" })
-      .mockResolvedValueOnce({ outcome: "available", pullRequest });
-    stubServerApi({ "v1.environments.:id.pull-request.$get": get });
-
-    await runCommand(
-      ["environment", "pull-request", "show", "env-pr-none"],
-      register,
-    );
-    expect(collectLogLines(vi.mocked(console.log))).toContain(
-      "No pull request found",
-    );
-
-    vi.mocked(console.log).mockClear();
-    await runCommand(
-      ["environment", "pull-request", "show", "env-pr-present"],
-      register,
-    );
-
-    expect(get).toHaveBeenNthCalledWith(1, {
-      param: { id: "env-pr-none" },
-    });
-    expect(get).toHaveBeenNthCalledWith(2, {
-      param: { id: "env-pr-present" },
-    });
-    expect(collectLogLines(vi.mocked(console.log))).toEqual(
-      expect.arrayContaining([
-        "Pull request: #701 open - Environment inspection parity",
-        "Branch: bb/environment-cli -> main",
-        "Checks: passing (2 passed, 0 failed, 0 pending, 2 total)",
-        "Auto-merge: off",
-        "Merge queue: not queued",
-      ]),
-    );
-  });
-
-  it("bb environment pull-request show --json preserves the outcome", async () => {
-    stubServerApi({
-      "v1.environments.:id.pull-request.$get": vi.fn(async () => ({
-        outcome: "absent",
-      })),
-    });
-
-    await runCommand(
-      ["environment", "pull-request", "show", "env-pr-json", "--json"],
-      register,
-    );
-
-    expect(
-      JSON.parse(String(vi.mocked(console.log).mock.calls[0]?.[0])),
-    ).toEqual({ outcome: "absent" });
-  });
-
-  it("bb environment pull-request show reports a failed lookup", async () => {
-    stubServerApi({
-      "v1.environments.:id.pull-request.$get": vi.fn(async () => ({
-        outcome: "unavailable",
-        message: "gh pr view failed: authentication required",
-      })),
-    });
-
-    await runCommand(
-      ["environment", "pull-request", "show", "env-pr-down"],
-      register,
-    );
-
-    expect(vi.mocked(console.log).mock.calls.map((call) => call[0])).toEqual([
-      "Pull request lookup unavailable: gh pr view failed: authentication required",
-    ]);
   });
 
   it("bb environment branches returns local and remote results", async () => {
@@ -814,6 +732,7 @@ describe("bb environment command output", () => {
       json: {
         target: { type: "branch_committed", mergeBaseBranch: "main" },
         paths: ["src/a.ts", "src/b.ts"],
+        ignoreWhitespace: false,
       },
     });
     expect(collectLogLines(vi.mocked(console.log))).toEqual([
@@ -822,6 +741,158 @@ describe("bb environment command output", () => {
       "File: src/b.ts",
       "@@ -1 +1 @@",
       "(patch truncated)",
+    ]);
+  });
+
+  it("bb environment diff-files and diff-patch forward --ignore-whitespace", async () => {
+    const get = vi.fn(async () => ({
+      outcome: "available",
+      files: [],
+      shortstat: "",
+      mergeBaseRef: null,
+      initialPatches: [],
+      truncated: false,
+    }));
+    const post = vi.fn(async () => ({ outcome: "available", patches: [] }));
+    stubServerApi({
+      "v1.environments.:id.diff.files.$get": get,
+      "v1.environments.:id.diff.patch.$post": post,
+    });
+
+    await runCommand(
+      [
+        "environment",
+        "diff-files",
+        "env-ws",
+        "--target",
+        "uncommitted",
+        "--ignore-whitespace",
+      ],
+      register,
+    );
+    await runCommand(
+      [
+        "environment",
+        "diff-patch",
+        "env-ws",
+        "--target",
+        "uncommitted",
+        "--path",
+        "a.ts",
+        "--ignore-whitespace",
+      ],
+      register,
+    );
+
+    expect(get).toHaveBeenCalledWith({
+      param: { id: "env-ws" },
+      query: { target: "uncommitted", ignoreWhitespace: "true" },
+    });
+    expect(post).toHaveBeenCalledWith({
+      param: { id: "env-ws" },
+      json: {
+        target: { type: "uncommitted" },
+        paths: ["a.ts"],
+        ignoreWhitespace: true,
+      },
+    });
+  });
+
+  it("bb environment diff-viewed mark uses the file's current revision", async () => {
+    const get = vi.fn(async () => ({
+      outcome: "available",
+      files: [
+        {
+          path: "src/a.ts",
+          previousPath: null,
+          changeKind: "modified",
+          additions: 1,
+          deletions: 1,
+          binary: false,
+          origin: "tracked",
+          loadMode: "auto",
+          revision: "100644:aaa:100644:bbb",
+        },
+      ],
+      shortstat: "1 file changed",
+      mergeBaseRef: null,
+      initialPatches: [],
+      truncated: false,
+    }));
+    const post = vi.fn(async () => ({
+      files: [{ path: "src/a.ts", revision: "100644:aaa:100644:bbb" }],
+    }));
+    const put = vi.fn(async () => ({ ok: true }));
+    const del = vi.fn(async () => ({ ok: true }));
+    stubServerApi({
+      "v1.environments.:id.diff.files.$get": get,
+      "v1.environments.:id.diff.viewed.$put": put,
+      "v1.environments.:id.diff.viewed.$post": post,
+      "v1.environments.:id.diff.viewed.$delete": del,
+    });
+
+    await runCommand(
+      [
+        "environment",
+        "diff-viewed",
+        "list",
+        "env-viewed",
+        "--target",
+        "uncommitted",
+        "--path",
+        "src/a.ts",
+        "--path",
+        "src/b.ts",
+      ],
+      register,
+    );
+    expect(post).toHaveBeenCalledWith({
+      param: { id: "env-viewed" },
+      json: { target: "uncommitted", paths: ["src/a.ts", "src/b.ts"] },
+    });
+    await runCommand(
+      [
+        "environment",
+        "diff-viewed",
+        "mark",
+        "env-viewed",
+        "--target",
+        "uncommitted",
+        "--path",
+        "src/a.ts",
+      ],
+      register,
+    );
+    await runCommand(
+      [
+        "environment",
+        "diff-viewed",
+        "unmark",
+        "env-viewed",
+        "--target",
+        "uncommitted",
+        "--path",
+        "src/a.ts",
+      ],
+      register,
+    );
+
+    expect(put).toHaveBeenCalledWith({
+      param: { id: "env-viewed" },
+      json: {
+        target: { type: "uncommitted" },
+        path: "src/a.ts",
+        revision: "100644:aaa:100644:bbb",
+      },
+    });
+    expect(del).toHaveBeenCalledWith({
+      param: { id: "env-viewed" },
+      json: { target: { type: "uncommitted" }, path: "src/a.ts" },
+    });
+    expect(collectLogLines(vi.mocked(console.log))).toEqual([
+      "100644:aaa:100644:bbb\tsrc/a.ts",
+      "Viewed state updated.",
+      "Viewed state updated.",
     ]);
   });
 

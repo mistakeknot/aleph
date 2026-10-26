@@ -1,6 +1,5 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { GitHostPullRequest } from "@bb/domain";
 import { makeTempDir } from "@bb/test-helpers";
 import { describe, expect, it } from "vitest";
 import {
@@ -112,191 +111,6 @@ describe("workspace command dispatch", () => {
     expect(harness.manager.get("env-late-git")?.workspace.isGitRepo).toBe(true);
   });
 
-  it("covers workspace.pull_request", async () => {
-    const harness = createHarness();
-    await harness.manager.replaceBaseShellEnv({
-      PATH: "/Users/test/.local/bin:/usr/bin",
-    });
-    await harness.manager.ensureEnvironment({
-      environmentId: "env-1",
-      workspacePath: "/tmp/env-1",
-    });
-
-    const pullRequest: GitHostPullRequest = {
-      number: 42,
-      title: "Add timeline polish",
-      state: "OPEN",
-      url: "https://github.com/bb/bb/pull/42",
-      isDraft: false,
-      baseRefName: "main",
-      headRefName: "bb/timeline-polish",
-      updatedAt: "2026-06-16T12:30:00Z",
-      autoMerge: false,
-      inMergeQueue: false,
-      checks: [],
-      reviewDecision: null,
-      reviewRequestCount: 0,
-      mergeStateStatus: "CLEAN",
-      mergeable: "MERGEABLE",
-    };
-    harness.workspaceState.pullRequest = pullRequest;
-
-    const presentResult = await dispatchOnlineRpcCommand(
-      {
-        type: "workspace.pull_request",
-        environmentId: "env-1",
-        workspaceContext: {
-          workspacePath: "/tmp/env-1",
-        },
-      },
-      harness.dispatchOptions(),
-      new AbortController().signal,
-    );
-    expect(presentResult).toEqual({ outcome: "available", pullRequest });
-    expect(harness.workspaceState.pullRequestLookupShellPath).toBe(
-      "/Users/test/.local/bin:/usr/bin",
-    );
-
-    harness.workspaceState.pullRequest = null;
-    const absentResult = await dispatchOnlineRpcCommand(
-      {
-        type: "workspace.pull_request",
-        environmentId: "env-1",
-        workspaceContext: {
-          workspacePath: "/tmp/env-1",
-        },
-      },
-      harness.dispatchOptions(),
-      new AbortController().signal,
-    );
-    expect(absentResult).toEqual({ outcome: "absent" });
-
-    harness.workspaceState.pullRequestLookupError =
-      "gh pr view failed: authentication required";
-    const unavailableResult = await dispatchOnlineRpcCommand(
-      {
-        type: "workspace.pull_request",
-        environmentId: "env-1",
-        workspaceContext: {
-          workspacePath: "/tmp/env-1",
-        },
-      },
-      harness.dispatchOptions(),
-      new AbortController().signal,
-    );
-    expect(unavailableResult).toEqual({
-      outcome: "unavailable",
-      message: "gh pr view failed: authentication required",
-    });
-  });
-
-  it("returns no pull request when the workspace is not a git repo", async () => {
-    const harness = createHarness({ workspacePath: "/tmp/non-git-pr-env" });
-    harness.workspace.isGitRepo = false;
-    harness.workspaceState.pullRequest = {
-      number: 7,
-      title: "Should not surface",
-      state: "OPEN",
-      url: "https://github.com/bb/bb/pull/7",
-      isDraft: false,
-      baseRefName: "main",
-      headRefName: "bb/hidden-pr",
-      updatedAt: "2026-06-16T12:30:00Z",
-      autoMerge: false,
-      inMergeQueue: false,
-      checks: [],
-      reviewDecision: null,
-      reviewRequestCount: 0,
-      mergeStateStatus: "CLEAN",
-      mergeable: "MERGEABLE",
-    };
-    await harness.manager.ensureEnvironment({
-      environmentId: "env-non-git-pr",
-      workspacePath: "/tmp/non-git-pr-env",
-    });
-
-    const result = await dispatchOnlineRpcCommand(
-      {
-        type: "workspace.pull_request",
-        environmentId: "env-non-git-pr",
-        workspaceContext: {
-          workspacePath: "/tmp/non-git-pr-env",
-        },
-      },
-      harness.dispatchOptions(),
-      new AbortController().signal,
-    );
-
-    expect(result).toEqual({ outcome: "absent" });
-  });
-
-  it("covers workspace.pull_request_action", async () => {
-    const harness = createHarness({ isWorktree: true });
-    await harness.manager.replaceBaseShellEnv({
-      PATH: "/Users/test/.local/bin:/usr/bin",
-    });
-    await harness.manager.ensureEnvironment({
-      environmentId: "env-1",
-      workspacePath: "/tmp/env-1",
-    });
-
-    await expect(
-      dispatchCommand(
-        {
-          type: "workspace.pull_request_action",
-          operation: "ready",
-          environmentId: "env-1",
-          workspaceContext: {
-            workspacePath: "/tmp/env-1",
-          },
-        },
-        harness.dispatchOptions(),
-      ),
-    ).resolves.toEqual({});
-    expect(harness.workspaceState.lastPullRequestAction).toEqual({
-      operation: "ready",
-    });
-    expect(harness.workspaceState.pullRequestActionShellPath).toBe(
-      "/Users/test/.local/bin:/usr/bin",
-    );
-
-    await expect(
-      dispatchCommand(
-        {
-          type: "workspace.pull_request_action",
-          operation: "draft",
-          environmentId: "env-1",
-          workspaceContext: {
-            workspacePath: "/tmp/env-1",
-          },
-        },
-        harness.dispatchOptions(),
-      ),
-    ).resolves.toEqual({});
-    expect(harness.workspaceState.lastPullRequestAction).toEqual({
-      operation: "draft",
-    });
-
-    await expect(
-      dispatchCommand(
-        {
-          type: "workspace.pull_request_action",
-          operation: "merge",
-          method: "rebase",
-          environmentId: "env-1",
-          workspaceContext: {
-            workspacePath: "/tmp/env-1",
-          },
-        },
-        harness.dispatchOptions(),
-      ),
-    ).resolves.toEqual({});
-    expect(harness.workspaceState.lastPullRequestAction).toEqual({
-      operation: "merge",
-      method: "rebase",
-    });
-  });
-
   it("rehydrates a missing workspace runtime from workspaceContext", async () => {
     const harness = createHarness({ workspacePath: "/tmp/env-rehydrate" });
 
@@ -389,6 +203,7 @@ describe("workspace command dispatch", () => {
     const result = await dispatchOnlineRpcCommand(
       {
         type: "host.list_files",
+        followRootSymlink: false,
         path: tempDir,
         limit: 1000,
         includeHidden: false,
@@ -452,6 +267,7 @@ describe("workspace command dispatch", () => {
     const result = await dispatchOnlineRpcCommand(
       {
         type: "host.list_files",
+        followRootSymlink: false,
         path: missingPath,
         limit: 1000,
         includeHidden: false,
@@ -504,6 +320,7 @@ describe("workspace command dispatch", () => {
       dispatchOnlineRpcCommand(
         {
           type: "host.list_files",
+          followRootSymlink: false,
           path: symlinkRoot,
           limit: 1000,
           includeHidden: false,
@@ -517,6 +334,75 @@ describe("workspace command dispatch", () => {
       code: "invalid_path",
       message: expect.stringContaining("must not be a symlink"),
     });
+  });
+
+  it("reads and lists a linked skill while confining files to its resolved root", async () => {
+    const tempDir = await makeTempDir("bb-dispatch-linked-skill-");
+    const skillRoot = path.join(tempDir, "shared", "research");
+    const linkedRoot = path.join(tempDir, "research");
+    await fs.mkdir(path.join(skillRoot, "references"), { recursive: true });
+    await fs.writeFile(path.join(skillRoot, "SKILL.md"), "# Research");
+    await fs.writeFile(
+      path.join(skillRoot, "references", "guide.md"),
+      "# Guide",
+    );
+    await fs.writeFile(path.join(skillRoot, ".env"), "hidden");
+    await fs.writeFile(path.join(tempDir, "outside.md"), "outside");
+    await fs.symlink(skillRoot, linkedRoot, "dir");
+    await fs.symlink(
+      path.join(tempDir, "outside.md"),
+      path.join(skillRoot, "escape.md"),
+    );
+    const harness = createHarness();
+    const signal = new AbortController().signal;
+
+    const files = await dispatchOnlineRpcCommand(
+      {
+        type: "host.list_files",
+        followRootSymlink: true,
+        path: linkedRoot,
+        limit: 200,
+        includeHidden: false,
+        respectGitIgnore: false,
+        excludeNames: [],
+      },
+      harness.dispatchOptions(),
+      signal,
+    );
+    expect(files.files.map((file) => file.path).sort()).toEqual([
+      "SKILL.md",
+      "references/guide.md",
+    ]);
+
+    const read = (relativePath: string) =>
+      dispatchOnlineRpcCommand(
+        {
+          type: "host.read_file_relative",
+          followRootSymlink: true,
+          rootPath: linkedRoot,
+          path: relativePath,
+          dotfiles: "deny",
+        },
+        harness.dispatchOptions(),
+        signal,
+      );
+    await expect(read("SKILL.md")).resolves.toMatchObject({
+      content: "# Research",
+    });
+    await expect(read("references/guide.md")).resolves.toMatchObject({
+      content: "# Guide",
+    });
+    await expect(read("escape.md")).rejects.toMatchObject({
+      code: "invalid_path",
+      message: expect.stringContaining("escapes read root"),
+    });
+    await expect(read("../outside.md")).rejects.toMatchObject({
+      code: "invalid_path",
+    });
+    await expect(read(".env")).rejects.toMatchObject({ code: "ENOENT" });
+
+    await fs.rm(skillRoot, { recursive: true });
+    await expect(read("SKILL.md")).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("returns base64 for image files", async () => {
@@ -557,6 +443,7 @@ describe("workspace command dispatch", () => {
     const result = await dispatchOnlineRpcCommand(
       {
         type: "host.read_file_relative",
+        followRootSymlink: false,
         rootPath: tempDir,
         path: "assets/logo.png",
         dotfiles: "deny",
@@ -582,6 +469,7 @@ describe("workspace command dispatch", () => {
     const result = await dispatchOnlineRpcCommand(
       {
         type: "host.read_file_relative",
+        followRootSymlink: false,
         rootPath: tempDir,
         path: "large.png",
         dotfiles: "deny",
@@ -603,6 +491,7 @@ describe("workspace command dispatch", () => {
       dispatchOnlineRpcCommand(
         {
           type: "host.read_file_relative",
+          followRootSymlink: false,
           rootPath: tempDir,
           path: "../secrets.txt",
           dotfiles: "deny",
@@ -627,6 +516,7 @@ describe("workspace command dispatch", () => {
       dispatchOnlineRpcCommand(
         {
           type: "host.read_file_relative",
+          followRootSymlink: false,
           rootPath: tempDir,
           path: ".env",
           dotfiles: "deny",
@@ -653,6 +543,7 @@ describe("workspace command dispatch", () => {
       dispatchOnlineRpcCommand(
         {
           type: "host.read_file_relative",
+          followRootSymlink: false,
           rootPath: tempDir,
           path: "outside-link.txt",
           dotfiles: "deny",
@@ -682,6 +573,7 @@ describe("workspace command dispatch", () => {
       dispatchOnlineRpcCommand(
         {
           type: "host.read_file_relative",
+          followRootSymlink: false,
           rootPath: symlinkRoot,
           path: "index.html",
           dotfiles: "deny",

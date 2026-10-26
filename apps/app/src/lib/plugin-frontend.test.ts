@@ -6,10 +6,13 @@ import { Icon } from "@bb/shared-ui/icon";
 import {
   createPluginFrontendPageLifecycle,
   installPluginRuntime,
-  loadPluginFrontends,
+  loadPluginFrontend,
   type PluginFrontendCandidate,
 } from "./plugin-frontend";
-import { pluginSdkAppImplementation } from "./plugin-sdk-app-impl";
+import {
+  pluginSdkAppImplementation,
+  retiredPluginSdkAppMembers,
+} from "./plugin-sdk-app-impl";
 
 function candidate(
   pluginId: string,
@@ -30,7 +33,7 @@ function candidate(
   };
 }
 
-describe("loadPluginFrontends", () => {
+describe("loadPluginFrontend", () => {
   it("contains an import failure to its own plugin", async () => {
     const good = { default: {} };
     const importModule = vi.fn().mockImplementation(async (url: string) => {
@@ -41,17 +44,16 @@ describe("loadPluginFrontends", () => {
     });
     const warn = vi.fn();
 
-    const records = await loadPluginFrontends(
-      [candidate("broken"), candidate("fine", { cssUrl: null })],
-      { importModule, warn },
-    );
+    const deps = { importModule, warn };
 
-    expect(records.get("broken")).toEqual({
+    expect(await loadPluginFrontend(candidate("broken"), deps)).toEqual({
       pluginId: "broken",
       status: "failed",
       error: "SyntaxError: unexpected token",
     });
-    expect(records.get("fine")).toEqual({
+    expect(
+      await loadPluginFrontend(candidate("fine", { cssUrl: null }), deps),
+    ).toEqual({
       pluginId: "fine",
       status: "loaded",
       module: good,
@@ -62,14 +64,14 @@ describe("loadPluginFrontends", () => {
   });
 
   it("records a bundle that evaluates to a non-module as failed", async () => {
-    const records = await loadPluginFrontends(
-      [candidate("odd", { cssUrl: null })],
+    const record = await loadPluginFrontend(
+      candidate("odd", { cssUrl: null }),
       {
         importModule: async () => undefined,
         warn: vi.fn(),
       },
     );
-    expect(records.get("odd")).toMatchObject({
+    expect(record).toMatchObject({
       status: "failed",
       error: expect.stringContaining("module namespace"),
     });
@@ -79,18 +81,16 @@ describe("loadPluginFrontends", () => {
     const importModule = vi.fn();
     const warn = vi.fn();
 
-    const records = await loadPluginFrontends(
-      [
-        candidate("stale", {
-          compatible: false,
-          sdkMajor: 9,
-          sdkVersion: "9.2.0",
-        }),
-      ],
+    const record = await loadPluginFrontend(
+      candidate("stale", {
+        compatible: false,
+        sdkMajor: 9,
+        sdkVersion: "9.2.0",
+      }),
       { importModule, warn },
     );
 
-    expect(records.get("stale")).toEqual({
+    expect(record).toEqual({
       pluginId: "stale",
       status: "needs-update",
       sdkMajor: 9,
@@ -150,7 +150,11 @@ describe("installPluginRuntime", () => {
       react.useState,
     );
     expect((runtime.jsxRuntime as { jsx: unknown }).jsx).toBe(jsxRuntime.jsx);
-    expect(runtime.pluginSdkApp).toBe(pluginSdkAppImplementation);
+    expect(runtime.pluginSdkApp).toEqual({
+      ...pluginSdkAppImplementation,
+      experimental_useSidebarThreadPullRequest:
+        retiredPluginSdkAppMembers.experimental_useSidebarThreadPullRequest,
+    });
 
     installPluginRuntime();
     expect((globalThis as RuntimeHost).__bbPluginRuntime).toBe(runtime);

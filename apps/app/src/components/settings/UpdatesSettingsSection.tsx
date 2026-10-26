@@ -78,7 +78,7 @@ import {
 import { appToast } from "@/components/ui/app-toast";
 import { BbLogo } from "@/components/ui/bb-logo";
 import { AlephUpdateRow, useAlephUpdateRowStatus } from "./AlephUpdateRow";
-import { OverflowFade } from "@/components/ui/overflow-fade";
+import { OverflowFade } from "@bb/shared-ui/overflow-fade";
 import { SettingsSection } from "@/components/ui/settings-section";
 import { invalidateHostProviderCliStatus } from "@/hooks/cache-owners/provider-cli-status-cache-owner";
 import { hydrateAppUpdateStatus } from "@/hooks/cache-owners/app-update-cache-owner";

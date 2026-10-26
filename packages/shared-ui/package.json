@@ -4,6 +4,11 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./expandable-text": {
+      "source": "./src/components/ui/expandable-text.tsx",
+      "types": "./src/components/ui/expandable-text.tsx",
+      "default": "./src/components/ui/expandable-text.tsx"
+    },
     "./activity-row-styles": {
       "source": "./src/components/ui/activity-row-styles.ts",
       "types": "./src/components/ui/activity-row-styles.ts",
@@ -154,11 +159,6 @@
       "types": "./src/components/ui/popover.tsx",
       "default": "./src/components/ui/popover.tsx"
     },
-    "./resource-route-label": {
-      "source": "./src/components/ui/resource-route-label.ts",
-      "types": "./src/components/ui/resource-route-label.ts",
-      "default": "./src/components/ui/resource-route-label.ts"
-    },
     "./resource-list": {
       "source": "./src/components/ui/resource-list.tsx",
       "types": "./src/components/ui/resource-list.tsx",
@@ -173,6 +173,11 @@
       "source": "./src/components/ui/resource-pagination.tsx",
       "types": "./src/components/ui/resource-pagination.tsx",
       "default": "./src/components/ui/resource-pagination.tsx"
+    },
+    "./prompt-banner-actions": {
+      "source": "./src/components/ui/prompt-banner-actions.tsx",
+      "types": "./src/components/ui/prompt-banner-actions.tsx",
+      "default": "./src/components/ui/prompt-banner-actions.tsx"
     },
     "./prompt-stack-disclosure": {
       "source": "./src/components/ui/prompt-stack-disclosure.tsx",
@@ -319,6 +324,11 @@
       "types": "./src/components/ui/sidebar-row-classes.ts",
       "default": "./src/components/ui/sidebar-row-classes.ts"
     },
+    "./sidebar-hover-actions": {
+      "source": "./src/components/ui/sidebar-hover-actions.ts",
+      "types": "./src/components/ui/sidebar-hover-actions.ts",
+      "default": "./src/components/ui/sidebar-hover-actions.ts"
+    },
     "./sidebar-visibility-customize": {
       "source": "./src/components/ui/sidebar-visibility-customize.tsx",
       "types": "./src/components/ui/sidebar-visibility-customize.tsx",
@@ -353,11 +363,41 @@
       "source": "./src/components/ui/use-sidebar-reorder-dnd.ts",
       "types": "./src/components/ui/use-sidebar-reorder-dnd.ts",
       "default": "./src/components/ui/use-sidebar-reorder-dnd.ts"
+    },
+    "./overflow-fade": {
+      "source": "./src/components/ui/overflow-fade.tsx",
+      "types": "./src/components/ui/overflow-fade.tsx",
+      "default": "./src/components/ui/overflow-fade.tsx"
+    },
+    "./shortcut-pill": {
+      "source": "./src/components/ui/shortcut-pill.tsx",
+      "types": "./src/components/ui/shortcut-pill.tsx",
+      "default": "./src/components/ui/shortcut-pill.tsx"
+    },
+    "./split-pane-mini-map": {
+      "source": "./src/components/ui/split-pane-mini-map.tsx",
+      "types": "./src/components/ui/split-pane-mini-map.tsx",
+      "default": "./src/components/ui/split-pane-mini-map.tsx"
+    },
+    "./truncate-start": {
+      "source": "./src/components/ui/truncate-start.tsx",
+      "types": "./src/components/ui/truncate-start.tsx",
+      "default": "./src/components/ui/truncate-start.tsx"
+    },
+    "./video": {
+      "source": "./src/components/ui/video.tsx",
+      "types": "./src/components/ui/video.tsx",
+      "default": "./src/components/ui/video.tsx"
+    },
+    "./video-thumbnail": {
+      "source": "./src/components/ui/video-thumbnail.tsx",
+      "types": "./src/components/ui/video-thumbnail.tsx",
+      "default": "./src/components/ui/video-thumbnail.tsx"
     }
   },
   "scripts": {
     "clean": "rimraf tsconfig.tsbuildinfo",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsrs --noEmit"
   },
   "bb": {
     "pluginTailwindContent": [
@@ -424,8 +464,8 @@
     "react-hook-form": "^7.80.0",
     "react-resizable-panels": "^2.1.7",
     "recharts": "^2.15.4",
+    "tsrs": "0.18.0-ts7.1.0-dev.20260929",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
-    "typescript-7": "npm:typescript@^7.0.2",
     "vaul": "^1.1.2"
   }
 }

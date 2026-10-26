@@ -279,6 +279,8 @@ describe("thread timeline parent lookups", () => {
         maxInlineOutputChars: null,
         maxSeq: 25,
         page: { kind: "latest", segmentLimit: 1 },
+        compactionOfferEnabled: false,
+        summarizeShellCommands: false,
       }).response.rows;
     });
 

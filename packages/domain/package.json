@@ -39,6 +39,11 @@
       "types": "./src/queued-message-lifecycle.ts",
       "default": "./src/queued-message-lifecycle.ts"
     },
+    "./thread-parent-notifications": {
+      "source": "./src/thread-parent-notifications.ts",
+      "types": "./src/thread-parent-notifications.ts",
+      "default": "./src/thread-parent-notifications.ts"
+    },
     "./thread-visibility": {
       "source": "./src/thread-visibility.ts",
       "types": "./src/thread-visibility.ts",
@@ -93,7 +98,7 @@
   "types": "./src/index.ts",
   "scripts": {
     "clean": "rimraf dist tsconfig.tsbuildinfo",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsrs --noEmit",
     "test": "vitest run --config vitest.config.ts"
   },
   "dependencies": {
@@ -102,7 +107,7 @@
   "devDependencies": {
     "@bb/tsconfig": "workspace:*",
     "@types/node": "^22.0.0",
-    "typescript": "npm:@typescript/typescript6@^6.0.2",
-    "typescript-7": "npm:typescript@^7.0.2"
+    "tsrs": "0.18.0-ts7.1.0-dev.20260929",
+    "typescript": "npm:@typescript/typescript6@^6.0.2"
   }
 }

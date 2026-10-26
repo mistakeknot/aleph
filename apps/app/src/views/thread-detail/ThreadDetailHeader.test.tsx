@@ -15,6 +15,9 @@ import { ThreadTitleMentionResourcesProvider } from "@/components/thread/ThreadT
 import { makeThreadListEntry } from "@bb/test-helpers/domain-fixtures";
 import { sdk } from "@/lib/sdk";
 import { createBbDesktopApi } from "@/test/bb-desktop-test-utils";
+import { MACOS_TITLE_BAR_TRAILING_TOGGLE_CLASS } from "@/lib/bb-desktop";
+import { SidebarProvider } from "@/components/ui/sidebar";
+import { MemoryRouter } from "react-router-dom";
 import { AppCommandProvider } from "@/components/commands/AppCommandProvider";
 import {
   ThreadActionCollectors,
@@ -53,7 +56,10 @@ vi.mock("@/components/layout/AppPageHeader", () => ({
   ),
 }));
 
-const viewportState = vi.hoisted(() => ({ isCompactViewport: false }));
+const viewportState = vi.hoisted(() => ({
+  isCompactViewport: false,
+  isPointerCoarse: false,
+}));
 
 vi.mock("@/hooks/queries/system-queries", () => ({
   useSystemConfig: () => ({
@@ -85,6 +91,10 @@ vi.mock("@/components/layout/AppHeaderStatusStrip", () => ({
   AppHeaderStatusStrip: () => <span data-testid="app-header-status-strip" />,
 }));
 
+vi.mock("@bb/shared-ui/hooks/use-pointer-coarse", () => ({
+  usePointerCoarse: () => viewportState.isPointerCoarse,
+}));
+
 const THREAD_ID = "thr_header";
 
 const PANE_CONTEXT: PaneContextValue = {
@@ -106,6 +116,7 @@ afterEach(() => {
   cleanup();
   resetThreadActionRegistryForTest();
   viewportState.isCompactViewport = false;
+  viewportState.isPointerCoarse = false;
   mocks.renameThreadAsync.mockReset();
   vi.restoreAllMocks();
   window.localStorage.clear();
@@ -599,6 +610,44 @@ describe("ThreadDetailHeader", () => {
     );
   });
 
+  it("places the window toggle's reserved slot over the title-bar toggle so its whole box stays clickable", () => {
+    window.bbDesktop = createBbDesktopApi({
+      lastCheckedAt: null,
+      latestVersion: null,
+      pendingVersion: null,
+      platform: "macos",
+      updateAvailable: false,
+      updateDownloaded: false,
+      version: "0.0.0-test",
+    });
+    const { container } = render(
+      <MemoryRouter>
+        <SidebarProvider framed>
+          <PaneContext.Provider
+            value={{ ...PANE_CONTEXT, reservesWindowPanelToggle: true }}
+          >
+            <ThreadDetailHeader
+              actionsMenu={null}
+              isSecondaryPanelOpen={false}
+              onOpenThreadGitAction={vi.fn()}
+              onToggleSecondaryPanel={vi.fn()}
+              threadHeaderGitActions={[]}
+              threadId={THREAD_ID}
+              threadTitle="Pinned toggle"
+            />
+          </PaneContext.Provider>
+        </SidebarProvider>
+      </MemoryRouter>,
+    );
+
+    const slot = container.querySelector("span[aria-hidden].header-icon-button");
+    expect(slot).not.toBeNull();
+    const classes = slot?.className.split(" ") ?? [];
+    for (const token of MACOS_TITLE_BAR_TRAILING_TOGGLE_CLASS.split(" ")) {
+      expect(classes).toContain(token);
+    }
+  });
+
   it("does not start a pane drag while the header title is being edited", async () => {
     const beginPaneDrag = vi.fn();
     render(
@@ -718,17 +767,66 @@ describe("ThreadDetailHeader", () => {
     expect(requestRenameDialog).not.toHaveBeenCalled();
   });
 
-  it("opens the rename dialog from the actions menu at compact width", () => {
-    viewportState.isCompactViewport = true;
-    const { menuArgs, requestRenameDialog } = renderWithMenuArgs();
-    menuArgs.current?.requestRename(THREAD_ID);
-    const closeEvent = new Event("focusout", { cancelable: true });
-    menuArgs.current?.onCloseAutoFocus(closeEvent);
-
-    expect(requestRenameDialog).toHaveBeenCalledWith(THREAD_ID);
-    expect(closeEvent.defaultPrevented).toBe(false);
-    expect(screen.queryByRole("textbox", { name: "Thread name" })).toBeNull();
-  });
+  it.each([
+    { compact: false, coarse: false },
+    { compact: true, coarse: false },
+    { compact: false, coarse: true },
+    { compact: true, coarse: true },
+  ])(
+    "chooses rename presentation for compact=$compact coarse=$coarse",
+    async ({ compact, coarse }) => {
+      viewportState.isCompactViewport = compact;
+      viewportState.isPointerCoarse = coarse;
+      const { menuArgs, requestRenameDialog } = renderWithMenuArgs();
+      const expectsDialog = compact || coarse;
+      menuArgs.current?.requestRename(THREAD_ID);
+      menuArgs.current?.onCloseAutoFocus(
+        new Event("focusout", { cancelable: true }),
+      );
+      if (expectsDialog) {
+        expect(requestRenameDialog).toHaveBeenCalledWith(THREAD_ID);
+        expect(
+          screen.queryByRole("textbox", { name: "Thread name" }),
+        ).toBeNull();
+      } else {
+        fireEvent.keyDown(
+          await screen.findByRole("textbox", { name: "Thread name" }),
+          { key: "Escape" },
+        );
+      }
+      requestRenameDialog.mockClear();
+      fireEvent.keyDown(window, {
+        key: "R",
+        code: "KeyR",
+        ctrlKey: true,
+        shiftKey: true,
+      });
+      if (expectsDialog) {
+        expect(requestRenameDialog).toHaveBeenCalledWith(THREAD_ID);
+        expect(
+          screen.queryByRole("textbox", { name: "Thread name" }),
+        ).toBeNull();
+      } else {
+        fireEvent.keyDown(
+          await screen.findByRole("textbox", { name: "Thread name" }),
+          { key: "Escape" },
+        );
+      }
+      requestRenameDialog.mockClear();
+      fireEvent.doubleClick(screen.getByText("Focused thread"));
+      if (coarse) {
+        expect(requestRenameDialog).toHaveBeenCalledWith(THREAD_ID);
+        expect(
+          screen.queryByRole("textbox", { name: "Thread name" }),
+        ).toBeNull();
+      } else {
+        expect(
+          await screen.findByRole("textbox", { name: "Thread name" }),
+        ).toHaveProperty("value", "Focused thread");
+        expect(requestRenameDialog).not.toHaveBeenCalled();
+      }
+    },
+  );
 
   it.each([
     [true, true],

@@ -1,7 +1,7 @@
-import { CAMPAIGN_PARAM_NAMES } from "./site";
+import { CAMPAIGN_PARAM_NAMES, CLICK_ID_PARAM_NAMES } from "./site";
 
 const SAVED_UTM_KEY = "bb:landing-utm";
-const DOWNLOAD_PATH_PREFIX = "/download/";
+const DOWNLOAD_PATH = /^\/download\/(macos|windows|linux)$/;
 const CARRY_EVENTS = ["pointerdown", "click"] as const;
 
 type UtmStorage = Pick<Storage, "getItem" | "setItem">;
@@ -44,12 +44,33 @@ export function readSavedUtm(storage: UtmStorage): URLSearchParams {
 }
 
 export function carryUtmToDownloadLinks(): () => void {
-  let storage: UtmStorage;
+  const globalPrivacyControl =
+    "globalPrivacyControl" in navigator &&
+    navigator.globalPrivacyControl === true;
+  if (globalPrivacyControl) {
+    const landingUrl = new URL(window.location.href);
+    for (const name of CLICK_ID_PARAM_NAMES) {
+      landingUrl.searchParams.delete(name);
+    }
+    if (landingUrl.href !== window.location.href) {
+      window.history.replaceState(window.history.state, "", landingUrl.href);
+    }
+  }
+  let storage: UtmStorage | null = null;
   try {
     storage = window.sessionStorage;
-    rememberLatestUtm(storage, window.location.search);
+    const landingParams = new URLSearchParams(window.location.search);
+    if (globalPrivacyControl) {
+      const saved = readSavedUtm(storage);
+      for (const name of CLICK_ID_PARAM_NAMES) {
+        saved.delete(name);
+        landingParams.delete(name);
+      }
+      storage.setItem(SAVED_UTM_KEY, saved.toString());
+    }
+    rememberLatestUtm(storage, landingParams.toString());
   } catch {
-    return () => {};
+    storage = null;
   }
 
   const carry = (event: Event) => {
@@ -60,11 +81,29 @@ export function carryUtmToDownloadLinks(): () => void {
     if (
       !(link instanceof HTMLAnchorElement) ||
       link.origin !== window.location.origin ||
-      !link.pathname.startsWith(DOWNLOAD_PATH_PREFIX)
+      !DOWNLOAD_PATH.test(link.pathname)
     ) {
       return;
     }
-    const search = addSavedUtmParams(link.search, readSavedUtm(storage));
+    let saved = new URLSearchParams();
+    try {
+      if (storage) {
+        saved = readSavedUtm(storage);
+      }
+    } catch {
+      storage = null;
+    }
+    let linkSearch = link.search;
+    if (globalPrivacyControl) {
+      const params = new URLSearchParams(linkSearch);
+      for (const name of CLICK_ID_PARAM_NAMES) {
+        saved.delete(name);
+        params.delete(name);
+      }
+      const query = params.toString();
+      linkSearch = query ? `?${query}` : "";
+    }
+    const search = addSavedUtmParams(linkSearch, saved);
     if (search !== link.search) {
       link.search = search;
     }

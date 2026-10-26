@@ -55,7 +55,7 @@ export const READ_ONLY_COMMAND_PATHS: ReadonlySet<string> = new Set([
   "environment diff-file",
   "environment diff-patch",
   "environment providers",
-  "environment pull-request show",
+  "pull-request show",
   "file read",
   "file list",
   "file paths",

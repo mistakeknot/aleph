@@ -309,6 +309,29 @@ describe("EnvironmentProvisioningFailureRow", () => {
 });
 
 describe("GitStatusRow", () => {
+  it("qualifies counts when squash detection is incomplete", () => {
+    const markup = renderToStaticMarkup(
+      <TooltipProvider>
+        <GitStatusRow
+          thread={makeThread()}
+          environment={null}
+          workspaceStatus={makeWorkspaceStatus({
+            mergeBase: makeWorkspaceMergeBase({
+              aheadCount: 3,
+              squashMergeCheckComplete: false,
+            }),
+          })}
+          workspaceStatusError={null}
+        />
+      </TooltipProvider>,
+    );
+    expect(markup).toContain("3 ahead of main");
+    expect(markup).toContain(
+      'aria-label="Squash-merge check incomplete; counts may include already-merged commits."',
+    );
+    expect(markup).not.toContain(">Squash-merge check incomplete");
+  });
+
   it("shows no live git status for an archived attached checkout", () => {
     const markup = renderToStaticMarkup(
       <GitStatusRow
@@ -345,6 +368,45 @@ describe("GitStatusRow", () => {
       ),
     ).toContain("2 ahead of release");
     expect(render(null)).toBe("");
+  });
+
+  it("keeps the last known comparison when a refresh fails and flags it as stale", () => {
+    const render = (workspaceStatusError: Error | null) =>
+      renderToStaticMarkup(
+        <TooltipProvider>
+          <GitStatusRow
+            thread={makeThread()}
+            environment={null}
+            workspaceStatus={makeWorkspaceStatus({
+              mergeBase: makeWorkspaceMergeBase({
+                mergeBaseBranch: "main",
+                aheadCount: 3,
+              }),
+            })}
+            workspaceStatusError={workspaceStatusError}
+          />
+        </TooltipProvider>,
+      );
+
+    const stale = render(new Error("bb connect hit a temporary problem"));
+    expect(stale).toContain("3 ahead of main");
+    expect(stale).toContain(
+      "Couldn&#x27;t refresh: Workspace status unavailable. Showing the last known status.",
+    );
+    expect(render(null)).not.toContain("Couldn&#x27;t refresh");
+  });
+
+  it("shows the failure when no status has loaded", () => {
+    const markup = renderToStaticMarkup(
+      <GitStatusRow
+        thread={makeThread()}
+        environment={null}
+        workspaceStatus={undefined}
+        workspaceStatusError={new Error("bb connect hit a temporary problem")}
+      />,
+    );
+
+    expect(markup).toContain("Workspace status unavailable");
   });
 
   it("phrases the branch comparison against its merge base", () => {

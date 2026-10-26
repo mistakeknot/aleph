@@ -185,6 +185,7 @@ function seedThreadWithEarlyHeadState(
               status: "pending",
               taskStatus: "running",
               skipTranscript: false,
+              foreground: false,
               workflowName: "fixture-mini",
               usage: { totalTokens: 100, toolUses: 2, durationMs: 1500 },
             },
@@ -218,6 +219,8 @@ function seedThreadWithEarlyHeadState(
 const baseOptions = {
   includeClearedContextHistory: false,
   includeDiagnosticOperations: false,
+  compactionOfferEnabled: false,
+  summarizeShellCommands: true,
   includeNestedRows: true,
   maxInlineOutputChars: null,
   maxSeq: 0,

@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export const experimentKeys = [
   "changelogPreview",
+  "compactExpiredCache",
   "serverMove",
   "performanceDiagnostics",
   "timelinePush",
@@ -20,7 +21,16 @@ export type ExperimentUpdates = z.infer<typeof experimentUpdatesSchema>;
 
 export const defaultExperiments: Experiments = {
   changelogPreview: false,
+  compactExpiredCache: false,
   serverMove: false,
   performanceDiagnostics: false,
   timelinePush: false,
+};
+
+export const earlyAdopterExperiments: Experiments = {
+  changelogPreview: false,
+  compactExpiredCache: true,
+  serverMove: false,
+  performanceDiagnostics: false,
+  timelinePush: true,
 };

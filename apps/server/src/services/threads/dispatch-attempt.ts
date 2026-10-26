@@ -15,6 +15,7 @@ import {
   type RunningThreadRow,
 } from "@bb/db";
 import {
+  createStandaloneBuiltinCompactCommandInput,
   promptInputSchema,
   type PromptInput,
   type QueuedMessagePayload,
@@ -58,7 +59,11 @@ import {
 } from "./queue-waits.js";
 import { applyLoggedThreadLifecycleEventInTransaction } from "./lifecycle-outcome.js";
 import { buildExecutionOptions } from "./thread-commands.js";
-import { getActiveTurnId, isManualCompactionActive } from "./thread-events.js";
+import {
+  getActiveTurnId,
+  isActiveTurnMainRunIdle,
+  isManualCompactionActive,
+} from "./thread-events.js";
 import { requireThreadCommandEnvironment } from "./thread-command-environment.js";
 import { assertThreadHostAcceptsWork } from "./thread-host-admission.js";
 import {
@@ -319,6 +324,13 @@ async function runDispatchAttempt(
   // provisional successor cannot dispatch native work via a missing plugin
   // hook, a user Send-now, or any other path through this checkpoint.
   ensureProvisionalSuccessorFenceOpen(deps, thread);
+  if (
+    payload.mode === "queue-if-active" &&
+    isActiveTurnMainRunIdle(deps, thread)
+  ) {
+    payload = { ...payload, mode: "steer-if-active" };
+    args = { ...args, payload };
+  }
   if (args.trigger === "user" && args.source.kind === "inline") {
     // Reject what can never deliver while the sender is still listening; a
     // drain has nobody to tell, and its rows were validated when they were queued.
@@ -371,18 +383,6 @@ async function runDispatchAttempt(
     payload,
     args.executionDefaults ?? { threadId: thread.id },
   );
-  const resolvedPayload = resolveExecutionIntoPayload(payload, execution);
-  const queuedMessage: QueuedDispatchMessage = {
-    input: payload.input,
-    execution,
-    senderThreadId,
-    origin: args.origin,
-    originPluginId: args.originPluginId,
-    requestedBy: args.startedOnBehalfOf,
-    payload: args.queuePayload,
-    systemNotice: null,
-  };
-
   const directUserPost =
     args.source.kind === "inline" &&
     args.trigger === "user" &&
@@ -396,6 +396,28 @@ async function runDispatchAttempt(
         );
       }
     : undefined;
+
+  if (payload.compactFirst) {
+    const { compactFirst, ...request } = payload;
+    // Compaction is its own send, so it re-checks the admitted destination
+    // before and inside its transaction; the ordinary send's later check
+    // cannot undo a compaction already submitted to a retired source.
+    assertDestinationCurrent?.(deps.db);
+    await compactThreadContext(deps, thread, assertDestinationCurrent);
+    payload = request;
+    args = { ...args, payload };
+  }
+  const resolvedPayload = resolveExecutionIntoPayload(payload, execution);
+  const queuedMessage: QueuedDispatchMessage = {
+    input: payload.input,
+    execution,
+    senderThreadId,
+    origin: args.origin,
+    originPluginId: args.originPluginId,
+    requestedBy: args.startedOnBehalfOf,
+    payload: args.queuePayload,
+    systemNotice: null,
+  };
 
   const waitOn = (
     waitingOn: QueuedMessageWaitingOn,
@@ -879,4 +901,44 @@ function resolveExecutionIntoPayload(
       permissionMode: "explicit",
     },
   };
+}
+
+export async function compactThreadContext(
+  deps: LoggedPendingInteractionWorkSessionDeps,
+  thread: Thread,
+  assertDestinationCurrent?: DestinationCheck,
+): Promise<void> {
+  ensureThreadIsWritable(thread);
+  if (!deps.providerRegistry.supportsManualCompaction(thread.providerId)) {
+    throw new ApiError(
+      409,
+      "invalid_request",
+      `Provider "${thread.providerId}" does not support manual context compaction`,
+    );
+  }
+  if (thread.status !== "idle" && thread.status !== "error") {
+    throw new ApiError(
+      409,
+      "invalid_request",
+      "Context can only be compacted while the thread is idle or errored",
+    );
+  }
+
+  const environment = await requireThreadCommandEnvironment(deps, { thread });
+  await sendThreadMessage(deps, {
+    environment,
+    payload: {
+      input: createStandaloneBuiltinCompactCommandInput(),
+      mode: "start",
+    },
+    thread,
+    trigger: "user",
+    ...(assertDestinationCurrent !== undefined
+      ? {
+          beforeAppendInTransaction: ({ tx }) => {
+            assertDestinationCurrent(tx);
+          },
+        }
+      : {}),
+  });
 }

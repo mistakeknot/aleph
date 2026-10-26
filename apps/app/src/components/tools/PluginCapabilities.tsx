@@ -231,6 +231,13 @@ function pluginAppSurfaceItems(
     ),
     ...namedSlotItems(
       pluginId,
+      slots.experimentalSidebarNavigations,
+      "sidebar-navigation",
+      "Can draw the sidebar navigation; configured in Appearance.",
+      () => getSettingsRoutePath("appearance"),
+    ),
+    ...namedSlotItems(
+      pluginId,
       slots.sourceCodeRenderers,
       "source-code-renderer",
       "Replaces how source code is displayed everywhere in the app.",
@@ -240,6 +247,13 @@ function pluginAppSurfaceItems(
       slots.diffRenderers,
       "diff-renderer",
       "Replaces how diffs are displayed everywhere in the app.",
+    ),
+    ...namedSlotItems(
+      pluginId,
+      slots.composers,
+      "composer",
+      "Can replace the thread composer; configured in Appearance.",
+      () => getSettingsRoutePath("appearance"),
     ),
     ...namedSlotItems(
       pluginId,
@@ -282,6 +296,24 @@ function pluginAppSurfaceItems(
       slots.threadHeaderActions,
       "thread-header",
       "Adds an action to thread headers.",
+    ),
+    ...namedSlotItems(
+      pluginId,
+      slots.threadContextSegments,
+      "thread-context",
+      "Adds context beside a thread's composer.",
+    ),
+    ...namedSlotItems(
+      pluginId,
+      slots.threadInfoRows,
+      "thread-info-row",
+      "Adds a row to the thread Info tab.",
+    ),
+    ...namedSlotItems(
+      pluginId,
+      slots.threadInfoSections,
+      "thread-info-section",
+      "Adds a section to the thread Info tab.",
     ),
     ...namedSlotItems(
       pluginId,

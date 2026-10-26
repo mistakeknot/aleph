@@ -147,26 +147,18 @@ const VIEW_FIXTURE_ANCHORS: Record<string, readonly FixtureAnchor[]> = {
         "The held-open fixture keeps the real message-role tabs and popover surface.",
     },
     {
-      file: "apps/app/src/views/thread-detail/ThreadDetailView.tsx",
-      mustContain: [
-        'label: "Info"',
-        'label: "Diff"',
-        '<Icon name="Info" />',
-        '<Icon name="FileDiff" />',
-      ],
+      file: "apps/app/src/components/secondary-panel/ThreadMetadataContent.tsx",
+      mustContain: ['appearance="flat"', "<EnvironmentRow", "<BranchRow"],
       because:
-        "The thread projection exposes the same fixed secondary-panel tabs as BB.",
+        "The open Info panel projects BB's flat metadata card and representative environment and branch rows.",
     },
     {
-      file: "apps/app/src/components/secondary-panel/ThreadMetadataContent.tsx",
+      file: "plugins/github-pr-status/ui/PullRequestInfoRow.tsx",
       mustContain: [
-        'appearance="flat"',
-        "<EnvironmentRow",
-        "<BranchRow",
-        "<PullRequestRow",
+        '<DetailRow icon="GitPullRequestArrow" label="Pull request">',
       ],
       because:
-        "The open Info panel projects BB's flat metadata card and representative environment, branch, and pull-request rows.",
+        "The GitHub PR Status plugin draws the Info panel's pull-request row.",
     },
     {
       file: "apps/app/src/components/promptbox/follow-up-placeholder.ts",

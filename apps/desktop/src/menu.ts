@@ -7,9 +7,10 @@ import {
 } from "electron";
 import type { BbDesktopZoomCommand } from "@bb/desktop-contract";
 import type { ApplicationMenuAccelerators } from "./desktop-menu-shortcuts.js";
+import { builtinServerName } from "./server-target.js";
 import type { ConnectServerSyncSkipReason } from "./connect-server-sync.js";
 
-const SERVER_DAEMON_LOGS_MENU_LABEL = "Server & Daemon Logs";
+const LOCAL_LOGS_MENU_LABEL = "Local Logs";
 const OPEN_NEW_TAB_MENU_LABEL = "New Tab";
 const REOPEN_CLOSED_TAB_MENU_LABEL = "Reopen Closed Tab";
 const NEW_THREAD_MENU_LABEL = "New Thread";
@@ -49,6 +50,8 @@ interface ApplicationMenuServerItem {
 export interface InstallApplicationMenuArgs {
   accelerators: ApplicationMenuAccelerators;
   isMac: boolean;
+  showBuiltinServer: boolean;
+  toggleBuiltinServer(): void;
   openAbout(): void;
   openNewTab(): void;
   openNewThread(): void;
@@ -63,27 +66,25 @@ export interface InstallApplicationMenuArgs {
   createNewWindow(): void;
   goBack(): void;
   goForward(): void;
-  openServerDaemonLogs(): void;
+  openLocalLogs(): void;
   selectServer(serverId: string): void;
   setServerUrl(): void;
   signInToConnect(): void;
   addServer(): void;
   onServerMenuWillShow?: () => void;
-  serverDaemonLogsMenuEnabled: boolean;
   servers: ApplicationMenuServerItem[];
   connectServersSkipReason: ConnectServerSyncSkipReason | null;
 }
 
-function createServerDaemonLogsMenuItems(
+function createLocalLogsMenuItems(
   args: InstallApplicationMenuArgs,
 ): MenuItemConstructorOptions[] {
   return [
     { type: "separator" },
     {
-      enabled: args.serverDaemonLogsMenuEnabled,
-      label: SERVER_DAEMON_LOGS_MENU_LABEL,
+      label: LOCAL_LOGS_MENU_LABEL,
       click() {
-        args.openServerDaemonLogs();
+        args.openLocalLogs();
       },
     },
   ];
@@ -91,6 +92,9 @@ function createServerDaemonLogsMenuItems(
 
 export type ServerMenuArgs = Pick<
   InstallApplicationMenuArgs,
+  | "isMac"
+  | "showBuiltinServer"
+  | "toggleBuiltinServer"
   | "addServer"
   | "connectServersSkipReason"
   | "selectServer"
@@ -144,6 +148,18 @@ export function createServerMenuItems(
       label: SET_SERVER_URL_MENU_LABEL,
       click() {
         args.setServerUrl();
+      },
+    },
+    { type: "separator" },
+    {
+      checked: args.showBuiltinServer,
+      enabled: !args.servers.some(
+        (server) => server.id === "builtin" && server.checked,
+      ),
+      label: `Show ${builtinServerName(args.isMac ? "darwin" : "linux")}`,
+      type: "checkbox",
+      click() {
+        args.toggleBuiltinServer();
       },
     },
   ];
@@ -301,7 +317,9 @@ export function buildApplicationMenuTemplate(
             args.zoomFocusedPage("out");
           },
         },
-        ...createServerDaemonLogsMenuItems(args),
+        { type: "separator" },
+        { role: "togglefullscreen" },
+        ...createLocalLogsMenuItems(args),
       ],
     },
     {

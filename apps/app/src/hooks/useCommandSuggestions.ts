@@ -27,16 +27,19 @@ interface UseCommandSuggestionsArgs {
   composerFocused?: boolean;
 }
 
+export type CommandSuggestionSource = Omit<
+  UseCommandSuggestionsArgs,
+  "activeTrigger" | "query" | "composerFocused"
+>;
+
 const COMMAND_CATALOG_PREFETCH_STALE_TIME_MS = 30_000;
 
 interface UseCommandSuggestionsResult {
   triggers: readonly PromptMentionCommandTrigger[];
   suggestions: ProviderCommandSuggestion[];
   isLoading: boolean;
+  isRefreshing: boolean;
   isError: boolean;
-  hasMore: boolean;
-  isLoadingMore: boolean;
-  loadMore: () => void;
 }
 
 interface CommandSuggestionPromptAction {
@@ -83,18 +86,23 @@ export function promptActionCommandSuggestions({
 
 export function threadProviderCommandSuggestions({
   commands,
+  catalog,
   query,
   trigger,
 }: {
   commands: readonly ProviderCommand[] | null | undefined;
+  catalog: readonly ProviderCommand[];
   query: string;
   trigger: PromptMentionCommandTrigger | null;
 }): ProviderCommandSuggestion[] {
   if (trigger !== "/") {
     return [];
   }
+  const catalogNames = new Set(catalog.map((command) => command.name));
   return filterCommandSuggestions(
-    (commands ?? []).map(toProviderCommandSuggestion),
+    (commands ?? [])
+      .filter((command) => !catalogNames.has(command.name))
+      .map(toProviderCommandSuggestion),
     query,
   );
 }
@@ -259,8 +267,9 @@ export function useCommandSuggestions(
     if (!isActive) {
       return [];
     }
+    const catalog = commandsQuery.data?.commands ?? [];
     const discoveredSuggestions = discoveredCommandSuggestions({
-      commands: commandsQuery.data?.commands ?? [],
+      commands: catalog,
       trigger,
       commandScope: args.commandScope,
       query: trimmedQuery,
@@ -270,6 +279,7 @@ export function useCommandSuggestions(
         promptActionSuggestions,
         threadProviderCommandSuggestions({
           commands: args.threadProviderCommands,
+          catalog,
           query: trimmedQuery,
           trigger,
         }),
@@ -291,15 +301,15 @@ export function useCommandSuggestions(
     suggestions.length === 0 &&
     commandsQuery.data === undefined &&
     (commandsQuery.isPending || commandsQuery.isFetching);
+  const isRefreshing =
+    isActive && suggestions.length > 0 && commandsQuery.isFetching;
   const isError = isActive && commandsQuery.isError;
 
   return {
     triggers: args.skillsTriggers,
     suggestions,
     isLoading,
+    isRefreshing,
     isError,
-    hasMore: false,
-    isLoadingMore: false,
-    loadMore: () => {},
   };
 }

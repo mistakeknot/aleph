@@ -77,6 +77,8 @@ export interface BbDesktopApi extends BbDesktopInfo {
   installUpdate(): Promise<void>;
   diagnosticsEnabled?: boolean;
   logDiagnostic?(event: BbDesktopDiagnosticEvent): void;
+  macosTrafficLightInset?: number;
+  macosTrafficLightTopInset?: number;
   onChange(listener: BbDesktopInfoChangeHandler): BbDesktopInfoUnsubscribe;
   onWindowStateChange?(
     listener: BbDesktopWindowStateChangeHandler,

@@ -86,7 +86,7 @@ describe("desktop branding", () => {
     expect(texts).toContain(
       "Starting local services and opening the Aleph workspace.",
     );
-    expect(texts).toContain("Aleph - Server & Daemon Logs");
+    expect(texts).toContain("Aleph - Local Logs");
   });
 
   it("allows bb Connect, identifiers, and log lines", () => {

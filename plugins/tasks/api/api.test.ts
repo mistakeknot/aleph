@@ -1623,10 +1623,9 @@ describe("Tasks RPC domain API", () => {
             });
           },
         },
-        environments: {
-          pullRequest: async ({ environmentId }: { environmentId: string }) =>
-            pullRequestsByEnvironment[environmentId]!,
-        },
+        plugins: githubPrStatusRpc(
+          (environmentId) => pullRequestsByEnvironment[environmentId]!,
+        ),
       },
     });
     const store = createStore(bb);
@@ -1681,17 +1680,14 @@ describe("Tasks RPC domain API", () => {
       },
     ]);
     expect(result.unavailableThreadIds).toEqual(["thr_deleted00"]);
-    expect(
-      harness.sdk
-        .callsTo("environments.pullRequest")
-        .map(([input]) => (input as { environmentId: string }).environmentId)
-        .sort(),
-    ).toEqual(["env_merged", "env_no_pr", "env_shared"]);
+    expect(pullRequestKeys(harness)).toEqual([
+      ["env_merged", "env_no_pr", "env_shared"],
+    ]);
 
     await harness.dispose();
   });
 
-  it("separates unavailable lookups (auth failure, crash) from genuine absence", async () => {
+  it("separates unavailable lookups (auth failure, asleep machine) from genuine absence", async () => {
     const { bb, harness } = createFakePluginHost({
       pluginId: "tasks",
       sdk: {
@@ -1707,22 +1703,16 @@ describe("Tasks RPC domain API", () => {
                     : "env_no_auth",
             }),
         },
-        environments: {
-          pullRequest: async ({
-            environmentId,
-          }: {
-            environmentId: string;
-          }): Promise<PullRequestLookup> => {
-            if (environmentId === "env_absent") return { outcome: "absent" };
-            if (environmentId === "env_crash") {
-              throw new Error("host offline");
-            }
-            return {
-              outcome: "unavailable",
-              message: "gh pr view failed: authentication required",
-            };
-          },
-        },
+        plugins: githubPrStatusRpc((environmentId) => {
+          if (environmentId === "env_absent") return { outcome: "absent" };
+          if (environmentId === "env_crash") {
+            return { outcome: "unavailable", message: "Host is suspended" };
+          }
+          return {
+            outcome: "unavailable",
+            message: "gh pr view failed: authentication required",
+          };
+        }),
       },
     });
     const store = createStore(bb);
@@ -1764,7 +1754,51 @@ describe("Tasks RPC domain API", () => {
     await harness.dispose();
   });
 
-  it("overlaps distinct environment lookups while deduplicating shared ones", async () => {
+  it("reports every looked-up thread unavailable when GitHub PR Status can't answer", async () => {
+    const { bb, harness } = createFakePluginHost({
+      pluginId: "tasks",
+      sdk: {
+        threads: {
+          get: async ({ threadId }: { threadId: string }) =>
+            makeThreadResponse({ id: threadId, environmentId: "env_a" }),
+        },
+        plugins: {
+          callRpc: async () => {
+            throw new Error("Plugin bb--github-pr-status is disabled");
+          },
+        },
+      },
+    });
+    const store = createStore(bb);
+    registerTasksApi(bb, store);
+    const project = store.tasks.createProject({
+      name: "PRs",
+      prefix: "PR",
+      color: "blue",
+    });
+    const task = store.tasks.createTask({
+      projectId: project.id,
+      title: "Ship it",
+    });
+    store.tasks.upsertTaskThread({
+      taskId: task.id,
+      threadId: "thr_alpha0000",
+      presetName: "Default",
+      title: "thr_alpha0000",
+      liveStatus: "working",
+    });
+
+    await expect(
+      harness.callRpc("listTaskPullRequests", { taskId: task.id }),
+    ).resolves.toEqual({
+      pullRequests: [],
+      unavailableThreadIds: ["thr_alpha0000"],
+    });
+
+    await harness.dispose();
+  });
+
+  it("reads every environment's pull request in one request", async () => {
     const resolvers = new Map<string, (lookup: PullRequestLookup) => void>();
     const { bb, harness } = createFakePluginHost({
       pluginId: "tasks",
@@ -1776,12 +1810,12 @@ describe("Tasks RPC domain API", () => {
               environmentId: threadId === "thr_beta00000" ? "env_b" : "env_a",
             }),
         },
-        environments: {
-          pullRequest: ({ environmentId }: { environmentId: string }) =>
+        plugins: githubPrStatusRpc(
+          (environmentId) =>
             new Promise<PullRequestLookup>((resolve) => {
               resolvers.set(environmentId, resolve);
             }),
-        },
+        ),
       },
     });
     const store = createStore(bb);
@@ -1815,7 +1849,7 @@ describe("Tasks RPC domain API", () => {
     await vi.waitFor(() => {
       expect([...resolvers.keys()].sort()).toEqual(["env_a", "env_b"]);
     });
-    expect(harness.sdk.callsTo("environments.pullRequest")).toHaveLength(2);
+    expect(pullRequestKeys(harness)).toEqual([["env_a", "env_b"]]);
 
     resolvers.get("env_a")!({
       outcome: "available",
@@ -1835,7 +1869,7 @@ describe("Tasks RPC domain API", () => {
       "thr_alpha0000",
       "thr_alpha0001",
     ]);
-    expect(harness.sdk.callsTo("environments.pullRequest")).toHaveLength(2);
+    expect(pullRequestKeys(harness)).toEqual([["env_a", "env_b"]]);
 
     await harness.dispose();
   });
@@ -1874,10 +1908,9 @@ describe("Tasks RPC domain API", () => {
                 threadId === "thr_stale0000" ? "env_stale" : "env_fresh",
             }),
         },
-        environments: {
-          pullRequest: async ({ environmentId }: { environmentId: string }) =>
-            lookupByEnvironment[environmentId]!,
-        },
+        plugins: githubPrStatusRpc(
+          (environmentId) => lookupByEnvironment[environmentId]!,
+        ),
       },
     });
     const store = createStore(bb);
@@ -1928,6 +1961,42 @@ type PullRequestLookup =
   | { outcome: "available"; pullRequest: ReturnType<typeof makePullRequest> }
   | { outcome: "absent" }
   | { outcome: "unavailable"; message: string };
+
+function githubPrStatusRpc(
+  lookup: (
+    environmentId: string,
+  ) => PullRequestLookup | Promise<PullRequestLookup>,
+) {
+  return {
+    async callRpc<TOutput>(args: {
+      pluginId: string;
+      method: string;
+      input?: unknown;
+      outputSchema: { parse(value: unknown): TOutput };
+    }): Promise<TOutput> {
+      expect([args.pluginId, args.method]).toEqual([
+        "bb--github-pr-status",
+        "pullRequests",
+      ]);
+      const { keys } = args.input as { keys: string[] };
+      return args.outputSchema.parse(
+        Object.fromEntries(
+          await Promise.all(keys.map(async (key) => [key, await lookup(key)])),
+        ),
+      );
+    },
+  };
+}
+
+function pullRequestKeys(harness: {
+  sdk: { callsTo(path: string): unknown[][] };
+}) {
+  return harness.sdk
+    .callsTo("plugins.callRpc")
+    .map(([input]) =>
+      [...(input as { input: { keys: string[] } }).input.keys].sort(),
+    );
+}
 
 function makePullRequest(
   overrides: Partial<{

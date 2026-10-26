@@ -1,11 +1,11 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  readPersistedWindowStateEntries,
+  readPersistedWindowStateFile,
   restoreWindowState,
-  writePersistedWindowStateEntries,
+  writePersistedWindowStateFile,
 } from "../src/window-state.js";
 import {
   DEFAULT_WINDOW_STATE,
@@ -104,6 +104,26 @@ describe("window state helpers", () => {
     ).toEqual(DEFAULT_WINDOW_STATE);
   });
 
+  it.each([undefined, -1, 100, "large"])(
+    "reads legacy geometry and defaults invalid zoom %s",
+    async (zoomFactor) => {
+      const tempDir = await createTempDir();
+      await writeFile(
+        join(tempDir.path, "window-state.json"),
+        JSON.stringify({
+          windows: [{ ...DEFAULT_WINDOW_STATE, stateKey: "main" }],
+          zoomFactor,
+        }),
+      );
+      expect(
+        await readPersistedWindowStateFile({ userDataPath: tempDir.path }),
+      ).toEqual({
+        windows: [{ ...DEFAULT_WINDOW_STATE, stateKey: "main" }],
+        zoomFactor: 1,
+      });
+    },
+  );
+
   it("persists and reads multiple window states across restart", async () => {
     const tempDir = await createTempDir();
     const persistedStates: PersistedWindowStateEntry[] = [
@@ -131,13 +151,14 @@ describe("window state helpers", () => {
       },
     ];
 
-    await writePersistedWindowStateEntries({
-      entries: persistedStates,
+    const file = { windows: persistedStates, zoomFactor: 1.3 };
+    await writePersistedWindowStateFile({
+      file,
       userDataPath: tempDir.path,
     });
 
     await expect(
-      readPersistedWindowStateEntries({ userDataPath: tempDir.path }),
-    ).resolves.toEqual(persistedStates);
+      readPersistedWindowStateFile({ userDataPath: tempDir.path }),
+    ).resolves.toEqual(file);
   });
 });

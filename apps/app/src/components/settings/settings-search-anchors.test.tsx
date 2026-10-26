@@ -30,11 +30,22 @@ function registerReplacementPlugin() {
     "inkwell",
     makePluginRegistrationSet({
       threadLists: [{ id: "inbox", title: "Inbox", component: () => null }],
+      experimentalSidebarNavigations: [
+        {
+          id: "nav",
+          title: "Inkwell nav",
+          placement: "list",
+          component: () => null,
+        },
+      ],
       sourceCodeRenderers: [
         { id: "source", title: "Inkwell source", component: () => null },
       ],
       diffRenderers: [
         { id: "diffs", title: "Inkwell diffs", component: () => null },
+      ],
+      composers: [
+        { id: "composer", title: "Inkwell composer", component: () => null },
       ],
       fileOpeners: [
         {

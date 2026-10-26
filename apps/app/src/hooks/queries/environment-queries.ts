@@ -1,13 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
-import type {
-  Environment,
-  ThreadPullRequest,
-  WorkspaceDiffTarget,
-} from "@bb/domain";
+import type { Environment, WorkspaceDiffTarget } from "@bb/domain";
 import type {
   EnvironmentDiffBranchesResponse,
   EnvironmentDiffFilesResponse,
-  EnvironmentPullRequestResponse,
   EnvironmentStatusResponse,
   WorkspacePathListResponse,
 } from "@bb/server-contract";
@@ -23,9 +18,9 @@ import { useEnvironmentDetailRealtimeSubscription } from "@/hooks/useRealtimeSub
 import {
   environmentDiffFilesQueryKey,
   environmentDiffTargetKey,
+  environmentDiffViewedQueryKey,
   environmentFilePreviewQueryKey,
   environmentMergeBaseBranchesQueryKey,
-  environmentPullRequestQueryKey,
   environmentPathsQueryKey,
   environmentQueryKey,
   environmentWorkStatusQueryKey,
@@ -57,11 +52,9 @@ interface BranchQueryOptions extends QueryOptions {
 
 interface UseEnvironmentDiffFilesOptions extends QueryOptions {
   target?: WorkspaceDiffTarget;
+  ignoreWhitespace: boolean;
 }
 
-const ENVIRONMENT_PULL_REQUEST_STALE_MS = 30_000;
-const ENVIRONMENT_SETTLED_PULL_REQUEST_STALE_MS = 60 * 60_000;
-const ENVIRONMENT_ACTIVE_PULL_REQUEST_REFETCH_MS = 30_000;
 const MERGE_BASE_BRANCHES_STALE_MS = 30_000;
 const MERGE_BASE_BRANCHES_LIMIT = 50;
 const ENVIRONMENT_DIFF_STALE_MS = 5_000;
@@ -130,68 +123,6 @@ export function useEnvironmentWorkStatus(
             environmentId,
           )
         : undefined,
-  });
-}
-
-export function getEnvironmentPullRequestFromResponse(
-  response: EnvironmentPullRequestResponse | undefined,
-): ThreadPullRequest | null {
-  return response?.outcome === "available" ? response.pullRequest : null;
-}
-
-export function getEnvironmentPullRequestStaleTime(
-  pullRequest: ThreadPullRequest | null | undefined,
-): number {
-  return pullRequest?.state === "closed" || pullRequest?.state === "merged"
-    ? ENVIRONMENT_SETTLED_PULL_REQUEST_STALE_MS
-    : ENVIRONMENT_PULL_REQUEST_STALE_MS;
-}
-
-export function getEnvironmentPullRequestRefetchInterval(
-  pullRequest: ThreadPullRequest | null | undefined,
-): number | false {
-  if (!pullRequest || pullRequest.state !== "open") {
-    return false;
-  }
-  if (
-    pullRequest.autoMerge ||
-    pullRequest.inMergeQueue === true ||
-    pullRequest.checks.state === "pending" ||
-    pullRequest.mergeability.state === "unknown"
-  ) {
-    return ENVIRONMENT_ACTIVE_PULL_REQUEST_REFETCH_MS;
-  }
-  return false;
-}
-
-export function useEnvironmentPullRequest(
-  environmentId: string | null | undefined,
-  options?: QueryOptions,
-) {
-  const enabled = (options?.enabled ?? true) && Boolean(environmentId);
-  useEnvironmentDetailRealtimeSubscription(environmentId, { enabled });
-
-  return useQuery<EnvironmentPullRequestResponse>({
-    queryKey: environmentPullRequestQueryKey(environmentId),
-    queryFn: ({ signal }) =>
-      sdk.environments.pullRequest({
-        environmentId: requireEnvironmentId(
-          environmentId,
-          "useEnvironmentPullRequest",
-        ),
-        signal,
-      }),
-    enabled,
-    refetchOnMount: "always",
-    refetchOnWindowFocus: true,
-    refetchInterval: (query) =>
-      getEnvironmentPullRequestRefetchInterval(
-        getEnvironmentPullRequestFromResponse(query.state.data),
-      ),
-    staleTime: (query) =>
-      getEnvironmentPullRequestStaleTime(
-        getEnvironmentPullRequestFromResponse(query.state.data),
-      ),
   });
 }
 
@@ -336,7 +267,7 @@ export function useEnvironmentDiffFiles(
   environmentId: string,
   options: UseEnvironmentDiffFilesOptions,
 ) {
-  const target = options.target;
+  const { target, ignoreWhitespace } = options;
   const enabled =
     (options.enabled ?? true) && Boolean(environmentId) && target !== undefined;
   useEnvironmentDetailRealtimeSubscription(environmentId, { enabled });
@@ -346,6 +277,7 @@ export function useEnvironmentDiffFiles(
       environmentId,
       target?.type ?? null,
       environmentDiffTargetKey(target),
+      ignoreWhitespace,
     ),
     queryFn: ({ signal }) =>
       sdk.environments.diffFiles({
@@ -357,6 +289,7 @@ export function useEnvironmentDiffFiles(
             argName: "target",
           }),
         ),
+        ignoreWhitespace,
         signal,
       }),
     enabled,
@@ -368,6 +301,46 @@ export function useEnvironmentDiffFiles(
       ),
     ...REALTIME_OWNED_MOUNT_BASELINE_QUERY_POLICY,
     staleTime: ENVIRONMENT_DIFF_STALE_MS,
+  });
+}
+
+export function useEnvironmentDiffViewed(
+  environmentId: string,
+  options: {
+    target?: WorkspaceDiffTarget;
+    enabled: boolean;
+    paths: readonly string[];
+  },
+) {
+  const { target } = options;
+  const paths = [...new Set(options.paths)].sort();
+  const enabled =
+    options.enabled &&
+    Boolean(environmentId) &&
+    target !== undefined &&
+    paths.length > 0;
+  return useQuery({
+    queryKey: environmentDiffViewedQueryKey(
+      environmentId,
+      target?.type ?? null,
+      environmentDiffTargetKey(target),
+      paths,
+    ),
+    queryFn: ({ signal }) =>
+      sdk.environments.experimental_diffViewed({
+        ...buildEnvironmentDiffArgs(
+          environmentId,
+          requireEnabledQueryArg({
+            value: target,
+            hookName: "useEnvironmentDiffViewed",
+            argName: "target",
+          }),
+        ),
+        signal,
+        paths,
+      }),
+    enabled,
+    ...REALTIME_OWNED_MOUNT_BASELINE_QUERY_POLICY,
   });
 }
 

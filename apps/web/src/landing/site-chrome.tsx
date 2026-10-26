@@ -274,6 +274,7 @@ function FooterLinks({
 
 export function SiteFooter({ current }: { current?: string }) {
   const platform = useDesktopPlatform();
+  const comparisons = compareLinks();
   return (
     <footer className="footer">
       <div className="footer-brand">
@@ -317,7 +318,7 @@ export function SiteFooter({ current }: { current?: string }) {
         <FooterLinks links={guideFooterLinks()} current={current} />
       </FooterColumn>
       <FooterColumn title="Compare">
-        <FooterLinks links={compareLinks()} current={current} />
+        <FooterLinks links={comparisons} current={current} />
       </FooterColumn>
       <FooterColumn title="Community">
         <li>
