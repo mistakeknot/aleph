@@ -6,7 +6,9 @@ import {
 } from "@bb/domain";
 import type { ClientTurnRequestId } from "@bb/domain";
 import { applyTurnCompletedEvent } from "../../src/internal/turn-completed-events.js";
+import { compactThreadContext } from "../../src/services/threads/dispatch-attempt.js";
 import { sendNextQueuedMessageIfPresent } from "../../src/services/threads/queued-messages.js";
+import { RetirementAppearedError } from "../../src/services/threads/retired-ingress.js";
 import {
   registerHostRpcResponder,
   type HostRpcHandlerResult,
@@ -365,6 +367,35 @@ describe("public thread compaction", () => {
       expect(turnSubmits()[1]).toMatchObject({
         input: [{ type: "text", text: "Continue after compacting" }],
       });
+    });
+  });
+
+  it("does not submit compaction when the admitted destination has changed", async () => {
+    await withTestHarness(async (harness) => {
+      const { host, session, thread } = seedCompactableThread(harness, {
+        providerId: "pi",
+        providerThreadId: "provider-thread-destination-changed",
+      });
+      const responder = registerSuccessfulTurnResponder(harness, {
+        hostId: host.id,
+        sessionId: session.id,
+      });
+      const sequenceBefore = getLatestThreadSequence(harness.db, {
+        threadId: thread.id,
+      });
+      await expect(
+        compactThreadContext(harness.deps, thread, () => {
+          throw new RetirementAppearedError(thread.id);
+        }),
+      ).rejects.toBeInstanceOf(RetirementAppearedError);
+      expect(
+        responder.requests.filter(
+          ({ command }) => command.type === "turn.submit",
+        ),
+      ).toHaveLength(0);
+      expect(getLatestThreadSequence(harness.db, { threadId: thread.id })).toBe(
+        sequenceBefore,
+      );
     });
   });
 

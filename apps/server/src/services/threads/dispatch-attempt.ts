@@ -383,9 +383,27 @@ async function runDispatchAttempt(
     payload,
     args.executionDefaults ?? { threadId: thread.id },
   );
+  const directUserPost =
+    args.source.kind === "inline" &&
+    args.trigger === "user" &&
+    args.retryOf === undefined;
+  const assertDestinationCurrent: DestinationCheck | undefined = directUserPost
+    ? (tx) => {
+        assertAdmittedDestinationInTransaction(
+          tx,
+          args.requestedThreadId ?? thread.id,
+          thread.id,
+        );
+      }
+    : undefined;
+
   if (payload.compactFirst) {
     const { compactFirst, ...request } = payload;
-    await compactThreadContext(deps, thread);
+    // Compaction is its own send, so it re-checks the admitted destination
+    // before and inside its transaction; the ordinary send's later check
+    // cannot undo a compaction already submitted to a retired source.
+    assertDestinationCurrent?.(deps.db);
+    await compactThreadContext(deps, thread, assertDestinationCurrent);
     payload = request;
     args = { ...args, payload };
   }
@@ -400,20 +418,6 @@ async function runDispatchAttempt(
     payload: args.queuePayload,
     systemNotice: null,
   };
-
-  const directUserPost =
-    args.source.kind === "inline" &&
-    args.trigger === "user" &&
-    args.retryOf === undefined;
-  const assertDestinationCurrent: DestinationCheck | undefined = directUserPost
-    ? (tx) => {
-        assertAdmittedDestinationInTransaction(
-          tx,
-          args.requestedThreadId ?? thread.id,
-          thread.id,
-        );
-      }
-    : undefined;
 
   const waitOn = (
     waitingOn: QueuedMessageWaitingOn,
@@ -902,6 +906,7 @@ function resolveExecutionIntoPayload(
 export async function compactThreadContext(
   deps: LoggedPendingInteractionWorkSessionDeps,
   thread: Thread,
+  assertDestinationCurrent?: DestinationCheck,
 ): Promise<void> {
   ensureThreadIsWritable(thread);
   if (!deps.providerRegistry.supportsManualCompaction(thread.providerId)) {
@@ -928,5 +933,12 @@ export async function compactThreadContext(
     },
     thread,
     trigger: "user",
+    ...(assertDestinationCurrent !== undefined
+      ? {
+          beforeAppendInTransaction: ({ tx }) => {
+            assertDestinationCurrent(tx);
+          },
+        }
+      : {}),
   });
 }
