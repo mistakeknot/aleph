@@ -620,6 +620,25 @@ describe("Rail", () => {
     ).toBeNull();
   });
 
+  it("draws a label-only plugin badge as a dot on a compact viewport", () => {
+    const badge = registerDocsBadge({ label: "Sync failed" });
+
+    renderRail(THREAD_PATH, { isCompactViewport: true });
+
+    const button = railButton("Docs, Sync failed");
+    const dot = button.querySelector('[data-nav-rail-badge="dot"]');
+    expect(dot).not.toBeNull();
+    expect(dot?.textContent).toBe("");
+    expect(button.querySelector('[data-nav-rail-badge="count"]')).toBeNull();
+
+    act(() => badge.set({ label: "Sync failed", tone: "critical" }));
+    expect(
+      railButton("Docs, Sync failed")
+        .querySelector('[data-nav-rail-badge="dot"]')
+        ?.getAttribute("data-nav-badge-tone"),
+    ).toBe("critical");
+  });
+
   it("marks More for a badged destination hidden under More on a compact viewport", async () => {
     registerDocsBadge({ count: 2, label: "2 waiting" });
 
@@ -650,7 +669,9 @@ describe("Rail", () => {
             icon: "BookOpen",
             path: "docs",
             component: () => null,
-            experimental_sidebarAccessory: () => <span>4</span>,
+            experimental_sidebarAccessory: () => (
+              <span data-testid="retired-accessory">4</span>
+            ),
           } as never,
         ],
       }),
@@ -658,6 +679,8 @@ describe("Rail", () => {
 
     renderRail(THREAD_PATH, { isCompactViewport: true });
 
+    expect(railButton("Docs")).toBeDefined();
+    expect(screen.queryByTestId("retired-accessory")).toBeNull();
     expect(
       railButton("Docs").querySelector("[data-nav-rail-badge]"),
     ).toBeNull();
