@@ -366,6 +366,26 @@ describe("pooledConsumption", () => {
     expect(jitter.pct).toBeCloseTo(2, 6);
   });
 
+  it("rolls on a passed reset that corrects a later future anchor", () => {
+    const five = [pooled(A, "five-hour")];
+    const corrected = [
+      sample(A, 10, 0.9, NOW + 1_000, "five-hour"),
+      sample(A, 0, 0.02, NOW - 1_000, "five-hour"),
+    ];
+    expect(pooledConsumption(corrected, five, NOW).pct).toBeCloseTo(2, 6);
+    const repeated = pooledConsumption(
+      [
+        sample(A, 20, 0.9, NOW + 1_000, "five-hour"),
+        sample(A, 10, 0.02, NOW - 15 * MINUTE, "five-hour"),
+        sample(A, 5, 0.02, NOW - 15 * MINUTE, "five-hour"),
+        sample(A, 0, 0.03, null, "five-hour"),
+      ],
+      five,
+      NOW,
+    );
+    expect(repeated.pct).toBeCloseTo(3, 6);
+  });
+
   it("does not roll twice on one repeated expired reset", () => {
     const expired = NOW - 25 * MINUTE;
     const result = pooledConsumption(

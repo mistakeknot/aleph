@@ -202,18 +202,12 @@ function accountConsumed(
       current.resetAt !== null && current.resetAt > current.sampledAt
         ? current.resetAt
         : null;
-    const expired =
-      current.resetAt !== null &&
-      current.resetAt > rolledThrough &&
-      current.resetAt <= current.sampledAt
-        ? current.resetAt
-        : null;
-    const anchor =
-      expired !== null && (resetAnchor === null || expired > resetAnchor)
-        ? expired
-        : resetAnchor;
-    const passedAt =
-      anchor !== null && current.sampledAt >= anchor ? anchor : null;
+    const candidates = [resetAnchor, current.resetAt].filter(
+      (value): value is number => value !== null && value > rolledThrough,
+    );
+    const passed = candidates.filter((value) => value <= current.sampledAt);
+    const passedAt = passed.length > 0 ? Math.max(...passed) : null;
+    const anchor = candidates.length > 0 ? Math.max(...candidates) : null;
     if (
       passedAt !== null &&
       (nextReset !== null || current.utilization < previous.utilization)
