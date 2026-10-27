@@ -202,5 +202,11 @@ export function readActiveStartup(
 ): DatabaseStartupMarker | null {
   const marker = readStartupMarker(databasePath, pid);
   if (marker === null) return null;
-  return isLiveOwner(marker, options) ? marker : null;
+  if (isLiveOwner(marker, options)) return marker;
+  try {
+    unlinkSync(startupMarkerPath(databasePath, pid));
+  } catch {
+    return null;
+  }
+  return null;
 }

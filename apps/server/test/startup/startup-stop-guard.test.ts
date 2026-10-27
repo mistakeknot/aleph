@@ -6,6 +6,7 @@ import {
 } from "@bb/config/migration-info";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   deferStopDuringDatabaseStartup,
@@ -13,7 +14,10 @@ import {
   type StartupStopSignal,
 } from "../../src/startup-stop-guard.js";
 
-const childScript = new URL("./stop-guard-child.mts", import.meta.url);
+const childScript = fileURLToPath(
+  new URL("./stop-guard-child.mts", import.meta.url),
+);
+const serverDirectory = fileURLToPath(new URL("../..", import.meta.url));
 const tempDirs: string[] = [];
 
 afterEach(() => {
@@ -33,20 +37,16 @@ async function runStoppedChild(guarded: boolean): Promise<ChildResult> {
   const directory = mkdtempSync(join(tmpdir(), "bb-stop-guard-"));
   tempDirs.push(directory);
   const completionFile = join(directory, "done");
-  const child = spawn(
-    process.execPath,
-    ["--import", "tsx", childScript.pathname],
-    {
-      cwd: new URL("../..", import.meta.url).pathname,
-      env: {
-        ...process.env,
-        STOP_GUARD_COMPLETION_FILE: completionFile,
-        STOP_GUARD_ENABLED: guarded ? "1" : "0",
-        STOP_GUARD_BUSY_MS: "1500",
-      },
-      stdio: ["ignore", "pipe", "ignore"],
+  const child = spawn(process.execPath, ["--import", "tsx", childScript], {
+    cwd: serverDirectory,
+    env: {
+      ...process.env,
+      STOP_GUARD_COMPLETION_FILE: completionFile,
+      STOP_GUARD_ENABLED: guarded ? "1" : "0",
+      STOP_GUARD_BUSY_MS: "1500",
     },
-  );
+    stdio: ["ignore", "pipe", "ignore"],
+  });
   let stdout = "";
   const started = new Promise<void>((resolve) => {
     child.stdout.on("data", (chunk: Buffer) => {
@@ -164,15 +164,14 @@ describe("startup stop guard", () => {
     expect(existsSync(startupMarkerPath(databasePath))).toBe(false);
   });
 
-  it("keeps a running startup's marker when another startup settles", async () => {
-    const directory = mkdtempSync(join(tmpdir(), "bb-stop-guard-overlap-"));
-    tempDirs.push(directory);
-    const databasePath = join(directory, "bb.db");
-    const child = spawn(
-      process.execPath,
-      ["--import", "tsx", childScript.pathname],
-      {
-        cwd: new URL("../..", import.meta.url).pathname,
+  it.skipIf(process.platform === "win32")(
+    "keeps a running startup's marker when another startup settles",
+    async () => {
+      const directory = mkdtempSync(join(tmpdir(), "bb-stop-guard-overlap-"));
+      tempDirs.push(directory);
+      const databasePath = join(directory, "bb.db");
+      const child = spawn(process.execPath, ["--import", "tsx", childScript], {
+        cwd: serverDirectory,
         env: {
           ...process.env,
           STOP_GUARD_COMPLETION_FILE: join(directory, "done"),
@@ -181,31 +180,40 @@ describe("startup stop guard", () => {
           STOP_GUARD_BUSY_MS: "3000",
         },
         stdio: ["ignore", "pipe", "ignore"],
-      },
-    );
-    try {
-      await new Promise<void>((resolve) => {
-        child.stdout.on("data", (chunk: Buffer) => {
-          if (chunk.toString().includes("started")) resolve();
+      });
+      try {
+        await new Promise<void>((resolve, reject) => {
+          child.once("error", reject);
+          child.once("exit", (code, signal) =>
+            reject(
+              new Error(
+                `child exited before startup: code=${code} signal=${signal}`,
+              ),
+            ),
+          );
+          child.stdout.on("data", (chunk: Buffer) => {
+            if (chunk.toString().includes("started")) resolve();
+          });
         });
-      });
-      const childPid = child.pid ?? 0;
-      expect(readActiveStartup(databasePath, childPid)?.pid).toBe(childPid);
-      const source: StartupSignalSource = {
-        on: () => undefined,
-        off: () => undefined,
-      };
-      const second = deferStopDuringDatabaseStartup({
-        databasePath,
-        logger: { info: () => undefined },
-        source,
-      });
-      expect(readActiveStartup(databasePath, process.pid)).not.toBeNull();
-      await second.settle();
-      expect(readActiveStartup(databasePath, process.pid)).toBeNull();
-      expect(readActiveStartup(databasePath, childPid)?.pid).toBe(childPid);
-    } finally {
-      child.kill("SIGKILL");
-    }
-  }, 30_000);
+        const childPid = child.pid ?? 0;
+        expect(readActiveStartup(databasePath, childPid)?.pid).toBe(childPid);
+        const source: StartupSignalSource = {
+          on: () => undefined,
+          off: () => undefined,
+        };
+        const second = deferStopDuringDatabaseStartup({
+          databasePath,
+          logger: { info: () => undefined },
+          source,
+        });
+        expect(readActiveStartup(databasePath, process.pid)).not.toBeNull();
+        await second.settle();
+        expect(readActiveStartup(databasePath, process.pid)).toBeNull();
+        expect(readActiveStartup(databasePath, childPid)?.pid).toBe(childPid);
+      } finally {
+        child.kill("SIGKILL");
+      }
+    },
+    30_000,
+  );
 });

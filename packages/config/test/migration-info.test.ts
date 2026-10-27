@@ -188,6 +188,29 @@ describe("migration info", () => {
     expect(readActiveStartup(path, dead)).toBeNull();
   });
 
+  it("removes a dead or overdue startup marker but keeps a live one", () => {
+    const path = databasePath();
+    const write = (pid: number): void =>
+      writeFileSync(
+        startupMarkerPath(path, pid),
+        JSON.stringify({ pid, updatedAt: Date.now() }),
+      );
+    const dead = deadPid();
+    write(dead);
+    expect(readActiveStartup(path, dead)).toBeNull();
+    expect(existsSync(startupMarkerPath(path, dead))).toBe(false);
+    write(process.pid);
+    expect(
+      readActiveStartup(path, process.pid, {
+        now: () => Date.now() + 60 * 60 * 1000 + 1,
+      }),
+    ).toBeNull();
+    expect(existsSync(startupMarkerPath(path))).toBe(false);
+    write(process.pid);
+    expect(readActiveStartup(path, process.pid)?.pid).toBe(process.pid);
+    expect(existsSync(startupMarkerPath(path))).toBe(true);
+  });
+
   it("ignores a marker older than the migration wait cap", () => {
     const path = databasePath();
     writeInfo(path, process.pid, { updatedAt: 1_000 });
