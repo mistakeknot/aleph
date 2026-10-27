@@ -194,6 +194,7 @@ function accountConsumed(
   let previous = samples[0]!;
   let highWater = previous.utilization;
   let resetAnchor = previous.resetAt;
+  let rolledThrough = -Infinity;
   let consumed = 0;
   for (const current of samples.slice(1)) {
     let intervalStart = previous.sampledAt;
@@ -211,9 +212,14 @@ function accountConsumed(
     ) {
       highWater = 0;
       intervalStart = Math.max(passedAt, previous.sampledAt);
+      rolledThrough = passedAt;
       resetAnchor = nextReset;
-    } else if (nextReset !== null) {
-      resetAnchor = nextReset;
+    } else if (
+      current.resetAt !== null &&
+      current.resetAt > rolledThrough &&
+      (resetAnchor === null || current.resetAt > resetAnchor)
+    ) {
+      resetAnchor = current.resetAt;
     }
     if (current.utilization > highWater) {
       const increase = current.utilization - highWater;

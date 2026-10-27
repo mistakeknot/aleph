@@ -321,6 +321,36 @@ describe("pooledConsumption", () => {
     expect(result.pct).toBeCloseTo(3, 6);
   });
 
+  it("adopts an expired reset first seen after a baseline without one", () => {
+    const result = pooledConsumption(
+      [
+        sample(A, 20, 0.5, null),
+        sample(A, 5, 0.5, NOW - 10 * MINUTE),
+        sample(A, 0, 0.02, FAR),
+      ],
+      [pooled(A)],
+      NOW,
+    );
+    expect(result.pct).toBeCloseTo(2, 6);
+  });
+
+  it("does not roll twice on one repeated expired reset", () => {
+    const expired = NOW - 25 * MINUTE;
+    const result = pooledConsumption(
+      [
+        sample(A, 40, 0.5, expired),
+        sample(A, 30, 0.5, expired),
+        sample(A, 20, 0.02, expired),
+        sample(A, 15, 0.02, expired),
+        sample(A, 10, 0.019, expired),
+        sample(A, 0, 0.019, expired),
+      ],
+      [pooled(A)],
+      NOW,
+    );
+    expect(result.pct).toBeCloseTo(2, 6);
+  });
+
   it("uses each account's own window key", () => {
     const result = pooledConsumption(
       [
