@@ -37,6 +37,7 @@ import type {
 } from "./credentials.js";
 import { createHub } from "./hub.js";
 import { PoolOperations } from "./operations.js";
+import { QuotaSampler } from "./quota-history.js";
 import { accountPoolRpcContract, createRpcHandlers } from "./rpc.js";
 import { ClaudeOAuthLogin } from "./oauth-login.js";
 import { CodexDeviceLogin } from "./codex-device-login.js";
@@ -49,6 +50,7 @@ import {
   HubTokenStore,
   PoolAffinityStore,
   QUOTA_MIGRATIONS,
+  QuotaSampleStore,
   QuotaStore,
   RoutingStore,
 } from "./store.js";
@@ -157,7 +159,15 @@ export function createAccountPoolPlugin(
         : null;
     const db = bb.storage.database();
     bb.storage.migrate(db, QUOTA_MIGRATIONS);
-    const quotas = new QuotaStore(db);
+    const samples = new QuotaSampleStore(db);
+    const quotas = new QuotaStore(
+      db,
+      new QuotaSampler(samples, now, (error) =>
+        bb.log.warn(
+          `Account Pooler quota history write failed: ${error instanceof Error ? error.message : String(error)}`,
+        ),
+      ),
+    );
     const affinity = new PoolAffinityStore(db);
     const transport =
       options.fetch === undefined ? createUpstreamTransport() : null;
@@ -235,6 +245,7 @@ export function createAccountPoolPlugin(
       (accountId) => hub.refreshUsage(accountId, true),
       parentStatus,
       affinity,
+      samples,
     );
     const login = new ClaudeOAuthLogin({
       fetch: upstreamFetch,

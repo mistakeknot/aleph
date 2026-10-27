@@ -70,6 +70,7 @@ import type {
   LimitWindow,
   ModelFamily,
   PoolAvailability,
+  PoolBurn,
   PoolProvider,
   PoolStatus,
 } from "./src/contracts.js";
@@ -1959,6 +1960,18 @@ function shortResetLabel(resetAt: number | null): string | null {
   return `${Math.round(minutes / 1_440)}d`;
 }
 
+const BURN_POLL_MS = 60_000;
+
+type BurnState = PoolBurn | null | undefined;
+
+function burnLabel(pct: number | null | undefined): string {
+  return pct === null || pct === undefined ? "—" : `${pct.toFixed(1)}%/h`;
+}
+
+function providerBurn(burn: PoolBurn, provider: PoolProvider) {
+  return burn[provider];
+}
+
 type ProviderHeaderSummary = {
   provider: (typeof PROVIDERS)[number];
   routingOn: boolean;
@@ -1966,14 +1979,36 @@ type ProviderHeaderSummary = {
   slot: QuotaSlot | null;
 };
 
+function BurnDetail({ burn }: { burn: PoolBurn["claude"] }) {
+  if (burn.pct === null) return null;
+  return (
+    <li className="space-y-0.5 text-2xs text-subtle-foreground/75">
+      <p>
+        {`Last hour: ${burn.pct.toFixed(1)}% of the weekly pool (5H window: ${
+          burn.alt.pct === null ? "—" : `${burn.alt.pct.toFixed(1)}%`
+        })`}
+      </p>
+      {burn.perAccount.map((entry) => (
+        <p key={entry.id} className="flex justify-between gap-2 tabular-nums">
+          <span className="truncate">{entry.label}</span>
+          <span>{entry.pct.toFixed(1)}%</span>
+        </p>
+      ))}
+      <p>Includes use outside the pool.</p>
+    </li>
+  );
+}
+
 function AccountPoolHeaderDetail({
   status,
   providerSummaries,
   threshold,
+  burn,
 }: {
   status: PoolStatus;
   providerSummaries: ProviderHeaderSummary[];
   threshold: number;
+  burn: BurnState;
 }) {
   return (
     <div className="space-y-3">
@@ -1999,6 +2034,9 @@ function AccountPoolHeaderDetail({
               </p>
             ) : (
               <ul className="mt-1 space-y-1">
+                {burn === undefined || burn === null ? null : (
+                  <BurnDetail burn={providerBurn(burn, provider.id)} />
+                )}
                 {accounts.map((candidate) => (
                   <li
                     key={candidate.id}
@@ -2050,8 +2088,17 @@ function AccountPoolHeaderStatus({
   const [status, setStatus] = useState<PoolStatus | null>(readCachedStatus);
   const [config, setConfig] = useState<AccountPoolConfig | null>(null);
   const [bypassed, setBypassed] = useState(false);
+  const [burn, setBurn] = useState<BurnState>(undefined);
   const mounted = useRef(true);
   const bypassGeneration = useRef(0);
+  const refreshBurn = useCallback(async () => {
+    try {
+      const next = await rpc.call("burn.get", null);
+      if (mounted.current) setBurn(next);
+    } catch {
+      if (mounted.current) setBurn(null);
+    }
+  }, [rpc]);
   const refresh = useCallback(async () => {
     try {
       const next = await rpc.call("status.get", null);
@@ -2088,10 +2135,15 @@ function AccountPoolHeaderStatus({
     mounted.current = true;
     void refresh();
     void refreshConfig();
+    void refreshBurn();
+    const timer = window.setInterval(() => {
+      void refreshBurn();
+    }, BURN_POLL_MS);
     return () => {
       mounted.current = false;
+      window.clearInterval(timer);
     };
-  }, [refresh, refreshConfig]);
+  }, [refresh, refreshConfig, refreshBurn]);
   useEffect(() => {
     setBypassed(false);
     void refreshBypass();
@@ -2099,6 +2151,7 @@ function AccountPoolHeaderStatus({
   useRealtime(ACCOUNT_POOL_ACCOUNTS_CHANGED, () => {
     void refresh();
     void refreshBypass();
+    void refreshBurn();
   });
   useRealtime(ACCOUNT_POOL_CONFIG_CHANGED, () => {
     void refreshConfig();
@@ -2139,6 +2192,17 @@ function AccountPoolHeaderStatus({
   }, null);
 
   const collapseToIcon = isCompactViewport || availableWidth < 200;
+  const compactBurn: number | null | undefined =
+    burn === undefined
+      ? undefined
+      : burn === null
+        ? null
+        : providerSummaries
+            .filter((summary) => summary.routingOn)
+            .reduce<number | null>((max, summary) => {
+              const pct = providerBurn(burn, summary.provider.id).pct;
+              return pct !== null && (max === null || pct > max) ? pct : max;
+            }, null);
 
   const trigger = collapseToIcon ? (
     <button
@@ -2158,6 +2222,14 @@ function AccountPoolHeaderStatus({
       >
         {worst === null ? "—" : percent(worst.slot.utilization)}
       </span>
+      {compactBurn === undefined ? null : (
+        <span
+          data-testid="account-pool-burn"
+          className="font-normal text-subtle-foreground/75"
+        >
+          {burnLabel(compactBurn)}
+        </span>
+      )}
     </button>
   ) : (
     <button
@@ -2192,6 +2264,21 @@ function AccountPoolHeaderStatus({
               )}
             </>
           )}
+          {routingOn && account !== null && burn !== undefined ? (
+            <span
+              data-testid={`account-pool-burn-${provider.id}`}
+              className={cn(
+                "tabular-nums",
+                slot === null
+                  ? "text-subtle-foreground/75"
+                  : quotaToneClass(slot, threshold),
+              )}
+            >
+              {burnLabel(
+                burn === null ? null : providerBurn(burn, provider.id).pct,
+              )}
+            </span>
+          ) : null}
         </span>
       ))}
       {bypassed ? (
@@ -2210,6 +2297,7 @@ function AccountPoolHeaderStatus({
           status={status}
           providerSummaries={providerSummaries}
           threshold={threshold}
+          burn={burn}
         />
         {bypassed ? (
           <p className="mt-2 text-2xs text-subtle-foreground/75">

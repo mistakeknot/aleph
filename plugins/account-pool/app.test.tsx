@@ -1060,6 +1060,108 @@ describe("Account Pool header status", () => {
     expect(slot.openSettings).toHaveBeenCalledTimes(1);
   });
 
+  describe("pooled burn", () => {
+    const CLAUDE_ID = "11111111-1111-4111-8111-111111111111";
+    function burn(
+      overrides: {
+        claude?: number | null;
+        codex?: number | null;
+        claudeAlt?: number | null;
+      } = {},
+    ) {
+      const provider = (pct: number | null, alt: number | null) => ({
+        pct,
+        window: "weekly" as const,
+        accounts: pct === null ? 0 : 1,
+        perAccount:
+          pct === null
+            ? []
+            : [{ id: CLAUDE_ID, label: "person@example.com", pct }],
+        alt: { pct: alt, window: "five-hour" as const },
+      });
+      return {
+        windowMinutes: 60 as const,
+        asOf: 1,
+        claude: provider(overrides.claude ?? null, overrides.claudeAlt ?? null),
+        codex: provider(overrides.codex ?? null, null),
+      };
+    }
+
+    it("shows each provider's pooled burn per hour next to its quota percent", async () => {
+      const slot = renderHeaderStatus(
+        [
+          account({ provider: "claude", fiveHourUtilization: 0.4 }),
+          codexAccount(0.1),
+        ],
+        { extraRpc: { "burn.get": () => burn({ claude: 1.26, codex: 0 }) } },
+      );
+      expect(await slot.findByText("1.3%/h")).toBeTruthy();
+      expect(slot.getByText("0.0%/h")).toBeTruthy();
+      expect(slot.getByText("40%")).toBeTruthy();
+    });
+
+    it("shows an em dash when a provider has no burn reading", async () => {
+      const slot = renderHeaderStatus([account({ fiveHourUtilization: 0.4 })], {
+        extraRpc: { "burn.get": () => burn() },
+      });
+      expect(await slot.findByTestId("account-pool-burn-claude")).toBeTruthy();
+      expect(slot.getByTestId("account-pool-burn-claude").textContent).toBe(
+        "—",
+      );
+    });
+
+    it("degrades to an em dash when burn.get fails and leaves quota intact", async () => {
+      const slot = renderHeaderStatus([account({ fiveHourUtilization: 0.4 })], {
+        extraRpc: {
+          "burn.get": () => {
+            throw new Error("boom");
+          },
+        },
+      });
+      expect(await slot.findByText("40%")).toBeTruthy();
+      await waitFor(() =>
+        expect(slot.getByTestId("account-pool-burn-claude").textContent).toBe(
+          "—",
+        ),
+      );
+    });
+
+    it("shows the larger provider burn beside the worst percent on a compact viewport", async () => {
+      const slot = renderHeaderStatus(
+        [
+          account({ provider: "claude", fiveHourUtilization: 0.4 }),
+          codexAccount(0.9),
+        ],
+        {
+          isCompactViewport: true,
+          extraRpc: { "burn.get": () => burn({ claude: 0.5, codex: 2.04 }) },
+        },
+      );
+      expect(await slot.findByText("2.0%/h")).toBeTruthy();
+      expect(slot.queryByText("0.5%/h")).toBeNull();
+      expect(slot.getByText("90%")).toBeTruthy();
+    });
+
+    it("explains the figure in the hover card", async () => {
+      const slot = renderHeaderStatus([account({ fiveHourUtilization: 0.4 })], {
+        extraRpc: {
+          "burn.get": () => burn({ claude: 1.26, claudeAlt: 2.5 }),
+        },
+      });
+      const trigger = await slot.findByTestId("account-pool-header-status");
+      await slot.findByText("1.3%/h");
+      fireEvent.pointerEnter(trigger);
+      fireEvent.mouseEnter(trigger);
+      fireEvent.focus(trigger);
+      expect(
+        await slot.findByText(
+          "Last hour: 1.3% of the weekly pool (5H window: 2.5%)",
+        ),
+      ).toBeTruthy();
+      expect(slot.getByText(/includes use outside the pool/i)).toBeTruthy();
+    });
+  });
+
   it("collapses to a single icon and the worst percent on a compact viewport", async () => {
     const slot = renderHeaderStatus(
       [

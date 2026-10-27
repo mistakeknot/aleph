@@ -270,6 +270,40 @@ export const accountSummarySchema = accountSchema.extend({
 
 export type AccountSummary = z.infer<typeof accountSummarySchema>;
 
+const burnPctSchema = z.number().min(0).nullable();
+
+const providerBurnSchema = z
+  .object({
+    pct: burnPctSchema,
+    window: z.literal("weekly"),
+    accounts: z.number().int().nonnegative(),
+    perAccount: z.array(
+      z
+        .object({
+          id: z.string().uuid(),
+          label: z.string(),
+          pct: z.number().min(0),
+        })
+        .strict(),
+    ),
+    alt: z
+      .object({ pct: burnPctSchema, window: z.literal("five-hour") })
+      .strict(),
+  })
+  .strict();
+
+export const burnSchema = z
+  .object({
+    windowMinutes: z.literal(60),
+    asOf: z.number().int().nonnegative(),
+    claude: providerBurnSchema,
+    codex: providerBurnSchema,
+  })
+  .strict();
+
+export type PoolBurn = z.infer<typeof burnSchema>;
+export type ProviderBurn = z.infer<typeof providerBurnSchema>;
+
 export const hubTokenSummarySchema = z
   .object({
     hostId: z.string().min(1),

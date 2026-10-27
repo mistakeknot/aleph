@@ -22,6 +22,7 @@ import {
   accountSchema,
   accountSecretSchema,
   accountSummarySchema,
+  burnSchema,
   accountPoolConfigSchema,
   accountPoolConfigSetInputSchema,
   codexLoginPollSchema,
@@ -3137,6 +3138,157 @@ describe("Account Pool plugin", () => {
     }
 
     expect(authorizations).toEqual(["Bearer oauth-b", "Bearer oauth-a"]);
+  });
+
+  describe("burn.get", () => {
+    const HOUR = 60 * 60 * 1_000;
+    const START = 4_102_440_000_000;
+
+    async function burnFixture(
+      readings: Map<string, { five: number; seven: number }>,
+      clock: { now: number },
+    ) {
+      const upstream = await startUpstream(async (request, response) => {
+        if (request.url === "/usage") {
+          const reading = readings.get(request.headers.authorization ?? "");
+          response.writeHead(200, { "content-type": "application/json" });
+          response.end(
+            JSON.stringify({
+              five_hour: {
+                utilization: reading?.five ?? 0,
+                resets_at: "4102444800",
+              },
+              seven_day: {
+                utilization: reading?.seven ?? 0,
+                resets_at: "4102448400",
+              },
+            }),
+          );
+          return;
+        }
+        if (request.url === "/profile") {
+          response.writeHead(200, { "content-type": "application/json" });
+          response.end(JSON.stringify({ account: { uuid: null } }));
+          return;
+        }
+        await readRequestBody(request);
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end("{}");
+      });
+      cleanups.push(upstream.close);
+      const imports = [
+        importedCredentials({
+          accessToken: "oauth-a",
+          accountUuid: null,
+          expiresAt: START + 10 * HOUR,
+        }),
+        importedCredentials({
+          accessToken: "oauth-b",
+          accountUuid: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          expiresAt: START + 10 * HOUR,
+        }),
+      ];
+      let importIndex = 0;
+      const fixture = await createFixture({
+        upstreamUrl: upstream.url,
+        source: "import",
+        options: {
+          now: () => clock.now,
+          usageUrl: `${upstream.url}/usage`,
+          oauthProfileUrl: `${upstream.url}/profile`,
+          importCredentials: async () => {
+            const imported = imports[importIndex];
+            importIndex += 1;
+            if (imported === undefined) throw new Error("No import fixture.");
+            return imported;
+          },
+        },
+      });
+      const second = accountSchema.parse(
+        await fixture.host.harness.behavior.callRpc("account.add", {
+          provider: "claude",
+          source: { kind: "import" },
+          label: "second",
+          priority: 100,
+        }),
+      );
+      return { fixture, second };
+    }
+
+    async function burn(fixture: Fixture) {
+      return burnSchema.parse(
+        await fixture.host.harness.behavior.callRpc("burn.get", null),
+      );
+    }
+
+    it("reports the share of the pooled weekly and 5H windows used in the last hour", async () => {
+      const clock = { now: START };
+      const readings = new Map([
+        ["Bearer oauth-a", { five: 10, seven: 20 }],
+        ["Bearer oauth-b", { five: 10, seven: 20 }],
+      ]);
+      const { fixture, second } = await burnFixture(readings, clock);
+      expect((await burn(fixture)).claude.pct).toBeNull();
+
+      clock.now = START + HOUR / 2;
+      readings.set("Bearer oauth-a", { five: 15, seven: 24 });
+      for (const accountId of [fixture.account.id, second.id]) {
+        await fixture.host.harness.behavior.callRpc("account.refreshUsage", {
+          accountId,
+        });
+      }
+
+      const result = await burn(fixture);
+      expect(result).toMatchObject({
+        windowMinutes: 60,
+        asOf: clock.now,
+        claude: {
+          pct: 2,
+          window: "weekly",
+          accounts: 2,
+          alt: { pct: 2.5, window: "five-hour" },
+        },
+        codex: { pct: null, accounts: 0, perAccount: [] },
+      });
+      expect(result.claude.perAccount).toEqual([
+        { id: fixture.account.id, label: expect.any(String), pct: 4 },
+        { id: second.id, label: "second", pct: 0 },
+      ]);
+
+      const cliJson = await fixture.host.harness.behavior.runCli([
+        "burn",
+        "--json",
+      ]);
+      expect(cliJson.exitCode).toBe(0);
+      expect(burnSchema.parse(JSON.parse(cliJson.stdout)).claude.pct).toBe(2);
+      const cliText = await fixture.host.harness.behavior.runCli(["burn"]);
+      expect(cliText.stdout).toContain(
+        "claude: 2.0%/h across 2 account(s), 5H window 2.5%/h",
+      );
+      expect(cliText.stdout).toContain(
+        "codex: - across 0 account(s), 5H window -",
+      );
+
+      await fixture.host.harness.behavior.callRpc("account.disable", {
+        id: second.id,
+      });
+      expect((await burn(fixture)).claude).toMatchObject({
+        pct: 4,
+        accounts: 1,
+      });
+    });
+
+    it("returns no figure for a pool without OAuth accounts", async () => {
+      const upstream = await startUpstream(async (_request, response) => {
+        response.writeHead(200);
+        response.end("{}");
+      });
+      cleanups.push(upstream.close);
+      const fixture = await createFixture({ upstreamUrl: upstream.url });
+      const result = await burn(fixture);
+      expect(result.claude).toMatchObject({ pct: null, accounts: 0 });
+      expect(result.codex).toMatchObject({ pct: null, accounts: 0 });
+    });
   });
 
   it("rewrites both known metadata account UUID formats", async () => {

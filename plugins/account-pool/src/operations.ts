@@ -3,7 +3,9 @@ import type {
   SwitchLogEntry,
   AccountSummary,
   HubTokenSummary,
+  PoolBurn,
   PoolProvider,
+  ProviderBurn,
   PoolStatus,
   RoutedThreadStatus,
 } from "./contracts.js";
@@ -13,9 +15,16 @@ import type {
   AccountStore,
   HubTokenStore,
   PoolAffinityStore,
+  QuotaSampleStore,
   QuotaStore,
   RoutingStore,
 } from "./store.js";
+import {
+  codexWindowKeys,
+  pooledConsumption,
+  type PooledAccount,
+  type SampleWindowKey,
+} from "./quota-history.js";
 import type { ClaudeOAuthAccount } from "./oauth-login.js";
 import type { CodexDeviceAccount } from "./codex-device-login.js";
 
@@ -52,6 +61,7 @@ export class PoolOperations {
       PoolStatus["parent"]
     > = async () => null,
     private readonly affinity?: PoolAffinityStore,
+    private readonly samples?: QuotaSampleStore,
   ) {}
 
   async add(input: AccountAddInput): Promise<Account> {
@@ -246,6 +256,63 @@ export class PoolOperations {
       routing: { claude, codex },
       parent: await this.parentStatus(),
     };
+  }
+
+  async burn(): Promise<PoolBurn> {
+    const now = this.now();
+    const empty = (): ProviderBurn => ({
+      pct: null,
+      window: "weekly",
+      accounts: 0,
+      perAccount: [],
+      alt: { pct: null, window: "five-hour" },
+    });
+    const result: PoolBurn = {
+      windowMinutes: 60,
+      asOf: now,
+      claude: empty(),
+      codex: empty(),
+    };
+    if (this.samples === undefined) return result;
+    if ((await this.parentStatus())?.mode === "proxy") return result;
+    const summaries = (await this.hub.status()).accounts.filter(
+      (account) =>
+        account.enabled &&
+        account.kind === "oauth" &&
+        account.status !== "disabled" &&
+        account.status !== "error",
+    );
+    const samples = this.samples.list();
+    for (const provider of ["claude", "codex"] as const) {
+      const keyed = summaries
+        .filter((account) => account.provider === provider)
+        .map((account) => {
+          const keys: {
+            weekly: SampleWindowKey | null;
+            short: SampleWindowKey | null;
+          } =
+            provider === "claude"
+              ? { weekly: "seven-day", short: "five-hour" }
+              : codexWindowKeys(account.limitWindows);
+          return { id: account.id, label: account.label, keys };
+        });
+      const pooled = (pick: "weekly" | "short"): PooledAccount[] =>
+        keyed.map(({ id, label, keys }) => ({
+          id,
+          label,
+          windowKey: keys[pick],
+        }));
+      const weekly = pooledConsumption(samples, pooled("weekly"), now);
+      const short = pooledConsumption(samples, pooled("short"), now);
+      result[provider] = {
+        pct: weekly.pct,
+        window: "weekly",
+        accounts: weekly.accounts.length,
+        perAccount: weekly.accounts,
+        alt: { pct: short.pct, window: "five-hour" },
+      };
+    }
+    return result;
   }
 
   async rotateToken(machine: string): Promise<HubTokenSummary> {
