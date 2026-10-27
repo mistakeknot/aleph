@@ -33,7 +33,6 @@ import { randomUUID } from "node:crypto";
 import { join as joinPath, resolve as resolvePath } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import {
-  forkSession,
   type CanUseTool,
   type HookCallback,
   type PermissionResult,
@@ -61,6 +60,7 @@ import {
   type SdkSessionOptions,
 } from "./sdk-session.js";
 import { MissingClaudeCliError } from "./missing-cli-error.js";
+import { claudeConfigDirectory, forkClaudeSession } from "./session-fork.js";
 import { createClaudeCodeBridgeModelListMemo } from "./model-list.js";
 import {
   PROVIDER_COMMANDS_STATE_KIND,
@@ -2468,12 +2468,13 @@ async function handleThreadFork(
 
   let forkedProviderThreadId: string;
   try {
-    const forkResult = await forkSession(params.sourceProviderThreadId, {
-      ...(params.sourceProviderCheckpointId !== undefined
-        ? { upToMessageId: params.sourceProviderCheckpointId }
-        : {}),
+    forkedProviderThreadId = await forkClaudeSession({
+      configDirectory: claudeConfigDirectory(
+        buildSessionEnv(readConfigEnvOverrides(params.config)),
+      ),
+      sourceSessionId: params.sourceProviderThreadId,
+      upToMessageId: params.sourceProviderCheckpointId,
     });
-    forkedProviderThreadId = forkResult.sessionId;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     sendError(id, -32000, message);

@@ -2708,10 +2708,7 @@ export function applyThreadLifecycleEventInTransaction(
     status: evaluation.to,
     updatedAt: now,
   };
-  if (
-    evaluation.to === "active" ||
-    (evaluation.to === "idle" && thread.environmentId !== null)
-  ) {
+  if (evaluation.to === "idle" && thread.environmentId !== null) {
     set.startupContext = null;
   }
   if (
