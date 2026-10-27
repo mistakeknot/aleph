@@ -7,6 +7,7 @@ description: "Configure or diagnose Account Pooler accounts, authentication, quo
 
 Use `bb pool` for this plugin's accounts and routes. Inspect current state with
 `bb pool status --json` and `bb pool account list --json` before changing routing.
+Use `bb pool burn --json` to see the share of the weekly pooled quota used in the last hour.
 Use `bb pool --help` for available commands.
 
 Use `bb pool exec -- codex ...` or `bb pool exec -- claude ...` when a process

@@ -20,6 +20,7 @@ export const SAMPLE_MIN_GAP_MS = 15_000;
 export const SAMPLE_HEARTBEAT_MS = 5 * 60 * 1_000;
 export const SAMPLE_RETENTION_MS = 26 * 60 * 60 * 1_000;
 const PRUNE_INTERVAL_MS = 10 * 60 * 1_000;
+const ERROR_REPORT_INTERVAL_MS = 10 * 60 * 1_000;
 
 interface LastWrite {
   utilization: number;
@@ -53,13 +54,34 @@ function quotaWindows(quota: AccountQuota): Array<{
 export class QuotaSampler {
   private readonly last = new Map<string, LastWrite>();
   private lastPruneAt = 0;
+  private lastErrorAt = -Infinity;
 
   constructor(
     private readonly store: QuotaSampleStore,
     private readonly now: () => number = Date.now,
+    private readonly onError: (error: unknown) => void = () => undefined,
   ) {}
 
   record(quota: AccountQuota): void {
+    try {
+      this.write(quota);
+    } catch (error) {
+      this.report(error);
+    }
+  }
+
+  private report(error: unknown): void {
+    const now = this.now();
+    if (now - this.lastErrorAt < ERROR_REPORT_INTERVAL_MS) return;
+    this.lastErrorAt = now;
+    try {
+      this.onError(error);
+    } catch {
+      return;
+    }
+  }
+
+  private write(quota: AccountQuota): void {
     const now = this.now();
     for (const window of quotaWindows(quota)) {
       if (window.utilization === null) continue;
@@ -100,7 +122,11 @@ export class QuotaSampler {
   forget(accountId: string): void {
     for (const key of this.last.keys())
       if (key.startsWith(`${accountId}:`)) this.last.delete(key);
-    this.store.removeAccount(accountId);
+    try {
+      this.store.removeAccount(accountId);
+    } catch (error) {
+      this.report(error);
+    }
   }
 }
 
@@ -121,7 +147,13 @@ export function codexWindowKeys(windows: readonly LimitWindow[]): {
         shortest.windowMinutes === longest.windowMinutes ? null : shortest.slot,
     };
   }
-  if (known.length === 1) return { weekly: known[0]!.slot, short: null };
+  if (known.length === 1) {
+    const only = known[0]!;
+    const other = windows.find((window) => window.slot !== only.slot) ?? null;
+    if ((only.windowMinutes ?? 0) >= 6 * 24 * 60)
+      return { weekly: only.slot, short: null };
+    return { weekly: other?.slot ?? null, short: only.slot };
+  }
   const slots = new Set(windows.map((window) => window.slot));
   if (slots.has("secondary"))
     return {
@@ -151,23 +183,31 @@ function accountConsumed(
   samples: readonly QuotaSample[],
   start: number,
 ): number {
-  const baselineIndex = samples.reduce(
-    (found, entry, index) => (entry.sampledAt <= start ? index : found),
-    -1,
-  );
-  const from = Math.max(baselineIndex, 0);
-  let previous = samples[from]!;
+  let previous = samples[0]!;
   let highWater = previous.utilization;
+  let epochEnd = previous.resetAt;
   let consumed = 0;
-  for (const current of samples.slice(from + 1)) {
-    const rolled =
-      previous.resetAt !== null && current.sampledAt >= previous.resetAt;
-    if (rolled) highWater = 0;
+  for (const current of samples.slice(1)) {
+    let intervalStart = previous.sampledAt;
+    if (epochEnd !== null && current.sampledAt >= epochEnd) {
+      highWater = 0;
+      intervalStart = Math.max(epochEnd, previous.sampledAt);
+      epochEnd =
+        current.resetAt !== null && current.resetAt > current.sampledAt
+          ? current.resetAt
+          : null;
+    } else if (
+      current.resetAt !== null &&
+      current.resetAt > current.sampledAt
+    ) {
+      epochEnd = current.resetAt;
+    }
     if (current.utilization > highWater) {
       const increase = current.utilization - highWater;
-      const span = current.sampledAt - previous.sampledAt;
-      const overlap = current.sampledAt - Math.max(previous.sampledAt, start);
-      consumed += span <= 0 ? increase : (increase * overlap) / span;
+      const span = current.sampledAt - intervalStart;
+      const overlap = current.sampledAt - Math.max(intervalStart, start);
+      if (overlap > 0)
+        consumed += span <= 0 ? increase : (increase * overlap) / span;
       highWater = current.utilization;
     }
     previous = current;

@@ -3255,6 +3255,20 @@ describe("Account Pool plugin", () => {
         { id: second.id, label: "second", pct: 0 },
       ]);
 
+      const cliJson = await fixture.host.harness.behavior.runCli([
+        "burn",
+        "--json",
+      ]);
+      expect(cliJson.exitCode).toBe(0);
+      expect(burnSchema.parse(JSON.parse(cliJson.stdout)).claude.pct).toBe(2);
+      const cliText = await fixture.host.harness.behavior.runCli(["burn"]);
+      expect(cliText.stdout).toContain(
+        "claude: 2.0%/h across 2 account(s), 5H window 2.5%/h",
+      );
+      expect(cliText.stdout).toContain(
+        "codex: - across 0 account(s), 5H window -",
+      );
+
       await fixture.host.harness.behavior.callRpc("account.disable", {
         id: second.id,
       });

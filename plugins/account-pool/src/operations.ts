@@ -20,7 +20,6 @@ import type {
   RoutingStore,
 } from "./store.js";
 import {
-  BURN_WINDOW_MS,
   codexWindowKeys,
   pooledConsumption,
   type PooledAccount,
@@ -283,7 +282,7 @@ export class PoolOperations {
         account.status !== "disabled" &&
         account.status !== "error",
     );
-    const samples = this.samples.listForWindow(now - BURN_WINDOW_MS);
+    const samples = this.samples.list();
     for (const provider of ["claude", "codex"] as const) {
       const keyed = summaries
         .filter((account) => account.provider === provider)

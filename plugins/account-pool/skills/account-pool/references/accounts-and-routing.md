@@ -19,6 +19,7 @@ bb pool account priority <id> <n>
 bb pool account reorder <claude|codex> <id>...
 bb pool account refresh <id>
 bb pool status [--json]
+bb pool burn [--json]
 bb pool switches [--limit <n>] [--json]
 bb pool routing <claude|codex> [--off]
 bb pool config

@@ -132,6 +132,77 @@ describe("pooledConsumption", () => {
     expect(result.pct).toBeCloseTo(2, 6);
   });
 
+  it("counts an expired reset once while unchanged readings repeat", () => {
+    const expired = NOW - 100 * MINUTE;
+    const result = pooledConsumption(
+      [
+        sample(A, 90, 0.5, expired),
+        sample(A, 60, 0.5, expired),
+        sample(A, 30, 0.5, expired),
+        sample(A, 0, 0.5, expired),
+      ],
+      [pooled(A)],
+      NOW,
+    );
+    expect(result.pct).toBeCloseTo(0, 6);
+  });
+
+  it("counts a retained expired reset once across a roll", () => {
+    const reset = NOW - 30 * MINUTE;
+    const result = pooledConsumption(
+      [
+        sample(A, 50, 0.9, reset),
+        sample(A, 20, 0.02, reset),
+        sample(A, 10, 0.03, reset),
+      ],
+      [pooled(A)],
+      NOW,
+    );
+    expect(result.pct).toBeCloseTo(3, 6);
+  });
+
+  it("starts proration at the reset after a roll from an old baseline", () => {
+    const result = pooledConsumption(
+      [
+        sample(A, 90, 0.8, NOW - 30 * MINUTE),
+        sample(A, 0, 0.02, NOW + 7 * 24 * HOUR),
+      ],
+      [pooled(A)],
+      NOW,
+    );
+    expect(result.pct).toBeCloseTo(2, 6);
+  });
+
+  it("ignores hour-boundary jitter around the epoch high-water mark", () => {
+    const result = pooledConsumption(
+      [sample(A, 70, 0.5), sample(A, 65, 0.49), sample(A, 55, 0.5)],
+      [pooled(A)],
+      NOW,
+    );
+    expect(result.pct).toBe(0);
+  });
+
+  it("keeps the epoch high-water mark from before the window baseline", () => {
+    const result = pooledConsumption(
+      [sample(A, 65, 0.5), sample(A, 61, 0.49), sample(A, 50, 0.5)],
+      [pooled(A)],
+      NOW,
+    );
+    expect(result.pct).toBe(0);
+  });
+
+  it("prorates a rolled epoch from the reset rather than the previous sample", () => {
+    const result = pooledConsumption(
+      [
+        sample(A, 180, 0.9, NOW - 30 * MINUTE),
+        sample(A, 0, 0.03, NOW + 7 * 24 * HOUR),
+      ],
+      [pooled(A)],
+      NOW,
+    );
+    expect(result.pct).toBeCloseTo(3, 6);
+  });
+
   it("averages over enabled accounts with a reading, exhausted ones included", () => {
     const result = pooledConsumption(
       [
@@ -228,6 +299,16 @@ describe("codexWindowKeys", () => {
     expect(
       codexWindowKeys([window("primary", null), window("secondary", null)]),
     ).toEqual({ weekly: "secondary", short: "primary" });
+  });
+
+  it("does not label a lone known short window as weekly", () => {
+    expect(
+      codexWindowKeys([window("primary", 300), window("secondary", null)]),
+    ).toEqual({ weekly: "secondary", short: "primary" });
+    expect(codexWindowKeys([window("primary", 300)])).toEqual({
+      weekly: null,
+      short: "primary",
+    });
   });
 
   it("treats a lone window as weekly with no short window", () => {
@@ -406,14 +487,55 @@ describe("QuotaSampler and sample store", () => {
     expect(rows().map((row) => row.utilization)).toEqual([0.3]);
   });
 
-  it("lists the window rows plus the last row before the window per key", () => {
+  it("never throws into the quota write when the history insert fails", () => {
+    const { db, samples } = setup();
+    const errors: unknown[] = [];
+    let now = NOW;
+    const quotas = new QuotaStore(
+      db,
+      new QuotaSampler(
+        samples,
+        () => now,
+        (error) => errors.push(error),
+      ),
+    );
+    db.exec("DROP TABLE pool_quota_sample");
+    expect(() => quotas.put(quota({ sevenDayUtilization: 0.2 }))).not.toThrow();
+    expect(quotas.get(A).sevenDayUtilization).toBe(0.2);
+    now += MINUTE;
+    quotas.put(quota({ sevenDayUtilization: 0.3 }));
+    expect(errors).toHaveLength(1);
+    now += 11 * MINUTE;
+    quotas.put(quota({ sevenDayUtilization: 0.4 }));
+    expect(errors).toHaveLength(2);
+  });
+
+  it("survives a failing error reporter and a failing account removal", () => {
+    const { db, samples } = setup();
+    const quotas = new QuotaStore(
+      db,
+      new QuotaSampler(
+        samples,
+        () => NOW,
+        () => {
+          throw new Error("reporter down");
+        },
+      ),
+    );
+    db.exec("DROP TABLE pool_quota_sample");
+    expect(() => quotas.put(quota({ sevenDayUtilization: 0.2 }))).not.toThrow();
+    expect(() => quotas.remove(A)).not.toThrow();
+  });
+
+  it("lists every retained row in time order", () => {
     const { samples, quotas, advance } = setup();
     quotas.put(quota({ sevenDayUtilization: 0.1 }));
     advance(30 * MINUTE);
     quotas.put(quota({ sevenDayUtilization: 0.2 }));
     advance(2 * HOUR);
     quotas.put(quota({ sevenDayUtilization: 0.3 }));
-    const listed = samples.listForWindow(NOW + 2.5 * HOUR - HOUR);
-    expect(listed.map((row) => row.utilization)).toEqual([0.2, 0.3]);
+    expect(samples.list().map((row) => row.utilization)).toEqual([
+      0.1, 0.2, 0.3,
+    ]);
   });
 });

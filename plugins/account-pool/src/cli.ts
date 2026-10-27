@@ -32,6 +32,7 @@ import {
   type LimitWindow,
   type ModelFamily,
   type PoolStatus,
+  type PoolBurn,
   type PoolStatusReport,
   type PoolProvider,
   type SwitchLogEntry,
@@ -97,6 +98,20 @@ function formatReset(value: number | null): string {
 
 function formatUtilization(value: number | null): string {
   return value === null ? "-" : `${Math.round(value * 100)}%`;
+}
+
+function formatBurnPct(value: number | null): string {
+  return value === null ? "-" : `${value.toFixed(1)}%/h`;
+}
+
+function formatBurn(burn: PoolBurn): string {
+  return [
+    "Pooled quota used in the last hour (share of the weekly pool)",
+    ...(["claude", "codex"] as const).map((provider) => {
+      const entry = burn[provider];
+      return `${provider}: ${formatBurnPct(entry.pct)} across ${entry.accounts} account(s), 5H window ${formatBurnPct(entry.alt.pct)}`;
+    }),
+  ].join("\n");
 }
 
 function familyLabel(family: ModelFamily): string {
@@ -789,6 +804,22 @@ export function registerPoolCli(
                 stdout: input.options.json
                   ? json(status)
                   : `${formatStatus(status)}\n`,
+              };
+            }),
+        }),
+        burn: cliCommand({
+          summary:
+            "Show the share of the weekly pooled quota used in the last hour",
+          suggestFor: ["usage", "rate", "consumption"],
+          options: { json: JSON_OPTION },
+          run: (input) =>
+            attempt(async () => {
+              const burn = await operations.burn();
+              return {
+                exitCode: 0,
+                stdout: input.options.json
+                  ? json(burn)
+                  : `${formatBurn(burn)}\n`,
               };
             }),
         }),

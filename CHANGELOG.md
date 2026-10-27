@@ -11,7 +11,7 @@
   records utilization changes when quota is stored and keeps 26 hours. Resets,
   new accounts and reading jitter do not count as use, and the figure is `—`
   until an account has two readings or while this server proxies to a parent
-  pool.
+  pool. `bb pool burn [--json]` prints the same figures.
 - Five upstream fixes are backported (get-bb/bb #6247, #6255, #6243, #6334 and
   #6358): messages queued after a manual stop are sent; an automatic queued
   message no longer overtakes a pending send; parent notices are retried after a

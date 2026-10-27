@@ -712,21 +712,10 @@ export class QuotaSampleStore {
     return row === undefined ? null : sampleFromRow(row);
   }
 
-  listForWindow(start: number): QuotaSample[] {
+  list(): QuotaSample[] {
     return this.db
-      .prepare(
-        `SELECT * FROM pool_quota_sample
-         WHERE sampled_at >= @start OR rowid IN (
-           SELECT rowid FROM (
-             SELECT rowid, ROW_NUMBER() OVER (
-               PARTITION BY account_id, window_key ORDER BY sampled_at DESC, rowid DESC
-             ) AS rank
-             FROM pool_quota_sample WHERE sampled_at < @start
-           ) WHERE rank = 1
-         )
-         ORDER BY sampled_at, rowid`,
-      )
-      .all({ start })
+      .prepare("SELECT * FROM pool_quota_sample ORDER BY sampled_at, rowid")
+      .all()
       .map(sampleFromRow);
   }
 

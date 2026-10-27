@@ -160,7 +160,14 @@ export function createAccountPoolPlugin(
     const db = bb.storage.database();
     bb.storage.migrate(db, QUOTA_MIGRATIONS);
     const samples = new QuotaSampleStore(db);
-    const quotas = new QuotaStore(db, new QuotaSampler(samples, now));
+    const quotas = new QuotaStore(
+      db,
+      new QuotaSampler(samples, now, (error) =>
+        bb.log.warn(
+          `Account Pooler quota history write failed: ${error instanceof Error ? error.message : String(error)}`,
+        ),
+      ),
+    );
     const affinity = new PoolAffinityStore(db);
     const transport =
       options.fetch === undefined ? createUpstreamTransport() : null;
