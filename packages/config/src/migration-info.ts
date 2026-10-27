@@ -28,8 +28,11 @@ export function migratingInfoPath(databasePath: string): string {
   return `${databasePath}.migrating.info`;
 }
 
-export function startupMarkerPath(databasePath: string): string {
-  return `${databasePath}.starting.info`;
+export function startupMarkerPath(
+  databasePath: string,
+  pid: number = process.pid,
+): string {
+  return `${databasePath}.starting.${pid}.info`;
 }
 
 export function readHolderInfo(
@@ -157,27 +160,28 @@ export function writeStartupMarker(databasePath: string): void {
 
 export function removeStartupMarker(databasePath: string): void {
   try {
-    const marker = readStartupMarker(databasePath);
-    if (marker?.pid === process.pid)
-      unlinkSync(startupMarkerPath(databasePath));
+    unlinkSync(startupMarkerPath(databasePath));
   } catch {}
 }
 
-function readStartupMarker(databasePath: string): DatabaseStartupMarker | null {
+function readStartupMarker(
+  databasePath: string,
+  pid: number,
+): DatabaseStartupMarker | null {
   try {
     const parsed: unknown = JSON.parse(
-      readFileSync(startupMarkerPath(databasePath), "utf8"),
+      readFileSync(startupMarkerPath(databasePath, pid), "utf8"),
     );
     if (
       typeof parsed === "object" &&
       parsed !== null &&
       "pid" in parsed &&
-      typeof parsed.pid === "number" &&
+      parsed.pid === pid &&
       "updatedAt" in parsed &&
       typeof parsed.updatedAt === "number"
     ) {
       return {
-        pid: parsed.pid,
+        pid,
         updatedAt: parsed.updatedAt,
         processStart:
           "processStart" in parsed && typeof parsed.processStart === "string"
@@ -193,9 +197,10 @@ function readStartupMarker(databasePath: string): DatabaseStartupMarker | null {
 
 export function readActiveStartup(
   databasePath: string,
+  pid: number,
   options: ReadActiveMigrationOptions = {},
 ): DatabaseStartupMarker | null {
-  const marker = readStartupMarker(databasePath);
+  const marker = readStartupMarker(databasePath, pid);
   if (marker === null) return null;
   return isLiveOwner(marker, options) ? marker : null;
 }

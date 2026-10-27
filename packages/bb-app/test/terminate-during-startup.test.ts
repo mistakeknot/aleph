@@ -2,13 +2,13 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { terminateProcessIfRunning } from "../src/launcher.js";
 
-const fixture = new URL(
-  "./fixtures/startup-marker-process.mjs",
-  import.meta.url,
-).pathname;
+const fixture = fileURLToPath(
+  new URL("./fixtures/startup-marker-process.mjs", import.meta.url),
+);
 const tempDirs: string[] = [];
 
 afterEach(() => {
@@ -66,26 +66,29 @@ async function terminateFixture(
   return { code, signal, completed: existsSync(doneFile), stdout };
 }
 
-describe("terminating a server that is starting up", () => {
-  it("waits when the startup marker was published before the signal", async () => {
-    const outcome = await terminateFixture("early", 7_000);
-    expect(outcome.completed).toBe(true);
-    expect(outcome.signal).toBeNull();
-    expect(outcome.code).toBe(0);
-    expect(outcome.stdout).toContain("stopped-after-work");
-  }, 30_000);
+describe.skipIf(process.platform === "win32")(
+  "terminating a server that is starting up",
+  () => {
+    it("waits when the startup marker was published before the signal", async () => {
+      const outcome = await terminateFixture("early", 7_000);
+      expect(outcome.completed).toBe(true);
+      expect(outcome.signal).toBeNull();
+      expect(outcome.code).toBe(0);
+      expect(outcome.stdout).toContain("stopped-after-work");
+    }, 30_000);
 
-  it("waits when the marker appears after the signal but before the kill", async () => {
-    const outcome = await terminateFixture("late", 7_000);
-    expect(outcome.completed).toBe(true);
-    expect(outcome.signal).toBeNull();
-    expect(outcome.code).toBe(0);
-    expect(outcome.stdout).toContain("stopped-after-work");
-  }, 30_000);
+    it("waits when the marker appears after the signal but before the kill", async () => {
+      const outcome = await terminateFixture("late", 7_000);
+      expect(outcome.completed).toBe(true);
+      expect(outcome.signal).toBeNull();
+      expect(outcome.code).toBe(0);
+      expect(outcome.stdout).toContain("stopped-after-work");
+    }, 30_000);
 
-  it("still kills a server that never publishes a marker", async () => {
-    const outcome = await terminateFixture("none", 20_000);
-    expect(outcome.completed).toBe(false);
-    expect(outcome.signal).toBe("SIGKILL");
-  }, 30_000);
-});
+    it("still kills a server that never publishes a marker", async () => {
+      const outcome = await terminateFixture("none", 20_000);
+      expect(outcome.completed).toBe(false);
+      expect(outcome.signal).toBe("SIGKILL");
+    }, 30_000);
+  },
+);

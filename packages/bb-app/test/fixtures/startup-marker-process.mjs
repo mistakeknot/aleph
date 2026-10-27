@@ -19,7 +19,7 @@ function sleepSynchronously(ms) {
 
 function publishStartupMarker() {
   writeFileSync(
-    `${database}.starting.info`,
+    `${database}.starting.${process.pid}.info`,
     JSON.stringify({ pid: process.pid, updatedAt: Date.now() }),
   );
 }

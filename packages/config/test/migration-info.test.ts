@@ -124,42 +124,68 @@ describe("migration info", () => {
 
   it("publishes and clears a startup marker owned by this process", () => {
     const path = databasePath();
-    expect(readActiveStartup(path)).toBeNull();
+    expect(readActiveStartup(path, process.pid)).toBeNull();
     writeStartupMarker(path);
     expect(existsSync(startupMarkerPath(path))).toBe(true);
-    expect(readActiveStartup(path)?.pid).toBe(process.pid);
+    expect(readActiveStartup(path, process.pid)?.pid).toBe(process.pid);
     removeStartupMarker(path);
     expect(existsSync(startupMarkerPath(path))).toBe(false);
-    expect(readActiveStartup(path)).toBeNull();
+    expect(readActiveStartup(path, process.pid)).toBeNull();
   });
 
-  it("leaves a startup marker owned by another process in place", () => {
+  it("keeps each overlapping startup's marker independent", () => {
     const path = databasePath();
+    const other = process.ppid;
+    writeStartupMarker(path);
     writeFileSync(
-      startupMarkerPath(path),
-      JSON.stringify({ pid: process.pid + 1, updatedAt: Date.now() }),
+      startupMarkerPath(path, other),
+      JSON.stringify({ pid: other, updatedAt: Date.now() }),
+    );
+    expect(readActiveStartup(path, process.pid)?.pid).toBe(process.pid);
+    expect(readActiveStartup(path, other)?.pid).toBe(other);
+    rmSync(startupMarkerPath(path, other));
+    expect(readActiveStartup(path, process.pid)?.pid).toBe(process.pid);
+    expect(readActiveStartup(path, other)).toBeNull();
+    writeFileSync(
+      startupMarkerPath(path, other),
+      JSON.stringify({ pid: other, updatedAt: Date.now() }),
     );
     removeStartupMarker(path);
-    expect(existsSync(startupMarkerPath(path))).toBe(true);
+    expect(readActiveStartup(path, process.pid)).toBeNull();
+    expect(readActiveStartup(path, other)?.pid).toBe(other);
+  });
+
+  it("ignores a startup marker whose recorded pid does not match its file", () => {
+    const path = databasePath();
+    writeFileSync(
+      startupMarkerPath(path, process.pid),
+      JSON.stringify({ pid: process.pid + 1, updatedAt: Date.now() }),
+    );
+    expect(readActiveStartup(path, process.pid)).toBeNull();
   });
 
   it("ignores a startup marker from a dead, reused or overdue process", () => {
     const path = databasePath();
     const write = (pid: number, extra: Record<string, unknown> = {}): void =>
       writeFileSync(
-        startupMarkerPath(path),
+        startupMarkerPath(path, pid),
         JSON.stringify({ pid, updatedAt: Date.now(), ...extra }),
       );
     write(process.pid, { processStart: "boot:1" });
-    expect(readActiveStartup(path, { identityOf: () => "boot:1" })?.pid).toBe(
-      process.pid,
-    );
-    expect(readActiveStartup(path, { identityOf: () => "boot:2" })).toBeNull();
     expect(
-      readActiveStartup(path, { now: () => Date.now() + 60 * 60 * 1000 + 1 }),
+      readActiveStartup(path, process.pid, { identityOf: () => "boot:1" })?.pid,
+    ).toBe(process.pid);
+    expect(
+      readActiveStartup(path, process.pid, { identityOf: () => "boot:2" }),
     ).toBeNull();
-    write(deadPid());
-    expect(readActiveStartup(path)).toBeNull();
+    expect(
+      readActiveStartup(path, process.pid, {
+        now: () => Date.now() + 60 * 60 * 1000 + 1,
+      }),
+    ).toBeNull();
+    const dead = deadPid();
+    write(dead);
+    expect(readActiveStartup(path, dead)).toBeNull();
   });
 
   it("ignores a marker older than the migration wait cap", () => {

@@ -8,6 +8,7 @@ if (completionFile === undefined) throw new Error("completion file required");
 
 const guard = guarded
   ? deferStopDuringDatabaseStartup({
+      databasePath: process.env.STOP_GUARD_DB,
       logger: {
         info: (_fields: unknown, message: string) => console.error(message),
       },

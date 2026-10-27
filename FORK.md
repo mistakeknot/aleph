@@ -597,11 +597,11 @@ length up to a one-hour cap.
   migration even with a long `TimeoutStopSec`, because systemd sends SIGTERM to
   the whole control group first. Migrations are synchronous, so the handler
   runs once the migration yields.
-- The guard also publishes `<db>.starting.info` (pid and process identity)
+- The guard also publishes `<db>.starting.<pid>.info` (pid and process identity)
   before it installs the handlers and removes it once startup settles. A stop
   can therefore never land in a window the launcher cannot see: the migrating
   marker only appears after some pre-lock work, and a signal handler cannot
-  answer while a synchronous migration runs. The marker is separate from the
+  answer while a synchronous migration runs. Each process writes and removes only its own file, so overlapping startups cannot clear one another, and the launcher reads the file for the pid it spawned. It is separate from the
   migrating info file so it never overwrites another process's holder info.
 - Stopping the launcher while a migration is active, or while the server it
   spawned has published a startup marker, waits up to the cap for the server to

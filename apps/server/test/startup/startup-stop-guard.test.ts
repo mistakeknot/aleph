@@ -1,6 +1,9 @@
 import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
-import { startupMarkerPath } from "@bb/config/migration-info";
+import {
+  readActiveStartup,
+  startupMarkerPath,
+} from "@bb/config/migration-info";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -160,4 +163,49 @@ describe("startup stop guard", () => {
     guard.abandon();
     expect(existsSync(startupMarkerPath(databasePath))).toBe(false);
   });
+
+  it("keeps a running startup's marker when another startup settles", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "bb-stop-guard-overlap-"));
+    tempDirs.push(directory);
+    const databasePath = join(directory, "bb.db");
+    const child = spawn(
+      process.execPath,
+      ["--import", "tsx", childScript.pathname],
+      {
+        cwd: new URL("../..", import.meta.url).pathname,
+        env: {
+          ...process.env,
+          STOP_GUARD_COMPLETION_FILE: join(directory, "done"),
+          STOP_GUARD_DB: databasePath,
+          STOP_GUARD_ENABLED: "1",
+          STOP_GUARD_BUSY_MS: "3000",
+        },
+        stdio: ["ignore", "pipe", "ignore"],
+      },
+    );
+    try {
+      await new Promise<void>((resolve) => {
+        child.stdout.on("data", (chunk: Buffer) => {
+          if (chunk.toString().includes("started")) resolve();
+        });
+      });
+      const childPid = child.pid ?? 0;
+      expect(readActiveStartup(databasePath, childPid)?.pid).toBe(childPid);
+      const source: StartupSignalSource = {
+        on: () => undefined,
+        off: () => undefined,
+      };
+      const second = deferStopDuringDatabaseStartup({
+        databasePath,
+        logger: { info: () => undefined },
+        source,
+      });
+      expect(readActiveStartup(databasePath, process.pid)).not.toBeNull();
+      await second.settle();
+      expect(readActiveStartup(databasePath, process.pid)).toBeNull();
+      expect(readActiveStartup(databasePath, childPid)?.pid).toBe(childPid);
+    } finally {
+      child.kill("SIGKILL");
+    }
+  }, 30_000);
 });

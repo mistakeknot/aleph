@@ -79,17 +79,17 @@ export function isMigrationActive(
 
 export function isDatabaseBusy(
   databasePath: string,
-  holderPid?: number,
+  holderPid: number | undefined,
   readMigration: (
     databasePath: string,
   ) => MigrationHolderInfo | null = readActiveMigration,
   readStartup: (
     databasePath: string,
+    pid: number,
   ) => { pid: number } | null = readActiveStartup,
 ): boolean {
   if (isMigrationActive(databasePath, holderPid, readMigration)) return true;
-  const startup = readStartup(databasePath);
   return (
-    startup !== null && (holderPid === undefined || startup.pid === holderPid)
+    holderPid !== undefined && readStartup(databasePath, holderPid) !== null
   );
 }
