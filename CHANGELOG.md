@@ -4,6 +4,15 @@
 
 ### Aleph
 
+- Six upstream fixes are backported (get-bb/bb #6233, #6247, #6255, #6243,
+  #6334 and #6358): messages queued after a manual stop are sent; an automatic
+  queued message no longer overtakes a pending send; parent notices are retried
+  after a dispatch status change and queued during manual compaction; forks of
+  Claude Code threads read the session's own config dir and keep their fork
+  intent across a failed start; and the new Claude Code setting
+  `fullAccessApprovalsEnabled` controls whether Full Access shows Claude
+  Code's own prompts. In Aleph it defaults to `true`, so Full Access still
+  pauses on those prompts, as in 0.8.0.
 - `bb-app start` no longer kills the server while it migrates the database. The
   health deadline slides while a migration holds the migrating lock, progress is
   logged every 10 s, and stopping during a migration waits for it. The generated
