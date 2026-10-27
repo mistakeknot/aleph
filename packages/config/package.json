@@ -53,6 +53,11 @@
       "types": "./src/loopback.ts",
       "default": "./src/loopback.ts"
     },
+    "./migration-info": {
+      "source": "./src/migration-info.ts",
+      "types": "./src/migration-info.ts",
+      "default": "./src/migration-info.ts"
+    },
     "./runtime": {
       "source": "./src/runtime.ts",
       "types": "./src/runtime.ts",

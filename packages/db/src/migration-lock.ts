@@ -4,33 +4,33 @@ import {
   existsSync,
   fsyncSync,
   openSync,
-  readFileSync,
   renameSync,
   statSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import Database from "better-sqlite3";
+import {
+  MIGRATION_WAIT_CAP_MS,
+  migratingInfoPath,
+  migratingLockPath,
+  processIdentity,
+  readHolderInfo,
+  type MigrationHolderInfo,
+  type MigrationPhase,
+} from "@bb/config/migration-info";
 
-export const MIGRATION_WAIT_CAP_MS = 60 * 60 * 1000;
+export {
+  MIGRATION_WAIT_CAP_MS,
+  migratingInfoPath,
+  migratingLockPath,
+  readHolderInfo,
+  type MigrationHolderInfo,
+  type MigrationPhase,
+};
 
 const POLL_BUSY_TIMEOUT_MS = 250;
 const IN_USE_BUSY_TIMEOUT_MS = 5000;
-
-export type MigrationPhase =
-  | "waiting"
-  | "classifying"
-  | "backup"
-  | "migrating"
-  | "verifying";
-
-export interface MigrationHolderInfo {
-  pid: number;
-  token: string;
-  databaseBytes: number;
-  expectedMs: number;
-  phase: MigrationPhase;
-  updatedAt: number;
-}
 
 export class MigrationLockTimeout extends Error {
   readonly holder: MigrationHolderInfo | null;
@@ -50,14 +50,6 @@ export function heldMigrationLockHandleCount(): number {
 
 export function inUseLockPath(databasePath: string): string {
   return `${databasePath}.in-use.lock`;
-}
-
-export function migratingLockPath(databasePath: string): string {
-  return `${databasePath}.migrating.lock`;
-}
-
-export function migratingInfoPath(databasePath: string): string {
-  return `${databasePath}.migrating.info`;
 }
 
 export function isLockableDatabase(sqlite: Database.Database): boolean {
@@ -81,44 +73,6 @@ function isBusy(error: unknown): boolean {
 
 function sleep(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-}
-
-export function readHolderInfo(
-  databasePath: string,
-): MigrationHolderInfo | null {
-  const path = migratingInfoPath(databasePath);
-  if (!existsSync(path)) return null;
-  try {
-    const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
-    if (
-      typeof parsed === "object" &&
-      parsed !== null &&
-      "pid" in parsed &&
-      typeof parsed.pid === "number" &&
-      "token" in parsed &&
-      typeof parsed.token === "string" &&
-      "databaseBytes" in parsed &&
-      typeof parsed.databaseBytes === "number" &&
-      "expectedMs" in parsed &&
-      typeof parsed.expectedMs === "number" &&
-      "phase" in parsed &&
-      typeof parsed.phase === "string" &&
-      "updatedAt" in parsed &&
-      typeof parsed.updatedAt === "number"
-    ) {
-      return {
-        pid: parsed.pid,
-        token: parsed.token,
-        databaseBytes: parsed.databaseBytes,
-        expectedMs: parsed.expectedMs,
-        phase: parsed.phase as MigrationPhase,
-        updatedAt: parsed.updatedAt,
-      };
-    }
-  } catch {
-    return null;
-  }
-  return null;
 }
 
 function writeFileDurably(path: string, content: string): void {
@@ -248,6 +202,7 @@ export function acquireMigratingLock(
     const databaseBytes = existsSync(databasePath)
       ? statSync(databasePath).size
       : 0;
+    const processStart = processIdentity(process.pid);
     const expectedMs = options.expectedMs ?? databaseBytes / 50_000;
     const writeInfo = (phase: MigrationPhase): void => {
       writeFileDurably(
@@ -259,6 +214,7 @@ export function acquireMigratingLock(
           expectedMs,
           phase,
           updatedAt: Date.now(),
+          processStart,
         } satisfies MigrationHolderInfo),
       );
     };
@@ -269,6 +225,9 @@ export function acquireMigratingLock(
       release: () => {
         if (released) return;
         released = true;
+        try {
+          unlinkSync(migratingInfoPath(databasePath));
+        } catch {}
         releaseHandle();
       },
     };

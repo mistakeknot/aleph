@@ -20,6 +20,7 @@ import {
   setAppSettings,
 } from "@bb/db";
 import { initDb } from "./db.js";
+import { deferStopDuringDatabaseStartup } from "./startup-stop-guard.js";
 import { createApp } from "./server.js";
 import { PendingInteractionLifecycle } from "./services/interactions/pending-interactions.js";
 import { createMachineAuthService } from "./services/machine-auth.js";
@@ -138,12 +139,31 @@ export async function runServer(
     logger,
   });
   let diagnosticsEnabled = () => false;
-  const db = initDb(serverConfig.databasePath, {
-    slowQueryThresholdMs: () => (diagnosticsEnabled() ? 25 : 100),
-    slowQueryDiagnosticsEnabled: () => diagnosticsEnabled(),
-    dataDir: serverConfig.BB_DATA_DIR,
+  const startupStop = deferStopDuringDatabaseStartup({
+    databasePath: serverConfig.databasePath,
     logger,
   });
+  let db: ReturnType<typeof initDb>;
+  try {
+    db = initDb(serverConfig.databasePath, {
+      slowQueryThresholdMs: () => (diagnosticsEnabled() ? 25 : 100),
+      slowQueryDiagnosticsEnabled: () => diagnosticsEnabled(),
+      dataDir: serverConfig.BB_DATA_DIR,
+      logger,
+    });
+  } catch (error) {
+    startupStop.abandon();
+    throw error;
+  }
+  const stopDuringStartup = await startupStop.settle();
+  if (stopDuringStartup !== null) {
+    logger.info(
+      { signal: stopDuringStartup },
+      "Database startup finished after a stop request; exiting",
+    );
+    db.$client.close();
+    process.exit(0);
+  }
   const serverImport = await applyServerImportAtBoot({
     dataDir: serverConfig.BB_DATA_DIR,
     db,

@@ -29,6 +29,7 @@ import {
   acquireInUseLock,
   acquireMigratingLock,
   isLockableDatabase,
+  type MigratingLock,
   MigrationLockTimeout,
   waitWhileMigrating,
 } from "./migration-lock.js";
@@ -1315,6 +1316,7 @@ export function migrateWithFolders(
   acquireInUseLock(sqlite);
 
   let backup: MigrationBackup | null = null;
+  let migrating: MigratingLock | null = null;
   sqlite.pragma("foreign_keys = OFF");
   try {
     assertNoDuplicatePendingInteractionProviderRequests(db);
@@ -1322,7 +1324,7 @@ export function migrateWithFolders(
       readMigrationStateWaiting(sqlite, aligned, options).needsWrite ||
       keepAwakeSeedPending(db)
     ) {
-      const migrating = acquireMigratingLock(sqlite, {
+      migrating = acquireMigratingLock(sqlite, {
         waitCapMs: options.lockWaitCapMs,
       });
       try {
@@ -1354,18 +1356,26 @@ export function migrateWithFolders(
           throw error;
         }
       } finally {
-        migrating?.release();
+        if (backup === null) migrating?.release();
       }
     }
+  } catch (error) {
+    migrating?.release();
+    throw error;
   } finally {
     sqlite.pragma("foreign_keys = ON");
   }
 
-  if (backup !== null) {
-    const finalization = finalizeMigrationBackup(sqlite.name, backup);
-    options.onBackup?.(finalization);
+  try {
+    if (backup !== null) {
+      migrating?.setPhase("finalizing");
+      const finalization = finalizeMigrationBackup(sqlite.name, backup);
+      options.onBackup?.(finalization);
+    }
+    warnAboutFutureAppliedMigrations(db, options);
+    validateAppliedMigrationHistory(db, aligned);
+    validatePendingInteractionsSchema(db);
+  } finally {
+    migrating?.release();
   }
-  warnAboutFutureAppliedMigrations(db, options);
-  validateAppliedMigrationHistory(db, aligned);
-  validatePendingInteractionsSchema(db);
 }

@@ -529,7 +529,8 @@ here, and none blocks the release):
 - keepAwake skips the backup.
 - Cost: the backup copy, check and count are about four passes over the file,
   and per-step digest checks run inside the migrating lock; the backup content
-  and sequence digest finalization runs after the lock is released. On a real
+  and sequence digest finalization also runs under the lock (phase
+  `finalizing`, see "Migration-safe update"). On a real
   5.5 GB database, 144 to 152 took about 250 s including the verified 5.0 GB
   backup, with integrity, foreign keys, FTS and row counts intact.
 - Step 6 rollout tests: there is no crash hook before the backup or between
@@ -558,6 +559,82 @@ this: the tests show it opens databases migrated by the namespaced runner at
 131 through 152. Whether the real 0.7.0 binary does so is the Tier 3 check.
 The release notes (step 8) carry the backup path, the restore steps and this
 contract.
+
+### Migration-safe update (mk-ooomf.1)
+
+The 0.8.0 install lost its first start: the launcher's 60 s health deadline
+expired while migrations on a 4.3 GB database took 181 to 220 s, the launcher
+killed the server mid-migration, and systemd (`Restart=always`) started it
+again to repeat the work. The update path now survives a migration of any
+length up to a one-hour cap.
+
+- The migrating lock releases its holder info file (`<db>.migrating.info`) when
+  it is released, so the file exists only while a migration holds the lock. The
+  helpers that read it (`readActiveMigration`, `isProcessAlive`,
+  `MIGRATION_WAIT_CAP_MS`) live in `packages/config/src/migration-info.ts`
+  (`@bb/config/migration-info`) because `bb-app` does not depend on `@bb/db`.
+- `bb-app start` uses a sliding health deadline
+  (`packages/bb-app/src/migration-wait.ts`). While the info file names a live
+  process the deadline moves to now plus the 60 s timeout, so it expires 60 s
+  after the migration ends or the server stops answering, never during the
+  migration. The launcher logs `migrating database (phase X, N s elapsed)` every
+  10 s. A migration older than the cap stops extending the deadline.
+- `migrate()` keeps the lock and the info file through backup finalization
+  (phase `finalizing`) and the history checks that follow, because finalization
+  of a 5 GB backup took over a minute after the schema changes and would have
+  run with no marker and no listening server.
+- A stale info file is ignored, so a crashed migration does not extend the
+  deadline. The info file records the holder's pid and, on Linux, its process
+  identity (boot id plus start time from `/proc/<pid>/stat`).
+  `readActiveMigration` rejects a marker whose pid is dead, whose recorded
+  identity no longer matches the live process (pid reuse), or whose last update
+  is older than the cap. The launcher also requires the marker's pid to equal
+  the server process it spawned, which covers platforms without `/proc`.
+- The server installs SIGTERM and SIGINT handlers before it opens the database
+  (`apps/server/src/startup-stop-guard.ts`). A stop that arrives during a
+  migration is recorded, the migration runs to completion, and the server exits
+  cleanly before it starts listening. Without this the signal killed the
+  migration even with a long `TimeoutStopSec`, because systemd sends SIGTERM to
+  the whole control group first. Migrations are synchronous, so the handler
+  runs once the migration yields.
+- The guard also publishes `<db>.starting.<pid>.info` (pid and process identity)
+  before it installs the handlers and removes it once startup settles. A stop
+  can therefore never land in a window the launcher cannot see: the migrating
+  marker only appears after some pre-lock work, and a signal handler cannot
+  answer while a synchronous migration runs. Each process writes and removes only its own file, so overlapping startups cannot clear one another, and the launcher reads the file for the pid it spawned. It is separate from the
+  migrating info file so it never overwrites another process's holder info.
+  A marker left by a crashed startup is ignored once its owner is dead or past
+  the cap, but it is not deleted, so such files can accumulate. Deleting on
+  read was rejected because a reused pid may have published a fresh marker
+  between the read and the unlink. This is a known non-blocking limitation.
+- Stopping the launcher while a migration is active, or while the server it
+  spawned has published a startup marker, waits up to the cap for the server to
+  finish instead of killing it after 5 s. If the marker is only visible after
+  the signal was sent, the launcher checks again at the 5 s mark and waits
+  rather than escalating to SIGKILL. A server that publishes nothing is still
+  killed at 5 s.
+- The generated systemd unit (`install-machine.sh`) sets `TimeoutStopSec=3900`
+  so systemd does not kill a migrating server on `stop` or `restart`.
+- Existing installed units predate `TimeoutStopSec`. Add a drop-in once per
+  host: `[Service]` with `TimeoutStopSec=3900` in
+  `~/.config/systemd/user/<unit>.service.d/migration-stop.conf`, then
+  `systemctl --user daemon-reload`.
+- Evidence: unit tests drive a virtual clock through a 250 s migration against a
+  real HTTP server. The rehearsal ran the real launcher and the real `migrate()`
+  (204 s, then padded to 250 s) on a copy of the pre-namespace 5.3 GB database
+  under a transient `Restart=always` systemd unit with the 60 s timeout
+  unchanged: healthy after 250.8 s, zero unit restarts. A control with the
+  marker hidden from the launcher failed at 60 s, and a run before the
+  finalization fix failed 60 s after the lock was released. A second rehearsal
+  ran `systemctl --user stop` (`TimeoutStopSec=3900`) 65 s into the real
+  migration: the server logged the deferred stop, finished the migration
+  (203 s), exited 0 with no restart and no leftover info file, and the next
+  start found nothing to migrate (15 ms). The 250 s rehearsal also passed with
+  the stricter marker checks. After the startup marker was added, the stop
+  rehearsal was repeated on a fresh copy: the marker was present from process
+  start, the stop 80 s into the migration was deferred, the migration finished
+  (250 s with the padding), the server exited 0, the unit reported no restart
+  and no SIGKILL, and the startup marker was gone.
 
 ## Project documents
 

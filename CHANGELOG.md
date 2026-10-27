@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+### Aleph
+
+- `bb-app start` no longer kills the server while it migrates the database. The
+  health deadline slides while a migration holds the migrating lock, progress is
+  logged every 10 s, and stopping during a migration waits for it. The generated
+  systemd unit sets `TimeoutStopSec=3900`. Existing units need a drop-in with the
+  same setting; see FORK.md "Migration-safe update".
+- The migrating lock removes its holder info file on release. A leftover info
+  file from a crashed migration is ignored when its process is gone, was
+  replaced by another process on the same pid, or is more than an hour old.
+- The server defers SIGTERM and SIGINT until its database migration finishes,
+  so `systemctl stop` or a launcher stop no longer kills a migration partway.
+  The server publishes a startup marker first, and the launcher rechecks it
+  before escalating to SIGKILL, so a stop that arrives before the migrating
+  marker exists is not killed either.
+
 ## 0.47.0+aleph.0.8.0
 
 Aleph 0.8.0 syncs Aleph to upstream bb 0.47.0 (`desktop-v0.47.0`, commit

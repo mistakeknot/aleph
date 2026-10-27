@@ -1678,6 +1678,7 @@ fi
     expect(unit).toContain("Wants=network-online.target");
     expect(unit).toContain("Restart=always");
     expect(unit).toContain("RestartSec=2");
+    expect(unit).toContain("TimeoutStopSec=3900");
     expect(unit).toContain("WantedBy=default.target");
     expect(readFileSync(join(fixture.dataDir, "systemctl.log"), "utf8")).toBe(
       "--user show-environment\n--user daemon-reload\n--user enable bb-host-daemon-machine-getbb-app-host-test.service\n--user restart bb-host-daemon-machine-getbb-app-host-test.service\n",

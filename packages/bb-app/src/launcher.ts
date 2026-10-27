@@ -80,6 +80,8 @@ import {
   resolveProdDataDir,
   stripThreadContextEnv,
 } from "@bb/config/runtime";
+import { MIGRATION_WAIT_CAP_MS } from "@bb/config/migration-info";
+import { createHealthDeadline, isDatabaseBusy } from "./migration-wait.js";
 import {
   readServerImportFile,
   readServerMovedFile,
@@ -396,8 +398,9 @@ interface WaitForNamedProcessExitArgs {
   processName: ManagedProcessName;
 }
 
-interface TerminateProcessIfRunningArgs {
+export interface TerminateProcessIfRunningArgs {
   childProcess: ChildProcess;
+  migrationDatabasePath?: string;
   processName: ManagedProcessName;
   signal: NodeJS.Signals;
 }
@@ -423,6 +426,7 @@ export interface ManagedFullStackProcesses {
 
 interface SpawnNamedManagedProcessArgs {
   ipc?: boolean;
+  migrationDatabasePath?: string;
   logDir: string;
   args: string[];
   command: string;
@@ -582,7 +586,11 @@ export interface DelayMillisecondsArgs {
 
 interface WaitForServerHealthArgs {
   childProcess: ChildProcess | null;
+  databasePath?: string;
   expectedLaunchId: string;
+  migrationWaitCapMs?: number;
+  now?: () => number;
+  sleep?: (ms: number) => Promise<void>;
   timeoutMs?: number;
   url: string;
 }
@@ -2355,14 +2363,28 @@ async function isHealthyServerAnswering(url: string): Promise<boolean> {
 export async function waitForServerHealth(
   args: WaitForServerHealthArgs,
 ): Promise<void> {
-  const timeoutMs = args.timeoutMs ?? HEALTH_CHECK_TIMEOUT_MS;
-  const deadline = Date.now() + timeoutMs;
+  const healthDeadline = createHealthDeadline({
+    capMs: args.migrationWaitCapMs,
+    databasePath: args.databasePath ?? null,
+    holderPid: args.childProcess?.pid,
+    now: args.now,
+    onProgress: (info, elapsedMs) => {
+      log(
+        " ",
+        dim(
+          `migrating database (phase ${info.phase}, ${String(Math.round(elapsedMs / 1_000))}s elapsed) - waiting for the server`,
+        ),
+      );
+    },
+    timeoutMs: args.timeoutMs ?? HEALTH_CHECK_TIMEOUT_MS,
+  });
+  const pause = args.sleep ?? ((ms: number) => delayMilliseconds({ ms }));
   let foreignServerAnswered = false;
   const describeFailure = (reason: string): string =>
     foreignServerAnswered
       ? `${reason}: another server is already answering at ${args.url}`
       : reason;
-  while (Date.now() <= deadline) {
+  while (!healthDeadline.isExpired()) {
     if (args.childProcess && hasProcessExited(args.childProcess)) {
       throw new Error(
         describeFailure("Process exited before becoming healthy"),
@@ -2380,10 +2402,14 @@ export async function waitForServerHealth(
         foreignServerAnswered = true;
       }
     } catch {}
-    await delayMilliseconds({ ms: HEALTH_CHECK_INTERVAL_MS });
+    await pause(HEALTH_CHECK_INTERVAL_MS);
   }
   throw new Error(
-    describeFailure(`Timed out waiting for health at ${args.url}`),
+    describeFailure(
+      healthDeadline.migrationElapsedMs() > 0
+        ? `Timed out waiting for health at ${args.url} after a database migration of ${String(Math.round(healthDeadline.migrationElapsedMs() / 1_000))}s`
+        : `Timed out waiting for health at ${args.url}`,
+    ),
   );
 }
 
@@ -2450,6 +2476,7 @@ function spawnNamedManagedProcess(
     async terminate(signal): Promise<void> {
       await terminateProcessIfRunning({
         childProcess,
+        migrationDatabasePath: args.migrationDatabasePath,
         processName: args.processName,
         signal,
       });
@@ -2497,19 +2524,34 @@ function delayMilliseconds(args: DelayMillisecondsArgs): Promise<void> {
   });
 }
 
-async function terminateProcessIfRunning(
+export async function terminateProcessIfRunning(
   args: TerminateProcessIfRunningArgs,
 ): Promise<void> {
   if (hasProcessExited(args.childProcess)) {
     return;
   }
+  const isBusy = (): boolean =>
+    args.migrationDatabasePath !== undefined &&
+    isDatabaseBusy(args.migrationDatabasePath, args.childProcess.pid);
+  const busyAtSignal = isBusy();
   args.childProcess.kill(args.signal);
   const gracefulResult = await waitForProcessExitWithTimeout({
     childProcess: args.childProcess,
-    timeoutMs: MANAGED_PROCESS_TERMINATION_TIMEOUT_MS,
+    timeoutMs: busyAtSignal
+      ? MIGRATION_WAIT_CAP_MS
+      : MANAGED_PROCESS_TERMINATION_TIMEOUT_MS,
   });
   if (gracefulResult === "exited") {
     return;
+  }
+  if (!busyAtSignal && isBusy()) {
+    const deferredResult = await waitForProcessExitWithTimeout({
+      childProcess: args.childProcess,
+      timeoutMs: MIGRATION_WAIT_CAP_MS,
+    });
+    if (deferredResult === "exited") {
+      return;
+    }
   }
 
   log(
@@ -3143,6 +3185,7 @@ export async function startFullStackServerProcess(
     env: { ...args.env, BB_SERVER_LAUNCH_ID: launchId },
     ipc: args.onSpawned !== undefined,
     logDir: args.context.logDir,
+    migrationDatabasePath: args.context.dbPath,
     processName: "server",
   });
   args.processes.serverRun = serverRun;
@@ -3151,6 +3194,7 @@ export async function startFullStackServerProcess(
   try {
     await waitForServerHealth({
       childProcess: serverRun.childProcess,
+      databasePath: args.context.dbPath,
       expectedLaunchId: launchId,
       url: `${args.context.serverUrl}/health`,
     });
@@ -3158,6 +3202,7 @@ export async function startFullStackServerProcess(
   } catch (error) {
     await terminateProcessIfRunning({
       childProcess: serverRun.childProcess,
+      migrationDatabasePath: args.context.dbPath,
       processName: "server",
       signal: "SIGTERM",
     });
