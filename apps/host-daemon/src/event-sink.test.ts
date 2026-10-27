@@ -658,6 +658,7 @@ describe("event sink", () => {
           status: "failed",
           taskStatus: "failed",
           skipTranscript: false,
+          foreground: false,
           error: `launch failed api_key=${secret}`,
         },
       },
