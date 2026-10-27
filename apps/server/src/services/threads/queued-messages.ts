@@ -349,7 +349,7 @@ async function createQueuedMessageForResolvedThread(
             // manual-stop pause holds back.
             waitingOn:
               currentThread.status === "stopping" ||
-              isThreadQueueAutoSendPaused(tx, args.thread.id)
+              isThreadQueueAutoSendPaused(tx, currentThread.id)
                 ? { kind: "stopping" }
                 : { kind: "thread-busy" },
             sendAt: null,
