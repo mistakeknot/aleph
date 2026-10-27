@@ -603,6 +603,10 @@ length up to a one-hour cap.
   marker only appears after some pre-lock work, and a signal handler cannot
   answer while a synchronous migration runs. Each process writes and removes only its own file, so overlapping startups cannot clear one another, and the launcher reads the file for the pid it spawned. It is separate from the
   migrating info file so it never overwrites another process's holder info.
+  A marker left by a crashed startup is ignored once its owner is dead or past
+  the cap, but it is not deleted, so such files can accumulate. Deleting on
+  read was rejected because a reused pid may have published a fresh marker
+  between the read and the unlink. This is a known non-blocking limitation.
 - Stopping the launcher while a migration is active, or while the server it
   spawned has published a startup marker, waits up to the cap for the server to
   finish instead of killing it after 5 s. If the marker is only visible after

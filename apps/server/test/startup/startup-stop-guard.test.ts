@@ -48,7 +48,13 @@ async function runStoppedChild(guarded: boolean): Promise<ChildResult> {
     stdio: ["ignore", "pipe", "ignore"],
   });
   let stdout = "";
-  const started = new Promise<void>((resolve) => {
+  const started = new Promise<void>((resolve, reject) => {
+    child.once("error", reject);
+    child.once("exit", (code, signal) =>
+      reject(
+        new Error(`child exited before startup: code=${code} signal=${signal}`),
+      ),
+    );
     child.stdout.on("data", (chunk: Buffer) => {
       stdout += chunk.toString();
       if (stdout.includes("started")) resolve();
@@ -68,19 +74,27 @@ async function runStoppedChild(guarded: boolean): Promise<ChildResult> {
 }
 
 describe("startup stop guard", () => {
-  it("lets a migrating child finish before honouring SIGTERM", async () => {
-    const result = await runStoppedChild(true);
-    expect(result.completed).toBe(true);
-    expect(result.signal).toBeNull();
-    expect(result.code).toBe(0);
-    expect(result.stdout).toContain("stopped-after-migration SIGTERM");
-  }, 30_000);
+  it.skipIf(process.platform === "win32")(
+    "lets a migrating child finish before honouring SIGTERM",
+    async () => {
+      const result = await runStoppedChild(true);
+      expect(result.completed).toBe(true);
+      expect(result.signal).toBeNull();
+      expect(result.code).toBe(0);
+      expect(result.stdout).toContain("stopped-after-migration SIGTERM");
+    },
+    30_000,
+  );
 
-  it("kills an unguarded migrating child mid-migration", async () => {
-    const result = await runStoppedChild(false);
-    expect(result.completed).toBe(false);
-    expect(result.signal).toBe("SIGTERM");
-  }, 30_000);
+  it.skipIf(process.platform === "win32")(
+    "kills an unguarded migrating child mid-migration",
+    async () => {
+      const result = await runStoppedChild(false);
+      expect(result.completed).toBe(false);
+      expect(result.signal).toBe("SIGTERM");
+    },
+    30_000,
+  );
 
   it("reports no stop and detaches its listeners when nothing was sent", async () => {
     const listeners = new Map<StartupStopSignal, Set<() => void>>();
