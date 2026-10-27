@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Aleph
+
+- `bb-app start` no longer kills the server while it migrates the database. The
+  health deadline slides while a migration holds the migrating lock, progress is
+  logged every 10 s, and stopping during a migration waits for it. The generated
+  systemd unit sets `TimeoutStopSec=3900`. Existing units need a drop-in with the
+  same setting; see FORK.md "Migration-safe update".
+- The migrating lock removes its holder info file on release.
+
 ## 0.47.0+aleph.0.8.0
 
 Aleph 0.8.0 syncs Aleph to upstream bb 0.47.0 (`desktop-v0.47.0`, commit

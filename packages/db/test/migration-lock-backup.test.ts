@@ -35,6 +35,7 @@ import {
   MigrationLockTimeout,
   migratingInfoPath,
   migratingLockPath,
+  readHolderInfo,
   waitWhileMigrating,
 } from "../src/migration-lock.js";
 import { applyPrefix } from "./helpers/legacy-oracle.js";
@@ -197,6 +198,22 @@ describe("migration lock files", () => {
     }
   });
 
+  it("removes the holder info file when the lock is released", () => {
+    const directory = tempDir();
+    const path = join(directory, "bb.db");
+    const db = createConnection(path);
+    try {
+      const lock = acquireMigratingLock(db.$client);
+      lock?.setPhase("migrating");
+      expect(existsSync(migratingInfoPath(path))).toBe(true);
+      lock?.release();
+      expect(existsSync(migratingInfoPath(path))).toBe(false);
+      lock?.release();
+    } finally {
+      db.$client.close();
+    }
+  });
+
   it("releases the handle when the holder info cannot be written", () => {
     const directory = tempDir();
     const path = join(directory, "bb.db");
@@ -291,6 +308,29 @@ describe("migration backup", () => {
     ).toEqual([]);
     expect(lockIsFree(migratingLockPath(path))).toBe(true);
     expect(lockIsFree(inUseLockPath(path))).toBe(true);
+  });
+
+  it("keeps the migrating marker through backup finalization", () => {
+    const directory = tempDir();
+    const path = legacyFileDatabase(directory, 131);
+    const seen: Array<{ pid: number; phase: string } | null> = [];
+    const db = createConnection(path);
+    try {
+      migrate(db, {
+        onBackup: () => {
+          const info = readHolderInfo(path);
+          seen.push(
+            info === null ? null : { pid: info.pid, phase: info.phase },
+          );
+          expect(lockIsFree(migratingLockPath(path))).toBe(false);
+        },
+      });
+    } finally {
+      db.$client.close();
+    }
+    expect(seen).toEqual([{ pid: process.pid, phase: "finalizing" }]);
+    expect(existsSync(migratingInfoPath(path))).toBe(false);
+    expect(lockIsFree(migratingLockPath(path))).toBe(true);
   });
 
   it("makes no backup for a fresh install or an already migrated database", () => {
