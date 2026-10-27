@@ -604,6 +604,65 @@ describe("Rail", () => {
     ).toBeNull();
   });
 
+  it("draws a plugin panel's rail badge on a compact viewport", () => {
+    const badge = registerDocsBadge({ count: 4, label: "4 waiting" });
+
+    renderRail(THREAD_PATH, { isCompactViewport: true });
+
+    expect(railBadgeText("Docs, 4 waiting")).toBe("4");
+
+    act(() => badge.set({ count: 12, label: "12 waiting" }));
+    expect(railBadgeText("Docs, 12 waiting")).toBe("9+");
+
+    act(() => badge.set(null));
+    expect(
+      railButton("Docs").querySelector("[data-nav-rail-badge]"),
+    ).toBeNull();
+  });
+
+  it("marks More for a badged destination hidden under More on a compact viewport", async () => {
+    registerDocsBadge({ count: 2, label: "2 waiting" });
+
+    renderRail(THREAD_PATH, {
+      visibleKeys: ["__bb__/new-thread", "__bb__/extensions"],
+      isCompactViewport: true,
+    });
+
+    const more = railButton("More, Docs: 2 waiting");
+    expect(more.querySelector('[data-nav-rail-badge="dot"]')).not.toBeNull();
+    fireEvent.click(more);
+    const item = await screen.findByRole("menuitem", {
+      name: "Docs, 2 waiting",
+    });
+    expect(
+      item.querySelector('[data-nav-rail-badge="count"]')?.textContent,
+    ).toBe("2");
+  });
+
+  it("draws no badge for the retired experimental_sidebarAccessory field", () => {
+    setPluginSlotRegistrations(
+      "garden",
+      registrationSet({
+        navPanels: [
+          {
+            id: "docs",
+            title: "Docs",
+            icon: "BookOpen",
+            path: "docs",
+            component: () => null,
+            experimental_sidebarAccessory: () => <span>4</span>,
+          } as never,
+        ],
+      }),
+    );
+
+    renderRail(THREAD_PATH, { isCompactViewport: true });
+
+    expect(
+      railButton("Docs").querySelector("[data-nav-rail-badge]"),
+    ).toBeNull();
+  });
+
   it("marks More and the More menu item for a badged destination hidden under More", async () => {
     registerDocsBadge({ count: 2, label: "2 open pages" });
 
