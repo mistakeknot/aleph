@@ -37,6 +37,7 @@ describe("the Claude Code provider settings", () => {
     "chromeEnabled",
     "disable1MContext",
     "artifactsEnabled",
+    "fullAccessApprovalsEnabled",
   ])("keeps %s off by default and derives an explicit opt-in", (key) => {
     const { declaration, host } = loadClaudeCodePlugin();
 
@@ -46,22 +47,6 @@ describe("the Claude Code provider settings", () => {
     });
     expect(providerOptions(declaration, {})[key]).toBe(false);
     expect(providerOptions(declaration, { [key]: true })[key]).toBe(true);
-  });
-
-  it("keeps Approvals in Full Access on by default and derives an explicit opt-out", () => {
-    const { declaration, host } = loadClaudeCodePlugin();
-
-    expect(
-      host.harness.registrations.settingsDescriptors
-        .fullAccessApprovalsEnabled,
-    ).toMatchObject({ type: "boolean", default: true });
-    expect(providerOptions(declaration, {}).fullAccessApprovalsEnabled).toBe(
-      true,
-    );
-    expect(
-      providerOptions(declaration, { fullAccessApprovalsEnabled: false })
-        .fullAccessApprovalsEnabled,
-    ).toBe(false);
   });
 
   it("keeps the Claude Code sandbox on by default and derives an explicit opt-out", () => {

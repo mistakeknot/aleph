@@ -2353,7 +2353,7 @@ describe("bridge", () => {
     }
   });
 
-  it("forwards a permissions.ask rule prompt in full access mode by default", async () => {
+  it("forwards a permissions.ask rule prompt in full access mode when Approvals in Full Access is on", async () => {
     const bridge = createBridgeJsonRpcTestHarness(handleLine);
     const queries: ControlledClaudeQuery[] = [];
     queryMock.mockImplementation(() => {
@@ -2381,6 +2381,7 @@ describe("bridge", () => {
           instructions: "test",
           providerOptions: {
             workflowsEnabled: false,
+            fullAccessApprovalsEnabled: true,
           },
         },
       });
@@ -2431,7 +2432,7 @@ describe("bridge", () => {
     }
   });
 
-  it("approves Claude Code's prompts in full access mode while Approvals in Full Access is off, until a turn turns it on", async () => {
+  it("approves Claude Code's prompts in full access mode until a turn turns Approvals in Full Access on", async () => {
     const bridge = createBridgeJsonRpcTestHarness(handleLine);
     const queries: ControlledClaudeQuery[] = [];
     queryMock.mockImplementation(() => {
@@ -2459,10 +2460,7 @@ describe("bridge", () => {
         instructionMode: "append",
         options: {
           ...fullAccessOptions,
-          providerOptions: {
-            workflowsEnabled: false,
-            fullAccessApprovalsEnabled: false,
-          },
+          providerOptions: { workflowsEnabled: false },
         },
       });
       await bridge.waitForResponse(1);

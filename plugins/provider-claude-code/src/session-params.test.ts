@@ -119,7 +119,7 @@ describe("buildClaudeSessionParams", () => {
       chromeEnabled: false,
       artifactsEnabled: false,
       sandboxEnabled: true,
-      fullAccessApprovalsEnabled: true,
+      fullAccessApprovalsEnabled: false,
       permissionMode: "bypassPermissions",
       approvedPlanPermissionMode: "bypassPermissions",
       permissionEscalation: null,
