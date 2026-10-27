@@ -43,6 +43,7 @@ import {
   appendPreparedClientTurnRequestedEventWithNotificationInTransaction,
   createClientTurnRequestId,
   getActiveTurnId,
+  isManualCompactionActive,
 } from "./thread-events.js";
 import {
   dispatchTurnDuringReprovision,
@@ -79,6 +80,8 @@ import {
 const PARENT_SYSTEM_MESSAGE_SOURCE = "tell";
 
 class ParentSystemMessageStateChangedError extends Error {}
+
+export class ParentSystemMessageCompactionActiveError extends Error {}
 
 export interface ParentSystemMessageTaxonomy {
   systemMessageKind: SystemMessageKind;
@@ -310,6 +313,9 @@ function queueActiveParentSystemMessageInTransaction(
   }
   if (currentThread.status !== "active") {
     throw new ParentSystemMessageStateChangedError();
+  }
+  if (isManualCompactionActive({ db: tx }, currentThread)) {
+    throw new ParentSystemMessageCompactionActiveError();
   }
 
   const expectedSteerTurnId = getActiveTurnId({ db: tx }, args.thread.id);
@@ -655,6 +661,7 @@ async function queueParentSystemMessageToResolvedParent(
       isHostUnavailableApiError(outcome.error);
     if (
       !(outcome.error instanceof ThreadContextClearInProgressError) &&
+      !(outcome.error instanceof ParentSystemMessageCompactionActiveError) &&
       !hostUnavailable
     ) {
       throw outcome.error;

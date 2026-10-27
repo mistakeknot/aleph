@@ -100,6 +100,7 @@ import { attemptDispatch, threadTargetHostId } from "./dispatch-attempt.js";
 import {
   deliverParentSystemMessage,
   type ParentSystemClaim,
+  ParentSystemMessageCompactionActiveError,
 } from "./parent-system-messages.js";
 import {
   createQueuedMessageAutoSendPausedError,
@@ -1364,7 +1365,8 @@ async function sendPinnedQueuedMessage(
     await releaseQueuedMessageClaims(deps, queuedMessages);
     if (
       isQueuedMessageAutoSendPausedError(error) ||
-      error instanceof ThreadContextClearInProgressError
+      error instanceof ThreadContextClearInProgressError ||
+      error instanceof ParentSystemMessageCompactionActiveError
     ) {
       return toThreadQueuedMessage(queuedMessages[0]!);
     }
@@ -1447,7 +1449,8 @@ export async function sendNextQueuedMessageIfPresent(
     if (
       isQueuedMessageClaimLostError(error) ||
       isQueuedMessageAutoSendPausedError(error) ||
-      error instanceof ThreadContextClearInProgressError
+      error instanceof ThreadContextClearInProgressError ||
+      error instanceof ParentSystemMessageCompactionActiveError
     ) {
       return false;
     }
