@@ -58,7 +58,7 @@ export default function plugin(bb: BbPluginApi) {
       label: "Approvals in Full Access",
       description:
         "Show Claude Code's own approval prompts in Full Access: permissions.ask rules, PreToolUse hooks that answer ask, and Claude Code's built-in safety checks. Off approves every request, so unattended threads never wait. Applies on the next turn.",
-      default: false,
+      default: true,
     },
   });
 
@@ -124,7 +124,7 @@ export default function plugin(bb: BbPluginApi) {
         artifactsEnabled: context.settings.artifactsEnabled === true,
         sandboxEnabled: context.settings.sandboxEnabled !== false,
         fullAccessApprovalsEnabled:
-          context.settings.fullAccessApprovalsEnabled === true,
+          context.settings.fullAccessApprovalsEnabled !== false,
         ...(context.promptMode === "plan"
           ? { claudeCodePermissionMode: "plan" }
           : {}),

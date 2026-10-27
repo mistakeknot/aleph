@@ -210,7 +210,7 @@ export function buildClaudeSessionParams(
       artifactsEnabled: providerOptions.artifactsEnabled ?? false,
       sandboxEnabled: providerOptions.sandboxEnabled ?? true,
       fullAccessApprovalsEnabled:
-        providerOptions.fullAccessApprovalsEnabled ?? false,
+        providerOptions.fullAccessApprovalsEnabled ?? true,
       memoryEnabled: providerOptions.memoryEnabled,
       providerSubagentsEnabled: providerOptions.providerSubagentsEnabled,
       promptCacheTtl: providerOptions.promptCacheTtl,
