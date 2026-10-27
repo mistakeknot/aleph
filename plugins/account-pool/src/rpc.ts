@@ -11,6 +11,7 @@ import {
   accountSummarySchema,
   bypassInputSchema,
   bypassQueryInputSchema,
+  burnSchema,
   codexLoginCancelSchema,
   codexLoginPollInputSchema,
   codexLoginPollSchema,
@@ -121,6 +122,10 @@ export const accountPoolRpcContract = defineRpcContract({
     input: bypassQueryInputSchema,
     output: bypassInputSchema,
   },
+  "burn.get": {
+    input: z.null(),
+    output: burnSchema,
+  },
 });
 
 export function createRpcHandlers(
@@ -171,5 +176,6 @@ export function createRpcHandlers(
     "bypass.set": ({ threadId, bypassed }) =>
       operations.setBypass(threadId, bypassed),
     "bypass.get": ({ threadId }) => operations.getBypass(threadId),
+    "burn.get": () => operations.burn(),
   };
 }

@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type Database from "better-sqlite3";
 import { z } from "zod";
+import type { QuotaSample, QuotaSampler } from "./quota-history.js";
 import type { PluginKvStorage } from "@get-bb/plugin-sdk";
 import {
   accountSchema,
@@ -572,7 +573,10 @@ const EMPTY_QUOTA = {
 };
 
 export class QuotaStore {
-  constructor(private readonly db: Database.Database) {}
+  constructor(
+    private readonly db: Database.Database,
+    private readonly sampler?: QuotaSampler,
+  ) {}
 
   get(accountId: string): AccountQuota {
     const row = quotaRowSchema
@@ -647,11 +651,94 @@ export class QuotaStore {
         value.heldUntil,
         value.error,
       );
+    this.sampler?.record(value);
   }
 
   remove(accountId: string): void {
     this.db
       .prepare("DELETE FROM account_quota WHERE account_id = ?")
+      .run(accountId);
+    this.sampler?.forget(accountId);
+  }
+}
+
+const sampleRowSchema = z.object({
+  account_id: z.string(),
+  window_key: z.enum(["five-hour", "seven-day", "primary", "secondary"]),
+  sampled_at: z.number().int(),
+  utilization: z.number(),
+  reset_at: z.number().int().nullable(),
+});
+
+function sampleFromRow(raw: unknown): QuotaSample {
+  const row = sampleRowSchema.parse(raw);
+  return {
+    accountId: row.account_id,
+    windowKey: row.window_key,
+    sampledAt: row.sampled_at,
+    utilization: row.utilization,
+    resetAt: row.reset_at,
+  };
+}
+
+export class QuotaSampleStore {
+  constructor(private readonly db: Database.Database) {}
+
+  insert(sample: QuotaSample): void {
+    this.db
+      .prepare(
+        `INSERT INTO pool_quota_sample (account_id, window_key, sampled_at, utilization, reset_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(
+        sample.accountId,
+        sample.windowKey,
+        sample.sampledAt,
+        sample.utilization,
+        sample.resetAt,
+      );
+  }
+
+  last(
+    accountId: string,
+    windowKey: QuotaSample["windowKey"],
+  ): QuotaSample | null {
+    const row = this.db
+      .prepare(
+        `SELECT * FROM pool_quota_sample WHERE account_id = ? AND window_key = ?
+         ORDER BY sampled_at DESC, rowid DESC LIMIT 1`,
+      )
+      .get(accountId, windowKey);
+    return row === undefined ? null : sampleFromRow(row);
+  }
+
+  listForWindow(start: number): QuotaSample[] {
+    return this.db
+      .prepare(
+        `SELECT * FROM pool_quota_sample
+         WHERE sampled_at >= @start OR rowid IN (
+           SELECT rowid FROM (
+             SELECT rowid, ROW_NUMBER() OVER (
+               PARTITION BY account_id, window_key ORDER BY sampled_at DESC, rowid DESC
+             ) AS rank
+             FROM pool_quota_sample WHERE sampled_at < @start
+           ) WHERE rank = 1
+         )
+         ORDER BY sampled_at, rowid`,
+      )
+      .all({ start })
+      .map(sampleFromRow);
+  }
+
+  prune(before: number): void {
+    this.db
+      .prepare("DELETE FROM pool_quota_sample WHERE sampled_at < ?")
+      .run(before);
+  }
+
+  removeAccount(accountId: string): void {
+    this.db
+      .prepare("DELETE FROM pool_quota_sample WHERE account_id = ?")
       .run(accountId);
   }
 }
@@ -835,4 +922,12 @@ export const QUOTA_MIGRATIONS = [
     from_usage_percent REAL,
     to_usage_percent REAL
   )`,
+  `CREATE TABLE pool_quota_sample (
+    account_id TEXT NOT NULL,
+    window_key TEXT NOT NULL,
+    sampled_at INTEGER NOT NULL,
+    utilization REAL NOT NULL,
+    reset_at INTEGER
+  );
+  CREATE INDEX pool_quota_sample_key ON pool_quota_sample (account_id, window_key, sampled_at)`,
 ];

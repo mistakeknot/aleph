@@ -4,6 +4,14 @@
 
 ### Aleph
 
+- The Account Pooler header chip shows how fast the pool is burning quota:
+  the percentage of one weekly window all OAuth accounts of a provider used in
+  the last hour, per provider (compact viewports show the larger figure). It
+  comes from a new `burn.get` rpc backed by a `pool_quota_sample` table that
+  records utilization changes when quota is stored and keeps 26 hours. Resets,
+  new accounts and reading jitter do not count as use, and the figure is `—`
+  until an account has two readings or while this server proxies to a parent
+  pool.
 - Five upstream fixes are backported (get-bb/bb #6247, #6255, #6243, #6334 and
   #6358): messages queued after a manual stop are sent; an automatic queued
   message no longer overtakes a pending send; parent notices are retried after a

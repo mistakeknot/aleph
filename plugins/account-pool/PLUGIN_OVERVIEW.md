@@ -7,6 +7,7 @@ Use your own Claude Code and Codex accounts, budgeted. The Account Pooler puts t
 - Drag handles set the account order within each provider in settings (keyboard: Space to pick up, arrow keys to move, Space to drop, Escape to cancel), with the same operation available through `bb pool account reorder <claude|codex> <id>...`.
 - Live limit windows per account and model family in the plugin's settings page, and the same numbers from `bb pool status`.
 - A routing switch per provider and a bypass per thread, so one thread can go straight to its own credentials.
+- A pooled burn figure in the header chip: the share of one weekly window the whole pool consumed in the last hour, per provider (for example `1.3%/h`). It sums each account's utilization increases and divides by the OAuth accounts with a reading, so adding accounts does not inflate it. It counts all use of those accounts, including use outside the pool, and shows `—` until two readings exist. Hovering shows the five-hour equivalent and each account's share.
 
 ## How it works
 
