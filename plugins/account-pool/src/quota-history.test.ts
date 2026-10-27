@@ -334,6 +334,19 @@ describe("pooledConsumption", () => {
     expect(result.pct).toBeCloseTo(2, 6);
   });
 
+  it("rolls on a drop that first reveals an expired reset", () => {
+    const result = pooledConsumption(
+      [
+        sample(A, 20, 0.5, null),
+        sample(A, 5, 0.02, NOW - 10 * MINUTE),
+        sample(A, 0, 0.03, NOW - 10 * MINUTE),
+      ],
+      [pooled(A)],
+      NOW,
+    );
+    expect(result.pct).toBeCloseTo(3, 6);
+  });
+
   it("does not roll twice on one repeated expired reset", () => {
     const expired = NOW - 25 * MINUTE;
     const result = pooledConsumption(

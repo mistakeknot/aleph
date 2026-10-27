@@ -202,10 +202,13 @@ function accountConsumed(
       current.resetAt !== null && current.resetAt > current.sampledAt
         ? current.resetAt
         : null;
-    const passedAt =
-      resetAnchor !== null && current.sampledAt >= resetAnchor
-        ? resetAnchor
+    const candidate =
+      current.resetAt !== null && current.resetAt > rolledThrough
+        ? current.resetAt
         : null;
+    const anchor = resetAnchor ?? candidate;
+    const passedAt =
+      anchor !== null && current.sampledAt >= anchor ? anchor : null;
     if (
       passedAt !== null &&
       (nextReset !== null || current.utilization < previous.utilization)
@@ -215,11 +218,10 @@ function accountConsumed(
       rolledThrough = passedAt;
       resetAnchor = nextReset;
     } else if (
-      current.resetAt !== null &&
-      current.resetAt > rolledThrough &&
-      (resetAnchor === null || current.resetAt > resetAnchor)
+      candidate !== null &&
+      (resetAnchor === null || candidate > resetAnchor)
     ) {
-      resetAnchor = current.resetAt;
+      resetAnchor = candidate;
     }
     if (current.utilization > highWater) {
       const increase = current.utilization - highWater;
