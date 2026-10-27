@@ -583,10 +583,22 @@ length up to a one-hour cap.
   (phase `finalizing`) and the history checks that follow, because finalization
   of a 5 GB backup took over a minute after the schema changes and would have
   run with no marker and no listening server.
-- A stale info file (dead pid) is ignored, so a crashed migration does not
-  extend the deadline.
-- Stopping the launcher or server while a migration is active waits up to the
-  cap for the server to finish instead of killing it after 5 s.
+- A stale info file is ignored, so a crashed migration does not extend the
+  deadline. The info file records the holder's pid and, on Linux, its process
+  identity (boot id plus start time from `/proc/<pid>/stat`).
+  `readActiveMigration` rejects a marker whose pid is dead, whose recorded
+  identity no longer matches the live process (pid reuse), or whose last update
+  is older than the cap. The launcher also requires the marker's pid to equal
+  the server process it spawned, which covers platforms without `/proc`.
+- The server installs SIGTERM and SIGINT handlers before it opens the database
+  (`apps/server/src/startup-stop-guard.ts`). A stop that arrives during a
+  migration is recorded, the migration runs to completion, and the server exits
+  cleanly before it starts listening. Without this the signal killed the
+  migration even with a long `TimeoutStopSec`, because systemd sends SIGTERM to
+  the whole control group first. Migrations are synchronous, so the handler
+  runs once the migration yields.
+- Stopping the launcher while a migration is active waits up to the cap for the
+  server to finish instead of killing it after 5 s.
 - The generated systemd unit (`install-machine.sh`) sets `TimeoutStopSec=3900`
   so systemd does not kill a migrating server on `stop` or `restart`.
 - Existing installed units predate `TimeoutStopSec`. Add a drop-in once per
@@ -599,7 +611,12 @@ length up to a one-hour cap.
   under a transient `Restart=always` systemd unit with the 60 s timeout
   unchanged: healthy after 250.8 s, zero unit restarts. A control with the
   marker hidden from the launcher failed at 60 s, and a run before the
-  finalization fix failed 60 s after the lock was released.
+  finalization fix failed 60 s after the lock was released. A second rehearsal
+  ran `systemctl --user stop` (`TimeoutStopSec=3900`) 65 s into the real
+  migration: the server logged the deferred stop, finished the migration
+  (203 s), exited 0 with no restart and no leftover info file, and the next
+  start found nothing to migrate (15 ms). The 250 s rehearsal also passed with
+  the stricter marker checks.
 
 ## Project documents
 

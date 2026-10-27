@@ -14,6 +14,7 @@ import {
   MIGRATION_WAIT_CAP_MS,
   migratingInfoPath,
   migratingLockPath,
+  processIdentity,
   readHolderInfo,
   type MigrationHolderInfo,
   type MigrationPhase,
@@ -201,6 +202,7 @@ export function acquireMigratingLock(
     const databaseBytes = existsSync(databasePath)
       ? statSync(databasePath).size
       : 0;
+    const processStart = processIdentity(process.pid);
     const expectedMs = options.expectedMs ?? databaseBytes / 50_000;
     const writeInfo = (phase: MigrationPhase): void => {
       writeFileDurably(
@@ -212,6 +214,7 @@ export function acquireMigratingLock(
           expectedMs,
           phase,
           updatedAt: Date.now(),
+          processStart,
         } satisfies MigrationHolderInfo),
       );
     };

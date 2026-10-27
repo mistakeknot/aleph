@@ -17,6 +17,7 @@ export interface MigrationHolderInfo {
   expectedMs: number;
   phase: MigrationPhase;
   updatedAt: number;
+  processStart?: string | null;
 }
 
 export function migratingLockPath(databasePath: string): string {
@@ -57,6 +58,10 @@ export function readHolderInfo(
         expectedMs: parsed.expectedMs,
         phase: parsed.phase as MigrationPhase,
         updatedAt: parsed.updatedAt,
+        processStart:
+          "processStart" in parsed && typeof parsed.processStart === "string"
+            ? parsed.processStart
+            : null,
       };
     }
   } catch {
@@ -79,10 +84,43 @@ export function isProcessAlive(pid: number): boolean {
   }
 }
 
+export function processIdentity(pid: number): string | null {
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+    const afterName = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+    const startTicks = afterName[19];
+    if (startTicks === undefined || startTicks === "") return null;
+    let bootId = "";
+    try {
+      bootId = readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim();
+    } catch {}
+    return `${bootId}:${startTicks}`;
+  } catch {
+    return null;
+  }
+}
+
+export interface ReadActiveMigrationOptions {
+  now?: () => number;
+  identityOf?: (pid: number) => string | null;
+  isAlive?: (pid: number) => boolean;
+  capMs?: number;
+}
+
 export function readActiveMigration(
   databasePath: string,
+  options: ReadActiveMigrationOptions = {},
 ): MigrationHolderInfo | null {
   const info = readHolderInfo(databasePath);
   if (info === null) return null;
-  return isProcessAlive(info.pid) ? info : null;
+  if (!(options.isAlive ?? isProcessAlive)(info.pid)) return null;
+  const now = (options.now ?? Date.now)();
+  if (now - info.updatedAt > (options.capMs ?? MIGRATION_WAIT_CAP_MS)) {
+    return null;
+  }
+  if (typeof info.processStart === "string") {
+    const current = (options.identityOf ?? processIdentity)(info.pid);
+    if (current !== null && current !== info.processStart) return null;
+  }
+  return info;
 }

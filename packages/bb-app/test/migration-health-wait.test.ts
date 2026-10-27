@@ -12,7 +12,10 @@ import {
 } from "@bb/config/migration-info";
 import { afterEach, describe, expect, it } from "vitest";
 import { waitForServerHealth } from "../src/launcher.js";
-import { createHealthDeadline } from "../src/migration-wait.js";
+import {
+  createHealthDeadline,
+  isMigrationActive,
+} from "../src/migration-wait.js";
 
 const LAUNCH_ID = "launch-1";
 const tempDirs: string[] = [];
@@ -40,7 +43,7 @@ function writeInfo(path: string): void {
       databaseBytes: 1,
       expectedMs: 1,
       phase: "migrating",
-      updatedAt: 1,
+      updatedAt: Date.now(),
     }),
   );
 }
@@ -169,6 +172,40 @@ describe("createHealthDeadline", () => {
     expect(deadline.isExpired()).toBe(false);
     clock.advance(60_000);
     expect(deadline.isExpired()).toBe(true);
+  });
+
+  it("ignores a marker held by a pid other than the expected holder", () => {
+    const clock = createClock();
+    const deadline = createHealthDeadline({
+      databasePath: "/db",
+      holderPid: 4242,
+      now: clock.now,
+      readMigration: () => fakeMigration(1),
+      timeoutMs: 60_000,
+    });
+    clock.advance(60_001);
+    expect(deadline.isExpired()).toBe(true);
+    expect(deadline.migrationElapsedMs()).toBe(0);
+  });
+
+  it("slides while the marker is held by the expected holder", () => {
+    const clock = createClock();
+    const deadline = createHealthDeadline({
+      databasePath: "/db",
+      holderPid: 4242,
+      now: clock.now,
+      readMigration: () => fakeMigration(4242),
+      timeoutMs: 60_000,
+    });
+    clock.advance(120_000);
+    expect(deadline.isExpired()).toBe(false);
+  });
+
+  it("reports a migration active only for the expected holder", () => {
+    const read = () => fakeMigration(4242);
+    expect(isMigrationActive("/db", 4242, read)).toBe(true);
+    expect(isMigrationActive("/db", 7, read)).toBe(false);
+    expect(isMigrationActive("/db", undefined, read)).toBe(true);
   });
 
   it("reports progress at the configured interval", () => {

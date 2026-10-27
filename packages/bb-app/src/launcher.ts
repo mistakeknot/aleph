@@ -2366,6 +2366,7 @@ export async function waitForServerHealth(
   const healthDeadline = createHealthDeadline({
     capMs: args.migrationWaitCapMs,
     databasePath: args.databasePath ?? null,
+    holderPid: args.childProcess?.pid,
     now: args.now,
     onProgress: (info, elapsedMs) => {
       log(
@@ -2529,10 +2530,10 @@ async function terminateProcessIfRunning(
   if (hasProcessExited(args.childProcess)) {
     return;
   }
-  args.childProcess.kill(args.signal);
   const migrating =
     args.migrationDatabasePath !== undefined &&
-    isMigrationActive(args.migrationDatabasePath);
+    isMigrationActive(args.migrationDatabasePath, args.childProcess.pid);
+  args.childProcess.kill(args.signal);
   const gracefulResult = await waitForProcessExitWithTimeout({
     childProcess: args.childProcess,
     timeoutMs: migrating

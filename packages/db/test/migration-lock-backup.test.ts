@@ -14,6 +14,10 @@ import { join } from "node:path";
 import { setFlagsFromString } from "node:v8";
 import { runInNewContext } from "node:vm";
 import Database from "better-sqlite3";
+import {
+  processIdentity,
+  readActiveMigration,
+} from "@bb/config/migration-info";
 import { afterEach, describe, expect, it } from "vitest";
 import { createConnection, migrate } from "../src/index.js";
 import {
@@ -209,6 +213,22 @@ describe("migration lock files", () => {
       lock?.release();
       expect(existsSync(migratingInfoPath(path))).toBe(false);
       lock?.release();
+    } finally {
+      db.$client.close();
+    }
+  });
+
+  it("records the holder's process identity and reports it active", () => {
+    const directory = tempDir();
+    const path = join(directory, "bb.db");
+    const db = createConnection(path);
+    try {
+      const lock = acquireMigratingLock(db.$client);
+      const info = readHolderInfo(path);
+      expect(info?.processStart).toBe(processIdentity(process.pid));
+      expect(readActiveMigration(path)?.token).toBe(info?.token);
+      lock?.release();
+      expect(readActiveMigration(path)).toBeNull();
     } finally {
       db.$client.close();
     }

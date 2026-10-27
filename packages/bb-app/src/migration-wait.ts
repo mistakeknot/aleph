@@ -17,8 +17,17 @@ export interface CreateHealthDeadlineArgs {
   capMs?: number;
   now?: () => number;
   readMigration?: (databasePath: string) => MigrationHolderInfo | null;
+  holderPid?: number;
   progressIntervalMs?: number;
   onProgress?: (info: MigrationHolderInfo, elapsedMs: number) => void;
+}
+
+function ownedBy(
+  holderPid: number | undefined,
+  info: MigrationHolderInfo | null,
+): MigrationHolderInfo | null {
+  if (info === null || holderPid === undefined) return info;
+  return info.pid === holderPid ? info : null;
 }
 
 export function createHealthDeadline(
@@ -38,7 +47,7 @@ export function createHealthDeadline(
     isExpired(): boolean {
       const current = now();
       if (args.databasePath !== null) {
-        const info = readMigration(args.databasePath);
+        const info = ownedBy(args.holderPid, readMigration(args.databasePath));
         if (info !== null) {
           migrationStartedAt ??= current;
           lastElapsedMs = current - migrationStartedAt;
@@ -59,9 +68,10 @@ export function createHealthDeadline(
 
 export function isMigrationActive(
   databasePath: string,
+  holderPid?: number,
   readMigration: (
     databasePath: string,
   ) => MigrationHolderInfo | null = readActiveMigration,
 ): boolean {
-  return readMigration(databasePath) !== null;
+  return ownedBy(holderPid, readMigration(databasePath)) !== null;
 }
