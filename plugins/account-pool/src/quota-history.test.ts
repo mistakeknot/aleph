@@ -272,6 +272,20 @@ describe("pooledConsumption", () => {
     expect(result.pct).toBe(0);
   });
 
+  it("does not roll on a stale reading repeated past its reset", () => {
+    const stale = [
+      sample(A, 15, 0.5, NOW - 10 * MINUTE),
+      sample(A, 5, 0.5, NOW - 10 * MINUTE),
+    ];
+    expect(pooledConsumption(stale, [pooled(A)], NOW).pct).toBe(0);
+    const fresh = pooledConsumption(
+      [...stale, sample(A, 0, 0.02, FAR)],
+      [pooled(A)],
+      NOW,
+    );
+    expect(fresh.pct).toBeCloseTo(2, 6);
+  });
+
   it("uses each account's own window key", () => {
     const result = pooledConsumption(
       [

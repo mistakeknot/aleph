@@ -200,9 +200,13 @@ function accountConsumed(
   let consumed = 0;
   for (const current of samples.slice(1)) {
     let intervalStart = previous.sampledAt;
-    if (epochEnd !== null && current.sampledAt >= epochEnd) {
+    const crossedAt =
+      epochEnd !== null && current.sampledAt >= epochEnd ? epochEnd : null;
+    const fresh =
+      current.resetAt !== epochEnd || current.utilization < highWater;
+    if (crossedAt !== null && fresh) {
       highWater = 0;
-      intervalStart = Math.max(epochEnd, previous.sampledAt);
+      intervalStart = Math.max(crossedAt, previous.sampledAt);
       epochEnd =
         current.resetAt !== null && current.resetAt > current.sampledAt
           ? current.resetAt
