@@ -193,29 +193,27 @@ function accountConsumed(
 ): number {
   let previous = samples[0]!;
   let highWater = previous.utilization;
-  let epochEnd =
-    previous.resetAt !== null && previous.resetAt > previous.sampledAt
-      ? previous.resetAt
-      : null;
+  let resetAnchor = previous.resetAt;
   let consumed = 0;
   for (const current of samples.slice(1)) {
     let intervalStart = previous.sampledAt;
-    const crossedAt =
-      epochEnd !== null && current.sampledAt >= epochEnd ? epochEnd : null;
-    const fresh =
-      current.resetAt !== epochEnd || current.utilization < highWater;
-    if (crossedAt !== null && fresh) {
-      highWater = 0;
-      intervalStart = Math.max(crossedAt, previous.sampledAt);
-      epochEnd =
-        current.resetAt !== null && current.resetAt > current.sampledAt
-          ? current.resetAt
-          : null;
-    } else if (
-      current.resetAt !== null &&
-      current.resetAt > current.sampledAt
+    const nextReset =
+      current.resetAt !== null && current.resetAt > current.sampledAt
+        ? current.resetAt
+        : null;
+    const passedAt =
+      resetAnchor !== null && current.sampledAt >= resetAnchor
+        ? resetAnchor
+        : null;
+    if (
+      passedAt !== null &&
+      (nextReset !== null || current.utilization < previous.utilization)
     ) {
-      epochEnd = current.resetAt;
+      highWater = 0;
+      intervalStart = Math.max(passedAt, previous.sampledAt);
+      resetAnchor = nextReset;
+    } else if (nextReset !== null) {
+      resetAnchor = nextReset;
     }
     if (current.utilization > highWater) {
       const increase = current.utilization - highWater;

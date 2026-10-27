@@ -286,6 +286,41 @@ describe("pooledConsumption", () => {
     expect(fresh.pct).toBeCloseTo(2, 6);
   });
 
+  it("does not mistake an earlier dip for a drop after the reset", () => {
+    const result = pooledConsumption(
+      [
+        sample(A, 25, 0.5, NOW - 10 * MINUTE),
+        sample(A, 15, 0.49, NOW - 10 * MINUTE),
+        sample(A, 5, 0.49, NOW - 10 * MINUTE),
+      ],
+      [pooled(A)],
+      NOW,
+    );
+    expect(result.pct).toBe(0);
+  });
+
+  it("does not roll when the reset metadata disappears", () => {
+    const result = pooledConsumption(
+      [sample(A, 15, 0.5, NOW - 10 * MINUTE), sample(A, 5, 0.5, null)],
+      [pooled(A)],
+      NOW,
+    );
+    expect(result.pct).toBe(0);
+  });
+
+  it("counts fresh burn after an expired baseline", () => {
+    const result = pooledConsumption(
+      [
+        sample(A, 9, 0.5, NOW - 10 * MINUTE),
+        sample(A, 5, 0.02, FAR),
+        sample(A, 0, 0.03, FAR),
+      ],
+      [pooled(A)],
+      NOW,
+    );
+    expect(result.pct).toBeCloseTo(3, 6);
+  });
+
   it("uses each account's own window key", () => {
     const result = pooledConsumption(
       [
