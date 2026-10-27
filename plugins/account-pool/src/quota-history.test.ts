@@ -386,6 +386,19 @@ describe("pooledConsumption", () => {
     expect(repeated.pct).toBeCloseTo(3, 6);
   });
 
+  it("keeps a later reset candidate after rolling on an earlier one", () => {
+    const result = pooledConsumption(
+      [
+        sample(A, 40, 0.9, NOW - 10 * MINUTE, "five-hour"),
+        sample(A, 30, 0.02, NOW - 35 * MINUTE, "five-hour"),
+        sample(A, 0, 0.01, null, "five-hour"),
+      ],
+      [pooled(A, "five-hour")],
+      NOW,
+    );
+    expect(result.pct).toBeCloseTo(3, 6);
+  });
+
   it("does not roll twice on one repeated expired reset", () => {
     const expired = NOW - 25 * MINUTE;
     const result = pooledConsumption(

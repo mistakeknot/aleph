@@ -215,7 +215,9 @@ function accountConsumed(
       highWater = 0;
       intervalStart = Math.max(passedAt, previous.sampledAt);
       rolledThrough = passedAt;
-      resetAnchor = nextReset;
+      const pending = candidates.filter((value) => value > passedAt);
+      resetAnchor =
+        nextReset ?? (pending.length > 0 ? Math.max(...pending) : null);
     } else {
       resetAnchor = nextReset ?? anchor;
     }
