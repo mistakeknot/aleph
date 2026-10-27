@@ -712,7 +712,6 @@ async function sendHotThreadMessageWithoutContextClear(
   if (mode === "start") {
     const commandArgs = {
       thread,
-      fork: null,
       input,
       ...(inputGroups !== undefined ? { inputGroups } : {}),
       requestId,

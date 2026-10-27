@@ -100,6 +100,7 @@ import { attemptDispatch, threadTargetHostId } from "./dispatch-attempt.js";
 import {
   deliverParentSystemMessage,
   type ParentSystemClaim,
+  ParentSystemMessageCompactionActiveError,
 } from "./parent-system-messages.js";
 import {
   createQueuedMessageAutoSendPausedError,
@@ -341,12 +342,14 @@ async function createQueuedMessageForResolvedThread(
             // leaving the wait null keeps every row on one vocabulary, and the
             // idle drain treats the two identically anyway.
             //
-            // Queued while the thread is stopping, it is instead a message the
-            // user composed AFTER asking for the stop, so it carries `stopping`
-            // and runs when the stop lands rather than joining the rows the
+            // Queued while the thread is stopping, or after a manual stop whose
+            // pause is still in force, it is instead a message the user
+            // composed AFTER asking for the stop, so it carries `stopping` and
+            // runs once the thread is idle rather than joining the rows the
             // manual-stop pause holds back.
             waitingOn:
-              currentThread.status === "stopping"
+              currentThread.status === "stopping" ||
+              isThreadQueueAutoSendPaused(tx, currentThread.id)
                 ? { kind: "stopping" }
                 : { kind: "thread-busy" },
             sendAt: null,
@@ -1362,7 +1365,8 @@ async function sendPinnedQueuedMessage(
     await releaseQueuedMessageClaims(deps, queuedMessages);
     if (
       isQueuedMessageAutoSendPausedError(error) ||
-      error instanceof ThreadContextClearInProgressError
+      error instanceof ThreadContextClearInProgressError ||
+      error instanceof ParentSystemMessageCompactionActiveError
     ) {
       return toThreadQueuedMessage(queuedMessages[0]!);
     }
@@ -1445,7 +1449,8 @@ export async function sendNextQueuedMessageIfPresent(
     if (
       isQueuedMessageClaimLostError(error) ||
       isQueuedMessageAutoSendPausedError(error) ||
-      error instanceof ThreadContextClearInProgressError
+      error instanceof ThreadContextClearInProgressError ||
+      error instanceof ParentSystemMessageCompactionActiveError
     ) {
       return false;
     }

@@ -392,6 +392,23 @@ Beyond upstream, Aleph carries:
   same changes and should take upstream's side. #5240 keeps the fork's
   timeline build coalescer in the timeline route.
 
+- **Backported upstream thread fixes (after 0.8.0).** Five upstream bb PRs
+  cherry-picked ahead of the next sync, one commit each, in upstream merge
+  order, each recording its upstream commit in a "cherry picked from commit"
+  line or its message: #6247, #6255, #6243, #6334 and #6358. The next upstream
+  merge brings the same changes and should take upstream's side, except for the
+  points below.
+  - #6233 is deliberately not taken. It adds a Claude Code setting that lets
+    Full Access approve every request Claude Code sends. Aleph keeps 0.8.0
+    behavior: Full Access pauses on Claude Code's own prompts, including
+    `permissions.ask` rules. When merging upstream, keep the fork's behavior
+    and do not take #6233's change to the Full Access approval path.
+  - #6247, #6255, #6243 and #6334 are adapted to the fork's all-or-none queue
+    claims, retired-ingress checks and `requireParentWritableInTransaction`.
+  - #6358 sends forks through a session store bound to the session's config
+    dir. The account pool leaves `CLAUDE_CONFIG_DIR` unset, so Aleph forks read
+    `~/.claude`; a bridge test covers that case.
+
 `git log --no-merges <upstream main>..HEAD` lists the carried commits.
 Upstream is merged into Aleph, not rebased, and each merge commit records its
 conflicts.

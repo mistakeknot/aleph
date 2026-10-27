@@ -1,6 +1,8 @@
 import {
   archiveThread,
+  getLatestThreadSequence,
   getThread,
+  isThreadQueueAutoSendPaused,
   listEvents,
   listQueuedThreadMessages,
   retireQueuedThreadMessages,
@@ -15,6 +17,7 @@ import { acceptThreadSendRequest } from "../../src/services/threads/thread-send-
 import { textInput } from "../helpers/prompt-input.js";
 import {
   seedEnvironment,
+  seedEvent,
   seedHostSession,
   seedProjectWithSource,
   seedThread,
@@ -185,6 +188,39 @@ describe("retired source ingress", () => {
       expect(listQueuedThreadMessages(harness.db, pair.source.id)).toHaveLength(
         0,
       );
+    });
+  });
+
+  it("queues a message for a manually stopped successor as stopping, not thread-busy", async () => {
+    await withTestHarness(async (harness) => {
+      const pair = seedRetirable(harness);
+      retirePair(harness, pair);
+      seedEvent(harness.deps, {
+        threadId: pair.target.id,
+        sequence:
+          getLatestThreadSequence(harness.db, { threadId: pair.target.id }) + 1,
+        type: "system/thread/interrupted",
+        scope: { kind: "thread" },
+        data: { reason: "manual-stop" },
+      });
+      expect(isThreadQueueAutoSendPaused(harness.db, pair.target.id)).toBe(
+        true,
+      );
+      expect(isThreadQueueAutoSendPaused(harness.db, pair.source.id)).toBe(
+        false,
+      );
+      const response = await harness.app.request(
+        `/api/v1/threads/${pair.source.id}/queued-messages`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(userPayload),
+        },
+      );
+      expect(response.status).toBe(201);
+      await expect(response.json()).resolves.toMatchObject({
+        waitingOn: { kind: "stopping" },
+      });
     });
   });
 

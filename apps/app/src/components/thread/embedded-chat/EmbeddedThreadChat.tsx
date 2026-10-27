@@ -66,7 +66,6 @@ import { useThreadQueuedMessages } from "@/hooks/queries/thread-panel-queries";
 import { useThreadDefaultExecutionOptions } from "@/hooks/queries/thread-default-execution-options-query";
 import { useSystemConfig } from "@/hooks/queries/system-queries";
 import {
-  useCreateThreadQueuedMessage,
   useSendThreadMessage,
   useStopThread,
 } from "@/hooks/mutations/thread-runtime-mutations";
@@ -224,7 +223,6 @@ function EmbeddedThreadChatWithComposer({
   const markThreadRead = useMarkThreadRead();
   const stopThread = useStopThread();
   const sendThreadMessage = useSendThreadMessage();
-  const createQueuedMessage = useCreateThreadQueuedMessage();
   const threadQuery = useThread(threadId);
   const pendingInteractionsQuery = useThreadPendingInteractions(threadId);
   const orderedPendingInteractions = orderPendingInteractions(
@@ -457,18 +455,10 @@ function EmbeddedThreadChatWithComposer({
       input: PromptInput[],
       { sendAt, pluginSubmission }: ComposerSubmitExtras,
     ) => {
-      if (
+      const expectsQueue =
         shouldQueueFollowUpMessage(displayStatus) &&
         sendAt === undefined &&
-        pluginSubmission === undefined
-      ) {
-        await createQueuedMessage.mutateAsync({
-          id: threadId,
-          input,
-          ...executionRequestFields,
-        });
-        return;
-      }
+        pluginSubmission === undefined;
       const result = await sendThreadMessage.mutateAsync({
         id: threadId,
         input,
@@ -477,10 +467,11 @@ function EmbeddedThreadChatWithComposer({
         ...(sendAt === undefined ? {} : { sendAt }),
         ...(pluginSubmission === undefined ? {} : { pluginSubmission }),
       });
-      reportQueuedSendDelivery(result.delivery);
+      if (!expectsQueue) {
+        reportQueuedSendDelivery(result.delivery);
+      }
     },
     [
-      createQueuedMessage,
       displayStatus,
       executionRequestFields,
       sendThreadMessage,
@@ -531,7 +522,8 @@ function EmbeddedThreadChatWithComposer({
   );
 
   const isQueueMutationPending =
-    queuedMessageActionPending || createQueuedMessage.isPending;
+    queuedMessageActionPending ||
+    (sendThreadMessage.isPending && shouldQueueFollowUpMessage(displayStatus));
   const handleSendQueuedMessage = useCallback(
     (queuedMessageId: string) => {
       sendQueuedMessageById({
