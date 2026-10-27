@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 
 export const MIGRATION_WAIT_CAP_MS = 60 * 60 * 1000;
 
@@ -26,6 +26,10 @@ export function migratingLockPath(databasePath: string): string {
 
 export function migratingInfoPath(databasePath: string): string {
   return `${databasePath}.migrating.info`;
+}
+
+export function startupMarkerPath(databasePath: string): string {
+  return `${databasePath}.starting.info`;
 }
 
 export function readHolderInfo(
@@ -107,20 +111,91 @@ export interface ReadActiveMigrationOptions {
   capMs?: number;
 }
 
+function isLiveOwner(
+  info: { pid: number; updatedAt: number; processStart?: string | null },
+  options: ReadActiveMigrationOptions,
+): boolean {
+  if (!(options.isAlive ?? isProcessAlive)(info.pid)) return false;
+  const now = (options.now ?? Date.now)();
+  if (now - info.updatedAt > (options.capMs ?? MIGRATION_WAIT_CAP_MS)) {
+    return false;
+  }
+  if (typeof info.processStart === "string") {
+    const current = (options.identityOf ?? processIdentity)(info.pid);
+    if (current !== null && current !== info.processStart) return false;
+  }
+  return true;
+}
+
 export function readActiveMigration(
   databasePath: string,
   options: ReadActiveMigrationOptions = {},
 ): MigrationHolderInfo | null {
   const info = readHolderInfo(databasePath);
   if (info === null) return null;
-  if (!(options.isAlive ?? isProcessAlive)(info.pid)) return null;
-  const now = (options.now ?? Date.now)();
-  if (now - info.updatedAt > (options.capMs ?? MIGRATION_WAIT_CAP_MS)) {
+  return isLiveOwner(info, options) ? info : null;
+}
+
+export interface DatabaseStartupMarker {
+  pid: number;
+  updatedAt: number;
+  processStart?: string | null;
+}
+
+export function writeStartupMarker(databasePath: string): void {
+  const marker: DatabaseStartupMarker = {
+    pid: process.pid,
+    updatedAt: Date.now(),
+    processStart: processIdentity(process.pid),
+  };
+  try {
+    writeFileSync(startupMarkerPath(databasePath), JSON.stringify(marker), {
+      mode: 0o600,
+    });
+  } catch {}
+}
+
+export function removeStartupMarker(databasePath: string): void {
+  try {
+    const marker = readStartupMarker(databasePath);
+    if (marker?.pid === process.pid)
+      unlinkSync(startupMarkerPath(databasePath));
+  } catch {}
+}
+
+function readStartupMarker(databasePath: string): DatabaseStartupMarker | null {
+  try {
+    const parsed: unknown = JSON.parse(
+      readFileSync(startupMarkerPath(databasePath), "utf8"),
+    );
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      "pid" in parsed &&
+      typeof parsed.pid === "number" &&
+      "updatedAt" in parsed &&
+      typeof parsed.updatedAt === "number"
+    ) {
+      return {
+        pid: parsed.pid,
+        updatedAt: parsed.updatedAt,
+        processStart:
+          "processStart" in parsed && typeof parsed.processStart === "string"
+            ? parsed.processStart
+            : null,
+      };
+    }
+  } catch {
     return null;
   }
-  if (typeof info.processStart === "string") {
-    const current = (options.identityOf ?? processIdentity)(info.pid);
-    if (current !== null && current !== info.processStart) return null;
-  }
-  return info;
+  return null;
+}
+
+export function readActiveStartup(
+  databasePath: string,
+  options: ReadActiveMigrationOptions = {},
+): DatabaseStartupMarker | null {
+  const marker = readStartupMarker(databasePath);
+  if (marker === null) return null;
+  return isLiveOwner(marker, options) ? marker : null;
 }

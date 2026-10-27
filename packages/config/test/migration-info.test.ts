@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -8,7 +8,11 @@ import {
   processIdentity,
   migratingInfoPath,
   readActiveMigration,
+  readActiveStartup,
   readHolderInfo,
+  removeStartupMarker,
+  startupMarkerPath,
+  writeStartupMarker,
 } from "../src/migration-info.js";
 
 const tempDirs: string[] = [];
@@ -89,31 +93,73 @@ describe("migration info", () => {
     expect(readActiveMigration(path)).toBeNull();
   });
 
+  it("ignores a marker whose pid was reused by another process", () => {
+    const path = databasePath();
+    writeInfo(path, process.pid, { processStart: "boot:1" });
+    expect(readHolderInfo(path)).not.toBeNull();
+    expect(readActiveMigration(path, { identityOf: () => "boot:1" })?.pid).toBe(
+      process.pid,
+    );
+    expect(
+      readActiveMigration(path, { identityOf: () => "boot:2" }),
+    ).toBeNull();
+  });
+
+  it("trusts a marker when the current identity cannot be read", () => {
+    const path = databasePath();
+    writeInfo(path, process.pid, { processStart: "boot:1" });
+    expect(readActiveMigration(path, { identityOf: () => null })?.pid).toBe(
+      process.pid,
+    );
+  });
+
   it.skipIf(process.platform !== "linux")(
-    "ignores a marker whose pid was reused by another process",
+    "reads a stable identity for a live process on linux",
     () => {
-      const path = databasePath();
       const recorded = processIdentity(process.pid);
       expect(recorded).not.toBeNull();
-      writeInfo(path, process.pid, { processStart: recorded });
-      expect(readActiveMigration(path)?.pid).toBe(process.pid);
-      writeInfo(path, process.pid, { processStart: "other-boot:1" });
-      expect(readHolderInfo(path)).not.toBeNull();
-      expect(readActiveMigration(path)).toBeNull();
+      expect(processIdentity(process.pid)).toBe(recorded);
     },
   );
 
-  it("tells a live process apart from a later process on the same pid", () => {
+  it("publishes and clears a startup marker owned by this process", () => {
     const path = databasePath();
-    writeInfo(path, process.pid, {
-      processStart: processIdentity(process.pid),
-    });
-    const identities = new Map([[process.pid, "reused-start"]]);
+    expect(readActiveStartup(path)).toBeNull();
+    writeStartupMarker(path);
+    expect(existsSync(startupMarkerPath(path))).toBe(true);
+    expect(readActiveStartup(path)?.pid).toBe(process.pid);
+    removeStartupMarker(path);
+    expect(existsSync(startupMarkerPath(path))).toBe(false);
+    expect(readActiveStartup(path)).toBeNull();
+  });
+
+  it("leaves a startup marker owned by another process in place", () => {
+    const path = databasePath();
+    writeFileSync(
+      startupMarkerPath(path),
+      JSON.stringify({ pid: process.pid + 1, updatedAt: Date.now() }),
+    );
+    removeStartupMarker(path);
+    expect(existsSync(startupMarkerPath(path))).toBe(true);
+  });
+
+  it("ignores a startup marker from a dead, reused or overdue process", () => {
+    const path = databasePath();
+    const write = (pid: number, extra: Record<string, unknown> = {}): void =>
+      writeFileSync(
+        startupMarkerPath(path),
+        JSON.stringify({ pid, updatedAt: Date.now(), ...extra }),
+      );
+    write(process.pid, { processStart: "boot:1" });
+    expect(readActiveStartup(path, { identityOf: () => "boot:1" })?.pid).toBe(
+      process.pid,
+    );
+    expect(readActiveStartup(path, { identityOf: () => "boot:2" })).toBeNull();
     expect(
-      readActiveMigration(path, {
-        identityOf: (pid) => identities.get(pid) ?? null,
-      }),
+      readActiveStartup(path, { now: () => Date.now() + 60 * 60 * 1000 + 1 }),
     ).toBeNull();
+    write(deadPid());
+    expect(readActiveStartup(path)).toBeNull();
   });
 
   it("ignores a marker older than the migration wait cap", () => {

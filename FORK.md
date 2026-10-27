@@ -597,8 +597,18 @@ length up to a one-hour cap.
   migration even with a long `TimeoutStopSec`, because systemd sends SIGTERM to
   the whole control group first. Migrations are synchronous, so the handler
   runs once the migration yields.
-- Stopping the launcher while a migration is active waits up to the cap for the
-  server to finish instead of killing it after 5 s.
+- The guard also publishes `<db>.starting.info` (pid and process identity)
+  before it installs the handlers and removes it once startup settles. A stop
+  can therefore never land in a window the launcher cannot see: the migrating
+  marker only appears after some pre-lock work, and a signal handler cannot
+  answer while a synchronous migration runs. The marker is separate from the
+  migrating info file so it never overwrites another process's holder info.
+- Stopping the launcher while a migration is active, or while the server it
+  spawned has published a startup marker, waits up to the cap for the server to
+  finish instead of killing it after 5 s. If the marker is only visible after
+  the signal was sent, the launcher checks again at the 5 s mark and waits
+  rather than escalating to SIGKILL. A server that publishes nothing is still
+  killed at 5 s.
 - The generated systemd unit (`install-machine.sh`) sets `TimeoutStopSec=3900`
   so systemd does not kill a migrating server on `stop` or `restart`.
 - Existing installed units predate `TimeoutStopSec`. Add a drop-in once per
@@ -616,7 +626,11 @@ length up to a one-hour cap.
   migration: the server logged the deferred stop, finished the migration
   (203 s), exited 0 with no restart and no leftover info file, and the next
   start found nothing to migrate (15 ms). The 250 s rehearsal also passed with
-  the stricter marker checks.
+  the stricter marker checks. After the startup marker was added, the stop
+  rehearsal was repeated on a fresh copy: the marker was present from process
+  start, the stop 80 s into the migration was deferred, the migration finished
+  (250 s with the padding), the server exited 0, the unit reported no restart
+  and no SIGKILL, and the startup marker was gone.
 
 ## Project documents
 

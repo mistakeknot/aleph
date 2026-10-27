@@ -139,7 +139,10 @@ export async function runServer(
     logger,
   });
   let diagnosticsEnabled = () => false;
-  const startupStop = deferStopDuringDatabaseStartup({ logger });
+  const startupStop = deferStopDuringDatabaseStartup({
+    databasePath: serverConfig.databasePath,
+    logger,
+  });
   let db: ReturnType<typeof initDb>;
   try {
     db = initDb(serverConfig.databasePath, {

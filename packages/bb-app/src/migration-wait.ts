@@ -1,6 +1,7 @@
 import {
   MIGRATION_WAIT_CAP_MS,
   readActiveMigration,
+  readActiveStartup,
   type MigrationHolderInfo,
 } from "@bb/config/migration-info";
 
@@ -74,4 +75,21 @@ export function isMigrationActive(
   ) => MigrationHolderInfo | null = readActiveMigration,
 ): boolean {
   return ownedBy(holderPid, readMigration(databasePath)) !== null;
+}
+
+export function isDatabaseBusy(
+  databasePath: string,
+  holderPid?: number,
+  readMigration: (
+    databasePath: string,
+  ) => MigrationHolderInfo | null = readActiveMigration,
+  readStartup: (
+    databasePath: string,
+  ) => { pid: number } | null = readActiveStartup,
+): boolean {
+  if (isMigrationActive(databasePath, holderPid, readMigration)) return true;
+  const startup = readStartup(databasePath);
+  return (
+    startup !== null && (holderPid === undefined || startup.pid === holderPid)
+  );
 }

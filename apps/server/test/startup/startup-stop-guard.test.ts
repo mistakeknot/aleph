@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { startupMarkerPath } from "@bb/config/migration-info";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -122,5 +123,41 @@ describe("startup stop guard", () => {
     listeners.get("SIGTERM")?.();
     expect(await guard.settle()).toBe("SIGINT");
     expect(messages).toHaveLength(1);
+  });
+
+  it("publishes a startup marker at install and clears it on settle", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "bb-stop-guard-marker-"));
+    tempDirs.push(directory);
+    const databasePath = join(directory, "bb.db");
+    const source: StartupSignalSource = {
+      on: () => undefined,
+      off: () => undefined,
+    };
+    const guard = deferStopDuringDatabaseStartup({
+      databasePath,
+      logger: { info: () => undefined },
+      source,
+    });
+    expect(existsSync(startupMarkerPath(databasePath))).toBe(true);
+    await guard.settle();
+    expect(existsSync(startupMarkerPath(databasePath))).toBe(false);
+  });
+
+  it("clears the startup marker when abandoned", () => {
+    const directory = mkdtempSync(join(tmpdir(), "bb-stop-guard-marker-"));
+    tempDirs.push(directory);
+    const databasePath = join(directory, "bb.db");
+    const source: StartupSignalSource = {
+      on: () => undefined,
+      off: () => undefined,
+    };
+    const guard = deferStopDuringDatabaseStartup({
+      databasePath,
+      logger: { info: () => undefined },
+      source,
+    });
+    expect(existsSync(startupMarkerPath(databasePath))).toBe(true);
+    guard.abandon();
+    expect(existsSync(startupMarkerPath(databasePath))).toBe(false);
   });
 });

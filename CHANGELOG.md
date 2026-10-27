@@ -14,6 +14,9 @@
   replaced by another process on the same pid, or is more than an hour old.
 - The server defers SIGTERM and SIGINT until its database migration finishes,
   so `systemctl stop` or a launcher stop no longer kills a migration partway.
+  The server publishes a startup marker first, and the launcher rechecks it
+  before escalating to SIGKILL, so a stop that arrives before the migrating
+  marker exists is not killed either.
 
 ## 0.47.0+aleph.0.8.0
 

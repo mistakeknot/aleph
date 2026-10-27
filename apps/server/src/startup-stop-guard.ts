@@ -1,3 +1,8 @@
+import {
+  removeStartupMarker,
+  writeStartupMarker,
+} from "@bb/config/migration-info";
+
 export type StartupStopSignal = "SIGINT" | "SIGTERM";
 
 const STARTUP_STOP_SIGNALS: readonly StartupStopSignal[] = [
@@ -17,6 +22,7 @@ export interface StartupStopGuard {
 
 export interface DeferStopDuringDatabaseStartupArgs {
   logger: { info(fields: object, message: string): void };
+  databasePath?: string;
   source?: StartupSignalSource;
 }
 
@@ -30,6 +36,8 @@ export function deferStopDuringDatabaseStartup(
   args: DeferStopDuringDatabaseStartupArgs,
 ): StartupStopGuard {
   const source = args.source ?? process;
+  const markerPath = args.databasePath;
+  if (markerPath !== undefined) writeStartupMarker(markerPath);
   let requested: StartupStopSignal | null = null;
   const listeners = STARTUP_STOP_SIGNALS.map((signal) => {
     const listener = (): void => {
@@ -45,6 +53,7 @@ export function deferStopDuringDatabaseStartup(
     return { signal, listener };
   });
   const detach = (): void => {
+    if (markerPath !== undefined) removeStartupMarker(markerPath);
     for (const { signal, listener } of listeners) source.off(signal, listener);
   };
   return {

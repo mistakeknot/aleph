@@ -81,7 +81,7 @@ import {
   stripThreadContextEnv,
 } from "@bb/config/runtime";
 import { MIGRATION_WAIT_CAP_MS } from "@bb/config/migration-info";
-import { createHealthDeadline, isMigrationActive } from "./migration-wait.js";
+import { createHealthDeadline, isDatabaseBusy } from "./migration-wait.js";
 import {
   readServerImportFile,
   readServerMovedFile,
@@ -398,7 +398,7 @@ interface WaitForNamedProcessExitArgs {
   processName: ManagedProcessName;
 }
 
-interface TerminateProcessIfRunningArgs {
+export interface TerminateProcessIfRunningArgs {
   childProcess: ChildProcess;
   migrationDatabasePath?: string;
   processName: ManagedProcessName;
@@ -2524,24 +2524,34 @@ function delayMilliseconds(args: DelayMillisecondsArgs): Promise<void> {
   });
 }
 
-async function terminateProcessIfRunning(
+export async function terminateProcessIfRunning(
   args: TerminateProcessIfRunningArgs,
 ): Promise<void> {
   if (hasProcessExited(args.childProcess)) {
     return;
   }
-  const migrating =
+  const isBusy = (): boolean =>
     args.migrationDatabasePath !== undefined &&
-    isMigrationActive(args.migrationDatabasePath, args.childProcess.pid);
+    isDatabaseBusy(args.migrationDatabasePath, args.childProcess.pid);
+  const busyAtSignal = isBusy();
   args.childProcess.kill(args.signal);
   const gracefulResult = await waitForProcessExitWithTimeout({
     childProcess: args.childProcess,
-    timeoutMs: migrating
+    timeoutMs: busyAtSignal
       ? MIGRATION_WAIT_CAP_MS
       : MANAGED_PROCESS_TERMINATION_TIMEOUT_MS,
   });
   if (gracefulResult === "exited") {
     return;
+  }
+  if (!busyAtSignal && isBusy()) {
+    const deferredResult = await waitForProcessExitWithTimeout({
+      childProcess: args.childProcess,
+      timeoutMs: MIGRATION_WAIT_CAP_MS,
+    });
+    if (deferredResult === "exited") {
+      return;
+    }
   }
 
   log(
@@ -3192,6 +3202,7 @@ export async function startFullStackServerProcess(
   } catch (error) {
     await terminateProcessIfRunning({
       childProcess: serverRun.childProcess,
+      migrationDatabasePath: args.context.dbPath,
       processName: "server",
       signal: "SIGTERM",
     });
