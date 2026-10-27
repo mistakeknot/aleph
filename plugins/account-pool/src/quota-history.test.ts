@@ -260,6 +260,18 @@ describe("pooledConsumption", () => {
     expect(result.pct).toBeCloseTo(2, 6);
   });
 
+  it("ignores a baseline reset that had already passed", () => {
+    const result = pooledConsumption(
+      [
+        sample(A, 20, 0.5, NOW - 30 * MINUTE),
+        sample(A, 10, 0.5, NOW - 30 * MINUTE),
+      ],
+      [pooled(A)],
+      NOW,
+    );
+    expect(result.pct).toBe(0);
+  });
+
   it("uses each account's own window key", () => {
     const result = pooledConsumption(
       [
@@ -309,6 +321,15 @@ describe("codexWindowKeys", () => {
       weekly: null,
       short: "primary",
     });
+  });
+
+  it("pairs a lone known weekly window with the unknown-duration slot", () => {
+    expect(
+      codexWindowKeys([window("primary", null), window("secondary", 10_080)]),
+    ).toEqual({ weekly: "secondary", short: "primary" });
+    expect(
+      codexWindowKeys([window("primary", 10_080), window("secondary", null)]),
+    ).toEqual({ weekly: "primary", short: "secondary" });
   });
 
   it("treats a lone window as weekly with no short window", () => {
@@ -400,6 +421,23 @@ describe("QuotaSampler and sample store", () => {
         reset_at: FAR,
       }),
     ]);
+  });
+
+  it("records a reset change even when utilization is unchanged", () => {
+    const { quotas, samples, advance } = setup();
+    quotas.put(quota({ sevenDayUtilization: 0.5, sevenDayResetAt: null }));
+    advance(MINUTE);
+    quotas.put(
+      quota({ sevenDayUtilization: 0.5, sevenDayResetAt: NOW + 2 * MINUTE }),
+    );
+    advance(2 * MINUTE);
+    quotas.put(quota({ sevenDayUtilization: 0.1, sevenDayResetAt: FAR }));
+    const result = pooledConsumption(
+      samples.list(),
+      [pooled(A)],
+      NOW + 3 * MINUTE,
+    );
+    expect(result.pct).toBeCloseTo(10, 6);
   });
 
   it("records Codex limit windows under their slot", () => {

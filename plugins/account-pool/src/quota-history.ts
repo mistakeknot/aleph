@@ -24,6 +24,7 @@ const ERROR_REPORT_INTERVAL_MS = 10 * 60 * 1_000;
 
 interface LastWrite {
   utilization: number;
+  resetAt: number | null;
   writtenAt: number;
 }
 
@@ -92,11 +93,14 @@ export class QuotaSampler {
         if (stored !== null)
           last = {
             utilization: stored.utilization,
+            resetAt: stored.resetAt,
             writtenAt: stored.sampledAt,
           };
       }
       const elapsed = last === undefined ? Infinity : now - last.writtenAt;
-      const changed = last?.utilization !== window.utilization;
+      const changed =
+        last?.utilization !== window.utilization ||
+        last.resetAt !== window.resetAt;
       const due = changed
         ? elapsed >= SAMPLE_MIN_GAP_MS
         : elapsed >= SAMPLE_HEARTBEAT_MS;
@@ -111,7 +115,11 @@ export class QuotaSampler {
         utilization: window.utilization,
         resetAt: window.resetAt,
       });
-      this.last.set(key, { utilization: window.utilization, writtenAt: now });
+      this.last.set(key, {
+        utilization: window.utilization,
+        resetAt: window.resetAt,
+        writtenAt: now,
+      });
     }
     if (now - this.lastPruneAt >= PRUNE_INTERVAL_MS) {
       this.lastPruneAt = now;
@@ -151,7 +159,7 @@ export function codexWindowKeys(windows: readonly LimitWindow[]): {
     const only = known[0]!;
     const other = windows.find((window) => window.slot !== only.slot) ?? null;
     if ((only.windowMinutes ?? 0) >= 6 * 24 * 60)
-      return { weekly: only.slot, short: null };
+      return { weekly: only.slot, short: other?.slot ?? null };
     return { weekly: other?.slot ?? null, short: only.slot };
   }
   const slots = new Set(windows.map((window) => window.slot));
@@ -185,7 +193,10 @@ function accountConsumed(
 ): number {
   let previous = samples[0]!;
   let highWater = previous.utilization;
-  let epochEnd = previous.resetAt;
+  let epochEnd =
+    previous.resetAt !== null && previous.resetAt > previous.sampledAt
+      ? previous.resetAt
+      : null;
   let consumed = 0;
   for (const current of samples.slice(1)) {
     let intervalStart = previous.sampledAt;
