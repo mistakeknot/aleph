@@ -1,20 +1,20 @@
 # Repository layout
 
 Aleph is a pnpm workspace. The top level holds
-<!--fig:apps=10-->10 apps (`apps/`),
-<!--fig:packages=41-->41 packages (`packages/`) and
-<!--fig:plugins=44-->44 plugins (`plugins/`). Integration and QA suites live in
+<!--fig:apps=11-->11 apps (`apps/`),
+<!--fig:packages=42-->42 packages (`packages/`) and
+<!--fig:plugins=47-->47 plugins (`plugins/`). Integration and QA suites live in
 
 `tests/`, runnable examples in `examples/plugins/`.
 
 ## Plugins
 
 Most behavior ships as plugins. Of the
-<!--fig:plugins=44-->44, <!--fig:official-plugins=44-->44 are listed in
+<!--fig:plugins=47-->47, <!--fig:official-plugins=47-->47 are listed in
 
 `plugins/bb-official.json`, the official marketplace manifest.
 
-- <!--fig:provider-plugins=7-->7 provider plugins (`provider-*`): ACP, Claude
+- <!--fig:provider-plugins=6-->6 provider plugins (`provider-*`): ACP, Claude
   Code, Codex, Pi, plus retry and usage helpers.
 - <!--fig:environment-plugins=4-->4 environment plugins (`environment-*`):
   git worktree, Modal sandbox, personal workspace and project checkout.
