@@ -189,6 +189,7 @@ export interface RuntimeManagerOptions {
   ) => NonNullable<AgentRuntimeOptions["shellEnv"]>;
   onEvent?: (args: { environmentId: string; event: ThreadEvent }) => void;
   threadStorageRootPath?: string | null;
+  extraWorkspaceWriteRoots?: readonly string[];
   onInjectedSkillsChanged?: (args: InjectedSkillsChangedNotification) => void;
   onDataDirSkillsWatchError?: (args: {
     error: DataDirSkillsWatchError;
@@ -327,6 +328,7 @@ export class RuntimeManager {
     if (args.threadStorageRootPath) {
       roots.push(args.threadStorageRootPath);
     }
+    roots.push(...(this.options.extraWorkspaceWriteRoots ?? []));
     return [...new Set(roots)];
   }
 

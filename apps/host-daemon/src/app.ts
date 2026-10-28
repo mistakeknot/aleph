@@ -1,3 +1,4 @@
+import os from "node:os";
 import path from "node:path";
 import { HOST_DAEMON_RESTART_EXIT_CODE } from "@bb/config/machine-service";
 import {
@@ -5,6 +6,10 @@ import {
   prepareAgentProcessScopes,
 } from "./agent-process-scope.js";
 import { startDesktopBrowserBroker } from "./desktop-browser-broker.js";
+import {
+  EXTRA_WORKSPACE_WRITE_ROOTS_ENV,
+  resolveExtraWorkspaceWriteRoots,
+} from "./extra-workspace-write-roots.js";
 import { MachineEnvironment } from "./machine-environment.js";
 import { CommandRouter } from "./command-router.js";
 import { createDaemon, type HostDaemon } from "./daemon.js";
@@ -133,6 +138,7 @@ interface CreateHostDaemonAppOptions {
   createWebSocket?: CreateReconnectingWebSocket;
   closeMachineAuthProxy?: () => Promise<void>;
   exitProcess?: (code: number) => void;
+  env?: NodeJS.ProcessEnv;
 }
 
 export interface HostDaemonApp {
@@ -537,10 +543,22 @@ export async function createHostDaemonApp(
       sendServerMessage({ type: "connect-next.status", status });
     },
   });
+  const daemonEnv = options.env ?? process.env;
+  const extraWorkspaceWriteRoots = daemonEnv[
+    EXTRA_WORKSPACE_WRITE_ROOTS_ENV
+  ]?.trim()
+    ? resolveExtraWorkspaceWriteRoots({
+        env: daemonEnv,
+        dataDir: options.dataDir,
+        homeDir: os.homedir(),
+        logger: options.logger,
+      })
+    : [];
   runtimeManager = new RuntimeManager({
     bridgeBundleDir: options.bridgeBundleDir,
     createRuntime: options.createRuntime,
     dataDir: options.dataDir,
+    extraWorkspaceWriteRoots,
     dataDirSkillsRootPath,
     fetchSkillTree: (treeHash) =>
       runSessionRequest({
