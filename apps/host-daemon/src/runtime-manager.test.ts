@@ -1031,6 +1031,33 @@ describe("RuntimeManager", () => {
     ]);
   });
 
+  it("appends extra workspace-write roots after the thread storage root", async () => {
+    const provisionWorkspace = createProvisionWorkspaceMock("/tmp/env-1");
+    const runtimeOptions: RuntimeOptionsRef = { current: null };
+    const manager = new RuntimeManager({
+      provisionWorkspace,
+      threadStorageRootPath: "/tmp/bb-thread-storage",
+      extraWorkspaceWriteRoots: [
+        "/srv/ci-data/mk/bb-rust-build",
+        "/tmp/bb-thread-storage",
+      ],
+      createRuntime: (options) => {
+        runtimeOptions.current = options;
+        return createFakeRuntime();
+      },
+    });
+
+    await manager.ensureEnvironment({
+      environmentId: "env-extra-write-roots",
+      workspacePath: "/tmp/env-1",
+    });
+
+    expect(runtimeOptions.current?.additionalWorkspaceWriteRoots).toEqual([
+      "/tmp/bb-thread-storage",
+      "/srv/ci-data/mk/bb-rust-build",
+    ]);
+  });
+
   it("forwards the bridge record-mode directory to provider processes but not the shell env", async () => {
     vi.stubEnv("BB_PROVIDER_BRIDGE_RECORD_DIR", "/tmp/provider-recordings/raw");
     const provisionWorkspace = createProvisionWorkspaceMock("/tmp/env-1");

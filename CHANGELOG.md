@@ -4,6 +4,12 @@
 
 ### Aleph
 
+- Workspace-write threads can be allowed to write to extra directories, such as
+  a shared build cache on another disk, by listing them in the host-daemon
+  environment variable `BB_EXTRA_WORKSPACE_WRITE_ROOTS` (off by default, read
+  at startup). It applies to Codex, Claude Code and ACP threads. Unsafe entries
+  (a filesystem root, the home directory or its ancestors, home dot-directories
+  and the bb data directory) are refused with a warning.
 - The Account Pooler header chip shows how fast the pool is burning quota:
   the percentage of one weekly window all OAuth accounts of a provider used in
   the last hour, per provider (compact viewports show the larger figure). It

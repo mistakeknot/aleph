@@ -378,6 +378,15 @@ Beyond upstream, Aleph carries:
   loop on a shared CPU. It only raises the nice value and skips Windows
   (`apps/host-daemon/src/agent-process-priority.ts`).
 
+- **Extra workspace-write roots.** `BB_EXTRA_WORKSPACE_WRITE_ROOTS` (off by
+  default) lists extra directories, such as a shared Cargo build dir, that
+  workspace-write threads of every provider may write to. The host daemon
+  validates the list once at startup, refusing roots that are a filesystem
+  root, contain home, sit in a home dot-directory or overlap the data dir,
+  and appends the rest after the thread storage root
+  (`apps/host-daemon/src/extra-workspace-write-roots.ts`,
+  `runtime-manager.ts`).
+
 - **Account Pooler stall tolerance (0.6.3).** The upstream transport gives
   each per-address connect attempt 5 s, below undici's 10 s connect timeout,
   so event-loop stalls no longer abort dual-stack connects

@@ -514,6 +514,33 @@ describe("codex permission settings", () => {
     });
   });
 
+  it("combines host extra roots with git roots, extra roots first and de-duplicated", () => {
+    const args = {
+      additionalWorkspaceWriteRoots: [
+        "/home/user/.bb/thread-storage",
+        "/srv/ci-data/mk/bb-rust-build",
+        "/repo/.git/objects",
+      ],
+      gitWritableRoots: ["/repo/.git/worktrees/bb13", "/repo/.git/objects"],
+      options: WORKSPACE_ASK_OPTIONS,
+    };
+    const expected = [
+      "/home/user/.bb/thread-storage",
+      "/srv/ci-data/mk/bb-rust-build",
+      "/repo/.git/objects",
+      "/repo/.git/worktrees/bb13",
+    ];
+    expect(toCodexPermissionSettings(args).sandboxPolicy).toMatchObject({
+      type: "workspaceWrite",
+      writableRoots: expected,
+    });
+    expect(
+      buildCodexConfig({ threadId: "bb-thread-1", ...args })?.[
+        "sandbox_workspace_write.writable_roots"
+      ],
+    ).toEqual(expected);
+  });
+
   it("maps auto to automatic workspace review", () => {
     expect(permissionSettings(AUTO_ASK_OPTIONS)).toMatchObject({
       approvalPolicy: "on-request",
