@@ -13,11 +13,14 @@ import {
   type ThreadTimelineSubscriptionTarget,
 } from "@bb/domain";
 import {
-  computeTimelineRowDelta,
+  computeThreadTimelineDelta,
+  isThreadTimelineDelta,
+  type ThreadTimelineReadResponse,
   type ThreadTimelineResponse,
   type ThreadTimelineSignal,
 } from "@bb/server-contract";
 import type { AppDeps } from "../../types.js";
+import type { ThreadTimelineSubscriber } from "../../ws/hub.js";
 import { resolveProviderPlanCommand } from "../providers/provider-plan-command.js";
 import { observeTimelinePushTrace } from "../system/turn-trace.js";
 import {
@@ -37,7 +40,8 @@ import {
   createThreadTimelineCache,
 } from "./timeline-cache.js";
 import { clearTimelineOrderingContextCache } from "./timeline-context-order.js";
-import { createTimelineLatestRowsCache } from "./timeline-latest-rows-cache.js";
+import { createTimelineServedWindowsCache } from "./timeline-served-windows-cache.js";
+import { timelineRowHash, timelineWindowTag } from "./timeline-window-tag.js";
 import { isCompactionOfferEnabled } from "./compaction-offer.js";
 import {
   DEFAULT_MAX_INLINE_OUTPUT_CHARS,
@@ -59,6 +63,17 @@ export interface ThreadTimelineWindowRequest {
 
 const MAX_PUSH_PAUSE_MS = 1_000;
 
+interface TimelinePush {
+  signal: ThreadTimelineSignal;
+  subscribers: ThreadTimelineSubscriber[];
+}
+
+interface TargetPushes {
+  pushes: TimelinePush[];
+  response: ThreadTimelineResponse;
+  windowKey: string;
+}
+
 interface ThreadPushSchedule {
   nextAllowedAt: number;
   timer: ReturnType<typeof setTimeout> | null;
@@ -68,8 +83,8 @@ export interface ThreadTimelineWindows {
   read(
     thread: Thread,
     request: ThreadTimelineWindowRequest,
-    afterSequence: number | undefined,
-  ): ThreadTimelineResponse;
+    afterTag: string | undefined,
+  ): ThreadTimelineReadResponse;
 }
 
 export function resolveThreadProviderDisplayName(
@@ -91,13 +106,26 @@ export function resolveThreadCompletedTurnDisplay(
   );
 }
 
+function latestWindowKey(
+  request: ThreadTimelineWindowRequest,
+  segmentLimit: number,
+): string {
+  return [
+    segmentLimit,
+    request.deferContent,
+    request.includeNestedRows,
+    request.summaryOnly,
+  ].join("|");
+}
+
 export function createThreadTimelineWindows(
   deps: ThreadTimelineWindowDeps,
 ): ThreadTimelineWindows {
   const timelineCache = createThreadTimelineCache();
-  const latestRowsCache = createTimelineLatestRowsCache();
-  const deltaFloorByThreadId = new Map<string, number>();
-  let lastPushedByTarget = new WeakMap<
+  const servedWindows = createTimelineServedWindowsCache({
+    subscriberTags: (threadId) => deps.hub.listThreadTimelineTags(threadId),
+  });
+  const lastPushedByTarget = new WeakMap<
     ThreadTimelineSubscriptionTarget,
     ThreadTimelineResponse
   >();
@@ -115,7 +143,7 @@ export function createThreadTimelineWindows(
     thread: Thread,
     request: ThreadTimelineWindowRequest,
     coalesce: boolean,
-  ): { paramsKey: string; response: ThreadTimelineResponse } {
+  ): ThreadTimelineResponse {
     const providerDisplayName = resolveThreadProviderDisplayName(
       deps,
       thread.providerId,
@@ -152,7 +180,6 @@ export function createThreadTimelineWindows(
       page: request.page,
       summaryOnly: request.summaryOnly,
     };
-    const paramsKey = buildThreadTimelineParamsKey(keyArgs);
     const buildFull = () =>
       timelineCache.getOrBuild(
         thread.id,
@@ -170,10 +197,11 @@ export function createThreadTimelineWindows(
             },
           );
           slowTimelineBuildLogger.log({ profile, threadId: thread.id });
-          return shortenTimelineResponseOutputs(built, {
+          const window = shortenTimelineResponseOutputs(built, {
             maxInlineOutputChars: DEFAULT_MAX_INLINE_OUTPUT_CHARS,
             preview: !request.includeNestedRows,
           });
+          return { ...window, tag: timelineWindowTag(window) };
         },
       );
     const { response } = buildCoalescer.serve({
@@ -183,41 +211,16 @@ export function createThreadTimelineWindows(
         request.page.kind === "latest" &&
         thread.status === "active",
       maxSeq,
-      paramsKey,
+      paramsKey: buildThreadTimelineParamsKey(keyArgs),
       threadId: thread.id,
     });
-    return { paramsKey, response };
-  }
-
-  function deltaSince(
-    threadId: string,
-    paramsKey: string,
-    afterSequence: number | undefined,
-    full: ThreadTimelineResponse,
-  ): ThreadTimelineResponse | undefined {
-    const deltaFloor = deltaFloorByThreadId.get(threadId);
-    const previous =
-      afterSequence === undefined ||
-      (deltaFloor !== undefined && afterSequence <= deltaFloor)
-        ? undefined
-        : latestRowsCache.get(threadId, paramsKey, afterSequence);
-    latestRowsCache.set(threadId, paramsKey, {
-      maxSeq: full.maxSeq,
-      rows: full.rows,
-    });
-    return previous === undefined
-      ? undefined
-      : {
-          ...full,
-          rows: [],
-          delta: computeTimelineRowDelta(previous.rows, full.rows),
-        };
+    return response;
   }
 
   function pushTarget(
     thread: Thread,
     target: ThreadTimelineSubscriptionTarget,
-  ): ThreadTimelineSignal | null {
+  ): TargetPushes | null {
     const segmentLimit =
       target.segmentLimit ?? THREAD_TIMELINE_DEFAULT_SEGMENT_LIMIT;
     if (segmentLimit > THREAD_TIMELINE_SEGMENT_LIMIT_MAX) {
@@ -226,38 +229,66 @@ export function createThreadTimelineWindows(
     if (isThreadEventsCold(deps.db, thread.id)) {
       return null;
     }
-    const { response } = buildWindow(
-      thread,
-      {
-        deferContent: target.deferContent,
-        includeNestedRows: false,
-        page: { kind: "latest", segmentLimit },
-        summaryOnly: false,
-      },
-      false,
-    );
-    const previous = lastPushedByTarget.get(target);
-    if (previous?.maxSeq === response.maxSeq) {
+    const subscribers = deps.hub
+      .listThreadTimelineSubscribers(target)
+      .filter(({ baseline }) => baseline.kind !== "pending");
+    if (subscribers.length === 0) {
       return null;
     }
-    lastPushedByTarget.set(target, response);
-    return previous === undefined
-      ? {
-          type: "thread-timeline",
-          target,
-          afterSequence: null,
-          timeline: response,
-        }
-      : {
-          type: "thread-timeline",
-          target,
-          afterSequence: previous.maxSeq,
-          timeline: {
-            ...response,
-            rows: [],
-            delta: computeTimelineRowDelta(previous.rows, response.rows),
-          },
-        };
+    const request: ThreadTimelineWindowRequest = {
+      deferContent: target.deferContent,
+      includeNestedRows: false,
+      page: { kind: "latest", segmentLimit },
+      summaryOnly: false,
+    };
+    const windowKey = latestWindowKey(request, segmentLimit);
+    const response = buildWindow(thread, request, false);
+    const hasLegacySubscribers = subscribers.some(
+      ({ baseline }) => baseline.kind === "legacy",
+    );
+    const legacyBaseline = hasLegacySubscribers
+      ? (lastPushedByTarget.get(target) ??
+        servedWindows.latest(thread.id, windowKey))
+      : undefined;
+    if (hasLegacySubscribers) {
+      lastPushedByTarget.set(target, response);
+    }
+    const groups = new Map<
+      string | null,
+      {
+        baseline: ThreadTimelineResponse | undefined;
+        subscribers: ThreadTimelineSubscriber[];
+      }
+    >();
+    for (const subscriber of subscribers) {
+      const baseline =
+        subscriber.baseline.kind === "tag"
+          ? servedWindows.get(thread.id, subscriber.baseline.tag)
+          : legacyBaseline;
+      if (baseline?.tag === response.tag) {
+        continue;
+      }
+      const groupKey = baseline?.tag ?? null;
+      const group = groups.get(groupKey) ?? { baseline, subscribers: [] };
+      group.subscribers.push(subscriber);
+      groups.set(groupKey, group);
+    }
+    if (groups.size === 0) {
+      return null;
+    }
+    const pushes = [...groups.values()].map(({ baseline, subscribers }) => ({
+      subscribers,
+      signal: {
+        type: "thread-timeline" as const,
+        target,
+        afterSequence: null,
+        timeline:
+          baseline === undefined
+            ? response
+            : computeThreadTimelineDelta(baseline, response, timelineRowHash),
+      },
+    }));
+    return { pushes, response, windowKey };
   }
 
   function pushThread(threadId: string): void {
@@ -273,21 +304,28 @@ export function createThreadTimelineWindows(
     }
     for (const target of targets) {
       const startedAt = performance.now();
-      const signal = pushTarget(thread, target);
-      if (signal === null) {
+      const targetPushes = pushTarget(thread, target);
+      if (targetPushes === null) {
         continue;
       }
       const builtAt = performance.now();
-      const bytes = deps.hub.sendThreadTimelineSignal(signal);
-      observeTimelinePushTrace(deps, {
-        builtAt,
-        bytes,
-        maxSeq: signal.timeline.maxSeq,
-        sentAt: performance.now(),
-        startedAt,
-        threadId,
-        withDelta: signal.afterSequence !== null,
-      });
+      for (const { signal, subscribers } of targetPushes.pushes) {
+        const bytes = deps.hub.sendThreadTimelineSignal(subscribers, signal);
+        observeTimelinePushTrace(deps, {
+          builtAt,
+          bytes,
+          maxSeq: signal.timeline.maxSeq,
+          sentAt: performance.now(),
+          startedAt,
+          threadId,
+          withDelta: isThreadTimelineDelta(signal.timeline),
+        });
+      }
+      servedWindows.recordPushed(
+        thread.id,
+        targetPushes.windowKey,
+        targetPushes.response,
+      );
     }
   }
 
@@ -329,14 +367,18 @@ export function createThreadTimelineWindows(
     );
   }
 
+  deps.hub.onThreadTimelineTag((target, tag) => {
+    servedWindows.release(target.threadId, tag);
+    schedulePush(target.threadId);
+  });
+
   deps.hub.onChangedMessage((message) => {
     if (message.entity !== "thread") {
       return;
     }
     if (message.changes.includes("thread-deleted")) {
-      deltaFloorByThreadId.delete(message.id);
+      servedWindows.invalidateThread(message.id);
       timelineCache.invalidateThread(message.id);
-      latestRowsCache.invalidateThread(message.id);
       buildCoalescer.invalidateThread(message.id);
       const schedule = pushSchedulesByThreadId.get(message.id);
       if (schedule?.timer) {
@@ -364,27 +406,30 @@ export function createThreadTimelineWindows(
       message.changes.includes("archived-changed")
     ) {
       timelineCache.invalidateThread(message.id);
-      latestRowsCache.invalidateThread(message.id);
     }
     if (compacted || shouldDropTimelineSnapshots(message.changes)) {
       buildCoalescer.invalidateThread(message.id);
     }
-    if (!rewritten && !compacted) {
-      return;
-    }
-    lastPushedByTarget = new WeakMap();
-    deltaFloorByThreadId.set(
-      message.id,
-      getLatestThreadSequence(deps.db, { threadId: message.id }),
-    );
   });
 
   return {
-    read(thread, request, afterSequence) {
-      const { paramsKey, response } = buildWindow(thread, request, true);
-      return (
-        deltaSince(thread.id, paramsKey, afterSequence, response) ?? response
-      );
+    read(thread, request, afterTag) {
+      const response = buildWindow(thread, request, true);
+      const previous =
+        afterTag === undefined
+          ? undefined
+          : servedWindows.get(thread.id, afterTag);
+      if (request.page.kind === "latest") {
+        servedWindows.recordRead(
+          thread.id,
+          latestWindowKey(request, request.page.segmentLimit),
+          response,
+          afterTag,
+        );
+      }
+      return previous === undefined
+        ? response
+        : computeThreadTimelineDelta(previous, response, timelineRowHash);
     },
   };
 }

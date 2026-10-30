@@ -805,10 +805,28 @@ function validateProviderOptionDescriptors(args: {
               field: `${field}[${index}].description`,
               value: record.description,
             });
+      const icon =
+        record.experimental_icon === undefined
+          ? undefined
+          : requireNonBlankString({
+              providerId,
+              field: `${field}[${index}].experimental_icon`,
+              value: record.experimental_icon,
+            });
+      if (
+        icon !== undefined &&
+        !isNamespacedGlyph(icon) &&
+        /[/\\]/u.test(icon)
+      ) {
+        throw new Error(
+          `provider "${providerId}" ${field}[${index}].experimental_icon must be a host glyph name ("Zap") or a declared icon ("<pluginId>/<name>")`,
+        );
+      }
       return Object.freeze({
         id,
         label,
         ...(description === undefined ? {} : { description }),
+        ...(icon === undefined ? {} : { experimental_icon: icon }),
       });
     },
   );
@@ -2307,6 +2325,39 @@ export function providerIconRefusalMessage(
   problem: string,
 ): string {
   return `provider "${providerId}" icon ${problem}`;
+}
+
+/**
+ * `bb.providers.register` refusal for the provider icon or a service tier
+ * icon {@link undeclaredIconProblem} rejects, or null when every icon is
+ * acceptable.
+ */
+export function providerDeclarationIconRefusal(
+  pluginId: string,
+  declaredIconNames: ReadonlySet<string>,
+  declaration: NormalizedPluginProviderDeclaration,
+): string | null {
+  const iconProblem =
+    declaration.icon === undefined
+      ? null
+      : undeclaredIconProblem(pluginId, declaredIconNames, declaration.icon);
+  if (iconProblem !== null) {
+    return providerIconRefusalMessage(declaration.id, iconProblem);
+  }
+  for (const [index, tier] of (declaration.serviceTiers ?? []).entries()) {
+    const tierProblem =
+      tier.experimental_icon === undefined
+        ? null
+        : undeclaredIconProblem(
+            pluginId,
+            declaredIconNames,
+            tier.experimental_icon,
+          );
+    if (tierProblem !== null) {
+      return `provider "${declaration.id}" serviceTiers[${index}].experimental_icon ${tierProblem}`;
+    }
+  }
+  return null;
 }
 
 /** `bb.agents.registerTool` refusal for a glyph {@link undeclaredIconProblem} rejects. */

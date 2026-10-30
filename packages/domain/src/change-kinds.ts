@@ -57,6 +57,7 @@ export const HOST_CHANGE_KINDS = [
   "host-connected",
   "host-disconnected",
   "provider-model-catalog-changed",
+  "provider-commands-changed",
 ] as const;
 export type HostChangeKind = (typeof HOST_CHANGE_KINDS)[number];
 
@@ -205,7 +206,11 @@ const hasSubscriptionTargets = (value: {
   targets?: RealtimeSubscriptionTarget[];
 }) => (value.target !== undefined) !== (value.targets !== undefined);
 const subscribeMessageSchema = z
-  .object({ type: z.literal("subscribe"), ...subscriptionFields })
+  .object({
+    type: z.literal("subscribe"),
+    ...subscriptionFields,
+    timelineTags: z.record(z.string(), z.string().min(1).nullable()).optional(),
+  })
   .refine(hasSubscriptionTargets);
 const unsubscribeMessageSchema = z
   .object({ type: z.literal("unsubscribe"), ...subscriptionFields })

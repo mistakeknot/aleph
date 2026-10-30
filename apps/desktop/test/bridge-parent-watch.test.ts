@@ -150,6 +150,11 @@ describe("bridge parent watch", () => {
         platform: "node",
       });
       await build({
+        // bb-process bundles CommonJS cross-spawn through @bb/process-utils;
+        // an ESM bundle needs a require shim for its dynamic requires.
+        banner: {
+          js: 'import { createRequire as __bbCreateRequire } from "node:module"; const require = __bbCreateRequire(import.meta.url);',
+        },
         bundle: true,
         entryPoints: [join(packageRoot, "src", "bb-process.ts")],
         format: "esm",

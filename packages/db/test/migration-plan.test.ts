@@ -38,18 +38,20 @@ import { applyPlan, sourceFolders } from "./helpers/plan-apply.js";
 
 const tempDirs: string[] = [];
 
-// The pinned legacy chain predates upstream 0144 to 0146. Those upstream
+// The pinned legacy chain predates upstream 0144 to 0147. Those upstream
 // steps (0144 is superseded by A0011) are checked separately from the
 // legacy equality comparisons.
 const POST_ORACLE_UPSTREAM = [
   "0144_thread_parent_notifications",
   "0145_terminal_sessions_status_thread_index",
   "0146_diff_viewed_files",
+  "0147_git_and_pr_status_plugin_show_settings",
 ];
 const POST_ORACLE_PLAN_IDS = [
   "A0011",
   "0145_terminal_sessions_status_thread_index",
   "0146_diff_viewed_files",
+  "0147_git_and_pr_status_plugin_show_settings",
 ];
 
 afterEach(() => {
@@ -349,7 +351,7 @@ describe("the real migration plan", () => {
 
   it("reads each source file's hash into the plan", () => {
     const input = loadMigrationPlanInput(sourceFolders);
-    expect(input.upstream).toHaveLength(147);
+    expect(input.upstream).toHaveLength(148);
     expect(input.aleph).toHaveLength(11);
     const plan = loadMigrationPlan(sourceFolders);
     for (const step of plan.steps) {

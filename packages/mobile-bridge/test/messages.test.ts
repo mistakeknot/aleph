@@ -37,6 +37,14 @@ describe("parsePageToShellMessage", () => {
       { type: "open-native", screen: "device-settings" },
       {
         type: "request",
+        id: "r1-app",
+        request: {
+          kind: "open-application",
+          payload: { url: "reflect://note/Project%20X" },
+        },
+      },
+      {
+        type: "request",
         id: "r1-2",
         request: {
           kind: "share",

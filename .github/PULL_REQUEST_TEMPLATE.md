@@ -24,6 +24,7 @@
 - Blast Radius: <!-- one line, 1-200 characters: what else a bad merge would touch -->
 - Evidence: <!-- one line: before -> after, from a command you ran, a test or a screenshot -->
 
+<!-- Required for contributors outside the bb team: the open issue this closes. The PR gate closes pull requests without one. -->
 Fixes #
 
 <!-- Agents: end with the line below. -->

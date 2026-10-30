@@ -85,6 +85,8 @@
  *                            → stop reason returned for /compact
  * - FAKE_ACP_RESUME_SESSION=1
  *                            → advertise and serve session/resume
+ * - FAKE_ACP_ADDITIONAL_DIRECTORIES=1
+ *                            → advertise sessionCapabilities.additionalDirectories
  * - FAKE_ACP_SESSION_BUSY_PROMPTS=<n>
  *                            → reject the first n prompts as session_busy
  *                              (omp's typed -32003 rejection)
@@ -115,6 +117,8 @@ const failLoad = process.env.FAKE_ACP_FAIL_LOAD === "1";
 const loadSession = process.env.FAKE_ACP_LOAD_SESSION === "1" || failLoad;
 const forkSession = process.env.FAKE_ACP_FORK_SESSION === "1";
 const deleteSession = process.env.FAKE_ACP_DELETE_SESSION === "1";
+const additionalDirectories =
+  process.env.FAKE_ACP_ADDITIONAL_DIRECTORIES === "1";
 const forkReuseSourceId = process.env.FAKE_ACP_FORK_REUSE_SOURCE_ID === "1";
 const usageOnLoad = process.env.FAKE_ACP_USAGE_ON_LOAD === "1";
 const usageSessionId = process.env.FAKE_ACP_USAGE_SESSION_ID;
@@ -882,12 +886,18 @@ async function handleMessage(message) {
           agentCapabilities: {
             loadSession,
             promptCapabilities: { image: false },
-            ...(forkSession || resumeSession || deleteSession
+            ...(forkSession ||
+            resumeSession ||
+            deleteSession ||
+            additionalDirectories
               ? {
                   sessionCapabilities: {
                     ...(forkSession ? { fork: {} } : {}),
                     ...(resumeSession ? { resume: {} } : {}),
                     ...(deleteSession ? { delete: {} } : {}),
+                    ...(additionalDirectories
+                      ? { additionalDirectories: {} }
+                      : {}),
                   },
                 }
               : {}),

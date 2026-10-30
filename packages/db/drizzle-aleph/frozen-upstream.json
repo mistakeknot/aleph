@@ -589,6 +589,10 @@
     {
       "tag": "0146_diff_viewed_files",
       "sha256": "9fec044e3b7902083cde83067c20b03b3e71076a25bb3e6a0e56090f2a92ac3c"
+    },
+    {
+      "tag": "0147_git_and_pr_status_plugin_show_settings",
+      "sha256": "3b73cc223c28a2293fc475d9bd2476673e2b64baae69b9bfe117ef9a6f03878f"
     }
   ]
 }

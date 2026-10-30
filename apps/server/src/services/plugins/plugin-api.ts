@@ -101,6 +101,7 @@ import {
   validatePluginEnvironmentProviderDeclaration,
   validatePluginMachineProviderDeclaration,
   providerAlreadyRegisteredMessage,
+  providerDeclarationIconRefusal,
   providerIconRefusalMessage,
   undeclaredIconProblem,
   validateProviderEnvContribution,
@@ -936,12 +937,13 @@ export function createPluginApi(options: {
   const providerRegistrations = createStagedRegistrations({
     validate: (declaration: PluginProviderDeclaration) => {
       const normalized = validatePluginProviderDeclaration(declaration);
-      const problem =
-        normalized.icon === undefined
-          ? null
-          : undeclaredIconProblem(pluginId, declaredIconNames, normalized.icon);
-      if (problem !== null) {
-        throw new Error(providerIconRefusalMessage(normalized.id, problem));
+      const refusal = providerDeclarationIconRefusal(
+        pluginId,
+        declaredIconNames,
+        normalized,
+      );
+      if (refusal !== null) {
+        throw new Error(refusal);
       }
       return normalized;
     },

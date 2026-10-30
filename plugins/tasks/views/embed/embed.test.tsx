@@ -87,16 +87,19 @@ describe("Task directive card", () => {
   });
 
   it("opens the side panel on primary click and the Tasks app from the arrow", async () => {
-    const openThreadPanel = vi.fn(() => true);
+    const openTab = vi.fn(() => true);
     const slot = renderSlot(
       app.messageDirectives[0]!,
       directiveProps({ key: "TSK-4" }),
-      { openThreadPanel, rpc: { getTaskByKey: () => ({ task }) } },
+      {
+        experimental_panel: { openTab },
+        rpc: { getTaskByKey: () => ({ task }) },
+      },
     );
 
     fireEvent.click(await slot.findByText("Ship task embeds"));
-    expect(openThreadPanel).toHaveBeenCalledWith({
-      actionId: "task",
+    expect(openTab).toHaveBeenCalledWith({
+      tab: { id: "task", context: { kind: "thread" }, availability: "action" },
       title: "TSK-4",
       params: { taskKey: "TSK-4" },
     });
@@ -255,7 +258,7 @@ describe("Task embed panel", () => {
   it("keeps an aliased task in the side panel until the user opens Tasks", async () => {
     const slot = renderSlot(
       app.threadPanelActions[0]!,
-      { threadId: "thr_1", params: { taskKey: "OLD-4" } },
+      { threadId: "thr_1", environment: null, params: { taskKey: "OLD-4" } },
       { rpc: taskDetailRpc(() => ({ task })) },
     );
     await slot.findByRole("textbox", { name: "Task title" });
@@ -274,7 +277,7 @@ describe("Task embed panel", () => {
     let title = "Stale embedded detail";
     const slot = renderSlot(
       app.threadPanelActions[0]!,
-      { threadId: "thr_1", params: { taskKey: "TSK-4" } },
+      { threadId: "thr_1", environment: null, params: { taskKey: "TSK-4" } },
       {
         realtimeConnectionState: "connected",
         rpc: taskDetailRpc(() => ({ task: { ...task, title } })),
@@ -292,7 +295,7 @@ describe("Task embed panel", () => {
   it("shows a hint when opened without a task key", () => {
     const slot = renderSlot(
       app.threadPanelActions[0]!,
-      { threadId: "thr_1", params: null },
+      { threadId: "thr_1", environment: null, params: null },
       { rpc: {} },
     );
     slot.getByText("Open a task card from a message to view it here.");

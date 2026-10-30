@@ -1,5 +1,6 @@
 import { countUnarchivedThreadDescendants } from "../../services/threads/thread-archive.js";
 import { withHotThreadHistory } from "../../services/threads/event-cold-tier/service.js";
+import { listThreadCascades } from "../../services/threads/thread-cascade.js";
 import { cancelAbandonedProviderCreations } from "../../services/threads/thread-environment-providers.js";
 import {
   THREAD_SEARCH_LIMIT_PER_GROUP_DEFAULT,
@@ -41,6 +42,7 @@ import {
   type PluginThreadMetadataListResponse,
   type ThreadAncestorsListResponse,
   type ThreadDescendantsListResponse,
+  type ThreadCascadeListResponse,
   type ThreadRunningResponse,
   type ThreadSearchResponse,
   type RecordThreadSearchSelectionResponse,
@@ -282,6 +284,12 @@ export function registerThreadBaseRoutes(app: Hono, deps: AppDeps): void {
         includeHidden: payload.includeHidden ?? false,
       }),
     } satisfies ThreadDescendantsListResponse);
+  });
+
+  post(routes.cascade, (context, payload) => {
+    return context.json({
+      threads: listThreadCascades(deps.db, payload.threadIds, payload.action),
+    } satisfies ThreadCascadeListResponse);
   });
 
   post(routes.pluginMetadata.list, (context, payload) => {

@@ -144,6 +144,9 @@ interface RenderPromptAreaOptions {
   modelFallback?: ThreadTimelineModelFallback | null;
   pendingInteractions?: readonly PendingInteraction[];
   pendingInteractionsInitialLoading?: boolean;
+  permissionPolicy?: ComponentProps<
+    typeof ThreadDetailPromptArea
+  >["permissionPolicy"];
   environmentGoneStatus?: ComponentProps<
     typeof ThreadDetailPromptArea
   >["environmentGoneStatus"];
@@ -163,6 +166,7 @@ function buildPromptAreaElement({
   modelFallback = null,
   pendingInteractions = [],
   pendingInteractionsInitialLoading = false,
+  permissionPolicy = "editable",
   environmentGoneStatus = null,
   queuedMessageCount = 0,
   sentMessageEdit,
@@ -172,21 +176,20 @@ function buildPromptAreaElement({
   return (
     <QueryClientProvider client={testQueryClient}>
       <ThreadDetailPromptArea
-        showGitChanges={true}
         activeBackgroundCommands={[]}
         activePromptMode={activePromptMode}
         activeWorkflows={activeWorkflows}
-        canUseGitUi={false}
         childThreadsSection={childThreadsSection}
-        composerFocusRequestNonce={0}
-        contextBannerMergeBase={null}
+        composerFocusRequestKey={0}
+        composerId="thread-detail-follow-up-composer"
+        isPrimaryComposer
+        permissionPolicy={permissionPolicy}
         canRestoreEnvironment={false}
         environmentGoneStatus={environmentGoneStatus}
         goal={goal}
         providerCommands={null}
         sessionOptions={sessionOptions}
         modelFallback={modelFallback}
-        onChangedFileClick={vi.fn()}
         parentThreadSection={null}
         pendingInteractions={pendingInteractions}
         onRetryPendingInteractions={null}
@@ -203,8 +206,6 @@ function buildPromptAreaElement({
         sentMessageEdit={sentMessageEdit}
         steerActiveThreadOnEnter={false}
         thread={thread}
-        workspaceChangedFilesSection={null}
-        workspaceStatusPending={false}
       />
     </QueryClientProvider>
   );
@@ -1607,6 +1608,35 @@ describe("ThreadDetailPromptArea", () => {
     if (failure !== null) throw failure;
     return result as unknown as ExperimentalComposerSelection;
   }
+
+  it("pins a snapshot-policy composer to the thread's permission mode", async () => {
+    mocks.defaultExecutionOptions = {
+      model: "gpt-5",
+      permissionMode: "full",
+      reasoningLevel: "medium",
+      serviceTier: "default",
+      source: "client/turn/requested",
+    };
+    mocks.promptDraft.text = "Keep going";
+    renderPromptArea({ permissionPolicy: "snapshot" });
+    expect(screen.getByTestId("permission-read-only").textContent).toBe("true");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Capture plugin host" }),
+    );
+
+    const result = await settledSelection(
+      mocks.pluginComposerHost!.setSelection!({ permissionMode: "auto" }),
+    );
+
+    expect(result.permissionMode).toBe("full");
+    expect(mocks.setPermissionMode).not.toHaveBeenCalled();
+    await act(async () => {
+      await mocks.composerSubmit?.();
+    });
+    expect(mocks.sendMessageMutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "thr_1", permissionMode: "full" }),
+    );
+  });
 
   it("starts a handoff when a plugin sets another provider, and drops the fields a thread has no picker for", async () => {
     mocks.promptDraft.text = "Keep going";

@@ -103,9 +103,23 @@ function replaceMathWithMathMl(container: Element): void {
 
 function isBareUrl(link: Element): boolean {
   const text = link.textContent?.trim() ?? "";
-  return [text, `http://${text}`, `https://${text}`, `mailto:${text}`].includes(
-    link.getAttribute("href") ?? "",
-  );
+  const href = link.getAttribute("href") ?? "";
+  if (
+    [text, `http://${text}`, `https://${text}`, `mailto:${text}`].includes(href)
+  )
+    return true;
+  if (!href.startsWith("file://")) return false;
+  try {
+    const url = new URL(href);
+    if (url.hostname || url.search || url.hash) return false;
+    const path = decodeURIComponent(url.pathname);
+    return (
+      text === path ||
+      (/^\/[a-z]:\//i.test(path) && text.replace(/\\/g, "/") === path.slice(1))
+    );
+  } catch {
+    return false;
+  }
 }
 
 function safeUrl(value: string): string {
@@ -220,6 +234,8 @@ function nodeMarkdown(node: Node): string {
   if (tag === "EM" || tag === "I") return `*${content}*`;
   if (tag === "DEL" || tag === "S") return `~~${content}~~`;
   if (tag === "A") {
+    if (node.hasAttribute("data-clipboard-inline-code"))
+      return codeSpan(node.textContent ?? "");
     if (node.hasAttribute("data-bare-url")) return node.textContent ?? "";
     const href = safeUrl(node.getAttribute("href") ?? "");
     return href

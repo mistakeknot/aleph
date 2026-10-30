@@ -1,3 +1,6 @@
+import { appQueryClient } from "./lib/app-query-client";
+import { environmentProvidersQueryOptions } from "./hooks/queries/environment-provider-queries";
+import { machineProvidersQueryOptions } from "./hooks/queries/machine-provider-queries";
 import { PluginUpdateJobsHost } from "./components/plugin/PluginUpdateJobsHost";
 import { LazyThreadDetailView } from "./views/thread-detail/LazyThreadDetailView";
 import { LazyRootComposeView } from "./views/LazyRootComposeView";
@@ -28,6 +31,7 @@ import { useMusicSignal } from "./hooks/useMusicSignal";
 import { useFaviconColorSync } from "./lib/favicon-color-preference";
 import { useDesktopThemeSync } from "./hooks/useDesktopThemeSync";
 import { usePluginFrontendBoot } from "./hooks/usePluginFrontendBoot";
+import { useCodeRendererPreloads } from "./hooks/useCodeRendererPreloads";
 import { markRouteContentPainted } from "./lib/route-content-paint";
 import { useRememberPluginNavPanelChrome } from "@/lib/plugin-nav-panel-chrome";
 import { useAlephDiagnostics } from "./aleph/diagnostics-bridge";
@@ -294,8 +298,10 @@ export function AppRoutes() {
     if (isThreadView) void trackCriticalLoad(LazyThreadDetailView.preload());
   }, [isThreadView]);
   useEffect(() => {
-    if (isRootComposeView)
-      void trackCriticalLoad(LazyRootComposeView.preload());
+    if (!isRootComposeView) return;
+    void appQueryClient.prefetchQuery(environmentProvidersQueryOptions({}));
+    void appQueryClient.prefetchQuery(machineProvidersQueryOptions());
+    void trackCriticalLoad(LazyRootComposeView.preload());
   }, [isRootComposeView]);
   return (
     <AppLayout>
@@ -476,6 +482,7 @@ export function App() {
   useMusicSignal();
   useFaviconColorSync();
   usePluginFrontendBoot();
+  useCodeRendererPreloads();
   useRememberPluginNavPanelChrome();
 
   return (

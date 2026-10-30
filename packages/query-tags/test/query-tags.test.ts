@@ -268,6 +268,69 @@ it("shares one keyed observer, batches consumers, and retains data through refre
   expect(owner.observer.getCurrentResult().error).toBeNull();
 });
 
+it.each(["refetch", "all", "key"] as const)(
+  "retains inactive rows during %s refresh and refreshes them when revisited",
+  async (refresh) => {
+    const client = setup();
+    let value = 1;
+    const requested: string[][] = [];
+    const owner = createTaggedKeyedQueryOwner({
+      client,
+      queryKey: ["switching"],
+      scope: CORE_TAG_SCOPE,
+      collection,
+      read: async (keys) => {
+        requested.push([...keys]);
+        return {
+          result: Object.fromEntries(keys.map((key) => [key, value])),
+          tags: [],
+          keyTags: Object.fromEntries(
+            keys.map((key) => [key, [`item:${key}`]]),
+          ),
+        };
+      },
+    });
+    const stopA = owner.subscribe(["a"], () => {});
+    disposers.push(owner.subscribe(["b"], () => {}));
+    await vi.waitFor(() =>
+      expect(owner.observer.getCurrentResult().data?.result).toEqual({
+        a: 1,
+        b: 1,
+      }),
+    );
+    stopA();
+    value = 2;
+    if (refresh === "refetch") await owner.observer.refetch();
+    else
+      await invalidateTags(
+        client,
+        CORE_TAG_SCOPE,
+        refresh === "all" ? null : ["item:a", "item:b"],
+      );
+    expect(owner.observer.getCurrentResult().data?.result).toEqual({
+      a: 1,
+      b: 2,
+    });
+    expect(requested).toEqual([["a", "b"], ["b"]]);
+    value = 3;
+    await owner.observer.refetch();
+    expect(owner.observer.getCurrentResult().data?.result).toEqual({
+      a: 1,
+      b: 3,
+    });
+    value = 4;
+    disposers.push(owner.subscribe(["a"], () => {}));
+    expect(owner.observer.getCurrentResult().data?.result.a).toBe(1);
+    await vi.waitFor(() =>
+      expect(owner.observer.getCurrentResult().data?.result).toEqual({
+        a: 4,
+        b: 3,
+      }),
+    );
+    expect(requested.at(-1)).toEqual(["a"]);
+  },
+);
+
 it("re-reads after a dormant read completes without a subscription to changes", async () => {
   const client = setup();
   const gate = deferred<void>();
@@ -482,6 +545,33 @@ it("loads new subscribers without rereading other rows during a keyed invalidati
     b: 1,
     c: 3,
   });
+});
+
+it("loads a key subscribed after a keyless read has taken its keys", async () => {
+  const client = setup();
+  const read = vi.fn(async (keys: readonly string[]) => ({
+    result: Object.fromEntries(keys.map((key) => [key, 1])),
+    tags: [],
+    keyTags: {},
+  }));
+  const owner = createTaggedKeyedQueryOwner({
+    client,
+    queryKey: ["late-key"],
+    scope: CORE_TAG_SCOPE,
+    collection,
+    read,
+  });
+  disposers.push(owner.subscribe([], () => {}));
+  await new Promise<void>((resolve) =>
+    queueMicrotask(() => {
+      disposers.push(owner.subscribe(["a"], () => {}));
+      resolve();
+    }),
+  );
+  await vi.waitFor(() =>
+    expect(owner.observer.getCurrentResult().data?.result).toEqual({ a: 1 }),
+  );
+  expect(read.mock.calls.map(([keys]) => keys)).toEqual([["a"]]);
 });
 
 describe("optimistic tagged mutations", () => {
@@ -703,7 +793,7 @@ describe("optimistic tagged mutations", () => {
     },
   );
 
-  it("drops an unsubscribed stale row with an accepted prediction and reads it fresh on resubscribe", async () => {
+  it("retains an unsubscribed stale row with an accepted prediction and reads it fresh on resubscribe", async () => {
     const client = setup();
     const queryKey = ["optimistic-rows"];
     let value = 1;
@@ -751,7 +841,10 @@ describe("optimistic tagged mutations", () => {
     stopA();
     value = 3;
     await invalidateTags(client, CORE_TAG_SCOPE, ["item:b"]);
-    expect(owner.observer.getCurrentResult().data?.result).toEqual({ b: 3 });
+    expect(owner.observer.getCurrentResult().data?.result).toEqual({
+      a: 2,
+      b: 3,
+    });
     failure = false;
     value = 4;
     disposers.push(owner.subscribe(["a"], () => {}));
@@ -849,7 +942,10 @@ it("does not show a row read that started before the write once a later batch re
     write.resolve({ result: "saved", invalidated: ["item:a"] });
   });
   await Promise.all([first, second, mutation]);
-  expect(owner.observer.getCurrentResult().data?.result).toEqual({ b: 3 });
+  expect(owner.observer.getCurrentResult().data?.result).toEqual({
+    a: 2,
+    b: 3,
+  });
   disposers.push(owner.subscribe(["a"], () => {}));
   await vi.waitFor(() =>
     expect(owner.observer.getCurrentResult().data?.result).toEqual({
@@ -857,4 +953,41 @@ it("does not show a row read that started before the write once a later batch re
       b: 3,
     }),
   );
+});
+
+it("keeps rows of keys nobody holds when a restarted observer refreshes the held keys", async () => {
+  const client = setup();
+  const reads: string[][] = [];
+  const owner = createTaggedKeyedQueryOwner({
+    client,
+    queryKey: ["held"],
+    scope: CORE_TAG_SCOPE,
+    collection,
+    read: async (keys) => {
+      reads.push([...keys]);
+      return {
+        result: Object.fromEntries(keys.map((key) => [key, 1])),
+        tags: [],
+        keyTags: {},
+      };
+    },
+  });
+  let stop = owner.subscribe(["a", "b"], () => {});
+  await vi.waitFor(() => expect(reads).toHaveLength(1));
+  stop();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  stop = owner.subscribe(["c"], () => {});
+  await vi.waitFor(() => expect(reads).toHaveLength(2));
+  stop();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  disposers.push(owner.subscribe(["a"], () => {}));
+  await vi.waitFor(() =>
+    expect(owner.observer.getCurrentResult().isFetching).toBe(false),
+  );
+  expect(owner.observer.getCurrentResult().data?.result).toMatchObject({
+    a: 1,
+    b: 1,
+    c: 1,
+  });
+  expect(reads.slice(0, 2)).toEqual([["a", "b"], ["c"]]);
 });

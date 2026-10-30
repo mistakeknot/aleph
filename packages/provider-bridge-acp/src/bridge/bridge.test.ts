@@ -12,6 +12,7 @@ import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
+import { killProcessesReferencingPath } from "@bb/test-helpers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createStandaloneBuiltinCompactCommandInput } from "@bb/domain";
 import type { DynamicTool, ReasoningLevel } from "@bb/domain";
@@ -23,6 +24,7 @@ import {
 import {
   assembleCapturedThreadEvents,
   captureBridgeJsonRpcOutput,
+  createBridgeDeltaEventCollector,
   permissionChangeCases,
   runPermissionChangeCase,
 } from "@bb/provider-bridge-protocol/testing";
@@ -687,6 +689,7 @@ afterEach(async () => {
     threadStartRequests.clear();
     vi.unstubAllEnvs();
     output.restore();
+    await killProcessesReferencingPath(workspaceDir);
     rmSync(workspaceDir, { recursive: true, force: true });
   }
 }, 30_000);
@@ -752,6 +755,49 @@ describe("acp bridge", () => {
       selectedOnlyModels: [],
     });
   });
+
+  it.each([
+    { dialectId: "omp", routed: true },
+    { dialectId: "opencode", routed: true },
+    { dialectId: "acp", routed: false },
+  ])(
+    "lets the $dialectId dialect name each model's route provider",
+    async ({ dialectId, routed }) => {
+      const modelListId = sendModelList({
+        dialectId,
+        modelLines: [
+          "anthropic/claude-sonnet-5-5 - Claude Sonnet 5.5",
+          "openrouter/anthropic/claude-sonnet-5.5 - Claude Sonnet 5.5",
+          "openai/gpt-4.1 - openai/GPT-4.1",
+          "local - Local",
+        ].join("\n"),
+      });
+
+      const result = (await waitForResponse(modelListId)).result as {
+        models: { id: string; displayName: string; routeProviderId?: string }[];
+      };
+      expect(
+        result.models.map(({ displayName, routeProviderId }) => [
+          displayName,
+          routeProviderId,
+        ]),
+      ).toEqual(
+        routed
+          ? [
+              ["Claude Sonnet 5.5", "anthropic"],
+              ["Claude Sonnet 5.5", "openrouter"],
+              ["GPT-4.1", "openai"],
+              ["Local", undefined],
+            ]
+          : [
+              ["Claude Sonnet 5.5", undefined],
+              ["Claude Sonnet 5.5", undefined],
+              ["openai/GPT-4.1", undefined],
+              ["Local", undefined],
+            ],
+      );
+    },
+  );
 
   it("uses Cursor CLI variants as reasoning metadata for bare ACP models", async () => {
     const modelListId = sendModelList({
@@ -982,6 +1028,128 @@ describe("acp bridge", () => {
       expect(agentMessageTexts()).toContain(`selected-fast:${selectedFast}`);
     },
   );
+
+  it("omits additionalDirectories for agents without the capability", async () => {
+    const requestLog = join(workspaceDir, "no-additional-directories.jsonl");
+    await startThread({
+      additionalWorkspaceWriteRoots: ["/tmp/bb-extra-root"],
+      envVars: { FAKE_ACP_REQUEST_LOG: requestLog },
+    });
+
+    const sessionNew = loggedAcpRequests(requestLog).find(
+      (request) => request.method === "session/new",
+    );
+    expect(sessionNew?.params).not.toHaveProperty("additionalDirectories");
+  });
+
+  it.each<{
+    requestMethod: string;
+    sessionMethod: string;
+    capabilityEnv: Record<string, string>;
+    sourceSession: Record<string, string>;
+  }>([
+    {
+      requestMethod: "thread/start",
+      sessionMethod: "session/new",
+      capabilityEnv: {},
+      sourceSession: {},
+    },
+    {
+      requestMethod: "thread/fork",
+      sessionMethod: "session/fork",
+      capabilityEnv: { FAKE_ACP_FORK_SESSION: "1" },
+      sourceSession: { sourceProviderThreadId: "dirs-source-session" },
+    },
+    {
+      requestMethod: "thread/resume",
+      sessionMethod: "session/load",
+      capabilityEnv: { FAKE_ACP_LOAD_SESSION: "1" },
+      sourceSession: { providerThreadId: "dirs-source-session" },
+    },
+    {
+      requestMethod: "thread/resume",
+      sessionMethod: "session/resume",
+      capabilityEnv: { FAKE_ACP_RESUME_SESSION: "1" },
+      sourceSession: { providerThreadId: "dirs-source-session" },
+    },
+  ])(
+    "forwards additional workspace write roots on $sessionMethod when advertised",
+    async ({ requestMethod, sessionMethod, capabilityEnv, sourceSession }) => {
+      const requestLog = join(
+        workspaceDir,
+        `${sessionMethod.replace("/", "-")}-dirs.jsonl`,
+      );
+      const id = sendRequest(requestMethod, {
+        threadId: `dirs-${sessionMethod.replace("/", "-")}`,
+        cwd: workspaceDir,
+        instructionMode: "append",
+        options: executionOptions({
+          providerOptions: {
+            acpLaunchSpec: acpLaunchSpec({
+              envVars: {
+                ...capabilityEnv,
+                FAKE_ACP_ADDITIONAL_DIRECTORIES: "1",
+                FAKE_ACP_REQUEST_LOG: requestLog,
+              },
+            }),
+            additionalWorkspaceWriteRoots: ["/tmp/bb-extra-root"],
+          },
+        }),
+        ...sourceSession,
+      });
+      const response = await waitForResponse(id);
+      expect(response.error).toBeUndefined();
+      const forwarded = loggedAcpRequests(requestLog).find(
+        (request) => request.method === sessionMethod,
+      );
+      expect(forwarded?.params).toMatchObject({
+        cwd: workspaceDir,
+        additionalDirectories: ["/tmp/bb-extra-root"],
+      });
+    },
+  );
+
+  it("forwards updated roots when a later turn changes them", async () => {
+    chmodSync(FAKE_AGENT_PATH, 0o755);
+    const requestLog = join(workspaceDir, "rebuild-directories.jsonl");
+    const launch = {
+      agent: { command: FAKE_AGENT_PATH, args: [] },
+      modelListArgs: ["--list-models"],
+      selectFlag: "--model",
+      envVars: {
+        FAKE_ACP_LOAD_SESSION: "1",
+        FAKE_ACP_MODEL_LINES: "pinme - Pin Me\nother - Other",
+        FAKE_ACP_ADDITIONAL_DIRECTORIES: "1",
+        FAKE_ACP_REQUEST_LOG: requestLog,
+      },
+    };
+    const { providerThreadId } = await startThread({
+      ...launch,
+      model: "pinme",
+      additionalWorkspaceWriteRoots: ["/tmp/bb-extra-root-a"],
+    });
+
+    await completeTurnWith(
+      providerThreadId,
+      "echo-argv",
+      executionOptions({
+        model: "other",
+        providerOptions: {
+          ...launchProviderOptions(launch),
+          additionalWorkspaceWriteRoots: ["/tmp/bb-extra-root-b"],
+        },
+      }),
+    );
+
+    const restores = loggedAcpRequests(requestLog).filter(
+      (request) =>
+        request.method === "session/load" || request.method === "session/new",
+    );
+    expect(restores.length).toBeGreaterThan(1);
+    expect(restores.at(-1)?.params).toMatchObject({
+      additionalDirectories: ["/tmp/bb-extra-root-b"],
+    });
+  });
 
   it.each([
     ["thread/start", "cursor-grok-4.6-medium", "grok-4.6"],
@@ -1344,7 +1512,6 @@ describe("acp bridge", () => {
   it.each([
     ["exits unsuccessfully", "process.exit(2)"],
     ["prints no models", "process.stdout.write('no model lines here')"],
-    ["times out", "setInterval(() => {}, 1000)"],
   ])(
     "fails model/list when the configured command %s without a cached catalog",
     async (_failure, script) => {
@@ -1352,18 +1519,45 @@ describe("acp bridge", () => {
         agent: { command: process.execPath, args: ["-e", script] },
         modelListArgs: ["--"],
       });
-      const response = await waitFor(
-        () => findResponse(failingId),
-        `response ${failingId}`,
-        40_000,
-      );
+      const response = await waitForResponse(failingId);
       expect(response.error?.message).toBe(
         "ACP model list command failed to provide a model catalog.",
       );
       expect(response.result).toBeUndefined();
     },
-    45_000,
   );
+
+  it("fails model/list when the configured command times out without a cached catalog", async () => {
+    const readyFile = join(workspaceDir, "model-list-ready.txt");
+    let failingId: number;
+
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      failingId = sendModelList({
+        agent: {
+          command: process.execPath,
+          args: [
+            "-e",
+            `require('node:fs').writeFileSync(${JSON.stringify(readyFile)}, String(process.pid)); setInterval(() => {}, 1000);`,
+          ],
+        },
+        modelListArgs: ["--"],
+      });
+      await waitForFileWithRealTimer(readyFile);
+      expect(findResponse(failingId)).toBeUndefined();
+    } finally {
+      await vi
+        .advanceTimersByTimeAsync(30_000)
+        .finally(() => vi.useRealTimers());
+    }
+
+    const response = await waitForResponse(failingId!);
+    expect(response.error?.message).toBe(
+      "ACP model list command failed to provide a model catalog.",
+    );
+    expect(response.result).toBeUndefined();
+    await waitForAgentExit(readyFile);
+  });
 
   it("keeps the last good CLI catalog when the same command later fails", async () => {
     const scriptPath = join(workspaceDir, "model-list.cjs");
@@ -2845,7 +3039,7 @@ describe("acp bridge", () => {
   });
 
   it("presents an external-directory write permission as a file-change approval", async () => {
-    const { providerThreadId } = await startThread({
+    const { bbThreadId, providerThreadId } = await startThread({
       permissionMode: "accept-edits",
       permissionEscalation: "ask",
     });
@@ -2879,6 +3073,18 @@ describe("acp bridge", () => {
         },
       },
     });
+    const collector = createBridgeDeltaEventCollector("acp");
+    const fileChangeItemIds = output.messages
+      .flatMap((message) => collector.assembleMessage(message))
+      .flatMap((event) =>
+        event.type === "item/started" && event.item.type === "fileChange"
+          ? [event.item.id]
+          : [],
+      );
+    expect(fileChangeItemIds).toHaveLength(1);
+    expect(collector.assembler.getBbItemId(bbThreadId, "write-tool-1")).toBe(
+      fileChangeItemIds[0],
+    );
     handleLine(
       JSON.stringify({
         jsonrpc: "2.0",
@@ -3142,6 +3348,12 @@ describe("acp bridge", () => {
         (event) => event.clientRequestId,
       ),
     ).toEqual([CLIENT_REQUEST_ID, "creq_abcdefghjm", "creq_abcdefghjn"]);
+    expect(threadEventsOfType("turn/started")).toHaveLength(1);
+    expect(
+      threadEventsOfType("turn/completed").filter(
+        (event) => event.status === "interrupted",
+      ),
+    ).toEqual([]);
   });
 
   it("reports a permission-changing steer whose replacement fails to start", async () => {
@@ -3178,6 +3390,9 @@ describe("acp bridge", () => {
     );
     expect(agentMessageTexts()).toEqual([]);
     expect(threadEventsOfType("turn/input/accepted")).toHaveLength(1);
+    expect(
+      threadEventsOfType("turn/completed").map((event) => event.status),
+    ).toEqual(["failed"]);
   });
 
   it("denies client fs writes outside the workspace in accept-edits mode", async () => {
