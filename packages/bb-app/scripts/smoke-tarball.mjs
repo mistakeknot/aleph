@@ -446,6 +446,10 @@ async function smokeNpxEntrypoint(tarballPath) {
   }
   const tag = `smoke-${randomUUID()}`;
   const integrity = `sha512-${createHash("sha512").update(archive).digest("base64")}`;
+  // npm ignores semver build metadata ("+aleph.x.y") when it matches a version
+  // against registry keys, so the mock registry lists the version without it.
+  // The packed tarball still carries the full version.
+  const registryVersion = manifest.version.split("+")[0];
   let registryUrl;
   const server = createHttpServer((request, response) => {
     if (request.url === "/bb-app.tgz") {
@@ -456,10 +460,11 @@ async function smokeNpxEntrypoint(tarballPath) {
       response.end(
         JSON.stringify({
           name: manifest.name,
-          "dist-tags": { [tag]: manifest.version },
+          "dist-tags": { [tag]: registryVersion },
           versions: {
-            [manifest.version]: {
+            [registryVersion]: {
               ...manifest,
+              version: registryVersion,
               dist: { tarball: `${registryUrl}/bb-app.tgz`, integrity },
             },
           },
