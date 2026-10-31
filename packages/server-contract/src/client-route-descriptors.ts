@@ -4,6 +4,7 @@ import {
   jsonRequest,
   jsonResponse,
   noRequest,
+  type EmptyInput,
 } from "@bb/hono-typed-routes";
 import {
   updateUiPreferenceRequestSchema,
@@ -12,6 +13,50 @@ import {
   type UiPreferencesResponse,
   type UpdateUiPreferenceRequest,
 } from "./api/ui-preferences.js";
+
+import {
+  proposeWindowPresetRequestSchema,
+  reportWindowRequestSchema,
+  type PathWindowPreset,
+  type ProposeWindowPresetRequest,
+  type ProposeWindowPresetResponse,
+  type ReportWindowRequest,
+  type ReportWindowResponse,
+  type WindowsResponse,
+} from "./api/windows.js";
+
+export const WINDOWS_TAG = "windows";
+
+export const windowsRoute = defineRoute({
+  path: "/windows",
+  method: "get",
+  request: noRequest(),
+  response: jsonResponse<WindowsResponse>(),
+  tags: () => [WINDOWS_TAG],
+});
+
+export const reportWindowRoute = defineRoute({
+  path: "/windows/report",
+  method: "post",
+  request: jsonRequest<EmptyInput, ReportWindowRequest>(
+    reportWindowRequestSchema,
+  ),
+  response: jsonResponse<ReportWindowResponse>(),
+  invalidates: () => [WINDOWS_TAG],
+});
+
+export const proposeWindowPresetRoute = defineRoute({
+  path: "/windows/presets/:presetId/suggestion",
+  method: "put",
+  request: jsonRequest<PathWindowPreset, ProposeWindowPresetRequest>(
+    proposeWindowPresetRequestSchema,
+  ),
+  response: [
+    jsonResponse<ProposeWindowPresetResponse>(),
+    jsonResponse<ApiError>({ status: 404 }),
+  ],
+  invalidates: () => ["ui-preferences"],
+});
 
 export const UI_PREFERENCES_TAG = "ui-preferences";
 

@@ -1,5 +1,8 @@
 import {
   uiPreferencesRoute,
+  windowsRoute,
+  reportWindowRoute,
+  proposeWindowPresetRoute,
   updateUiPreferenceRoute,
   resetUiPreferenceRoute,
 } from "./client-route-descriptors.js";
@@ -2099,6 +2102,9 @@ export const publicApiRoutes = {
       response: jsonResponse<MusicPairing>(),
     }),
     uiPreferences: uiPreferencesRoute,
+    windows: windowsRoute,
+    reportWindow: reportWindowRoute,
+    proposeWindowPreset: proposeWindowPresetRoute,
     updateUiPreference: updateUiPreferenceRoute,
     resetUiPreference: resetUiPreferenceRoute,
     themes: defineRoute({

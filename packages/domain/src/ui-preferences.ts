@@ -1,5 +1,10 @@
 import { z } from "zod";
 import { GIT_PLUGIN_ID } from "./plugin-id.js";
+import {
+  DEFAULT_WINDOW_PRESETS,
+  windowPresetSuggestionsSchema,
+  windowPresetsSchema,
+} from "./window-presets.js";
 
 const UI_PREFERENCE_STRING_MAX_LENGTH = 1_024;
 const UI_PREFERENCE_LIST_MAX_LENGTH = 10_000;
@@ -51,6 +56,8 @@ export const UI_PREFERENCE_KEYS = [
   "sidebar.threadListProvider",
   "composer.provider",
   "infoPanel.collapsedSections",
+  "windows.presets",
+  "windows.suggestions",
 ] as const;
 export type UiPreferenceKey = (typeof UI_PREFERENCE_KEYS)[number];
 const uiPreferenceKeySchema = z.enum(UI_PREFERENCE_KEYS);
@@ -169,6 +176,16 @@ export const uiPreferenceDefinitions = {
     ]),
     [],
     "Thread Info panel section ids that are collapsed, such as forks, threadStorage, or <pluginId>/<sectionId> for plugin sections like bb--git/commits and bb--git/uncommitted-changes. Legacy commits and uncommittedChanges resolve to the Git plugin's sections.",
+  ),
+  "windows.presets": defineUiPreference(
+    windowPresetsSchema,
+    DEFAULT_WINDOW_PRESETS,
+    "Named window presets. Each opens in its own browser or desktop window showing only its chosen panes (threads, found by id or by title prefix, and plugin panels). Built-in presets: command (the Citadel panel beside the pinned vizier thread) and priorities (the threads you list).",
+  ),
+  "windows.suggestions": defineUiPreference(
+    windowPresetSuggestionsSchema,
+    {},
+    "Pane lists that agents proposed for a window preset, keyed by preset id. A suggestion changes no window until you accept it with Update to suggested in that window.",
   ),
 } as const satisfies Record<UiPreferenceKey, UiPreferenceDefinition>;
 
