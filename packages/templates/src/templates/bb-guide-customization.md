@@ -376,7 +376,8 @@ Window presets: `windows.presets` holds named layouts (threads, thread-title
 prefixes such as the pinned "Masaq' | vizier" thread, or plugin panels) that open
 in their own window at `/?preset=<id>` with the sidebar hidden. Agents read what
 every open window shows and suggest changes; the layout changes only when the
-user accepts the prompt in that window. `bb settings ui set` refuses both
+user accepts the prompt in that window. No `bb` command applies a layout, and
+`bb settings ui set` refuses both
 `windows.*` keys. Window reports do not yet include the right panel (always
 closed); that gap is tracked in mk-75f41.
 

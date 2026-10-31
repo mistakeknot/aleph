@@ -77,12 +77,7 @@ export function proposeWindowPreset(
     now?: Date;
   },
 ): ProposeOutcome {
-  const suggestion: WindowPresetSuggestion = {
-    panes: args.panes,
-    reason: args.reason,
-    proposedBy: args.proposedBy,
-    proposedAt: (args.now ?? new Date()).toISOString(),
-  };
+  const baseTime = (args.now ?? new Date()).getTime();
   for (let attempt = 0; attempt < MAX_WRITE_ATTEMPTS; attempt += 1) {
     const preferences = readUiPreferences(deps);
     const preset = preferences["windows.presets"].value.find(
@@ -91,6 +86,17 @@ export function proposeWindowPreset(
     if (!preset) return { outcome: "not_found" };
     if (!preset.userEditable) return { outcome: "not_editable" };
     const current = preferences["windows.suggestions"];
+    // proposedAt is the suggestion's identity for accept and dismiss, so a
+    // replacement must never reuse the previous one's value.
+    const previous = current.value[args.presetId]?.proposedAt;
+    let at = baseTime;
+    while (new Date(at).toISOString() === previous) at += 1;
+    const suggestion: WindowPresetSuggestion = {
+      panes: args.panes,
+      reason: args.reason,
+      proposedBy: args.proposedBy,
+      proposedAt: new Date(at).toISOString(),
+    };
     const result = writeUiPreference(deps, {
       expectedRevision: current.revision,
       key: "windows.suggestions",

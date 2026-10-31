@@ -228,4 +228,19 @@ describe("public windows", () => {
       expect(body.preferences["windows.suggestions"]?.value).toEqual({});
     });
   });
+
+  it("gives a replacement suggestion a different identity even at the same instant", async () => {
+    await withTestHarness(async (harness) => {
+      const propose = async () =>
+        (await readJson(
+          await send(harness, "PUT", "/windows/presets/priorities/suggestion", {
+            panes: [],
+            proposedBy: "thr_x",
+          }),
+        )) as { suggestion: { proposedAt: string } };
+      const first = (await propose()).suggestion.proposedAt;
+      const second = (await propose()).suggestion.proposedAt;
+      expect(second).not.toBe(first);
+    });
+  });
 });
