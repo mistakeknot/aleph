@@ -9,6 +9,7 @@ import { PreferencesSync } from "./app/preferences/PreferencesSync.js";
 import { ProjectList } from "./app/list/ProjectList.js";
 import { useSidebarThreadReveal } from "./app/list/useSidebarThreadReveal.js";
 import { moveThreadAction } from "./app/rows/moveThreadAction.js";
+import { ThreadSelectionProvider } from "./app/selection/threadSelection.js";
 
 function ThreadList({
   activeThreadId,
@@ -21,10 +22,12 @@ function ThreadList({
       <TooltipProvider>
         <PreferencesSync />
         <HullDesignationsSync />
-        <ProjectList
-          activeThreadId={activeThreadId}
-          onProjectSelect={onNavigate}
-        />
+        <ThreadSelectionProvider activeThreadId={activeThreadId}>
+          <ProjectList
+            activeThreadId={activeThreadId}
+            onProjectSelect={onNavigate}
+          />
+        </ThreadSelectionProvider>
       </TooltipProvider>
     </CompactViewportOverrideProvider>
   );

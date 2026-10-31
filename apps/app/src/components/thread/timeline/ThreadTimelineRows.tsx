@@ -61,7 +61,6 @@ import type {
   ThreadTimelineForkMessageHandler,
   ThreadTimelineLinkHandler,
   ThreadTimelineLocalFileLinkHandler,
-  ThreadTimelineOpenPluginPanelHandler,
   ThreadTimelineImageViewSrcResolver,
   ThreadTimelineConsumerMessageAction,
   ThreadTimelinePluginMessageAction,
@@ -111,6 +110,7 @@ import {
   TimelineScrollRestoreContext,
   useBottomAnchoredScroll,
 } from "@/components/ui/bottom-anchored-scroll-body.js";
+import type { ScrollPositionKeeper } from "@/components/ui/scroll-position-keeper.js";
 import {
   collectSearchedMessageAncestorRowIds,
   SearchMessageLocationProvider,
@@ -142,6 +142,8 @@ import {
   type PluginMessageActionSlot,
 } from "@/lib/plugin-slots.js";
 import { runPluginMessageAction } from "@/lib/plugin-message-actions.js";
+import { useAppNavigationHost } from "@/lib/app-navigation-host";
+import type { AppPanelController } from "@/lib/app-fixed-tab-navigation";
 import {
   usePluginComposerHost,
   type PluginComposerHost,
@@ -174,7 +176,6 @@ export interface ThreadTimelineRowsProps {
   includePluginMessageActions?: boolean;
   onOpenLink?: ThreadTimelineLinkHandler;
   onOpenLocalFileLink?: ThreadTimelineLocalFileLinkHandler;
-  onOpenPluginPanel?: ThreadTimelineOpenPluginPanelHandler;
   onTitleAction?: TimelineTitleActionResolver;
   projectId?: string;
   resolveMentionLink?: PromptMentionLinkResolver;
@@ -211,7 +212,7 @@ interface TimelineRendererStaticContextValue {
     | undefined;
   onOpenLink: ThreadTimelineLinkHandler | undefined;
   onOpenLocalFileLink: ThreadTimelineLocalFileLinkHandler | undefined;
-  onOpenPluginPanel: ThreadTimelineOpenPluginPanelHandler | undefined;
+  panel: AppPanelController;
   onTitleAction: TimelineTitleActionResolver | undefined;
   projectId: string | undefined;
   resolveImageViewSrc: ThreadTimelineImageViewSrcResolver | undefined;
@@ -240,10 +241,6 @@ interface TimelineRowsListProps {
   className?: string;
   unreadDividerAutoScroll: boolean;
   unreadDividerPlacement: ThreadTimelineUnreadDividerPlacement | null;
-}
-
-interface TimelineUnreadDividerProps {
-  autoScroll: boolean;
 }
 
 interface TimelineRowViewProps {
@@ -285,17 +282,27 @@ interface TimelineSystemDetailBlockProps {
 
 interface BuildTimelineRowsListItemsArgs {
   rows: readonly ThreadTimelineViewRow[];
+  scopeActive: boolean;
   unreadDividerPlacement: ThreadTimelineUnreadDividerPlacement | null;
 }
 
-interface FindUnreadDividerIndexArgs {
+interface UseLandOnUnreadDividerArgs {
+  items: readonly TimelineRowsListItem[];
+  positionKeeper: ScrollPositionKeeper | null;
+  unreadDividerAutoScroll: boolean;
+  unreadDividerPlacement: ThreadTimelineUnreadDividerPlacement | null;
+}
+
+interface UseLoadedUnreadDividerPlacementArgs {
+  hasOlderRows: boolean;
   rows: readonly ThreadTimelineViewRow[];
   unreadDividerPlacement: ThreadTimelineUnreadDividerPlacement | null;
 }
 
-interface IsUnreadDividerCandidateAfterCutoffArgs {
-  cutoffAt: number;
+interface IsReadingResumeRowArgs {
+  index: number;
   row: ThreadTimelineViewRow;
+  settledTurnReplyIndexes: ReadonlyMap<string, number>;
 }
 
 interface ActiveSummaryTreatmentArgs {
@@ -730,7 +737,7 @@ function buildRowPluginMessageActions(args: {
   timelineThreadId: string | undefined;
   message: ThreadChatMessageReference;
   selectedText?: string;
-  openThreadPanel: ThreadTimelineOpenPluginPanelHandler | undefined;
+  panel: AppPanelController;
   composerHost: PluginComposerHost | null;
 }): readonly ThreadTimelinePluginMessageAction[] | undefined {
   const {
@@ -738,7 +745,7 @@ function buildRowPluginMessageActions(args: {
     timelineThreadId,
     message,
     selectedText,
-    openThreadPanel,
+    panel,
     composerHost,
   } = args;
   if (timelineThreadId === undefined || slots.length === 0) {
@@ -755,7 +762,7 @@ function buildRowPluginMessageActions(args: {
         threadId: timelineThreadId,
         message,
         selectedText,
-        openThreadPanel,
+        panel,
         composerHost,
       }),
   }));
@@ -861,7 +868,7 @@ const ConversationRowContent = memo(function ConversationRowContent({
     reportProseSelection,
     onOpenLink,
     onOpenLocalFileLink,
-    onOpenPluginPanel,
+    panel,
     onTitleAction,
     projectId,
     resolveMentionLink,
@@ -889,7 +896,7 @@ const ConversationRowContent = memo(function ConversationRowContent({
     slots: pluginMessageActions,
     timelineThreadId: threadId,
     message: messageReference,
-    openThreadPanel: onOpenPluginPanel,
+    panel,
     composerHost,
   });
   const rowConsumerActions =
@@ -1028,7 +1035,6 @@ const ConversationRowContent = memo(function ConversationRowContent({
       onSelectProse={onSelectProse}
       onOpenLink={onOpenLink}
       onOpenLocalFileLink={onOpenLocalFileLink}
-      onOpenPluginPanel={onOpenPluginPanel}
       pluginActions={rowPluginActions}
       projectId={projectId}
       resolveUserAttachmentImageSrc={resolveUserAttachmentImageSrc}
@@ -1045,34 +1051,9 @@ const ConversationRowContent = memo(function ConversationRowContent({
   );
 });
 
-function TimelineUnreadDivider({ autoScroll }: TimelineUnreadDividerProps) {
-  const bottomAnchor = useBottomAnchoredScroll();
-  const dividerRef = useRef<HTMLDivElement>(null);
-  const hasScrolledRef = useRef(false);
-
-  useLayoutEffect(() => {
-    if (!autoScroll || !bottomAnchor || hasScrolledRef.current) {
-      return;
-    }
-
-    const frameId = window.requestAnimationFrame(() => {
-      const divider = dividerRef.current;
-      if (!divider) {
-        return;
-      }
-
-      hasScrolledRef.current = true;
-      bottomAnchor.scrollElementIntoViewClampedToMaxScroll({
-        element: divider,
-      });
-    });
-
-    return () => window.cancelAnimationFrame(frameId);
-  }, [autoScroll, bottomAnchor]);
-
+function TimelineUnreadDivider() {
   return (
     <div
-      ref={dividerRef}
       role="separator"
       aria-label="New messages"
       className={cn(
@@ -1901,27 +1882,89 @@ const MemoizedTimelineExpandableRowView = memo(
   areTimelineExpandableRowViewPropsEqual,
 );
 
-function findUnreadDividerIndex({
+export function useLoadedUnreadDividerPlacement({
+  hasOlderRows,
   rows,
   unreadDividerPlacement,
-}: FindUnreadDividerIndexArgs): number {
+}: UseLoadedUnreadDividerPlacementArgs): ThreadTimelineUnreadDividerPlacement | null {
+  const [unplaceablePlacement, setUnplaceablePlacement] =
+    useState<ThreadTimelineUnreadDividerPlacement | null>(null);
+  const firstRow = rows[0];
+  const isUnplaceable =
+    unreadDividerPlacement !== null &&
+    (unreadDividerPlacement === unplaceablePlacement ||
+      (hasOlderRows &&
+        firstRow !== undefined &&
+        firstRow.startedAt > unreadDividerPlacement.cutoffAt));
+  if (isUnplaceable && unreadDividerPlacement !== unplaceablePlacement) {
+    setUnplaceablePlacement(unreadDividerPlacement);
+  }
+  return isUnplaceable ? null : unreadDividerPlacement;
+}
+
+function useLandOnUnreadDivider({
+  items,
+  positionKeeper,
+  unreadDividerAutoScroll,
+  unreadDividerPlacement,
+}: UseLandOnUnreadDividerArgs): void {
+  const landedPlacementRef =
+    useRef<ThreadTimelineUnreadDividerPlacement | null>(null);
+  const divider = items.find((item) => item.kind === "unread-divider");
+  const dividerId = divider?.id ?? null;
+
+  useLayoutEffect(() => {
+    if (
+      !unreadDividerAutoScroll ||
+      unreadDividerPlacement === null ||
+      dividerId === null ||
+      positionKeeper === null ||
+      landedPlacementRef.current === unreadDividerPlacement
+    ) {
+      return;
+    }
+    landedPlacementRef.current = unreadDividerPlacement;
+    if (positionKeeper.hasUserScrolled()) return;
+    positionKeeper.restore({
+      rowId: dividerId,
+      offsetWithinRow: 0,
+      atBottom: false,
+    });
+  }, [
+    dividerId,
+    positionKeeper,
+    unreadDividerAutoScroll,
+    unreadDividerPlacement,
+  ]);
+}
+
+function findUnreadDividerIndex({
+  rows,
+  scopeActive,
+  unreadDividerPlacement,
+}: BuildTimelineRowsListItemsArgs): number {
   if (unreadDividerPlacement === null) {
     return -1;
   }
 
-  switch (unreadDividerPlacement.kind) {
-    case "before-first":
-      return rows.length > 0 ? 0 : -1;
-    case "after-cutoff":
-      return rows.findIndex((row) =>
-        isUnreadDividerCandidateAfterCutoff({
-          cutoffAt: unreadDividerPlacement.cutoffAt,
-          row,
-        }),
-      );
-    default:
-      assertNever(unreadDividerPlacement);
+  const { cutoffAt } = unreadDividerPlacement;
+  const firstNewIndex = rows.findIndex((row) =>
+    isNewRowAfterCutoff(row, cutoffAt),
+  );
+  if (firstNewIndex === -1 || unreadDividerPlacement.anchor !== "turn-answer") {
+    return firstNewIndex;
   }
+  const settledTurnReplyIndexes = findSettledTurnReplyIndexes(
+    rows,
+    scopeActive,
+  );
+  const resumeIndex = rows.findIndex(
+    (row, index) =>
+      index >= firstNewIndex &&
+      isNewRowAfterCutoff(row, cutoffAt) &&
+      isReadingResumeRow({ index, row, settledTurnReplyIndexes }),
+  );
+  return resumeIndex === -1 ? firstNewIndex : resumeIndex;
 }
 
 function isUserAuthoredConversationRow(row: ThreadTimelineViewRow): boolean {
@@ -1932,24 +1975,66 @@ function isUserAuthoredConversationRow(row: ThreadTimelineViewRow): boolean {
   );
 }
 
-function isUnreadDividerCandidateAfterCutoff({
-  cutoffAt,
-  row,
-}: IsUnreadDividerCandidateAfterCutoffArgs): boolean {
-  if (row.startedAt <= cutoffAt) {
-    return false;
-  }
+function isNewRowAfterCutoff(
+  row: ThreadTimelineViewRow,
+  cutoffAt: number,
+): boolean {
+  return row.startedAt > cutoffAt && !isUserAuthoredConversationRow(row);
+}
 
-  return !isUserAuthoredConversationRow(row);
+function isTurnReplyRow(row: ThreadTimelineViewRow): boolean {
+  if (row.kind === "conversation") {
+    return row.role === "assistant";
+  }
+  return row.kind === "system" && row.systemKind === "error";
+}
+
+function findSettledTurnReplyIndexes(
+  rows: readonly ThreadTimelineViewRow[],
+  scopeActive: boolean,
+): Map<string, number> {
+  const runningTurnId = scopeActive ? (rows.at(-1)?.turnId ?? null) : null;
+  const replyIndexes = new Map<string, number>();
+  for (const [index, row] of rows.entries()) {
+    if (row.turnId === null || row.turnId === runningTurnId) {
+      continue;
+    }
+    if (isTurnReplyRow(row)) {
+      replyIndexes.set(row.turnId, index);
+    }
+  }
+  return replyIndexes;
+}
+
+function isReadingResumeRow({
+  index,
+  row,
+  settledTurnReplyIndexes,
+}: IsReadingResumeRowArgs): boolean {
+  if (row.kind === "system") {
+    return row.systemKind === "error";
+  }
+  const replyIndex =
+    row.turnId === null ? undefined : settledTurnReplyIndexes.get(row.turnId);
+  if (replyIndex === undefined || index >= replyIndex) {
+    return true;
+  }
+  return (
+    row.kind === "conversation" &&
+    row.role === "user" &&
+    row.turnRequest.kind !== "steer"
+  );
 }
 
 export function buildTimelineRowsListItems({
   rows,
+  scopeActive,
   unreadDividerPlacement,
 }: BuildTimelineRowsListItemsArgs): TimelineRowsListItem[] {
   const items: TimelineRowsListItem[] = [];
   const dividerIndex = findUnreadDividerIndex({
     rows,
+    scopeActive,
     unreadDividerPlacement,
   });
 
@@ -2054,10 +2139,26 @@ function TimelineRowsList({
     () => findActiveLatestBundleId(rows),
     [rows],
   );
+  const loadedUnreadDividerPlacement = useLoadedUnreadDividerPlacement({
+    hasOlderRows: hasOlderTimelineRows ?? false,
+    rows,
+    unreadDividerPlacement,
+  });
   const items = useMemo(
-    () => buildTimelineRowsListItems({ rows, unreadDividerPlacement }),
-    [rows, unreadDividerPlacement],
+    () =>
+      buildTimelineRowsListItems({
+        rows,
+        scopeActive,
+        unreadDividerPlacement: loadedUnreadDividerPlacement,
+      }),
+    [rows, scopeActive, loadedUnreadDividerPlacement],
   );
+  useLandOnUnreadDivider({
+    items,
+    positionKeeper: bottomAnchor?.positionKeeper ?? null,
+    unreadDividerAutoScroll,
+    unreadDividerPlacement: loadedUnreadDividerPlacement,
+  });
   const itemKeys = useMemo(
     () =>
       items.map((item) =>
@@ -2141,11 +2242,10 @@ function TimelineRowsList({
                   <div
                     key={item.id}
                     ref={windowedState.itemRef}
+                    data-scroll-landmark-id={item.id}
                     data-timeline-window-key={`divider:${item.id}`}
                   >
-                    <TimelineUnreadDivider
-                      autoScroll={unreadDividerAutoScroll}
-                    />
+                    <TimelineUnreadDivider />
                   </div>
                 );
               }
@@ -2319,7 +2419,7 @@ function ThreadTimelineRowsForTimelineView(props: ThreadTimelineRowsProps) {
   );
   const selectionAddToChatHandler =
     onSelectionAddToChat === undefined ? undefined : handleSelectionAddToChat;
-  const onOpenPluginPanel = props.onOpenPluginPanel;
+  const { panel } = useAppNavigationHost();
   const composerHost = usePluginComposerHost();
   const selectionPluginActions = useMemo<
     readonly ThreadTimelinePluginMessageAction[]
@@ -2336,7 +2436,7 @@ function ThreadTimelineRowsForTimelineView(props: ThreadTimelineRowsProps) {
         timelineThreadId,
         message: activeSelection.message,
         selectedText: activeSelection.selection.text,
-        openThreadPanel: onOpenPluginPanel,
+        panel,
         composerHost,
       }) ?? []
     );
@@ -2345,7 +2445,7 @@ function ThreadTimelineRowsForTimelineView(props: ThreadTimelineRowsProps) {
     composerHost,
     messageActionSlots,
     props.includePluginMessageActions,
-    onOpenPluginPanel,
+    panel,
     timelineThreadId,
   ]);
   const staticContextValue = useMemo<TimelineRendererStaticContextValue>(
@@ -2367,7 +2467,7 @@ function ThreadTimelineRowsForTimelineView(props: ThreadTimelineRowsProps) {
       reportProseSelection,
       onOpenLink: props.onOpenLink,
       onOpenLocalFileLink: props.onOpenLocalFileLink,
-      onOpenPluginPanel: props.onOpenPluginPanel,
+      panel,
       onTitleAction: props.onTitleAction,
       projectId,
       resolveImageViewSrc: props.resolveImageViewSrc,
@@ -2391,7 +2491,7 @@ function ThreadTimelineRowsForTimelineView(props: ThreadTimelineRowsProps) {
       timelineThreadId,
       props.onOpenLink,
       props.onOpenLocalFileLink,
-      props.onOpenPluginPanel,
+      panel,
       props.onTitleAction,
       projectId,
       props.resolveImageViewSrc,

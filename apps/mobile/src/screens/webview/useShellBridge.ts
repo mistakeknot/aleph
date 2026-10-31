@@ -1,3 +1,4 @@
+import { openApplicationUrl } from "@/lib/shell/application-url";
 import {
   buildBridgeEventScript,
   parsePageToShellMessage,
@@ -70,6 +71,15 @@ export function useShellBridge(
           return;
         }
         case "request": {
+          if (message.request.kind === "open-application") {
+            try {
+              await openApplicationUrl(message.request.payload.url);
+              respond(message.id, { ok: true, result: null });
+            } catch (error) {
+              respond(message.id, { ok: false, error: describeError(error) });
+            }
+            return;
+          }
           if (message.request.kind === "share") {
             const payload = buildBridgeSharePayload(
               Platform.OS,

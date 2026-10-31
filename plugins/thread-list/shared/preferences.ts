@@ -107,6 +107,12 @@ function definePreference<Schema extends z.ZodTypeAny>(
 }
 
 export const preferenceDefinitions = {
+  showRowMetadata: definePreference(
+    z.boolean(),
+    false,
+    "Show plugin metadata, such as pull request status, on each thread row.",
+    null,
+  ),
   threadLifecycles: definePreference(
     z
       .array(z.enum(["active", "archived"]))

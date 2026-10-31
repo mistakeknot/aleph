@@ -463,11 +463,18 @@ the SQL unchanged. Repeat this on the next sync for any upstream step whose
 Upstream 0144 adds `threads.parent_notifications`, and `threads` is an
 Aleph-altered table, so `guardUpstreamStep` refuses it unless it is frozen and
 superseded. `A0011_thread_parent_notifications` carries the same `ALTER TABLE`
-as a fork step that supersedes 0144; 0144 to 0146 are listed in
+as a fork step that supersedes 0144; 0144 to 0147 are listed in
 `frozen-upstream.json`, and `step-checks.json` declares the tables A0011
 writes. The legacy oracle in the db tests stays at 0.46.1 (153 steps); tests
-that compare against it replay the three later upstream steps with
+that compare against it replay the four later upstream steps with
 `applyPostOracleSteps`.
+
+The 0.48.0 sync added upstream 0147 (`git_and_pr_status_plugin_show_settings`),
+which copies the `showGitChanges` row of `app_settings_values` into
+`plugin_settings` and deletes it. It touches no Aleph-altered table, its SQL
+and journal entry are exactly upstream's, and its `when` (1793141159432) is
+above every earlier step, so no `when` rewrite was needed. It joined
+`frozen-upstream.json` like 0144 to 0146, and no Aleph step was added.
 
 ### Namespaced migration runner (mk-knexd)
 

@@ -1,7 +1,14 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getPullRequestByUrl } from "./git-host.js";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import {
+  getPullRequestByUrl,
+  prepareCurrentBranchRead,
+  prepareUrlRead,
+  readPullRequests,
+} from "./git-host.js";
 import { installFakeGh, makeTempDir } from "../test/fake-gh.js";
 
 function raw(number: number) {
@@ -176,7 +183,7 @@ describe("host GraphQL batching", () => {
     expect(queries[2]).not.toContain("isInMergeQueue");
   });
 
-  it("caps each document at 25 PRs", async () => {
+  it("caps each document at 25 PR URLs", async () => {
     const gh = await installFakeGh({
       "api graphql": {
         stdout: JSON.stringify({
@@ -197,5 +204,65 @@ describe("host GraphQL batching", () => {
     );
     expect(results.every((result) => result.outcome === "found")).toBe(true);
     expect(await gh.readCalls()).toHaveLength(2);
+  });
+
+  it("keeps each document under GitHub's 500,000-node limit for branch lookups", async () => {
+    const gh = await installFakeGh({
+      "api graphql": {
+        stdout: JSON.stringify({
+          data: Object.fromEntries(
+            Array.from({ length: 25 }, (_, index) => [
+              `p${index}`,
+              { defaultBranchRef: { name: "main" }, pullRequests: { nodes: [] } },
+            ]),
+          ),
+        }),
+      },
+    });
+    const cwd = await makeTempDir("bb-pr-branches-");
+    const git = promisify(execFile);
+    await git("git", ["init", "-q"], { cwd });
+    await git(
+      "git",
+      ["remote", "add", "origin", "https://github.com/acme/bb.git"],
+      { cwd },
+    );
+    const results = await readPullRequests(
+      Array.from({ length: 25 }, (_, index) =>
+        prepareCurrentBranchRead({
+          cwd,
+          localBranch: `bb/branch-${index}`,
+          refresh: false,
+        }),
+      ),
+    );
+    expect(results.every((result) => result.outcome === "none")).toBe(true);
+    expect(await gh.readCalls()).toHaveLength(2);
+  });
+
+  it("starts reads prepared at different times together, in one document", async () => {
+    const gh = await installFakeGh({
+      "api graphql": {
+        stdout: JSON.stringify({
+          data: { p0: raw(1), p1: raw(2), p2: raw(3) },
+        }),
+      },
+    });
+    const cwd = await makeTempDir("bb-pr-prepared-");
+    const later = (delay: number, url: string) =>
+      new Promise<void>((resolve) => setTimeout(resolve, delay)).then(() =>
+        prepareUrlRead(url, cwd),
+      );
+    const results = await readPullRequests([
+      prepareUrlRead(raw(1).url, cwd),
+      later(30, raw(2).url),
+      later(60, raw(3).url),
+    ]);
+    expect(results.map((result) => result.outcome)).toEqual([
+      "found",
+      "found",
+      "found",
+    ]);
+    expect(await gh.readCalls()).toHaveLength(1);
   });
 });

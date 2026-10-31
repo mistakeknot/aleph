@@ -1,10 +1,12 @@
 import { defineRpcContract } from "@get-bb/plugin-sdk";
 import { z } from "zod";
+import {
+  PULL_REQUESTS_MAX_KEYS,
+  environmentPullRequestTag,
+} from "./read-contract.js";
 
-export const GITHUB_PR_STATUS_PLUGIN_ID = "bb--github-pr-status";
-export const PULL_REQUESTS_MAX_KEYS = 200;
-export const PULL_REQUESTS_REFETCH_EVENT =
-  "bb--github-pr-status:pull-requests-refetch";
+export const SHOW_PULL_REQUEST_SETTING = "showPullRequest";
+export const HOST_VIEWS_MAX_READS = 200;
 
 const checkStatusSchema = z.enum([
   "queued",
@@ -202,10 +204,6 @@ export type PullRequestMergeMethod = z.infer<
   typeof pullRequestMergeMethodSchema
 >;
 
-export function environmentPullRequestTag(environmentId: string): string {
-  return `environment:${environmentId}`;
-}
-
 const environmentActionInputSchema = z
   .object({ environmentId: z.string().min(1) })
   .strict();
@@ -222,6 +220,15 @@ export const githubPrStatusRpcContract = defineRpcContract({
       .strict(),
     output: z.record(z.string(), environmentPullRequestSchema),
     keyTags: (key) => [environmentPullRequestTag(key)],
+  },
+  refresh: {
+    experimental_description:
+      "Re-check the environment's pull request on GitHub now, whatever the age of the saved row, and resolve once the row is current.",
+    input: environmentActionInputSchema,
+    output: z.object({ ok: z.literal(true) }).strict(),
+    invalidates: ({ environmentId }) => [
+      environmentPullRequestTag(environmentId),
+    ],
   },
   markReady: {
     experimental_description:
@@ -286,15 +293,25 @@ const hostPullRequestActionResultSchema = z.discriminatedUnion("ok", [
 ]);
 
 export const githubPrStatusHostContract = defineRpcContract({
-  view: {
+  views: {
+    experimental_retryable: true,
     input: z
       .object({
-        path: z.string().min(1),
-        url: z.string().url().nullable(),
-        refresh: z.boolean(),
+        reads: z
+          .array(
+            z
+              .object({
+                path: z.string().min(1),
+                url: z.string().url().nullable(),
+                refresh: z.boolean(),
+              })
+              .strict(),
+          )
+          .min(1)
+          .max(HOST_VIEWS_MAX_READS),
       })
       .strict(),
-    output: hostPullRequestLookupSchema,
+    output: z.array(hostPullRequestLookupSchema),
   },
   upstream: {
     input: z.object({ path: z.string().min(1) }).strict(),

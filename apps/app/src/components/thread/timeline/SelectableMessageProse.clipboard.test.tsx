@@ -47,6 +47,47 @@ function copyRange(range: Range) {
   return { data, accepted };
 }
 
+it.each([
+  ["src/export_notes.ts", "file:///workspace/src/export_notes.ts"],
+  [
+    "src/отчёт_данные.ts",
+    "file:///workspace/src/%D0%BE%D1%82%D1%87%D1%91%D1%82_%D0%B4%D0%B0%D0%BD%D0%BD%D1%8B%D0%B5.ts",
+  ],
+  ["/workspace/src/export_notes.ts", "file:///workspace/src/export_notes.ts"],
+  [
+    "C:\\workspace\\src\\export_notes.ts",
+    "file:///C:/workspace/src/export_notes.ts",
+  ],
+])(
+  "copies auto-linked inline code %s as code while preserving authored links",
+  (reference, href) => {
+    const content = `**Changed**: \`${reference}\` and [Review](file:///workspace/review.md).`;
+    const { container } = render(
+      <SelectableMessageProse>
+        <MarkdownPreview
+          content={content}
+          linkRouting={{
+            localFile: {
+              absoluteLinks: { kind: "trusted-host" },
+              relativeLinks: { baseDir: "/workspace", rootPath: "/workspace" },
+              onOpenLink: () => true,
+            },
+          }}
+        />
+      </SelectableMessageProse>,
+    );
+    const range = document.createRange();
+    range.selectNodeContents(container.firstElementChild!);
+    const { data } = copyRange(range);
+    expect(data.get("text/html")).toContain(`<a href="${href}"`);
+    expect(data.get("text/plain")).toBe(content);
+
+    window.getSelection()!.removeAllRanges();
+    range.selectNodeContents(container.querySelector("a")!);
+    expect(copyRange(range).data.get("text/plain")).toBe(`\`${reference}\``);
+  },
+);
+
 it("copies only the selected portion of a highlighted code block as bare code, preserving blank lines", () => {
   const { container } = render(
     <SelectableMessageProse>
@@ -358,4 +399,36 @@ it.each([
   const { data } = copyRange(selectText(container, selected));
   expect(data.get("text/plain")).toBe(text);
   expect(data.get("text/html")).toContain("<a href=");
+});
+
+it.each([
+  [
+    "/Users/michael/.bb/thread-storage/thr_v5h7wv4b4f/sanity-check.sh", // hygiene:allow(bb-data-path) unchanged upstream bb 0.48.0 test fixture, generic example path
+    "file:///Users/michael/.bb/thread-storage/thr_v5h7wv4b4f/sanity-check.sh", // hygiene:allow(bb-data-path) unchanged upstream bb 0.48.0 test fixture, generic example path
+    "sanity-check.sh",
+  ],
+  [
+    "/work space/my_script.sh",
+    "file:///work%20space/my_script.sh",
+    "my_script",
+  ],
+  [
+    "C:\\work space\\my_script.sh",
+    "file:///C:/work%20space/my_script.sh",
+    "my_script.sh",
+  ],
+])("copies file path %s without Markdown syntax", (path, href, part) => {
+  const { container } = render(
+    <SelectableMessageProse>
+      <p>
+        <a href={href}>{path}</a>
+      </p>
+    </SelectableMessageProse>,
+  );
+  for (const selected of [path, part]) {
+    window.getSelection()!.removeAllRanges();
+    const { data } = copyRange(selectText(container, selected));
+    expect(data.get("text/plain")).toBe(selected);
+    expect(data.get("text/html")).toContain(`<a href="${href}">`);
+  }
 });

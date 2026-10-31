@@ -37,9 +37,9 @@ import {
   type PluginSidebarFooterActionProps,
   type ExperimentalPluginCommandPaletteSearchRegistration,
   type PluginSourceCodeRendererProps,
-  type PluginThreadHeaderActionProps,
   type ExperimentalThreadContextSegmentProps,
   type ExperimentalThreadInfoProps,
+  type ExperimentalThreadRowMetadataProps,
   type PluginThreadActionItemInput,
   type ExperimentalPluginBrowserToolbarActionProps,
   type PluginThreadListProps,
@@ -167,7 +167,11 @@ const PUBLIC_PLUGIN_SDK_EXPORT_NAMES = [
       join(REPO_ROOT, "packages/plugin-sdk/bundled-types", filename),
       "utf8",
     ),
-  ).filter((name) => !name.startsWith("InternalDoNotUse")),
+  ).filter(
+    (name) =>
+      !name.startsWith("InternalDoNotUse") &&
+      !name.startsWith("internal_DO_NOT_USE_"),
+  ),
 );
 
 const BB_PLUGIN_API_KEYS = [
@@ -291,9 +295,9 @@ type SlotPropsByName = {
   sidebarFooterAction: PluginSidebarFooterActionProps;
   experimental_threadList: PluginThreadListProps;
   experimental_sidebarNavigation: ExperimentalSidebarNavigationProps;
-  experimental_threadHeaderAction: PluginThreadHeaderActionProps;
   experimental_appHeaderStatus: PluginAppHeaderStatusProps;
   experimental_threadContextSegment: ExperimentalThreadContextSegmentProps;
+  experimental_threadRowMetadata: ExperimentalThreadRowMetadataProps;
   experimental_threadInfoRow: ExperimentalThreadInfoProps;
   experimental_threadInfoSection: ExperimentalThreadInfoProps;
   experimental_threadAction: PluginThreadActionItemInput<unknown>;
@@ -372,7 +376,7 @@ const FRONTEND_SLOT_PROP_FIELDS = {
   settingsSection: [],
   experimental_appOverlay: [],
   navPanel: ["subPath"],
-  experimental_tab: ["threadId", "subPath", "params"],
+  experimental_tab: ["threadId", "environment", "subPath", "params"],
   experimental_newThreadPanelAction: ["projectId", "params"],
   pendingInteraction: ["interaction", "submit", "cancel"],
   sidebarFooterAction: [],
@@ -382,11 +386,6 @@ const FRONTEND_SLOT_PROP_FIELDS = {
     "isCompactViewport",
     "onNavigate",
     "searchQuery",
-  ],
-  experimental_threadHeaderAction: [
-    "threadId",
-    "projectId",
-    "isCompactViewport",
   ],
   experimental_appHeaderStatus: [
     "threadId",
@@ -405,7 +404,14 @@ const FRONTEND_SLOT_PROP_FIELDS = {
   ],
   experimental_threadInfoRow: ["threadId", "projectId", "environment"],
   experimental_threadInfoSection: ["threadId", "projectId", "environment"],
-  experimental_threadAction: ["thread", "data", "sdk", "navigate"],
+  experimental_threadRowMetadata: ["thread", "data"],
+  experimental_threadAction: [
+    "thread",
+    "data",
+    "sdk",
+    "navigate",
+    "experimental_panel",
+  ],
   experimental_browserToolbarAction: [
     "threadId",
     "tabId",
@@ -444,10 +450,10 @@ const FRONTEND_SLOT_PROP_FIELDS = {
     "threadId",
     "message",
     "selectedText",
-    "openPanel",
+    "experimental_panel",
     "composer",
   ],
-  commandPaletteAction: ["threadId", "projectId", "openPanel"],
+  commandPaletteAction: ["threadId", "projectId", "experimental_panel"],
   experimental_providerIcon: ["providerKind", "providerId", "icon"],
   experimental_timelineRenderer: [
     "row",

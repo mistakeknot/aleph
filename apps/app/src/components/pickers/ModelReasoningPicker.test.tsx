@@ -25,6 +25,7 @@ import { systemExecutionOptionsQueryKey } from "@/hooks/queries/query-keys";
 import { sdk } from "@/lib/sdk";
 import { createQueryClientTestHarness } from "@/test/queryClientTestHarness";
 import { CompactViewportOverrideProvider } from "@bb/shared-ui/hooks/use-compact-viewport";
+import { setPluginAssetIcons } from "@bb/shared-ui/icon-registry";
 import {
   PaneContext,
   type PaneContextValue,
@@ -1366,6 +1367,7 @@ describe("buildModelNavRows", () => {
 
 describe("ModelReasoningPicker service tiers", () => {
   beforeAll(() => ModelReasoningMenu.preload());
+  afterEach(() => setPluginAssetIcons(new Map()));
 
   const fast = { id: "fast", label: "Fast", description: "1.5x speed" };
   const ultrafast = { id: "ultrafast", label: "Ultrafast" };
@@ -1454,6 +1456,33 @@ describe("ModelReasoningPicker service tiers", () => {
     });
 
     expect(screen.getByTitle(/\(Ultrafast mode\)$/)).toBeTruthy();
+  });
+
+  it.each([
+    ["fast", "Zap"],
+    ["ultrafast", "provider-codex/ultrafast"],
+  ])("shows the %s tier's icon on the trigger", (tier, icon) => {
+    setPluginAssetIcons(
+      new Map([["provider-codex/ultrafast", "/icons/ultrafast.svg"]]),
+    );
+    renderPicker({
+      serviceTierOptions: [
+        fast,
+        { ...ultrafast, icon: "provider-codex/ultrafast" },
+      ],
+      serviceTierValue: tier,
+    });
+
+    const trigger = screen.getByRole("button", {
+      name: "Provider, model and reasoning",
+    });
+    const icons = [...trigger.querySelectorAll("[data-icon]")].map((node) =>
+      node.getAttribute("data-icon"),
+    );
+    expect(icons).toContain(icon);
+    expect(icons).not.toContain(
+      icon === "Zap" ? "provider-codex/ultrafast" : "Zap",
+    );
   });
 
   it("lists agent options below the models and reports each change", () => {

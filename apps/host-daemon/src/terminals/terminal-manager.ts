@@ -1,3 +1,9 @@
+import {
+  prepareHostPtyCommand,
+  hostToolchain,
+  killProcessGroup,
+  sanitizeInheritedChildProcessEnv,
+} from "@bb/process-utils";
 import { operationEnvironment } from "../operation-environment.js";
 import { accessSync, chmodSync, constants, existsSync } from "node:fs";
 import { access, stat } from "node:fs/promises";
@@ -8,10 +14,6 @@ import { spawn as spawnPty } from "node-pty";
 import type { TerminalSessionCloseReason } from "@bb/domain";
 import type { HostDaemonDaemonWsMessage } from "@bb/host-daemon-contract";
 import { HOST_DAEMON_TERMINAL_EXIT_RETENTION_MS } from "@bb/host-daemon-contract/protocol";
-import {
-  killProcessGroup,
-  sanitizeInheritedChildProcessEnv,
-} from "@bb/process-utils";
 import { displayWidth, truncateToWidth } from "@bb/text-utils";
 import type { HostDaemonServerTerminalMessage } from "../server-connection-support.js";
 import { lowerAgentProcessPriority } from "../agent-process-priority.js";
@@ -252,21 +254,28 @@ function disposeNodePty(pty: ReturnType<typeof spawnPty>): void {
 const nodePtyAdapter: TerminalPtyAdapter = {
   spawn(args) {
     ensureNodePtySpawnHelperExecutable(args.logger);
-    const scoped = wrapAgentProcessSpawn({
-      args: args.args,
-      command: args.file,
+    const launch = prepareHostPtyCommand(args.file, args.args, {
+      cwd: args.cwd,
       env: args.env,
-      logger: args.logger,
-      name: "",
-      processKind: "terminal",
     });
+    const scoped =
+      typeof launch.args === "string"
+        ? null
+        : wrapAgentProcessSpawn({
+            args: launch.args,
+            command: launch.command,
+            env: launch.env,
+            logger: args.logger,
+            name: "",
+            processKind: "terminal",
+          });
     const pty = spawnPty(
-      scoped?.command ?? args.file,
-      scoped?.args ?? args.args,
+      scoped?.command ?? launch.command,
+      scoped?.args ?? launch.args,
       {
         cols: args.cols,
         cwd: args.cwd,
-        env: scoped?.env ?? args.env,
+        env: scoped?.env ?? launch.env,
         name: "xterm-256color",
         rows: args.rows,
       },
@@ -283,6 +292,7 @@ const nodePtyAdapter: TerminalPtyAdapter = {
       processKind: "terminal",
       scopeUnit: scoped?.scopeUnit ?? null,
     });
+    pty.onExit(({ exitCode }) => hostToolchain.invalidateFailure(exitCode));
     return {
       dispose: () => disposeNodePty(pty),
       kill: (signal) => {

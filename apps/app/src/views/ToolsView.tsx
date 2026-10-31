@@ -71,6 +71,7 @@ import {
   SecondaryPanelLayout,
   type SecondaryPanelRenderArgs,
 } from "@/components/secondary-panel/SecondaryPanelLayout";
+import { secondaryPanelWidthPercentAtom } from "@/components/secondary-panel/threadSecondaryPanelAtoms";
 import { ThreadSecondaryPanel } from "@/components/secondary-panel/ThreadSecondaryPanel";
 import type {
   SecondaryPanelRenderableTab,
@@ -611,7 +612,6 @@ export function PluginsView({ detailKey }: { detailKey?: string } = {}) {
     }: SecondaryPanelRenderArgs) => (
       <ThreadSecondaryPanel
         activeTab={activeTab}
-        canUseGitUi={false}
         metadataContent={null}
         tabs={panelTabs}
         fixedTabs={[]}
@@ -651,6 +651,7 @@ export function PluginsView({ detailKey }: { detailKey?: string } = {}) {
         }}
         renderPanel={renderPanel}
         composerHost={null}
+        widthPercentAtom={secondaryPanelWidthPercentAtom}
       />
     </div>
   );

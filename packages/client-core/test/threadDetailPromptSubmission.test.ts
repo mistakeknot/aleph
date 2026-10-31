@@ -8,7 +8,6 @@ import {
   buildAutoFollowUpRequest,
   buildFollowUpShortcutRequest,
   buildFollowUpSubmitMode,
-  buildSideChatSubmitMode,
   canSubmitFollowUpShortcut,
   resolveDefaultExecutionOptionsState,
   shouldQueueFollowUpMessage,
@@ -403,22 +402,6 @@ describe("threadDetailPromptSubmission", () => {
       reason: "pending-interactions-check-failed",
       onRetry,
     });
-    expect(
-      buildSideChatSubmitMode({
-        childThreadId: "thr_child",
-        hasPendingInteraction: false,
-        isDefaultExecutionOptionsLoading: false,
-        isPendingInteractionsInitialLoading: true,
-        isStopRequested: false,
-        onRetryPendingInteractions: onRetry,
-        onStop: () => undefined,
-        runtimeDisplayStatus: "active",
-      }),
-    ).toEqual({
-      kind: "blocked",
-      reason: "pending-interactions-check-failed",
-      onRetry,
-    });
   });
 
   it("blocks follow-up submit until pending interactions initially load", () => {
@@ -446,82 +429,5 @@ describe("threadDetailPromptSubmission", () => {
         runtimeDisplayStatus: "active",
       }),
     ).toEqual({ kind: "blocked", reason: "loading-pending-interactions" });
-  });
-
-  it("blocks a draft side chat until inherited execution options load", () => {
-    const onStop = () => undefined;
-
-    expect(
-      buildSideChatSubmitMode({
-        childThreadId: null,
-        hasPendingInteraction: false,
-        isDefaultExecutionOptionsLoading: true,
-        isPendingInteractionsInitialLoading: false,
-        isStopRequested: false,
-        onRetryPendingInteractions: null,
-        onStop,
-        runtimeDisplayStatus: "provisioning",
-      }),
-    ).toEqual({ kind: "blocked", reason: "loading-execution-options" });
-
-    expect(
-      buildSideChatSubmitMode({
-        childThreadId: null,
-        hasPendingInteraction: false,
-        isDefaultExecutionOptionsLoading: false,
-        isPendingInteractionsInitialLoading: false,
-        isStopRequested: false,
-        onRetryPendingInteractions: null,
-        onStop,
-        runtimeDisplayStatus: "idle",
-      }),
-    ).toEqual({ kind: "ready" });
-  });
-
-  it("offers stop-capable queue mode for active side-chat child threads", () => {
-    const onStop = () => undefined;
-
-    expect(
-      buildSideChatSubmitMode({
-        childThreadId: "thr_side",
-        hasPendingInteraction: false,
-        isDefaultExecutionOptionsLoading: false,
-        isPendingInteractionsInitialLoading: false,
-        isStopRequested: false,
-        onRetryPendingInteractions: null,
-        onStop,
-        runtimeDisplayStatus: "active",
-      }),
-    ).toEqual({ kind: "queue", onStop });
-  });
-
-  it("blocks child side chats until pending interactions initially load", () => {
-    expect(
-      buildSideChatSubmitMode({
-        childThreadId: "thr_side",
-        hasPendingInteraction: false,
-        isDefaultExecutionOptionsLoading: false,
-        isPendingInteractionsInitialLoading: true,
-        isStopRequested: false,
-        onRetryPendingInteractions: null,
-        onStop: () => undefined,
-        runtimeDisplayStatus: "active",
-      }),
-    ).toEqual({ kind: "blocked", reason: "loading-pending-interactions" });
-  });
-
-  it("blocks child side chats with a pending interaction", () => {
-    expect(
-      buildSideChatSubmitMode({
-        childThreadId: "thr_side",
-        hasPendingInteraction: true,
-        isDefaultExecutionOptionsLoading: false,
-        isPendingInteractionsInitialLoading: false,
-        isStopRequested: false,
-        onRetryPendingInteractions: null,
-        onStop: () => undefined,
-        runtimeDisplayStatus: "active",
-      }),
-    ).toEqual({ kind: "blocked", reason: "pending-interaction" });
   });
 });

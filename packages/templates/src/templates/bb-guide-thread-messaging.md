@@ -215,3 +215,20 @@ Queued messages:
   scheduled spawn creates a `pending` thread and does no environment work (no
   worktree, no setup script) until it is due. The SDK takes `sendAt` in epoch
   milliseconds on `threads.spawn` and `threads.send`.
+
+Application links in messages:
+
+  Use an explicit Markdown link such as `[Review note](reflect://note/Project%20X)`
+  or `[Open issue](linear://issue/ABC-123)`. The receiving user clicks the link
+  to open it on their viewing device; sending or rendering a message never
+  launches an application. Bare custom-scheme text is not auto-linked.
+
+  Enable with `bb settings experiment applicationLinks true` or Settings →
+  Experiments → Application links. BB asks before launching unless the user
+  chose Always allow for that scheme on this BB site and device. Settings →
+  General → Application link approvals can revoke saved choices. Executable
+  web schemes and reserved editor-action
+  schemes remain blocked. Existing editor file links keep their file-opening
+  behavior. Desktop and native mobile clients need application-link support
+  (mobile bridge version 3); older clients show an update message. Web browsers
+  handle their own OS handoff and cannot reliably report missing applications.
