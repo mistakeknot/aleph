@@ -67,6 +67,17 @@ export const windowPresetsSchema = z
       }
       seen.add(preset.id);
     });
+    const command = presets.findIndex((preset) => preset.id === "command");
+    if (
+      command < 0 ||
+      JSON.stringify(presets[command]) !== JSON.stringify(COMMAND_WINDOW_PRESET)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "The Command preset is built in and cannot be changed",
+        path: [command < 0 ? 0 : command],
+      });
+    }
   });
 
 const windowPresetSuggestionSchema = z
