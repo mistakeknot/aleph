@@ -114,7 +114,7 @@ describe("public windows", () => {
         panes,
         proposedBy: "thr_x",
       });
-      const presets = body.preferences["windows.presets"]?.value as {
+      const presets = body.preferences["windows.presets"]?.value as unknown as {
         id: string;
         panes: unknown[];
       }[];
