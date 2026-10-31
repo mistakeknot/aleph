@@ -382,6 +382,7 @@ type ExpectedSystemKey =
   | "testAiService"
   | "transcribeVoice"
   | "uiPreferences"
+  | "windows"
   | "updateExperiments"
   | "updateGeneralSettings"
   | "updateKeyboardSettings"

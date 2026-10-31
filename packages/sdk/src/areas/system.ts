@@ -48,6 +48,13 @@ import type {
   TestAiServiceResponse,
   UiPreferenceResponse,
   UiPreferencesResponse,
+  ProposeWindowPresetRequest,
+  ProposeWindowPresetResponse,
+  AcceptWindowSuggestionResponse,
+  DismissWindowSuggestionResponse,
+  ReportWindowRequest,
+  ReportWindowResponse,
+  WindowsResponse,
 } from "@bb/server-contract";
 import { systemVoiceTranscriptionResponseSchema } from "@bb/server-contract";
 import {
@@ -184,6 +191,25 @@ export interface SystemUiPreferencesArea {
   ): Promise<SystemUiPreferenceResult<Key>>;
 }
 
+export interface SystemWindowsArea {
+  list(args?: { signal?: AbortSignal }): Promise<WindowsResponse>;
+  report(input: ReportWindowRequest): Promise<ReportWindowResponse>;
+  propose(
+    input: ProposeWindowPresetRequest & { presetId: string },
+  ): Promise<ProposeWindowPresetResponse>;
+  /** User-side only: the app calls this when the user accepts a suggestion. */
+  acceptSuggestion(input: {
+    presetId: string;
+    windowId: string;
+    suggestionId: string;
+  }): Promise<AcceptWindowSuggestionResponse>;
+  /** User-side only: the app calls this when the user dismisses a suggestion. */
+  dismissSuggestion(input: {
+    presetId: string;
+    suggestionId: string;
+  }): Promise<DismissWindowSuggestionResponse>;
+}
+
 export interface SystemArea {
   setMachineEnvironmentVariable(
     input: MachineEnvironmentSet,
@@ -221,6 +247,7 @@ export interface SystemArea {
     args: SystemVoiceTranscriptionArgs,
   ): Promise<SystemVoiceTranscriptionResult>;
   uiPreferences: SystemUiPreferencesArea;
+  windows: SystemWindowsArea;
   mobileAppDownloads(): typeof mobileAppDownloads;
   mobileAppReleases(): Promise<SystemMobileAppReleasesResponse>;
   updateExperiments(
@@ -310,8 +337,48 @@ export function createSystemArea(args: CreateSdkAreaArgs): SystemArea {
       return body as UiPreferenceResponse<typeof input.key>;
     },
   };
+  const windows: SystemWindowsArea = {
+    async list(input) {
+      return transport.readJson(
+        transport.api.v1.windows.$get({}, ...signalRequestArgs(input?.signal)),
+      );
+    },
+    async report(input) {
+      return transport.readJson(
+        transport.api.v1.windows.report.$post({ json: input }),
+      );
+    },
+    async propose({ presetId, ...json }) {
+      const body = await transport.readJson(
+        transport.api.v1.windows.presets[":presetId"].suggestion.$put({
+          json,
+          param: { presetId },
+        }),
+      );
+      return body as ProposeWindowPresetResponse;
+    },
+    async acceptSuggestion({ presetId, windowId, suggestionId }) {
+      const body = await transport.readJson(
+        transport.api.v1.windows.presets[":presetId"].suggestion.accept.$post({
+          json: { windowId, suggestionId },
+          param: { presetId },
+        }),
+      );
+      return body as AcceptWindowSuggestionResponse;
+    },
+    async dismissSuggestion({ presetId, suggestionId }) {
+      const body = await transport.readJson(
+        transport.api.v1.windows.presets[":presetId"].suggestion.dismiss.$post({
+          json: { suggestionId },
+          param: { presetId },
+        }),
+      );
+      return body as DismissWindowSuggestionResponse;
+    },
+  };
   return {
     uiPreferences,
+    windows,
     async setMachineEnvironmentVariable(input) {
       return transport.readJson(
         transport.api.v1.settings["machine-environment"].$post({ json: input }),

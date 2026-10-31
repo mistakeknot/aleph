@@ -14,6 +14,14 @@ export const JSON_SHAPE_BY_COMMAND_PATH: Readonly<Record<string, string>> = {
   "thread search": "{active: {total, results}, archived: {total, results}}",
   "prompt-history list":
     "{entries: [{id, createdAt, input, projectId, threadId, scope}], nextCursor: string | null}",
+  "window list":
+    "{windows: [{windowId, presetId, route, sidebarOpen, rightPanelOpen, rightPanelTab, maximizedPaneId, panes: [{paneId, kind, projectId, threadId, threadTitle, pluginId, panelPath, focused}], viewport, reportedAt}]}",
+  "window show":
+    "one window: {windowId, presetId, route, sidebarOpen, rightPanelOpen, rightPanelTab, maximizedPaneId, panes, viewport, reportedAt}",
+  "window preset list":
+    "[{id, name, panes, direction, hideSidebar, rightPanelTab, userEditable, suggestion: {panes, reason, proposedBy, proposedAt, suggestionId} | null}]    (bare array)",
+  "window propose":
+    "{presetId, suggestion: {panes, reason, proposedBy, proposedAt, suggestionId}}",
   "project list":
     "[{id, kind, name, gitRemoteUrl, sources: [{id, hostId, path, isDefault}]}]    (bare array)",
   "machine list":

@@ -9,6 +9,7 @@ export * from "./api/plugins.js";
 export * from "./api/event-archive.js";
 export * from "./api/system.js";
 export * from "./api/ui-preferences.js";
+export * from "./api/windows.js";
 export * from "./api/terminals.js";
 export * from "./api/threads.js";
 export * from "./api/desktop-browsers.js";

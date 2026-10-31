@@ -5,6 +5,7 @@ export * from "./native-roots.js";
 export * from "./ai-services.js";
 export * from "./app-settings.js";
 export * from "./ui-preferences.js";
+export * from "./window-presets.js";
 export * from "./app-keybindings.js";
 export * from "./app-theme.js";
 export * from "./background-task.js";

@@ -189,6 +189,8 @@ function createUiPreferences(): UiPreferenceEntries {
     "infoPanel.collapsedSections": uiPreferenceEntry(
       "infoPanel.collapsedSections",
     ),
+    "windows.presets": uiPreferenceEntry("windows.presets"),
+    "windows.suggestions": uiPreferenceEntry("windows.suggestions"),
   };
 }
 
