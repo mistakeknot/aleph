@@ -44,7 +44,10 @@ describe("public windows", () => {
       expect(await readJson(await send(harness, "GET", "/windows"))).toEqual({
         windows: [],
       });
-      expect((await send(harness, "POST", "/windows/report", reportBody("b"))).status).toBe(200);
+      expect(
+        (await send(harness, "POST", "/windows/report", reportBody("b")))
+          .status,
+      ).toBe(200);
       await send(harness, "POST", "/windows/report", reportBody("a"));
       await send(harness, "POST", "/windows/report", {
         ...reportBody("a"),
@@ -103,8 +106,14 @@ describe("public windows", () => {
         >;
       };
       const suggestions = body.preferences["windows.suggestions"]
-        ?.value as unknown as Record<string, { panes: unknown; proposedBy: string }>;
-      expect(suggestions["priorities"]).toMatchObject({ panes, proposedBy: "thr_x" });
+        ?.value as unknown as Record<
+        string,
+        { panes: unknown; proposedBy: string }
+      >;
+      expect(suggestions["priorities"]).toMatchObject({
+        panes,
+        proposedBy: "thr_x",
+      });
       const presets = body.preferences["windows.presets"]?.value as {
         id: string;
         panes: unknown[];
@@ -117,10 +126,18 @@ describe("public windows", () => {
     await withTestHarness(async (harness) => {
       const panes: unknown[] = [];
       expect(
-        (await send(harness, "PUT", "/windows/presets/nope/suggestion", { panes })).status,
+        (
+          await send(harness, "PUT", "/windows/presets/nope/suggestion", {
+            panes,
+          })
+        ).status,
       ).toBe(404);
       expect(
-        (await send(harness, "PUT", "/windows/presets/command/suggestion", { panes })).status,
+        (
+          await send(harness, "PUT", "/windows/presets/command/suggestion", {
+            panes,
+          })
+        ).status,
       ).toBe(400);
     });
   });

@@ -94,7 +94,11 @@ export const COMMAND_WINDOW_PRESET: WindowPreset = {
   name: "Command",
   panes: [
     { kind: "plugin-panel", pluginId: "autarch", panelPath: "home" },
-    { kind: "thread-title", titlePrefix: VIZIER_THREAD_TITLE_PREFIX, pinnedOnly: true },
+    {
+      kind: "thread-title",
+      titlePrefix: VIZIER_THREAD_TITLE_PREFIX,
+      pinnedOnly: true,
+    },
   ],
   direction: "row",
   hideSidebar: true,
@@ -141,7 +145,10 @@ export const windowReportSchema = z
     maximizedPaneId: z.string().max(256).nullable(),
     panes: z.array(windowReportPaneSchema).max(WINDOW_PRESET_MAX_PANES),
     viewport: z
-      .object({ width: z.number().int().min(0), height: z.number().int().min(0) })
+      .object({
+        width: z.number().int().min(0),
+        height: z.number().int().min(0),
+      })
       .strict()
       .nullable(),
   })

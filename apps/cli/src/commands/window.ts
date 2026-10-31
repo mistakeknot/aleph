@@ -103,13 +103,18 @@ export function registerWindowCommands(
     .option("--json", "Print machine-readable JSON output")
     .action(
       action(async (windowId: string, opts: JsonOptions) => {
-        const { windows } = await createCliBbSdk(getUrl()).system.windows.list();
-        const window = windows.find((candidate) => candidate.windowId === windowId);
+        const { windows } =
+          await createCliBbSdk(getUrl()).system.windows.list();
+        const window = windows.find(
+          (candidate) => candidate.windowId === windowId,
+        );
         if (!window) {
           throw new Error(`No open window '${windowId}'. Run bb window list.`);
         }
         if (outputJson(opts, window)) return;
-        console.log(`Window ${window.windowId} (preset ${window.presetId ?? "none"})`);
+        console.log(
+          `Window ${window.windowId} (preset ${window.presetId ?? "none"})`,
+        );
         console.log(`Route: ${window.route}`);
         console.log(
           `Sidebar: ${window.sidebarOpen ? "open" : "hidden"}; right panel: ${window.rightPanelOpen ? (window.rightPanelTab ?? "open") : "closed"}`,
@@ -160,7 +165,12 @@ export function registerWindowCommands(
     .description(
       "Suggest a new pane list for a preset; the user applies it from the window",
     )
-    .option("--thread <threadId>", "Thread to include (repeatable)", collectOption, [])
+    .option(
+      "--thread <threadId>",
+      "Thread to include (repeatable)",
+      collectOption,
+      [],
+    )
     .option(
       "--panel <pluginId/panelPath>",
       "Plugin panel to include (repeatable)",

@@ -47,17 +47,33 @@ describe("bb window command output", () => {
   });
 
   it("proposes a pane list without applying it", async () => {
-    const propose = vi.fn(async () => ({ presetId: "priorities", suggestion: {} }));
+    const propose = vi.fn(async () => ({
+      presetId: "priorities",
+      suggestion: {},
+    }));
     stubServerApi({
       "v1.windows.presets.:presetId.suggestion.$put": propose,
     });
     await runCommand(
-      ["window", "propose", "priorities", "--panel", "autarch/home", "--reason", "x", "--by", "me", "--json"],
+      [
+        "window",
+        "propose",
+        "priorities",
+        "--panel",
+        "autarch/home",
+        "--reason",
+        "x",
+        "--by",
+        "me",
+        "--json",
+      ],
       register,
     );
     expect(propose).toHaveBeenCalledWith({
       json: {
-        panes: [{ kind: "plugin-panel", pluginId: "autarch", panelPath: "home" }],
+        panes: [
+          { kind: "plugin-panel", pluginId: "autarch", panelPath: "home" },
+        ],
         reason: "x",
         proposedBy: "me",
       },

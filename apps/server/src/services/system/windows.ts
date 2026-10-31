@@ -96,7 +96,8 @@ export function proposeWindowPreset(
       key: "windows.suggestions",
       value: { ...current.value, [args.presetId]: suggestion },
     });
-    if (result.outcome === "updated") return { outcome: "proposed", suggestion };
+    if (result.outcome === "updated")
+      return { outcome: "proposed", suggestion };
   }
   return { outcome: "conflict" };
 }
