@@ -48,6 +48,11 @@ import type {
   TestAiServiceResponse,
   UiPreferenceResponse,
   UiPreferencesResponse,
+  ProposeWindowPresetRequest,
+  ProposeWindowPresetResponse,
+  ReportWindowRequest,
+  ReportWindowResponse,
+  WindowsResponse,
 } from "@bb/server-contract";
 import { systemVoiceTranscriptionResponseSchema } from "@bb/server-contract";
 import {
@@ -184,6 +189,14 @@ export interface SystemUiPreferencesArea {
   ): Promise<SystemUiPreferenceResult<Key>>;
 }
 
+export interface SystemWindowsArea {
+  list(args?: { signal?: AbortSignal }): Promise<WindowsResponse>;
+  report(input: ReportWindowRequest): Promise<ReportWindowResponse>;
+  propose(
+    input: ProposeWindowPresetRequest & { presetId: string },
+  ): Promise<ProposeWindowPresetResponse>;
+}
+
 export interface SystemArea {
   setMachineEnvironmentVariable(
     input: MachineEnvironmentSet,
@@ -221,6 +234,7 @@ export interface SystemArea {
     args: SystemVoiceTranscriptionArgs,
   ): Promise<SystemVoiceTranscriptionResult>;
   uiPreferences: SystemUiPreferencesArea;
+  windows: SystemWindowsArea;
   mobileAppDownloads(): typeof mobileAppDownloads;
   mobileAppReleases(): Promise<SystemMobileAppReleasesResponse>;
   updateExperiments(
@@ -310,8 +324,30 @@ export function createSystemArea(args: CreateSdkAreaArgs): SystemArea {
       return body as UiPreferenceResponse<typeof input.key>;
     },
   };
+  const windows: SystemWindowsArea = {
+    async list(input) {
+      return transport.readJson(
+        transport.api.v1.windows.$get({}, ...signalRequestArgs(input?.signal)),
+      );
+    },
+    async report(input) {
+      return transport.readJson(
+        transport.api.v1.windows.report.$post({ json: input }),
+      );
+    },
+    async propose({ presetId, ...json }) {
+      const body = await transport.readJson(
+        transport.api.v1.windows.presets[":presetId"].suggestion.$put({
+          json,
+          param: { presetId },
+        }),
+      );
+      return body as ProposeWindowPresetResponse;
+    },
+  };
   return {
     uiPreferences,
+    windows,
     async setMachineEnvironmentVariable(input) {
       return transport.readJson(
         transport.api.v1.settings["machine-environment"].$post({ json: input }),
