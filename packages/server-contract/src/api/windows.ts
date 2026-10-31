@@ -39,7 +39,7 @@ export interface ProposeWindowPresetResponse {
 export const acceptWindowSuggestionRequestSchema = z
   .object({
     windowId: z.string().min(1).max(128),
-    proposedAt: z.string().min(1).max(64),
+    suggestionId: z.string().min(1).max(64),
   })
   .strict();
 export type AcceptWindowSuggestionRequest = z.infer<
@@ -52,7 +52,7 @@ export interface AcceptWindowSuggestionResponse {
 }
 
 export const dismissWindowSuggestionRequestSchema = z
-  .object({ proposedAt: z.string().min(1).max(64) })
+  .object({ suggestionId: z.string().min(1).max(64) })
   .strict();
 export type DismissWindowSuggestionRequest = z.infer<
   typeof dismissWindowSuggestionRequestSchema

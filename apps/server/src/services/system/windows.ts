@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   WINDOW_REPORT_STALE_MS,
   type WindowPresetPane,
@@ -86,19 +87,14 @@ export function proposeWindowPreset(
     if (!preset) return { outcome: "not_found" };
     if (!preset.userEditable) return { outcome: "not_editable" };
     const current = preferences["windows.suggestions"];
-    // proposedAt is the suggestion's identity for accept and dismiss, so a
-    // replacement must never reuse the previous one's value.
-    const previous = current.value[args.presetId]?.proposedAt;
-    // Strictly later than the previous one, so identities never repeat.
-    const previousMs = previous ? Date.parse(previous) : Number.NaN;
-    const at = Number.isFinite(previousMs)
-      ? Math.max(baseTime, previousMs + 1)
-      : baseTime;
+    // suggestionId is the suggestion's identity for accept and dismiss. It is
+    // random, so a replacement, or a proposal after a dismissal, never reuses it.
     const suggestion: WindowPresetSuggestion = {
       panes: args.panes,
       reason: args.reason,
       proposedBy: args.proposedBy,
-      proposedAt: new Date(at).toISOString(),
+      proposedAt: new Date(baseTime).toISOString(),
+      suggestionId: randomUUID(),
     };
     const result = writeUiPreference(deps, {
       expectedRevision: current.revision,
@@ -124,7 +120,7 @@ export function acceptWindowSuggestion(
   args: {
     presetId: string;
     windowId: string;
-    proposedAt: string;
+    suggestionId: string;
     now?: Date;
   },
 ): AcceptOutcome {
@@ -143,7 +139,8 @@ export function acceptWindowSuggestion(
     const suggestions = preferences["windows.suggestions"];
     const suggestion = suggestions.value[args.presetId];
     if (!suggestion) return { outcome: "no_suggestion" };
-    if (suggestion.proposedAt !== args.proposedAt) return { outcome: "stale" };
+    if (suggestion.suggestionId !== args.suggestionId)
+      return { outcome: "stale" };
     const written = writeUiPreference(deps, {
       expectedRevision: presets.revision,
       key: "windows.presets",
@@ -168,13 +165,13 @@ export function acceptWindowSuggestion(
 export function dismissWindowSuggestion(
   deps: AppDeps,
   presetId: string,
-  proposedAt: string,
+  suggestionId: string,
 ): { outcome: "dismissed" } | { outcome: "stale" } | { outcome: "conflict" } {
   for (let attempt = 0; attempt < MAX_WRITE_ATTEMPTS; attempt += 1) {
     const suggestions = readUiPreferences(deps)["windows.suggestions"];
     const current = suggestions.value[presetId];
     if (!current) return { outcome: "dismissed" };
-    if (current.proposedAt !== proposedAt) return { outcome: "stale" };
+    if (current.suggestionId !== suggestionId) return { outcome: "stale" };
     const { [presetId]: _removed, ...remaining } = suggestions.value;
     const written = writeUiPreference(deps, {
       expectedRevision: suggestions.revision,

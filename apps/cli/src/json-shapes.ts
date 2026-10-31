@@ -19,9 +19,9 @@ export const JSON_SHAPE_BY_COMMAND_PATH: Readonly<Record<string, string>> = {
   "window show":
     "one window: {windowId, presetId, route, sidebarOpen, rightPanelOpen, rightPanelTab, maximizedPaneId, panes, viewport, reportedAt}",
   "window preset list":
-    "[{id, name, panes, direction, hideSidebar, rightPanelTab, userEditable, suggestion: {panes, reason, proposedBy, proposedAt} | null}]    (bare array)",
+    "[{id, name, panes, direction, hideSidebar, rightPanelTab, userEditable, suggestion: {panes, reason, proposedBy, proposedAt, suggestionId} | null}]    (bare array)",
   "window propose":
-    "{presetId, suggestion: {panes, reason, proposedBy, proposedAt}}",
+    "{presetId, suggestion: {panes, reason, proposedBy, proposedAt, suggestionId}}",
   "project list":
     "[{id, kind, name, gitRemoteUrl, sources: [{id, hostId, path, isDefault}]}]    (bare array)",
   "machine list":

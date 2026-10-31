@@ -67,7 +67,7 @@ export function registerWindowRoutes(app: Hono, deps: AppDeps): void {
     const result = acceptWindowSuggestion(deps, {
       presetId,
       windowId: payload.windowId,
-      proposedAt: payload.proposedAt,
+      suggestionId: payload.suggestionId,
     });
     if (result.outcome === "accepted") {
       return context.json({ presetId, panes: result.panes });
@@ -92,7 +92,11 @@ export function registerWindowRoutes(app: Hono, deps: AppDeps): void {
 
   post(routes.dismissWindowSuggestion, (context, payload) => {
     const presetId = context.req.param("presetId");
-    const result = dismissWindowSuggestion(deps, presetId, payload.proposedAt);
+    const result = dismissWindowSuggestion(
+      deps,
+      presetId,
+      payload.suggestionId,
+    );
     if (result.outcome === "conflict" || result.outcome === "stale") {
       throw new ApiError(
         409,

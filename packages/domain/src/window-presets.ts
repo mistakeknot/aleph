@@ -86,6 +86,7 @@ const windowPresetSuggestionSchema = z
     reason: z.string().max(1_000).nullable(),
     proposedBy: z.string().min(1).max(256),
     proposedAt: z.string().min(1).max(64),
+    suggestionId: z.string().min(1).max(64),
   })
   .strict();
 export type WindowPresetSuggestion = z.infer<

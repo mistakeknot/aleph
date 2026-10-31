@@ -201,12 +201,12 @@ export interface SystemWindowsArea {
   acceptSuggestion(input: {
     presetId: string;
     windowId: string;
-    proposedAt: string;
+    suggestionId: string;
   }): Promise<AcceptWindowSuggestionResponse>;
   /** User-side only: the app calls this when the user dismisses a suggestion. */
   dismissSuggestion(input: {
     presetId: string;
-    proposedAt: string;
+    suggestionId: string;
   }): Promise<DismissWindowSuggestionResponse>;
 }
 
@@ -357,19 +357,19 @@ export function createSystemArea(args: CreateSdkAreaArgs): SystemArea {
       );
       return body as ProposeWindowPresetResponse;
     },
-    async acceptSuggestion({ presetId, windowId, proposedAt }) {
+    async acceptSuggestion({ presetId, windowId, suggestionId }) {
       const body = await transport.readJson(
         transport.api.v1.windows.presets[":presetId"].suggestion.accept.$post({
-          json: { windowId, proposedAt },
+          json: { windowId, suggestionId },
           param: { presetId },
         }),
       );
       return body as AcceptWindowSuggestionResponse;
     },
-    async dismissSuggestion({ presetId, proposedAt }) {
+    async dismissSuggestion({ presetId, suggestionId }) {
       const body = await transport.readJson(
         transport.api.v1.windows.presets[":presetId"].suggestion.dismiss.$post({
-          json: { proposedAt },
+          json: { suggestionId },
           param: { presetId },
         }),
       );

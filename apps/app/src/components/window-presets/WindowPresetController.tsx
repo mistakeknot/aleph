@@ -161,7 +161,7 @@ export function WindowPresetController() {
     void sdk.system.windows
       .dismissSuggestion({
         presetId: activePresetId,
-        proposedAt: suggestion.proposedAt,
+        suggestionId: suggestion.suggestionId,
       })
       .catch(() => {});
   }, [activePresetId, suggestion]);
@@ -179,7 +179,7 @@ export function WindowPresetController() {
       .acceptSuggestion({
         presetId: activePresetId,
         windowId: getWindowId(),
-        proposedAt: suggestion.proposedAt,
+        suggestionId: suggestion.suggestionId,
       })
       .then(({ panes }) => {
         const contents = resolvePresetContents(panes, threads);

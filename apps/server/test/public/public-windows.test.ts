@@ -171,12 +171,12 @@ describe("public windows", () => {
           }
         ).preferences["windows.suggestions"]?.value as Record<
           string,
-          { proposedAt: string }
+          { suggestionId: string }
         >;
       const accept = async (windowId: string, at?: string) =>
         send(harness, "POST", "/windows/presets/priorities/suggestion/accept", {
           windowId,
-          proposedAt: at ?? (await proposedAt())["priorities"]?.proposedAt,
+          suggestionId: at ?? (await proposedAt())["priorities"]?.suggestionId,
         });
       expect((await accept("w1")).status).toBe(404);
       await send(harness, "POST", "/windows/report", {
@@ -210,15 +210,15 @@ describe("public windows", () => {
       const at = (
         before.preferences["windows.suggestions"]?.value as Record<
           string,
-          { proposedAt: string }
+          { suggestionId: string }
         >
-      )["priorities"]?.proposedAt;
-      const dismiss = (proposedAt: string | undefined) =>
+      )["priorities"]?.suggestionId;
+      const dismiss = (suggestionId: string | undefined) =>
         send(
           harness,
           "POST",
           "/windows/presets/priorities/suggestion/dismiss",
-          { proposedAt },
+          { suggestionId },
         );
       expect((await dismiss("stale")).status).toBe(409);
       expect((await dismiss(at)).status).toBe(200);
@@ -229,7 +229,7 @@ describe("public windows", () => {
     });
   });
 
-  it("gives a replacement suggestion a different identity even at the same instant", async () => {
+  it("gives a replacement suggestion a different identity even at the at the same instant or after a dismissal", async () => {
     await withTestHarness(async (harness) => {
       const propose = async () =>
         (await readJson(
@@ -237,10 +237,10 @@ describe("public windows", () => {
             panes: [],
             proposedBy: "thr_x",
           }),
-        )) as { suggestion: { proposedAt: string } };
-      const first = (await propose()).suggestion.proposedAt;
-      const second = (await propose()).suggestion.proposedAt;
-      const third = (await propose()).suggestion.proposedAt;
+        )) as { suggestion: { suggestionId: string } };
+      const first = (await propose()).suggestion.suggestionId;
+      const second = (await propose()).suggestion.suggestionId;
+      const third = (await propose()).suggestion.suggestionId;
       expect(new Set([first, second, third]).size).toBe(3);
     });
   });
