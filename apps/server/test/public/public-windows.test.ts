@@ -240,7 +240,8 @@ describe("public windows", () => {
         )) as { suggestion: { proposedAt: string } };
       const first = (await propose()).suggestion.proposedAt;
       const second = (await propose()).suggestion.proposedAt;
-      expect(second).not.toBe(first);
+      const third = (await propose()).suggestion.proposedAt;
+      expect(new Set([first, second, third]).size).toBe(3);
     });
   });
 });

@@ -89,8 +89,11 @@ export function proposeWindowPreset(
     // proposedAt is the suggestion's identity for accept and dismiss, so a
     // replacement must never reuse the previous one's value.
     const previous = current.value[args.presetId]?.proposedAt;
-    let at = baseTime;
-    while (new Date(at).toISOString() === previous) at += 1;
+    // Strictly later than the previous one, so identities never repeat.
+    const previousMs = previous ? Date.parse(previous) : Number.NaN;
+    const at = Number.isFinite(previousMs)
+      ? Math.max(baseTime, previousMs + 1)
+      : baseTime;
     const suggestion: WindowPresetSuggestion = {
       panes: args.panes,
       reason: args.reason,
