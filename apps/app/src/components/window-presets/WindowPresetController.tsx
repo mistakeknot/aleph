@@ -155,13 +155,16 @@ export function WindowPresetController() {
     !presetPanesEqual(suggestion.panes, preset.panes);
 
   const dismiss = useCallback(() => {
-    if (activePresetId === null) {
+    if (activePresetId === null || suggestion === undefined) {
       return;
     }
     void sdk.system.windows
-      .dismissSuggestion({ presetId: activePresetId })
+      .dismissSuggestion({
+        presetId: activePresetId,
+        proposedAt: suggestion.proposedAt,
+      })
       .catch(() => {});
-  }, [activePresetId]);
+  }, [activePresetId, suggestion]);
 
   const accept = useCallback(() => {
     if (
@@ -172,10 +175,13 @@ export function WindowPresetController() {
       return;
     }
     const direction = preset?.direction ?? "row";
-    const panes = suggestion.panes;
     void sdk.system.windows
-      .acceptSuggestion({ presetId: activePresetId, windowId: getWindowId() })
-      .then(() => {
+      .acceptSuggestion({
+        presetId: activePresetId,
+        windowId: getWindowId(),
+        proposedAt: suggestion.proposedAt,
+      })
+      .then(({ panes }) => {
         const contents = resolvePresetContents(panes, threads);
         const nextLayout = buildPresetLayout(contents, direction);
         store.set(splitLayoutAtom, nextLayout);

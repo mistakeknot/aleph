@@ -164,15 +164,26 @@ describe("public windows", () => {
         panes,
         proposedBy: "thr_x",
       });
-      const accept = (windowId: string) =>
+      const proposedAt = async () =>
+        (
+          (await readJson(await send(harness, "GET", "/preferences/ui"))) as {
+            preferences: Record<string, { value: unknown }>;
+          }
+        ).preferences["windows.suggestions"]?.value as Record<
+          string,
+          { proposedAt: string }
+        >;
+      const accept = async (windowId: string, at?: string) =>
         send(harness, "POST", "/windows/presets/priorities/suggestion/accept", {
           windowId,
+          proposedAt: at ?? (await proposedAt())["priorities"]?.proposedAt,
         });
       expect((await accept("w1")).status).toBe(404);
       await send(harness, "POST", "/windows/report", {
         ...reportBody("w1"),
         presetId: "priorities",
       });
+      expect((await accept("w1", "stale")).status).toBe(409);
       expect((await accept("w1")).status).toBe(200);
       const body = (await readJson(
         await send(harness, "GET", "/preferences/ui"),
@@ -183,7 +194,7 @@ describe("public windows", () => {
       }[];
       expect(presets.find((p) => p.id === "priorities")?.panes).toEqual(panes);
       expect(body.preferences["windows.suggestions"]?.value).toEqual({});
-      expect((await accept("w1")).status).toBe(404);
+      expect((await accept("w1", "x")).status).toBe(404);
     });
   });
 
@@ -193,15 +204,24 @@ describe("public windows", () => {
         panes: [],
         proposedBy: "thr_x",
       });
-      expect(
-        (
-          await send(
-            harness,
-            "DELETE",
-            "/windows/presets/priorities/suggestion",
-          )
-        ).status,
-      ).toBe(200);
+      const before = (await readJson(
+        await send(harness, "GET", "/preferences/ui"),
+      )) as { preferences: Record<string, { value: unknown }> };
+      const at = (
+        before.preferences["windows.suggestions"]?.value as Record<
+          string,
+          { proposedAt: string }
+        >
+      )["priorities"]?.proposedAt;
+      const dismiss = (proposedAt: string | undefined) =>
+        send(
+          harness,
+          "POST",
+          "/windows/presets/priorities/suggestion/dismiss",
+          { proposedAt },
+        );
+      expect((await dismiss("stale")).status).toBe(409);
+      expect((await dismiss(at)).status).toBe(200);
       const body = (await readJson(
         await send(harness, "GET", "/preferences/ui"),
       )) as { preferences: Record<string, { value: unknown }> };

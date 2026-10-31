@@ -16,6 +16,8 @@ import {
 
 import {
   acceptWindowSuggestionRequestSchema,
+  dismissWindowSuggestionRequestSchema,
+  type DismissWindowSuggestionRequest,
   type AcceptWindowSuggestionRequest,
   type AcceptWindowSuggestionResponse,
   type DismissWindowSuggestionResponse,
@@ -106,17 +108,20 @@ export const acceptWindowSuggestionRoute = defineRoute({
   response: [
     jsonResponse<AcceptWindowSuggestionResponse>(),
     jsonResponse<ApiError>({ status: 404 }),
+    jsonResponse<ApiError>({ status: 409 }),
   ],
   invalidates: () => ["ui-preferences"],
 });
 
 export const dismissWindowSuggestionRoute = defineRoute({
-  path: "/windows/presets/:presetId/suggestion",
-  method: "delete",
-  request: noRequest<PathWindowPreset>(),
+  path: "/windows/presets/:presetId/suggestion/dismiss",
+  method: "post",
+  request: jsonRequest<PathWindowPreset, DismissWindowSuggestionRequest>(
+    dismissWindowSuggestionRequestSchema,
+  ),
   response: [
     jsonResponse<DismissWindowSuggestionResponse>(),
-    jsonResponse<ApiError>({ status: 404 }),
+    jsonResponse<ApiError>({ status: 409 }),
   ],
   invalidates: () => ["ui-preferences"],
 });

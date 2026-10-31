@@ -15,7 +15,7 @@ import {
 import type { AppDeps } from "../types.js";
 
 export function registerWindowRoutes(app: Hono, deps: AppDeps): void {
-  const { del, get, post, put } = typedRoutes<PublicApiSchema>(app, {
+  const { get, post, put } = typedRoutes<PublicApiSchema>(app, {
     invalidateTags: (tags) => deps.hub.notifyTags(tags),
     onValidationError: (message) =>
       new ApiError(400, "invalid_request", message),
@@ -67,15 +67,20 @@ export function registerWindowRoutes(app: Hono, deps: AppDeps): void {
     const result = acceptWindowSuggestion(deps, {
       presetId,
       windowId: payload.windowId,
+      proposedAt: payload.proposedAt,
     });
     if (result.outcome === "accepted") {
       return context.json({ presetId, panes: result.panes });
     }
-    if (result.outcome === "conflict") {
+    if (result.outcome === "conflict" || result.outcome === "stale") {
       throw new ApiError(
         409,
-        "ui_preference_conflict",
-        "Window presets changed on another client; try again.",
+        result.outcome === "stale"
+          ? "window_suggestion_stale"
+          : "ui_preference_conflict",
+        result.outcome === "stale"
+          ? "The suggestion changed since it was shown; review the new one."
+          : "Window presets changed on another client; try again.",
       );
     }
     throw new ApiError(
@@ -85,10 +90,10 @@ export function registerWindowRoutes(app: Hono, deps: AppDeps): void {
     );
   });
 
-  del(routes.dismissWindowSuggestion, (context) => {
+  post(routes.dismissWindowSuggestion, (context, payload) => {
     const presetId = context.req.param("presetId");
-    const result = dismissWindowSuggestion(deps, presetId);
-    if (result.outcome === "conflict") {
+    const result = dismissWindowSuggestion(deps, presetId, payload.proposedAt);
+    if (result.outcome === "conflict" || result.outcome === "stale") {
       throw new ApiError(
         409,
         "ui_preference_conflict",

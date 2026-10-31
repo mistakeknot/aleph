@@ -107,11 +107,17 @@ export type AcceptOutcome =
   | { outcome: "not_found" }
   | { outcome: "no_suggestion" }
   | { outcome: "unknown_window" }
+  | { outcome: "stale" }
   | { outcome: "conflict" };
 
 export function acceptWindowSuggestion(
   deps: AppDeps,
-  args: { presetId: string; windowId: string; now?: Date },
+  args: {
+    presetId: string;
+    windowId: string;
+    proposedAt: string;
+    now?: Date;
+  },
 ): AcceptOutcome {
   const registry = registryFor(deps);
   pruneStale(registry, (args.now ?? new Date()).getTime());
@@ -128,6 +134,7 @@ export function acceptWindowSuggestion(
     const suggestions = preferences["windows.suggestions"];
     const suggestion = suggestions.value[args.presetId];
     if (!suggestion) return { outcome: "no_suggestion" };
+    if (suggestion.proposedAt !== args.proposedAt) return { outcome: "stale" };
     const written = writeUiPreference(deps, {
       expectedRevision: presets.revision,
       key: "windows.presets",
@@ -152,10 +159,13 @@ export function acceptWindowSuggestion(
 export function dismissWindowSuggestion(
   deps: AppDeps,
   presetId: string,
-): { outcome: "dismissed" } | { outcome: "conflict" } {
+  proposedAt: string,
+): { outcome: "dismissed" } | { outcome: "stale" } | { outcome: "conflict" } {
   for (let attempt = 0; attempt < MAX_WRITE_ATTEMPTS; attempt += 1) {
     const suggestions = readUiPreferences(deps)["windows.suggestions"];
-    if (!(presetId in suggestions.value)) return { outcome: "dismissed" };
+    const current = suggestions.value[presetId];
+    if (!current) return { outcome: "dismissed" };
+    if (current.proposedAt !== proposedAt) return { outcome: "stale" };
     const { [presetId]: _removed, ...remaining } = suggestions.value;
     const written = writeUiPreference(deps, {
       expectedRevision: suggestions.revision,
