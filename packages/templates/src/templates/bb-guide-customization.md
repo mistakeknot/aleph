@@ -372,6 +372,17 @@ In the app, the sidebar footer's More menu holds hidden actions and actions
 that don't fit; Settings → Appearance → Sidebar footer, or right-clicking an
 action, edits the footer.
 
+Window presets: `windows.presets` holds named layouts (threads, thread-title
+prefixes such as the pinned "Masaq' | vizier" thread, or plugin panels) that open
+in their own window at `/?preset=<id>` with the sidebar hidden. Agents read what
+every open window shows and suggest changes; the layout changes only when the
+user accepts the prompt in that window.
+
+bb window list
+bb window show <windowId>
+bb window preset list
+bb window preset propose <presetId> --thread <id> --panel <plugin/panel> --reason "<why>"
+
 The command palette's thread search has its own Active/Archived filter, which
 is browser-local: it is not a server setting or a CLI/SDK option. The sidebar
 thread list's Active/Archived filter is the Thread list plugin's

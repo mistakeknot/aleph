@@ -940,6 +940,8 @@ list|get|set|reset` or `sdk.system.uiPreferences` (see
 | `sidebar.visiblePluginPanels` | Navigation destinations shown, or `null` for every destination                                                                                         |
 | `sidebar.footerOrder`         | Footer action order                                                                                                                                    |
 | `sidebar.hiddenFooterItems`   | Footer actions moved into More                                                                                                                         |
+| `windows.presets`             | Named window presets (panes of threads, thread-title prefixes or plugin panels) opened with `/?preset=<id>`; `bb settings ui` stays a generic write path                       |
+| `windows.suggestions`         | Agent-proposed preset layouts shown as an "update to suggested" prompt; written by `bb window preset propose`, applied only when the user accepts                      |
 | `infoPanel.collapsedSections` | Collapsed thread Info panel sections (`commits`, `uncommittedChanges`, `childThreads`, `forks`, `threadStorage`, or `<pluginId>/<sectionId>`)          |
 
 A legacy `__builtin__` thread list selection resolves to the bundled plugin.
