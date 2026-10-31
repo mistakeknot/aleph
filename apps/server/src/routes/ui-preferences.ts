@@ -18,6 +18,23 @@ import {
 } from "../services/system/ui-preferences.js";
 import type { AppDeps } from "../types.js";
 
+const WINDOW_MANAGED_KEYS: ReadonlySet<string> = new Set([
+  "windows.presets",
+  "windows.suggestions",
+]);
+
+function requireWritableUiPreferenceKey(key: string): UiPreferenceKey {
+  const known = requireUiPreferenceKey(key);
+  if (WINDOW_MANAGED_KEYS.has(known)) {
+    throw new ApiError(
+      403,
+      "ui_preference_managed",
+      `UI preference '${known}' changes only through window preset suggestions that the user accepts in the window.`,
+    );
+  }
+  return known;
+}
+
 function requireUiPreferenceKey(key: string): UiPreferenceKey {
   if (isUiPreferenceKey(key)) return key;
   throw new ApiError(
@@ -40,7 +57,7 @@ export function registerUiPreferenceRoutes(app: Hono, deps: AppDeps): void {
   );
 
   put(routes.updateUiPreference, (context, payload) => {
-    const key = requireUiPreferenceKey(context.req.param("key"));
+    const key = requireWritableUiPreferenceKey(context.req.param("key"));
     const parsed = parseUiPreferenceValue(key, payload.value);
     if (!parsed.success) {
       throw new ApiError(
@@ -66,7 +83,7 @@ export function registerUiPreferenceRoutes(app: Hono, deps: AppDeps): void {
   });
 
   del(routes.resetUiPreference, (context) => {
-    const key = requireUiPreferenceKey(context.req.param("key"));
+    const key = requireWritableUiPreferenceKey(context.req.param("key"));
     return context.json({ key, ...resetUiPreference(deps, key) });
   });
 }

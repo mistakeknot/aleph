@@ -932,17 +932,17 @@ ui_preference_conflict`. Read and write them with `bb settings ui
 list|get|set|reset` or `sdk.system.uiPreferences` (see
 `bb guide customization`).
 
-| Key                           | Value                                                                                                                                                    |
-| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sidebar.threadListProvider`  | Plugin key or `__automatic__` (default): the first installed thread list plugin other than the bundled `thread-list/thread-list`, else the bundled one   |
-| `sidebar.navigationProvider`  | Plugin key or `__automatic__` (default): the first navigation from a plugin other than the bundled Navigation plugin, else its `navigation/rail`         |
-| `sidebar.pluginPanelOrder`    | Navigation destination order                                                                                                                             |
-| `sidebar.visiblePluginPanels` | Navigation destinations shown, or `null` for every destination                                                                                           |
-| `sidebar.footerOrder`         | Footer action order                                                                                                                                      |
-| `sidebar.hiddenFooterItems`   | Footer actions moved into More                                                                                                                           |
-| `windows.presets`             | Named window presets (panes of threads, thread-title prefixes or plugin panels) opened with `/?preset=<id>`; `bb settings ui` stays a generic write path |
-| `windows.suggestions`         | Agent-proposed preset layouts shown as an "update to suggested" prompt; written by `bb window preset propose`, applied only when the user accepts        |
-| `infoPanel.collapsedSections` | Collapsed thread Info panel sections (`commits`, `uncommittedChanges`, `childThreads`, `forks`, `threadStorage`, or `<pluginId>/<sectionId>`)            |
+| Key                           | Value                                                                                                                                                                                                                   |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sidebar.threadListProvider`  | Plugin key or `__automatic__` (default): the first installed thread list plugin other than the bundled `thread-list/thread-list`, else the bundled one                                                                  |
+| `sidebar.navigationProvider`  | Plugin key or `__automatic__` (default): the first navigation from a plugin other than the bundled Navigation plugin, else its `navigation/rail`                                                                        |
+| `sidebar.pluginPanelOrder`    | Navigation destination order                                                                                                                                                                                            |
+| `sidebar.visiblePluginPanels` | Navigation destinations shown, or `null` for every destination                                                                                                                                                          |
+| `sidebar.footerOrder`         | Footer action order                                                                                                                                                                                                     |
+| `sidebar.hiddenFooterItems`   | Footer actions moved into More                                                                                                                                                                                          |
+| `windows.presets`             | Named window presets (panes of threads, thread-title prefixes or plugin panels) opened with `/?preset=<id>`; `bb settings ui set/reset` refuses this key (403), so a layout changes only through an accepted suggestion |
+| `windows.suggestions`         | Agent-proposed preset layouts shown as an "update to suggested" prompt; written by `bb window preset propose`, applied only when the user accepts in the window; `bb settings ui set/reset` refuses this key            |
+| `infoPanel.collapsedSections` | Collapsed thread Info panel sections (`commits`, `uncommittedChanges`, `childThreads`, `forks`, `threadStorage`, or `<pluginId>/<sectionId>`)                                                                           |
 
 A legacy `__builtin__` thread list selection resolves to the bundled plugin.
 Footer IDs are `builtin:settings` (top list layout only), `builtin:mobile`,

@@ -50,6 +50,8 @@ import type {
   UiPreferencesResponse,
   ProposeWindowPresetRequest,
   ProposeWindowPresetResponse,
+  AcceptWindowSuggestionResponse,
+  DismissWindowSuggestionResponse,
   ReportWindowRequest,
   ReportWindowResponse,
   WindowsResponse,
@@ -195,6 +197,15 @@ export interface SystemWindowsArea {
   propose(
     input: ProposeWindowPresetRequest & { presetId: string },
   ): Promise<ProposeWindowPresetResponse>;
+  /** User-side only: the app calls this when the user accepts a suggestion. */
+  acceptSuggestion(input: {
+    presetId: string;
+    windowId: string;
+  }): Promise<AcceptWindowSuggestionResponse>;
+  /** User-side only: the app calls this when the user dismisses a suggestion. */
+  dismissSuggestion(input: {
+    presetId: string;
+  }): Promise<DismissWindowSuggestionResponse>;
 }
 
 export interface SystemArea {
@@ -343,6 +354,23 @@ export function createSystemArea(args: CreateSdkAreaArgs): SystemArea {
         }),
       );
       return body as ProposeWindowPresetResponse;
+    },
+    async acceptSuggestion({ presetId, windowId }) {
+      const body = await transport.readJson(
+        transport.api.v1.windows.presets[":presetId"].suggestion.accept.$post({
+          json: { windowId },
+          param: { presetId },
+        }),
+      );
+      return body as AcceptWindowSuggestionResponse;
+    },
+    async dismissSuggestion({ presetId }) {
+      const body = await transport.readJson(
+        transport.api.v1.windows.presets[":presetId"].suggestion.$delete({
+          param: { presetId },
+        }),
+      );
+      return body as DismissWindowSuggestionResponse;
     },
   };
   return {

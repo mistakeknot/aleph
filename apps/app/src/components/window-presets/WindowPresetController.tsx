@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useAtom, useAtomValue, useSetAtom, useStore } from "jotai";
+import { useAtomValue, useStore } from "jotai";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@bb/shared-ui/button";
 import type { WindowReport } from "@bb/domain";
@@ -41,8 +41,7 @@ export function WindowPresetController() {
   const { data: preferences } = useUiPreferences();
   const preferencesReady = preferences !== undefined;
   const presets = useAtomValue(windowPresetsAtom);
-  const [suggestions, setSuggestions] = useAtom(windowSuggestionsAtom);
-  const setPresets = useSetAtom(windowPresetsAtom);
+  const suggestions = useAtomValue(windowSuggestionsAtom);
   const layout = useAtomValue(splitLayoutAtom);
   const maximizedPaneId = useAtomValue(maximizedPaneIdAtom);
   const sidebarOpen = useAtomValue(sidebarOpenAtom);
@@ -159,12 +158,10 @@ export function WindowPresetController() {
     if (activePresetId === null) {
       return;
     }
-    setSuggestions((previous) => {
-      const next = { ...previous };
-      delete next[activePresetId];
-      return next;
-    });
-  }, [activePresetId, setSuggestions]);
+    void sdk.system.windows
+      .dismissSuggestion({ presetId: activePresetId })
+      .catch(() => {});
+  }, [activePresetId]);
 
   const accept = useCallback(() => {
     if (
@@ -174,29 +171,19 @@ export function WindowPresetController() {
     ) {
       return;
     }
-    setPresets((previous) =>
-      previous.map((candidate) =>
-        candidate.id === activePresetId
-          ? { ...candidate, panes: suggestion.panes }
-          : candidate,
-      ),
-    );
-    const contents = resolvePresetContents(suggestion.panes, threads);
-    const nextLayout = buildPresetLayout(contents, preset?.direction ?? "row");
-    store.set(splitLayoutAtom, nextLayout);
-    store.set(maximizedPaneIdAtom, null);
-    void navigate(focusedPaneRoute(nextLayout) ?? "/", { replace: true });
-    dismiss();
-  }, [
-    activePresetId,
-    suggestion,
-    threads,
-    setPresets,
-    preset,
-    store,
-    navigate,
-    dismiss,
-  ]);
+    const direction = preset?.direction ?? "row";
+    const panes = suggestion.panes;
+    void sdk.system.windows
+      .acceptSuggestion({ presetId: activePresetId, windowId: getWindowId() })
+      .then(() => {
+        const contents = resolvePresetContents(panes, threads);
+        const nextLayout = buildPresetLayout(contents, direction);
+        store.set(splitLayoutAtom, nextLayout);
+        store.set(maximizedPaneIdAtom, null);
+        void navigate(focusedPaneRoute(nextLayout) ?? "/", { replace: true });
+      })
+      .catch(() => {});
+  }, [activePresetId, suggestion, threads, preset, store, navigate]);
 
   if (!showSuggestion || suggestion === undefined) {
     return null;

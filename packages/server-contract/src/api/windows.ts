@@ -1,4 +1,5 @@
 import type {
+  WindowPresetPane,
   WindowPresetSuggestion,
   WindowReport,
   WindowSnapshot,
@@ -33,4 +34,20 @@ export type ProposeWindowPresetRequest = z.infer<
 export interface ProposeWindowPresetResponse {
   presetId: string;
   suggestion: WindowPresetSuggestion;
+}
+
+export const acceptWindowSuggestionRequestSchema = z
+  .object({ windowId: z.string().min(1).max(128) })
+  .strict();
+export type AcceptWindowSuggestionRequest = z.infer<
+  typeof acceptWindowSuggestionRequestSchema
+>;
+
+export interface AcceptWindowSuggestionResponse {
+  presetId: string;
+  panes: WindowPresetPane[];
+}
+
+export interface DismissWindowSuggestionResponse {
+  presetId: string;
 }

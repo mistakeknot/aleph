@@ -3,6 +3,8 @@ import {
   windowsRoute,
   reportWindowRoute,
   proposeWindowPresetRoute,
+  acceptWindowSuggestionRoute,
+  dismissWindowSuggestionRoute,
   updateUiPreferenceRoute,
   resetUiPreferenceRoute,
 } from "./client-route-descriptors.js";
@@ -2105,6 +2107,8 @@ export const publicApiRoutes = {
     windows: windowsRoute,
     reportWindow: reportWindowRoute,
     proposeWindowPreset: proposeWindowPresetRoute,
+    acceptWindowSuggestion: acceptWindowSuggestionRoute,
+    dismissWindowSuggestion: dismissWindowSuggestionRoute,
     updateUiPreference: updateUiPreferenceRoute,
     resetUiPreference: resetUiPreferenceRoute,
     themes: defineRoute({

@@ -101,3 +101,68 @@ export function proposeWindowPreset(
   }
   return { outcome: "conflict" };
 }
+
+export type AcceptOutcome =
+  | { outcome: "accepted"; panes: WindowPresetPane[] }
+  | { outcome: "not_found" }
+  | { outcome: "no_suggestion" }
+  | { outcome: "unknown_window" }
+  | { outcome: "conflict" };
+
+export function acceptWindowSuggestion(
+  deps: AppDeps,
+  args: { presetId: string; windowId: string; now?: Date },
+): AcceptOutcome {
+  const registry = registryFor(deps);
+  pruneStale(registry, (args.now ?? new Date()).getTime());
+  if (registry.get(args.windowId)?.presetId !== args.presetId) {
+    return { outcome: "unknown_window" };
+  }
+  for (let attempt = 0; attempt < MAX_WRITE_ATTEMPTS; attempt += 1) {
+    const preferences = readUiPreferences(deps);
+    const presets = preferences["windows.presets"];
+    const preset = presets.value.find(
+      (candidate) => candidate.id === args.presetId,
+    );
+    if (!preset || !preset.userEditable) return { outcome: "not_found" };
+    const suggestions = preferences["windows.suggestions"];
+    const suggestion = suggestions.value[args.presetId];
+    if (!suggestion) return { outcome: "no_suggestion" };
+    const written = writeUiPreference(deps, {
+      expectedRevision: presets.revision,
+      key: "windows.presets",
+      value: presets.value.map((candidate) =>
+        candidate.id === args.presetId
+          ? { ...candidate, panes: suggestion.panes }
+          : candidate,
+      ),
+    });
+    if (written.outcome !== "updated") continue;
+    const { [args.presetId]: _accepted, ...remaining } = suggestions.value;
+    writeUiPreference(deps, {
+      expectedRevision: suggestions.revision,
+      key: "windows.suggestions",
+      value: remaining,
+    });
+    return { outcome: "accepted", panes: suggestion.panes };
+  }
+  return { outcome: "conflict" };
+}
+
+export function dismissWindowSuggestion(
+  deps: AppDeps,
+  presetId: string,
+): { outcome: "dismissed" } | { outcome: "conflict" } {
+  for (let attempt = 0; attempt < MAX_WRITE_ATTEMPTS; attempt += 1) {
+    const suggestions = readUiPreferences(deps)["windows.suggestions"];
+    if (!(presetId in suggestions.value)) return { outcome: "dismissed" };
+    const { [presetId]: _removed, ...remaining } = suggestions.value;
+    const written = writeUiPreference(deps, {
+      expectedRevision: suggestions.revision,
+      key: "windows.suggestions",
+      value: remaining,
+    });
+    if (written.outcome === "updated") return { outcome: "dismissed" };
+  }
+  return { outcome: "conflict" };
+}

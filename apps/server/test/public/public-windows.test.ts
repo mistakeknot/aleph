@@ -141,4 +141,71 @@ describe("public windows", () => {
       ).toBe(400);
     });
   });
+
+  it("refuses direct writes to window preferences", async () => {
+    await withTestHarness(async (harness) => {
+      for (const key of ["windows.presets", "windows.suggestions"]) {
+        const put = await send(harness, "PUT", `/preferences/ui/${key}`, {
+          value: key === "windows.presets" ? [] : {},
+          expectedRevision: 0,
+        });
+        expect(put.status).toBe(403);
+        expect(
+          (await send(harness, "DELETE", `/preferences/ui/${key}`)).status,
+        ).toBe(403);
+      }
+    });
+  });
+
+  it("applies a suggestion only through accept from a reporting window", async () => {
+    await withTestHarness(async (harness) => {
+      const panes = [{ kind: "thread", projectId: "prj_1", threadId: "thr_9" }];
+      await send(harness, "PUT", "/windows/presets/priorities/suggestion", {
+        panes,
+        proposedBy: "thr_x",
+      });
+      const accept = (windowId: string) =>
+        send(harness, "POST", "/windows/presets/priorities/suggestion/accept", {
+          windowId,
+        });
+      expect((await accept("w1")).status).toBe(404);
+      await send(harness, "POST", "/windows/report", {
+        ...reportBody("w1"),
+        presetId: "priorities",
+      });
+      expect((await accept("w1")).status).toBe(200);
+      const body = (await readJson(
+        await send(harness, "GET", "/preferences/ui"),
+      )) as { preferences: Record<string, { value: unknown }> };
+      const presets = body.preferences["windows.presets"]?.value as {
+        id: string;
+        panes: unknown[];
+      }[];
+      expect(presets.find((p) => p.id === "priorities")?.panes).toEqual(panes);
+      expect(body.preferences["windows.suggestions"]?.value).toEqual({});
+      expect((await accept("w1")).status).toBe(404);
+    });
+  });
+
+  it("dismisses a suggestion", async () => {
+    await withTestHarness(async (harness) => {
+      await send(harness, "PUT", "/windows/presets/priorities/suggestion", {
+        panes: [],
+        proposedBy: "thr_x",
+      });
+      expect(
+        (
+          await send(
+            harness,
+            "DELETE",
+            "/windows/presets/priorities/suggestion",
+          )
+        ).status,
+      ).toBe(200);
+      const body = (await readJson(
+        await send(harness, "GET", "/preferences/ui"),
+      )) as { preferences: Record<string, { value: unknown }> };
+      expect(body.preferences["windows.suggestions"]?.value).toEqual({});
+    });
+  });
 });

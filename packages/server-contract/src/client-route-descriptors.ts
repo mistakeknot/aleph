@@ -15,6 +15,10 @@ import {
 } from "./api/ui-preferences.js";
 
 import {
+  acceptWindowSuggestionRequestSchema,
+  type AcceptWindowSuggestionRequest,
+  type AcceptWindowSuggestionResponse,
+  type DismissWindowSuggestionResponse,
   proposeWindowPresetRequestSchema,
   reportWindowRequestSchema,
   type PathWindowPreset,
@@ -91,4 +95,28 @@ export const resetUiPreferenceRoute = defineRoute({
     jsonResponse<ApiError>({ status: 404 }),
   ],
   invalidates: () => [UI_PREFERENCES_TAG],
+});
+
+export const acceptWindowSuggestionRoute = defineRoute({
+  path: "/windows/presets/:presetId/suggestion/accept",
+  method: "post",
+  request: jsonRequest<PathWindowPreset, AcceptWindowSuggestionRequest>(
+    acceptWindowSuggestionRequestSchema,
+  ),
+  response: [
+    jsonResponse<AcceptWindowSuggestionResponse>(),
+    jsonResponse<ApiError>({ status: 404 }),
+  ],
+  invalidates: () => ["ui-preferences"],
+});
+
+export const dismissWindowSuggestionRoute = defineRoute({
+  path: "/windows/presets/:presetId/suggestion",
+  method: "delete",
+  request: noRequest<PathWindowPreset>(),
+  response: [
+    jsonResponse<DismissWindowSuggestionResponse>(),
+    jsonResponse<ApiError>({ status: 404 }),
+  ],
+  invalidates: () => ["ui-preferences"],
 });
