@@ -4,6 +4,7 @@ import {
   useEffect,
   useLayoutEffect,
   useRef,
+  useState,
 } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
 import { RESET } from "jotai/utils";
@@ -37,6 +38,8 @@ export function useSecondaryPanelResize({
   const secondaryResizablePanelRef = useRef<ImperativePanelHandle | null>(null);
   const lastSecondaryPanelSizeRef = useRef(persistedWidthPercent);
   const didPointerResizeRef = useRef(false);
+  const isDraggingRef = useRef(false);
+  const [dragEndTick, setDragEndTick] = useState(0);
   const handleSecondaryPanelPointerResize = useCallback(
     (leadingFraction: number) => {
       didPointerResizeRef.current = true;
@@ -47,6 +50,7 @@ export function useSecondaryPanelResize({
   const handleSecondaryPanelDragging = useCallback(
     (isDragging: boolean) => {
       setIsResizing(isDragging);
+      isDraggingRef.current = isDragging;
       if (isDragging) {
         didPointerResizeRef.current = false;
         widthWriter.pin();
@@ -58,6 +62,8 @@ export function useSecondaryPanelResize({
       ) {
         widthWriter.commit(lastSecondaryPanelSizeRef.current);
       }
+      // Reconcile with the active class once the pinned write has landed.
+      setDragEndTick((tick) => tick + 1);
     },
     [setIsResizing, widthWriter],
   );
@@ -90,25 +96,28 @@ export function useSecondaryPanelResize({
   }, [isSecondaryPanelOpen]);
 
   // The stored width changes when the width class (or a reset) selects a
-  // different value; the mounted panel only reads defaultSize once. Only act
-  // on a change after mount, never on the initial value.
-  const prevPersistedWidthRef = useRef(persistedWidthPercent);
+  // different value; the mounted panel only reads defaultSize once. Apply it
+  // whenever the panel is open and no drag is in progress, so a change made
+  // while closed is applied on reopen and a change during a drag waits for the
+  // drag to commit. The initial mount is skipped: the panel sizes itself.
+  const hasMountedRef = useRef(false);
   useEffect(() => {
-    if (prevPersistedWidthRef.current === persistedWidthPercent) {
+    if (!hasMountedRef.current) {
+      hasMountedRef.current = true;
       return;
     }
-    prevPersistedWidthRef.current = persistedWidthPercent;
     const panel = secondaryResizablePanelRef.current;
     if (
       !panel ||
       !isSecondaryPanelOpen ||
+      isDraggingRef.current ||
       persistedWidthPercent <= 0 ||
       Math.abs(lastSecondaryPanelSizeRef.current - persistedWidthPercent) < 0.01
     ) {
       return;
     }
     panel.resize(persistedWidthPercent);
-  }, [isSecondaryPanelOpen, persistedWidthPercent]);
+  }, [isSecondaryPanelOpen, persistedWidthPercent, dragEndTick]);
 
   const handleSecondaryPanelResize = useCallback<SecondaryPanelResizeHandler>(
     (size) => {
