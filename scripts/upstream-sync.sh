@@ -62,14 +62,15 @@ load() {
   [[ -n "$base" ]] || die "UPSTREAM_BASE on $onto has no commit line"
   git cat-file -e "$base^{commit}" 2>/dev/null || die "base $base is not fetched"
   mapfile -t commits < <(git rev-list --first-parent --reverse "$base..$remote/main")
-  # Conflicts only grow as more upstream lands, so bisect for the last
-  # clean prefix. clean_upto is a count: commits[clean_upto-1] is the tip.
-  local lo=0 hi=${#commits[@]} mid
-  while (( lo < hi )); do
-    mid=$(( (lo + hi + 1) / 2 ))
-    if clean_at "${commits[mid-1]}"; then lo=$mid; else hi=$((mid - 1)); fi
+  # Cleanliness is not monotonic (a later upstream commit can revert a
+  # conflicting one), so scan back from the head for the farthest clean
+  # commit instead of bisecting. A merge-tree costs well under a second.
+  # clean_upto is a count: commits[clean_upto-1] is the tip, and every
+  # commit after it conflicts.
+  clean_upto=${#commits[@]}
+  while (( clean_upto > 0 )) && ! clean_at "${commits[clean_upto-1]}"; do
+    clean_upto=$((clean_upto - 1))
   done
-  clean_upto=$lo
 }
 
 cmd_probe() {
