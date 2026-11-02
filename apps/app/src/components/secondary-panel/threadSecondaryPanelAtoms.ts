@@ -47,7 +47,7 @@ export type SecondaryPanelWidthPercentAtom = WritableAtom<
   [number | typeof RESET],
   void
 > &
-  ExplicitClassWritable<number | typeof RESET>;
+  ExplicitClassWritable<number>;
 
 const widthDefaults = {
   narrow: DEFAULT_SECONDARY_PANEL_WIDTH_PERCENT,

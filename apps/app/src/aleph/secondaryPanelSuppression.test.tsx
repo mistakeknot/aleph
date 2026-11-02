@@ -116,7 +116,7 @@ describe("width-class secondary panel suppression", () => {
     const { hook, setWidth } = setup();
     setWidth(1000);
     expect(hook.result.current.state.secondary.isOpen).toBe(false);
-    act(() => hook.result.current.setTab("git-diff"));
+    act(() => hook.result.current.setTab("thread-info"));
     expect(hook.result.current.state.secondary.isOpen).toBe(true);
     expect(window.localStorage.getItem(SUPPRESSED_KEY("narrow"))).toBe("false");
   });
@@ -152,7 +152,7 @@ describe("width-class secondary panel suppression", () => {
     it("set-tab reveals in one action", () => {
       const { hook, setWidth } = setup();
       setWidth(1000);
-      act(() => hook.result.current.setTab("git-diff"));
+      act(() => hook.result.current.setTab("thread-info"));
       expect(hook.result.current.state.secondary.isOpen).toBe(true);
     });
 

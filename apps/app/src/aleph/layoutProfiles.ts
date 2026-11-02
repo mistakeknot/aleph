@@ -127,11 +127,19 @@ function withLegacyFallback<T>(
   };
 }
 
-export type ClassScopedAtom<T> = WritableAtom<
-  T,
-  [ClassScopedUpdate<T>],
-  void
->;
+export type ClassScopedUpdate<T> = T | ((prev: T) => T) | typeof RESET;
+
+export interface ClassScopedWrite<T> {
+  widthClass: WidthClass;
+  update: ClassScopedUpdate<T>;
+}
+
+// Write to an explicit class rather than the active one.
+export interface ExplicitClassWritable<T> {
+  writeToClassAtom: WritableAtom<null, [ClassScopedWrite<T>], void>;
+}
+
+export type ClassScopedAtom<T> = WritableAtom<T, [ClassScopedUpdate<T>], void>;
 
 export type ClassScopedAtomWithProfiles<T> = ClassScopedAtom<T> & {
   profileAtoms: Record<WidthClass, ClassScopedAtom<T>>;
@@ -232,16 +240,17 @@ export function useSecondaryPanelSuppressionActions(): SecondaryPanelSuppression
 // Resize drags read a width in one class and persist at mouseup. Pin the class
 // when the drag starts so a class flip mid-drag cannot write to another
 // class's profile.
-export function usePinnedClassWriter<T>(
-  scopedAtom: ClassScopedAtomWithProfiles<T>,
-): { pin: () => void; commit: (value: T) => void } {
+export function usePinnedClassWriter<T>(scopedAtom: ExplicitClassWritable<T>): {
+  pin: () => void;
+  commit: (value: ClassScopedUpdate<T>) => void;
+} {
   const store = useStore();
   const pinnedRef = useRef<WidthClass | null>(null);
   const pin = useCallback(() => {
     pinnedRef.current = store.get(widthClassAtom);
   }, [store]);
   const commit = useCallback(
-    (value: T) => {
+    (value: ClassScopedUpdate<T>) => {
       const widthClass = pinnedRef.current ?? store.get(widthClassAtom);
       pinnedRef.current = null;
       store.set(scopedAtom.writeToClassAtom, { widthClass, update: value });
