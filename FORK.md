@@ -432,7 +432,7 @@ Merge with that commit as the explicit base:
 
 `scripts/upstream-sync.sh` does this. `probe` fetches `main` from the
 upstream and origin remotes (remote-tracking refs and `FETCH_HEAD` only; set
-`ALEPH_SYNC_NO_FETCH=1` to skip it) and changes nothing else. It finds the
+`ALEPH_SYNC_NO_FETCH=1` to skip it) and writes no other ref. It finds the
 farthest upstream first-parent commit that merges with no conflict, the next
 commit that conflicts, and the patch-ledger rows its conflicted paths belong
 to (`docs/aleph-patch-ledger-paths.tsv`; that row's "Conflict resolution"

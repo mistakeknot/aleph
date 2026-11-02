@@ -3,8 +3,9 @@
 #
 #   scripts/upstream-sync.sh probe [--json]
 #       Fetches main from the upstream and origin remotes (this updates their
-#       remote-tracking refs and FETCH_HEAD, never tags or local branches),
-#       then makes no other change. Reads UPSTREAM_BASE and finds the
+#       remote-tracking refs and FETCH_HEAD, never tags or local branches)
+#       and writes no other ref; git merge-tree may add loose objects.
+#       Reads UPSTREAM_BASE and finds the
 #       farthest upstream first-parent commit that merges into the current
 #       branch with no conflict. Reports the next conflicting commit, the
 #       conflicted paths there, and the patch-ledger rows they belong to.
@@ -75,11 +76,20 @@ ledger_patches() {
 
 load() {
   fetch
+  # Pin both sides once, so a later fetch cannot move them mid-run: the
+  # tree and the parent of a sync commit must come from the same commit.
+  onto="$(git rev-parse --verify -q "$onto^{commit}")" || die "cannot resolve the branch to sync onto"
+  upstream="$(git rev-parse --verify -q "$remote/main^{commit}")" || die "cannot resolve $remote/main"
   base="$(base_field commit)"
   [[ -n "$base" ]] || die "UPSTREAM_BASE on $onto has no commit line"
   git cat-file -e "$base^{commit}" 2>/dev/null || die "base $base is not fetched"
+  # The base must sit on upstream's first-parent line; otherwise base..head
+  # is not "what upstream did since the last sync" and a merge against it
+  # could undo changes already synced. Read rev-list to the end (pipefail).
+  git rev-list --first-parent "$upstream" | awk -v b="$base" '$0==b{f=1} END{exit !f}' \
+    || die "base $base is not on $remote/main's first-parent history"
   local list
-  list="$(git rev-list --first-parent --reverse "$base..$remote/main")" \
+  list="$(git rev-list --first-parent --reverse "$base..$upstream")" \
     || die "cannot list upstream commits past $base"
   commits=()
   [[ -z "$list" ]] || mapfile -t commits <<<"$list"
@@ -102,16 +112,16 @@ cmd_probe() {
   if (( clean_upto < total )); then
     next="${commits[clean_upto]}"
     next_paths="$(conflicted_paths "$next")"
-    head_paths="$(conflicted_paths "$remote/main")"
+    head_paths="$(conflicted_paths "$upstream")"
     head_conf="$(printf '%s\n' "$head_paths" | grep -c . || true)"
   fi
-  local up_release; up_release="$(release_at "$remote/main")"
+  local up_release; up_release="$(release_at "$upstream")"
   if (( json )); then
     {
       printf '%s\n' "$next_paths" | sed '/^$/d' | ledger_patches
     } | jq -Rn \
       --arg base "$base" --arg base_release "$(base_field release)" \
-      --arg upstream_head "$(git rev-parse "$remote/main")" --arg upstream_release "$up_release" \
+      --arg upstream_head "$(git rev-parse "$upstream")" --arg upstream_release "$up_release" \
       --argjson behind "$total" --argjson clean_upto "$clean_upto" \
       --arg clean_tip "$tip" --arg next "$next" --argjson head_conflicts "$head_conf" \
       --arg next_subject "$([[ -n "$next" ]] && git log -1 --format=%s "$next")" '
@@ -124,7 +134,7 @@ cmd_probe() {
        head_conflicts:$head_conflicts}'
   else
     echo "base:            $base ($(base_field release))"
-    echo "upstream main:   $(git rev-parse --short "$remote/main") (CHANGELOG top: $up_release)"
+    echo "upstream main:   $(git rev-parse --short "$upstream") (CHANGELOG top: $up_release)"
     echo "behind:          $total first-parent commits"
     echo "clean through:   $clean_upto${tip:+ ($(git log -1 --format='%h %s' "$tip"))}"
     if [[ -n "$next" ]]; then
@@ -150,9 +160,10 @@ cmd_prepare() {
   local c ok=0
   for c in "${commits[@]}"; do [[ "$c" == "$target" ]] && { ok=1; break; }; done
   (( ok )) || die "$target is not an upstream first-parent commit past the base"
-  local tree
-  tree="$(git merge-tree --write-tree --merge-base="$base" "$onto" "$target")" \
-    || die "$target conflicts with $onto; resolve it on a branch by hand"
+  local tree rc=0
+  tree="$(git merge-tree --write-tree --merge-base="$base" "$onto" "$target")" || rc=$?
+  (( rc != 1 )) || die "$target conflicts with $onto; resolve it on a branch by hand"
+  (( rc == 0 )) || die "git merge-tree failed ($rc) on $target"
   local release short branch idx
   release="$(release_at "$target")"
   short="$(git rev-parse --short=10 "$target")"
@@ -176,7 +187,7 @@ Release:  $release (top of upstream CHANGELOG at this commit)
 
 Merged with git merge-tree --merge-base=$base, no conflicts.
 Prepared by scripts/upstream-sync.sh."
-  local commit; commit="$(git commit-tree "$tree" -p "$(git rev-parse "$onto")" -m "$msg")"
+  local commit; commit="$(git commit-tree "$tree" -p "$onto" -m "$msg")"
   git branch "$branch" "$commit"
   local migrations
   migrations="$(git diff --name-only --diff-filter=A "$onto" "$commit" -- packages/db/drizzle)"
