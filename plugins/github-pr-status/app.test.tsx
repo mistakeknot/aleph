@@ -260,16 +260,16 @@ describe("pull request row metadata", () => {
       view.unmount();
       return count;
     };
-    expect(await glyphs({ checks: passingChecks })).toBe(2);
+    expect(await glyphs({ checks: passingChecks })).toBe(1);
     expect(
       await glyphs({ checks: { ...passingChecks, state: "failing" } }),
-    ).toBe(3);
+    ).toBe(2);
     expect(
       await glyphs({ checks: { ...passingChecks, state: "pending" } }),
-    ).toBe(3);
+    ).toBe(2);
     expect(
       await glyphs({ attention: "conflicts", checks: passingChecks }),
-    ).toBe(3);
+    ).toBe(2);
   });
 
   it("shows the number, title and check counts in a tooltip on hover", async () => {

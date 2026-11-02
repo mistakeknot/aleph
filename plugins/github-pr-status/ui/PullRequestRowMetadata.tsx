@@ -11,7 +11,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
 import type { EnvironmentPullRequest, PullRequest } from "../contract";
 import { pullRequestsReadContract } from "../read-contract";
 import {
@@ -88,11 +87,15 @@ export function PullRequestBadge({
       className="flex shrink-0 items-center gap-1 text-xs leading-3.5 tabular-nums"
       onPointerEnter={hovered ? undefined : () => setHovered(true)}
     >
-      <Icon
-        name={state.icon}
-        className={cn("size-3.5 shrink-0", state.className)}
-      />
-      <span className="text-subtle-foreground">#{pullRequest.number}</span>
+      <span
+        className={
+          pullRequest.state === "draft"
+            ? "text-subtle-foreground"
+            : state.className
+        }
+      >
+        #{pullRequest.number}
+      </span>
       {glyph === null ? null : <AttentionGlyph kind={glyph} />}
     </span>
   );
