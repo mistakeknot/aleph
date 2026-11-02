@@ -430,15 +430,17 @@ already has. `UPSTREAM_BASE` records the upstream commit the last sync reached.
 Merge with that commit as the explicit base:
 `git merge-tree --write-tree --merge-base=<UPSTREAM_BASE commit> origin/main <upstream commit>`.
 
-`scripts/upstream-sync.sh` does this. `probe` is read-only: it finds the
+`scripts/upstream-sync.sh` does this. `probe` fetches `main` from the
+upstream and origin remotes (remote-tracking refs and `FETCH_HEAD` only; set
+`ALEPH_SYNC_NO_FETCH=1` to skip it) and changes nothing else. It finds the
 farthest upstream first-parent commit that merges with no conflict, the next
 commit that conflicts, and the patch-ledger rows its conflicted paths belong
 to (`docs/aleph-patch-ledger-paths.tsv`; that row's "Conflict resolution"
 column in `docs/aleph-patch-ledger.md` says how to resolve it). `probe --json`
 prints the same report for a scheduler. `prepare [commit]` creates branch
 `sync/upstream-<short>` at a sync commit up to that commit (default: the
-farthest clean one) and moves `UPSTREAM_BASE`. It refuses a commit that
-conflicts, and it never pushes, merges, tags or changes the Aleph version.
+farthest clean one) and moves `UPSTREAM_BASE`. It accepts only an upstream
+first-parent commit past the base, refuses a commit that conflicts, and it never pushes, merges, tags or changes the Aleph version.
 
 Syncing between upstream releases keeps each step small. A clean step goes
 through the usual gate and review as a pull request. A conflicting step is

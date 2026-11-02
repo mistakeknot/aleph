@@ -2,7 +2,9 @@
 # Keep Aleph close to upstream bb in small steps.
 #
 #   scripts/upstream-sync.sh probe [--json]
-#       Read-only. Fetches upstream, reads UPSTREAM_BASE, and finds the
+#       Fetches main from the upstream and origin remotes (this updates their
+#       remote-tracking refs and FETCH_HEAD, never tags or local branches),
+#       then makes no other change. Reads UPSTREAM_BASE and finds the
 #       farthest upstream first-parent commit that merges into the current
 #       branch with no conflict. Reports the next conflicting commit, the
 #       conflicted paths there, and the patch-ledger rows they belong to.
@@ -10,14 +12,16 @@
 #   scripts/upstream-sync.sh prepare [UPSTREAM_COMMIT]
 #       Creates branch sync/upstream-<short> at a single-parent sync commit
 #       that brings upstream up to UPSTREAM_COMMIT (default: the farthest
-#       clean commit from probe) and rewrites UPSTREAM_BASE. It refuses a
+#       clean commit from probe) and rewrites UPSTREAM_BASE. UPSTREAM_COMMIT
+#       must be an upstream first-parent commit past the base. It refuses a
 #       commit that conflicts. It never pushes, merges, tags or bumps the
 #       Aleph version; the gate and review run on the branch afterwards.
 #
 # Syncs are squashed, so `git merge-base` with upstream does not move.
 # Every merge here uses the explicit base recorded in UPSTREAM_BASE.
 # Environment: ALEPH_UPSTREAM_REMOTE (default "upstream"),
-#              ALEPH_SYNC_ONTO (default "origin/main").
+#              ALEPH_SYNC_ONTO (default "origin/main"),
+#              ALEPH_SYNC_NO_FETCH=1 to skip the fetch and use the refs as they are.
 set -euo pipefail
 
 remote="${ALEPH_UPSTREAM_REMOTE:-upstream}"
@@ -31,20 +35,33 @@ cd "$(git rev-parse --show-toplevel)"
 base_field() { git show "$onto:UPSTREAM_BASE" | awk -v k="$1:" '$1==k{print $2}'; }
 
 fetch() {
-  git fetch -q "$remote" main
-  git fetch -q origin main
+  [[ "${ALEPH_SYNC_NO_FETCH:-}" == 1 ]] && return 0
+  git fetch -q --no-tags "$remote" main
+  git fetch -q --no-tags origin main
 }
 
 # Read the whole file: an early awk exit would SIGPIPE git under pipefail.
 release_at() { git show "$1:CHANGELOG.md" | awk '/^## [0-9]/ && !f {print $2; f=1}'; }
 
-clean_at() { git merge-tree --write-tree --merge-base="$base" "$onto" "$1" >/dev/null 2>&1; }
+# git merge-tree exits 0 when clean, 1 on a conflict and otherwise on an
+# error. An error must stop the run, not read as a conflict.
+clean_at() {
+  local rc=0
+  git merge-tree --write-tree --merge-base="$base" "$onto" "$1" >/dev/null 2>&1 || rc=$?
+  case $rc in
+    0) return 0 ;;
+    1) return 1 ;;
+    *) die "git merge-tree failed ($rc) on $1" ;;
+  esac
+}
 
 conflicted_paths() {
   # --name-only prints the tree id, the conflicted paths, a blank line,
   # then the messages; keep only the paths.
-  git merge-tree --write-tree --name-only --merge-base="$base" "$onto" "$1" 2>/dev/null \
-    | sed -n '2,/^$/p' | sed '/^$/d' | sort -u || true
+  local out rc=0
+  out="$(git merge-tree --write-tree --name-only --merge-base="$base" "$onto" "$1")" || rc=$?
+  (( rc <= 1 )) || die "git merge-tree failed ($rc) on $1"
+  printf '%s\n' "$out" | sed -n '2,/^$/p' | sed '/^$/d' | sort -u
 }
 
 ledger_patches() {
@@ -61,7 +78,11 @@ load() {
   base="$(base_field commit)"
   [[ -n "$base" ]] || die "UPSTREAM_BASE on $onto has no commit line"
   git cat-file -e "$base^{commit}" 2>/dev/null || die "base $base is not fetched"
-  mapfile -t commits < <(git rev-list --first-parent --reverse "$base..$remote/main")
+  local list
+  list="$(git rev-list --first-parent --reverse "$base..$remote/main")" \
+    || die "cannot list upstream commits past $base"
+  commits=()
+  [[ -z "$list" ]] || mapfile -t commits <<<"$list"
   # Cleanliness is not monotonic (a later upstream commit can revert a
   # conflicting one), so scan back from the head for the farthest clean
   # commit instead of bisecting. A merge-tree costs well under a second.
@@ -76,12 +97,13 @@ load() {
 cmd_probe() {
   local json=0; [[ "${1:-}" == "--json" ]] && json=1
   load
-  local total=${#commits[@]} tip="" next="" head_conf=0 next_paths=""
+  local total=${#commits[@]} tip="" next="" head_conf=0 next_paths="" head_paths=""
   (( clean_upto > 0 )) && tip="${commits[clean_upto-1]}"
   if (( clean_upto < total )); then
     next="${commits[clean_upto]}"
     next_paths="$(conflicted_paths "$next")"
-    head_conf="$(conflicted_paths "$remote/main" | grep -c . || true)"
+    head_paths="$(conflicted_paths "$remote/main")"
+    head_conf="$(printf '%s\n' "$head_paths" | grep -c . || true)"
   fi
   local up_release; up_release="$(release_at "$remote/main")"
   if (( json )); then
@@ -123,7 +145,11 @@ cmd_prepare() {
     target="${commits[clean_upto-1]}"
   fi
   target="$(git rev-parse --verify "$target^{commit}")"
-  git merge-base --is-ancestor "$base" "$target" || die "$target does not descend from the base"
+  # Only an upstream first-parent commit past the base may become the new
+  # base; a fork commit that descends from the base would corrupt it.
+  local c ok=0
+  for c in "${commits[@]}"; do [[ "$c" == "$target" ]] && { ok=1; break; }; done
+  (( ok )) || die "$target is not an upstream first-parent commit past the base"
   local tree
   tree="$(git merge-tree --write-tree --merge-base="$base" "$onto" "$target")" \
     || die "$target conflicts with $onto; resolve it on a branch by hand"
@@ -156,7 +182,7 @@ Prepared by scripts/upstream-sync.sh."
   migrations="$(git diff --name-only --diff-filter=A "$onto" "$commit" -- packages/db/drizzle)"
   if [[ -n "$migrations" ]]; then
     echo "upstream-sync: this step adds migrations; run the FORK.md timestamp check:" >&2
-    printf '  %s\n' $migrations >&2
+    printf '%s\n' "$migrations" | sed 's/^/  /' >&2
   fi
   echo "$branch $commit"
 }
