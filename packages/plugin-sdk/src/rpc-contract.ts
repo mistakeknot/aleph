@@ -183,9 +183,12 @@ export type StandardSchemaV1InferOutput<Schema extends StandardSchemaV1> =
 export interface PluginRpcMethodContract<
   InputSchema extends StandardSchemaV1 = StandardSchemaV1,
   OutputSchema extends StandardSchemaV1 = StandardSchemaV1,
-> extends ContractTagDeclarations<
-  StandardSchemaV1InferOutput<InputSchema>,
-  StandardSchemaV1InferOutput<OutputSchema>
+> extends Omit<
+  ContractTagDeclarations<
+    StandardSchemaV1InferOutput<InputSchema>,
+    StandardSchemaV1InferOutput<OutputSchema>
+  >,
+  "invalidates"
 > {
   readonly experimental_description?: string;
   /**
@@ -251,9 +254,11 @@ type PluginRpcContractDefinition<
 
 /**
  * Define a shared RPC contract while preserving exact method/schema types.
- * `tags`, `keyTags` and `invalidates` receive each method's parsed input and
- * output types. A method declaring keyTags must accept parsed keys: string[]
- * and return a string-indexed record.
+ * `tags` and `keyTags` receive each method's parsed input and output types.
+ * A method declaring keyTags must accept parsed keys: string[] and return a
+ * string-indexed record. Writes do not declare what they change: the server
+ * calls `bb.rpc.experimental_invalidate` where the data changes, so RPC, CLI,
+ * agent-tool and background writes each refresh matching reads once.
  */
 export function defineRpcContract<
   const Inputs extends Record<string, StandardSchemaV1>,
@@ -282,6 +287,13 @@ export type ExperimentalPluginRpcCaller =
 /** Second argument of every rpc handler. */
 export interface ExperimentalPluginRpcHandlerContext {
   readonly experimental_caller: ExperimentalPluginRpcCaller;
+  /**
+   * Aborts when the caller stops waiting (its HTTP request disconnects) or
+   * when this plugin instance is reloaded, disabled or removed. A disposing
+   * instance's callers still waiting when the dispose drain ends are
+   * released with an error, so work finished after that reaches nobody.
+   */
+  readonly experimental_signal: AbortSignal;
 }
 
 export type PluginRpcHandlers<Contract extends PluginRpcContract> = {

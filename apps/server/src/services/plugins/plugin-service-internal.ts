@@ -49,10 +49,15 @@ export interface ServiceRuntime {
 }
 
 export interface LoadedPlugin {
+  pluginId: string;
   manifest: PluginManifest;
   handle: PluginApiHandle;
   services: ServiceRuntime[];
   moduleRootUrls: Set<string>;
+  hostArtifact: PluginHostArtifactSnapshot | null;
+  stopping: AbortController;
+  released: AbortController;
+  invocations: Set<Promise<void>>;
 }
 
 export interface PluginHostArtifactSnapshot {
@@ -111,6 +116,7 @@ export interface PluginServiceDeps {
     import("../interactions/pending-interactions.js").PendingInteractionLifecycle,
     | "requestPluginInteraction"
     | "interruptPluginInteractions"
+    | "interruptOwnedPluginInteractions"
     | "setPluginDirectory"
   >;
   getAppUrl?: () => string | null;
@@ -270,7 +276,7 @@ export type PluginWireLookup<T> =
       detail: string | null;
     }
   | { outcome: "not-found" }
-  | { outcome: "found"; value: T };
+  | { outcome: "found"; value: T; owner: LoadedPlugin };
 
 export type PluginApplyUpdateOutcome =
   | { ok: true; result: PluginApplyUpdateResult }

@@ -67,6 +67,16 @@ type ProviderModelCatalogReadResult =
     };
 
 export interface ProviderModelCatalogStore {
+  remember(
+    deps: WorkSessionDeps,
+    args: {
+      hostId: string;
+      provider: ProviderInfo;
+      cwd: string | null;
+      models: AvailableModel[];
+      selectedOnlyModels: AvailableModel[];
+    },
+  ): Promise<void>;
   read(
     deps: WorkSessionDeps,
     args: {
@@ -537,6 +547,41 @@ export function createProviderModelCatalogStore(options: {
   }
 
   return {
+    async remember(deps, args) {
+      const launch = await resolveCatalogLaunch({
+        hostId: args.hostId,
+        providerId: args.provider.id,
+        bridgeLaunch: requireBridgeLaunchForProviderId(deps, args.provider.id),
+      });
+      const entry = loadEntry(deps, {
+        hostId: args.hostId,
+        providerId: args.provider.id,
+        scopeKey:
+          args.cwd !== null &&
+          providerModelCatalogDependsOnWorkspace(
+            args.provider.capabilities.modelCatalogScope,
+          )
+            ? args.cwd
+            : "",
+      });
+      const before = pickerView(entry, launch.fingerprint);
+      entry.refresh = null;
+      entry.failure = null;
+      entry.unavailableDetail = null;
+      entry.good = {
+        fingerprint: launch.fingerprint,
+        models: args.models,
+        selectedOnlyModels: args.selectedOnlyModels,
+        modelsJson: JSON.stringify(args.models),
+        selectedOnlyModelsJson: JSON.stringify(args.selectedOnlyModels),
+        fetchedAt: options.now(),
+      };
+      persistGood(deps, entry.key, entry.good);
+      if (before !== pickerView(entry, launch.fingerprint)) {
+        schedulePush(deps, args.hostId);
+      }
+    },
+
     async read(deps, args) {
       const launch = await resolveCatalogLaunch({
         hostId: args.hostId,
