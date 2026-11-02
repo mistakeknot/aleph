@@ -329,17 +329,18 @@ describe("Tasks RPC domain API", () => {
 
     expect(result.comment.notifiedCount).toBe(0);
     expect(store.tasks.getComment(result.comment.id)?.notifiedCount).toBe(0);
-    const signalsBeforeDelivery = harness.realtimeSignals.length;
+    const signalsBeforeDelivery = harness.experimental_rpcInvalidations.length;
 
     releaseSend();
     await vi.waitFor(() =>
       expect(store.tasks.getComment(result.comment.id)?.notifiedCount).toBe(1),
     );
-    expect(harness.realtimeSignals.length).toBe(signalsBeforeDelivery + 1);
-    expect(harness.realtimeSignals.at(-1)).toEqual({
-      channel: "comments:changed",
-      payload: { taskId: task.id },
-    });
+    expect(harness.experimental_rpcInvalidations.length).toBe(
+      signalsBeforeDelivery + 1,
+    );
+    expect(harness.experimental_rpcInvalidations.at(-1)).toEqual([
+      commentsTag(task.id),
+    ]);
     await harness.dispose();
   });
 
