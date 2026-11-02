@@ -2754,7 +2754,7 @@ off by default. The row grows to two lines only
 while an item draws something, the line is hidden while the row is renamed or
 customized, and clicks on it go through the row's own click handling. The
 GitHub PR Status plugin registers the first item: the current-branch pull
-request's state icon in the state's color and its muted `#number`, plus a yellow
+request's `#number` in the state's color (a draft's in the subtle foreground), plus a yellow
 dot while an open or draft PR's checks run or a red cross when they fail or the
 PR has conflicts (passing checks show nothing), from one `useData` read of
 every listed environment. No core row indicator moved into the slot: the status

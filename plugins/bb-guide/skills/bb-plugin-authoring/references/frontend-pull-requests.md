@@ -8,7 +8,7 @@ badge on thread rows through the `experimental_threadRowMetadata` slot.
 
 A plugin-built thread list renders the same row metadata bb's sidebar draws by
 placing `experimental_ThreadRowMetadata` on a line under each row's title. The
-GitHub PR Status badge (state icon in the state's color and a muted `#number`,
+GitHub PR Status badge (the `#number` in the state's color,
 a yellow dot while checks run or a red cross when they fail or the PR has
 conflicts, and the title in the tooltip)
 then appears on your rows, along with any other plugin's row metadata. It renders
