@@ -1054,10 +1054,10 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
     payload: PluginThreadEventPayloads[E],
   ): Promise<boolean> {
     const runs: Promise<{ ok: boolean }>[] = [];
-    for (const [id, plugin] of loaded) {
+    for (const plugin of loaded.values()) {
       for (const handler of [...plugin.handle.threadEventHandlers[event]]) {
         runs.push(
-          invokeWrapped(id, `${event} handler`, () => handler(payload)),
+          invokeWrapped(plugin, `${event} handler`, () => handler(payload)),
         );
       }
     }
