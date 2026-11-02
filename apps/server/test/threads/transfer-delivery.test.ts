@@ -69,6 +69,10 @@ function installHandler(
   handler: Handler,
 ) {
   runtime.loaded.set("plug-1", {
+    pluginId: "plug-1",
+    stopping: new AbortController(),
+    released: new AbortController(),
+    invocations: new Set(),
     handle: {
       threadEventHandlers: {
         "message.queued": [handler],
