@@ -11,6 +11,10 @@ import { atomWithStorage } from "jotai/utils";
 import { atomFamily } from "jotai-family";
 import type { TerminalCreateTarget } from "@bb/server-contract";
 import { createLocalStorageSyncStorage } from "./browser-storage";
+import {
+  useIsSecondaryPanelSuppressed,
+  useSecondaryPanelSuppressionActions,
+} from "@/aleph/layoutProfiles";
 import { hasThreadId } from "./thread-id";
 import { useThreadTabs } from "@/hooks/queries/thread-tabs-query";
 import {
@@ -293,6 +297,7 @@ export function useFixedPanelTabsState(
   const state = useAtomValue(stateAtom);
   const setState = useSetAtom(stateAtom);
   const queryClient = useQueryClient();
+  const isSuppressed = useIsSecondaryPanelSuppressed();
   const resolvedThreadId = hasThreadId(syncThreadId) ? syncThreadId : null;
   const tabsQuery = useThreadTabs(resolvedThreadId ?? "", {
     enabled: resolvedThreadId !== null,
@@ -340,7 +345,14 @@ export function useFixedPanelTabsState(
     tabsQuery.data,
   ]);
 
-  return state;
+  // Aleph: the width class can hide the panel without touching per-thread state.
+  return useMemo(
+    () =>
+      isSuppressed && state.secondary.isOpen
+        ? { ...state, secondary: { ...state.secondary, isOpen: false } }
+        : state,
+    [isSuppressed, state],
+  );
 }
 
 export function applyFixedPanelTabsUpdate(
@@ -355,7 +367,9 @@ export function applyFixedPanelTabsUpdate(
 export function useUpdateFixedPanelTabsState(
   panelStateId: FixedPanelTabsPanelStateId,
   syncThreadId: FixedPanelTabsSyncThreadId,
+  { clearsSuppression = true }: { clearsSuppression?: boolean } = {},
 ): (update: FixedPanelTabsStateUpdater) => void {
+  const suppression = useSecondaryPanelSuppressionActions();
   const stateAtom = getFixedPanelTabsStateAtom(panelStateId);
   const store = useStore();
   const setState = useSetAtom(stateAtom);
@@ -363,9 +377,30 @@ export function useUpdateFixedPanelTabsState(
   return useCallback(
     (update: FixedPanelTabsStateUpdater) => {
       if (!hasThreadId(panelStateId)) return;
-      const current = store.get(stateAtom);
-      const touched = applyFixedPanelTabsUpdate(current, update, Date.now());
+      const now = Date.now();
+      const raw = store.get(stateAtom);
+      // Aleph: user updates see a width-suppressed panel as closed, so an
+      // open request reveals it; per-thread isOpen is never written closed
+      // just because the width class hides the panel.
+      const isSuppressed = clearsSuppression && suppression.isSuppressed();
+      const isMasked = isSuppressed && raw.secondary.isOpen;
+      const current = isMasked
+        ? { ...raw, secondary: { ...raw.secondary, isOpen: false } }
+        : raw;
+      let touched = applyFixedPanelTabsUpdate(current, update, now);
       if (touched === null) return;
+      if (isSuppressed) {
+        // An explicit update that leaves the panel open reveals it, whether
+        // the per-thread state was open or closed before.
+        if (touched.secondary.isOpen) {
+          suppression.clear();
+        } else if (isMasked) {
+          touched = {
+            ...touched,
+            secondary: { ...touched.secondary, isOpen: true },
+          };
+        }
+      }
       setState(touched);
       if (
         hasThreadId(syncThreadId) &&
@@ -382,7 +417,16 @@ export function useUpdateFixedPanelTabsState(
         });
       }
     },
-    [panelStateId, queryClient, setState, stateAtom, store, syncThreadId],
+    [
+      clearsSuppression,
+      panelStateId,
+      queryClient,
+      setState,
+      stateAtom,
+      store,
+      suppression,
+      syncThreadId,
+    ],
   );
 }
 
@@ -400,7 +444,9 @@ export function useReconciledFixedPanelTabsState({
   syncThreadId: FixedPanelTabsSyncThreadId;
 }): FixedPanelTabsState {
   const state = useFixedPanelTabsState(panelStateId, syncThreadId);
-  const updateState = useUpdateFixedPanelTabsState(panelStateId, syncThreadId);
+  const updateState = useUpdateFixedPanelTabsState(panelStateId, syncThreadId, {
+    clearsSuppression: false,
+  });
   const reconciledState = useMemo(
     () =>
       isAuthoritative
@@ -438,7 +484,9 @@ export function useTouchFixedPanelTabsState(
   panelStateId: FixedPanelTabsPanelStateId,
   syncThreadId: FixedPanelTabsSyncThreadId,
 ): () => void {
-  const updateState = useUpdateFixedPanelTabsState(panelStateId, syncThreadId);
+  const updateState = useUpdateFixedPanelTabsState(panelStateId, syncThreadId, {
+    clearsSuppression: false,
+  });
   const lastTouchRef = useRef<LastFixedPanelTabsTouch | null>(null);
   return useCallback(() => {
     const now = Date.now();
@@ -501,9 +549,12 @@ export function useCloseFixedSecondaryPanel(
   syncThreadId: FixedPanelTabsSyncThreadId,
 ): FixedPanelSecondaryPanelCloser {
   const updateState = useUpdateFixedPanelTabsState(panelStateId, syncThreadId);
+  const suppression = useSecondaryPanelSuppressionActions();
   return useCallback(() => {
+    // Aleph: in narrow/medium, closing hides the panel for this class only.
+    if (suppression.suppressInsteadOfClose()) return;
     updateState(closeFixedSecondaryPanelState);
-  }, [updateState]);
+  }, [suppression, updateState]);
 }
 
 export function useOpenFixedSecondaryPanel(

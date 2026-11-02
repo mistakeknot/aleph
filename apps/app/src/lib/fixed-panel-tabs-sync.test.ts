@@ -28,6 +28,14 @@ import { BbHttpError } from "./sdk";
 import { syncTerminalTabsInFixedPanelState } from "@/components/secondary-panel/terminalPanelTabs";
 import { useThreadSecondaryPanelDrawerVisibility } from "@/views/thread-detail/useThreadSecondaryPanelVisibility";
 
+// Aleph: these tests exercise the wide layout, where the right panel is never
+// suppressed by width class (jsdom defaults to a 1024px narrow window).
+Object.defineProperty(window, "innerWidth", {
+  configurable: true,
+  writable: true,
+  value: 1920,
+});
+
 const apiMocks = vi.hoisted(() => ({
   getThreadTabs: vi.fn(),
   updateThreadTabs: vi.fn(),

@@ -25,6 +25,14 @@ import {
   type PaneSecondaryPanelViewModel,
 } from "./PaneContext";
 
+// Aleph: these tests exercise the wide layout, where the right panel is never
+// suppressed by width class (jsdom defaults to a 1024px narrow window).
+Object.defineProperty(window, "innerWidth", {
+  configurable: true,
+  writable: true,
+  value: 1920,
+});
+
 type ThreadDetailSecondaryContentProps = ComponentProps<
   typeof ThreadDetailSecondaryContent
 >;

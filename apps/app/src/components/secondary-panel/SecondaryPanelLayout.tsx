@@ -11,6 +11,7 @@ import {
   type ReactNode,
 } from "react";
 import { useAtomValue } from "jotai";
+import { threadSecondaryPanelResizingAtom } from "./threadSecondaryPanelAtoms";
 import {
   Panel,
   PanelGroup,
@@ -134,6 +135,11 @@ export function SecondaryPanelLayout({
   );
   const persistedSecondaryWidthPercent = useAtomValue(widthPercentAtom);
   const isMainCollapsed = open && !renderAsDrawer && collapse?.active === true;
+  // While a drag is active the pointer owns the layout. A width-class change
+  // mid-drag must not apply the destination class's width, or the drag-end
+  // commit would write it into the class pinned at drag start. The effect
+  // re-runs when the drag ends and applies the persisted width then.
+  const isPanelResizing = useAtomValue(threadSecondaryPanelResizingAtom);
 
   const horizontalPanelGroupRef = useRef<ImperativePanelGroupHandle | null>(
     null,
@@ -155,12 +161,21 @@ export function SecondaryPanelLayout({
       group.setLayout([0, FULL_PANEL_SIZE_PERCENT]);
       return;
     }
+    if (isPanelResizing) {
+      return;
+    }
 
     group.setLayout([
       FULL_PANEL_SIZE_PERCENT - persistedSecondaryWidthPercent,
       persistedSecondaryWidthPercent,
     ]);
-  }, [isMainCollapsed, open, persistedSecondaryWidthPercent, renderAsDrawer]);
+  }, [
+    isMainCollapsed,
+    isPanelResizing,
+    open,
+    persistedSecondaryWidthPercent,
+    renderAsDrawer,
+  ]);
 
   const [isCompactDrawerContentSettled, setIsCompactDrawerContentSettled] =
     useState(false);

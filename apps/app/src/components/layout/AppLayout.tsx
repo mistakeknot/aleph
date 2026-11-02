@@ -3,7 +3,6 @@ import { type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { atom, useAtom, useAtomValue, useStore } from "jotai";
-import { atomWithStorage } from "jotai/utils";
 import {
   Link,
   matchPath,
@@ -134,6 +133,11 @@ import { useSetRootComposeProjectId } from "@/lib/root-compose-selection";
 import { BackToAppCommandHandler } from "./BackToAppCommandHandler";
 import { HistoryCommandHandlers } from "./HistoryCommandHandlers";
 import { sidebarOpenAtom } from "./sidebar-open-atom";
+import {
+  createClassScopedAtom,
+  usePinnedClassWriter,
+  useWidthClassTracker,
+} from "@/aleph/layoutProfiles";
 
 const SIDEBAR_WIDTH_KEY = "bb.sidebar.width";
 const SIDEBAR_MIN_WIDTH = 240;
@@ -161,12 +165,16 @@ const sidebarWidthStorage = createTabScopedStorage<number>(
   { persistInitialValue: true },
 );
 
-const sidebarWidthAtom = atomWithStorage<number>(
-  SIDEBAR_WIDTH_KEY,
-  SIDEBAR_DEFAULT_WIDTH,
-  sidebarWidthStorage,
-  { getOnInit: true },
-);
+const sidebarWidthAtom = createClassScopedAtom<number>({
+  field: "sidebarWidth",
+  storage: sidebarWidthStorage,
+  defaults: {
+    narrow: SIDEBAR_DEFAULT_WIDTH,
+    medium: SIDEBAR_DEFAULT_WIDTH,
+    wide: SIDEBAR_DEFAULT_WIDTH,
+  },
+  legacyWideKey: SIDEBAR_WIDTH_KEY,
+});
 const sidebarLiveWidthAtom = atom<number | null>(null);
 
 interface SidebarStateBridgeProps {
@@ -455,6 +463,7 @@ export function AppLayout({ children }: AppLayoutProps) {
 }
 
 function AppLayoutContent({ children }: AppLayoutProps) {
+  useWidthClassTracker();
   const quickCreateProject = useQuickCreateProjectController();
   const isCompactViewport = useIsCompactViewport();
   const store = useStore();
@@ -727,16 +736,18 @@ function AppLayoutContent({ children }: AppLayoutProps) {
     : "none";
   useFaviconBadge(faviconBadge);
 
+  const sidebarWidthWriter = usePinnedClassWriter(sidebarWidthAtom);
   const handleResizeMouseDown = useCallback(
     (event: SidebarResizeMouseEvent) => {
       event.preventDefault();
+      sidebarWidthWriter.pin();
       setIsSidebarResizing(true);
       startXRef.current = event.clientX;
       startWidthRef.current = store.get(sidebarWidthAtom);
       liveWidthRef.current = startWidthRef.current;
       document.body.classList.add("sidebar-resizing");
     },
-    [store],
+    [sidebarWidthWriter, store],
   );
 
   const finishSidebarResize = useCallback(() => {
@@ -745,13 +756,13 @@ function AppLayoutContent({ children }: AppLayoutProps) {
       animationFrameRef.current = null;
     }
     flushSync(() => {
-      store.set(sidebarWidthAtom, liveWidthRef.current);
+      sidebarWidthWriter.commit(liveWidthRef.current);
       store.set(sidebarLiveWidthAtom, null);
     });
     dispatchBrowserViewBoundsSync();
     setIsSidebarResizing(false);
     resetSidebarResizeDocumentState();
-  }, [store]);
+  }, [sidebarWidthWriter, store]);
 
   useEffect(() => {
     if (!isSidebarResizing) return;

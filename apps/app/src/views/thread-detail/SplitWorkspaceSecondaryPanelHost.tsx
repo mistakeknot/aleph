@@ -26,7 +26,11 @@ import {
   useAppCommandHandler,
   useAppCommandShortcut,
 } from "@/components/commands/AppCommandProvider";
-import { secondaryPanelWidthPercentAtom } from "@/components/secondary-panel/threadSecondaryPanelAtoms";
+import { usePinnedClassWriter } from "@/aleph/layoutProfiles";
+import {
+  secondaryPanelWidthPercentAtom,
+  threadSecondaryPanelResizingAtom,
+} from "@/components/secondary-panel/threadSecondaryPanelAtoms";
 import {
   SecondaryPanelMinimumContext,
   useSecondaryPanelSizing,
@@ -120,10 +124,18 @@ export function SplitWorkspaceSecondaryPanelHost({
     if (model.isOpen !== isPanelVisible) model.onToggle();
   }, [focusedPaneId, isPanelVisible, model]);
 
+  // A class change during a drag must not rewrite the group until the drag
+  // commits to its pinned class; the tick re-runs the layout effect then.
+  const isPanelDraggingRef = useRef(false);
+  const [panelDragEndTick, setPanelDragEndTick] = useState(0);
+  const isPopulatedPanelResizing = useAtomValue(
+    threadSecondaryPanelResizingAtom,
+  );
   useEffect(() => {
     const group = panelGroupRef.current;
     if (group === null) return;
     if (group.getLayout().length !== 2) return;
+    if (isPanelDraggingRef.current || isPopulatedPanelResizing) return;
     if (isPaneMaximized) {
       group.setLayout([MAIN_PANEL_OPEN_SIZE_PERCENT, 0]);
       return;
@@ -146,6 +158,8 @@ export function SplitWorkspaceSecondaryPanelHost({
     isPaneMaximized,
     model?.isMainCollapsed,
     panelWidthPercent,
+    panelDragEndTick,
+    isPopulatedPanelResizing,
   ]);
 
   const toggleWindowPanel = () => {
@@ -165,6 +179,7 @@ export function SplitWorkspaceSecondaryPanelHost({
   const isSidebarFramed = useIsSidebarFramed();
 
   const setPanelWidthPercent = useSetAtom(widthPercentAtom);
+  const panelWidthWriter = usePinnedClassWriter(widthPercentAtom);
   const lastEmptyPanelSizeRef = useRef(0);
   const handleEmptyPanelPointerResize = useCallback(
     (leadingFraction: number) => {
@@ -179,9 +194,15 @@ export function SplitWorkspaceSecondaryPanelHost({
     if (size > 0) lastEmptyPanelSizeRef.current = size;
   };
   const handleEmptyPanelDragging = (isDragging: boolean) => {
-    if (isDragging) return;
-    if (lastEmptyPanelSizeRef.current <= 0) return;
-    setPanelWidthPercent(lastEmptyPanelSizeRef.current);
+    isPanelDraggingRef.current = isDragging;
+    if (isDragging) {
+      panelWidthWriter.pin();
+      return;
+    }
+    if (lastEmptyPanelSizeRef.current > 0) {
+      panelWidthWriter.commit(lastEmptyPanelSizeRef.current);
+    }
+    setPanelDragEndTick((tick) => tick + 1);
   };
   const emptyPanelHitTargetRef = usePanelResizeSnap({
     onResize: handleEmptyPanelPointerResize,

@@ -55,6 +55,14 @@ import {
   useRouteAnchorDelegate,
 } from "@/components/ui/app-route-anchor";
 
+// Aleph: these tests exercise the wide layout, where the right panel is never
+// suppressed by width class (jsdom defaults to a 1024px narrow window).
+Object.defineProperty(window, "innerWidth", {
+  configurable: true,
+  writable: true,
+  value: 1920,
+});
+
 interface TestFixedTabRegistration {
   panelId: string;
   id: string;
