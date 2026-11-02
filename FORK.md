@@ -422,6 +422,30 @@ Beyond upstream, Aleph carries:
 Upstream is merged into Aleph, not rebased, and each merge commit records its
 conflicts.
 
+## Upstream syncs in small steps
+
+Syncs land as single-parent commits, so `git merge-base` with upstream stays
+at an old commit and a plain `git merge upstream/main` replays history Aleph
+already has. `UPSTREAM_BASE` records the upstream commit the last sync reached.
+Merge with that commit as the explicit base:
+`git merge-tree --write-tree --merge-base=<UPSTREAM_BASE commit> origin/main <upstream commit>`.
+
+`scripts/upstream-sync.sh` does this. `probe` is read-only: it finds the
+farthest upstream first-parent commit that merges with no conflict, the next
+commit that conflicts, and the patch-ledger rows its conflicted paths belong
+to (`docs/aleph-patch-ledger-paths.tsv`; that row's "Conflict resolution"
+column in `docs/aleph-patch-ledger.md` says how to resolve it). `probe --json`
+prints the same report for a scheduler. `prepare [commit]` creates branch
+`sync/upstream-<short>` at a sync commit up to that commit (default: the
+farthest clean one) and moves `UPSTREAM_BASE`. It refuses a commit that
+conflicts, and it never pushes, merges, tags or changes the Aleph version.
+
+Syncing between upstream releases keeps each step small. A clean step goes
+through the usual gate and review as a pull request. A conflicting step is
+resolved by hand on its own branch, one conflicting upstream commit at a time.
+Then the next `probe` starts from the new base. A step that adds upstream
+migrations still needs the timestamp check under "Fork-owned migrations".
+
 ## Fork-owned migrations
 
 `0132_aromatic_alice` and `0133_hot_joshua_kane` are the first Drizzle
