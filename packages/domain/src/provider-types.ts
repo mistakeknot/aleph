@@ -7,7 +7,7 @@ import {
   serviceTierSchema,
 } from "./shared-types.js";
 import { extensionKindSchema } from "./provider-extension-kind.js";
-import { threadSessionOptionSchema } from "./thread-provider-state.js";
+import { threadSessionOptionSchema } from "./thread-session-option.js";
 import { threadEventItemPresentationSchema } from "./item-presentation.js";
 
 export const modelReasoningEffortSchema = z.object({

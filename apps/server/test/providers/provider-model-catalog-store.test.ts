@@ -154,6 +154,62 @@ function seedEnvironmentPath(
 }
 
 describe("provider model catalog store", () => {
+  it("uses a session catalog immediately and pushes picker invalidation", async () => {
+    await withTestHarness(async (harness) => {
+      const host = setupCatalogHost(harness, { id: "host-session-catalog" });
+      await host.read("codex");
+      await settleTimers();
+      const pushes = capturePushes(harness);
+      await host.store.remember(harness.deps, {
+        hostId: host.hostId,
+        provider: requireRegistration(harness, "codex").info,
+        cwd: null,
+        models: modelList("new-session-model"),
+        selectedOnlyModels: modelList("hidden-session-model"),
+      });
+      const response = await host.read("codex");
+      expect(modelIds(response)).toEqual(["new-session-model"]);
+      expect(response.selectedOnlyModels.map((model) => model.model)).toEqual([
+        "hidden-session-model",
+      ]);
+      expect(host.listRequests()).toHaveLength(1);
+      await settleTimers();
+      expect(pushes).toEqual([host.hostId]);
+      const row = getStoredProviderModelCatalog(harness.db, {
+        hostId: host.hostId,
+        providerId: "codex",
+        scopeKey: "",
+      });
+      expect(JSON.parse(row?.modelsJson ?? "[]")).toMatchObject([
+        { model: "new-session-model" },
+      ]);
+    });
+  });
+
+  it("does not overwrite a session catalog with an older in-flight refresh", async () => {
+    await withTestHarness(async (harness) => {
+      const host = setupCatalogHost(harness, {
+        id: "host-session-catalog-race",
+      });
+      await host.read("codex");
+      const held = createDeferredPromise<HostRpcHandlerResult>();
+      host.setAnswer(() => held.promise);
+      host.clock.now += 10 * MINUTE;
+      await host.read("codex");
+      await vi.waitFor(() => expect(host.listRequests()).toHaveLength(2));
+      await host.store.remember(harness.deps, {
+        hostId: host.hostId,
+        provider: requireRegistration(harness, "codex").info,
+        cwd: null,
+        models: modelList("session-model"),
+        selectedOnlyModels: [],
+      });
+      held.resolve(catalogAnswer(modelList("old-discovery-model")));
+      await settleTimers();
+      expect(modelIds(await host.read("codex"))).toEqual(["session-model"]);
+    });
+  });
+
   it("keeps catalogs across a daemon reconnect, an unrelated registration and a capability-only re-registration", async () => {
     await withTestHarness(async (harness) => {
       const host = setupCatalogHost(harness, { id: "host-catalog-identity" });

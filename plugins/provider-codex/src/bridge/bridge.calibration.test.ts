@@ -469,7 +469,15 @@ it("replays one scripted codex session onto the golden event stream", async () =
   ).toHaveLength(2);
 
   expect(
-    describeCalibrationEvents(normalizeCalibrationEvents(canonical.events)),
+    describeCalibrationEvents(
+      normalizeCalibrationEvents(
+        canonical.events.filter(
+          (event) =>
+            event.type !== "thread/extensionState/updated" ||
+            event.kind !== "bb/provider-model-catalog",
+        ),
+      ),
+    ),
   ).toEqual(GOLDEN_EVENT_STREAM);
 
   expect(canonical.approvals).toHaveLength(1);
