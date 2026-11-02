@@ -10,6 +10,7 @@ import {
 } from "@testing-library/react";
 import { createStore, Provider, useSetAtom } from "jotai";
 import { RESET } from "jotai/utils";
+import { threadSecondaryPanelResizingAtom } from "./threadSecondaryPanelAtoms";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CompactViewportOverrideProvider } from "@bb/shared-ui/hooks/use-compact-viewport";
 import { dispatchBrowserViewBoundsSync } from "@/lib/browser-view-bounds-sync";
@@ -377,6 +378,31 @@ describe("SecondaryPanelLayout", () => {
 
     expect(panelGroupState.setLayout).toHaveBeenCalledTimes(1);
     expect(panelGroupState.setLayout).toHaveBeenLastCalledWith([60, 40]);
+  });
+
+  it("does not apply a persisted width change while a drag is active", () => {
+    panelGroupState.getLayout.mockReturnValue([60, 40]);
+    const view = renderLayout({
+      isCompactViewport: false,
+      open: true,
+      renderPanel: createPanelRenderer(),
+      resetKey: "plugin-page",
+    });
+    expect(panelGroupState.setLayout).toHaveBeenLastCalledWith([60, 40]);
+    panelGroupState.setLayout.mockClear();
+
+    act(() => {
+      view.store.set(threadSecondaryPanelResizingAtom, true);
+    });
+    act(() => {
+      view.store.set(secondaryPanelWidthPercentAtom, 25);
+    });
+    expect(panelGroupState.setLayout).not.toHaveBeenCalled();
+
+    act(() => {
+      view.store.set(threadSecondaryPanelResizingAtom, false);
+    });
+    expect(panelGroupState.setLayout).toHaveBeenLastCalledWith([75, 25]);
   });
 
   it("owns the desktop open, closed, and conversation-collapse layouts", () => {
