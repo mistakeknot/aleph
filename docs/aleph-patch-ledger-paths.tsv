@@ -94,6 +94,7 @@ composer-gate	M	apps/app/src/components/promptbox/usePendingAttachmentUploads.ts
 composer-gate	M	apps/app/src/test/fixtures/plugins.ts
 composer-gate	M	apps/app/src/test/thread-detail-prompt-area-harness.tsx
 composer-gate	M	packages/shared-ui/src/components/ui/question-form-state.ts
+contributor-gate	M	.github/APPROVED_CONTRIBUTORS
 credential-redaction	A	packages/domain/src/provider-env-redaction.ts
 credential-redaction	A	packages/domain/src/secret-variants.ts
 credential-redaction	A	packages/domain/src/thread-event-structure.ts
