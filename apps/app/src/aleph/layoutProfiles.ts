@@ -124,6 +124,11 @@ function withLegacyFallback<T>(
     ...storage,
     getItem: (key, initialValue) =>
       storage.getItem(key, storage.getItem(legacyKey, initialValue)),
+    // A reset must not let the legacy value reappear on the next load.
+    removeItem: (key) => {
+      storage.removeItem(key);
+      storage.removeItem(legacyKey);
+    },
   };
 }
 

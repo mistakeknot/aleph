@@ -456,6 +456,7 @@ describe("AppLayout sidebar state is scoped to this tab", () => {
   }
 
   it("keeps this tab expanded when another tab collapses the sidebar", () => {
+    window.localStorage.setItem(SIDEBAR_OPEN_STORAGE_KEY, "true");
     renderLayout();
     expect(sidebarRoot().getAttribute("data-state")).toBe("expanded");
 

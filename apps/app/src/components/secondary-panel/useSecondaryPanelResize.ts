@@ -89,6 +89,27 @@ export function useSecondaryPanelResize({
     }
   }, [isSecondaryPanelOpen]);
 
+  // The stored width changes when the width class (or a reset) selects a
+  // different value; the mounted panel only reads defaultSize once. Only act
+  // on a change after mount, never on the initial value.
+  const prevPersistedWidthRef = useRef(persistedWidthPercent);
+  useEffect(() => {
+    if (prevPersistedWidthRef.current === persistedWidthPercent) {
+      return;
+    }
+    prevPersistedWidthRef.current = persistedWidthPercent;
+    const panel = secondaryResizablePanelRef.current;
+    if (
+      !panel ||
+      !isSecondaryPanelOpen ||
+      persistedWidthPercent <= 0 ||
+      Math.abs(lastSecondaryPanelSizeRef.current - persistedWidthPercent) < 0.01
+    ) {
+      return;
+    }
+    panel.resize(persistedWidthPercent);
+  }, [isSecondaryPanelOpen, persistedWidthPercent]);
+
   const handleSecondaryPanelResize = useCallback<SecondaryPanelResizeHandler>(
     (size) => {
       if (size <= 0) {

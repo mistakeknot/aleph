@@ -1,3 +1,4 @@
+import { RESET } from "jotai/utils";
 // @vitest-environment jsdom
 
 import { act, renderHook } from "@testing-library/react";
@@ -92,6 +93,32 @@ describe("layout profiles", () => {
     expect(store.get(openAtom)).toBe(false);
     store.set(widthClassAtom, 1000);
     expect(store.get(openAtom)).toBe(true);
+  });
+
+  it("the real sidebar atom is class-scoped and seeds wide from the legacy key", async () => {
+    window.localStorage.setItem("bb.sidebar.open", "false");
+    const { sidebarOpenAtom } = await import(
+      "@/components/layout/sidebar-open-atom"
+    );
+    const store = createStore();
+    store.set(widthClassAtom, 2200);
+    expect(store.get(sidebarOpenAtom)).toBe(false); // legacy seeds wide
+    store.set(widthClassAtom, 1000);
+    expect(store.get(sidebarOpenAtom)).toBe(false); // narrow default
+    store.set(sidebarOpenAtom, true);
+    store.set(widthClassAtom, 2200);
+    expect(store.get(sidebarOpenAtom)).toBe(false);
+  });
+
+  it("RESET does not resurrect the legacy value", () => {
+    window.localStorage.setItem("bb.sidebar.open", "false");
+    const openAtom = makeOpenAtom();
+    const store = createStore();
+    store.set(widthClassAtom, 2200);
+    expect(store.get(openAtom)).toBe(false);
+    store.set(openAtom, RESET);
+    expect(window.localStorage.getItem("bb.sidebar.open")).toBe(null);
+    expect(store.get(openAtom)).toBe(true); // wide default
   });
 
   it("a toggle in narrow never changes the wide profile", () => {
