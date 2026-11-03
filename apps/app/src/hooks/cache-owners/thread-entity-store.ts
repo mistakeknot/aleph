@@ -431,6 +431,17 @@ export function findThreadTreeIds(
   return [...threadIds];
 }
 
+function hasCompleteListFacet(
+  list: ThreadEntity["list"],
+): list is Required<NonNullable<ThreadEntity["list"]>> {
+  return (
+    list !== null &&
+    Object.keys(LIST_FACET).every(
+      (key) => list[key as ListFacetKey] !== undefined,
+    )
+  );
+}
+
 export function insertThreadIntoSidebar(
   client: QueryClient,
   threadId: string,
@@ -442,7 +453,8 @@ export function insertThreadIntoSidebar(
     THREAD_ENTITIES,
     threadId,
     (data, entity) => {
-      if (entity.list === null || !isRecord(data)) return undefined;
+      if (!hasCompleteListFacet(entity.list) || !isRecord(data))
+        return undefined;
       const personal = data.personalProject;
       return {
         slot:
