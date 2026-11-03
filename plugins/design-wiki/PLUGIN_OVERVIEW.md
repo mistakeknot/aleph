@@ -12,6 +12,10 @@ Reads a project's design wiki and shows it as a Wiki page, with persistent pins.
   one as a note, or discuss it now: in a thread the pin links to that thread, and
   on the Wiki page it opens a draft in the project. A pin whose claim has changed
   is marked detached.
+- Make task on a pin: creates a card on the project's task board with a back-link
+  to the page, and shows the card, its agent threads, pull requests and merge
+  status on the pin. A pin can hold several cards, and a card created but not
+  recorded can be linked afterwards.
 - A malformed page appears as an error row naming the file and the problem; the
   rest of the wiki still loads.
 

@@ -86,6 +86,80 @@ export const linkPinThreadResultSchema = pinResult([
   "wrong-project",
 ]);
 
+export const pinTaskTag = (projectId: string): string =>
+  `design-wiki:pin-tasks:${projectId}`;
+
+export const taskRefSchema = z
+  .object({ id: z.string().min(1), key: z.string().min(1) })
+  .strict();
+
+export const taskBoardSchema = z
+  .object({
+    id: z.string().min(1),
+    name: z.string(),
+    prefix: z.string().min(1),
+  })
+  .strict();
+export type TaskBoard = z.infer<typeof taskBoardSchema>;
+
+export const PIN_TASK_FAILURES = [
+  "not-found",
+  "no-board",
+  "board-required",
+  "wrong-board",
+  "task-not-found",
+  "tasks-unavailable",
+  "tasks-refused",
+  "not-linked",
+] as const;
+
+export const pinTaskResultSchema = z.discriminatedUnion("ok", [
+  z.object({ ok: z.literal(true), task: taskRefSchema }).strict(),
+  z
+    .object({
+      ok: z.literal(false),
+      reason: z.enum(PIN_TASK_FAILURES),
+      message: z.string(),
+      boards: z.array(taskBoardSchema).optional(),
+      task: taskRefSchema.optional(),
+    })
+    .strict(),
+]);
+export type PinTaskResult = z.infer<typeof pinTaskResultSchema>;
+
+export const pinTaskItemSchema = z
+  .object({
+    pinId: z.string().min(1),
+    taskId: z.string().min(1),
+    key: z.string().min(1),
+    state: z.enum(["found", "removed", "unavailable"]),
+    message: z.string().nullable(),
+    title: z.string().nullable(),
+    status: z.string().nullable(),
+    threads: z.array(
+      z
+        .object({
+          threadId: z.string(),
+          title: z.string(),
+          liveStatus: z.string(),
+        })
+        .strict(),
+    ),
+    pullRequests: z.array(
+      z
+        .object({
+          url: z.string(),
+          number: z.number().int(),
+          title: z.string(),
+          state: z.string(),
+        })
+        .strict(),
+    ),
+    unavailableThreadIds: z.array(z.string()),
+  })
+  .strict();
+export type PinTaskItem = z.infer<typeof pinTaskItemSchema>;
+
 export const designWikiRpcContract = defineRpcContract({
   projects: {
     experimental_description:
@@ -158,5 +232,48 @@ export const designWikiRpcContract = defineRpcContract({
       })
       .strict(),
     output: linkPinThreadResultSchema,
+  },
+  createPinTask: {
+    experimental_description:
+      "Make a card on the task board linked to the project from a pin, with a back-link to the pin and page in the card description, and record the card on the pin. A pin may hold several cards. If the project has several linked boards, taskProjectId picks one.",
+    input: z
+      .object({
+        projectId: z.string().min(1),
+        pinId: z.string().min(1),
+        taskProjectId: z.string().min(1).optional(),
+      })
+      .strict(),
+    output: pinTaskResultSchema,
+  },
+  linkPinTask: {
+    experimental_description:
+      "Record an existing card, by its display key, on a pin. The card must be on a board linked to the pin's project. Use it to recover a card that was created but not recorded.",
+    input: z
+      .object({
+        projectId: z.string().min(1),
+        pinId: z.string().min(1),
+        taskKey: z.string().trim().min(1),
+      })
+      .strict(),
+    output: pinTaskResultSchema,
+  },
+  unlinkPinTask: {
+    experimental_description:
+      "Stop showing a card on a pin. The card itself is left alone.",
+    input: z
+      .object({
+        projectId: z.string().min(1),
+        pinId: z.string().min(1),
+        taskId: z.string().min(1),
+      })
+      .strict(),
+    output: z.object({ removed: z.boolean() }).strict(),
+  },
+  pinTasks: {
+    experimental_description:
+      "The cards recorded on the pins of a project, each with its live status, agent threads, pull requests and merge state read from the tasks plugin. A card that no longer exists is reported as removed.",
+    input: z.object({ projectId: z.string().min(1) }).strict(),
+    output: z.array(pinTaskItemSchema),
+    tags: (input) => [pinTaskTag(input.projectId)],
   },
 });

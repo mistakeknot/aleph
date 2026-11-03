@@ -4,7 +4,11 @@ import {
   designWikiRpcContract,
   PIN_BODY_MAX,
   pinTag,
+  pinTaskTag,
   type Pin,
+  type PinTaskItem,
+  type PinTaskResult,
+  type TaskBoard,
   type WikiPageResult,
   type WikiProject,
 } from "./contract.js";
@@ -19,6 +23,7 @@ import {
   type WikiDiscovery,
   type WikiFileSource,
 } from "./wiki-discovery.js";
+import { tasksClient, type TasksClient } from "./tasks-client.js";
 import type { WikiList } from "./wiki-types.js";
 
 function fail<R extends string>(reason: R) {
@@ -43,6 +48,15 @@ interface PinRow {
   updated_at: string;
   resolved_at: string | null;
 }
+
+interface PinTaskRow {
+  pin_id: string;
+  task_id: string;
+  task_key: string;
+  task_project_id: string;
+}
+
+const TASK_TITLE_MAX = 120;
 
 interface PinThreadRow {
   pin_id: string;
@@ -135,6 +149,131 @@ export default async function designWikiPlugin(bb: BbPluginApi): Promise<void> {
 
   function invalidatePins(projectId: string): void {
     bb.rpc.experimental_invalidate([pinTag(projectId)]);
+  }
+
+  function invalidatePinTasks(projectId: string): void {
+    bb.rpc.experimental_invalidate([pinTaskTag(projectId)]);
+  }
+
+  const tasks: TasksClient = tasksClient(bb);
+
+  function taskFailure(
+    reason: Extract<PinTaskResult, { ok: false }>["reason"],
+    message: string,
+    extra: { boards?: TaskBoard[]; task?: { id: string; key: string } } = {},
+  ): PinTaskResult {
+    return { ok: false, reason, message, ...extra };
+  }
+
+  async function linkedBoards(projectId: string): Promise<TaskBoard[]> {
+    const boards = await tasks.listBoards();
+    return boards
+      .filter((board) => board.linkedBbProjectId === projectId)
+      .map((board) => ({
+        id: board.id,
+        name: board.name,
+        prefix: board.prefix,
+      }));
+  }
+
+  function cardTitle(body: string): string {
+    const first =
+      body
+        .split("\n")
+        .map((line) => line.trim())
+        .find((line) => line.length > 0) ?? body;
+    return first.slice(0, TASK_TITLE_MAX).trim();
+  }
+
+  function cardDescription(row: PinRow): string {
+    const lines = [
+      row.body,
+      "",
+      "---",
+      `Design wiki pin: ${row.id}`,
+      `Project: ${row.project_id}`,
+      `Page: ${row.page_id}`,
+    ];
+    if (row.claim_label !== null) lines.push(`Claim: ${row.claim_label}`);
+    lines.push(
+      `Open: /plugins/bb--design-wiki/wiki/${row.project_id}/${row.page_id}`,
+    );
+    return lines.join("\n");
+  }
+
+  function recordTask(
+    pinId: string,
+    task: { id: string; key: string; projectId: string },
+  ): boolean {
+    const result = db
+      .prepare(
+        "INSERT OR IGNORE INTO pin_tasks (pin_id, task_id, task_key, task_project_id, linked_at) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run(pinId, task.id, task.key, task.projectId, new Date().toISOString());
+    return result.changes > 0;
+  }
+
+  async function readPinTask(row: PinTaskRow): Promise<PinTaskItem> {
+    const base = {
+      pinId: row.pin_id,
+      taskId: row.task_id,
+      key: row.task_key,
+      title: null,
+      status: null,
+      threads: [],
+      pullRequests: [],
+      unavailableThreadIds: [],
+    };
+    let task: Awaited<ReturnType<TasksClient["getTask"]>>;
+    try {
+      task = await tasks.getTask(row.task_id);
+    } catch (error) {
+      return {
+        ...base,
+        state: "unavailable",
+        message: `Could not read the card: ${errorMessage(error)}`,
+      };
+    }
+    if (task === null) {
+      return {
+        ...base,
+        state: "removed",
+        message: "This card no longer exists on the task board.",
+      };
+    }
+    const problems: string[] = [];
+    const [threads, pullRequests] = await Promise.all([
+      tasks.listThreads(task.id).catch((error: unknown) => {
+        problems.push(`Could not read the threads: ${errorMessage(error)}`);
+        return [];
+      }),
+      tasks.listPullRequests(task.id).catch((error: unknown) => {
+        problems.push(
+          `Could not read the pull requests: ${errorMessage(error)}`,
+        );
+        return { pullRequests: [], unavailableThreadIds: [] };
+      }),
+    ]);
+    return {
+      ...base,
+      key: task.key,
+      state: "found",
+      message: problems.length === 0 ? null : problems.join(" "),
+      title: task.title,
+      status: task.status,
+      threads: threads.map((thread) => ({
+        threadId: thread.threadId,
+        title: thread.title,
+        liveStatus: thread.liveStatus,
+      })),
+      pullRequests: pullRequests.pullRequests.map((request) => ({
+        url: request.url,
+        number: request.number,
+        title: request.title,
+        state: request.state,
+      })),
+      unavailableThreadIds: pullRequests.unavailableThreadIds,
+    };
   }
 
   function pinRow(projectId: string, pinId: string): PinRow | undefined {
@@ -349,6 +488,7 @@ export default async function designWikiPlugin(bb: BbPluginApi): Promise<void> {
           .run(pinId, projectId);
         if (result.changes === 0) return { deleted: false };
         invalidatePins(projectId);
+        invalidatePinTasks(projectId);
         return { deleted: true };
       },
       async linkPinThread({ projectId, pinId, threadId }) {
@@ -374,11 +514,142 @@ export default async function designWikiPlugin(bb: BbPluginApi): Promise<void> {
         if (row === undefined) return fail("not-found");
         return succeed(await pinOf(row));
       },
+      async createPinTask({
+        projectId,
+        pinId,
+        taskProjectId,
+      }): Promise<PinTaskResult> {
+        const row = pinRow(projectId, pinId);
+        if (row === undefined) {
+          return taskFailure("not-found", "This pin no longer exists.");
+        }
+        let boards: TaskBoard[];
+        try {
+          boards = await linkedBoards(projectId);
+        } catch (error) {
+          return taskFailure(
+            "tasks-unavailable",
+            `Could not reach the tasks plugin: ${errorMessage(error)}`,
+          );
+        }
+        let board: TaskBoard | undefined;
+        if (taskProjectId !== undefined) {
+          board = boards.find((candidate) => candidate.id === taskProjectId);
+          if (board === undefined) {
+            return taskFailure(
+              "wrong-board",
+              "That board is not linked to this project.",
+              { boards },
+            );
+          }
+        } else if (boards.length === 0) {
+          return taskFailure(
+            "no-board",
+            "No task board is linked to this project. Link a board to the project in the tasks plugin, then try again.",
+            { boards },
+          );
+        } else if (boards.length > 1) {
+          return taskFailure(
+            "board-required",
+            "Several task boards are linked to this project. Choose one.",
+            { boards },
+          );
+        } else {
+          board = boards[0];
+        }
+        if (board === undefined) {
+          return taskFailure("no-board", "No task board is linked.", {
+            boards,
+          });
+        }
+        let created: Awaited<ReturnType<TasksClient["createTask"]>>;
+        try {
+          created = await tasks.createTask({
+            projectId: board.id,
+            title: cardTitle(row.body),
+            description: cardDescription(row),
+          });
+        } catch (error) {
+          return taskFailure(
+            "tasks-unavailable",
+            `Could not create the card: ${errorMessage(error)}`,
+          );
+        }
+        if (!created.ok) {
+          return taskFailure(
+            "tasks-refused",
+            `The tasks plugin refused the card: ${created.error.message}`,
+          );
+        }
+        const task = { id: created.task.id, key: created.task.key };
+        try {
+          recordTask(pinId, { ...task, projectId: created.task.projectId });
+        } catch (error) {
+          return taskFailure(
+            "not-linked",
+            `Card ${task.key} was created, but recording it on the pin failed: ${errorMessage(error)}. Use Link existing card with ${task.key}.`,
+            { task },
+          );
+        }
+        invalidatePinTasks(projectId);
+        return { ok: true, task };
+      },
+      async linkPinTask({ projectId, pinId, taskKey }): Promise<PinTaskResult> {
+        if (pinRow(projectId, pinId) === undefined) {
+          return taskFailure("not-found", "This pin no longer exists.");
+        }
+        let found: Awaited<ReturnType<TasksClient["getTaskByKey"]>>;
+        let boards: TaskBoard[];
+        try {
+          found = await tasks.getTaskByKey(taskKey);
+          boards = await linkedBoards(projectId);
+        } catch (error) {
+          return taskFailure(
+            "tasks-unavailable",
+            `Could not reach the tasks plugin: ${errorMessage(error)}`,
+          );
+        }
+        if (found === null) {
+          return taskFailure(
+            "task-not-found",
+            `No card has the key ${taskKey}.`,
+          );
+        }
+        if (!boards.some((board) => board.id === found.projectId)) {
+          return taskFailure(
+            "wrong-board",
+            `Card ${found.key} is not on a board linked to this project.`,
+            { boards },
+          );
+        }
+        if (recordTask(pinId, found)) invalidatePinTasks(projectId);
+        return { ok: true, task: { id: found.id, key: found.key } };
+      },
+      async unlinkPinTask({ projectId, pinId, taskId }) {
+        if (pinRow(projectId, pinId) === undefined) return { removed: false };
+        const result = db
+          .prepare("DELETE FROM pin_tasks WHERE pin_id = ? AND task_id = ?")
+          .run(pinId, taskId);
+        if (result.changes === 0) return { removed: false };
+        invalidatePinTasks(projectId);
+        return { removed: true };
+      },
+      async pinTasks({ projectId }) {
+        const rows = db
+          .prepare(
+            `SELECT pt.pin_id, pt.task_id, pt.task_key, pt.task_project_id
+             FROM pin_tasks pt JOIN pins p ON p.id = pt.pin_id
+             WHERE p.project_id = ?
+             ORDER BY p.created_at, p.id, pt.rowid`,
+          )
+          .all(projectId) as PinTaskRow[];
+        return Promise.all(rows.map((row) => readPinTask(row)));
+      },
     },
     {
       experimental_discoverable: true,
       experimental_description:
-        "Project design wiki: CUJ and requirement pages kept in the project's repository, read-only, plus pins (sticky notes on a page or claim). Pins are the only thing it writes; they live in plugin storage and never change a repository file.",
+        "Project design wiki: CUJ and requirement pages kept in the project's repository, read-only, plus pins (sticky notes on a page or claim). Pins live in plugin storage and never change a repository file; the only other write is a card created on the project's task board when a pin is made into a task.",
     },
   );
 }
