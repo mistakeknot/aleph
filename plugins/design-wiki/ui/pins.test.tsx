@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
+import { useEffect, useState } from "react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Pin } from "../contract.js";
+import { PinnedPage } from "./pinned-page.js";
 import { extractClaimMarkers } from "../claims.js";
 import { claimTargetAt, resolvePinAnchor } from "../pin-anchor.js";
 import {
@@ -423,6 +425,91 @@ describe("pin composer", () => {
     expect(within(article).getByLabelText("Pin note")).toBeTruthy();
     fireEvent.click(within(article).getByRole("button", { name: "Cancel" }));
     expect(within(article).queryByLabelText("Pin note")).toBeNull();
+  });
+});
+
+describe("pin composer target", () => {
+  function harness(initial: WikiPage) {
+    const calls: { method: string; input: unknown }[] = [];
+    const handle: { swap: (page: WikiPage) => void } = { swap: () => {} };
+    function Harness() {
+      const [page, setPage] = useState(initial);
+      useEffect(() => {
+        handle.swap = setPage;
+      }, []);
+      return <PinnedPage projectId="proj_a" page={page} threadId={null} />;
+    }
+    const slot = renderSlot(
+      { component: Harness },
+      {},
+      {
+        context: { projectId: "proj_a" },
+        rpc: {
+          pins: () => [],
+          createPin: (input: unknown) => {
+            calls.push({ method: "createPin", input });
+            return {
+              ok: true,
+              pin: pinFor(initial, null, {
+                claim: (input as { claim: Pin["claim"] }).claim,
+              }),
+            };
+          },
+        },
+      },
+    );
+    return { slot, calls, swap: (page: WikiPage) => act(() => handle.swap(page)) };
+  }
+
+  it("keeps submitting the claim that was clicked when claims shift under the composer", async () => {
+    const original = pageOf(YAOIVERS_RUN_BODY, "cuj-run");
+    const shifted = pageOf(
+      `**Ruled:** a brand new claim.\n\n${YAOIVERS_RUN_BODY}`,
+      "cuj-run",
+    );
+    const mounted = harness(original);
+    const article = await mounted.slot.findByRole("article");
+    fireEvent.click(controls(article)[1]!);
+    fireEvent.change(within(article).getByLabelText("Pin note"), {
+      target: { value: "On the second claim" },
+    });
+    mounted.swap(shifted);
+    fireEvent.click(
+      within(article).getByRole("button", { name: "Keep as note" }),
+    );
+    await waitFor(() => expect(mounted.calls).toHaveLength(1));
+    expect(mounted.calls[0]!.input).toEqual({
+      projectId: "proj_a",
+      pageId: "cuj-run",
+      claim: claimTargetAt(original, 1),
+      body: "On the second claim",
+    });
+  });
+
+  it("closes the composer when its claim no longer exists on the page", async () => {
+    const original = pageOf(YAOIVERS_RUN_BODY, "cuj-run");
+    const edited = pageOf(
+      YAOIVERS_RUN_BODY.replace("Open", "Reopened"),
+      "cuj-run",
+    );
+    const mounted = harness(original);
+    const article = await mounted.slot.findByRole("article");
+    const lastClaim = controls(article).length - 1;
+    fireEvent.click(controls(article)[lastClaim]!);
+    expect(within(article).getByLabelText("Pin note")).toBeTruthy();
+    mounted.swap(edited);
+    expect(mounted.slot.queryByLabelText("Pin note")).toBeNull();
+  });
+
+  it("closes the composer when the page changes", async () => {
+    const first = pageOf(YAOIVERS_RUN_BODY, "cuj-run");
+    const second = pageOf(YAOIVERS_CAMPUS_BODY, "req-campus");
+    const mounted = harness(first);
+    const article = await mounted.slot.findByRole("article");
+    fireEvent.click(controls(article)[0]!);
+    expect(within(article).getByLabelText("Pin note")).toBeTruthy();
+    mounted.swap(second);
+    expect(mounted.slot.queryByLabelText("Pin note")).toBeNull();
   });
 });
 

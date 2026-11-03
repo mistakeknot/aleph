@@ -17,7 +17,7 @@ List a project's pins, each with its anchor (`page`, `claim`, `detached` or `unv
 bb plugin rpc call bb--design-wiki pins --input-file pins.json --json
 ```
 
-Create a pin on a page with `"claim": null`. For a claim pin, copy the claim target from the page's `claims` (`label`, `context`, `ordinal`, `groupSize`). The server re-reads the page and refuses a claim that no longer matches with `stale-claim` or `unknown-claim`; a missing page gives `page-missing`.
+Create a pin on a page with `"claim": null`. For a claim pin, derive the claim target from the page's `body` and `claims`. Each claim marker has `label` and `line` (1-based, in `body`). Set `label` to the marker's label and `context` to the trimmed text of line `line` of `body`. The claims with the same `label` and `context` form a group in page order: set `groupSize` to the group's size and `ordinal` to the marker's 0-based position in it. The server re-reads the page and refuses a claim that no longer matches with `stale-claim` or `unknown-claim`; a missing page gives `page-missing`.
 
 ```json
 {

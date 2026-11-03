@@ -84,6 +84,7 @@ function PageDetail(props: {
   }
   return (
     <PinnedPage
+      key={query.data.page.id}
       projectId={props.projectId}
       page={query.data.page}
       threadId={props.threadId}

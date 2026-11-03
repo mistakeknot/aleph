@@ -370,7 +370,9 @@ function ClaimMenu(props: {
 }
 
 interface Composing {
-  claimIndex: number | null;
+  pageId: string;
+  claim: ClaimTarget | null;
+  label: string | null;
 }
 
 function Composer(props: {
@@ -436,7 +438,7 @@ export function PinnedPage(props: {
     method: "pins",
     input: { projectId },
   });
-  const [composing, setComposing] = useState<Composing | null>(null);
+  const [draft, setComposing] = useState<Composing | null>(null);
   const [busy, setBusy] = useState(false);
 
   const sites = useMemo(() => extractClaimSites(page.body), [page.body]);
@@ -474,9 +476,29 @@ export function PinnedPage(props: {
     return result;
   }, [pins, byKey]);
 
+  const composing =
+    draft !== null &&
+    draft.pageId === page.id &&
+    (draft.claim === null || byKey.has(claimKey(draft.claim)))
+      ? draft
+      : null;
+
   const open = (claimIndex: number | null) => {
     actions.setMessage(null);
-    setComposing({ claimIndex });
+    if (claimIndex === null) {
+      setComposing({ pageId: page.id, claim: null, label: null });
+      return;
+    }
+    const claim = targets[claimIndex];
+    if (claim === null || claim === undefined) {
+      actions.setMessage(REASON_MESSAGE["unknown-claim"] ?? FAILED);
+      return;
+    }
+    setComposing({
+      pageId: page.id,
+      claim,
+      label: page.claims[claimIndex]?.label ?? null,
+    });
   };
 
   const aligned = sites.length === page.claims.length;
@@ -504,19 +526,11 @@ export function PinnedPage(props: {
 
   const submit = async (body: string, discuss: boolean) => {
     if (composing === null) return;
-    const claim =
-      composing.claimIndex === null ? null : targets[composing.claimIndex];
-    if (claim === null || claim === undefined) {
-      if (composing.claimIndex !== null) {
-        actions.setMessage(REASON_MESSAGE["unknown-claim"] ?? FAILED);
-        return;
-      }
-    }
     setBusy(true);
     try {
       const created = await actions.create({
-        pageId: page.id,
-        claim: claim ?? null,
+        pageId: composing.pageId,
+        claim: composing.claim,
         body,
       });
       if (created === null) return;
@@ -526,11 +540,6 @@ export function PinnedPage(props: {
       setBusy(false);
     }
   };
-
-  const composingClaim =
-    composing === null || composing.claimIndex === null
-      ? null
-      : (page.claims[composing.claimIndex]?.label ?? null);
 
   const pinsSection = (
     <section
@@ -547,11 +556,11 @@ export function PinnedPage(props: {
       </div>
       {composing === null ? null : (
         <Composer
-          key={composing.claimIndex ?? "page"}
+          key={`${composing.pageId}:${composing.claim === null ? "page" : claimKey(composing.claim)}`}
           targetLabel={
-            composingClaim === null
+            composing.claim === null
               ? "Pinning this page"
-              : `Pinning claim: ${composingClaim}`
+              : `Pinning claim: ${composing.label ?? ""}`
           }
           canDiscuss={threadId !== null}
           busy={busy}
