@@ -169,7 +169,19 @@ const promptInputItemSchema = z.discriminatedUnion("type", [
   }),
 ]);
 
-const CLAUDE_PROVIDER_SUBAGENT_TOOL_NAMES = new Set(["Agent", "Task"]);
+const CLAUDE_PROVIDER_SUBAGENT_TOOL_NAMES = new Set([
+  "Agent",
+  "Task",
+  "ListAgents",
+]);
+
+function subagentDisallowedTools(
+  providerSubagentsEnabled: boolean,
+): string[] | undefined {
+  return providerSubagentsEnabled
+    ? undefined
+    : [...CLAUDE_PROVIDER_SUBAGENT_TOOL_NAMES];
+}
 const CLAUDE_WORKFLOW_TOOL_NAME = "Workflow";
 
 interface BridgeEventNotification {
@@ -450,6 +462,34 @@ function applyChromeSetting(
   if (attachment.residentSession) {
     attachment.residentSession.restartBeforeNextTurn = {
       reason: CLAUDE_CHROME_SETTING_RESTART_REASON,
+      showRuntimeNote: false,
+    };
+  }
+}
+
+function applySubagentSetting(
+  attachment: ThreadAttachment,
+  enabled: boolean | undefined,
+): void {
+  if (
+    enabled === undefined ||
+    attachment.liveSettings.providerSubagentsEnabled === enabled
+  ) {
+    return;
+  }
+  const disallowedTools = subagentDisallowedTools(enabled);
+  if (disallowedTools === undefined) {
+    delete attachment.sessionOptions.disallowedTools;
+  } else {
+    attachment.sessionOptions.disallowedTools = disallowedTools;
+  }
+  attachment.liveSettings = {
+    ...attachment.liveSettings,
+    providerSubagentsEnabled: enabled,
+  };
+  if (attachment.residentSession) {
+    attachment.residentSession.restartBeforeNextTurn = {
+      reason: "Claude Code subagent setting changed",
       showRuntimeNote: false,
     };
   }
@@ -1406,6 +1446,12 @@ function buildTrackedSessionOptions(
     env,
   );
   sessionOptions.permissionMode = params.permissionMode;
+  const disallowedTools = subagentDisallowedTools(
+    params.providerSubagentsEnabled ?? true,
+  );
+  if (disallowedTools !== undefined) {
+    sessionOptions.disallowedTools = disallowedTools;
+  }
   sessionOptions.hooks = buildSessionTrackingHooks(threadIdRef);
   sessionOptions.recordThreadId = () => threadIdRef.current;
   return sessionOptions;
@@ -2528,6 +2574,7 @@ async function runTurnInput(
       applyTurnEnvironment(attachment, params.config);
     }
     applyChromeSetting(attachment, params.chromeEnabled);
+    applySubagentSetting(attachment, params.providerSubagentsEnabled);
     applyContextWindowSetting(attachment, params.disable1MContext);
     applyArtifactSetting(attachment, params.artifactsEnabled);
   }
