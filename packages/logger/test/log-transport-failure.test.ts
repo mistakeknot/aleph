@@ -171,6 +171,20 @@ describe("guardLogTransport", () => {
     expect(notices[0]).toContain("ENOSPC");
   });
 
+  it("degrades when flushSync or write throw before any error event arrives", () => {
+    const stream = new FakeTransport();
+    const notices: string[] = [];
+    guardLogTransport(stream, { notify: (text) => notices.push(text) });
+
+    // The worker died but thread-stream has not emitted 'error' yet.
+    stream.destroyed = true;
+    expect(() => stream.flushSync()).not.toThrow();
+    expect(() => stream.write("late\n")).not.toThrow();
+    expect(() => stream.end()).not.toThrow();
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toContain("_flushSync failed");
+  });
+
   it("swallows a stderr failure while reporting", () => {
     const stream = new FakeTransport();
     guardLogTransport(stream, {

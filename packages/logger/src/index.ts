@@ -30,7 +30,9 @@ function writeStderrNotice(text: string): void {
 function describeFailure(error: unknown): string {
   if (error instanceof Error) {
     const code = (error as { code?: unknown }).code;
-    return typeof code === "string" ? `${code}: ${error.message}` : error.message;
+    return typeof code === "string"
+      ? `${code}: ${error.message}`
+      : error.message;
   }
   return String(error);
 }
@@ -65,15 +67,43 @@ export function guardLogTransport(
   const degrade = (error: unknown): void => {
     if (degraded) return;
     degraded = true;
-    stream.write = () => true;
-    stream.flushSync = () => {};
-    stream.end = () => {};
     clearThreadStreamBuffer(stream);
     try {
       notify(
         `[bb] log transport failed (${describeFailure(error)}); logging to files is disabled for this process\n`,
       );
     } catch {}
+  };
+  // Wrap the synchronous operations up front. thread-stream reports a dead
+  // worker as an async 'error' event, but write() and the exit-time
+  // flushSync() can throw before that event is delivered.
+  const originalWrite = stream.write.bind(stream);
+  const originalFlushSync = stream.flushSync.bind(stream);
+  const originalEnd = stream.end.bind(stream);
+  stream.write = (chunk) => {
+    if (degraded) return true;
+    try {
+      return originalWrite(chunk);
+    } catch (error) {
+      degrade(error);
+      return true;
+    }
+  };
+  stream.flushSync = () => {
+    if (degraded) return;
+    try {
+      originalFlushSync();
+    } catch (error) {
+      degrade(error);
+    }
+  };
+  stream.end = () => {
+    if (degraded) return;
+    try {
+      originalEnd();
+    } catch (error) {
+      degrade(error);
+    }
   };
   stream.on("error", degrade);
 }

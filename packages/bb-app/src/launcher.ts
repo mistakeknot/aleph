@@ -3354,7 +3354,14 @@ async function restartManagedProcess(
     if (failure.exhausted) {
       return { kind: "exhausted" };
     }
-    await args.delayMilliseconds({ ms: failure.delayMs });
+    // The backoff can last a minute; a process that dies during it must
+    // not wait for the delay to end before it is noticed.
+    const delay = args.delayMilliseconds({ ms: failure.delayMs });
+    if (cancelled === undefined) {
+      await delay;
+    } else if ((await Promise.race([delay, cancelled])) === "cancelled") {
+      return { kind: "cancelled" };
+    }
   }
 
   return { kind: "shutdown" };
@@ -3487,7 +3494,12 @@ export async function superviseFullStackProcesses(
         if (failure.exhausted) {
           return giveUp("daemon");
         }
-        await args.delayMilliseconds({ ms: failure.delayMs });
+        // Wake early if the server dies during the backoff; the loop then
+        // restarts the server before the daemon.
+        await Promise.race([
+          args.delayMilliseconds({ ms: failure.delayMs }),
+          serverRun.exit,
+        ]);
         continue;
       }
       log(

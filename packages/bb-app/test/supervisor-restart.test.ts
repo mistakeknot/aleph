@@ -138,6 +138,121 @@ describe("full-stack supervisor restarts", () => {
     ]);
   });
 
+  it("notices a dead server during the backoff after a failed daemon restart", async () => {
+    const events: string[] = [];
+    const serverRun = new FakeManagedProcessRun("server", events);
+    const processes: ManagedFullStackProcesses = {
+      daemonRun: null,
+      serverRun,
+    };
+    let shutdown = false;
+    let delayCalls = 0;
+    let daemonStarts = 0;
+    const replacement = new FakeManagedProcessRun("server", events);
+
+    const supervision = superviseFullStackProcesses({
+      context: CONTEXT,
+      // The first backoff (after the failed daemon start) never ends on its own.
+      delayMilliseconds: () => {
+        delayCalls += 1;
+        events.push(`delay-${String(delayCalls)}`);
+        return delayCalls === 1
+          ? new Promise<void>(() => {})
+          : Promise.resolve();
+      },
+      isHealthyServerAnswering: async () => false,
+      isShutdownRequested: () => shutdown,
+      onServerMoved: async () => {
+        throw new Error("Unexpected server move");
+      },
+      processes,
+      readServerMovedFile: async () => null,
+      restartPolicy: DEFAULT_RESTART_POLICY,
+      startDaemon: async () => {
+        daemonStarts += 1;
+        if (daemonStarts === 1) {
+          throw new Error("Host daemon failed to become healthy");
+        }
+        events.push("daemon-started");
+        const run = new FakeManagedProcessRun("daemon", events);
+        processes.daemonRun = run;
+        shutdown = true;
+        setTimeout(() => replacement.exitWith({ code: 0, signal: null }), 0);
+        return run;
+      },
+      startServer: async () => {
+        events.push("server-started");
+        processes.serverRun = replacement;
+        return replacement;
+      },
+    });
+
+    await waitFor(() => events.includes("delay-1"));
+    serverRun.exitWith({ code: 1, signal: null });
+    await waitFor(() => events.includes("daemon-started"));
+    expect(await supervision).toBe("shutdown");
+    expect(events).toEqual([
+      "delay-1",
+      "delay-2",
+      "server-started",
+      "daemon-started",
+    ]);
+  });
+
+  it("notices a dead server during the backoff after the daemon exits", async () => {
+    const events: string[] = [];
+    const serverRun = new FakeManagedProcessRun("server", events);
+    const daemonRun = new FakeManagedProcessRun("daemon", events);
+    const processes: ManagedFullStackProcesses = { daemonRun, serverRun };
+    let shutdown = false;
+    let delayCalls = 0;
+    const replacement = new FakeManagedProcessRun("server", events);
+
+    const supervision = superviseFullStackProcesses({
+      context: CONTEXT,
+      delayMilliseconds: () => {
+        delayCalls += 1;
+        events.push(`delay-${String(delayCalls)}`);
+        return delayCalls === 1
+          ? new Promise<void>(() => {})
+          : Promise.resolve();
+      },
+      isHealthyServerAnswering: async () => false,
+      isShutdownRequested: () => shutdown,
+      onServerMoved: async () => {
+        throw new Error("Unexpected server move");
+      },
+      processes,
+      readServerMovedFile: async () => null,
+      restartPolicy: DEFAULT_RESTART_POLICY,
+      startDaemon: async () => {
+        events.push("daemon-started");
+        const run = new FakeManagedProcessRun("daemon", events);
+        processes.daemonRun = run;
+        shutdown = true;
+        setTimeout(() => replacement.exitWith({ code: 0, signal: null }), 0);
+        return run;
+      },
+      startServer: async () => {
+        events.push("server-started");
+        processes.serverRun = replacement;
+        return replacement;
+      },
+    });
+
+    daemonRun.exitWith({ code: 1, signal: null });
+    await waitFor(() => events.includes("delay-1"));
+    serverRun.exitWith({ code: 1, signal: null });
+    await waitFor(() => events.includes("daemon-started"));
+    expect(await supervision).toBe("shutdown");
+    expect(events).toEqual([
+      "delay-1",
+      "delay-2",
+      "server-started",
+      "daemon-started",
+    ]);
+  });
+
   it("restarts the server first when it is already gone before the daemon restart begins", async () => {
     const events: string[] = [];
     const serverRun = new FakeManagedProcessRun("server", events);
@@ -299,7 +414,8 @@ describe("full-stack supervisor restarts", () => {
           // The first replacement lives past the stable window, the second
           // one dies at once. The timer runs after the supervisor has marked
           // the start healthy, like a real process that lived for a while.
-          nowMs += startNumber === 1 ? DEFAULT_RESTART_POLICY.stableUptimeMs : 0;
+          nowMs +=
+            startNumber === 1 ? DEFAULT_RESTART_POLICY.stableUptimeMs : 0;
           if (startNumber === 3) {
             shutdown = true;
             serverRun.exitWith({ code: 0, signal: null });
