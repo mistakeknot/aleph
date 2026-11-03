@@ -65,6 +65,15 @@ export function claimTargetAt(
   };
 }
 
+export function claimMarkerFor(
+  page: WikiPage,
+  target: ClaimTarget,
+): ClaimMarker | null {
+  const group = groupOf(page, target.label, target.context);
+  if (group.length === 0 || group.length !== target.groupSize) return null;
+  return group[target.ordinal] ?? null;
+}
+
 export function verifyClaimTarget(
   page: WikiPage,
   target: ClaimTarget,

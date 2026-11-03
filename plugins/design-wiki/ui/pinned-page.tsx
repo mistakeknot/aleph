@@ -11,6 +11,11 @@ import { type ClaimTarget, claimTargetAt } from "../pin-anchor.js";
 import type { WikiPage } from "../wiki-types.js";
 import { BUTTON } from "./button-class.js";
 import { type CardActions, PinCards, usePinCards } from "./pin-cards.js";
+import {
+  type DecisionActions,
+  PinDecisions,
+  usePinDecisions,
+} from "./pin-decisions.js";
 import { type ClaimLayer, WikiPageView } from "./wiki-page-view.js";
 
 const REASON_MESSAGE: Record<string, string> = {
@@ -40,7 +45,7 @@ function claimKey(target: ClaimTarget): string {
   ]);
 }
 
-export interface PinActions extends CardActions {
+export interface PinActions extends CardActions, DecisionActions {
   projectId: string;
   threadId: string | null;
   message: string | null;
@@ -83,9 +88,11 @@ export function usePinActions(
   });
   const openThread = (id: string) => navigate.toThread(id);
   const cards = usePinCards(projectId, openThread);
+  const decisions = usePinDecisions(projectId);
 
   return {
     ...cards,
+    ...decisions,
     projectId,
     threadId,
     message,
@@ -269,6 +276,7 @@ export function PinRow(props: {
           ))}
         </div>
       )}
+      <PinDecisions pinId={pin.id} actions={actions} />
       <PinCards pinId={pin.id} actions={actions} />
       {editing ? null : (
         <div className="flex flex-wrap gap-2">
@@ -458,16 +466,15 @@ export function PinnedPage(props: {
     () =>
       (query.data ?? [])
         .filter((pin) => pin.pageId === page.id)
-        .map(
-          (pin): Pin =>
-            pin.claim !== null &&
-            pin.anchor.state === "claim" &&
-            !byKey.has(claimKey(pin.claim))
-              ? {
-                  ...pin,
-                  anchor: { state: "detached", reason: "claim-changed" },
-                }
-              : pin,
+        .map((pin): Pin =>
+          pin.claim !== null &&
+          pin.anchor.state === "claim" &&
+          !byKey.has(claimKey(pin.claim))
+            ? {
+                ...pin,
+                anchor: { state: "detached", reason: "claim-changed" },
+              }
+            : pin,
         ),
     [query.data, page.id, byKey],
   );

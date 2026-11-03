@@ -16,6 +16,12 @@ Reads a project's design wiki and shows it as a Wiki page, with persistent pins.
   to the page, and shows the card, its agent threads, pull requests and merge
   status on the pin. A pin can hold several cards, and a card created but not
   recorded can be linked afterwards.
+- Decision cards on a pin: a pin anchored to a claim shows the cards that claim
+  names, a pin on a page shows the page's card, and every pin also shows its
+  linked task cards. A card waiting on a single-choice ruling in Citadel can be
+  answered from the pin; anything else (several questions, an approval, a closed
+  card) is shown read-only with an Open card button. Answering in place is a
+  design choice, not an earlier ruling.
 - A malformed page appears as an error row naming the file and the problem; the
   rest of the wiki still loads.
 

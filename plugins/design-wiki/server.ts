@@ -3,9 +3,13 @@ import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import {
   designWikiRpcContract,
   PIN_BODY_MAX,
+  pinDecisionTag,
   pinTag,
   pinTaskTag,
+  type AnswerPinDecisionResult,
   type Pin,
+  type PinDecisionAnswer,
+  type PinDecisionItem,
   type PinTaskItem,
   type PinTaskResult,
   type TaskBoard,
@@ -14,6 +18,13 @@ import {
 } from "./contract.js";
 import { PIN_MIGRATIONS } from "./pin-migrations.js";
 import {
+  CARD_KEY_FOR_AUTARCH,
+  autarchClient,
+  type AutarchClient,
+  type AutarchOwedAsk,
+} from "./autarch-client.js";
+import {
+  claimMarkerFor,
   resolvePinAnchor,
   verifyClaimTarget,
   type ClaimTarget,
@@ -84,6 +95,57 @@ function isMissingPath(error: unknown): boolean {
   return MISSING_PATH_PATTERN.test(errorMessage(error));
 }
 
+interface PinCardKey {
+  key: string;
+  origin: PinDecisionItem["origin"];
+}
+
+type AnswerRead =
+  | { answer: PinDecisionAnswer; reason: null }
+  | { answer: null; reason: string };
+
+const OPEN_THE_CARD = "Open the card to answer it.";
+
+function readAnswer(owed: AutarchOwedAsk | undefined): AnswerRead {
+  if (owed === undefined) {
+    return {
+      answer: null,
+      reason: "This card is not waiting for a ruling in Citadel.",
+    };
+  }
+  const { ask } = owed;
+  const options = ask.options ?? [];
+  if (
+    ask.kind !== "decide" ||
+    ask.questions !== undefined ||
+    options.length === 0 ||
+    options.some(
+      (option) =>
+        option.id === "" ||
+        option.approval !== undefined ||
+        option.approval === null,
+    )
+  ) {
+    return {
+      answer: null,
+      reason: `This decision cannot be answered with one pick here. ${OPEN_THE_CARD}`,
+    };
+  }
+  return {
+    answer: {
+      decisionId: owed.id,
+      revision: owed.revision,
+      question: ask.question ?? "",
+      recommendation: ask.recommendation ?? null,
+      options: options.map((option) => ({
+        id: option.id,
+        label: option.label,
+      })),
+    },
+    reason: null,
+  };
+}
+
 export default async function designWikiPlugin(bb: BbPluginApi): Promise<void> {
   const db = bb.storage.database();
   bb.storage.migrate(db, PIN_MIGRATIONS);
@@ -149,13 +211,16 @@ export default async function designWikiPlugin(bb: BbPluginApi): Promise<void> {
 
   function invalidatePins(projectId: string): void {
     bb.rpc.experimental_invalidate([pinTag(projectId)]);
+    bb.rpc.experimental_invalidate([pinDecisionTag(projectId)]);
   }
 
   function invalidatePinTasks(projectId: string): void {
     bb.rpc.experimental_invalidate([pinTaskTag(projectId)]);
+    bb.rpc.experimental_invalidate([pinDecisionTag(projectId)]);
   }
 
   const tasks: TasksClient = tasksClient(bb);
+  const autarch: AutarchClient = autarchClient(bb);
 
   function taskFailure(
     reason: Extract<PinTaskResult, { ok: false }>["reason"],
@@ -306,6 +371,58 @@ export default async function designWikiPlugin(bb: BbPluginApi): Promise<void> {
     return toPin(row, threadIdsOf([row.id]).get(row.id) ?? [], discovery);
   }
 
+  function cardKeysOf(row: PinRow, discovery: WikiDiscovery): PinCardKey[] {
+    const found: PinCardKey[] = [];
+    const claim = claimOf(row);
+    const anchor = resolvePinAnchor(
+      { pageId: row.page_id, sourcePath: row.source_path, claim },
+      discovery,
+    );
+    const page = discovery.pages.find((item) => item.id === row.page_id);
+    if (page !== undefined && anchor.state === "claim" && claim !== null) {
+      for (const key of claimMarkerFor(page, claim)?.cards ?? []) {
+        found.push({ key, origin: "claim" });
+      }
+    } else if (page !== undefined && anchor.state === "page") {
+      if (page.card !== null) found.push({ key: page.card, origin: "page" });
+    }
+    const recorded = db
+      .prepare("SELECT task_key FROM pin_tasks WHERE pin_id = ? ORDER BY rowid")
+      .all(row.id) as { task_key: string }[];
+    for (const task of recorded) {
+      found.push({ key: task.task_key, origin: "task" });
+    }
+    return found.filter(
+      (entry, index) =>
+        found.findIndex((other) => other.key === entry.key) === index,
+    );
+  }
+
+  async function readOwed(): Promise<AutarchOwedAsk[] | null> {
+    try {
+      return await autarch.owed();
+    } catch {
+      return null;
+    }
+  }
+
+  type CardRead =
+    | { found: "unavailable" }
+    | { found: false }
+    | { found: true; state: string; title: string };
+
+  async function readCard(key: string): Promise<CardRead> {
+    if (!CARD_KEY_FOR_AUTARCH.test(key)) return { found: false };
+    try {
+      const card = await autarch.cardState(key);
+      return card.found
+        ? { found: true, state: card.state, title: card.title }
+        : { found: false };
+    } catch {
+      return { found: "unavailable" };
+    }
+  }
+
   function cleanBody(raw: string): string | null {
     const body = raw.trim();
     return body.length === 0 || body.length > PIN_BODY_MAX ? null : body;
@@ -325,7 +442,9 @@ export default async function designWikiPlugin(bb: BbPluginApi): Promise<void> {
     return {
       async listMarkdownFiles(directory) {
         const absolute = `${root.path}/${directory}`;
-        let result: Awaited<ReturnType<BbPluginApi["sdk"]["files"]["listPaths"]>>;
+        let result: Awaited<
+          ReturnType<BbPluginApi["sdk"]["files"]["listPaths"]>
+        >;
         try {
           result = await bb.sdk.files.listPaths({
             hostId: root.hostId,
@@ -446,7 +565,9 @@ export default async function designWikiPlugin(bb: BbPluginApi): Promise<void> {
         if (anchor.state === "unverified") {
           return fail("unverified");
         }
-        const found = discovery.pages.find((candidate) => candidate.id === pageId);
+        const found = discovery.pages.find(
+          (candidate) => candidate.id === pageId,
+        );
         if (anchor.state !== "page" || found === undefined) {
           return fail("page-missing");
         }
@@ -652,6 +773,162 @@ export default async function designWikiPlugin(bb: BbPluginApi): Promise<void> {
         if (result.changes === 0) return { removed: false };
         invalidatePinTasks(projectId);
         return { removed: true };
+      },
+      async pinDecisions({ projectId }): Promise<PinDecisionItem[]> {
+        const rows = db
+          .prepare(
+            "SELECT * FROM pins WHERE project_id = ? ORDER BY created_at, id",
+          )
+          .all(projectId) as PinRow[];
+        if (rows.length === 0) return [];
+        const discovery = await discover(projectId);
+        const wanted = rows.flatMap((row) =>
+          cardKeysOf(row, discovery).map((entry) => ({
+            pinId: row.id,
+            ...entry,
+          })),
+        );
+        if (wanted.length === 0) return [];
+        const keys = [...new Set(wanted.map((entry) => entry.key))];
+        const reads = new Map<string, CardRead>(
+          await Promise.all(
+            keys.map(async (key) => [key, await readCard(key)] as const),
+          ),
+        );
+        const anyOpen = [...reads.values()].some(
+          (read) => read.found === true && read.state === "open",
+        );
+        const owed = anyOpen ? await readOwed() : [];
+        return wanted.map((entry): PinDecisionItem => {
+          const read = reads.get(entry.key) ?? { found: false as const };
+          const base = {
+            pinId: entry.pinId,
+            key: entry.key,
+            origin: entry.origin,
+          };
+          if (read.found === "unavailable") {
+            return {
+              ...base,
+              state: "unavailable",
+              cardState: null,
+              title: null,
+              answer: null,
+              reason: "Could not reach Citadel to read this card.",
+            };
+          }
+          if (read.found === false) {
+            return {
+              ...base,
+              state: "missing",
+              cardState: null,
+              title: null,
+              answer: null,
+              reason: "Citadel has no card with this key.",
+            };
+          }
+          const title = read.title === "" ? null : read.title;
+          if (read.state !== "open") {
+            return {
+              ...base,
+              state: "closed",
+              cardState: read.state,
+              title,
+              answer: null,
+              reason: null,
+            };
+          }
+          if (owed === null) {
+            return {
+              ...base,
+              state: "open",
+              cardState: read.state,
+              title,
+              answer: null,
+              reason: "Could not reach Citadel to read this decision.",
+            };
+          }
+          const result = readAnswer(
+            owed.find((item) => item.key === entry.key),
+          );
+          return {
+            ...base,
+            state: "open",
+            cardState: read.state,
+            title,
+            ...result,
+          };
+        });
+      },
+      async answerPinDecision({
+        projectId,
+        pinId,
+        key,
+        optionId,
+        revision,
+        pickId,
+      }): Promise<AnswerPinDecisionResult> {
+        const refuse = (
+          reason: Extract<AnswerPinDecisionResult, { ok: false }>["reason"],
+          message: string,
+        ): AnswerPinDecisionResult => ({ ok: false, reason, message });
+        const row = pinRow(projectId, pinId);
+        if (row === undefined) {
+          return refuse("not-found", "This pin no longer exists.");
+        }
+        const linked = cardKeysOf(row, await discover(projectId));
+        if (!linked.some((entry) => entry.key === key)) {
+          return refuse("not-linked", `${key} is not a card on this pin.`);
+        }
+        const owed = await readOwed();
+        if (owed === null) {
+          return refuse(
+            "unavailable",
+            "Could not reach Citadel. Nothing was answered.",
+          );
+        }
+        const found = owed.find((item) => item.key === key);
+        if (found === undefined) {
+          return refuse(
+            "not-open",
+            `${key} is not waiting for a ruling in Citadel any more.`,
+          );
+        }
+        const read = readAnswer(found);
+        if (
+          read.answer === null ||
+          !read.answer.options.some((option) => option.id === optionId)
+        ) {
+          return refuse(
+            "not-answerable",
+            `That cannot be answered with one pick here. ${OPEN_THE_CARD}`,
+          );
+        }
+        let picked: Awaited<ReturnType<AutarchClient["pick"]>>;
+        try {
+          picked = await autarch.pick({
+            decisionId: read.answer.decisionId,
+            optionId,
+            revision,
+            pickId,
+          });
+        } catch (error) {
+          return refuse(
+            "unavailable",
+            `Could not reach Citadel: ${errorMessage(error)}. Nothing was answered.`,
+          );
+        }
+        invalidatePinTasks(projectId);
+        if (picked.ok) return { ok: true };
+        if (picked.status === 409) {
+          return refuse(
+            "stale",
+            "This decision changed while you were looking at it. The latest version is shown now; check it and answer again.",
+          );
+        }
+        return refuse(
+          "refused",
+          `Citadel did not take the answer: ${picked.error ?? "no reason given"}.`,
+        );
       },
       async pinTasks({ projectId }) {
         const rows = db
