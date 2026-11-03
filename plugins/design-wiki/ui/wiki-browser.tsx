@@ -42,21 +42,11 @@ function PageDetail(props: { projectId: string; pageId: string }) {
 
 export interface WikiBrowserProps {
   projectId: string;
-  /** The open page, or null while only the list shows. */
   pageId: string | null;
-  /** Select a page, or null to go back to the list (stacked layout). */
   onSelectPage: (pageId: string | null) => void;
-  /**
-   * "split" puts the list and the page side by side (the Wiki page);
-   * "stacked" shows one at a time with a back control (the thread panel).
-   */
   layout: "split" | "stacked";
 }
 
-/**
- * The project's wiki list and page view. The Wiki page and the thread side
- * panel both render this component and differ only in `layout`.
- */
 export function WikiBrowser(props: WikiBrowserProps) {
   const { projectId, pageId, onSelectPage, layout } = props;
   const list = useRpcQuery({

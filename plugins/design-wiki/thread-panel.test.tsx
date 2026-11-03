@@ -4,7 +4,6 @@ import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WikiPage, WikiPageSummary } from "./wiki-types.js";
 
-// Count renders of the shared browser per surface, using the real component.
 const browserRenders = vi.hoisted(() => ({ props: [] as unknown[] }));
 vi.mock("./ui/wiki-browser.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./ui/wiki-browser.js")>();
@@ -184,5 +183,26 @@ describe("shared browser", () => {
       (props) => (props as { layout: string }).layout,
     );
     expect(new Set(layouts)).toEqual(new Set(["split", "stacked"]));
+  });
+
+  it("opens the same page view from the nav panel", async () => {
+    const pageSlot = renderSlot(
+      navPanel,
+      { subPath: "proj_a/cuj-first" },
+      { context: { projectId: null }, rpc: rpc() },
+    );
+    const article = await waitFor(() => {
+      const node = pageSlot.container.querySelector(
+        '[data-wiki-page="cuj-first"]',
+      );
+      expect(node).not.toBeNull();
+      return node!;
+    });
+    const claims = Array.from(article.querySelectorAll("[data-wiki-claim]"));
+    expect(claims.map((node) => node.getAttribute("data-wiki-claim"))).toEqual([
+      "ruled",
+      "open",
+    ]);
+    expect(pageSlot.getByRole("region", { name: "Requirements" })).toBeTruthy();
   });
 });
