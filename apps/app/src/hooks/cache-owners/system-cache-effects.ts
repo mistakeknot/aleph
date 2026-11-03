@@ -35,6 +35,7 @@ import {
   hostsQueryKey,
   projectsQueryKey,
   serverMoveStatusQueryKey,
+  uiPreferencesQueryKey,
   sidebarNavigationQueryKey,
   systemConfigQueryKey,
   systemProviderCatalogQueryKey,
@@ -146,6 +147,10 @@ export function invalidateSystemConfig({ queryClient }: QueryClientArg): void {
     queryClient,
     queryKeys: [systemConfigQueryKey(), allSystemThemesQueryKeyPrefix()],
   });
+}
+
+export function invalidateUiPreferences({ queryClient }: QueryClientArg): void {
+  invalidateQueryKeys({ queryClient, queryKeys: [uiPreferencesQueryKey()] });
 }
 
 export function invalidateMachineEnvironment({
