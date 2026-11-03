@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { parsePoolExecArgs, poolExecArgsAllowed } from "./exec-args.js";
+import {
+  parsePoolExecArgs,
+  poolExecArgsAllowed,
+  poolExecArgsRefusal,
+} from "./exec-args.js";
 
 describe("pool exec argument allowlist", () => {
   it("quotes the prompt behind an option terminator so it cannot select a subcommand", () => {
@@ -188,19 +192,113 @@ describe("restrictive Claude reviewer arguments", () => {
     ).toBeNull();
   });
 
-  it("accepts only empty settings sources", () => {
+  const guards = ["--tools=", "--strict-mcp-config"];
+
+  it("accepts empty settings sources only with empty tools and strict MCP config", () => {
     for (const option of [["--setting-sources", ""], ["--setting-sources="]]) {
-      expect(parsePoolExecArgs("claude", ["--print", ...option])).toEqual([
+      expect(
+        parsePoolExecArgs("claude", [
+          "--print",
+          "--tools",
+          "",
+          "--strict-mcp-config",
+          ...option,
+        ]),
+      ).toEqual([
         "--print",
+        "--tools=",
+        "--strict-mcp-config",
         "--setting-sources=",
       ]);
+      expect(
+        parsePoolExecArgs("claude", [
+          "--print",
+          ...option,
+          "--strict-mcp-config",
+          "--tools=",
+        ]),
+      ).toEqual([
+        "--print",
+        "--setting-sources=",
+        "--strict-mcp-config",
+        "--tools=",
+      ]);
     }
+  });
+
+  it("refuses empty settings sources without empty tools", () => {
+    for (const option of [["--setting-sources", ""], ["--setting-sources="]]) {
+      expect(
+        parsePoolExecArgs("claude", [
+          "--print",
+          "--strict-mcp-config",
+          ...option,
+          "review",
+        ]),
+      ).toBeNull();
+    }
+    expect(
+      parsePoolExecArgs("claude", [
+        "--print",
+        "--strict-mcp-config",
+        "--setting-sources=",
+        "--tools",
+        "Bash",
+      ]),
+    ).toBeNull();
+  });
+
+  it("refuses empty settings sources without strict MCP config", () => {
+    for (const option of [["--setting-sources", ""], ["--setting-sources="]]) {
+      expect(
+        parsePoolExecArgs("claude", [
+          "--print",
+          "--tools=",
+          ...option,
+          "review",
+        ]),
+      ).toBeNull();
+    }
+  });
+
+  it("refuses bare empty settings sources", () => {
+    expect(
+      parsePoolExecArgs("claude", ["--print", "--setting-sources", ""]),
+    ).toBeNull();
+    expect(
+      parsePoolExecArgs("claude", ["--print", "--setting-sources="]),
+    ).toBeNull();
+    expect(
+      poolExecArgsAllowed("claude", ["--print", "--setting-sources="]),
+    ).toBe(false);
+  });
+
+  it("names the missing guards when refusing empty settings sources", () => {
+    expect(
+      poolExecArgsRefusal("claude", ["--print", "--setting-sources="]),
+    ).toContain("--tools= and --strict-mcp-config");
+    expect(
+      poolExecArgsRefusal("claude", [
+        "--print",
+        "--setting-sources=",
+        ...guards,
+      ]),
+    ).toBeNull();
+    expect(poolExecArgsRefusal("claude", ["--print", "--bogus"])).toBe(
+      "claude arguments are not permitted by the Account Pooler execution allowlist.",
+    );
+  });
+
+  it("keeps non-empty settings sources refused with or without guards", () => {
     for (const value of ["user", "project", "local", "user,project", " "]) {
       for (const option of [
         ["--setting-sources", value],
         [`--setting-sources=${value}`],
       ]) {
         expect(parsePoolExecArgs("claude", ["--print", ...option])).toBeNull();
+        expect(
+          parsePoolExecArgs("claude", ["--print", ...guards, ...option]),
+        ).toBeNull();
       }
     }
     expect(

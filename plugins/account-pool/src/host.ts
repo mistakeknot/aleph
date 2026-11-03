@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { experimental_defineHostEntry } from "@get-bb/plugin-sdk/host";
 import { poolExecHostContract } from "./exec-contract.js";
-import { parsePoolExecArgs } from "./exec-args.js";
+import { parsePoolExecArgs, poolExecArgsRefusal } from "./exec-args.js";
 import { readPoolInput } from "./exec-input.js";
 
 const OUTPUT_LIMIT_BYTES = 900_000;
@@ -98,7 +98,7 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
             providerPinned: false,
             exitCode: 1,
             stdout: "",
-            stderr: `${input.provider} arguments are not permitted by the Account Pooler execution allowlist.\n`,
+            stderr: `${poolExecArgsRefusal(input.provider, input.args) ?? `${input.provider} arguments are not permitted by the Account Pooler execution allowlist.`}\n`,
           };
         }
         let stdin: Buffer<ArrayBufferLike> = Buffer.alloc(0);

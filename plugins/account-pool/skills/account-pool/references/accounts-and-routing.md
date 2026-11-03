@@ -128,7 +128,9 @@ non-empty servers are rejected. These valued flags accept separate and equals
 forms. System prompt file options and other short options are not accepted.
 
 Claude receives `--setting-sources user` after argument validation by default;
-an explicit empty `--setting-sources` instead suppresses all settings sources.
+an explicit empty `--setting-sources` instead suppresses all settings sources,
+and is accepted only together with `--tools=` (empty) and `--strict-mcp-config`
+in the same command, because it also drops user-settings protections.
 Non-empty caller source lists and `--settings` are rejected: project and local
 settings cannot replace the endpoint, run their hooks/helpers, or select another
 provider. The host also sets `CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST=1` to prevent

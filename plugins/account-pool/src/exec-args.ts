@@ -38,7 +38,34 @@ export function poolExecArgsAllowed(
   return parsePoolExecArgs(provider, args) !== null;
 }
 
+const EMPTY_SETTING_SOURCES_GUARDS = ["--tools=", "--strict-mcp-config"];
+const EMPTY_SETTING_SOURCES_REFUSAL =
+  "claude --setting-sources '' is permitted only together with --tools= and --strict-mcp-config because it also drops user-settings protections.";
+
 export function parsePoolExecArgs(
+  provider: PoolProvider,
+  args: readonly string[],
+): string[] | null {
+  const options = parseUnguardedPoolExecArgs(provider, args);
+  if (
+    options?.includes("--setting-sources=") &&
+    !EMPTY_SETTING_SOURCES_GUARDS.every((guard) => options.includes(guard))
+  )
+    return null;
+  return options;
+}
+
+export function poolExecArgsRefusal(
+  provider: PoolProvider,
+  args: readonly string[],
+): string | null {
+  if (parsePoolExecArgs(provider, args) !== null) return null;
+  if (parseUnguardedPoolExecArgs(provider, args) !== null)
+    return EMPTY_SETTING_SOURCES_REFUSAL;
+  return `${provider} arguments are not permitted by the Account Pooler execution allowlist.`;
+}
+
+function parseUnguardedPoolExecArgs(
   provider: PoolProvider,
   args: readonly string[],
 ): string[] | null {
@@ -70,8 +97,8 @@ export function parsePoolExecArgs(
       provider === "claude" &&
       (key === "--tools" || key === "--setting-sources")
     ) {
-      const toolsValue = equals < 0 ? args[++index] : arg.slice(equals + 1);
-      if (toolsValue !== "") return null;
+      const emptyValue = equals < 0 ? args[++index] : arg.slice(equals + 1);
+      if (emptyValue !== "") return null;
       options.push(`${key}=`);
       continue;
     }
@@ -85,7 +112,7 @@ export function parsePoolExecArgs(
           config === null ||
           Array.isArray(config) ||
           Object.keys(config).length !== 1 ||
-          !("mcpServers" in config)
+          !Object.hasOwn(config, "mcpServers")
         )
           return null;
         const servers = config.mcpServers;
