@@ -22,16 +22,18 @@ const UNKNOWN: Failure = {
     "Could not confirm whether Citadel took the answer. Check the card before answering again.",
 };
 
-const holds = new Map<string, string>();
+const holds = new Set<string>();
 const holdListeners = new Set<() => void>();
 let holdVersion = 0;
 
-function setHold(id: string, revision: string | null) {
-  if (revision === null) {
-    if (!holds.delete(id)) return;
-  } else {
-    holds.set(id, revision);
-  }
+function holdId(projectId: string, key: string, revision: string) {
+  return JSON.stringify([projectId, key, revision]);
+}
+
+function changeHold(id: string, held: boolean) {
+  const changed = held ? !holds.has(id) : holds.delete(id);
+  if (!changed) return;
+  if (held) holds.add(id);
   holdVersion += 1;
   holdListeners.forEach((listener) => listener());
 }
@@ -97,10 +99,10 @@ export function usePinDecisions(projectId: string): DecisionActions {
 
   return {
     decisionsFor: (pinId) => items.filter((item) => item.pinId === pinId),
-    isHeld: (key, revision) => holds.get(`${projectId}:${key}`) === revision,
+    isHeld: (key, revision) => holds.has(holdId(projectId, key, revision)),
     answerDecision: async (input) => {
-      const holdId = `${projectId}:${input.key}`;
-      setHold(holdId, input.revision);
+      const id = holdId(projectId, input.key, input.revision);
+      changeHold(id, true);
       let result: AnswerPinDecisionResult;
       try {
         result = await answer.mutate({
@@ -111,7 +113,7 @@ export function usePinDecisions(projectId: string): DecisionActions {
       } catch {
         result = UNKNOWN;
       }
-      if (result.ok || result.reason !== "unknown") setHold(holdId, null);
+      if (result.ok || result.reason !== "unknown") changeHold(id, false);
       await Promise.resolve(query.refetch()).catch(() => undefined);
       return result;
     },

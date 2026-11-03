@@ -111,12 +111,23 @@ function decisionOf(overrides: Partial<PinDecisionItem> = {}): PinDecisionItem {
   };
 }
 
+function deferred() {
+  let resolve!: (value: unknown) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<unknown>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 interface Options {
   items?: PinDecisionItem[];
   answerResult?: unknown;
   answerThrows?: boolean;
   decisionsFail?: boolean;
   twoPins?: boolean;
+  answerGates?: Promise<unknown>[];
 }
 
 function mount(options: Options = {}) {
@@ -143,6 +154,8 @@ function mount(options: Options = {}) {
     },
     answerPinDecision: (input: unknown) => {
       calls.push({ method: "answerPinDecision", input });
+      const gate = options.answerGates?.shift();
+      if (gate !== undefined) return gate;
       if (options.answerThrows) throw new Error("rpc down");
       if (options.answerResult !== undefined) return options.answerResult;
       items = [
@@ -371,6 +384,59 @@ describe("decisions on a pin", () => {
     })) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
     expect(second.calls).toHaveLength(0);
+  });
+
+  it("keeps a newer revision held when an older request completes after it", async () => {
+    const early = deferred();
+    const late = deferred();
+    const { slot, calls, setItems } = mount({
+      items: [decisionOf(), decisionOf({ pinId: "pin_2" })],
+      twoPins: true,
+      answerGates: [early.promise, late.promise],
+    });
+    await waitFor(() =>
+      expect(slot.container.querySelectorAll("[data-pin-id]")).toHaveLength(2),
+    );
+    const rows = Array.from(
+      slot.container.querySelectorAll<HTMLElement>("[data-pin-id]"),
+    );
+    const disabled = (row: HTMLElement) =>
+      (
+        within(row).getByRole("button", {
+          name: "Answer ACME-35: Front door",
+        }) as HTMLButtonElement
+      ).disabled;
+    fireEvent.click(
+      await within(rows[0]!).findByRole("button", {
+        name: "Answer ACME-35: Front door",
+      }),
+    );
+    await waitFor(() => expect(calls).toHaveLength(1));
+    setItems([
+      decisionOf({ answer: { ...decisionOf().answer!, revision: "rev-2" } }),
+      decisionOf({
+        pinId: "pin_2",
+        answer: { ...decisionOf().answer!, revision: "rev-2" },
+      }),
+    ]);
+    window.dispatchEvent(new Event("focus"));
+    await waitFor(() => expect(disabled(rows[1]!)).toBe(false));
+    fireEvent.click(
+      within(rows[1]!).getByRole("button", {
+        name: "Answer ACME-35: Front door",
+      }),
+    );
+    await waitFor(() => expect(calls).toHaveLength(2));
+    expect((calls[1]!.input as { revision: string }).revision).toBe("rev-2");
+    early.resolve({ ok: false, reason: "refused", message: "Not taken." });
+    await within(rows[0]!).findByText("Not taken.");
+    await waitFor(() => expect(disabled(rows[0]!)).toBe(true));
+    expect(disabled(rows[1]!)).toBe(true);
+    late.reject(new Error("rpc down"));
+    await within(rows[1]!).findByText(/Could not confirm whether Citadel took/);
+    await waitFor(() => expect(disabled(rows[0]!)).toBe(true));
+    expect(disabled(rows[1]!)).toBe(true);
+    expect(calls).toHaveLength(2);
   });
 
   it("shows a read-only card with its reason and an Open card button", async () => {
