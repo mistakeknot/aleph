@@ -11,6 +11,9 @@ Reads a project's design wiki and shows it as a read-only Wiki page.
 - A malformed page appears as an error row naming the file and the problem; the
   rest of the wiki still loads.
 
+The same list and page view open as a Design Wiki tab in a thread's side panel,
+for the thread's project. A project with no `docs/wiki` shows an empty state.
+
 Enable Design Wiki under Installed plugins. It reads
 `docs/wiki/src/cujs/*.md` and `docs/wiki/src/requirements/*.md` from the project's
 checkout and changes nothing.

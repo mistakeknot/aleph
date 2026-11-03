@@ -40,9 +40,20 @@ and card keys inside any body text link to the Tasks card.
 - `wiki-page.ts`, `wiki-discovery.ts`, `claims.ts`: parsing, discovery and claim
   extraction, free of host and UI code.
 - `server.ts`: reads files through the host.
-- `ui/wiki-page-view.tsx`: the page renderer. It is exported as
-  `bb-plugin-bb--design-wiki/page-view` so a thread side panel can reuse it.
-- `ui/wiki-list-view.tsx`, `app.tsx`: the list and the navigation panel.
+- `ui/wiki-page-view.tsx`: the page renderer, also exported as
+  `bb-plugin-bb--design-wiki/page-view`.
+- `ui/wiki-list-view.tsx`: the grouped list with status filter chips.
+- `ui/wiki-browser.tsx`: `WikiBrowser`, the list plus page view for one project.
+  The Wiki page renders it with `layout="split"` and the thread side panel with
+  `layout="stacked"`; nothing else differs.
+- `app.tsx`: the Wiki navigation panel and the thread side panel tab.
+
+## Thread side panel
+
+A "Design Wiki" tab in every thread's side panel shows the same list and page
+view for the thread's project. Choosing a page replaces the list, with a "Back to
+pages" control. A project without `docs/wiki/src` shows the empty state, and a
+thread without a project says it has no design wiki. The panel is read-only.
 
 ## Tests
 
