@@ -13,6 +13,7 @@ Providers are agent backends (e.g., codex, claude-code). Each supports different
                                           List available providers
   bb provider models [providerId] [--machine <id-or-name> | --environment <id>]
                      [--project <id>]
+    [--selected-model <model-id>]
                                           List models for a provider
 
 Use these before spawning threads if you are unsure which provider or model to use.
@@ -140,3 +141,11 @@ Use top-level sharedSkillRoots for one provider-neutral skill collection. The
 user and project paths use the same relative-path rules. bb indexes these roots
 as read-only sources. It then injects the selected skills into all providers.
 The bb user and project roots keep higher precedence than matching shared roots.
+
+Use --selected-model to discover an unprobed model's reasoning choices and
+include a selected-only model; ACP probes only that model and caches the result.
+Each model reports reasoningDiscovery: unknown means its choices have not been
+discovered yet, and known with an empty supportedReasoningEfforts list means it
+has no selectable reasoning levels. Sending never waits for discovery. When the
+cached catalog lists a model without the thread's reasoning level, BB leaves
+reasoning out of the provider request and the agent keeps its own setting.

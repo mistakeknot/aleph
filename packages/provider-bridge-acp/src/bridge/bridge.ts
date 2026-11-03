@@ -152,7 +152,6 @@ import {
   type CursorMcpApproval,
 } from "./cursor-mcp-approval.js";
 import {
-  ACP_NATIVE_REASONING_EFFORTS,
   buildAgentModelCatalog,
   buildAcpNativeReasoningSupport,
   buildModelCatalogFromConfigOptions,
@@ -608,7 +607,8 @@ const ACP_DEFAULT_MODEL: AvailableModel = {
   model: ACP_DEFAULT_MODEL_ID,
   displayName: "Agent default",
   description: "Model selection is managed by the connected ACP agent.",
-  supportedReasoningEfforts: ACP_NATIVE_REASONING_EFFORTS,
+  reasoningDiscovery: "unknown",
+  supportedReasoningEfforts: [],
   defaultReasoningEffort: "medium",
   supportedServiceTiers: [],
   isDefault: true,
@@ -624,7 +624,12 @@ function reasoningSupportFromCli(
     | Pick<AcpBridgeReasoningCli, "supportedLevels" | "defaultLevel">
     | undefined,
 ):
-  | Pick<AvailableModel, "supportedReasoningEfforts" | "defaultReasoningEffort">
+  | Pick<
+      AvailableModel,
+      | "reasoningDiscovery"
+      | "supportedReasoningEfforts"
+      | "defaultReasoningEffort"
+    >
   | undefined {
   if (reasoningCli === undefined) {
     return undefined;
@@ -638,6 +643,7 @@ function reasoningSupportFromCli(
         ? "medium"
         : supportedLevels[0];
   return {
+    reasoningDiscovery: "known",
     supportedReasoningEfforts: reasoningEffortsForLevels(supportedLevels),
     defaultReasoningEffort,
   };
@@ -656,12 +662,8 @@ function applyReasoningCliToModel(
       };
 }
 
-function modelHasOnlyAgentManagedReasoning(model: AvailableModel): boolean {
-  return (
-    model.supportedReasoningEfforts.length === 1 &&
-    model.supportedReasoningEfforts[0]?.reasoningEffort === "medium" &&
-    model.defaultReasoningEffort === "medium"
-  );
+function modelHasNoAdvertisedReasoning(model: AvailableModel): boolean {
+  return model.supportedReasoningEfforts.length === 0;
 }
 
 function applyNativeReasoningHintToModel(
@@ -669,8 +671,7 @@ function applyNativeReasoningHintToModel(
   nativeReasoning: AcpBridgeNativeReasoning | undefined,
 ): AvailableModel {
   const reasoningSupport = reasoningSupportFromCli(nativeReasoning);
-  return reasoningSupport === undefined ||
-    !modelHasOnlyAgentManagedReasoning(model)
+  return reasoningSupport === undefined || !modelHasNoAdvertisedReasoning(model)
     ? model
     : {
         ...model,
@@ -1130,6 +1131,7 @@ async function loadSessionDiscoveredModels(
   reasoningProbePriorityModelIds: readonly string[],
   parameterizedModelPicker: boolean,
   dialectId: string,
+  selectedModel: string | undefined,
 ): Promise<AvailableModel[] | null> {
   const key = JSON.stringify({
     agent,
@@ -1137,6 +1139,7 @@ async function loadSessionDiscoveredModels(
     parameterizedModelPicker,
   });
   if (
+    selectedModel === undefined &&
     cachedSessionDiscoveredModels?.key === key &&
     Date.now() - cachedSessionDiscoveredModels.fetchedAt <
       SESSION_MODEL_DISCOVERY_TTL_MS
@@ -1219,11 +1222,13 @@ async function loadSessionDiscoveredModels(
     }
 
     if (configOptionModels.length === 0) {
-      cachedSessionDiscoveredModels = {
-        key,
-        models: sessionModels,
-        fetchedAt: Date.now(),
-      };
+      if (selectedModel === undefined) {
+        cachedSessionDiscoveredModels = {
+          key,
+          models: sessionModels,
+          fetchedAt: Date.now(),
+        };
+      }
       return sessionModels;
     }
 
@@ -1231,17 +1236,17 @@ async function loadSessionDiscoveredModels(
       connection,
       sessionId: newSession.sessionId,
       modelOption,
+      configOptions: newSession.configOptions,
       reasoningProbePriorityModelIds,
+      selectedModel,
     });
     const models = buildModelCatalogFromConfigOptions(
       modelOption,
       supportByModel,
     );
-    cachedSessionDiscoveredModels = {
-      key,
-      models,
-      fetchedAt: Date.now(),
-    };
+    if (selectedModel === undefined) {
+      cachedSessionDiscoveredModels = { key, models, fetchedAt: Date.now() };
+    }
     return models;
   } catch (error) {
     process.stderr.write(
@@ -1275,7 +1280,9 @@ async function discoverAcpNativeModelSupport(args: {
   connection: AcpAgentConnection;
   sessionId: string;
   modelOption: AcpConfigOption | undefined;
+  configOptions: readonly AcpConfigOption[] | undefined;
   reasoningProbePriorityModelIds: readonly string[];
+  selectedModel: string | undefined;
 }): Promise<ReadonlyMap<string, AcpNativeModelSupport>> {
   const modelOptions = args.modelOption?.options ?? [];
   if (!args.modelOption || modelOptions.length === 0) {
@@ -1285,22 +1292,38 @@ async function discoverAcpNativeModelSupport(args: {
   const modelByValue = new Map(
     modelOptions.map((model) => [model.value, model] as const),
   );
+  const supportByModel = new Map<string, AcpNativeModelSupport>();
+  const currentValue = modelOption.currentValue;
+  if (currentValue !== undefined && modelByValue.has(currentValue)) {
+    supportByModel.set(currentValue, {
+      ...buildAcpNativeReasoningSupport(
+        findAcpThoughtLevelConfigOption(args.configOptions),
+      ),
+      supportedServiceTiers: findAcpFastConfigOption(
+        args.configOptions,
+      )?.options?.some((option) => option.value === "true")
+        ? [{ id: "fast" }]
+        : [],
+    });
+  }
   const modelsToProbe: typeof modelOptions = [];
-  const addedModels = new Set<string>();
-  for (const value of args.reasoningProbePriorityModelIds) {
+  const addedModels = new Set(supportByModel.keys());
+  for (const value of args.selectedModel === undefined
+    ? args.reasoningProbePriorityModelIds
+    : [args.selectedModel]) {
     const model = modelByValue.get(value);
     if (model && !addedModels.has(model.value)) {
       modelsToProbe.push(model);
       addedModels.add(model.value);
     }
   }
-  for (const model of modelOptions) {
+  for (const model of args.selectedModel === undefined ? modelOptions : []) {
     if (!addedModels.has(model.value)) {
       modelsToProbe.push(model);
     }
   }
 
-  const supportByModel = new Map<string, AcpNativeModelSupport>();
+  if (modelsToProbe.length === 0) return supportByModel;
   let timedOut = false;
   let timeout: ReturnType<typeof setTimeout> | undefined;
   const timeoutReached = new Promise<
@@ -1317,6 +1340,7 @@ async function discoverAcpNativeModelSupport(args: {
     return await Promise.race([
       (async () => {
         for (const model of modelsToProbe) {
+          if (timedOut) break;
           try {
             const configState = await args.connection.request({
               method: "session/set_config_option",
@@ -1327,6 +1351,7 @@ async function discoverAcpNativeModelSupport(args: {
               },
               resultSchema: acpConfigStateResultSchema,
             });
+            if (timedOut) break;
             supportByModel.set(model.value, {
               ...buildAcpNativeReasoningSupport(
                 findAcpThoughtLevelConfigOption(configState.configOptions),
@@ -3588,6 +3613,7 @@ async function handleModelList(
   id: string | number,
   params: AcpModelListParams,
   dialectId: string | undefined,
+  selectedModel: string | undefined,
 ): Promise<void> {
   const dialect = resolveAcpDialect({
     dialectId,
@@ -3651,6 +3677,7 @@ async function handleModelList(
         params.reasoningProbePriorityModelIds,
         params.parameterizedModelPicker,
         resolvedDialectId,
+        selectedModel,
       )
     : null;
   if (sessionDiscoveredModels) {
@@ -3785,6 +3812,7 @@ async function handleRequest(
           await resolveModelListWorkspace(request.params.cwd),
         ),
         decodeDialectId(request.params.providerOptions),
+        request.params.selectedModel,
       );
       return;
     }

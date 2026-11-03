@@ -729,9 +729,9 @@ export const SURFACE_GROUPS: SurfaceGroup[] = [
           "Provide an agent people can pick in bb's model picker. With this, a plugin can:",
         bullets: [
           "Bring any CLI agent into bb, with its own models and icon",
-          "Run every thread started with it through a bridge the plugin ships",
+          "Run every thread through a bridge the plugin ships, in its own scope under CPU isolation",
           "Report context usage, service tiers, and install status",
-          "Place the CLI child in its thread's own scope when agent CPU isolation is on",
+          "Distinguish unknown reasoning from confirmed models with no selectable levels",
         ],
         apiSymbols: [
           "contextSnapshotSchema",
@@ -740,6 +740,7 @@ export const SURFACE_GROUPS: SurfaceGroup[] = [
           "ContextEntry",
           "PluginProviderDeclaration",
           "AvailableModel",
+          "AvailableModel.reasoningDiscovery",
           "ModelServiceTier",
           "providerInstallationStatusParamsSchema",
           "ProviderInstallationStatusParams",
