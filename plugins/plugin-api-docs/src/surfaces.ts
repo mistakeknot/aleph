@@ -359,6 +359,25 @@ export const SURFACE_GROUPS: SurfaceGroup[] = [
         firstParty: ["Side chat"],
       },
       {
+        id: "message-metadata",
+        title: "Message metadata",
+        summary:
+          "Add React metadata above conversation messages or in their hover action row. With this, a plugin can:",
+        bullets: [
+          "Show timestamps, status, or statistics beside chosen user and assistant messages",
+          "Read message identity, creation time, and turn details without receiving streaming text",
+          "Use React state and shared queries; mounted effects clean up when messages leave view",
+          "Rely on bb for placement, styling, ordering, plugin context, and isolated loading and errors",
+        ],
+        apiSymbols: [
+          "ExperimentalMessageMetadataRegistration",
+          "ExperimentalMessageMetadataContext",
+          "ExperimentalMessageMetadataProps",
+          "ExperimentalMessageMetadataPlacement",
+        ],
+        experimental: true,
+      },
+      {
         id: "pending-interaction",
         title: "In-thread forms",
         summary:

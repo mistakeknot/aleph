@@ -63,6 +63,7 @@ import {
   type PluginHomepageSectionRegistration,
   type PluginMessageActionRegistration,
   type ExperimentalPluginCommandPaletteSearchRegistration,
+  type ExperimentalMessageMetadataRegistration,
   type PluginMessageDirectiveRegistration,
   type ExperimentalCodeFenceRendererRegistration,
   type PluginDiffRendererRegistration,
@@ -2017,6 +2018,7 @@ export interface CapturedPluginApp {
   codeFenceRenderers: ExperimentalCodeFenceRendererRegistration[];
   messageActions: PluginMessageActionRegistration[];
   commandPaletteSearches: ExperimentalPluginCommandPaletteSearchRegistration[];
+  messageMetadata: ExperimentalMessageMetadataRegistration[];
   providerIcons: CollectedPluginProviderIconRegistration[];
   icons: ExperimentalIconRegistration[];
   timelineRenderers: PluginTimelineRendererRegistration[];
