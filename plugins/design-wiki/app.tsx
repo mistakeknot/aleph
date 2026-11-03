@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   definePluginApp,
   experimental_useRpcQuery as useRpcQuery,
@@ -6,11 +7,9 @@ import {
   type PluginNavPanelProps,
 } from "@get-bb/plugin-sdk/app";
 import { designWikiRpcContract } from "./contract.js";
-import { WikiListView } from "./ui/wiki-list-view.js";
-import { WikiPageView } from "./ui/wiki-page-view.js";
+import { Message, WikiBrowser } from "./ui/wiki-browser.js";
 
 const PANEL = "wiki";
-const TASK_PANEL = "/plugins/tasks/tasks/task/";
 
 export interface WikiLocation {
   projectId: string | null;
@@ -31,41 +30,6 @@ export function parseWikiLocation(subPath: string): WikiLocation {
   return { projectId: decodeSegment(project), pageId: decodeSegment(page) };
 }
 
-function openCard(key: string) {
-  window.location.assign(`${TASK_PANEL}${encodeURIComponent(key)}`);
-}
-
-function Message(props: { children: string; tone?: "error" }) {
-  return (
-    <p
-      role={props.tone === "error" ? "alert" : "status"}
-      className={
-        props.tone === "error"
-          ? "text-sm text-destructive-text"
-          : "text-sm text-subtle-foreground"
-      }
-    >
-      {props.children}
-    </p>
-  );
-}
-
-function PageDetail(props: { projectId: string; pageId: string }) {
-  const query = useRpcQuery({
-    contract: designWikiRpcContract,
-    method: "page",
-    input: { projectId: props.projectId, pageId: props.pageId },
-  });
-  if (query.error !== null && query.data === undefined) {
-    return <Message tone="error">Could not load this page.</Message>;
-  }
-  if (query.data === undefined) return <Message>Loading page…</Message>;
-  if (query.data.state === "missing") {
-    return <Message>That page no longer exists.</Message>;
-  }
-  return <WikiPageView page={query.data.page} onOpenCard={openCard} />;
-}
-
 function WikiPanel(props: PluginNavPanelProps) {
   const navigate = useBbNavigate();
   const context = useBbContext();
@@ -76,12 +40,6 @@ function WikiPanel(props: PluginNavPanelProps) {
     contract: designWikiRpcContract,
     method: "projects",
     input: {},
-  });
-  const list = useRpcQuery({
-    contract: designWikiRpcContract,
-    method: "list",
-    input: { projectId: projectId ?? "" },
-    enabled: projectId !== null,
   });
 
   const go = (nextProject: string, pageId?: string) =>
@@ -115,22 +73,37 @@ function WikiPanel(props: PluginNavPanelProps) {
       </header>
       {projectId === null ? (
         <Message>Select a project to read its design wiki.</Message>
-      ) : list.error !== null && list.data === undefined ? (
-        <Message tone="error">Could not load the design wiki.</Message>
-      ) : list.data === undefined ? (
-        <Message>Loading wiki…</Message>
       ) : (
-        <div className="grid min-h-0 gap-6 lg:grid-cols-[minmax(18rem,26rem)_minmax(0,1fr)]">
-          <WikiListView
-            list={list.data}
-            selectedId={location.pageId}
-            onSelect={(page) => go(projectId, page.id)}
-            onOpenCard={openCard}
-          />
-          {location.pageId === null ? null : (
-            <PageDetail projectId={projectId} pageId={location.pageId} />
-          )}
-        </div>
+        <WikiBrowser
+          projectId={projectId}
+          pageId={location.pageId}
+          layout="split"
+          onSelectPage={(pageId) => go(projectId, pageId ?? undefined)}
+        />
+      )}
+    </div>
+  );
+}
+
+function WikiThreadPanel() {
+  const { projectId } = useBbContext();
+  const [pageId, setPageId] = useState<string | null>(null);
+  const [forProject, setForProject] = useState(projectId);
+  if (forProject !== projectId) {
+    setForProject(projectId);
+    setPageId(null);
+  }
+  return (
+    <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto">
+      {projectId === null ? (
+        <Message>This thread has no project, so it has no design wiki.</Message>
+      ) : (
+        <WikiBrowser
+          projectId={projectId}
+          pageId={pageId}
+          layout="stacked"
+          onSelectPage={setPageId}
+        />
       )}
     </div>
   );
@@ -143,5 +116,13 @@ export default definePluginApp((app) => {
     icon: "BookOpen",
     path: PANEL,
     component: WikiPanel,
+  });
+  app.slots.experimental_tab({
+    context: { kind: "thread" },
+    availability: "fixed",
+    id: PANEL,
+    title: "Design Wiki",
+    icon: "BookOpen",
+    component: WikiThreadPanel,
   });
 });
