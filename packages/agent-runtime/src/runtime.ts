@@ -2377,7 +2377,13 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
       });
     },
 
-    async listModels({ providerId, bridgeLaunch, cwd, contributedEnv = [] }) {
+    async listModels({
+      providerId,
+      bridgeLaunch,
+      cwd,
+      selectedModel,
+      contributedEnv = [],
+    }) {
       await runtime.ensureProvider({ providerId, bridgeLaunch });
       const proc = providerProcesses.requireProviderProcess({
         processKey: resolveProviderProcessKey({ bridgeLaunch, providerId }),
@@ -2387,6 +2393,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
         commandType: "model/list",
         plan: proc.adapter.buildCommandPlan({
           type: "model/list",
+          ...(selectedModel === undefined ? {} : { selectedModel }),
           ...(cwd !== undefined ? { cwd } : {}),
           envVars: resolveContributedEnvironment(
             contributedEnv,

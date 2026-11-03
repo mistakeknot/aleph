@@ -438,6 +438,7 @@ type SystemExecutionOptionsQueryKey = readonly [
   string | null,
   string | null,
   string | null,
+  selectedModel?: string,
 ];
 type AllSystemExecutionOptionsQueryKeyPrefix = readonly [
   typeof SYSTEM_EXECUTION_OPTIONS_QUERY_KEY,
@@ -1030,6 +1031,7 @@ interface SystemExecutionOptionsQueryKeyArgs {
   hostId: string | null;
   providerId: string | null;
   projectId?: string | null;
+  selectedModel?: string;
 }
 
 export function systemExecutionOptionsQueryKey({
@@ -1037,6 +1039,7 @@ export function systemExecutionOptionsQueryKey({
   hostId,
   providerId,
   projectId = null,
+  selectedModel,
 }: SystemExecutionOptionsQueryKeyArgs): SystemExecutionOptionsQueryKey {
   return [
     SYSTEM_EXECUTION_OPTIONS_QUERY_KEY,
@@ -1044,6 +1047,9 @@ export function systemExecutionOptionsQueryKey({
     hostId,
     providerId,
     projectId,
+    ...(selectedModel === undefined
+      ? ([] as const)
+      : ([selectedModel] as const)),
   ];
 }
 

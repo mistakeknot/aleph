@@ -339,6 +339,7 @@ const ONLINE_RPC_RESPONSE_RESULT_FIXTURES: OnlineRpcResponseResultFixtures = {
         displayName: "GPT-5",
         routeProviderId: "openai-codex",
         description: "Test model",
+        reasoningDiscovery: "known",
         supportedReasoningEfforts: [
           {
             reasoningEffort: "medium",
@@ -721,6 +722,10 @@ const INTENTIONAL_OPTIONAL_HOST_DAEMON_FIELDS: Record<string, string> = {
     "thread.start.fork names a checkpoint only when the clone should stop at an earlier source turn; absent means clone the session tip.",
   "hostDaemonCommandSchema.inputGroups":
     "thread.start and turn.submit omit inputGroups for ordinary single user-message turns; presence preserves grouped user messages within one turn.",
+  "hostDaemonOnlineRpcCommandSchema.selectedModel":
+    "A selected model requests its reasoning choices without probing the whole catalog.",
+  "hostDaemonCommandSchema.options.reasoningLevel":
+    "Absent when the cached model catalog lists the model without this level; preserve the agent setting.",
   "hostDaemonCommandSchema.options.promptMode":
     "thread runtime options carry a prompt mode only when the prompt entered one through the provider's declared composer action.",
   "hostDaemonCommandSchema.options.sessionOptions":
