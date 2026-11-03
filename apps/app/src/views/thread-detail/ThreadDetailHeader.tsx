@@ -187,12 +187,14 @@ export function ThreadDetailHeader({
     }
     startEditing();
   };
-  const rightPanelLabel = isSecondaryPanelOpen
-    ? "Hide right panel"
-    : "Show right panel";
   const rightPanelIconName = RIGHT_PANEL_TOGGLE_ICON_NAME;
+  const mountRightPanelToggle = secondaryPanelHost === null;
   const showRightPanelToggle =
-    secondaryPanelHost === null && (!isSecondaryPanelOpen || isCompactViewport);
+    mountRightPanelToggle && (!isSecondaryPanelOpen || isCompactViewport);
+  const rightPanelLabel =
+    isSecondaryPanelOpen && showRightPanelToggle
+      ? "Hide right panel"
+      : "Show right panel";
 
   const center = (
     <>
@@ -312,7 +314,7 @@ export function ThreadDetailHeader({
             <Icon name="CloseThreadPane" />
           </Button>
         ) : null}
-        {showRightPanelToggle ? (
+        {mountRightPanelToggle ? (
           <Button
             type="button"
             variant="ghost"
@@ -325,7 +327,9 @@ export function ThreadDetailHeader({
               isTopRow &&
                 isSidebarFramed &&
                 MACOS_TITLE_BAR_TRAILING_TOGGLE_CLASS,
+              !showRightPanelToggle && "hidden",
             )}
+            inert={!showRightPanelToggle}
             aria-label={
               panelShortcut
                 ? `${rightPanelLabel} (${panelShortcut.label})`

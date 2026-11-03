@@ -21,6 +21,7 @@ import {
 } from "./retired-ingress.js";
 import { throwThreadNotWritable } from "../lib/lifecycle-api-errors.js";
 import { runWithTurnTrace } from "../system/turn-trace.js";
+import { assertProviderAcceptsPromptActions } from "../providers/provider-plan-command.js";
 
 interface AcceptThreadSendRequestArgs {
   payload: SendMessageRequest;
@@ -63,6 +64,10 @@ async function acceptResolvedThreadSendRequest(
   args: AcceptThreadSendRequestArgs,
 ): Promise<SendMessageResponse> {
   assertThreadHostAcceptsWork(deps.db, args.thread);
+  assertProviderAcceptsPromptActions(deps.providerRegistry, {
+    input: args.payload.input,
+    providerId: args.thread.providerId,
+  });
   const { compactFirst, ...request } = args.payload;
   if (isStandaloneBuiltinClearCommand(request.input)) {
     if (compactFirst) throwInvalidCompactFirst("cannot clear the context");

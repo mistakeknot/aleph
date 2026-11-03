@@ -474,7 +474,6 @@ function AppLayoutContent({ children }: AppLayoutProps) {
   );
   useMobileVisualViewportHeight(
     contentShell,
-    isCompactViewport,
     restoreIOSViewportOnKeyboardDismissal,
   );
   const location = useLocation();
