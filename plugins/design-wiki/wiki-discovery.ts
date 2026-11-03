@@ -117,6 +117,7 @@ export async function discoverWiki(
         kind: outcome.page.kind,
         path: outcome.page.path,
         message: `Duplicate page id: ${outcome.page.id}`,
+        pageId: outcome.page.id,
       });
       continue;
     }

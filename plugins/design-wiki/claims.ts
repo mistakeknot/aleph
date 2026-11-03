@@ -30,7 +30,11 @@ export function splitCardRefs(text: string): CardRefSegment[] {
     const [whole, prefix, first, rest] = match;
     if (prefix === undefined || first === undefined) continue;
     push({ kind: "text", text: text.slice(cursor, match.index) });
-    push({ kind: "card", key: `${prefix}-${first}`, text: `${prefix}-${first}` });
+    push({
+      kind: "card",
+      key: `${prefix}-${first}`,
+      text: `${prefix}-${first}`,
+    });
     for (const part of (rest ?? "").matchAll(/([/–])(\d+)/g)) {
       const [, separator, number] = part;
       if (separator === undefined || number === undefined) continue;
@@ -52,8 +56,9 @@ export function classifyClaimText(
   if (word === undefined) return null;
   const status = CLAIM_STATUS[word];
   if (status === undefined) return null;
-  const cards = splitCardRefs(label.slice(word.length))
-    .flatMap((segment) => (segment.kind === "card" ? [segment.key] : []));
+  const cards = splitCardRefs(label.slice(word.length)).flatMap((segment) =>
+    segment.kind === "card" ? [segment.key] : [],
+  );
   return { status, label, cards };
 }
 
@@ -91,22 +96,48 @@ export function createFenceTracker(): (line: string) => boolean {
   };
 }
 
-export function extractClaimMarkers(body: string): ClaimMarker[] {
-  const markers: ClaimMarker[] = [];
+export type ClaimSite = ClaimMarker & {
+  site: "strong" | "cell";
+  siteIndex: number;
+};
+
+export function extractClaimSites(body: string): ClaimSite[] {
+  const sites: ClaimSite[] = [];
   const skipFenced = createFenceTracker();
   body.split("\n").forEach((rawLine, index) => {
     const line = rawLine.replace(/\r$/, "");
     if (skipFenced(line)) return;
     const lineNumber = index + 1;
+    let strongIndex = 0;
     for (const match of line.matchAll(/\*\*([^*]+)\*\*/g)) {
       const claim = match[1] ? classifyClaimText(match[1]) : null;
-      if (claim) markers.push({ ...claim, line: lineNumber });
+      if (!claim) continue;
+      sites.push({
+        ...claim,
+        line: lineNumber,
+        site: "strong",
+        siteIndex: strongIndex,
+      });
+      strongIndex += 1;
     }
-    for (const cell of tableCells(line) ?? []) {
-      if (cell.startsWith("**")) continue;
+    (tableCells(line) ?? []).forEach((cell, column) => {
+      if (cell.startsWith("**")) return;
       const claim = classifyClaimText(cell);
-      if (claim) markers.push({ ...claim, line: lineNumber });
-    }
+      if (claim) {
+        sites.push({
+          ...claim,
+          line: lineNumber,
+          site: "cell",
+          siteIndex: column,
+        });
+      }
+    });
   });
-  return markers;
+  return sites;
+}
+
+export function extractClaimMarkers(body: string): ClaimMarker[] {
+  return extractClaimSites(body).map(
+    ({ site: _site, siteIndex: _siteIndex, ...marker }) => marker,
+  );
 }

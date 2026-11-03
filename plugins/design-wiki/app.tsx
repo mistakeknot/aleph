@@ -44,8 +44,7 @@ function WikiPanel(props: PluginNavPanelProps) {
 
   const go = (nextProject: string, pageId?: string) =>
     navigate.toPluginPanel(PANEL, {
-      subPath:
-        pageId === undefined ? nextProject : `${nextProject}/${pageId}`,
+      subPath: pageId === undefined ? nextProject : `${nextProject}/${pageId}`,
     });
 
   return (
@@ -62,7 +61,9 @@ function WikiPanel(props: PluginNavPanelProps) {
             }}
             className="rounded-md border border-border bg-background px-2 py-1 text-sm text-foreground"
           >
-            {projectId === null ? <option value="">Select a project</option> : null}
+            {projectId === null ? (
+              <option value="">Select a project</option>
+            ) : null}
             {(projects.data ?? []).map((project) => (
               <option key={project.id} value={project.id}>
                 {project.name}
@@ -78,6 +79,7 @@ function WikiPanel(props: PluginNavPanelProps) {
           projectId={projectId}
           pageId={location.pageId}
           layout="split"
+          threadId={null}
           onSelectPage={(pageId) => go(projectId, pageId ?? undefined)}
         />
       )}
@@ -86,7 +88,7 @@ function WikiPanel(props: PluginNavPanelProps) {
 }
 
 function WikiThreadPanel() {
-  const { projectId } = useBbContext();
+  const { projectId, threadId } = useBbContext();
   const [pageId, setPageId] = useState<string | null>(null);
   const [forProject, setForProject] = useState(projectId);
   if (forProject !== projectId) {
@@ -102,6 +104,7 @@ function WikiThreadPanel() {
           projectId={projectId}
           pageId={pageId}
           layout="stacked"
+          threadId={threadId}
           onSelectPage={setPageId}
         />
       )}

@@ -1,17 +1,40 @@
-import { Children, Fragment, isValidElement, type ReactNode } from "react";
-import Markdown, { type Components } from "react-markdown";
+import {
+  Children,
+  createContext,
+  Fragment,
+  isValidElement,
+  type ReactNode,
+  useContext,
+  useMemo,
+} from "react";
+import Markdown, { type Components, type ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
-import { classifyClaimText, splitCardRefs } from "../claims.js";
+import { type ClaimSite, classifyClaimText, splitCardRefs } from "../claims.js";
 import type { WikiPage } from "../wiki-types.js";
+import {
+  CLAIM_MENU_TAG,
+  claimIndexOf,
+  createClaimMapper,
+  type HastNode,
+  unmappedOf,
+} from "./claim-sites.js";
 import { STATUS_CELL_TONE, StatusPill, STATUS_TONE } from "./status.js";
 
 export const CARD_HREF_PREFIX = "/plugins/tasks/tasks/task/";
+
+export interface ClaimLayer {
+  sites: ClaimSite[];
+  control: (claimIndex: number) => ReactNode;
+  menu: (claimIndices: number[]) => ReactNode;
+}
 
 export interface WikiPageViewProps {
   page: WikiPage;
   onOpenCard?: (key: string) => void;
   className?: string;
+  claimLayer?: ClaimLayer;
+  pinsSection?: ReactNode;
 }
 
 function plainText(node: ReactNode): string {
@@ -74,42 +97,108 @@ function linkifyCards(
   });
 }
 
+const ClaimLayerContext = createContext<ClaimLayer | null>(null);
+
+type Linked = (children: ReactNode) => ReactNode;
+
+function ClaimControl(props: { node: HastNode | undefined }) {
+  const layer = useContext(ClaimLayerContext);
+  const index = claimIndexOf(props.node);
+  if (layer === null || index === null) return null;
+  return <>{layer.control(index)}</>;
+}
+
+function WikiStrong(props: {
+  children?: ReactNode;
+  node: HastNode | undefined;
+  linked: Linked;
+}) {
+  const claim = classifyClaimText(plainText(props.children));
+  const control = <ClaimControl node={props.node} />;
+  if (claim === null) {
+    return (
+      <>
+        <strong>{props.linked(props.children)}</strong>
+        {control}
+      </>
+    );
+  }
+  return (
+    <>
+      <strong
+        data-wiki-claim={claim.status}
+        className={cn(
+          "rounded-sm border px-1.5 py-px font-semibold",
+          STATUS_TONE[claim.status],
+        )}
+      >
+        {props.linked(props.children)}
+      </strong>
+      {control}
+    </>
+  );
+}
+
+function WikiCell(props: {
+  tag: "td" | "th";
+  children?: ReactNode;
+  node: HastNode | undefined;
+  linked: Linked;
+}) {
+  const Tag = props.tag;
+  const claim =
+    props.tag === "td" ? classifyClaimText(plainText(props.children)) : null;
+  const control = <ClaimControl node={props.node} />;
+  if (claim === null) {
+    return (
+      <Tag>
+        {props.linked(props.children)}
+        {control}
+      </Tag>
+    );
+  }
+  return (
+    <Tag
+      data-wiki-claim={claim.status}
+      className={STATUS_CELL_TONE[claim.status]}
+    >
+      {props.linked(props.children)}
+      {control}
+    </Tag>
+  );
+}
+
+function WikiClaimMenu(props: { node: HastNode | undefined }) {
+  const layer = useContext(ClaimLayerContext);
+  if (layer === null) return null;
+  const indices = unmappedOf(props.node);
+  if (indices.length === 0) return null;
+  return <>{layer.menu(indices)}</>;
+}
+
 function wikiComponents(
   onOpenCard: ((key: string) => void) | undefined,
 ): Components {
-  const linked = (children: ReactNode) => linkifyCards(children, onOpenCard);
-  return {
+  const linked: Linked = (children) => linkifyCards(children, onOpenCard);
+  const base: Components = {
     p: ({ children }) => <p>{linked(children)}</p>,
     li: ({ children }) => <li>{linked(children)}</li>,
     em: ({ children }) => <em>{linked(children)}</em>,
-    th: ({ children }) => <th>{linked(children)}</th>,
-    strong: ({ children }) => {
-      const claim = classifyClaimText(plainText(children));
-      if (claim === null) return <strong>{linked(children)}</strong>;
-      return (
-        <strong
-          data-wiki-claim={claim.status}
-          className={cn(
-            "rounded-sm border px-1.5 py-px font-semibold",
-            STATUS_TONE[claim.status],
-          )}
-        >
-          {linked(children)}
-        </strong>
-      );
-    },
-    td: ({ children }) => {
-      const claim = classifyClaimText(plainText(children));
-      if (claim === null) return <td>{linked(children)}</td>;
-      return (
-        <td
-          data-wiki-claim={claim.status}
-          className={STATUS_CELL_TONE[claim.status]}
-        >
-          {linked(children)}
-        </td>
-      );
-    },
+    th: ({ children, node }) => (
+      <WikiCell tag="th" node={node} linked={linked}>
+        {children}
+      </WikiCell>
+    ),
+    strong: ({ children, node }) => (
+      <WikiStrong node={node} linked={linked}>
+        {children}
+      </WikiStrong>
+    ),
+    td: ({ children, node }) => (
+      <WikiCell tag="td" node={node} linked={linked}>
+        {children}
+      </WikiCell>
+    ),
     a: ({ href, children }) => (
       <a
         href={href}
@@ -121,6 +210,10 @@ function wikiComponents(
       </a>
     ),
   };
+  const menu = {
+    [CLAIM_MENU_TAG]: ({ node }: ExtraProps) => <WikiClaimMenu node={node} />,
+  };
+  return { ...base, ...menu } as Components;
 }
 
 const PROSE_CLASSES = [
@@ -140,11 +233,22 @@ export function WikiPageBody(props: {
   onOpenCard?: (key: string) => void;
   className?: string;
 }) {
+  const layer = useContext(ClaimLayerContext);
+  const sites = layer?.sites;
+  const components = useMemo(
+    () => wikiComponents(props.onOpenCard),
+    [props.onOpenCard],
+  );
+  const rehypePlugins = useMemo(
+    () => (sites === undefined ? [] : [createClaimMapper(sites)]),
+    [sites],
+  );
   return (
     <div data-wiki-body className={cn(PROSE_CLASSES, props.className)}>
       <Markdown
         remarkPlugins={[remarkGfm]}
-        components={wikiComponents(props.onOpenCard)}
+        rehypePlugins={rehypePlugins}
+        components={components}
       >
         {props.body}
       </Markdown>
@@ -153,7 +257,7 @@ export function WikiPageBody(props: {
 }
 
 export function WikiPageView(props: WikiPageViewProps) {
-  const { page, onOpenCard } = props;
+  const { page, onOpenCard, claimLayer, pinsSection } = props;
   return (
     <article
       data-wiki-page={page.id}
@@ -189,10 +293,13 @@ export function WikiPageView(props: WikiPageViewProps) {
           </div>
         </dl>
       </header>
-      <WikiPageBody
-        body={page.body}
-        {...(onOpenCard === undefined ? {} : { onOpenCard })}
-      />
+      {pinsSection}
+      <ClaimLayerContext.Provider value={claimLayer ?? null}>
+        <WikiPageBody
+          body={page.body}
+          {...(onOpenCard === undefined ? {} : { onOpenCard })}
+        />
+      </ClaimLayerContext.Provider>
     </article>
   );
 }

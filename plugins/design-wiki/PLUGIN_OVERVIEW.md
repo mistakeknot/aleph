@@ -1,4 +1,4 @@
-Reads a project's design wiki and shows it as a read-only Wiki page.
+Reads a project's design wiki and shows it as a Wiki page, with persistent pins.
 
 ## What you get
 
@@ -8,6 +8,10 @@ Reads a project's design wiki and shows it as a read-only Wiki page.
 - A page view that renders the Markdown. Claim markers in the body (`Ruled —
   CARD`, `Design choice`, `Open`) take the same status colors as the page status,
   and card keys link to the Tasks card.
+- Pins: sticky notes on a page or a single claim that stay across reloads. Keep
+  one as a note, or discuss it now: in a thread the pin links to that thread, and
+  on the Wiki page it opens a draft in the project. A pin whose claim has changed
+  is marked detached.
 - A malformed page appears as an error row naming the file and the problem; the
   rest of the wiki still loads.
 
@@ -16,4 +20,4 @@ for the thread's project. A project with no `docs/wiki` shows an empty state.
 
 Enable Design Wiki under Installed plugins. It reads
 `docs/wiki/src/cujs/*.md` and `docs/wiki/src/requirements/*.md` from the project's
-checkout and changes nothing.
+checkout and never edits them. Pins are saved in the plugin's own storage.
