@@ -143,6 +143,12 @@ import {
   beginStep,
   endStep,
 } from "./launcher-output.js";
+import {
+  createRestartBackoff,
+  resolveRestartPolicy,
+  type RestartBackoff,
+  type RestartPolicy,
+} from "./restart-policy.js";
 
 const HOST_AUTH_FILE_NAME = "auth.json";
 const HOST_ID_FILE_NAME = "host-id";
@@ -151,7 +157,6 @@ const HEALTH_CHECK_INTERVAL_MS = 100;
 const HEALTH_CHECK_REQUEST_TIMEOUT_MS = 1_000;
 const MANAGED_PROCESS_TERMINATION_TIMEOUT_MS = 5_000;
 const MANAGED_PROCESS_KILL_TIMEOUT_MS = 1_000;
-const MANAGED_PROCESS_RESTART_RETRY_DELAY_MS = 1_000;
 const HOST_DAEMON_RESTART_INITIAL_DELAY_MS = 1_000;
 const HOST_DAEMON_RESTART_MAX_DELAY_MS = 30_000;
 const HOST_DAEMON_RESTART_STABLE_UPTIME_MS = 60_000;
@@ -398,7 +403,9 @@ type StartManagedProcess = () => Promise<ManagedProcessRun>;
 export type DelayMillisecondsFn = (
   args: DelayMillisecondsArgs,
 ) => Promise<void>;
-export type FullStackSupervisionResult = "shutdown" | "stopped";
+// "failed": the supervisor gave up after too many consecutive restart
+// failures. The launcher exits non-zero so a service manager restarts it.
+export type FullStackSupervisionResult = "failed" | "shutdown" | "stopped";
 type BbAppCommand =
   | ClientCommand
   | ConfigCommand
@@ -466,12 +473,23 @@ interface StartDaemonProcessArgs {
 }
 
 interface RestartManagedProcessArgs {
+  // Stops an in-flight start when `cancel` settles first.
+  abortStart?: () => Promise<void>;
+  backoff: RestartBackoff;
+  // Settles when another process the supervisor watches has died.
+  cancel?: Promise<unknown>;
   context: BbAppStartContext;
   delayMilliseconds: DelayMillisecondsFn;
   isShutdownRequested: () => boolean;
   processName: ManagedProcessName;
   start: StartManagedProcess;
 }
+
+type RestartManagedProcessResult =
+  | { kind: "cancelled" }
+  | { kind: "exhausted" }
+  | { kind: "shutdown" }
+  | { kind: "started"; run: ManagedProcessRun };
 
 export type ReadServerMovedFileFn = () => Promise<ServerMovedFile | null>;
 
@@ -484,11 +502,13 @@ interface SuperviseFullStackProcessesArgs {
   delayMilliseconds: DelayMillisecondsFn;
   isHealthyServerAnswering?: (url: string) => Promise<boolean>;
   isShutdownRequested: () => boolean;
+  now?: () => number;
   onServerMoved: (
     movedFile: ServerMovedFile,
   ) => Promise<FullStackSupervisionResult>;
   processes: ManagedFullStackProcesses;
   readServerMovedFile: ReadServerMovedFileFn;
+  restartPolicy?: RestartPolicy;
   startDaemon: StartManagedProcess;
   startServer: StartManagedProcess;
 }
@@ -3276,37 +3296,75 @@ async function startDaemonProcess(
   }
 }
 
+type StartAttempt =
+  | { kind: "failed" }
+  | { kind: "started"; run: ManagedProcessRun };
+
 async function restartManagedProcess(
   args: RestartManagedProcessArgs,
-): Promise<ManagedProcessRun | null> {
+): Promise<RestartManagedProcessResult> {
+  const cancelled = args.cancel?.then(() => "cancelled" as const);
   while (!args.isShutdownRequested()) {
+    // An already-settled cancel wins this race, so a process that is already
+    // gone is seen before another start begins.
+    if (
+      args.cancel !== undefined &&
+      (await Promise.race([args.cancel, Promise.resolve(null)])) !== null
+    ) {
+      return { kind: "cancelled" };
+    }
     beginStep(`Restarting ${formatManagedProcessLabel(args.processName)}`);
-    try {
-      const processRun = await args.start();
+    const attempt = args.start().then(
+      (run): StartAttempt => ({ kind: "started", run }),
+      (): StartAttempt => ({ kind: "failed" }),
+    );
+    const first =
+      cancelled === undefined
+        ? await attempt
+        : await Promise.race([attempt, cancelled]);
+    if (first === "cancelled") {
+      endStep(
+        yellow("!"),
+        `${formatManagedProcessName(args.processName)} restart abandoned`,
+      );
+      await args.abortStart?.();
+      await attempt;
+      return { kind: "cancelled" };
+    }
+    if (first.kind === "started") {
       endStep(
         green("✓"),
         `${formatManagedProcessName(args.processName)} restarted`,
       );
-      return processRun;
-    } catch {
-      if (args.isShutdownRequested()) {
-        return null;
-      }
-      endStep(
-        red("✗"),
-        `${formatManagedProcessName(args.processName)} failed to restart`,
-      );
-      logManagedProcessStartupFailureContext({
-        context: args.context,
-        processName: args.processName,
-      });
-      await args.delayMilliseconds({
-        ms: MANAGED_PROCESS_RESTART_RETRY_DELAY_MS,
-      });
+      args.backoff.recordHealthy();
+      return first;
+    }
+    if (args.isShutdownRequested()) {
+      return { kind: "shutdown" };
+    }
+    endStep(
+      red("✗"),
+      `${formatManagedProcessName(args.processName)} failed to restart`,
+    );
+    logManagedProcessStartupFailureContext({
+      context: args.context,
+      processName: args.processName,
+    });
+    const failure = args.backoff.recordFailure();
+    if (failure.exhausted) {
+      return { kind: "exhausted" };
+    }
+    // The backoff can last a minute; a process that dies during it must
+    // not wait for the delay to end before it is noticed.
+    const delay = args.delayMilliseconds({ ms: failure.delayMs });
+    if (cancelled === undefined) {
+      await delay;
+    } else if ((await Promise.race([delay, cancelled])) === "cancelled") {
+      return { kind: "cancelled" };
     }
   }
 
-  return null;
+  return { kind: "shutdown" };
 }
 
 export async function terminateManagedFullStackProcesses(
@@ -3360,27 +3418,62 @@ async function waitForServerExitWhileMoved(
 export async function superviseFullStackProcesses(
   args: SuperviseFullStackProcessesArgs,
 ): Promise<FullStackSupervisionResult> {
+  const policy = args.restartPolicy ?? resolveRestartPolicy(process.env);
+  const backoffOptions = {
+    policy,
+    ...(args.now === undefined ? {} : { now: args.now }),
+  };
+  const serverBackoff = createRestartBackoff(backoffOptions);
+  const daemonBackoff = createRestartBackoff(backoffOptions);
+  const giveUp = async (processName: ManagedProcessName) => {
+    log(
+      red("✗"),
+      `${formatManagedProcessName(processName)} failed ${String(policy.maxConsecutiveFailures)} restarts in a row - giving up so the service manager can restart bb`,
+    );
+    await terminateManagedFullStackProcesses({
+      processes: args.processes,
+      signal: "SIGTERM",
+    });
+    return "failed" as const;
+  };
+
   while (!args.isShutdownRequested()) {
     const serverRun = args.processes.serverRun;
     if (serverRun === null) {
       return "stopped";
     }
     const daemonRun = args.processes.daemonRun;
+    let exitedProcess: NamedProcessExitResult;
     if (daemonRun === null) {
+      // The server is watched while the daemon restarts: a daemon cannot
+      // become healthy without it, so waiting out the daemon's start timeout
+      // would leave a dead server unnoticed.
       const restartedDaemon = await restartManagedProcess({
+        abortStart: async () => {
+          await args.processes.daemonRun?.terminate("SIGTERM");
+        },
+        backoff: daemonBackoff,
+        cancel: serverRun.exit,
         context: args.context,
         delayMilliseconds: args.delayMilliseconds,
         isShutdownRequested: args.isShutdownRequested,
         processName: "daemon",
         start: args.startDaemon,
       });
-      if (restartedDaemon === null) {
+      if (restartedDaemon.kind === "shutdown") {
         return "shutdown";
       }
-      continue;
+      if (restartedDaemon.kind === "exhausted") {
+        return giveUp("daemon");
+      }
+      if (restartedDaemon.kind === "started") {
+        continue;
+      }
+      args.processes.daemonRun = null;
+      exitedProcess = await serverRun.exit;
+    } else {
+      exitedProcess = await Promise.race([serverRun.exit, daemonRun.exit]);
     }
-
-    const exitedProcess = await Promise.race([serverRun.exit, daemonRun.exit]);
     if (args.isShutdownRequested()) {
       return "shutdown";
     }
@@ -3397,9 +3490,16 @@ export async function superviseFullStackProcesses(
             exitedProcess.result,
           )} - restarting host daemon`,
         );
-        await args.delayMilliseconds({
-          ms: MANAGED_PROCESS_RESTART_RETRY_DELAY_MS,
-        });
+        const failure = daemonBackoff.recordFailure();
+        if (failure.exhausted) {
+          return giveUp("daemon");
+        }
+        // Wake early if the server dies during the backoff; the loop then
+        // restarts the server before the daemon.
+        await Promise.race([
+          args.delayMilliseconds({ ms: failure.delayMs }),
+          serverRun.exit,
+        ]);
         continue;
       }
       log(
@@ -3451,21 +3551,27 @@ export async function superviseFullStackProcesses(
         serverExitResult,
       )} - restarting server`,
     );
-    await args.delayMilliseconds({
-      ms: MANAGED_PROCESS_RESTART_RETRY_DELAY_MS,
-    });
+    const failure = serverBackoff.recordFailure();
+    if (failure.exhausted) {
+      return giveUp("server");
+    }
+    await args.delayMilliseconds({ ms: failure.delayMs });
     if (args.isShutdownRequested()) {
       return "shutdown";
     }
     const restartedServer = await restartManagedProcess({
+      backoff: serverBackoff,
       context: args.context,
       delayMilliseconds: args.delayMilliseconds,
       isShutdownRequested: args.isShutdownRequested,
       processName: "server",
       start: args.startServer,
     });
-    if (restartedServer === null) {
+    if (restartedServer.kind === "shutdown") {
       return "shutdown";
+    }
+    if (restartedServer.kind === "exhausted") {
+      return giveUp("server");
     }
   }
   return "shutdown";
@@ -3495,6 +3601,15 @@ function isServerUnlockedByMarkers(markers: ServerMoveMarkers): boolean {
 async function superviseMovedDaemonProcess(
   args: SuperviseMovedDaemonProcessArgs,
 ): Promise<void> {
+  // A moved-mode machine only runs a daemon that talks to a server elsewhere.
+  // That server being down is not a reason to exit, so the daemon keeps being
+  // retried with the capped backoff and the failure budget is unlimited.
+  const backoff = createRestartBackoff({
+    policy: {
+      ...resolveRestartPolicy(process.env),
+      maxConsecutiveFailures: Number.MAX_SAFE_INTEGER,
+    },
+  });
   while (!args.isMovedModeOver()) {
     const daemonRun = args.processes.daemonRun;
     if (daemonRun !== null) {
@@ -3511,21 +3626,20 @@ async function superviseMovedDaemonProcess(
           exitedDaemon.result,
         )} - restarting host daemon`,
       );
-      await args.delayMilliseconds({
-        ms: MANAGED_PROCESS_RESTART_RETRY_DELAY_MS,
-      });
+      await args.delayMilliseconds({ ms: backoff.recordFailure().delayMs });
       if (args.isMovedModeOver()) {
         return;
       }
     }
     const restartedDaemon = await restartManagedProcess({
+      backoff,
       context: args.context,
       delayMilliseconds: args.delayMilliseconds,
       isShutdownRequested: args.isMovedModeOver,
       processName: "daemon",
       start: args.startDaemon,
     });
-    if (restartedDaemon === null) {
+    if (restartedDaemon.kind !== "started") {
       return;
     }
   }
@@ -3834,6 +3948,9 @@ export async function completeFullStackSupervision(
   }
   if (args.supervisionResult === "shutdown") {
     process.exitCode = 0;
+  }
+  if (args.supervisionResult === "failed") {
+    process.exitCode = 1;
   }
 }
 

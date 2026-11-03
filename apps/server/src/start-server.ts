@@ -9,6 +9,7 @@ import type { ServerConfig } from "@bb/config/server";
 import { isLoopbackHostname } from "@bb/config/loopback";
 import { toOptionalString } from "@bb/config/strings";
 import { createLogger } from "@bb/logger";
+import { isLogTransportFailure } from "@bb/logger/transport-failure";
 import {
   getAppSettings,
   getDisabledProviderIds,
@@ -590,6 +591,9 @@ export async function runServer(
   }
 
   process.on("uncaughtException", (error: unknown) => {
+    // A log write that fails (disk full, worker exit) must not take the server
+    // down; the logger has already stopped writing to the broken transport.
+    if (isLogTransportFailure(error)) return;
     if (pluginService.handleUncaughtException(error)) return;
     const message =
       error instanceof Error ? (error.stack ?? error.message) : String(error);
