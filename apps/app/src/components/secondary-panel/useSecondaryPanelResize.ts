@@ -40,6 +40,12 @@ export function useSecondaryPanelResize({
   const didPointerResizeRef = useRef(false);
   const isDraggingRef = useRef(false);
   const [dragEndTick, setDragEndTick] = useState(0);
+  const applySwipeWidth = useCallback((size: number) => {
+    secondaryPanelRef.current?.style.setProperty(
+      "--secondary-swipe-width",
+      `${size}cqw`,
+    );
+  }, []);
   const handleSecondaryPanelPointerResize = useCallback(
     (leadingFraction: number) => {
       didPointerResizeRef.current = true;
@@ -49,13 +55,15 @@ export function useSecondaryPanelResize({
   );
   const handleSecondaryPanelDragging = useCallback(
     (isDragging: boolean) => {
-      setIsResizing(isDragging);
       isDraggingRef.current = isDragging;
       if (isDragging) {
+        setIsResizing(true);
         didPointerResizeRef.current = false;
         widthWriter.pin();
         return;
       }
+      applySwipeWidth(lastSecondaryPanelSizeRef.current);
+      setIsResizing(false);
       if (
         didPointerResizeRef.current &&
         lastSecondaryPanelSizeRef.current > 0
@@ -65,7 +73,7 @@ export function useSecondaryPanelResize({
       // Reconcile with the active class once the pinned write has landed.
       setDragEndTick((tick) => tick + 1);
     },
-    [setIsResizing, widthWriter],
+    [applySwipeWidth, setIsResizing, widthWriter],
   );
   const handleSecondaryPanelReset = useCallback(() => {
     setPersistedWidthPercent(RESET);
@@ -126,12 +134,9 @@ export function useSecondaryPanelResize({
       }
 
       lastSecondaryPanelSizeRef.current = size;
-      secondaryPanelRef.current?.style.setProperty(
-        "--secondary-swipe-width",
-        `${size}cqw`,
-      );
+      if (!isDraggingRef.current) applySwipeWidth(size);
     },
-    [],
+    [applySwipeWidth],
   );
 
   useLayoutEffect(() => {
