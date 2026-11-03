@@ -39,7 +39,7 @@ and card keys inside any body text link to the Tasks card.
 
 - `contract.ts`: RPC contract (`projects`, `list`, `page`, `pins`, `createPin`,
   `updatePin`, `deletePin`, `linkPinThread`, `createPinTask`, `linkPinTask`,
-  `unlinkPinTask`, `pinTasks`).
+  `unlinkPinTask`, `pinTasks`, `pinDecisions`, `answerPinDecision`).
 - `tasks-client.ts`: the calls into the tasks plugin through
   `bb.sdk.plugins.callRpc`.
 - `wiki-page.ts`, `wiki-discovery.ts`, `claims.ts`: parsing, discovery and claim
@@ -56,6 +56,8 @@ and card keys inside any body text link to the Tasks card.
 - `ui/pinned-page.tsx`: the pins section, the pin controls and the pin actions.
 - `ui/pin-cards.tsx`: the cards on a pin, Make task, Link existing card and the
   card status refresh.
+- `autarch-client.ts`, `ui/pin-decisions.tsx`: the Citadel (`autarch` plugin)
+  client and the decision cards shown on a pin.
 - `ui/claim-sites.ts`: maps each claim to its place in the rendered page.
 - `app.tsx`: the Wiki navigation panel and the thread side panel tab.
 
@@ -129,8 +131,41 @@ key). The pin row then lists its cards. One pin may hold several cards.
 
 Board resolution, the back-link format, the title rule, "Link existing card", the
 "Card removed" state, `unlinkPinTask` and the 30-second refresh are design
-choices, not part of an earlier spec. Decision cards on pins are a later slice and
-are not part of this version.
+choices, not part of an earlier spec.
+
+## Decision cards on pins
+
+Cards are derived each time they are read; nothing new is stored.
+
+- **Which cards.** A pin anchored to a claim shows the cards the claim's marker
+  names. A pin anchored to a page shows the page's `card`. A detached or
+  unverified pin shows neither. Every pin also shows the cards in its
+  `pin_tasks` rows. A key reached two ways is listed once.
+- **State.** Each card is read through the `autarch` (Citadel) plugin's
+  `cardState`. A card Citadel does not know is "missing"; one that cannot be
+  reached is "unavailable"; a card that is not open is shown as closed.
+- **Answering.** `cardState` carries no decision id, revision or options, so for
+  open cards the plugin also reads Citadel's existing `listAsks` and matches the
+  entry by key. A card with a single-choice ask (kind `decide`, no `questions`,
+  no option needing approval) shows its question, the recommendation and one
+  button per option. Anything else shows why it cannot be answered here and an
+  Open card button.
+- **The pick.** A click calls `answerPinDecision`, which checks that the key is
+  one of the pin's cards and that Citadel still lists it as waiting, then calls
+  Citadel's `pick` with the revision the page showed and a fresh `pick_id`. A
+  stale revision is reported ("This decision changed...") and the card is
+  re-read; the plugin never retries and never picks on its own. A key that is
+  not a valid card key is refused before Citadel is called. If the pick call
+  fails after it was sent, the outcome is "unknown", not "nothing was
+  answered": every pin showing that card keeps its answer buttons off (also while a pick is in flight, and after a remount) until the card changes, and
+  offers Open card.
+- **Freshness.** `pinDecisions` is tagged per project and refreshes when a pin
+  or a pin's cards change, on window focus, and every 30 seconds while any pin
+  holds a card.
+
+Answering in place is a design choice, not an earlier ruling. The `autarch`
+plugin is not modified; if it is absent or unreachable the cards show as
+unavailable and nothing is answered.
 
 ## Tests
 
