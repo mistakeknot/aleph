@@ -1,14 +1,4 @@
 import {
-  uiPreferencesRoute,
-  windowsRoute,
-  reportWindowRoute,
-  proposeWindowPresetRoute,
-  acceptWindowSuggestionRoute,
-  dismissWindowSuggestionRoute,
-  updateUiPreferenceRoute,
-  resetUiPreferenceRoute,
-} from "./client-route-descriptors.js";
-import {
   machineEnvironmentSetSchema,
   machineEnvironmentDeleteSchema,
   type MachineEnvironmentSet,
@@ -469,6 +459,29 @@ import {
   type ServerMoveStatus,
   type ServerMoveStatusResponse,
 } from "./api/server-move.js";
+import {
+  updateUiPreferenceRequestSchema,
+  type PathUiPreferenceKey,
+  type UiPreferenceResponse,
+  type UiPreferencesResponse,
+  type UpdateUiPreferenceRequest,
+} from "./api/ui-preferences.js";
+import {
+  acceptWindowSuggestionRequestSchema,
+  dismissWindowSuggestionRequestSchema,
+  proposeWindowPresetRequestSchema,
+  reportWindowRequestSchema,
+  type AcceptWindowSuggestionRequest,
+  type AcceptWindowSuggestionResponse,
+  type DismissWindowSuggestionRequest,
+  type DismissWindowSuggestionResponse,
+  type PathWindowPreset,
+  type ProposeWindowPresetRequest,
+  type ProposeWindowPresetResponse,
+  type ReportWindowRequest,
+  type ReportWindowResponse,
+  type WindowsResponse,
+} from "./api/windows.js";
 import type { ApiError } from "./errors.js";
 
 type PathProjectSourceId = { param: { id: string; sourceId: string } };
@@ -2103,14 +2116,81 @@ export const publicApiRoutes = {
       request: noRequest(),
       response: jsonResponse<MusicPairing>(),
     }),
-    uiPreferences: uiPreferencesRoute,
-    windows: windowsRoute,
-    reportWindow: reportWindowRoute,
-    proposeWindowPreset: proposeWindowPresetRoute,
-    acceptWindowSuggestion: acceptWindowSuggestionRoute,
-    dismissWindowSuggestion: dismissWindowSuggestionRoute,
-    updateUiPreference: updateUiPreferenceRoute,
-    resetUiPreference: resetUiPreferenceRoute,
+    uiPreferences: defineRoute({
+      path: "/preferences/ui",
+      method: "get",
+      request: noRequest(),
+      response: jsonResponse<UiPreferencesResponse>(),
+    }),
+    updateUiPreference: defineRoute({
+      path: "/preferences/ui/:key",
+      method: "put",
+      request: jsonRequest<PathUiPreferenceKey, UpdateUiPreferenceRequest>(
+        updateUiPreferenceRequestSchema,
+      ),
+      response: [
+        jsonResponse<UiPreferenceResponse>(),
+        jsonResponse<ApiError>({ status: 404 }),
+        jsonResponse<ApiError>({ status: 409 }),
+      ],
+    }),
+    resetUiPreference: defineRoute({
+      path: "/preferences/ui/:key",
+      method: "delete",
+      request: noRequest<PathUiPreferenceKey>(),
+      response: [
+        jsonResponse<UiPreferenceResponse>(),
+        jsonResponse<ApiError>({ status: 404 }),
+      ],
+    }),
+    windows: defineRoute({
+      path: "/windows",
+      method: "get",
+      request: noRequest(),
+      response: jsonResponse<WindowsResponse>(),
+    }),
+    reportWindow: defineRoute({
+      path: "/windows/report",
+      method: "post",
+      request: jsonRequest<EmptyInput, ReportWindowRequest>(
+        reportWindowRequestSchema,
+      ),
+      response: jsonResponse<ReportWindowResponse>(),
+    }),
+    proposeWindowPreset: defineRoute({
+      path: "/windows/presets/:presetId/suggestion",
+      method: "put",
+      request: jsonRequest<PathWindowPreset, ProposeWindowPresetRequest>(
+        proposeWindowPresetRequestSchema,
+      ),
+      response: [
+        jsonResponse<ProposeWindowPresetResponse>(),
+        jsonResponse<ApiError>({ status: 404 }),
+      ],
+    }),
+    acceptWindowSuggestion: defineRoute({
+      path: "/windows/presets/:presetId/suggestion/accept",
+      method: "post",
+      request: jsonRequest<PathWindowPreset, AcceptWindowSuggestionRequest>(
+        acceptWindowSuggestionRequestSchema,
+      ),
+      response: [
+        jsonResponse<AcceptWindowSuggestionResponse>(),
+        jsonResponse<ApiError>({ status: 404 }),
+        jsonResponse<ApiError>({ status: 409 }),
+      ],
+    }),
+    dismissWindowSuggestion: defineRoute({
+      path: "/windows/presets/:presetId/suggestion/dismiss",
+      method: "post",
+      request: jsonRequest<PathWindowPreset, DismissWindowSuggestionRequest>(
+        dismissWindowSuggestionRequestSchema,
+      ),
+      response: [
+        jsonResponse<DismissWindowSuggestionResponse>(),
+        jsonResponse<ApiError>({ status: 409 }),
+      ],
+    }),
     themes: defineRoute({
       path: "/settings/themes",
       method: "get",

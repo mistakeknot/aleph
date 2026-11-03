@@ -16,7 +16,6 @@ import type { AppDeps } from "../types.js";
 
 export function registerWindowRoutes(app: Hono, deps: AppDeps): void {
   const { get, post, put } = typedRoutes<PublicApiSchema>(app, {
-    invalidateTags: (tags) => deps.hub.notifyTags(tags),
     onValidationError: (message) =>
       new ApiError(400, "invalid_request", message),
   });
@@ -59,6 +58,7 @@ export function registerWindowRoutes(app: Hono, deps: AppDeps): void {
         "Window suggestions changed on another client; try again.",
       );
     }
+    deps.hub.notifySystem(["ui-preferences-changed"]);
     return context.json({ presetId, suggestion: result.suggestion });
   });
 
@@ -70,6 +70,7 @@ export function registerWindowRoutes(app: Hono, deps: AppDeps): void {
       suggestionId: payload.suggestionId,
     });
     if (result.outcome === "accepted") {
+      deps.hub.notifySystem(["ui-preferences-changed"]);
       return context.json({ presetId, panes: result.panes });
     }
     if (result.outcome === "conflict" || result.outcome === "stale") {
@@ -104,6 +105,7 @@ export function registerWindowRoutes(app: Hono, deps: AppDeps): void {
         "Window suggestions changed on another client; try again.",
       );
     }
+    deps.hub.notifySystem(["ui-preferences-changed"]);
     return context.json({ presetId });
   });
 }

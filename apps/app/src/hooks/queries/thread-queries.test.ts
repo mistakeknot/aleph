@@ -191,7 +191,6 @@ function observeSidebarDerivedThreadList(
   const selection = observe(
     queryClient,
     sidebarNavigationThreadSelectionQueryOptions(
-      queryClient,
       (navigation: SidebarBootstrapResponse) =>
         selectThreads(listSidebarNavigationThreads(navigation)),
     ),
@@ -222,11 +221,7 @@ function observeChildThreads(queryClient: QueryClient, parentThreadId: string) {
     queryClient,
     (threads) => selectChildThreads(threads, parentThreadId),
     (shouldFetch) =>
-      childThreadsFallbackQueryOptions({
-        parentThreadId,
-        queryClient,
-        shouldFetch,
-      }),
+      childThreadsFallbackQueryOptions({ parentThreadId, shouldFetch }),
   );
 }
 
@@ -460,13 +455,11 @@ describe("useArchivedThreads", () => {
       .mockResolvedValueOnce([]);
     const observer = new InfiniteQueryObserver(
       queryClient,
-      archivedThreadsQueryOptions(queryClient, {}, { enabled: false }),
+      archivedThreadsQueryOptions({}, { enabled: false }),
     );
     unsubscribes.push(observer.subscribe(() => {}));
     expect(sdk.threads.list).not.toHaveBeenCalled();
-    observer.setOptions(
-      archivedThreadsQueryOptions(queryClient, {}, { enabled: true }),
-    );
+    observer.setOptions(archivedThreadsQueryOptions({}, { enabled: true }));
     await vi.waitFor(() =>
       expect(observer.getCurrentResult().hasNextPage).toBe(true),
     );
@@ -477,9 +470,7 @@ describe("useArchivedThreads", () => {
     await vi.waitFor(() =>
       expect(observer.getCurrentResult().hasNextPage).toBe(false),
     );
-    observer.setOptions(
-      archivedThreadsQueryOptions(queryClient, {}, { enabled: false }),
-    );
+    observer.setOptions(archivedThreadsQueryOptions({}, { enabled: false }));
     await queryClient.invalidateQueries();
     expect(sdk.threads.list).toHaveBeenCalledTimes(2);
   });
@@ -490,7 +481,7 @@ describe("useArchivedThreads", () => {
     unsubscribes.push(
       new InfiniteQueryObserver(
         queryClient,
-        archivedThreadsQueryOptions(queryClient, {}),
+        archivedThreadsQueryOptions({}),
       ).subscribe(() => {}),
     );
 
@@ -511,7 +502,7 @@ describe("useArchivedThreads", () => {
     unsubscribes.push(
       new InfiniteQueryObserver(
         queryClient,
-        archivedThreadsQueryOptions(queryClient, { kind: "child" }),
+        archivedThreadsQueryOptions({ kind: "child" }),
       ).subscribe(() => {}),
     );
 
@@ -533,7 +524,7 @@ describe("useArchivedThreads", () => {
     unsubscribes.push(
       new InfiniteQueryObserver(
         queryClient,
-        archivedThreadsQueryOptions(queryClient, { projectId: "proj_1" }),
+        archivedThreadsQueryOptions({ projectId: "proj_1" }),
       ).subscribe(() => {}),
     );
 
@@ -1237,7 +1228,6 @@ describe("palette lifecycle queries", () => {
     }) =>
       paletteRecentArchivedThreadsQueryOptions({
         enabled: recent && selected,
-        queryClient,
       });
     const observer = observe(
       queryClient,

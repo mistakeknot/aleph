@@ -46,7 +46,6 @@ function requireUiPreferenceKey(key: string): UiPreferenceKey {
 
 export function registerUiPreferenceRoutes(app: Hono, deps: AppDeps): void {
   const { del, get, put } = typedRoutes<PublicApiSchema>(app, {
-    invalidateTags: (tags) => deps.hub.notifyTags(tags),
     onValidationError: (message) =>
       new ApiError(400, "invalid_request", message),
   });
@@ -79,11 +78,14 @@ export function registerUiPreferenceRoutes(app: Hono, deps: AppDeps): void {
         { details: { currentRevision: result.revision } },
       );
     }
+    deps.hub.notifySystem(["ui-preferences-changed"]);
     return context.json({ key, ...result.entry });
   });
 
   del(routes.resetUiPreference, (context) => {
     const key = requireWritableUiPreferenceKey(context.req.param("key"));
-    return context.json({ key, ...resetUiPreference(deps, key) });
+    const entry = resetUiPreference(deps, key);
+    deps.hub.notifySystem(["ui-preferences-changed"]);
+    return context.json({ key, ...entry });
   });
 }
