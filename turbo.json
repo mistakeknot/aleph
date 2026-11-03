@@ -1564,6 +1564,17 @@
         "UPDATE_TRANSCRIPT_EXPECTATIONS"
       ]
     },
+    "bb-plugin-bb--design-wiki#typecheck": {
+      "dependsOn": ["@get-bb/plugin-sdk#build:types", "topo"]
+    },
+    "bb-plugin-bb--design-wiki#test": {
+      "dependsOn": [
+        "//#ensure-native-modules",
+        "@get-bb/plugin-sdk#build",
+        "topo"
+      ],
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/vitest*.ts"]
+    },
     "bb-plugin-side-chat#typecheck": {
       "dependsOn": ["@get-bb/plugin-sdk#build:types", "topo"],
       "inputs": [

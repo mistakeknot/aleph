@@ -140,6 +140,11 @@
     "icon": "ListView"
   },
   {
+    "id": "bb--design-wiki",
+    "name": "Design Wiki",
+    "icon": "BookOpen"
+  },
+  {
     "id": "side-chat",
     "name": "Side chat",
     "icon": "SideChat"

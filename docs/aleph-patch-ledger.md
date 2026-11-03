@@ -28,6 +28,7 @@ Held as: *plugin* means the change lives in a plugin directory; *in-tree* means 
 | timeline-build-bound | in-tree | 5 | Bounded open-turn latest timeline builds | Re-apply. |
 | thread-cli | in-tree | 14 | CLI changes for thread wait and send time | Re-apply. |
 | layer-groups | plugin + in-tree | 24 | Sidebar pace-layer groups plugin and conditional pin writes (mk-ks92z) | Plugin files carry the change. |
+| design-wiki | plugin + in-tree | 29 | Design Wiki plugin: read-only project Wiki page for docs/wiki/src CUJs and requirements (mk-vz3gw.1) | Plugin files carry the change; re-apply the registration lines. |
 | contributor-gate | in-tree | 1 | Aleph's PR gate admits only contributors Aleph approved; upstream's additions to `.github/APPROVED_CONTRIBUTORS` are not taken on a sync, since the gate reads that list from Aleph's base branch (mk-8lcd6) | Keep Aleph's list; drop upstream's added logins. |
 | credential-redaction | in-tree | 31 | Credential redaction layers (mk-3aoo); see docs/credential-redaction-residuals.md | Re-apply; vendored token patterns keep the MIT notice. |
 | no-upstream-updates | in-tree | 38 | Server and desktop skip upstream update checks on Aleph builds | Keep the update guards (07c1ec9e). |

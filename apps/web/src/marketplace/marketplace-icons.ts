@@ -58,6 +58,7 @@ const PLUGIN_ICONS: Readonly<Record<string, IconSvgElement | undefined>> = {
   ArrowReloadHorizontal: ArrowReloadHorizontalIcon,
   AudioLines: AudioWave01Icon,
   BellDot: BellDotIcon,
+  BookOpen: Book02Icon,
   Brain: BrainIcon,
   Calendar: Calendar03Icon,
   ChartColumn: ChartColumnIcon,
