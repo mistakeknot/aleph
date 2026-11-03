@@ -288,7 +288,48 @@ describe("decisions on a pin", () => {
         name: "Answer ACME-35: Front door",
       }),
     );
-    await within(row).findByText(/Could not reach Citadel/);
+    await within(row).findByText(/Could not confirm whether Citadel took/);
+    expect(within(row).queryByText(/Nothing was answered/)).toBeNull();
+  });
+
+  it("holds further picks on the same revision after an unconfirmed answer", async () => {
+    const { slot, calls, setItems } = mount({
+      items: [decisionOf()],
+      answerThrows: true,
+    });
+    const row = await pinRow(slot);
+    fireEvent.click(
+      await within(row).findByRole("button", {
+        name: "Answer ACME-35: Front door",
+      }),
+    );
+    await within(row).findByText(/Could not confirm whether Citadel took/);
+    await waitFor(() =>
+      expect(
+        (
+          within(row).getByRole("button", {
+            name: "Answer ACME-35: Front door",
+          }) as HTMLButtonElement
+        ).disabled,
+      ).toBe(true),
+    );
+    within(row).getByRole("button", { name: "Open card ACME-35" });
+    expect(calls).toHaveLength(1);
+    setItems([
+      decisionOf({
+        answer: { ...decisionOf().answer!, revision: "rev-2" },
+      }),
+    ]);
+    window.dispatchEvent(new Event("focus"));
+    await waitFor(() =>
+      expect(
+        (
+          within(row).getByRole("button", {
+            name: "Answer ACME-35: Front door",
+          }) as HTMLButtonElement
+        ).disabled,
+      ).toBe(false),
+    );
   });
 
   it("shows a read-only card with its reason and an Open card button", async () => {

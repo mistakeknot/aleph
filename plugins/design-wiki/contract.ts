@@ -200,6 +200,7 @@ export const PIN_DECISION_FAILURES = [
   "stale",
   "refused",
   "unavailable",
+  "unknown",
 ] as const;
 
 export const answerPinDecisionResultSchema = z.discriminatedUnion("ok", [

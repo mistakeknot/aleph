@@ -15,10 +15,11 @@ export const PIN_DECISIONS_REFRESH_MS = 30_000;
 
 type Failure = Extract<AnswerPinDecisionResult, { ok: false }>;
 
-const UNREACHABLE: Failure = {
+const UNKNOWN: Failure = {
   ok: false,
-  reason: "unavailable",
-  message: "Could not reach Citadel. Nothing was answered.",
+  reason: "unknown",
+  message:
+    "Could not confirm whether Citadel took the answer. Check the card before answering again.",
 };
 
 export interface DecisionActions {
@@ -78,7 +79,7 @@ export function usePinDecisions(projectId: string): DecisionActions {
           pickId: crypto.randomUUID(),
         });
       } catch {
-        result = UNREACHABLE;
+        result = UNKNOWN;
       }
       await Promise.resolve(query.refetch()).catch(() => undefined);
       return result;
@@ -102,7 +103,9 @@ function DecisionItem(props: {
   const { item, actions } = props;
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<Failure | null>(null);
+  const [unsure, setUnsure] = useState<string | null>(null);
   const answer = item.answer;
+  const held = unsure !== null && answer !== null && answer.revision === unsure;
   const label = stateLabel(item);
 
   const pick = async (optionId: string, revision: string) => {
@@ -116,6 +119,7 @@ function DecisionItem(props: {
         revision,
       });
       setFailure(result.ok ? null : result);
+      setUnsure(!result.ok && result.reason === "unknown" ? revision : null);
     } finally {
       setBusy(false);
     }
@@ -166,7 +170,7 @@ function DecisionItem(props: {
                 key={option.id}
                 type="button"
                 className={BUTTON}
-                disabled={busy}
+                disabled={busy || held}
                 aria-label={`Answer ${item.key}: ${option.label}`}
                 onClick={() => void pick(option.id, answer.revision)}
               >
@@ -176,6 +180,18 @@ function DecisionItem(props: {
           </div>
         </div>
       )}
+      {held ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            className={BUTTON}
+            aria-label={`Open card ${item.key}`}
+            onClick={() => actions.openDecisionCard(item.key)}
+          >
+            Open card
+          </button>
+        </div>
+      ) : null}
       {item.reason === null ? null : (
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-subtle-foreground">{item.reason}</p>

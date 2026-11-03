@@ -427,13 +427,43 @@ describe("answerPinDecision", () => {
     expect(calls(fake, "pick")).toHaveLength(1);
   });
 
-  it("reports the decision queue unreachable without retrying", async () => {
+  it("reports a failed pick as unconfirmed, never as unanswered, and does not retry", async () => {
     const fake = await setup();
     const pinId = await createPin(fake);
     fake.autarch.failing.add("pick");
     const result = await answer(fake, { pinId, key: "ACME-35" });
-    expect(result).toMatchObject({ ok: false, reason: "unavailable" });
+    expect(result).toMatchObject({ ok: false, reason: "unknown" });
+    expect(result.message).toMatch(/could not confirm/i);
+    expect(result.message).not.toMatch(/nothing was answered/i);
     expect(calls(fake, "pick")).toHaveLength(1);
+    expect(fake.host.harness.experimental_rpcInvalidations.flat(2)).toContain(
+      TAG,
+    );
+  });
+
+  it("says nothing was answered when the queue cannot be read before any pick", async () => {
+    const fake = await setup();
+    const pinId = await createPin(fake);
+    fake.autarch.failing.add("listAsks");
+    const result = await answer(fake, { pinId, key: "ACME-35" });
+    expect(result).toMatchObject({ ok: false, reason: "unavailable" });
+    expect(result.message).toMatch(/nothing was answered/i);
+    expect(calls(fake, "pick")).toHaveLength(0);
+  });
+
+  it("never sends a malformed key to Citadel on the answer path", async () => {
+    const tooLong = `ACME-${"1".repeat(8)}`;
+    const fake = await setup();
+    fake.state.page = pageText(`**Open: odd ${tooLong}**`, "");
+    const pinId = await createPin(fake, {
+      label: `Open: odd ${tooLong}`,
+      context: `**Open: odd ${tooLong}**`,
+      ordinal: 0,
+      groupSize: 1,
+    });
+    const result = await answer(fake, { pinId, key: tooLong });
+    expect(result).toMatchObject({ ok: false, reason: "not-linked" });
+    expect(fake.autarch.calls).toEqual([]);
   });
 
   it("refuses a key that is not one of the pin's cards", async () => {

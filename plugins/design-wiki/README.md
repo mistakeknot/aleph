@@ -154,7 +154,11 @@ Cards are derived each time they are read; nothing new is stored.
   one of the pin's cards and that Citadel still lists it as waiting, then calls
   Citadel's `pick` with the revision the page showed and a fresh `pick_id`. A
   stale revision is reported ("This decision changed...") and the card is
-  re-read; the plugin never retries and never picks on its own.
+  re-read; the plugin never retries and never picks on its own. A key that is
+  not a valid card key is refused before Citadel is called. If the pick call
+  fails after it was sent, the outcome is "unknown", not "nothing was
+  answered": the pin keeps the answer buttons off until the card changes and
+  offers Open card.
 - **Freshness.** `pinDecisions` is tagged per project and refreshes when a pin
   or a pin's cards change, on window focus, and every 30 seconds while any pin
   holds a card.

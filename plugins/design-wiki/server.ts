@@ -871,6 +871,9 @@ export default async function designWikiPlugin(bb: BbPluginApi): Promise<void> {
           reason: Extract<AnswerPinDecisionResult, { ok: false }>["reason"],
           message: string,
         ): AnswerPinDecisionResult => ({ ok: false, reason, message });
+        if (!CARD_KEY_FOR_AUTARCH.test(key)) {
+          return refuse("not-linked", `${key} is not a card key.`);
+        }
         const row = pinRow(projectId, pinId);
         if (row === undefined) {
           return refuse("not-found", "This pin no longer exists.");
@@ -912,9 +915,10 @@ export default async function designWikiPlugin(bb: BbPluginApi): Promise<void> {
             pickId,
           });
         } catch (error) {
+          invalidatePinTasks(projectId);
           return refuse(
-            "unavailable",
-            `Could not reach Citadel: ${errorMessage(error)}. Nothing was answered.`,
+            "unknown",
+            `Could not confirm whether Citadel took the answer (${errorMessage(error)}). Check the card before answering again.`,
           );
         }
         invalidatePinTasks(projectId);
