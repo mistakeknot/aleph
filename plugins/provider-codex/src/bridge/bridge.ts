@@ -2303,6 +2303,25 @@ interface ThreadRefParamsShape {
   providerThreadId: string;
 }
 
+async function handleThreadGoalClear(
+  id: string | number,
+  params: ThreadRefParamsShape,
+): Promise<void> {
+  try {
+    const result = await withChildForThread(params.threadId, (connection) =>
+      connection.request({
+        method: "thread/goal/clear",
+        params: { threadId: params.providerThreadId },
+        resultSchema: z.object({ cleared: z.boolean() }),
+        timeoutMs: CHILD_REQUEST_TIMEOUT_MS,
+      }),
+    );
+    sendResult(id, result);
+  } catch (error) {
+    rejectWithCodexError(id, error);
+  }
+}
+
 async function handleThreadMaintenance(
   id: string | number,
   params: ThreadRefParamsShape,
@@ -2523,10 +2542,7 @@ async function handleRequest(
       );
       break;
     case "thread/goal/clear":
-      await handleThreadMaintenance(request.id, request.params, {
-        method: "thread/goal/clear",
-        params: { threadId: request.params.providerThreadId },
-      });
+      await handleThreadGoalClear(request.id, request.params);
       break;
     case "skills/configure":
       await handleSkillsConfigure(request.id, request.params);
