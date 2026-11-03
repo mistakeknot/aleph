@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadHostDaemonStartConfig } from "@bb/config/host-daemon";
 import { loadHostDaemonEntrypointConfig } from "@bb/config/host-daemon-entrypoint";
+import { isLogTransportFailure } from "@bb/logger/transport-failure";
 import {
   installSafeProcessDiagnostics,
   installSocketTypeOfServiceGuard,
@@ -81,6 +82,13 @@ if (isMainModule) {
     processName: "host-daemon",
   });
   installSocketTypeOfServiceGuard();
+  process.on("uncaughtException", (error: unknown) => {
+    // A failed log write (disk full, worker exit) must not take the daemon down.
+    if (isLogTransportFailure(error)) return;
+    const message =
+      error instanceof Error ? (error.stack ?? error.message) : String(error);
+    process.stderr.write(`${message}\n`, () => process.exit(1));
+  });
   const handleMainFailure: MainFailureHandler = (error) => {
     reportStartupFailure({ diagnosticsLogsDir, error });
   };

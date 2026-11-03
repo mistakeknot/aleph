@@ -3,6 +3,11 @@
   "version": "0.0.1",
   "type": "module",
   "exports": {
+    "./transport-failure": {
+      "source": "./src/transport-failure.ts",
+      "types": "./src/transport-failure.ts",
+      "default": "./src/transport-failure.ts"
+    },
     ".": {
       "source": "./src/index.ts",
       "types": "./src/index.ts",

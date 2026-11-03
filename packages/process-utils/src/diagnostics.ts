@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 type SafeProcessDiagnosticKind = "startupFailure" | "uncaughtException";
@@ -160,16 +160,29 @@ export function writeSafeProcessDiagnosticReport(
     error: serializeDiagnosticError(args.error),
   };
 
-  writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`, {
-    encoding: "utf8",
-  });
+  try {
+    writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`, {
+      encoding: "utf8",
+    });
+  } catch (error) {
+    // A full disk creates the file and then refuses its contents. Drop the
+    // empty report so it does not look like a valid diagnostic later.
+    try {
+      unlinkSync(reportPath);
+    } catch {}
+    throw error;
+  }
   return reportPath;
 }
 
 export function installSafeProcessDiagnostics(
   options: SafeProcessDiagnosticsOptions,
 ): () => void {
-  mkdirSync(options.logsDir, { recursive: true });
+  try {
+    mkdirSync(options.logsDir, { recursive: true });
+  } catch {
+    // Diagnostics are best effort; a full disk must not stop startup.
+  }
   const handleUncaughtExceptionMonitor: UncaughtExceptionMonitorHandler = (
     error,
   ) => {

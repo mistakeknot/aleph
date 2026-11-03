@@ -1938,7 +1938,7 @@ describe("bb-app launcher", () => {
     }
   });
 
-  it("throttles repeated healthy child exits before restarting", async () => {
+  it("backs off exponentially between repeated child exits before restarting", async () => {
     const restartThrottle = new ControlledDelay();
     const supervisor = createFakeSupervisor();
     const firstServerRun = supervisor.serverRuns[0];
@@ -1975,7 +1975,7 @@ describe("bb-app launcher", () => {
       delay: restartThrottle,
       index: 1,
     });
-    expect(secondDelay.ms).toBe(1_000);
+    expect(secondDelay.ms).toBe(2_000);
     expect(supervisor.serverRuns).toHaveLength(2);
     expect(supervisor.processes.serverRun).toBeNull();
     secondDelay.resolve();

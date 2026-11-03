@@ -136,3 +136,51 @@ describe("acquireDaemonLock compromise handling", () => {
     }
   }, 30_000);
 });
+
+describe("acquireDaemonLock after the previous owner died", () => {
+  let dataDir: string;
+  let lockDirPath: string;
+
+  beforeEach(async () => {
+    dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "bb-daemon-lock-dead-"));
+    lockDirPath = path.join(dataDir, `${DAEMON_LOCK_FILE_NAME}.lock`);
+  });
+
+  afterEach(async () => {
+    await fs.rm(dataDir, { recursive: true, force: true });
+  });
+
+  it("reclaims a lock directory left behind that is already stale", async () => {
+    // A daemon killed with SIGKILL leaves its lock directory and stops
+    // refreshing its mtime.
+    await fs.mkdir(lockDirPath);
+    const longAgo = new Date(Date.now() - 60_000);
+    await fs.utimes(lockDirPath, longAgo, longAgo);
+
+    const release = await acquireDaemonLock(dataDir, {
+      logger: createRecordingLogger().logger,
+      retries: 0,
+    });
+    await release();
+    await expect(fs.stat(lockDirPath)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  }, 15_000);
+
+  it("waits for a freshly abandoned lock to age past stale and then takes it", async () => {
+    // The owner died a moment ago, so the directory is still fresh when the
+    // replacement daemon starts. The retry window has to outlast the stale
+    // window, otherwise the replacement gives up before the lock is reclaimable.
+    await fs.mkdir(lockDirPath);
+
+    const startedAt = Date.now();
+    const release = await acquireDaemonLock(dataDir, {
+      logger: createRecordingLogger().logger,
+      retries: 20,
+      retryIntervalMs: 100,
+      staleMs: 1_000,
+    });
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(900);
+    await release();
+  }, 15_000);
+});
