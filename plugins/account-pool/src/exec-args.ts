@@ -115,7 +115,7 @@ function parseUnguardedPoolExecArgs(
           !Object.hasOwn(config, "mcpServers")
         )
           return null;
-        const servers = config.mcpServers;
+        const servers: unknown = Reflect.get(config, "mcpServers");
         if (
           typeof servers !== "object" ||
           servers === null ||
