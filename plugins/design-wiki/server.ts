@@ -196,7 +196,7 @@ export default async function designWikiPlugin(bb: BbPluginApi): Promise<void> {
     ];
     if (row.claim_label !== null) lines.push(`Claim: ${row.claim_label}`);
     lines.push(
-      `Open: /plugins/bb--design-wiki/wiki/${row.project_id}/${row.page_id}`,
+      `[Open this pin's page in the design wiki](/plugins/bb--design-wiki/wiki/${row.project_id}/${row.page_id})`,
     );
     return lines.join("\n");
   }
@@ -213,7 +213,10 @@ export default async function designWikiPlugin(bb: BbPluginApi): Promise<void> {
     return result.changes > 0;
   }
 
-  async function readPinTask(row: PinTaskRow): Promise<PinTaskItem> {
+  async function readPinTask(
+    row: PinTaskRow,
+    boardIds: Set<string> | null,
+  ): Promise<PinTaskItem> {
     const base = {
       pinId: row.pin_id,
       taskId: row.task_id,
@@ -239,6 +242,22 @@ export default async function designWikiPlugin(bb: BbPluginApi): Promise<void> {
         ...base,
         state: "removed",
         message: "This card no longer exists on the task board.",
+      };
+    }
+    if (boardIds === null) {
+      return {
+        ...base,
+        state: "unavailable",
+        message:
+          "Could not check which task boards belong to this project, so the card is not shown.",
+      };
+    }
+    if (!boardIds.has(task.projectId)) {
+      return {
+        ...base,
+        state: "unavailable",
+        message:
+          "This card is now on a board that is not linked to this project, so its status is not shown.",
       };
     }
     const problems: string[] = [];
@@ -643,7 +662,12 @@ export default async function designWikiPlugin(bb: BbPluginApi): Promise<void> {
              ORDER BY p.created_at, p.id, pt.rowid`,
           )
           .all(projectId) as PinTaskRow[];
-        return Promise.all(rows.map((row) => readPinTask(row)));
+        if (rows.length === 0) return [];
+        const boardIds = await linkedBoards(projectId).then(
+          (boards) => new Set(boards.map((board) => board.id)),
+          () => null,
+        );
+        return Promise.all(rows.map((row) => readPinTask(row, boardIds)));
       },
     },
     {

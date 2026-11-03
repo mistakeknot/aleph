@@ -108,7 +108,8 @@ key). The pin row then lists its cards. One pin may hold several cards.
   which one and creates the card on that choice. With one, it is used.
 - **Card.** The title is the first non-empty line of the note, cut to 120
   characters. The description is the note followed by a back-link: the pin id, the
-  project, the page, the claim label when there is one, and the page's panel path.
+  project, the page, the claim label when there is one, and a Markdown link to the
+  page's panel path.
 - **Recovery.** If the card is created but recording it on the pin fails, the pin
   says so and shows "Link existing card" with the new card's key filled in.
   "Link existing card" accepts any card key on a board linked to the pin's
@@ -116,8 +117,9 @@ key). The pin row then lists its cards. One pin may hold several cards.
 - **Status.** Each card shows its key (a button that opens it in Tasks), title and
   status, the agent threads on it with their live status, its pull requests with
   their state (open, draft, merged, closed), and a count of threads that could not
-  be read. A card deleted in Tasks reads "Card removed"; an unreadable board shows
-  its message and keeps the key. "Unlink" stops showing a card on the pin and
+  be read. A card deleted in Tasks reads "Card removed"; an unreadable card, or a
+  card moved to a board that is no longer linked to the project, shows its message
+  and keeps the key without showing its title, status, threads or pull requests. "Unlink" stops showing a card on the pin and
   leaves the card alone.
 - **Freshness.** The plugin reads the cards through its own `pinTasks` query,
   tagged per project. Making, linking, unlinking and deleting a pin refresh it

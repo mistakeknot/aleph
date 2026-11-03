@@ -304,7 +304,9 @@ describe("pin tasks: Make task", () => {
     expect(description).toContain("Page: cuj-boss");
     expect(description).toContain("Claim: Open: first question");
     expect(description).toContain("Project: p1");
-    expect(description).toContain("/plugins/bb--design-wiki/wiki/p1/cuj-boss");
+    expect(description).toContain(
+      "[Open this pin's page in the design wiki](/plugins/bb--design-wiki/wiki/p1/cuj-boss)",
+    );
   });
 
   it("caps the card title", async () => {
@@ -640,6 +642,68 @@ describe("pin tasks: status", () => {
       pullRequests: [],
     });
     expect(item?.message).toMatch(/pull requests/i);
+  });
+
+  it("shows only the key when the card moved to a board not linked to the project", async () => {
+    const fake = await setup();
+    const pinId = await createPin(fake);
+    await makeTask(fake, pinId);
+    fake.tasks.boards.push({
+      id: "B2",
+      name: "Elsewhere",
+      prefix: "ELS",
+      linked: "p2",
+    });
+    fake.tasks.tasks.get("TASK1")!.projectId = "B2";
+    fake.tasks.threads.set("TASK1", [
+      {
+        id: "L1",
+        taskId: "TASK1",
+        threadId: "thr_a",
+        presetName: "Builder",
+        title: "Secret",
+        liveStatus: "working",
+        attachedAt: "a",
+        updatedAt: "a",
+      },
+    ]);
+    const [item] = await pinTasks(fake);
+    expect(item).toMatchObject({
+      pinId,
+      key: "ONE-1",
+      state: "unavailable",
+      title: null,
+      status: null,
+      threads: [],
+      pullRequests: [],
+    });
+    expect(item?.message).toMatch(/not linked to this project/);
+    expect(called(fake, "listTaskThreads")).toEqual([]);
+    expect(called(fake, "listTaskPullRequests")).toEqual([]);
+  });
+
+  it("shows only the key when the board is no longer linked to the project", async () => {
+    const fake = await setup();
+    const pinId = await createPin(fake);
+    await makeTask(fake, pinId);
+    fake.tasks.boards[0]!.linked = "p2";
+    const [item] = await pinTasks(fake);
+    expect(item).toMatchObject({ state: "unavailable", title: null });
+    expect(called(fake, "listTaskThreads")).toEqual([]);
+  });
+
+  it("does not show the card when the boards cannot be listed", async () => {
+    const fake = await setup();
+    const pinId = await createPin(fake);
+    await makeTask(fake, pinId);
+    fake.tasks.failing.add("listProjects");
+    const [item] = await pinTasks(fake);
+    expect(item).toMatchObject({
+      key: "ONE-1",
+      state: "unavailable",
+      title: null,
+      threads: [],
+    });
   });
 
   it("lists only the cards of pins in the requested project", async () => {
