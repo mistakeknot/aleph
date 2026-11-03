@@ -160,6 +160,63 @@ export const pinTaskItemSchema = z
   .strict();
 export type PinTaskItem = z.infer<typeof pinTaskItemSchema>;
 
+export const pinDecisionTag = (projectId: string): string =>
+  `design-wiki:pin-decisions:${projectId}`;
+
+export const pinDecisionOptionSchema = z
+  .object({ id: z.string().min(1), label: z.string() })
+  .strict();
+
+export const pinDecisionAnswerSchema = z
+  .object({
+    decisionId: z.string().min(1),
+    revision: z.string().min(1),
+    question: z.string(),
+    recommendation: z.string().nullable(),
+    options: z.array(pinDecisionOptionSchema).min(1),
+  })
+  .strict();
+
+export const pinDecisionItemSchema = z
+  .object({
+    pinId: z.string().min(1),
+    key: z.string().min(1),
+    origin: z.enum(["claim", "page", "task"]),
+    state: z.enum(["open", "closed", "missing", "unavailable"]),
+    cardState: z.string().nullable(),
+    title: z.string().nullable(),
+    answer: pinDecisionAnswerSchema.nullable(),
+    reason: z.string().nullable(),
+  })
+  .strict();
+export type PinDecisionItem = z.infer<typeof pinDecisionItemSchema>;
+export type PinDecisionAnswer = z.infer<typeof pinDecisionAnswerSchema>;
+
+export const PIN_DECISION_FAILURES = [
+  "not-found",
+  "not-linked",
+  "not-open",
+  "not-answerable",
+  "stale",
+  "refused",
+  "unavailable",
+  "unknown",
+] as const;
+
+export const answerPinDecisionResultSchema = z.discriminatedUnion("ok", [
+  z.object({ ok: z.literal(true) }).strict(),
+  z
+    .object({
+      ok: z.literal(false),
+      reason: z.enum(PIN_DECISION_FAILURES),
+      message: z.string(),
+    })
+    .strict(),
+]);
+export type AnswerPinDecisionResult = z.infer<
+  typeof answerPinDecisionResultSchema
+>;
+
 export const designWikiRpcContract = defineRpcContract({
   projects: {
     experimental_description:
@@ -275,5 +332,27 @@ export const designWikiRpcContract = defineRpcContract({
     input: z.object({ projectId: z.string().min(1) }).strict(),
     output: z.array(pinTaskItemSchema),
     tags: (input) => [pinTaskTag(input.projectId)],
+  },
+  pinDecisions: {
+    experimental_description:
+      "The decision cards shown on the pins of a project, read from the autarch (Citadel) plugin. A pin on a claim shows the claim's cards, a pin on a page shows the page card, and every pin shows the cards recorded on it. A detached or unverified pin shows only recorded cards. Each open card that can be answered in place carries its options and revision.",
+    input: z.object({ projectId: z.string().min(1) }).strict(),
+    output: z.array(pinDecisionItemSchema),
+    tags: (input) => [pinDecisionTag(input.projectId)],
+  },
+  answerPinDecision: {
+    experimental_description:
+      "Answer a decision card shown on a pin by picking one of its options, through the autarch (Citadel) plugin's pick with the revision the reader saw and a fresh pickId per click. A changed revision is reported as stale and never retried.",
+    input: z
+      .object({
+        projectId: z.string().min(1),
+        pinId: z.string().min(1),
+        key: z.string().min(1),
+        optionId: z.string().min(1),
+        revision: z.string().min(1),
+        pickId: z.string().min(1),
+      })
+      .strict(),
+    output: answerPinDecisionResultSchema,
   },
 });
