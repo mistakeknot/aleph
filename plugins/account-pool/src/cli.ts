@@ -7,7 +7,7 @@ import {
   type PluginCliResult,
 } from "@get-bb/plugin-sdk";
 import path from "node:path";
-import { poolExecArgsAllowed } from "./exec-args.js";
+import { poolExecArgsRefusal } from "./exec-args.js";
 import { setTimeout as wait } from "node:timers/promises";
 import {
   accountAddInputSchema,
@@ -363,11 +363,9 @@ export function registerPoolCli(
                 );
               }
               const provider: PoolProvider = command;
-              if (!poolExecArgsAllowed(provider, args)) {
-                throw new PluginCliError(
-                  `${provider} arguments are not permitted by the Account Pooler execution allowlist.`,
-                  { code: "invalid_value" },
-                );
+              const refusal = poolExecArgsRefusal(provider, args);
+              if (refusal !== null) {
+                throw new PluginCliError(refusal, { code: "invalid_value" });
               }
               const stdinPath = input.options["stdin-file"];
               if (stdinPath !== undefined && !path.isAbsolute(stdinPath)) {

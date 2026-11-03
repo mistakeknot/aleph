@@ -64,9 +64,14 @@ describe("Account Pooler host exec", () => {
     20_000,
   );
 
-  it.each([undefined, "", "daemon-config", "/daemon-config"])(
+  it.each(
+    [undefined, "", "daemon-config", "/daemon-config"].flatMap((configDir) => [
+      { configDir, emptySources: false },
+      { configDir, emptySources: true },
+    ]),
+  )(
     "owns Claude settings sources and anchors config %j at the daemon, not the caller cwd",
-    async (configDir) => {
+    async ({ configDir, emptySources }) => {
       const child = fakeChild();
       const spawn = vi.fn(
         (
@@ -94,7 +99,13 @@ describe("Account Pooler host exec", () => {
       );
       const pending = harness.experimental_call("run", {
         provider: "claude",
-        args: ["--print", "hello"],
+        args: [
+          "--print",
+          ...(emptySources
+            ? ["--setting-sources", "", "--tools=", "--strict-mcp-config"]
+            : []),
+          "hello",
+        ],
         cwd: "/caller-cwd",
         stdinPath: null,
         stdinDir: null,
@@ -111,8 +122,9 @@ describe("Account Pooler host exec", () => {
       const [, args, options] = spawn.mock.calls[0] ?? [];
       expect(args).toEqual([
         "--setting-sources",
-        "user",
+        emptySources ? "" : "user",
         "--print",
+        ...(emptySources ? ["--tools=", "--strict-mcp-config"] : []),
         "--",
         "hello",
       ]);
@@ -134,6 +146,108 @@ describe("Account Pooler host exec", () => {
         expect(options?.env).not.toHaveProperty("CLAUDE_CONFIG_DIR");
       }
       expect(JSON.stringify(args)).not.toContain("pool-secret");
+    },
+  );
+
+  it("spawns the full restrictive reviewer line with empty settings sources", async () => {
+    const child = fakeChild();
+    const spawn = vi.fn(
+      (
+        _command: string,
+        _args: readonly string[],
+        _options: { env: NodeJS.ProcessEnv },
+      ) => child,
+    );
+    const harness = experimental_createHostEntryHarness(
+      createAccountPoolHostEntry({ spawn, env: { HOME: "/daemon-home" } }),
+    );
+    const schema =
+      '{"type":"object","properties":{"body":{"type":"string"}},"required":["body"],"additionalProperties":false}';
+    const system = "Review supplied text only. Do not execute commands.";
+    const pending = harness.experimental_call("run", {
+      provider: "claude",
+      args: [
+        "--print",
+        "--safe-mode",
+        "--tools",
+        "",
+        "--strict-mcp-config",
+        "--mcp-config",
+        '{"mcpServers":{}}',
+        "--disable-slash-commands",
+        "--no-session-persistence",
+        "--no-chrome",
+        "--setting-sources",
+        "",
+        "--output-format",
+        "json",
+        "--json-schema",
+        schema,
+        "--system-prompt",
+        system,
+        "-",
+      ],
+      cwd: "/caller-cwd",
+      stdinPath: null,
+      stdinDir: null,
+      token: "pool-secret",
+      baseUrl: "http://127.0.0.1:38886/pool",
+    });
+    await vi.waitFor(() => expect(spawn).toHaveBeenCalledOnce());
+    child.emit("spawn");
+    child.emit("close", 0, null);
+    await expect(pending).resolves.toMatchObject({
+      started: true,
+      providerPinned: true,
+    });
+    const [command, args, options] = spawn.mock.calls[0] ?? [];
+    expect(command).toBe("claude");
+    expect(args).toEqual([
+      "--setting-sources",
+      "",
+      "--print",
+      "--safe-mode",
+      "--tools=",
+      "--strict-mcp-config",
+      '--mcp-config={"mcpServers":{}}',
+      "--disable-slash-commands",
+      "--no-session-persistence",
+      "--no-chrome",
+      "--output-format=json",
+      `--json-schema=${schema}`,
+      `--system-prompt=${system}`,
+      "--",
+      "-",
+    ]);
+    expect(options?.env).toMatchObject({
+      CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST: "1",
+      ANTHROPIC_AUTH_TOKEN: "pool-secret",
+    });
+  });
+
+  it.each([
+    ["without tools", ["--strict-mcp-config", "--setting-sources", ""]],
+    ["without strict MCP config", ["--tools=", "--setting-sources", ""]],
+    ["without either guard", ["--setting-sources", ""]],
+  ])(
+    "refuses empty Claude settings sources %s before spawning",
+    async (_label, extra) => {
+      const spawn = vi.fn(() => fakeChild());
+      const harness = experimental_createHostEntryHarness(
+        createAccountPoolHostEntry({ spawn, env: { HOME: "/daemon-home" } }),
+      );
+      const result = await harness.experimental_call("run", {
+        provider: "claude",
+        args: ["--print", ...extra, "hello"],
+        cwd: "/caller-cwd",
+        stdinPath: null,
+        stdinDir: null,
+        token: "pool-secret",
+        baseUrl: "http://127.0.0.1:38886/pool",
+      });
+      expect(spawn).not.toHaveBeenCalled();
+      expect(result).toMatchObject({ started: false, exitCode: 1 });
+      expect(result.stderr).toContain("--tools= and --strict-mcp-config");
     },
   );
 

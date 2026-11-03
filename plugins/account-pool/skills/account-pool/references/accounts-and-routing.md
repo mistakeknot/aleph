@@ -118,10 +118,20 @@ Codex callers may supply `--model`, `--sandbox` (read-only or workspace-write),
 `--json`, `--ephemeral`, `--ignore-user-config`, `--ignore-rules`, and one prompt
 or `-` for stdin. Value options accept separate or `--key=value` forms. Claude
 must start with `--print` or `-p`; it accepts `--model`, `--output-format` (text
-or json), `--max-turns`, and one prompt. Other short options are not accepted.
+or json), `--max-turns`, `--json-schema`, `--system-prompt`, and one prompt.
+Restriction flags are `--safe-mode`, `--no-session-persistence`, `--no-chrome`,
+`--strict-mcp-config`, and `--disable-slash-commands`. `--tools` and
+`--setting-sources` accept only an empty value. `--mcp-config` accepts only
+inline JSON with exactly one field, an empty `mcpServers` object, for example
+`--mcp-config='{"mcpServers":{}}'`. Empty strings, files, extra fields and
+non-empty servers are rejected. These valued flags accept separate and equals
+forms. System prompt file options and other short options are not accepted.
 
-Claude receives `--setting-sources user` after argument validation. Both caller
-`--setting-sources` spellings and `--settings` are rejected: project and local
+Claude receives `--setting-sources user` after argument validation by default;
+an explicit empty `--setting-sources` instead suppresses all settings sources,
+and is accepted only together with `--tools=` (empty) and `--strict-mcp-config`
+in the same command, because it also drops user-settings protections.
+Non-empty caller source lists and `--settings` are rejected: project and local
 settings cannot replace the endpoint, run their hooks/helpers, or select another
 provider. The host also sets `CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST=1` to prevent
 settings-file provider/auth/endpoint variables from overriding its route, and

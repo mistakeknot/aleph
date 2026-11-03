@@ -19,11 +19,16 @@ const CLAUDE_FLAGS = new Set([
   "-p",
   "--strict-mcp-config",
   "--disable-slash-commands",
+  "--safe-mode",
+  "--no-session-persistence",
+  "--no-chrome",
 ]);
 const CLAUDE_VALUES: Record<string, readonly string[] | null> = {
   "--model": null,
   "--output-format": ["text", "json"],
   "--max-turns": null,
+  "--json-schema": null,
+  "--system-prompt": null,
 };
 
 export function poolExecArgsAllowed(
@@ -33,7 +38,34 @@ export function poolExecArgsAllowed(
   return parsePoolExecArgs(provider, args) !== null;
 }
 
+const EMPTY_SETTING_SOURCES_GUARDS = ["--tools=", "--strict-mcp-config"];
+const EMPTY_SETTING_SOURCES_REFUSAL =
+  "claude --setting-sources '' is permitted only together with --tools= and --strict-mcp-config because it also drops user-settings protections.";
+
 export function parsePoolExecArgs(
+  provider: PoolProvider,
+  args: readonly string[],
+): string[] | null {
+  const options = parseUnguardedPoolExecArgs(provider, args);
+  if (
+    options?.includes("--setting-sources=") &&
+    !EMPTY_SETTING_SOURCES_GUARDS.every((guard) => options.includes(guard))
+  )
+    return null;
+  return options;
+}
+
+export function poolExecArgsRefusal(
+  provider: PoolProvider,
+  args: readonly string[],
+): string | null {
+  if (parsePoolExecArgs(provider, args) !== null) return null;
+  if (parseUnguardedPoolExecArgs(provider, args) !== null)
+    return EMPTY_SETTING_SOURCES_REFUSAL;
+  return `${provider} arguments are not permitted by the Account Pooler execution allowlist.`;
+}
+
+function parseUnguardedPoolExecArgs(
   provider: PoolProvider,
   args: readonly string[],
 ): string[] | null {
@@ -61,10 +93,40 @@ export function parsePoolExecArgs(
     }
     const equals = arg.indexOf("=");
     const key = equals < 0 ? arg : arg.slice(0, equals);
-    if (provider === "claude" && key === "--tools") {
-      const toolsValue = equals < 0 ? args[++index] : arg.slice(equals + 1);
-      if (toolsValue !== "") return null;
-      options.push("--tools=");
+    if (
+      provider === "claude" &&
+      (key === "--tools" || key === "--setting-sources")
+    ) {
+      const emptyValue = equals < 0 ? args[++index] : arg.slice(equals + 1);
+      if (emptyValue !== "") return null;
+      options.push(`${key}=`);
+      continue;
+    }
+    if (provider === "claude" && key === "--mcp-config") {
+      const value = equals < 0 ? args[++index] : arg.slice(equals + 1);
+      if (!value) return null;
+      try {
+        const config: unknown = JSON.parse(value);
+        if (
+          typeof config !== "object" ||
+          config === null ||
+          Array.isArray(config) ||
+          Object.keys(config).length !== 1 ||
+          !Object.hasOwn(config, "mcpServers")
+        )
+          return null;
+        const servers: unknown = Reflect.get(config, "mcpServers");
+        if (
+          typeof servers !== "object" ||
+          servers === null ||
+          Array.isArray(servers) ||
+          Object.keys(servers).length !== 0
+        )
+          return null;
+      } catch {
+        return null;
+      }
+      options.push('--mcp-config={"mcpServers":{}}');
       continue;
     }
     if (!Object.hasOwn(values, key)) return null;
