@@ -28,6 +28,7 @@ describe("product-map surfaces", () => {
       "message-directives",
       "code-fence-renderers",
       "message-actions",
+      "message-metadata",
       "pending-interaction",
       "thread-info",
       "code-renderers",

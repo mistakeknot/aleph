@@ -186,6 +186,48 @@ Stabilization requires verifying placement isolation, plugin
 disable/uninstall, loading and failure states, and pairing lifecycle on
 Mobile.
 
+## `app.slots.experimental_messageMetadata` (`@get-bb/plugin-sdk/app`)
+
+Requires SDK 0.6.98.
+
+`app.slots.experimental_messageMetadata({ id, placement?, component })` mounts
+React metadata beside realized user and assistant conversation messages,
+including windowing overscan and embedded ThreadChat timelines. `placement`
+accepts "above" or "actionRow"; omission defaults to "above". "above" renders
+over the message, aligned to its side. "actionRow" renders in the message's
+action row and shows and hides with the actions: on hover or focus where the
+device can hover, and always where it cannot. It sits before the actions on
+user messages and after the overflow menu on assistant messages, and extends
+into the space beside the message rather than narrowing the actions. Device
+policy belongs to the component: bb's own inline time returns null on touch
+devices, which keep the time in the overflow menu footer. The component
+receives `{ message }` with `id`, `threadId`, `role`, exact `createdAt` in Unix
+milliseconds, and `turnId` (null outside a turn). User messages also expose
+`initiator: "user" | "agent" | "system"`; assistant messages do not. Message
+text and source sequence numbers are excluded, so streaming text does not
+invalidate metadata props. Types: `ExperimentalMessageMetadataRegistration`,
+`ExperimentalMessageMetadataPlacement`, `ExperimentalMessageMetadataProps`, and
+`ExperimentalMessageMetadataContext`.
+
+Components inspect `message.role` and return null to skip a message.
+
+BB supplies plugin context, CSS, muted typography, alignment, and ordering: bb's
+own contributions first, then plugin id, then registration order. Each plugin
+contribution has its own error boundary and empty suspense fallback. Plugin
+hooks can fetch or subscribe to data; use shared query caches rather than one
+request per message. Components unmount when their messages are no longer
+realized or the registration is removed. Plugin effects own their cleanup
+and time-based refreshes; BB adds no timer, text length limits, or server calls.
+
+Core caller: the inline message time in the hover action row
+(`apps/app/src/components/thread/timeline/core-message-metadata.tsx`) registers
+through this slot with `placement: "actionRow"` and renders through the same
+`MessageMetadata` host as plugin contributions.
+
+Before stabilizing, audit compact and embedded placement, variable-height
+metadata and scroll anchoring, unmount cleanup, asynchronous updates,
+origin filtering, and render isolation during streaming and across messages.
+
 ## `app.commands.register`
 
 Unprefixed by explicit request. Registers frontend commands

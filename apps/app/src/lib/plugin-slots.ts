@@ -1,4 +1,5 @@
 import { coreTabs } from "@/components/secondary-panel/thread-info-registration";
+import { coreMessageMetadata } from "@/components/thread/timeline/core-message-metadata";
 import { setAppIcons } from "@bb/shared-ui/icon-registry";
 import { useSyncExternalStore } from "react";
 import type {
@@ -16,6 +17,7 @@ import type {
   PluginFileOpenerRegistration,
   PluginHomepageSectionRegistration,
   PluginMessageActionRegistration,
+  ExperimentalMessageMetadataRegistration,
   PluginMessageDirectiveRegistration,
   PluginNavPanelRegistration,
   PluginNewThreadPanelActionRegistration,
@@ -75,6 +77,7 @@ export interface PluginRegistrationSet {
   messageDirectives: readonly PluginMessageDirectiveRegistration[];
   codeFenceRenderers?: readonly ExperimentalCodeFenceRendererRegistration[];
   messageActions?: readonly PluginMessageActionRegistration[];
+  messageMetadata?: readonly ExperimentalMessageMetadataRegistration[];
   commandPaletteActions?: readonly CollectedPluginCommandRegistration[];
   commandPaletteSearches?: readonly ExperimentalPluginCommandPaletteSearchRegistration[];
   providerIcons?: readonly CollectedPluginProviderIconRegistration[];
@@ -161,6 +164,8 @@ export interface PluginCodeFenceRendererSlot
   extends ExperimentalCodeFenceRendererRegistration, PluginSlotBase {}
 export interface PluginMessageActionSlot
   extends PluginMessageActionRegistration, PluginSlotBase {}
+export interface PluginMessageMetadataSlot
+  extends ExperimentalMessageMetadataRegistration, PluginSlotBase {}
 export type PluginCommandPaletteActionSlot =
   CollectedPluginCommandRegistration & PluginSlotBase;
 export type PluginCommandPaletteSearchSlot =
@@ -203,6 +208,7 @@ export interface PluginSlotSnapshot {
   messageDirectives: readonly PluginMessageDirectiveSlot[];
   codeFenceRenderers: readonly PluginCodeFenceRendererSlot[];
   messageActions: readonly PluginMessageActionSlot[];
+  messageMetadata: readonly PluginMessageMetadataSlot[];
   commandPaletteActions: readonly PluginCommandPaletteActionSlot[];
   commandPaletteSearches: readonly PluginCommandPaletteSearchSlot[];
   providerIcons: readonly PluginProviderIconSlot[];
@@ -240,6 +246,7 @@ export const EMPTY_PLUGIN_SLOT_SNAPSHOT: PluginSlotSnapshot = {
   messageDirectives: [],
   codeFenceRenderers: [],
   messageActions: [],
+  messageMetadata: coreMessageMetadata,
   commandPaletteActions: [],
   commandPaletteSearches: [],
   providerIcons: [],
@@ -284,6 +291,7 @@ const SLOT_KINDS: readonly SlotKind[] = [
   "messageDirectives",
   "codeFenceRenderers",
   "messageActions",
+  "messageMetadata",
   "commandPaletteActions",
   "commandPaletteSearches",
   "providerIcons",
@@ -376,6 +384,7 @@ function flattenRegistrations(
     messageDirectives: stamp(set.messageDirectives),
     codeFenceRenderers: stamp(set.codeFenceRenderers),
     messageActions: stamp(set.messageActions),
+    messageMetadata: stamp(set.messageMetadata),
     commandPaletteActions: stamp(set.commandPaletteActions),
     commandPaletteSearches: stamp(set.commandPaletteSearches),
     providerIcons: stamp(set.providerIcons),
@@ -404,6 +413,9 @@ function collectKind<K extends SlotKind>(
   const collected: PluginSlotSnapshot[K][number][] = [];
   if (kind === "tabs") {
     for (const slot of coreTabs) collected.push(slot);
+  }
+  if (kind === "messageMetadata") {
+    for (const slot of coreMessageMetadata) collected.push(slot);
   }
   for (const pluginId of pluginIds) {
     const flattened = flattenedByPluginId.get(pluginId);
