@@ -126,6 +126,10 @@
     "category": "thread-management",
     "screenshots": []
   },
+  "design-wiki": {
+    "category": "memory-and-context",
+    "screenshots": []
+  },
   "workflows": {
     "category": "tasks-and-workflows",
     "screenshots": []

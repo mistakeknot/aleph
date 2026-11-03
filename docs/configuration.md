@@ -1354,6 +1354,16 @@ adopt an empty matching section, `bb layer-groups enable-layer D` to reenable a
 deleted layer, and `bb layer-groups export /path/to/export.json` to export data.
 `GSV` selects Studio for adopt and enable-layer.
 
+### Design Wiki plugin
+
+The builtin Design Wiki plugin is disabled on fresh installations. Enable it
+under Settings → Installed plugins or with `bb plugin enable bb--design-wiki`.
+It adds a read-only Design Wiki page that lists and renders a project's critical
+user journeys and requirements from `docs/wiki/src/cujs/*.md` and
+`docs/wiki/src/requirements/*.md` in the project's repository root. It has no
+settings and writes nothing. A page with invalid front matter shows as an error
+row, and a project without `docs/wiki/src` shows an empty state.
+
 ### Workflows plugin
 
 The builtin Workflows plugin is disabled on fresh installations

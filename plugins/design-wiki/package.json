@@ -1,0 +1,55 @@
+{
+  "name": "bb-plugin-bb--design-wiki",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Read-only project design wiki: CUJ and requirement pages kept in the repository",
+  "engines": {
+    "bb": ">=0.0",
+    "bbPluginSdk": ">=0.6.94"
+  },
+  "bb": {
+    "name": "Design Wiki",
+    "description": "Read-only project design wiki: CUJ and requirement pages kept in the repository",
+    "branding": {
+      "icon": "BookOpen"
+    },
+    "server": "./server.ts",
+    "app": "./app.tsx"
+  },
+  "exports": {
+    "./contract": "./contract.ts",
+    "./page-view": "./ui/wiki-page-view.tsx"
+  },
+  "keywords": [
+    "bb-plugin"
+  ],
+  "scripts": {
+    "test": "vitest run --config vitest.config.ts",
+    "typecheck": "tsrs --noEmit",
+    "lint": "oxlint --ignore-pattern node_modules --ignore-pattern dist .",
+    "prepare:bundled": "bb-plugin-build prepare-bundled"
+  },
+  "dependencies": {
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "yaml": "^2.8.2",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@bb/plugin-build": "workspace:*",
+    "@bb/shared-ui": "workspace:*",
+    "@get-bb/plugin-sdk": "workspace:*",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "jsdom": "^29.0.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tsrs": "0.18.0-ts7.1.0-dev.20260929",
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
+    "vitest": "^4.1.1"
+  }
+}

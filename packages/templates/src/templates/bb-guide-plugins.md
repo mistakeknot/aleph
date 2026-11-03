@@ -217,6 +217,12 @@ must be absolute; relative paths are rejected. An
 unreadable registry blocks apply; preview can show a stored snapshot with an
 error. Owned section renames are preserved.
 
+The builtin Design Wiki plugin is disabled by default. Enable it with
+`bb plugin enable bb--design-wiki`. It adds a read-only Design Wiki page that
+lists and renders a project's critical user journeys and requirements from
+`docs/wiki/src/cujs/*.md` and `docs/wiki/src/requirements/*.md` in the
+project's repository root. It has no settings or commands.
+
 Multi-plugin repositories
 
 One repository can hold several plugins, each an ordinary plugin directory
