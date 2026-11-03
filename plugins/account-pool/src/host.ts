@@ -139,7 +139,12 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
             env.ANTHROPIC_BASE_URL = input.baseUrl;
             env.ANTHROPIC_AUTH_TOKEN = input.token;
             env.ENABLE_TOOL_SEARCH = "true";
-            args = ["--setting-sources", "user", ...args];
+            const emptySources = args.includes("--setting-sources=");
+            args = [
+              "--setting-sources",
+              emptySources ? "" : "user",
+              ...args.filter((arg) => arg !== "--setting-sources="),
+            ];
           }
 
           let child: PoolExecChild;

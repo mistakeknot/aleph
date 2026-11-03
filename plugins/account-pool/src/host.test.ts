@@ -64,9 +64,14 @@ describe("Account Pooler host exec", () => {
     20_000,
   );
 
-  it.each([undefined, "", "daemon-config", "/daemon-config"])(
+  it.each(
+    [undefined, "", "daemon-config", "/daemon-config"].flatMap((configDir) => [
+      { configDir, emptySources: false },
+      { configDir, emptySources: true },
+    ]),
+  )(
     "owns Claude settings sources and anchors config %j at the daemon, not the caller cwd",
-    async (configDir) => {
+    async ({ configDir, emptySources }) => {
       const child = fakeChild();
       const spawn = vi.fn(
         (
@@ -94,7 +99,11 @@ describe("Account Pooler host exec", () => {
       );
       const pending = harness.experimental_call("run", {
         provider: "claude",
-        args: ["--print", "hello"],
+        args: [
+          "--print",
+          ...(emptySources ? ["--setting-sources", ""] : []),
+          "hello",
+        ],
         cwd: "/caller-cwd",
         stdinPath: null,
         stdinDir: null,
@@ -111,7 +120,7 @@ describe("Account Pooler host exec", () => {
       const [, args, options] = spawn.mock.calls[0] ?? [];
       expect(args).toEqual([
         "--setting-sources",
-        "user",
+        emptySources ? "" : "user",
         "--print",
         "--",
         "hello",

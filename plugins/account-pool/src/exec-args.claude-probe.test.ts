@@ -10,6 +10,17 @@ it.runIf(process.env.BB_POOL_EXEC_CLAUDE_PROBE === "1")(
   () => {
     const args = parsePoolExecArgs("claude", [
       "--print",
+      "--safe-mode",
+      "--no-session-persistence",
+      "--no-chrome",
+      "--mcp-config",
+      '{"mcpServers":{}}',
+      "--setting-sources",
+      "",
+      "--system-prompt",
+      "Reply with a short greeting. Do not use tools.",
+      "--json-schema",
+      '{"type":"object","properties":{"body":{"type":"string"}},"required":["body"],"additionalProperties":false}',
       "--strict-mcp-config",
       "--disable-slash-commands",
       "--tools",
@@ -45,4 +56,29 @@ it.runIf(process.env.BB_POOL_EXEC_CLAUDE_PROBE === "1")(
     expect(init?.slash_commands).toEqual([]);
   },
   150_000,
+);
+
+it.runIf(process.env.BB_POOL_EXEC_CLAUDE_HELP_PROBE === "1")(
+  "installed Claude advertises the restrictive reviewer options",
+  () => {
+    const result = spawnSync("claude", ["--help"], {
+      encoding: "utf8",
+      timeout: 30_000,
+    });
+    expect(result.status).toBe(0);
+    for (const flag of [
+      "--safe-mode",
+      "--no-session-persistence",
+      "--no-chrome",
+      "--mcp-config",
+      "--setting-sources",
+      "--system-prompt",
+      "--json-schema",
+      "--tools",
+      "--strict-mcp-config",
+      "--disable-slash-commands",
+    ]) {
+      expect(result.stdout).toContain(flag);
+    }
+  },
 );
