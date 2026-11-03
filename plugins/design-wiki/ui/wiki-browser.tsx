@@ -3,11 +3,9 @@ import { designWikiRpcContract } from "../contract.js";
 import { WikiListView } from "./wiki-list-view.js";
 import { PinnedPage, PinRow, usePinActions } from "./pinned-page.js";
 
-const TASK_PANEL = "/plugins/tasks/tasks/task/";
+import { openCard } from "./open-card.js";
 
-export function openCard(key: string) {
-  window.location.assign(`${TASK_PANEL}${encodeURIComponent(key)}`);
-}
+export { openCard };
 
 export function Message(props: { children: string; tone?: "error" }) {
   return (

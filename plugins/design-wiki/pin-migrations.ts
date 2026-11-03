@@ -27,4 +27,12 @@ export const PIN_MIGRATIONS = [
     linked_at TEXT NOT NULL,
     PRIMARY KEY (pin_id, thread_id)
   );`,
+  `CREATE TABLE pin_tasks (
+    pin_id TEXT NOT NULL REFERENCES pins (id) ON DELETE CASCADE,
+    task_id TEXT NOT NULL,
+    task_key TEXT NOT NULL,
+    task_project_id TEXT NOT NULL,
+    linked_at TEXT NOT NULL,
+    PRIMARY KEY (pin_id, task_id)
+  );`,
 ];

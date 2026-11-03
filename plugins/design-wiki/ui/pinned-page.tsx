@@ -9,6 +9,8 @@ import { extractClaimSites } from "../claims.js";
 import { designWikiRpcContract, type Pin } from "../contract.js";
 import { type ClaimTarget, claimTargetAt } from "../pin-anchor.js";
 import type { WikiPage } from "../wiki-types.js";
+import { BUTTON } from "./button-class.js";
+import { type CardActions, PinCards, usePinCards } from "./pin-cards.js";
 import { type ClaimLayer, WikiPageView } from "./wiki-page-view.js";
 
 const REASON_MESSAGE: Record<string, string> = {
@@ -25,9 +27,6 @@ const REASON_MESSAGE: Record<string, string> = {
 
 const FAILED = "Could not save the pin. Try again.";
 
-const BUTTON =
-  "rounded-md border border-border px-2 py-0.5 text-xs font-medium text-foreground hover:bg-muted disabled:opacity-50";
-
 function reasonMessage(reason: string): string {
   return REASON_MESSAGE[reason] ?? FAILED;
 }
@@ -41,7 +40,7 @@ function claimKey(target: ClaimTarget): string {
   ]);
 }
 
-export interface PinActions {
+export interface PinActions extends CardActions {
   projectId: string;
   threadId: string | null;
   message: string | null;
@@ -58,7 +57,6 @@ export interface PinActions {
   }) => Promise<boolean>;
   remove: (pinId: string) => Promise<void>;
   discuss: (pin: Pin, title: string | null) => Promise<void>;
-  openThread: (threadId: string) => void;
 }
 
 export function usePinActions(
@@ -83,8 +81,11 @@ export function usePinActions(
     contract: designWikiRpcContract,
     method: "linkPinThread",
   });
+  const openThread = (id: string) => navigate.toThread(id);
+  const cards = usePinCards(projectId, openThread);
 
   return {
+    ...cards,
     projectId,
     threadId,
     message,
@@ -145,7 +146,6 @@ export function usePinActions(
         "Discussion draft opened. It is not linked to this pin, because no thread exists yet.",
       );
     },
-    openThread: (id) => navigate.toThread(id),
   };
 }
 
@@ -269,6 +269,7 @@ export function PinRow(props: {
           ))}
         </div>
       )}
+      <PinCards pinId={pin.id} actions={actions} />
       {editing ? null : (
         <div className="flex flex-wrap gap-2">
           <button
@@ -457,12 +458,16 @@ export function PinnedPage(props: {
     () =>
       (query.data ?? [])
         .filter((pin) => pin.pageId === page.id)
-        .map((pin): Pin =>
-          pin.claim !== null &&
-          pin.anchor.state === "claim" &&
-          !byKey.has(claimKey(pin.claim))
-            ? { ...pin, anchor: { state: "detached", reason: "claim-changed" } }
-            : pin,
+        .map(
+          (pin): Pin =>
+            pin.claim !== null &&
+            pin.anchor.state === "claim" &&
+            !byKey.has(claimKey(pin.claim))
+              ? {
+                  ...pin,
+                  anchor: { state: "detached", reason: "claim-changed" },
+                }
+              : pin,
         ),
     [query.data, page.id, byKey],
   );

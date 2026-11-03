@@ -38,12 +38,15 @@ and card keys inside any body text link to the Tasks card.
 ## Layout
 
 - `contract.ts`: RPC contract (`projects`, `list`, `page`, `pins`, `createPin`,
-  `updatePin`, `deletePin`, `linkPinThread`).
+  `updatePin`, `deletePin`, `linkPinThread`, `createPinTask`, `linkPinTask`,
+  `unlinkPinTask`, `pinTasks`).
+- `tasks-client.ts`: the calls into the tasks plugin through
+  `bb.sdk.plugins.callRpc`.
 - `wiki-page.ts`, `wiki-discovery.ts`, `claims.ts`: parsing, discovery and claim
   extraction, free of host and UI code.
 - `server.ts`: reads files through the host and stores pins in plugin storage.
-- `pin-migrations.ts`, `pin-anchor.ts`: the `pins` and `pin_threads` tables, and
-  the check of a pin's claim against the page as it is now.
+- `pin-migrations.ts`, `pin-anchor.ts`: the `pins`, `pin_threads` and
+  `pin_tasks` tables (migration 2 adds `pin_tasks`), and the check of a pin's claim against the page as it is now.
 - `ui/wiki-page-view.tsx`: the page renderer, also exported as
   `bb-plugin-bb--design-wiki/page-view`.
 - `ui/wiki-list-view.tsx`: the grouped list with status filter chips.
@@ -51,6 +54,8 @@ and card keys inside any body text link to the Tasks card.
   The Wiki page renders it with `layout="split"` and the thread side panel with
   `layout="stacked"`; it also takes the current `threadId` (null on the Wiki page).
 - `ui/pinned-page.tsx`: the pins section, the pin controls and the pin actions.
+- `ui/pin-cards.tsx`: the cards on a pin, Make task, Link existing card and the
+  card status refresh.
 - `ui/claim-sites.ts`: maps each claim to its place in the rendered page.
 - `app.tsx`: the Wiki navigation panel and the thread side panel tab.
 
@@ -91,9 +96,41 @@ project. They never change the repository's Markdown.
   menu. It sits at the end of the page body, not in the page header; this is a
   design choice.
 
-Make task (a task card for the coordinator, with card, thread, PR and merge
-status) and decision cards on pins are later slices and are not part of this
-version.
+## Make task
+
+"Make task" on a pin creates a card on the project's task board through the tasks
+plugin and records it on the pin in the `pin_tasks` table (task id and display
+key). The pin row then lists its cards. One pin may hold several cards.
+
+- **Board.** The board is found through the tasks plugin's `listProjects`, taking
+  the boards whose `linkedBbProjectId` is the pin's project. With none, the pin
+  says no board is linked and nothing is created. With several, the pin asks
+  which one and creates the card on that choice. With one, it is used.
+- **Card.** The title is the first non-empty line of the note, cut to 120
+  characters. The description is the note followed by a back-link: the pin id, the
+  project, the page, the claim label when there is one, and a Markdown link to the
+  page's panel path.
+- **Recovery.** If the card is created but recording it on the pin fails, the pin
+  says so and shows "Link existing card" with the new card's key filled in.
+  "Link existing card" accepts any card key on a board linked to the pin's
+  project, so a pin can also pick up a card made elsewhere.
+- **Status.** Each card shows its key (a button that opens it in Tasks), title and
+  status, the agent threads on it with their live status, its pull requests with
+  their state (open, draft, merged, closed), and a count of threads that could not
+  be read. A card deleted in Tasks reads "Card removed"; an unreadable card, or a
+  card moved to a board that is no longer linked to the project, shows its message
+  and keeps the key without showing its title, status, threads or pull requests. "Unlink" stops showing a card on the pin and
+  leaves the card alone.
+- **Freshness.** The plugin reads the cards through its own `pinTasks` query,
+  tagged per project. Making, linking, unlinking and deleting a pin refresh it
+  at once. Because the tasks plugin cannot invalidate this plugin's tags, status
+  changes made in Tasks show up on a 30-second refresh while any pin holds a card
+  (no timer when none does) and when the window regains focus.
+
+Board resolution, the back-link format, the title rule, "Link existing card", the
+"Card removed" state, `unlinkPinTask` and the 30-second refresh are design
+choices, not part of an earlier spec. Decision cards on pins are a later slice and
+are not part of this version.
 
 ## Tests
 
