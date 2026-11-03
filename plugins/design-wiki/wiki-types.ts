@@ -45,6 +45,7 @@ export const wikiPageErrorSchema = z
     kind: wikiKindSchema,
     path: z.string().min(1),
     message: z.string().min(1),
+    pageId: z.string().min(1).optional(),
   })
   .strict();
 export type WikiPageError = z.infer<typeof wikiPageErrorSchema>;

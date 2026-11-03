@@ -1,7 +1,7 @@
 import { experimental_useRpcQuery as useRpcQuery } from "@get-bb/plugin-sdk/app";
 import { designWikiRpcContract } from "../contract.js";
 import { WikiListView } from "./wiki-list-view.js";
-import { WikiPageView } from "./wiki-page-view.js";
+import { PinnedPage, PinRow, usePinActions } from "./pinned-page.js";
 
 const TASK_PANEL = "/plugins/tasks/tasks/task/";
 
@@ -24,7 +24,52 @@ export function Message(props: { children: string; tone?: "error" }) {
   );
 }
 
-function PageDetail(props: { projectId: string; pageId: string }) {
+function DetachedPins(props: {
+  projectId: string;
+  threadId: string | null;
+  pageIds: Set<string>;
+}) {
+  const query = useRpcQuery({
+    contract: designWikiRpcContract,
+    method: "pins",
+    input: { projectId: props.projectId },
+  });
+  const actions = usePinActions(props.projectId, props.threadId);
+  const orphans = (query.data ?? []).filter(
+    (pin) => !props.pageIds.has(pin.pageId),
+  );
+  if (orphans.length === 0) return null;
+  return (
+    <section
+      aria-label="Detached pins"
+      className="flex flex-col gap-2 rounded-md border border-border p-3"
+    >
+      <h2 className="text-sm font-semibold">Detached pins</h2>
+      <ul className="flex flex-col gap-2">
+        {orphans.map((pin) => (
+          <PinRow
+            key={pin.id}
+            pin={pin}
+            actions={actions}
+            pageTitle={null}
+            showPage
+          />
+        ))}
+      </ul>
+      {actions.message === null ? null : (
+        <p role="status" className="text-xs text-subtle-foreground">
+          {actions.message}
+        </p>
+      )}
+    </section>
+  );
+}
+
+function PageDetail(props: {
+  projectId: string;
+  pageId: string;
+  threadId: string | null;
+}) {
   const query = useRpcQuery({
     contract: designWikiRpcContract,
     method: "page",
@@ -37,7 +82,14 @@ function PageDetail(props: { projectId: string; pageId: string }) {
   if (query.data.state === "missing") {
     return <Message>That page no longer exists.</Message>;
   }
-  return <WikiPageView page={query.data.page} onOpenCard={openCard} />;
+  return (
+    <PinnedPage
+      projectId={props.projectId}
+      page={query.data.page}
+      threadId={props.threadId}
+      onOpenCard={openCard}
+    />
+  );
 }
 
 export interface WikiBrowserProps {
@@ -45,10 +97,11 @@ export interface WikiBrowserProps {
   pageId: string | null;
   onSelectPage: (pageId: string | null) => void;
   layout: "split" | "stacked";
+  threadId: string | null;
 }
 
 export function WikiBrowser(props: WikiBrowserProps) {
-  const { projectId, pageId, onSelectPage, layout } = props;
+  const { projectId, pageId, onSelectPage, layout, threadId } = props;
   const list = useRpcQuery({
     contract: designWikiRpcContract,
     method: "list",
@@ -70,25 +123,38 @@ export function WikiBrowser(props: WikiBrowserProps) {
         >
           Back to pages
         </button>
-        <PageDetail projectId={projectId} pageId={pageId} />
+        <PageDetail projectId={projectId} pageId={pageId} threadId={threadId} />
       </div>
     );
   }
 
+  const known =
+    list.data.state === "unavailable"
+      ? null
+      : new Set(list.data.pages.map((page) => page.id));
   const listView = (
-    <WikiListView
-      list={list.data}
-      selectedId={pageId}
-      onSelect={(page) => onSelectPage(page.id)}
-      onOpenCard={openCard}
-    />
+    <div className="flex min-w-0 flex-col gap-4">
+      <WikiListView
+        list={list.data}
+        selectedId={pageId}
+        onSelect={(page) => onSelectPage(page.id)}
+        onOpenCard={openCard}
+      />
+      {known === null ? null : (
+        <DetachedPins
+          projectId={projectId}
+          threadId={threadId}
+          pageIds={known}
+        />
+      )}
+    </div>
   );
   if (layout === "stacked") return listView;
   return (
     <div className="grid min-h-0 gap-6 lg:grid-cols-[minmax(18rem,26rem)_minmax(0,1fr)]">
       {listView}
       {pageId === null ? null : (
-        <PageDetail projectId={projectId} pageId={pageId} />
+        <PageDetail projectId={projectId} pageId={pageId} threadId={threadId} />
       )}
     </div>
   );

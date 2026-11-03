@@ -91,6 +91,14 @@ describe("discoverWiki", () => {
     );
     expect(result.list.pages).toHaveLength(1);
     expect(result.list.errors[0]?.message).toMatch(/duplicate/i);
+    expect(result.list.errors[0]?.pageId).toBe("cuj-a");
+  });
+
+  it("does not attach a page id to other errors", async () => {
+    const result = await discoverWiki(
+      sourceOf({ "docs/wiki/src/cujs/bad.md": "no front matter" }),
+    );
+    expect(result.list.errors[0]?.pageId).toBeUndefined();
   });
 
   it("reports a directory that cannot be listed as an error row", async () => {
