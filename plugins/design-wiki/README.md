@@ -157,7 +157,7 @@ Cards are derived each time they are read; nothing new is stored.
   re-read; the plugin never retries and never picks on its own. A key that is
   not a valid card key is refused before Citadel is called. If the pick call
   fails after it was sent, the outcome is "unknown", not "nothing was
-  answered": the pin keeps the answer buttons off until the card changes and
+  answered": every pin showing that card keeps its answer buttons off (also while a pick is in flight, and after a remount) until the card changes, and
   offers Open card.
 - **Freshness.** `pinDecisions` is tagged per project and refreshes when a pin
   or a pin's cards change, on window focus, and every 30 seconds while any pin

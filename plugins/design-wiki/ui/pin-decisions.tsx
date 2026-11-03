@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   experimental_useRpcMutation as useRpcMutation,
   experimental_useRpcQuery as useRpcQuery,
@@ -22,8 +22,34 @@ const UNKNOWN: Failure = {
     "Could not confirm whether Citadel took the answer. Check the card before answering again.",
 };
 
+const holds = new Map<string, string>();
+const holdListeners = new Set<() => void>();
+let holdVersion = 0;
+
+function setHold(id: string, revision: string | null) {
+  if (revision === null) {
+    if (!holds.delete(id)) return;
+  } else {
+    holds.set(id, revision);
+  }
+  holdVersion += 1;
+  holdListeners.forEach((listener) => listener());
+}
+
+export function resetPinDecisionHolds() {
+  holds.clear();
+  holdVersion += 1;
+  holdListeners.forEach((listener) => listener());
+}
+
+function subscribeHolds(listener: () => void) {
+  holdListeners.add(listener);
+  return () => void holdListeners.delete(listener);
+}
+
 export interface DecisionActions {
   decisionsFor: (pinId: string) => PinDecisionItem[];
+  isHeld: (key: string, revision: string) => boolean;
   answerDecision: (input: {
     pinId: string;
     key: string;
@@ -34,6 +60,7 @@ export interface DecisionActions {
 }
 
 export function usePinDecisions(projectId: string): DecisionActions {
+  useSyncExternalStore(subscribeHolds, () => holdVersion);
   const query = useRpcQuery({
     contract: designWikiRpcContract,
     method: "pinDecisions",
@@ -70,7 +97,10 @@ export function usePinDecisions(projectId: string): DecisionActions {
 
   return {
     decisionsFor: (pinId) => items.filter((item) => item.pinId === pinId),
+    isHeld: (key, revision) => holds.get(`${projectId}:${key}`) === revision,
     answerDecision: async (input) => {
+      const holdId = `${projectId}:${input.key}`;
+      setHold(holdId, input.revision);
       let result: AnswerPinDecisionResult;
       try {
         result = await answer.mutate({
@@ -81,6 +111,7 @@ export function usePinDecisions(projectId: string): DecisionActions {
       } catch {
         result = UNKNOWN;
       }
+      if (result.ok || result.reason !== "unknown") setHold(holdId, null);
       await Promise.resolve(query.refetch()).catch(() => undefined);
       return result;
     },
@@ -103,9 +134,8 @@ function DecisionItem(props: {
   const { item, actions } = props;
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<Failure | null>(null);
-  const [unsure, setUnsure] = useState<string | null>(null);
   const answer = item.answer;
-  const held = unsure !== null && answer !== null && answer.revision === unsure;
+  const held = answer !== null && actions.isHeld(item.key, answer.revision);
   const label = stateLabel(item);
 
   const pick = async (optionId: string, revision: string) => {
@@ -119,7 +149,6 @@ function DecisionItem(props: {
         revision,
       });
       setFailure(result.ok ? null : result);
-      setUnsure(!result.ok && result.reason === "unknown" ? revision : null);
     } finally {
       setBusy(false);
     }

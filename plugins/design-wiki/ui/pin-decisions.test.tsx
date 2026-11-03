@@ -13,7 +13,10 @@ import type { Pin, PinDecisionItem } from "../contract.js";
 import { claimTargetAt, resolvePinAnchor } from "../pin-anchor.js";
 import { YAOIVERS_RUN_BODY } from "../yaoivers-fixtures.js";
 import type { WikiPage, WikiPageSummary } from "../wiki-types.js";
-import { PIN_DECISIONS_REFRESH_MS } from "./pin-decisions.js";
+import {
+  PIN_DECISIONS_REFRESH_MS,
+  resetPinDecisionHolds,
+} from "./pin-decisions.js";
 
 const opened = vi.hoisted(() => ({ keys: [] as string[] }));
 vi.mock("./open-card.js", () => ({
@@ -27,6 +30,7 @@ const navPanel = app.navPanels[0]!;
 
 beforeEach(() => {
   opened.keys.length = 0;
+  resetPinDecisionHolds();
 });
 afterEach(() => {
   cleanup();
@@ -112,6 +116,7 @@ interface Options {
   answerResult?: unknown;
   answerThrows?: boolean;
   decisionsFail?: boolean;
+  twoPins?: boolean;
 }
 
 function mount(options: Options = {}) {
@@ -128,7 +133,8 @@ function mount(options: Options = {}) {
       errors: [],
     }),
     page: () => ({ state: "found", page }),
-    pins: () => [pinOf(page)],
+    pins: () =>
+      options.twoPins ? [pinOf(page), pinOf(page, "pin_2")] : [pinOf(page)],
     pinTasks: () => [],
     pinDecisions: () => {
       counts.decisions += 1;
@@ -330,6 +336,41 @@ describe("decisions on a pin", () => {
         ).disabled,
       ).toBe(false),
     );
+  });
+
+  it("holds every display of the same card after an unconfirmed answer, and across a remount", async () => {
+    const items = [decisionOf(), decisionOf({ pinId: "pin_2" })];
+    const first = mount({ items, answerThrows: true, twoPins: true });
+    await waitFor(() =>
+      expect(
+        first.slot.container.querySelectorAll("[data-pin-id]"),
+      ).toHaveLength(2),
+    );
+    const rows = Array.from(
+      first.slot.container.querySelectorAll<HTMLElement>("[data-pin-id]"),
+    );
+    fireEvent.click(
+      await within(rows[0]!).findByRole("button", {
+        name: "Answer ACME-35: Front door",
+      }),
+    );
+    await within(rows[0]!).findByText(/Could not confirm whether Citadel took/);
+    await waitFor(() => {
+      for (const row of rows) {
+        const button = within(row).getByRole("button", {
+          name: "Answer ACME-35: Front door",
+        }) as HTMLButtonElement;
+        expect(button.disabled).toBe(true);
+      }
+    });
+    cleanup();
+    const second = mount({ items: [decisionOf()] });
+    const row = await pinRow(second.slot);
+    const button = (await within(row).findByRole("button", {
+      name: "Answer ACME-35: Front door",
+    })) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(second.calls).toHaveLength(0);
   });
 
   it("shows a read-only card with its reason and an Open card button", async () => {
