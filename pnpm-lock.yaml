@@ -1786,6 +1786,9 @@ importers:
       bb-plugin-bb--connect-next:
         specifier: workspace:*
         version: link:../../plugins/connect-next
+      bb-plugin-bb--design-wiki:
+        specifier: workspace:*
+        version: link:../../plugins/design-wiki
       bb-plugin-bb--git:
         specifier: workspace:*
         version: link:../../plugins/git

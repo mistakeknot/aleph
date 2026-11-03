@@ -11,7 +11,7 @@ import {
 } from "./wiki-discovery.js";
 import type { WikiList } from "./wiki-types.js";
 
-const MAX_LISTED_FILES = 500;
+const MAX_LISTED_FILES = 10_000;
 const MAX_PAGE_BYTES = 512 * 1024;
 const MISSING_PATH_PATTERN =
   /not found|no such|enoent|does not exist|not a directory/i;
@@ -60,6 +60,11 @@ export default async function designWikiPlugin(bb: BbPluginApi): Promise<void> {
         } catch (error) {
           if (isMissingPath(error)) return null;
           throw error;
+        }
+        if (result.truncated) {
+          throw new Error(
+            `${directory} holds more than ${MAX_LISTED_FILES} entries, so the listing is incomplete`,
+          );
         }
         const names: string[] = [];
         for (const entry of result.paths) {

@@ -15,6 +15,7 @@ interface FakeOptions {
   sources?: { hostId: string; path: string; isDefault: boolean }[];
   failProject?: boolean;
   listError?: Error;
+  truncatedList?: boolean;
 }
 
 async function setup(options: FakeOptions = {}) {
@@ -50,7 +51,7 @@ async function setup(options: FakeOptions = {}) {
               path: file.slice(prefix.length),
               name: file.slice(file.lastIndexOf("/") + 1),
             }));
-          return { paths: entries, truncated: false };
+          return { paths: entries, truncated: options.truncatedList === true };
         },
         read: async ({ path }: { path: string }) => {
           const content = files[path];
@@ -126,6 +127,23 @@ describe("Design Wiki server", () => {
     );
     expect(list.state).toBe("ready");
     expect(list.errors[0]?.message).toMatch(/host offline/);
+  });
+
+  it("shows an error row instead of a partial list when the host listing is truncated", async () => {
+    const fake = await setup({
+      truncatedList: true,
+      files: {
+        [`${ROOT}/docs/wiki/src/cujs/boss.md`]: page("cuj-boss", "ruled", "ACME-1", "Boss"),
+      },
+    });
+    const list = wikiListSchema.parse(
+      await fake.harness.callRpc("list", { projectId: "p1" }),
+    );
+    expect(list.state).toBe("ready");
+    expect(list.pages).toEqual([]);
+    expect(list.errors.map((error) => error.message).join(" ")).toMatch(
+      /incomplete/,
+    );
   });
 
   it("ignores nested files and non-Markdown files", async () => {

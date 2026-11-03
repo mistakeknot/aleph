@@ -114,7 +114,8 @@ export function parseWikiPage(input: ParseWikiPageInput): ParsedWikiPage {
   for (const key of FRONT_MATTER_KEYS) {
     const value = data[key];
     if (value === undefined || value === null) {
-      problems.push(`Missing front matter field: ${key}`);
+      if (key === "card") fields[key] = "";
+      else problems.push(`Missing front matter field: ${key}`);
     } else if (typeof value !== "string") {
       problems.push(`Front matter field ${key} must be a string`);
     } else {

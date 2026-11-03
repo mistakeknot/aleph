@@ -124,13 +124,33 @@ describe("parseWikiPage", () => {
     );
   });
 
-  it.each(["id", "status", "card", "source", "updated"])(
+  it.each(["id", "status", "source", "updated"])(
     "reports a missing %s field",
     (field) => {
       const lines = VALID_LINES.filter((line) => !line.startsWith(`${field}:`));
       expect(errorOf(withFrontMatter(lines)).message).toContain(field);
     },
   );
+
+  it("accepts a non-ruled page that omits the card field", () => {
+    const lines = VALID_LINES.filter((line) => !line.startsWith("card:"));
+    const result = parseWikiPage({
+      kind: "cuj",
+      path: "docs/wiki/src/cujs/x.md",
+      content: withFrontMatter(lines),
+    });
+    if (!result.ok) throw new Error(result.error.message);
+    expect(result.page.card).toBeNull();
+  });
+
+  it("rejects a ruled page that omits the card field", () => {
+    const lines = VALID_LINES.filter((line) => !line.startsWith("card:")).map(
+      (line) => (line.startsWith("status:") ? "status: ruled" : line),
+    );
+    expect(errorOf(withFrontMatter(lines)).message).toMatch(
+      /ruled.*card|card.*ruled/i,
+    );
+  });
 
   it("rejects an unknown status", () => {
     const lines = VALID_LINES.map((line) =>
