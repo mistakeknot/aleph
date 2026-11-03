@@ -2,7 +2,7 @@ import type { ClaimMarker, WikiStatus } from "./wiki-types.js";
 
 const CARD_REF_PATTERN = /\b([A-Z][A-Z0-9]{1,9})-(\d+)((?:[/–]\d+)*)/g;
 const CLAIM_PATTERN = /^(Ruled|Design choice|Open)(?=$|\s*[:—–-]|\s+at\b)/;
-const FENCE_PATTERN = /^\s{0,3}(```|~~~)/;
+const FENCE_PATTERN = /^\s{0,3}(`{3,}|~{3,})(.*)$/;
 
 const CLAIM_STATUS: Record<string, WikiStatus> = {
   Ruled: "ruled",
@@ -67,16 +67,36 @@ function tableCells(line: string): string[] | null {
     .map((cell) => cell.trim());
 }
 
+export function createFenceTracker(): (line: string) => boolean {
+  let open: { char: string; length: number } | null = null;
+  return (line) => {
+    const match = FENCE_PATTERN.exec(line);
+    const marker = match?.[1];
+    const rest = match?.[2] ?? "";
+    if (open === null) {
+      if (marker === undefined) return false;
+      if (marker.startsWith("`") && rest.includes("`")) return false;
+      open = { char: marker.charAt(0), length: marker.length };
+      return true;
+    }
+    if (
+      marker !== undefined &&
+      marker.startsWith(open.char) &&
+      marker.length >= open.length &&
+      rest.trim() === ""
+    ) {
+      open = null;
+    }
+    return true;
+  };
+}
+
 export function extractClaimMarkers(body: string): ClaimMarker[] {
   const markers: ClaimMarker[] = [];
-  let fenced = false;
+  const skipFenced = createFenceTracker();
   body.split("\n").forEach((rawLine, index) => {
     const line = rawLine.replace(/\r$/, "");
-    if (FENCE_PATTERN.test(line)) {
-      fenced = !fenced;
-      return;
-    }
-    if (fenced) return;
+    if (skipFenced(line)) return;
     const lineNumber = index + 1;
     for (const match of line.matchAll(/\*\*([^*]+)\*\*/g)) {
       const claim = match[1] ? classifyClaimText(match[1]) : null;

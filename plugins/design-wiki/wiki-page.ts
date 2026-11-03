@@ -1,5 +1,5 @@
 import { parse } from "yaml";
-import { extractClaimMarkers } from "./claims.js";
+import { createFenceTracker, extractClaimMarkers } from "./claims.js";
 import {
   WIKI_STATUSES,
   type WikiKind,
@@ -24,7 +24,6 @@ const ID_PREFIX: Record<WikiKind, string> = { cuj: "cuj-", requirement: "req-" }
 const ID_PATTERN = /^(?:cuj|req)-[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const CARD_KEY_PATTERN = /^[A-Z][A-Z0-9]{1,9}-\d+$/;
 const DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
-const FENCE_PATTERN = /^\s{0,3}(```|~~~)/;
 
 export interface ParseWikiPageInput {
   kind: WikiKind;
@@ -80,13 +79,9 @@ function isRepoRelativeMarkdown(value: string): boolean {
 }
 
 function bodyTitle(body: string): string | null {
-  let fenced = false;
+  const skipFenced = createFenceTracker();
   for (const line of body.split("\n")) {
-    if (FENCE_PATTERN.test(line)) {
-      fenced = !fenced;
-      continue;
-    }
-    if (fenced) continue;
+    if (skipFenced(line)) continue;
     const match = /^#\s+(.+?)\s*#*\s*$/.exec(line);
     if (match?.[1]) return match[1];
   }

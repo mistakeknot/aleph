@@ -220,6 +220,20 @@ describe("parseWikiPage", () => {
     );
   });
 
+  it("does not close a backtick fence with a tilde fence line", () => {
+    const content = withFrontMatter(
+      VALID_LINES,
+      "```\n~~~\n# Example heading\n```\n\n# Real title\n",
+    );
+    const result = parseWikiPage({
+      kind: "cuj",
+      path: "docs/wiki/src/cujs/run.md",
+      content,
+    });
+    if (!result.ok) throw new Error(result.error.message);
+    expect(result.page.title).toBe("Real title");
+  });
+
   it("does not take a heading inside a code fence as the title", () => {
     const content = withFrontMatter(
       VALID_LINES,
@@ -328,6 +342,13 @@ describe("extractClaimMarkers", () => {
       "```\n**Ruled — ACME-1:** nope\n```\n\n**Important:** text\n\nOpen season is not a marker.\n",
     );
     expect(markers).toEqual([]);
+  });
+
+  it("keeps a backtick fence open past a shorter or different fence line", () => {
+    const markers = extractClaimMarkers(
+      "````\n~~~\n```\n**Ruled — ACME-1:** nope\n````\n\n**Open:** real\n",
+    );
+    expect(markers.map((marker) => marker.status)).toEqual(["open"]);
   });
 
   it("returns nothing for an empty body", () => {
