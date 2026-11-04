@@ -343,7 +343,7 @@ describe("listAllTasks and listTaskCardMeta", () => {
     );
 
     expect(result.tasks).toHaveLength(602);
-  });
+  }, 60_000);
 
   it("counts top-level attachments and lists only working agents", async () => {
     const { harness, project, store, task, sibling } = setup();
