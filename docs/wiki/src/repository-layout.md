@@ -3,14 +3,14 @@
 Aleph is a pnpm workspace. The top level holds
 <!--fig:apps=11-->11 apps (`apps/`),
 <!--fig:packages=45-->45 packages (`packages/`) and
-<!--fig:plugins=48-->48 plugins (`plugins/`). Integration and QA suites live in
+<!--fig:plugins=49-->49 plugins (`plugins/`). Integration and QA suites live in
 
 `tests/`, runnable examples in `examples/plugins/`.
 
 ## Plugins
 
 Most behavior ships as plugins. Of the
-<!--fig:plugins=48-->48, <!--fig:official-plugins=48-->48 are listed in
+<!--fig:plugins=49-->49, <!--fig:official-plugins=49-->49 are listed in
 
 `plugins/bb-official.json`, the official marketplace manifest.
 

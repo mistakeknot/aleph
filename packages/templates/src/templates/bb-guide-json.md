@@ -77,6 +77,18 @@ the most-parsed commands ends with the same shape.
   bb thread queue list <id> --json, bb thread interactions list <id> --json, bb thread history <id> --json
     bare arrays
 
+  bb window list --json
+    {windows: [{windowId, presetId, route, sidebarOpen, rightPanelOpen, rightPanelTab, maximizedPaneId, panes: [{paneId, kind, projectId, threadId, threadTitle, pluginId, panelPath, focused}], viewport, reportedAt}]}
+
+  bb window show <windowId> --json
+    one window: {windowId, presetId, route, sidebarOpen, rightPanelOpen, rightPanelTab, maximizedPaneId, panes, viewport, reportedAt}
+
+  bb window preset list --json
+    [{id, name, panes, direction, hideSidebar, rightPanelTab, userEditable, suggestion: {panes, reason, proposedBy, proposedAt, suggestionId} | null}]    (bare array)
+
+  bb window propose <presetId> ... --json
+    {presetId, suggestion: {panes, reason, proposedBy, proposedAt, suggestionId}}
+
   bb project list --json
     [{id, kind, name, gitRemoteUrl, sources: [{id, hostId, path, isDefault}]}]    (bare array)
 
