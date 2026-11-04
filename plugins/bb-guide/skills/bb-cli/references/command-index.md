@@ -128,6 +128,15 @@ Use `--selected-model <model-id>` to discover its reasoning choices and include 
 - `bb updates aleph status`
 - `bb updates aleph run`
 
+## window
+
+- `bb window`
+- `bb window list`
+- `bb window show`
+- `bb window preset`
+- `bb window preset list`
+- `bb window propose`
+
 ## terminal
 
 - `bb terminal`

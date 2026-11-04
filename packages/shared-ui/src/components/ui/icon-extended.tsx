@@ -280,6 +280,7 @@ export const EXTENDED_ICON_MAP: ExtendedIconMap = {
   ElectricPlugs: ElectricPlugsIcon,
   Eye: ViewIcon,
   EyeOff: ViewOffIcon,
+  BookOpen: Book02Icon,
   Explore: Book02Icon,
   ExternalLink: LinkSquare02Icon,
   FileDiff: PlusMinusSquare01Icon,
