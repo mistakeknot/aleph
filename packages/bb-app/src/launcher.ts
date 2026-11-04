@@ -2852,6 +2852,8 @@ export async function runBundledCliCommand(
   if (cliOverride !== null) {
     env[CLI_REEXEC_ENV_NAME] = "1";
     env[CLI_LAUNCHER_ENTERED_ENV_NAME] = "1";
+  } else if (requestedOverride !== null) {
+    delete env.BB_CLI;
   }
   const childProcess = spawn(launch.command, launch.args, {
     cwd: process.cwd(),
