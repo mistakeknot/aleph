@@ -7,6 +7,7 @@ import {
   FOCUS_COMPOSER_ON_PANE_SWITCH_STORAGE_KEY,
   maximizedPaneIdAtom,
   MAXIMIZED_PANE_STORAGE_KEY,
+  multiPaneSplitLayoutAtom,
   splitLayoutAtom,
 } from "./atoms";
 import { countPanes, findPaneByThread, splitPane } from "./ops";
@@ -216,4 +217,21 @@ it("hydrates the opt-in focus preference in a fresh store", () => {
     window.localStorage.getItem(FOCUS_COMPOSER_ON_PANE_SWITCH_STORAGE_KEY),
   ).toBe("false");
   unsub2();
+});
+
+describe("multiPaneSplitLayoutAtom", () => {
+  it("notifies subscribers only when a split is open or changes", () => {
+    const store = createStore();
+    const changes = vi.fn();
+    store.sub(multiPaneSplitLayoutAtom, changes);
+    store.set(splitLayoutAtom, singlePane("thread-1"));
+    store.set(splitLayoutAtom, singlePane("thread-2"));
+    expect(changes).not.toHaveBeenCalled();
+    expect(store.get(multiPaneSplitLayoutAtom)).toBeNull();
+
+    const split = twoPanes();
+    store.set(splitLayoutAtom, split);
+    expect(changes).toHaveBeenCalledOnce();
+    expect(store.get(multiPaneSplitLayoutAtom)).toBe(split);
+  });
 });

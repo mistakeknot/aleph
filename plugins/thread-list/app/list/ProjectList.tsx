@@ -10,7 +10,9 @@ import {
   memo,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   type ComponentProps,
   type ReactNode,
@@ -1350,6 +1352,10 @@ function ProjectListComponent({
     },
     [sdk],
   );
+  const latestComposeTarget = useRef({ navigate, onProjectSelect });
+  useLayoutEffect(() => {
+    latestComposeTarget.current = { navigate, onProjectSelect };
+  });
   const openRootComposeForProject = useCallback(
     (
       projectId: string | null,
@@ -1357,15 +1363,16 @@ function ProjectListComponent({
       hostId?: string,
       pinned = false,
     ) => {
-      onProjectSelect?.();
-      navigate.toCompose({
+      const target = latestComposeTarget.current;
+      target.onProjectSelect?.();
+      target.navigate.toCompose({
         ...(projectId !== null ? { projectId } : {}),
         placement: { sectionId: sectionId ?? null, pinned },
         ...(hostId ? { hostId } : {}),
         focusPrompt: true,
       });
     },
-    [navigate, onProjectSelect],
+    [],
   );
   const handleCreateProjectThread = useCallback(
     (projectId: string) => {
@@ -1544,14 +1551,11 @@ function ProjectListComponent({
   );
   const sortDirection = useAtomValue(sidebarSortDirectionAtom);
   const activeRename = useSidebarRenameState();
+  const sortRename = chronologicalSort === "alpha" ? activeRename : null;
   const baseThreadComparator = useMemo<ThreadComparator>(
     () =>
-      getSidebarThreadComparator(
-        chronologicalSort,
-        sortDirection,
-        activeRename,
-      ),
-    [chronologicalSort, sortDirection, activeRename],
+      getSidebarThreadComparator(chronologicalSort, sortDirection, sortRename),
+    [chronologicalSort, sortDirection, sortRename],
   );
   const {
     comparator: sidebarThreadComparator,
