@@ -871,6 +871,30 @@ describe("ScrollPositionKeeper", () => {
     expect(timeline.topOf("row-3")).toBe(before);
   });
 
+  it("writes a held correction once the finger lifts from a target that left the document, so older rows loaded mid-touch stay reachable", () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+    const rows = rowsOf(10);
+    const timeline = createTimeline(rows, { deferWrites: true });
+    const loadingStatus = document.createElement("div");
+    timeline.content.prepend(loadingStatus);
+    timeline.userScrollTo(450);
+    vi.advanceTimersByTime(500);
+    const before = timeline.topOf("row-3");
+
+    loadingStatus.dispatchEvent(new TouchEvent("touchstart", { bubbles: true }));
+    loadingStatus.remove();
+    timeline.setRows([...rowsOf(4, 100, "older"), ...rows]);
+    timeline.keeper.reconcile();
+    expect(timeline.content.style.transform).not.toBe("");
+
+    loadingStatus.dispatchEvent(new TouchEvent("touchend", { bubbles: true }));
+    vi.advanceTimersByTime(400);
+
+    expect(timeline.content.style.transform).toBe("");
+    expect(timeline.layout.scrollTop).toBe(850);
+    expect(timeline.topOf("row-3")).toBe(before);
+  });
+
   it("keeps a touch drag that delivered no scroll events as the reader's movement", () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
     const timeline = createTimeline(rowsOf(10), { deferWrites: true });

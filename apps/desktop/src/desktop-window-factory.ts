@@ -121,6 +121,7 @@ interface CreateDesktopWindowFactoryArgs {
   isQuitting(): boolean;
   shouldUseDarkColors(): boolean;
   openExternalUrl(args: OpenExternalUrlArgs): void;
+  onWindowCreated(browserWindow: DesktopBrowserWindow): void;
   preloadPath: string;
   userDataPath: string;
 }
@@ -409,6 +410,7 @@ export function createDesktopWindowFactory(
         return { action: "deny" };
       });
 
+      args.onWindowCreated(browserWindow);
       if (createArgs.initialUrl !== null) {
         await loadUrlIntoWindow({
           browserWindow,
@@ -437,16 +439,14 @@ export function createDesktopWindowFactory(
       ];
     }
 
-    const restoredWindows: DesktopBrowserWindow[] = [];
-    for (const entry of entries) {
-      restoredWindows.push(
-        await createWindow({
+    return Promise.all(
+      entries.map((entry) =>
+        createWindow({
           initialUrl: restoreArgs.initialUrl,
           stateKey: entry.stateKey,
         }),
-      );
-    }
-    return restoredWindows;
+      ),
+    );
   }
 
   async function loadUrl(args: LoadDesktopWindowsUrlArgs): Promise<void> {
