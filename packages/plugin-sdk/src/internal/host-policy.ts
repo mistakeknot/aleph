@@ -281,7 +281,10 @@ export function registerSettingDescriptors(
         `invalid setting key "${key}" — use letters, digits, "-" and "_"`,
       );
     }
-    if (key in target) {
+    if (key === "__proto__") {
+      throw new Error(`setting key "${key}" is reserved`);
+    }
+    if (Object.hasOwn(target, key)) {
       throw new Error(`setting "${key}" is already defined`);
     }
     const parsed = settingDescriptorSchema.safeParse(raw);
@@ -361,7 +364,12 @@ export function validateSettingsUpdate(
 ): string[] {
   const errors: string[] = [];
   for (const [key, value] of Object.entries(values)) {
-    const descriptor: PluginSettingDescriptor | undefined = descriptors[key];
+    const descriptor: PluginSettingDescriptor | undefined = Object.hasOwn(
+      descriptors,
+      key,
+    )
+      ? descriptors[key]
+      : undefined;
     if (!descriptor) {
       errors.push(`unknown setting "${key}"`);
       continue;
