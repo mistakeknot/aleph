@@ -343,8 +343,6 @@ describe("listAllTasks and listTaskCardMeta", () => {
     );
 
     expect(result.tasks).toHaveLength(602);
-    // Creating 600 tasks takes 15-18 s on an idle host and over 20 s under a loaded
-    // suite, so the package's 20 s default is too tight for this one test.
   }, 60_000);
 
   it("counts top-level attachments and lists only working agents", async () => {
