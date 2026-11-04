@@ -6,7 +6,7 @@ import {
 import type { ChildProcess } from "node:child_process";
 import { delimiter, dirname, isAbsolute, join } from "node:path";
 import { stripVTControlCharacters } from "node:util";
-import { mkdir, stat } from "node:fs/promises";
+import { mkdir, open, stat } from "node:fs/promises";
 import {
   AUTOMATION_SCRIPT_TIMEOUT_MAX_MS,
   type AutomationScriptInterpreter,
@@ -18,6 +18,9 @@ import {
 } from "./script-files.js";
 
 const execFileAsync = experimental_execHostFile;
+const CLI_LAUNCHER_MARKER =
+  "Written by bb: runs the bb command of the bb installed on this computer.";
+const CLI_LAUNCHER_SNIFF_BYTES = 512;
 const SCRIPT_OUTPUT_MAX_BYTES = 1024 * 1024;
 const SCRIPT_FAILURE_DETAIL_MAX_CHARS = 200;
 const SCRIPT_TERMINATE_GRACE_MS = 1_000;
@@ -56,6 +59,31 @@ async function resolveBbBinary(
   if (!(await commandWorks(candidate, ["--version"]))) return null;
   verifiedBbPath = candidate;
   return candidate;
+}
+
+export async function isCliLauncherPath(
+  bbPath: string,
+  env: NodeJS.ProcessEnv,
+): Promise<boolean> {
+  const launcher = env.BB_CLI_LAUNCHER?.trim();
+  if (launcher !== undefined && launcher.length > 0 && launcher === bbPath) {
+    return true;
+  }
+  try {
+    const handle = await open(bbPath, "r");
+    try {
+      const buffer = Buffer.alloc(CLI_LAUNCHER_SNIFF_BYTES);
+      const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+      return buffer
+        .subarray(0, bytesRead)
+        .toString("utf8")
+        .includes(CLI_LAUNCHER_MARKER);
+    } finally {
+      await handle.close();
+    }
+  } catch {
+    return false;
+  }
 }
 
 export function scriptPathEnv(
@@ -357,7 +385,7 @@ export async function executeStoredScript(args: {
     BB_AUTOMATION_ID: args.automationId,
     BB_AUTOMATION_RUN_ID: args.runId,
   };
-  if (bbPath !== null) {
+  if (bbPath !== null && !(await isCliLauncherPath(bbPath, process.env))) {
     scriptEnv.BB_CLI = bbPath;
   }
   await mkdir(scriptsRoot(args.pluginDataDir), { recursive: true });

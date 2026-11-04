@@ -1,6 +1,7 @@
 import { execHostFile, nodeNetworkArgs } from "@bb/process-utils";
 import { execFileSync, spawn } from "node:child_process";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -880,7 +881,7 @@ describe("bb-app launcher", () => {
     );
   });
 
-  it("runs the bundled CLI when a BB_CLI launcher re-enters the bb entry", async () => {
+  it("refuses to start when a BB_CLI launcher re-enters the bb entry", async () => {
     const dataDir = mkdtempSync(join(tmpdir(), "bb-app-cli-reentry-"));
     const daemonBundleDir = join(dataDir, "host-daemon");
     mkdirSync(daemonBundleDir);
@@ -910,8 +911,8 @@ describe("bb-app launcher", () => {
       env: JSON.parse(readFileSync(launcherEnvPath, "utf8")),
     });
 
-    expect(reentryExitCode).toBe(0);
-    expect(readFileSync(outputPath, "utf8")).toBe("bundled");
+    expect(reentryExitCode).toBe(1);
+    expect(existsSync(outputPath)).toBe(false);
   });
 
   it("uses a supplied join code without requesting a loopback enroll key", async () => {
