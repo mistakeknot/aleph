@@ -12,7 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import { CLI_LAUNCHER_MARKER } from "@bb/config/cli-command";
 
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -47,17 +47,26 @@ function scopeEnv(): NodeJS.ProcessEnv {
   };
 }
 
-function canUseSystemdScope(): boolean {
+function canEnforceProcessCap(): boolean {
   if (process.platform !== "linux") {
     return false;
   }
-  const probe = spawnSync(
+  const timeoutProbe = spawnSync("timeout", ["1", "true"], {
+    env: scopeEnv(),
+    stdio: "ignore",
+  });
+  if (timeoutProbe.status !== 0) {
+    return false;
+  }
+  const scopeProbe = spawnSync(
     "systemd-run",
     ["--user", "--scope", "-q", "-p", `TasksMax=${TASKS_MAX}`, "true"],
     { env: scopeEnv(), stdio: "ignore", timeout: 10_000 },
   );
-  return probe.status === 0;
+  return scopeProbe.status === 0;
 }
+
+const processCapEnforceable = canEnforceProcessCap();
 
 function writeExecutable(path: string, content: string): void {
   writeFileSync(path, content);
@@ -95,7 +104,6 @@ function prepareWorkDir(): string {
 
 async function runLauncherThroughOverride(
   args: LoopRunArgs,
-  useScope: boolean,
 ): Promise<LoopRunResult> {
   const shimLog = join(args.workDir, "shim.log");
   const bundledLog = join(args.workDir, "bundled.log");
@@ -111,17 +119,15 @@ async function runLauncherThroughOverride(
     fixtureEntry,
     "arg",
   ];
-  const scoped = useScope
-    ? [
-        "systemd-run",
-        "--user",
-        "--scope",
-        "-q",
-        "-p",
-        `TasksMax=${TASKS_MAX}`,
-        ...command,
-      ]
-    : command;
+  const scoped = [
+    "systemd-run",
+    "--user",
+    "--scope",
+    "-q",
+    "-p",
+    `TasksMax=${TASKS_MAX}`,
+    ...command,
+  ];
   const child = spawn(scoped[0] ?? "", scoped.slice(1), {
     cwd: packageRoot,
     env: {
@@ -155,119 +161,111 @@ async function runLauncherThroughOverride(
   };
 }
 
-describe.skipIf(process.platform === "win32")(
-  "bb launcher recursion guard",
-  () => {
-    let useScope = false;
-    const workDirs: string[] = [];
+describe.skipIf(!processCapEnforceable)("bb launcher recursion guard", () => {
+  const workDirs: string[] = [];
 
-    beforeAll(() => {
-      useScope = canUseSystemdScope();
-    });
-
-    afterAll(() => {
-      for (const dir of workDirs) {
-        rmSync(dir, { force: true, recursive: true });
-      }
-    });
-
-    function newWorkDir(): string {
-      const dir = prepareWorkDir();
-      workDirs.push(dir);
-      return dir;
+  afterAll(() => {
+    for (const dir of workDirs) {
+      rmSync(dir, { force: true, recursive: true });
     }
+  });
 
-    it("starts the bundled CLI directly when a shim in the BB_CLI path execs this launcher", async () => {
-      const workDir = newWorkDir();
-      const shim = join(workDir, "bb");
-      writeExecutable(
-        shim,
-        renderDepthLimitedShim({
-          entry: `exec '${process.execPath}' --conditions=source --import tsx '${fixtureEntry}' "$@"`,
-          marked: false,
-        }),
-      );
+  function newWorkDir(): string {
+    const dir = prepareWorkDir();
+    workDirs.push(dir);
+    return dir;
+  }
 
-      const result = await runLauncherThroughOverride(
-        { override: shim, workDir },
-        useScope,
-      );
+  it("starts the bundled CLI directly when a shim in the BB_CLI path execs this launcher", async () => {
+    const workDir = newWorkDir();
+    const shim = join(workDir, "bb");
+    writeExecutable(
+      shim,
+      renderDepthLimitedShim({
+        entry: `exec '${process.execPath}' --conditions=source --import tsx '${fixtureEntry}' "$@"`,
+        marked: false,
+      }),
+    );
 
-      expect(result.shimDepths).toEqual([]);
-      expect(result.bundledRuns).toEqual(["bundled"]);
-      expect(result.bundledEnv).toEqual(["BB_CLI="]);
-      expect(result.exitCode).toBe(0);
-    }, 120_000);
+    const result = await runLauncherThroughOverride({
+      override: shim,
+      workDir,
+    });
 
-    it("follows a symlink to a shim that execs this launcher", async () => {
-      const workDir = newWorkDir();
-      const shim = join(workDir, "real-bb");
-      writeExecutable(
-        shim,
-        renderDepthLimitedShim({
-          entry: `exec '${process.execPath}' --conditions=source --import tsx '${fixtureEntry}' "$@"`,
-          marked: false,
-        }),
-      );
-      const link = join(workDir, "bb");
-      symlinkSync(shim, link);
+    expect(result.shimDepths).toEqual([]);
+    expect(result.bundledRuns).toEqual(["bundled"]);
+    expect(result.bundledEnv).toEqual(["BB_CLI="]);
+    expect(result.exitCode).toBe(0);
+  }, 120_000);
 
-      const result = await runLauncherThroughOverride(
-        { override: link, workDir },
-        useScope,
-      );
+  it("follows a symlink to a shim that execs this launcher", async () => {
+    const workDir = newWorkDir();
+    const shim = join(workDir, "real-bb");
+    writeExecutable(
+      shim,
+      renderDepthLimitedShim({
+        entry: `exec '${process.execPath}' --conditions=source --import tsx '${fixtureEntry}' "$@"`,
+        marked: false,
+      }),
+    );
+    const link = join(workDir, "bb");
+    symlinkSync(shim, link);
 
-      expect(result.shimDepths).toEqual([]);
-      expect(result.bundledRuns).toEqual(["bundled"]);
-      expect(result.bundledEnv).toEqual(["BB_CLI="]);
-      expect(result.exitCode).toBe(0);
-    }, 120_000);
+    const result = await runLauncherThroughOverride({
+      override: link,
+      workDir,
+    });
 
-    it("ignores a marked machine launcher shim as BB_CLI", async () => {
-      const workDir = newWorkDir();
-      const shim = join(workDir, "bb");
-      writeExecutable(
-        shim,
-        renderDepthLimitedShim({
-          entry:
-            'exec "$FIXTURE_NODE" --conditions=source --import tsx "$FIXTURE_ENTRY" "$@"',
-          marked: true,
-        }),
-      );
+    expect(result.shimDepths).toEqual([]);
+    expect(result.bundledRuns).toEqual(["bundled"]);
+    expect(result.bundledEnv).toEqual(["BB_CLI="]);
+    expect(result.exitCode).toBe(0);
+  }, 120_000);
 
-      const result = await runLauncherThroughOverride(
-        { override: shim, workDir },
-        useScope,
-      );
+  it("ignores a marked machine launcher shim as BB_CLI", async () => {
+    const workDir = newWorkDir();
+    const shim = join(workDir, "bb");
+    writeExecutable(
+      shim,
+      renderDepthLimitedShim({
+        entry:
+          'exec "$FIXTURE_NODE" --conditions=source --import tsx "$FIXTURE_ENTRY" "$@"',
+        marked: true,
+      }),
+    );
 
-      expect(result.shimDepths).toEqual([]);
-      expect(result.bundledRuns).toEqual(["bundled"]);
-      expect(result.bundledEnv).toEqual(["BB_CLI="]);
-      expect(result.exitCode).toBe(0);
-    }, 120_000);
+    const result = await runLauncherThroughOverride({
+      override: shim,
+      workDir,
+    });
 
-    it("stops after one re-exec when the shim hides its target from the static check", async () => {
-      const workDir = newWorkDir();
-      const shim = join(workDir, "bb");
-      writeExecutable(
-        shim,
-        renderDepthLimitedShim({
-          entry:
-            'exec "$FIXTURE_NODE" --conditions=source --import tsx "$FIXTURE_ENTRY" "$@"',
-          marked: false,
-        }),
-      );
+    expect(result.shimDepths).toEqual([]);
+    expect(result.bundledRuns).toEqual(["bundled"]);
+    expect(result.bundledEnv).toEqual(["BB_CLI="]);
+    expect(result.exitCode).toBe(0);
+  }, 120_000);
 
-      const result = await runLauncherThroughOverride(
-        { override: shim, workDir },
-        useScope,
-      );
+  it("stops after one re-exec when the shim hides its target from the static check", async () => {
+    const workDir = newWorkDir();
+    const shim = join(workDir, "bb");
+    writeExecutable(
+      shim,
+      renderDepthLimitedShim({
+        entry:
+          'exec "$FIXTURE_NODE" --conditions=source --import tsx "$FIXTURE_ENTRY" "$@"',
+        marked: false,
+      }),
+    );
 
-      expect(result.shimDepths.length).toBeLessThanOrEqual(1);
-      expect(Math.max(0, ...result.shimDepths)).toBeLessThan(SHIM_DEPTH_LIMIT);
-      expect(result.bundledRuns).toEqual([]);
-      expect(result.exitCode).toBe(1);
-      expect(result.stderr).toContain("refusing to start the bb launcher");
-    }, 120_000);
-  },
-);
+    const result = await runLauncherThroughOverride({
+      override: shim,
+      workDir,
+    });
+
+    expect(result.shimDepths.length).toBeLessThanOrEqual(1);
+    expect(Math.max(0, ...result.shimDepths)).toBeLessThan(SHIM_DEPTH_LIMIT);
+    expect(result.bundledRuns).toEqual([]);
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("refusing to start the bb launcher");
+  }, 120_000);
+});

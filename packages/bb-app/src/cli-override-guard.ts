@@ -1,4 +1,4 @@
-import { readFileSync, realpathSync } from "node:fs";
+import { closeSync, openSync, readSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { CLI_LAUNCHER_MARKER } from "@bb/config/cli-command";
 
@@ -20,15 +20,22 @@ function tryRealpath(path: string): string | null {
 }
 
 function tryReadShim(path: string): string | null {
+  let descriptor: number | null = null;
   try {
-    const buffer = readFileSync(path);
-    if (buffer.byteLength > SHIM_READ_LIMIT_BYTES) {
+    descriptor = openSync(path, "r");
+    const buffer = Buffer.alloc(SHIM_READ_LIMIT_BYTES + 1);
+    const bytesRead = readSync(descriptor, buffer, 0, buffer.length, 0);
+    if (bytesRead > SHIM_READ_LIMIT_BYTES) {
       return null;
     }
-    const text = buffer.toString("utf8");
+    const text = buffer.subarray(0, bytesRead).toString("utf8");
     return text.startsWith("#!") ? text : null;
   } catch {
     return null;
+  } finally {
+    if (descriptor !== null) {
+      closeSync(descriptor);
+    }
   }
 }
 
