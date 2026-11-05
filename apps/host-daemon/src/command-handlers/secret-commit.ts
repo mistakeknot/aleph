@@ -12,6 +12,7 @@ import { runInSerialLane } from "../serial-lane.js";
 import { sha256Hex } from "../sha256-hex.js";
 import {
   assertNoDuplicateAssignments,
+  assertReconcilable,
   reconcileDotenv,
 } from "./secret-dotenv.js";
 
@@ -443,6 +444,7 @@ export async function probeSecretDestination(
       try {
         content = await readDotenv(target);
         assertNoDuplicateAssignments(content, names);
+        assertReconcilable(content, names);
       } catch (error) {
         if (error instanceof SecretRefusal) throw error;
         throw new SecretRefusal("unreconcilable-file");

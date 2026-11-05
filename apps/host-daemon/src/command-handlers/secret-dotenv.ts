@@ -72,16 +72,86 @@ export function assertNoDuplicateAssignments(
 const DOTENV_LINE =
   /^\s*(?:export\s+)?([\w.-]+)(?:\s*=\s*?|:\s+?)(\s*'(?:\\'|[^'])*'|\s*"(?:\\"|[^"])*"|\s*`(?:\\`|[^`])*`|[^#\r\n]+)?\s*(?:#.*)?$/u;
 
-function parseAssignedValue(line: string): string | null {
-  const match = DOTENV_LINE.exec(line);
-  if (!match) return null;
-  let value = (match[2] ?? "").trim();
+function decodeValue(raw: string): string {
+  let value = raw.trim();
   const maybeQuote = value[0];
   value = value.replace(/^(['"`])([\s\S]*)\1$/u, "$2");
   if (maybeQuote === '"') {
     value = value.replace(/\\n/gu, "\n").replace(/\\r/gu, "\r");
   }
   return value;
+}
+
+function parseAssignedValue(line: string): string | null {
+  const match = DOTENV_LINE.exec(line);
+  if (!match) return null;
+  return decodeValue(match[2] ?? "");
+}
+
+const DOTENV_FILE_LINE =
+  /(?:^|^)\s*(?:export\s+)?([\w.-]+)(?:\s*=\s*?|:\s+?)(\s*'(?:\\'|[^'])*'|\s*"(?:\\"|[^"])*"|\s*`(?:\\`|[^`])*`|[^#\r\n]+)?\s*(?:#.*)?(?:$|$)/gmu;
+
+function parseDotenvFile(content: string): Map<string, string> {
+  const result = new Map<string, string>();
+  const normalized = content.replace(/\r\n?/gu, "\n");
+  for (const match of normalized.matchAll(DOTENV_FILE_LINE)) {
+    const name = match[1];
+    if (name === undefined) continue;
+    result.set(name, decodeValue(match[2] ?? ""));
+  }
+  return result;
+}
+
+function parseNodeFile(content: string): Map<string, string> {
+  const result = new Map<string, string>();
+  for (const [name, value] of Object.entries(parseEnv(content))) {
+    if (value !== undefined) result.set(name, value);
+  }
+  return result;
+}
+
+function assertSameParse(
+  before: ReadonlyMap<string, string>,
+  after: ReadonlyMap<string, string>,
+  values: Readonly<Record<string, string>>,
+): void {
+  const expected = new Map(before);
+  for (const [name, value] of Object.entries(values)) {
+    expected.set(name, value);
+  }
+  let same = expected.size === after.size;
+  if (same) {
+    for (const [name, value] of expected) {
+      if (after.get(name) !== value) {
+        same = false;
+        break;
+      }
+    }
+  }
+  if (!same) {
+    throw new Error("Dotenv file cannot be reconciled safely.");
+  }
+}
+
+function assertReconciledSafely(
+  before: string,
+  after: string,
+  values: Readonly<Record<string, string>>,
+): void {
+  assertSameParse(parseDotenvFile(before), parseDotenvFile(after), values);
+  assertSameParse(parseNodeFile(before), parseNodeFile(after), values);
+}
+
+export function assertReconcilable(
+  content: string,
+  names: readonly string[],
+): void {
+  const placeholders: Record<string, string> = Object.create(null) as Record<
+    string,
+    string
+  >;
+  for (const name of names) placeholders[name] = "probe-value";
+  reconcileDotenv(content, placeholders);
 }
 
 function nodeParse(line: string): string | undefined {
@@ -147,10 +217,15 @@ export function reconcileDotenv(
 ): DotenvReconcileResult {
   const names = Object.keys(values);
   assertNoDuplicateAssignments(content, names);
-  const lineEnding = content.includes("\r\n") ? "\r\n" : "\n";
-  const endedWithNewline = content.endsWith("\n");
-  const lines = content.length === 0 ? [] : content.split(/\r?\n/u);
-  if (endedWithNewline) lines.pop();
+  const parts = content.length === 0 ? [] : content.split(/(\r\n|\n)/u);
+  const lines: string[] = [];
+  const separators: string[] = [];
+  for (let index = 0; index < parts.length; index += 1) {
+    if (index % 2 === 0) lines.push(parts[index] ?? "");
+    else separators.push(parts[index] ?? "");
+  }
+  if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+  const lineEnding = separators[separators.length - 1] ?? "\n";
 
   let added = 0;
   let updated = 0;
@@ -168,20 +243,22 @@ export function reconcileDotenv(
     }
     return line;
   });
+  const appended: string[] = [];
   for (const name of names) {
     if (!missing.has(name)) continue;
-    next.push(`${name}=${encodeValue(values[name] ?? "")}`);
+    appended.push(`${name}=${encodeValue(values[name] ?? "")}`);
     added += 1;
   }
 
-  const joined = next.join(lineEnding);
-  return {
-    content:
-      joined.length === 0
-        ? ""
-        : `${joined}${endedWithNewline || added > 0 ? lineEnding : ""}`,
-    added,
-    updated,
-    unchanged,
-  };
+  let result = "";
+  for (let index = 0; index < next.length; index += 1) {
+    const isLast = index === next.length - 1;
+    const separator =
+      separators[index] ?? (isLast && appended.length === 0 ? "" : lineEnding);
+    result += `${next[index] ?? ""}${separator}`;
+  }
+  for (const line of appended) result += `${line}${lineEnding}`;
+
+  assertReconciledSafely(content, result, values);
+  return { content: result, added, updated, unchanged };
 }

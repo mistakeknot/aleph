@@ -508,6 +508,31 @@ describe("hardening", () => {
     }
   });
 
+  it("refuses a quoted value that starts on the line after the assignment", async () => {
+    for (const quote of ["'", '"', "`"]) {
+      await writeEnv(
+        `CERT=\n${quote}header\nAPI_ONE=inner\nfooter${quote}\nOTHER=1\n`,
+      );
+      expectRefused(
+        await probeSecretDestination(probeCommand(), fixture.config),
+        "unreconcilable-file",
+      );
+    }
+  });
+
+  it("preserves each line's original separator in a mixed-ending file", async () => {
+    await writeEnv("KEEP_LF=1\nAPI_ONE=old\r\nKEEP_CRLF=2\r\nLAST=3\n");
+    const { command, probe } = await probeReady();
+    const result = await commitSecretValues(
+      commitFrom(command, probe, VALUES),
+      fixture.config,
+    );
+    expect(result.outcome).toBe("written");
+    const written = await readEnv();
+    expect(written.startsWith("KEEP_LF=1\nAPI_ONE='")).toBe(true);
+    expect(written).toContain("\r\nKEEP_CRLF=2\r\nLAST=3\n");
+  });
+
   it("writes only values that dotenv reads back exactly", async () => {
     const { parseEnv } = await import("node:util");
     const values = [
