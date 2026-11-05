@@ -260,6 +260,48 @@ describe("claude normalization", () => {
     expect(ofKind(unique, "usage")).toHaveLength(1);
   });
 
+  it("keeps cost-state snapshots apart when they share a timestamp but differ in position", () => {
+    const line = {
+      type: "cost-state",
+      sessionId: "s",
+      timestamp: "2026-01-02T03:04:05.000Z",
+    };
+    const records = [100, 30, 100, 30, 50].flatMap((inputTokens, position) =>
+      normalize(
+        { ...line, modelUsage: { m: { inputTokens } } },
+        { provider: "claude", position },
+      ),
+    );
+    const usage = ofKind(dedupeByKey(records), "usage");
+    expect(usage).toHaveLength(5);
+  });
+
+  it("rejects a delta-basis baseline", () => {
+    const [snapshot] = ofKind(
+      normalize(
+        {
+          type: "cost-state",
+          sessionId: "s",
+          modelUsage: { m: { inputTokens: 100 } },
+        },
+        claude,
+      ),
+      "usage",
+    );
+    const [delta] = ofKind(
+      normalizeFixture("claude/session-main.jsonl", claude),
+      "usage",
+    ).filter((record) => record.basis === "delta");
+    expect(snapshot).toBeDefined();
+    expect(delta).toBeDefined();
+    expect(() =>
+      cumulativeToDeltas([snapshot!], {
+        ...delta!,
+        scopeKey: snapshot!.scopeKey,
+      }),
+    ).toThrow(/cumulative baseline/);
+  });
+
   it("does not collapse keyless Claude messages that share a timestamp", () => {
     const at = "2026-01-02T03:04:05.000Z";
     const make = (text: string) => ({

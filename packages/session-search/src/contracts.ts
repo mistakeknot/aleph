@@ -249,6 +249,9 @@ export function cumulativeToDeltas(
 ): UsageDeltaEntry[] {
   const entries: UsageDeltaEntry[] = [];
   let previous: UsageRecord | null = baseline ?? null;
+  if (previous !== null && previous.basis !== "cumulative") {
+    throw new Error("cumulativeToDeltas requires a cumulative baseline");
+  }
   for (const record of snapshots) {
     if (record.basis !== "cumulative") {
       throw new Error("cumulativeToDeltas requires cumulative usage records");
@@ -619,13 +622,14 @@ function normalizeClaudeCostState(
       tokens.cacheWriteTokens,
       costUsd,
     ].join(":");
-    const occurrence =
-      asNumber(record.ordinal) ??
-      asNonEmptyString(record.timestamp) ??
-      asNonEmptyString(record.uuid) ??
-      (source.position === undefined || source.position === null
-        ? "-"
-        : String(source.position));
+    const occurrence = [
+      asNumber(record.ordinal),
+      asNonEmptyString(record.timestamp),
+      asNonEmptyString(record.uuid),
+      source.position,
+    ]
+      .map((part) => (part === undefined || part === null ? "-" : String(part)))
+      .join("/");
     records.push({
       ...eventBase(source, {
         sessionId,
