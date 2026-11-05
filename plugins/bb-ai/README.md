@@ -39,12 +39,14 @@ status|usage` prints the same data, and `bb ai on|off` changes the setting.
   Whisper.
 
 What leaves the machine while bb cloud is on: for titles, the text of a
-thread's first prompt (cut to 4000 columns). When you regenerate a title, the
-request also carries the thread's current title, your latest follow-up messages
-(up to 8, each cut to 600 columns) and the start of the agent's final reply in
-each of its latest turns (up to 32, each cut to 125 columns), and the first
-prompt is cut to 2000 columns. For commit messages, the changed files with a
-diff excerpt. For voice input, the recordings with the vocabulary hint.
-getbb.app stores daily usage totals and, for 30 days, per-request metadata
-(time, server, model, token counts, cost, latency, outcome); it never stores
-prompts, recordings, or replies.
+thread's first prompt (cut to 4000 columns) and the names of any commands or
+skills it invokes, listed separately and not cut. When you regenerate a title,
+the request also carries the thread's current title, your latest follow-up
+messages (up to 8, each cut to 600 columns) and the start of the agent's final
+reply in each of its latest turns (up to 32, each cut to 125 columns); when any
+follow-ups or replies are sent, the first prompt is cut to 2000 columns
+instead. For commit messages, the changed files with a diff excerpt. For voice
+input, the recordings with the vocabulary hint. getbb.app stores daily usage
+totals and, for 30 days, per-request metadata (time, server, model, token
+counts, cost, latency, outcome); it never stores prompts, recordings, or
+replies.
