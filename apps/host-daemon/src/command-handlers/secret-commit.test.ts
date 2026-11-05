@@ -493,6 +493,30 @@ describe("hardening", () => {
     expect(left).toContain(path.basename(unrelated));
   });
 
+  it("recovers a stale link/unlink crash state and refuses a fresh one", async () => {
+    await writeEnv("API_ONE=a\n");
+    const orphan = path.join(fixture.project, `.bb-secret-${randomUUID()}.tmp`);
+    await fs.link(fixture.envPath, orphan);
+    const recent = new Date(NOW - 1000);
+    await fs.utimes(orphan, recent, recent);
+    expectRefused(
+      await probeSecretDestination(probeCommand(), fixture.config),
+      "file-ownership",
+    );
+    const old = new Date(NOW - 10 * 60_000);
+    await fs.utimes(orphan, old, old);
+    const { command, probe } = await probeReady();
+    expect(await fs.readdir(fixture.project)).not.toContain(
+      path.basename(orphan),
+    );
+    const result = await commitSecretValues(
+      commitFrom(command, probe, VALUES),
+      fixture.config,
+    );
+    expect(result.outcome).toBe("written");
+    expect((await fs.stat(fixture.envPath)).nlink).toBe(1);
+  });
+
   it("refuses dotted-key multiline values and colon assignments", async () => {
     for (const content of [
       'CERT.DATA="header\nAPI_ONE=inner\nfooter"\n',

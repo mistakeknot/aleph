@@ -432,6 +432,7 @@ export async function probeSecretDestination(
     const chain = await openDirectoryChain(dirParts);
     opened.push(...chain.all);
     await assertParentTrusted(chain.parent, config);
+    await sweepOrphans(chain.parent, config);
     const parentIdentity = await identityOf(chain.parent);
     const target = await openTarget(chain.parent, fileName);
     let fileIdentity: Identity | null = null;
@@ -570,6 +571,7 @@ async function commitUnserialized(
       throw new SecretRefusal("identity-changed");
     }
     await assertParentTrusted(parentHandle, config);
+    await sweepOrphans(parentHandle, config);
     await step("parent-open");
 
     const target = await openTarget(parentHandle, fileName);
