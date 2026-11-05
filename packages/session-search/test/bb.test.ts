@@ -160,6 +160,38 @@ describe("bb event normalization", () => {
     expect(normalize(event("agentMessage"), bb)).toEqual([]);
   });
 
+  it("normalizes a completed background task summary and ignores its usage", () => {
+    const event = (item: Record<string, unknown>) => ({
+      type: "item/backgroundTask/completed",
+      thread_id: "t1",
+      id: "ev-task",
+      data: JSON.stringify({ item }),
+    });
+    const done = normalize(
+      event({
+        type: "backgroundTask",
+        id: "bt-1",
+        description: "run parser tests",
+        summary: "Tests failed in parser",
+        usage: { totalTokens: 999, inputTokens: 900, outputTokens: 99 },
+      }),
+      bb,
+    );
+    expect(done).toMatchObject([
+      { kind: "tool_call", callId: "bt-1", name: "backgroundTask" },
+      { kind: "tool_result", callId: "bt-1", text: "Tests failed in parser" },
+    ]);
+    expect(ofKind(done, "usage")).toEqual([]);
+    const failed = normalize(
+      event({ type: "backgroundTask", id: "bt-2", error: "timed out" }),
+      bb,
+    );
+    expect(ofKind(failed, "tool_result")).toMatchObject([
+      { text: "timed out" },
+    ]);
+    expect(normalize(event({ type: "delegation", id: "x" }), bb)).toEqual([]);
+  });
+
   it("records the destination of a renamed file as a structured write touch", () => {
     const event = {
       type: "item/completed",

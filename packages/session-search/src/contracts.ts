@@ -954,7 +954,11 @@ function normalizeBb(
     ];
   }
 
-  if (type !== "item/completed" && type !== "item/delegation/completed") {
+  if (
+    type !== "item/completed" &&
+    type !== "item/delegation/completed" &&
+    type !== "item/backgroundTask/completed"
+  ) {
     return [];
   }
   const item = data.item;
@@ -972,6 +976,12 @@ function normalizeBb(
   }
 
   if (type === "item/delegation/completed" && itemType !== "delegation") {
+    return [];
+  }
+  if (
+    type === "item/backgroundTask/completed" &&
+    itemType !== "backgroundTask"
+  ) {
     return [];
   }
 
@@ -1087,6 +1097,26 @@ function normalizeBb(
       },
     ];
     const result = asString(item.result);
+    if (result !== null) {
+      records.push({ ...base(1), kind: "tool_result", callId, text: result });
+    }
+    return records;
+  }
+
+  if (itemType === "backgroundTask") {
+    const records: NormalizedRecord[] = [
+      {
+        ...base(0),
+        kind: "tool_call",
+        callId,
+        name: "backgroundTask",
+        argumentsText: asString(item.description) ?? "",
+        touches: [],
+        delegation: false,
+      },
+    ];
+    const result =
+      asNonEmptyString(item.summary) ?? asNonEmptyString(item.error);
     if (result !== null) {
       records.push({ ...base(1), kind: "tool_result", callId, text: result });
     }
