@@ -213,6 +213,20 @@ describe("claude normalization", () => {
     ]);
   });
 
+  it("uses the source position to keep positionless cost-state snapshots apart", () => {
+    const line = {
+      type: "cost-state",
+      sessionId: "s",
+      modelUsage: { m: { inputTokens: 100 } },
+    };
+    const records = [0, 1, 2].flatMap((position) =>
+      normalize(line, { provider: "claude", position }),
+    );
+    expect(dedupeByKey(records)).toHaveLength(3);
+    const again = normalize(line, { provider: "claude", position: 1 });
+    expect(dedupeByKey([...records, ...again])).toHaveLength(3);
+  });
+
   it("does not collapse keyless Claude messages that share a timestamp", () => {
     const at = "2026-01-02T03:04:05.000Z";
     const make = (text: string) => ({

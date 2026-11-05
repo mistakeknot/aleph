@@ -6,6 +6,7 @@ export interface NormalizeSource {
   provider: Provider;
   sessionId?: string | null;
   agentId?: string | null;
+  position?: number | string | null;
 }
 
 export type TouchAccess = "read" | "write" | "reference";
@@ -619,7 +620,9 @@ function normalizeClaudeCostState(
       asNumber(record.ordinal) ??
       asNonEmptyString(record.timestamp) ??
       asNonEmptyString(record.uuid) ??
-      "-";
+      (source.position === undefined || source.position === null
+        ? "-"
+        : String(source.position));
     records.push({
       ...eventBase(source, {
         sessionId,
