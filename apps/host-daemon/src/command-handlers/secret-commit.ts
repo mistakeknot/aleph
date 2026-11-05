@@ -10,7 +10,10 @@ import type { CommandOf } from "../command-dispatch-support.js";
 import { isFsErrorWithCode } from "../fs-errors.js";
 import { runInSerialLane } from "../serial-lane.js";
 import { sha256Hex } from "../sha256-hex.js";
-import { reconcileDotenv } from "./secret-dotenv.js";
+import {
+  assertNoDuplicateAssignments,
+  reconcileDotenv,
+} from "./secret-dotenv.js";
 
 export const DEFAULT_SECRET_ALLOWLIST_PATH = "/etc/home-secrets/allowlist.json";
 const ALLOWLIST_MAX_BYTES = 1024 * 1024;
@@ -341,7 +344,7 @@ async function openTarget(
   try {
     return await fs.open(
       fdPath(parent, name),
-      fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW,
+      fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK,
     );
   } catch (error) {
     if (isFsErrorWithCode(error, "ENOENT")) return null;
@@ -389,10 +392,11 @@ function computeDigest(args: {
   file: Identity | null;
   entrySha256: string;
 }): string {
-  const descriptions: Record<string, string | null> = {};
-  for (const field of args.command.fields) {
-    descriptions[field.name] = field.description;
-  }
+  const descriptions: [string, string | null][] = args.command.fields
+    .map((field): [string, string | null] => [field.name, field.description])
+    .sort((left, right) =>
+      left[0] < right[0] ? -1 : left[0] > right[0] ? 1 : 0,
+    );
   return sha256Hex(
     Buffer.from(
       canonicalJson({
@@ -434,7 +438,15 @@ export async function probeSecretDestination(
       opened.push(target);
       await assertFileTrusted(target, config);
       fileIdentity = await identityOf(target);
-      existing = presentNames(await readDotenv(target), names);
+      let content: string;
+      try {
+        content = await readDotenv(target);
+        assertNoDuplicateAssignments(content, names);
+      } catch (error) {
+        if (error instanceof SecretRefusal) throw error;
+        throw new SecretRefusal("unreconcilable-file");
+      }
+      existing = presentNames(content, names);
     }
     const entrySha = allowlistEntrySha256(entry);
     return {

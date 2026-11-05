@@ -400,15 +400,69 @@ describe("probe (T1.2 request-time refusals)", () => {
     );
   });
 
-  it("refuses a file with duplicate assignments", async () => {
+  it("refuses a file with duplicate assignments at probe time", async () => {
     await writeEnv("API_ONE=a\nAPI_ONE=b\n");
+    expectRefused(
+      await probeSecretDestination(probeCommand(), fixture.config),
+      "unreconcilable-file",
+    );
+  });
+
+  it("refuses duplicate assignments at commit when they appear after the probe", async () => {
+    await writeEnv("API_ONE=a\n");
     const { command, probe } = await probeReady();
+    const stat = await fs.stat(fixture.envPath);
+    await fs.appendFile(fixture.envPath, "API_ONE=b\n");
+    await fs.utimes(fixture.envPath, stat.atime, stat.mtime);
     const result = await commitSecretValues(
       commitFrom(command, probe, VALUES),
       fixture.config,
     );
     expectRefused(result, "unreconcilable-file");
     expect(await readEnv()).toBe("API_ONE=a\nAPI_ONE=b\n");
+  });
+
+  it("refuses multiline backtick values instead of rewriting their interior", async () => {
+    const original = "CERT=`line1\nAPI_ONE=inside\nline3`\n";
+    await writeEnv(original);
+    expectRefused(
+      await probeSecretDestination(probeCommand(), fixture.config),
+      "unreconcilable-file",
+    );
+    expect(await readEnv()).toBe(original);
+  });
+
+  it("refuses a FIFO destination without blocking", async () => {
+    const { spawnSync } = await import("node:child_process");
+    const made = spawnSync("mkfifo", [fixture.envPath]);
+    expect(made.status).toBe(0);
+    const result = await Promise.race([
+      probeSecretDestination(probeCommand(), fixture.config),
+      new Promise<"hung">((resolve) => setTimeout(() => resolve("hung"), 2000)),
+    ]);
+    expect(result).not.toBe("hung");
+    expect((result as { outcome: string }).outcome).toBe("refused");
+  });
+
+  it("binds a field named __proto__ description into the digest", async () => {
+    await writeAllowlist([
+      { ...defaultEntry(fixture.envPath), names: ["API_ONE", "__proto__"] },
+    ]);
+    const digestFor = async (description: string) => {
+      const result = await probeSecretDestination(
+        probeCommand({
+          requestId: "00000000-0000-4000-8000-000000000001",
+          fields: [
+            { name: "API_ONE", description: null },
+            { name: "__proto__", description },
+          ],
+        }),
+        fixture.config,
+      );
+      if (result.outcome !== "ready") throw new Error(result.reason);
+      return result.requestDigest;
+    };
+    expect(await digestFor("first")).not.toBe(await digestFor("second"));
   });
 });
 
@@ -925,8 +979,10 @@ describe("no leak of existing or submitted values (T1.3)", () => {
         fixture.config,
       ),
     );
-    await writeEnv(`API_ONE=${CANARY_ONE}\nAPI_ONE=${CANARY_ONE}-b\n`);
     const conflict = await probeReady();
+    const stat = await fs.stat(fixture.envPath);
+    await fs.appendFile(fixture.envPath, `API_ONE=${CANARY_ONE}-b\n`);
+    await fs.utimes(fixture.envPath, stat.atime, stat.mtime);
     results.push(
       await commitSecretValues(
         commitFrom(conflict.command, conflict.probe, {
@@ -995,7 +1051,10 @@ describe("digest shape", () => {
       canonicalJson({
         allowlist_entry_sha256: probe.allowlistEntrySha256,
         dest_realpath: fixture.envPath,
-        descriptions: { API_ONE: "first", API_TWO: null },
+        descriptions: [
+          ["API_ONE", "first"],
+          ["API_TWO", null],
+        ],
         expires_at: command.expiresAtMs,
         file: null,
         host_id: command.hostId,
