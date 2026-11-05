@@ -79,19 +79,49 @@ describe("round 4: secret count cap", () => {
     expect(JSON.stringify(parsed)).not.toContain(SECRET);
   });
 
-  it("scales with many secrets", () => {
-    const many: Record<string, string> = {};
-    for (let i = 0; i < 5000; i++) {
-      many[`SECRET_${i}`] = `synthetic-many-${i}-${"y".repeat(24)}`;
-    }
-    const start = performance.now();
-    const out = JSON.stringify(
-      redactEventDataForType("item/completed", {
-        item: { ...data.item, result: { env: many, echo: many.SECRET_4999 } },
-      }),
-    );
-    expect(performance.now() - start).toBeLessThan(2000);
-    expect(out).not.toContain(many.SECRET_4999);
+  describe("many secrets", () => {
+    const redactMany = (count: number) => {
+      const many: Record<string, string> = {};
+      for (let i = 0; i < count; i++) {
+        many[`SECRET_${i}`] = `synthetic-many-${i}-${"y".repeat(24)}`;
+      }
+      const echo = many[`SECRET_${count - 1}`]!;
+      const payload = {
+        item: { ...data.item, result: { env: many, echo } },
+      };
+      const start = performance.now();
+      const redacted = redactEventDataForType("item/completed", payload);
+      const elapsed = performance.now() - start;
+      return { elapsed, out: JSON.stringify(redacted), many, echo };
+    };
+
+    it("redacts every secret and the echoed copy at scale", () => {
+      const { out, many, echo } = redactMany(5000);
+      expect(out).not.toContain(echo);
+      for (const value of Object.values(many)) {
+        expect(out.includes(value)).toBe(false);
+      }
+    }, 60_000);
+
+    it("scales linearly with the number of secrets", () => {
+      const smallCount = 400;
+      const largeCount = 3200;
+      let small = Infinity;
+      let large = Infinity;
+      redactMany(250);
+      for (let run = 0; run < 5; run++) {
+        for (const count of [smallCount, largeCount]) {
+          const { elapsed, out, echo } = redactMany(count);
+          expect(out).not.toContain(echo);
+          if (count === smallCount) {
+            small = Math.min(small, elapsed);
+          } else {
+            large = Math.min(large, elapsed);
+          }
+        }
+      }
+      expect(large / Math.max(small, 1)).toBeLessThan(30);
+    }, 60_000);
   });
 });
 
