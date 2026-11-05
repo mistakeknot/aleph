@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { dedupeByKey, normalize } from "../src/index.js";
+import { cumulativeToDeltas, dedupeByKey, normalize } from "../src/index.js";
 import { codexSessionId, normalizeFixture, ofKind } from "./helpers.js";
 
 const codex = { provider: "codex", sessionId: codexSessionId } as const;
@@ -170,6 +170,30 @@ describe("codex normalization", () => {
     );
     expect(records).toHaveLength(3);
     expect(dedupeByKey(records)).toHaveLength(2);
+  });
+
+  it("uses the source position to keep timestamp-sharing cumulative counts apart", () => {
+    const at = "2026-01-02T04:00:11.000Z";
+    const count = (total: number) => ({
+      timestamp: at,
+      type: "event_msg",
+      payload: {
+        type: "token_count",
+        info: { total_token_usage: { input_tokens: total, output_tokens: 1 } },
+      },
+    });
+    const records = [100, 30, 100, 30, 50].flatMap((total, position) =>
+      normalize(count(total), { ...codex, position }),
+    );
+    const usage = ofKind(dedupeByKey(records), "usage");
+    expect(usage).toHaveLength(5);
+    expect(cumulativeToDeltas(usage).map((entry) => entry.reset)).toEqual([
+      false,
+      true,
+      false,
+      true,
+      false,
+    ]);
   });
 
   it("produces unique dedupe keys across the whole rollout", () => {

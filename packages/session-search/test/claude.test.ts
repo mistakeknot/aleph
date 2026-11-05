@@ -227,6 +227,39 @@ describe("claude normalization", () => {
     expect(dedupeByKey([...records, ...again])).toHaveLength(3);
   });
 
+  it("keeps split content blocks of one message apart when lines have no uuid", () => {
+    const line = (apiBlockIndex: number, content: unknown[]) => ({
+      type: "assistant",
+      sessionId: "s",
+      requestId: "r1",
+      apiBlockIndex,
+      message: {
+        id: "m1",
+        role: "assistant",
+        content,
+        usage: { input_tokens: 5, output_tokens: 2 },
+      },
+    });
+    const records = [
+      ...normalize(line(0, [{ type: "text", text: "looking" }]), claude),
+      ...normalize(
+        line(1, [
+          {
+            type: "tool_use",
+            id: "t1",
+            name: "Read",
+            input: { file_path: "/work/a.ts" },
+          },
+        ]),
+        claude,
+      ),
+    ];
+    const unique = dedupeByKey(records);
+    expect(ofKind(unique, "message")).toHaveLength(1);
+    expect(ofKind(unique, "tool_call")).toHaveLength(1);
+    expect(ofKind(unique, "usage")).toHaveLength(1);
+  });
+
   it("does not collapse keyless Claude messages that share a timestamp", () => {
     const at = "2026-01-02T03:04:05.000Z";
     const make = (text: string) => ({

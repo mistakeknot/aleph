@@ -414,9 +414,12 @@ function normalizeClaude(
   }
   const messageId = asNonEmptyString(message.id);
   const requestId = asNonEmptyString(record.requestId);
+  const blockIndex = asNumber(record.apiBlockIndex);
   const uuid =
     asNonEmptyString(record.uuid) ??
-    messageId ??
+    (messageId === null
+      ? null
+      : `${messageId}:${blockIndex ?? contentDigest(record)}`) ??
     `${sessionId ?? "-"}:${asString(record.timestamp) ?? "-"}:${contentDigest(record)}`;
 
   const base = (index: number) =>
@@ -692,10 +695,14 @@ function normalizeCodex(
     asNonEmptyString(payload.session_id) ??
     (type === "session_meta" ? asNonEmptyString(payload.id) : null);
   const callId = asNonEmptyString(payload.call_id);
+  const sourcePosition =
+    source.position === undefined || source.position === null
+      ? "-"
+      : String(source.position);
   const position =
     ordinal !== null
       ? String(ordinal)
-      : `${timestamp ?? "-"}/${payloadType ?? type}/${callId ?? "-"}/${contentDigest(record)}`;
+      : `${sourcePosition}/${timestamp ?? "-"}/${payloadType ?? type}/${callId ?? "-"}/${contentDigest(record)}`;
   const keyFor = (index: number) =>
     `codex:${sessionId ?? "-"}:${position}:${index}`;
   const base = (index: number, cwd: string | null = null) =>
