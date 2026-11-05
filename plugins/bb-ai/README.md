@@ -38,9 +38,13 @@ status|usage` prints the same data, and `bb ai on|off` changes the setting.
   MAI refuses WebM and MP4, so Chrome and Safari recordings are transcribed by
   Whisper.
 
-What leaves the machine while bb cloud is on: the text of a thread's first
-prompt (titles), the changed files with a diff excerpt (commit messages), and
-voice recordings with the vocabulary hint (voice input). getbb.app stores daily
-usage totals and, for 30 days, per-request metadata (time, server, model, token
-counts, cost, latency, outcome); it never stores prompts, recordings, or
-replies.
+What leaves the machine while bb cloud is on: for titles, the text of a
+thread's first prompt (cut to 4000 columns). When you regenerate a title, the
+request also carries the thread's current title, your latest follow-up messages
+(up to 8, each cut to 600 columns) and the start of the agent's final reply in
+each of its latest turns (up to 32, each cut to 125 columns), and the first
+prompt is cut to 2000 columns. For commit messages, the changed files with a
+diff excerpt. For voice input, the recordings with the vocabulary hint.
+getbb.app stores daily usage totals and, for 30 days, per-request metadata
+(time, server, model, token counts, cost, latency, outcome); it never stores
+prompts, recordings, or replies.
