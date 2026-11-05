@@ -4,7 +4,12 @@ export const SECRET_REQUEST_RENDERER_ID = "secret-request";
 
 const SECRET_VALUE_MAX_LENGTH = 16 * 1024;
 
-export const secretNameSchema = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/u);
+export const secretNameSchema = z
+  .string()
+  .regex(/^[A-Za-z_][A-Za-z0-9_]*$/u)
+  .refine((name) => name !== "__proto__", {
+    message: "Secret names must not be __proto__",
+  });
 
 export const secretRequestPayloadSchema = z
   .object({

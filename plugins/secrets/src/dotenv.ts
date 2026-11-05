@@ -10,7 +10,7 @@ function assignmentPattern(name: string): RegExp {
 }
 
 const ANY_ASSIGNMENT_PATTERN =
-  /^\s*(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*\s*=\s*(.*)$/u;
+  /^\s*(?:export\s+)?[\w.-]+(?:\s*=\s*|:\s+)(.*)$/u;
 
 function hasClosingQuote(value: string, quote: "'" | '"' | "`"): boolean {
   let escaped = false;
@@ -20,7 +20,7 @@ function hasClosingQuote(value: string, quote: "'" | '"' | "`"): boolean {
       escaped = false;
       continue;
     }
-    if (quote !== "'" && character === "\\") {
+    if (character === "\\") {
       escaped = true;
       continue;
     }
@@ -61,18 +61,38 @@ export function assertNoDuplicateAssignments(
   }
 }
 
+const DOTENV_LINE =
+  /^\s*(?:export\s+)?([\w.-]+)(?:\s*=\s*?|:\s+?)(\s*'(?:\\'|[^'])*'|\s*"(?:\\"|[^"])*"|\s*`(?:\\`|[^`])*`|[^#\r\n]+)?\s*(?:#.*)?$/u;
+
+function decodeAssigned(raw: string): string {
+  let value = raw.trim();
+  const maybeQuote = value[0];
+  value = value.replace(/^(['"`])([\s\S]*)\1$/u, "$2");
+  if (maybeQuote === '"') {
+    value = value.replace(/\\n/gu, "\n").replace(/\\r/gu, "\r");
+  }
+  return value;
+}
+
+function roundTrips(encoded: string, value: string): boolean {
+  const line = `K=${encoded}`;
+  const match = DOTENV_LINE.exec(line);
+  if (!match || decodeAssigned(match[2] ?? "") !== value) return false;
+  try {
+    assertNoMultilineQuotedAssignments(line);
+  } catch {
+    return false;
+  }
+  return true;
+}
+
 function encodeValue(value: string): string {
-  if (!value.includes("'")) {
-    return `'${value}'`;
-  }
-  if (!value.includes('"') && !/\\[nr]/u.test(value)) {
-    return `"${value}"`;
-  }
-  if (!value.includes("`")) {
-    return `\`${value}\``;
-  }
-  if (value === value.trim() && !value.includes("#")) {
-    return value;
+  const candidates = (["'", '"', "`"] as const)
+    .filter((quote) => !value.includes(quote))
+    .map((quote) => `${quote}${value}${quote}`);
+  if (!/^["'`]/u.test(value)) candidates.push(value);
+  for (const candidate of candidates) {
+    if (roundTrips(candidate, value)) return candidate;
   }
   throw new Error(
     "A secret value cannot be represented safely in a single dotenv assignment.",

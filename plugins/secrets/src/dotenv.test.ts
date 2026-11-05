@@ -61,4 +61,12 @@ describe("dotenv reconciliation", () => {
       "multiline quoted values cannot be reconciled safely",
     );
   });
+
+  it("refuses values the host encoder cannot round-trip", () => {
+    for (const value of [" padded\\", "'a'\\", "''\"`"]) {
+      expect(() => reconcileDotenv("", { API_ONE: value })).toThrow(
+        "cannot be represented safely",
+      );
+    }
+  });
 });

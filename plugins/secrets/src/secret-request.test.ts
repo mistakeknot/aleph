@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { detectKeyShape } from "./key-shape.js";
 import {
+  secretNameSchema,
   secretRequestPayloadSchema,
   secretRequestResponseSchema,
 } from "./secret-request.js";
@@ -22,6 +23,11 @@ describe("secret-request payload contract (T1.1)", () => {
     expect(secretRequestPayloadSchema.safeParse(validPayload).success).toBe(
       true,
     );
+  });
+
+  it("refuses the __proto__ name that response parsing cannot carry", () => {
+    expect(secretNameSchema.safeParse("__proto__").success).toBe(false);
+    expect(secretNameSchema.safeParse("_proto_").success).toBe(true);
   });
 
   it("rejects identifier-unsafe names", () => {
