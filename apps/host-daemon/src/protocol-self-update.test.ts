@@ -309,8 +309,9 @@ describe("protocol self-update", () => {
   });
 
   it("finds npm beside the running Node executable when the service PATH omits it", async () => {
-    vi.stubEnv("PATH", "/usr/bin:/bin");
     const test = await createFixture({ useDefaultInstaller: true });
+    const servicePath = join(test.dataDir, "service-bin");
+    vi.stubEnv("PATH", servicePath);
 
     await expect(test.updater.handleProtocolMismatch()).resolves.toBe(
       "updated",
@@ -329,7 +330,7 @@ describe("protocol self-update", () => {
       {
         env: expect.objectContaining({
           PATH: expect.stringContaining(
-            `${dirname(process.execPath)}${delimiter}/usr/bin:/bin`,
+            `${dirname(process.execPath)}${delimiter}${servicePath}`,
           ),
         }),
       },

@@ -7,9 +7,10 @@ import {
   symlink,
   writeFile,
 } from "node:fs/promises";
+import fs from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   ProviderNativeRoot,
   ProviderNativeRootSet,
@@ -146,9 +147,25 @@ function skillFile(name: string, description = name): string {
 
 beforeEach(async () => {
   tempRoot = await mkdtemp(path.join(tmpdir(), "bb-command-discovery-"));
+  const root = tempRoot;
+  const lstat = fs.lstat.bind(fs);
+  vi.spyOn(fs, "lstat").mockImplementation(((target, options) => {
+    const candidate = String(target);
+    const insideFixture =
+      candidate === root || candidate.startsWith(`${root}${path.sep}`);
+    if (!insideFixture && path.basename(candidate) === ".git") {
+      return Promise.reject(
+        Object.assign(new Error("ENOENT: no such file or directory"), {
+          code: "ENOENT",
+        }),
+      );
+    }
+    return lstat(target, options);
+  }) as typeof fs.lstat);
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   await rm(tempRoot, { recursive: true, force: true });
 });
 
