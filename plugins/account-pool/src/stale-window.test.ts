@@ -173,6 +173,56 @@ describe("quotaFromHeaders with a past-reset window", () => {
     expect(isQuotaExhausted(next, "other", 0.9, NOW)).toBe(false);
     expect(usagePercent(next, "other", NOW)).toBe(30);
   });
+
+  it("stores every window as unknown when all resets have passed and stays eligible", () => {
+    const allPast = quota({
+      fiveHourUtilization: 0.95,
+      fiveHourResetAt: PAST,
+      fiveHourStatus: "rejected",
+      sevenDayUtilization: 0.97,
+      sevenDayResetAt: PAST,
+      sevenDayStatus: "rejected",
+    });
+    const next = quotaFromHeaders(ID, headers({}), allPast, "other", NOW);
+    expect(next.fiveHourUtilization).toBeNull();
+    expect(next.fiveHourResetAt).toBeNull();
+    expect(next.fiveHourStatus).toBeNull();
+    expect(next.sevenDayUtilization).toBeNull();
+    expect(next.sevenDayResetAt).toBeNull();
+    expect(next.sevenDayStatus).toBeNull();
+    expect(usagePercent(next, "other", NOW)).toBeNull();
+    expect(isQuotaExhausted(next, "other", 0.9, NOW)).toBe(false);
+  });
+
+  it("treats a reset equal to now as past", () => {
+    const atNow = quota({
+      fiveHourUtilization: 0.5,
+      fiveHourResetAt: NOW,
+      fiveHourStatus: "allowed",
+    });
+    const next = quotaFromHeaders(ID, headers({}), atNow, "other", NOW);
+    expect(next.fiveHourUtilization).toBeNull();
+    expect(next.fiveHourResetAt).toBeNull();
+    expect(next.fiveHourStatus).toBeNull();
+  });
+
+  it("keeps utilization unknown when only a reset and status arrive for a past window", () => {
+    const next = quotaFromHeaders(
+      ID,
+      headers({
+        "anthropic-ratelimit-unified-5h-reset": String(
+          Math.floor(FUTURE / 1000),
+        ),
+        "anthropic-ratelimit-unified-5h-status": "allowed",
+      }),
+      stale,
+      "other",
+      NOW,
+    );
+    expect(next.fiveHourUtilization).toBeNull();
+    expect(next.fiveHourResetAt).toBe(Math.floor(FUTURE / 1000) * 1000);
+    expect(next.fiveHourStatus).toBe("allowed");
+  });
 });
 
 describe("quotaFromUsage with a past-reset window", () => {
