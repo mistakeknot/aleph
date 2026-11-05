@@ -26,6 +26,7 @@ The plugin itself never reads or writes the dotenv file. The bundled `secrets` s
 
 - Only the destination file is protected (entry-only scope). A same-user process that swaps the destination between the final check and the rename is a known residual.
 - Descriptions and purposes that look like a credential are rejected before the form opens.
+- A destination with duplicate assignments, multiline quoted values, or colon-style assignments for a requested name is refused before the form opens. A value that cannot be written so that both dotenv and Node parse it back unchanged is refused at write time.
 
 ## Requirements
 

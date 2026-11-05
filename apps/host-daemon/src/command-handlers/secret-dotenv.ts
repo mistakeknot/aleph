@@ -1,3 +1,5 @@
+import { parseEnv } from "node:util";
+
 interface DotenvReconcileResult {
   content: string;
   added: number;
@@ -10,9 +12,11 @@ function assignmentPattern(name: string): RegExp {
 }
 
 const ANY_ASSIGNMENT_PATTERN =
-  /^\s*(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*\s*=\s*(.*)$/u;
+  /^\s*(?:export\s+)?[\w.-]+(?:\s*=\s*|:\s+)(.*)$/u;
 
-function hasClosingQuote(value: string, quote: "'" | '"' | "`"): boolean {
+type QuoteCharacter = "'" | '"' | "`";
+
+function hasClosingQuote(value: string, quote: QuoteCharacter): boolean {
   let escaped = false;
   for (let index = 1; index < value.length; index += 1) {
     const character = value[index];
@@ -20,7 +24,7 @@ function hasClosingQuote(value: string, quote: "'" | '"' | "`"): boolean {
       escaped = false;
       continue;
     }
-    if (quote === '"' && character === "\\") {
+    if (character === "\\") {
       escaped = true;
       continue;
     }
@@ -51,6 +55,10 @@ export function assertNoDuplicateAssignments(
   assertNoMultilineQuotedAssignments(content);
   const lines = content.split(/\r?\n/u);
   for (const name of names) {
+    const colonPattern = new RegExp(`^\\s*(?:export\\s+)?${name}\\s*:\\s`, "u");
+    if (lines.some((line) => colonPattern.test(line))) {
+      throw new Error(`Dotenv file uses unsupported syntax for ${name}.`);
+    }
     const pattern = assignmentPattern(name);
     const count = lines.filter((line) => pattern.test(line)).length;
     if (count > 1) {
@@ -61,15 +69,44 @@ export function assertNoDuplicateAssignments(
   }
 }
 
+const DOTENV_LINE =
+  /^\s*(?:export\s+)?([\w.-]+)(?:\s*=\s*?|:\s+?)(\s*'(?:\\'|[^'])*'|\s*"(?:\\"|[^"])*"|\s*`(?:\\`|[^`])*`|[^#\r\n]+)?\s*(?:#.*)?$/u;
+
+function parseAssignedValue(line: string): string | null {
+  const match = DOTENV_LINE.exec(line);
+  if (!match) return null;
+  let value = (match[2] ?? "").trim();
+  const maybeQuote = value[0];
+  value = value.replace(/^(['"`])([\s\S]*)\1$/u, "$2");
+  if (maybeQuote === '"') {
+    value = value.replace(/\\n/gu, "\n").replace(/\\r/gu, "\r");
+  }
+  return value;
+}
+
+function nodeParse(line: string): string | undefined {
+  return parseEnv(line)["K"];
+}
+
+function roundTrips(encoded: string, value: string): boolean {
+  const line = `K=${encoded}`;
+  if (parseAssignedValue(line) !== value) return false;
+  if (nodeParse(line) !== value) return false;
+  try {
+    assertNoMultilineQuotedAssignments(line);
+  } catch {
+    return false;
+  }
+  return true;
+}
+
 function encodeValue(value: string): string {
-  if (!value.includes("'")) {
-    return `'${value}'`;
-  }
-  if (!value.includes('"') && !/\\[nr]/u.test(value)) {
-    return `"${value}"`;
-  }
-  if (value === value.trim() && !value.includes("#")) {
-    return value;
+  const candidates = (["'", '"', "`"] as const)
+    .filter((quote) => !value.includes(quote))
+    .map((quote) => `${quote}${value}${quote}`);
+  candidates.push(value);
+  for (const candidate of candidates) {
+    if (roundTrips(candidate, value)) return candidate;
   }
   throw new Error(
     "A secret value cannot be represented safely in a single dotenv assignment.",

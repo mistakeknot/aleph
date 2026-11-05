@@ -83,6 +83,7 @@ export interface SecretWriterConfig {
   trustedUid: number;
   now: () => number;
   afterStep?: (step: SecretCommitStep) => void | Promise<void>;
+  orphanMinAgeMs?: number;
 }
 
 type ProbeCommand = CommandOf<"host.secret_probe">;
@@ -480,6 +481,40 @@ function toRefusal(error: unknown): Refused {
 
 const commitLanes = new Map<string, Promise<void>>();
 
+const ORPHAN_NAME =
+  /^\.bb-secret-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.tmp$/u;
+const DEFAULT_ORPHAN_MIN_AGE_MS = 60_000;
+const activeTempNames = new Set<string>();
+
+async function sweepOrphans(
+  parent: FileHandle,
+  config: SecretWriterConfig,
+): Promise<void> {
+  const minAge = config.orphanMinAgeMs ?? DEFAULT_ORPHAN_MIN_AGE_MS;
+  try {
+    const names = await fs.readdir(`/proc/self/fd/${parent.fd}`);
+    for (const name of names) {
+      if (!ORPHAN_NAME.test(name) || activeTempNames.has(name)) continue;
+      try {
+        const stat = await fs.lstat(fdPath(parent, name));
+        if (
+          !stat.isFile() ||
+          stat.uid !== config.trustedUid ||
+          (stat.mode & 0o777) !== 0o600 ||
+          config.now() - stat.mtimeMs < minAge
+        ) {
+          continue;
+        }
+        await fs.unlink(fdPath(parent, name));
+      } catch {
+        continue;
+      }
+    }
+  } catch {
+    return;
+  }
+}
+
 export function commitSecretValues(
   command: CommitCommand,
   config: SecretWriterConfig,
@@ -495,6 +530,7 @@ async function commitUnserialized(
 ): Promise<CommitResult> {
   const opened: FileHandle[] = [];
   let tmpName: string | null = null;
+  let activeName: string | null = null;
   let parentHandle: FileHandle | null = null;
   const step = async (name: SecretCommitStep): Promise<void> => {
     await config.afterStep?.(name);
@@ -561,7 +597,10 @@ async function commitUnserialized(
 
     const mergedBytes = Buffer.from(merged.content, "utf8");
     const mergedSha = sha256Hex(mergedBytes);
+    await sweepOrphans(parentHandle, config);
     tmpName = `.bb-secret-${randomUUID()}.tmp`;
+    activeName = tmpName;
+    activeTempNames.add(tmpName);
     const tmp = await fs.open(
       fdPath(parentHandle, tmpName),
       fsConstants.O_WRONLY |
@@ -636,6 +675,7 @@ async function commitUnserialized(
     }
     return toRefusal(error);
   } finally {
+    if (activeName !== null) activeTempNames.delete(activeName);
     await closeAll(opened);
   }
 }

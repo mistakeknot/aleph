@@ -466,6 +466,79 @@ describe("probe (T1.2 request-time refusals)", () => {
   });
 });
 
+describe("hardening", () => {
+  it("sweeps stale temp-file orphans on the next commit and keeps unrelated files", async () => {
+    await writeEnv("API_ONE=a\n");
+    const orphan = path.join(fixture.project, `.bb-secret-${randomUUID()}.tmp`);
+    const young = path.join(fixture.project, `.bb-secret-${randomUUID()}.tmp`);
+    const unrelated = path.join(fixture.project, ".bb-secret-notes.tmp");
+    for (const file of [orphan, young, unrelated]) {
+      await fs.writeFile(file, "UNRELATED_CANARY=1\n", { mode: 0o600 });
+      await fs.chmod(file, 0o600);
+    }
+    const old = new Date(NOW - 10 * 60_000);
+    await fs.utimes(orphan, old, old);
+    await fs.utimes(unrelated, old, old);
+    const recent = new Date(NOW - 1000);
+    await fs.utimes(young, recent, recent);
+    const { command, probe } = await probeReady();
+    const result = await commitSecretValues(
+      commitFrom(command, probe, VALUES),
+      fixture.config,
+    );
+    expect(result.outcome).toBe("written");
+    const left = await fs.readdir(fixture.project);
+    expect(left).not.toContain(path.basename(orphan));
+    expect(left).toContain(path.basename(young));
+    expect(left).toContain(path.basename(unrelated));
+  });
+
+  it("refuses dotted-key multiline values and colon assignments", async () => {
+    for (const content of [
+      'CERT.DATA="header\nAPI_ONE=inner\nfooter"\n',
+      'CERT-DATA="header\nAPI_ONE=inner\nfooter"\n',
+      "API_ONE: old\n",
+    ]) {
+      const normalized = content.replace(/\\n/gu, "\n");
+      await writeEnv(normalized.includes("\n") ? normalized : content);
+      expectRefused(
+        await probeSecretDestination(probeCommand(), fixture.config),
+        "unreconcilable-file",
+      );
+    }
+  });
+
+  it("writes only values that dotenv reads back exactly", async () => {
+    const { parseEnv } = await import("node:util");
+    const values = [
+      "plain",
+      "it's",
+      'say "hi"',
+      `'foo"bar'`,
+      `"a'b"`,
+      "`tick`",
+      "ends\\",
+      "has\\nescape",
+      "  padded  ",
+      "with # hash",
+      `both ' and " together`,
+    ];
+    for (const value of values) {
+      await writeEnv("");
+      const { command, probe } = await probeReady();
+      const result = await commitSecretValues(
+        commitFrom(command, probe, { API_ONE: value, API_TWO: "x" }),
+        fixture.config,
+      );
+      if (result.outcome === "written") {
+        expect(parseEnv(await readEnv()).API_ONE).toBe(value);
+      } else {
+        expectRefused(result, "unreconcilable-file");
+      }
+    }
+  });
+});
+
 describe("allowlist trust (D3a)", () => {
   it("refuses a group- or world-writable allowlist", async () => {
     for (const mode of [0o664, 0o666, 0o620, 0o602]) {
