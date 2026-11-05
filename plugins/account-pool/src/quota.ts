@@ -3,6 +3,7 @@ import type {
   AccountQuota,
   AccountSummary,
   FamilyQuota,
+  FamilyWeekly,
   LimitWindow,
   ModelFamily,
   SwitchReason,
@@ -71,6 +72,51 @@ function scopedHeaderValues(headers: Headers): ScopedHeaderValues | null {
   return [...buckets.values()][0] ?? null;
 }
 
+export interface WindowReading {
+  utilization: number | null;
+  resetAt: number | null;
+  status: string | null;
+}
+
+export function isPastReset(resetAt: number | null, now: number): boolean {
+  return resetAt !== null && resetAt <= now;
+}
+
+export function mergeWindow(
+  fresh: WindowReading,
+  previous: WindowReading,
+  now: number,
+): WindowReading {
+  const retained = isPastReset(previous.resetAt, now)
+    ? { utilization: null, resetAt: null, status: null }
+    : previous;
+  return {
+    utilization: fresh.utilization ?? retained.utilization,
+    resetAt: fresh.resetAt ?? retained.resetAt,
+    status: fresh.status ?? retained.status,
+  };
+}
+
+export function expireFamilyQuota(
+  quota: FamilyQuota | null,
+  now: number,
+): FamilyQuota | null {
+  return quota !== null && isPastReset(quota.resetAt, now) ? null : quota;
+}
+
+export function expireFamilyWeekly(
+  weekly: FamilyWeekly,
+  now: number,
+): FamilyWeekly {
+  return {
+    fable: expireFamilyQuota(weekly.fable, now),
+    sonnet: expireFamilyQuota(weekly.sonnet, now),
+    opus: expireFamilyQuota(weekly.opus, now),
+    haiku: expireFamilyQuota(weekly.haiku, now),
+    other: expireFamilyQuota(weekly.other, now),
+  };
+}
+
 export function quotaFromHeaders(
   accountId: string,
   headers: Headers,
@@ -101,12 +147,13 @@ export function quotaFromHeaders(
         }
       : previous.extraUsage;
   const scoped = scopedHeaderValues(headers);
-  const priorFamily = previous.familyWeekly[family];
+  const retainedWeekly = expireFamilyWeekly(previous.familyWeekly, now);
+  const priorFamily = retainedWeekly[family];
   const familyWeekly: AccountQuota["familyWeekly"] =
     scoped === null
-      ? previous.familyWeekly
+      ? retainedWeekly
       : {
-          ...previous.familyWeekly,
+          ...retainedWeekly,
           [family]: {
             utilization: scoped.utilization ?? priorFamily?.utilization ?? null,
             resetAt: scoped.resetAt ?? priorFamily?.resetAt ?? null,
@@ -115,6 +162,32 @@ export function quotaFromHeaders(
             source: "header",
           },
         };
+  const fiveHour = mergeWindow(
+    {
+      utilization: fiveHourUtilization,
+      resetAt: fiveHourResetAt,
+      status: fiveHourStatus,
+    },
+    {
+      utilization: previous.fiveHourUtilization,
+      resetAt: previous.fiveHourResetAt,
+      status: previous.fiveHourStatus,
+    },
+    now,
+  );
+  const sevenDay = mergeWindow(
+    {
+      utilization: sevenDayUtilization,
+      resetAt: sevenDayResetAt,
+      status: sevenDayStatus,
+    },
+    {
+      utilization: previous.sevenDayUtilization,
+      resetAt: previous.sevenDayResetAt,
+      status: previous.sevenDayStatus,
+    },
+    now,
+  );
   const observed =
     fiveHourUtilization !== null ||
     fiveHourResetAt !== null ||
@@ -129,12 +202,12 @@ export function quotaFromHeaders(
     accountId,
     usageRestriction: previous.usageRestriction,
     extraUsage,
-    fiveHourUtilization: fiveHourUtilization ?? previous.fiveHourUtilization,
-    fiveHourResetAt: fiveHourResetAt ?? previous.fiveHourResetAt,
-    fiveHourStatus: fiveHourStatus ?? previous.fiveHourStatus,
-    sevenDayUtilization: sevenDayUtilization ?? previous.sevenDayUtilization,
-    sevenDayResetAt: sevenDayResetAt ?? previous.sevenDayResetAt,
-    sevenDayStatus: sevenDayStatus ?? previous.sevenDayStatus,
+    fiveHourUtilization: fiveHour.utilization,
+    fiveHourResetAt: fiveHour.resetAt,
+    fiveHourStatus: fiveHour.status,
+    sevenDayUtilization: sevenDay.utilization,
+    sevenDayResetAt: sevenDay.resetAt,
+    sevenDayStatus: sevenDay.status,
     representativeClaim: representativeClaim ?? previous.representativeClaim,
     familyWeekly,
     limitWindows: previous.limitWindows,

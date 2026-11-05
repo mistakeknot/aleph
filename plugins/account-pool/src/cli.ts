@@ -146,7 +146,7 @@ function formatFamilyQuota(quota: FamilyQuota | null): string {
   ].join(" ");
 }
 
-function formatAccounts(accounts: readonly AccountSummary[]): string {
+export function formatAccounts(accounts: readonly AccountSummary[]): string {
   if (accounts.length === 0) return "No accounts configured.";
   const families = modelFamilySchema.options.filter((family) =>
     accounts.some((account) => account.familyWeekly[family] !== null),

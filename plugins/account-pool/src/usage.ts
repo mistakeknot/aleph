@@ -6,7 +6,12 @@ import {
   type FamilyWeekly,
   type ModelFamily,
 } from "./contracts.js";
-import { modelFamily, parseReset } from "./quota.js";
+import {
+  expireFamilyWeekly,
+  mergeWindow,
+  modelFamily,
+  parseReset,
+} from "./quota.js";
 
 const numberValueSchema = z.union([z.number(), z.string()]);
 
@@ -141,7 +146,7 @@ export function quotaFromUsage(
     return null;
   const familyWeekly: FamilyWeekly =
     data.limits === undefined
-      ? { ...previous.familyWeekly }
+      ? expireFamilyWeekly(previous.familyWeekly, now)
       : { ...EMPTY_FAMILY_WEEKLY };
   for (const limit of data.limits ?? []) {
     if (
@@ -172,6 +177,32 @@ export function quotaFromUsage(
     data.five_hour == null ? null : normalizeBucket(data.five_hour, now);
   const sevenDay =
     data.seven_day == null ? null : normalizeBucket(data.seven_day, now);
+  const mergedFiveHour = mergeWindow(
+    {
+      utilization: fiveHour?.utilization ?? null,
+      resetAt: fiveHour?.resetAt ?? null,
+      status: fiveHour?.status ?? null,
+    },
+    {
+      utilization: previous.fiveHourUtilization,
+      resetAt: previous.fiveHourResetAt,
+      status: previous.fiveHourStatus,
+    },
+    now,
+  );
+  const mergedSevenDay = mergeWindow(
+    {
+      utilization: sevenDay?.utilization ?? null,
+      resetAt: sevenDay?.resetAt ?? null,
+      status: sevenDay?.status ?? null,
+    },
+    {
+      utilization: previous.sevenDayUtilization,
+      resetAt: previous.sevenDayResetAt,
+      status: previous.sevenDayStatus,
+    },
+    now,
+  );
   return {
     ...previous,
     accountId,
@@ -192,12 +223,12 @@ export function quotaFromUsage(
               observedAt: now,
               source: "usage",
             },
-    fiveHourUtilization: fiveHour?.utilization ?? previous.fiveHourUtilization,
-    fiveHourResetAt: fiveHour?.resetAt ?? previous.fiveHourResetAt,
-    fiveHourStatus: fiveHour?.status ?? previous.fiveHourStatus,
-    sevenDayUtilization: sevenDay?.utilization ?? previous.sevenDayUtilization,
-    sevenDayResetAt: sevenDay?.resetAt ?? previous.sevenDayResetAt,
-    sevenDayStatus: sevenDay?.status ?? previous.sevenDayStatus,
+    fiveHourUtilization: mergedFiveHour.utilization,
+    fiveHourResetAt: mergedFiveHour.resetAt,
+    fiveHourStatus: mergedFiveHour.status,
+    sevenDayUtilization: mergedSevenDay.utilization,
+    sevenDayResetAt: mergedSevenDay.resetAt,
+    sevenDayStatus: mergedSevenDay.status,
     familyWeekly,
     observedAt: now,
   };
