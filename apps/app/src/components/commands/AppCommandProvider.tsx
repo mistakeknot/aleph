@@ -376,7 +376,13 @@ export function AppCommandProvider({ children }: { children: ReactNode }) {
           event.composedPath()[0] ?? event.target,
         );
         if (!matchesAppCommandContext(binding, context)) continue;
-        if (!dispatch(binding.command, event.target)) continue;
+        const fallback = APP_COMMAND_FALLBACKS[binding.command];
+        if (
+          !dispatch(binding.command, event.target) &&
+          !(fallback !== undefined && dispatch(fallback, event.target))
+        ) {
+          continue;
+        }
         event.preventDefault();
         event.stopPropagation();
         return true;

@@ -581,18 +581,16 @@ does nothing, while the web app leaves the key to the browser's own Back or
 Forward. The commands appear in the command palette only when there is
 somewhere to go, and they don't run while the in-app browser has focus.
 
-The chords are ignored while focus is in a text
-input, textarea, contenteditable element (the composer included), or the
-terminal, where `Mod+[` / `Mod+]` may mean outdent or indent. When the
-in-panel browser has focus, the same chords first run `browser.back` /
-`browser.forward` on that page and fall through to app history when the page
-cannot go back or forward. They are ignored while the browser address input or
-a text field inside the page has focus, including fields inside open shadow
-roots and same-origin iframes. The page cannot be inspected inside a
-cross-origin iframe or a closed shadow root, so focus on such an iframe or on a
-custom element (tag name with a hyphen) that exposes no shadow root is treated as
-possible text entry and the chords are ignored. A closed shadow root hosted by a
-non-hyphenated element is undetectable and does not block the chords.
+When the in-panel browser has focus, `Mod+[` / `Mod+]` first run
+`browser.back` / `browser.forward` on that page (desktop only) and fall through
+to app history when the page cannot go back or forward. `browser.back` and
+`browser.forward` are ignored while the browser address input or a text field
+inside the page has focus, including fields inside open shadow roots and
+same-origin iframes. The page cannot be inspected inside a cross-origin iframe
+or a closed shadow root, so focus on such an iframe or on a custom element (tag
+name with a hyphen) that exposes no shadow root is treated as possible text
+entry and the chords are ignored. A closed shadow root hosted by a non-hyphenated
+element is undetectable and does not block the chords.
 
 The Go menu items always move app history, because a menu click is an explicit
 request. On Linux and Windows they show the chord with `registerAccelerator:
