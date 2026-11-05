@@ -192,6 +192,84 @@ describe("bb event normalization", () => {
     expect(normalize(event({ type: "delegation", id: "x" }), bb)).toEqual([]);
   });
 
+  it("normalizes completed web, search, image view and plan items", () => {
+    const run = (item: Record<string, unknown>) =>
+      normalize(
+        {
+          type: "item/completed",
+          thread_id: "t1",
+          id: `ev-${String(item.id)}`,
+          data: JSON.stringify({ item }),
+        },
+        bb,
+      );
+    expect(
+      run({
+        type: "webSearch",
+        id: "w1",
+        queries: ["parser perf", "incremental parsing"],
+        resultText: "Use incremental parsing",
+      }),
+    ).toMatchObject([
+      {
+        kind: "tool_call",
+        name: "webSearch",
+        argumentsText: "parser perf\nincremental parsing",
+      },
+      { kind: "tool_result", text: "Use incremental parsing" },
+    ]);
+    expect(
+      run({
+        type: "webFetch",
+        id: "w2",
+        url: "https://example.com/doc",
+        prompt: "summarize",
+        pattern: null,
+        resultText: "Doc summary",
+      }),
+    ).toMatchObject([
+      {
+        kind: "tool_call",
+        name: "webFetch",
+        argumentsText: "https://example.com/doc\nsummarize",
+      },
+      { kind: "tool_result", text: "Doc summary" },
+    ]);
+    expect(
+      run({ type: "webSearch", id: "w3", queries: ["q"], resultText: null }),
+    ).toHaveLength(1);
+    expect(
+      run({
+        type: "search",
+        id: "s1",
+        mode: "text",
+        query: "TODO",
+        path: "src",
+      }),
+    ).toMatchObject([
+      {
+        kind: "tool_call",
+        name: "search",
+        argumentsText: "TODO",
+        touches: [
+          { path: "src", access: "reference", confidence: "structured" },
+        ],
+      },
+    ]);
+    expect(
+      run({ type: "imageView", id: "i1", path: "img/a.png" }),
+    ).toMatchObject([
+      { name: "imageView", touches: [{ path: "img/a.png", access: "read" }] },
+    ]);
+    expect(
+      run({ type: "plan", id: "p1", text: "Step one then two" }),
+    ).toMatchObject([
+      { kind: "message", role: "assistant", text: "Step one then two" },
+    ]);
+    expect(run({ type: "planSteps", id: "p2", steps: [] })).toEqual([]);
+    expect(run({ type: "contextCompaction", id: "c1" })).toEqual([]);
+  });
+
   it("records the destination of a renamed file as a structured write touch", () => {
     const event = {
       type: "item/completed",

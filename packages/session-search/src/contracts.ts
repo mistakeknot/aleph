@@ -1103,6 +1103,87 @@ function normalizeBb(
     return records;
   }
 
+  if (itemType === "plan") {
+    const text = asNonEmptyString(item.text);
+    return text === null
+      ? []
+      : [{ ...base(0), kind: "message", role: "assistant", text }];
+  }
+
+  if (itemType === "webSearch" || itemType === "webFetch") {
+    const queries = Array.isArray(item.queries)
+      ? item.queries.filter(
+          (query): query is string => typeof query === "string",
+        )
+      : [];
+    const argumentsText =
+      itemType === "webSearch"
+        ? queries.join("\n")
+        : [item.url, item.prompt, item.pattern]
+            .map(asNonEmptyString)
+            .filter((part): part is string => part !== null)
+            .join("\n");
+    const records: NormalizedRecord[] = [
+      {
+        ...base(0),
+        kind: "tool_call",
+        callId,
+        name: itemType,
+        argumentsText,
+        touches: [],
+        delegation: false,
+      },
+    ];
+    const resultText = asNonEmptyString(item.resultText);
+    if (resultText !== null) {
+      records.push({
+        ...base(1),
+        kind: "tool_result",
+        callId,
+        text: resultText,
+      });
+    }
+    return records;
+  }
+
+  if (itemType === "search") {
+    const query = asNonEmptyString(item.query);
+    const path = asNonEmptyString(item.path);
+    return query === null && path === null
+      ? []
+      : [
+          {
+            ...base(0),
+            kind: "tool_call",
+            callId,
+            name: "search",
+            argumentsText: query ?? path ?? "",
+            touches:
+              path === null
+                ? []
+                : [{ path, access: "reference", confidence: "structured" }],
+            delegation: false,
+          },
+        ];
+  }
+
+  if (itemType === "imageView") {
+    const path = asNonEmptyString(item.path);
+    return path === null
+      ? []
+      : [
+          {
+            ...base(0),
+            kind: "tool_call",
+            callId,
+            name: "imageView",
+            argumentsText: path,
+            touches: [{ path, access: "read", confidence: "structured" }],
+            delegation: false,
+          },
+        ];
+  }
+
   if (itemType === "backgroundTask") {
     const records: NormalizedRecord[] = [
       {
