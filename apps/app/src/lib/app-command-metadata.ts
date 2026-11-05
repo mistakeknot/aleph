@@ -101,20 +101,16 @@ export const APP_COMMAND_GROUPS: readonly AppCommandGroup[] = [
         "Reload window",
         "Reload the current bb desktop window.",
       ),
+      command("history.back", "Go back", "Go back in this window's history."),
+      command(
+        "history.forward",
+        "Go forward",
+        "Go forward in this window's history.",
+      ),
       command(
         "app.back",
         "Back to app",
         "Return from Settings, Plugins, Skills, or a plugin page with its own sidebar to the app.",
-      ),
-      command(
-        "history.back",
-        "Back",
-        "Go back to the previous view in navigation history. Ignored while typing, in the terminal, or in the browser panel.",
-      ),
-      command(
-        "history.forward",
-        "Forward",
-        "Go forward to the next view in navigation history. Ignored while typing, in the terminal, or in the browser panel.",
       ),
       command("settings.open", "Open settings", "Open bb settings."),
       command(

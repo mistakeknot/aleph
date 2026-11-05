@@ -11,11 +11,11 @@ Held as: *plugin* means the change lives in a plugin directory; *in-tree* means 
 | account-pooler | plugin + in-tree | 36 | Account Pooler 0.1.2/0.6.3: owning-machine thread availability, `bb pool exec`, attempt receipts, stall tolerance, highest-priority-account fresh conversations (mk-6v3o6) | Keep the Aleph side of the fresh-conversation account choice (07c1ec9e). Contract: plugins/account-pool/RECEIPTS.md. |
 | app-header-status | in-tree | 2 | Header status strip for the Account Pooler | Re-apply; upstream has no equivalent slot use. |
 | thread-list-icons | plugin + in-tree | 24 | Provider icons and hull designation rows in the thread list (mk-omogp.7) | Plugin files carry the change. |
-| split-panes | in-tree | 19 | Optional composer focus on pane switch; Cmd/Ctrl-W closes the focused pane (mk-3tlt) | Re-apply the Aleph side of pane navigation. |
+| split-panes | in-tree | 17 | Optional composer focus on pane switch; Cmd/Ctrl-W closes the focused pane (mk-3tlt) | Re-apply the Aleph side of pane navigation. |
 | model-picker | in-tree | 2 | Switch a thread's provider in place | Re-apply. |
 | diagnostics-log | in-tree | 19 | Renderer diagnostics log and composer-stuck guards (mk-h1q8) | The desktop logging bridge is gated on BB_DESKTOP_RELEASE_CHANNEL=aleph; the pending-interaction guards are not gated. Re-apply the emitter calls and the guards. |
 | composer-gate | in-tree | 11 | Composer pending-interaction gate | Keep Aleph's gate over upstream's composer edits (07c1ec9e). |
-| history-keybindings | in-tree | 34 | History back/forward keybindings (Cmd-[ and Cmd-]) and Go menu | Keep Aleph's bindings and menu entries (07c1ec9e). |
+| history-keybindings | in-tree | 40 | Aleph-only additions around the upstream back/forward shortcuts (`Mod+[` / `Mod+]`): the Go menu entries, the page-first `browser.back` / `browser.forward` commands in the in-app browser panel, and editable-target detection for them (mk-fruz9). `history.back` / `history.forward` and `HistoryCommandHandlers` are upstream's, not patched | Take upstream's `history.*` bindings and handlers; re-apply only the Go menu, `browser.back` / `browser.forward` and `isEditableCommandTarget`. Not a keep patch. |
 | thread-open-follow | in-tree | 2 | Background thread open without stealing focus | Keep Aleph's handling (07c1ec9e). |
 | themes | in-tree | 37 | Thecla and Dorcas themes, Dorcas music mode, ambient screen care (mk-dqrwh.2) | Re-apply theme tokens; check against upstream theme changes. |
 | agent-priority | in-tree | 16 | Agent worker priority (BB_AGENT_NICE) and own systemd scope | Re-apply daemon and bridge hooks. |
@@ -30,8 +30,8 @@ Held as: *plugin* means the change lives in a plugin directory; *in-tree* means 
 | layer-groups | plugin + in-tree | 24 | Sidebar pace-layer groups plugin and conditional pin writes (mk-ks92z) | Plugin files carry the change. |
 | design-wiki | plugin + in-tree | 29 | Design Wiki plugin: read-only project Wiki page for docs/wiki/src CUJs and requirements (mk-vz3gw.1) | Plugin files carry the change; re-apply the registration lines. |
 | contributor-gate | in-tree | 1 | Aleph's PR gate admits only contributors Aleph approved; upstream's additions to `.github/APPROVED_CONTRIBUTORS` are not taken on a sync, since the gate reads that list from Aleph's base branch (mk-8lcd6) | Keep Aleph's list; drop upstream's added logins. |
-| credential-redaction | in-tree | 31 | Credential redaction layers (mk-3aoo); see docs/credential-redaction-residuals.md | Re-apply; vendored token patterns keep the MIT notice. |
-| no-upstream-updates | in-tree | 38 | Server and desktop skip upstream update checks on Aleph builds | Keep the update guards (07c1ec9e). |
+| credential-redaction | in-tree | 30 | Credential redaction layers (mk-3aoo); see docs/credential-redaction-residuals.md | Re-apply; vendored token patterns keep the MIT notice. |
+| no-upstream-updates | in-tree | 35 | Server and desktop skip upstream update checks on Aleph builds | Keep the update guards (07c1ec9e). |
 | signed-update-channel | in-tree | 62 | Signed update channel: manifest, floor, instance, install request and settings row | Restore the signed update contracts after a sync (fb8d2a5bdc). |
 | version-scheme | in-tree | 6 | Version `<upstream>+aleph.X.Y.Z` and lockstep check | Set after the merge by the version step. |
 | branding | in-tree | 8 | Desktop branding: Aleph strings, copyright, icons | Keep Aleph's desktop branding (07c1ec9e). |
@@ -52,6 +52,6 @@ Totals: 780 differing paths. 2 are deletions (`.github/workflows/deploy-ai-gatew
 ## Using the ledger
 
 - Merge the upstream tag. For each conflict, find the path in the paths file, read the patch row, and re-apply the Aleph side.
-- A conflict in a path whose patch is *keep* (composer-gate, history-keybindings, thread-open-follow, no-upstream-updates, branding) takes Aleph's version unless upstream changed the surface the patch depends on; then escalate.
+- A conflict in a path whose patch is *keep* (composer-gate, thread-open-follow, no-upstream-updates, branding) takes Aleph's version unless upstream changed the surface the patch depends on; then escalate.
 - Record each real resolution with `git rerere` so the next sync replays it. Resolutions are reviewed before they are shared.
 - Regenerate the paths file after every sync and check that `unattributed` is empty.
