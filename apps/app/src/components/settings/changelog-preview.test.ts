@@ -107,6 +107,26 @@ It also adds more ways to customize bb.
   });
 });
 
+describe("parseChangelog with an Unreleased section", () => {
+  it("skips the Unreleased section and keeps the releases below it", () => {
+    const entries = parseChangelog(
+      `# Changelog\n\n## Unreleased\n\nPending notes.\n\n### Secrets\n\n- A pending change.\n\n${SAMPLE.replace("# Changelog\n", "")}`,
+    );
+
+    expect(entries.map((entry) => entry.version)).toEqual(["0.37.0", "0.36.0"]);
+    expect(entries[0].lede).toEqual([
+      {
+        kind: "paragraph",
+        text: "A much faster app on your phone, and a long list of fixes.",
+      },
+    ]);
+    expect(entries[0].sections.map((section) => section.title)).toEqual([
+      "Mobile is much faster",
+      "Edit a message you already sent",
+    ]);
+  });
+});
+
 describe("LATEST_CHANGELOG_ENTRY", () => {
   it("is the newest release, not the running build's", () => {
     expect(LATEST_CHANGELOG_ENTRY).toBe(CHANGELOG_ENTRIES[0]);

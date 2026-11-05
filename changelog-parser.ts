@@ -44,7 +44,14 @@ export function parseChangelog(markdown: string): ChangelogEntry[] {
     if (line.startsWith("## ") && !line.startsWith("### ")) {
       flushParagraph();
       section = null;
-      entry = { version: line.slice(3).trim(), lede: [], sections: [] };
+      const heading = line.slice(3).trim();
+      // An "Unreleased" section collects notes for the next release; it is
+      // not a release, so it and everything under it are skipped.
+      if (heading.toLowerCase() === "unreleased") {
+        entry = null;
+        continue;
+      }
+      entry = { version: heading, lede: [], sections: [] };
       entries.push(entry);
       continue;
     }
