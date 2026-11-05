@@ -376,9 +376,6 @@ export function AppCommandProvider({ children }: { children: ReactNode }) {
           event.composedPath()[0] ?? event.target,
         );
         if (!matchesAppCommandContext(binding, context)) continue;
-        // Browser history commands run page-first; when the page cannot
-        // navigate, fall through to app history (the history chord is
-        // excluded under browser focus, so nothing else would handle it).
         const fallback = APP_COMMAND_FALLBACKS[binding.command];
         if (
           !dispatch(binding.command, event.target) &&

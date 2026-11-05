@@ -680,19 +680,16 @@ describe("AppCommandProvider", () => {
       </>,
     );
 
-    // Page cannot navigate: the toolbar chord reaches app history.
     const toolbar = screen.getByText("Toolbar control");
     expect(dispatchBack(toolbar).defaultPrevented).toBe(true);
     expect(testState.calls).toEqual(["browser", "history"]);
 
-    // Outside browser chrome only history runs.
     testState.calls.length = 0;
     expect(dispatchBack(screen.getByText("Outside")).defaultPrevented).toBe(
       true,
     );
     expect(testState.calls).toEqual(["history"]);
 
-    // Editable address bar keeps native behavior: no browser, no fallback.
     testState.calls.length = 0;
     expect(
       dispatchBack(screen.getByLabelText("Address")).defaultPrevented,
@@ -700,7 +697,6 @@ describe("AppCommandProvider", () => {
     expect(testState.calls).toEqual([]);
     unmount();
 
-    // The page handles it: history is not also run.
     testState.calls.length = 0;
     renderProvider(
       <>
