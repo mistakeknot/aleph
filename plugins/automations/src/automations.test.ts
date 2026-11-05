@@ -1,5 +1,6 @@
 import {
   access,
+  chmod,
   mkdtemp,
   mkdir,
   readFile,
@@ -2668,6 +2669,110 @@ describe("script project context", () => {
     expect(withoutMissingBbCliWarning(result.closed?.output)).toBe(
       "stdout kept\n\n  missing project file  \nlater detail\n",
     );
+  });
+});
+
+describe("script BB_CLI injection", () => {
+  const MARKED_SHIM = [
+    "#!/bin/sh",
+    "# Written by bb: runs the bb command of the bb installed on this computer.",
+    "exit 0",
+    "",
+  ].join("\n");
+
+  async function runPrintingBbCli(args: {
+    cliDir: string | undefined;
+    launcherPath: string | undefined;
+  }): Promise<string> {
+    const pluginDataDir = await mkdtemp(join(tmpdir(), "bb-auto-bbcli-"));
+    try {
+      const scriptDir = automationScriptDir(pluginDataDir, "auto_bbcli");
+      await mkdir(scriptDir, { recursive: true });
+      await writeFile(
+        join(scriptDir, "script.sh"),
+        'printf "BB_CLI=[%s]\\n" "${BB_CLI:-unset}"\n',
+      );
+      vi.stubEnv("BB_CLI", "");
+      vi.stubEnv("BB_CLI_DIR", args.cliDir ?? "");
+      vi.stubEnv("BB_CLI_LAUNCHER", args.launcherPath ?? "");
+      const result = await executeStoredScript({
+        pluginDataDir,
+        automationId: "auto_bbcli",
+        runId: "run_bbcli",
+        projectId: "proj_test",
+        scriptFile: "script.sh",
+        interpreter: "bash",
+        timeoutMs: 10_000,
+        serverUrl: "http://127.0.0.1:38886",
+        workingDir: scriptsRoot(pluginDataDir),
+        signal: new AbortController().signal,
+      });
+      return result.output;
+    } finally {
+      vi.unstubAllEnvs();
+      await rm(pluginDataDir, { recursive: true, force: true });
+    }
+  }
+
+  it("never writes the path named by BB_CLI_LAUNCHER into a script's BB_CLI", async ({
+    skip,
+  }) => {
+    skip(process.platform === "win32", BASH_SCRIPT_RUNS_ARE_POSIX_ONLY);
+    const binDir = await mkdtemp(join(tmpdir(), "bb-auto-launcher-"));
+    try {
+      const launcher = join(binDir, "bb");
+      await writeFile(launcher, "#!/bin/sh\nexit 0\n");
+      await chmod(launcher, 0o755);
+
+      const output = await runPrintingBbCli({
+        cliDir: undefined,
+        launcherPath: launcher,
+      });
+
+      expect(output).toContain("BB_CLI=[unset]");
+    } finally {
+      await rm(binDir, { recursive: true, force: true });
+    }
+  });
+
+  it("never writes a marked launcher shim into BB_CLI even when the launcher variable is unset", async ({
+    skip,
+  }) => {
+    skip(process.platform === "win32", BASH_SCRIPT_RUNS_ARE_POSIX_ONLY);
+    const binDir = await mkdtemp(join(tmpdir(), "bb-auto-launcher-"));
+    try {
+      const launcher = join(binDir, "bb");
+      await writeFile(launcher, MARKED_SHIM);
+      await chmod(launcher, 0o755);
+
+      const output = await runPrintingBbCli({
+        cliDir: binDir,
+        launcherPath: undefined,
+      });
+
+      expect(output).toContain("BB_CLI=[unset]");
+    } finally {
+      await rm(binDir, { recursive: true, force: true });
+    }
+  });
+
+  it("still passes a real bb CLI through as BB_CLI", async ({ skip }) => {
+    skip(process.platform === "win32", BASH_SCRIPT_RUNS_ARE_POSIX_ONLY);
+    const binDir = await mkdtemp(join(tmpdir(), "bb-auto-realcli-"));
+    try {
+      const cli = join(binDir, "bb");
+      await writeFile(cli, "#!/bin/sh\nexit 0\n");
+      await chmod(cli, 0o755);
+
+      const output = await runPrintingBbCli({
+        cliDir: binDir,
+        launcherPath: undefined,
+      });
+
+      expect(output).toContain(`BB_CLI=[${cli}]`);
+    } finally {
+      await rm(binDir, { recursive: true, force: true });
+    }
   });
 });
 

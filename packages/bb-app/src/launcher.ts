@@ -107,9 +107,11 @@ import {
   type AppInstall,
 } from "@bb/config/app-install";
 import {
+  CLI_LAUNCHER_ENTERED_ENV_NAME,
   CLI_LAUNCHER_ENV_NAME,
   CLI_REEXEC_ENV_NAME,
 } from "@bb/config/cli-command";
+import { cliOverrideLoopsBackToLauncher } from "./cli-override-guard.js";
 import { z } from "zod";
 import { resolveAppInstall } from "./app-install.js";
 import {
@@ -802,6 +804,7 @@ export interface SuperviseHostDaemonProcessArgs {
 interface RunBundledCliCommandArgs {
   args: string[];
   context: BbAppStartContext;
+  entryPath?: string | null;
   env: NodeJS.ProcessEnv;
 }
 
@@ -2818,10 +2821,26 @@ export function resolveBundledCliLaunch(args: ResolveBundledCliLaunchArgs): {
 export async function runBundledCliCommand(
   args: RunBundledCliCommandArgs,
 ): Promise<number> {
-  const cliOverride =
+  if (args.env[CLI_LAUNCHER_ENTERED_ENV_NAME] === "1") {
+    process.stderr.write(
+      `bb: refusing to start the bb launcher again from inside itself. BB_CLI=${
+        toOptionalString(args.env.BB_CLI) ?? ""
+      } leads back to the bb launcher. Unset BB_CLI or point it at a real bb CLI.\n`,
+    );
+    return 1;
+  }
+  const requestedOverride =
     args.env[CLI_REEXEC_ENV_NAME] === "1"
       ? null
       : (toOptionalString(args.env.BB_CLI) ?? null);
+  const cliOverride =
+    requestedOverride !== null &&
+    cliOverrideLoopsBackToLauncher({
+      entryPath: args.entryPath ?? process.argv[1] ?? null,
+      override: requestedOverride,
+    })
+      ? null
+      : requestedOverride;
   const launch = resolveBundledCliLaunch({
     args: args.args,
     bundledCliPath: join(args.context.daemonBundleDir, "bb"),
@@ -2832,6 +2851,9 @@ export async function runBundledCliCommand(
   const env = createCliEnv({ context: args.context, env: args.env });
   if (cliOverride !== null) {
     env[CLI_REEXEC_ENV_NAME] = "1";
+    env[CLI_LAUNCHER_ENTERED_ENV_NAME] = "1";
+  } else if (requestedOverride !== null) {
+    delete env.BB_CLI;
   }
   const childProcess = spawn(launch.command, launch.args, {
     cwd: process.cwd(),

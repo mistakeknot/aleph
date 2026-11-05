@@ -3,6 +3,7 @@ import { realpathSync } from "node:fs";
 import { resolve, win32 } from "node:path";
 
 export const BB_CLI_REEXEC_ENV = "BB_CLI_REEXEC";
+export const BB_CLI_LAUNCHER_ENTERED_ENV = "BB_CLI_LAUNCHER_ENTERED";
 
 interface MaybeReexecViaBbCliArgs {
   env?: NodeJS.ProcessEnv;
@@ -43,6 +44,7 @@ export function maybeReexecViaBbCli(
   options: MaybeReexecViaBbCliArgs = {},
 ): void {
   const env = options.env ?? process.env;
+  delete env[BB_CLI_LAUNCHER_ENTERED_ENV];
   if (env[BB_CLI_REEXEC_ENV] === "1") {
     return;
   }

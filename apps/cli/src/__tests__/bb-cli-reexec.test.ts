@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  BB_CLI_LAUNCHER_ENTERED_ENV,
   BB_CLI_REEXEC_ENV,
   maybeReexecViaBbCli,
   resolveBbCliLaunch,
@@ -35,6 +36,16 @@ describe("maybeReexecViaBbCli", () => {
       reexec,
     });
     expect(reexec).not.toHaveBeenCalled();
+  });
+
+  it("clears the launcher entry marker so nested bb commands can start", () => {
+    const env: NodeJS.ProcessEnv = { [BB_CLI_LAUNCHER_ENTERED_ENV]: "1" };
+    maybeReexecViaBbCli({
+      env,
+      currentExecutablePath: "/tmp/current-bb",
+      reexec: vi.fn(),
+    });
+    expect(env[BB_CLI_LAUNCHER_ENTERED_ENV]).toBeUndefined();
   });
 
   it("no-ops when BB_CLI equals the current executable", async () => {
