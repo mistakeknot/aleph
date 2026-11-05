@@ -215,6 +215,18 @@ export function resolveCreateThreadExecutionDefaults(
     );
   }
   const registration = registry.get(providerId);
+  if (registration === null && args.requestedProviderId !== undefined) {
+    const validIds = registry
+      .list()
+      .map((entry) => entry.info.id)
+      .sort();
+    throw new ApiError(
+      400,
+      "unknown_provider",
+      `Unknown provider "${providerId}". Valid provider ids: ${validIds.join(", ") || "none registered"}.`,
+      { details: { providerId, validProviderIds: validIds } },
+    );
+  }
   if (registration !== null && !registration.info.available) {
     throw new ApiError(
       409,

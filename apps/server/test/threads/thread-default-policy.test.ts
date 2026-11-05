@@ -108,6 +108,28 @@ describe("resolveCreateThreadExecutionDefaults", () => {
     });
   });
 
+  it("rejects an unregistered requested provider and lists the valid ids", () => {
+    let caught: unknown;
+    try {
+      resolveCreateThreadExecutionDefaults(registry, {
+        storedDefaults: null,
+        requestedProviderId: "claude",
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toMatchObject({
+      status: 400,
+      body: { code: "unknown_provider" },
+    });
+    const message = (caught as Error).message;
+    expect(message).toContain('Unknown provider "claude"');
+    for (const entry of registry.list()) {
+      expect(message).toContain(entry.info.id);
+    }
+  });
+
   it("honors the user's default provider and picker order", async () => {
     const preferences = {
       providerOrder: ["pi", "claude-code"],

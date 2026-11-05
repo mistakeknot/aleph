@@ -254,6 +254,39 @@ describe("child outcomes without provider completion", () => {
     });
   });
 
+  it("carries the setup failure message to the parent and records it on the thread", async () => {
+    await withTestHarness(async (harness) => {
+      const { parent, child, environment } = seedParentAndChild(
+        harness,
+        "starting",
+      );
+      const reason = "git worktree add failed: fatal: invalid reference";
+
+      vi.useFakeTimers();
+      failThreadProvisioning(harness.deps, {
+        thread: child,
+        environmentId: environment.id,
+        detail: reason,
+      });
+      await vi.advanceTimersByTimeAsync(2_000);
+
+      await vi.waitFor(() =>
+        expect(parentSystemRequests(harness, parent.id)).toMatchObject([
+          { systemMessageKind: "child-failed" },
+        ]),
+      );
+      expect(
+        JSON.stringify(parentSystemRequests(harness, parent.id)[0]?.input),
+      ).toContain(
+        `failed during workspace setup before a turn began: ${reason}`,
+      );
+      const recorded = listEvents(harness.db, { threadId: child.id }).filter(
+        (row) => row.type === "system/error",
+      );
+      expect(recorded.map((row) => row.data).join("\n")).toContain(reason);
+    });
+  });
+
   it("notifies the parent when an environment fails during setup", async () => {
     await withTestHarness(async (harness) => {
       const { parent } = seedParentAndChild(harness, "idle");

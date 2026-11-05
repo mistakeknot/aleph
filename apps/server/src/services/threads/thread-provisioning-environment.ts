@@ -154,12 +154,27 @@ export function failThreadProvisioning(
       "Failed environment preparation cleanup will retry",
     ),
   );
-  if (outcome.applied) queueChildSetupFailureNotification(deps, args.thread);
+  if (outcome.applied)
+    queueChildSetupFailureNotification(deps, args.thread, args.detail);
+}
+
+const SETUP_FAILURE_REASON_CHAR_LIMIT = 500;
+
+function setupFailureContext(reason: string | null | undefined): string {
+  const base = "failed during workspace setup before a turn began";
+  const collapsed = reason?.replace(/\s+/g, " ").trim();
+  if (!collapsed) return base;
+  const excerpt =
+    collapsed.length > SETUP_FAILURE_REASON_CHAR_LIMIT
+      ? `${collapsed.slice(0, SETUP_FAILURE_REASON_CHAR_LIMIT)}…`
+      : collapsed;
+  return `${base}: ${excerpt}`;
 }
 
 export function queueChildSetupFailureNotification(
   deps: LoggedPendingInteractionWorkSessionDeps,
   thread: Thread,
+  reason?: string | null,
 ): void {
   if (!isParentNotifiableChildThread(thread, "failed")) return;
   void queueChildThreadTurnNotificationBestEffort(deps, {
@@ -167,7 +182,7 @@ export function queueChildSetupFailureNotification(
     parentThreadId: thread.parentThreadId,
     turnId: null,
     turnStatus: "failed",
-    failureContext: "failed during workspace setup before a turn began",
+    failureContext: setupFailureContext(reason),
   });
 }
 
