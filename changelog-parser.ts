@@ -44,7 +44,12 @@ export function parseChangelog(markdown: string): ChangelogEntry[] {
     if (line.startsWith("## ") && !line.startsWith("### ")) {
       flushParagraph();
       section = null;
-      entry = { version: line.slice(3).trim(), lede: [], sections: [] };
+      const heading = line.slice(3).trim();
+      if (heading.toLowerCase() === "unreleased") {
+        entry = null;
+        continue;
+      }
+      entry = { version: heading, lede: [], sections: [] };
       entries.push(entry);
       continue;
     }
