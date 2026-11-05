@@ -42,7 +42,7 @@ Held as: *plugin* means the change lives in a plugin directory; *in-tree* means 
 | fork-owned-migrations | in-tree | 77 | Fork-owned migrations A0001-A0011 in `packages/db/drizzle-aleph/` (manifest `after` and `supersedes`) beside the frozen upstream `drizzle/` folder; one fork step supersedes upstream 0143_queued_message_state | Keep the fork folder and the frozen upstream pin. A sync that adds an upstream migration is an ESCALATE item; keep journal `when` values ordered or the boot check throws (FORK.md). | **Keep.** Fork migrations A0001-A0011 in `drizzle-aleph/` (manifest `after`/`supersedes`); upstream folder stays frozen. A sync that adds a migration is an ESCALATE item; keep journal `when` increasing. |
 | fork-docs | in-tree | 38 | Fork documents, hygiene allowlist and changelog | Keep Aleph's text. | **Keep.** Aleph's text. Five shared files (api_to_audit, release-process, debugging-and-qa, CHANGELOG, changelog-preview test) conflict with upstream edits; take both sides on a sync. |
 | build-config | in-tree | 17 | Build, lint and test configuration edits | Re-apply. | **Keep.** vite-react-compiler.ts is formatting-only (format-cleanup bead). package.json versions come from the version step. app-update.ts and the integration harness conflict with upstream updateWhenIdle work. |
-| web-site | in-tree | 7 | Marketing site and blog edits | Re-apply. | **Retire after cleanup.** Retire after the format-cleanup bead: all 7 paths differ from upstream by formatting only. Adopting upstream's text needs format:check to pass or an oxfmt ignore entry. |
+| web-site | in-tree | 7 | Marketing site and blog edits | Re-apply. | **Retire after cleanup.** Retire after the format-cleanup bead: at the pinned upstream base (UPSTREAM_BASE, bcefd50bf2) all 7 paths differ by formatting only. Upstream has changed `public-marketplace.tsx` since (marketplace arrival tracking, 9662c45478), so retire by taking upstream's current text on a sync, not by restoring the base text. Adopting upstream's text needs format:check to pass or an oxfmt ignore entry. |
 | mobile | in-tree | 5 | Mobile app edits | Re-apply. | **Keep.** Mobile shell deltas still present; thread-open-follow is the verified one. Other mobile differences are likely upstream drift but unconfirmed. |
 | app-shell-ui | in-tree | 13 | App shell, pickers, dialogs and sidebar edits | Re-apply. | **Keep.** Catch-all shell row; Aleph-only hunks remain, but not every hunk is verified against upstream drift. Hunk-level review recommended before the next base move. |
 | upstream-backport | in-tree | 1 | Aleph's own small fix (offline-host discovery logs at debug, with hostId); upstream still warns | Drops out when the release carries it. | **Keep, upstream candidate.** Mislabelled: this is Aleph's own fix (offline-host discovery logs at debug); upstream still warns. Upstream candidate. Move execution-options.ts here from no-upstream-updates. |
@@ -65,9 +65,7 @@ Audited against upstream bcefd50bf2 (this ledger's base) and upstream main as fe
 
 Verdict counts (48 rows): KEEP 44, MOVE-PLUGIN 1, UPSTREAM-CANDIDATE 2, RETIRE-BEAD 1, RETIRE-NOW 0.
 
-Flags (a row can carry several): keep-still-needed 33, upstreamable 19, plugin-able 7, partly-superseded 15.
-
-No row retires now: every superseded fragment needs a code change that is a child bead (rebase, test or cleanup), not a ledger-only edit. The one RETIRE-BEAD row (web-site) differs from upstream by formatting only.
+No row retires now: every superseded fragment needs a code change that is a child bead (rebase, test or cleanup), not a ledger-only edit. The one RETIRE-BEAD row (web-site) differs from the pinned upstream base by formatting only; upstream main has moved on since.
 
 ### What moves to a plugin, and what stays core
 
@@ -139,7 +137,7 @@ Group counts: a 6, b 18, c 23, d 1. Each row appears once, in its main group; a 
 
 | Patch | Superseded by | Action |
 |---|---|---|
-| web-site | Upstream's own text (formatting only differs) | Drop the 7 paths after the format-cleanup bead; adopting upstream's text needs `format:check` to pass or an oxfmt ignore entry |
+| web-site | Upstream's own text (only formatting differs at the pinned base; upstream main has since added marketplace arrival tracking) | Drop the 7 paths after the format-cleanup bead and take upstream's current text; adopting upstream's text needs `format:check` to pass or an oxfmt ignore entry |
 
 Superseded in part, held under other rows (child beads are listed in the PR): account-pooler: quota and receipts rebase onto upstream's refusal-based quota (#6849); provider-usage: the `kind ?? "custom"` passthrough hunk (#7006); timeline-build-bound: incremental timeline path (`timeline-selection-memo.ts`, `timeline-cache.ts`, `thread-timeline-windows.ts`); diagnostics-log: composer-stuck guards that #6630 and #7001 may cover (unverified); composer-gate: the dead question-draft map; history-keybindings: Cmd-[ and Cmd-] bindings, retired to upstream by PR #128.
 
@@ -150,7 +148,6 @@ Extension points that exist in upstream today: plugin SDK slots (`experimental_p
 - queue-transfer and fork-owned-migrations: the old text named migration 0151 and renumbered upstream migrations; the fork now uses the namespaced runner with `A0001` to `A0011`. Text corrected.
 - upstream-backport: it is Aleph's own fix, not a backport. thread-cli: send time is now upstream's own.
 - Path attribution that the paths file gets wrong (a bead covers regeneration): `execution-options.ts` sits under no-upstream-updates but belongs to upstream-backport; `base.ts` is claimed by layer-groups although it also holds event-cold-tier and thread-search code; thread-search-learned owns only two test files; credential-redaction picks up unrelated files (`app-keybindings.ts`, `app-theme.ts`, `update-state.ts`, `changelog-metadata.ts`, `native-roots.ts`, `thread-create-origin.ts`).
-- history-keybindings carries a stale-keep risk until the open PR that retires the override lands.
 
 ### Child beads
 
