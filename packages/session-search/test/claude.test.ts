@@ -317,6 +317,28 @@ describe("claude normalization", () => {
     expect(dedupeByKey(records)).toHaveLength(2);
   });
 
+  it("uses the source position to keep identical identity-less assistant records apart", () => {
+    const record = {
+      type: "assistant",
+      sessionId: "s",
+      timestamp: "2026-01-02T03:04:05.000Z",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "same" }],
+        usage: { input_tokens: 5, output_tokens: 2 },
+      },
+    };
+    const apart = [10, 11].flatMap((position) =>
+      normalize(record, { ...claude, position }),
+    );
+    expect(apart).toHaveLength(4);
+    expect(dedupeByKey(apart)).toHaveLength(4);
+    const same = [10, 10].flatMap((position) =>
+      normalize(record, { ...claude, position }),
+    );
+    expect(dedupeByKey(same)).toHaveLength(2);
+  });
+
   it("marks nested subagent records as sidechain with their own usage scope", () => {
     const records = normalizeFixture("claude/subagent-agent-a1.jsonl", claude);
     expect(records.length).toBeGreaterThan(0);

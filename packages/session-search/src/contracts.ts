@@ -423,7 +423,7 @@ function normalizeClaude(
     (messageId === null
       ? null
       : `${messageId}:${blockIndex ?? contentDigest(record)}`) ??
-    `${sessionId ?? "-"}:${asString(record.timestamp) ?? "-"}:${contentDigest(record)}`;
+    `${sessionId ?? "-"}:${source.position ?? "-"}:${asString(record.timestamp) ?? "-"}:${contentDigest(record)}`;
 
   const base = (index: number) =>
     eventBase(source, {
