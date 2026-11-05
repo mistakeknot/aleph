@@ -37,8 +37,11 @@ Shipped today, from [FORK.md](FORK.md#carried-patches):
   ([Signed update channel](FORK.md#signed-update-channel)).
 - **Migration-safe restarts.** The server defers a stop signal until its
   database migration finishes ([Migration-safe update](FORK.md#migration-safe-update-mk-ooomf1)).
-- **Agent process priority.** Host plugin workers and terminal PTYs run at a
-  lower priority (`BB_AGENT_NICE`), so agent workloads cannot starve the server.
+- **Agent process priority.** On Linux and macOS, host plugin workers and
+  terminal PTYs run at a lower CPU priority (`BB_AGENT_NICE`, default 10), which
+  helps keep agent workloads from crowding out the server. Setting it to 0
+  disables this, Windows is skipped, and a failure to lower the priority only
+  logs a warning.
 - **Extra workspace-write roots.** `BB_EXTRA_WORKSPACE_WRITE_ROOTS` lets
   workspace-write threads write to directories such as a shared build cache.
 - **Composer-stuck fixes and a renderer diagnostics log** for the desktop app.
@@ -51,7 +54,7 @@ Shipped today, from [FORK.md](FORK.md#carried-patches):
 - **Release qualification** in the fork's own CI
   (`scripts/ci-release-check.sh`).
 
-The [changelog](CHANGELOG.md) covers each Aleph release.
+The [changelog](CHANGELOG.md) records the Aleph version history.
 
 Not built yet: DONE/BLOCKED as a structural rule, capped returns, outcome waits
 with deadlines, bounded review, checkpoints for coordinator rotation, capacity
@@ -71,13 +74,15 @@ own answer to a problem Aleph patched, Aleph adopts it and drops the patch.
   `0.48.0+aleph.0.9.0`: Aleph 0.9.0 on upstream bb 0.48.0. See
   [Versions](FORK.md#versions).
 - **Tracking.** [`UPSTREAM_BASE`](UPSTREAM_BASE) records the upstream commit,
-  the upstream release and the Aleph version of the last sync. Upstream is
-  merged into Aleph, not rebased, and upstream syncs land as real merge commits
-  that record the upstream commit as a second parent, so `git merge-base`
-  against upstream shows the true shared history. Earlier syncs were squashed
-  into single commits; one merge commit joined that history to upstream
-  0.48.0. `scripts/upstream-sync.sh` probes how far upstream merges cleanly and
-  prepares a sync branch ([Upstream syncs in small steps](FORK.md#upstream-syncs-in-small-steps)).
+  the upstream release and the Aleph version of the last sync; it currently
+  records upstream commit `bcefd50bf2`, three commits past the 0.48.0 release.
+  Earlier syncs were squashed into single commits, so Aleph's history did not
+  share upstream's. Since the join to upstream 0.48.0, `main` shares history with
+  upstream, and the sync to `bcefd50bf2` landed as a merge commit that records
+  the upstream commit as a second parent. `scripts/upstream-sync.sh` probes how
+  far upstream merges cleanly and prepares a sync branch; it does not by itself
+  promise a merge commit for every sync
+  ([Upstream syncs in small steps](FORK.md#upstream-syncs-in-small-steps)).
 - **Carried differences.** The [patch ledger](docs/aleph-patch-ledger.md) lists
   every difference from upstream and how each is held, and is the checklist
   for a sync. `git log --no-merges <upstream main>..HEAD` lists the carried
@@ -229,4 +234,4 @@ Aleph is built on [bb](https://github.com/get-bb/bb) by the bb maintainers and
 contributors; most of the code is theirs. Aleph merges upstream into the fork
 and follows upstream's direction
 ([vision](docs/aleph-vision.md#relationship-to-upstream-bb)). Both are
-released under the [MIT license](LICENSE).
+licensed under the [MIT license](LICENSE).
