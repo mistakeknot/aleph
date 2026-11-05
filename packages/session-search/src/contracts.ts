@@ -883,7 +883,14 @@ function normalizeBb(
   const sessionId = threadId ?? source.sessionId ?? null;
   const rowId =
     asNonEmptyString(record.id) ??
-    `${threadId ?? "-"}:${asNumber(record.sequence) ?? "-"}`;
+    [
+      threadId ?? "-",
+      asNumber(record.sequence) ?? "-",
+      source.position ?? "-",
+      asString(record.created_at) ?? "-",
+      type,
+      contentDigest(record),
+    ].join(":");
   const eventTimeMs = parseTimeMs(record.created_at);
   const parentCallId = asNonEmptyString(record.parent_tool_call_id);
   const sidechain = parentCallId !== null;

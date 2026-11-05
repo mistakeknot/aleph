@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { cumulativeToDeltas, normalize } from "../src/index.js";
+import { cumulativeToDeltas, dedupeByKey, normalize } from "../src/index.js";
 import { fixturePath, ofKind } from "./helpers.js";
 import { readFileSync } from "node:fs";
 
@@ -130,5 +130,20 @@ describe("bb event normalization", () => {
     });
     const withBaseline = cumulativeToDeltas(usage, usage[0]);
     expect(withBaseline[0]?.delta).toMatchObject({ totalTokens: 0 });
+  });
+
+  it("keeps id-less, sequence-less events apart by source position", () => {
+    const event = (total: number) => ({
+      type: "thread/tokenUsage/updated",
+      thread_id: "t1",
+      created_at: "2026-01-02T03:04:05.000Z",
+      data: JSON.stringify({
+        tokenUsage: { total: { totalTokens: total, inputTokens: total } },
+      }),
+    });
+    const records = [100, 30, 100, 30, 50].flatMap((total, position) =>
+      normalize(event(total), { provider: "bb", position }),
+    );
+    expect(ofKind(dedupeByKey(records), "usage")).toHaveLength(5);
   });
 });
