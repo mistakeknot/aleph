@@ -269,6 +269,8 @@ type ExpectedFilesKey =
   | "move"
   | "read"
   | "remove"
+  | "secretCommit"
+  | "secretProbe"
   | "write";
 
 type ExpectedGuideKey = "render";

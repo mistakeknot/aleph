@@ -6,18 +6,35 @@ const SECRET_VALUE_MAX_LENGTH = 16 * 1024;
 
 export const secretNameSchema = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/u);
 
-export const secretRequestPayloadSchema = z.object({
-  purpose: z.string().min(1).nullable(),
-  destination: z.object({ kind: z.literal("dotenv"), path: z.string().min(1) }),
-  fields: z
-    .array(
-      z.object({
-        name: secretNameSchema,
-        description: z.string().min(1).nullable(),
-      }),
-    )
-    .min(1),
-});
+export const secretRequestPayloadSchema = z
+  .object({
+    requestId: z.string().uuid(),
+    threadId: z.string().min(1),
+    project: z.string().min(1),
+    purpose: z.string().min(1).nullable(),
+    destination: z
+      .object({
+        kind: z.literal("dotenv"),
+        path: z.string().min(1),
+        consumer: z.string().min(1),
+      })
+      .strict(),
+    digestPrefix: z.string().regex(/^[0-9a-f]{12}$/u),
+    allowlistEntryPrefix: z.string().regex(/^[0-9a-f]{12}$/u),
+    expiresAtMs: z.number().int().positive(),
+    fields: z
+      .array(
+        z
+          .object({
+            name: secretNameSchema,
+            description: z.string().min(1).nullable(),
+            existing: z.boolean(),
+          })
+          .strict(),
+      )
+      .min(1),
+  })
+  .strict();
 export type SecretRequestPayload = z.infer<typeof secretRequestPayloadSchema>;
 
 const secretValueSchema = z
@@ -31,7 +48,9 @@ const secretValueSchema = z
     message: "Secret values must not contain NUL",
   });
 
-export const secretRequestResponseSchema = z.object({
-  values: z.record(secretNameSchema, secretValueSchema),
-});
+export const secretRequestResponseSchema = z
+  .object({
+    values: z.record(secretNameSchema, secretValueSchema),
+  })
+  .strict();
 export type SecretRequestResponse = z.infer<typeof secretRequestResponseSchema>;

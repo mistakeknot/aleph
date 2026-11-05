@@ -137,6 +137,10 @@ import type {
   HostFileReadResponse,
   HostFileWriteRequest,
   HostFileWriteResponse,
+  HostSecretCommitRequest,
+  HostSecretCommitResponse,
+  HostSecretProbeRequest,
+  HostSecretProbeResponse,
   HostMkdirRequest,
   HostMkdirResponse,
   HostMovePathRequest,
@@ -323,6 +327,8 @@ import {
   hostFileListRequestSchema,
   hostFileReadRequestSchema,
   hostFileWriteRequestSchema,
+  hostSecretCommitRequestSchema,
+  hostSecretProbeRequestSchema,
   hostMkdirRequestSchema,
   hostMovePathRequestSchema,
   hostPathListRequestSchema,
@@ -662,6 +668,22 @@ export const publicApiRoutes = {
         hostFileWriteRequestSchema,
       ),
       response: jsonResponse<HostFileWriteResponse>(),
+    }),
+    secretProbe: defineRoute({
+      path: "/files/secret-probe",
+      method: "post",
+      request: jsonRequest<EmptyInput, HostSecretProbeRequest>(
+        hostSecretProbeRequestSchema,
+      ),
+      response: jsonResponse<HostSecretProbeResponse>(),
+    }),
+    secretCommit: defineRoute({
+      path: "/files/secret-commit",
+      method: "post",
+      request: jsonRequest<EmptyInput, HostSecretCommitRequest>(
+        hostSecretCommitRequestSchema,
+      ),
+      response: jsonResponse<HostSecretCommitResponse>(),
     }),
     list: defineRoute({
       path: "/files/list",

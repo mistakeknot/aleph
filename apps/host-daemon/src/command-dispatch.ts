@@ -53,6 +53,10 @@ import {
 } from "./command-handlers/host-files.js";
 import { writeHostFile } from "./command-handlers/file-write.js";
 import {
+  commitHostSecret,
+  probeHostSecret,
+} from "./command-handlers/secret-commit.js";
+import {
   mkdirHostPath,
   moveHostPath,
   removeHostPath,
@@ -660,6 +664,8 @@ const onlineRpcHandlers: OnlineRpcHandlerMap = {
   "host.read_file": readHostFile,
   "host.read_file_relative": readHostRelativeFile,
   "host.write_file": writeHostFile,
+  "host.secret_probe": probeHostSecret,
+  "host.secret_commit": commitHostSecret,
   "provider.list_models": (command, options) =>
     withResolvedBridgeLaunch(command, options, (args) =>
       options.listModels(args),

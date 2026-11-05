@@ -191,6 +191,8 @@ export function registerFileRoutes(app: Hono, deps: AppDeps): void {
     fileRoutes.mkdir,
     fileRoutes.move,
     fileRoutes.remove,
+    fileRoutes.secretProbe,
+    fileRoutes.secretCommit,
   ]) {
     app.use(route.path, async (context, next) => {
       requirePrivilegedJsonMutation(context);
@@ -265,6 +267,30 @@ export function registerFileRoutes(app: Hono, deps: AppDeps): void {
           ? { expectedSha256: payload.expectedSha256 }
           : {}),
         ...(payload.mode !== undefined ? { mode: payload.mode } : {}),
+      });
+      return context.json(result);
+    }),
+  );
+
+  post(fileRoutes.secretProbe, (context, payload) =>
+    withHostFileRoute(payload.hostId, async (hostId) => {
+      const { hostId: _requested, ...binding } = payload;
+      const result = await callHostOnlineRpcForWork(deps, {
+        hostId,
+        timeoutMs: COMMAND_TIMEOUT_MS,
+        command: { type: "host.secret_probe", ...binding, hostId },
+      });
+      return context.json(result);
+    }),
+  );
+
+  post(fileRoutes.secretCommit, (context, payload) =>
+    withHostFileRoute(payload.hostId, async (hostId) => {
+      const { hostId: _requested, ...binding } = payload;
+      const result = await runHostFileMutationCommand(hostId, {
+        type: "host.secret_commit",
+        ...binding,
+        hostId,
       });
       return context.json(result);
     }),

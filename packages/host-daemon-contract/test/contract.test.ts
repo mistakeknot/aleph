@@ -384,6 +384,17 @@ const ONLINE_RPC_RESPONSE_RESULT_FIXTURES: OnlineRpcResponseResultFixtures = {
     sha256: "c".repeat(64),
     sizeBytes: 12,
   },
+  "host.secret_probe": {
+    outcome: "refused",
+    reason: "not-allowlisted",
+    message: "The project, path and names do not match one allowlist entry.",
+  },
+  "host.secret_commit": {
+    outcome: "written",
+    added: 1,
+    updated: 0,
+    unchanged: 0,
+  },
   "provider.list_models": {
     models: [
       {
