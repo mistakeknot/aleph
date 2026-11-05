@@ -16,8 +16,12 @@
     "typecheck": "tsrs --noEmit",
     "test": "vitest run --config vitest.config.ts"
   },
+  "dependencies": {
+    "better-sqlite3": "13.0.3"
+  },
   "devDependencies": {
     "@bb/tsconfig": "workspace:*",
+    "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.0.0",
     "tsrs": "0.18.0-ts7.1.0-dev.20260929",
     "typescript": "npm:@typescript/typescript6@^6.0.2",

@@ -24,6 +24,7 @@ import { HOST_DAEMON_PROTOCOL_VERSION } from "@bb/host-daemon-contract";
 const execFileAsync = execHostFile;
 const HOST_DEPENDENCIES = [
   "@parcel/watcher",
+  "better-sqlite3",
   "fs-native-extensions",
   "node-pty",
   "pino",
