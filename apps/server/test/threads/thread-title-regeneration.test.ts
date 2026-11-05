@@ -1,4 +1,9 @@
-import { getThread, setAiServiceSelection, threads } from "@bb/db";
+import {
+  getThread,
+  isThreadEventsCold,
+  setAiServiceSelection,
+  threads,
+} from "@bb/db";
 import { eq } from "drizzle-orm";
 import {
   encodeClientTurnRequestIdNumber,
@@ -19,12 +24,15 @@ import {
   seedProjectWithSource,
   seedStoredEvent,
   seedThread,
+  seedThreadFixture,
 } from "../helpers/seed.js";
 import {
   withTestHarness as withBaseHarness,
   type TestAppHarness,
 } from "../helpers/test-app.js";
 import { registerFakeAiService } from "../helpers/ai-services.js";
+import { attemptColdMove, forceColdEligible } from "../helpers/cold-tier.js";
+import { getThreadHistoryPinCount } from "../../src/services/threads/event-cold-tier/pins.js";
 
 const completeTitle = vi.fn<(prompt: string) => Promise<string>>();
 
@@ -133,6 +141,61 @@ async function regenerate(harness: TestAppHarness, threadId: string) {
   return harness.app.request(`/api/v1/threads/${threadId}/title/regenerate`, {
     method: "POST",
   });
+}
+
+let fixtureCounter = 0;
+
+function seedConversationFixture(harness: TestAppHarness) {
+  fixtureCounter += 1;
+  const fixture = seedThreadFixture(harness, {
+    session: { id: `host-title-cold-${fixtureCounter}` },
+    environment: { path: `/tmp/title-cold-${fixtureCounter}` },
+    thread: { title: "Draft the release notes", status: "idle" },
+  });
+  const threadId = fixture.thread.id;
+  seedTurnRequest(harness, {
+    threadId,
+    sequence: 1,
+    initiator: "user",
+    target: { kind: "thread-start" },
+    input: textInput("Draft the release notes for version two"),
+  });
+  for (let index = 1; index <= 3; index += 1) {
+    seedTurnRequest(harness, {
+      threadId,
+      sequence: index + 1,
+      initiator: "user",
+      target: { kind: "new-turn" },
+      input: textInput(`Follow-up number ${index} for the release`),
+    });
+  }
+  for (let index = 1; index <= 3; index += 1) {
+    seedAgentReply(harness, {
+      threadId,
+      turnId: `turn-${index}`,
+      sequence: index + 10,
+      text: `Reply number ${index} about the release`,
+    });
+  }
+  return {
+    threadId,
+    ids: {
+      environmentId: fixture.environment.id,
+      projectId: fixture.project.id,
+      threadId,
+    },
+  };
+}
+
+async function moveToColdTier(
+  harness: TestAppHarness,
+  fixture: ReturnType<typeof seedConversationFixture>,
+): Promise<void> {
+  forceColdEligible(harness.db, fixture.ids);
+  expect((await attemptColdMove(harness, fixture.threadId)).outcome).toBe(
+    "moved",
+  );
+  expect(isThreadEventsCold(harness.db, fixture.threadId)).toBe(true);
 }
 
 describe("thread title regeneration", () => {
@@ -356,6 +419,52 @@ describe("thread title regeneration", () => {
       });
     },
   );
+
+  it("builds the same prompt for a thread whose events were moved to the cold tier", async () => {
+    completeTitle.mockResolvedValue("Ship the release checklist");
+    await withTitleService(async (harness) => {
+      const hot = seedConversationFixture(harness);
+      const cold = seedConversationFixture(harness);
+      await moveToColdTier(harness, cold);
+
+      expect((await regenerate(harness, hot.threadId)).status).toBe(200);
+      expect((await regenerate(harness, cold.threadId)).status).toBe(200);
+
+      expect(completeTitle).toHaveBeenCalledTimes(2);
+      const [hotPrompt, coldPrompt] = completeTitle.mock.calls.map(
+        ([prompt]) => prompt,
+      );
+      expect(hotPrompt).toContain(
+        "Task:\nDraft the release notes for version two",
+      );
+      expect(hotPrompt).toContain("- Follow-up number 3 for the release");
+      expect(hotPrompt).toContain("- Reply number 3 about the release");
+      expect(coldPrompt).toBe(hotPrompt);
+      expect(isThreadEventsCold(harness.db, cold.threadId)).toBe(false);
+      expect(getThreadHistoryPinCount(cold.threadId)).toBe(0);
+    });
+  });
+
+  it("holds the history pin while the title service runs and releases it after the service fails", async () => {
+    const pinCounts: number[] = [];
+    await withTitleService(async (harness) => {
+      const cold = seedConversationFixture(harness);
+      await moveToColdTier(harness, cold);
+      completeTitle.mockImplementation(async () => {
+        pinCounts.push(getThreadHistoryPinCount(cold.threadId));
+        throw new Error("model overloaded");
+      });
+
+      const response = await regenerate(harness, cold.threadId);
+
+      expect(response.status).toBe(502);
+      expect(pinCounts).toEqual([1]);
+      expect(getThreadHistoryPinCount(cold.threadId)).toBe(0);
+      expect(getThread(harness.db, cold.threadId)?.title).toBe(
+        "Draft the release notes",
+      );
+    });
+  });
 
   it("refuses a thread without a task message", async () => {
     await withTitleService(async (harness) => {
