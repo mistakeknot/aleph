@@ -14,13 +14,10 @@ export const hostFileReadRequestSchema = z
     ref: z.string().min(1).optional(),
   })
   .strict()
-  .refine(
-    (request) => request.ref === undefined || request.rootPath !== undefined,
-    {
-      message: "rootPath is required when ref is set",
-      path: ["rootPath"],
-    },
-  );
+  .refine((request) => request.ref === undefined || request.rootPath !== undefined, {
+    message: "rootPath is required when ref is set",
+    path: ["rootPath"],
+  });
 export type HostFileReadRequest = z.infer<typeof hostFileReadRequestSchema>;
 
 export const hostFileWriteRequestSchema = z
@@ -36,62 +33,6 @@ export const hostFileWriteRequestSchema = z
   })
   .strict();
 export type HostFileWriteRequest = z.infer<typeof hostFileWriteRequestSchema>;
-
-const secretRequestBindingRequestShape = {
-  hostId: z.string().min(1).optional(),
-  requestId: z.string().uuid(),
-  threadId: z.string().min(1),
-  project: z.string().min(1),
-  path: z.string().min(1),
-  fields: z
-    .array(
-      z
-        .object({
-          name: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/),
-          description: z.string().nullable(),
-        })
-        .strict(),
-    )
-    .min(1)
-    .max(64),
-  purpose: z.string().nullable(),
-  expiresAtMs: z.number().int().nonnegative(),
-};
-
-export const hostSecretProbeRequestSchema = z
-  .object(secretRequestBindingRequestShape)
-  .strict();
-export type HostSecretProbeRequest = z.infer<
-  typeof hostSecretProbeRequestSchema
->;
-
-const secretIdentityRequestSchema = z
-  .object({
-    dev: z.string().regex(/^[0-9]+$/),
-    ino: z.string().regex(/^[0-9]+$/),
-  })
-  .strict();
-
-export const hostSecretCommitRequestSchema = z
-  .object({
-    ...secretRequestBindingRequestShape,
-    requestDigest: z.string().regex(/^[0-9a-f]{64}$/),
-    parent: secretIdentityRequestSchema,
-    file: secretIdentityRequestSchema.nullable(),
-    allowlistEntrySha256: z.string().regex(/^[0-9a-f]{64}$/),
-    values: z.record(
-      z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/),
-      z
-        .string()
-        .min(1)
-        .max(16 * 1024)
-        .refine((value) => !/[\r\n\0]/.test(value)),
-    ),
-  })
-  .strict();
-export type HostSecretCommitRequest = z.infer<
-  typeof hostSecretCommitRequestSchema
->;
 
 const fileListExcludeNamesRequestSchema = z
   .array(z.string().min(1).max(FILE_LIST_EXCLUDE_NAME_MAX_LENGTH))
@@ -175,10 +116,6 @@ export type HostFileReadResponse = Exclude<
 >;
 export type HostFileWriteResponse =
   HostDaemonOnlineRpcResultByType["host.write_file"];
-export type HostSecretProbeResponse =
-  HostDaemonOnlineRpcResultByType["host.secret_probe"];
-export type HostSecretCommitResponse =
-  HostDaemonOnlineRpcResultByType["host.secret_commit"];
 export type HostFileListResponse =
   HostDaemonOnlineRpcResultByType["host.list_files"];
 export type HostPathListResponse =

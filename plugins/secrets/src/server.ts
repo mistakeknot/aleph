@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import path from "node:path";
 import {
   PluginCliError,
   cliCommand,
@@ -9,57 +9,169 @@ import {
 } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import {
-  cliError,
-  foldDescribePairs,
-  parseRequest,
-  resolveDestinationPath,
-  type ParsedRequest,
-} from "./request-args.js";
-import {
   SECRET_REQUEST_RENDERER_ID,
+  secretNameSchema,
   secretRequestResponseSchema,
 } from "./secret-request.js";
+import { assertNoDuplicateAssignments, reconcileDotenv } from "./dotenv.js";
 
-const SECRET_REQUEST_MAX_TTL_MS = 3_600_000;
-const ROW_LABEL_MAX_LENGTH = 80;
-const ROW_TITLE_MAX_LENGTH = 160;
+interface ParsedRequest {
+  names: string[];
+  purpose: string | null;
+  descriptions: Map<string, string>;
+  writeEnv: string;
+}
 
+interface FileSnapshot {
+  content: string;
+  sha256: string | null;
+}
+
+const fileReadResultSchema = z.object({
+  content: z.string(),
+  contentEncoding: z.enum(["utf8", "base64"]),
+  sha256: z.string(),
+});
 const threadHostSchema = z.object({
   host: z.object({ id: z.string() }).nullable().optional(),
 });
-const identitySchema = z.object({ dev: z.string(), ino: z.string() });
-const refusedSchema = z.object({
-  outcome: z.literal("refused"),
-  reason: z.string(),
-  message: z.string(),
-});
-const probeResultSchema = z.discriminatedUnion("outcome", [
+const fileWriteResultSchema = z.discriminatedUnion("outcome", [
+  z.object({ outcome: z.literal("written") }),
   z.object({
-    outcome: z.literal("ready"),
-    destRealpath: z.string(),
-    parent: identitySchema,
-    file: identitySchema.nullable(),
-    allowlistEntrySha256: z.string(),
-    consumer: z.string(),
-    existingNames: z.array(z.string()),
-    requestDigest: z.string(),
+    outcome: z.literal("conflict"),
+    currentSha256: z.string().nullable(),
   }),
-  refusedSchema,
-]);
-const countsShape = {
-  added: z.number().int(),
-  updated: z.number().int(),
-  unchanged: z.number().int(),
-};
-const commitResultSchema = z.discriminatedUnion("outcome", [
-  z.object({ outcome: z.literal("written"), ...countsShape }),
-  z.object({ outcome: z.literal("committed-elsewhere"), ...countsShape }),
-  z.object({ outcome: z.literal("replaced-after-commit"), ...countsShape }),
-  refusedSchema,
 ]);
 
+const DESCRIBE_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/u;
+const DESCRIBE_SPELLINGS = new Set([
+  "--describe",
+  "--description",
+  "--describe-variable",
+]);
+
+function cliError(message: string, code: string, hint?: string): never {
+  throw new PluginCliError(message, {
+    code,
+    ...(hint === undefined ? {} : { hint }),
+  });
+}
+
+function parseSecretName(value: string, label: string): string {
+  const parsed = secretNameSchema.safeParse(value);
+  if (!parsed.success) {
+    cliError(
+      `${label} must start with a letter or underscore and contain only letters, digits, and underscores.`,
+      "invalid_variable_name",
+    );
+  }
+  return parsed.data;
+}
+
+function foldDescribePairs(argv: readonly string[]): string[] {
+  const folded: string[] = [];
+  for (let index = 0; index < argv.length; index += 1) {
+    const token = argv[index] ?? "";
+    const name = argv[index + 1];
+    const description = argv[index + 2];
+    if (
+      !DESCRIBE_SPELLINGS.has(token) ||
+      name === undefined ||
+      description === undefined ||
+      !DESCRIBE_NAME_PATTERN.test(name) ||
+      description.startsWith("--")
+    ) {
+      folded.push(token);
+      continue;
+    }
+    folded.push(`--describe=${name}=${description}`);
+    index += 2;
+  }
+  return folded;
+}
+
+function parseDescriptions(
+  entries: readonly string[],
+  names: readonly string[],
+): Map<string, string> {
+  const descriptions = new Map<string, string>();
+  for (const entry of entries) {
+    const separator = entry.indexOf("=");
+    if (separator <= 0) {
+      cliError(
+        "--describe requires NAME and DESCRIPTION.",
+        "invalid_describe",
+        "Write --describe NAME 'text' or --describe NAME=text.",
+      );
+    }
+    const name = parseSecretName(
+      entry.slice(0, separator).trim(),
+      "--describe NAME",
+    );
+    const description = entry.slice(separator + 1).trim();
+    if (description.length === 0) {
+      cliError(
+        "--describe requires NAME and DESCRIPTION.",
+        "invalid_describe",
+        "Write --describe NAME 'text' or --describe NAME=text.",
+      );
+    }
+    if (descriptions.has(name))
+      cliError(`Duplicate --describe for ${name}.`, "duplicate_describe");
+    if (!names.includes(name)) {
+      cliError(
+        `--describe references unrequested variable ${name}.`,
+        "unrequested_describe",
+      );
+    }
+    descriptions.set(name, description);
+  }
+  return descriptions;
+}
+
+function parseRequest(input: {
+  names: readonly string[];
+  purpose: string | undefined;
+  describe: readonly string[];
+  writeEnv: string;
+}): ParsedRequest {
+  const names = input.names.map((name) =>
+    parseSecretName(name, "Variable name"),
+  );
+  if (new Set(names).size !== names.length)
+    cliError("Variable names must be unique.", "duplicate_variable_name");
+  const purpose = input.purpose?.trim();
+  if (purpose !== undefined && purpose.length === 0) {
+    cliError(
+      "--purpose requires a non-empty description.",
+      "invalid_purpose",
+      "Write --purpose 'why these credentials are needed'.",
+    );
+  }
+  const writeEnv = input.writeEnv.trim();
+  if (writeEnv.length === 0)
+    cliError("--write-env requires a path.", "invalid_write_env");
+  return {
+    names,
+    purpose: purpose ?? null,
+    descriptions: parseDescriptions(input.describe, names),
+    writeEnv,
+  };
+}
+
+function resolveHostPath(cwd: string, candidate: string): string {
+  if (path.posix.isAbsolute(candidate)) return path.posix.normalize(candidate);
+  if (path.win32.isAbsolute(candidate)) return path.win32.normalize(candidate);
+  return path.posix.isAbsolute(cwd)
+    ? path.posix.resolve(cwd, candidate)
+    : path.win32.resolve(cwd, candidate);
+}
+
+const ROW_LABEL_MAX_LENGTH = 80;
+const ROW_TITLE_MAX_LENGTH = 160;
+
 function clampToLength(text: string, max: number): string {
-  return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
+  return text.length <= max ? text : `${text.slice(0, max - 1)}\u2026`;
 }
 
 function httpStatus(error: unknown): number | null {
@@ -69,36 +181,25 @@ function httpStatus(error: unknown): number | null {
   return typeof status === "number" ? status : null;
 }
 
-function sanitizeError(error: unknown, stage: string): PluginCliError {
-  if (error instanceof PluginCliError) return error;
-  const status = httpStatus(error);
-  return new PluginCliError(
-    `Secret request failed while ${stage}${status === null ? "" : ` (HTTP ${status})`}.`,
-    { code: "secret_request_failed" },
-  );
+async function readSnapshot(
+  bb: BbPluginApi,
+  args: { hostId: string; path: string },
+): Promise<FileSnapshot> {
+  try {
+    const result = fileReadResultSchema.parse(await bb.sdk.files.read(args));
+    if (result.contentEncoding !== "utf8")
+      throw new Error("Dotenv file is not valid UTF-8 text.");
+    return { content: result.content, sha256: result.sha256 };
+  } catch (error) {
+    if (httpStatus(error) === 404) return { content: "", sha256: null };
+    throw error;
+  }
 }
 
-function refusal(
-  result: z.infer<typeof refusedSchema>,
-  stage: string,
-): PluginCliError {
-  return new PluginCliError(`Secret ${stage} refused: ${result.message}`, {
-    code: `secret_refused_${result.reason.replaceAll("-", "_")}`,
-  });
-}
-
-function requestFields(parsed: ParsedRequest) {
-  return parsed.names.map((name) => ({
-    name,
-    description: parsed.descriptions.get(name) ?? null,
-  }));
-}
-
-export async function runRequest(
+async function runRequest(
   bb: BbPluginApi,
   parsed: ParsedRequest,
   ctx: PluginCliContext,
-  now: () => number = Date.now,
 ): Promise<PluginCliResult> {
   if (!ctx.threadId)
     cliError("bb secret request must run from a bb thread.", "missing_thread");
@@ -108,124 +209,73 @@ export async function runRequest(
       "missing_cwd",
     );
   }
-  const threadId = ctx.threadId;
-  const destinationPath = resolveDestinationPath(ctx.cwd, parsed.writeEnv);
+  const thread = threadHostSchema.parse(
+    await bb.sdk.threads.get({
+      threadId: ctx.threadId,
+      include: "host",
+    }),
+  );
+  const host = thread.host;
+  if (!host?.id) cliError("The thread needs a live host.", "missing_host");
+  const destinationPath = resolveHostPath(ctx.cwd, parsed.writeEnv);
+  const fileArgs = { hostId: host.id, path: destinationPath };
+  let snapshot = await readSnapshot(bb, fileArgs);
+  assertNoDuplicateAssignments(snapshot.content, parsed.names);
 
-  let hostId: string;
-  try {
-    const thread = threadHostSchema.parse(
-      await bb.sdk.threads.get({ threadId, include: "host" }),
-    );
-    if (!thread.host?.id) {
-      cliError("The thread needs a live host.", "missing_host");
-    }
-    hostId = thread.host.id;
-  } catch (error) {
-    throw sanitizeError(error, "resolving the thread host");
-  }
-
-  const requestId = randomUUID();
-  const expiresAtMs = now() + SECRET_REQUEST_MAX_TTL_MS;
-  const binding = {
-    hostId,
-    requestId,
-    threadId,
-    project: parsed.project,
-    path: destinationPath,
-    fields: requestFields(parsed),
-    purpose: parsed.purpose,
-    expiresAtMs,
-  };
-
-  let probe: z.infer<typeof probeResultSchema>;
-  try {
-    probe = probeResultSchema.parse(await bb.sdk.files.secretProbe(binding));
-  } catch (error) {
-    throw sanitizeError(error, "checking the destination");
-  }
-  if (probe.outcome === "refused") throw refusal(probe, "request");
-
-  const existing = new Set(probe.existingNames);
-  const payload = {
-    requestId,
-    threadId,
-    project: parsed.project,
-    purpose: parsed.purpose,
-    destination: {
-      kind: "dotenv" as const,
-      path: probe.destRealpath,
-      consumer: probe.consumer,
-    },
-    digestPrefix: probe.requestDigest.slice(0, 12),
-    allowlistEntryPrefix: probe.allowlistEntrySha256.slice(0, 12),
-    expiresAtMs,
-    fields: binding.fields.map((field) => ({
-      ...field,
-      existing: existing.has(field.name),
-    })),
-  };
-
-  let result: Awaited<ReturnType<typeof bb.ui.requestInput>>;
-  try {
-    result = await bb.ui.requestInput(
-      {
-        threadId,
-        rendererId: SECRET_REQUEST_RENDERER_ID,
-        title: "Add secrets",
-        payload,
-        timeoutMs: Math.max(
-          1,
-          Math.min(expiresAtMs - now(), SECRET_REQUEST_MAX_TTL_MS),
-        ),
-        presentation: {
-          label: {
-            pending: clampToLength(
-              `Requesting ${parsed.names.join(", ")}`,
-              ROW_LABEL_MAX_LENGTH,
-            ),
-            completed: clampToLength(
-              `Requested ${parsed.names.join(", ")}`,
-              ROW_LABEL_MAX_LENGTH,
-            ),
-          },
+  const result = await bb.ui.requestInput(
+    {
+      threadId: ctx.threadId,
+      rendererId: SECRET_REQUEST_RENDERER_ID,
+      title: "Add secrets",
+      payload: {
+        purpose: parsed.purpose,
+        destination: {
+          kind: "dotenv",
+          path: destinationPath,
         },
-        describeSubmission: (value) => {
-          const response = secretRequestResponseSchema.safeParse(value);
-          const names = response.success
-            ? Object.keys(response.data.values).sort()
-            : [];
-          return {
-            title: clampToLength(
-              `Provided ${names.join(", ")}`,
-              ROW_TITLE_MAX_LENGTH,
-            ),
-            detail: [
-              probe.destRealpath,
-              ...names.map((name) => `- ${name}`),
-            ].join("\n"),
-          };
+        fields: parsed.names.map((name) => ({
+          name,
+          description: parsed.descriptions.get(name) ?? null,
+        })),
+      },
+      presentation: {
+        label: {
+          pending: clampToLength(
+            `Requesting ${parsed.names.join(", ")}`,
+            ROW_LABEL_MAX_LENGTH,
+          ),
+          completed: clampToLength(
+            `Requested ${parsed.names.join(", ")}`,
+            ROW_LABEL_MAX_LENGTH,
+          ),
         },
       },
-      { signal: ctx.signal },
-    );
-  } catch (error) {
-    throw sanitizeError(error, "waiting for the secure form");
-  }
+      describeSubmission: (value) => {
+        const response = secretRequestResponseSchema.safeParse(value);
+        const names = response.success
+          ? Object.keys(response.data.values).sort()
+          : [];
+        return {
+          title: clampToLength(
+            `Provided ${names.join(", ")}`,
+            ROW_TITLE_MAX_LENGTH,
+          ),
+          detail: [destinationPath, ...names.map((name) => `- ${name}`)].join(
+            "\n",
+          ),
+        };
+      },
+    },
+    { signal: ctx.signal },
+  );
   if (result.outcome === "cancelled") {
     cliError(
       `Secret request cancelled (${result.reason}).`,
       "secret_request_cancelled",
     );
   }
-
-  if (now() >= expiresAtMs) {
-    cliError("The secret request expired before it was submitted.", "expired");
-  }
-  const response = secretRequestResponseSchema.safeParse(result.value);
-  if (!response.success) {
-    cliError("The secret response was malformed.", "malformed_secret_response");
-  }
-  const responseNames = Object.keys(response.data.values).sort();
+  const response = secretRequestResponseSchema.parse(result.value);
+  const responseNames = Object.keys(response.values).sort();
   if (responseNames.join("\0") !== [...parsed.names].sort().join("\0")) {
     cliError(
       "Secret response did not contain exactly the requested variables.",
@@ -233,42 +283,34 @@ export async function runRequest(
     );
   }
 
-  let committed: z.infer<typeof commitResultSchema>;
-  try {
-    committed = commitResultSchema.parse(
-      await bb.sdk.files.secretCommit({
-        ...binding,
-        requestDigest: probe.requestDigest,
-        parent: probe.parent,
-        file: probe.file,
-        allowlistEntrySha256: probe.allowlistEntrySha256,
-        values: response.data.values,
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const reconciled = reconcileDotenv(snapshot.content, response.values);
+    const write = fileWriteResultSchema.parse(
+      await bb.sdk.files.write({
+        ...fileArgs,
+        content: reconciled.content,
+        contentEncoding: "utf8",
+        createParents: true,
+        expectedSha256: snapshot.sha256,
+        mode: 0o600,
       }),
     );
-  } catch (error) {
-    throw sanitizeError(error, "writing the secrets");
+    if (write.outcome === "written") {
+      return {
+        exitCode: 0,
+        stdout: `${JSON.stringify({ path: destinationPath, names: parsed.names, added: reconciled.added, updated: reconciled.updated, unchanged: reconciled.unchanged })}\n`,
+      };
+    }
+    if (attempt === 1) {
+      cliError(
+        "Dotenv file changed twice while secrets were being written; no write was applied.",
+        "dotenv_write_conflict",
+      );
+    }
+    snapshot = await readSnapshot(bb, fileArgs);
+    assertNoDuplicateAssignments(snapshot.content, parsed.names);
   }
-  if (committed.outcome === "refused") throw refusal(committed, "write");
-
-  const summary = {
-    outcome: committed.outcome,
-    path: probe.destRealpath,
-    names: parsed.names,
-    added: committed.added,
-    updated: committed.updated,
-    unchanged: committed.unchanged,
-  };
-  if (committed.outcome !== "written") {
-    return {
-      exitCode: 1,
-      stdout: `${JSON.stringify(summary)}\n`,
-      stderr:
-        committed.outcome === "committed-elsewhere"
-          ? "The destination directory was moved while the secrets were written; they are not at the requested path. Nothing was rolled back.\n"
-          : "The destination file was replaced right after the secrets were written; verify it. Nothing was rolled back.\n",
-    };
-  }
-  return { exitCode: 0, stdout: `${JSON.stringify(summary)}\n` };
+  cliError("Unreachable dotenv write state.", "unreachable_write_state");
 }
 
 export default function plugin(bb: BbPluginApi) {
@@ -276,12 +318,12 @@ export default function plugin(bb: BbPluginApi) {
     name: "secret",
     summary: "Securely request credentials and write them to a dotenv file.",
     description:
-      "Values are typed by the user into a secure form; they never reach the agent, argv, or logs. The destination must be on the host's root-owned secrets allowlist.",
+      "Values are typed by the user into a secure form; they never reach the agent, argv, or logs.",
     commands: {
       request: cliCommand({
         summary: "Request one or more secrets in a secure user form.",
         description:
-          "Batch every currently known variable into one request. Relative --write-env paths resolve from the CLI working directory and must be normalized. The project, path and names must match one entry of the host allowlist.",
+          "Batch every currently known variable into one request. Relative --write-env paths resolve from the CLI working directory; absolute paths may point anywhere on the thread's host.",
         positionals: [
           {
             name: "name",
@@ -292,12 +334,6 @@ export default function plugin(bb: BbPluginApi) {
           },
         ],
         options: {
-          project: {
-            type: "string",
-            required: true,
-            placeholder: "NAME",
-            description: "Allowlisted project the credentials belong to",
-          },
           "write-env": {
             type: "string",
             required: true,
@@ -330,7 +366,6 @@ export default function plugin(bb: BbPluginApi) {
         async run(input, ctx) {
           const parsed = parseRequest({
             names: input.positionals.name,
-            project: input.options.project,
             purpose: input.options.purpose,
             describe: input.options.describe,
             writeEnv: input.options["write-env"],
@@ -338,7 +373,10 @@ export default function plugin(bb: BbPluginApi) {
           try {
             return await runRequest(bb, parsed, ctx);
           } catch (error) {
-            throw sanitizeError(error, "running the request");
+            if (error instanceof PluginCliError) throw error;
+            throw new PluginCliError(
+              error instanceof Error ? error.message : String(error),
+            );
           }
         },
       }),

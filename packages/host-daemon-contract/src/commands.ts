@@ -500,130 +500,6 @@ const hostWriteFileCommandSchema = z
   })
   .strict();
 
-const SECRET_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
-const SECRET_VALUE_MAX_LENGTH = 16 * 1024;
-const SECRET_FIELDS_MAX = 64;
-const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/;
-
-const secretFileIdentitySchema = z
-  .object({
-    dev: z.string().regex(/^[0-9]+$/),
-    ino: z.string().regex(/^[0-9]+$/),
-  })
-  .strict();
-
-const secretRequestBindingShape = {
-  requestId: z.string().uuid(),
-  threadId: z.string().min(1),
-  hostId: z.string().min(1),
-  project: z.string().min(1),
-  path: z.string().min(1),
-  fields: z
-    .array(
-      z
-        .object({
-          name: z.string().regex(SECRET_NAME_PATTERN),
-          description: z.string().nullable(),
-        })
-        .strict(),
-    )
-    .min(1)
-    .max(SECRET_FIELDS_MAX),
-  purpose: z.string().nullable(),
-  expiresAtMs: z.number().int().nonnegative(),
-};
-
-const hostSecretProbeCommandSchema = z
-  .object({
-    type: z.literal("host.secret_probe"),
-    ...secretRequestBindingShape,
-  })
-  .strict();
-
-const hostSecretCommitCommandSchema = z
-  .object({
-    type: z.literal("host.secret_commit"),
-    ...secretRequestBindingShape,
-    requestDigest: z.string().regex(SHA256_HEX_PATTERN),
-    parent: secretFileIdentitySchema,
-    file: secretFileIdentitySchema.nullable(),
-    allowlistEntrySha256: z.string().regex(SHA256_HEX_PATTERN),
-    values: z.record(
-      z.string().regex(SECRET_NAME_PATTERN),
-      z
-        .string()
-        .min(1)
-        .max(SECRET_VALUE_MAX_LENGTH)
-        .refine((value) => !/[\r\n\0]/.test(value)),
-    ),
-  })
-  .strict();
-
-const SECRET_REFUSAL_REASONS = [
-  "invalid-request",
-  "expired",
-  "path-not-normalized",
-  "outside-home",
-  "credential-store",
-  "allowlist-unavailable",
-  "allowlist-untrusted",
-  "not-allowlisted",
-  "symlink-in-path",
-  "parent-missing",
-  "parent-ownership",
-  "file-ownership",
-  "unreconcilable-file",
-  "digest-mismatch",
-  "identity-changed",
-  "target-appeared",
-  "allowlist-changed",
-  "internal-error",
-] as const;
-
-const secretRefusedResultSchema = z
-  .object({
-    outcome: z.literal("refused"),
-    reason: z.enum(SECRET_REFUSAL_REASONS),
-    message: z.string(),
-  })
-  .strict();
-
-const secretProbeResultSchema = z.discriminatedUnion("outcome", [
-  z
-    .object({
-      outcome: z.literal("ready"),
-      destRealpath: z.string(),
-      parent: secretFileIdentitySchema,
-      file: secretFileIdentitySchema.nullable(),
-      allowlistEntrySha256: z.string().regex(SHA256_HEX_PATTERN),
-      consumer: z.string(),
-      existingNames: z.array(z.string()),
-      requestDigest: z.string().regex(SHA256_HEX_PATTERN),
-    })
-    .strict(),
-  secretRefusedResultSchema,
-]);
-
-const secretCountsShape = {
-  added: z.number().int().nonnegative(),
-  updated: z.number().int().nonnegative(),
-  unchanged: z.number().int().nonnegative(),
-};
-
-const secretCommitResultSchema = z.discriminatedUnion("outcome", [
-  z.object({ outcome: z.literal("written"), ...secretCountsShape }).strict(),
-  z
-    .object({ outcome: z.literal("committed-elsewhere"), ...secretCountsShape })
-    .strict(),
-  z
-    .object({
-      outcome: z.literal("replaced-after-commit"),
-      ...secretCountsShape,
-    })
-    .strict(),
-  secretRefusedResultSchema,
-]);
-
 const fileListExcludeNamesSchema = z
   .array(z.string().min(1).max(FILE_LIST_EXCLUDE_NAME_MAX_LENGTH))
   .max(FILE_LIST_EXCLUDE_NAMES_MAX);
@@ -1937,24 +1813,6 @@ export const hostDaemonCommandRegistry = {
     flushEventsBeforeResult: false,
     envLane: null,
   }),
-  "host.secret_probe": defineHostDaemonCommandDescriptor({
-    type: "host.secret_probe",
-    schema: hostSecretProbeCommandSchema,
-    resultSchema: secretProbeResultSchema,
-    transport: "onlineRpc",
-    retryable: false,
-    flushEventsBeforeResult: false,
-    envLane: null,
-  }),
-  "host.secret_commit": defineHostDaemonCommandDescriptor({
-    type: "host.secret_commit",
-    schema: hostSecretCommitCommandSchema,
-    resultSchema: secretCommitResultSchema,
-    transport: "onlineRpc",
-    retryable: false,
-    flushEventsBeforeResult: false,
-    envLane: null,
-  }),
   "provider.list_models": defineHostDaemonCommandDescriptor({
     type: "provider.list_models",
     schema: providerListModelsCommandSchema,
@@ -2096,9 +1954,7 @@ type HostDaemonRetryableOnlineRpcCommandSchema =
 type HostDaemonResultSchemaMapForTransport<
   Transport extends HostDaemonCommandTransport,
 > = {
-  [
-    Descriptor in HostDaemonCommandDescriptorForTransport<Transport> as Descriptor["type"]
-  ]: Descriptor["resultSchema"];
+  [Descriptor in HostDaemonCommandDescriptorForTransport<Transport> as Descriptor["type"]]: Descriptor["resultSchema"];
 };
 
 type HostDaemonCommandResultSchemaMap =
