@@ -132,6 +132,34 @@ describe("bb event normalization", () => {
     expect(withBaseline[0]?.delta).toMatchObject({ totalTokens: 0 });
   });
 
+  it("normalizes a completed background delegation from its dedicated event", () => {
+    const event = (itemType: string) => ({
+      type: "item/delegation/completed",
+      thread_id: "t1",
+      id: "ev-bg",
+      data: JSON.stringify({
+        item: {
+          type: itemType,
+          id: "dg-bg",
+          label: "survey",
+          summary: "Found three modules.",
+          background: true,
+        },
+      }),
+    });
+    const records = normalize(event("delegation"), bb);
+    expect(records).toMatchObject([
+      {
+        kind: "tool_call",
+        callId: "dg-bg",
+        delegation: true,
+        name: "delegation",
+      },
+      { kind: "tool_result", callId: "dg-bg", text: "Found three modules." },
+    ]);
+    expect(normalize(event("agentMessage"), bb)).toEqual([]);
+  });
+
   it("records the destination of a renamed file as a structured write touch", () => {
     const event = {
       type: "item/completed",

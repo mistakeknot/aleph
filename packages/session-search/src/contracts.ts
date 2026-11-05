@@ -954,7 +954,7 @@ function normalizeBb(
     ];
   }
 
-  if (type !== "item/completed") {
+  if (type !== "item/completed" && type !== "item/delegation/completed") {
     return [];
   }
   const item = data.item;
@@ -969,6 +969,10 @@ function normalizeBb(
     return text === null
       ? []
       : [{ ...base(0), kind: "message", role: "assistant", text }];
+  }
+
+  if (type === "item/delegation/completed" && itemType !== "delegation") {
+    return [];
   }
 
   if (callId === null) {
