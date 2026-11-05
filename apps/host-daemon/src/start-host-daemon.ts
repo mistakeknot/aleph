@@ -26,6 +26,7 @@ import {
   resolveLocalBbExecutablePath,
 } from "./runtime-shell-env.js";
 import type { HostDaemonLogger } from "./logger.js";
+import { probeSessionSearchCapability } from "./session-search-probe.js";
 import {
   startMachineAuthProxy,
   type MachineAuthProxy,
@@ -131,6 +132,18 @@ export async function startHostDaemon(
       dataDir,
     });
     lockDiagnosticsLogger = logger;
+    const sessionSearchCapability = probeSessionSearchCapability();
+    if (sessionSearchCapability.supported) {
+      logger.info(
+        { sqliteVersion: sessionSearchCapability.sqliteVersion },
+        "session search capability available",
+      );
+    } else {
+      logger.warn(
+        { reason: sessionSearchCapability.reason },
+        "session search unsupported; indexing disabled",
+      );
+    }
     if (options.serverHeaders !== undefined) {
       machineAuthProxy = await startMachineAuthProxy({
         serverHeaders: options.serverHeaders,

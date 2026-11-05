@@ -930,6 +930,9 @@ importers:
       bb-environment-provider-host:
         specifier: workspace:*
         version: link:../../packages/environment-provider-host
+      better-sqlite3:
+        specifier: 13.0.3
+        version: 13.0.3
       mime-types:
         specifier: ^3.0.2
         version: 3.0.2
@@ -976,6 +979,9 @@ importers:
       '@bb/tsconfig':
         specifier: workspace:*
         version: link:../../packages/tsconfig
+      '@types/better-sqlite3':
+        specifier: ^7.6.12
+        version: 7.6.13
       '@types/mime-types':
         specifier: ^3.0.1
         version: 3.0.1
@@ -3049,10 +3055,17 @@ importers:
         version: '@typescript/typescript6@6.0.2'
 
   packages/session-search:
+    dependencies:
+      better-sqlite3:
+        specifier: 13.0.3
+        version: 13.0.3
     devDependencies:
       '@bb/tsconfig':
         specifier: workspace:*
         version: link:../tsconfig
+      '@types/better-sqlite3':
+        specifier: ^7.6.12
+        version: 7.6.13
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.10

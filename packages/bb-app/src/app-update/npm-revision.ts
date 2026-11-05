@@ -20,7 +20,9 @@ const NATIVE_INSTALL_SCRIPT_PACKAGES = [
 ] as const;
 const NATIVE_MODULE_CHECK = [
   "const Database = require('better-sqlite3');",
-  "new Database(':memory:').close();",
+  "const db = new Database(':memory:');",
+  "db.exec('CREATE VIRTUAL TABLE probe USING fts5(text)');",
+  "db.close();",
   "require('node-pty');",
 ].join("");
 
