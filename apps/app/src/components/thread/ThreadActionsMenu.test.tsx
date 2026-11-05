@@ -63,6 +63,7 @@ const sdkThreads = vi.hoisted(() => ({
   unarchive: vi.fn(),
   update: vi.fn(),
   get: vi.fn(),
+  experimental_regenerateTitle: vi.fn(),
 }));
 const copyToClipboardWithToast = vi.hoisted(() => vi.fn(async () => true));
 
@@ -391,6 +392,7 @@ describe.each(SURFACES)("thread actions on the $name", (surface) => {
         "Mark unread",
         "---",
         "Rename",
+        "Regenerate title",
         "Move to section",
         "---",
         "Customize actions",
@@ -408,6 +410,7 @@ describe.each(SURFACES)("thread actions on the $name", (surface) => {
         "Mark unread",
         "---",
         "Rename",
+        "Regenerate title",
         "Move to section",
         "---",
         "Customize actions",
@@ -440,6 +443,7 @@ describe.each(SURFACES)("thread actions on the $name", (surface) => {
         "Notify parent, Auto",
         "---",
         "Rename",
+        "Regenerate title",
         "---",
         "Customize actions",
         "---",
@@ -456,6 +460,7 @@ describe.each(SURFACES)("thread actions on the $name", (surface) => {
         "Notify parent, Auto",
         "---",
         "Rename",
+        "Regenerate title",
         "---",
         "Customize actions",
         "---",
@@ -480,6 +485,7 @@ describe.each(SURFACES)("thread actions on the $name", (surface) => {
         "Mark unread",
         "---",
         "Rename",
+        "Regenerate title",
         "Move to section",
         "---",
         "Customize actions",
@@ -497,6 +503,7 @@ describe.each(SURFACES)("thread actions on the $name", (surface) => {
         "Mark unread",
         "---",
         "Rename",
+        "Regenerate title",
         "Move to section",
         "---",
         "Customize actions",
@@ -520,6 +527,7 @@ describe.each(SURFACES)("thread actions on the $name", (surface) => {
         "Mark unread",
         "---",
         "Rename",
+        "Regenerate title",
         "Move to section",
         "---",
         "Customize actions",
@@ -537,6 +545,7 @@ describe.each(SURFACES)("thread actions on the $name", (surface) => {
         "Mark unread",
         "---",
         "Rename",
+        "Regenerate title",
         "Move to section",
         "---",
         "Customize actions",
@@ -562,6 +571,7 @@ describe.each(SURFACES)("thread actions on the $name", (surface) => {
         "Mark unread",
         "---",
         "Rename",
+        "Regenerate title",
         "Move to section",
         "---",
         "Customize actions",
@@ -579,6 +589,7 @@ describe.each(SURFACES)("thread actions on the $name", (surface) => {
         "Mark unread",
         "---",
         "Rename",
+        "Regenerate title",
         "Move to section",
         "---",
         "Customize actions",
@@ -633,6 +644,10 @@ describe.each(SURFACES)("thread actions on the $name", (surface) => {
 
   it("runs each action's effect", async () => {
     sdkThreads.pin.mockResolvedValue({ ...baseThread, pinnedAt: 9 });
+    sdkThreads.experimental_regenerateTitle.mockResolvedValue({
+      ...baseThread,
+      title: "Regenerated",
+    });
     sdkThreads.markUnread.mockResolvedValue({
       ...baseThread,
       lastReadAt: null,
@@ -660,6 +675,16 @@ describe.each(SURFACES)("thread actions on the $name", (surface) => {
     fireEvent.click(await screen.findByRole("menuitem", { name: "Rename" }));
     expect(requestRename).toHaveBeenCalledWith(baseThread.id);
     expect(defaultRequestRename).not.toHaveBeenCalled();
+
+    await surface.open();
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Regenerate title" }),
+    );
+    await waitFor(() =>
+      expect(sdkThreads.experimental_regenerateTitle).toHaveBeenCalledWith({
+        threadId: baseThread.id,
+      }),
+    );
 
     await surface.open();
     fireEvent.click(await screen.findByRole("menuitem", { name: "Archive" }));
@@ -841,6 +866,7 @@ describe("thread action registrations", () => {
       "bb--core/read",
       "bb--core/parentNotifications",
       "bb--core/rename",
+      "bb--core/regenerateTitle",
       "fixture/move",
       "bb--core/archive",
       "bb--core/delete",

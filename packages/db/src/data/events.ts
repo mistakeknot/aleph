@@ -4186,6 +4186,40 @@ export function getThreadOutputEventRowForTurn(
   );
 }
 
+interface ListLatestTurnFinalAgentMessageEventRowsArgs {
+  limit: number;
+  threadId: string;
+}
+
+export function listLatestTurnFinalAgentMessageEventRows(
+  db: DbConnection,
+  args: ListLatestTurnFinalAgentMessageEventRowsArgs,
+): StoredEventRow[] {
+  return db
+    .select(storedEventRowFields)
+    .from(events)
+    .where(
+      sql`${events.threadId} = ${args.threadId}
+      AND ${events.type} = 'item/completed'
+      AND ${events.itemKind} = 'agentMessage'
+      AND ${events.parentToolCallId} IS NULL
+      AND COALESCE(json_extract(${events.data}, '$.item.text'), '') <> ''
+      AND NOT EXISTS (
+        SELECT 1
+        FROM events AS later_reply
+        WHERE later_reply.thread_id = ${events.threadId}
+          AND later_reply.turn_id = ${events.turnId}
+          AND later_reply.type = 'item/completed'
+          AND later_reply.item_kind = 'agentMessage'
+          AND later_reply.parent_tool_call_id IS NULL
+          AND later_reply.sequence > ${events.sequence}
+      )`,
+    )
+    .orderBy(desc(events.sequence))
+    .limit(args.limit)
+    .all();
+}
+
 export function getLatestThreadSystemErrorEventRow(
   db: DbConnection,
   args: GetLatestThreadSystemErrorEventRowArgs,
@@ -4874,6 +4908,49 @@ export function getLastStoredTurnRequestEvent(
       .limit(1)
       .get() ?? null
   );
+}
+
+interface ListStoredTaskTurnRequestEventsArgs {
+  limit: number;
+  order: "oldest" | "newest";
+  threadId: string;
+}
+
+export function listStoredTaskTurnRequestEvents(
+  db: DbQueryConnection,
+  args: ListStoredTaskTurnRequestEventsArgs,
+): StoredTurnRequestEventRow[] {
+  return db
+    .select({
+      data: events.data,
+      sequence: events.sequence,
+      threadId: events.threadId,
+      type: events.type,
+    })
+    .from(events)
+    .where(
+      sql`${events.threadId} = ${args.threadId}
+      AND (
+        ${events.type} = 'client/turn/requested'
+        OR (
+          ${events.type} IN ('client/thread/start', 'client/turn/start')
+          AND json_type(${events.data}, '$.input') IS NOT NULL
+        )
+      )
+      AND json_extract(${events.data}, '$.systemMessageKind') IS NULL
+      AND (
+        json_extract(${events.data}, '$.initiator') = 'user'
+        OR json_extract(${events.data}, '$.target.kind') = 'thread-start'
+        OR ${events.type} = 'client/thread/start'
+      )`,
+    )
+    .orderBy(
+      args.order === "oldest"
+        ? sql`${events.sequence} ASC`
+        : sql`${events.sequence} DESC`,
+    )
+    .limit(args.limit)
+    .all();
 }
 
 function pruneUsageSnapshots(

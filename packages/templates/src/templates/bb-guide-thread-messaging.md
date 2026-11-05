@@ -85,6 +85,17 @@ Ownership:
   validates them against that provider's current model catalog, applies them on
   the next turn, and keeps using them on later turns until changed.
 
+  bb thread regenerate-title [id]          Replace the title with a generated one
+    --self                                 Target current thread
+
+  regenerate-title asks the thread-title AI service (Settings → AI services)
+  for a title built from the thread's first task message, its latest user
+  messages, and the agent's latest replies, written in the task's language. It
+  replaces the current title, including one set by hand, unless that title
+  still fits. The title is kept when no service is available or generation
+  fails, and the error says why. bb never regenerates on its own.
+  SDK: `threads.experimental_regenerateTitle({ threadId })`.
+
   bb thread read [id]                      Mark read
   bb thread unread [id]                    Mark unread
   bb thread reorder-pinned <id> [--after <id>] [--before <id>]
