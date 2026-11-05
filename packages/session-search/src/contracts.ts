@@ -416,7 +416,7 @@ function normalizeClaude(
   const uuid =
     asNonEmptyString(record.uuid) ??
     messageId ??
-    `${sessionId ?? "-"}:${asString(record.timestamp) ?? "-"}`;
+    `${sessionId ?? "-"}:${asString(record.timestamp) ?? "-"}:${contentDigest(record)}`;
 
   const base = (index: number) =>
     eventBase(source, {
@@ -615,12 +615,17 @@ function normalizeClaudeCostState(
       tokens.cacheWriteTokens,
       costUsd,
     ].join(":");
+    const occurrence =
+      asNumber(record.ordinal) ??
+      asNonEmptyString(record.timestamp) ??
+      asNonEmptyString(record.uuid) ??
+      "-";
     records.push({
       ...eventBase(source, {
         sessionId,
         cwd,
         eventTimeMs: null,
-        dedupeKey: `claude:cost:${sessionId ?? "-"}:${model}:${fingerprint}`,
+        dedupeKey: `claude:cost:${sessionId ?? "-"}:${model}:${occurrence}:${fingerprint}`,
       }),
       kind: "usage",
       basis: "cumulative",

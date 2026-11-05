@@ -189,6 +189,45 @@ describe("claude normalization", () => {
     expect(() => cumulativeToDeltas(usage)).toThrow();
   });
 
+  it("keeps repeated cost-state values apart when snapshots carry a position", () => {
+    const inputs = [100, 30, 100, 30, 50];
+    const records = inputs.flatMap((inputTokens, index) =>
+      normalize(
+        {
+          type: "cost-state",
+          sessionId: "s",
+          ordinal: index,
+          modelUsage: { m: { inputTokens, costUSD: 1 } },
+        },
+        claude,
+      ),
+    );
+    const usage = ofKind(dedupeByKey(records), "usage");
+    expect(usage).toHaveLength(5);
+    expect(cumulativeToDeltas(usage).map((entry) => entry.reset)).toEqual([
+      false,
+      true,
+      false,
+      true,
+      false,
+    ]);
+  });
+
+  it("does not collapse keyless Claude messages that share a timestamp", () => {
+    const at = "2026-01-02T03:04:05.000Z";
+    const make = (text: string) => ({
+      type: "user",
+      sessionId: "s",
+      timestamp: at,
+      message: { role: "user", content: text },
+    });
+    const records = ["first", "second", "first"].flatMap((text) =>
+      normalize(make(text), claude),
+    );
+    expect(records).toHaveLength(3);
+    expect(dedupeByKey(records)).toHaveLength(2);
+  });
+
   it("marks nested subagent records as sidechain with their own usage scope", () => {
     const records = normalizeFixture("claude/subagent-agent-a1.jsonl", claude);
     expect(records.length).toBeGreaterThan(0);
