@@ -1026,8 +1026,18 @@ function normalizeBb(
       const path = isObject(change) ? asNonEmptyString(change.path) : null;
       if (path !== null) {
         touches.push({ path, access: "write", confidence: "structured" });
+        const movePath = isObject(change)
+          ? asNonEmptyString(change.movePath)
+          : null;
+        if (movePath !== null && movePath !== path) {
+          touches.push({
+            path: movePath,
+            access: "write",
+            confidence: "structured",
+          });
+        }
         lines.push(
-          `${isObject(change) ? (asString(change.kind) ?? "change") : "change"} ${path}`,
+          `${isObject(change) ? (asString(change.kind) ?? "change") : "change"} ${path}${movePath === null ? "" : ` -> ${movePath}`}`,
         );
       }
     }

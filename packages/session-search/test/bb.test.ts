@@ -132,6 +132,45 @@ describe("bb event normalization", () => {
     expect(withBaseline[0]?.delta).toMatchObject({ totalTokens: 0 });
   });
 
+  it("records the destination of a renamed file as a structured write touch", () => {
+    const event = {
+      type: "item/completed",
+      item_kind: "fileChange",
+      thread_id: "t1",
+      id: "ev-rename",
+      data: JSON.stringify({
+        item: {
+          type: "fileChange",
+          id: "fc-rename",
+          changes: [
+            {
+              path: "src/old.ts",
+              kind: "update",
+              movePath: "src/new.ts",
+              diff: "",
+            },
+            { path: "src/same.ts", kind: "update", movePath: "src/same.ts" },
+            { path: "src/plain.ts", kind: "update", movePath: null },
+          ],
+        },
+      }),
+    };
+    const [call] = normalize(event, bb);
+    expect(call).toMatchObject({
+      kind: "tool_call",
+      name: "fileChange",
+      touches: [
+        { path: "src/old.ts", access: "write", confidence: "structured" },
+        { path: "src/new.ts", access: "write", confidence: "structured" },
+        { path: "src/same.ts", access: "write", confidence: "structured" },
+        { path: "src/plain.ts", access: "write", confidence: "structured" },
+      ],
+    });
+    expect(call).toMatchObject({
+      argumentsText: expect.stringContaining("src/old.ts -> src/new.ts"),
+    });
+  });
+
   it("keeps id-less, sequence-less events apart by source position", () => {
     const event = (total: number) => ({
       type: "thread/tokenUsage/updated",
