@@ -16,6 +16,27 @@ import {
 
 const rowCommits = vi.hoisted(() => new Map<string, number>());
 
+function totalRowCommits(): number {
+  let total = 0;
+  for (const count of rowCommits.values()) total += count;
+  return total;
+}
+
+async function settleRowCommits(): Promise<void> {
+  const QUIET_PASSES = 3;
+  const PASS_MS = 40;
+  let quiet = 0;
+  let seen = -1;
+  while (quiet < QUIET_PASSES) {
+    await act(async () => {
+      await new Promise<void>((resolve) => setTimeout(resolve, PASS_MS));
+    });
+    const total = totalRowCommits();
+    quiet = total === seen ? quiet + 1 : 0;
+    seen = total;
+  }
+}
+
 vi.mock("./app/rows/ThreadRow.js", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("./app/rows/ThreadRow.js")>();
@@ -118,6 +139,7 @@ describe.each<OrganizationMode>(["chronological", "project"])(
         },
       });
       await screen.findByText("Thread e");
+      await settleRowCommits();
       const Component = registration.component;
 
       for (const [from, to] of [
