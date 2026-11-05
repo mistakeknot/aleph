@@ -145,6 +145,33 @@ describe("codex normalization", () => {
     });
   });
 
+  it("keeps distinct records apart when no ordinal is present and the timestamp repeats", () => {
+    const at = "2026-01-02T04:00:10.000Z";
+    const user = {
+      timestamp: at,
+      type: "response_item",
+      payload: {
+        type: "message",
+        role: "user",
+        content: [{ type: "input_text", text: "first" }],
+      },
+    };
+    const assistant = {
+      timestamp: at,
+      type: "response_item",
+      payload: {
+        type: "message",
+        role: "assistant",
+        content: [{ type: "output_text", text: "second" }],
+      },
+    };
+    const records = [user, assistant, user].flatMap((record) =>
+      normalize(record, codex),
+    );
+    expect(records).toHaveLength(3);
+    expect(dedupeByKey(records)).toHaveLength(2);
+  });
+
   it("produces unique dedupe keys across the whole rollout", () => {
     const records = normalizeFixture("codex/rollout.jsonl", codex);
     expect(dedupeByKey(records)).toHaveLength(records.length);

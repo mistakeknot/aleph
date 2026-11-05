@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { dedupeByKey, normalize, parseJsonl } from "../src/index.js";
+import {
+  cumulativeToDeltas,
+  dedupeByKey,
+  normalize,
+  parseJsonl,
+} from "../src/index.js";
 import {
   claudeSessionId,
   normalizeFixture,
@@ -156,7 +161,7 @@ describe("claude normalization", () => {
     expect(snapshots).toHaveLength(1);
     expect(snapshots[0]).toMatchObject({
       basis: "cumulative",
-      scopeKey: `claude:${claudeSessionId}`,
+      scopeKey: `claude:${claudeSessionId}:cost:claude-test-model`,
       model: "claude-test-model",
       inputTokens: 60,
       outputTokens: 20,
@@ -165,6 +170,23 @@ describe("claude normalization", () => {
       costUsd: 0.5,
       inputIncludesCache: false,
     });
+  });
+
+  it("gives each model in a cost-state its own cumulative scope", () => {
+    const records = normalize(
+      {
+        type: "cost-state",
+        modelUsage: {
+          "model-a": { inputTokens: 100, outputTokens: 1 },
+          "model-b": { inputTokens: 150, outputTokens: 2 },
+        },
+      },
+      claude,
+    );
+    const usage = ofKind(records, "usage");
+    expect(usage).toHaveLength(2);
+    expect(new Set(usage.map((record) => record.scopeKey)).size).toBe(2);
+    expect(() => cumulativeToDeltas(usage)).toThrow();
   });
 
   it("marks nested subagent records as sidechain with their own usage scope", () => {

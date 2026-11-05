@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 export type Provider = "claude" | "codex" | "bb";
 
 export interface NormalizeSource {
@@ -623,7 +625,7 @@ function normalizeClaudeCostState(
       kind: "usage",
       basis: "cumulative",
       origin: "claude-cost-state",
-      scopeKey: `claude:${sessionId ?? "unknown"}`,
+      scopeKey: `claude:${sessionId ?? "unknown"}:cost:${model}`,
       model,
       ...tokens,
       inputIncludesCache: false,
@@ -631,6 +633,13 @@ function normalizeClaudeCostState(
     });
   }
   return records;
+}
+
+function contentDigest(value: unknown): string {
+  return createHash("sha256")
+    .update(JSON.stringify(value) ?? "")
+    .digest("hex")
+    .slice(0, 16);
 }
 
 function codexUsage(value: unknown): UsageTokens | null {
@@ -678,7 +687,7 @@ function normalizeCodex(
   const position =
     ordinal !== null
       ? String(ordinal)
-      : `${timestamp ?? "-"}/${payloadType ?? type}/${callId ?? "-"}`;
+      : `${timestamp ?? "-"}/${payloadType ?? type}/${callId ?? "-"}/${contentDigest(record)}`;
   const keyFor = (index: number) =>
     `codex:${sessionId ?? "-"}:${position}:${index}`;
   const base = (index: number, cwd: string | null = null) =>
