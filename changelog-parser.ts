@@ -45,8 +45,6 @@ export function parseChangelog(markdown: string): ChangelogEntry[] {
       flushParagraph();
       section = null;
       const heading = line.slice(3).trim();
-      // An "Unreleased" section collects notes for the next release; it is
-      // not a release, so it and everything under it are skipped.
       if (heading.toLowerCase() === "unreleased") {
         entry = null;
         continue;
