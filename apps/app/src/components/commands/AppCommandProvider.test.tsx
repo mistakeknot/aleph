@@ -195,6 +195,38 @@ const testState = vi.hoisted(() => ({
         none: [],
       },
     },
+    {
+      command: "history.back" as const,
+      desktopOnly: false,
+      shortcut: {
+        key: "[",
+        mod: true,
+        meta: false,
+        control: false,
+        alt: false,
+        shift: false,
+      },
+      when: {
+        all: ["mainSurface" as const],
+        none: ["modalOpen" as const, "browserFocus" as const],
+      },
+    },
+    {
+      command: "browser.back" as const,
+      desktopOnly: false,
+      shortcut: {
+        key: "[",
+        mod: true,
+        meta: false,
+        control: false,
+        alt: false,
+        shift: false,
+      },
+      when: {
+        all: ["mainSurface" as const, "browserFocus" as const],
+        none: ["modalOpen" as const, "editableFocus" as const],
+      },
+    },
   ],
 }));
 
@@ -622,6 +654,66 @@ describe("AppCommandProvider", () => {
     expect(dispatchReload(outside).defaultPrevented).toBe(false);
     expect(testState.calls).toEqual([]);
     expect(dispatchReload(inside).defaultPrevented).toBe(true);
+    expect(testState.calls).toEqual(["browser"]);
+  });
+
+  it("falls back to app history when browser history declines in browser chrome", () => {
+    const dispatchBack = (target: Element | null) => {
+      const event = new KeyboardEvent("keydown", {
+        bubbles: true,
+        cancelable: true,
+        ctrlKey: true,
+        key: "[",
+      });
+      target?.dispatchEvent(event);
+      return event;
+    };
+    const { unmount } = renderProvider(
+      <>
+        <Handler command="browser.back" name="browser" result={false} />
+        <Handler command="history.back" name="history" result={true} />
+        <button type="button">Outside</button>
+        <div data-app-browser>
+          <button type="button">Toolbar control</button>
+          <input aria-label="Address" />
+        </div>
+      </>,
+    );
+
+    // Page cannot navigate: the toolbar chord reaches app history.
+    const toolbar = screen.getByText("Toolbar control");
+    expect(dispatchBack(toolbar).defaultPrevented).toBe(true);
+    expect(testState.calls).toEqual(["browser", "history"]);
+
+    // Outside browser chrome only history runs.
+    testState.calls.length = 0;
+    expect(dispatchBack(screen.getByText("Outside")).defaultPrevented).toBe(
+      true,
+    );
+    expect(testState.calls).toEqual(["history"]);
+
+    // Editable address bar keeps native behavior: no browser, no fallback.
+    testState.calls.length = 0;
+    expect(
+      dispatchBack(screen.getByLabelText("Address")).defaultPrevented,
+    ).toBe(false);
+    expect(testState.calls).toEqual([]);
+    unmount();
+
+    // The page handles it: history is not also run.
+    testState.calls.length = 0;
+    renderProvider(
+      <>
+        <Handler command="browser.back" name="browser" result={true} />
+        <Handler command="history.back" name="history" result={true} />
+        <div data-app-browser>
+          <button type="button">Toolbar control</button>
+        </div>
+      </>,
+    );
+    expect(
+      dispatchBack(screen.getByText("Toolbar control")).defaultPrevented,
+    ).toBe(true);
     expect(testState.calls).toEqual(["browser"]);
   });
 
