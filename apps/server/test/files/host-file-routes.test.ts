@@ -415,4 +415,127 @@ describe("host file routes", () => {
       expect(missingResponse.status).toBe(404);
     });
   });
+
+  describe("secret routes", () => {
+    const binding = {
+      requestId: "6f1c1b0e-2d4a-4a43-9b5f-1f6d2c7a9e10",
+      threadId: "thr_test",
+      project: "demo",
+      path: "/home/me/proj/.env",
+      fields: [{ name: "API_KEY", description: null }],
+      purpose: null,
+      expiresAtMs: 1_800_000_000_000,
+    };
+    const commitBody = {
+      ...binding,
+      requestDigest: "a".repeat(64),
+      parent: { dev: "1", ino: "2" },
+      file: null,
+      allowlistEntrySha256: "b".repeat(64),
+      values: { API_KEY: "canary-route-value-91" },
+    };
+
+    it("fills the host id server-side and forwards the binding", async () => {
+      await withTestHarness(async (harness) => {
+        const { host, session } = seedHostSession(harness.deps);
+        seedPrimaryHost(harness.deps, host.id);
+        const commands: HostDaemonOnlineRpcRequestMessage["command"][] = [];
+        registerHostRpcResponder(harness, {
+          hostId: host.id,
+          sessionId: session.id,
+          handle: (request) => {
+            commands.push(request.command);
+            return request.command.type === "host.secret_probe"
+              ? {
+                  ok: true,
+                  result: {
+                    outcome: "refused",
+                    reason: "not-allowlisted",
+                    message:
+                      "This destination is not on the secrets allowlist.",
+                  },
+                }
+              : {
+                  ok: true,
+                  result: {
+                    outcome: "written",
+                    added: 1,
+                    updated: 0,
+                    unchanged: 0,
+                  },
+                };
+          },
+        });
+
+        const probe = await harness.app.request(
+          ...postJson("/api/v1/files/secret-probe", binding),
+        );
+        expect(probe.status).toBe(200);
+        const commit = await harness.app.request(
+          ...postJson("/api/v1/files/secret-commit", commitBody),
+        );
+        expect(commit.status).toBe(200);
+        expect(commands.map((command) => command.type)).toEqual([
+          "host.secret_probe",
+          "host.secret_commit",
+        ]);
+        for (const command of commands) {
+          expect(command).toMatchObject({ hostId: host.id });
+        }
+      });
+    });
+
+    it("rejects hostile origins and text/plain before any host RPC", async () => {
+      await withTestHarness(async (harness) => {
+        const { host, session } = seedHostSession(harness.deps);
+        seedPrimaryHost(harness.deps, host.id);
+        const commands: unknown[] = [];
+        registerHostRpcResponder(harness, {
+          hostId: host.id,
+          sessionId: session.id,
+          handle: (request) => {
+            commands.push(request.command);
+            return { ok: true, result: { ok: true } };
+          },
+        });
+        for (const [route, payload] of [
+          ["/api/v1/files/secret-probe", binding],
+          ["/api/v1/files/secret-commit", commitBody],
+        ] as const) {
+          const hostile = await harness.app.request(route, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              origin: "https://evil.example",
+            },
+            body: JSON.stringify(payload),
+          });
+          expect(hostile.status, route).toBe(403);
+          const simple = await harness.app.request(route, {
+            method: "POST",
+            headers: { "content-type": "text/plain" },
+            body: JSON.stringify(payload),
+          });
+          expect(simple.status, route).toBeGreaterThanOrEqual(400);
+        }
+        expect(commands).toEqual([]);
+      });
+    });
+
+    it("never echoes submitted values in a validation error", async () => {
+      await withTestHarness(async (harness) => {
+        const { host } = seedHostSession(harness.deps);
+        seedPrimaryHost(harness.deps, host.id);
+        const response = await harness.app.request(
+          ...postJson("/api/v1/files/secret-commit", {
+            ...commitBody,
+            requestDigest: "not-a-digest",
+            values: { API_KEY: "canary-route-value-91" },
+          }),
+        );
+        expect(response.status).toBeGreaterThanOrEqual(400);
+        expect(await response.text()).not.toContain("canary-route-value-91");
+      });
+    });
+  });
 });

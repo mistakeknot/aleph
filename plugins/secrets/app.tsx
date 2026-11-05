@@ -103,6 +103,37 @@ function SecretRequestInteraction({
             {payload.destination.path}
           </code>
         </p>
+        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+          <dt>Project</dt>
+          <dd className="min-w-0 break-all text-foreground">
+            {payload.project}
+          </dd>
+          <dt>Used by</dt>
+          <dd className="min-w-0 break-all text-foreground">
+            {payload.destination.consumer}
+          </dd>
+          <dt>Asked by thread</dt>
+          <dd className="min-w-0 break-all font-mono text-foreground">
+            {payload.threadId}
+          </dd>
+          <dt>Request</dt>
+          <dd className="min-w-0 break-all font-mono text-foreground">
+            {payload.requestId}
+          </dd>
+          <dt>Digest</dt>
+          <dd className="font-mono text-foreground">{payload.digestPrefix}</dd>
+          <dt>Allowlist entry</dt>
+          <dd className="font-mono text-foreground">
+            {payload.allowlistEntryPrefix}
+          </dd>
+          <dt>Expires</dt>
+          <dd className="text-foreground">
+            {new Date(payload.expiresAtMs).toLocaleString()}
+          </dd>
+        </dl>
+        <p className="text-xs text-muted-foreground">
+          Agents on this host can read this file after it is written.
+        </p>
       </div>
 
       <div className="space-y-3.5">
@@ -119,6 +150,9 @@ function SecretRequestInteraction({
                 >
                   {field.name}
                 </Label>
+                <p className="text-xs font-medium text-muted-foreground">
+                  {field.existing ? "Replaces existing value" : "New"}
+                </p>
                 {field.description ? (
                   <p className="text-xs leading-snug text-muted-foreground">
                     {field.description}

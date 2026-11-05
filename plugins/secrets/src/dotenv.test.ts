@@ -34,6 +34,13 @@ describe("dotenv reconciliation", () => {
     expect(parse(result.content)).toEqual(values);
   });
 
+  it("accepts a value mixing both quote kinds and a hash by backtick quoting", () => {
+    const values = { MIXED: `a'b"c#d` };
+    const result = reconcileDotenv("", values);
+    expect(result.content).toBe("MIXED=`a'b\"c#d`\n");
+    expect(parse(result.content)).toEqual(values);
+  });
+
   it("rejects duplicate active assignments before collecting secrets", () => {
     expect(() =>
       assertNoDuplicateAssignments("API_KEY=one\nexport API_KEY=two\n", [
@@ -53,5 +60,13 @@ describe("dotenv reconciliation", () => {
     expect(() => reconcileDotenv(source, { API_KEY: "replacement" })).toThrow(
       "multiline quoted values cannot be reconciled safely",
     );
+  });
+
+  it("refuses values the host encoder cannot round-trip", () => {
+    for (const value of [" padded\\", "'a'\\", "''\"`"]) {
+      expect(() => reconcileDotenv("", { API_ONE: value })).toThrow(
+        "cannot be represented safely",
+      );
+    }
   });
 });

@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Secrets
+
+- **Secret requests are checked against a host allowlist.** `bb secret request`
+  now requires `--project` and resolves the host's root-owned allowlist
+  (`/etc/home-secrets/allowlist.json`) before any form opens; a request whose
+  project, path, or names do not match an entry is refused with a fixed
+  message. The host, not the plugin, writes the dotenv file in one commit step
+  that re-checks the request digest, allowlist entry, and destination identity.
+  The plugin no longer reads or writes the dotenv file, and no `.env.prev`
+  backup is made. Two new host commands, `host.secret_probe` and
+  `host.secret_commit`, back this.
+
 ## 0.48.0+aleph.0.9.0
 
 Aleph 0.9.0 syncs Aleph to upstream bb 0.48.0 (`desktop-v0.48.0`, commit

@@ -3,6 +3,10 @@ import type {
   HostFileListResponse,
   HostFileReadResponse,
   HostFileWriteResponse,
+  HostSecretCommitRequest,
+  HostSecretCommitResponse,
+  HostSecretProbeRequest,
+  HostSecretProbeResponse,
   HostMkdirResponse,
   HostMovePathResponse,
   HostPathListResponse,
@@ -79,6 +83,10 @@ export interface FilePreviewArgs {
 
 export type FileReadResult = HostFileReadResponse;
 export type FileWriteResult = HostFileWriteResponse;
+export type SecretProbeArgs = HostSecretProbeRequest;
+export type SecretCommitArgs = HostSecretCommitRequest;
+export type SecretProbeResult = HostSecretProbeResponse;
+export type SecretCommitResult = HostSecretCommitResponse;
 export type FileListResult = HostFileListResponse;
 export type PathListResult = HostPathListResponse;
 export type FileMkdirResult = HostMkdirResponse;
@@ -89,6 +97,8 @@ export type FilePreviewResult = CreateFilePreviewResponse;
 export interface FilesArea {
   read(args: FileReadArgs): Promise<FileReadResult>;
   write(args: FileWriteArgs): Promise<FileWriteResult>;
+  secretProbe(args: SecretProbeArgs): Promise<SecretProbeResult>;
+  secretCommit(args: SecretCommitArgs): Promise<SecretCommitResult>;
   list(args: FileListArgs): Promise<FileListResult>;
   listPaths(args: PathListArgs): Promise<PathListResult>;
   mkdir(args: FileMkdirArgs): Promise<FileMkdirResult>;
@@ -118,6 +128,16 @@ export function createFilesArea(args: CreateSdkAreaArgs): FilesArea {
     async write(input) {
       return transport.readJson(
         transport.api.v1.files.write.$post({ json: input }),
+      );
+    },
+    async secretProbe(input) {
+      return transport.readJson(
+        transport.api.v1.files["secret-probe"].$post({ json: input }),
+      );
+    },
+    async secretCommit(input) {
+      return transport.readJson(
+        transport.api.v1.files["secret-commit"].$post({ json: input }),
       );
     },
     async list(input) {

@@ -64,6 +64,8 @@ const hostCommandWakePolicy = {
   "host.read_file": "work",
   "host.read_file_chunk": "work",
   "host.write_file": "work",
+  "host.secret_probe": "work",
+  "host.secret_commit": "work",
   "provider.list_models": "work",
   "provider.list_commands": "work",
   "provider.health": "work",
