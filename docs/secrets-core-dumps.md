@@ -14,17 +14,19 @@ environment or credential file was read. This is a record, not a fix.
 
 What this means for secret values:
 
-- With a soft limit of 0 the kernel writes no core file for the bb processes
-  as they run today, so a crash does not dump the plugin's memory.
-- The limit is soft. A process, or a unit that raises it, can turn dumps on,
-  and `apport` would then keep the memory image in `/var/crash`. Any change
-  that raises `LimitCORE` for the bb server or host daemon puts typed values
-  (which sit in server memory between the form and the host commit) in a
-  readable crash report.
-- Whether `apport` collects crash reports of node processes that exit on an
-  uncaught exception regardless of the core limit is unverified. A `.crash`
-  report for a node process exists in `/var/crash`; its contents were not read.
+- `core(5)`: the core size limit (`RLIMIT_CORE`) is ignored when
+  `kernel.core_pattern` pipes the dump to a handler. Here the pattern pipes to
+  `apport`, so a soft limit of 0 does not by itself show that a crash cannot
+  write a memory image. Whether `apport` honors the limit for these processes
+  is unverified; treat the zero limit as unproven protection, not an assurance.
+- Typed values sit in server memory between the form and the host commit. If a
+  crash report is collected, the report may hold them. A `.crash` report for a
+  node process exists in `/var/crash`; its contents were not read.
+- Raising `LimitCORE` for the bb server or host daemon would make this worse
+  and should not be done.
 
-Not changed by this branch. Recommended follow-up for the host owner:
-set `LimitCORE=0` on the bb server and host-daemon units so the soft limit
-cannot be raised by accident, and keep `/var/crash` out of any backup.
+Not changed by this branch. Recommended follow-up for the host owner: confirm
+how `apport` treats bb server and host-daemon crashes (for example by
+disabling collection for those units), and keep `/var/crash` out of any
+backup. Setting `LimitCORE=0` alone is not a sufficient control while the core
+pattern is piped.

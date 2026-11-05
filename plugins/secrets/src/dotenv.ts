@@ -12,7 +12,7 @@ function assignmentPattern(name: string): RegExp {
 const ANY_ASSIGNMENT_PATTERN =
   /^\s*(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*\s*=\s*(.*)$/u;
 
-function hasClosingQuote(value: string, quote: "'" | '"'): boolean {
+function hasClosingQuote(value: string, quote: "'" | '"' | "`"): boolean {
   let escaped = false;
   for (let index = 1; index < value.length; index += 1) {
     const character = value[index];
@@ -20,7 +20,7 @@ function hasClosingQuote(value: string, quote: "'" | '"'): boolean {
       escaped = false;
       continue;
     }
-    if (quote === '"' && character === "\\") {
+    if (quote !== "'" && character === "\\") {
       escaped = true;
       continue;
     }
@@ -33,7 +33,10 @@ function assertNoMultilineQuotedAssignments(content: string): void {
   for (const line of content.split(/\r?\n/u)) {
     const value = ANY_ASSIGNMENT_PATTERN.exec(line)?.[1] ?? "";
     const quote = value[0];
-    if ((quote === "'" || quote === '"') && !hasClosingQuote(value, quote)) {
+    if (
+      (quote === "'" || quote === '"' || quote === "`") &&
+      !hasClosingQuote(value, quote)
+    ) {
       throw new Error(
         "Dotenv files with multiline quoted values cannot be reconciled safely.",
       );
@@ -64,6 +67,9 @@ function encodeValue(value: string): string {
   }
   if (!value.includes('"') && !/\\[nr]/u.test(value)) {
     return `"${value}"`;
+  }
+  if (!value.includes("`")) {
+    return `\`${value}\``;
   }
   if (value === value.trim() && !value.includes("#")) {
     return value;
