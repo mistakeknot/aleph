@@ -4,7 +4,7 @@
     "@bb/tsconfig/typecheck-overrides.json"
   ],
   "compilerOptions": {
-    "rootDir": "."
+    "rootDir": "../.."
   },
   "include": ["src", "test", "tests", "fixtures", "stories"]
 }
