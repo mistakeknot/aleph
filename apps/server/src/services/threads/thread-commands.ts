@@ -483,6 +483,29 @@ export function dispatchThreadRenameCommand(
   });
 }
 
+export function syncThreadTitleToProvider(
+  deps: CommandResultSideEffectsDeps,
+  thread: Thread,
+): void {
+  if (!thread.title || !thread.environmentId) {
+    return;
+  }
+  const environment = deps.db
+    .select()
+    .from(environments)
+    .where(eq(environments.id, thread.environmentId))
+    .get();
+  if (environment?.status !== "ready" || !environment.path) {
+    return;
+  }
+  dispatchThreadRenameCommand(deps, {
+    environment: { id: environment.id, hostId: environment.hostId },
+    providerId: thread.providerId,
+    threadId: thread.id,
+    title: thread.title,
+  });
+}
+
 export function dispatchArchivedThreadProviderArchiveCommand(
   deps: CommandResultSideEffectsDeps,
   args: DispatchArchivedThreadProviderArchiveCommandArgs,

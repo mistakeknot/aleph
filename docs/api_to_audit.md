@@ -1120,6 +1120,28 @@ Docs: `backend-sdk.md`.
 3. **Actions.** Confirm `archive` and `delete` are the only cascading
    actions worth previewing.
 
+## `bb.sdk.threads.experimental_regenerateTitle`
+
+`POST /threads/:id/title/regenerate` asks the thread-title AI service for a new
+title built from the thread's first task message, up to eight of its latest
+user messages, and the first 125 columns of the agent's final reply in each of
+its latest thirty-two turns, in the task's language. The prompt includes the
+current title so the service can keep it; a changed title replaces the current
+one and syncs to providers that support renaming, like a manual rename. When
+no title service is available, generation fails, or the thread has no task
+message, the call fails with the reason and the title is unchanged. Core
+callers: the thread menu's Regenerate title action and
+`bb thread regenerate-title`.
+
+Docs: `backend-sdk.md`, `bb guide thread-messaging`.
+
+**Audit before stabilizing.**
+
+1. **Context.** Subagent replies, queued messages, and attachments are not
+   sent; decide whether any of them should inform the title.
+2. **Result shape.** The call returns the updated thread; decide whether callers
+   need the generating service or a preview that does not apply the title.
+
 ## `PluginSettingDescriptor.experimental_optionLabels`
 
 A `type: "select"` descriptor record from option value to display label,

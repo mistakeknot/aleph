@@ -13,6 +13,7 @@ import { useIsCompactViewport } from "@bb/shared-ui/hooks/use-compact-viewport";
 import { useThreadActions } from "@/components/thread/ThreadActionsProvider";
 import { useRouteState } from "@/hooks/useRouteState";
 import { copyToClipboardWithToast } from "@/lib/clipboard";
+import { appToast } from "@/components/ui/app-toast";
 import { showMutationErrorToast } from "@/lib/mutation-errors";
 import { resolveThread } from "@/lib/cached-thread";
 import { PARENT_NOTIFICATIONS_OPTIONS } from "@/lib/parent-notifications";
@@ -394,6 +395,32 @@ export const CORE_THREAD_ACTIONS: readonly PluginThreadActionRegistration<unknow
         label: "Rename",
         icon: "Edit",
         run: ({ requestRename }) => requestRename(thread.id),
+      }),
+    }),
+    coreThreadAction({
+      id: "regenerateTitle",
+      group: GROUPS.organize,
+      order: 20,
+      title: "Regenerate title",
+      icon: "RotateCcw",
+      item: ({ thread, sdk }) => ({
+        label: "Regenerate title",
+        icon: "RotateCcw",
+        run: async () => {
+          const toastId = appToast.loading("Regenerating title");
+          try {
+            await sdk.threads.experimental_regenerateTitle({
+              threadId: thread.id,
+            });
+            appToast.dismiss(toastId);
+          } catch (error) {
+            appToast.dismiss(toastId);
+            showMutationErrorToast({
+              error,
+              fallbackMessage: "Failed to regenerate title.",
+            });
+          }
+        },
       }),
     }),
     coreThreadAction({
