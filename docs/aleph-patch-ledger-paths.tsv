@@ -105,7 +105,7 @@ composer-gate	M	apps/app/src/test/thread-detail-prompt-area-harness.tsx
 composer-gate	M	packages/shared-ui/src/components/ui/question-form-state.ts
 contributor-gate	M	.github/APPROVED_CONTRIBUTORS
 credential-redaction	M	changelog-metadata.ts
-credential-redaction	M	packages/domain/src/app-keybindings.ts
+history-keybindings	M	packages/domain/src/app-keybindings.ts
 credential-redaction	M	packages/domain/src/app-theme.ts
 credential-redaction	M	packages/domain/src/index.ts
 credential-redaction	M	packages/domain/src/native-roots.ts
@@ -498,7 +498,7 @@ no-upstream-updates	M	apps/desktop/src/desktop-browser-ipc.ts
 no-upstream-updates	M	apps/desktop/src/desktop-browser-view.ts
 no-upstream-updates	A	apps/desktop/src/desktop-close-window-request.ts
 no-upstream-updates	M	apps/desktop/src/desktop-dialog-window.ts
-no-upstream-updates	M	apps/desktop/src/desktop-menu-shortcuts.ts
+history-keybindings	M	apps/desktop/src/desktop-menu-shortcuts.ts
 no-upstream-updates	M	apps/desktop/src/desktop-update-check.ts
 no-upstream-updates	M	apps/desktop/src/desktop-update-provider.ts
 no-upstream-updates	M	apps/desktop/src/desktop-window-factory.ts
@@ -506,7 +506,7 @@ no-upstream-updates	M	apps/desktop/src/existing-server-dialog.ts
 no-upstream-updates	M	apps/desktop/src/local-view.ts
 no-upstream-updates	M	apps/desktop/src/log-viewer.ts
 no-upstream-updates	M	apps/desktop/src/main.ts
-no-upstream-updates	M	apps/desktop/src/menu.ts
+history-keybindings	M	apps/desktop/src/menu.ts
 no-upstream-updates	M	apps/desktop/src/moved-machine-service.ts
 no-upstream-updates	M	apps/desktop/src/preload.ts
 no-upstream-updates	M	apps/desktop/src/remote-server-load.ts
@@ -516,7 +516,7 @@ no-upstream-updates	M	apps/desktop/src/server-url-dialog.ts
 no-upstream-updates	A	apps/server/src/services/system/aleph-update-composition.ts
 no-upstream-updates	A	apps/server/src/services/system/aleph-update-notify-command.ts
 no-upstream-updates	A	apps/server/src/services/system/aleph-update.ts
-no-upstream-updates	M	apps/server/src/services/system/app-keybindings.ts
+history-keybindings	M	apps/server/src/services/system/app-keybindings.ts
 no-upstream-updates	M	apps/server/src/services/system/app-update.ts
 no-upstream-updates	M	apps/server/src/services/system/app-version.ts
 no-upstream-updates	M	apps/server/src/services/system/custom-themes.ts
@@ -876,8 +876,8 @@ signed-update-channel	A	packages/config/test/aleph-update-select.test.ts
 signed-update-channel	A	packages/config/test/app-update.test.ts
 signed-update-channel	A	packages/db/src/data/aleph-install-requests.ts
 signed-update-channel	A	plugins/bb-guide/skills/bb-cli/references/aleph-update-notices.md
-split-panes	M	apps/app/src/components/secondary-panel/BrowserTabContent.chrome.test.tsx
-split-panes	M	apps/app/src/components/secondary-panel/BrowserTabContent.tsx
+history-keybindings	M	apps/app/src/components/secondary-panel/BrowserTabContent.chrome.test.tsx
+history-keybindings	M	apps/app/src/components/secondary-panel/BrowserTabContent.tsx
 split-panes	M	apps/app/src/components/secondary-panel/NewTabPage.navigation.test.tsx
 split-panes	M	apps/app/src/components/secondary-panel/SidebarSplitContainer.tsx
 split-panes	A	apps/app/src/components/settings/PaneComposerFocusSetting.tsx
