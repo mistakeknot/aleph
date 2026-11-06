@@ -114,6 +114,8 @@ import {
   type ExperimentalThreadContextCardSectionRegistration,
   type ExperimentalThreadContextKind,
   type ExperimentalThreadContextCardRowProps,
+  type ExperimentalPanelTabIconProps,
+  type ExperimentalPanelTabs,
   type ExperimentalInfoSectionProps,
   type ExperimentalDetailRowProps,
   type ExperimentalInfoListProps,
@@ -287,6 +289,7 @@ type ExperimentalPanelCall =
       method: "openTab" | "toggleTab";
       options: ExperimentalOpenTabOptions;
     }
+  | { method: "selectTab" | "closeTab"; key: string }
   | { method: "close" };
 
 export interface ComposerLog {
@@ -355,6 +358,7 @@ interface SlotEnv {
   navigate: BbNavigate;
   navigateCalls: NavigateCall[];
   appPanel: ExperimentalPanelController;
+  panelTabs: ExperimentalPanelTabs;
   fixedTabTarget: TestFixedTabTargetStore;
   composer: TestComposerStore;
   composerLog: ComposerLog;
@@ -1530,6 +1534,16 @@ function TestDetailRow({ label, icon, children }: ExperimentalDetailRowProps) {
   );
 }
 
+const NO_PANEL_TABS: ExperimentalPanelTabs = {
+  open: false,
+  selectedKey: null,
+  tabs: [],
+};
+
+function TestPanelTabIcon({ tabKey }: ExperimentalPanelTabIconProps) {
+  return <span data-panel-tab-icon={tabKey} />;
+}
+
 function TestThreadContextCardRow(
   props: ExperimentalThreadContextCardRowProps,
 ) {
@@ -1694,6 +1708,9 @@ const testPluginSdkApp = {
   experimental_useAppPanel(): ExperimentalPanelController {
     return useSlotEnv("experimental_useAppPanel").appPanel;
   },
+  experimental_usePanelTabs(): ExperimentalPanelTabs {
+    return useSlotEnv("experimental_usePanelTabs").panelTabs;
+  },
   experimental_useFixedTabTarget<Target extends JsonValue>(
     tab:
       | import("@get-bb/plugin-sdk").ExperimentalTabTargetReference<Target>
@@ -1818,6 +1835,7 @@ const testPluginSdkApp = {
   experimental_InfoSection: TestInfoSection,
   experimental_DetailRow: TestDetailRow,
   experimental_ThreadContextCardRow: TestThreadContextCardRow,
+  experimental_PanelTabIcon: TestPanelTabIcon,
   experimental_InfoList: TestInfoList,
   experimental_InfoListRow: TestInfoListRow,
   experimental_useSidebarThreads(): PluginSidebarThreadsState {
@@ -2437,6 +2455,11 @@ export interface RenderSlotOptions<
    */
   experimental_panel?: Partial<ExperimentalPanelController>;
   /**
+   * What `experimental_usePanelTabs()` reports. Omitted → a closed panel with
+   * no tabs.
+   */
+  experimental_panelTabs?: ExperimentalPanelTabs;
+  /**
    * Initial session target visible to `experimental_useFixedTabTarget`.
    * Omit `panelId` for a thread fixed tab.
    */
@@ -2775,6 +2798,21 @@ export function renderSlot<
       const json = jsonTabOptions(tabOptions);
       if (json === null) return false;
       return options.experimental_panel?.toggleTab?.(json) ?? false;
+    },
+    getTabs() {
+      return (
+        options.experimental_panel?.getTabs?.() ??
+        options.experimental_panelTabs ??
+        NO_PANEL_TABS
+      );
+    },
+    selectTab(key) {
+      experimental_panelCalls.push({ method: "selectTab", key });
+      return options.experimental_panel?.selectTab?.(key) ?? false;
+    },
+    closeTab(key) {
+      experimental_panelCalls.push({ method: "closeTab", key });
+      return options.experimental_panel?.closeTab?.(key) ?? false;
     },
     close() {
       experimental_panelCalls.push({ method: "close" });
@@ -3308,6 +3346,7 @@ export function renderSlot<
     navigate,
     navigateCalls,
     appPanel,
+    panelTabs: options.experimental_panelTabs ?? NO_PANEL_TABS,
     fixedTabTarget,
     composer,
     composerLog,

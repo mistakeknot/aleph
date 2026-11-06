@@ -13,6 +13,7 @@ import {
   resetFixedPanelTabsStateForTest,
   useCloseFixedSecondaryPanel,
   useFixedPanelTabsState,
+  useGetFixedPanelTabsState,
   useOpenFixedSecondaryPanel,
   useSetFixedRightTerminalActiveTerminal,
   useSetFixedSecondaryPanelTab,
@@ -48,6 +49,7 @@ function setup() {
   const hook = renderHook(
     () => ({
       state: useFixedPanelTabsState(THREAD, null),
+      getState: useGetFixedPanelTabsState(THREAD),
       close: useCloseFixedSecondaryPanel(THREAD, null),
       open: useOpenFixedSecondaryPanel(THREAD, null),
       setTab: useSetFixedSecondaryPanelTab(THREAD, null),
@@ -88,6 +90,16 @@ describe("width-class secondary panel suppression", () => {
     expect(hook.result.current.state.secondary.isOpen).toBe(false);
     setWidth(2200);
     expect(hook.result.current.state.secondary.isOpen).toBe(true);
+  });
+
+  it("imperative reads follow suppression without closing persisted tabs", () => {
+    const { hook, setWidth, persistedOpen } = setup();
+    const getState = hook.result.current.getState;
+    setWidth(1000);
+    expect(getState().secondary.isOpen).toBe(false);
+    expect(persistedOpen()).toBe(true);
+    setWidth(2200);
+    expect(getState().secondary.isOpen).toBe(true);
   });
 
   it("toggle in narrow shows it and persists suppressed=false for narrow only", () => {

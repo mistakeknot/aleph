@@ -355,6 +355,20 @@ export function useFixedPanelTabsState(
   );
 }
 
+export function useGetFixedPanelTabsState(
+  panelStateId: FixedPanelTabsPanelStateId,
+): () => FixedPanelTabsState {
+  const stateAtom = getFixedPanelTabsStateAtom(panelStateId);
+  const store = useStore();
+  const suppression = useSecondaryPanelSuppressionActions();
+  return useCallback(() => {
+    const state = store.get(stateAtom);
+    return suppression.isSuppressed() && state.secondary.isOpen
+      ? { ...state, secondary: { ...state.secondary, isOpen: false } }
+      : state;
+  }, [stateAtom, store, suppression]);
+}
+
 export function applyFixedPanelTabsUpdate(
   current: FixedPanelTabsState,
   update: FixedPanelTabsStateUpdater,
@@ -518,30 +532,27 @@ export function useSetFixedSecondaryPanelTab(
   syncThreadId: FixedPanelTabsSyncThreadId,
 ): FixedPanelSecondaryPanelSetter {
   const updateState = useUpdateFixedPanelTabsState(panelStateId, syncThreadId);
-  return useCallback(
-    () => {
-      updateState((current) => {
-        const tabs = ensureSecondaryPanelTab(current.secondary.tabs);
-        const activeTabId = SECONDARY_PANEL_TAB.id;
-        if (
-          tabs === current.secondary.tabs &&
-          current.secondary.activeTabId === activeTabId &&
-          current.secondary.isOpen
-        ) {
-          return current;
-        }
-        return {
-          ...current,
-          secondary: {
-            tabs,
-            activeTabId,
-            isOpen: true,
-          },
-        };
-      });
-    },
-    [updateState],
-  );
+  return useCallback(() => {
+    updateState((current) => {
+      const tabs = ensureSecondaryPanelTab(current.secondary.tabs);
+      const activeTabId = SECONDARY_PANEL_TAB.id;
+      if (
+        tabs === current.secondary.tabs &&
+        current.secondary.activeTabId === activeTabId &&
+        current.secondary.isOpen
+      ) {
+        return current;
+      }
+      return {
+        ...current,
+        secondary: {
+          tabs,
+          activeTabId,
+          isOpen: true,
+        },
+      };
+    });
+  }, [updateState]);
 }
 
 export function useCloseFixedSecondaryPanel(
