@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { cumulativeToDeltas, dedupeByKey, normalize } from "../src/index.js";
+import { validNormalizedRecord } from "../src/parser/protocol.js";
 import { fixturePath, ofKind } from "./helpers.js";
 import { readFileSync } from "node:fs";
 
@@ -322,5 +323,41 @@ describe("bb event normalization", () => {
       normalize(event(total), { provider: "bb", position }),
     );
     expect(ofKind(dedupeByKey(records), "usage")).toHaveLength(5);
+  });
+
+  it("emits only records the parser validator accepts when counters are fractional, negative or unsafe", () => {
+    const records = normalize(
+      {
+        type: "thread/tokenUsage/updated",
+        thread_id: "t1",
+        created_at: "2026-01-02T03:04:05.000Z",
+        data: JSON.stringify({
+          tokenUsage: {
+            total: {
+              inputTokens: 1.5,
+              outputTokens: -3,
+              cacheReadInputTokens: 2 ** 53,
+              cachedInputTokens: 4,
+              cacheWriteInputTokens: 2 ** 53,
+              reasoningOutputTokens: 0.25,
+              totalTokens: 110,
+            },
+          },
+        }),
+      },
+      bb,
+    );
+    const usage = ofKind(records, "usage");
+    expect(usage).toHaveLength(1);
+    expect(usage[0]).toMatchObject({
+      origin: "bb-token-usage",
+      inputTokens: null,
+      outputTokens: null,
+      cacheReadTokens: 4,
+      cacheWriteTokens: null,
+      reasoningTokens: null,
+      totalTokens: 110,
+    });
+    expect(records.every(validNormalizedRecord)).toBe(true);
   });
 });

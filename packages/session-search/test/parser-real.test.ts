@@ -686,6 +686,45 @@ function claudeUsageSession(built: Rig, name: string): ParserSourceSpec {
   return { ref, provider: "claude", path };
 }
 
+function claudeCostStateSession(built: Rig, name: string): ParserSourceSpec {
+  const path = join(built.files, name);
+  mkdirSync(dirname(path), { recursive: true });
+  const lines = [
+    line("u-1", "cost question"),
+    JSON.stringify({
+      type: "cost-state",
+      uuid: "c-1",
+      sessionId: "s1",
+      timestamp: "2026-01-01T00:00:01.000Z",
+      cwd: "/work/fixture",
+      modelUsage: {
+        "claude-test-model": {
+          inputTokens: BAD_COUNTS.fractional,
+          outputTokens: BAD_COUNTS.negative,
+          cacheReadInputTokens: BAD_COUNTS.unsafe,
+          cacheCreationInputTokens: BAD_COUNTS.valid,
+          costUSD: 0.5,
+        },
+      },
+    }),
+    JSON.stringify({
+      type: "assistant",
+      uuid: "a-1",
+      sessionId: "s1",
+      timestamp: "2026-01-01T00:00:02.000Z",
+      cwd: "/work/fixture",
+      message: {
+        id: "msg-1",
+        role: "assistant",
+        content: [{ type: "text", text: "cost answer" }],
+      },
+    }),
+  ];
+  writeFileSync(path, lines.join("\n") + "\n");
+  const ref: SourceRef = { key: name, generation: 1, discoveredAtMs: 1 };
+  return { ref, provider: "claude", path };
+}
+
 function codexUsageSession(built: Rig, name: string): ParserSourceSpec {
   const path = join(built.files, name);
   mkdirSync(dirname(path), { recursive: true });
@@ -806,5 +845,30 @@ describe("real adapters with unusable usage counters", () => {
         totalTokens: 110,
       });
     }
+  }, 60_000);
+
+  it("indexes a claude session whose cost-state counters are fractional, negative or unsafe", async () => {
+    const built = rig();
+    const spec = claudeCostStateSession(built, "cost.claude.jsonl");
+    built.scheduler.upsert(spec);
+    await built.scheduler.drain();
+    expect(built.scheduler.state("cost.claude.jsonl")?.status).toBe("idle");
+    expect(
+      built.events.filter((event) => event.type === "quarantined"),
+    ).toEqual([]);
+    expect(texts(built.dir)).toEqual(
+      expect.arrayContaining(["cost question", "cost answer"]),
+    );
+
+    const usage = usageRecords(spec.path, "claude");
+    expect(usage).toHaveLength(1);
+    expect(usage[0]).toMatchObject({
+      origin: "claude-cost-state",
+      inputTokens: null,
+      outputTokens: null,
+      cacheReadTokens: null,
+      cacheWriteTokens: BAD_COUNTS.valid,
+      costUsd: 0.5,
+    });
   }, 60_000);
 });
