@@ -529,6 +529,52 @@ describe("readPage with the real store", () => {
     expect(quarantineRows(dir)).toHaveLength(1);
   });
 
+  it("quarantines a deeply nested tool input and still ingests the next line", async () => {
+    const dir = makeStoreDir();
+    const store = track(dir);
+    const path = join(workdir(), "deep.jsonl");
+    const depth = 10_000;
+    const nested = '{"a":'.repeat(depth) + "1" + "}".repeat(depth);
+    const deep =
+      '{"type":"assistant","uuid":"deep","sessionId":"s1","timestamp":"2026-01-01T00:00:00.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Edit","input":' +
+      nested +
+      "}]}}";
+    expect(deep.length).toBeGreaterThan(50_000);
+    expect(() => JSON.parse(deep)).not.toThrow();
+    writeFileSync(
+      path,
+      line("u0", "before") + "\n" + deep + "\n" + line("u1", "after") + "\n",
+    );
+    const ref = source("claude-deep", 1);
+    const pages = await drain(store, claudeSource(ref, path));
+    expect(pages.map((page) => page.status)).toEqual(["page", "idle"]);
+    expect(count(dir, "content")).toBe(2);
+    const rows = quarantineRows(dir);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      reason: "record_too_large",
+      byte_length: deep.length,
+    });
+    expect(cursorOffsetOf(store, ref)).toBe(
+      Buffer.byteLength(
+        line("u0", "before") + "\n" + deep + "\n" + line("u1", "after") + "\n",
+      ),
+    );
+  });
+
+  it("quarantines a record nested just past the depth limit and keeps reading", async () => {
+    const dir = makeStoreDir();
+    const store = track(dir);
+    const path = join(workdir(), "shallow-deep.jsonl");
+    const nested = "[".repeat(40) + "]".repeat(40);
+    const over = `{"type":"user","uuid":"over","sessionId":"s1","timestamp":"2026-01-01T00:00:00.000Z","message":{"role":"user","content":"x"},"extra":${nested}}`;
+    writeFileSync(path, over + "\n" + line("u1", "after") + "\n");
+    const ref = source("claude-over", 1);
+    await drain(store, claudeSource(ref, path));
+    expect(count(dir, "content")).toBe(1);
+    expect(quarantineRows(dir)).toHaveLength(1);
+  });
+
   it("leaves the cursor unchanged when the commit is refused and re-reads the same page", async () => {
     const dir = makeStoreDir();
     const store = track(dir);

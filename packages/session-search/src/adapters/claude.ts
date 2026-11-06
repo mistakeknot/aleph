@@ -250,6 +250,26 @@ function placeholderFor(
   };
 }
 
+type NormalizeContext = Parameters<typeof normalize>[1];
+
+function safeNormalize(
+  value: unknown,
+  limits: AdmissionLimits,
+  context: NormalizeContext,
+): NormalizedRecord[] | null {
+  const shape = measureValue(value, {
+    ...limits,
+    maxBatchInputBytes: Number.POSITIVE_INFINITY,
+    maxBatchAccountedBytes: Number.POSITIVE_INFINITY,
+  });
+  if (!shape.ok) return null;
+  try {
+    return normalize(value, context);
+  } catch {
+    return null;
+  }
+}
+
 async function openChecked(
   path: string,
 ): Promise<
@@ -399,13 +419,19 @@ async function assemblePage(
     } else if (item.kind === "placeholder") {
       placeholder = item.placeholder;
     } else {
-      const normalized = normalize(item.value, {
+      const normalized = safeNormalize(item.value, limits, {
         provider: "claude",
         sessionId: source.sessionId ?? null,
         agentId: source.agentId ?? null,
         position: item.startOffset,
       });
-      if (normalized.length === 0) {
+      if (normalized === null) {
+        placeholder = placeholderFor(
+          generation,
+          item.startOffset,
+          item.endOffset,
+        );
+      } else if (normalized.length === 0) {
         noteSkip(skipped, {
           reason: "ignored",
           startOffset: item.startOffset,
