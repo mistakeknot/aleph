@@ -2,6 +2,7 @@ import {
   resolveHostEnvironment,
   mergeHostAndProviderEnvironment,
 } from "../hosts/host-environment.js";
+import { isServerMachineHost } from "../hosts/primary-host.js";
 import { getEnvironment, getHost, getProject } from "@bb/db";
 import type {
   DynamicTool,
@@ -32,6 +33,7 @@ import { UPDATE_ENVIRONMENT_DIRECTORY_TOOL } from "./thread-environment-director
 import {
   DATA_DIR_AGENT_INSTRUCTIONS_RELATIVE_PATH,
   WORKSPACE_AGENT_INSTRUCTIONS_RELATIVE_PATH,
+  claudeCodeWalkUpLoadsDataDirAgentInstructions,
   readDataDirAgentInstructions,
 } from "./workspace-agent-instructions.js";
 import { readWorkspaceAgentContext } from "./workspace-agent-context.js";
@@ -208,10 +210,16 @@ export async function resolveThreadRuntimeCommandConfig(
       pluginSkillSelections: conditionalConfiguration.selectedSkillIdsByPlugin,
     })
   ).map((entry) => entry.runtimeSource);
-  const dataDirAgentInstructions = readDataDirAgentInstructions(
-    deps.logger,
-    deps.config.dataDir,
-  );
+  const dataDirAgentInstructionsLoadedByProvider =
+    args.thread.providerId === "claude-code" &&
+    isServerMachineHost(deps, args.environment.hostId) &&
+    claudeCodeWalkUpLoadsDataDirAgentInstructions(
+      deps.config.dataDir,
+      workspacePath,
+    );
+  const dataDirAgentInstructions = dataDirAgentInstructionsLoadedByProvider
+    ? null
+    : readDataDirAgentInstructions(deps.logger, deps.config.dataDir);
   const dynamicToolContributions = resolveDynamicTools(
     conditionalConfiguration.tools,
   );

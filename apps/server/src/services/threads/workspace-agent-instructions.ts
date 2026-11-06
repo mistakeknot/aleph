@@ -41,3 +41,65 @@ export function readDataDirAgentInstructions(
     path.join(dataDir, DATA_DIR_AGENT_INSTRUCTIONS_RELATIVE_PATH),
   );
 }
+
+const CLAUDE_MD_RELATIVE_PATHS = [
+  "CLAUDE.md",
+  path.join(".claude", "CLAUDE.md"),
+];
+
+const AGENTS_IMPORT_PATTERN = /(^|\s)@(\.\/)?AGENTS\.md(?=$|[\s.,;:!?)\]])/m;
+
+function realPathOrNull(filePath: string): string | null {
+  try {
+    return fs.realpathSync(filePath);
+  } catch {
+    return null;
+  }
+}
+
+function claudeMdImportsAgentsMd(directory: string): boolean | null {
+  let found = false;
+  for (const relativePath of CLAUDE_MD_RELATIVE_PATHS) {
+    let content: string;
+    try {
+      content = fs.readFileSync(path.join(directory, relativePath), "utf8");
+    } catch {
+      continue;
+    }
+    found = true;
+    if (AGENTS_IMPORT_PATTERN.test(content)) {
+      return true;
+    }
+  }
+  return found ? false : null;
+}
+
+export function claudeCodeWalkUpLoadsDataDirAgentInstructions(
+  dataDir: string,
+  cwd: string,
+): boolean {
+  const target = realPathOrNull(
+    path.join(dataDir, DATA_DIR_AGENT_INSTRUCTIONS_RELATIVE_PATH),
+  );
+  const start = realPathOrNull(cwd);
+  if (target === null || start === null) {
+    return false;
+  }
+  let directory = start;
+  for (;;) {
+    const candidate = realPathOrNull(
+      path.join(directory, DATA_DIR_AGENT_INSTRUCTIONS_RELATIVE_PATH),
+    );
+    if (candidate === target) {
+      const imported = claudeMdImportsAgentsMd(directory);
+      if (imported === null || imported) {
+        return true;
+      }
+    }
+    const parent = path.dirname(directory);
+    if (parent === directory) {
+      return false;
+    }
+    directory = parent;
+  }
+}

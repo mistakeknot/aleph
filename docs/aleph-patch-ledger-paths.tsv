@@ -1086,3 +1086,6 @@ session-search	A	packages/session-search/test/support/chunk-sources.ts
 session-search	A	packages/session-search/test/support/frame-child.ts
 session-search	A	packages/session-search/test/support/frame-parent.ts
 session-search	A	packages/session-search/test/support/rss-child.ts
+agents-md-once	M	apps/server/src/services/threads/thread-runtime-config.ts
+agents-md-once	M	apps/server/src/services/threads/workspace-agent-instructions.ts
+agents-md-once	M	apps/server/test/threads/thread-runtime-config.test.ts

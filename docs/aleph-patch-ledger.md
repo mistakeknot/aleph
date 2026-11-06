@@ -56,20 +56,21 @@ Held as: *plugin* means the change lives in a plugin directory; *in-tree* means 
 | extra-write-roots | in-tree | 2 | Extra workspace write roots for sandboxed agents | Re-apply. | **Keep.** Host-daemon env hook for extra writable roots; no upstream equivalent. Small, opt-in, generic: upstream candidate. |
 | upstream-sync-tooling | in-tree | 1 | `scripts/upstream-sync.sh`, the probe and prepare tool for upstream syncs | Keep Aleph's script. | **Keep.** Aleph's script. Upstream has no equivalent. It does not yet restore the contributor list (bead pending). |
 | test-hardening | in-tree | 11 | Bounded timeouts and hermetic setup for load-sensitive tests (mk-4tj93) | Re-apply. | **Keep.** Two files also changed upstream (clipboard test 78671a2d66, protocol-self-update test 6d8e0d107d); re-test them after a sync. Generic timeout fixes are upstream candidates. |
+| agents-md-once | in-tree | 3 | Skip the data-dir AGENTS.md prompt injection for Claude Code threads whose working directory walk-up already loads the same file (mk-tv70n.10.1) | Re-apply the guard in thread-runtime-config.ts and keep the helper beside the instruction readers. | **Keep.** Still needed: the data-dir file reached the model twice, once injected and once as Claude Code project instructions. Generic and small: upstream candidate. |
 
-Totals: 1087 differing paths. 3 are deletions (`.github/workflows/deploy-ai-gateway.yml`, `close-stale-prs.yml` and `deploy-connect-next.yml`, imported workflows Aleph does not run); the rest are additions, edits and renames.
+Totals: 1090 differing paths. 3 are deletions (`.github/workflows/deploy-ai-gateway.yml`, `close-stale-prs.yml` and `deploy-connect-next.yml`, imported workflows Aleph does not run); the rest are additions, edits and renames.
 
 ## Audit summary (bead mk-uyf3d.2)
 
 Audited against upstream bcefd50bf2 (this ledger's base) and upstream main as fetched on 2026-11-05. Each row's verdict answers four questions: still needed, superseded by upstream, movable to a plugin or upstream extension point, and worth proposing upstream. Evidence per row is in the verdict column and in the child beads. Claims marked *unverified* were not reproduced.
 
-Verdict counts (48 rows): KEEP 44, MOVE-PLUGIN 1, UPSTREAM-CANDIDATE 2, RETIRE-BEAD 1, RETIRE-NOW 0.
+Verdict counts (49 rows): KEEP 45, MOVE-PLUGIN 1, UPSTREAM-CANDIDATE 2, RETIRE-BEAD 1, RETIRE-NOW 0.
 
 No row retires now: every superseded fragment needs a code change that is a child bead (rebase, test or cleanup), not a ledger-only edit. The one RETIRE-BEAD row (web-site) differs from the pinned upstream base by formatting only; upstream main has moved on since.
 
 ### What moves to a plugin, and what stays core
 
-Group counts: a 6, b 18, c 23, d 1. Each row appears once, in its main group; a row's other direction is in its note.
+Group counts: a 6, b 19, c 23, d 1. Each row appears once, in its main group; a row's other direction is in its note.
 
 #### (a) Move to a plugin: 6 rows
 
@@ -82,7 +83,7 @@ Group counts: a 6, b 18, c 23, d 1. Each row appears once, in its main group; a 
 | fonts | Custom theme that loads a font file | Unknown: a theme loading a font file is unverified | decide with the themes move |
 | window-presets | Plugin SDK API to arrange panes and threads, plus a plugin-owned `window` CLI command | No: `window` is a reserved CLI command and the SDK has only navigation hooks | registry, routes and CLI could move; the app controller cannot |
 
-#### (b) Propose upstream (list only; nothing is filed on upstream): 18 rows
+#### (b) Propose upstream (list only; nothing is filed on upstream): 19 rows
 
 | Patch | What to propose | Extension point or note | Scope |
 |---|---|---|---|
@@ -104,6 +105,7 @@ Group counts: a 6, b 18, c 23, d 1. Each row appears once, in its main group; a 
 | launcher-hardening | ENOSPC log-transport guard, startup stop guard, BB_CLI re-entry guard | n/a | generic |
 | extra-write-roots | Opt-in extra workspace write roots for sandboxed agents | n/a | small, env-gated |
 | test-hardening | Bounded timeouts and hermetic setup | n/a | generic |
+| agents-md-once | Skip the data-dir instruction injection when the provider's own walk-up loads the file | n/a | small guard plus helper; Claude Code only |
 
 #### (c) Fork core (Aleph identity, updates, migrations, and edits no extension point reaches): 23 rows
 

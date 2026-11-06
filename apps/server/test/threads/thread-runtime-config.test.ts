@@ -1,4 +1,5 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -1554,6 +1555,177 @@ describe("thread runtime config", () => {
       expect(runtimeConfig.instructions.indexOf(userSource)).toBeLessThan(
         runtimeConfig.instructions.indexOf(workspaceSource),
       );
+    });
+  });
+
+  describe("data-dir AGENTS.md already loaded by the Claude Code walk-up", () => {
+    const userSource =
+      "The following user instructions come from <dataDir>/AGENTS.md:";
+    const scratchRoots: string[] = [];
+
+    afterEach(async () => {
+      await Promise.all(
+        scratchRoots
+          .splice(0)
+          .map((root) => rm(root, { recursive: true, force: true })),
+      );
+    });
+
+    interface ResolveInstructionsArgs {
+      dataDirFiles?: Record<string, string>;
+      primaryHost?: boolean;
+      providerId?: "claude-code" | "codex";
+      workspacePath: (dataDir: string) => Promise<string>;
+    }
+
+    async function resolveInstructions(
+      args: ResolveInstructionsArgs,
+    ): Promise<string> {
+      let instructions = "";
+      await withTestHarness(async (harness) => {
+        const hostId = "host-agents-walk-up";
+        seedHostSession(harness.deps, { id: hostId });
+        if (args.primaryHost !== false) {
+          seedPrimaryHost(harness.deps, hostId);
+        }
+        await writeDataDirAgentInstructions({
+          content: "# User Rules\n\nPrefer concise progress updates.\n",
+          dataDir: harness.config.dataDir,
+        });
+        for (const [name, content] of Object.entries(args.dataDirFiles ?? {})) {
+          await writeFile(
+            path.join(harness.config.dataDir, name),
+            content,
+            "utf8",
+          );
+        }
+        const workspacePath = await args.workspacePath(harness.config.dataDir);
+        const { project } = seedProjectWithSource(harness.deps, {
+          hostId,
+          path: workspacePath,
+        });
+        const environment = seedEnvironment(harness.deps, {
+          hostId,
+          projectId: project.id,
+          path: workspacePath,
+        });
+        const thread = seedThread(harness.deps, {
+          projectId: project.id,
+          environmentId: environment.id,
+          providerId: args.providerId ?? "claude-code",
+        });
+        const runtimeConfig = await resolveThreadRuntimeCommandConfig(
+          harness.deps,
+          {
+            thread,
+            model: "test-model",
+            environment: {
+              hostId: environment.hostId,
+              id: environment.id,
+              path: environment.path,
+              status: environment.status,
+            },
+          },
+        );
+        instructions = runtimeConfig.instructions;
+      });
+      return instructions;
+    }
+
+    async function scratchDir(): Promise<string> {
+      const root = await mkdtemp(path.join(tmpdir(), "bb-agents-walk-up-"));
+      scratchRoots.push(root);
+      return root;
+    }
+
+    async function nestedWorkspace(dataDir: string): Promise<string> {
+      const workspacePath = path.join(dataDir, "checkouts", "one", "repo");
+      await mkdir(workspacePath, { recursive: true });
+      return workspacePath;
+    }
+
+    it("skips the injection when the cwd is under the data dir", async () => {
+      const instructions = await resolveInstructions({
+        workspacePath: nestedWorkspace,
+      });
+      expect(instructions).not.toContain(userSource);
+      expect(instructions).not.toContain("Prefer concise progress updates.");
+    });
+
+    it("injects when the cwd is outside the data dir", async () => {
+      const instructions = await resolveInstructions({
+        workspacePath: async () => {
+          const outside = path.join(await scratchDir(), "repo");
+          await mkdir(outside, { recursive: true });
+          return outside;
+        },
+      });
+      expect(instructions).toContain(userSource);
+      expect(instructions).toContain("Prefer concise progress updates.");
+    });
+
+    it("skips the injection when the cwd is reached through a symlink to the data dir", async () => {
+      const instructions = await resolveInstructions({
+        workspacePath: async (dataDir) => {
+          await nestedWorkspace(dataDir);
+          const link = path.join(await scratchDir(), "linked-data");
+          await symlink(dataDir, link);
+          return path.join(link, "checkouts", "one", "repo");
+        },
+      });
+      expect(instructions).not.toContain(userSource);
+    });
+
+    it("skips the injection when the data-dir AGENTS.md is itself a symlink", async () => {
+      const instructions = await resolveInstructions({
+        workspacePath: async (dataDir) => {
+          const realFile = path.join(await scratchDir(), "shared-agents.md");
+          await writeFile(realFile, "# Shared Rules\n", "utf8");
+          await rm(path.join(dataDir, "AGENTS.md"), { force: true });
+          await symlink(realFile, path.join(dataDir, "AGENTS.md"));
+          return nestedWorkspace(dataDir);
+        },
+      });
+      expect(instructions).not.toContain(userSource);
+    });
+
+    it("injects when a CLAUDE.md beside the data-dir AGENTS.md does not import it", async () => {
+      const instructions = await resolveInstructions({
+        dataDirFiles: { "CLAUDE.md": "# Other rules\n" },
+        workspacePath: nestedWorkspace,
+      });
+      expect(instructions).toContain(userSource);
+    });
+
+    it("skips the injection when a CLAUDE.md beside the data-dir AGENTS.md imports it", async () => {
+      const instructions = await resolveInstructions({
+        dataDirFiles: { "CLAUDE.md": "# Rules\n\n@AGENTS.md\n" },
+        workspacePath: nestedWorkspace,
+      });
+      expect(instructions).not.toContain(userSource);
+    });
+
+    it("injects when the host is not the server machine", async () => {
+      const instructions = await resolveInstructions({
+        primaryHost: false,
+        workspacePath: nestedWorkspace,
+      });
+      expect(instructions).toContain(userSource);
+    });
+
+    it("injects for providers other than Claude Code", async () => {
+      const instructions = await resolveInstructions({
+        providerId: "codex",
+        workspacePath: nestedWorkspace,
+      });
+      expect(instructions).toContain(userSource);
+    });
+
+    it("injects when the cwd does not exist", async () => {
+      const instructions = await resolveInstructions({
+        workspacePath: async (dataDir) => path.join(dataDir, "missing", "repo"),
+      });
+      expect(instructions).toContain(userSource);
     });
   });
 
