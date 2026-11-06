@@ -12,3 +12,5 @@ export * from "./reader.js";
 export * from "./rowid.js";
 export * from "./storage.js";
 export * from "./streaming-reader.js";
+export * from "./ipc/rss.js";
+export * from "./ipc/memory-supervisor.js";
