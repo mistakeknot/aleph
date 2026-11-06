@@ -44,11 +44,11 @@ bb plugin config push-notifications set expoPushUrl <url>
   nothing.
 - `notify` pushes a blocker, a card or task that waits on a person, to the
   registered phones and to connected web and desktop clients. Only
-  `--kind blocker` is accepted. Each source may push `blockerDailyCap` times
-  per Pacific-time day (default 3); beyond that, or for a repeated
+  `--kind blocker` is accepted. At most `blockerDailyCap` blocker pushes go out
+  per Pacific-time day across all sources together (default 3); beyond that, or for a repeated
   `--dedupe-key` that day, nothing is sent and the command still exits 0 with
   `capped` or `deduped` true in the JSON. `status` shows the last 14 days of
-  sent, capped and deduped counts per source. A plugin calls the same thing
+  sent, capped and deduped counts as a day total and per source. A plugin calls the same thing
   with `sdk.plugins.callRpc` and method `notifications.notify`; its source is
   its plugin id.
 

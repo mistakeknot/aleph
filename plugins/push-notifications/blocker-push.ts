@@ -44,6 +44,7 @@ export interface BlockerAdmission {
 
 export interface BlockerDayView {
   day: string;
+  total: BlockerCounts;
   sources: Record<string, BlockerCounts>;
 }
 
@@ -115,10 +116,17 @@ export function createBlockerLedger(bb: BbPluginApi): BlockerLedger {
         const key = rowKey(day, source);
         const row = await readRow(key);
         let outcome: BlockerOutcome = "sent";
+        let sentTotal = row.sent;
         if (dedupeKey !== null && row.keys.includes(dedupeKey)) {
           outcome = "deduped";
-        } else if (row.sent >= cap) {
-          outcome = "capped";
+        } else {
+          sentTotal = 0;
+          for (const other of await bb.storage.kv.list(
+            `${DAY_KEY_PREFIX}${day}:`,
+          )) {
+            sentTotal += (await readRow(other)).sent;
+          }
+          if (sentTotal >= cap) outcome = "capped";
         }
         const next: BlockerDayRow =
           outcome === "sent"
@@ -130,7 +138,12 @@ export function createBlockerLedger(bb: BbPluginApi): BlockerLedger {
             : { ...row, [outcome]: row[outcome] + 1 };
         await bb.storage.kv.set(key, next);
         await prune(day);
-        return { outcome, day, cap, sentToday: next.sent };
+        return {
+          outcome,
+          day,
+          cap,
+          sentToday: outcome === "sent" ? sentTotal + 1 : sentTotal,
+        };
       });
     },
     recent(at) {
@@ -140,14 +153,18 @@ export function createBlockerLedger(bb: BbPluginApi): BlockerLedger {
         for (let offset = 0; offset < BLOCKER_STATUS_DAYS; offset += 1) {
           const day = shiftDay(today, -offset);
           const sources: Record<string, BlockerCounts> = {};
+          const total: BlockerCounts = { sent: 0, capped: 0, deduped: 0 };
           for (const key of await bb.storage.kv.list(
             `${DAY_KEY_PREFIX}${day}:`,
           )) {
             const source = key.slice(`${DAY_KEY_PREFIX}${day}:`.length);
             const { sent, capped, deduped } = await readRow(key);
             sources[source] = { sent, capped, deduped };
+            total.sent += sent;
+            total.capped += capped;
+            total.deduped += deduped;
           }
-          views.push({ day, sources });
+          views.push({ day, total, sources });
         }
         return views;
       });

@@ -1448,6 +1448,7 @@ async function blockerStatus(host: Awaited<ReturnType<typeof setup>>) {
     today: string;
     days: {
       day: string;
+      total: { sent: number; capped: number; deduped: number };
       sources: Record<
         string,
         { sent: number; capped: number; deduped: number }
@@ -1491,7 +1492,7 @@ describe("blocker push notifications", () => {
     }
   });
 
-  it("defaults to three pushes per source per day", async () => {
+  it("defaults to three pushes per day", async () => {
     const host = await setup();
     try {
       await host.addSubscription();
@@ -1507,26 +1508,102 @@ describe("blocker push notifications", () => {
     }
   });
 
-  it("counts each source on its own and accepts a cap of zero", async () => {
+  it("applies the cap to all sources together", async () => {
     const host = await setup();
     try {
       await host.addSubscription();
-      await host.harness.behavior.setSettings({ blockerDailyCap: 1 });
-      expect((await notifyAs(host)).outcome).toBe("sent");
-      expect((await notifyAs(host)).outcome).toBe("capped");
-      expect(
-        (await notifyAs(host, {}, { kind: "plugin", pluginId: "other" }))
-          .outcome,
-      ).toBe("sent");
-      await host.harness.behavior.setSettings({ blockerDailyCap: 0 });
-      expect(
-        (await notifyAs(host, {}, { kind: "plugin", pluginId: "third" }))
-          .outcome,
-      ).toBe("capped");
+      await host.harness.behavior.setSettings({ blockerDailyCap: 2 });
+      const first = await notifyAs(host, {}, { kind: "plugin", pluginId: "a" });
+      const second = await notifyAs(
+        host,
+        {},
+        { kind: "plugin", pluginId: "b" },
+      );
+      expect([first.outcome, second.outcome]).toEqual(["sent", "sent"]);
+      expect([first.sentToday, second.sentToday]).toEqual([1, 2]);
+      const third = await notifyAs(host, {}, { kind: "plugin", pluginId: "c" });
+      expect(third).toMatchObject({
+        outcome: "capped",
+        capped: true,
+        sentToday: 2,
+        source: "c",
+      });
+      const fourth = await notifyAs(
+        host,
+        {},
+        { kind: "plugin", pluginId: "a" },
+      );
+      expect(fourth.outcome).toBe("capped");
+      const invented = await notifyAs(
+        host,
+        { source: "invented-source" },
+        { kind: "client" },
+      );
+      expect(invented.outcome).toBe("capped");
       expect(host.expo.requests).toHaveLength(2);
+      expect((await blockerStatus(host)).days[0]).toEqual({
+        day: expect.any(String),
+        total: { sent: 2, capped: 3, deduped: 0 },
+        sources: {
+          a: { sent: 1, capped: 1, deduped: 0 },
+          b: { sent: 1, capped: 0, deduped: 0 },
+          c: { sent: 0, capped: 1, deduped: 0 },
+          "invented-source": { sent: 0, capped: 1, deduped: 0 },
+        },
+      });
+    } finally {
+      await host.cleanup();
+    }
+  });
+
+  it("accepts a cap of zero and rejects one above the maximum", async () => {
+    const host = await setup();
+    try {
+      await host.addSubscription();
+      await host.harness.behavior.setSettings({ blockerDailyCap: 0 });
+      expect((await notifyAs(host)).outcome).toBe("capped");
+      expect(host.expo.requests).toHaveLength(0);
       await expect(
         host.harness.behavior.setSettings({ blockerDailyCap: 101 }),
       ).rejects.toThrow();
+    } finally {
+      await host.cleanup();
+    }
+  });
+
+  it("keys the dedupe on the source and the dedupe key", async () => {
+    const host = await setup();
+    try {
+      await host.addSubscription();
+      await host.harness.behavior.setSettings({ blockerDailyCap: 5 });
+      expect(
+        (
+          await notifyAs(
+            host,
+            { dedupeKey: "card-1" },
+            { kind: "plugin", pluginId: "a" },
+          )
+        ).outcome,
+      ).toBe("sent");
+      expect(
+        (
+          await notifyAs(
+            host,
+            { dedupeKey: "card-1" },
+            { kind: "plugin", pluginId: "b" },
+          )
+        ).outcome,
+      ).toBe("sent");
+      expect(
+        (
+          await notifyAs(
+            host,
+            { dedupeKey: "card-1" },
+            { kind: "plugin", pluginId: "a" },
+          )
+        ).outcome,
+      ).toBe("deduped");
+      expect(host.expo.requests).toHaveLength(2);
     } finally {
       await host.cleanup();
     }
@@ -1679,6 +1756,12 @@ describe("blocker push notifications", () => {
       await expect(
         notifyAs(host, { url: "//elsewhere.test/x" }),
       ).rejects.toMatchObject({ code: "invalid" });
+      await expect(
+        notifyAs(host, { url: "/\\elsewhere.test/x" }),
+      ).rejects.toMatchObject({ code: "invalid" });
+      await expect(
+        notifyAs(host, { url: "/ok\\..\\elsewhere" }),
+      ).rejects.toMatchObject({ code: "invalid" });
     } finally {
       await host.cleanup();
     }
@@ -1805,10 +1888,12 @@ describe("blocker push notifications", () => {
       expect(status.days).toHaveLength(14);
       expect(status.days[0]).toEqual({
         day: "2026-06-14",
+        total: { sent: 1, capped: 0, deduped: 0 },
         sources: { other: { sent: 1, capped: 0, deduped: 0 } },
       });
       expect(status.days[13]).toEqual({
         day: "2026-06-01",
+        total: { sent: 1, capped: 1, deduped: 0 },
         sources: { citadel: { sent: 1, capped: 1, deduped: 0 } },
       });
 
@@ -1819,8 +1904,9 @@ describe("blocker push notifications", () => {
       expect(status.days.map((entry) => entry.day)).not.toContain("2026-06-01");
       const text = await host.harness.behavior.runCli(["status"]);
       expect(text.stdout).toContain(
-        "Blocker pushes (America/Los_Angeles, cap 1 per source per day)",
+        "Blocker pushes (America/Los_Angeles, cap 1 per day across all sources)",
       );
+      expect(text.stdout).toContain("2026-06-15 total: sent 1, capped 0");
       expect(text.stdout).toContain("2026-06-15 other: sent 1, capped 0");
     } finally {
       await host.cleanup();

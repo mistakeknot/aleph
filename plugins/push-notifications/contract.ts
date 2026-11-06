@@ -108,6 +108,7 @@ export const blockerStatusSchema = z
       z
         .object({
           day: z.string(),
+          total: blockerCountsSchema,
           sources: z.record(z.string(), blockerCountsSchema),
         })
         .strict(),

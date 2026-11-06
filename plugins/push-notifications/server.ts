@@ -111,9 +111,14 @@ function formatBlockerPush(view: StatusView["blockerPush"]): string[] {
   const todayRow = view.days.find((entry) => entry.day === view.today);
   const sources = Object.entries(todayRow?.sources ?? {});
   const lines = [
-    `Blocker pushes (${view.timeZone}, cap ${view.cap} per source per day)`,
+    `Blocker pushes (${view.timeZone}, cap ${view.cap} per day across all sources)`,
   ];
   if (sources.length === 0) lines.push(`  ${view.today}: none`);
+  else if (todayRow) {
+    lines.push(
+      `  ${view.today} total: sent ${todayRow.total.sent}, capped ${todayRow.total.capped}, deduped ${todayRow.total.deduped}`,
+    );
+  }
   for (const [source, counts] of sources) {
     lines.push(
       `  ${view.today} ${source}: sent ${counts.sent}, capped ${counts.capped}, deduped ${counts.deduped}`,
@@ -124,7 +129,7 @@ function formatBlockerPush(view: StatusView["blockerPush"]): string[] {
 
 function formatNotifyResult(result: NotifyBlockerOutput): string {
   if (result.outcome === "capped") {
-    return `Not pushed: ${result.source} reached its daily cap of ${result.cap} (${result.id})`;
+    return `Not pushed: the daily cap of ${result.cap} blocker pushes across all sources was reached (${result.id})`;
   }
   if (result.outcome === "deduped") {
     return `Not pushed: already pushed today for that dedupe key (${result.id})`;
@@ -132,7 +137,7 @@ function formatNotifyResult(result: NotifyBlockerOutput): string {
   const mobile = result.delivery
     ? `, ${result.delivery.mobileSent} of ${result.delivery.mobileDevices} devices`
     : "";
-  return `Pushed ${result.sentToday} of ${result.cap} for ${result.source} today${mobile} (${result.id})`;
+  return `Pushed ${result.sentToday} of ${result.cap} today for ${result.source}${mobile} (${result.id})`;
 }
 
 function formatStatus(status: StatusView): string {
@@ -225,7 +230,7 @@ export function createPushNotificationsPlugin(
         type: "number",
         label: "Blocker pushes per day",
         description:
-          "The most blocker notifications one source can push per local day (America/Los_Angeles). Further ones are counted but not sent.",
+          "The most blocker notifications pushed per local day (America/Los_Angeles) across all sources combined. Further ones are counted but not sent.",
         default: DEFAULT_BLOCKER_DAILY_CAP,
         experimental_schema: z.number().int().min(0).max(MAX_BLOCKER_DAILY_CAP),
       },
@@ -302,7 +307,7 @@ export function createPushNotificationsPlugin(
           message: "The source must use lowercase letters, digits, . _ -",
         });
       }
-      if (input.url !== undefined && !/^\/(?!\/)/u.test(input.url)) {
+      if (input.url !== undefined && !/^\/(?![/\\])[^\\]*$/u.test(input.url)) {
         throw new experimental_PluginRpcRefusal({
           code: "invalid",
           message: "The url must be a path inside bb that starts with /",
@@ -486,7 +491,7 @@ export function createPushNotificationsPlugin(
           notify: cliCommand({
             summary: "Push a blocker notification, subject to a daily cap",
             description:
-              "Sends a blocker notification to web, desktop, and registered mobile devices. Each source may push a limited number per America/Los_Angeles day (blockerDailyCap); further requests exit 0 with capped set and send nothing. Only the blocker kind is accepted.",
+              "Sends a blocker notification to web, desktop, and registered mobile devices. At most blockerDailyCap blocker pushes are sent per America/Los_Angeles day across all sources; further requests exit 0 with capped set and send nothing. Only the blocker kind is accepted.",
             options: {
               source: {
                 type: "string",
