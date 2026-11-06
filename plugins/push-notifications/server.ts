@@ -317,6 +317,12 @@ export function createPushNotificationsPlugin(
           message: "The source must use lowercase letters, digits, . _ -",
         });
       }
+      if (!sender.isRunning()) {
+        throw new SendNotificationError(
+          "sender_stopped",
+          "Push notifications are not running",
+        );
+      }
       const at = now();
       const id = randomUUID();
       const { blockerDailyCap } = await settings.get();
@@ -645,6 +651,12 @@ export function createPushNotificationsPlugin(
                   throw new PluginCliError(error.message, {
                     code: "invalid_notification",
                     hint: `Only the ${BLOCKER_KIND} kind is accepted.`,
+                  });
+                }
+                if (error instanceof SendNotificationError) {
+                  throw new PluginCliError(error.message, {
+                    code: error.code,
+                    hint: "Check the push-sender service in `bb plugin list`.",
                   });
                 }
                 throw error;

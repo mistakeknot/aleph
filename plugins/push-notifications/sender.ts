@@ -173,6 +173,7 @@ interface BatchResult {
 export interface PushSender {
   deliverBlocker(message: BlockerPushMessage): Promise<BlockerDelivery>;
   getLastOutcome(): LastSendOutcome;
+  isRunning(): boolean;
   onInteractionPending(
     payload: PluginThreadEventPayloads["interaction.pending"],
   ): void;
@@ -616,13 +617,26 @@ export function createPushSender(args: CreatePushSenderArgs): PushSender {
   async function deliverBlocker(
     message: BlockerPushMessage,
   ): Promise<BlockerDelivery> {
-    const report = await deliver({
+    if (!running) {
+      throw new SendNotificationError(
+        "sender_stopped",
+        "Push notifications are not running",
+      );
+    }
+    const delivery = deliver({
       id: message.id,
       title: message.title,
       body: message.body,
       kind: "blocker",
       thread: message.threadId === null ? null : { id: message.threadId },
     });
+    const tracked = delivery.then(
+      () => undefined,
+      () => undefined,
+    );
+    inFlight.add(tracked);
+    void tracked.finally(() => inFlight.delete(tracked));
+    const report = await delivery;
     return {
       web: report.channels.includes("web"),
       desktop: report.channels.includes("desktop"),
@@ -635,6 +649,7 @@ export function createPushSender(args: CreatePushSenderArgs): PushSender {
   return {
     deliverBlocker,
     getLastOutcome: () => lastOutcome,
+    isRunning: () => running,
     onInteractionPending(payload) {
       schedule(
         payload.thread.id,

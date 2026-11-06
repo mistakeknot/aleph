@@ -2437,4 +2437,78 @@ describe("blocker push notifications", () => {
       await host.cleanup();
     }
   });
+
+  it("waits for a blocker delivery that is pending when the sender stops", async () => {
+    const host = await setup();
+    try {
+      await host.addSubscription();
+      let open!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        open = resolve;
+      });
+      let reached!: () => void;
+      const arrived = new Promise<void>((resolve) => {
+        reached = resolve;
+      });
+      const kv = host.bb.storage.kv;
+      const list = kv.list.bind(kv);
+      vi.spyOn(kv, "list").mockImplementation(async (prefix) => {
+        if (prefix === "subscription:") {
+          reached();
+          await gate;
+        }
+        return list(prefix);
+      });
+      const pending = notifyAs(host);
+      await arrived;
+      let stopped = false;
+      const stopping = host.stopService().then(() => {
+        stopped = true;
+      });
+      await waitForCoalesce();
+      expect(stopped).toBe(false);
+      open();
+      const result = await pending;
+      await stopping;
+      expect(result).toMatchObject({
+        outcome: "sent",
+        sentToday: 1,
+        delivery: { mobileDevices: 1, mobileSent: 1, mobileFailure: null },
+      });
+      expect(host.expo.requests).toHaveLength(1);
+      expect(host.clientSignals()).toHaveLength(1);
+    } finally {
+      await host.cleanup();
+    }
+  });
+
+  it("refuses a notify after the sender stops without counting or sending", async () => {
+    const host = await setup();
+    try {
+      await host.addSubscription();
+      await host.stopService();
+      await expect(notifyAs(host, { dedupeKey: "late" })).rejects.toThrow(
+        "Push notifications are not running",
+      );
+      const cli = await host.harness.behavior.runCli([
+        "notify",
+        "--source",
+        "citadel",
+        "--kind",
+        "blocker",
+        "--title",
+        "T",
+        "--body",
+        "B",
+        "--json",
+      ]);
+      expect(cli.exitCode).not.toBe(0);
+      expect(cli.stdout).toContain("sender_stopped");
+      expect(host.expo.requests).toHaveLength(0);
+      expect(host.clientSignals()).toHaveLength(0);
+      expect((await blockerStatus(host)).days[0]?.sources ?? {}).toEqual({});
+    } finally {
+      await host.cleanup();
+    }
+  });
 });
