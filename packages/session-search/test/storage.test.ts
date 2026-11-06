@@ -11,6 +11,7 @@ import Database from "better-sqlite3";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { SessionRecord, UsageRecord } from "../src/contracts.js";
+import { storeSink } from "../src/parser/scheduler.js";
 import { modeOf, StoreSecurityError } from "../src/private-fs.js";
 import { composeRowid } from "../src/rowid.js";
 import {
@@ -677,5 +678,65 @@ describe("physical accounting", () => {
     const capacity = store.capacity();
     expect(capacity.pageSize).toBe(4096);
     expect(capacity.freePages).toBeGreaterThan(0);
+  });
+});
+
+describe("write fence", () => {
+  it("refuses a batch whose fence is closed and writes nothing", () => {
+    const dir = makeStoreDir();
+    const store = openTracked(dir);
+    const src = source();
+    const result = store.commitBatch(
+      batchOf(src, [message("m", "stale write", MS)]),
+      { expected: null, next: "c1" },
+      () => false,
+    );
+    expect(result.committed).toBe(false);
+    expect(result.refusal?.code).toBe("stale_generation");
+    expect(store.getCursor(src)).toBeNull();
+    expect(
+      rows<{ n: bigint }>(dir, "SELECT count(*) AS n FROM content")[0]!.n,
+    ).toBe(0n);
+  });
+
+  it("commits when the fence is open", () => {
+    const dir = makeStoreDir();
+    const store = openTracked(dir);
+    const src = source();
+    const result = store.commitBatch(
+      batchOf(src, [message("m", "current write", MS)]),
+      { expected: null, next: "c1" },
+      () => true,
+    );
+    expect(result.committed).toBe(true);
+    expect(store.getCursor(src)).toBe("c1");
+  });
+
+  it("makes the store sink refuse a stale generation through the real store", async () => {
+    const dir = makeStoreDir();
+    const store = openTracked(dir);
+    const sink = storeSink(store);
+    const src = source("src-a", 1);
+    let current = true;
+    const refused = await sink.commit(
+      batchOf(src, [message("m", "obsolete", MS)]),
+      { expected: null, next: "c1" },
+      () => {
+        current = false;
+        return current;
+      },
+    );
+    expect(refused.committed).toBe(false);
+    expect(refused.refusal?.code).toBe("stale_generation");
+    expect(store.getCursor(src)).toBeNull();
+    const accepted = await sink.commit(
+      batchOf(source("src-a", 2), [message("n", "current", MS)]),
+      { expected: null, next: "c2" },
+      () => true,
+    );
+    expect(accepted.committed).toBe(true);
+    expect(
+      rows<{ n: bigint }>(dir, "SELECT count(*) AS n FROM content")[0]!.n,
+    ).toBe(1n);
   });
 });
