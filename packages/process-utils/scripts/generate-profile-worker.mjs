@@ -1,6 +1,6 @@
 import { build } from "esbuild";
-import { mkdir, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { writeFileAtomically } from "./write-file-atomically.mjs";
 
 const result = await build({
   entryPoints: [
@@ -12,9 +12,7 @@ const result = await build({
   target: "node22",
   write: false,
 });
-const directory = new URL("../src/generated/", import.meta.url);
-await mkdir(directory, { recursive: true });
-await writeFile(
-  new URL("profile-worker.ts", directory),
+await writeFileAtomically(
+  fileURLToPath(new URL("../src/generated/profile-worker.ts", import.meta.url)),
   `export const profileWorkerSource = ${JSON.stringify(result.outputFiles[0].text)};\n`,
 );
