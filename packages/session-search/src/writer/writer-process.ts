@@ -4,6 +4,7 @@ import type {
   WatchedChild,
 } from "../ipc/memory-supervisor.js";
 import type { TerminationCause } from "../parser/parser-process.js";
+import type { SourceRef } from "../storage.js";
 import {
   parseWriterResponse,
   type WriterRequestBody,
@@ -39,6 +40,8 @@ interface Incarnation {
   watched: WatchedChild;
   label: string;
   killedByUs: boolean;
+  /** True once a supervisor memory kill of this incarnation was recorded. */
+  accounted: boolean;
   exit: ChildExit | null;
   waiter: ((response: WriterResponse | null) => void) | null;
 }
@@ -48,6 +51,25 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 const DEFAULT_CLOSE_GRACE_MS = 1_000;
 const DEFAULT_MAX_CONSECUTIVE_FAILURES = 5;
 const DEFAULT_COOLDOWN_MS = 1_000;
+
+/** Charged when a memory kill happened with no request (and so no source) in flight. */
+const STORE_SOURCE: SourceRef = {
+  key: "writer:store",
+  generation: 0,
+  discoveredAtMs: 0,
+};
+
+function sourceOf(body: WriterRequestBody): SourceRef | null {
+  switch (body.t) {
+    case "commit":
+      return body.batch.source;
+    case "cursor":
+    case "pressure":
+      return body.source;
+    default:
+      return null;
+  }
+}
 
 function timeout<T>(
   ms: number,
@@ -70,6 +92,13 @@ export class WriterClient {
   private consecutiveFailures = 0;
   private blockedUntilMs = 0;
   private closed = false;
+  private activeSource: SourceRef | null = null;
+  /**
+   * One entry per supervisor memory kill whose pressure has not yet been
+   * persisted in the store. Paid inside ensureReady, before any request is
+   * released to a restarted writer.
+   */
+  private readonly owed: Array<SourceRef | null> = [];
 
   constructor(private readonly options: WriterClientOptions) {
     this.label = options.label;
@@ -77,6 +106,10 @@ export class WriterClient {
 
   get pid(): number | null {
     return this.current?.child.pid ?? null;
+  }
+
+  get pressureOwed(): boolean {
+    return this.owed.length > 0;
   }
 
   get incarnations(): number {
@@ -121,6 +154,7 @@ export class WriterClient {
       watched,
       label,
       killedByUs: false,
+      accounted: false,
       exit: null,
       waiter: null,
     };
@@ -144,15 +178,52 @@ export class WriterClient {
     });
   }
 
+  /** Notes a supervisor memory kill of this incarnation, once. */
+  private recordMemoryKill(
+    incarnation: Incarnation,
+    source: SourceRef | null,
+  ): boolean {
+    const killed = this.options.supervisor
+      .kills()
+      .some((record) => record.label === incarnation.label);
+    if (killed && !incarnation.accounted) {
+      incarnation.accounted = true;
+      this.owed.push(source);
+    }
+    return killed;
+  }
+
+  private async payPressure(
+    incarnation: Incarnation,
+  ): Promise<WriterOutcome | null> {
+    while (this.owed.length > 0) {
+      const result = await this.exchange(
+        incarnation,
+        {
+          t: "pressure",
+          source: this.owed[0] ?? STORE_SOURCE,
+          mergePossible: true,
+        },
+        this.options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
+      );
+      if ("kind" in result) return result;
+      if (result.t !== "pressure") {
+        incarnation.killedByUs = true;
+        await incarnation.child.kill();
+        return await this.terminated(incarnation, false);
+      }
+      this.owed.shift();
+    }
+    return null;
+  }
+
   private async terminated(
     incarnation: Incarnation,
     stalled: boolean,
   ): Promise<WriterOutcome> {
     const exit = incarnation.exit ?? (await incarnation.child.exited);
     if (this.current === incarnation) this.current = null;
-    const memoryKill = this.options.supervisor
-      .kills()
-      .some((record) => record.label === incarnation.label);
+    const memoryKill = this.recordMemoryKill(incarnation, this.activeSource);
     let cause: WriterTerminationCause;
     switch (exit.cause) {
       case "protocol_violation":
@@ -236,6 +307,13 @@ export class WriterClient {
     if (existing !== null && existing.child.alive && existing.exit === null) {
       return { incarnation: existing };
     }
+    if (existing !== null) {
+      // Found dead between requests. A supervisor memory kill of an idle
+      // writer, or of one serving a state or cursor request, still owes the
+      // store its pressure record.
+      await existing.child.exited;
+      this.recordMemoryKill(existing, null);
+    }
     this.current = null;
     if (this.now() < this.blockedUntilMs) {
       return {
@@ -282,10 +360,21 @@ export class WriterClient {
         return { outcome: await this.terminated(incarnation, false) };
       }
     }
+    const unpaid = await this.payPressure(incarnation);
+    if (unpaid !== null) return { outcome: unpaid };
     return { incarnation };
   }
 
   private async run(body: WriterRequestBody): Promise<WriterOutcome> {
+    this.activeSource = sourceOf(body);
+    try {
+      return await this.runActive(body);
+    } finally {
+      this.activeSource = null;
+    }
+  }
+
+  private async runActive(body: WriterRequestBody): Promise<WriterOutcome> {
     const ready = await this.ensureReady();
     if ("outcome" in ready) return ready.outcome;
     const result = await this.exchange(

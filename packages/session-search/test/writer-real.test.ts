@@ -72,7 +72,11 @@ afterEach(async () => {
 });
 
 function rig(
-  options: { production?: boolean; requestTimeoutMs?: number } = {},
+  options: {
+    production?: boolean;
+    requestTimeoutMs?: number;
+    cursorWaitMs?: number;
+  } = {},
 ): Rig {
   const dir = makeStoreDir("ss-writer-");
   const control = mkdtempSync(join(tmpdir(), "ss-writer-control-"));
@@ -95,7 +99,7 @@ function rig(
     env,
     requestTimeoutMs: options.requestTimeoutMs ?? 20_000,
     readyTimeoutMs: 30_000,
-    cursorWaitMs: 10_000,
+    cursorWaitMs: options.cursorWaitMs ?? 10_000,
     closeGraceMs: 2_000,
   });
   const built = { dir, control, supervisor, sink };
@@ -476,14 +480,114 @@ describe("writer memory pressure", () => {
   );
 });
 
+const MEMORY_TESTS_MS = 180_000;
+
+describe("writer memory kills in every request state", () => {
+  it.skipIf(!supported)(
+    "refuses commits already queued behind a memory-killed commit instead of restarting a clear writer",
+    async () => {
+      const built = rig();
+      const refs = ["q-a", "q-b", "q-c"].map((key) => source(key, 1, BASE_MS));
+      const tokens = refs.map((ref) => built.sink.adopt(ref));
+      const expected = await Promise.all(
+        refs.map((ref) => built.sink.cursor(ref)),
+      );
+      arm(built, "arm-bloat");
+      const results = await Promise.all(
+        refs.map((ref, index) =>
+          built.sink.commit(
+            messages(ref, 2, `queued${index}`),
+            { expected: expected[index] ?? null, next: `c${index}` },
+            () => true,
+            tokens[index],
+          ),
+        ),
+      );
+      expect(results.map((result) => result.committed)).toEqual([
+        false,
+        false,
+        false,
+      ]);
+      for (const result of results) {
+        expect(["memory_pressure", "suspended"]).toContain(
+          result.refusal?.code,
+        );
+      }
+      expect(count(built.dir, "content")).toBe(0);
+      expect(built.supervisor.kills().length).toBe(1);
+      expect(built.sink.reconciliations()[0]?.pressureRecorded).toBe(true);
+      const state = await built.sink.state();
+      expect(state.pressure.status).toBe("suspended");
+      await expectIntegrity(built);
+    },
+    MEMORY_TESTS_MS,
+  );
+
+  it.skipIf(!supported)(
+    "keeps the suspension when the supervisor kills an idle writer",
+    async () => {
+      const built = rig();
+      const ref = source("idle-a", 1, BASE_MS);
+      const token = built.sink.adopt(ref);
+      const first = await commitNow(built, messages(ref, 2), "c1", token);
+      expect(first.committed).toBe(true);
+      const incarnations = built.sink.client.incarnations;
+      arm(built, "arm-bloat-idle");
+      await until(() => built.supervisor.kills().length === 1);
+      const state = await stateEventually(built);
+      expect(built.sink.client.incarnations).toBeGreaterThan(incarnations);
+      expect(state.pressure.status).toBe("suspended");
+      expect(state.suspended?.code).toBe("memory_pressure");
+      const other = source("idle-b", 1, BASE_MS);
+      const refused = await commitNow(
+        built,
+        messages(other, 2, "late"),
+        "c1",
+        built.sink.adopt(other),
+      );
+      expect(refused.committed).toBe(false);
+      expect(refused.refusal?.code).toBe("memory_pressure");
+      expect(count(built.dir, "content")).toBe(2);
+      await expectIntegrity(built);
+    },
+    MEMORY_TESTS_MS,
+  );
+
+  it.skipIf(!supported)(
+    "keeps the suspension when the supervisor kills a writer serving a cursor request",
+    async () => {
+      const built = rig();
+      const ref = source("cursor-a", 1, BASE_MS);
+      built.sink.adopt(ref);
+      arm(built, "arm-bloat-cursor");
+      expect(await built.sink.cursor(ref)).toBeNull();
+      expect(built.supervisor.kills().length).toBe(1);
+      const state = await stateEventually(built);
+      expect(state.pressure.status).toBe("suspended");
+      expect(state.suspended?.code).toBe("memory_pressure");
+      const other = source("cursor-b", 1, BASE_MS);
+      const refused = await commitNow(
+        built,
+        messages(other, 2),
+        "c1",
+        built.sink.adopt(other),
+      );
+      expect(refused.refusal?.code).toBe("memory_pressure");
+      expect(count(built.dir, "content")).toBe(0);
+      await expectIntegrity(built);
+    },
+    MEMORY_TESTS_MS,
+  );
+});
+
 interface SchedulerRig {
   built: Rig;
   scheduler: ParserScheduler;
   files: string;
 }
 
-function schedulerRig(): SchedulerRig {
-  const built = rig();
+function schedulerRig(options: { cursorWaitMs?: number } = {}): SchedulerRig {
+  const built = rig(options);
   const files = mkdtempSync(join(tmpdir(), "ss-writer-files-"));
   temps.push(files);
   const slot = new ParserSlot({
@@ -560,6 +664,42 @@ describe("writer behind the parser scheduler", () => {
     );
     expect(count(rigged.built.dir, "content")).toBe(6);
     expect(pids(rigged.built).length).toBe(1);
+    await rigged.scheduler.drain();
+    await expectIntegrity(rigged.built);
+  }, 120_000);
+
+  it("defers every source through a prolonged writer outage without spending its quarantine budget", async () => {
+    const rigged = schedulerRig({ cursorWaitMs: 100 });
+    arm(rigged.built, "outage");
+    rigged.scheduler.upsert(sessionFile(rigged.files, "a.jsonl"));
+    rigged.scheduler.upsert(sessionFile(rigged.files, "b.jsonl"));
+    const keys = ["a.jsonl", "b.jsonl"];
+    // During an outage every source stays runnable, so drain() keeps
+    // working until the store returns: run it in the background.
+    const draining = rigged.scheduler.drain();
+    await until(
+      () =>
+        keys.every((key) => {
+          const view = rigged.scheduler.state(key);
+          return (
+            view === null || view.status === "quarantined" || view.turns >= 8
+          );
+        }),
+      60_000,
+    );
+    for (const key of keys) {
+      const view = rigged.scheduler.state(key);
+      expect(view).not.toBeNull();
+      expect(view?.status).not.toBe("quarantined");
+      expect(view?.reason).toContain("writer unavailable");
+    }
+    rmSync(join(rigged.built.control, "outage"));
+    await until(
+      () => keys.every((key) => rigged.scheduler.state(key)?.status === "idle"),
+      60_000,
+    );
+    await draining;
+    expect(count(rigged.built.dir, "content")).toBe(6);
     await rigged.scheduler.drain();
     await expectIntegrity(rigged.built);
   }, 120_000);

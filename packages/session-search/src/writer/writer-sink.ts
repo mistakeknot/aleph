@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 
-import type { CommitFence, CommitSink } from "../parser/scheduler.js";
+import {
+  SinkUnavailable,
+  type CommitFence,
+  type CommitSink,
+} from "../parser/scheduler.js";
 import type {
   CommitBatch,
   CommitResult,
@@ -27,8 +31,10 @@ export interface ReconciliationRecord {
   pressureRecorded: boolean;
 }
 
-export interface WriterSinkOptions
-  extends Omit<WriterClientOptions, "initialize"> {
+export interface WriterSinkOptions extends Omit<
+  WriterClientOptions,
+  "initialize"
+> {
   cursorWaitMs?: number;
   cursorRetryMs?: number;
 }
@@ -71,14 +77,15 @@ export class WriterSink implements CommitSink {
   }
 
   async cursor(ref: SourceRef): Promise<string | null> {
-    const deadline = Date.now() + (this.options.cursorWaitMs ?? DEFAULT_CURSOR_WAIT_MS);
+    const deadline =
+      Date.now() + (this.options.cursorWaitMs ?? DEFAULT_CURSOR_WAIT_MS);
     for (;;) {
       const outcome = await this.client.request({ t: "cursor", source: ref });
       if (outcome.kind === "response" && outcome.response.t === "cursor") {
         return outcome.response.cursor;
       }
       if (Date.now() >= deadline) {
-        throw new Error(`writer unavailable: ${describe(outcome)}`);
+        throw new SinkUnavailable(`writer unavailable: ${describe(outcome)}`);
       }
       await sleep(this.options.cursorRetryMs ?? DEFAULT_CURSOR_RETRY_MS);
     }
@@ -129,16 +136,10 @@ export class WriterSink implements CommitSink {
         ? read.response.cursor
         : undefined;
     const memory = cause === "memory_kill";
-    let pressureRecorded = false;
-    if (memory) {
-      const recorded = await this.client.request({
-        t: "pressure",
-        source: batch.source,
-        mergePossible: true,
-      });
-      pressureRecorded =
-        recorded.kind === "response" && recorded.response.t === "pressure";
-    }
+    // The writer client persists the pressure it owes inside its serialized
+    // lifecycle, before the next request of any kind (including this read)
+    // reaches a restarted writer. Nothing to send here.
+    const pressureRecorded = memory && !this.client.pressureOwed;
     const outcome: ReconciliationOutcome =
       stored === undefined
         ? "unknown"
@@ -215,7 +216,7 @@ export class WriterSink implements CommitSink {
     if (outcome.kind === "response" && outcome.response.t === "removed") {
       return outcome.response.rows;
     }
-    throw new Error(`writer unavailable: ${describe(outcome)}`);
+    throw new SinkUnavailable(`writer unavailable: ${describe(outcome)}`);
   }
 
   async state(): Promise<WriterStoreState> {
@@ -223,7 +224,7 @@ export class WriterSink implements CommitSink {
     if (outcome.kind === "response" && outcome.response.t === "state") {
       return outcome.response.state;
     }
-    throw new Error(`writer unavailable: ${describe(outcome)}`);
+    throw new SinkUnavailable(`writer unavailable: ${describe(outcome)}`);
   }
 
   async beginControlledRetry(
