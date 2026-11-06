@@ -14,3 +14,7 @@ export * from "./storage.js";
 export * from "./streaming-reader.js";
 export * from "./ipc/rss.js";
 export * from "./ipc/memory-supervisor.js";
+export * from "./parser/child.js";
+export * from "./parser/parser-process.js";
+export * from "./parser/protocol.js";
+export * from "./parser/scheduler.js";
