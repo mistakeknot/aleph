@@ -158,6 +158,19 @@ const mainWithoutModalOrBrowser = {
   none: ["modalOpen", "browserFocus"],
 } as const;
 
+const questionWithoutOtherEditable: readonly BindingOptions[] = [
+  {
+    all: ["mainSurface", "questionOpen"],
+    none: ["modalOpen", "editableFocus"],
+  },
+  { all: ["mainSurface", "questionFocus"], none: ["modalOpen"] },
+];
+
+const questionFocusWithoutEditable = {
+  all: ["mainSurface", "questionFocus"],
+  none: ["modalOpen", "editableFocus"],
+} as const;
+
 const splitWithoutModal = {
   all: ["mainSurface", "splitActive"],
   none: ["modalOpen"],
@@ -431,6 +444,14 @@ export const DEFAULT_APP_KEYBINDINGS: AppDefaultKeybindings = [
       },
     ),
   ),
+  ...questionWithoutOtherEditable.map((options) =>
+    binding("question.submit", "Enter", { mod: true }, options),
+  ),
+  ...questionWithoutOtherEditable.map((options) =>
+    binding("question.cancel", ".", { mod: true }, options),
+  ),
+  binding("question.previous", "ArrowLeft", {}, questionFocusWithoutEditable),
+  binding("question.next", "ArrowRight", {}, questionFocusWithoutEditable),
   binding(
     "window.new",
     "n",

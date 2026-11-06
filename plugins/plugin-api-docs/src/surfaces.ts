@@ -389,7 +389,7 @@ export const SURFACE_GROUPS: SurfaceGroup[] = [
         bullets: [
           "Replace the prompt box with your form, even after the turn has ended",
           "Return the answer or cancellation to the agent and keep a record in the thread",
-          "Show bb's answer shortcuts and respond when the person presses one",
+          "Show bb's answer shortcuts and respond to its answer, submit, switch, and cancel keys",
           "Dictate editable answers and wait for voice input before navigating or submitting",
         ],
         apiSymbols: [
@@ -399,6 +399,7 @@ export const SURFACE_GROUPS: SurfaceGroup[] = [
           "PluginRowPresentation",
           "PluginPendingInteractionRegistration",
           "experimental_useQuestionFormHost",
+          "ExperimentalQuestionFormAction",
           "PluginPendingInteractionProps",
           "PluginPendingInteractionView",
         ],

@@ -1,4 +1,4 @@
-Get a notification when an agent asks a question, finishes a turn, or stops on an error. Choose mobile, web, and desktop delivery independently in Settings → Push notifications.
+Get a notification when an agent asks a question, finishes a turn, or stops on an error. Plugins and the CLI can send their own too. Choose mobile, web, and desktop delivery independently in Settings → Push notifications.
 
 ## Delivery
 
@@ -6,7 +6,7 @@ Mobile devices receive push messages through Expo, including when the app is clo
 
 Each thread has a level: `all` (questions, approvals, errors, finished turns), `input-only` (no finished turns), or `muted`. A thread uses its own level, else `childLevel` if it has a parent, else `defaultLevel`; every ancestor's own level caps it. Muting a parent mutes its whole subtree, but a parent never makes workers louder. The level applies on top of the suppressions below.
 
-Click a notification to open its thread; on Linux desktop the click also restores and focuses the window. Events arriving together are combined, with pending questions taking priority. Read, archived, deleted, and hidden threads are suppressed. Tabs of the same origin deduplicate delivery.
+Click a notification to open its thread, or bb when it has none; on Linux desktop the click also restores and focuses the window. Events arriving together are combined, with pending questions taking priority. Read, archived, deleted, and hidden threads are suppressed. Tabs of the same origin deduplicate delivery.
 
 ## Thread menu
 
@@ -26,24 +26,11 @@ Channel switches apply to this server and save immediately. Browser permission i
 
 ## CLI and SDK
 
-- `bb push-notifications list [--json]`: registered mobile devices, with redacted tokens.
-- `bb push-notifications add --token <expo-push-token> --platform <ios|android> --label <device-label> [--json]`: register or refresh a mobile device.
-- `bb push-notifications remove <id> [--json]`: remove a mobile device.
-- `bb push-notifications status [--json]`: switches, defaults, relay, device count, and last mobile send.
-- `bb push-notifications test <web|desktop> [--json]`: broadcast a test to connected clients of that type. Fails if the channel is disabled.
-- `bb push-notifications thread <thread> [--level inherit|all|input-only|muted] [--json]`: print the resolved level and source; `--level` sets it.
-- `bb plugin config push-notifications set <mobileEnabled|webEnabled|desktopEnabled> <true|false>`: change a channel.
-- `bb plugin config push-notifications set <defaultLevel|childLevel> <level>`: change a default.
-
-- `bb push-notifications notify --source <id> --kind blocker --title <text> --body <text> [--thread <id>] [--dedupe-key <key>] [--json]`: push a blocker to the registered phones and to connected web and desktop clients. Only kind `blocker` is accepted. A call over the daily cap, or repeating a dedupe key already pushed that day, sends nothing and still exits 0 with `capped` or `deduped` set.
-
-Every command takes `--help`. A failure with `--json` prints `{ "ok": false, "error": { "code", "message" } }` on stdout and the readable text on stderr.
-
-Agents can use the SDK's plugin settings API for the same switches and `sdk.plugins.callRpc` with method `notifications.test` (`{ channel }`), `threadNotifications.list` (`{ threadIds }`, up to 200), or `threadNotifications.set` (`{ threadId, level }`). Permission requests still require a click in the target client.
+`bb push-notifications` manages mobile devices, shows status, sends and tests notifications, pushes capped blockers, and reads or sets a thread's level; `bb plugin config push-notifications` changes the settings above. The bundled `push-notifications` skill documents every command and RPC method. Plugins and agents send notifications with the discoverable `notifications.send` RPC; `bb plugin rpc inspect push-notifications notifications.send` prints its schemas. Permission requests still require a click in the target client.
 
 ## Blocker pushes
 
-Other plugins and scripts can push a blocker that needs a person, such as a card waiting on a decision. The push goes through the same sender and subscriptions as the event-driven pushes, to no other destination, and ignores thread levels. One daily cap covers all sources together: at most `blockerDailyCap` blocker pushes go out per calendar day in America/Los_Angeles (a day is 23 or 25 hours across a clock change), whichever source sends them.
+Other plugins and scripts can push a blocker that needs a person, such as a card waiting on a decision. The push uses the same delivery as `notifications.send` and the event-driven pushes (the same sender, channels and subscriptions), to no other destination, and ignores thread levels. One daily cap covers all sources together: at most `blockerDailyCap` blocker pushes go out per calendar day in America/Los_Angeles (a day is 23 or 25 hours across a clock change), whichever source sends them.
 
 Call it from a plugin with `sdk.plugins.callRpc`, method `notifications.notify`, input `{ kind: "blocker", title, body, threadId?, dedupeKey? }`. The source is the calling plugin's id, set by the host and not by the caller; a plugin that passes a different `source` is refused. The CLI and other clients name their own `source`, which is why the cap is a total across sources: inventing new source names does not raise it. `threadId`, when given, must be a bb thread id (`thr_` and 10 characters); anything else is refused as invalid input before it is counted or sent. A repeated `dedupeKey` from the same source on the same day is not pushed twice. `title` is cut to 80 characters and `body` to 180. The result is `{ id, at, day, source, outcome, capped, deduped, cap, sentToday, delivery }`: `sentToday` is the day's total across sources for every outcome, `outcome` is `sent`, `capped` or `deduped`, and `delivery` is null unless the push was sent. A push counts against the cap once it is attempted, even if the relay fails; the failure is in `delivery.mobileFailure`.
 

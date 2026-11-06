@@ -1086,6 +1086,7 @@ session-search	A	packages/session-search/test/support/chunk-sources.ts
 session-search	A	packages/session-search/test/support/frame-child.ts
 session-search	A	packages/session-search/test/support/frame-parent.ts
 session-search	A	packages/session-search/test/support/rss-child.ts
+blocker-push	M	docs/configuration.md
 blocker-push	M	plugins/push-notifications/PLUGIN_OVERVIEW.md
 blocker-push	A	plugins/push-notifications/blocker-push.test.ts
 blocker-push	A	plugins/push-notifications/blocker-push.ts
