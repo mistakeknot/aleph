@@ -1,12 +1,14 @@
-import { spawn } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import {
   existsSync,
+  readdirSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -25,8 +27,37 @@ const sdkPrerequisite = GENERATED_PREREQUISITES[1]!;
 describe("ensureTestPrerequisites", () => {
   const roots: string[] = [];
 
-  afterEach(() => {
+  const runners: ChildProcess[] = [];
+
+  function hardKill(pid: number): void {
+    for (const target of [-pid, pid]) {
+      try {
+        process.kill(target, "SIGKILL");
+      } catch {
+        continue;
+      }
+    }
+  }
+
+  afterEach(async () => {
+    for (const runner of runners.splice(0)) {
+      if (runner.exitCode === null && runner.signalCode === null) {
+        const gone = new Promise<void>((resolve) => {
+          runner.once("exit", () => resolve());
+        });
+        runner.kill("SIGKILL");
+        await gone;
+      }
+    }
     for (const root of roots.splice(0)) {
+      const packageDir = join(root, "pkg");
+      if (existsSync(packageDir)) {
+        for (const name of readdirSync(packageDir)) {
+          if (name.endsWith(".pid")) {
+            hardKill(Number(readFileSync(join(packageDir, name), "utf8")));
+          }
+        }
+      }
       rmSync(root, { recursive: true, force: true });
     }
   });
@@ -220,71 +251,124 @@ describe("ensureTestPrerequisites", () => {
     expect(await waitFor(() => isDead(pid), 2_000)).toBe(true);
   });
 
-  const setupEnds = [
+  interface SetupEnd {
+    readonly name: string;
+    readonly signal: "SIGTERM" | "SIGINT" | undefined;
+  }
+
+  const setupEnds: readonly SetupEnd[] = [
     { name: "SIGTERM", signal: "SIGTERM" },
     { name: "SIGINT", signal: "SIGINT" },
     { name: "a normal exit", signal: undefined },
-  ] as const;
+  ];
+
+  function startSetup(root: string, mode: string, competing = "") {
+    fakePrerequisite(
+      root,
+      [
+        'import { writeFileSync } from "node:fs";',
+        'process.on("SIGTERM", () => {});',
+        'writeFileSync("child.pid", String(process.pid));',
+        "setInterval(() => {}, 1000);",
+      ].join("\n"),
+    );
+    const moduleUrl = pathToFileURL(
+      join(import.meta.dirname, "ensure-test-prerequisites.ts"),
+    ).href;
+    touch(
+      join(root, "runner.mjs"),
+      [
+        'import { appendFileSync, existsSync } from "node:fs";',
+        `import { ensurePrerequisite } from ${JSON.stringify(moduleUrl)};`,
+        "const [, , root, mode, competing] = process.argv;",
+        "const prerequisite = {",
+        '  label: "fake artifact",',
+        '  packageDir: "pkg",',
+        '  script: "build.mjs",',
+        '  outputs: async () => ["out.txt"],',
+        "};",
+        "if (competing) {",
+        "  process.on(competing, () => {",
+        '    appendFileSync(`${root}/handler.log`, "x");',
+        "  });",
+        "}",
+        'if (mode === "exit") {',
+        "  setInterval(() => {",
+        "    if (existsSync(`${root}/pkg/child.pid`)) {",
+        "      process.exit(0);",
+        "    }",
+        "  }, 20);",
+        "} else {",
+        "  setInterval(() => {}, 1000);",
+        "}",
+        "await ensurePrerequisite(prerequisite, root, {",
+        "  timeoutMs: 60000,",
+        "  killGraceMs: 60000,",
+        "}).catch(() => {});",
+      ].join("\n"),
+    );
+    const tsxLoader = pathToFileURL(
+      createRequire(import.meta.url).resolve("tsx"),
+    ).href;
+    const setup = spawn(
+      process.execPath,
+      ["--import", tsxLoader, join(root, "runner.mjs"), root, mode, competing],
+      { cwd: root, stdio: "ignore" },
+    );
+    runners.push(setup);
+    const ended = new Promise<{
+      code: number | null;
+      signal: NodeJS.Signals | null;
+    }>((resolve) => {
+      setup.on("exit", (code, signal) => resolve({ code, signal }));
+    });
+    return { setup, ended };
+  }
+
+  async function buildPid(root: string): Promise<number> {
+    const pidFile = join(root, "pkg/child.pid");
+    expect(await waitFor(() => existsSync(pidFile), 15_000)).toBe(true);
+    return Number(readFileSync(pidFile, "utf8"));
+  }
 
   it.each(setupEnds)(
     "kills the running build group when setup ends by $name",
     async ({ signal }) => {
       const root = emptyRoot();
-      fakePrerequisite(
+      const { setup, ended } = startSetup(
         root,
-        [
-          'import { writeFileSync } from "node:fs";',
-          'process.on("SIGTERM", () => {});',
-          'writeFileSync("child.pid", String(process.pid));',
-          "setInterval(() => {}, 1000);",
-        ].join("\n"),
+        signal === undefined ? "exit" : "wait",
       );
-      const moduleUrl = pathToFileURL(
-        join(import.meta.dirname, "ensure-test-prerequisites.ts"),
-      ).href;
-      touch(
-        join(root, "runner.mjs"),
-        [
-          `import { ensurePrerequisite } from ${JSON.stringify(moduleUrl)};`,
-          "const prerequisite = {",
-          '  label: "fake artifact",',
-          '  packageDir: "pkg",',
-          '  script: "build.mjs",',
-          '  outputs: async () => ["out.txt"],',
-          "};",
-          'if (process.argv[3] === "exit") {',
-          "  setTimeout(() => process.exit(0), 2000);",
-          "} else {",
-          "  setInterval(() => {}, 1000);",
-          "}",
-          "await ensurePrerequisite(prerequisite, process.argv[2], {",
-          "  timeoutMs: 60000,",
-          "  killGraceMs: 60000,",
-          "});",
-        ].join("\n"),
-      );
-      const tsx = join(repoRoot, "apps/server/node_modules/.bin/tsx");
-      const setup = spawn(
-        tsx,
-        [
-          join(root, "runner.mjs"),
-          root,
-          signal === undefined ? "exit" : "wait",
-        ],
-        { cwd: root, stdio: "ignore" },
-      );
-      const ended = new Promise<void>((resolve) => {
-        setup.on("exit", () => resolve());
-      });
-      const pidFile = join(root, "pkg/child.pid");
-      expect(await waitFor(() => existsSync(pidFile), 15_000)).toBe(true);
-      const pid = Number(readFileSync(pidFile, "utf8"));
+      const pid = await buildPid(root);
       expect(isDead(pid)).toBe(false);
       if (signal !== undefined) {
         setup.kill(signal);
       }
-      await ended;
+      const result = await ended;
+      expect(result.signal).toBe(signal ?? null);
+      expect(result.code).toBe(signal === undefined ? 0 : null);
       expect(await waitFor(() => isDead(pid), 5_000)).toBe(true);
+    },
+    60_000,
+  );
+
+  it.each(["SIGTERM", "SIGINT"] as const)(
+    "runs a competing %s handler exactly once and leaves it in charge",
+    async (signal) => {
+      const root = emptyRoot();
+      const { setup, ended } = startSetup(root, "wait", signal);
+      const pid = await buildPid(root);
+      setup.kill(signal);
+      const handlerLog = join(root, "handler.log");
+      expect(await waitFor(() => existsSync(handlerLog), 5_000)).toBe(true);
+      expect(await waitFor(() => isDead(pid), 5_000)).toBe(true);
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      expect(readFileSync(handlerLog, "utf8")).toBe("x");
+      expect(setup.exitCode).toBeNull();
+      expect(setup.signalCode).toBeNull();
+      setup.kill("SIGKILL");
+      const result = await ended;
+      expect(result.signal).toBe("SIGKILL");
     },
     60_000,
   );

@@ -127,7 +127,9 @@ function installExitHooks(): void {
   const onSignal = (signal: NodeJS.Signals): void => {
     killActiveBuilds();
     removeExitHooks();
-    process.kill(process.pid, signal);
+    if (process.listenerCount(signal) === 0) {
+      process.kill(process.pid, signal);
+    }
   };
   const onInterrupt = (): void => onSignal("SIGINT");
   const onTerminate = (): void => onSignal("SIGTERM");
