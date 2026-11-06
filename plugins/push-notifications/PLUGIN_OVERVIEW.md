@@ -1,37 +1,37 @@
-Get a notification when an agent asks a question, finishes a turn, or stops on an error. Plugins and the CLI can send their own too. Choose mobile, web, and desktop delivery independently in Settings → Push notifications.
+Get a notification when an agent asks a question, finishes a turn, or stops on an error. Plugins and the CLI can send their own.
 
 ## Delivery
 
-Mobile devices receive push messages through Expo, including when the app is closed. Web browsers and the desktop app receive system notifications over bb's live connection while a tab or window stays open; web delivery needs HTTPS (or localhost) and notification permission. Mobile WebViews use mobile push only.
+Mobile devices get push through Expo, even when the app is closed. Browsers and the desktop app get system notifications over bb's live connection while open; web needs HTTPS (or localhost) and permission. Mobile WebViews use mobile push only.
 
-Each thread has a level: `all` (questions, approvals, errors, finished turns), `input-only` (no finished turns), or `muted`. A thread uses its own level, else `childLevel` if it has a parent, else `defaultLevel`; every ancestor's own level caps it. Muting a parent mutes its whole subtree, but a parent never makes workers louder. The level applies on top of the suppressions below.
+Each thread has a level: `all` (questions, approvals, errors, finished turns), `input-only` (no finished turns), or `muted`. It uses its own level, else `childLevel` if it has a parent, else `defaultLevel`; every ancestor's own level caps it. Muting a parent mutes its subtree; a parent never makes workers louder.
 
-Click a notification to open its thread, or bb when it has none; on Linux desktop the click also restores and focuses the window. Events arriving together are combined, with pending questions taking priority. Read, archived, deleted, and hidden threads are suppressed. Tabs of the same origin deduplicate delivery.
+Clicking opens the thread, or bb if none; on Linux desktop it also focuses the window. Events arriving together are combined, pending questions first. Read, archived, deleted, and hidden threads are suppressed at every level; tabs of one origin deduplicate.
 
 ## Thread menu
 
-Every thread menu (header, sidebar row, right-click, compact drawer, optional row quick action) has a **Notifications** entry for unarchived threads: Default, All activity, Needs input only, Muted. The entry shows the current level; Default names its fallback; a footnote says when a parent limits it. Thread plugin metadata stores only a thread's own level, `{ "notifications": { "own" } }`; limits are read from the current parent chain. Menus fetch levels for threads on screen in batches.
+Every thread menu has a **Notifications** entry for unarchived threads: Default, All activity, Needs input only, Muted. It shows the current level, and a footnote says when a parent limits it. Only the thread's own level is stored; limits come from the parent chain.
 
 ## Settings
 
-- `mobileEnabled` / **Mobile notifications**: send to registered phones and tablets. Default: true.
-- `webEnabled` / **Web notifications**: notify connected browsers with permission. Default: true.
-- `desktopEnabled` / **Desktop notifications**: notify running desktop clients. Default: true.
-- `defaultLevel` / **Default notifications**: `all`, `input-only`, or `muted`, for threads you haven't set. Default: `all`.
-- `childLevel` / **Child thread notifications**: `inherit` (same as `defaultLevel`), `all`, `input-only`, or `muted`. Default: `input-only`.
-- `blockerDailyCap` / **Blocker pushes per day**: most blocker pushes sent in a local Pacific-time day, counted across all sources together; `0` turns them off. Default: 3.
-- `expoPushUrl` / **Expo push relay URL**: mobile relay endpoint. Defaults to `https://exp.host/--/api/v2/push/send`.
+- `mobileEnabled`, `webEnabled`, `desktopEnabled` (**Mobile**, **Web**, **Desktop notifications**): channel switches. Default: true.
+- `defaultLevel` (**Default notifications**): `all`, `input-only`, or `muted` for threads you haven't set. Default: `all`.
+- `childLevel` (**Child thread notifications**): `inherit` (as `defaultLevel`), `all`, `input-only`, or `muted`. Default: `input-only`.
+- `blockerDailyCap` (**Blocker pushes per day**): blocker pushes per Pacific-time day, all sources; `0` turns them off. Default: 3.
+- `expoPushUrl` (**Expo push relay URL**): mobile relay. Default: `https://exp.host/--/api/v2/push/send`.
 
-Channel switches apply to this server and save immediately. Browser permission is granted per device with **Allow notifications**. **Send test notification** confirms broadcast, not OS display.
+Switches in Settings → Push notifications apply to this server immediately. Browser permission is per device, via **Allow notifications**. **Send test notification** confirms broadcast, not OS display.
 
 ## CLI and SDK
 
-`bb push-notifications` manages mobile devices, shows status, sends and tests notifications, pushes capped blockers, and reads or sets a thread's level; `bb plugin config push-notifications` changes the settings above. The bundled `push-notifications` skill documents every command and RPC method. Plugins and agents send notifications with the discoverable `notifications.send` RPC; `bb plugin rpc inspect push-notifications notifications.send` prints its schemas. Permission requests still require a click in the target client.
+`bb push-notifications` manages devices, shows status, sends and tests notifications, pushes capped blockers, and reads or sets a thread's level; `bb plugin config push-notifications` changes settings. The bundled `push-notifications` skill documents every command and RPC method. The `notifications.send` RPC sends notifications; `bb plugin rpc inspect push-notifications notifications.send` shows its schemas. Permission requests still need a click in the target client.
 
 ## Blocker pushes
 
-Other plugins and scripts can push a blocker that needs a person, such as a card waiting on a decision. The push uses the same delivery as `notifications.send` and the event-driven pushes (the same sender, channels and subscriptions), to no other destination, and ignores thread levels. One daily cap covers all sources together: at most `blockerDailyCap` blocker pushes go out per calendar day in America/Los_Angeles (a day is 23 or 25 hours across a clock change), whichever source sends them.
+Plugins and scripts can push a blocker that needs a person. It uses the sender, channels and subscriptions of `notifications.send`, goes nowhere else, and ignores thread levels. One cap covers all sources: at most `blockerDailyCap` per America/Los_Angeles day (23 or 25 hours at clock changes).
 
-Call it from a plugin with `sdk.plugins.callRpc`, method `notifications.notify`, input `{ kind: "blocker", title, body, threadId?, dedupeKey? }`. The source is the calling plugin's id, set by the host and not by the caller; a plugin that passes a different `source` is refused. The CLI and other clients name their own `source`, which is why the cap is a total across sources: inventing new source names does not raise it. `threadId`, when given, must be a bb thread id (`thr_` and 10 characters); anything else is refused as invalid input before it is counted or sent. A repeated `dedupeKey` from the same source on the same day is not pushed twice. `title` is cut to 80 characters and `body` to 180. The result is `{ id, at, day, source, outcome, capped, deduped, cap, sentToday, delivery }`: `sentToday` is the day's total across sources for every outcome, `outcome` is `sent`, `capped` or `deduped`, and `delivery` is null unless the push was sent. A push counts against the cap once it is attempted, even if the relay fails; the failure is in `delivery.mobileFailure`.
+Plugins call `sdk.plugins.callRpc` method `notifications.notify` with `{ kind: "blocker", title, body, threadId?, dedupeKey? }`. The host sets `source` to the plugin's id and refuses another; the CLI and other clients name their own, but new names do not raise the cap. `threadId` must be a bb thread id (`thr_` plus 10 characters), else it is refused before it is counted or sent. A repeated `dedupeKey` from a source that day is not pushed twice. `title` is cut to 80 characters, `body` to 180.
 
-`bb push-notifications status --json` shows `blockerPush`: the cap, today's date, and the last 14 days, newest first, with `sent`, `capped` and `deduped` counts as a day `total` and for each source. Older days are deleted. A capped call from a source with no sent push that day is counted under the shared source `_overflow`, so callers cannot create a row by inventing a source name; at most `blockerDailyCap` source rows plus `_overflow` exist per day.
+The result includes `outcome` (`sent`, `capped` or `deduped`), `sentToday` (the day's total across sources) and `delivery` (null unless sent). Attempts count against the cap even if the relay fails (`delivery.mobileFailure`).
+
+`bb push-notifications status --json` shows `blockerPush`: the cap and the last 14 days (newest first), with `sent`, `capped` and `deduped` counts per day and per source. Older days are deleted. A capped call from a source with no sent push that day counts under `_overflow`; a day has at most `blockerDailyCap` source rows plus `_overflow`.
