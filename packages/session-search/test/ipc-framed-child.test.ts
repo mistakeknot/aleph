@@ -195,6 +195,67 @@ describe("supervised child over dedicated pipes", () => {
     expect(exit.violation?.reason).toBe("truncated_header");
   });
 
+  it("reports a header cut short by end of stream while the child stays alive", async () => {
+    const child = launch("partial-header-eof", null);
+    const startedAt = Date.now();
+    const exit = await child.exited;
+    expect(Date.now() - startedAt).toBeLessThan(10_000);
+    expect(exit.cause).toBe("protocol_violation");
+    expect(exit.violation?.reason).toBe("truncated_header");
+    expect(exit.signal).toBe("SIGKILL");
+    expect(exit.killRequestedAtMs).not.toBeNull();
+    expect(exit.reapLatencyMs).toBeLessThan(1000);
+    expect(child.alive).toBe(false);
+    expect(alive(child.pid ?? 0)).toBe(false);
+  });
+
+  it("reports a body cut short by end of stream while the child stays alive", async () => {
+    const child = launch("partial-body-eof", 100);
+    const startedAt = Date.now();
+    const exit = await child.exited;
+    expect(Date.now() - startedAt).toBeLessThan(10_000);
+    expect(exit.cause).toBe("protocol_violation");
+    expect(exit.violation).toMatchObject({
+      reason: "truncated_body",
+      advertisedBytes: 100,
+    });
+    expect(exit.signal).toBe("SIGKILL");
+    expect(exit.reapLatencyMs).toBeLessThan(1000);
+    expect(alive(child.pid ?? 0)).toBe(false);
+  });
+
+  it("rejects overlapping sends so a child that never reads cannot make the parent queue more than one frame", async () => {
+    const child = launch("deaf", null);
+    const payload = Buffer.alloc(MIB, 0x61);
+    const results = Array.from({ length: 20 }, () =>
+      child.send(payload).then(
+        () => "sent",
+        (error: Error) => error.name,
+      ),
+    );
+    const rejected = await Promise.all(results.slice(1));
+    expect(rejected).toEqual(Array(19).fill("SendInFlightError"));
+    expect(child.stats().pendingSendBytes).toBe(MIB + FRAME_HEADER_BYTES);
+    await expect(child.sendJson({ more: true })).rejects.toThrow(
+      "already in flight",
+    );
+    expect(child.stats().pendingSendBytes).toBeLessThanOrEqual(
+      MAX_FRAME_PAYLOAD_BYTES + FRAME_HEADER_BYTES,
+    );
+    await child.kill();
+    expect(await results[0]).not.toBe("SendInFlightError");
+    expect(child.stats().pendingSendBytes).toBe(0);
+  });
+
+  it("allows the next send once the previous one completes", async () => {
+    const frames: Buffer[] = [];
+    const child = launch("echo", null, frames);
+    await child.sendJson({ n: 1 });
+    await child.sendJson({ n: 2 });
+    await until(() => frames.length === 2);
+    expect(frames.map((f) => decodeJsonPayload(f))).toEqual([{ n: 1 }, { n: 2 }]);
+  });
+
   it("reassembles a frame the child writes one byte at a time", async () => {
     const frames: Buffer[] = [];
     const child = launch("fragment", null, frames);

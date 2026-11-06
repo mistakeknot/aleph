@@ -36,6 +36,7 @@ export interface FramedChildStats {
   largestChunkBytes: number;
   bytesReceived: number;
   framesReceived: number;
+  pendingSendBytes: number;
 }
 
 export interface FramedChildOptions {
@@ -52,6 +53,13 @@ export interface FramedChildOptions {
 export interface KillResult {
   alreadyExited: boolean;
   reapLatencyMs: number;
+}
+
+export class SendInFlightError extends Error {
+  constructor() {
+    super("a send is already in flight");
+    this.name = "SendInFlightError";
+  }
 }
 
 function monotonicNow(): number {
@@ -72,6 +80,8 @@ export class FramedChild {
   private violation: FrameViolation | null = null;
   private detail: string | null = null;
   private settled = false;
+  private pendingSendBytes = 0;
+  private sendInFlight = false;
   private resolveExit!: (exit: ChildExit) => void;
   private readonly reaped: Promise<void>;
   private resolveReaped!: () => void;
@@ -119,6 +129,9 @@ export class FramedChild {
     this.output?.on("data", (chunk: Buffer) => {
       this.receive(chunk);
     });
+    this.output?.on("end", () => {
+      this.endOfOutput();
+    });
   }
 
   get pid(): number | undefined {
@@ -136,14 +149,17 @@ export class FramedChild {
       largestChunkBytes: this.decoder.largestChunkBytes,
       bytesReceived: this.decoder.bytesReceived,
       framesReceived: this.decoder.framesDecoded,
+      pendingSendBytes: this.pendingSendBytes,
     };
   }
 
   send(payload: Uint8Array): Promise<void> {
+    if (this.sendInFlight) return Promise.reject(new SendInFlightError());
     return this.write(encodeFrame(payload));
   }
 
   sendJson(value: unknown): Promise<void> {
+    if (this.sendInFlight) return Promise.reject(new SendInFlightError());
     return this.write(encodeJsonFrame(value));
   }
 
@@ -182,8 +198,12 @@ export class FramedChild {
     if (input === null || this.exitedAtMs !== null || input.destroyed) {
       return Promise.reject(new Error("child channel is closed"));
     }
+    this.sendInFlight = true;
+    this.pendingSendBytes = frame.byteLength;
     return new Promise((resolve, reject) => {
       input.write(frame, (error) => {
+        this.sendInFlight = false;
+        this.pendingSendBytes = 0;
         if (error) reject(error);
         else resolve();
       });
@@ -199,6 +219,13 @@ export class FramedChild {
       }
       this.options.onFrame(event.payload);
     }
+  }
+
+  private endOfOutput(): void {
+    if (this.violation !== null || this.killRequestedAtMs !== null) return;
+    const trailing = this.decoder.end();
+    if (trailing === null) return;
+    this.violate(trailing);
   }
 
   private violate(violation: FrameViolation): void {

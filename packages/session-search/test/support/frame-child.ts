@@ -91,6 +91,23 @@ async function run(): Promise<void> {
     case "exit": {
       process.exit(amount);
     }
+    case "deaf": {
+      await sleep(60_000);
+      return;
+    }
+    case "partial-header-eof": {
+      await write(header(1).subarray(0, 2));
+      channel.output.end();
+      await sleep(60_000);
+      return;
+    }
+    case "partial-body-eof": {
+      await write(header(amount));
+      await write(Buffer.alloc(10, 0x62));
+      channel.output.end();
+      await sleep(60_000);
+      return;
+    }
     case "hang": {
       await write(encodeFrame(Buffer.from("ready")));
       await sleep(60_000);
