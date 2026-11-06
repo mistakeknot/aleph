@@ -123,20 +123,37 @@ function installExitHooks(): void {
   if (exitHooks) {
     return;
   }
+  let foreignRemoval = false;
   const onExit = (): void => killActiveBuilds();
   const onSignal = (signal: NodeJS.Signals): void => {
+    const handledElsewhere = foreignRemoval;
     killActiveBuilds();
     removeExitHooks();
-    if (process.listenerCount(signal) === 0) {
+    if (!handledElsewhere && process.listenerCount(signal) === 0) {
       process.kill(process.pid, signal);
     }
   };
   const onInterrupt = (): void => onSignal("SIGINT");
   const onTerminate = (): void => onSignal("SIGTERM");
+  const onRemoval = (event: string | symbol, listener: unknown): void => {
+    if (
+      (event === "SIGINT" || event === "SIGTERM") &&
+      listener !== onInterrupt &&
+      listener !== onTerminate &&
+      !foreignRemoval
+    ) {
+      foreignRemoval = true;
+      process.nextTick(() => {
+        foreignRemoval = false;
+      });
+    }
+  };
   process.on("exit", onExit);
   process.on("SIGINT", onInterrupt);
   process.on("SIGTERM", onTerminate);
+  process.on("removeListener", onRemoval);
   exitHooks = () => {
+    process.off("removeListener", onRemoval);
     process.off("exit", onExit);
     process.off("SIGINT", onInterrupt);
     process.off("SIGTERM", onTerminate);

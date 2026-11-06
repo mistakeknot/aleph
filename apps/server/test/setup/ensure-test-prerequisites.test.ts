@@ -278,7 +278,7 @@ describe("ensureTestPrerequisites", () => {
     touch(
       join(root, "runner.mjs"),
       [
-        'import { appendFileSync, existsSync } from "node:fs";',
+        'import { appendFileSync, existsSync, writeFileSync } from "node:fs";',
         `import { ensurePrerequisite } from ${JSON.stringify(moduleUrl)};`,
         "const [, , root, mode, competing] = process.argv;",
         "const prerequisite = {",
@@ -287,20 +287,41 @@ describe("ensureTestPrerequisites", () => {
         '  script: "build.mjs",',
         '  outputs: async () => ["out.txt"],',
         "};",
-        "if (competing) {",
-        "  process.on(competing, () => {",
-        '    appendFileSync(`${root}/handler.log`, "x");',
-        "  });",
+        "const [signal, kind, order] = competing.split(':');",
+        "const register = () => {",
+        "  if (!signal) {",
+        "    return;",
+        "  }",
+        "  const record = () => appendFileSync(`${root}/handler.log`, 'x');",
+        "  if (kind === 'once') {",
+        "    process.once(signal, record);",
+        "  } else if (kind === 'self') {",
+        "    const handler = () => {",
+        "      process.off(signal, handler);",
+        "      record();",
+        "    };",
+        "    process.on(signal, handler);",
+        "  } else {",
+        "    process.on(signal, record);",
+        "  }",
+        "};",
+        "let registered = false;",
+        "const attach = () => {",
+        "  registered = true;",
+        "  register();",
+        "  writeFileSync(`${root}/ready`, 'ready');",
+        "};",
+        "if (order !== 'after') {",
+        "  attach();",
         "}",
-        'if (mode === "exit") {',
-        "  setInterval(() => {",
-        "    if (existsSync(`${root}/pkg/child.pid`)) {",
-        "      process.exit(0);",
-        "    }",
-        "  }, 20);",
-        "} else {",
-        "  setInterval(() => {}, 1000);",
-        "}",
+        "setInterval(() => {",
+        "  if (!registered && existsSync(`${root}/pkg/child.pid`)) {",
+        "    attach();",
+        "  }",
+        "  if (mode === 'exit' && existsSync(`${root}/go`)) {",
+        "    process.exit(0);",
+        "  }",
+        "}, 20);",
         "await ensurePrerequisite(prerequisite, root, {",
         "  timeoutMs: 60000,",
         "  killGraceMs: 60000,",
@@ -341,7 +362,9 @@ describe("ensureTestPrerequisites", () => {
       );
       const pid = await buildPid(root);
       expect(isDead(pid)).toBe(false);
-      if (signal !== undefined) {
+      if (signal === undefined) {
+        writeFileSync(join(root, "go"), "go");
+      } else {
         setup.kill(signal);
       }
       const result = await ended;
@@ -352,12 +375,37 @@ describe("ensureTestPrerequisites", () => {
     60_000,
   );
 
-  it.each(["SIGTERM", "SIGINT"] as const)(
-    "runs a competing %s handler exactly once and leaves it in charge",
-    async (signal) => {
+  interface Competing {
+    readonly signal: "SIGTERM" | "SIGINT";
+    readonly kind: "persistent" | "once" | "self";
+    readonly order: "before" | "after";
+  }
+
+  const competingHandlers: readonly Competing[] = [
+    { signal: "SIGTERM", kind: "persistent", order: "before" },
+    { signal: "SIGINT", kind: "persistent", order: "before" },
+    { signal: "SIGTERM", kind: "persistent", order: "after" },
+    { signal: "SIGTERM", kind: "once", order: "before" },
+    { signal: "SIGTERM", kind: "once", order: "after" },
+    { signal: "SIGINT", kind: "once", order: "before" },
+    { signal: "SIGTERM", kind: "self", order: "before" },
+    { signal: "SIGTERM", kind: "self", order: "after" },
+    { signal: "SIGINT", kind: "self", order: "before" },
+  ];
+
+  it.each(competingHandlers)(
+    "runs a $kind $signal handler registered $order setup exactly once and leaves it in charge",
+    async ({ signal, kind, order }) => {
       const root = emptyRoot();
-      const { setup, ended } = startSetup(root, "wait", signal);
+      const { setup, ended } = startSetup(
+        root,
+        "wait",
+        `${signal}:${kind}:${order}`,
+      );
       const pid = await buildPid(root);
+      expect(await waitFor(() => existsSync(join(root, "ready")), 5_000)).toBe(
+        true,
+      );
       setup.kill(signal);
       const handlerLog = join(root, "handler.log");
       expect(await waitFor(() => existsSync(handlerLog), 5_000)).toBe(true);
