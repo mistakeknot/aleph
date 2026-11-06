@@ -719,6 +719,16 @@
         "UPDATE_MIGRATION_EQUALITY_REFERENCE"
       ]
     },
+    "@bb/session-search#test": {
+      "cache": false,
+      "env": [
+        "VITEST_MAX_WORKERS",
+        "SESSION_SEARCH_CAPPED_VOLUME",
+        "SESSION_SEARCH_MEASURE_OUT"
+      ],
+      "dependsOn": ["//#ensure-native-modules", "topo"],
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/vitest*.ts"]
+    },
     "@bb/desktop#test": {
       "env": ["VITEST_MAX_WORKERS"],
       "dependsOn": ["//#ensure-native-modules", "topo"],
