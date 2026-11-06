@@ -36,6 +36,7 @@ interface ResolvedProjectExecutionDefaultsForCreate {
   executionDefaults: ProjectExecutionDefaults | null;
   providerId: string;
   providerFallbackCandidates: readonly string[];
+  registrationPending: boolean;
   requestedModel: string | null;
 }
 
@@ -123,14 +124,19 @@ export function resolveProjectExecutionDefaultsForCreate(
     value: args.model,
   });
   const parent = resolveInheritableParentExecution(deps, args.parentThread);
+  const resolvedRequestedProviderId = requestedProviderId ?? parent?.providerId;
   const resolution = resolveCreateThreadExecutionDefaults(
     deps.providerRegistry,
     {
-      requestedProviderId: requestedProviderId ?? parent?.providerId,
+      deferPendingRegistration: true,
+      requestedProviderId: resolvedRequestedProviderId,
       storedDefaults,
     },
   );
   const { providerId, providerFallbackCandidates } = resolution;
+  const registrationPending =
+    resolvedRequestedProviderId !== undefined &&
+    deps.providerRegistry.get(providerId) === null;
   const executionDefaults =
     parent !== null && providerId === parent.providerId
       ? {
@@ -148,6 +154,7 @@ export function resolveProjectExecutionDefaultsForCreate(
     executionDefaults,
     providerId,
     providerFallbackCandidates,
+    registrationPending,
     requestedModel: requestedModel ?? null,
   };
 }

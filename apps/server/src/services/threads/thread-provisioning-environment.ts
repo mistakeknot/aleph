@@ -7,6 +7,7 @@ import {
   type DbNotifier,
 } from "@bb/db";
 import {
+  sanitizeCredentialsDeep,
   threadScope,
   type ProvisioningTranscriptEntry,
   type Thread,
@@ -154,12 +155,46 @@ export function failThreadProvisioning(
       "Failed environment preparation cleanup will retry",
     ),
   );
-  if (outcome.applied) queueChildSetupFailureNotification(deps, args.thread);
+  if (outcome.applied)
+    queueChildSetupFailureNotification(deps, args.thread, args.detail);
+}
+
+const SETUP_FAILURE_REASON_CHAR_LIMIT = 500;
+const SETUP_FAILURE_REASON_SCAN_LIMIT = 8_000;
+const SETUP_FAILURE_ELLIPSIS = "…";
+
+function withoutTrailingPartialToken(reason: string): string {
+  if (reason.length <= SETUP_FAILURE_REASON_SCAN_LIMIT) return reason;
+  const window = reason.slice(0, SETUP_FAILURE_REASON_SCAN_LIMIT);
+  if (/\s/.test(reason.charAt(SETUP_FAILURE_REASON_SCAN_LIMIT))) return window;
+  const lastBreak = window.search(/\s\S*$/);
+  return lastBreak === -1 ? "" : window.slice(0, lastBreak);
+}
+
+function setupFailureExcerpt(reason: string): string {
+  const redacted = sanitizeCredentialsDeep(
+    withoutTrailingPartialToken(reason),
+    {
+      freeText: true,
+    },
+  );
+  const collapsed = redacted.replace(/\s+/g, " ").trim();
+  if (collapsed.length <= SETUP_FAILURE_REASON_CHAR_LIMIT) return collapsed;
+  return `${collapsed
+    .slice(0, SETUP_FAILURE_REASON_CHAR_LIMIT - SETUP_FAILURE_ELLIPSIS.length)
+    .trimEnd()}${SETUP_FAILURE_ELLIPSIS}`;
+}
+
+function setupFailureContext(reason: string | null | undefined): string {
+  const base = "failed during workspace setup before a turn began";
+  const excerpt = reason ? setupFailureExcerpt(reason) : "";
+  return excerpt ? `${base}: ${excerpt}` : base;
 }
 
 export function queueChildSetupFailureNotification(
   deps: LoggedPendingInteractionWorkSessionDeps,
   thread: Thread,
+  reason?: string | null,
 ): void {
   if (!isParentNotifiableChildThread(thread, "failed")) return;
   void queueChildThreadTurnNotificationBestEffort(deps, {
@@ -167,7 +202,7 @@ export function queueChildSetupFailureNotification(
     parentThreadId: thread.parentThreadId,
     turnId: null,
     turnStatus: "failed",
-    failureContext: "failed during workspace setup before a turn began",
+    failureContext: setupFailureContext(reason),
   });
 }
 
