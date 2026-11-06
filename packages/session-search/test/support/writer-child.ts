@@ -13,7 +13,6 @@ const controlDir = process.env.WRITER_TEST_CONTROL_DIR;
 const storeDir = process.env[WRITER_STORE_DIR_ENV];
 if (storeDir === undefined || controlDir === undefined) process.exit(2);
 appendFileSync(join(controlDir, "pids.log"), `${process.pid}\n`);
-// A persistent (not one-shot) outage: every incarnation dies before ready.
 if (existsSync(join(controlDir, "outage"))) process.exit(3);
 
 function armed(name: string): boolean {
@@ -41,7 +40,6 @@ function bloat(): void {
   pause(600_000);
 }
 
-// Memory growth while no request is in flight.
 setInterval(() => {
   if (armed("arm-bloat-idle")) bloat();
 }, 20).unref();

@@ -136,9 +136,6 @@ export class WriterSink implements CommitSink {
         ? read.response.cursor
         : undefined;
     const memory = cause === "memory_kill";
-    // The writer client persists the pressure it owes inside its serialized
-    // lifecycle, before the next request of any kind (including this read)
-    // reaches a restarted writer. Nothing to send here.
     const pressureRecorded = memory && !this.client.pressureOwed;
     const outcome: ReconciliationOutcome =
       stored === undefined

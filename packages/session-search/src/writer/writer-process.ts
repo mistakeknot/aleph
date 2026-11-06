@@ -40,7 +40,6 @@ interface Incarnation {
   watched: WatchedChild;
   label: string;
   killedByUs: boolean;
-  /** True once a supervisor memory kill of this incarnation was recorded. */
   accounted: boolean;
   exit: ChildExit | null;
   waiter: ((response: WriterResponse | null) => void) | null;
@@ -52,7 +51,6 @@ const DEFAULT_CLOSE_GRACE_MS = 1_000;
 const DEFAULT_MAX_CONSECUTIVE_FAILURES = 5;
 const DEFAULT_COOLDOWN_MS = 1_000;
 
-/** Charged when a memory kill happened with no request (and so no source) in flight. */
 const STORE_SOURCE: SourceRef = {
   key: "writer:store",
   generation: 0,
@@ -93,11 +91,6 @@ export class WriterClient {
   private blockedUntilMs = 0;
   private closed = false;
   private activeSource: SourceRef | null = null;
-  /**
-   * One entry per supervisor memory kill whose pressure has not yet been
-   * persisted in the store. Paid inside ensureReady, before any request is
-   * released to a restarted writer.
-   */
   private readonly owed: Array<SourceRef | null> = [];
 
   constructor(private readonly options: WriterClientOptions) {
@@ -178,7 +171,6 @@ export class WriterClient {
     });
   }
 
-  /** Notes a supervisor memory kill of this incarnation, once. */
   private recordMemoryKill(
     incarnation: Incarnation,
     source: SourceRef | null,
@@ -308,9 +300,6 @@ export class WriterClient {
       return { incarnation: existing };
     }
     if (existing !== null) {
-      // Found dead between requests. A supervisor memory kill of an idle
-      // writer, or of one serving a state or cursor request, still owes the
-      // store its pressure record.
       await existing.child.exited;
       this.recordMemoryKill(existing, null);
     }

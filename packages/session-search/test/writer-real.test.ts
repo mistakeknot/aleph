@@ -674,8 +674,6 @@ describe("writer behind the parser scheduler", () => {
     rigged.scheduler.upsert(sessionFile(rigged.files, "a.jsonl"));
     rigged.scheduler.upsert(sessionFile(rigged.files, "b.jsonl"));
     const keys = ["a.jsonl", "b.jsonl"];
-    // During an outage every source stays runnable, so drain() keeps
-    // working until the store returns: run it in the background.
     const draining = rigged.scheduler.drain();
     await until(
       () =>

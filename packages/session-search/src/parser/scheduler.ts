@@ -12,11 +12,6 @@ export const DEFAULT_QUANTUM_MS = 2_000;
 
 export type CommitFence = () => boolean;
 
-/**
- * Thrown by a sink when the shared store itself is unavailable (for example
- * the writer child is down). The scheduler defers the source without
- * counting the failure against its quarantine budget.
- */
 export class SinkUnavailable extends Error {
   constructor(message: string) {
     super(message);
@@ -319,8 +314,6 @@ export class ParserScheduler {
   ): void {
     const message = error instanceof Error ? error.message : String(error);
     if (error instanceof SinkUnavailable) {
-      // The shared store is down, not this source: defer at the fixed
-      // backoff and spend none of the source's quarantine budget.
       this.defer(entry, message);
       return;
     }
