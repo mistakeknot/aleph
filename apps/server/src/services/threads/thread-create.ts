@@ -24,6 +24,7 @@ import {
   type ThreadForkPoint,
 } from "./thread-fork-history.js";
 import {
+  awaitRequestedCreateProviderRegistration,
   rememberProjectExecutionDefaultsForCreate,
   resolveProjectExecutionDefaultsForCreate,
 } from "./project-execution-defaults.js";
@@ -705,6 +706,10 @@ async function createThreadFromRequestWithSourcePinned(
     }
   }
   await deps.providerRegistry.whenRegistrationsSettled();
+  await awaitRequestedCreateProviderRegistration(deps, {
+    executionInputSources: requestInput.executionInputSources,
+    providerId: requestInput.providerId,
+  });
   const {
     executionDefaults,
     providerId,

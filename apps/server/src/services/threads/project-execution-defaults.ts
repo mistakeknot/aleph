@@ -100,6 +100,33 @@ function resolveRequestedCreateExecutionValue<TValue>({
 }
 
 /**
+ * Gives an explicitly requested provider the same bounded registration wait the
+ * execution-options path gives it, so a provider that registers after the
+ * first settle window still resolves instead of failing the create.
+ */
+export async function awaitRequestedCreateProviderRegistration(
+  deps: Pick<AppDeps, "providerRegistry">,
+  args: Pick<
+    ResolveProjectExecutionDefaultsForCreateArgs,
+    "executionInputSources" | "providerId"
+  >,
+): Promise<void> {
+  const requestedProviderId = resolveRequestedCreateExecutionValue({
+    field: "providerId",
+    sources: args.executionInputSources,
+    value: args.providerId,
+  });
+  if (
+    requestedProviderId === undefined ||
+    deps.providerRegistry.get(requestedProviderId) !== null ||
+    deps.providerRegistry.registrationsSettled()
+  ) {
+    return;
+  }
+  await deps.providerRegistry.whenProviderRegistered(requestedProviderId);
+}
+
+/**
  * Resolves the create's provider through the defaults ladder. This is the only
  * place a thread's provider is chosen: it is immutable afterwards, because a
  * provider session IS the conversation and no other provider can continue one

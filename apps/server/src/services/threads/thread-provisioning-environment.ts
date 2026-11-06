@@ -163,10 +163,20 @@ const SETUP_FAILURE_REASON_CHAR_LIMIT = 500;
 const SETUP_FAILURE_REASON_SCAN_LIMIT = 8_000;
 const SETUP_FAILURE_ELLIPSIS = "…";
 
+function withoutTrailingPartialToken(reason: string): string {
+  if (reason.length <= SETUP_FAILURE_REASON_SCAN_LIMIT) return reason;
+  const window = reason.slice(0, SETUP_FAILURE_REASON_SCAN_LIMIT);
+  if (/\s/.test(reason.charAt(SETUP_FAILURE_REASON_SCAN_LIMIT))) return window;
+  const lastBreak = window.search(/\s\S*$/);
+  return lastBreak === -1 ? "" : window.slice(0, lastBreak);
+}
+
 function setupFailureExcerpt(reason: string): string {
   const redacted = sanitizeCredentialsDeep(
-    reason.slice(0, SETUP_FAILURE_REASON_SCAN_LIMIT),
-    { freeText: true },
+    withoutTrailingPartialToken(reason),
+    {
+      freeText: true,
+    },
   );
   const collapsed = redacted.replace(/\s+/g, " ").trim();
   if (collapsed.length <= SETUP_FAILURE_REASON_CHAR_LIMIT) return collapsed;

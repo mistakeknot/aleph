@@ -328,6 +328,33 @@ describe("child outcomes without provider completion", () => {
     expect(notification).not.toContain(envValue);
   });
 
+  it("does not leak a credential prefix when the pre-scan cut lands inside URL userinfo", async () => {
+    const password = ["hunter2", "abcdefghijklmnopqrstuvwxyz0123456789"].join(
+      "",
+    );
+    const reason = `${" ".repeat(7_950)}https://builder:${password}@git.example.test/org/repo.git trailing`;
+    expect(reason.indexOf("@")).toBeGreaterThan(8_000);
+    expect(reason.indexOf(password)).toBeLessThan(8_000);
+
+    const notification = await setupFailureNotification(reason);
+
+    expect(notification).toContain("failed during workspace setup");
+    expect(notification).not.toContain(password.slice(0, 12));
+    expect(notification).not.toContain("builder:");
+  });
+
+  it("does not leak a bearer token prefix when the pre-scan cut lands inside the token", async () => {
+    const bearer = ["tok", "abcdefghijklmnopqrstuvwxyz0123456789"].join("_");
+    const reason = `${" ".repeat(7_960)}Authorization: Bearer ${bearer} trailing`;
+    expect(reason.indexOf(bearer)).toBeLessThan(8_000);
+    expect(reason.indexOf(bearer) + bearer.length).toBeGreaterThan(8_000);
+
+    const notification = await setupFailureNotification(reason);
+
+    expect(notification).toContain("failed during workspace setup");
+    expect(notification).not.toContain(bearer.slice(0, 12));
+  });
+
   it("collapses whitespace and caps the setup failure excerpt at 500 characters including the ellipsis", async () => {
     const collapsed = await setupFailureNotification(
       "line one\n\n   line two\t\tline three",
