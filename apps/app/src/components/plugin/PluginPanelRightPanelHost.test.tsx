@@ -108,7 +108,6 @@ const appCommandHandlers = vi.hoisted(
 );
 const viewportState = vi.hoisted(() => ({ isCompactViewport: false }));
 const createTerminal = vi.hoisted(() => vi.fn());
-const catalogQueryState = vi.hoisted(() => ({ queries: [] as string[] }));
 const threadTabsApi = vi.hoisted(() => ({
   get: vi.fn(),
   update: vi.fn(),
@@ -176,31 +175,15 @@ const secondaryPanelState = vi.hoisted(() => ({
 }));
 
 vi.mock("@/hooks/queries/plugin-catalog-queries", () => ({
-  usePluginCatalogSearch: (pluginId: string, options: { enabled: boolean }) => {
-    catalogQueryState.queries = options.enabled ? [pluginId] : [];
-    return {
-      data: {
-        entries: [
-          {
-            pluginId,
-            displayName:
-              pluginId === "secrets"
-                ? "Secrets"
-                : pluginId === "automations"
-                  ? "Automations"
-                  : pluginId,
-            icon:
-              pluginId === "secrets"
-                ? "Key"
-                : pluginId === "automations"
-                  ? "Bot"
-                  : null,
-          },
-        ],
-        collections: [],
-      },
-    };
-  },
+  usePluginCatalogSearch: () => ({
+    data: {
+      entries: [
+        { pluginId: "secrets", displayName: "Secrets", icon: "Key" },
+        { pluginId: "automations", displayName: "Automations", icon: "Bot" },
+      ],
+      collections: [],
+    },
+  }),
 }));
 
 vi.mock("@/lib/split-layout/openPaneContentInSplit", () => ({
@@ -771,7 +754,6 @@ describe("PluginPanelRightPanelHost", () => {
     fixedTabState.registrations = [];
     fixedTabState.fileOpeners = [];
     fixedTabState.newThreadPanelActions = [];
-    catalogQueryState.queries = [];
     secondaryPanelState.collapseEnabled = false;
     secondaryPanelState.fixedTabs = [];
     secondaryPanelState.splitPanelStateId = undefined;
@@ -898,8 +880,8 @@ describe("PluginPanelRightPanelHost", () => {
     expect(screen.getByTestId("current-path").textContent).toBe(
       "/plugins/demo/board",
     );
-    expect(secondaryPanelState.tabKinds).toContain("marketplace-plugin-detail");
-    expect(secondaryPanelState.splitPanelStateId).toBeUndefined();
+    expect(secondaryPanelState.tabKinds).toContain("plugin-detail");
+    expect(secondaryPanelState.splitPanelStateId).toBeDefined();
     expect(secondaryPanelState.collapseEnabled).toBe(true);
     expect(secondaryPanelState.showsCollapseControl).toBe(true);
 
@@ -960,23 +942,19 @@ describe("PluginPanelRightPanelHost", () => {
     expect(screen.getByText("Plugin page")).toBeTruthy();
   });
 
-  it("observes only the selected detail tab while retaining inactive tab metadata", async () => {
+  it("labels every detail tab from the plugin catalog", async () => {
     renderHost();
 
     fireEvent.click(screen.getByRole("link", { name: "Open Secrets plugin" }));
     expect(await screen.findByText("Details for secrets")).toBeTruthy();
-    expect(catalogQueryState.queries).toEqual(["secrets"]);
-
     fireEvent.click(
       screen.getByRole("link", { name: "Open Automations plugin" }),
     );
     expect(await screen.findByText("Details for automations")).toBeTruthy();
-    expect(catalogQueryState.queries).toEqual(["automations"]);
-    expect(screen.getByRole("button", { name: "Secrets" })).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Secrets" }));
     expect(await screen.findByText("Details for secrets")).toBeTruthy();
-    expect(catalogQueryState.queries).toEqual(["secrets"]);
+    expect(screen.getByRole("button", { name: "Automations" })).toBeTruthy();
   });
 
   it("closes every plugin detail tab when several close in one event", async () => {
@@ -992,9 +970,7 @@ describe("PluginPanelRightPanelHost", () => {
     fireEvent.click(screen.getByRole("button", { name: "Close all tabs" }));
 
     await waitFor(() =>
-      expect(secondaryPanelState.tabKinds).not.toContain(
-        "marketplace-plugin-detail",
-      ),
+      expect(secondaryPanelState.tabKinds).not.toContain("plugin-detail"),
     );
     expect(screen.queryByRole("button", { name: "Secrets" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Automations" })).toBeNull();
