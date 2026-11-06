@@ -87,11 +87,34 @@ interface PushNotificationData {
   threadId: string;
 }
 
+interface BlockerPushData {
+  kind: "blocker";
+  serverUrl?: string;
+  threadId?: string;
+  url?: string;
+}
+
+export interface BlockerPushMessage {
+  id: string;
+  title: string;
+  body: string;
+  threadId: string | null;
+  url: string | null;
+}
+
+export interface BlockerDelivery {
+  web: boolean;
+  desktop: boolean;
+  mobileDevices: number;
+  mobileSent: number;
+  mobileFailure: string | null;
+}
+
 export interface ExpoPushMessage {
   to: string;
   title: string;
   body: string;
-  data: PushNotificationData;
+  data: PushNotificationData | BlockerPushData;
   sound: "default";
   channelId: "threads";
   priority: "high";
@@ -125,6 +148,7 @@ interface BatchResult {
 }
 
 export interface PushSender {
+  deliverBlocker(message: BlockerPushMessage): Promise<BlockerDelivery>;
   getLastOutcome(): LastSendOutcome;
   onInteractionPending(
     payload: PluginThreadEventPayloads["interaction.pending"],
@@ -494,7 +518,68 @@ export function createPushSender(args: CreatePushSenderArgs): PushSender {
     }
   }
 
+  async function deliverBlocker(
+    message: BlockerPushMessage,
+  ): Promise<BlockerDelivery> {
+    const config = await args.getDeliverySettings();
+    const channels: ClientNotification["channels"] = [];
+    if (config.webEnabled) channels.push("web");
+    if (config.desktopEnabled) channels.push("desktop");
+    if (channels.length > 0) {
+      bb.realtime.publish(CLIENT_NOTIFICATION_CHANNEL, {
+        id: message.id,
+        title: message.title,
+        body: message.body,
+        threadId: message.threadId,
+        channels,
+      } satisfies ClientNotification);
+    }
+    const delivery: BlockerDelivery = {
+      web: config.webEnabled,
+      desktop: config.desktopEnabled,
+      mobileDevices: 0,
+      mobileSent: 0,
+      mobileFailure: null,
+    };
+    if (!config.mobileEnabled) return delivery;
+    const rows = await subscriptions.list();
+    delivery.mobileDevices = rows.length;
+    if (rows.length === 0) return delivery;
+    const serverUrl = bb.server.experimental_appUrl;
+    const deliveries: Delivery[] = rows.map((subscription) => ({
+      subscription,
+      message: {
+        to: subscription.expoPushToken,
+        title: message.title,
+        body: message.body,
+        data: {
+          kind: "blocker",
+          ...(serverUrl === null ? {} : { serverUrl }),
+          ...(message.threadId === null ? {} : { threadId: message.threadId }),
+          ...(message.url === null ? {} : { url: message.url }),
+        },
+        sound: "default",
+        channelId: "threads",
+        priority: "high",
+      },
+    }));
+    let failure: string | null = null;
+    for (const batch of chunks(deliveries, EXPO_PUSH_BATCH_SIZE)) {
+      const result = await sendBatch(batch);
+      delivery.mobileSent += result.sentCount;
+      failure ??= result.failure;
+    }
+    delivery.mobileFailure = failure;
+    await setLastOutcome(
+      failure === null
+        ? { status: "sent", at: now(), sentCount: delivery.mobileSent }
+        : { status: "failed", at: now(), reason: failure },
+    );
+    return delivery;
+  }
+
   return {
+    deliverBlocker,
     getLastOutcome: () => lastOutcome,
     onInteractionPending(payload) {
       schedule(

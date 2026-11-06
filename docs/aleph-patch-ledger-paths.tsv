@@ -1081,3 +1081,11 @@ session-search	A	packages/session-search/test/streaming-reader.test.ts
 session-search	A	packages/session-search/test/support/chunk-sources.ts
 session-search	A	packages/session-search/test/support/frame-child.ts
 session-search	A	packages/session-search/test/support/frame-parent.ts
+blocker-push	M	plugins/push-notifications/PLUGIN_OVERVIEW.md
+blocker-push	A	plugins/push-notifications/blocker-push.test.ts
+blocker-push	A	plugins/push-notifications/blocker-push.ts
+blocker-push	M	plugins/push-notifications/contract.ts
+blocker-push	M	plugins/push-notifications/sender.ts
+blocker-push	M	plugins/push-notifications/server.test.ts
+blocker-push	M	plugins/push-notifications/server.ts
+blocker-push	M	plugins/push-notifications/skills/push-notifications/SKILL.md

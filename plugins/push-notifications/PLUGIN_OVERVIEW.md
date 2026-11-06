@@ -19,6 +19,7 @@ Every thread menu (header, sidebar row, right-click, compact drawer, optional ro
 - `desktopEnabled` / **Desktop notifications**: notify running desktop clients. Default: true.
 - `defaultLevel` / **Default notifications**: `all`, `input-only`, or `muted`, for threads you haven't set. Default: `all`.
 - `childLevel` / **Child thread notifications**: `inherit` (same as `defaultLevel`), `all`, `input-only`, or `muted`. Default: `input-only`.
+- `blockerDailyCap` / **Blocker pushes per source per day**: most blocker pushes one source may send in a local Pacific-time day; `0` turns them off. Default: 3.
 - `expoPushUrl` / **Expo push relay URL**: mobile relay endpoint. Defaults to `https://exp.host/--/api/v2/push/send`.
 
 Channel switches apply to this server and save immediately. Browser permission is granted per device with **Allow notifications**. **Send test notification** confirms broadcast, not OS display.
@@ -34,6 +35,16 @@ Channel switches apply to this server and save immediately. Browser permission i
 - `bb plugin config push-notifications set <mobileEnabled|webEnabled|desktopEnabled> <true|false>`: change a channel.
 - `bb plugin config push-notifications set <defaultLevel|childLevel> <level>`: change a default.
 
+- `bb push-notifications notify --source <id> --kind blocker --title <text> --body <text> [--thread <id>] [--url </path>] [--dedupe-key <key>] [--json]`: push a blocker to the registered phones and to connected web and desktop clients. Only kind `blocker` is accepted. A call over the daily cap, or repeating a dedupe key already pushed that day, sends nothing and still exits 0 with `capped` or `deduped` set.
+
 Every command takes `--help`. A failure with `--json` prints `{ "ok": false, "error": { "code", "message" } }` on stdout and the readable text on stderr.
 
 Agents can use the SDK's plugin settings API for the same switches and `sdk.plugins.callRpc` with method `notifications.test` (`{ channel }`), `threadNotifications.list` (`{ threadIds }`, up to 200), or `threadNotifications.set` (`{ threadId, level }`). Permission requests still require a click in the target client.
+
+## Blocker pushes
+
+Other plugins and scripts can push a blocker that needs a person, such as a card waiting on a decision. The push goes through the same sender and subscriptions as the event-driven pushes, to no other destination, and ignores thread levels. Each source has its own daily cap, counted per calendar day in America/Los_Angeles (a day is 23 or 25 hours across a clock change) and set by `blockerDailyCap`.
+
+Call it from a plugin with `sdk.plugins.callRpc`, method `notifications.notify`, input `{ kind: "blocker", title, body, threadId?, url?, dedupeKey? }`. The source is the calling plugin's id, set by the host and not by the caller; a plugin that passes a different `source` is refused. The CLI and other clients name their own `source`, so the per-source cap limits one source but not a client that invents new sources. `title` is cut to 80 characters and `body` to 180. `url` must be a path inside bb, such as `/projects/<id>`. The result is `{ id, at, day, source, outcome, capped, deduped, cap, sentToday, delivery }`: `outcome` is `sent`, `capped` or `deduped`, and `delivery` is null unless the push was sent. A push counts against the cap once it is attempted, even if the relay fails; the failure is in `delivery.mobileFailure`.
+
+`bb push-notifications status --json` shows `blockerPush`: the cap, today's date, and the last 14 days, newest first, with `sent`, `capped` and `deduped` counts for each source. Older days are dropped.
