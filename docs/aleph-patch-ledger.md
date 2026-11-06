@@ -55,9 +55,9 @@ Held as: *plugin* means the change lives in a plugin directory; *in-tree* means 
 | layout-profiles | in-tree | 17 | Layout profiles and secondary panel storage, suppression and fixed tabs | Re-apply the Aleph side of panel and thread-screen edits. | **Keep.** Still needed, but upstream's new raw fixed-panel tab read (#6594) bypasses the suppression mask. Follow-up bead audits and re-applies the mask at that read. |
 | extra-write-roots | in-tree | 2 | Extra workspace write roots for sandboxed agents | Re-apply. | **Keep.** Host-daemon env hook for extra writable roots; no upstream equivalent. Small, opt-in, generic: upstream candidate. |
 | upstream-sync-tooling | in-tree | 1 | `scripts/upstream-sync.sh`, the probe and prepare tool for upstream syncs | Keep Aleph's script. | **Keep.** Aleph's script. Upstream has no equivalent. It does not yet restore the contributor list (bead pending). |
-| test-hardening | in-tree | 5 | Bounded timeouts and hermetic setup for load-sensitive tests (mk-4tj93) | Re-apply. | **Keep.** Two files also changed upstream (clipboard test 78671a2d66, protocol-self-update test 6d8e0d107d); re-test them after a sync. Generic timeout fixes are upstream candidates. |
+| test-hardening | in-tree | 11 | Bounded timeouts and hermetic setup for load-sensitive tests (mk-4tj93) | Re-apply. | **Keep.** Two files also changed upstream (clipboard test 78671a2d66, protocol-self-update test 6d8e0d107d); re-test them after a sync. Generic timeout fixes are upstream candidates. |
 
-Totals: 1062 differing paths. 3 are deletions (`.github/workflows/deploy-ai-gateway.yml`, `close-stale-prs.yml` and `deploy-connect-next.yml`, imported workflows Aleph does not run); the rest are additions, edits and renames.
+Totals: 1068 differing paths. 3 are deletions (`.github/workflows/deploy-ai-gateway.yml`, `close-stale-prs.yml` and `deploy-connect-next.yml`, imported workflows Aleph does not run); the rest are additions, edits and renames.
 
 ## Audit summary (bead mk-uyf3d.2)
 

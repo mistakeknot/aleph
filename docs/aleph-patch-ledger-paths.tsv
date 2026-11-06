@@ -933,6 +933,12 @@ test-hardening	M	apps/app/src/test/setup.ts
 test-hardening	M	apps/host-daemon/src/command-discovery.test.ts
 test-hardening	M	apps/host-daemon/src/protocol-self-update.test.ts
 test-hardening	M	apps/server/test/services/plugins/plugin-install-jobs.test.ts
+test-hardening	A	apps/server/test/setup/ensure-test-prerequisites.test.ts
+test-hardening	A	apps/server/test/setup/ensure-test-prerequisites.ts
+test-hardening	M	apps/server/vitest.config.ts
+test-hardening	M	packages/process-utils/scripts/generate-profile-worker.mjs
+test-hardening	A	packages/process-utils/scripts/write-file-atomically.mjs
+test-hardening	A	packages/process-utils/test/write-file-atomically.test.ts
 themes	M	apps/app/package.json
 themes	M	apps/app/src/App.tsx
 themes	A	apps/app/src/components/settings/MusicModeSettings.test.tsx

@@ -7,7 +7,10 @@ export default defineWorkspaceTestConfig({
   test: {
     silent: "passed-only",
     testTimeout: 15_000,
-    globalSetup: ["test/setup/migrated-db-template.ts"],
+    globalSetup: [
+      "test/setup/ensure-test-prerequisites.ts",
+      "test/setup/migrated-db-template.ts",
+    ],
     setupFiles: [
       "test/setup/stored-event-decode-freeze.ts",
       "test/setup/warm-test-harness.ts",
