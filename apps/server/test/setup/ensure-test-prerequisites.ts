@@ -123,10 +123,10 @@ function installExitHooks(): void {
   if (exitHooks) {
     return;
   }
-  let foreignRemoval = false;
+  const foreignRemovals = new Set<NodeJS.Signals>();
   const onExit = (): void => killActiveBuilds();
   const onSignal = (signal: NodeJS.Signals): void => {
-    const handledElsewhere = foreignRemoval;
+    const handledElsewhere = foreignRemovals.delete(signal);
     killActiveBuilds();
     removeExitHooks();
     if (!handledElsewhere && process.listenerCount(signal) === 0) {
@@ -140,11 +140,11 @@ function installExitHooks(): void {
       (event === "SIGINT" || event === "SIGTERM") &&
       listener !== onInterrupt &&
       listener !== onTerminate &&
-      !foreignRemoval
+      !foreignRemovals.has(event)
     ) {
-      foreignRemoval = true;
+      foreignRemovals.add(event);
       process.nextTick(() => {
-        foreignRemoval = false;
+        foreignRemovals.delete(event);
       });
     }
   };

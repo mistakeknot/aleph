@@ -288,6 +288,7 @@ describe("ensureTestPrerequisites", () => {
         '  outputs: async () => ["out.txt"],',
         "};",
         "const [signal, kind, order] = competing.split(':');",
+        "const unrelated = () => {};",
         "const register = () => {",
         "  if (!signal) {",
         "    return;",
@@ -301,6 +302,8 @@ describe("ensureTestPrerequisites", () => {
         "      record();",
         "    };",
         "    process.on(signal, handler);",
+        "  } else if (kind === 'unrelated') {",
+        "    process.on(signal, unrelated);",
         "  } else {",
         "    process.on(signal, record);",
         "  }",
@@ -320,6 +323,10 @@ describe("ensureTestPrerequisites", () => {
         "  }",
         "  if (mode === 'exit' && existsSync(`${root}/go`)) {",
         "    process.exit(0);",
+        "  }",
+        "  if (kind === 'unrelated' && existsSync(`${root}/trigger`)) {",
+        "    process.off(signal, unrelated);",
+        "    process.emit('SIGTERM');",
         "  }",
         "}, 20);",
         "await ensurePrerequisite(prerequisite, root, {",
@@ -420,4 +427,17 @@ describe("ensureTestPrerequisites", () => {
     },
     60_000,
   );
+
+  it("still re-raises SIGTERM after an unrelated SIGINT listener is removed in the same tick", async () => {
+    const root = emptyRoot();
+    const { ended } = startSetup(root, "wait", "SIGINT:unrelated:before");
+    const pid = await buildPid(root);
+    expect(await waitFor(() => existsSync(join(root, "ready")), 5_000)).toBe(
+      true,
+    );
+    writeFileSync(join(root, "trigger"), "go");
+    const result = await ended;
+    expect(result.signal).toBe("SIGTERM");
+    expect(await waitFor(() => isDead(pid), 5_000)).toBe(true);
+  }, 60_000);
 });
