@@ -10,21 +10,28 @@ import { pageBindingViolation, type ParserSourceSpec } from "./protocol.js";
 
 export const DEFAULT_QUANTUM_MS = 2_000;
 
+export type CommitFence = () => boolean;
+
 export interface CommitSink {
   cursor(ref: SourceRef): string | null | Promise<string | null>;
   commit(
     batch: CommitBatch,
     update: CursorUpdate,
+    fence: CommitFence,
   ): CommitResult | Promise<CommitResult>;
 }
 
 export function storeSink(store: {
   getCursor(source: SourceRef): string | null;
-  commitBatch(batch: CommitBatch, cursor: CursorUpdate): CommitResult;
+  commitBatch(
+    batch: CommitBatch,
+    cursor: CursorUpdate,
+    fence?: CommitFence,
+  ): CommitResult;
 }): CommitSink {
   return {
     cursor: (ref) => store.getCursor(ref),
-    commit: (batch, update) => store.commitBatch(batch, update),
+    commit: (batch, update, fence) => store.commitBatch(batch, update, fence),
   };
 }
 
@@ -284,7 +291,9 @@ export class ParserScheduler {
     const previous = this.commitChains.get(key) ?? Promise.resolve();
     const run = previous.then(async (): Promise<CommitResult | null> => {
       if (!this.current(entry)) return null;
-      return await this.options.sink.commit(batch, update);
+      return await this.options.sink.commit(batch, update, () =>
+        this.current(entry),
+      );
     });
     const tail = run.then(
       () => undefined,

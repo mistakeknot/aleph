@@ -1,4 +1,5 @@
-import { appendFileSync } from "node:fs";
+import { appendFileSync, existsSync } from "node:fs";
+import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 
 import { openParentChannel } from "../../src/ipc/framed-child.js";
@@ -11,7 +12,8 @@ import {
 
 const MIB = 1024 * 1024;
 const pidLog = process.env.PARSER_CHILD_PID_LOG;
-const lingerMs = Number(process.env.PARSER_CHILD_LINGER_MS ?? "0");
+const eventLog = process.env.PARSER_CHILD_EVENT_LOG;
+const releaseDir = process.env.PARSER_CHILD_RELEASE_DIR;
 if (pidLog !== undefined) appendFileSync(pidLog, `${process.pid}\n`);
 const channel = openParentChannel();
 channel.output.on("error", () => process.exit(0));
@@ -91,7 +93,13 @@ const readers: ParserReaders = {
 
 runParserChild(channel, readers).then(
   async (code) => {
-    if (lingerMs > 0) await sleep(lingerMs);
+    if (eventLog !== undefined) {
+      appendFileSync(eventLog, `${process.pid} lingering\n`);
+    }
+    if (releaseDir !== undefined) {
+      const gate = join(releaseDir, String(process.pid));
+      while (!existsSync(gate)) await sleep(5);
+    }
     process.exit(code);
   },
   () => process.exit(1),

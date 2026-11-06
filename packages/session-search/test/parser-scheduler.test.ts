@@ -114,8 +114,19 @@ class FakeSink implements CommitSink {
   commit(
     batch: { source: { key: string } },
     update: { expected: string | null; next: string },
+    fence: () => boolean = () => true,
   ): CommitResult {
     const key = batch.source.key;
+    if (!fence()) {
+      return {
+        committed: false,
+        refusal: {
+          code: "stale_generation",
+          message: "source generation is no longer current",
+        },
+        cursor: this.cursors.get(key) ?? null,
+      } as unknown as CommitResult;
+    }
     const queue = this.refusals.get(key);
     const refusal = queue?.shift();
     if (refusal === "throw") throw new Error("sink exploded");
@@ -805,14 +816,15 @@ class GateSink implements CommitSink {
   async commit(
     batch: { source: { key: string; generation: number } },
     update: { expected: string | null; next: string },
+    fence: () => boolean,
   ): Promise<CommitResult> {
     const label = `${batch.source.key}@${batch.source.generation}`;
     this.started.push(label);
     if (this.blockFirst && this.started.length === 1) {
       await new Promise<void>((resolve) => this.gates.push(resolve));
     }
-    const result = this.inner.commit(batch, update);
-    this.finished.push(label);
+    const result = this.inner.commit(batch, update, fence);
+    if (result.committed) this.finished.push(label);
     return result;
   }
 
@@ -857,7 +869,7 @@ describe("generation fence at write time", () => {
     return entries.filter((entry) => entry.startsWith(`${key}@`));
   }
 
-  it("does not start a newer generation's commit while an older one is in flight", async () => {
+  it("persists nothing from an older generation that was replaced while its commit was in flight", async () => {
     const { parsers, sink, scheduler, openB } = gated();
     parsers[0]!.script("a", chain(1, 1));
     parsers[1]!.script("a", chain(1, 1));
@@ -877,7 +889,7 @@ describe("generation fence at write time", () => {
     sink.release();
     await drained;
     expect(forKey(sink.started, "a")).toEqual(["a@1", "a@2"]);
-    expect(forKey(sink.finished, "a")).toEqual(["a@1", "a@2"]);
+    expect(forKey(sink.finished, "a")).toEqual(["a@2"]);
     expect(scheduler.state("a")?.spec.ref.generation).toBe(2);
     expect(scheduler.state("a")?.status).toBe("idle");
   });
@@ -899,8 +911,27 @@ describe("generation fence at write time", () => {
     sink.release();
     await drained;
     expect(forKey(sink.started, "a")).not.toContain("a@2");
-    expect(forKey(sink.finished, "a")).toEqual(["a@1", "a@3"]);
+    expect(forKey(sink.finished, "a")).toEqual(["a@3"]);
     expect(scheduler.state("a")?.spec.ref.generation).toBe(3);
+  });
+
+  it("persists nothing from a source that was removed while its commit was in flight", async () => {
+    const { parsers, sink, scheduler, openB } = gated();
+    parsers[0]!.script("a", chain(1, 1));
+    parsers[1]!.script("a", chain(1, 1));
+    scheduler.upsert(spec("a", 1));
+    scheduler.upsert(spec("b", 1));
+    const drained = scheduler.drain();
+    await tick();
+    expect(forKey(sink.started, "a")).toEqual(["a@1"]);
+    scheduler.remove("a");
+    openB();
+    sink.release();
+    await drained;
+    expect(forKey(sink.finished, "a")).toEqual([]);
+    expect(sink.inner.commits).not.toContain("a");
+    expect(sink.inner.cursor({ key: "a" })).toBeNull();
+    expect(scheduler.state("a")).toBeNull();
   });
 });
 

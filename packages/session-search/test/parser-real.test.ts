@@ -147,6 +147,53 @@ function pause(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+const DETECTION_WINDOW_MS = 300;
+
+function lingerGate(): {
+  env: NodeJS.ProcessEnv;
+  pidLog: string;
+  lingering: (count: number) => Promise<void>;
+  release: (pids: number[]) => void;
+} {
+  const base = mkdtempSync(join(tmpdir(), "ss-parser-gate-"));
+  temps.push(base);
+  const pidLog = join(base, "pids");
+  const eventLog = join(base, "events");
+  const releaseDir = join(base, "release");
+  mkdirSync(releaseDir);
+  return {
+    pidLog,
+    env: {
+      ...process.env,
+      PARSER_CHILD_PID_LOG: pidLog,
+      PARSER_CHILD_EVENT_LOG: eventLog,
+      PARSER_CHILD_RELEASE_DIR: releaseDir,
+    },
+    lingering: async (count) => {
+      const deadline = Date.now() + 30_000;
+      for (;;) {
+        let raw = "";
+        try {
+          raw = readFileSync(eventLog, "utf8");
+        } catch {
+          raw = "";
+        }
+        const seen = raw.split("\n").filter((entry) => entry !== "").length;
+        if (seen >= count) return;
+        if (Date.now() > deadline) {
+          throw new Error(`only ${seen} of ${count} children lingered`);
+        }
+        await pause(5);
+      }
+    },
+    release: (pids) => {
+      for (const pid of pids) {
+        writeFileSync(join(releaseDir, String(pid)), "");
+      }
+    },
+  };
+}
+
 function line(uuid: string, text: string): string {
   return JSON.stringify({
     type: "user",
@@ -408,61 +455,62 @@ describe("real parser children", () => {
   }, 60_000);
 
   it("waits for a retiring child to die before it starts the next one", async () => {
-    const log = join(mkdtempSync(join(tmpdir(), "ss-parser-pids-")), "pids");
-    temps.push(dirname(log));
-    const built = rig({
-      idleExitMs: 30,
-      env: {
-        ...process.env,
-        PARSER_CHILD_PID_LOG: log,
-        PARSER_CHILD_LINGER_MS: "700",
-      },
-    });
+    const gate = lingerGate();
+    const built = rig({ idleExitMs: 30, env: gate.env });
     const slot = built.slots[0]!;
     const read = async (name: string) =>
       slot.read({ source: session(built, name), cursor: null, stallMs: 5_000 });
     expect((await read("a.jsonl")).kind).toBe("page");
-    const first = alivePids(log);
+    const first = alivePids(gate.pidLog);
     expect(first).toHaveLength(1);
-    await pause(150);
-    expect(alivePids(log)).toEqual(first);
-    expect((await read("b.jsonl")).kind).toBe("page");
-    expect(alivePids(log)).toHaveLength(1);
-    expect(alivePids(log)).not.toEqual(first);
+    await gate.lingering(1);
+    expect(alivePids(gate.pidLog)).toEqual(first);
+    let settled = false;
+    const next = read("b.jsonl").then((outcome) => {
+      settled = true;
+      return outcome;
+    });
+    await pause(DETECTION_WINDOW_MS);
+    expect(settled).toBe(false);
+    expect(alivePids(gate.pidLog)).toEqual(first);
+    gate.release(first);
+    expect((await next).kind).toBe("page");
+    expect(alivePids(gate.pidLog)).toHaveLength(1);
+    expect(alivePids(gate.pidLog)).not.toEqual(first);
   }, 60_000);
 
   it("never holds more than one live child per slot while slots retire and restart", async () => {
-    const log = join(mkdtempSync(join(tmpdir(), "ss-parser-pids-")), "pids");
-    temps.push(dirname(log));
-    const built = rig({
-      parsers: 2,
-      idleExitMs: 30,
-      env: {
-        ...process.env,
-        PARSER_CHILD_PID_LOG: log,
-        PARSER_CHILD_LINGER_MS: "700",
-      },
-    });
+    const gate = lingerGate();
+    const built = rig({ parsers: 2, idleExitMs: 30, env: gate.env });
     let peak = 0;
     const sampler = setInterval(() => {
-      peak = Math.max(peak, alivePids(log).length);
+      peak = Math.max(peak, alivePids(gate.pidLog).length);
     }, 10);
+    const round = (index: number) =>
+      Promise.all(
+        built.slots.map((slot, slotIndex) =>
+          slot.read({
+            source: session(built, `r${index}-${slotIndex}.jsonl`),
+            cursor: null,
+            stallMs: 5_000,
+          }),
+        ),
+      );
     try {
-      for (let round = 0; round < 3; round += 1) {
-        const outcomes = await Promise.all(
-          built.slots.map((slot, index) =>
-            slot.read({
-              source: session(built, `r${round}-${index}.jsonl`),
-              cursor: null,
-              stallMs: 5_000,
-            }),
-          ),
-        );
+      let outcomes = await round(0);
+      expect(outcomes.map((outcome) => outcome.kind)).toEqual(["page", "page"]);
+      for (let index = 1; index < 3; index += 1) {
+        await gate.lingering(index * 2);
+        const retiring = alivePids(gate.pidLog);
+        const next = round(index);
+        await pause(DETECTION_WINDOW_MS);
+        expect(alivePids(gate.pidLog)).toEqual(retiring);
+        gate.release(retiring);
+        outcomes = await next;
         expect(outcomes.map((outcome) => outcome.kind)).toEqual([
           "page",
           "page",
         ]);
-        await pause(150);
       }
     } finally {
       clearInterval(sampler);
@@ -472,16 +520,8 @@ describe("real parser children", () => {
   }, 60_000);
 
   it("waits for a retiring child when the slot is closed", async () => {
-    const log = join(mkdtempSync(join(tmpdir(), "ss-parser-pids-")), "pids");
-    temps.push(dirname(log));
-    const built = rig({
-      idleExitMs: 30,
-      env: {
-        ...process.env,
-        PARSER_CHILD_PID_LOG: log,
-        PARSER_CHILD_LINGER_MS: "700",
-      },
-    });
+    const gate = lingerGate();
+    const built = rig({ idleExitMs: 30, env: gate.env });
     const slot = built.slots[0]!;
     expect(
       (
@@ -492,10 +532,19 @@ describe("real parser children", () => {
         })
       ).kind,
     ).toBe("page");
-    await pause(150);
-    expect(alivePids(log)).toHaveLength(1);
-    await slot.close();
-    expect(alivePids(log)).toHaveLength(0);
+    await gate.lingering(1);
+    const retiring = alivePids(gate.pidLog);
+    expect(retiring).toHaveLength(1);
+    let closed = false;
+    const closing = slot.close().then(() => {
+      closed = true;
+    });
+    await pause(DETECTION_WINDOW_MS);
+    expect(closed).toBe(false);
+    expect(alivePids(gate.pidLog)).toEqual(retiring);
+    gate.release(retiring);
+    await closing;
+    expect(alivePids(gate.pidLog)).toHaveLength(0);
   }, 60_000);
 
   it.skipIf(!supported)(
