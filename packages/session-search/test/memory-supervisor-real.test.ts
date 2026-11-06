@@ -1,7 +1,7 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   admitMemory,
@@ -30,6 +30,11 @@ if (!supported) {
 interface Launched {
   child: FramedChild;
   ready: Promise<void>;
+  held: Promise<void>;
+}
+
+interface Settled extends Launched {
+  base: number;
 }
 
 const children: FramedChild[] = [];
@@ -45,15 +50,31 @@ function launch(mode: string, mib = 0): Launched {
   const ready = new Promise<void>((resolve) => {
     resolveReady = resolve;
   });
+  let resolveHeld!: () => void;
+  const held = new Promise<void>((resolve) => {
+    resolveHeld = resolve;
+  });
   const child = new FramedChild({
     args: ["--import", "tsx", childScript, mode, String(mib)],
     cwd: packageDir,
     onFrame: (payload) => {
-      if (payload.toString() === "ready") resolveReady();
+      const text = payload.toString();
+      if (text === "ready") resolveReady();
+      if (text === "held") resolveHeld();
     },
   });
   children.push(child);
-  return { child, ready };
+  return { child, ready, held };
+}
+
+async function launchSettled(mode: string, mib = 0): Promise<Settled> {
+  const launched = launch(mode, mib);
+  await launched.ready;
+  const memory = readProcessMemory(launched.child.pid ?? 0);
+  expect(memory).not.toBeNull();
+  const base = memory?.rssBytes ?? 0;
+  expect(base).toBeGreaterThan(0);
+  return { ...launched, base };
 }
 
 function supervise(
@@ -123,29 +144,18 @@ const HIGH = 4096 * MIB;
 describe.skipIf(!supported)(
   "memory supervisor with real child processes",
   () => {
-    let baseline = 0;
-
-    beforeAll(async () => {
-      const { child, ready } = launch("idle");
-      await ready;
-      await new Promise((resolve) => setTimeout(resolve, 300));
-      const memory = readProcessMemory(child.pid ?? 0);
-      expect(memory).not.toBeNull();
-      baseline = memory?.rssBytes ?? 0;
-      report("baseline", { idleChildRssMiB: mib(baseline) });
-      await child.kill();
-    });
-
-    afterAll(() => {
-      expect(baseline).toBeGreaterThan(0);
-    });
-
     it("reads the real resident size of a child that holds native allocations", async () => {
-      const { child, ready } = launch("hold", 64);
-      await ready;
+      const { child, held, base: baseline } = await launchSettled("hold", 64);
+      await child.send(Buffer.from("go"));
+      await held;
       const memory = readProcessMemory(child.pid ?? 0);
       expect(memory).not.toBeNull();
       expect(memory?.rssBytes ?? 0).toBeGreaterThan(baseline + 48 * MIB);
+      report("hold-delta", {
+        baselineMiB: mib(baseline),
+        heldRssMiB: mib(memory?.rssBytes ?? 0),
+        deltaMiB: mib((memory?.rssBytes ?? 0) - baseline),
+      });
       expect(memory?.peakRssBytes ?? 0).toBeGreaterThanOrEqual(
         memory?.rssBytes ?? 0,
       );
@@ -159,15 +169,21 @@ describe.skipIf(!supported)(
     }, 20_000);
 
     it("suspends admission above the per-child suspend line without killing", async () => {
+      const { child, base: baseline } = await launchSettled("hold", 56);
       const { supervisor, kills } = supervise({
         childSuspendBytes: baseline + 32 * MIB,
         childKillBytes: baseline + 160 * MIB,
         aggregateSuspendBytes: HIGH,
         aggregateKillBytes: HIGH,
       });
-      const { child, ready } = launch("hold", 56);
       const watched = supervisor.watch(child, "suspend");
-      await ready;
+      await until(
+        () => watched.snapshot().samples > 0,
+        3000,
+        "first RSS sample",
+      );
+      expect(watched.snapshot().suspended).toBe(false);
+      await child.send(Buffer.from("go"));
       await until(
         () => watched.snapshot().suspended,
         5000,
@@ -187,6 +203,7 @@ describe.skipIf(!supported)(
     }, 20_000);
 
     it("kills a child that grows past the per-child kill line and releases its reservation", async () => {
+      const { child, base: baseline } = await launchSettled("grow", 192);
       const killLine = baseline + 64 * MIB;
       const { supervisor, kills } = supervise({
         childSuspendBytes: baseline + 32 * MIB,
@@ -194,9 +211,7 @@ describe.skipIf(!supported)(
         aggregateSuspendBytes: HIGH,
         aggregateKillBytes: HIGH,
       });
-      const { child, ready } = launch("grow", 192);
       const watched = supervisor.watch(child, "grow");
-      await ready;
       await until(
         () => watched.snapshot().samples > 0,
         3000,
@@ -229,6 +244,7 @@ describe.skipIf(!supported)(
     }, 30_000);
 
     it("kills a child whose event loop is blocked in synchronous work", async () => {
+      const { child, base: baseline } = await launchSettled("sync-grow", 192);
       const killLine = baseline + 64 * MIB;
       const { supervisor, kills } = supervise({
         childSuspendBytes: baseline + 32 * MIB,
@@ -236,9 +252,7 @@ describe.skipIf(!supported)(
         aggregateSuspendBytes: HIGH,
         aggregateKillBytes: HIGH,
       });
-      const { child, ready } = launch("sync-grow", 192);
       const watched = supervisor.watch(child, "blocked");
-      await ready;
       await until(
         () => watched.snapshot().samples > 0,
         3000,
@@ -260,15 +274,14 @@ describe.skipIf(!supported)(
     }, 30_000);
 
     it("keeps killing a child that never yields the event loop", async () => {
+      const { child, base: baseline } = await launchSettled("spin");
       const { supervisor, kills } = supervise({
         childSuspendBytes: baseline + 16 * MIB,
         childKillBytes: baseline + 48 * MIB,
         aggregateSuspendBytes: HIGH,
         aggregateKillBytes: HIGH,
       });
-      const { child, ready } = launch("spin");
       const watched = supervisor.watch(child, "spin");
-      await ready;
       await until(
         () => watched.snapshot().samples >= 3,
         3000,
@@ -341,16 +354,29 @@ describe.skipIf(!supported)(
     }, 20_000);
 
     it("kills the largest child when summed RSS crosses the aggregate kill line", async () => {
+      const [first, second] = await Promise.all([
+        launchSettled("hold", 96),
+        launchSettled("hold", 96),
+      ]);
+      const baseline = first.base + second.base;
       const { supervisor, kills } = supervise({
         childSuspendBytes: HIGH,
         childKillBytes: HIGH,
-        aggregateSuspendBytes: 2 * baseline + 40 * MIB,
-        aggregateKillBytes: 2 * baseline + 100 * MIB,
+        aggregateSuspendBytes: baseline + 40 * MIB,
+        aggregateKillBytes: baseline + 100 * MIB,
       });
-      const first = launch("hold", 96);
-      const second = launch("hold", 96);
       supervisor.watch(first.child, "first");
       supervisor.watch(second.child, "second");
+      await until(
+        () => supervisor.snapshot().children.every((c) => c.samples > 0),
+        3000,
+        "first RSS samples",
+      );
+      expect(kills).toHaveLength(0);
+      await Promise.all([
+        first.child.send(Buffer.from("go")),
+        second.child.send(Buffer.from("go")),
+      ]);
       await until(() => kills.length === 1, 10_000, "aggregate kill");
       const record = kills[0] as KillRecord;
       expect(record.reason).toBe("aggregate_rss");

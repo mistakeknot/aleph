@@ -218,6 +218,7 @@ export type RefusalCode =
   | "total_budget"
   | "wal_reserve"
   | "cursor_conflict"
+  | "stale_generation"
   | "disk_full"
   | "db_page_limit"
   | "memory_budget"
@@ -1206,9 +1207,19 @@ export class SessionSearchStore {
     return removed;
   }
 
-  commitBatch(batch: CommitBatch, cursor: CursorUpdate): CommitResult {
+  commitBatch(
+    batch: CommitBatch,
+    cursor: CursorUpdate,
+    fence?: () => boolean,
+  ): CommitResult {
     const refuse = (code: RefusalCode, message: string): CommitResult =>
       this.refusalResult({ code, message }, batch.source);
+    if (fence !== undefined && !fence()) {
+      return refuse(
+        "stale_generation",
+        "source generation is no longer current",
+      );
+    }
     if (this.suspendedBy) {
       return refuse(
         "suspended",

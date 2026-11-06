@@ -134,6 +134,12 @@ function asNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function asUsageCount(value: unknown): number | null {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+    ? value
+    : null;
+}
+
 function parseTimeMs(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) {
     return value;
@@ -541,10 +547,10 @@ function claudeUsage(value: unknown): UsageTokens | null {
     return null;
   }
   return {
-    inputTokens: asNumber(value.input_tokens),
-    outputTokens: asNumber(value.output_tokens),
-    cacheReadTokens: asNumber(value.cache_read_input_tokens),
-    cacheWriteTokens: asNumber(value.cache_creation_input_tokens),
+    inputTokens: asUsageCount(value.input_tokens),
+    outputTokens: asUsageCount(value.output_tokens),
+    cacheReadTokens: asUsageCount(value.cache_read_input_tokens),
+    cacheWriteTokens: asUsageCount(value.cache_creation_input_tokens),
     reasoningTokens: null,
     totalTokens: null,
   };
@@ -607,10 +613,10 @@ function normalizeClaudeCostState(
       continue;
     }
     const tokens: UsageTokens = {
-      inputTokens: asNumber(entry.inputTokens),
-      outputTokens: asNumber(entry.outputTokens),
-      cacheReadTokens: asNumber(entry.cacheReadInputTokens),
-      cacheWriteTokens: asNumber(entry.cacheCreationInputTokens),
+      inputTokens: asUsageCount(entry.inputTokens),
+      outputTokens: asUsageCount(entry.outputTokens),
+      cacheReadTokens: asUsageCount(entry.cacheReadInputTokens),
+      cacheWriteTokens: asUsageCount(entry.cacheCreationInputTokens),
       reasoningTokens: null,
       totalTokens: null,
     };
@@ -662,12 +668,12 @@ function codexUsage(value: unknown): UsageTokens | null {
     return null;
   }
   return {
-    inputTokens: asNumber(value.input_tokens),
-    outputTokens: asNumber(value.output_tokens),
-    cacheReadTokens: asNumber(value.cached_input_tokens),
-    cacheWriteTokens: asNumber(value.cache_write_input_tokens),
-    reasoningTokens: asNumber(value.reasoning_output_tokens),
-    totalTokens: asNumber(value.total_tokens),
+    inputTokens: asUsageCount(value.input_tokens),
+    outputTokens: asUsageCount(value.output_tokens),
+    cacheReadTokens: asUsageCount(value.cached_input_tokens),
+    cacheWriteTokens: asUsageCount(value.cache_write_input_tokens),
+    reasoningTokens: asUsageCount(value.reasoning_output_tokens),
+    totalTokens: asUsageCount(value.total_tokens),
   };
 }
 
@@ -940,14 +946,14 @@ function normalizeBb(
         origin: "bb-token-usage",
         scopeKey: `bb:${threadId ?? source.sessionId ?? "unknown"}:${providerThreadId}`,
         model: null,
-        inputTokens: asNumber(total.inputTokens),
-        outputTokens: asNumber(total.outputTokens),
+        inputTokens: asUsageCount(total.inputTokens),
+        outputTokens: asUsageCount(total.outputTokens),
         cacheReadTokens:
-          asNumber(total.cacheReadInputTokens) ??
-          asNumber(total.cachedInputTokens),
-        cacheWriteTokens: asNumber(total.cacheWriteInputTokens),
-        reasoningTokens: asNumber(total.reasoningOutputTokens),
-        totalTokens: asNumber(total.totalTokens),
+          asUsageCount(total.cacheReadInputTokens) ??
+          asUsageCount(total.cachedInputTokens),
+        cacheWriteTokens: asUsageCount(total.cacheWriteInputTokens),
+        reasoningTokens: asUsageCount(total.reasoningOutputTokens),
+        totalTokens: asUsageCount(total.totalTokens),
         inputIncludesCache: null,
         costUsd: null,
       },
