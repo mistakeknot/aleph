@@ -582,6 +582,19 @@ interface CapacityRefusalInfo {
 }
 
 class CursorConflict extends Error {}
+class StaleFence extends Error {}
+
+const FENCE_META_PREFIX = "fence:";
+
+export interface CommitOptions {
+  fenceToken?: string;
+}
+
+export interface FenceEntry {
+  key: string;
+  generation: number;
+  token: string;
+}
 
 export class SessionSearchStore {
   readonly dir: string;
@@ -919,6 +932,68 @@ export class SessionSearchStore {
     this.suspendedBy = null;
   }
 
+  private assertFence(source: SourceRef, token: string): void {
+    const row = this.db
+      .prepare("SELECT value FROM meta WHERE key = ?")
+      .get(`${FENCE_META_PREFIX}${source.key}`) as
+      | { value: string }
+      | undefined;
+    if (row?.value !== `${source.generation}:${token}`) {
+      throw new StaleFence("source generation is no longer current");
+    }
+  }
+
+  fenceOf(key: string): string | null {
+    const row = this.db
+      .prepare("SELECT value FROM meta WHERE key = ?")
+      .get(`${FENCE_META_PREFIX}${key}`) as { value: string } | undefined;
+    return row?.value ?? null;
+  }
+
+  setFence(entry: FenceEntry): void {
+    this.db
+      .transaction(() => {
+        this.db
+          .prepare(
+            "INSERT INTO meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+          )
+          .run(
+            `${FENCE_META_PREFIX}${entry.key}`,
+            `${entry.generation}:${entry.token}`,
+          );
+      })
+      .immediate();
+  }
+
+  clearFence(key: string): void {
+    this.db
+      .transaction(() => {
+        this.db
+          .prepare("DELETE FROM meta WHERE key = ?")
+          .run(`${FENCE_META_PREFIX}${key}`);
+      })
+      .immediate();
+  }
+
+  syncFences(entries: readonly FenceEntry[]): void {
+    this.db
+      .transaction(() => {
+        this.db
+          .prepare("DELETE FROM meta WHERE key LIKE 'fence:%'")
+          .run();
+        const insert = this.db.prepare(
+          "INSERT INTO meta(key, value) VALUES (?, ?)",
+        );
+        for (const entry of entries) {
+          insert.run(
+            `${FENCE_META_PREFIX}${entry.key}`,
+            `${entry.generation}:${entry.token}`,
+          );
+        }
+      })
+      .immediate();
+  }
+
   epoch(): number {
     const row = this.stmts.epochGet.get() as { value: string } | undefined;
     return row ? Number(row.value) : 0;
@@ -1211,6 +1286,7 @@ export class SessionSearchStore {
     batch: CommitBatch,
     cursor: CursorUpdate,
     fence?: () => boolean,
+    options: CommitOptions = {},
   ): CommitResult {
     const refuse = (code: RefusalCode, message: string): CommitResult =>
       this.refusalResult({ code, message }, batch.source);
@@ -1270,7 +1346,7 @@ export class SessionSearchStore {
       reservation = admitted.reservation;
     }
     try {
-      return this.commitAdmitted(batch, cursor, placeholders);
+      return this.commitAdmitted(batch, cursor, placeholders, options);
     } finally {
       reservation?.release();
     }
@@ -1280,6 +1356,7 @@ export class SessionSearchStore {
     batch: CommitBatch,
     cursor: CursorUpdate,
     placeholders: readonly OversizedPlaceholder[],
+    options: CommitOptions,
   ): CommitResult {
     const refuse = (
       code: RefusalCode,
@@ -1333,6 +1410,9 @@ export class SessionSearchStore {
     try {
       const { applied, cleared } = this.db
         .transaction(() => {
+          if (options.fenceToken !== undefined) {
+            this.assertFence(batch.source, options.fenceToken);
+          }
           const result = this.applyBatch(batch, cursor, entries, placeholders);
           this.hooks.afterApply?.(this.db);
           let next: MemoryPressureState | null = null;
@@ -1364,6 +1444,9 @@ export class SessionSearchStore {
       };
     } catch (error) {
       if (this.db.inTransaction) this.db.exec("ROLLBACK");
+      if (error instanceof StaleFence) {
+        return refuse("stale_generation", error.message, mergePossible);
+      }
       if (error instanceof CursorConflict) {
         return refuse("cursor_conflict", error.message, mergePossible);
       }
