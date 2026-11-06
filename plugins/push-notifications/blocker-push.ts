@@ -7,6 +7,8 @@ export const DEFAULT_BLOCKER_DAILY_CAP = 3;
 export const MAX_BLOCKER_DAILY_CAP = 100;
 export const BLOCKER_STATUS_DAYS = 14;
 export const BLOCKER_OVERFLOW_SOURCE = "_overflow";
+export const BLOCKER_THREAD_ID_PATTERN =
+  /^thr_[23456789abcdefghijkmnpqrstuvwxyz]{10}$/u;
 export const BLOCKER_SOURCE_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/u;
 
 const DAY_KEY_PREFIX = "blocker-day:";

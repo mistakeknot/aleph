@@ -1721,7 +1721,7 @@ describe("blocker push notifications", () => {
       const result = await notifyAs(host, {
         title: "T".repeat(120),
         body: "B".repeat(400),
-        threadId: "thread-9",
+        threadId: "thr_23456789ab",
       });
       expect(result.delivery).toEqual({
         web: true,
@@ -1736,13 +1736,13 @@ describe("blocker push notifications", () => {
       expect(message?.data).toEqual({
         kind: "blocker",
         serverUrl: "https://bb.test",
-        threadId: "thread-9",
+        threadId: "thr_23456789ab",
       });
       expect(host.clientSignals()).toEqual([
         expect.objectContaining({
           payload: expect.objectContaining({
             id: result.id,
-            threadId: "thread-9",
+            threadId: "thr_23456789ab",
             channels: ["web", "desktop"],
           }),
         }),
@@ -1931,7 +1931,7 @@ describe("blocker push notifications", () => {
         "--body",
         "Pick the deploy window",
         "--thread",
-        "thread-1",
+        "thr_23456789ab",
         "--json",
       ];
       const sent = await host.harness.behavior.runCli([
@@ -2074,6 +2074,55 @@ describe("blocker push notifications", () => {
         capped: 1,
         deduped: 0,
       });
+    } finally {
+      await host.cleanup();
+    }
+  });
+
+  it("refuses a thread id outside the bb format before counting or sending", async () => {
+    const host = await setup({ appUrl: "https://bb.test" });
+    try {
+      await host.addSubscription();
+      const bad = [
+        "../settings?x=1",
+        "thr_23456789ab/x",
+        "thr_23456789ab\\x",
+        "..",
+        "thr_23456789a?",
+        "thr_23456789a#",
+        "thr_23456789%2f",
+        "thr_23456789a b",
+        " thr_23456789ab",
+        "thr_23456789ab\n",
+        "thr_23456789abc",
+        `thr_${"a".repeat(300)}`,
+        "thread-9",
+        "",
+      ];
+      for (const threadId of bad) {
+        await expect(notifyAs(host, { threadId })).rejects.toMatchObject({
+          code: "invalid_input",
+        });
+        const cli = await host.harness.behavior.runCli([
+          "notify",
+          "--source",
+          "citadel",
+          "--kind",
+          "blocker",
+          "--title",
+          "T",
+          "--body",
+          "B",
+          "--thread",
+          threadId,
+        ]);
+        expect(cli.exitCode).not.toBe(0);
+      }
+      expect(host.expo.requests).toHaveLength(0);
+      expect(host.clientSignals()).toHaveLength(0);
+      expect(await host.bb.storage.kv.list("blocker-day:")).toEqual([]);
+      const accepted = await notifyAs(host, { threadId: "thr_23456789ab" });
+      expect(accepted.outcome).toBe("sent");
     } finally {
       await host.cleanup();
     }

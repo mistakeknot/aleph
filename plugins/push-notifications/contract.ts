@@ -1,6 +1,10 @@
 import { defineRpcContract } from "@get-bb/plugin-sdk";
 import { z } from "zod";
-import { BLOCKER_SOURCE_PATTERN, blockerCountsSchema } from "./blocker-push.js";
+import {
+  BLOCKER_SOURCE_PATTERN,
+  BLOCKER_THREAD_ID_PATTERN,
+  blockerCountsSchema,
+} from "./blocker-push.js";
 import {
   ownNotificationLevelSchema,
   threadNotificationInputsSchema,
@@ -69,7 +73,13 @@ export const notifyBlockerInputSchema = z
     kind: z.string().min(1),
     title: z.string().trim().min(1).max(BLOCKER_FIELD_MAX_LENGTH),
     body: z.string().trim().min(1).max(BLOCKER_FIELD_MAX_LENGTH),
-    threadId: z.string().min(1).max(200).optional(),
+    threadId: z
+      .string()
+      .regex(
+        BLOCKER_THREAD_ID_PATTERN,
+        "threadId must be a bb thread id (thr_ and 10 characters)",
+      )
+      .optional(),
     dedupeKey: z.string().min(1).max(200).optional(),
   })
   .strict();

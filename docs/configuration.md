@@ -1244,12 +1244,15 @@ The builtin Push notifications plugin's `mobileEnabled`, `webEnabled`, and
 `desktopEnabled` booleans default to `true`. `expoPushUrl` (default
 `https://exp.host/--/api/v2/push/send`) is the relay URL, read on every send.
 `defaultLevel` (default `all`) and `childLevel` (default `input-only`) set
-top-level and child thread levels. Set them with
+top-level and child thread levels. `blockerDailyCap` (default `3`, `0`
+turns it off, maximum `100`) is the most blocker pushes that go out per
+America/Los_Angeles calendar day, in total across all sources; further
+blocker pushes that day are counted but not sent. Set them with
 `bb plugin config push-notifications set <key> <value>`. Web and desktop
 notifications need an open bb tab or window, HTTPS or localhost, and
 per-device permission; the plugin's settings page offers permission and test
 controls. See the `push-notifications` skill for levels, devices, and
-`bb push-notifications test|thread`.
+`bb push-notifications test|thread|notify`.
 
 ### Storage & retention
 
