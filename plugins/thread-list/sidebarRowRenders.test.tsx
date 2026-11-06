@@ -139,6 +139,7 @@ describe.each<OrganizationMode>(["chronological", "project"])(
         },
       });
       await screen.findByText("Thread e");
+      await act(async () => undefined);
       await settleRowCommits();
       const Component = registration.component;
 
