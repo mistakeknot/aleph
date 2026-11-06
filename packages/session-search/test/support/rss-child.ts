@@ -29,10 +29,14 @@ channel.input.resume();
 
 const held: Buffer[] = [];
 
-function ready(): Promise<void> {
+function announce(text: string): Promise<void> {
   return new Promise((resolve) => {
-    channel.output.write(encodeFrame(Buffer.from("ready")), () => resolve());
+    channel.output.write(encodeFrame(Buffer.from(text)), () => resolve());
   });
+}
+
+function ready(): Promise<void> {
+  return announce("ready");
 }
 
 function touch(bytes: number): void {
@@ -54,10 +58,12 @@ async function run(): Promise<void> {
       return;
     }
     case "hold": {
+      await ready();
+      await go;
       for (let total = 0; total < targetMib * MIB; total += STEP_BYTES) {
         touch(STEP_BYTES);
       }
-      await ready();
+      await announce("held");
       await sleep(60_000);
       return;
     }
