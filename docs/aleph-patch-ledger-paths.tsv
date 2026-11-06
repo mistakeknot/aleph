@@ -1070,8 +1070,14 @@ window-presets	A	packages/server-contract/src/api/windows.ts
 session-search	A	packages/session-search/src/adapters/claude.ts
 session-search	A	packages/session-search/src/adapters/codex.ts
 session-search	A	packages/session-search/src/adapters/jsonl-page.ts
+session-search	A	packages/session-search/src/ipc/frame.ts
+session-search	A	packages/session-search/src/ipc/framed-child.ts
 session-search	A	packages/session-search/src/streaming-reader.ts
 session-search	A	packages/session-search/test/claude-adapter.test.ts
 session-search	A	packages/session-search/test/codex-adapter.test.ts
+session-search	A	packages/session-search/test/ipc-frame.test.ts
+session-search	A	packages/session-search/test/ipc-framed-child.test.ts
 session-search	A	packages/session-search/test/streaming-reader.test.ts
 session-search	A	packages/session-search/test/support/chunk-sources.ts
+session-search	A	packages/session-search/test/support/frame-child.ts
+session-search	A	packages/session-search/test/support/frame-parent.ts
