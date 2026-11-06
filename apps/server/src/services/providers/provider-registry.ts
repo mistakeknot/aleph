@@ -87,6 +87,7 @@ export interface ProviderRegistryService {
   ): { dispose(): void };
   whenProviderRegistered(providerId: string): Promise<void>;
   whenRegistrationsSettled(): Promise<void>;
+  registrationsSettled(): boolean;
   markRegistrationsSettled(): void;
 }
 
@@ -379,6 +380,10 @@ export function createProviderRegistryService(
           providerRegistrationWaiters.delete(providerId);
         }
       }
+    },
+
+    registrationsSettled() {
+      return settle === null;
     },
 
     async whenRegistrationsSettled() {

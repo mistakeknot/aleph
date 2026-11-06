@@ -108,6 +108,72 @@ describe("resolveCreateThreadExecutionDefaults", () => {
     });
   });
 
+  it("rejects an unregistered requested provider and lists the valid ids", () => {
+    let caught: unknown;
+    try {
+      resolveCreateThreadExecutionDefaults(registry, {
+        storedDefaults: null,
+        requestedProviderId: "claude",
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toMatchObject({
+      status: 400,
+      body: { code: "unknown_provider" },
+    });
+    const message = (caught as Error).message;
+    expect(message).toContain('Unknown provider "claude"');
+    for (const entry of registry.list()) {
+      expect(message).toContain(entry.info.id);
+    }
+  });
+
+  it("answers a retryable error instead of unknown_provider while registration is pending", async () => {
+    const pending = createProviderRegistryService({
+      deferRegistrationsSettled: true,
+    });
+    const attempt = () =>
+      resolveCreateThreadExecutionDefaults(pending, {
+        storedDefaults: null,
+        requestedProviderId: "claude-code",
+      });
+
+    expect(attempt).toThrowError(
+      expect.objectContaining({
+        status: 503,
+        body: expect.objectContaining({
+          code: "provider_registration_pending",
+          retryable: true,
+        }),
+      }),
+    );
+
+    await registerFirstPartyProviders(pending);
+    expect(attempt().providerId).toBe("claude-code");
+  });
+
+  it("rejects an unknown provider once registration has settled", async () => {
+    const settledLate = createProviderRegistryService({
+      deferRegistrationsSettled: true,
+    });
+    await registerFirstPartyProviders(settledLate);
+    settledLate.markRegistrationsSettled();
+
+    expect(() =>
+      resolveCreateThreadExecutionDefaults(settledLate, {
+        storedDefaults: null,
+        requestedProviderId: "claude",
+      }),
+    ).toThrowError(
+      expect.objectContaining({
+        status: 400,
+        body: expect.objectContaining({ code: "unknown_provider" }),
+      }),
+    );
+  });
+
   it("honors the user's default provider and picker order", async () => {
     const preferences = {
       providerOrder: ["pi", "claude-code"],

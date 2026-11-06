@@ -1632,11 +1632,12 @@ function settleEnvironmentProvisionOutcome(
     return emptyCommandResultSideEffects();
   }
   const environmentProvisioningId = initiator.provisioningId;
+  const failureReason = args.report.errorMessage;
   const failedThreadIds = recordEnvironmentProvisioningFailureInTransaction(
     args.deps,
     {
       environmentId: args.command.environmentId,
-      failureReason: args.report.errorMessage,
+      failureReason,
       provisioningId: environmentProvisioningId,
       failureEntry: {
         type: "step",
@@ -1653,7 +1654,7 @@ function settleEnvironmentProvisionOutcome(
       run: (deps) => {
         const thread = getThread(deps.db, threadId);
         if (thread && thread.deletedAt === null)
-          queueChildSetupFailureNotification(deps, thread);
+          queueChildSetupFailureNotification(deps, thread, failureReason);
       },
     });
   }
@@ -1775,7 +1776,7 @@ function interruptUnrecoverableEnvironmentProvisioning(
   for (const threadId of failedThreadIds) {
     const thread = getThread(deps.db, threadId);
     if (thread && thread.deletedAt === null)
-      queueChildSetupFailureNotification(deps, thread);
+      queueChildSetupFailureNotification(deps, thread, args.reason);
   }
 }
 

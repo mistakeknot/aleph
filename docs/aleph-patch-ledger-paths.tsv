@@ -659,6 +659,7 @@ queue-transfer	A	apps/server/scripts/ex88-unretire.ts
 queue-transfer	M	apps/server/src/internal/events.ts
 queue-transfer	M	apps/server/src/routes/threads/actions.ts
 queue-transfer	M	apps/server/src/routes/threads/data.ts
+queue-transfer	M	apps/server/src/services/environments/environment-engine.ts
 queue-transfer	M	apps/server/src/services/lib/lifecycle-api-errors.ts
 queue-transfer	M	apps/server/src/services/machines/enrollments.ts
 queue-transfer	M	apps/server/src/services/threads/child-thread-notifications.ts
@@ -674,6 +675,7 @@ queue-transfer	A	apps/server/src/services/threads/retired-user-posts.ts
 queue-transfer	A	apps/server/src/services/threads/spawn-enqueue-idempotency.ts
 queue-transfer	M	apps/server/src/services/threads/thread-context-clear.ts
 queue-transfer	M	apps/server/src/services/threads/thread-data.ts
+queue-transfer	M	apps/server/src/services/threads/thread-default-policy.ts
 queue-transfer	M	apps/server/src/services/threads/thread-events.ts
 queue-transfer	M	apps/server/src/services/threads/thread-lifecycle.ts
 queue-transfer	M	apps/server/src/services/threads/thread-provisioning-environment.ts
@@ -721,6 +723,8 @@ queue-transfer	A	apps/server/test/threads/retired-ingress-redirect-change.test.t
 queue-transfer	A	apps/server/test/threads/retired-ingress.test.ts
 queue-transfer	A	apps/server/test/threads/spawn-enqueue-idempotency.test.ts
 queue-transfer	M	apps/server/test/threads/system-message-taxonomy-stamping.test.ts
+queue-transfer	A	apps/server/test/threads/thread-create-unknown-provider.test.ts
+queue-transfer	M	apps/server/test/threads/thread-default-policy.test.ts
 queue-transfer	M	apps/server/test/threads/thread-send-dispatch.test.ts
 queue-transfer	A	apps/server/test/threads/thread-status-wait.test.ts
 queue-transfer	A	apps/server/test/threads/transfer-delivery.test.ts
