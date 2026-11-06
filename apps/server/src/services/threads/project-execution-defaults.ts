@@ -99,11 +99,6 @@ function resolveRequestedCreateExecutionValue<TValue>({
   return sources[field] === undefined ? undefined : value;
 }
 
-/**
- * Gives an explicitly requested provider the same bounded registration wait the
- * execution-options path gives it, so a provider that registers after the
- * first settle window still resolves instead of failing the create.
- */
 export async function awaitRequestedCreateProviderRegistration(
   deps: Pick<AppDeps, "providerRegistry">,
   args: Pick<
@@ -118,6 +113,7 @@ export async function awaitRequestedCreateProviderRegistration(
   });
   if (
     requestedProviderId === undefined ||
+    deps.providerRegistry.disabledProviderIds().has(requestedProviderId) ||
     deps.providerRegistry.get(requestedProviderId) !== null ||
     deps.providerRegistry.registrationsSettled()
   ) {

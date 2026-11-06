@@ -134,23 +134,35 @@ describe("thread create while provider plugins are still registering", () => {
     );
   });
 
-  it("answers a retryable 503 when the requested provider is still unregistered after both waits", async () => {
+  it("answers a retryable 503 only after the second wait for the provider times out", async () => {
     await withTestHarness(
       { seedFirstPartyProviders: false },
       async (harness) => {
         const registry = createProviderRegistryService({
           deferRegistrationsSettled: true,
         });
+        const providerWait = vi.spyOn(registry, "whenProviderRegistered");
         harness.deps.providerRegistry = registry;
         const { host, project } = seedWorkspace(harness);
 
         vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-        const responsePromise = createThread(harness, {
-          hostId: host.id,
-          projectId: project.id,
-          providerId: "codex",
+        let answered = false;
+        const responsePromise = Promise.resolve(
+          createThread(harness, {
+            hostId: host.id,
+            projectId: project.id,
+            providerId: "codex",
+          }),
+        ).then((response) => {
+          answered = true;
+          return response;
         });
-        await vi.advanceTimersByTimeAsync(60_000);
+        await vi.advanceTimersByTimeAsync(30_000);
+        expect(answered).toBe(false);
+        expect(providerWait).toHaveBeenCalledTimes(1);
+        expect(providerWait).toHaveBeenCalledWith("codex");
+
+        await vi.advanceTimersByTimeAsync(30_000);
         const response = await responsePromise;
 
         expect(response.status).toBe(503);
@@ -160,6 +172,47 @@ describe("thread create while provider plugins are still registering", () => {
         };
         expect(body.code).toBe("provider_registration_pending");
         expect(body.retryable).toBe(true);
+        expect(harness.db.select().from(threads).all()).toHaveLength(0);
+      },
+    );
+  });
+
+  it("rejects a disabled, not yet registered provider after the first wait without a second wait", async () => {
+    await withTestHarness(
+      { seedFirstPartyProviders: false },
+      async (harness) => {
+        const registry = createProviderRegistryService({
+          deferRegistrationsSettled: true,
+          readUserProviderPreferences: () => ({
+            providerOrder: [],
+            defaultProviderId: null,
+            disabledProviderIds: ["codex"],
+          }),
+        });
+        const providerWait = vi.spyOn(registry, "whenProviderRegistered");
+        harness.deps.providerRegistry = registry;
+        const { host, project } = seedWorkspace(harness);
+
+        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+        let answered = false;
+        const responsePromise = Promise.resolve(
+          createThread(harness, {
+            hostId: host.id,
+            projectId: project.id,
+            providerId: "codex",
+          }),
+        ).then((response) => {
+          answered = true;
+          return response;
+        });
+        await vi.advanceTimersByTimeAsync(30_000);
+        expect(answered).toBe(true);
+        const response = await responsePromise;
+
+        expect(response.status).toBe(409);
+        const body = (await readJson(response)) as { code?: string };
+        expect(body.code).toBe("provider_disabled");
+        expect(providerWait).not.toHaveBeenCalled();
         expect(harness.db.select().from(threads).all()).toHaveLength(0);
       },
     );
