@@ -46,22 +46,22 @@ describe("Aleph userData path", () => {
   it("pins Aleph builds to the bb userData folder so existing state survives the rename", () => {
     expect(
       resolveDesktopUserDataOverridePath({
-        appDataPath: "/Users/mk/Library/Application Support",
+        appDataPath: "/Users/example/Library/Application Support",
         channel: "aleph",
       }),
-    ).toBe(join("/Users/mk/Library/Application Support", "bb"));
+    ).toBe(join("/Users/example/Library/Application Support", "bb"));
   });
 
   it("leaves the stable and nightly channels on their own default userData path", () => {
     expect(
       resolveDesktopUserDataOverridePath({
-        appDataPath: "/Users/mk/Library/Application Support",
+        appDataPath: "/Users/example/Library/Application Support",
         channel: "latest",
       }),
     ).toBeNull();
     expect(
       resolveDesktopUserDataOverridePath({
-        appDataPath: "/Users/mk/Library/Application Support",
+        appDataPath: "/Users/example/Library/Application Support",
         channel: "nightly",
       }),
     ).toBeNull();
