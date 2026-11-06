@@ -7,7 +7,7 @@ import {
   SUPERVISED_MEMORY_POLICY,
   type SupervisedProcess,
 } from "../src/ipc/memory-supervisor.js";
-import { parseProcStatus } from "../src/ipc/rss.js";
+import { parseProcStartTime, parseProcStatus } from "../src/ipc/rss.js";
 
 const MIB = 1024 * 1024;
 
@@ -34,6 +34,14 @@ class FakeChild implements SupervisedProcess {
     this.alive = false;
     this.finish();
   }
+
+  die(): void {
+    this.alive = false;
+  }
+
+  settle(): void {
+    this.finish();
+  }
 }
 
 function flush(): Promise<void> {
@@ -43,6 +51,7 @@ function flush(): Promise<void> {
 function harness() {
   let now = 1000;
   const rss = new Map<number, number>();
+  const identity = new Map<number, string>();
   const supervisor = new MemorySupervisor({
     clock: () => now,
     autoSample: false,
@@ -50,20 +59,26 @@ function harness() {
       const value = rss.get(pid);
       return value === undefined
         ? null
-        : { rssBytes: value, peakRssBytes: value };
+        : {
+            rssBytes: value,
+            peakRssBytes: value,
+            incarnation: identity.get(pid) ?? null,
+          };
     },
   });
   let nextPid = 100;
   return {
     supervisor,
     rss,
+    identity,
     advance: (ms: number) => {
       now += ms;
     },
-    spawn: (label: string, bytes: number | null) => {
+    spawn: (label: string, bytes: number | null, incarnation?: string) => {
       const child = new FakeChild(nextPid);
       nextPid += 1;
       if (bytes !== null) rss.set(child.pid, bytes);
+      if (incarnation !== undefined) identity.set(child.pid, incarnation);
       return { child, watch: supervisor.watch(child, label) };
     },
   };
@@ -128,21 +143,84 @@ describe("memory supervisor arithmetic", () => {
     expect(h.supervisor.reservedBytes()).toBe(0);
   });
 
-  it("treats a failing read as absent and lets the sample age out", () => {
+  it("invalidates the sample at once when a read fails", () => {
     const h = harness();
     const { child, watch } = h.spawn("a", 10 * MIB);
     h.supervisor.sampleNow();
+    expect(watch.provider.sample()).not.toBeNull();
     h.rss.delete(child.pid);
     h.advance(100);
     h.supervisor.sampleNow();
-    expect(watch.provider.sample()).not.toBeNull();
     expect(watch.snapshot().readFailures).toBe(1);
+    expect(watch.provider.sample()).toBeNull();
+    expect(watch.provider.acquire(MIB)).toBeNull();
+    expect(admitMemory(watch.provider, SUPERVISED_MEMORY_POLICY, 0).ok).toBe(
+      false,
+    );
+    expect(h.supervisor.reservedBytes()).toBe(0);
     h.advance(450);
     h.supervisor.sampleNow();
-    expect(watch.provider.sample()).toBeNull();
     expect(watch.snapshot().unreadable).toBe(true);
     expect(h.supervisor.snapshot().unsupported).toBe(true);
+    h.rss.set(child.pid, 10 * MIB);
+    h.advance(100);
+    h.supervisor.sampleNow();
+    const resumed = watch.provider.acquire(MIB);
+    expect(resumed).not.toBeNull();
+    resumed?.release();
+  });
+
+  it("refuses admission once the child is no longer alive, before exit settles", async () => {
+    const h = harness();
+    const { child, watch } = h.spawn("a", 10 * MIB);
+    h.supervisor.sampleNow();
+    const held = watch.provider.acquire(MIB);
+    expect(held).not.toBeNull();
+    child.die();
+    expect(watch.provider.sample()).toBeNull();
     expect(watch.provider.acquire(MIB)).toBeNull();
+    expect(admitMemory(watch.provider, SUPERVISED_MEMORY_POLICY, 0).ok).toBe(
+      false,
+    );
+    expect(h.supervisor.reservedBytes()).toBe(MIB);
+    child.settle();
+    await flush();
+    expect(h.supervisor.reservedBytes()).toBe(0);
+    expect(watch.provider.acquire(MIB)).toBeNull();
+  });
+
+  it("rejects a sample from a different process incarnation", () => {
+    const h = harness();
+    const { child, watch } = h.spawn("a", 10 * MIB, "5000");
+    h.supervisor.sampleNow();
+    const first = watch.provider.acquire(MIB);
+    expect(first).not.toBeNull();
+    first?.release();
+    h.advance(100);
+    h.identity.set(child.pid, "9000");
+    h.supervisor.sampleNow();
+    expect(watch.provider.sample()).toBeNull();
+    expect(watch.provider.acquire(MIB)).toBeNull();
+    expect(admitMemory(watch.provider, SUPERVISED_MEMORY_POLICY, 0).ok).toBe(
+      false,
+    );
+    expect(watch.snapshot().identityMismatches).toBe(1);
+    expect(watch.snapshot().readFailures).toBe(1);
+    expect(h.supervisor.snapshot().aggregateRssBytes).toBe(0);
+    h.advance(100);
+    h.identity.set(child.pid, "5000");
+    h.supervisor.sampleNow();
+    expect(watch.provider.sample()).not.toBeNull();
+  });
+
+  it("refuses samples when no identity could be bound at watch time", () => {
+    const h = harness();
+    const { child, watch } = h.spawn("a", 10 * MIB);
+    h.identity.set(child.pid, "5000");
+    h.supervisor.sampleNow();
+    expect(watch.provider.sample()).toBeNull();
+    expect(watch.provider.acquire(MIB)).toBeNull();
+    expect(watch.snapshot().identityMismatches).toBe(1);
   });
 
   it("reports a child that was never readable as unsupported", () => {
@@ -365,6 +443,17 @@ describe("proc status parsing", () => {
       rssBytes: 1024 * 1024,
       peakRssBytes: 2048 * 1024,
     });
+  });
+
+  it("reads the start time after a command name with spaces and parentheses", () => {
+    const text =
+      "4242 (we ird) name) S 1 4242 4242 0 -1 4194560 100 0 0 0 1 2 0 0 20 0 3 0 987654 1000 200 18446744073709551615";
+    expect(parseProcStartTime(text)).toBe("987654");
+  });
+
+  it("returns no start time for malformed stat text", () => {
+    expect(parseProcStartTime("no parenthesis here")).toBeNull();
+    expect(parseProcStartTime("1 (a) S 1 2")).toBeNull();
   });
 
   it("returns null without a resident line", () => {

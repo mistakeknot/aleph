@@ -60,6 +60,7 @@ export interface ChildMemorySnapshot {
   reservedBytes: number;
   samples: number;
   readFailures: number;
+  identityMismatches: number;
   maxSampleGapMs: number;
   peakRssBytes: number;
   osPeakRssBytes: number | null;
@@ -86,10 +87,13 @@ export interface WatchedEntry {
   readonly process: SupervisedProcess;
   readonly label: string;
   readonly watchedAtMs: number;
+  readonly incarnation: string | null;
   readonly reservations: Set<ReservationHandle>;
   sample: MemorySample | null;
+  lastSampledAtMs: number | null;
   samples: number;
   readFailures: number;
+  identityMismatches: number;
   maxSampleGapMs: number;
   peakRssBytes: number;
   osPeakRssBytes: number | null;
@@ -148,14 +152,20 @@ export class MemorySupervisor {
   }
 
   watch(target: SupervisedProcess, label = "child"): WatchedChild {
+    const watchedAtMs = this.clock();
+    const pid = target.pid;
     const entry: WatchedEntry = {
       process: target,
       label,
-      watchedAtMs: this.clock(),
+      watchedAtMs,
+      incarnation:
+        pid === undefined ? null : (this.readMemory(pid)?.incarnation ?? null),
       reservations: new Set(),
       sample: null,
+      lastSampledAtMs: null,
       samples: 0,
       readFailures: 0,
+      identityMismatches: 0,
       maxSampleGapMs: 0,
       peakRssBytes: 0,
       osPeakRssBytes: null,
@@ -257,13 +267,14 @@ export class MemorySupervisor {
       reservedBytes: entry.reservedBytes,
       samples: entry.samples,
       readFailures: entry.readFailures,
+      identityMismatches: entry.identityMismatches,
       maxSampleGapMs: entry.maxSampleGapMs,
       peakRssBytes: entry.peakRssBytes,
       osPeakRssBytes: entry.osPeakRssBytes,
       unreadable:
         !entry.closed &&
         !this.isFresh(entry, now) &&
-        now - (entry.sample?.sampledAtMs ?? entry.watchedAtMs) >
+        now - (entry.lastSampledAtMs ?? entry.watchedAtMs) >
           this.limits.staleAfterMs,
     };
   }
@@ -272,7 +283,8 @@ export class MemorySupervisor {
     return {
       clock: () => this.clock(),
       sample: () => {
-        if (entry.closed || entry.sample === null) return null;
+        if (entry.closed || !entry.process.alive) return null;
+        if (entry.sample === null) return null;
         if (!this.isFresh(entry, this.clock())) return null;
         return { ...entry.sample };
       },
@@ -283,6 +295,7 @@ export class MemorySupervisor {
   private acquire(entry: WatchedEntry, bytes: number): MemoryReservation | null {
     if (!Number.isFinite(bytes) || bytes < 0) return null;
     if (entry.closed || entry.killing || this.disposed) return null;
+    if (!entry.process.alive) return null;
     const now = this.clock();
     if (!this.isFresh(entry, now) || entry.sample === null) return null;
     if (entry.sample.rssBytes >= this.limits.childSuspendBytes) return null;
@@ -318,15 +331,23 @@ export class MemorySupervisor {
     const memory = pid === undefined ? null : this.readMemory(pid);
     if (memory === null) {
       entry.readFailures += 1;
+      entry.sample = null;
       return;
     }
-    if (entry.sample !== null) {
+    if ((memory.incarnation ?? null) !== entry.incarnation) {
+      entry.readFailures += 1;
+      entry.identityMismatches += 1;
+      entry.sample = null;
+      return;
+    }
+    if (entry.lastSampledAtMs !== null) {
       entry.maxSampleGapMs = Math.max(
         entry.maxSampleGapMs,
-        now - entry.sample.sampledAtMs,
+        now - entry.lastSampledAtMs,
       );
     }
     entry.sample = { rssBytes: memory.rssBytes, sampledAtMs: now };
+    entry.lastSampledAtMs = now;
     entry.samples += 1;
     entry.peakRssBytes = Math.max(entry.peakRssBytes, memory.rssBytes);
     if (memory.peakRssBytes !== null) {

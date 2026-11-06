@@ -149,6 +149,13 @@ describe.skipIf(!supported)(
       expect(memory?.peakRssBytes ?? 0).toBeGreaterThanOrEqual(
         memory?.rssBytes ?? 0,
       );
+      expect(memory?.incarnation).toMatch(/^\d+$/);
+      expect(readProcessMemory(child.pid ?? 0)?.incarnation).toBe(
+        memory?.incarnation,
+      );
+      expect(readProcessMemory(process.pid)?.incarnation).not.toBe(
+        memory?.incarnation,
+      );
     }, 20_000);
 
     it("suspends admission above the per-child suspend line without killing", async () => {
@@ -202,6 +209,10 @@ describe.skipIf(!supported)(
       expect(supervisor.reservedBytes()).toBe(
         SUPERVISED_MEMORY_POLICY.minReservationBytes,
       );
+      expect(watched.snapshot().rssBytes ?? 0).toBeLessThan(
+        baseline + 32 * MIB,
+      );
+      await child.send(Buffer.from("go"));
       await until(() => kills.length === 1, 10_000, "kill record");
       const record = kills[0] as KillRecord;
       expect(record.reason).toBe("child_rss");
@@ -228,6 +239,15 @@ describe.skipIf(!supported)(
       const { child, ready } = launch("sync-grow", 192);
       const watched = supervisor.watch(child, "blocked");
       await ready;
+      await until(
+        () => watched.snapshot().samples > 0,
+        3000,
+        "first RSS sample",
+      );
+      expect(watched.snapshot().rssBytes ?? 0).toBeLessThan(
+        baseline + 32 * MIB,
+      );
+      await child.send(Buffer.from("go"));
       await until(() => kills.length === 1, 10_000, "kill record");
       const record = kills[0] as KillRecord;
       expect(record.reason).toBe("child_rss");

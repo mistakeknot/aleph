@@ -1,6 +1,6 @@
 import { setTimeout as sleep } from "node:timers/promises";
 
-import { encodeFrame } from "../../src/ipc/frame.js";
+import { encodeFrame, FrameDecoder } from "../../src/ipc/frame.js";
 import { openParentChannel } from "../../src/ipc/framed-child.js";
 
 const MIB = 1024 * 1024;
@@ -12,6 +12,19 @@ const channel = openParentChannel();
 channel.output.on("error", () => process.exit(0));
 channel.input.on("error", () => {});
 channel.input.on("end", () => process.exit(0));
+
+let releaseGo!: () => void;
+const go = new Promise<void>((resolve) => {
+  releaseGo = resolve;
+});
+const decoder = new FrameDecoder();
+channel.input.on("data", (chunk: Buffer) => {
+  for (const event of decoder.push(chunk)) {
+    if (event.kind === "frame" && event.payload.toString() === "go") {
+      releaseGo();
+    }
+  }
+});
 channel.input.resume();
 
 const held: Buffer[] = [];
@@ -50,6 +63,7 @@ async function run(): Promise<void> {
     }
     case "grow": {
       await ready();
+      await go;
       for (let total = 0; total < targetMib * MIB; total += STEP_BYTES) {
         touch(STEP_BYTES);
         await sleep(10);
@@ -59,6 +73,7 @@ async function run(): Promise<void> {
     }
     case "sync-grow": {
       await ready();
+      await go;
       for (let total = 0; total < targetMib * MIB; total += STEP_BYTES) {
         touch(STEP_BYTES);
         spinFor(5);
