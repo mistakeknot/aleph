@@ -49,7 +49,7 @@ Held as: *plugin* means the change lives in a plugin directory; *in-tree* means 
 | secrets-plugin | plugin + in-tree | 28 | Secrets plugin and the host-daemon secret probe and commit RPCs with an allowlist enforced at request and write time (mk-vyxov) | Re-apply; bump the host daemon protocol version when upstream changes it. |
 | event-cold-tier | in-tree | 45 | Event cold tier: history of long-archived threads moves to `event-archive/`, with `bb admin event-archive` (mk-o4xnc.8) | Re-apply the history gates around thread readers and writers. |
 | window-presets | in-tree | 22 | Window presets: domain schema, server registry, routes, SDK area and `bb window` CLI (mk-hz175) | Re-apply; keep the CLI registries and JSON shapes in step. |
-| session-search | plugin + in-tree | 19 | Session search over thread history | Re-apply. |
+| session-search | plugin + in-tree | 39 | Session search over thread history | Re-apply. |
 | host-sqlite | in-tree | 7 | Pin better-sqlite3 for the host artifact and probe FTS5 at startup | Re-apply; check against upstream artifact build changes. |
 | launcher-hardening | in-tree | 28 | Launcher and daemon hardening: BB_CLI re-entry guard, startup stop guard, restart back-off, survive ENOSPC in the log transport | Re-apply. |
 | layout-profiles | in-tree | 17 | Layout profiles and secondary panel storage, suppression and fixed tabs | Re-apply the Aleph side of panel and thread-screen edits. |
@@ -57,7 +57,7 @@ Held as: *plugin* means the change lives in a plugin directory; *in-tree* means 
 | upstream-sync-tooling | in-tree | 1 | `scripts/upstream-sync.sh`, the probe and prepare tool for upstream syncs | Keep Aleph's script. |
 | test-hardening | in-tree | 5 | Bounded timeouts and hermetic setup for load-sensitive tests (mk-4tj93) | Re-apply. |
 
-Totals: 1037 differing paths. 3 are deletions (`.github/workflows/deploy-ai-gateway.yml`, `close-stale-prs.yml` and `deploy-connect-next.yml`, imported workflows Aleph does not run); the rest are additions, edits and renames.
+Totals: 1057 differing paths. 3 are deletions (`.github/workflows/deploy-ai-gateway.yml`, `close-stale-prs.yml` and `deploy-connect-next.yml`, imported workflows Aleph does not run); the rest are additions, edits and renames.
 
 ## Using the ledger
 

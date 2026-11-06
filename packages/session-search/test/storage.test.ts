@@ -554,7 +554,7 @@ describe("private modes", () => {
 });
 
 describe("connection settings", () => {
-  it("applies the page, vacuum, temp and heap settings", () => {
+  it("applies the page, vacuum, temp and mmap settings", () => {
     const dir = makeStoreDir();
     const store = openTracked(dir);
     const settings = store.settings();
@@ -564,7 +564,7 @@ describe("connection settings", () => {
       pageSize: 4096,
       tempStore: 1,
       cacheSize: -8192,
-      hardHeapLimit: 100663296,
+      mmapSize: 0,
       maxPageCount: 786432,
       foreignKeys: 1,
       userVersion: 1,
@@ -579,9 +579,7 @@ describe("connection settings", () => {
     try {
       expect(reader.pragma("temp_store", { simple: true })).toBe(1);
       expect(reader.pragma("cache_size", { simple: true })).toBe(-8192);
-      expect(reader.pragma("hard_heap_limit", { simple: true })).toBe(
-        100663296,
-      );
+      expect(reader.pragma("mmap_size", { simple: true })).toBe(0);
       expect(() => reader.exec("DELETE FROM content")).toThrow();
     } finally {
       reader.close();

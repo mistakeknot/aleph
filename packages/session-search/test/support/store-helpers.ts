@@ -3,6 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type {
+  MemoryAdmissionProvider,
+  MemorySample,
+} from "../../src/admission.js";
+import type {
   MessageRecord,
   ToolCallRecord,
   ToolResultRecord,
@@ -179,4 +183,58 @@ export function fixtureText(random: () => number, words: number): string {
     out.push(WORDS[Math.floor(random() * WORDS.length)]!);
   }
   return out.join(" ");
+}
+
+export interface FakeMemory {
+  provider: MemoryAdmissionProvider;
+  setRss(bytes: number): void;
+  setSample(sample: MemorySample | null): void;
+  advance(ms: number): void;
+  deny(value: boolean): void;
+  readonly acquired: number[];
+  readonly outstanding: () => number;
+}
+
+export function fakeMemory(rssBytes = 64 * 1024 * 1024): FakeMemory {
+  let now = 1_000_000;
+  let rss = rssBytes;
+  let sample: MemorySample | null | "live" = "live";
+  let denied = false;
+  let open = 0;
+  const acquired: number[] = [];
+  const provider: MemoryAdmissionProvider = {
+    clock: () => now,
+    sample: () =>
+      sample === "live" ? { rssBytes: rss, sampledAtMs: now } : sample,
+    acquire: (bytes) => {
+      if (denied) return null;
+      acquired.push(bytes);
+      open += 1;
+      let released = false;
+      return {
+        release() {
+          if (released) return;
+          released = true;
+          open -= 1;
+        },
+      };
+    },
+  };
+  return {
+    provider,
+    setRss(bytes) {
+      rss = bytes;
+    },
+    setSample(next) {
+      sample = next === null ? null : next;
+    },
+    advance(ms) {
+      now += ms;
+    },
+    deny(value) {
+      denied = value;
+    },
+    acquired,
+    outstanding: () => open,
+  };
 }

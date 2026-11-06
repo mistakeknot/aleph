@@ -3,8 +3,32 @@ import { join } from "node:path";
 
 import Database from "better-sqlite3";
 
-import type { NormalizedRecord } from "./contracts.js";
 import {
+  DEFAULT_ADMISSION_LIMITS,
+  DEFAULT_MEMORY_POLICY,
+  admitMemory,
+  measureValue,
+  validatePlaceholder,
+  type AdmissionLimits,
+  type MemoryAdmissionPolicy,
+  type MemoryAdmissionProvider,
+  type MemoryReservation,
+  type OversizedPlaceholder,
+} from "./admission.js";
+import type { NormalizedRecord } from "./contracts.js";
+import { mergeMayRun, readFtsStructure } from "./fts-structure.js";
+import {
+  MEMORY_PRESSURE_META_KEY,
+  RECENT_FAILURE_LIMIT,
+  attributeMemoryFailure,
+  parseMemoryPressureState,
+  sameGenerationFailures,
+  type Attribution,
+  type MemoryPressureState,
+} from "./memory-pressure.js";
+import {
+  FTS_AUTOMERGE,
+  FTS_CRISISMERGE,
   MIGRATIONS,
   validateMigrations,
   type StoreMigration,
@@ -30,7 +54,6 @@ export interface StoreLimits {
   maxDbBytes: number;
   walAllowanceBytes: number;
   reserveBytes: number;
-  hardHeapBytes: number;
   cacheKiB: number;
   highWatermarkBytes: number;
   lowWatermarkBytes: number;
@@ -39,6 +62,8 @@ export interface StoreLimits {
   maxRecordTextBytes: number;
   maxBatchRecords: number;
   maxBatchDirtyBytes: number;
+  maxBatchInputBytes: number;
+  maxBatchAccountedBytes: number;
   maxQuarantineRows: number;
   totalPressureRatio: number;
 }
@@ -48,7 +73,6 @@ export const DEFAULT_STORE_LIMITS: StoreLimits = {
   maxDbBytes: 3 * GIB,
   walAllowanceBytes: 512 * MIB,
   reserveBytes: 512 * MIB,
-  hardHeapBytes: 100663296,
   cacheKiB: 8192,
   highWatermarkBytes: 2.75 * GIB,
   lowWatermarkBytes: 2.25 * GIB,
@@ -57,6 +81,8 @@ export const DEFAULT_STORE_LIMITS: StoreLimits = {
   maxRecordTextBytes: 1 * MIB,
   maxBatchRecords: 2000,
   maxBatchDirtyBytes: 64 * MIB,
+  maxBatchInputBytes: 4 * MIB,
+  maxBatchAccountedBytes: 16 * MIB,
   maxQuarantineRows: 10000,
   totalPressureRatio: 0.95,
 };
@@ -93,12 +119,13 @@ export function resolveLimits(
   for (const key of [
     "walAllowanceBytes",
     "reserveBytes",
-    "hardHeapBytes",
     "cacheKiB",
     "vacuumBatchPages",
     "maxRecordTextBytes",
     "maxBatchRecords",
     "maxBatchDirtyBytes",
+    "maxBatchInputBytes",
+    "maxBatchAccountedBytes",
     "maxQuarantineRows",
   ] as const) {
     if (!Number.isInteger(limits[key]) || limits[key] <= 0) {
@@ -139,6 +166,12 @@ export class StoreError extends Error {
 
 export interface StoreTestHooks {
   afterAdmission?: (db: Database.Database) => void;
+  afterApply?: (db: Database.Database) => void;
+}
+
+export interface StoreMemoryOptions {
+  provider: MemoryAdmissionProvider;
+  policy?: Partial<MemoryAdmissionPolicy>;
 }
 
 export interface OpenStoreOptions {
@@ -146,6 +179,7 @@ export interface OpenStoreOptions {
   migrations?: readonly StoreMigration[];
   now?: () => number;
   testHooks?: StoreTestHooks;
+  memory?: StoreMemoryOptions;
 }
 
 export interface SourceRef {
@@ -157,6 +191,7 @@ export interface SourceRef {
 export interface CommitBatch {
   source: SourceRef;
   records: readonly NormalizedRecord[];
+  placeholders?: readonly OversizedPlaceholder[];
 }
 
 export interface CursorUpdate {
@@ -174,6 +209,8 @@ export type RefusalCode =
   | "cursor_conflict"
   | "disk_full"
   | "db_page_limit"
+  | "memory_budget"
+  | "memory_pressure"
   | "out_of_memory";
 
 export type CommitOutcome =
@@ -203,6 +240,7 @@ export interface CommitResult {
   quarantined: number;
   unindexed: number;
   estimatedDirtyPages: number;
+  mergePossible: boolean;
   entries: CommitEntry[];
 }
 
@@ -220,7 +258,7 @@ export interface StoreSettings {
   pageSize: number;
   tempStore: number;
   cacheSize: number;
-  hardHeapLimit: number;
+  mmapSize: number;
   maxPageCount: number;
   foreignKeys: number;
   synchronous: number;
@@ -309,7 +347,7 @@ export function applyConnectionPragmas(
   db.pragma("busy_timeout = 5000");
   db.pragma("temp_store = FILE");
   db.pragma(`cache_size = -${limits.cacheKiB}`);
-  db.pragma(`hard_heap_limit = ${limits.hardHeapBytes}`);
+  db.pragma("mmap_size = 0");
   if (mode === "writer") {
     db.pragma("foreign_keys = ON");
     db.pragma("synchronous = NORMAL");
@@ -382,6 +420,12 @@ export function openStore(
       limits,
       options.now ?? Date.now,
       options.testHooks ?? {},
+      options.memory
+        ? {
+            provider: options.memory.provider,
+            policy: { ...DEFAULT_MEMORY_POLICY, ...options.memory.policy },
+          }
+        : null,
     );
   } catch (error) {
     if (db.open) db.close();
@@ -488,6 +532,12 @@ export class SessionSearchStore {
   private readonly now: () => number;
   private readonly hooks: StoreTestHooks;
   private suspendedBy: CapacityRefusalInfo | null = null;
+  private memoryState: MemoryPressureState;
+  private readonly memory: {
+    provider: MemoryAdmissionProvider;
+    policy: MemoryAdmissionPolicy;
+  } | null;
+  private readonly admissionLimits: AdmissionLimits;
   private readonly stmts: {
     ensureSource: Stmt;
     sourceRow: Stmt;
@@ -516,8 +566,18 @@ export class SessionSearchStore {
     limits: StoreLimits,
     now: () => number,
     hooks: StoreTestHooks = {},
+    memory: {
+      provider: MemoryAdmissionProvider;
+      policy: MemoryAdmissionPolicy;
+    } | null = null,
   ) {
     this.hooks = hooks;
+    this.memory = memory;
+    this.admissionLimits = {
+      ...DEFAULT_ADMISSION_LIMITS,
+      maxBatchInputBytes: limits.maxBatchInputBytes,
+      maxBatchAccountedBytes: limits.maxBatchAccountedBytes,
+    };
     this.dir = dir;
     this.dbPath = dbPathOf(dir);
     this.tmpDir = tmpDirOf(dir);
@@ -525,6 +585,10 @@ export class SessionSearchStore {
     this.limits = limits;
     this.now = now;
     this.schemaVersion = db.pragma("user_version", { simple: true }) as number;
+    const storedPressure = db
+      .prepare("SELECT value FROM meta WHERE key = ?")
+      .get(MEMORY_PRESSURE_META_KEY) as { value: string } | undefined;
+    this.memoryState = parseMemoryPressureState(storedPressure?.value);
     const big = (sql: string): Stmt => db.prepare(sql).safeIntegers(true);
     this.stmts = {
       ensureSource: db.prepare(
@@ -564,7 +628,7 @@ export class SessionSearchStore {
       ),
       touchDelete: db.prepare("DELETE FROM touch WHERE content_id = ?"),
       quarantineSet: db.prepare(
-        "INSERT INTO quarantine(source_id, dedupe_key, reason, event_ms, created_ms) VALUES (?, ?, ?, ?, ?) ON CONFLICT(dedupe_key) DO UPDATE SET reason = excluded.reason, event_ms = excluded.event_ms, created_ms = excluded.created_ms",
+        "INSERT INTO quarantine(source_id, dedupe_key, reason, event_ms, created_ms, start_offset, end_offset, byte_length) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(dedupe_key) DO UPDATE SET reason = excluded.reason, event_ms = excluded.event_ms, created_ms = excluded.created_ms, start_offset = excluded.start_offset, end_offset = excluded.end_offset, byte_length = excluded.byte_length",
       ),
       quarantineClear: db.prepare(
         "DELETE FROM quarantine WHERE dedupe_key = ?",
@@ -580,7 +644,151 @@ export class SessionSearchStore {
   }
 
   get suspended(): CapacityRefusalInfo | null {
-    return this.suspendedBy;
+    if (this.suspendedBy) return this.suspendedBy;
+    if (this.memoryState.status === "suspended") {
+      return {
+        code: "memory_pressure",
+        message:
+          "store writer suspended after memory pressure; a controlled retry is required",
+      };
+    }
+    return null;
+  }
+
+  memoryPressure(): MemoryPressureState {
+    return JSON.parse(JSON.stringify(this.memoryState)) as MemoryPressureState;
+  }
+
+  recordMemoryPressure(input: {
+    source: SourceRef;
+    mergePossible?: boolean;
+    observedAtMs?: number;
+  }): { state: MemoryPressureState; attribution: Attribution } {
+    return this.applyMemoryFailure(
+      input.source,
+      input.mergePossible ?? true,
+      input.observedAtMs ?? this.now(),
+      false,
+    );
+  }
+
+  beginControlledRetry(input: { mitigation: string }):
+    | { ok: true; state: MemoryPressureState }
+    | { ok: false; reason: string } {
+    const state = this.memoryState;
+    if (state.status !== "suspended") {
+      return { ok: false, reason: `store is ${state.status}, not suspended` };
+    }
+    if (state.retriesUsed > 0) {
+      return {
+        ok: false,
+        reason: "the controlled retry was already spent without a clean commit",
+      };
+    }
+    if (
+      typeof input.mitigation !== "string" ||
+      input.mitigation.trim().length === 0
+    ) {
+      return { ok: false, reason: "a recorded mitigation is required" };
+    }
+    if (!this.memory) {
+      return { ok: false, reason: "no memory provider is configured" };
+    }
+    const headroom = admitMemory(this.memory.provider, this.memory.policy, 0);
+    if (!headroom.ok) return { ok: false, reason: headroom.message };
+    headroom.reservation.release();
+    const next: MemoryPressureState = {
+      ...state,
+      status: "retry_armed",
+      retriesUsed: state.retriesUsed + 1,
+      mitigation: input.mitigation.trim(),
+    };
+    this.persistMemoryState(next);
+    this.memoryState = next;
+    return { ok: true, state: this.memoryPressure() };
+  }
+
+  private persistMemoryState(state: MemoryPressureState): void {
+    this.db
+      .prepare(
+        "INSERT INTO meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      )
+      .run(MEMORY_PRESSURE_META_KEY, JSON.stringify(state));
+  }
+
+  private applyMemoryFailure(
+    source: SourceRef,
+    mergePossible: boolean,
+    observedAtMs: number,
+    forceStore: boolean,
+  ): { state: MemoryPressureState; attribution: Attribution } {
+    const prior = this.memoryState;
+    const recent = [
+      ...prior.recent,
+      {
+        sourceKey: source.key,
+        generation: source.generation,
+        mergePossible,
+        atMs: observedAtMs,
+      },
+    ].slice(-RECENT_FAILURE_LIMIT);
+    const failures = sameGenerationFailures(
+      recent,
+      source.key,
+      source.generation,
+    );
+    let intervening = 0;
+    if (failures.length > 0) {
+      const earliest = Math.min(...failures.map((failure) => failure.atMs));
+      const row = this.db
+        .prepare(
+          "SELECT count(*) AS n FROM source_cursor c JOIN source_generation g ON g.id = c.source_id WHERE g.source_key != ? AND c.updated_ms > ?",
+        )
+        .get(source.key, earliest) as { n: number };
+      intervening = row.n;
+    }
+    const attribution: Attribution = forceStore
+      ? {
+          scope: "store",
+          reason:
+            "SQLite refused an allocation inside the process; charged to the store",
+        }
+      : attributeMemoryFailure({
+          failures,
+          interveningSuccessesFromOtherSources: intervening,
+        });
+    const next: MemoryPressureState = {
+      ...prior,
+      totalFailures: prior.totalFailures + 1,
+      lastFailureMs: observedAtMs,
+      recent,
+      status: attribution.scope === "store" ? "suspended" : prior.status,
+      consecutiveFailures:
+        attribution.scope === "store"
+          ? prior.consecutiveFailures + 1
+          : prior.consecutiveFailures,
+    };
+    this.memoryState = next;
+    try {
+      this.persistMemoryState(next);
+    } catch {
+      this.suspendedBy ??= {
+        code: "out_of_memory",
+        message: "memory-pressure state could not be persisted",
+      };
+    }
+    return { state: this.memoryPressure(), attribution };
+  }
+
+  private mergePossibleNow(): boolean {
+    try {
+      return mergeMayRun(readFtsStructure(this.db), {
+        automerge: FTS_AUTOMERGE,
+        crisismerge: FTS_CRISISMERGE,
+      });
+    } catch {
+      return true;
+    }
   }
 
   resume(): void {
@@ -649,7 +857,7 @@ export class SessionSearchStore {
       pageSize: Number(read("page_size")),
       tempStore: Number(read("temp_store")),
       cacheSize: Number(read("cache_size")),
-      hardHeapLimit: Number(read("hard_heap_limit")),
+      mmapSize: Number(read("mmap_size")),
       maxPageCount: Number(read("max_page_count")),
       foreignKeys: Number(read("foreign_keys")),
       synchronous: Number(read("synchronous")),
@@ -766,6 +974,28 @@ export class SessionSearchStore {
       result.skipped = true;
       return result;
     }
+    let reservation: MemoryReservation | null = null;
+    if (this.memory) {
+      const admitted = admitMemory(this.memory.provider, this.memory.policy, 0);
+      if (!admitted.ok) {
+        result.skipped = true;
+        result.reason = "memory_deferred";
+        return result;
+      }
+      reservation = admitted.reservation;
+    }
+    try {
+      return this.reclaimAdmitted(before, result, options);
+    } finally {
+      reservation?.release();
+    }
+  }
+
+  private reclaimAdmitted(
+    before: CapacitySnapshot,
+    result: ReclaimResult,
+    options: { force?: boolean },
+  ): ReclaimResult {
     let capacity = before;
     while (
       capacity.allocatedBytes > this.limits.lowWatermarkBytes &&
@@ -862,9 +1092,64 @@ export class SessionSearchStore {
         `ingestion suspended after ${this.suspendedBy.code}: ${this.suspendedBy.message}`,
       );
     }
+    if (this.memoryState.status === "suspended") {
+      return refuse(
+        "memory_pressure",
+        "ingestion suspended after memory pressure; a controlled retry is required",
+      );
+    }
+    const measured = measureValue(
+      {
+        source: batch.source,
+        cursor,
+        records: batch.records,
+        placeholders: batch.placeholders ?? [],
+      },
+      this.admissionLimits,
+    );
+    if (!measured.ok) {
+      return refuse(
+        measured.limit === "depth" ? "invalid_batch" : "memory_budget",
+        measured.message,
+      );
+    }
     const invalid = this.validate(batch, cursor);
     if (invalid) return refuse("invalid_batch", invalid);
+    const placeholders = batch.placeholders ?? [];
+    if (batch.records.length + placeholders.length > this.limits.maxBatchRecords) {
+      return refuse(
+        "batch_too_large",
+        `batch has ${batch.records.length + placeholders.length} records; limit is ${this.limits.maxBatchRecords}`,
+      );
+    }
+    let reservation: MemoryReservation | null = null;
+    if (this.memory) {
+      const admitted = admitMemory(
+        this.memory.provider,
+        this.memory.policy,
+        measured.accountedBytes,
+      );
+      if (!admitted.ok) return refuse("memory_budget", admitted.message);
+      reservation = admitted.reservation;
+    }
+    try {
+      return this.commitAdmitted(batch, cursor, placeholders);
+    } finally {
+      reservation?.release();
+    }
+  }
 
+  private commitAdmitted(
+    batch: CommitBatch,
+    cursor: CursorUpdate,
+    placeholders: readonly OversizedPlaceholder[],
+  ): CommitResult {
+    const refuse = (
+      code: RefusalCode,
+      message: string,
+      mergePossible = false,
+    ): CommitResult =>
+      this.refusalResult({ code, message }, batch.source, mergePossible);
     const entries: Entry[] = [];
     let unindexed = 0;
     let totalBytes = 0;
@@ -885,18 +1170,15 @@ export class SessionSearchStore {
         callId: searchable.kind === "message" ? null : searchable.callId,
       });
     }
-    if (entries.length > this.limits.maxBatchRecords) {
-      return refuse(
-        "batch_too_large",
-        `batch has ${entries.length} records; limit is ${this.limits.maxBatchRecords}`,
-      );
-    }
     const estimatedDirtyPages = estimateDirtyPages(
-      entries.map((entry) => ({
-        textBytes: Math.min(entry.textBytes, this.limits.maxRecordTextBytes),
-        touches:
-          entry.record.kind === "tool_call" ? entry.record.touches.length : 0,
-      })),
+      [
+        ...entries.map((entry) => ({
+          textBytes: Math.min(entry.textBytes, this.limits.maxRecordTextBytes),
+          touches:
+            entry.record.kind === "tool_call" ? entry.record.touches.length : 0,
+        })),
+        ...placeholders.map(() => ({ textBytes: 0, touches: 0 })),
+      ],
       this.limits.pageSize,
     );
     const estimatedBytes = estimatedDirtyPages * this.limits.pageSize;
@@ -908,31 +1190,54 @@ export class SessionSearchStore {
     }
     const admission = this.admit(estimatedDirtyPages);
     if (admission) return refuse(admission.code, admission.message);
+    const mergePossible = this.mergePossibleNow();
     this.hooks.afterAdmission?.(this.db);
 
     try {
-      const outcome = this.db
-        .transaction(() => this.applyBatch(batch, cursor, entries))
+      const { applied, cleared } = this.db
+        .transaction(() => {
+          const result = this.applyBatch(batch, cursor, entries, placeholders);
+          this.hooks.afterApply?.(this.db);
+          let next: MemoryPressureState | null = null;
+          if (this.memoryState.status !== "clear") {
+            next = {
+              ...this.memoryState,
+              status: "clear",
+              clears: this.memoryState.clears + 1,
+              retriesUsed: 0,
+              consecutiveFailures: 0,
+              mitigation: null,
+            };
+            this.persistMemoryState(next);
+          }
+          return { applied: result, cleared: next };
+        })
         .immediate();
+      if (cleared) this.memoryState = cleared;
       tightenSidecars(this.dbPath);
       return {
         committed: true,
         refusal: null,
         cursor: cursor.next,
         epoch: this.epoch(),
-        ...outcome,
+        ...applied,
         unindexed,
         estimatedDirtyPages,
+        mergePossible,
       };
     } catch (error) {
       if (this.db.inTransaction) this.db.exec("ROLLBACK");
       if (error instanceof CursorConflict) {
-        return refuse("cursor_conflict", error.message);
+        return refuse("cursor_conflict", error.message, mergePossible);
       }
       const classified = this.classify(error, estimatedDirtyPages);
       if (!classified) throw error;
-      this.suspendedBy = classified;
-      return this.refusalResult(classified, batch.source);
+      if (classified.code === "out_of_memory") {
+        this.applyMemoryFailure(batch.source, mergePossible, this.now(), true);
+      } else {
+        this.suspendedBy = classified;
+      }
+      return this.refusalResult(classified, batch.source, mergePossible);
     }
   }
 
@@ -960,6 +1265,18 @@ export class SessionSearchStore {
     }
     if (cursor.expected !== null && typeof cursor.expected !== "string") {
       return "cursor.expected must be a string or null";
+    }
+    if (!Array.isArray(batch.records)) {
+      return "records must be an array";
+    }
+    if (batch.placeholders !== undefined) {
+      if (!Array.isArray(batch.placeholders)) {
+        return "placeholders must be an array";
+      }
+      for (const placeholder of batch.placeholders) {
+        const problem = validatePlaceholder(placeholder, source);
+        if (problem) return problem;
+      }
     }
     return null;
   }
@@ -1008,7 +1325,7 @@ export class SessionSearchStore {
       return {
         code: "out_of_memory",
         message:
-          "SQLite refused an allocation under the heap limit; batch rolled back",
+          "SQLite refused an allocation; batch rolled back and the store writer is suspended",
       };
     }
     if (code === "SQLITE_FULL") {
@@ -1030,6 +1347,7 @@ export class SessionSearchStore {
   private refusalResult(
     refusal: CapacityRefusalInfo,
     source?: SourceRef,
+    mergePossible = false,
   ): CommitResult {
     let cursor: string | null = null;
     if (source && typeof source.key === "string") {
@@ -1051,6 +1369,7 @@ export class SessionSearchStore {
       quarantined: 0,
       unindexed: 0,
       estimatedDirtyPages: 0,
+      mergePossible,
       entries: [],
     };
   }
@@ -1059,6 +1378,7 @@ export class SessionSearchStore {
     batch: CommitBatch,
     cursor: CursorUpdate,
     entries: readonly Entry[],
+    placeholders: readonly OversizedPlaceholder[],
   ): Pick<
     CommitResult,
     | "inserted"
@@ -1139,6 +1459,9 @@ export class SessionSearchStore {
           "record_too_large",
           eventMs,
           nowMs,
+          null,
+          null,
+          null,
         );
         result.quarantined += 1;
         result.entries.push({
@@ -1206,6 +1529,9 @@ export class SessionSearchStore {
           "counter_overflow",
           eventMs,
           nowMs,
+          null,
+          null,
+          null,
         );
         result.quarantined += 1;
         result.entries.push({
@@ -1252,6 +1578,27 @@ export class SessionSearchStore {
         rowid: serializeRowid(rowid),
         timeBasis,
         reason: null,
+      });
+    }
+
+    for (const placeholder of placeholders) {
+      this.stmts.quarantineSet.run(
+        sourceId,
+        placeholder.dedupeKey,
+        placeholder.reason,
+        null,
+        nowMs,
+        placeholder.startOffset,
+        placeholder.endOffset,
+        placeholder.byteLength,
+      );
+      result.quarantined += 1;
+      result.entries.push({
+        dedupeKey: placeholder.dedupeKey,
+        outcome: "quarantined",
+        rowid: null,
+        timeBasis: null,
+        reason: placeholder.reason,
       });
     }
 

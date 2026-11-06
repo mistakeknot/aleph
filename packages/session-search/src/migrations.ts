@@ -1,5 +1,8 @@
 import type { Database } from "better-sqlite3";
 
+export const FTS_AUTOMERGE = 4;
+export const FTS_CRISISMERGE = 16;
+
 export interface StoreMigration {
   version: number;
   name: string;
@@ -85,7 +88,10 @@ export const INITIAL_MIGRATION: StoreMigration = {
         dedupe_key TEXT NOT NULL UNIQUE,
         reason TEXT NOT NULL,
         event_ms INTEGER,
-        created_ms INTEGER NOT NULL
+        created_ms INTEGER NOT NULL,
+        start_offset INTEGER,
+        end_offset INTEGER,
+        byte_length INTEGER
       );
 
       CREATE VIRTUAL TABLE content_fts USING fts5(
@@ -111,9 +117,9 @@ export const INITIAL_MIGRATION: StoreMigration = {
       END;
 
       INSERT INTO meta(key, value) VALUES ('rowid_epoch', '0');
-      INSERT INTO meta(key, value) VALUES ('fts_automerge', '4');
-      INSERT INTO content_fts(content_fts, rank) VALUES ('automerge', 4);
-      INSERT INTO content_fts(content_fts, rank) VALUES ('crisismerge', 16);
+      INSERT INTO meta(key, value) VALUES ('fts_automerge', '${FTS_AUTOMERGE}');
+      INSERT INTO content_fts(content_fts, rank) VALUES ('automerge', ${FTS_AUTOMERGE});
+      INSERT INTO content_fts(content_fts, rank) VALUES ('crisismerge', ${FTS_CRISISMERGE});
     `);
   },
 };
