@@ -1067,3 +1067,8 @@ window-presets	M	packages/domain/src/ui-preferences.ts
 window-presets	A	packages/domain/src/window-presets.ts
 window-presets	M	packages/server-contract/src/api-types.ts
 window-presets	A	packages/server-contract/src/api/windows.ts
+session-search	A	packages/session-search/src/adapters/claude.ts
+session-search	A	packages/session-search/src/streaming-reader.ts
+session-search	A	packages/session-search/test/claude-adapter.test.ts
+session-search	A	packages/session-search/test/streaming-reader.test.ts
+session-search	A	packages/session-search/test/support/chunk-sources.ts
