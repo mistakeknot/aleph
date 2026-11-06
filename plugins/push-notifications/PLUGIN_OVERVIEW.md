@@ -6,7 +6,7 @@ Mobile devices get push through Expo, even when the app is closed. Browsers and 
 
 Each thread has a level: `all` (questions, approvals, errors, finished turns), `input-only` (no finished turns), or `muted`. It uses its own level, else `childLevel` if it has a parent, else `defaultLevel`; every ancestor's own level caps it. Muting a parent mutes its subtree; a parent never makes workers louder.
 
-Clicking opens the thread, or bb if none; on Linux desktop it also focuses the window. Events arriving together are combined, pending questions first. Read, archived, deleted, and hidden threads are suppressed at every level; tabs of one origin deduplicate.
+Clicking opens the thread, or bb if none; in the desktop app it also restores and focuses the window. Events arriving together are combined, pending questions first. Read, archived, deleted, and hidden threads are suppressed at every level; tabs of one origin deduplicate.
 
 ## Thread menu
 

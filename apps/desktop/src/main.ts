@@ -2375,6 +2375,9 @@ async function finishQuit(): Promise<void> {
         `Could not save desktop window state: ${String(error)}`,
       ),
     );
+  for (const browserWindow of BrowserWindow.getAllWindows()) {
+    browserWindow.hide();
+  }
   await stopOwnedRuntime();
 }
 
@@ -2944,6 +2947,11 @@ async function runDesktopApp(): Promise<void> {
     },
   });
 
+  app.setAppUserModelId(
+    DESKTOP_RELEASE_CHANNEL === "nightly"
+      ? "dev.bb.desktop.nightly"
+      : "dev.bb.desktop",
+  );
   if (app.isPackaged) {
     await hostToolchain.refresh();
     Object.assign(process.env, hostToolchain.environment());
