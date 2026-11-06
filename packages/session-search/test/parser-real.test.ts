@@ -26,6 +26,8 @@ import {
   type SessionSearchStore,
   type SourceRef,
 } from "../src/storage.js";
+import type { UsageRecord } from "../src/contracts.js";
+import { normalizeJsonlText, ofKind } from "./helpers.js";
 import {
   cleanupStoreDirs,
   makeStoreDir,
@@ -645,4 +647,164 @@ describe("real parser children", () => {
     },
     120_000,
   );
+});
+
+const BAD_COUNTS = {
+  fractional: 1.5,
+  negative: -3,
+  unsafe: 2 ** 53,
+  valid: 7,
+};
+
+function claudeUsageSession(built: Rig, name: string): ParserSourceSpec {
+  const path = join(built.files, name);
+  mkdirSync(dirname(path), { recursive: true });
+  const lines = [
+    line("u-1", "claude question"),
+    JSON.stringify({
+      type: "assistant",
+      uuid: "a-1",
+      sessionId: "s1",
+      timestamp: "2026-01-01T00:00:01.000Z",
+      cwd: "/work/fixture",
+      message: {
+        id: "msg-1",
+        role: "assistant",
+        model: "claude-test-model",
+        content: [{ type: "text", text: "claude answer" }],
+        usage: {
+          input_tokens: BAD_COUNTS.fractional,
+          output_tokens: BAD_COUNTS.negative,
+          cache_read_input_tokens: BAD_COUNTS.unsafe,
+          cache_creation_input_tokens: BAD_COUNTS.valid,
+        },
+      },
+    }),
+  ];
+  writeFileSync(path, lines.join("\n") + "\n");
+  const ref: SourceRef = { key: name, generation: 1, discoveredAtMs: 1 };
+  return { ref, provider: "claude", path };
+}
+
+function codexUsageSession(built: Rig, name: string): ParserSourceSpec {
+  const path = join(built.files, name);
+  mkdirSync(dirname(path), { recursive: true });
+  const usage = {
+    input_tokens: BAD_COUNTS.fractional,
+    cached_input_tokens: BAD_COUNTS.negative,
+    cache_write_input_tokens: BAD_COUNTS.unsafe,
+    output_tokens: BAD_COUNTS.valid,
+    reasoning_output_tokens: 0.25,
+    total_tokens: 110,
+  };
+  const lines = [
+    {
+      timestamp: "2026-01-02T04:00:00.000Z",
+      ordinal: 1,
+      type: "session_meta",
+      payload: {
+        session_id: "22222222-2222-4222-8222-222222222222",
+        id: "22222222-2222-4222-8222-222222222222",
+        timestamp: "2026-01-02T04:00:00.000Z",
+        cwd: "/work/project",
+      },
+    },
+    {
+      timestamp: "2026-01-02T04:00:02.000Z",
+      ordinal: 2,
+      type: "response_item",
+      payload: {
+        type: "message",
+        role: "user",
+        content: [{ type: "input_text", text: "codex question" }],
+      },
+    },
+    {
+      timestamp: "2026-01-02T04:00:03.000Z",
+      ordinal: 3,
+      type: "token_usage_record",
+      payload: { response_id: "resp_1", usage },
+    },
+    {
+      timestamp: "2026-01-02T04:00:04.000Z",
+      ordinal: 4,
+      type: "event_msg",
+      payload: { type: "token_count", info: { total_token_usage: usage } },
+    },
+    {
+      timestamp: "2026-01-02T04:00:05.000Z",
+      ordinal: 5,
+      type: "response_item",
+      payload: {
+        type: "message",
+        role: "assistant",
+        content: [{ type: "output_text", text: "codex answer" }],
+      },
+    },
+  ].map((entry) => JSON.stringify(entry));
+  writeFileSync(path, lines.join("\n") + "\n");
+  const ref: SourceRef = { key: name, generation: 1, discoveredAtMs: 1 };
+  return { ref, provider: "codex", path };
+}
+
+function usageRecords(
+  path: string,
+  provider: "claude" | "codex",
+): UsageRecord[] {
+  return ofKind(
+    normalizeJsonlText(readFileSync(path, "utf8"), { provider }),
+    "usage",
+  );
+}
+
+describe("real adapters with unusable usage counters", () => {
+  it("indexes a claude session whose usage counters are fractional, negative or unsafe", async () => {
+    const built = rig();
+    const spec = claudeUsageSession(built, "usage.claude.jsonl");
+    built.scheduler.upsert(spec);
+    await built.scheduler.drain();
+    expect(built.scheduler.state("usage.claude.jsonl")?.status).toBe("idle");
+    expect(
+      built.events.filter((event) => event.type === "quarantined"),
+    ).toEqual([]);
+    expect(texts(built.dir)).toEqual(
+      expect.arrayContaining(["claude question", "claude answer"]),
+    );
+
+    const usage = usageRecords(spec.path, "claude");
+    expect(usage).toHaveLength(1);
+    expect(usage[0]).toMatchObject({
+      inputTokens: null,
+      outputTokens: null,
+      cacheReadTokens: null,
+      cacheWriteTokens: BAD_COUNTS.valid,
+    });
+  }, 60_000);
+
+  it("indexes a codex session whose usage counters are fractional, negative or unsafe", async () => {
+    const built = rig();
+    const spec = codexUsageSession(built, "usage.codex.jsonl");
+    built.scheduler.upsert(spec);
+    await built.scheduler.drain();
+    expect(built.scheduler.state("usage.codex.jsonl")?.status).toBe("idle");
+    expect(
+      built.events.filter((event) => event.type === "quarantined"),
+    ).toEqual([]);
+    expect(texts(built.dir)).toEqual(
+      expect.arrayContaining(["codex question", "codex answer"]),
+    );
+
+    const usage = usageRecords(spec.path, "codex");
+    expect(usage).toHaveLength(2);
+    for (const record of usage) {
+      expect(record).toMatchObject({
+        inputTokens: null,
+        cacheReadTokens: null,
+        cacheWriteTokens: null,
+        outputTokens: BAD_COUNTS.valid,
+        reasoningTokens: null,
+        totalTokens: 110,
+      });
+    }
+  }, 60_000);
 });
