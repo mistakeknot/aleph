@@ -708,7 +708,10 @@ async function createThreadFromRequestWithSourcePinned(
   await deps.providerRegistry.whenRegistrationsSettled();
   await awaitRequestedCreateProviderRegistration(deps, {
     executionInputSources: requestInput.executionInputSources,
+    model: requestInput.model,
+    projectId: requestInput.projectId,
     providerId: requestInput.providerId,
+    sessionOptions: requestInput.sessionOptions,
   });
   const {
     executionDefaults,

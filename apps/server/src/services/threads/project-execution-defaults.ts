@@ -100,11 +100,11 @@ function resolveRequestedCreateExecutionValue<TValue>({
 }
 
 export async function awaitRequestedCreateProviderRegistration(
-  deps: Pick<AppDeps, "providerRegistry">,
+  deps: Pick<AppDeps, "db" | "providerRegistry">,
   args: Pick<
     ResolveProjectExecutionDefaultsForCreateArgs,
-    "executionInputSources" | "providerId"
-  >,
+    "executionInputSources" | "model" | "projectId" | "providerId"
+  > & { sessionOptions?: ThreadCreateServiceRequestInput["sessionOptions"] },
 ): Promise<void> {
   const requestedProviderId = resolveRequestedCreateExecutionValue({
     field: "providerId",
@@ -117,6 +117,24 @@ export async function awaitRequestedCreateProviderRegistration(
     deps.providerRegistry.get(requestedProviderId) !== null ||
     deps.providerRegistry.registrationsSettled()
   ) {
+    return;
+  }
+  const requestedModel =
+    resolveRequestedCreateExecutionValue({
+      field: "model",
+      sources: args.executionInputSources,
+      value: args.model,
+    }) ?? null;
+  const storedDefaults = getProjectExecutionDefaults(deps.db, {
+    projectId: args.projectId,
+  });
+  const executionDefaults =
+    storedDefaults?.providerId === requestedProviderId ? storedDefaults : null;
+  const model = requestedModel ?? executionDefaults?.model ?? null;
+  const reachesCatalog =
+    (executionDefaults === null && requestedModel === null) ||
+    (model !== null && Object.keys(args.sessionOptions ?? {}).length > 0);
+  if (!reachesCatalog) {
     return;
   }
   await deps.providerRegistry.whenProviderRegistered(requestedProviderId);

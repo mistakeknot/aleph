@@ -1,4 +1,4 @@
-import { threads } from "@bb/db";
+import { threads, upsertProjectExecutionDefaults } from "@bb/db";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createProviderRegistryService } from "../../src/services/providers/provider-registry.js";
 import { registerFirstPartyProviders } from "../helpers/provider-registry.js";
@@ -36,7 +36,12 @@ function seedWorkspace(harness: TestAppHarness) {
 
 function createThread(
   harness: TestAppHarness,
-  args: { hostId: string; projectId: string; providerId: string },
+  args: {
+    hostId: string;
+    model?: string;
+    projectId: string;
+    providerId: string;
+  },
 ) {
   return harness.app.request("/api/v1/threads", {
     method: "POST",
@@ -45,6 +50,7 @@ function createThread(
       origin: "app",
       projectId: args.projectId,
       providerId: args.providerId,
+      ...(args.model !== undefined ? { model: args.model } : {}),
       input: [{ type: "text", text: "Start" }],
       environment: {
         type: "host",
@@ -217,4 +223,68 @@ describe("thread create while provider plugins are still registering", () => {
       },
     );
   });
+
+  it.each([
+    {
+      name: "a model is supplied",
+      prepare: () => ({ model: "supplied-model" }),
+    },
+    {
+      name: "the project's stored defaults match the provider",
+      prepare: (harness: TestAppHarness, projectId: string) => {
+        upsertProjectExecutionDefaults(harness.db, {
+          projectId,
+          providerId: "codex",
+          model: "stored-model",
+          reasoningLevel: "medium",
+          permissionMode: "auto",
+          serviceTier: "default",
+        });
+        return {};
+      },
+    },
+  ])(
+    "answers the retryable 503 after the first wait without a second wait when $name",
+    async ({ prepare }) => {
+      await withTestHarness(
+        { seedFirstPartyProviders: false },
+        async (harness) => {
+          const registry = createProviderRegistryService({
+            deferRegistrationsSettled: true,
+          });
+          const providerWait = vi.spyOn(registry, "whenProviderRegistered");
+          harness.deps.providerRegistry = registry;
+          const { host, project } = seedWorkspace(harness);
+          const extra = prepare(harness, project.id);
+
+          vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+          let answered = false;
+          const responsePromise = Promise.resolve(
+            createThread(harness, {
+              hostId: host.id,
+              projectId: project.id,
+              providerId: "codex",
+              ...extra,
+            }),
+          ).then((response) => {
+            answered = true;
+            return response;
+          });
+          await vi.advanceTimersByTimeAsync(30_000);
+          expect(answered).toBe(true);
+          const response = await responsePromise;
+
+          expect(response.status).toBe(503);
+          const body = (await readJson(response)) as {
+            code?: string;
+            retryable?: boolean;
+          };
+          expect(body.code).toBe("provider_registration_pending");
+          expect(body.retryable).toBe(true);
+          expect(providerWait).not.toHaveBeenCalled();
+          expect(harness.db.select().from(threads).all()).toHaveLength(0);
+        },
+      );
+    },
+  );
 });
