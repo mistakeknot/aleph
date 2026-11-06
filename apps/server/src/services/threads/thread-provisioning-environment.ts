@@ -7,6 +7,7 @@ import {
   type DbNotifier,
 } from "@bb/db";
 import {
+  sanitizeCredentialsDeep,
   threadScope,
   type ProvisioningTranscriptEntry,
   type Thread,
@@ -159,16 +160,25 @@ export function failThreadProvisioning(
 }
 
 const SETUP_FAILURE_REASON_CHAR_LIMIT = 500;
+const SETUP_FAILURE_REASON_SCAN_LIMIT = 8_000;
+const SETUP_FAILURE_ELLIPSIS = "…";
+
+function setupFailureExcerpt(reason: string): string {
+  const redacted = sanitizeCredentialsDeep(
+    reason.slice(0, SETUP_FAILURE_REASON_SCAN_LIMIT),
+    { freeText: true },
+  );
+  const collapsed = redacted.replace(/\s+/g, " ").trim();
+  if (collapsed.length <= SETUP_FAILURE_REASON_CHAR_LIMIT) return collapsed;
+  return `${collapsed
+    .slice(0, SETUP_FAILURE_REASON_CHAR_LIMIT - SETUP_FAILURE_ELLIPSIS.length)
+    .trimEnd()}${SETUP_FAILURE_ELLIPSIS}`;
+}
 
 function setupFailureContext(reason: string | null | undefined): string {
   const base = "failed during workspace setup before a turn began";
-  const collapsed = reason?.replace(/\s+/g, " ").trim();
-  if (!collapsed) return base;
-  const excerpt =
-    collapsed.length > SETUP_FAILURE_REASON_CHAR_LIMIT
-      ? `${collapsed.slice(0, SETUP_FAILURE_REASON_CHAR_LIMIT)}…`
-      : collapsed;
-  return `${base}: ${excerpt}`;
+  const excerpt = reason ? setupFailureExcerpt(reason) : "";
+  return excerpt ? `${base}: ${excerpt}` : base;
 }
 
 export function queueChildSetupFailureNotification(

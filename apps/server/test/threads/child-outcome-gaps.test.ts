@@ -287,6 +287,62 @@ describe("child outcomes without provider completion", () => {
     });
   });
 
+  async function setupFailureNotification(reason: string): Promise<string> {
+    let notification = "";
+    await withTestHarness(async (harness) => {
+      const { parent, child, environment } = seedParentAndChild(
+        harness,
+        "starting",
+      );
+      vi.useFakeTimers();
+      failThreadProvisioning(harness.deps, {
+        thread: child,
+        environmentId: environment.id,
+        detail: reason,
+      });
+      await vi.advanceTimersByTimeAsync(2_000);
+      await vi.waitFor(() =>
+        expect(parentSystemRequests(harness, parent.id)).toHaveLength(1),
+      );
+      notification = JSON.stringify(
+        parentSystemRequests(harness, parent.id)[0]?.input,
+      );
+    });
+    return notification;
+  }
+
+  it("redacts credentials from the setup failure reason before notifying the parent", async () => {
+    const token = ["ghp", "abcdefghijklmnopqrstuvwxyz0123456789"].join("_");
+    const urlPassword = ["hunter2", "secret"].join("");
+    const envValue = ["abcdef", "123456"].join("");
+    const envName = ["ANTHROPIC", "API", "KEY"].join("_");
+    const notification = await setupFailureNotification(
+      `clone failed for https://builder:${urlPassword}@git.example.test/org/repo.git using ${token} and ${envName}=${envValue}`,
+    );
+
+    expect(notification).toContain("failed during workspace setup");
+    expect(notification).toContain("git.example.test/org/repo.git");
+    expect(notification).not.toContain(token);
+    expect(notification).not.toContain(urlPassword);
+    expect(notification).not.toContain("builder:");
+    expect(notification).not.toContain(envValue);
+  });
+
+  it("collapses whitespace and caps the setup failure excerpt at 500 characters including the ellipsis", async () => {
+    const collapsed = await setupFailureNotification(
+      "line one\n\n   line two\t\tline three",
+    );
+    expect(collapsed).toContain(
+      "failed during workspace setup before a turn began: line one line two line three",
+    );
+
+    const long = await setupFailureNotification(`${"x".repeat(900)} tail`);
+    const excerpt = /before a turn began: (x+…)/.exec(long)?.[1];
+    expect(excerpt).toBeDefined();
+    expect(excerpt).toHaveLength(500);
+    expect(long).not.toContain("tail");
+  });
+
   it("notifies the parent when an environment fails during setup", async () => {
     await withTestHarness(async (harness) => {
       const { parent } = seedParentAndChild(harness, "idle");
@@ -314,6 +370,11 @@ describe("child outcomes without provider completion", () => {
         expect(parentSystemRequests(harness, parent.id)).toMatchObject([
           { systemMessageKind: "child-failed" },
         ]),
+      );
+      expect(
+        JSON.stringify(parentSystemRequests(harness, parent.id)[0]?.input),
+      ).toContain(
+        "failed during workspace setup before a turn began: Host disconnected during setup",
       );
     });
   });

@@ -216,6 +216,14 @@ export function resolveCreateThreadExecutionDefaults(
   }
   const registration = registry.get(providerId);
   if (registration === null && args.requestedProviderId !== undefined) {
+    if (!registry.registrationsSettled()) {
+      throw new ApiError(
+        503,
+        "provider_registration_pending",
+        `Provider "${providerId}" is not registered yet because provider plugins are still starting. Retry shortly.`,
+        { details: { providerId }, retryable: true },
+      );
+    }
     const validIds = registry
       .list()
       .map((entry) => entry.info.id)
