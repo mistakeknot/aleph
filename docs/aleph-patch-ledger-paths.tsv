@@ -531,7 +531,6 @@ plugin-surface	M	apps/app/src/components/plugin/PluginSidebarFooterItems.test.ts
 plugin-surface	M	apps/app/src/components/plugin/PluginSidebarFooterItems.tsx
 plugin-surface	M	apps/app/src/components/plugin/management/InstalledPluginsTab.tsx
 plugin-surface	M	apps/app/src/components/plugin/management/PluginMarketplaceListing.tsx
-plugin-surface	M	apps/app/src/components/plugin/management/plugin-ui.tsx
 plugin-surface	M	apps/app/src/lib/plugin-sdk-hooks.ts
 plugin-surface	M	apps/app/src/lib/plugin-sidebar-threads.test.ts
 plugin-surface	M	apps/app/src/lib/plugin-slots.test.ts
