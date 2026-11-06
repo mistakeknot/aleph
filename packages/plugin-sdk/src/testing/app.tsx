@@ -110,6 +110,10 @@ import {
   type ExperimentalThreadContextSegmentRegistration,
   type ExperimentalThreadInfoRowRegistration,
   type ExperimentalThreadInfoSectionRegistration,
+  type ExperimentalThreadContextCardRowRegistration,
+  type ExperimentalThreadContextCardSectionRegistration,
+  type ExperimentalThreadContextKind,
+  type ExperimentalThreadContextCardRowProps,
   type ExperimentalInfoSectionProps,
   type ExperimentalDetailRowProps,
   type ExperimentalInfoListProps,
@@ -365,6 +369,7 @@ interface SlotEnv {
   threadActionRegistrations: readonly PluginThreadActionRegistrationInfo[];
   sidebarDraftThreadIds: ReadonlySet<string>;
   experiments: ReadonlySet<string>;
+  threadContextKind: ExperimentalThreadContextKind;
   sidebarRowStatuses: ReadonlyMap<string, PluginSidebarThreadRowStatus>;
   sidebarShortcuts: ReadonlyMap<string, PluginSidebarThreadShortcut>;
   sidebarSplitLayout: PluginSidebarSplitLayout | null;
@@ -1525,6 +1530,46 @@ function TestDetailRow({ label, icon, children }: ExperimentalDetailRowProps) {
   );
 }
 
+function TestThreadContextCardRow(
+  props: ExperimentalThreadContextCardRowProps,
+) {
+  const { icon, leading, label, trailing, title, disabled, action } = props;
+  const content = (
+    <>
+      {leading}
+      {label}
+      {trailing}
+    </>
+  );
+  const main =
+    props.onClick !== undefined ? (
+      <button
+        type="button"
+        data-testid="bb-thread-context-card-row"
+        data-icon={icon}
+        title={title}
+        disabled={disabled}
+        onClick={() => props.onClick?.()}
+      >
+        {content}
+      </button>
+    ) : (
+      <div
+        data-testid="bb-thread-context-card-row"
+        data-icon={icon}
+        title={title}
+      >
+        {content}
+      </div>
+    );
+  return (
+    <>
+      {main}
+      {action}
+    </>
+  );
+}
+
 /** Stand-in for the Info tab list: every item, with the limit recorded. */
 function TestInfoList<Item>({
   items,
@@ -1630,6 +1675,9 @@ const testPluginSdkApp = {
   },
   experimental_useExperiment(key): boolean {
     return useSlotEnv("experimental_useExperiment").experiments.has(key);
+  },
+  experimental_useThreadContextKind(): ExperimentalThreadContextKind {
+    return useSlotEnv("experimental_useThreadContextKind").threadContextKind;
   },
   useBbContext(): BbContext {
     return useSlotEnv("useBbContext").bbContext;
@@ -1769,6 +1817,7 @@ const testPluginSdkApp = {
   experimental_Diff: TestDiff,
   experimental_InfoSection: TestInfoSection,
   experimental_DetailRow: TestDetailRow,
+  experimental_ThreadContextCardRow: TestThreadContextCardRow,
   experimental_InfoList: TestInfoList,
   experimental_InfoListRow: TestInfoListRow,
   experimental_useSidebarThreads(): PluginSidebarThreadsState {
@@ -2015,6 +2064,8 @@ export interface CapturedPluginApp {
   threadInfoRows: ExperimentalThreadInfoRowRegistration[];
   threadRowMetadata: ExperimentalThreadRowMetadataRegistration<unknown>[];
   threadInfoSections: ExperimentalThreadInfoSectionRegistration[];
+  threadContextCardRows: ExperimentalThreadContextCardRowRegistration[];
+  threadContextCardSections: ExperimentalThreadContextCardSectionRegistration[];
   threadActions: PluginThreadActionRegistration<unknown>[];
   browserToolbarActions: ExperimentalPluginBrowserToolbarActionRegistration[];
   fileOpeners: PluginFileOpenerRegistration[];
@@ -2295,6 +2346,8 @@ export interface RenderSlotOptions<
   sidebarDraftThreadIds?: readonly string[];
   /** Experiment keys `experimental_useExperiment()` reports as on. Omitted → none. */
   experiments?: readonly string[];
+  /** What `experimental_useThreadContextKind()` reports. Omitted → `banner`. */
+  threadContextKind?: ExperimentalThreadContextKind;
   /**
    * Row statuses `useSidebarThreadRowStatus()` reports, keyed by thread id.
    * Omitted → every thread reports null.
@@ -3270,6 +3323,7 @@ export function renderSlot<
       options.threadActionRegistrations ?? NO_THREAD_ACTION_REGISTRATIONS,
     sidebarDraftThreadIds,
     experiments: new Set(options.experiments ?? []),
+    threadContextKind: options.threadContextKind ?? "banner",
     sidebarRowStatuses,
     sidebarShortcuts,
     sidebarSplitLayout: options.sidebarSplitLayout ?? null,

@@ -1166,6 +1166,11 @@ const EXPERIMENT_DEFINITIONS: Record<
     description:
       "In the built-in thread list sidebar, Cmd/Ctrl+Shift-click and Shift-click threads to select several, right-click for bulk actions, and drag them together into a section, under a thread, into Pinned, or into a composer as mentions.",
   },
+  threadContextCard: {
+    label: "Thread context card",
+    description:
+      "Show a thread's changes, pull request, and parent and child threads in a card at the upper-right of each thread pane instead of above the composer. A header button opens or pins it; wide panes keep it beside the transcript.",
+  },
   threadRowMetadata: {
     label: "Thread row metadata",
     description:

@@ -191,6 +191,7 @@ function createUiPreferences(): UiPreferenceEntries {
     ),
     "windows.presets": uiPreferenceEntry("windows.presets"),
     "windows.suggestions": uiPreferenceEntry("windows.suggestions"),
+    "threadContextCard.pinned": uiPreferenceEntry("threadContextCard.pinned"),
   };
 }
 
