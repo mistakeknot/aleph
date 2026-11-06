@@ -65,7 +65,7 @@ function isCount(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
-function validSourceRef(value: unknown): boolean {
+export function validSourceRef(value: unknown): boolean {
   return (
     isRecord(value) &&
     typeof value.key === "string" &&
@@ -174,7 +174,7 @@ export function validNormalizedRecord(value: unknown): boolean {
   );
 }
 
-function validBatch(value: unknown): boolean {
+export function validBatch(value: unknown): boolean {
   if (!isRecord(value) || !validSourceRef(value.source)) return false;
   if (!Array.isArray(value.records)) return false;
   if (!value.records.every(validNormalizedRecord)) return false;
@@ -193,7 +193,7 @@ function validBatch(value: unknown): boolean {
   );
 }
 
-function validCursor(value: unknown): boolean {
+export function validCursor(value: unknown): boolean {
   return (
     isRecord(value) &&
     (value.expected === null || typeof value.expected === "string") &&

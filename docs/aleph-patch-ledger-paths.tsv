@@ -1099,6 +1099,14 @@ session-search	A	packages/session-search/test/support/frame-child.ts
 session-search	A	packages/session-search/test/support/frame-parent.ts
 session-search	A	packages/session-search/test/support/parser-child.ts
 session-search	A	packages/session-search/test/support/rss-child.ts
+session-search	A	packages/session-search/src/writer/child-main.ts
+session-search	A	packages/session-search/src/writer/child.ts
+session-search	A	packages/session-search/src/writer/protocol.ts
+session-search	A	packages/session-search/src/writer/store.ts
+session-search	A	packages/session-search/src/writer/writer-process.ts
+session-search	A	packages/session-search/src/writer/writer-sink.ts
+session-search	A	packages/session-search/test/support/writer-child.ts
+session-search	A	packages/session-search/test/writer-real.test.ts
 blocker-push	M	plugins/push-notifications/PLUGIN_OVERVIEW.md
 blocker-push	A	plugins/push-notifications/blocker-push.test.ts
 blocker-push	A	plugins/push-notifications/blocker-push.ts

@@ -12,13 +12,23 @@ export const DEFAULT_QUANTUM_MS = 2_000;
 
 export type CommitFence = () => boolean;
 
+export class SinkUnavailable extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SinkUnavailable";
+  }
+}
+
 export interface CommitSink {
   cursor(ref: SourceRef): string | null | Promise<string | null>;
   commit(
     batch: CommitBatch,
     update: CursorUpdate,
     fence: CommitFence,
+    fenceToken?: string | null,
   ): CommitResult | Promise<CommitResult>;
+  adopt?(ref: SourceRef): string;
+  retire?(key: string): void;
 }
 
 export function storeSink(store: {
@@ -93,6 +103,7 @@ export interface SchedulerOptions {
 }
 
 interface Entry extends SourceState {
+  fenceToken: string | null;
   cursorKnown: boolean;
   sequence: number;
   unreadableStreak: number;
@@ -147,7 +158,9 @@ export class ParserScheduler {
       existing.spec = spec;
       return;
     }
+    const fenceToken = this.options.sink.adopt?.(spec.ref) ?? null;
     this.entries.set(spec.ref.key, {
+      fenceToken,
       spec,
       status: "ready",
       cursor: null,
@@ -167,6 +180,7 @@ export class ParserScheduler {
 
   remove(key: string): void {
     this.entries.delete(key);
+    this.options.sink.retire?.(key);
   }
 
   notify(key: string): void {
@@ -299,6 +313,10 @@ export class ParserScheduler {
     error: unknown,
   ): void {
     const message = error instanceof Error ? error.message : String(error);
+    if (error instanceof SinkUnavailable) {
+      this.defer(entry, message);
+      return;
+    }
     const failures =
       stage === "cursor" ? ++entry.cursorFailures : ++entry.commitFailures;
     if (failures >= this.maxSinkFailures) {
@@ -320,8 +338,11 @@ export class ParserScheduler {
     const previous = this.commitChains.get(key) ?? Promise.resolve();
     const run = previous.then(async (): Promise<CommitResult | null> => {
       if (!this.current(entry)) return null;
-      return await this.options.sink.commit(batch, update, () =>
-        this.current(entry),
+      return await this.options.sink.commit(
+        batch,
+        update,
+        () => this.current(entry),
+        entry.fenceToken,
       );
     });
     const tail = run.then(
