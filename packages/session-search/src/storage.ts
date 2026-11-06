@@ -1,4 +1,4 @@
-import { readdirSync, statSync, unlinkSync } from "node:fs";
+import { readdirSync, realpathSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 
 import Database from "better-sqlite3";
@@ -16,7 +16,12 @@ import {
   type OversizedPlaceholder,
 } from "./admission.js";
 import type { NormalizedRecord } from "./contracts.js";
-import { mergeMayRun, readFtsStructure } from "./fts-structure.js";
+import {
+  estimateBatchFlushes,
+  type FlushItem,
+  mergeMayRun,
+  readFtsStructure,
+} from "./fts-structure.js";
 import {
   MEMORY_PRESSURE_META_KEY,
   RECENT_FAILURE_LIMIT,
@@ -36,6 +41,8 @@ import {
 import {
   preparePrivateDirectory,
   preparePrivateFile,
+  privacyCapability,
+  type PrivacyCapability,
   tightenPrivateFileIfPresent,
 } from "./private-fs.js";
 import {
@@ -152,7 +159,8 @@ export type StoreErrorCode =
   | "config_mismatch"
   | "migration_failed"
   | "migration_no_headroom"
-  | "confirmation_required";
+  | "confirmation_required"
+  | "temp_dir_unbound";
 
 export class StoreError extends Error {
   readonly code: StoreErrorCode;
@@ -180,7 +188,10 @@ export interface OpenStoreOptions {
   now?: () => number;
   testHooks?: StoreTestHooks;
   memory?: StoreMemoryOptions;
+  tempDirMode?: TempDirMode;
 }
+
+export type TempDirMode = "child-environment" | "unmanaged";
 
 export interface SourceRef {
   key: string;
@@ -319,6 +330,21 @@ interface Entry {
 
 const NOT_SEARCHABLE = new Set(["session", "usage"]);
 
+function resolveEventTime(
+  record: SearchableRecord,
+  discoveryMs: bigint,
+): { eventMs: bigint; timeBasis: "event" | "discovery" } {
+  const wholeMs =
+    typeof record.eventTimeMs === "number" &&
+    Number.isFinite(record.eventTimeMs)
+      ? Math.floor(record.eventTimeMs)
+      : null;
+  if (isValidEventMs(wholeMs)) {
+    return { eventMs: BigInt(wholeMs), timeBasis: "event" };
+  }
+  return { eventMs: discoveryMs, timeBasis: "discovery" };
+}
+
 function searchableText(record: SearchableRecord): string {
   if (record.kind === "tool_call") {
     return `${record.name}\n${record.argumentsText}`;
@@ -375,6 +401,38 @@ function sizeOf(path: string): number {
   }
 }
 
+export function childEnvironment(
+  dir: string,
+  base: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  preparePrivateDirectory(dir);
+  preparePrivateDirectory(tmpDirOf(dir));
+  return { ...base, SQLITE_TMPDIR: tmpDirOf(dir) };
+}
+
+function sameDirectory(a: string, b: string): boolean {
+  try {
+    return realpathSync(a) === realpathSync(b);
+  } catch {
+    return false;
+  }
+}
+
+function assertTempDirBound(tmpDir: string): void {
+  const configured = process.env["SQLITE_TMPDIR"];
+  if (
+    configured !== undefined &&
+    configured !== "" &&
+    sameDirectory(configured, tmpDir)
+  ) {
+    return;
+  }
+  throw new StoreError(
+    "temp_dir_unbound",
+    `SQLITE_TMPDIR must be set to ${tmpDir} before this process starts; launch the dedicated worker with childEnvironment(dir) because SQLite reads the setting once at initialisation`,
+  );
+}
+
 export function openReadonlyConnection(
   dir: string,
   options: { limits?: Partial<StoreLimits> } = {},
@@ -400,7 +458,9 @@ export function openStore(
   preparePrivateDirectory(dir);
   preparePrivateDirectory(tmpDir);
   preparePrivateFile(dbPath);
-  process.env["SQLITE_TMPDIR"] = tmpDir;
+  if ((options.tempDirMode ?? "child-environment") === "child-environment") {
+    assertTempDirBound(tmpDir);
+  }
   const db = new Database(dbPath);
   try {
     const fresh = db.pragma("page_count", { simple: true }) === 0;
@@ -528,6 +588,7 @@ export class SessionSearchStore {
   readonly tmpDir: string;
   readonly limits: StoreLimits;
   readonly schemaVersion: number;
+  readonly privacy: PrivacyCapability;
   private readonly db: Db;
   private readonly now: () => number;
   private readonly hooks: StoreTestHooks;
@@ -553,6 +614,7 @@ export class SessionSearchStore {
     contentSame: Stmt;
     touchInsert: Stmt;
     touchDelete: Stmt;
+    touchSelect: Stmt;
     quarantineSet: Stmt;
     quarantineClear: Stmt;
     quarantinePrune: Stmt;
@@ -585,6 +647,7 @@ export class SessionSearchStore {
     this.limits = limits;
     this.now = now;
     this.schemaVersion = db.pragma("user_version", { simple: true }) as number;
+    this.privacy = privacyCapability();
     const storedPressure = db
       .prepare("SELECT value FROM meta WHERE key = ?")
       .get(MEMORY_PRESSURE_META_KEY) as { value: string } | undefined;
@@ -627,11 +690,14 @@ export class SessionSearchStore {
         "INSERT OR IGNORE INTO touch(content_id, path, access, confidence) VALUES (?, ?, ?, ?)",
       ),
       touchDelete: db.prepare("DELETE FROM touch WHERE content_id = ?"),
+      touchSelect: db.prepare(
+        "SELECT path, access, confidence FROM touch WHERE content_id = ?",
+      ),
       quarantineSet: db.prepare(
-        "INSERT INTO quarantine(source_id, dedupe_key, reason, event_ms, created_ms, start_offset, end_offset, byte_length) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(dedupe_key) DO UPDATE SET reason = excluded.reason, event_ms = excluded.event_ms, created_ms = excluded.created_ms, start_offset = excluded.start_offset, end_offset = excluded.end_offset, byte_length = excluded.byte_length",
+        "INSERT INTO quarantine(source_id, dedupe_key, reason, event_ms, created_ms, start_offset, end_offset, byte_length) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(source_id, dedupe_key) DO UPDATE SET reason = excluded.reason, event_ms = excluded.event_ms, created_ms = excluded.created_ms, start_offset = excluded.start_offset, end_offset = excluded.end_offset, byte_length = excluded.byte_length",
       ),
       quarantineClear: db.prepare(
-        "DELETE FROM quarantine WHERE dedupe_key = ?",
+        "DELETE FROM quarantine WHERE source_id = ? AND dedupe_key = ?",
       ),
       quarantinePrune: db.prepare(
         "DELETE FROM quarantine WHERE id <= (SELECT id FROM quarantine ORDER BY id DESC LIMIT 1 OFFSET ?)",
@@ -672,9 +738,9 @@ export class SessionSearchStore {
     );
   }
 
-  beginControlledRetry(input: { mitigation: string }):
-    | { ok: true; state: MemoryPressureState }
-    | { ok: false; reason: string } {
+  beginControlledRetry(input: {
+    mitigation: string;
+  }): { ok: true; state: MemoryPressureState } | { ok: false; reason: string } {
     const state = this.memoryState;
     if (state.status !== "suspended") {
       return { ok: false, reason: `store is ${state.status}, not suspended` };
@@ -780,12 +846,62 @@ export class SessionSearchStore {
     return { state: this.memoryPressure(), attribution };
   }
 
-  private mergePossibleNow(): boolean {
+  private flushItems(
+    source: SourceRef,
+    entries: readonly Entry[],
+  ): FlushItem[] {
+    const row = this.stmts.sourceRow.get(source.key, source.generation) as
+      | { first_discovery_ms: bigint }
+      | undefined;
+    const discoveryMs = row
+      ? row.first_discovery_ms
+      : BigInt(source.discoveredAtMs);
+    const items: FlushItem[] = [];
+    for (const entry of entries) {
+      if (entry.textBytes > this.limits.maxRecordTextBytes) continue;
+      const { eventMs, timeBasis } = resolveEventTime(
+        entry.record,
+        discoveryMs,
+      );
+      const existing = this.stmts.identityGet.get(entry.record.dedupeKey) as
+        | {
+            content_id: bigint;
+            event_ms: bigint;
+            time_basis: "event" | "discovery";
+          }
+        | undefined;
+      if (existing) {
+        if (
+          existing.event_ms === eventMs &&
+          existing.time_basis === timeBasis
+        ) {
+          const same = this.stmts.contentSame.get(
+            entry.text,
+            entry.name ?? "",
+            entry.callId ?? "",
+            entry.record.cwd ?? "",
+            existing.content_id,
+          ) as { same: number };
+          if (same.same === 1) continue;
+        }
+        items.push({ replaces: true, textBytes: entry.textBytes });
+        continue;
+      }
+      items.push({ replaces: false, textBytes: entry.textBytes });
+    }
+    return items;
+  }
+
+  private mergePossibleNow(
+    source: SourceRef,
+    entries: readonly Entry[],
+  ): boolean {
     try {
-      return mergeMayRun(readFtsStructure(this.db), {
-        automerge: FTS_AUTOMERGE,
-        crisismerge: FTS_CRISISMERGE,
-      });
+      return mergeMayRun(
+        readFtsStructure(this.db),
+        { automerge: FTS_AUTOMERGE, crisismerge: FTS_CRISISMERGE },
+        estimateBatchFlushes(this.flushItems(source, entries)),
+      );
     } catch {
       return true;
     }
@@ -1116,7 +1232,10 @@ export class SessionSearchStore {
     const invalid = this.validate(batch, cursor);
     if (invalid) return refuse("invalid_batch", invalid);
     const placeholders = batch.placeholders ?? [];
-    if (batch.records.length + placeholders.length > this.limits.maxBatchRecords) {
+    if (
+      batch.records.length + placeholders.length >
+      this.limits.maxBatchRecords
+    ) {
       return refuse(
         "batch_too_large",
         `batch has ${batch.records.length + placeholders.length} records; limit is ${this.limits.maxBatchRecords}`,
@@ -1190,7 +1309,7 @@ export class SessionSearchStore {
     }
     const admission = this.admit(estimatedDirtyPages);
     if (admission) return refuse(admission.code, admission.message);
-    const mergePossible = this.mergePossibleNow();
+    const mergePossible = this.mergePossibleNow(batch.source, entries);
     this.hooks.afterAdmission?.(this.db);
 
     try {
@@ -1438,20 +1557,7 @@ export class SessionSearchStore {
     for (const entry of entries) {
       const { record } = entry;
       const dedupeKey = record.dedupeKey;
-      let eventMs: bigint;
-      let timeBasis: "event" | "discovery";
-      const wholeMs =
-        typeof record.eventTimeMs === "number" &&
-        Number.isFinite(record.eventTimeMs)
-          ? Math.floor(record.eventTimeMs)
-          : null;
-      if (isValidEventMs(wholeMs)) {
-        eventMs = BigInt(wholeMs);
-        timeBasis = "event";
-      } else {
-        eventMs = discoveryMs;
-        timeBasis = "discovery";
-      }
+      const { eventMs, timeBasis } = resolveEventTime(record, discoveryMs);
       if (entry.textBytes > this.limits.maxRecordTextBytes) {
         this.stmts.quarantineSet.run(
           sourceId,
@@ -1493,10 +1599,15 @@ export class SessionSearchStore {
           existing.content_id,
         ) as { same: number };
         if (same.same === 1) {
-          result.replayed += 1;
+          const touchesChanged = this.reconcileTouches(
+            existing.content_id,
+            record,
+          );
+          if (touchesChanged) result.updated += 1;
+          else result.replayed += 1;
           result.entries.push({
             dedupeKey,
-            outcome: "replayed",
+            outcome: touchesChanged ? "updated" : "replayed",
             rowid: serializeRowid(existing.content_id),
             timeBasis,
             reason: null,
@@ -1565,7 +1676,7 @@ export class SessionSearchStore {
       );
       this.stmts.identitySet.run(dedupeKey, rowid, sourceId);
       this.writeTouches(rowid, record);
-      this.stmts.quarantineClear.run(dedupeKey);
+      this.stmts.quarantineClear.run(sourceId, dedupeKey);
       if (existing) {
         corrected = true;
         result.corrected += 1;
@@ -1616,10 +1727,47 @@ export class SessionSearchStore {
     return result;
   }
 
+  private desiredTouches(
+    record: SearchableRecord,
+  ): Map<string, { path: string; access: string; confidence: string }> {
+    const desired = new Map<
+      string,
+      { path: string; access: string; confidence: string }
+    >();
+    if (record.kind !== "tool_call") return desired;
+    for (const touch of record.touches) {
+      const key = `${touch.access}\u0000${touch.path}`;
+      if (!desired.has(key)) desired.set(key, touch);
+    }
+    return desired;
+  }
+
+  private reconcileTouches(
+    contentId: bigint,
+    record: SearchableRecord,
+  ): boolean {
+    const desired = this.desiredTouches(record);
+    const stored = this.stmts.touchSelect.all(contentId) as {
+      path: string;
+      access: string;
+      confidence: string;
+    }[];
+    let matches = stored.length === desired.size;
+    for (const row of stored) {
+      if (!matches) break;
+      const want = desired.get(`${row.access}\u0000${row.path}`);
+      if (want === undefined || want.confidence !== row.confidence) {
+        matches = false;
+      }
+    }
+    if (matches) return false;
+    this.writeTouches(contentId, record);
+    return true;
+  }
+
   private writeTouches(contentId: bigint, record: SearchableRecord): void {
     this.stmts.touchDelete.run(contentId);
-    if (record.kind !== "tool_call") return;
-    for (const touch of record.touches) {
+    for (const touch of this.desiredTouches(record).values()) {
       this.stmts.touchInsert.run(
         contentId,
         touch.path,

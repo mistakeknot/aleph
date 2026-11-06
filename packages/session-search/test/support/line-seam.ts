@@ -10,7 +10,22 @@ export type SeamItem =
 export interface SeamStats {
   peakRetainedBytes: number;
   chunks: number;
+  decodedLines: number;
+  largestDecodedBytes: number;
 }
+
+export function newSeamStats(): SeamStats {
+  return {
+    peakRetainedBytes: 0,
+    chunks: 0,
+    decodedLines: 0,
+    largestDecodedBytes: 0,
+  };
+}
+
+export type FixtureSegment =
+  | { kind: "text"; text: string }
+  | { kind: "fill"; byte: number; bytes: number };
 
 export async function* splitLines(
   chunks: AsyncIterable<Buffer>,
@@ -45,7 +60,13 @@ export async function* splitLines(
       retainedBytes = 0;
       return { kind: "placeholder", placeholder };
     }
-    const text = Buffer.concat(retained).toString("utf8");
+    const joined = Buffer.concat(retained);
+    stats.decodedLines += 1;
+    stats.largestDecodedBytes = Math.max(
+      stats.largestDecodedBytes,
+      joined.length,
+    );
+    const text = joined.toString("utf8");
     retained = [];
     retainedBytes = 0;
     return text.length === 0
@@ -95,6 +116,37 @@ export async function* chunked(
   chunkBytes: number,
 ): AsyncGenerator<Buffer> {
   for (let at = 0; at < total.length; at += chunkBytes) {
-    yield Buffer.from(total.subarray(at, Math.min(at + chunkBytes, total.length)));
+    yield Buffer.from(
+      total.subarray(at, Math.min(at + chunkBytes, total.length)),
+    );
   }
+}
+
+export async function* generatedChunks(
+  segments: readonly FixtureSegment[],
+  chunkBytes: number,
+): AsyncGenerator<Buffer> {
+  let pending = Buffer.alloc(0);
+  for (const segment of segments) {
+    if (segment.kind === "text") {
+      pending = Buffer.concat([pending, Buffer.from(segment.text, "utf8")]);
+      while (pending.length >= chunkBytes) {
+        yield Buffer.from(pending.subarray(0, chunkBytes));
+        pending = Buffer.from(pending.subarray(chunkBytes));
+      }
+      continue;
+    }
+    let remaining = segment.bytes;
+    while (remaining > 0) {
+      const room = chunkBytes - pending.length;
+      const take = Math.min(room, remaining);
+      pending = Buffer.concat([pending, Buffer.alloc(take, segment.byte)]);
+      remaining -= take;
+      if (pending.length === chunkBytes) {
+        yield pending;
+        pending = Buffer.alloc(0);
+      }
+    }
+  }
+  if (pending.length > 0) yield pending;
 }

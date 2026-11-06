@@ -6,7 +6,6 @@ import { INITIAL_MIGRATION, validateMigrations } from "../src/migrations.js";
 import type { StoreMigration } from "../src/migrations.js";
 import {
   openReadonlyConnection,
-  openStore,
   resetStore,
   StoreError,
   type SessionSearchStore,
@@ -17,6 +16,7 @@ import {
   makeStoreDir,
   message,
   source,
+  openTestStore,
 } from "./support/store-helpers.js";
 
 const MS = 1_700_000_000_000;
@@ -74,18 +74,22 @@ describe("migration runner", () => {
 
   it("creates a fresh store at the latest version", () => {
     const dir = makeStoreDir();
-    const store = track(openStore(dir, { migrations: [INITIAL_MIGRATION, V2] }));
+    const store = track(
+      openTestStore(dir, { migrations: [INITIAL_MIGRATION, V2] }),
+    );
     expect(store.schemaVersion).toBe(2);
     expect(userVersion(dir)).toBe(2);
   });
 
   it("migrates an existing v1 store forward and keeps its data", () => {
     const dir = makeStoreDir();
-    const v1 = track(openStore(dir));
+    const v1 = track(openTestStore(dir));
     seed(v1);
     v1.close();
     open.pop();
-    const v2 = track(openStore(dir, { migrations: [INITIAL_MIGRATION, V2] }));
+    const v2 = track(
+      openTestStore(dir, { migrations: [INITIAL_MIGRATION, V2] }),
+    );
     expect(v2.schemaVersion).toBe(2);
     expect(v2.getCursor(source())).toBe("c1");
     expect(v2.lookupIdentity("fx:m1")).not.toBeNull();
@@ -102,7 +106,7 @@ describe("migration runner", () => {
 
   it("rolls a failing migration back atomically and leaves the version", () => {
     const dir = makeStoreDir();
-    const v1 = track(openStore(dir));
+    const v1 = track(openTestStore(dir));
     seed(v1);
     v1.close();
     open.pop();
@@ -116,10 +120,10 @@ describe("migration runner", () => {
       },
     };
     expect(() =>
-      openStore(dir, { migrations: [INITIAL_MIGRATION, broken] }),
+      openTestStore(dir, { migrations: [INITIAL_MIGRATION, broken] }),
     ).toThrow(StoreError);
     try {
-      openStore(dir, { migrations: [INITIAL_MIGRATION, broken] });
+      openTestStore(dir, { migrations: [INITIAL_MIGRATION, broken] });
     } catch (error) {
       expect((error as StoreError).code).toBe("migration_failed");
     }
@@ -127,24 +131,24 @@ describe("migration runner", () => {
     const db = openReadonlyConnection(dir);
     try {
       expect(
-        db
-          .prepare("SELECT name FROM sqlite_master WHERE name = 'half'")
-          .all(),
+        db.prepare("SELECT name FROM sqlite_master WHERE name = 'half'").all(),
       ).toEqual([]);
     } finally {
       db.close();
     }
-    const again = track(openStore(dir));
+    const again = track(openTestStore(dir));
     expect(again.lookupIdentity("fx:m1")).not.toBeNull();
   });
 
   it("refuses a store newer than the code understands", () => {
     const dir = makeStoreDir();
-    const v2 = track(openStore(dir, { migrations: [INITIAL_MIGRATION, V2] }));
+    const v2 = track(
+      openTestStore(dir, { migrations: [INITIAL_MIGRATION, V2] }),
+    );
     v2.close();
     open.pop();
     try {
-      openStore(dir);
+      openTestStore(dir);
       throw new Error("expected schema_too_new");
     } catch (error) {
       expect(error).toBeInstanceOf(StoreError);
@@ -155,13 +159,13 @@ describe("migration runner", () => {
 
   it("refuses a staging requirement that exceeds the page headroom", () => {
     const dir = makeStoreDir();
-    const v1 = track(openStore(dir));
+    const v1 = track(openTestStore(dir));
     seed(v1);
     v1.close();
     open.pop();
     const heavy: StoreMigration = { ...V2, stagingPages: 1_000_000_000 };
     try {
-      openStore(dir, { migrations: [INITIAL_MIGRATION, heavy] });
+      openTestStore(dir, { migrations: [INITIAL_MIGRATION, heavy] });
       throw new Error("expected migration_no_headroom");
     } catch (error) {
       expect((error as StoreError).code).toBe("migration_no_headroom");
@@ -171,7 +175,7 @@ describe("migration runner", () => {
 
   it("requires an explicit reset for a schema bump that cannot migrate in place", () => {
     const dir = makeStoreDir();
-    const v1 = track(openStore(dir));
+    const v1 = track(openTestStore(dir));
     seed(v1);
     v1.close();
     open.pop();
@@ -186,17 +190,22 @@ describe("migration runner", () => {
     };
     const migrations = [INITIAL_MIGRATION, bump];
     try {
-      openStore(dir, { migrations });
+      openTestStore(dir, { migrations });
       throw new Error("expected reset_required");
     } catch (error) {
       expect((error as StoreError).code).toBe("reset_required");
     }
     expect(userVersion(dir)).toBe(1);
     expect(() =>
-      resetStore(dir, { confirm: false as unknown as true, migrations }),
+      resetStore(dir, {
+        tempDirMode: "unmanaged",
+        confirm: false as unknown as true,
+        migrations,
+      }),
     ).toThrow(StoreError);
     expect(userVersion(dir)).toBe(1);
     const { store, diagnostics } = resetStore(dir, {
+      tempDirMode: "unmanaged",
       confirm: true,
       migrations,
     });
@@ -216,19 +225,22 @@ describe("migration runner", () => {
 
   it("resets a store whose file is not a database", () => {
     const dir = makeStoreDir();
-    const first = track(openStore(dir));
+    const first = track(openTestStore(dir));
     first.close();
     open.pop();
     const raw = new Database(join(dir, "session-search.sqlite3"));
     raw.close();
-    const { store } = resetStore(dir, { confirm: true });
+    const { store } = resetStore(dir, {
+      tempDirMode: "unmanaged",
+      confirm: true,
+    });
     track(store);
     expect(store.schemaVersion).toBe(1);
   });
 
   it("refuses a store with the wrong auto-vacuum mode", () => {
     const dir = makeStoreDir();
-    const first = track(openStore(dir));
+    const first = track(openTestStore(dir));
     first.close();
     open.pop();
     const raw = new Database(join(dir, "session-search.sqlite3"));
@@ -236,7 +248,7 @@ describe("migration runner", () => {
     raw.exec("VACUUM");
     raw.close();
     try {
-      openStore(dir);
+      openTestStore(dir);
       throw new Error("expected config_mismatch");
     } catch (error) {
       expect((error as StoreError).code).toBe("config_mismatch");

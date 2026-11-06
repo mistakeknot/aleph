@@ -240,7 +240,14 @@ export function runOnPrivilegedVolume(options: RunOptions): VolumeRun {
         options.scenario,
         options.scenarioOptions ?? {},
       ).slice(1),
-      { encoding: "utf8", cwd: packageDir },
+      {
+        encoding: "utf8",
+        cwd: packageDir,
+        env: {
+          ...process.env,
+          SQLITE_TMPDIR: join(mountPoint, "store", "tmp"),
+        },
+      },
     );
     if (child.status !== 0) {
       throw new Error(
@@ -277,6 +284,7 @@ export function runOnRehearsalVolume(options: RunOptions): VolumeRun {
     const child = spawnSync(wrapper.command, wrapper.args, {
       encoding: "utf8",
       cwd: packageDir,
+      env: { ...process.env, SQLITE_TMPDIR: join(mountPoint, "store", "tmp") },
     });
     if (child.status !== 0) {
       throw new Error(

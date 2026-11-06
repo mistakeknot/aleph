@@ -718,8 +718,6 @@
         "UPDATE_MIGRATION_EQUALITY_REFERENCE"
       ]
     },
-    // Capacity tests need a privileged capped volume when one is available and
-    // report not-run otherwise, so a cached pass would hide that state.
     "@bb/session-search#test": {
       "cache": false,
       "env": [

@@ -8,11 +8,15 @@ import {
 } from "../src/admission.js";
 import {
   openReadonlyConnection,
-  openStore,
   type OpenStoreOptions,
   type SessionSearchStore,
 } from "../src/storage.js";
-import { chunked, splitLines, type SeamStats } from "./support/line-seam.js";
+import {
+  chunked,
+  generatedChunks,
+  newSeamStats,
+  splitLines,
+} from "./support/line-seam.js";
 import {
   batchOf,
   cleanupStoreDirs,
@@ -20,17 +24,15 @@ import {
   makeStoreDir,
   message,
   source,
+  openTestStore,
 } from "./support/store-helpers.js";
 
 const MS = 1_700_000_000_000;
 const MIB = 1024 * 1024;
 const open: SessionSearchStore[] = [];
 
-function track(
-  dir: string,
-  options?: OpenStoreOptions,
-): SessionSearchStore {
-  const store = openStore(dir, options);
+function track(dir: string, options?: OpenStoreOptions): SessionSearchStore {
+  const store = openTestStore(dir, options);
   open.push(store);
   return store;
 }
@@ -182,10 +184,13 @@ describe("memory admission provider", () => {
     const memory = fakeMemory();
     const store = track(dir, { memory: { provider: memory.provider } });
     const attempt = (next: string) =>
-      store.commitBatch(batchOf(source(), [message(next, "text " + next, MS)]), {
-        expected: store.getCursor(source()),
-        next,
-      });
+      store.commitBatch(
+        batchOf(source(), [message(next, "text " + next, MS)]),
+        {
+          expected: store.getCursor(source()),
+          next,
+        },
+      );
 
     memory.setSample(null);
     expect(attempt("c1").refusal?.code).toBe("memory_budget");
@@ -316,6 +321,48 @@ describe("oversized record placeholders", () => {
     }
   });
 
+  it("keeps one quarantine row per source when two sources share a generation and offset", () => {
+    const dir = makeStoreDir();
+    const store = track(dir);
+    const a = source("source-a");
+    const b = source("source-b");
+    expect(a.generation).toBe(b.generation);
+    const first = store.commitBatch(
+      {
+        source: a,
+        records: [],
+        placeholders: [placeholderFor(a.generation, 0, 5 * MIB)],
+      },
+      { expected: null, next: "a1" },
+    );
+    const second = store.commitBatch(
+      {
+        source: b,
+        records: [],
+        placeholders: [placeholderFor(b.generation, 0, 7 * MIB)],
+      },
+      { expected: null, next: "b1" },
+    );
+    expect(first.committed).toBe(true);
+    expect(second.committed).toBe(true);
+    expect(store.getCursor(a)).toBe("a1");
+    expect(store.getCursor(b)).toBe("b1");
+    const db = openReadonlyConnection(dir);
+    try {
+      const rows = db
+        .prepare(
+          "SELECT s.source_key AS source_key, q.byte_length AS byte_length FROM quarantine q JOIN source_generation s ON s.id = q.source_id ORDER BY s.source_key",
+        )
+        .all();
+      expect(rows).toEqual([
+        { source_key: a.key, byte_length: 5 * MIB },
+        { source_key: b.key, byte_length: 7 * MIB },
+      ]);
+    } finally {
+      db.close();
+    }
+  });
+
   it("indexes the next record after a placeholder and replays idempotently", () => {
     const dir = makeStoreDir();
     const store = track(dir);
@@ -406,20 +453,27 @@ describe("oversized record placeholders", () => {
 describe("5 MiB line seam", () => {
   it("never retains more than the record cap and indexes the lines around it", async () => {
     const first = JSON.stringify({ text: "needle before the long line" });
-    const huge = "x".repeat(5 * MIB);
     const last = JSON.stringify({ text: "needle after the long line" });
-    const payload = Buffer.from(`${first}\n${huge}\n${last}\n`, "utf8");
-    const stats: SeamStats = { peakRetainedBytes: 0, chunks: 0 };
+    const stats = newSeamStats();
     const records = [];
     const placeholders: OversizedPlaceholder[] = [];
+    let parsed = 0;
     for await (const item of splitLines(
-      chunked(payload, 64 * 1024),
+      generatedChunks(
+        [
+          { kind: "text", text: `${first}\n` },
+          { kind: "fill", byte: 0x78, bytes: 5 * MIB },
+          { kind: "text", text: `\n${last}\n` },
+        ],
+        64 * 1024,
+      ),
       1,
       DEFAULT_ADMISSION_LIMITS.maxBatchInputBytes,
       stats,
     )) {
       if (item.kind === "placeholder") placeholders.push(item.placeholder);
-      else
+      else {
+        parsed += 1;
         records.push(
           message(
             `line-${item.startOffset}`,
@@ -427,7 +481,13 @@ describe("5 MiB line seam", () => {
             MS + item.startOffset,
           ),
         );
+      }
     }
+    expect(parsed).toBe(2);
+    expect(stats.decodedLines).toBe(2);
+    expect(stats.largestDecodedBytes).toBeLessThanOrEqual(
+      Math.max(first.length, last.length),
+    );
     expect(stats.chunks).toBeGreaterThan(80);
     expect(stats.peakRetainedBytes).toBeLessThanOrEqual(
       DEFAULT_ADMISSION_LIMITS.maxBatchInputBytes,
@@ -452,8 +512,10 @@ describe("5 MiB line seam", () => {
 
   it("counts a line exactly at the cap as a record and one byte over as a placeholder", async () => {
     const cap = 1024;
-    const exact = Buffer.from("a".repeat(cap) + "\n" + "b".repeat(cap + 1) + "\n");
-    const stats: SeamStats = { peakRetainedBytes: 0, chunks: 0 };
+    const exact = Buffer.from(
+      "a".repeat(cap) + "\n" + "b".repeat(cap + 1) + "\n",
+    );
+    const stats = newSeamStats();
     const kinds: string[] = [];
     for await (const item of splitLines(chunked(exact, 100), 1, cap, stats)) {
       kinds.push(item.kind);

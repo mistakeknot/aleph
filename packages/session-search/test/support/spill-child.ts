@@ -1,12 +1,21 @@
 import { readdirSync, readlinkSync } from "node:fs";
 import { join } from "node:path";
 
-import { openReadonlyConnection, openStore } from "../../src/storage.js";
+import Database from "better-sqlite3";
+
+import {
+  openReadonlyConnection,
+  openStore,
+  StoreError,
+} from "../../src/storage.js";
 import { batchOf, message, nextCursor, source } from "./store-helpers.js";
 
 const MS = 1_700_000_000_000;
 const dir = process.argv[2];
 if (dir === undefined) throw new Error("store directory argument required");
+
+const otherDir = process.argv[3];
+new Database(":memory:").close();
 
 const store = openStore(dir);
 const filler = "lorem ipsum dolor sit amet ".repeat(160);
@@ -41,6 +50,18 @@ const spilled = readdirSync("/proc/self/fd")
 iterator.return?.();
 reader.close();
 store.close();
+let secondStoreError: string | null = null;
+if (otherDir !== undefined) {
+  try {
+    openStore(otherDir).close();
+  } catch (error) {
+    secondStoreError = error instanceof StoreError ? error.code : String(error);
+  }
+}
 process.stdout.write(
-  JSON.stringify({ spilled, tmpDir: join(dir, "tmp") }) + "\n",
+  JSON.stringify({
+    spilled,
+    tmpDir: join(dir, "tmp"),
+    secondStoreError,
+  }) + "\n",
 );

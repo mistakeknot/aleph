@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { FTS_AUTOMERGE, FTS_CRISISMERGE } from "../src/migrations.js";
 import {
   EMPTY_FTS_STRUCTURE,
+  estimateBatchFlushes,
   mergeMayRun,
   parseFtsStructure,
   readFtsStructure,
@@ -13,7 +14,6 @@ import {
 } from "../src/memory-pressure.js";
 import {
   openReadonlyConnection,
-  openStore,
   type OpenStoreOptions,
   type SessionSearchStore,
 } from "../src/storage.js";
@@ -26,6 +26,7 @@ import {
   seededRandom,
   fixtureText,
   source,
+  openTestStore,
 } from "./support/store-helpers.js";
 
 const MS = 1_700_000_000_000;
@@ -33,7 +34,7 @@ const THRESHOLDS = { automerge: FTS_AUTOMERGE, crisismerge: FTS_CRISISMERGE };
 const open: SessionSearchStore[] = [];
 
 function track(dir: string, options?: OpenStoreOptions): SessionSearchStore {
-  const store = openStore(dir, options);
+  const store = openTestStore(dir, options);
   open.push(store);
   return store;
 }
@@ -116,13 +117,121 @@ describe("FTS structure snapshot", () => {
       expect(result.committed).toBe(true);
       cursor = `c${batch}`;
       const after = structureOf(dir);
-      expect(result.mergePossible).toBe(mergeMayRun(prior, THRESHOLDS));
-      if (after.totalSegments < prior.totalSegments + 1) {
+      const expected = mergeMayRun(prior, THRESHOLDS, records.length);
+      expect(result.mergePossible).toBe(expected);
+      if (after.totalSegments < prior.totalSegments + records.length) {
         observedMerge = true;
-        expect(mergeMayRun(prior, THRESHOLDS)).toBe(true);
+        expect(expected).toBe(true);
       }
     }
     expect(observedMerge).toBe(true);
+  });
+
+  it("counts a descending time-keyed batch as several flushes against an empty store", () => {
+    const dir = makeStoreDir();
+    const store = track(dir);
+    const random = seededRandom(11);
+    const records = Array.from({ length: 20 }, (_, index) =>
+      message(
+        `desc-${index}`,
+        fixtureText(random, 30),
+        MS + (20 - index) * 1000,
+      ),
+    );
+    const prior = structureOf(dir);
+    expect(prior.totalSegments).toBe(0);
+    const result = store.commitBatch(batchOf(source(), records), {
+      expected: null,
+      next: "c0",
+    });
+    expect(result.committed).toBe(true);
+    const after = structureOf(dir);
+    expect(after.totalSegments).not.toBe(prior.totalSegments + 1);
+    expect(after.totalSegments).toBeLessThan(20);
+    expect(result.mergePossible).toBe(true);
+  });
+
+  it("counts hash-table overflow from a large ascending batch as several flushes", () => {
+    const dir = makeStoreDir();
+    const store = track(dir);
+    const random = seededRandom(13);
+    const unique = (tokens: number): string => {
+      const out: string[] = [];
+      for (let index = 0; index < tokens; index += 1) {
+        out.push(random().toString(36).slice(2, 10));
+      }
+      return out.join(" ");
+    };
+    const records = Array.from({ length: 4 }, (_, index) =>
+      message(`large-${index}`, unique(100_000), MS + index),
+    );
+    const prior = structureOf(dir);
+    const result = store.commitBatch(batchOf(source(), records), {
+      expected: null,
+      next: "c0",
+    });
+    expect(result.committed).toBe(true);
+    const after = structureOf(dir);
+    expect(after.totalSegments).not.toBe(prior.totalSegments + 1);
+    expect(result.mergePossible).toBe(true);
+  });
+
+  it("never reports a merge as impossible when the segment count moved by other than one flush", () => {
+    const dir = makeStoreDir();
+    const store = track(dir);
+    const random = seededRandom(17);
+    let cursor: string | null = null;
+    for (let batch = 0; batch < 30; batch += 1) {
+      const descending = batch % 3 === 0;
+      const records = Array.from({ length: 5 }, (_, index) =>
+        message(
+          `mix${batch}-${index}`,
+          fixtureText(random, 30),
+          MS + batch * 100 + (descending ? 5 - index : index),
+        ),
+      );
+      const prior = structureOf(dir);
+      const result = store.commitBatch(batchOf(source(), records), {
+        expected: cursor,
+        next: `c${batch}`,
+      });
+      expect(result.committed).toBe(true);
+      cursor = `c${batch}`;
+      const after = structureOf(dir);
+      if (after.totalSegments !== prior.totalSegments + 1) {
+        expect(result.mergePossible).toBe(true);
+      }
+    }
+  });
+});
+
+describe("batch flush estimate", () => {
+  it("counts one flush for every inserted record", () => {
+    expect(
+      estimateBatchFlushes([
+        { replaces: false, textBytes: 100 },
+        { replaces: false, textBytes: 100 },
+        { replaces: false, textBytes: 100 },
+      ]),
+    ).toBe(3);
+  });
+
+  it("counts two flushes for a replaced record and at least one for an empty batch", () => {
+    expect(estimateBatchFlushes([{ replaces: true, textBytes: 10 }])).toBe(2);
+    expect(estimateBatchFlushes([])).toBe(1);
+  });
+
+  it("adds flushes for text that can overflow the hash table", () => {
+    expect(
+      estimateBatchFlushes([{ replaces: false, textBytes: 1024 * 1024 }]),
+    ).toBe(5);
+  });
+
+  it("treats an empty store as able to merge once enough flushes are expected", () => {
+    expect(mergeMayRun(EMPTY_FTS_STRUCTURE, THRESHOLDS, 3)).toBe(false);
+    expect(mergeMayRun(EMPTY_FTS_STRUCTURE, THRESHOLDS, FTS_AUTOMERGE)).toBe(
+      true,
+    );
   });
 });
 

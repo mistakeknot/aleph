@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   estimateDirtyPages,
   openReadonlyConnection,
-  openStore,
   type SessionSearchStore,
 } from "../src/storage.js";
 import {
@@ -18,6 +17,7 @@ import {
   seededRandom,
   shuffled,
   source,
+  openTestStore,
 } from "./support/store-helpers.js";
 
 const MS = 1_700_000_000_000;
@@ -42,7 +42,7 @@ interface BatchMeasure {
 describe("shuffled-ingest measurement", () => {
   it("keeps measured dirty pages under the estimate and reports fill factor", () => {
     const dir = makeStoreDir();
-    const store = openStore(dir, {
+    const store = openTestStore(dir, {
       limits: { walAutoCheckpointPages: 1_000_000 },
     });
     open.push(store);
@@ -59,11 +59,7 @@ describe("shuffled-ingest measurement", () => {
     for (let start = 0; start < total; start += perBatch) {
       const records = stamps.slice(start, start + perBatch).map((at, index) => {
         const words = 20 + Math.floor(random() * 260);
-        return message(
-          `m-${start + index}`,
-          fixtureText(random, words),
-          at,
-        );
+        return message(`m-${start + index}`, fixtureText(random, words), at);
       });
       store.checkpoint("TRUNCATE");
       const result = store.commitBatch(

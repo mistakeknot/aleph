@@ -11,14 +11,23 @@ import type {
   ToolCallRecord,
   ToolResultRecord,
 } from "../../src/contracts.js";
-import type {
-  CommitBatch,
-  CursorUpdate,
-  SessionSearchStore,
-  SourceRef,
+import {
+  openStore,
+  type CommitBatch,
+  type CursorUpdate,
+  type OpenStoreOptions,
+  type SessionSearchStore,
+  type SourceRef,
 } from "../../src/storage.js";
 
 const cleanups: string[] = [];
+
+export function openTestStore(
+  dir: string,
+  options: OpenStoreOptions = {},
+): SessionSearchStore {
+  return openStore(dir, { ...options, tempDirMode: "unmanaged" });
+}
 
 export function makeStoreDir(prefix = "ss-store-"): string {
   const root = mkdtempSync(join(tmpdir(), prefix));

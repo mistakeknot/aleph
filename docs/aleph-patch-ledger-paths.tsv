@@ -810,6 +810,7 @@ session-search	A	packages/session-search/test/fixtures/claude/session-main.jsonl
 session-search	A	packages/session-search/test/fixtures/claude/subagent-agent-a1.jsonl
 session-search	A	packages/session-search/test/fixtures/codex/rollout.jsonl
 session-search	A	packages/session-search/test/helpers.ts
+session-search	A	packages/session-search/test/private-fs.test.ts
 session-search	A	packages/session-search/test/reader.test.ts
 session-search	A	packages/session-search/test/usage.test.ts
 session-search	A	packages/session-search/tsconfig.json

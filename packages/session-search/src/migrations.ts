@@ -85,13 +85,14 @@ export const INITIAL_MIGRATION: StoreMigration = {
       CREATE TABLE quarantine (
         id INTEGER PRIMARY KEY,
         source_id INTEGER NOT NULL REFERENCES source_generation(id) ON DELETE CASCADE,
-        dedupe_key TEXT NOT NULL UNIQUE,
+        dedupe_key TEXT NOT NULL,
         reason TEXT NOT NULL,
         event_ms INTEGER,
         created_ms INTEGER NOT NULL,
         start_offset INTEGER,
         end_offset INTEGER,
-        byte_length INTEGER
+        byte_length INTEGER,
+        UNIQUE (source_id, dedupe_key)
       );
 
       CREATE VIRTUAL TABLE content_fts USING fts5(

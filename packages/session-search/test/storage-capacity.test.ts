@@ -4,7 +4,6 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   openReadonlyConnection,
-  openStore,
   type OpenStoreOptions,
   type SessionSearchStore,
 } from "../src/storage.js";
@@ -15,6 +14,7 @@ import {
   message,
   nextCursor,
   source,
+  openTestStore,
 } from "./support/store-helpers.js";
 
 const MS = 1_700_000_000_000;
@@ -42,8 +42,9 @@ function bigRecords(prefix: string, count: number, bytes: number, at: number) {
 function committedRows(dir: string): number {
   const db = openReadonlyConnection(dir);
   try {
-    return (db.prepare("SELECT count(*) AS n FROM content").get() as { n: number })
-      .n;
+    return (
+      db.prepare("SELECT count(*) AS n FROM content").get() as { n: number }
+    ).n;
   } finally {
     db.close();
   }
@@ -62,7 +63,7 @@ describe("atomic rollback on a page-limit failure (SQLITE_FULL)", () => {
         },
       },
     };
-    const store = track(openStore(dir, options));
+    const store = track(openTestStore(dir, options));
     const src = source();
     const first = store.commitBatch(
       batchOf(src, [message("ok", "committed before failure", MS)]),
@@ -87,7 +88,9 @@ describe("atomic rollback on a page-limit failure (SQLITE_FULL)", () => {
     try {
       expect(
         fts
-          .prepare("SELECT rowid FROM content_fts WHERE content_fts MATCH 'doomed0'")
+          .prepare(
+            "SELECT rowid FROM content_fts WHERE content_fts MATCH 'doomed0'",
+          )
           .all(),
       ).toEqual([]);
     } finally {
@@ -106,7 +109,7 @@ describe("atomic rollback on a page-limit failure (SQLITE_FULL)", () => {
   it("recovers on a fresh connection once the cause is gone", () => {
     const dir = makeStoreDir();
     const store = track(
-      openStore(dir, {
+      openTestStore(dir, {
         testHooks: {
           afterAdmission(db) {
             const pages = db.pragma("page_count", { simple: true }) as number;
@@ -125,7 +128,7 @@ describe("atomic rollback on a page-limit failure (SQLITE_FULL)", () => {
     store.close();
     open.pop();
 
-    const reopened = track(openStore(dir));
+    const reopened = track(openTestStore(dir));
     expect(reopened.suspended).toBeNull();
     expect(reopened.getCursor(src)).toBeNull();
     const retry = reopened.commitBatch(
@@ -152,7 +155,7 @@ describe("admission against the page, WAL and total budgets", () => {
 
   it("refuses a batch that cannot fit under the page limit, before writing", () => {
     const dir = makeStoreDir();
-    const store = track(openStore(dir, { limits: tiny }));
+    const store = track(openTestStore(dir, { limits: tiny }));
     const src = source();
     const before = statSync(join(dir, "session-search.sqlite3")).size;
     const result = store.commitBatch(
@@ -170,8 +173,14 @@ describe("admission against the page, WAL and total budgets", () => {
   it("refuses when the WAL allowance would be exceeded", () => {
     const dir = makeStoreDir();
     const store = track(
-      openStore(dir, {
-        limits: { ...tiny, maxDbBytes: 64 * MIB, highWatermarkBytes: 48 * MIB, lowWatermarkBytes: 32 * MIB, walAllowanceBytes: 64 * KIB },
+      openTestStore(dir, {
+        limits: {
+          ...tiny,
+          maxDbBytes: 64 * MIB,
+          highWatermarkBytes: 48 * MIB,
+          lowWatermarkBytes: 32 * MIB,
+          walAllowanceBytes: 64 * KIB,
+        },
       }),
     );
     const result = store.commitBatch(
@@ -185,8 +194,15 @@ describe("admission against the page, WAL and total budgets", () => {
   it("refuses under total-budget pressure", () => {
     const dir = makeStoreDir();
     const store = track(
-      openStore(dir, {
-        limits: { ...tiny, maxDbBytes: 64 * MIB, highWatermarkBytes: 48 * MIB, lowWatermarkBytes: 32 * MIB, walAllowanceBytes: 8 * MIB, totalPressureRatio: 0.0001 },
+      openTestStore(dir, {
+        limits: {
+          ...tiny,
+          maxDbBytes: 64 * MIB,
+          highWatermarkBytes: 48 * MIB,
+          lowWatermarkBytes: 32 * MIB,
+          walAllowanceBytes: 8 * MIB,
+          totalPressureRatio: 0.0001,
+        },
       }),
     );
     const result = store.commitBatch(
@@ -202,7 +218,7 @@ describe("incremental vacuum", () => {
   it("shrinks the file in bounded batches down to the low watermark", () => {
     const dir = makeStoreDir();
     const store = track(
-      openStore(dir, {
+      openTestStore(dir, {
         limits: {
           maxDbBytes: 64 * MIB,
           highWatermarkBytes: 2 * MIB,
@@ -248,7 +264,7 @@ describe("incremental vacuum", () => {
 
   it("skips reclamation below the high watermark", () => {
     const dir = makeStoreDir();
-    const store = track(openStore(dir));
+    const store = track(openTestStore(dir));
     const result = store.reclaim();
     expect(result.skipped).toBe(true);
     expect(result.ok).toBe(true);
@@ -258,7 +274,7 @@ describe("incremental vacuum", () => {
   it("reports a forced reclaim that has nothing to free without suspending", () => {
     const dir = makeStoreDir();
     const store = track(
-      openStore(dir, {
+      openTestStore(dir, {
         limits: {
           maxDbBytes: 64 * MIB,
           highWatermarkBytes: 2 * MIB,

@@ -88,12 +88,34 @@ export function readFtsStructure(
   return parseFtsStructure(row.block);
 }
 
+export const FTS_HASH_BYTES = 1024 * 1024;
+const FTS_PENDING_EXPANSION = 4;
+
+export interface FlushItem {
+  replaces: boolean;
+  textBytes: number;
+}
+
+export function estimateBatchFlushes(items: readonly FlushItem[]): number {
+  let flushes = 0;
+  let pendingBytes = 0;
+  for (const item of items) {
+    flushes += item.replaces ? 2 : 1;
+    pendingBytes += item.textBytes;
+  }
+  return (
+    Math.max(1, flushes) +
+    Math.floor((pendingBytes * FTS_PENDING_EXPANSION) / FTS_HASH_BYTES)
+  );
+}
+
 export function mergeMayRun(
   structure: FtsStructure,
   thresholds: MergeThresholds,
   flushesInBatch = 1,
 ): boolean {
   const reach = Math.max(1, thresholds.automerge) - Math.max(1, flushesInBatch);
+  if (reach <= 0) return true;
   for (const level of structure.levels) {
     if (level.mergeInProgress > 0) return true;
     if (

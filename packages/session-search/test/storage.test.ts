@@ -15,7 +15,7 @@ import { modeOf, StoreSecurityError } from "../src/private-fs.js";
 import { composeRowid } from "../src/rowid.js";
 import {
   openReadonlyConnection,
-  openStore,
+  type OpenStoreOptions,
   type SessionSearchStore,
 } from "../src/storage.js";
 import {
@@ -26,15 +26,16 @@ import {
   source,
   toolCall,
   toolResult,
+  openTestStore,
 } from "./support/store-helpers.js";
 
 const open: SessionSearchStore[] = [];
 
 function openTracked(
   dir: string,
-  options?: Parameters<typeof openStore>[1],
+  options?: OpenStoreOptions | undefined,
 ): SessionSearchStore {
-  const store = openStore(dir, options);
+  const store = openTestStore(dir, options);
   open.push(store);
   return store;
 }
@@ -446,6 +447,81 @@ describe("exact file filters", () => {
     expect(store.findByTouchedPath("/work/src/a.t")).toEqual([]);
     expect(store.findByTouchedPath("/work/src/b.ts")).toHaveLength(1);
   });
+
+  it("reconciles touches on replay when only the touches changed", () => {
+    const dir = makeStoreDir();
+    const store = openTracked(dir);
+    const first = store.commitBatch(
+      batchOf(source(), [
+        toolCall("r1", "Edit", "{}", MS, [
+          {
+            path: "/work/src/wrong.ts",
+            access: "read",
+            confidence: "inferred",
+          },
+        ]),
+      ]),
+      { expected: null, next: "c1" },
+    );
+    expect(first.committed).toBe(true);
+    expect(store.findByTouchedPath("/work/src/wrong.ts")).toHaveLength(1);
+
+    const corrected = store.commitBatch(
+      batchOf(source(), [
+        toolCall("r1", "Edit", "{}", MS, [
+          {
+            path: "/work/src/right.ts",
+            access: "write",
+            confidence: "structured",
+          },
+        ]),
+      ]),
+      { expected: "c1", next: "c2" },
+    );
+    expect(corrected.committed).toBe(true);
+    expect(corrected.updated).toBe(1);
+    expect(corrected.replayed).toBe(0);
+    expect(store.findByTouchedPath("/work/src/wrong.ts")).toEqual([]);
+    expect(store.findByTouchedPath("/work/src/right.ts")).toHaveLength(1);
+
+    const reclassified = store.commitBatch(
+      batchOf(source(), [
+        toolCall("r1", "Edit", "{}", MS, [
+          {
+            path: "/work/src/right.ts",
+            access: "read",
+            confidence: "structured",
+          },
+        ]),
+      ]),
+      { expected: "c2", next: "c3" },
+    );
+    expect(reclassified.updated).toBe(1);
+    const reader = openReadonlyConnection(dir);
+    try {
+      expect(reader.prepare("SELECT path, access FROM touch").all()).toEqual([
+        { path: "/work/src/right.ts", access: "read" },
+      ]);
+    } finally {
+      reader.close();
+    }
+
+    const unchanged = store.commitBatch(
+      batchOf(source(), [
+        toolCall("r1", "Edit", "{}", MS, [
+          {
+            path: "/work/src/right.ts",
+            access: "read",
+            confidence: "structured",
+          },
+        ]),
+      ]),
+      { expected: "c3", next: "c4" },
+    );
+    expect(unchanged.replayed).toBe(1);
+    expect(unchanged.updated).toBe(0);
+    expect(store.integrityCheck().ok).toBe(true);
+  });
 });
 
 describe("search index", () => {
@@ -514,9 +590,9 @@ describe("private modes", () => {
     const real = `${dir}-real`;
     mkdirSync(real, { mode: 0o700 });
     symlinkSync(real, dir);
-    expect(() => openStore(dir)).toThrow(StoreSecurityError);
+    expect(() => openTestStore(dir)).toThrow(StoreSecurityError);
     try {
-      openStore(dir);
+      openTestStore(dir);
     } catch (error) {
       expect((error as StoreSecurityError).code).toBe("symlink");
     }
@@ -529,7 +605,7 @@ describe("private modes", () => {
     writeFileSync(target, "", { mode: 0o600 });
     symlinkSync(target, join(dir, "session-search.sqlite3"));
     try {
-      openStore(dir);
+      openTestStore(dir);
       throw new Error("expected a symlink rejection");
     } catch (error) {
       expect(error).toBeInstanceOf(StoreSecurityError);
@@ -544,7 +620,7 @@ describe("private modes", () => {
       mode: 0o700,
     });
     try {
-      openStore(dir);
+      openTestStore(dir);
       throw new Error("expected a rejection");
     } catch (error) {
       expect(error).toBeInstanceOf(StoreSecurityError);
