@@ -307,12 +307,6 @@ export function createPushNotificationsPlugin(
           message: "The source must use lowercase letters, digits, . _ -",
         });
       }
-      if (input.url !== undefined && !/^\/(?![/\\])[^\\]*$/u.test(input.url)) {
-        throw new experimental_PluginRpcRefusal({
-          code: "invalid",
-          message: "The url must be a path inside bb that starts with /",
-        });
-      }
       const at = now();
       const id = randomUUID();
       const { blockerDailyCap } = await settings.get();
@@ -330,7 +324,6 @@ export function createPushNotificationsPlugin(
             title: truncate(input.title, BLOCKER_TITLE_MAX_LENGTH),
             body: truncate(input.body, BLOCKER_BODY_MAX_LENGTH),
             threadId: input.threadId ?? null,
-            url: input.url ?? null,
           });
         } catch (error) {
           bb.log.error(
@@ -520,11 +513,6 @@ export function createPushNotificationsPlugin(
                 placeholder: "thread-id",
                 description: "Thread to open when the notification is tapped",
               },
-              url: {
-                type: "string",
-                placeholder: "/path",
-                description: "Path inside bb to open when tapped",
-              },
               "dedupe-key": {
                 type: "string",
                 placeholder: "key",
@@ -542,9 +530,6 @@ export function createPushNotificationsPlugin(
                 ...(input.options.thread === undefined
                   ? {}
                   : { threadId: input.options.thread }),
-                ...(input.options.url === undefined
-                  ? {}
-                  : { url: input.options.url }),
                 ...(input.options["dedupe-key"] === undefined
                   ? {}
                   : { dedupeKey: input.options["dedupe-key"] }),

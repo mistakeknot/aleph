@@ -70,7 +70,6 @@ export const notifyBlockerInputSchema = z
     title: z.string().trim().min(1).max(BLOCKER_FIELD_MAX_LENGTH),
     body: z.string().trim().min(1).max(BLOCKER_FIELD_MAX_LENGTH),
     threadId: z.string().min(1).max(200).optional(),
-    url: z.string().min(1).max(BLOCKER_FIELD_MAX_LENGTH).optional(),
     dedupeKey: z.string().min(1).max(200).optional(),
   })
   .strict();

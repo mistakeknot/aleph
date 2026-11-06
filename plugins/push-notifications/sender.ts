@@ -91,7 +91,6 @@ interface BlockerPushData {
   kind: "blocker";
   serverUrl?: string;
   threadId?: string;
-  url?: string;
 }
 
 export interface BlockerPushMessage {
@@ -99,7 +98,6 @@ export interface BlockerPushMessage {
   title: string;
   body: string;
   threadId: string | null;
-  url: string | null;
 }
 
 export interface BlockerDelivery {
@@ -556,7 +554,6 @@ export function createPushSender(args: CreatePushSenderArgs): PushSender {
           kind: "blocker",
           ...(serverUrl === null ? {} : { serverUrl }),
           ...(message.threadId === null ? {} : { threadId: message.threadId }),
-          ...(message.url === null ? {} : { url: message.url }),
         },
         sound: "default",
         channelId: "threads",

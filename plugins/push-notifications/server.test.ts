@@ -1547,8 +1547,7 @@ describe("blocker push notifications", () => {
         sources: {
           a: { sent: 1, capped: 1, deduped: 0 },
           b: { sent: 1, capped: 0, deduped: 0 },
-          c: { sent: 0, capped: 1, deduped: 0 },
-          "invented-source": { sent: 0, capped: 1, deduped: 0 },
+          _overflow: { sent: 0, capped: 2, deduped: 0 },
         },
       });
     } finally {
@@ -1715,7 +1714,7 @@ describe("blocker push notifications", () => {
     }
   });
 
-  it("sends the blocker to mobile, web, and desktop with an openable target", async () => {
+  it("sends the blocker to mobile, web, and desktop with the thread as the target", async () => {
     const host = await setup({ appUrl: "https://bb.test" });
     try {
       await host.addSubscription();
@@ -1723,7 +1722,6 @@ describe("blocker push notifications", () => {
         title: "T".repeat(120),
         body: "B".repeat(400),
         threadId: "thread-9",
-        url: "/projects/p1/tasks/ABC-1",
       });
       expect(result.delivery).toEqual({
         web: true,
@@ -1739,7 +1737,6 @@ describe("blocker push notifications", () => {
         kind: "blocker",
         serverUrl: "https://bb.test",
         threadId: "thread-9",
-        url: "/projects/p1/tasks/ABC-1",
       });
       expect(host.clientSignals()).toEqual([
         expect.objectContaining({
@@ -1751,17 +1748,22 @@ describe("blocker push notifications", () => {
         }),
       ]);
       await expect(
-        notifyAs(host, { url: "https://elsewhere.test/x" }),
-      ).rejects.toMatchObject({ code: "invalid" });
-      await expect(
-        notifyAs(host, { url: "//elsewhere.test/x" }),
-      ).rejects.toMatchObject({ code: "invalid" });
-      await expect(
-        notifyAs(host, { url: "/\\elsewhere.test/x" }),
-      ).rejects.toMatchObject({ code: "invalid" });
-      await expect(
-        notifyAs(host, { url: "/ok\\..\\elsewhere" }),
-      ).rejects.toMatchObject({ code: "invalid" });
+        notifyAs(host, { url: "/projects/p1" }),
+      ).rejects.toMatchObject({ code: "invalid_input" });
+      const cli = await host.harness.behavior.runCli([
+        "notify",
+        "--source",
+        "citadel",
+        "--kind",
+        "blocker",
+        "--title",
+        "T",
+        "--body",
+        "B",
+        "--url",
+        "/projects/p1",
+      ]);
+      expect(cli.exitCode).not.toBe(0);
     } finally {
       await host.cleanup();
     }
@@ -1930,8 +1932,6 @@ describe("blocker push notifications", () => {
         "Pick the deploy window",
         "--thread",
         "thread-1",
-        "--url",
-        "/projects/p1",
         "--json",
       ];
       const sent = await host.harness.behavior.runCli([
@@ -1972,6 +1972,172 @@ describe("blocker push notifications", () => {
       expect(plain.exitCode).toBe(0);
       expect(plain.stdout).toContain("daily cap of 1");
       expect(host.expo.requests).toHaveLength(1);
+    } finally {
+      await host.cleanup();
+    }
+  });
+
+  it("reports the day total when a repeated key is deduped", async () => {
+    const host = await setup();
+    try {
+      await host.addSubscription();
+      await host.harness.behavior.setSettings({ blockerDailyCap: 5 });
+      const sourceA = { kind: "plugin", pluginId: "a" } as const;
+      const sourceB = { kind: "plugin", pluginId: "b" } as const;
+      await notifyAs(host, { dedupeKey: "card-1" }, sourceA);
+      await notifyAs(host, {}, sourceB);
+      const repeated = await notifyAs(host, { dedupeKey: "card-1" }, sourceA);
+      expect(repeated).toMatchObject({
+        outcome: "deduped",
+        deduped: true,
+        sentToday: 2,
+      });
+      expect(host.expo.requests).toHaveLength(2);
+    } finally {
+      await host.cleanup();
+    }
+  });
+
+  it("counts capped calls from sources with no row under one shared overflow row", async () => {
+    const host = await setup();
+    try {
+      await host.addSubscription();
+      await host.harness.behavior.setSettings({ blockerDailyCap: 1 });
+      await notifyAs(host, {}, { kind: "plugin", pluginId: "a" });
+      for (let index = 0; index < 30; index += 1) {
+        const result = await notifyAs(
+          host,
+          { source: `invented-${index}` },
+          { kind: "client" },
+        );
+        expect(result.outcome).toBe("capped");
+      }
+      const known = await notifyAs(host, {}, { kind: "plugin", pluginId: "a" });
+      expect(known.outcome).toBe("capped");
+      const status = await blockerStatus(host);
+      expect(status.days[0]).toEqual({
+        day: expect.any(String),
+        total: { sent: 1, capped: 31, deduped: 0 },
+        sources: {
+          a: { sent: 1, capped: 1, deduped: 0 },
+          _overflow: { sent: 0, capped: 30, deduped: 0 },
+        },
+      });
+      expect(
+        await host.bb.storage.kv.list(`blocker-day:${status.today}:`),
+      ).toHaveLength(2);
+    } finally {
+      await host.cleanup();
+    }
+  });
+
+  it("creates only the overflow row when the cap is zero", async () => {
+    const host = await setup();
+    try {
+      await host.harness.behavior.setSettings({ blockerDailyCap: 0 });
+      for (let index = 0; index < 10; index += 1) {
+        await notifyAs(
+          host,
+          { source: `invented-${index}` },
+          { kind: "client" },
+        );
+      }
+      const status = await blockerStatus(host);
+      expect(Object.keys(status.days[0]?.sources ?? {})).toEqual(["_overflow"]);
+      expect(status.days[0]?.total).toEqual({
+        sent: 0,
+        capped: 10,
+        deduped: 0,
+      });
+    } finally {
+      await host.cleanup();
+    }
+  });
+
+  it("sends exactly one of two concurrent calls one below the cap", async () => {
+    const host = await setup();
+    try {
+      await host.addSubscription();
+      await host.harness.behavior.setSettings({ blockerDailyCap: 2 });
+      await notifyAs(host, {}, { kind: "plugin", pluginId: "a" });
+      const results = await Promise.all([
+        notifyAs(host, {}, { kind: "plugin", pluginId: "b" }),
+        notifyAs(host, {}, { kind: "plugin", pluginId: "c" }),
+      ]);
+      expect(results.map((result) => result.outcome).sort()).toEqual([
+        "capped",
+        "sent",
+      ]);
+      expect(host.expo.requests).toHaveLength(2);
+      expect((await blockerStatus(host)).days[0]?.total).toEqual({
+        sent: 2,
+        capped: 1,
+        deduped: 0,
+      });
+    } finally {
+      await host.cleanup();
+    }
+  });
+
+  it("refuses a missing, empty, or oversized title or body before counting", async () => {
+    const host = await setup();
+    try {
+      await host.addSubscription();
+      const bad: Record<string, unknown>[] = [
+        { title: undefined },
+        { title: "" },
+        { title: "   " },
+        { title: "T".repeat(501) },
+        { body: undefined },
+        { body: "" },
+        { body: "   " },
+        { body: "B".repeat(501) },
+      ];
+      for (const overrides of bad) {
+        await expect(notifyAs(host, overrides)).rejects.toMatchObject({
+          code: "invalid_input",
+        });
+      }
+      const cli = await host.harness.behavior.runCli([
+        "notify",
+        "--source",
+        "citadel",
+        "--kind",
+        "blocker",
+        "--body",
+        "B",
+      ]);
+      expect(cli.exitCode).not.toBe(0);
+      expect(host.expo.requests).toHaveLength(0);
+      expect(await host.bb.storage.kv.list("blocker-day:")).toEqual([]);
+      expect((await blockerStatus(host)).days[0]?.total).toEqual({
+        sent: 0,
+        capped: 0,
+        deduped: 0,
+      });
+    } finally {
+      await host.cleanup();
+    }
+  });
+
+  it("deletes stored rows older than 14 days", async () => {
+    let clock = Date.UTC(2026, 5, 1, 18, 0, 0);
+    const host = await setup({ now: () => clock });
+    try {
+      await host.addSubscription();
+      await notifyAs(host);
+      clock = Date.UTC(2026, 5, 2, 18, 0, 0);
+      await notifyAs(host);
+      expect(await host.bb.storage.kv.list("blocker-day:")).toEqual([
+        "blocker-day:2026-06-01:citadel",
+        "blocker-day:2026-06-02:citadel",
+      ]);
+      clock = Date.UTC(2026, 5, 15, 18, 0, 0);
+      await notifyAs(host);
+      expect(await host.bb.storage.kv.list("blocker-day:")).toEqual([
+        "blocker-day:2026-06-02:citadel",
+        "blocker-day:2026-06-15:citadel",
+      ]);
     } finally {
       await host.cleanup();
     }

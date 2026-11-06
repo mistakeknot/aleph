@@ -18,7 +18,7 @@ bb push-notifications add --token <expo-push-token> --platform <ios|android> --l
 bb push-notifications remove <id> [--json]
 bb push-notifications test <web|desktop> [--json]
 bb push-notifications thread <thread> [--level inherit|all|input-only|muted]
-bb push-notifications notify --source <id> --kind blocker --title <text> --body <text> [--thread <id>] [--url </path>] [--dedupe-key <key>] [--json]
+bb push-notifications notify --source <id> --kind blocker --title <text> --body <text> [--thread <id>] [--dedupe-key <key>] [--json]
 bb plugin config push-notifications set <mobileEnabled|webEnabled|desktopEnabled> <true|false>
 bb plugin config push-notifications set defaultLevel <all|input-only|muted>
 bb plugin config push-notifications set childLevel <inherit|all|input-only|muted>
@@ -48,7 +48,8 @@ bb plugin config push-notifications set expoPushUrl <url>
   per Pacific-time day across all sources together (default 3); beyond that, or for a repeated
   `--dedupe-key` that day, nothing is sent and the command still exits 0 with
   `capped` or `deduped` true in the JSON. `status` shows the last 14 days of
-  sent, capped and deduped counts as a day total and per source. A plugin calls the same thing
+  sent, capped and deduped counts as a day total and per source; capped calls from
+  a source with no sent push that day are counted under `_overflow`. A plugin calls the same thing
   with `sdk.plugins.callRpc` and method `notifications.notify`; its source is
   its plugin id.
 

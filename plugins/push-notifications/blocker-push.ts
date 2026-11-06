@@ -6,6 +6,7 @@ export const BLOCKER_TIME_ZONE = "America/Los_Angeles";
 export const DEFAULT_BLOCKER_DAILY_CAP = 3;
 export const MAX_BLOCKER_DAILY_CAP = 100;
 export const BLOCKER_STATUS_DAYS = 14;
+export const BLOCKER_OVERFLOW_SOURCE = "_overflow";
 export const BLOCKER_SOURCE_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/u;
 
 const DAY_KEY_PREFIX = "blocker-day:";
@@ -113,21 +114,28 @@ export function createBlockerLedger(bb: BbPluginApi): BlockerLedger {
     admit({ source, dedupeKey, cap, at }) {
       return serialize(async () => {
         const day = pacificDay(at);
-        const key = rowKey(day, source);
-        const row = await readRow(key);
-        let outcome: BlockerOutcome = "sent";
-        let sentTotal = row.sent;
-        if (dedupeKey !== null && row.keys.includes(dedupeKey)) {
-          outcome = "deduped";
-        } else {
-          sentTotal = 0;
-          for (const other of await bb.storage.kv.list(
-            `${DAY_KEY_PREFIX}${day}:`,
-          )) {
-            sentTotal += (await readRow(other)).sent;
-          }
-          if (sentTotal >= cap) outcome = "capped";
+        const rows = new Map<string, BlockerDayRow>();
+        let sentTotal = 0;
+        for (const key of await bb.storage.kv.list(
+          `${DAY_KEY_PREFIX}${day}:`,
+        )) {
+          const stored = await readRow(key);
+          rows.set(key, stored);
+          sentTotal += stored.sent;
         }
+        const ownKey = rowKey(day, source);
+        const own = rows.get(ownKey);
+        let outcome: BlockerOutcome = "sent";
+        if (dedupeKey !== null && own?.keys.includes(dedupeKey)) {
+          outcome = "deduped";
+        } else if (sentTotal >= cap) {
+          outcome = "capped";
+        }
+        const key =
+          outcome === "capped" && own === undefined
+            ? rowKey(day, BLOCKER_OVERFLOW_SOURCE)
+            : ownKey;
+        const row = rows.get(key) ?? emptyRow();
         const next: BlockerDayRow =
           outcome === "sent"
             ? {
