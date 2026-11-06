@@ -26,8 +26,7 @@ function createElectronLoadError(url: string): Error {
 function createHarness(
   overrides: Partial<LoadRemoteServerPageArgs> = {},
 ): TestHarness {
-  const serverUrl =
-    overrides.serverUrl ?? "http://bb-host.tailnet.ts.net:38886";
+  const serverUrl = overrides.serverUrl ?? "http://server.example:38886";
   const shownErrors: StartupErrorView[] = [];
   const warnings: string[] = [];
   return {
@@ -58,7 +57,7 @@ describe("loadRemoteServerPage", () => {
     const view = harness.shownErrors[0];
     expect(view?.title).toBe("Could not reach this Aleph server");
     expect(view?.details).toBe(
-      "The Aleph server at http://bb-host.tailnet.ts.net:38886 did not answer. Check that the machine is awake and reachable.",
+      "The Aleph server at http://server.example:38886 did not answer. Check that the machine is awake and reachable.",
     );
     expect(view?.actions.map((action) => action.id)).toEqual([
       "retry",

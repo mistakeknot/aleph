@@ -678,48 +678,48 @@ describe("MarkdownPreview", () => {
 
   it("routes a plain click on a task app-route link through onOpenLink", () => {
     const onOpenLink = vi.fn(() => true);
-    const href = "/plugins/tasks/tasks/task/MSQ-22";
+    const href = "/plugins/tasks/tasks/task/TEST-22";
 
     render(
       <MarkdownPreview
-        content={`Open [MSQ-22](${href}).`}
+        content={`Open [TEST-22](${href}).`}
         linkRouting={{ onOpenLink }}
       />,
     );
 
-    fireEvent.click(screen.getByRole("link", { name: "MSQ-22" }));
+    fireEvent.click(screen.getByRole("link", { name: "TEST-22" }));
 
     expect(onOpenLink).toHaveBeenCalledExactlyOnceWith({ href });
   });
 
   it("routes a plain click on a bbtask:// link through onOpenLink", () => {
     const onOpenLink = vi.fn(() => true);
-    const href = "bbtask://MSQ-22";
+    const href = "bbtask://TEST-22";
 
     render(
       <MarkdownPreview
-        content={`Open [MSQ-22](${href}).`}
+        content={`Open [TEST-22](${href}).`}
         linkRouting={{ onOpenLink }}
       />,
     );
 
-    fireEvent.click(screen.getByRole("link", { name: "MSQ-22" }));
+    fireEvent.click(screen.getByRole("link", { name: "TEST-22" }));
 
     expect(onOpenLink).toHaveBeenCalledExactlyOnceWith({ href });
   });
 
   it("leaves a cmd-clicked task link to native new-tab navigation", () => {
     const onOpenLink = vi.fn(() => true);
-    const href = "/plugins/tasks/tasks/task/MSQ-22";
+    const href = "/plugins/tasks/tasks/task/TEST-22";
 
     render(
       <MarkdownPreview
-        content={`Open [MSQ-22](${href}).`}
+        content={`Open [TEST-22](${href}).`}
         linkRouting={{ onOpenLink }}
       />,
     );
 
-    fireEvent.click(screen.getByRole("link", { name: "MSQ-22" }), {
+    fireEvent.click(screen.getByRole("link", { name: "TEST-22" }), {
       metaKey: true,
     });
 
@@ -728,16 +728,16 @@ describe("MarkdownPreview", () => {
 
   it("leaves a cmd-clicked bbtask:// link to native new-tab navigation", () => {
     const onOpenLink = vi.fn(() => true);
-    const href = "bbtask://MSQ-22";
+    const href = "bbtask://TEST-22";
 
     render(
       <MarkdownPreview
-        content={`Open [MSQ-22](${href}).`}
+        content={`Open [TEST-22](${href}).`}
         linkRouting={{ onOpenLink }}
       />,
     );
 
-    fireEvent.click(screen.getByRole("link", { name: "MSQ-22" }), {
+    fireEvent.click(screen.getByRole("link", { name: "TEST-22" }), {
       metaKey: true,
     });
 
@@ -746,16 +746,16 @@ describe("MarkdownPreview", () => {
 
   it("falls back to native navigation when onOpenLink declines a task link", () => {
     const onOpenLink = vi.fn(() => false);
-    const href = "/plugins/tasks/tasks/task/MSQ-22";
+    const href = "/plugins/tasks/tasks/task/TEST-22";
 
     render(
       <MarkdownPreview
-        content={`Open [MSQ-22](${href}).`}
+        content={`Open [TEST-22](${href}).`}
         linkRouting={{ onOpenLink }}
       />,
     );
 
-    fireEvent.click(screen.getByRole("link", { name: "MSQ-22" }));
+    fireEvent.click(screen.getByRole("link", { name: "TEST-22" }));
 
     expect(onOpenLink).toHaveBeenCalledExactlyOnceWith({ href });
   });

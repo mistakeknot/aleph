@@ -308,7 +308,7 @@ describe("renderer log redaction", () => {
       );
       for (const sourceId of [
         "https://evil.example/assets/sk_live_1234567890-ABCDEFGH.js",
-        "file:///Users/mk/private-tax-return.js",
+        "file:///Users/example/private-tax-return.js",
         "app://bundle/sk_live_1234567890.mjs",
         "not a url",
       ]) {
@@ -521,13 +521,13 @@ describe("renderer log redaction", () => {
     it("writes only sanitized attribution for console entries", async () => {
       const { consoleHandlers, readLog } = setup();
       const messages = [
-        `Warning: Each child in a list should have a unique "key" prop. Check the render method of \`Row\` at /home/mk/secret-dir/Row.tsx:12 token=${opaque}`,
+        `Warning: Each child in a list should have a unique "key" prop. Check the render method of \`Row\` at /home/example/secret-dir/Row.tsx:12 token=${opaque}`,
         "Uncaught TypeError: cannot read secret of undefined",
-        `something odd ${bearer} in /Users/mk/private-tax-return/app.ts?key=secret`,
+        `something odd ${bearer} in /Users/example/private-tax-return/app.ts?key=secret`,
       ];
       const sources = [
         "https://x/assets/index-Ab123456.js?auth=abc#frag",
-        "file:///Users/mk/private-tax-return/main.js",
+        "file:///Users/example/private-tax-return/main.js",
         "https://x/secret-dir/notes.txt",
       ];
       for (const handler of consoleHandlers) {

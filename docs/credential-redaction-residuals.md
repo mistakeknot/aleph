@@ -19,7 +19,7 @@ Three layers, strongest first:
    structure only; no entropy scanning, no keyword-only rules.
 3. **Shape heuristics** (flags, assignments, headers, JSON pairs, bearer, URL
    userinfo and parameters). Best effort; the shell-quoting heuristics are
-   frozen (mk ruling q181): they are not extended further.
+   frozen: they are not extended further.
 
 ## Not caught (residual risk)
 

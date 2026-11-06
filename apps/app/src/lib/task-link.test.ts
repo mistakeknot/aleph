@@ -11,14 +11,14 @@ import {
 
 describe("parseMarkdownTaskLinkHref", () => {
   it("parses a bbtask:// scheme href", () => {
-    expect(parseMarkdownTaskLinkHref("bbtask://MSQ-22")).toEqual({
-      taskKey: "MSQ-22",
+    expect(parseMarkdownTaskLinkHref("bbtask://TEST-22")).toEqual({
+      taskKey: "TEST-22",
     });
   });
 
   it("decodes an encoded task key in a bbtask:// scheme href", () => {
-    expect(parseMarkdownTaskLinkHref("bbtask://MSQ%2022")).toEqual({
-      taskKey: "MSQ 22",
+    expect(parseMarkdownTaskLinkHref("bbtask://TEST%2022")).toEqual({
+      taskKey: "TEST 22",
     });
   });
 
@@ -38,19 +38,19 @@ describe("parseMarkdownTaskLinkHref", () => {
 
   it("parses a relative task panel app-route href", () => {
     expect(
-      parseMarkdownTaskLinkHref("/plugins/tasks/tasks/task/MSQ-22"),
-    ).toEqual({ taskKey: "MSQ-22" });
+      parseMarkdownTaskLinkHref("/plugins/tasks/tasks/task/TEST-22"),
+    ).toEqual({ taskKey: "TEST-22" });
   });
 
   it("parses an absolute app-origin task panel href", () => {
-    const href = `${window.location.origin}/plugins/tasks/tasks/task/MSQ-22`;
-    expect(parseMarkdownTaskLinkHref(href)).toEqual({ taskKey: "MSQ-22" });
+    const href = `${window.location.origin}/plugins/tasks/tasks/task/TEST-22`;
+    expect(parseMarkdownTaskLinkHref(href)).toEqual({ taskKey: "TEST-22" });
   });
 
   it("rejects a task panel href on a different origin", () => {
     expect(
       parseMarkdownTaskLinkHref(
-        "https://evil.example/plugins/tasks/tasks/task/MSQ-22",
+        "https://evil.example/plugins/tasks/tasks/task/TEST-22",
       ),
     ).toBeNull();
   });
@@ -67,30 +67,30 @@ describe("parseMarkdownTaskLinkHref", () => {
 
 describe("isMarkdownTaskSchemeHref", () => {
   it("recognizes a bbtask:// scheme href", () => {
-    expect(isMarkdownTaskSchemeHref("bbtask://MSQ-22")).toBe(true);
+    expect(isMarkdownTaskSchemeHref("bbtask://TEST-22")).toBe(true);
   });
 
   it("rejects a non-bbtask href", () => {
-    expect(isMarkdownTaskSchemeHref("/plugins/tasks/tasks/task/MSQ-22")).toBe(
+    expect(isMarkdownTaskSchemeHref("/plugins/tasks/tasks/task/TEST-22")).toBe(
       false,
     );
     expect(isMarkdownTaskSchemeHref("https://example.com")).toBe(false);
   });
 
   it("recognizes an uppercase BBTASK:// scheme href", () => {
-    expect(isMarkdownTaskSchemeHref("BBTASK://MSQ-22")).toBe(true);
+    expect(isMarkdownTaskSchemeHref("BBTASK://TEST-22")).toBe(true);
   });
 });
 
 describe("buildTaskLinkPluginPanelRequest", () => {
   it("builds a plugin panel request for a task link", () => {
     expect(
-      buildTaskLinkPluginPanelRequest("/plugins/tasks/tasks/task/MSQ-22"),
+      buildTaskLinkPluginPanelRequest("/plugins/tasks/tasks/task/TEST-22"),
     ).toEqual({
       actionId: TASK_THREAD_PANEL_ACTION_ID,
-      params: { taskKey: "MSQ-22" },
+      params: { taskKey: "TEST-22" },
       pluginId: TASKS_PLUGIN_ID,
-      title: "MSQ-22",
+      title: "TEST-22",
     });
   });
 
