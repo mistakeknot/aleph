@@ -1,4 +1,6 @@
+import { spawn } from "node:child_process";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -7,6 +9,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   type GeneratedPrerequisite,
@@ -166,4 +169,123 @@ describe("ensureTestPrerequisites", () => {
     const pid = Number(readFileSync(join(root, "pkg/child.pid"), "utf8"));
     expect(() => process.kill(pid, 0)).toThrow();
   });
+
+  async function waitFor(condition: () => boolean, limitMs: number) {
+    const giveUpAt = Date.now() + limitMs;
+    while (!condition() && Date.now() < giveUpAt) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    return condition();
+  }
+
+  function isDead(pid: number): boolean {
+    try {
+      process.kill(pid, 0);
+      return false;
+    } catch {
+      return true;
+    }
+  }
+
+  it("force-kills a SIGTERM-ignoring grandchild that outlives the build", async () => {
+    const root = emptyRoot();
+    touch(
+      join(root, "pkg/grandchild.mjs"),
+      [
+        'import { writeFileSync } from "node:fs";',
+        'process.on("SIGTERM", () => {});',
+        'writeFileSync("grandchild.pid", String(process.pid));',
+        "setInterval(() => {}, 1000);",
+      ].join("\n"),
+    );
+    const prerequisite = fakePrerequisite(
+      root,
+      [
+        'import { spawn } from "node:child_process";',
+        'import { existsSync, writeFileSync } from "node:fs";',
+        'spawn(process.execPath, ["grandchild.mjs"], { stdio: "ignore" }).unref();',
+        'while (!existsSync("grandchild.pid")) {',
+        "  await new Promise((resolve) => setTimeout(resolve, 20));",
+        "}",
+        'writeFileSync("out.txt", "done");',
+      ].join("\n"),
+    );
+    const started = Date.now();
+    await ensurePrerequisite(prerequisite, root, {
+      timeoutMs: 20_000,
+      killGraceMs: 300,
+    });
+    expect(Date.now() - started).toBeLessThan(10_000);
+    const pid = Number(readFileSync(join(root, "pkg/grandchild.pid"), "utf8"));
+    expect(await waitFor(() => isDead(pid), 2_000)).toBe(true);
+  });
+
+  const setupEnds = [
+    { name: "SIGTERM", signal: "SIGTERM" },
+    { name: "SIGINT", signal: "SIGINT" },
+    { name: "a normal exit", signal: undefined },
+  ] as const;
+
+  it.each(setupEnds)(
+    "kills the running build group when setup ends by $name",
+    async ({ signal }) => {
+      const root = emptyRoot();
+      fakePrerequisite(
+        root,
+        [
+          'import { writeFileSync } from "node:fs";',
+          'process.on("SIGTERM", () => {});',
+          'writeFileSync("child.pid", String(process.pid));',
+          "setInterval(() => {}, 1000);",
+        ].join("\n"),
+      );
+      const moduleUrl = pathToFileURL(
+        join(import.meta.dirname, "ensure-test-prerequisites.ts"),
+      ).href;
+      touch(
+        join(root, "runner.mjs"),
+        [
+          `import { ensurePrerequisite } from ${JSON.stringify(moduleUrl)};`,
+          "const prerequisite = {",
+          '  label: "fake artifact",',
+          '  packageDir: "pkg",',
+          '  script: "build.mjs",',
+          '  outputs: async () => ["out.txt"],',
+          "};",
+          'if (process.argv[3] === "exit") {',
+          "  setTimeout(() => process.exit(0), 2000);",
+          "} else {",
+          "  setInterval(() => {}, 1000);",
+          "}",
+          "await ensurePrerequisite(prerequisite, process.argv[2], {",
+          "  timeoutMs: 60000,",
+          "  killGraceMs: 60000,",
+          "});",
+        ].join("\n"),
+      );
+      const tsx = join(repoRoot, "apps/server/node_modules/.bin/tsx");
+      const setup = spawn(
+        tsx,
+        [
+          join(root, "runner.mjs"),
+          root,
+          signal === undefined ? "exit" : "wait",
+        ],
+        { cwd: root, stdio: "ignore" },
+      );
+      const ended = new Promise<void>((resolve) => {
+        setup.on("exit", () => resolve());
+      });
+      const pidFile = join(root, "pkg/child.pid");
+      expect(await waitFor(() => existsSync(pidFile), 15_000)).toBe(true);
+      const pid = Number(readFileSync(pidFile, "utf8"));
+      expect(isDead(pid)).toBe(false);
+      if (signal !== undefined) {
+        setup.kill(signal);
+      }
+      await ended;
+      expect(await waitFor(() => isDead(pid), 5_000)).toBe(true);
+    },
+    60_000,
+  );
 });

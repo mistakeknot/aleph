@@ -1,4 +1,4 @@
-import { type ChildProcess, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -83,16 +83,93 @@ interface BuildOutcome {
   readonly stderr: string;
 }
 
-function signalBuild(child: ChildProcess, signal: NodeJS.Signals): void {
+const GROUP_POLL_MS = 25;
+const GROUP_REAP_SLACK_MS = 2_000;
+
+const activeGroups = new Set<number>();
+let exitHooks: (() => void) | undefined;
+
+function signalGroup(pid: number, signal: NodeJS.Signals): void {
   try {
-    if (process.platform !== "win32" && child.pid !== undefined) {
-      process.kill(-child.pid, signal);
+    if (process.platform !== "win32") {
+      process.kill(-pid, signal);
     } else {
-      child.kill(signal);
+      process.kill(pid, signal);
     }
   } catch {
-    child.kill(signal);
+    return;
   }
+}
+
+function groupAlive(pid: number): boolean {
+  if (process.platform === "win32") {
+    return false;
+  }
+  try {
+    process.kill(-pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+export function killActiveBuilds(): void {
+  for (const pid of activeGroups) {
+    signalGroup(pid, "SIGKILL");
+  }
+}
+
+function installExitHooks(): void {
+  if (exitHooks) {
+    return;
+  }
+  const onExit = (): void => killActiveBuilds();
+  const onSignal = (signal: NodeJS.Signals): void => {
+    killActiveBuilds();
+    removeExitHooks();
+    process.kill(process.pid, signal);
+  };
+  const onInterrupt = (): void => onSignal("SIGINT");
+  const onTerminate = (): void => onSignal("SIGTERM");
+  process.on("exit", onExit);
+  process.on("SIGINT", onInterrupt);
+  process.on("SIGTERM", onTerminate);
+  exitHooks = () => {
+    process.off("exit", onExit);
+    process.off("SIGINT", onInterrupt);
+    process.off("SIGTERM", onTerminate);
+  };
+}
+
+function removeExitHooks(): void {
+  exitHooks?.();
+  exitHooks = undefined;
+}
+
+function trackGroup(pid: number): void {
+  activeGroups.add(pid);
+  installExitHooks();
+}
+
+function untrackGroup(pid: number): void {
+  activeGroups.delete(pid);
+  if (activeGroups.size === 0) {
+    removeExitHooks();
+  }
+}
+
+function waitForGroupExit(pid: number, limitMs: number): Promise<void> {
+  const giveUpAt = Date.now() + limitMs;
+  return new Promise((resolve) => {
+    const poll = (): void => {
+      if (!groupAlive(pid) || Date.now() >= giveUpAt) {
+        resolve();
+        return;
+      }
+      setTimeout(poll, GROUP_POLL_MS);
+    };
+    poll();
+  });
 }
 
 function runBuild(
@@ -107,26 +184,53 @@ function runBuild(
       detached: process.platform !== "win32",
       stdio: ["ignore", "ignore", "pipe"],
     });
+    const pid = child.pid;
+    if (pid !== undefined) {
+      trackGroup(pid);
+    }
     let stderr = "";
     let timedOut = false;
     let forceKill: NodeJS.Timeout | undefined;
+    const escalate = (): void => {
+      if (pid === undefined) {
+        child.kill("SIGTERM");
+        return;
+      }
+      signalGroup(pid, "SIGTERM");
+      forceKill ??= setTimeout(() => signalGroup(pid, "SIGKILL"), killGraceMs);
+    };
     child.stderr.on("data", (chunk: Buffer) => {
       stderr = (stderr + chunk.toString()).slice(-4000);
     });
     const deadline = setTimeout(() => {
       timedOut = true;
-      signalBuild(child, "SIGTERM");
-      forceKill = setTimeout(() => signalBuild(child, "SIGKILL"), killGraceMs);
+      escalate();
     }, timeoutMs);
     child.on("error", (error) => {
       clearTimeout(deadline);
       clearTimeout(forceKill);
+      if (pid !== undefined) {
+        untrackGroup(pid);
+      }
       reject(error);
     });
     child.on("close", (code) => {
       clearTimeout(deadline);
-      clearTimeout(forceKill);
-      resolve({ timedOut, code, stderr });
+      const finish = (): void => {
+        clearTimeout(forceKill);
+        if (pid !== undefined) {
+          untrackGroup(pid);
+        }
+        resolve({ timedOut, code, stderr });
+      };
+      if (pid === undefined || !groupAlive(pid)) {
+        finish();
+        return;
+      }
+      escalate();
+      void waitForGroupExit(pid, killGraceMs + GROUP_REAP_SLACK_MS).then(
+        finish,
+      );
     });
   });
 }
@@ -160,8 +264,9 @@ export async function ensurePrerequisite(
   }
 }
 
-export default async function ensureTestPrerequisites(): Promise<void> {
+export default async function ensureTestPrerequisites(): Promise<() => void> {
   for (const prerequisite of GENERATED_PREREQUISITES) {
     await ensurePrerequisite(prerequisite, repoRoot);
   }
+  return killActiveBuilds;
 }
