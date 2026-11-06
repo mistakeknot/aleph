@@ -19,9 +19,11 @@ bb push-notifications remove <id> [--json]
 bb push-notifications test <web|desktop> [--json]
 bb push-notifications send --title <text> [--body <text>] [--thread <thread>] [--json]
 bb push-notifications thread <thread> [--level inherit|all|input-only|muted]
+bb push-notifications notify --source <id> --kind blocker --title <text> --body <text> [--thread <id>] [--dedupe-key <key>] [--json]
 bb plugin config push-notifications set <mobileEnabled|webEnabled|desktopEnabled> <true|false>
 bb plugin config push-notifications set defaultLevel <all|input-only|muted>
 bb plugin config push-notifications set childLevel <inherit|all|input-only|muted>
+bb plugin config push-notifications set blockerDailyCap <0-100>
 bb plugin config push-notifications set expoPushUrl <url>
 ```
 
@@ -48,6 +50,16 @@ bb plugin config push-notifications set expoPushUrl <url>
   level also caps its child threads. `all` notifies on finished turns too,
   `input-only` keeps questions, approvals, and errors only, and `muted` sends
   nothing.
+- `notify` pushes a blocker, a card or task that waits on a person, to the
+  registered phones and to connected web and desktop clients. Only
+  `--kind blocker` is accepted. At most `blockerDailyCap` blocker pushes go out
+  per Pacific-time day across all sources together (default 3); beyond that, or for a repeated
+  `--dedupe-key` that day, nothing is sent and the command still exits 0 with
+  `capped` or `deduped` true in the JSON. `status` shows the last 14 days of
+  sent, capped and deduped counts as a day total and per source; capped calls from
+  a source with no sent push that day are counted under `_overflow`. A plugin calls the same thing
+  with `sdk.plugins.callRpc` and method `notifications.notify`; its source is
+  its plugin id.
 
 A plugin sends the same notification from its server code with:
 

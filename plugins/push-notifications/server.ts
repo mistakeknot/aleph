@@ -3,25 +3,42 @@ import {
   PluginCliError,
   cliCommand,
   defineCli,
+  experimental_PluginRpcRefusal,
   type BbPluginApi,
 } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import {
+  BLOCKER_KIND,
+  BLOCKER_TIME_ZONE,
+  createBlockerLedger,
+  DEFAULT_BLOCKER_DAILY_CAP,
+  MAX_BLOCKER_DAILY_CAP,
+  pacificDay,
+  type BlockerDayView,
+} from "./blocker-push.js";
+import {
   addPushSubscriptionInputSchema,
+  BLOCKER_BODY_MAX_LENGTH,
+  BLOCKER_TITLE_MAX_LENGTH,
   CLIENT_NOTIFICATION_CHANNEL,
   clientChannelSchema,
   DEFAULT_EXPO_PUSH_URL,
   DEVICE_LABEL_MAX_LENGTH,
   EXPO_PUSH_TOKEN_MAX_LENGTH,
+  blockerSourceSchema,
   NOTIFICATION_BODY_MAX_LENGTH,
   NOTIFICATION_TITLE_MAX_LENGTH,
+  notifyBlockerInputSchema,
   pushNotificationsRpcContract,
   sendNotificationInputSchema,
   sendNotificationRpcContract,
   type ClientNotification,
   type DeliveryChannel,
+  type NotifyBlockerInput,
+  type NotifyBlockerOutput,
   type PushSubscriptionSummary,
 } from "./contract.js";
+import { truncate } from "./notification-text.js";
 import {
   createNotificationPreferences,
   describeNotificationSource,
@@ -55,7 +72,15 @@ interface StatusView {
   childLevel: string;
   relayUrl: string;
   lastSendOutcome: LastSendOutcome;
+  blockerPush: {
+    timeZone: string;
+    cap: number;
+    today: string;
+    days: BlockerDayView[];
+  };
 }
+
+type RpcCaller = { kind: "plugin"; pluginId: string } | { kind: "client" };
 
 const JSON_OPTION = {
   type: "boolean",
@@ -88,6 +113,39 @@ function formatLastOutcome(outcome: LastSendOutcome): string {
   return `Failed at ${new Date(outcome.at).toISOString()}: ${outcome.reason}`;
 }
 
+function formatBlockerPush(view: StatusView["blockerPush"]): string[] {
+  const todayRow = view.days.find((entry) => entry.day === view.today);
+  const sources = Object.entries(todayRow?.sources ?? {});
+  const lines = [
+    `Blocker pushes (${view.timeZone}, cap ${view.cap} per day across all sources)`,
+  ];
+  if (sources.length === 0) lines.push(`  ${view.today}: none`);
+  else if (todayRow) {
+    lines.push(
+      `  ${view.today} total: sent ${todayRow.total.sent}, capped ${todayRow.total.capped}, deduped ${todayRow.total.deduped}`,
+    );
+  }
+  for (const [source, counts] of sources) {
+    lines.push(
+      `  ${view.today} ${source}: sent ${counts.sent}, capped ${counts.capped}, deduped ${counts.deduped}`,
+    );
+  }
+  return lines;
+}
+
+function formatNotifyResult(result: NotifyBlockerOutput): string {
+  if (result.outcome === "capped") {
+    return `Not pushed: the daily cap of ${result.cap} blocker pushes across all sources was reached (${result.id})`;
+  }
+  if (result.outcome === "deduped") {
+    return `Not pushed: already pushed today for that dedupe key (${result.id})`;
+  }
+  const mobile = result.delivery
+    ? `, ${result.delivery.mobileSent} of ${result.delivery.mobileDevices} devices`
+    : "";
+  return `Pushed ${result.sentToday} of ${result.cap} today for ${result.source}${mobile} (${result.id})`;
+}
+
 function formatStatus(status: StatusView): string {
   return [
     `Enabled: ${status.enabled}`,
@@ -99,6 +157,7 @@ function formatStatus(status: StatusView): string {
     `Subscriptions: ${status.subscriptionCount}`,
     `Relay URL: ${status.relayUrl}`,
     `Last send: ${formatLastOutcome(status.lastSendOutcome)}`,
+    ...formatBlockerPush(status.blockerPush),
   ].join("\n");
 }
 
@@ -177,6 +236,14 @@ export function createPushNotificationsPlugin(
         default: "input-only",
         experimental_schema: ownNotificationLevelSchema,
       },
+      blockerDailyCap: {
+        type: "number",
+        label: "Blocker pushes per day",
+        description:
+          "The most blocker notifications pushed per local day (America/Los_Angeles) across all sources combined. Further ones are counted but not sent.",
+        default: DEFAULT_BLOCKER_DAILY_CAP,
+        experimental_schema: z.number().int().min(0).max(MAX_BLOCKER_DAILY_CAP),
+      },
       expoPushUrl: {
         type: "string",
         label: "Expo push relay URL",
@@ -214,6 +281,93 @@ export function createPushNotificationsPlugin(
       ...(options.now === undefined ? {} : { now: options.now }),
     });
 
+    const now = options.now ?? Date.now;
+    const blockerLedger = createBlockerLedger(bb);
+
+    async function notifyBlocker(
+      input: NotifyBlockerInput,
+      caller: RpcCaller,
+    ): Promise<NotifyBlockerOutput> {
+      if (input.kind !== BLOCKER_KIND) {
+        throw new experimental_PluginRpcRefusal({
+          code: "invalid",
+          message: `Unsupported notification kind "${input.kind.slice(0, 40)}"; only "${BLOCKER_KIND}" is accepted`,
+        });
+      }
+      let source: string;
+      if (caller.kind === "plugin") {
+        if (input.source !== undefined && input.source !== caller.pluginId) {
+          throw new experimental_PluginRpcRefusal({
+            code: "forbidden",
+            message: `A plugin can only notify as itself (${caller.pluginId})`,
+          });
+        }
+        source = caller.pluginId;
+      } else if (input.source !== undefined) {
+        source = input.source;
+      } else {
+        throw new experimental_PluginRpcRefusal({
+          code: "invalid",
+          message: "A source is required",
+        });
+      }
+      if (!blockerSourceSchema.safeParse(source).success) {
+        throw new experimental_PluginRpcRefusal({
+          code: "invalid",
+          message: "The source must use lowercase letters, digits, . _ -",
+        });
+      }
+      if (!sender.isRunning()) {
+        throw new SendNotificationError(
+          "sender_stopped",
+          "Push notifications are not running",
+        );
+      }
+      const at = now();
+      const id = randomUUID();
+      const { blockerDailyCap } = await settings.get();
+      const admission = await blockerLedger.admit({
+        source,
+        dedupeKey: input.dedupeKey ?? null,
+        cap: blockerDailyCap,
+        at,
+      });
+      let delivery: NotifyBlockerOutput["delivery"] = null;
+      if (admission.outcome === "sent") {
+        try {
+          delivery = await sender.deliverBlocker({
+            id,
+            title: truncate(input.title, BLOCKER_TITLE_MAX_LENGTH),
+            body: truncate(input.body, BLOCKER_BODY_MAX_LENGTH),
+            threadId: input.threadId ?? null,
+          });
+        } catch (error) {
+          bb.log.error(
+            `Blocker push delivery failed for ${source}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+          delivery = {
+            web: false,
+            desktop: false,
+            mobileDevices: 0,
+            mobileSent: 0,
+            mobileFailure: "delivery failed",
+          };
+        }
+      }
+      return {
+        id,
+        at,
+        day: admission.day,
+        source,
+        outcome: admission.outcome,
+        capped: admission.outcome === "capped",
+        deduped: admission.outcome === "deduped",
+        cap: admission.cap,
+        sentToday: admission.sentToday,
+        delivery,
+      };
+    }
+
     async function status(): Promise<StatusView> {
       const [
         {
@@ -223,9 +377,15 @@ export function createPushNotificationsPlugin(
           desktopEnabled,
           defaultLevel,
           childLevel,
+          blockerDailyCap,
         },
         rows,
-      ] = await Promise.all([settings.get(), subscriptions.list()]);
+        blockerDays,
+      ] = await Promise.all([
+        settings.get(),
+        subscriptions.list(),
+        blockerLedger.recent(now()),
+      ]);
       return {
         enabled: true,
         subscriptionCount: rows.length,
@@ -236,6 +396,12 @@ export function createPushNotificationsPlugin(
         childLevel,
         relayUrl: expoPushUrl,
         lastSendOutcome: sender.getLastOutcome(),
+        blockerPush: {
+          timeZone: BLOCKER_TIME_ZONE,
+          cap: blockerDailyCap,
+          today: pacificDay(now()),
+          days: blockerDays,
+        },
       };
     }
 
@@ -271,6 +437,8 @@ export function createPushNotificationsPlugin(
 
     bb.rpc.register(pushNotificationsRpcContract, {
       "notifications.test": ({ channel }) => sendTest(channel),
+      "notifications.notify": (input, context) =>
+        notifyBlocker(input, context.experimental_caller),
       "pushSubscriptions.list": async () => ({
         subscriptions: await subscriptions.listSummaries(),
       }),
@@ -413,6 +581,91 @@ export function createPushNotificationsPlugin(
                 stdout: input.options.json
                   ? JSON.stringify({ ok: true, channels })
                   : formatSent(channels),
+              };
+            },
+          }),
+          notify: cliCommand({
+            summary: "Push a blocker notification, subject to a daily cap",
+            description:
+              "Sends a blocker notification to web, desktop, and registered mobile devices. At most blockerDailyCap blocker pushes are sent per America/Los_Angeles day across all sources; further requests exit 0 with capped set and send nothing. Only the blocker kind is accepted.",
+            options: {
+              source: {
+                type: "string",
+                required: true,
+                placeholder: "plugin-id",
+                description: "Plugin or tool the notification comes from",
+              },
+              kind: {
+                type: "string",
+                required: true,
+                placeholder: BLOCKER_KIND,
+                description: `Notification kind; only ${BLOCKER_KIND} is accepted`,
+              },
+              title: {
+                type: "string",
+                required: true,
+                description: `Notification title, shown at most ${BLOCKER_TITLE_MAX_LENGTH} characters`,
+              },
+              body: {
+                type: "string",
+                required: true,
+                description: `Notification text, shown at most ${BLOCKER_BODY_MAX_LENGTH} characters`,
+              },
+              thread: {
+                type: "string",
+                placeholder: "thread-id",
+                description: "Thread to open when the notification is tapped",
+              },
+              "dedupe-key": {
+                type: "string",
+                placeholder: "key",
+                description:
+                  "A key already pushed today for this source is not pushed again",
+              },
+              json: JSON_OPTION,
+            },
+            async run(input) {
+              const parsed = notifyBlockerInputSchema.safeParse({
+                source: input.options.source,
+                kind: input.options.kind,
+                title: input.options.title,
+                body: input.options.body,
+                ...(input.options.thread === undefined
+                  ? {}
+                  : { threadId: input.options.thread }),
+                ...(input.options["dedupe-key"] === undefined
+                  ? {}
+                  : { dedupeKey: input.options["dedupe-key"] }),
+              });
+              if (!parsed.success) {
+                throw new PluginCliError(
+                  parsed.error.issues.map((issue) => issue.message).join("; "),
+                  { code: "invalid_notification" },
+                );
+              }
+              let result: NotifyBlockerOutput;
+              try {
+                result = await notifyBlocker(parsed.data, { kind: "client" });
+              } catch (error) {
+                if (error instanceof experimental_PluginRpcRefusal) {
+                  throw new PluginCliError(error.message, {
+                    code: "invalid_notification",
+                    hint: `Only the ${BLOCKER_KIND} kind is accepted.`,
+                  });
+                }
+                if (error instanceof SendNotificationError) {
+                  throw new PluginCliError(error.message, {
+                    code: error.code,
+                    hint: "Check the push-sender service in `bb plugin list`.",
+                  });
+                }
+                throw error;
+              }
+              return {
+                exitCode: 0,
+                stdout: input.options.json
+                  ? JSON.stringify(result)
+                  : formatNotifyResult(result),
               };
             },
           }),

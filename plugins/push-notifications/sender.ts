@@ -86,7 +86,7 @@ export type LastSendOutcome = z.infer<typeof lastSendOutcomeSchema>;
 export const SENT_NOTIFICATION_KIND = "message";
 
 interface PushNotificationData {
-  kind: PushNotificationKind | typeof SENT_NOTIFICATION_KIND;
+  kind: PushNotificationKind | typeof SENT_NOTIFICATION_KIND | "blocker";
   projectId?: string;
   serverUrl?: string;
   subscriptionId: string;
@@ -104,10 +104,33 @@ export class SendNotificationError extends Error {
 }
 
 interface OutgoingNotification {
+  id?: string;
   title: string;
   body: string;
   kind: PushNotificationData["kind"];
-  thread: { id: string; projectId: string } | null;
+  thread: { id: string; projectId?: string } | null;
+}
+
+interface DeliveryReport {
+  channels: DeliveryChannel[];
+  mobileDevices: number;
+  mobileSent: number;
+  mobileFailure: string | null;
+}
+
+export interface BlockerPushMessage {
+  id: string;
+  title: string;
+  body: string;
+  threadId: string | null;
+}
+
+export interface BlockerDelivery {
+  web: boolean;
+  desktop: boolean;
+  mobileDevices: number;
+  mobileSent: number;
+  mobileFailure: string | null;
 }
 
 export interface ExpoPushMessage {
@@ -148,7 +171,9 @@ interface BatchResult {
 }
 
 export interface PushSender {
+  deliverBlocker(message: BlockerPushMessage): Promise<BlockerDelivery>;
   getLastOutcome(): LastSendOutcome;
+  isRunning(): boolean;
   onInteractionPending(
     payload: PluginThreadEventPayloads["interaction.pending"],
   ): void;
@@ -391,7 +416,7 @@ export function createPushSender(args: CreatePushSenderArgs): PushSender {
 
   async function deliver(
     notification: OutgoingNotification,
-  ): Promise<DeliveryChannel[]> {
+  ): Promise<DeliveryReport> {
     const title = truncate(notification.title, NOTIFICATION_TITLE_MAX_LENGTH);
     const body = truncate(notification.body, NOTIFICATION_BODY_MAX_LENGTH);
     const config = await args.getDeliverySettings();
@@ -400,23 +425,27 @@ export function createPushSender(args: CreatePushSenderArgs): PushSender {
     if (config.desktopEnabled) channels.push("desktop");
     if (channels.length > 0) {
       bb.realtime.publish(CLIENT_NOTIFICATION_CHANNEL, {
-        id: randomUUID(),
+        id: notification.id ?? randomUUID(),
         title,
         body,
         threadId: notification.thread?.id ?? null,
         channels,
       } satisfies ClientNotification);
     }
-    if (!config.mobileEnabled) return channels;
+    if (!config.mobileEnabled)
+      return { channels, mobileDevices: 0, mobileSent: 0, mobileFailure: null };
     const rows = await subscriptions.list();
-    if (rows.length === 0) return channels;
+    if (rows.length === 0)
+      return { channels, mobileDevices: 0, mobileSent: 0, mobileFailure: null };
     const serverUrl = bb.server.experimental_appUrl;
     const data = {
       kind: notification.kind,
       ...(notification.thread === null
         ? {}
         : {
-            projectId: notification.thread.projectId,
+            ...(notification.thread.projectId === undefined
+              ? {}
+              : { projectId: notification.thread.projectId }),
             threadId: notification.thread.id,
           }),
       ...(serverUrl === null ? {} : { serverUrl }),
@@ -445,7 +474,12 @@ export function createPushSender(args: CreatePushSenderArgs): PushSender {
         ? { status: "sent", at: now(), sentCount }
         : { status: "failed", at: now(), reason: failure },
     );
-    return sentCount > 0 ? [...channels, "mobile"] : channels;
+    return {
+      channels: sentCount > 0 ? [...channels, "mobile"] : channels,
+      mobileDevices: rows.length,
+      mobileSent: sentCount,
+      mobileFailure: failure,
+    };
   }
 
   async function send(
@@ -482,7 +516,7 @@ export function createPushSender(args: CreatePushSenderArgs): PushSender {
     );
     inFlight.add(tracked);
     void tracked.finally(() => inFlight.delete(tracked));
-    const channels = await delivery;
+    const { channels } = await delivery;
     bb.log.info(
       `Sent a notification from ${describeCaller(caller)} to ${channels.length === 0 ? "no channel" : channels.join(", ")}`,
     );
@@ -580,8 +614,42 @@ export function createPushSender(args: CreatePushSenderArgs): PushSender {
     }
   }
 
+  async function deliverBlocker(
+    message: BlockerPushMessage,
+  ): Promise<BlockerDelivery> {
+    if (!running) {
+      throw new SendNotificationError(
+        "sender_stopped",
+        "Push notifications are not running",
+      );
+    }
+    const delivery = deliver({
+      id: message.id,
+      title: message.title,
+      body: message.body,
+      kind: "blocker",
+      thread: message.threadId === null ? null : { id: message.threadId },
+    });
+    const tracked = delivery.then(
+      () => undefined,
+      () => undefined,
+    );
+    inFlight.add(tracked);
+    void tracked.finally(() => inFlight.delete(tracked));
+    const report = await delivery;
+    return {
+      web: report.channels.includes("web"),
+      desktop: report.channels.includes("desktop"),
+      mobileDevices: report.mobileDevices,
+      mobileSent: report.mobileSent,
+      mobileFailure: report.mobileFailure,
+    };
+  }
+
   return {
+    deliverBlocker,
     getLastOutcome: () => lastOutcome,
+    isRunning: () => running,
     onInteractionPending(payload) {
       schedule(
         payload.thread.id,
