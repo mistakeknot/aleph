@@ -105,6 +105,7 @@ composer-gate	M	apps/app/src/test/thread-detail-prompt-area-harness.tsx
 composer-gate	M	packages/shared-ui/src/components/ui/question-form-state.ts
 contributor-gate	M	.github/APPROVED_CONTRIBUTORS
 credential-redaction	M	changelog-metadata.ts
+history-keybindings	M	apps/app/src/components/commands/AppCommandProvider.test.tsx
 history-keybindings	M	packages/domain/src/app-keybindings.ts
 credential-redaction	M	packages/domain/src/app-theme.ts
 credential-redaction	M	packages/domain/src/index.ts
@@ -245,6 +246,7 @@ event-cold-tier	A	apps/server/test/threads/event-cold-tier-guards.test.ts
 event-cold-tier	A	apps/server/test/threads/event-cold-tier-hydrate-routes.test.ts
 event-cold-tier	A	apps/server/test/threads/event-cold-tier-restart.test.ts
 event-cold-tier	A	apps/server/test/threads/event-cold-tier.test.ts
+event-cold-tier	M	apps/server/test/threads/thread-title-regeneration.test.ts
 event-cold-tier	A	docs/cold-tier-reader-audit.md
 event-cold-tier	A	docs/event-archive.md
 event-cold-tier	A	packages/db/src/data/event-cold-tier.ts
@@ -262,6 +264,7 @@ fork-docs	M	CHANGELOG.md
 fork-docs	A	FORK.md
 fork-docs	A	MISSION.md
 fork-docs	A	PHILOSOPHY.md
+fork-docs	M	README.md
 fork-docs	A	UPSTREAM_BASE
 fork-docs	M	apps/app/src/components/settings/changelog-preview.test.ts
 fork-docs	M	changelog-parser.ts
@@ -295,6 +298,7 @@ fork-docs	A	docs/wiki/src/introduction.md
 fork-docs	A	docs/wiki/src/journeys-and-roadmap.md
 fork-docs	A	docs/wiki/src/repository-layout.md
 fork-docs	A	docs/wiki/src/versions-and-updates.md
+fork-docs	M	plugins/bb-ai/README.md
 fork-owned-migrations	A	apps/cli/src/__tests__/command-output/db.test.ts
 fork-owned-migrations	A	apps/cli/src/commands/db.ts
 fork-owned-migrations	M	apps/server/src/assets/install-machine.sh
@@ -1030,6 +1034,8 @@ timeline-build-bound	A	apps/server/test/services/threads/timeline-parent-lookups
 timeline-build-bound	M	apps/server/test/services/threads/timeline-selection-memo.test.ts
 timeline-build-bound	M	apps/server/test/services/threads/timeline-workflow-progress-window.test.ts
 timeline-build-bound	M	packages/thread-view/src/build-thread-timeline.ts
+upstream-backport	M	apps/server/src/services/providers/provider-registry.ts
+upstream-backport	M	apps/server/src/services/threads/project-execution-defaults.ts
 upstream-backport	M	apps/server/test/system/execution-options.test.ts
 upstream-sync-tooling	A	scripts/upstream-sync.sh
 version-scheme	M	apps/desktop/package.json
