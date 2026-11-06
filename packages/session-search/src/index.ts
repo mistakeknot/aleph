@@ -3,6 +3,8 @@ export * from "./adapters/codex.js";
 export * from "./admission.js";
 export * from "./contracts.js";
 export * from "./fts-structure.js";
+export * from "./ipc/frame.js";
+export * from "./ipc/framed-child.js";
 export * from "./memory-pressure.js";
 export * from "./migrations.js";
 export * from "./private-fs.js";
