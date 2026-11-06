@@ -14,7 +14,6 @@ import {
   ensurePrerequisite,
   isMissing,
   missingPrerequisites,
-  withBuildLock,
 } from "./ensure-test-prerequisites.js";
 
 const repoRoot = join(import.meta.dirname, "../../../..");
@@ -83,50 +82,6 @@ describe("ensureTestPrerequisites", () => {
     }
   });
 
-  it("never runs two locked sections at once", async () => {
-    const lockDir = join(emptyRoot(), "build.lock");
-    let active = 0;
-    let overlapped = false;
-    const section = async (): Promise<void> => {
-      active += 1;
-      overlapped ||= active > 1;
-      await new Promise((resolve) => setTimeout(resolve, 80));
-      active -= 1;
-    };
-    const options = { waitMs: 5000, staleMs: 60_000 };
-    await Promise.all([
-      withBuildLock(lockDir, section, options),
-      withBuildLock(lockDir, section, options),
-      withBuildLock(lockDir, section, options),
-    ]);
-    expect(overlapped).toBe(false);
-  });
-
-  it("takes over a lock whose holder has exited", async () => {
-    const lockDir = join(emptyRoot(), "build.lock");
-    touch(join(lockDir, "pid"), "2147483646");
-    let ran = false;
-    await withBuildLock(
-      lockDir,
-      async () => {
-        ran = true;
-      },
-      { waitMs: 2000, staleMs: 60_000 },
-    );
-    expect(ran).toBe(true);
-  });
-
-  it("gives up waiting on a lock that is still held", async () => {
-    const lockDir = join(emptyRoot(), "build.lock");
-    touch(join(lockDir, "pid"), String(process.pid));
-    await expect(
-      withBuildLock(lockDir, async () => undefined, {
-        waitMs: 250,
-        staleMs: 60_000,
-      }),
-    ).rejects.toThrow("Timed out waiting for the build lock");
-  });
-
   function fakePrerequisite(root: string, body: string): GeneratedPrerequisite {
     touch(join(root, "pkg/build.mjs"), body);
     return {
@@ -137,24 +92,40 @@ describe("ensureTestPrerequisites", () => {
     };
   }
 
-  it("builds once when two runs race, rechecking after the lock", async () => {
+  it("lets concurrent builds finish without exposing a partial output", async () => {
     const root = emptyRoot();
     const prerequisite = fakePrerequisite(
       root,
       [
-        'import { appendFileSync, writeFileSync } from "node:fs";',
+        'import { appendFileSync, renameSync, writeFileSync } from "node:fs";',
         'appendFileSync("builds.log", "x\\n");',
         "await new Promise((resolve) => setTimeout(resolve, 300));",
-        'writeFileSync("out.txt", "done");',
+        'writeFileSync(`out.txt.${process.pid}`, "done");',
+        'renameSync(`out.txt.${process.pid}`, "out.txt");',
       ].join("\n"),
     );
-    const options = { lockDir: join(root, "build.lock") };
     await Promise.all([
-      ensurePrerequisite(prerequisite, root, options),
-      ensurePrerequisite(prerequisite, root, options),
+      ensurePrerequisite(prerequisite, root),
+      ensurePrerequisite(prerequisite, root),
+      ensurePrerequisite(prerequisite, root),
     ]);
-    expect(readFileSync(join(root, "pkg/builds.log"), "utf8")).toBe("x\n");
+    expect(readFileSync(join(root, "pkg/out.txt"), "utf8")).toBe("done");
     expect(await isMissing(prerequisite, root)).toBe(false);
+  });
+
+  it("skips the build when the outputs already exist", async () => {
+    const root = emptyRoot();
+    const prerequisite = fakePrerequisite(root, 'throw new Error("ran");');
+    touch(join(root, "pkg/out.txt"), "done");
+    await ensurePrerequisite(prerequisite, root);
+  });
+
+  it("reports a failing build with its exit code and output", async () => {
+    const root = emptyRoot();
+    const prerequisite = fakePrerequisite(root, 'throw new Error("boom");');
+    await expect(ensurePrerequisite(prerequisite, root)).rejects.toThrow(
+      /Could not build fake artifact before the server tests: exited with code 1: [\s\S]*boom/,
+    );
   });
 
   it("fails with a descriptive error when the build exceeds its timeout", async () => {
@@ -165,11 +136,34 @@ describe("ensureTestPrerequisites", () => {
     );
     await expect(
       ensurePrerequisite(prerequisite, root, {
-        lockDir: join(root, "build.lock"),
-        timeoutMs: 300,
+        timeoutMs: 500,
+        killGraceMs: 200,
       }),
     ).rejects.toThrow(
-      "Could not build fake artifact before the server tests: timed out after 300 ms",
+      "Could not build fake artifact before the server tests: timed out after 500 ms",
     );
+  });
+
+  it("force-kills a build that ignores SIGTERM", async () => {
+    const root = emptyRoot();
+    const prerequisite = fakePrerequisite(
+      root,
+      [
+        'import { writeFileSync } from "node:fs";',
+        'process.on("SIGTERM", () => {});',
+        'writeFileSync("child.pid", String(process.pid));',
+        "setInterval(() => {}, 1000);",
+      ].join("\n"),
+    );
+    const started = Date.now();
+    await expect(
+      ensurePrerequisite(prerequisite, root, {
+        timeoutMs: 1500,
+        killGraceMs: 300,
+      }),
+    ).rejects.toThrow("timed out after 1500 ms");
+    expect(Date.now() - started).toBeLessThan(10_000);
+    const pid = Number(readFileSync(join(root, "pkg/child.pid"), "utf8"));
+    expect(() => process.kill(pid, 0)).toThrow();
   });
 });

@@ -1,16 +1,11 @@
-import { execFile } from "node:child_process";
-import { createHash } from "node:crypto";
+import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { promisify } from "node:util";
-
-const execFileAsync = promisify(execFile);
 
 export const BUILD_TIMEOUT_MS = 300_000;
-const LOCK_POLL_MS = 100;
+export const KILL_GRACE_MS = 5_000;
 
 export interface GeneratedPrerequisite {
   readonly label: string;
@@ -21,7 +16,7 @@ export interface GeneratedPrerequisite {
 
 export interface EnsureOptions {
   readonly timeoutMs?: number;
-  readonly lockDir?: string;
+  readonly killGraceMs?: number;
 }
 
 const repoRoot = fileURLToPath(new URL("../../../../", import.meta.url));
@@ -82,62 +77,58 @@ export async function missingPrerequisites(
   return missing;
 }
 
-function processIsAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "EPERM";
-  }
+interface BuildOutcome {
+  readonly timedOut: boolean;
+  readonly code: number | null;
+  readonly stderr: string;
 }
 
-async function lockIsStale(lockDir: string, staleMs: number): Promise<boolean> {
-  const holder = Number(
-    await readFile(join(lockDir, "pid"), "utf8").catch(() => ""),
-  );
-  if (Number.isInteger(holder) && holder > 0 && !processIsAlive(holder)) {
-    return true;
-  }
+function signalBuild(child: ChildProcess, signal: NodeJS.Signals): void {
   try {
-    return Date.now() - (await stat(lockDir)).mtimeMs > staleMs;
+    if (process.platform !== "win32" && child.pid !== undefined) {
+      process.kill(-child.pid, signal);
+    } else {
+      child.kill(signal);
+    }
   } catch {
-    return false;
+    child.kill(signal);
   }
 }
 
-export async function withBuildLock<T>(
-  lockDir: string,
-  work: () => Promise<T>,
-  options: { readonly waitMs: number; readonly staleMs: number },
-): Promise<T> {
-  const deadline = Date.now() + options.waitMs;
-  for (;;) {
-    try {
-      await mkdir(lockDir);
-      break;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
-        throw error;
-      }
-    }
-    if (await lockIsStale(lockDir, options.staleMs)) {
-      const retired = `${lockDir}.stale-${process.pid}-${Date.now()}`;
-      await rename(lockDir, retired)
-        .then(() => rm(retired, { recursive: true, force: true }))
-        .catch(() => undefined);
-      continue;
-    }
-    if (Date.now() >= deadline) {
-      throw new Error(`Timed out waiting for the build lock at ${lockDir}`);
-    }
-    await new Promise((resolve) => setTimeout(resolve, LOCK_POLL_MS));
-  }
-  try {
-    await writeFile(join(lockDir, "pid"), String(process.pid));
-    return await work();
-  } finally {
-    await rm(lockDir, { recursive: true, force: true });
-  }
+function runBuild(
+  prerequisite: GeneratedPrerequisite,
+  root: string,
+  timeoutMs: number,
+  killGraceMs: number,
+): Promise<BuildOutcome> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [prerequisite.script], {
+      cwd: join(root, prerequisite.packageDir),
+      detached: process.platform !== "win32",
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+    let stderr = "";
+    let timedOut = false;
+    let forceKill: NodeJS.Timeout | undefined;
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr = (stderr + chunk.toString()).slice(-4000);
+    });
+    const deadline = setTimeout(() => {
+      timedOut = true;
+      signalBuild(child, "SIGTERM");
+      forceKill = setTimeout(() => signalBuild(child, "SIGKILL"), killGraceMs);
+    }, timeoutMs);
+    child.on("error", (error) => {
+      clearTimeout(deadline);
+      clearTimeout(forceKill);
+      reject(error);
+    });
+    child.on("close", (code) => {
+      clearTimeout(deadline);
+      clearTimeout(forceKill);
+      resolve({ timedOut, code, stderr });
+    });
+  });
 }
 
 export async function ensurePrerequisite(
@@ -149,39 +140,24 @@ export async function ensurePrerequisite(
     return;
   }
   const timeoutMs = options.timeoutMs ?? BUILD_TIMEOUT_MS;
-  const lockDir =
-    options.lockDir ??
-    join(
-      tmpdir(),
-      `bb-test-prerequisite-${createHash("sha256")
-        .update(`${root}\0${prerequisite.packageDir}`)
-        .digest("hex")
-        .slice(0, 16)}.lock`,
+  const outcome = await runBuild(
+    prerequisite,
+    root,
+    timeoutMs,
+    options.killGraceMs ?? KILL_GRACE_MS,
+  ).catch((error: unknown) => ({
+    timedOut: false,
+    code: null,
+    stderr: String(error),
+  }));
+  if (outcome.timedOut || outcome.code !== 0) {
+    const reason = outcome.timedOut
+      ? `timed out after ${timeoutMs} ms`
+      : `exited with code ${outcome.code}: ${outcome.stderr}`;
+    throw new Error(
+      `Could not build ${prerequisite.label} before the server tests: ${reason}`,
     );
-  await withBuildLock(
-    lockDir,
-    async () => {
-      if (!(await isMissing(prerequisite, root))) {
-        return;
-      }
-      try {
-        await execFileAsync(process.execPath, [prerequisite.script], {
-          cwd: join(root, prerequisite.packageDir),
-          timeout: timeoutMs,
-        });
-      } catch (error) {
-        const reason =
-          (error as { killed?: boolean }).killed === true
-            ? `timed out after ${timeoutMs} ms`
-            : String(error);
-        throw new Error(
-          `Could not build ${prerequisite.label} before the server tests: ${reason}`,
-          { cause: error },
-        );
-      }
-    },
-    { waitMs: timeoutMs * 2, staleMs: timeoutMs + 60_000 },
-  );
+  }
 }
 
 export default async function ensureTestPrerequisites(): Promise<void> {

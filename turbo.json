@@ -493,6 +493,7 @@
         "src/stall-windows.ts",
         "src/event-loop-delay.ts",
         "scripts/generate-profile-worker.mjs",
+        "scripts/write-file-atomically.mjs",
         "$TURBO_ROOT$/package.json",
         "$TURBO_ROOT$/pnpm-lock.yaml"
       ],
