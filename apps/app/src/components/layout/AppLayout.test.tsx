@@ -9,6 +9,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { Provider as JotaiProvider, createStore } from "jotai";
+import { makeThreadListEntry } from "@bb/test-helpers/domain-fixtures";
 import { defaultAppSettings } from "@bb/domain";
 import { Popover, PopoverContent, PopoverTrigger } from "@bb/shared-ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@bb/shared-ui/tooltip";
@@ -52,7 +53,11 @@ const useThreadDetailBootstrapMock = vi.hoisted(() =>
   ),
 );
 
-// Aleph: the sidebar width is stored per width class; jsdom (1024px) is "narrow".
+const sidebarThreadsMock = vi.hoisted(() => {
+  const threads: import("@bb/domain").ThreadListEntry[] = [];
+  return { threads };
+});
+
 const SIDEBAR_WIDTH_STORAGE_KEY = "aleph.layout.narrow.sidebarWidth";
 const SIDEBAR_OPEN_STORAGE_KEY = "aleph.layout.narrow.sidebarOpen";
 const APP_ROUTE = "/projects/proj_one/threads/thr_one?message=12#event-12";
@@ -179,7 +184,7 @@ vi.mock("@/hooks/queries/sidebar-navigation-query", () => ({
         kind: "personal",
         name: "Personal",
         sources: [],
-        threads: [],
+        threads: sidebarThreadsMock.threads,
         defaultExecutionOptions: null,
         createdAt: 1,
         updatedAt: 1,
@@ -242,6 +247,7 @@ function renderLayout(initialPath = "/", children: ReactNode = null) {
 }
 
 beforeEach(() => {
+  sidebarThreadsMock.threads = [];
   window.localStorage.clear();
   window.sessionStorage.clear();
   useThreadDetailBootstrapMock.mockReset();
@@ -257,6 +263,7 @@ afterEach(() => {
   resetAllCrashedPluginSlotsForTest();
   setCompactSecondaryPanelPresentation("closed");
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   window.localStorage.clear();
   window.sessionStorage.clear();
 });
@@ -738,5 +745,44 @@ describe("thread open signals", () => {
     );
     expect(store.get(splitLayoutAtom)).toBe(layout);
     expect(toastMock).not.toHaveBeenCalled();
+  });
+});
+
+it("synchronizes desktop attention when sidebar state changes and clears its report on unmount", async () => {
+  const setAttentionThreads = vi.fn();
+  vi.stubGlobal("bbDesktop", { setAttentionThreads });
+  sidebarThreadsMock.threads = [
+    makeThreadListEntry({
+      id: "unread",
+      lastReadAt: 10,
+      latestAttentionAt: 20,
+    }),
+  ];
+  const view = renderLayout();
+  await waitFor(() =>
+    expect(setAttentionThreads).toHaveBeenLastCalledWith({
+      pendingThreadIds: [],
+      unreadThreadIds: ["unread"],
+    }),
+  );
+  sidebarThreadsMock.threads = [
+    makeThreadListEntry({
+      id: "pending",
+      lastReadAt: 30,
+      latestAttentionAt: 20,
+      hasPendingInteraction: true,
+    }),
+  ];
+  fireEvent.click(screen.getByRole("link", { name: SETTINGS_ROUTE }));
+  await waitFor(() =>
+    expect(setAttentionThreads).toHaveBeenLastCalledWith({
+      pendingThreadIds: ["pending"],
+      unreadThreadIds: [],
+    }),
+  );
+  view.unmount();
+  expect(setAttentionThreads).toHaveBeenLastCalledWith({
+    pendingThreadIds: [],
+    unreadThreadIds: [],
   });
 });

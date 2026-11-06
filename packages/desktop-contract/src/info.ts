@@ -63,6 +63,11 @@ export type BbDesktopOpenNewTabHandler = () => void;
 export type BbDesktopAppCommandHandler = (command: AppCommandId) => boolean;
 export type BbDesktopCloseWindowRequestHandler = () => boolean;
 
+export interface BbDesktopAttentionThreads {
+  pendingThreadIds: string[];
+  unreadThreadIds: string[];
+}
+
 export interface BbDesktopApi extends BbDesktopInfo {
   browser: BbDesktopBrowserApi;
   getServerChoices?(): Promise<BbDesktopServerChoice[]>;
@@ -74,6 +79,7 @@ export interface BbDesktopApi extends BbDesktopInfo {
   checkForUpdates(): Promise<BbDesktopInfo>;
   getInfo(): Promise<BbDesktopInfo>;
   focusWindow?(): void;
+  setAttentionThreads?(threads: BbDesktopAttentionThreads): void;
   getWindowState?(): Promise<BbDesktopWindowState>;
   installUpdate(): Promise<void>;
   diagnosticsEnabled?: boolean;
