@@ -24,7 +24,6 @@ import {
   type ThreadForkPoint,
 } from "./thread-fork-history.js";
 import {
-  awaitRequestedCreateProviderRegistration,
   rememberProjectExecutionDefaultsForCreate,
   resolveProjectExecutionDefaultsForCreate,
 } from "./project-execution-defaults.js";
@@ -56,6 +55,7 @@ import {
 import {
   buildProviderThreadExecutionDefaults,
   resolveCreateThreadEnvironment,
+  throwUnregisteredProviderError,
 } from "./thread-default-policy.js";
 import { assertValidParentThread } from "./thread-parent.js";
 import {
@@ -706,17 +706,11 @@ async function createThreadFromRequestWithSourcePinned(
     }
   }
   await deps.providerRegistry.whenRegistrationsSettled();
-  await awaitRequestedCreateProviderRegistration(deps, {
-    executionInputSources: requestInput.executionInputSources,
-    model: requestInput.model,
-    projectId: requestInput.projectId,
-    providerId: requestInput.providerId,
-    sessionOptions: requestInput.sessionOptions,
-  });
   const {
     executionDefaults,
     providerId,
     providerFallbackCandidates,
+    registrationPending,
     requestedModel,
   } = resolveProjectExecutionDefaultsForCreate(deps, {
     executionInputSources: requestInput.executionInputSources,
@@ -816,35 +810,49 @@ async function createThreadFromRequestWithSourcePinned(
             request.environment.machine.hostId,
           )
         : undefined;
-  const catalogExecutionDefaults = await resolveCatalogExecutionDefaults(deps, {
-    ...(modelCatalogCwd !== undefined ? { cwd: modelCatalogCwd } : {}),
-    executionDefaults,
-    hostId: childHostId,
-    providerId,
-    providerFallbackCandidates,
-    requestedModel,
-  });
-  if (
-    catalogExecutionDefaults !== null &&
-    catalogExecutionDefaults.providerId !== request.providerId
-  ) {
-    request.providerId = catalogExecutionDefaults.providerId;
-  }
-  assertProviderAcceptsPromptActions(deps.providerRegistry, {
-    input: request.input,
-    providerId: request.providerId,
-  });
-  const resolvedExecutionDefaults = await resolveSessionOptionExecutionDefaults(
-    deps,
-    {
+  const resolveExecutionDefaultsAtCatalog = async () => {
+    const catalogExecutionDefaults = await resolveCatalogExecutionDefaults(
+      deps,
+      {
+        ...(modelCatalogCwd !== undefined ? { cwd: modelCatalogCwd } : {}),
+        executionDefaults,
+        hostId: childHostId,
+        providerId,
+        providerFallbackCandidates,
+        requestedModel,
+      },
+    );
+    if (
+      catalogExecutionDefaults !== null &&
+      catalogExecutionDefaults.providerId !== request.providerId
+    ) {
+      request.providerId = catalogExecutionDefaults.providerId;
+    }
+    assertProviderAcceptsPromptActions(deps.providerRegistry, {
+      input: request.input,
+      providerId: request.providerId,
+    });
+    return resolveSessionOptionExecutionDefaults(deps, {
       ...(modelCatalogCwd !== undefined ? { cwd: modelCatalogCwd } : {}),
       executionDefaults: catalogExecutionDefaults,
       hostId: childHostId,
       providerId: request.providerId,
       requestedModel,
       selections: request.sessionOptions ?? {},
-    },
-  );
+    });
+  };
+  let resolvedExecutionDefaults: ProjectExecutionDefaults | null;
+  try {
+    resolvedExecutionDefaults = await resolveExecutionDefaultsAtCatalog();
+  } catch (error) {
+    if (registrationPending && deps.providerRegistry.get(providerId) === null) {
+      throwUnregisteredProviderError(deps.providerRegistry, providerId);
+    }
+    throw error;
+  }
+  if (registrationPending && deps.providerRegistry.get(providerId) === null) {
+    throwUnregisteredProviderError(deps.providerRegistry, providerId);
+  }
 
   const { environmentId, environmentIntent } =
     await resolveThreadEnvironmentPlacement(deps, {

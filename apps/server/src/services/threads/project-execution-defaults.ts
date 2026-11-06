@@ -36,6 +36,7 @@ interface ResolvedProjectExecutionDefaultsForCreate {
   executionDefaults: ProjectExecutionDefaults | null;
   providerId: string;
   providerFallbackCandidates: readonly string[];
+  registrationPending: boolean;
   requestedModel: string | null;
 }
 
@@ -99,47 +100,6 @@ function resolveRequestedCreateExecutionValue<TValue>({
   return sources[field] === undefined ? undefined : value;
 }
 
-export async function awaitRequestedCreateProviderRegistration(
-  deps: Pick<AppDeps, "db" | "providerRegistry">,
-  args: Pick<
-    ResolveProjectExecutionDefaultsForCreateArgs,
-    "executionInputSources" | "model" | "projectId" | "providerId"
-  > & { sessionOptions?: ThreadCreateServiceRequestInput["sessionOptions"] },
-): Promise<void> {
-  const requestedProviderId = resolveRequestedCreateExecutionValue({
-    field: "providerId",
-    sources: args.executionInputSources,
-    value: args.providerId,
-  });
-  if (
-    requestedProviderId === undefined ||
-    deps.providerRegistry.disabledProviderIds().has(requestedProviderId) ||
-    deps.providerRegistry.get(requestedProviderId) !== null ||
-    deps.providerRegistry.registrationsSettled()
-  ) {
-    return;
-  }
-  const requestedModel =
-    resolveRequestedCreateExecutionValue({
-      field: "model",
-      sources: args.executionInputSources,
-      value: args.model,
-    }) ?? null;
-  const storedDefaults = getProjectExecutionDefaults(deps.db, {
-    projectId: args.projectId,
-  });
-  const executionDefaults =
-    storedDefaults?.providerId === requestedProviderId ? storedDefaults : null;
-  const model = requestedModel ?? executionDefaults?.model ?? null;
-  const reachesCatalog =
-    (executionDefaults === null && requestedModel === null) ||
-    (model !== null && Object.keys(args.sessionOptions ?? {}).length > 0);
-  if (!reachesCatalog) {
-    return;
-  }
-  await deps.providerRegistry.whenProviderRegistered(requestedProviderId);
-}
-
 /**
  * Resolves the create's provider through the defaults ladder. This is the only
  * place a thread's provider is chosen: it is immutable afterwards, because a
@@ -164,14 +124,19 @@ export function resolveProjectExecutionDefaultsForCreate(
     value: args.model,
   });
   const parent = resolveInheritableParentExecution(deps, args.parentThread);
+  const resolvedRequestedProviderId = requestedProviderId ?? parent?.providerId;
   const resolution = resolveCreateThreadExecutionDefaults(
     deps.providerRegistry,
     {
-      requestedProviderId: requestedProviderId ?? parent?.providerId,
+      deferPendingRegistration: true,
+      requestedProviderId: resolvedRequestedProviderId,
       storedDefaults,
     },
   );
   const { providerId, providerFallbackCandidates } = resolution;
+  const registrationPending =
+    resolvedRequestedProviderId !== undefined &&
+    deps.providerRegistry.get(providerId) === null;
   const executionDefaults =
     parent !== null && providerId === parent.providerId
       ? {
@@ -189,6 +154,7 @@ export function resolveProjectExecutionDefaultsForCreate(
     executionDefaults,
     providerId,
     providerFallbackCandidates,
+    registrationPending,
     requestedModel: requestedModel ?? null,
   };
 }

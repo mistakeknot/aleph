@@ -69,6 +69,7 @@ function requireDefaultProviderId(registry: ProviderRegistryService): string {
 }
 
 interface ResolveCreateThreadExecutionDefaultsArgs {
+  deferPendingRegistration?: boolean;
   requestedProviderId?: string;
   storedDefaults: ProjectExecutionDefaults | null;
 }
@@ -188,6 +189,30 @@ function resolveSupportedPermissionMode(
   return permissionModes[0] ?? DEFAULT_PERMISSION_MODE;
 }
 
+export function throwUnregisteredProviderError(
+  registry: ProviderRegistryService,
+  providerId: string,
+): never {
+  if (!registry.registrationsSettled()) {
+    throw new ApiError(
+      503,
+      "provider_registration_pending",
+      `Provider "${providerId}" is not registered yet because provider plugins are still starting. Retry shortly.`,
+      { details: { providerId }, retryable: true },
+    );
+  }
+  const validIds = registry
+    .list()
+    .map((entry) => entry.info.id)
+    .sort();
+  throw new ApiError(
+    400,
+    "unknown_provider",
+    `Unknown provider "${providerId}". Valid provider ids: ${validIds.join(", ") || "none registered"}.`,
+    { details: { providerId, validProviderIds: validIds } },
+  );
+}
+
 export function resolveCreateThreadExecutionDefaults(
   registry: ProviderRegistryService,
   args: ResolveCreateThreadExecutionDefaultsArgs,
@@ -215,25 +240,14 @@ export function resolveCreateThreadExecutionDefaults(
     );
   }
   const registration = registry.get(providerId);
-  if (registration === null && args.requestedProviderId !== undefined) {
-    if (!registry.registrationsSettled()) {
-      throw new ApiError(
-        503,
-        "provider_registration_pending",
-        `Provider "${providerId}" is not registered yet because provider plugins are still starting. Retry shortly.`,
-        { details: { providerId }, retryable: true },
-      );
-    }
-    const validIds = registry
-      .list()
-      .map((entry) => entry.info.id)
-      .sort();
-    throw new ApiError(
-      400,
-      "unknown_provider",
-      `Unknown provider "${providerId}". Valid provider ids: ${validIds.join(", ") || "none registered"}.`,
-      { details: { providerId, validProviderIds: validIds } },
-    );
+  if (
+    registration === null &&
+    args.requestedProviderId !== undefined &&
+    !(
+      args.deferPendingRegistration === true && !registry.registrationsSettled()
+    )
+  ) {
+    throwUnregisteredProviderError(registry, providerId);
   }
   if (registration !== null && !registration.info.available) {
     throw new ApiError(

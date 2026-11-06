@@ -1,5 +1,6 @@
 import { threads, upsertProjectExecutionDefaults } from "@bb/db";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { DEFAULT_ENVIRONMENT_PROVIDER_ID } from "../../src/services/environments/environment-provider-ids.js";
 import { createProviderRegistryService } from "../../src/services/providers/provider-registry.js";
 import { registerFirstPartyProviders } from "../helpers/provider-registry.js";
 import { readJson } from "../helpers/json.js";
@@ -38,9 +39,11 @@ function createThread(
   harness: TestAppHarness,
   args: {
     hostId: string;
+    hostless?: boolean;
     model?: string;
     projectId: string;
     providerId: string;
+    sessionOptions?: Record<string, string>;
   },
 ) {
   return harness.app.request("/api/v1/threads", {
@@ -51,15 +54,23 @@ function createThread(
       projectId: args.projectId,
       providerId: args.providerId,
       ...(args.model !== undefined ? { model: args.model } : {}),
+      ...(args.sessionOptions !== undefined
+        ? { sessionOptions: args.sessionOptions }
+        : {}),
       input: [{ type: "text", text: "Start" }],
-      environment: {
-        type: "host",
-        hostId: args.hostId,
-        workspace: {
-          type: "managed-worktree",
-          baseBranch: { kind: "default" },
-        },
-      },
+      environment: args.hostless
+        ? {
+            type: "provider",
+            environmentProviderId: DEFAULT_ENVIRONMENT_PROVIDER_ID.gitWorktree,
+          }
+        : {
+            type: "host",
+            hostId: args.hostId,
+            workspace: {
+              type: "managed-worktree",
+              baseBranch: { kind: "default" },
+            },
+          },
     }),
   });
 }
@@ -242,6 +253,18 @@ describe("thread create while provider plugins are still registering", () => {
         });
         return {};
       },
+    },
+    {
+      name: "the environment has no host and no model is known",
+      prepare: () => ({ hostless: true }),
+    },
+    {
+      name: "the environment has no host and a model with session options is supplied",
+      prepare: () => ({
+        hostless: true,
+        model: "supplied-model",
+        sessionOptions: { effort: "high" },
+      }),
     },
   ])(
     "answers the retryable 503 after the first wait without a second wait when $name",
