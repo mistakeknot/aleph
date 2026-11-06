@@ -11,12 +11,15 @@ import {
   type RefusalCode,
   type SchedulerEvent,
 } from "../src/index.js";
+import { DEFAULT_PARSER_READERS } from "../src/parser/child.js";
 import {
   pageBindingViolation,
   parseParserResponse,
+  validNormalizedRecord,
   validateSourcePage,
 } from "../src/parser/protocol.js";
 import type { CommitResult } from "../src/storage.js";
+import { fixturePath } from "./helpers.js";
 
 interface Step {
   cost: number;
@@ -152,6 +155,8 @@ function harness(options: {
   quantumMs?: number;
   stallMs?: number;
   maxTerminations?: number;
+  maxSinkFailures?: number;
+  deferBackoffMs?: number;
 }) {
   const clock = new Clock();
   const parsers = Array.from(
@@ -167,6 +172,8 @@ function harness(options: {
     quantumMs: options.quantumMs,
     stallMs: options.stallMs,
     maxTerminations: options.maxTerminations,
+    maxSinkFailures: options.maxSinkFailures,
+    deferBackoffMs: options.deferBackoffMs,
     onEvent: (event) => events.push(event),
   });
   return { clock, parsers, sink, events, scheduler };
@@ -744,6 +751,188 @@ describe("page validation", () => {
   });
 });
 
+const BASE_RECORD = {
+  provider: "claude",
+  sessionId: "s1",
+  agentId: null,
+  parentCallId: null,
+  cwd: "/work",
+  sidechain: false,
+  eventTimeMs: 5,
+  dedupeKey: "k1",
+};
+
+const USAGE_RECORD = {
+  ...BASE_RECORD,
+  kind: "usage",
+  basis: "delta",
+  origin: "claude-message",
+  scopeKey: "scope",
+  model: null,
+  inputIncludesCache: null,
+  costUsd: null,
+  inputTokens: 1,
+  outputTokens: 2,
+  cacheReadTokens: null,
+  cacheWriteTokens: null,
+  reasoningTokens: null,
+  totalTokens: 3,
+};
+
+const RECORDS: Record<string, Record<string, unknown>> = {
+  message: { ...BASE_RECORD, kind: "message", role: "user", text: "hello" },
+  tool_call: {
+    ...BASE_RECORD,
+    kind: "tool_call",
+    callId: "c1",
+    name: "Read",
+    argumentsText: "{}",
+    delegation: false,
+    touches: [{ path: "/a", access: "read", confidence: "structured" }],
+  },
+  tool_result: {
+    ...BASE_RECORD,
+    kind: "tool_result",
+    callId: "c1",
+    text: "ok",
+  },
+  session: { ...BASE_RECORD, kind: "session", model: "m" },
+  usage: USAGE_RECORD,
+};
+
+function pageWith(
+  records: unknown[],
+  placeholders?: unknown[],
+): Record<string, unknown> {
+  const page = fullPage();
+  const batch = page.batch as Record<string, unknown>;
+  page.batch =
+    placeholders === undefined
+      ? { ...batch, records }
+      : { ...batch, records, placeholders };
+  return page;
+}
+
+describe("record validation", () => {
+  it.each(Object.keys(RECORDS))("accepts a valid %s record", (kind) => {
+    expect(validNormalizedRecord(RECORDS[kind])).toBe(true);
+    expect(validateSourcePage(pageWith([RECORDS[kind]]))).not.toBeNull();
+    expect(parseParserResponse(framed(pageWith([RECORDS[kind]])))?.t).toBe(
+      "page",
+    );
+  });
+
+  it.each([
+    ["an empty object", {}],
+    ["a null", null],
+    ["an array", []],
+    ["a string", "record"],
+    ["an unknown kind", { ...BASE_RECORD, kind: "mystery" }],
+    ["a record without a kind", { ...BASE_RECORD }],
+  ])("rejects %s as a record", (_name, value) => {
+    expect(validNormalizedRecord(value)).toBe(false);
+    expect(validateSourcePage(pageWith([value]))).toBeNull();
+    expect(parseParserResponse(framed(pageWith([value])))).toBeNull();
+  });
+
+  const required: Array<[string, string]> = [];
+  for (const [kind, record] of Object.entries(RECORDS)) {
+    for (const field of Object.keys(record)) {
+      required.push([kind, field]);
+    }
+  }
+
+  it.each(required)("rejects a %s record missing %s", (kind, field) => {
+    const record = { ...RECORDS[kind]! };
+    delete record[field];
+    expect(validNormalizedRecord(record)).toBe(false);
+    expect(validateSourcePage(pageWith([record]))).toBeNull();
+    expect(parseParserResponse(framed(pageWith([record])))).toBeNull();
+  });
+
+  it.each(required)(
+    "rejects a %s record with a wrong-typed %s",
+    (kind, field) => {
+      const record = { ...RECORDS[kind]!, [field]: { wrong: true } };
+      expect(validNormalizedRecord(record)).toBe(false);
+      expect(validateSourcePage(pageWith([record]))).toBeNull();
+      expect(parseParserResponse(framed(pageWith([record])))).toBeNull();
+    },
+  );
+
+  it.each([
+    ["a bad provider", { provider: "other" }],
+    ["a non-finite event time", { eventTimeMs: Number.POSITIVE_INFINITY }],
+    ["an empty dedupe key", { dedupeKey: "" }],
+    ["a bad role", { role: "system" }],
+    ["a numeric text", { text: 4 }],
+  ])("rejects a message record with %s", (_name, patch) => {
+    const record = { ...RECORDS.message, ...patch };
+    expect(validNormalizedRecord(record)).toBe(false);
+  });
+
+  it("rejects a tool call whose touches are malformed and a usage record with a bad counter", () => {
+    const call = RECORDS.tool_call!;
+    expect(validNormalizedRecord({ ...call, touches: [{}] })).toBe(false);
+    expect(
+      validNormalizedRecord({
+        ...call,
+        touches: [{ path: "/a", access: "delete", confidence: "structured" }],
+      }),
+    ).toBe(false);
+    expect(validNormalizedRecord({ ...USAGE_RECORD, inputTokens: -1 })).toBe(
+      false,
+    );
+    expect(validNormalizedRecord({ ...USAGE_RECORD, basis: "other" })).toBe(
+      false,
+    );
+  });
+
+  it("accepts a valid placeholder and rejects a malformed one", () => {
+    const placeholder = {
+      kind: "oversized_record",
+      dedupeKey: "oversized:1:0",
+      startOffset: 0,
+      endOffset: 5,
+      byteLength: 5,
+      reason: "record_too_large",
+    };
+    expect(
+      validateSourcePage(pageWith([RECORDS.message], [placeholder])),
+    ).not.toBeNull();
+    expect(validateSourcePage(pageWith([], [{}]))).toBeNull();
+    expect(
+      validateSourcePage(pageWith([], [{ ...placeholder, byteLength: "x" }])),
+    ).toBeNull();
+    expect(validateSourcePage(pageWith([], ["placeholder"]))).toBeNull();
+  });
+
+  it.each([
+    ["claude", "claude/session-main.jsonl"],
+    ["codex", "codex/rollout.jsonl"],
+  ] as const)(
+    "accepts every page the real %s adapter produces for its fixture",
+    async (provider, fixture) => {
+      const source = {
+        ref: { key: fixture, generation: 1, discoveredAtMs: 1 },
+        path: fixturePath(fixture),
+      };
+      let cursor: string | null = null;
+      let records = 0;
+      for (let guard = 0; guard < 100; guard += 1) {
+        const page = await DEFAULT_PARSER_READERS[provider](source, cursor);
+        if (page.status !== "page") break;
+        const wire = JSON.parse(JSON.stringify(page)) as unknown;
+        expect(validateSourcePage(wire)).not.toBeNull();
+        records += page.batch.records.length;
+        cursor = page.cursor.next;
+        if (page.progress.endOfFile) break;
+      }
+      expect(records).toBeGreaterThan(0);
+    },
+  );
+});
+
 describe("source binding", () => {
   it("names a mismatch of key, generation, discovery time and cursor", () => {
     const page = validateSourcePage(fullPage())!;
@@ -980,6 +1169,123 @@ describe("cursor read failures", () => {
     expect(scheduler.state("a")?.reason).toContain("async cursor failure");
     await settle(scheduler, clock);
     expect(sink.commits).toEqual(["a"]);
+  });
+});
+
+describe("sink failure bound", () => {
+  it("backs off with a doubling delay and quarantines after the failure limit", async () => {
+    const { clock, parsers, sink, scheduler, events } = harness({
+      maxSinkFailures: 3,
+      deferBackoffMs: 100,
+    });
+    parsers[0]!.script("a", chain(10, 1, false));
+    sink.refusals.set("a", ["throw", "throw", "throw", "throw"]);
+    scheduler.upsert(spec("a"));
+    await scheduler.drain();
+    expect(scheduler.state("a")?.status).toBe("deferred");
+    expect(scheduler.nextWakeAtMs()! - clock.now).toBe(100);
+    clock.now = scheduler.nextWakeAtMs()!;
+    await scheduler.drain();
+    expect(scheduler.state("a")?.status).toBe("deferred");
+    expect(scheduler.nextWakeAtMs()! - clock.now).toBe(200);
+    clock.now = scheduler.nextWakeAtMs()!;
+    await scheduler.drain();
+    expect(scheduler.state("a")?.status).toBe("quarantined");
+    expect(scheduler.state("a")?.reason).toContain("commit_failed");
+    expect(scheduler.state("a")?.reason).toContain("sink exploded");
+    expect(scheduler.nextWakeAtMs()).toBeNull();
+    expect(sink.commits).toEqual([]);
+    expect(events.filter((event) => event.type === "deferred")).toHaveLength(2);
+    expect(events.map((event) => event.type)).toContain("quarantined");
+  });
+
+  it("keeps indexing other sources while one commit keeps failing", async () => {
+    const { clock, parsers, sink, scheduler } = harness({
+      maxSinkFailures: 2,
+      deferBackoffMs: 10,
+    });
+    parsers[0]!.script("a", chain(5, 1, false));
+    parsers[0]!.script("b", chain(2, 1));
+    sink.refusals.set("a", ["throw", "throw"]);
+    scheduler.upsert(spec("a"));
+    scheduler.upsert(spec("b"));
+    await settle(scheduler, clock);
+    expect(scheduler.state("a")?.status).toBe("quarantined");
+    expect(scheduler.state("b")?.status).toBe("idle");
+    expect(sink.commits).toEqual(["b", "b"]);
+  });
+
+  it("resets the count after a commit succeeds", async () => {
+    const { clock, parsers, sink, scheduler } = harness({
+      maxSinkFailures: 3,
+      deferBackoffMs: 10,
+    });
+    parsers[0]!.script("a", chain(8, 1));
+    const original = sink.commit.bind(sink);
+    let calls = 0;
+    sink.commit = (batch, update, fence) => {
+      calls += 1;
+      if ([1, 2, 4, 5].includes(calls)) throw new Error("sink exploded");
+      return original(batch, update, fence);
+    };
+    scheduler.upsert(spec("a"));
+    await settle(scheduler, clock, 40);
+    expect(scheduler.state("a")?.status).toBe("idle");
+    expect(sink.commits.length).toBeGreaterThan(0);
+  });
+
+  it("retries a quarantined source when its generation changes", async () => {
+    const { clock, parsers, sink, scheduler } = harness({
+      maxSinkFailures: 2,
+      deferBackoffMs: 10,
+    });
+    parsers[0]!.script("a", chain(3, 1));
+    sink.refusals.set("a", ["throw", "throw"]);
+    scheduler.upsert(spec("a"));
+    await settle(scheduler, clock);
+    expect(scheduler.state("a")?.status).toBe("quarantined");
+    parsers[0]!.script("a", chain(1, 1));
+    scheduler.upsert(spec("a", 2));
+    await settle(scheduler, clock);
+    expect(scheduler.state("a")?.status).toBe("idle");
+    expect(sink.commits).toEqual(["a"]);
+  });
+
+  it("bounds a cursor read that keeps failing and still serves other sources", async () => {
+    const { clock, parsers, sink, scheduler } = harness({
+      maxSinkFailures: 3,
+      deferBackoffMs: 100,
+    });
+    sink.cursor = (ref: { key: string }) => {
+      if (ref.key === "a") throw new Error("cursor read failed");
+      return sink.cursors.get(ref.key) ?? null;
+    };
+    parsers[0]!.script("a", chain(2, 1));
+    parsers[0]!.script("b", chain(1, 1));
+    scheduler.upsert(spec("a"));
+    scheduler.upsert(spec("b"));
+    await scheduler.drain();
+    expect(scheduler.nextWakeAtMs()).toBe(100);
+    await settle(scheduler, clock);
+    expect(scheduler.state("a")?.status).toBe("quarantined");
+    expect(scheduler.state("a")?.reason).toContain("cursor_failed");
+    expect(scheduler.state("b")?.status).toBe("idle");
+    expect(sink.commits).toEqual(["b"]);
+    expect(parsers[0]!.reads.some((read) => read.source.ref.key === "a")).toBe(
+      false,
+    );
+  });
+
+  it("does not count a known refusal as a sink failure", async () => {
+    const { clock, parsers, sink, scheduler } = harness({
+      maxSinkFailures: 2,
+      deferBackoffMs: 10,
+    });
+    parsers[0]!.script("a", chain(1, 1));
+    sink.refusals.set("a", ["db_capacity", "db_capacity", "db_capacity"]);
+    scheduler.upsert(spec("a"));
+    await settle(scheduler, clock);
+    expect(scheduler.state("a")?.status).toBe("idle");
   });
 });
 

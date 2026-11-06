@@ -66,6 +66,26 @@ function wrap(reader: PageReader): PageReader {
       }
       return page;
     }
+    const bad = /\.badrecord-(empty|missing-\w+|wrongtype-\w+)\.jsonl$/.exec(
+      path,
+    );
+    if (bad !== null) {
+      const page = await reader(source, cursor, budget);
+      if (page.status !== "page") return page;
+      const variant = bad[1]!;
+      const records = page.batch.records.map((record) => ({ ...record }));
+      if (variant === "empty") {
+        records[0] = {} as (typeof records)[number];
+      } else {
+        const [mode, field] = variant.split("-") as [string, string];
+        const target = records.find((record) => field in record);
+        if (target === undefined) throw new Error(`no record has ${field}`);
+        const mutable = target as unknown as Record<string, unknown>;
+        if (mode === "missing") delete mutable[field];
+        else mutable[field] = { wrong: true };
+      }
+      return { ...page, batch: { ...page.batch, records } };
+    }
     if (path.endsWith(".huge.jsonl")) {
       const page = await reader(source, cursor, budget);
       if (page.status === "page") {

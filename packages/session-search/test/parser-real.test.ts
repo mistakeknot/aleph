@@ -50,8 +50,14 @@ interface Rig {
 
 const rigs: Rig[] = [];
 const temps: string[] = [];
+const gates: Array<{ pidLog: string; release: (pids: number[]) => void }> = [];
+const QUIET_DEADLINE_MS = 120_000;
+const RETIRE_GRACE_MS = 600_000;
 
 afterEach(async () => {
+  for (const gate of gates.splice(0)) {
+    gate.release(allPids(gate.pidLog));
+  }
   for (const rig of rigs.splice(0)) {
     await Promise.all(rig.slots.map((slot) => slot.close()));
     rig.supervisor.dispose();
@@ -71,6 +77,7 @@ function rig(
     command?: string;
     env?: NodeJS.ProcessEnv;
     idleExitMs?: number;
+    closeGraceMs?: number;
   } = {},
 ): Rig {
   const dir = makeStoreDir("ss-parser-");
@@ -90,6 +97,7 @@ function rig(
         env: options.env,
         admissionWaitMs: 2_000,
         idleExitMs: options.idleExitMs ?? 0,
+        closeGraceMs: options.closeGraceMs,
       }),
   );
   const events: SchedulerEvent[] = [];
@@ -97,7 +105,7 @@ function rig(
     parsers: slots,
     sink: storeSink(store),
     clock: () => Date.now(),
-    stallMs: options.stallMs ?? 3_000,
+    stallMs: options.stallMs ?? QUIET_DEADLINE_MS,
     quantumMs: options.quantumMs,
     unreadableBackoffMs: 50,
     unreadableBackoffMaxMs: 200,
@@ -143,6 +151,17 @@ function alivePids(log: string): number[] {
     });
 }
 
+function allPids(log: string): number[] {
+  try {
+    return readFileSync(log, "utf8")
+      .split("\n")
+      .filter((entry) => entry !== "")
+      .map(Number);
+  } catch {
+    return [];
+  }
+}
+
 function pause(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -161,6 +180,12 @@ function lingerGate(): {
   const eventLog = join(base, "events");
   const releaseDir = join(base, "release");
   mkdirSync(releaseDir);
+  const release = (pids: number[]): void => {
+    for (const pid of pids) {
+      writeFileSync(join(releaseDir, String(pid)), "");
+    }
+  };
+  gates.push({ pidLog, release });
   return {
     pidLog,
     env: {
@@ -186,11 +211,7 @@ function lingerGate(): {
         await pause(5);
       }
     },
-    release: (pids) => {
-      for (const pid of pids) {
-        writeFileSync(join(releaseDir, String(pid)), "");
-      }
-    },
+    release,
   };
 }
 
@@ -256,7 +277,7 @@ describe("real parser children", () => {
   }, 60_000);
 
   it("quarantines a stalled session and still indexes the next good session", async () => {
-    const built = rig({ stallMs: 1_500 });
+    const built = rig({ stallMs: 10_000 });
     built.scheduler.upsert(session(built, "a.stall.jsonl"));
     built.scheduler.upsert(session(built, "b.jsonl"));
     await built.scheduler.drain();
@@ -345,8 +366,7 @@ describe("real parser children", () => {
       expect(built.scheduler.state("b.jsonl")?.status).toBe("idle");
       expect(count(built.dir, "content")).toBe(6);
       chmodSync(locked.path, 0o644);
-      await new Promise((resolve) => setTimeout(resolve, 250));
-      await built.scheduler.drain();
+      await settle(built);
       expect(built.scheduler.state("locked.jsonl")?.status).toBe("idle");
       expect(count(built.dir, "content")).toBe(9);
     },
@@ -454,9 +474,61 @@ describe("real parser children", () => {
     );
   }, 60_000);
 
+  const MALFORMED_VARIANTS = [
+    "empty",
+    ...[
+      "dedupeKey",
+      "provider",
+      "kind",
+      "sessionId",
+      "agentId",
+      "parentCallId",
+      "cwd",
+      "sidechain",
+      "eventTimeMs",
+      "role",
+      "text",
+    ].flatMap((field) => [`missing-${field}`, `wrongtype-${field}`]),
+  ];
+
+  it.each(MALFORMED_VARIANTS)(
+    "kills the child and quarantines the generation for a malformed record (%s)",
+    async (variant) => {
+      const gate = lingerGate();
+      const built = rig({ env: gate.env });
+      const name = `a.badrecord-${variant}.jsonl`;
+      built.scheduler.upsert(session(built, name));
+      built.scheduler.upsert(session(built, "b.jsonl"));
+      await built.scheduler.drain();
+      const state = built.scheduler.state(name);
+      expect(state?.status).toBe("quarantined");
+      expect(state?.reason).toContain("protocol_violation");
+      expect(built.scheduler.state("b.jsonl")?.status).toBe("idle");
+      expect(texts(built.dir)).toEqual([
+        "b.jsonl message 0",
+        "b.jsonl message 1",
+        "b.jsonl message 2",
+      ]);
+      expect(
+        built.events.filter((e) => e.type === "retry" && e.key === name),
+      ).toHaveLength(0);
+      const offender = allPids(gate.pidLog)[0]!;
+      const deadline = Date.now() + 30_000;
+      while (alivePids(gate.pidLog).includes(offender)) {
+        if (Date.now() > deadline) throw new Error("offending child survived");
+        await pause(5);
+      }
+    },
+    60_000,
+  );
+
   it("waits for a retiring child to die before it starts the next one", async () => {
     const gate = lingerGate();
-    const built = rig({ idleExitMs: 30, env: gate.env });
+    const built = rig({
+      idleExitMs: 30,
+      env: gate.env,
+      closeGraceMs: RETIRE_GRACE_MS,
+    });
     const slot = built.slots[0]!;
     const read = async (name: string) =>
       slot.read({ source: session(built, name), cursor: null, stallMs: 5_000 });
@@ -481,7 +553,12 @@ describe("real parser children", () => {
 
   it("never holds more than one live child per slot while slots retire and restart", async () => {
     const gate = lingerGate();
-    const built = rig({ parsers: 2, idleExitMs: 30, env: gate.env });
+    const built = rig({
+      parsers: 2,
+      idleExitMs: 30,
+      env: gate.env,
+      closeGraceMs: RETIRE_GRACE_MS,
+    });
     let peak = 0;
     const sampler = setInterval(() => {
       peak = Math.max(peak, alivePids(gate.pidLog).length);
@@ -521,7 +598,11 @@ describe("real parser children", () => {
 
   it("waits for a retiring child when the slot is closed", async () => {
     const gate = lingerGate();
-    const built = rig({ idleExitMs: 30, env: gate.env });
+    const built = rig({
+      idleExitMs: 30,
+      env: gate.env,
+      closeGraceMs: RETIRE_GRACE_MS,
+    });
     const slot = built.slots[0]!;
     expect(
       (

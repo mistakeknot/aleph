@@ -57,6 +57,7 @@ export interface ParserSlotOptions {
   admissionWaitMs?: number;
   admissionPollMs?: number;
   idleExitMs?: number;
+  closeGraceMs?: number;
 }
 
 interface Incarnation {
@@ -124,7 +125,7 @@ export class ParserSlot implements ParserHandle {
     if (incarnation === null) return previous ?? Promise.resolve();
     incarnation.closing = true;
     const ending = graceful
-      ? incarnation.child.close(CLOSE_GRACE_MS)
+      ? incarnation.child.close(this.options.closeGraceMs ?? CLOSE_GRACE_MS)
       : incarnation.child.kill();
     const tracked: Promise<void> = Promise.all([
       previous,

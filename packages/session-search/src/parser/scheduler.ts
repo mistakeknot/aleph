@@ -88,6 +88,7 @@ export interface SchedulerOptions {
   restartBackoffMaxMs?: number;
   maxTerminations?: number;
   maxCursorConflicts?: number;
+  maxSinkFailures?: number;
   onEvent?: (event: SchedulerEvent) => void;
 }
 
@@ -96,6 +97,8 @@ interface Entry extends SourceState {
   sequence: number;
   unreadableStreak: number;
   conflicts: number;
+  cursorFailures: number;
+  commitFailures: number;
 }
 
 const RUNNABLE: ReadonlySet<SourceStatus> = new Set([
@@ -116,6 +119,7 @@ export class ParserScheduler {
   private readonly commitChains = new Map<string, Promise<unknown>>();
   private readonly maxTerminations: number;
   private readonly maxCursorConflicts: number;
+  private readonly maxSinkFailures: number;
   private sequence = 0;
   private active = 0;
   private draining: Promise<void> | null = null;
@@ -131,6 +135,7 @@ export class ParserScheduler {
     this.restartBackoffMaxMs = options.restartBackoffMaxMs ?? 10_000;
     this.maxTerminations = options.maxTerminations ?? 2;
     this.maxCursorConflicts = options.maxCursorConflicts ?? 3;
+    this.maxSinkFailures = options.maxSinkFailures ?? 5;
   }
 
   upsert(spec: ParserSourceSpec): void {
@@ -155,6 +160,8 @@ export class ParserScheduler {
       sequence: this.sequence++,
       unreadableStreak: 0,
       conflicts: 0,
+      cursorFailures: 0,
+      commitFailures: 0,
     });
   }
 
@@ -276,10 +283,32 @@ export class ParserScheduler {
     entry.sequence = this.sequence++;
   }
 
-  private defer(entry: Entry, reason: string): void {
+  private defer(entry: Entry, reason: string, delayMs?: number): void {
     entry.reason = reason;
-    this.requeue(entry, "deferred", this.options.clock() + this.deferBackoffMs);
+    this.requeue(
+      entry,
+      "deferred",
+      this.options.clock() + (delayMs ?? this.deferBackoffMs),
+    );
     this.emit(entry, "deferred", reason);
+  }
+
+  private sinkFailed(
+    entry: Entry,
+    stage: "cursor" | "commit",
+    error: unknown,
+  ): void {
+    const message = error instanceof Error ? error.message : String(error);
+    const failures =
+      stage === "cursor" ? ++entry.cursorFailures : ++entry.commitFailures;
+    if (failures >= this.maxSinkFailures) {
+      this.quarantine(
+        entry,
+        `${stage}_failed: ${failures} consecutive failures: ${message}`,
+      );
+      return;
+    }
+    this.defer(entry, message, this.deferBackoffMs * 2 ** (failures - 1));
   }
 
   private commitSerialized(
@@ -322,13 +351,11 @@ export class ParserScheduler {
           stored = await this.options.sink.cursor(entry.spec.ref);
         } catch (error) {
           if (!this.current(entry)) return;
-          this.defer(
-            entry,
-            error instanceof Error ? error.message : String(error),
-          );
+          this.sinkFailed(entry, "cursor", error);
           return;
         }
         if (!this.current(entry)) return;
+        entry.cursorFailures = 0;
         entry.cursor = stored;
         entry.cursorKnown = true;
       }
@@ -394,13 +421,11 @@ export class ParserScheduler {
           result = await this.commitSerialized(entry, page.batch, page.cursor);
         } catch (error) {
           if (!this.current(entry)) return "stop";
-          this.defer(
-            entry,
-            error instanceof Error ? error.message : String(error),
-          );
+          this.sinkFailed(entry, "commit", error);
           return "stop";
         }
         if (result === null || !this.current(entry)) return "stop";
+        entry.commitFailures = 0;
         if (result.committed) {
           entry.cursor = page.cursor.next;
           entry.conflicts = 0;
