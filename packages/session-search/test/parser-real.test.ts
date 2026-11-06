@@ -5,6 +5,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -68,6 +69,8 @@ function rig(
     stallMs?: number;
     quantumMs?: number;
     command?: string;
+    env?: NodeJS.ProcessEnv;
+    idleExitMs?: number;
   } = {},
 ): Rig {
   const dir = makeStoreDir("ss-parser-");
@@ -84,8 +87,9 @@ function rig(
         args: CHILD_ARGS,
         command: options.command,
         cwd: packageDir,
+        env: options.env,
         admissionWaitMs: 2_000,
-        idleExitMs: 0,
+        idleExitMs: options.idleExitMs ?? 0,
       }),
   );
   const events: SchedulerEvent[] = [];
@@ -98,11 +102,49 @@ function rig(
     unreadableBackoffMs: 50,
     unreadableBackoffMaxMs: 200,
     deferBackoffMs: 50,
+    restartBackoffMs: 50,
+    restartBackoffMaxMs: 200,
     onEvent: (event) => events.push(event),
   });
   const built = { dir, store, supervisor, slots, scheduler, events, files };
   rigs.push(built);
   return built;
+}
+
+async function settle(built: Rig, rounds = 20): Promise<void> {
+  for (let round = 0; round < rounds; round += 1) {
+    await built.scheduler.drain();
+    const wake = built.scheduler.nextWakeAtMs();
+    if (wake === null) return;
+    await new Promise((resolve) =>
+      setTimeout(resolve, Math.max(0, wake - Date.now()) + 5),
+    );
+  }
+}
+
+function alivePids(log: string): number[] {
+  let raw = "";
+  try {
+    raw = readFileSync(log, "utf8");
+  } catch {
+    return [];
+  }
+  return raw
+    .split("\n")
+    .filter((entry) => entry !== "")
+    .map(Number)
+    .filter((pid) => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+}
+
+function pause(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function line(uuid: string, text: string): string {
@@ -210,7 +252,7 @@ describe("real parser children", () => {
     built.scheduler.upsert(session(built, "a.crash.jsonl"));
     built.scheduler.upsert(session(built, "b.jsonl"));
     built.scheduler.upsert(session(built, "c.jsonl"));
-    await built.scheduler.drain();
+    await settle(built);
     expect(built.scheduler.state("a.crash.jsonl")?.status).toBe("suspended");
     expect(built.scheduler.state("b.jsonl")?.status).toBe("idle");
     expect(built.scheduler.state("c.jsonl")?.status).toBe("idle");
@@ -223,17 +265,17 @@ describe("real parser children", () => {
     const built = rig();
     const crashing = session(built, "a.crash.jsonl");
     built.scheduler.upsert(crashing);
-    await built.scheduler.drain();
+    await settle(built);
     expect(built.scheduler.state("a.crash.jsonl")?.status).toBe("suspended");
     built.scheduler.upsert(crashing);
-    await built.scheduler.drain();
+    await settle(built);
     expect(built.scheduler.state("a.crash.jsonl")?.status).toBe("suspended");
     const reads = built.events.filter((e) => e.type === "retry").length;
     built.scheduler.upsert({
       ...crashing,
       ref: { ...crashing.ref, generation: 2 },
     });
-    await built.scheduler.drain();
+    await settle(built);
     expect(built.events.filter((e) => e.type === "retry").length).toBe(
       reads + 1,
     );
@@ -331,6 +373,130 @@ describe("real parser children", () => {
     });
     expect(outcome.kind).toBe("refused");
   }, 30_000);
+
+  it("quarantines a page without progress, kills the child and indexes the next source", async () => {
+    const built = rig();
+    built.scheduler.upsert(session(built, "a.nopage.jsonl"));
+    built.scheduler.upsert(session(built, "b.jsonl"));
+    await built.scheduler.drain();
+    expect(built.scheduler.state("a.nopage.jsonl")?.status).toBe("quarantined");
+    expect(built.scheduler.state("a.nopage.jsonl")?.reason).toContain(
+      "protocol_violation",
+    );
+    expect(built.scheduler.state("b.jsonl")?.status).toBe("idle");
+    expect(texts(built.dir)).toEqual([
+      "b.jsonl message 0",
+      "b.jsonl message 1",
+      "b.jsonl message 2",
+    ]);
+  }, 60_000);
+
+  it("quarantines a response that names another source and writes nothing for it", async () => {
+    const built = rig();
+    built.scheduler.upsert(session(built, "a.cross.jsonl"));
+    built.scheduler.upsert(session(built, "b.jsonl"));
+    await built.scheduler.drain();
+    expect(built.scheduler.state("a.cross.jsonl")?.status).toBe("quarantined");
+    expect(built.scheduler.state("a.cross.jsonl")?.reason).toContain(
+      "other-session.jsonl",
+    );
+    expect(built.scheduler.state("b.jsonl")?.status).toBe("idle");
+    expect(count(built.dir, "content")).toBe(3);
+    expect(texts(built.dir).some((text) => text.startsWith("a.cross"))).toBe(
+      false,
+    );
+  }, 60_000);
+
+  it("waits for a retiring child to die before it starts the next one", async () => {
+    const log = join(mkdtempSync(join(tmpdir(), "ss-parser-pids-")), "pids");
+    temps.push(dirname(log));
+    const built = rig({
+      idleExitMs: 30,
+      env: {
+        ...process.env,
+        PARSER_CHILD_PID_LOG: log,
+        PARSER_CHILD_LINGER_MS: "700",
+      },
+    });
+    const slot = built.slots[0]!;
+    const read = async (name: string) =>
+      slot.read({ source: session(built, name), cursor: null, stallMs: 5_000 });
+    expect((await read("a.jsonl")).kind).toBe("page");
+    const first = alivePids(log);
+    expect(first).toHaveLength(1);
+    await pause(150);
+    expect(alivePids(log)).toEqual(first);
+    expect((await read("b.jsonl")).kind).toBe("page");
+    expect(alivePids(log)).toHaveLength(1);
+    expect(alivePids(log)).not.toEqual(first);
+  }, 60_000);
+
+  it("never holds more than one live child per slot while slots retire and restart", async () => {
+    const log = join(mkdtempSync(join(tmpdir(), "ss-parser-pids-")), "pids");
+    temps.push(dirname(log));
+    const built = rig({
+      parsers: 2,
+      idleExitMs: 30,
+      env: {
+        ...process.env,
+        PARSER_CHILD_PID_LOG: log,
+        PARSER_CHILD_LINGER_MS: "700",
+      },
+    });
+    let peak = 0;
+    const sampler = setInterval(() => {
+      peak = Math.max(peak, alivePids(log).length);
+    }, 10);
+    try {
+      for (let round = 0; round < 3; round += 1) {
+        const outcomes = await Promise.all(
+          built.slots.map((slot, index) =>
+            slot.read({
+              source: session(built, `r${round}-${index}.jsonl`),
+              cursor: null,
+              stallMs: 5_000,
+            }),
+          ),
+        );
+        expect(outcomes.map((outcome) => outcome.kind)).toEqual([
+          "page",
+          "page",
+        ]);
+        await pause(150);
+      }
+    } finally {
+      clearInterval(sampler);
+    }
+    expect(peak).toBeGreaterThanOrEqual(1);
+    expect(peak).toBeLessThanOrEqual(2);
+  }, 60_000);
+
+  it("waits for a retiring child when the slot is closed", async () => {
+    const log = join(mkdtempSync(join(tmpdir(), "ss-parser-pids-")), "pids");
+    temps.push(dirname(log));
+    const built = rig({
+      idleExitMs: 30,
+      env: {
+        ...process.env,
+        PARSER_CHILD_PID_LOG: log,
+        PARSER_CHILD_LINGER_MS: "700",
+      },
+    });
+    const slot = built.slots[0]!;
+    expect(
+      (
+        await slot.read({
+          source: session(built, "a.jsonl"),
+          cursor: null,
+          stallMs: 5_000,
+        })
+      ).kind,
+    ).toBe("page");
+    await pause(150);
+    expect(alivePids(log)).toHaveLength(1);
+    await slot.close();
+    expect(alivePids(log)).toHaveLength(0);
+  }, 60_000);
 
   it.skipIf(!supported)(
     "kills a parser that outgrows its memory limit, suspends that source and indexes the next",

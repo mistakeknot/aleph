@@ -1,3 +1,4 @@
+import { appendFileSync } from "node:fs";
 import { setTimeout as sleep } from "node:timers/promises";
 
 import { openParentChannel } from "../../src/ipc/framed-child.js";
@@ -9,6 +10,9 @@ import {
 } from "../../src/parser/child.js";
 
 const MIB = 1024 * 1024;
+const pidLog = process.env.PARSER_CHILD_PID_LOG;
+const lingerMs = Number(process.env.PARSER_CHILD_LINGER_MS ?? "0");
+if (pidLog !== undefined) appendFileSync(pidLog, `${process.pid}\n`);
 const channel = openParentChannel();
 channel.output.on("error", () => process.exit(0));
 
@@ -39,6 +43,27 @@ function wrap(reader: PageReader): PageReader {
       }
       await sleep(600_000);
     }
+    if (path.endsWith(".nopage.jsonl")) {
+      const page = await reader(source, cursor, budget);
+      if (page.status === "page") {
+        const { progress: _progress, ...rest } = page;
+        return rest as unknown as typeof page;
+      }
+      return page;
+    }
+    if (path.endsWith(".cross.jsonl")) {
+      const page = await reader(source, cursor, budget);
+      if (page.status === "page") {
+        return {
+          ...page,
+          batch: {
+            ...page.batch,
+            source: { ...page.batch.source, key: "other-session.jsonl" },
+          },
+        };
+      }
+      return page;
+    }
     if (path.endsWith(".huge.jsonl")) {
       const page = await reader(source, cursor, budget);
       if (page.status === "page") {
@@ -65,6 +90,9 @@ const readers: ParserReaders = {
 };
 
 runParserChild(channel, readers).then(
-  (code) => process.exit(code),
+  async (code) => {
+    if (lingerMs > 0) await sleep(lingerMs);
+    process.exit(code);
+  },
   () => process.exit(1),
 );

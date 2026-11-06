@@ -9,6 +9,7 @@ import {
   type WatchedChild,
 } from "../ipc/memory-supervisor.js";
 import {
+  pageBindingViolation,
   parseParserResponse,
   type ParserErrorCode,
   type ParserResponse,
@@ -92,6 +93,7 @@ export class ParserSlot implements ParserHandle {
   private generation = 0;
   private nextRequestId = 1;
   private idleTimer: NodeJS.Timeout | null = null;
+  private retiring: Promise<void> | null = null;
   private busy = false;
   private closed = false;
 
@@ -115,13 +117,23 @@ export class ParserSlot implements ParserHandle {
     this.idleTimer.unref();
   }
 
-  private async retire(graceful: boolean): Promise<void> {
+  private retire(graceful: boolean): Promise<void> {
     const incarnation = this.current;
     this.current = null;
-    if (incarnation === null) return;
+    const previous = this.retiring;
+    if (incarnation === null) return previous ?? Promise.resolve();
     incarnation.closing = true;
-    if (graceful) await incarnation.child.close(CLOSE_GRACE_MS);
-    else await incarnation.child.kill();
+    const ending = graceful
+      ? incarnation.child.close(CLOSE_GRACE_MS)
+      : incarnation.child.kill();
+    const tracked: Promise<void> = Promise.all([
+      previous,
+      ending.catch(() => undefined),
+    ]).then(() => {
+      if (this.retiring === tracked) this.retiring = null;
+    });
+    this.retiring = tracked;
+    return tracked;
   }
 
   private spawn(): Incarnation {
@@ -186,7 +198,10 @@ export class ParserSlot implements ParserHandle {
     });
   }
 
-  private async terminated(incarnation: Incarnation): Promise<ParserOutcome> {
+  private async terminated(
+    incarnation: Incarnation,
+    note?: string,
+  ): Promise<ParserOutcome> {
     const exit = incarnation.exit ?? (await incarnation.child.exited);
     if (this.current === incarnation) this.current = null;
     const memoryKill = this.options.supervisor
@@ -216,13 +231,17 @@ export class ParserSlot implements ParserHandle {
     return {
       kind: "terminated",
       cause,
-      message: `${cause}: code ${exit.code ?? "none"} signal ${exit.signal ?? "none"}${exit.detail ? ` (${exit.detail})` : ""}`,
+      message: `${cause}: code ${exit.code ?? "none"} signal ${exit.signal ?? "none"}${exit.detail ? ` (${exit.detail})` : ""}${note ? `: ${note}` : ""}`,
     };
   }
 
   private async ensureReady(): Promise<
     { incarnation: Incarnation } | { outcome: ParserOutcome }
   > {
+    if (this.retiring !== null) await this.retiring;
+    if (this.closed) {
+      return { outcome: { kind: "refused", message: "parser slot is closed" } };
+    }
     const existing = this.current;
     if (existing !== null && existing.child.alive && existing.exit === null) {
       return { incarnation: existing };
@@ -334,7 +353,16 @@ export class ParserSlot implements ParserHandle {
         }
         if (response === null) return await this.terminated(incarnation);
         if (response.t === "page" && response.id === id) {
-          return { kind: "page", page: response.page };
+          const violation = pageBindingViolation(
+            response.page,
+            input.source.ref,
+            input.cursor,
+          );
+          if (violation === null) return { kind: "page", page: response.page };
+          incarnation.killedByUs = true;
+          await incarnation.child.kill();
+          if (this.current === incarnation) this.current = null;
+          return await this.terminated(incarnation, violation);
         }
         if (response.t === "error" && response.id === id) {
           return {

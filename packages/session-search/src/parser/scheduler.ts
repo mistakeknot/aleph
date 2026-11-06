@@ -6,7 +6,7 @@ import type {
   SourceRef,
 } from "../storage.js";
 import type { ParserHandle, ParserOutcome } from "./parser-process.js";
-import type { ParserSourceSpec } from "./protocol.js";
+import { pageBindingViolation, type ParserSourceSpec } from "./protocol.js";
 
 export const DEFAULT_QUANTUM_MS = 2_000;
 
@@ -77,6 +77,8 @@ export interface SchedulerOptions {
   unreadableBackoffMs?: number;
   unreadableBackoffMaxMs?: number;
   deferBackoffMs?: number;
+  restartBackoffMs?: number;
+  restartBackoffMaxMs?: number;
   maxTerminations?: number;
   maxCursorConflicts?: number;
   onEvent?: (event: SchedulerEvent) => void;
@@ -102,6 +104,9 @@ export class ParserScheduler {
   private readonly unreadableBackoffMs: number;
   private readonly unreadableBackoffMaxMs: number;
   private readonly deferBackoffMs: number;
+  private readonly restartBackoffMs: number;
+  private readonly restartBackoffMaxMs: number;
+  private readonly commitChains = new Map<string, Promise<unknown>>();
   private readonly maxTerminations: number;
   private readonly maxCursorConflicts: number;
   private sequence = 0;
@@ -115,6 +120,8 @@ export class ParserScheduler {
     this.unreadableBackoffMs = options.unreadableBackoffMs ?? 1_000;
     this.unreadableBackoffMaxMs = options.unreadableBackoffMaxMs ?? 60_000;
     this.deferBackoffMs = options.deferBackoffMs ?? 500;
+    this.restartBackoffMs = options.restartBackoffMs ?? 250;
+    this.restartBackoffMaxMs = options.restartBackoffMaxMs ?? 10_000;
     this.maxTerminations = options.maxTerminations ?? 2;
     this.maxCursorConflicts = options.maxCursorConflicts ?? 3;
   }
@@ -262,6 +269,34 @@ export class ParserScheduler {
     entry.sequence = this.sequence++;
   }
 
+  private defer(entry: Entry, reason: string): void {
+    entry.reason = reason;
+    this.requeue(entry, "deferred", this.options.clock() + this.deferBackoffMs);
+    this.emit(entry, "deferred", reason);
+  }
+
+  private commitSerialized(
+    entry: Entry,
+    batch: CommitBatch,
+    update: CursorUpdate,
+  ): Promise<CommitResult | null> {
+    const key = entry.spec.ref.key;
+    const previous = this.commitChains.get(key) ?? Promise.resolve();
+    const run = previous.then(async (): Promise<CommitResult | null> => {
+      if (!this.current(entry)) return null;
+      return await this.options.sink.commit(batch, update);
+    });
+    const tail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.commitChains.set(key, tail);
+    void tail.then(() => {
+      if (this.commitChains.get(key) === tail) this.commitChains.delete(key);
+    });
+    return run;
+  }
+
   private quarantine(entry: Entry, reason: string): void {
     entry.status = "quarantined";
     entry.reason = reason;
@@ -273,8 +308,19 @@ export class ParserScheduler {
     entry.turns += 1;
     for (;;) {
       if (!entry.cursorKnown) {
-        entry.cursor = await this.options.sink.cursor(entry.spec.ref);
+        let stored: string | null;
+        try {
+          stored = await this.options.sink.cursor(entry.spec.ref);
+        } catch (error) {
+          if (!this.current(entry)) return;
+          this.defer(
+            entry,
+            error instanceof Error ? error.message : String(error),
+          );
+          return;
+        }
         if (!this.current(entry)) return;
+        entry.cursor = stored;
         entry.cursorKnown = true;
       }
       let outcome: ParserOutcome;
@@ -325,20 +371,27 @@ export class ParserScheduler {
           this.emit(entry, "invalidated", page.reason);
           return "stop";
         }
-        let result: CommitResult;
-        try {
-          result = await this.options.sink.commit(page.batch, page.cursor);
-        } catch (error) {
-          this.requeue(
-            entry,
-            "deferred",
-            this.options.clock() + this.deferBackoffMs,
-          );
-          entry.reason = error instanceof Error ? error.message : String(error);
-          this.emit(entry, "deferred", entry.reason);
+        const violation = pageBindingViolation(
+          page,
+          entry.spec.ref,
+          entry.cursor,
+        );
+        if (violation !== null) {
+          this.quarantine(entry, `protocol_violation: ${violation}`);
           return "stop";
         }
-        if (!this.current(entry)) return "stop";
+        let result: CommitResult | null;
+        try {
+          result = await this.commitSerialized(entry, page.batch, page.cursor);
+        } catch (error) {
+          if (!this.current(entry)) return "stop";
+          this.defer(
+            entry,
+            error instanceof Error ? error.message : String(error),
+          );
+          return "stop";
+        }
+        if (result === null || !this.current(entry)) return "stop";
         if (result.committed) {
           entry.cursor = page.cursor.next;
           entry.conflicts = 0;
@@ -362,13 +415,7 @@ export class ParserScheduler {
           this.quarantine(entry, `${code}: ${refusal?.message ?? ""}`);
           return "stop";
         }
-        entry.reason = `${code}: ${refusal?.message ?? ""}`;
-        this.requeue(
-          entry,
-          "deferred",
-          this.options.clock() + this.deferBackoffMs,
-        );
-        this.emit(entry, "deferred", entry.reason);
+        this.defer(entry, `${code}: ${refusal?.message ?? ""}`);
         return "stop";
       }
       case "error": {
@@ -387,9 +434,7 @@ export class ParserScheduler {
         return "stop";
       }
       case "refused": {
-        entry.reason = outcome.message;
-        this.requeue(entry, "deferred", now + this.deferBackoffMs);
-        this.emit(entry, "deferred", outcome.message);
+        this.defer(entry, outcome.message);
         return "stop";
       }
       case "stalled": {
@@ -412,7 +457,11 @@ export class ParserScheduler {
           );
           return "stop";
         }
-        this.requeue(entry, "ready", 0);
+        const restartDelay = Math.min(
+          this.restartBackoffMs * 2 ** (entry.consecutiveTerminations - 1),
+          this.restartBackoffMaxMs,
+        );
+        this.requeue(entry, "ready", now + restartDelay);
         this.emit(entry, "retry", outcome.message);
         return "stop";
       }
