@@ -1022,7 +1022,7 @@ describe("ThreadRow", () => {
         },
         onToggleCollapsed: vi.fn(),
       },
-      thread: createThread(),
+      thread: createThread({ lastReadAt: 1, latestAttentionAt: 1 }),
     },
   ])(
     "preserves the $label status in the split map accessible name",
@@ -1629,7 +1629,10 @@ describe("ThreadRow", () => {
 
   it("shows the workflow indicator for an idle thread with an active workflow", () => {
     renderThreadRow({
-      thread: createThread({ activity: activity({ workflows: 1 }) }),
+      thread: createThread({
+        activity: activity({ workflows: 1 }),
+        lastReadAt: 1, latestAttentionAt: 1,
+      }),
     });
 
     expect(renderedIndicators()).toEqual(["workflow"]);
@@ -1650,7 +1653,10 @@ describe("ThreadRow", () => {
     "shows the $indicator indicator for $activityKey activity",
     ({ activityKey, indicator }) => {
       renderThreadRow({
-        thread: createThread({ activity: activity({ [activityKey]: 1 }) }),
+        thread: createThread({
+          activity: activity({ [activityKey]: 1 }),
+          lastReadAt: 1, latestAttentionAt: 1,
+        }),
       });
 
       expect(renderedIndicators()).toEqual([indicator]);
@@ -1665,6 +1671,7 @@ describe("ThreadRow", () => {
           backgroundAgents: 1,
           backgroundCommands: 1,
         }),
+        lastReadAt: 1, latestAttentionAt: 1,
       }),
     });
 
@@ -1675,10 +1682,28 @@ describe("ThreadRow", () => {
     renderThreadRow({
       thread: createThread({
         activity: activity({ backgroundAgents: 1, backgroundCommands: 1 }),
+        lastReadAt: 1, latestAttentionAt: 1,
       }),
     });
 
     expect(renderedIndicators()).toEqual(["background-agent"]);
+  });
+
+  it("shows the unread dot over background work but not over a workflow", () => {
+    const background = renderThreadRow({
+      thread: createThread({
+        activity: activity({ backgroundAgents: 1, backgroundCommands: 1 }),
+      }),
+    });
+    expect(renderedIndicators()).toEqual(["unread-success"]);
+    background.unmount();
+
+    renderThreadRow({
+      thread: createThread({
+        activity: activity({ workflows: 1, backgroundCommands: 1 }),
+      }),
+    });
+    expect(renderedIndicators()).toEqual(["workflow"]);
   });
 
   it.each([

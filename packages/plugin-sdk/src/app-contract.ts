@@ -1972,6 +1972,105 @@ export interface ExperimentalThreadInfoSectionRegistration {
 }
 
 /**
+ * Props passed to an `experimental_threadContextCardRow` or
+ * `experimental_threadContextCardSection` component.
+ */
+export interface ExperimentalThreadContextCardProps {
+  /**
+   * The thread shown in the pane. Every thread pane of a split layout has its
+   * own thread context card, so the component mounts once per visible thread;
+   * keep per-thread state in the component, never in a module-level singleton.
+   */
+  threadId: string;
+  projectId: string;
+  /**
+   * The thread's environment, taken from the thread; null only when the
+   * thread has no environment. Read its state (host, checkout, git) yourself.
+   */
+  environment: ExperimentalThreadEnvironment | null;
+}
+
+/**
+ * How a thread pane shows its thread context: `banner` in the context row
+ * above the composer, `card` in the thread context card at the pane's
+ * upper-right. bb picks one per pane.
+ */
+export type ExperimentalThreadContextKind = "banner" | "card";
+
+/**
+ * A row in the thread context card at a thread pane's upper-right, below the
+ * header, beside bb's own rows; the card's counterpart of
+ * `experimental_threadInfoRow`. Render one or more
+ * `experimental_ThreadContextCardRow` elements, or null to show nothing for
+ * this thread. bb draws the card and places it, and mounts rows only in panes
+ * whose thread context kind is `card`. A crash removes only this row for that
+ * thread.
+ */
+export interface ExperimentalThreadContextCardRowRegistration {
+  /** Unique within the plugin; letters, digits, `-`, `_`. */
+  id: string;
+  /**
+   * Rows sort by `group` (string compare), then by `order` within a group
+   * (unset sorts last), then by registration order, with bb's own rows first
+   * on a tie. Rows use the Info tab's groups,
+   * {@link PluginSdkApp.experimental_THREAD_INFO_ROW_GROUPS}; any other
+   * string is a group of its own, placed where it sorts.
+   */
+  group: string;
+  order?: number;
+  component: ComponentType<ExperimentalThreadContextCardProps>;
+}
+
+/**
+ * A titled section of the thread context card, below its rows; the card's
+ * counterpart of `experimental_threadInfoSection`. bb draws the title and a
+ * divider above it, and hides the section while its component renders
+ * nothing. A crash removes only this section for that thread.
+ */
+export interface ExperimentalThreadContextCardSectionRegistration {
+  /** Unique within the plugin; letters, digits, `-`, `_`. */
+  id: string;
+  /** Heading bb draws above the section's rows. */
+  title: string;
+  /**
+   * Sections sort by `group` (string compare), then by `order` within a group
+   * (unset sorts last), then by registration order, with bb's own sections
+   * first on a tie. Sections use the Info tab's groups,
+   * {@link PluginSdkApp.experimental_THREAD_INFO_SECTION_GROUPS}; any other
+   * string is a group of its own, placed where it sorts.
+   */
+  group: string;
+  order?: number;
+  component: ComponentType<ExperimentalThreadContextCardProps>;
+}
+
+/**
+ * Props of the host-owned `experimental_ThreadContextCardRow` component, the row
+ * bb's own card rows use: an icon, a label, an optional trailing value, and an
+ * optional second control. With `onClick` the label is a button.
+ */
+export interface ExperimentalThreadContextCardRowProps {
+  /** Icon drawn before the label, any name `experimental_Icon` accepts. */
+  icon?: BbIconName;
+  /** Drawn in the icon's place, such as an app or site icon; wins over `icon`. */
+  leading?: ReactNode;
+  label: ReactNode;
+  /** Drawn at the row's end, such as a count or `+4 −1`. */
+  trailing?: ReactNode;
+  /** Tooltip, and the accessible description when the label is truncated. */
+  title?: string;
+  disabled?: boolean;
+  /**
+   * A second control, such as a button that opens a menu. It takes the
+   * place of `trailing` while the row is hovered or focused or the control's
+   * menu is open, and always shows on touch screens.
+   */
+  action?: ReactNode;
+  /** Makes the label a button. */
+  onClick?(): void;
+}
+
+/**
  * Props of the host-owned `experimental_InfoSection` component — the heading,
  * count, and collapse control every Info tab section uses.
  */
@@ -3747,6 +3846,22 @@ export interface PluginAppSlots {
     registration: ExperimentalThreadInfoSectionRegistration,
   ): void;
   /**
+   * Add a row to the thread context card of every thread pane (see
+   * {@link ExperimentalThreadContextCardRowRegistration}). Experimental: see
+   * docs/api_to_audit.md.
+   */
+  experimental_threadContextCardRow(
+    registration: ExperimentalThreadContextCardRowRegistration,
+  ): void;
+  /**
+   * Add a titled section to the thread context card of every thread pane (see
+   * {@link ExperimentalThreadContextCardSectionRegistration}). Experimental:
+   * see docs/api_to_audit.md.
+   */
+  experimental_threadContextCardSection(
+    registration: ExperimentalThreadContextCardSectionRegistration,
+  ): void;
+  /**
    * Add an action to every thread actions menu (see
    * {@link PluginThreadActionRegistration}). Experimental: see
    * docs/api_to_audit.md.
@@ -5367,6 +5482,15 @@ export interface PluginSdkApp {
    * docs/api_to_audit.md.
    */
   experimental_useExperiment(key: string): boolean;
+  /**
+   * How the thread pane the calling component renders in shows its thread
+   * context (see {@link ExperimentalThreadContextKind}); `banner` outside a
+   * thread pane. A context segment whose content is also a thread context card
+   * row or section hides itself in `useVisible` while this is `card`; other
+   * segments keep showing above the composer.
+   * Experimental: see docs/api_to_audit.md.
+   */
+  experimental_useThreadContextKind(): ExperimentalThreadContextKind;
   useBbContext(): BbContext;
   /**
    * The id of the plugin that owns the calling component: the same id
@@ -5818,6 +5942,13 @@ export interface PluginSdkApp {
    * Experimental: see docs/api_to_audit.md.
    */
   experimental_DetailRow: ComponentType<ExperimentalDetailRowProps>;
+  /**
+   * The thread context card's row (see
+   * {@link ExperimentalThreadContextCardRowProps}), the one bb's own entries
+   * use.
+   * Experimental: see docs/api_to_audit.md.
+   */
+  experimental_ThreadContextCardRow: ComponentType<ExperimentalThreadContextCardRowProps>;
   /**
    * The thread Info tab's list (see {@link ExperimentalInfoListProps}), the
    * one bb's own sections use. Experimental: see docs/api_to_audit.md.

@@ -290,6 +290,31 @@ export const SURFACE_GROUPS: SurfaceGroup[] = [
         experimental: true,
       },
       {
+        id: "thread-context-card",
+        title: "Thread context card",
+        summary:
+          "Add a row or a titled section to the context card of every thread pane. With this, a plugin can:",
+        bullets: [
+          "Keep a pull request, change counts, or related threads in view while messages scroll",
+          "Sit among bb's own rows in the Info tab's groups, drawn with the same row",
+          "Hide a matching context segment while the pane shows the card",
+          "Leave the card, placement, and the header button to bb",
+        ],
+        apiSymbols: [
+          "PluginAppSlots.experimental_threadContextCardRow",
+          "PluginAppSlots.experimental_threadContextCardSection",
+          "ExperimentalThreadContextCardRowRegistration",
+          "ExperimentalThreadContextCardSectionRegistration",
+          "ExperimentalThreadContextCardProps",
+          "experimental_useThreadContextKind",
+          "ExperimentalThreadContextKind",
+          "experimental_ThreadContextCardRow",
+          "ExperimentalThreadContextCardRowProps",
+        ],
+        firstParty: ["Git", "GitHub PR Status"],
+        experimental: true,
+      },
+      {
         id: "timeline-renderers",
         title: "Timeline entry content",
         summary:

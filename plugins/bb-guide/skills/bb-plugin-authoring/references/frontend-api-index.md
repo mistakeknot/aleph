@@ -27,6 +27,7 @@ Read the installed SDK declarations for the exact current signatures.
 - `experimental_DetailRow`
 - `experimental_InfoList`
 - `experimental_InfoListRow`
+- `experimental_ThreadContextCardRow`
 - `useRpc`
 - `experimental_useRpcQuery`
 - `experimental_useRpcKeyedQuery`
@@ -36,6 +37,7 @@ Read the installed SDK declarations for the exact current signatures.
 - `useRealtimeConnectionState`
 - `useSettings`
 - `experimental_useExperiment`
+- `experimental_useThreadContextKind`
 - `useBbContext`
 - `experimental_usePluginId`
 - `experimental_useQuestionFormHost`
@@ -221,6 +223,11 @@ Read the installed SDK declarations for the exact current signatures.
 - `ExperimentalThreadInfoRowRegistration`
 - `ExperimentalThreadRowMetadataRegistration`
 - `ExperimentalThreadInfoSectionRegistration`
+- `ExperimentalThreadContextCardRowRegistration`
+- `ExperimentalThreadContextCardSectionRegistration`
+- `ExperimentalThreadContextKind`
+- `ExperimentalThreadContextCardProps`
+- `ExperimentalThreadContextCardRowProps`
 - `PluginThreadActionTarget`
 - `PluginThreadActionChoice`
 - `PluginThreadActionChoices`

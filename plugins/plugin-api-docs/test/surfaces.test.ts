@@ -24,6 +24,7 @@ describe("product-map surfaces", () => {
       "thread-header",
       "thread-actions",
       "app-header-status",
+      "thread-context-card",
       "timeline-renderers",
       "message-directives",
       "code-fence-renderers",
