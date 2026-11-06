@@ -1,12 +1,17 @@
+import { type ChildProcess, spawn } from "node:child_process";
 import {
+  existsSync,
+  readdirSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   type GeneratedPrerequisite,
@@ -22,8 +27,37 @@ const sdkPrerequisite = GENERATED_PREREQUISITES[1]!;
 describe("ensureTestPrerequisites", () => {
   const roots: string[] = [];
 
-  afterEach(() => {
+  const runners: ChildProcess[] = [];
+
+  function hardKill(pid: number): void {
+    for (const target of [-pid, pid]) {
+      try {
+        process.kill(target, "SIGKILL");
+      } catch {
+        continue;
+      }
+    }
+  }
+
+  afterEach(async () => {
+    for (const runner of runners.splice(0)) {
+      if (runner.exitCode === null && runner.signalCode === null) {
+        const gone = new Promise<void>((resolve) => {
+          runner.once("exit", () => resolve());
+        });
+        runner.kill("SIGKILL");
+        await gone;
+      }
+    }
     for (const root of roots.splice(0)) {
+      const packageDir = join(root, "pkg");
+      if (existsSync(packageDir)) {
+        for (const name of readdirSync(packageDir)) {
+          if (name.endsWith(".pid")) {
+            hardKill(Number(readFileSync(join(packageDir, name), "utf8")));
+          }
+        }
+      }
       rmSync(root, { recursive: true, force: true });
     }
   });
@@ -166,4 +200,224 @@ describe("ensureTestPrerequisites", () => {
     const pid = Number(readFileSync(join(root, "pkg/child.pid"), "utf8"));
     expect(() => process.kill(pid, 0)).toThrow();
   });
+
+  async function waitFor(condition: () => boolean, limitMs: number) {
+    const giveUpAt = Date.now() + limitMs;
+    while (!condition() && Date.now() < giveUpAt) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    return condition();
+  }
+
+  function isDead(pid: number): boolean {
+    try {
+      process.kill(pid, 0);
+      return false;
+    } catch {
+      return true;
+    }
+  }
+
+  it("force-kills a SIGTERM-ignoring grandchild that outlives the build", async () => {
+    const root = emptyRoot();
+    touch(
+      join(root, "pkg/grandchild.mjs"),
+      [
+        'import { writeFileSync } from "node:fs";',
+        'process.on("SIGTERM", () => {});',
+        'writeFileSync("grandchild.pid", String(process.pid));',
+        "setInterval(() => {}, 1000);",
+      ].join("\n"),
+    );
+    const prerequisite = fakePrerequisite(
+      root,
+      [
+        'import { spawn } from "node:child_process";',
+        'import { existsSync, writeFileSync } from "node:fs";',
+        'spawn(process.execPath, ["grandchild.mjs"], { stdio: "ignore" }).unref();',
+        'while (!existsSync("grandchild.pid")) {',
+        "  await new Promise((resolve) => setTimeout(resolve, 20));",
+        "}",
+        'writeFileSync("out.txt", "done");',
+      ].join("\n"),
+    );
+    const started = Date.now();
+    await ensurePrerequisite(prerequisite, root, {
+      timeoutMs: 20_000,
+      killGraceMs: 300,
+    });
+    expect(Date.now() - started).toBeLessThan(10_000);
+    const pid = Number(readFileSync(join(root, "pkg/grandchild.pid"), "utf8"));
+    expect(await waitFor(() => isDead(pid), 2_000)).toBe(true);
+  });
+
+  interface SetupEnd {
+    readonly name: string;
+    readonly signal: "SIGTERM" | "SIGINT" | undefined;
+  }
+
+  const setupEnds: readonly SetupEnd[] = [
+    { name: "SIGTERM", signal: "SIGTERM" },
+    { name: "SIGINT", signal: "SIGINT" },
+    { name: "a normal exit", signal: undefined },
+  ];
+
+  function startSetup(root: string, mode: string, competing = "") {
+    fakePrerequisite(
+      root,
+      [
+        'import { writeFileSync } from "node:fs";',
+        'process.on("SIGTERM", () => {});',
+        'writeFileSync("child.pid", String(process.pid));',
+        "setInterval(() => {}, 1000);",
+      ].join("\n"),
+    );
+    const moduleUrl = pathToFileURL(
+      join(import.meta.dirname, "ensure-test-prerequisites.ts"),
+    ).href;
+    touch(
+      join(root, "runner.mjs"),
+      [
+        'import { appendFileSync, existsSync, writeFileSync } from "node:fs";',
+        `import { ensurePrerequisite } from ${JSON.stringify(moduleUrl)};`,
+        "const [, , root, mode, competing] = process.argv;",
+        "const prerequisite = {",
+        '  label: "fake artifact",',
+        '  packageDir: "pkg",',
+        '  script: "build.mjs",',
+        '  outputs: async () => ["out.txt"],',
+        "};",
+        "const [signal, kind, order] = competing.split(':');",
+        "const register = () => {",
+        "  if (!signal) {",
+        "    return;",
+        "  }",
+        "  const record = () => appendFileSync(`${root}/handler.log`, 'x');",
+        "  if (kind === 'once') {",
+        "    process.once(signal, record);",
+        "  } else if (kind === 'self') {",
+        "    const handler = () => {",
+        "      process.off(signal, handler);",
+        "      record();",
+        "    };",
+        "    process.on(signal, handler);",
+        "  } else {",
+        "    process.on(signal, record);",
+        "  }",
+        "};",
+        "let registered = false;",
+        "const attach = () => {",
+        "  registered = true;",
+        "  register();",
+        "  writeFileSync(`${root}/ready`, 'ready');",
+        "};",
+        "if (order !== 'after') {",
+        "  attach();",
+        "}",
+        "setInterval(() => {",
+        "  if (!registered && existsSync(`${root}/pkg/child.pid`)) {",
+        "    attach();",
+        "  }",
+        "  if (mode === 'exit' && existsSync(`${root}/go`)) {",
+        "    process.exit(0);",
+        "  }",
+        "}, 20);",
+        "await ensurePrerequisite(prerequisite, root, {",
+        "  timeoutMs: 60000,",
+        "  killGraceMs: 60000,",
+        "}).catch(() => {});",
+      ].join("\n"),
+    );
+    const tsxLoader = pathToFileURL(
+      createRequire(import.meta.url).resolve("tsx"),
+    ).href;
+    const setup = spawn(
+      process.execPath,
+      ["--import", tsxLoader, join(root, "runner.mjs"), root, mode, competing],
+      { cwd: root, stdio: "ignore" },
+    );
+    runners.push(setup);
+    const ended = new Promise<{
+      code: number | null;
+      signal: NodeJS.Signals | null;
+    }>((resolve) => {
+      setup.on("exit", (code, signal) => resolve({ code, signal }));
+    });
+    return { setup, ended };
+  }
+
+  async function buildPid(root: string): Promise<number> {
+    const pidFile = join(root, "pkg/child.pid");
+    expect(await waitFor(() => existsSync(pidFile), 15_000)).toBe(true);
+    return Number(readFileSync(pidFile, "utf8"));
+  }
+
+  it.each(setupEnds)(
+    "kills the running build group when setup ends by $name",
+    async ({ signal }) => {
+      const root = emptyRoot();
+      const { setup, ended } = startSetup(
+        root,
+        signal === undefined ? "exit" : "wait",
+      );
+      const pid = await buildPid(root);
+      expect(isDead(pid)).toBe(false);
+      if (signal === undefined) {
+        writeFileSync(join(root, "go"), "go");
+      } else {
+        setup.kill(signal);
+      }
+      const result = await ended;
+      expect(result.signal).toBe(signal ?? null);
+      expect(result.code).toBe(signal === undefined ? 0 : null);
+      expect(await waitFor(() => isDead(pid), 5_000)).toBe(true);
+    },
+    60_000,
+  );
+
+  interface Competing {
+    readonly signal: "SIGTERM" | "SIGINT";
+    readonly kind: "persistent" | "once" | "self";
+    readonly order: "before" | "after";
+  }
+
+  const competingHandlers: readonly Competing[] = [
+    { signal: "SIGTERM", kind: "persistent", order: "before" },
+    { signal: "SIGINT", kind: "persistent", order: "before" },
+    { signal: "SIGTERM", kind: "persistent", order: "after" },
+    { signal: "SIGTERM", kind: "once", order: "before" },
+    { signal: "SIGTERM", kind: "once", order: "after" },
+    { signal: "SIGINT", kind: "once", order: "before" },
+    { signal: "SIGTERM", kind: "self", order: "before" },
+    { signal: "SIGTERM", kind: "self", order: "after" },
+    { signal: "SIGINT", kind: "self", order: "before" },
+  ];
+
+  it.each(competingHandlers)(
+    "runs a $kind $signal handler registered $order setup exactly once and leaves it in charge",
+    async ({ signal, kind, order }) => {
+      const root = emptyRoot();
+      const { setup, ended } = startSetup(
+        root,
+        "wait",
+        `${signal}:${kind}:${order}`,
+      );
+      const pid = await buildPid(root);
+      expect(await waitFor(() => existsSync(join(root, "ready")), 5_000)).toBe(
+        true,
+      );
+      setup.kill(signal);
+      const handlerLog = join(root, "handler.log");
+      expect(await waitFor(() => existsSync(handlerLog), 5_000)).toBe(true);
+      expect(await waitFor(() => isDead(pid), 5_000)).toBe(true);
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      expect(readFileSync(handlerLog, "utf8")).toBe("x");
+      expect(setup.exitCode).toBeNull();
+      expect(setup.signalCode).toBeNull();
+      setup.kill("SIGKILL");
+      const result = await ended;
+      expect(result.signal).toBe("SIGKILL");
+    },
+    60_000,
+  );
 });
