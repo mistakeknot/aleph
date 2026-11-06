@@ -1,4 +1,5 @@
 export * from "./adapters/claude.js";
+export * from "./adapters/codex.js";
 export * from "./admission.js";
 export * from "./contracts.js";
 export * from "./fts-structure.js";
