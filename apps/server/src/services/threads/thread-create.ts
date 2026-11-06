@@ -104,6 +104,18 @@ interface ResolveCatalogExecutionDefaultsArgs {
   requestedModel: string | null;
 }
 
+const REGISTRATION_DEPENDENT_ERROR_CODES: ReadonlySet<string> = new Set([
+  "invalid_request",
+  "model_catalog_unavailable",
+]);
+
+function isRegistrationDependentFailure(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    REGISTRATION_DEPENDENT_ERROR_CODES.has(error.body.code)
+  );
+}
+
 async function loadCatalogDefaultForProvider(
   deps: ThreadCreateDeps,
   args: { cwd?: string; hostId: string; providerId: string },
@@ -845,7 +857,11 @@ async function createThreadFromRequestWithSourcePinned(
   try {
     resolvedExecutionDefaults = await resolveExecutionDefaultsAtCatalog();
   } catch (error) {
-    if (registrationPending && deps.providerRegistry.get(providerId) === null) {
+    if (
+      registrationPending &&
+      isRegistrationDependentFailure(error) &&
+      deps.providerRegistry.get(providerId) === null
+    ) {
       throwUnregisteredProviderError(deps.providerRegistry, providerId);
     }
     throw error;

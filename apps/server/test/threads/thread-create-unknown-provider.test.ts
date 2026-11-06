@@ -151,7 +151,44 @@ describe("thread create while provider plugins are still registering", () => {
     );
   });
 
-  it("answers a retryable 503 only after the second wait for the provider times out", async () => {
+  it("keeps the base's model_required for a hostless create with no model while the provider is pending", async () => {
+    await withTestHarness(
+      { seedFirstPartyProviders: false },
+      async (harness) => {
+        const registry = createProviderRegistryService({
+          deferRegistrationsSettled: true,
+        });
+        const providerWait = vi.spyOn(registry, "whenProviderRegistered");
+        harness.deps.providerRegistry = registry;
+        const { host, project } = seedWorkspace(harness);
+
+        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+        let answered = false;
+        const responsePromise = Promise.resolve(
+          createThread(harness, {
+            hostId: host.id,
+            hostless: true,
+            projectId: project.id,
+            providerId: "codex",
+          }),
+        ).then((response) => {
+          answered = true;
+          return response;
+        });
+        await vi.advanceTimersByTimeAsync(30_000);
+        expect(answered).toBe(true);
+        const response = await responsePromise;
+
+        expect(response.status).toBe(400);
+        const body = (await readJson(response)) as { code?: string };
+        expect(body.code).toBe("model_required");
+        expect(providerWait).not.toHaveBeenCalled();
+        expect(harness.db.select().from(threads).all()).toHaveLength(0);
+      },
+    );
+  });
+
+  it("translates the catalog lookup's unsupported-provider failure into the retryable 503 after the second wait", async () => {
     await withTestHarness(
       { seedFirstPartyProviders: false },
       async (harness) => {
@@ -253,10 +290,6 @@ describe("thread create while provider plugins are still registering", () => {
         });
         return {};
       },
-    },
-    {
-      name: "the environment has no host and no model is known",
-      prepare: () => ({ hostless: true }),
     },
     {
       name: "the environment has no host and a model with session options is supplied",
