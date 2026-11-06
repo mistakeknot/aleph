@@ -176,6 +176,44 @@ describe("FTS structure snapshot", () => {
     expect(result.mergePossible).toBe(true);
   });
 
+  it("counts every repeated identity in one batch as a replacement, against an empty store", () => {
+    const dir = makeStoreDir();
+    const store = track(dir);
+    const random = seededRandom(17);
+    const unique = (tokens: number): string => {
+      const out: string[] = [];
+      for (let index = 0; index < tokens; index += 1) {
+        out.push(random().toString(36).slice(2, 10));
+      }
+      return out.join(" ");
+    };
+    const records = [3, 2, 1].map((rank) =>
+      message("shared", unique(6_000), MS + rank * 1000),
+    );
+    const prior = structureOf(dir);
+    expect(prior.totalSegments).toBe(0);
+    const result = store.commitBatch(batchOf(source(), records), {
+      expected: null,
+      next: "c0",
+    });
+    expect(result.committed).toBe(true);
+    expect(result.mergePossible).toBe(true);
+  });
+
+  it("counts a repeated identity with short text as extra flushes", () => {
+    const dir = makeStoreDir();
+    const store = track(dir);
+    const records = [3, 2, 1].map((rank) =>
+      message("shared-short", `word${rank} alpha beta`, MS + rank * 1000),
+    );
+    const result = store.commitBatch(batchOf(source(), records), {
+      expected: null,
+      next: "c0",
+    });
+    expect(result.committed).toBe(true);
+    expect(result.mergePossible).toBe(true);
+  });
+
   it("never reports a merge as impossible when the segment count moved by other than one flush", () => {
     const dir = makeStoreDir();
     const store = track(dir);

@@ -857,8 +857,15 @@ export class SessionSearchStore {
       ? row.first_discovery_ms
       : BigInt(source.discoveredAtMs);
     const items: FlushItem[] = [];
+    const seen = new Set<string>();
     for (const entry of entries) {
       if (entry.textBytes > this.limits.maxRecordTextBytes) continue;
+      const repeated = seen.has(entry.record.dedupeKey);
+      seen.add(entry.record.dedupeKey);
+      if (repeated) {
+        items.push({ replaces: true, textBytes: entry.textBytes });
+        continue;
+      }
       const { eventMs, timeBasis } = resolveEventTime(
         entry.record,
         discoveryMs,
