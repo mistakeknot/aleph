@@ -1,6 +1,6 @@
 # Aleph patch ledger
 
-This ledger lists every difference between upstream bb 5639420681 (the commit recorded in UPSTREAM_BASE) and Aleph, and says how each is held. It is the checklist for an upstream sync and the source of its conflict resolutions.
+This ledger lists every difference between upstream bb 2e2319dea5 (the commit recorded in UPSTREAM_BASE) and Aleph, and says how each is held. It is the checklist for an upstream sync and the source of its conflict resolutions.
 
 Each row is a patch: where it lives, why, and the resolution to use when a sync conflicts. The path-level mapping is in `aleph-patch-ledger-paths.tsv` (one line per differing path, with the patch id; the single exception is `scripts/ci-*-release-check.sh`, a deliberate redacted alias for the tracked release-check script, whose real file name carries an internal host name that the public-repo hygiene rule keeps out of tracked text). The classification is by path rule and commit history, so a path can belong to a neighbouring patch when two patches share a file. A path that fits no row is listed under `unattributed` and blocks a sync until it is classified.
 
