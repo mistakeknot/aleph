@@ -1,3 +1,4 @@
+export * from "./adapters/claude.js";
 export * from "./admission.js";
 export * from "./contracts.js";
 export * from "./fts-structure.js";
@@ -7,3 +8,4 @@ export * from "./private-fs.js";
 export * from "./reader.js";
 export * from "./rowid.js";
 export * from "./storage.js";
+export * from "./streaming-reader.js";
