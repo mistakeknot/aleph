@@ -71,11 +71,11 @@ own answer to a problem Aleph patched, Aleph adopts it and drops the patch.
 
 - **Version.** The package version keeps the upstream bb release Aleph is based
   on and carries the Aleph version as build metadata. The current version is
-  `0.48.0+aleph.0.9.0`: Aleph 0.9.0 on upstream bb 0.48.0. See
+  `0.48.1+aleph.0.9.0`: Aleph 0.9.0 on upstream bb 0.48.1. See
   [Versions](FORK.md#versions).
 - **Tracking.** [`UPSTREAM_BASE`](UPSTREAM_BASE) records the upstream commit,
   the upstream release and the Aleph version of the last sync; it currently
-  records upstream commit `bcefd50bf2`, three commits past the 0.48.0 release.
+  records upstream commit `9662c45478`, two commits past the 0.48.1 preparation.
   Earlier syncs were squashed into single commits, so Aleph's history did not
   share upstream's. Since the join to upstream 0.48.0, `main` shares history with
   upstream, and the sync to `bcefd50bf2` landed as a merge commit that records
