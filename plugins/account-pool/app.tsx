@@ -68,6 +68,7 @@ import type {
   AccountPoolConfigSetInput,
   FamilyQuota,
   LimitWindow,
+  LoginTarget,
   ModelFamily,
   PoolAvailability,
   PoolBurn,
@@ -90,8 +91,11 @@ import {
 
 type DialogState =
   | { kind: "account" | "priority" | "remove"; accountId: string }
-  | { kind: "claude-login" | "codex-login" | "api-key" }
+  | { kind: "claude-login" | "codex-login"; target: LoginTarget }
+  | { kind: "api-key" }
   | null;
+
+const NEW_LOGIN: LoginTarget = { kind: "add", label: null, priority: 100 };
 
 type ConfigField = Exclude<
   keyof AccountPoolConfig,
@@ -104,7 +108,13 @@ const CONFIG_FIELDS: readonly ConfigField[] = [
   "switchThreshold",
 ];
 
-const ACCOUNT_ACTIONS = ["toggle", "priority", "refresh", "remove"] as const;
+const ACCOUNT_ACTIONS = [
+  "toggle",
+  "priority",
+  "refresh",
+  "relogin",
+  "remove",
+] as const;
 
 const PROVIDERS: Array<{
   id: PoolProvider;
@@ -569,6 +579,15 @@ function AccountRow({
               <Icon name="RotateCcw" />
               Refresh usage
             </DropdownMenuItem>
+            {account.kind === "oauth" ? (
+              <DropdownMenuItem
+                disabled={pending}
+                onSelect={() => onAction("relogin")}
+              >
+                <Icon name="UserRound" />
+                Sign in again…
+              </DropdownMenuItem>
+            ) : null}
             <DropdownMenuSeparator />
             <DropdownMenuItem
               variant="destructive"
@@ -598,7 +617,7 @@ function AddAccountMenu({
   onChoose,
 }: {
   provider: PoolProvider;
-  onChoose: (choice: "login" | "import" | "api-key") => void;
+  onChoose: (choice: "login" | "api-key") => void;
 }) {
   return (
     <DropdownMenu>
@@ -622,19 +641,6 @@ function AddAccountMenu({
               {provider === "claude"
                 ? "Opens claude.ai, paste the code back"
                 : "Opens ChatGPT with a device code"}
-            </span>
-          </span>
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          className="items-start py-2"
-          onSelect={() => onChoose("import")}
-        >
-          <Icon name="Download" className="mt-0.5" />
-          <span>
-            <span className="block">Import from this machine</span>
-            <span className="block text-xs text-muted-foreground">
-              Copies the server host&apos;s{" "}
-              {provider === "claude" ? "~/.claude" : "Codex"} login
             </span>
           </span>
         </DropdownMenuItem>
@@ -1031,6 +1037,14 @@ function AccountPoolSettings() {
     };
   }, [codexStep, loginDone, refresh, rpc]);
   const accounts = status?.accounts ?? [];
+  const loginTarget =
+    dialog?.kind === "claude-login" || dialog?.kind === "codex-login"
+      ? dialog.target
+      : null;
+  const reloginId =
+    loginTarget?.kind === "relogin" ? loginTarget.accountId : null;
+  const reloginAccount =
+    accounts.find((account) => account.id === reloginId) ?? null;
   const selectedAccount =
     dialog?.kind === "account" ||
     dialog?.kind === "priority" ||
@@ -1125,43 +1139,38 @@ function AccountPoolSettings() {
       clearPending(`config-${field}`);
     }
   }
-  async function startClaude(): Promise<void> {
-    setDialog({ kind: "claude-login" });
+  async function startClaude(target: LoginTarget): Promise<void> {
+    setDialog({ kind: "claude-login", target });
     setLoginDone(null);
     await run("claude-login", async () => {
-      const started = await rpc.call("login.start", null);
+      const started = await rpc.call("login.start", target);
       setLoginStep(started);
       setPastedCode("");
     });
   }
-  async function startCodex(): Promise<void> {
-    setDialog({ kind: "codex-login" });
+  async function startCodex(target: LoginTarget): Promise<void> {
+    setDialog({ kind: "codex-login", target });
     setLoginDone(null);
     await run("codex-login", async () => {
-      setCodexStep(await rpc.call("codexLogin.start", null));
+      setCodexStep(await rpc.call("codexLogin.start", target));
     });
+  }
+  async function startLogin(
+    provider: PoolProvider,
+    target: LoginTarget,
+  ): Promise<void> {
+    if (provider === "claude") await startClaude(target);
+    else await startCodex(target);
   }
   async function chooseAdd(
     provider: PoolProvider,
-    choice: "login" | "import" | "api-key",
+    choice: "login" | "api-key",
   ): Promise<void> {
     if (choice === "login") {
-      if (provider === "claude") await startClaude();
-      else await startCodex();
+      await startLogin(provider, NEW_LOGIN);
       return;
     }
-    if (choice === "api-key") {
-      setDialog({ kind: "api-key" });
-      return;
-    }
-    await run(`import-${provider}`, async () => {
-      await rpc.call("account.add", {
-        provider,
-        source: { kind: "import" },
-        label: null,
-        priority: 100,
-      });
-    });
+    setDialog({ kind: "api-key" });
   }
   async function accountAction(
     account: AccountSummary,
@@ -1174,6 +1183,13 @@ function AccountPoolSettings() {
     }
     if (action === "remove") {
       setDialog({ kind: "remove", accountId: account.id });
+      return;
+    }
+    if (action === "relogin") {
+      await startLogin(account.provider, {
+        kind: "relogin",
+        accountId: account.id,
+      });
       return;
     }
     await run(`${action}-${account.id}`, async () => {
@@ -1281,17 +1297,13 @@ function AccountPoolSettings() {
               until then.
             </p>
             <div className="mt-4 flex flex-wrap justify-center gap-2">
-              <Button size="sm" onClick={() => void startClaude()}>
+              <Button size="sm" onClick={() => void startClaude(NEW_LOGIN)}>
                 Sign in to Claude
               </Button>
-              <Button size="sm" onClick={() => void startCodex()}>
+              <Button size="sm" onClick={() => void startCodex(NEW_LOGIN)}>
                 Sign in to Codex
               </Button>
             </div>
-            <p className="mt-3 text-xs text-muted-foreground">
-              or use either provider&apos;s Add account menu to import this
-              machine&apos;s login
-            </p>
           </div>
         ) : null}
         {PROVIDERS.map((provider) => {
@@ -1587,7 +1599,7 @@ function AccountPoolSettings() {
                     void run("api-key", async () => {
                       await rpc.call("account.add", {
                         provider: "claude",
-                        source: { kind: "api-key", apiKey: apiKey.trim() },
+                        apiKey: apiKey.trim(),
                         label: null,
                         priority: 100,
                       });
@@ -1650,6 +1662,7 @@ function AccountPoolSettings() {
         {dialog?.kind === "claude-login" ? (
           <LoginDialog
             provider="claude"
+            relogin={reloginAccount}
             loginStep={loginStep}
             codexStep={null}
             loginDone={loginDone}
@@ -1673,12 +1686,14 @@ function AccountPoolSettings() {
                 setLoginStep(null);
               })
             }
-            restart={() => void startClaude()}
+            restart={() => void startClaude(dialog.target)}
+            addAnother={() => void startClaude(NEW_LOGIN)}
           />
         ) : null}
         {dialog?.kind === "codex-login" ? (
           <LoginDialog
             provider="codex"
+            relogin={reloginAccount}
             loginStep={null}
             codexStep={codexStep}
             loginDone={loginDone}
@@ -1690,7 +1705,8 @@ function AccountPoolSettings() {
             openUrl={navigate.openUrl}
             setPastedCode={() => {}}
             complete={() => {}}
-            restart={() => void startCodex()}
+            restart={() => void startCodex(dialog.target)}
+            addAnother={() => void startCodex(NEW_LOGIN)}
           />
         ) : null}
       </Dialog>
@@ -1705,7 +1721,7 @@ function AccountDialog({
 }: {
   account: AccountSummary;
   threshold: number;
-  act: (action: "toggle" | "refresh" | "remove") => void;
+  act: (action: "toggle" | "refresh" | "relogin" | "remove") => void;
 }) {
   const shared = (
     utilization: number | null,
@@ -1734,6 +1750,11 @@ function AccountDialog({
           <Button size="sm" variant="outline" onClick={() => act("refresh")}>
             Refresh usage
           </Button>
+          {account.kind === "oauth" ? (
+            <Button size="sm" variant="outline" onClick={() => act("relogin")}>
+              Sign in again
+            </Button>
+          ) : null}
           <span className="flex-1" />
           <Button
             size="sm"
@@ -1839,8 +1860,32 @@ function AccountDialog({
   );
 }
 
+function LoginError({
+  message,
+  restart,
+}: {
+  message: string;
+  restart: () => void;
+}) {
+  return (
+    <p className="text-sm text-destructive-text">
+      {message.replace(/\s*Start again\.$/u, "")}{" "}
+      <Button
+        type="button"
+        variant="link"
+        size="sm"
+        className="h-auto p-0 align-baseline text-sm text-foreground underline underline-offset-4"
+        onClick={restart}
+      >
+        Start again
+      </Button>
+    </p>
+  );
+}
+
 function LoginDialog({
   provider,
+  relogin,
   loginStep,
   codexStep,
   loginDone,
@@ -1853,8 +1898,10 @@ function LoginDialog({
   setPastedCode,
   complete,
   restart,
+  addAnother,
 }: {
   provider: PoolProvider;
+  relogin: AccountSummary | null;
   loginStep: OAuthLoginStart | null;
   codexStep: CodexDeviceLoginStart | null;
   loginDone: string | null;
@@ -1867,6 +1914,7 @@ function LoginDialog({
   setPastedCode: (value: string) => void;
   complete: () => void;
   restart: () => void;
+  addAnother: () => void;
 }) {
   const name = provider === "claude" ? "Claude" : "Codex";
   const url =
@@ -1875,15 +1923,21 @@ function LoginDialog({
       : codexStep?.verificationUri;
   return (
     <DialogFrame
-      title={`Sign in to ${name}`}
+      title={
+        relogin === null
+          ? `Sign in to ${name}`
+          : `Sign in again to ${relogin.label}`
+      }
       className="sm:max-w-xl"
       footer={
         loginDone !== null ? (
           <>
             <span className="flex-1" />
-            <Button variant="outline" onClick={restart}>
-              Add another
-            </Button>
+            {relogin === null ? (
+              <Button variant="outline" onClick={addAnother}>
+                Add another
+              </Button>
+            ) : null}
             <Button onClick={close}>Done</Button>
           </>
         ) : provider === "claude" ? (
@@ -1891,7 +1945,10 @@ function LoginDialog({
             <span className="flex-1" />
             <Button
               disabled={
-                loginStep === null || pastedCode.trim().length === 0 || pending
+                loginStep === null ||
+                pastedCode.trim().length === 0 ||
+                pending ||
+                error !== null
               }
               onClick={complete}
             >
@@ -1903,27 +1960,37 @@ function LoginDialog({
     >
       <StepIndicator step={loginDone === null ? 2 : 3} />
       {loginDone !== null ? (
-        <div>
-          <h3 className="text-base font-semibold">Connected {loginDone}</h3>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {name} threads on every machine now route through this account.
-            Usage refreshes in the background.
-          </p>
-        </div>
+        relogin === null ? (
+          <div>
+            <h3 className="text-base font-semibold">Connected {loginDone}</h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {name} threads on every machine now route through this account.
+              Usage refreshes in the background.
+            </p>
+          </div>
+        ) : (
+          <div>
+            <h3 className="text-base font-semibold">
+              Signed in again to {loginDone}
+            </h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Its priority, enabled state, and pinned conversations are
+              unchanged.
+            </p>
+          </div>
+        )
       ) : url === undefined ? (
         provider === "codex" && error !== null ? (
-          <div className="space-y-3">
-            <p className="text-sm text-destructive-text">{error}</p>
-            <Button variant="outline" onClick={restart}>
-              Try again
-            </Button>
-          </div>
+          <LoginError message={error} restart={restart} />
         ) : (
           <p className="text-sm text-muted-foreground">Starting sign-in…</p>
         )
       ) : (
         <>
           <p className="text-sm text-muted-foreground">
+            {relogin === null
+              ? null
+              : `Sign in as ${relogin.email ?? relogin.label}. `}
             {provider === "claude"
               ? "Sign in at claude.ai, then paste the code from the final page."
               : "Open the verification page, sign in to ChatGPT, and enter this code."}
@@ -1933,12 +2000,17 @@ function LoginDialog({
           )}
           <AuthorizationUrlRow name={name} url={url} openUrl={openUrl} />
           {provider === "claude" ? (
-            <Input
-              aria-label="Claude authorization code"
-              placeholder="Paste code#state here"
-              value={pastedCode}
-              onChange={(event) => setPastedCode(event.target.value)}
-            />
+            <>
+              <Input
+                aria-label="Claude authorization code"
+                placeholder="Paste code#state here"
+                value={pastedCode}
+                onChange={(event) => setPastedCode(event.target.value)}
+              />
+              {error === null ? null : (
+                <LoginError message={error} restart={restart} />
+              )}
+            </>
           ) : (
             <p className="text-center text-sm text-muted-foreground">
               Waiting for you to authorize… expires in{" "}
