@@ -38,6 +38,7 @@ const AUTOMATION_RUN_COLUMNS = `id, automation_id AS automationId, run_mode AS r
 export type Db = Database.Database;
 
 export const AUTOMATION_QUICK_RETRY_LIMIT = 2;
+export const AUTOMATION_MAX_CONSECUTIVE_FAILURES = 3;
 export const AUTOMATION_RETRY_BASE_MS = 30_000;
 
 export interface AutomationRow {
@@ -763,15 +764,22 @@ function recordAutomationFailure(
   const automation = getAutomation(db, args.automationId);
   if (!automation) return;
   const consecutiveFailures = automation.consecutiveFailures + 1;
+  const paused = consecutiveFailures >= AUTOMATION_MAX_CONSECUTIVE_FAILURES;
   const retryAt =
     args.retrySchedule &&
     automation.enabled &&
+    !paused &&
     consecutiveFailures <= AUTOMATION_QUICK_RETRY_LIMIT
       ? args.now + automationRetryDelayMs(consecutiveFailures)
       : null;
+  const lastError = paused
+    ? `${args.error} (automation paused after ${consecutiveFailures} consecutive failures)`
+    : args.error;
   db.prepare(
     `UPDATE automations SET
+       enabled = CASE WHEN @paused = 1 THEN 0 ELSE enabled END,
        next_run_at = CASE
+         WHEN @paused = 1 THEN NULL
          WHEN @retryAt IS NULL THEN next_run_at
          WHEN next_run_at IS NULL THEN @retryAt
          ELSE MIN(@retryAt, next_run_at)
@@ -783,9 +791,10 @@ function recordAutomationFailure(
      WHERE id = @automationId`,
   ).run({
     automationId: args.automationId,
+    paused: boolToInt(paused),
     retryAt,
     consecutiveFailures,
-    lastError: args.error,
+    lastError,
     now: args.now,
   });
 }

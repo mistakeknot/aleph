@@ -1118,3 +1118,4 @@ window-presets	M	packages/domain/src/ui-preferences.ts
 window-presets	A	packages/domain/src/window-presets.ts
 window-presets	M	packages/server-contract/src/api-types.ts
 window-presets	A	packages/server-contract/src/api/windows.ts
+automation-auto-pause	M	plugins/automations/src/data.ts

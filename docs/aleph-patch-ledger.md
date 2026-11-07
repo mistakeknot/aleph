@@ -57,20 +57,21 @@ Held as: *plugin* means the change lives in a plugin directory; *in-tree* means 
 | upstream-sync-tooling | in-tree | 1 | `scripts/upstream-sync.sh`, the probe and prepare tool for upstream syncs | Keep Aleph's script. | **Keep.** Aleph's script. Upstream has no equivalent. It does not yet restore the contributor list (bead pending). |
 | test-hardening | in-tree | 11 | Bounded timeouts and hermetic setup for load-sensitive tests (mk-4tj93) | Re-apply. | **Keep.** Two files also changed upstream (clipboard test 78671a2d66, protocol-self-update test 6d8e0d107d); re-test them after a sync. Generic timeout fixes are upstream candidates. |
 | blocker-push | plugin | 8 | Blocker-only phone push with one daily cap across all sources in the push-notifications plugin: `notifications.notify` RPC, `notify` CLI, Pacific-day ledger and status counts (mk-tv70n.7) | Plugin files carry the change. Re-apply the `notifications.notify` handler and the ledger if upstream edits those files. In `sender.ts` the seam is small: `deliver` takes an optional client-signal id and returns a delivery report, and `deliverBlocker` maps that report, refuses after stop and registers its delivery as in flight like `send`; keep upstream's `send` path otherwise as is. | **Keep.** Upstream's `notifications.send` pushes on caller request with no admission control. What stays Aleph-only is blocker admission: only the blocker kind, one daily cap across all sources, dedupe by source and key, and the per-day accounting and retention. |
+| automation-auto-pause | in-tree | 1 | Disable a recurring automation after 3 consecutive failures, with no retry scheduled after the third; upstream replaced this with quick retries only (mk-8lcd6.39) | Keep Aleph's `recordAutomationFailure` pause branch in `plugins/automations/src/data.ts` (`AUTOMATION_MAX_CONSECUTIVE_FAILURES`, `enabled = 0`, `next_run_at = NULL`, the `paused after N consecutive failures` error suffix) and keep upstream's quick-retry limit and `MIN(retry, next run)` rule for failures 1 and 2. Tests are in `plugins/automations/src/automations.test.ts` (attributed to launcher-hardening in the paths file); keep the four pause tests. | **Keep.** Upstream 741decd0a1 dropped the pause so a failing automation keeps running on its schedule; Aleph keeps the pause so a broken automation stops instead of failing forever. Fork policy, not a generic fix. |
 
-Totals: 1119 differing paths. 3 are deletions (`.github/workflows/deploy-ai-gateway.yml`, `close-stale-prs.yml` and `deploy-connect-next.yml`, imported workflows Aleph does not run); the rest are additions, edits and renames.
+Totals: 1120 differing paths. 3 are deletions (`.github/workflows/deploy-ai-gateway.yml`, `close-stale-prs.yml` and `deploy-connect-next.yml`, imported workflows Aleph does not run); the rest are additions, edits and renames.
 
 ## Audit summary (bead mk-uyf3d.2)
 
 The original audit used upstream bcefd50bf2 and upstream main as fetched on 2026-11-05. This ledger now tracks differences from UPSTREAM_BASE, 741decd0a1. Each row's verdict answers four questions: still needed, superseded by upstream, movable to a plugin or upstream extension point, and worth proposing upstream. Evidence per row is in the verdict column and in the child beads. Claims marked *unverified* were not reproduced.
 
-Verdict counts (49 rows): KEEP 45, MOVE-PLUGIN 1, UPSTREAM-CANDIDATE 2, RETIRE-BEAD 1, RETIRE-NOW 0.
+Verdict counts (50 rows): KEEP 46, MOVE-PLUGIN 1, UPSTREAM-CANDIDATE 2, RETIRE-BEAD 1, RETIRE-NOW 0.
 
 No row retires now: every superseded fragment needs a code change that is a child bead (rebase, test or cleanup), not a ledger-only edit. The one RETIRE-BEAD row (web-site) differs from the pinned upstream base, 741decd0a1, by formatting only; marketplace arrival tracking is already included.
 
 ### What moves to a plugin, and what stays core
 
-Group counts: a 6, b 18, c 24, d 1. Each row appears once, in its main group; a row's other direction is in its note.
+Group counts: a 6, b 18, c 25, d 1. Each row appears once, in its main group; a row's other direction is in its note.
 
 #### (a) Move to a plugin: 6 rows
 
@@ -106,7 +107,7 @@ Group counts: a 6, b 18, c 24, d 1. Each row appears once, in its main group; a 
 | extra-write-roots | Opt-in extra workspace write roots for sandboxed agents | n/a | small, env-gated |
 | test-hardening | Bounded timeouts and hermetic setup | n/a | generic |
 
-#### (c) Fork core (Aleph identity, updates, migrations, and edits no extension point reaches): 24 rows
+#### (c) Fork core (Aleph identity, updates, migrations, and edits no extension point reaches): 25 rows
 
 | Patch | Why it stays core |
 |---|---|
@@ -134,6 +135,7 @@ Group counts: a 6, b 18, c 24, d 1. Each row appears once, in its main group; a 
 | layout-profiles | Core panel storage and thread-screen edits |
 | upstream-sync-tooling | Fork tooling for syncing upstream |
 | blocker-push | Edits to an upstream-owned plugin (contract, sender, server); the new files are plugin-held already |
+| automation-auto-pause | Fork policy: a failing recurring automation stops after 3 failures; the edit sits inside the failure-recording path of an upstream-owned plugin |
 
 #### (d) Superseded: 1 row
 

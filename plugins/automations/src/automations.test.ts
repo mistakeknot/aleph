@@ -30,6 +30,7 @@ import {
   parseAutomationExecution,
   setAutomationEnabled,
   setAutomationRunThread,
+  AUTOMATION_MAX_CONSECUTIVE_FAILURES,
   AUTOMATION_QUICK_RETRY_LIMIT,
   AUTOMATION_RETRY_BASE_MS,
   type Db,
@@ -661,41 +662,146 @@ describe("automation data access", () => {
     expect(getAutomation(db, automation.id)?.nextRunAt).toBeNull();
   });
 
-  it("keeps a failing recurring automation on its schedule after two quick retries", () => {
+  function failScheduledRun(
+    db: Db,
+    expectedNextRunAt: number,
+    failure: number,
+  ) {
+    const claim = claimAutomationScheduledRun(db, {
+      automationId: "auto_test",
+      expectedNextRunAt,
+      newNextRunAt: expectedNextRunAt + 3_600_000,
+      now: expectedNextRunAt,
+    });
+    if (!claim.advanced) throw new Error(`claim ${failure} failed`);
+    const failedAt = expectedNextRunAt + 1;
+    closeAutomationRun(db, {
+      runId: claim.run.id,
+      status: "failed",
+      error: `dispatch failed ${failure}`,
+      now: failedAt,
+    });
+    return failedAt;
+  }
+
+  it("auto-pauses after three consecutive scheduled failures", () => {
     const db = createTestDb();
     const automation = createScheduledAutomation(db, 1000);
-    const HOUR = 3_600_000;
-    let scheduledSlot = 1000;
     let expectedNextRunAt = 1000;
 
-    for (let failure = 1; failure <= 5; failure += 1) {
-      if (expectedNextRunAt === scheduledSlot) scheduledSlot += HOUR;
-      const claim = claimAutomationScheduledRun(db, {
+    for (let failure = 1; failure <= 3; failure += 1) {
+      const failedAt = failScheduledRun(db, expectedNextRunAt, failure);
+      const current = getAutomation(db, automation.id);
+      expect(current?.consecutiveFailures).toBe(failure);
+      if (failure <= AUTOMATION_QUICK_RETRY_LIMIT) {
+        expectedNextRunAt =
+          failedAt + AUTOMATION_RETRY_BASE_MS * 2 ** (failure - 1);
+        expect(current?.enabled).toBe(true);
+        expect(current?.nextRunAt).toBe(expectedNextRunAt);
+        expect(current?.lastError).toBe(`dispatch failed ${failure}`);
+      } else {
+        expect(current?.enabled).toBe(false);
+        expect(current?.nextRunAt).toBeNull();
+        expect(current?.lastError).toContain(
+          "paused after 3 consecutive failures",
+        );
+      }
+    }
+  });
+
+  it("schedules no retry after the third consecutive failure and stays paused on a fourth", () => {
+    const db = createTestDb();
+    const automation = createScheduledAutomation(db, 1000);
+    let expectedNextRunAt = 1000;
+    for (let failure = 1; failure <= 3; failure += 1) {
+      const failedAt = failScheduledRun(db, expectedNextRunAt, failure);
+      expectedNextRunAt =
+        failedAt + AUTOMATION_RETRY_BASE_MS * 2 ** (failure - 1);
+    }
+    expect(getAutomation(db, automation.id)).toMatchObject({
+      enabled: false,
+      nextRunAt: null,
+    });
+
+    const manual = createManualRun(db, {
+      automationId: automation.id,
+      runMode: "agent",
+      now: 900_000,
+    });
+    closeAutomationRun(db, {
+      runId: manual.run.id,
+      status: "failed",
+      error: "manual failure",
+      now: 900_001,
+    });
+
+    expect(getAutomation(db, automation.id)).toMatchObject({
+      enabled: false,
+      nextRunAt: null,
+      consecutiveFailures: 4,
+    });
+  });
+
+  it("pauses after three consecutive manual failures without scheduling a retry", () => {
+    const db = createTestDb();
+    const automation = createScheduledAutomation(db, 5_000_000);
+    for (let failure = 1; failure <= 3; failure += 1) {
+      const manual = createManualRun(db, {
         automationId: automation.id,
-        expectedNextRunAt,
-        newNextRunAt: scheduledSlot,
-        now: expectedNextRunAt,
+        runMode: "agent",
+        now: 1000 * failure,
       });
-      if (!claim.advanced) throw new Error(`claim ${failure} failed`);
-      const failedAt = expectedNextRunAt + 1;
       closeAutomationRun(db, {
-        runId: claim.run.id,
+        runId: manual.run.id,
         status: "failed",
-        error: `dispatch failed ${failure}`,
-        now: failedAt,
+        error: `manual failure ${failure}`,
+        now: 1000 * failure + 1,
       });
       const current = getAutomation(db, automation.id);
-      expectedNextRunAt =
-        failure <= AUTOMATION_QUICK_RETRY_LIMIT
-          ? failedAt + AUTOMATION_RETRY_BASE_MS * 2 ** (failure - 1)
-          : scheduledSlot;
-      expect(current).toMatchObject({
-        enabled: true,
-        consecutiveFailures: failure,
-        nextRunAt: expectedNextRunAt,
-        lastError: `dispatch failed ${failure}`,
-      });
+      expect(current?.consecutiveFailures).toBe(failure);
+      if (failure < AUTOMATION_MAX_CONSECUTIVE_FAILURES) {
+        expect(current?.enabled).toBe(true);
+        expect(current?.nextRunAt).toBe(5_000_000);
+      } else {
+        expect(current).toMatchObject({ enabled: false, nextRunAt: null });
+      }
     }
+  });
+
+  it("restarts the failure count after a success so two later failures do not pause", () => {
+    const db = createTestDb();
+    const automation = createScheduledAutomation(db, 1000);
+    let expectedNextRunAt = 1000;
+    for (let failure = 1; failure <= 2; failure += 1) {
+      const failedAt = failScheduledRun(db, expectedNextRunAt, failure);
+      expectedNextRunAt =
+        failedAt + AUTOMATION_RETRY_BASE_MS * 2 ** (failure - 1);
+    }
+    const retry = claimAutomationScheduledRun(db, {
+      automationId: automation.id,
+      expectedNextRunAt,
+      newNextRunAt: expectedNextRunAt + 3_600_000,
+      now: expectedNextRunAt,
+    });
+    if (!retry.advanced) throw new Error("retry claim failed");
+    closeAutomationRun(db, {
+      runId: retry.run.id,
+      status: "succeeded",
+      now: expectedNextRunAt + 1,
+    });
+    expect(getAutomation(db, automation.id)?.consecutiveFailures).toBe(0);
+
+    let next = expectedNextRunAt + 3_600_000;
+    for (let failure = 1; failure <= 2; failure += 1) {
+      const failedAt = failScheduledRun(db, next, failure);
+      next = failedAt + AUTOMATION_RETRY_BASE_MS * 2 ** (failure - 1);
+    }
+
+    expect(getAutomation(db, automation.id)).toMatchObject({
+      enabled: true,
+      consecutiveFailures: 2,
+      nextRunAt: next,
+    });
   });
 
   it("never schedules a quick retry after the next scheduled run", () => {
@@ -3110,13 +3216,19 @@ describe("answering provider retry consent", () => {
   );
 
   it.each([
-    { label: "it joined a turn someone else was running", reader: latestRequest("steer") },
+    {
+      label: "it joined a turn someone else was running",
+      reader: latestRequest("steer"),
+    },
     { label: "it joined a turn in auto mode", reader: latestRequest("auto") },
     {
       label: "the failed turn is not the latest request",
       reader: latestRequest("new-turn", "creq_someoneelse"),
     },
-    { label: "the thread has no readable request", reader: async () => undefined },
+    {
+      label: "the thread has no readable request",
+      reader: async () => undefined,
+    },
   ])("allows a recurring run's retry when $label", async ({ reader }) => {
     const db = createTestDb();
     createScheduledAutomation(db, 1000);
