@@ -857,7 +857,7 @@ describe("asking the plugin that sent the failed turn", () => {
     },
   );
 
-  it("retries a turn when looking up its sender fails", async () => {
+  it("declines the retry when looking up its sender fails", async () => {
     const host = createHost([], {
       experimental_discoverRpc: async () => {
         throw new Error("plugin host restarting");
@@ -871,7 +871,11 @@ describe("asking the plugin that sent the failed turn", () => {
     );
 
     expect(result.errors).toEqual([]);
-    expect(host.retries).toHaveLength(1);
+    expect(host.retries).toEqual([]);
+    const explained = await host.harness.runCli(["explain", THREAD_ID]);
+    expect(explained.stdout).toBe(
+      `${THREAD_ID}: Skipped: declined-by-sender (${SENDER}: retry consent unavailable).\n`,
+    );
     await host.harness.dispose();
   });
 

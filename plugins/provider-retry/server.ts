@@ -34,9 +34,12 @@ async function askSender(
     });
   } catch (error) {
     bb.log.warn(
-      `Retry consent lookup for ${pluginId} failed for ${event.threadId}; retrying anyway: ${String(error)}`,
+      `Retry consent lookup for ${pluginId} failed for ${event.threadId}; declining the retry: ${String(error)}`,
     );
-    return { pluginId, answer: { kind: "unanswered" } };
+    return {
+      pluginId,
+      answer: { kind: "decline", reason: "retry consent unavailable" },
+    };
   }
   if (sources.length === 0) return null;
   try {
