@@ -176,6 +176,7 @@ describe("thread-bound pool availability", () => {
     expect((await f.env("claude")).map((entry) => entry.name)).toEqual([
       "ANTHROPIC_BASE_URL",
       "ANTHROPIC_AUTH_TOKEN",
+      "CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST",
       "ENABLE_TOOL_SEARCH",
       "_CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL",
       "ENABLE_PROMPT_CACHING_1H",

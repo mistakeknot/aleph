@@ -2,7 +2,7 @@ Use your own Claude Code and Codex accounts, budgeted. The Account Pooler puts t
 
 ## What you get
 
-- Your own Claude and Codex accounts, added by importing the login already on the machine, signing in through the browser, or pasting an Anthropic API key.
+- Your own Claude and Codex accounts, added by signing in (browser or device code) or with an Anthropic API key. Each keeps its own login; **Sign in again** renews one in place.
 - Accounts run one after another in priority order, with ties following the order added. New conversations stay on the current fallback even when an earlier account recovers. Existing conversations keep their own account until it becomes unavailable.
 - Drag handles set the account order within each provider in settings (keyboard: Space to pick up and drop, arrow keys to move, Escape to cancel), with the same operation available through `bb pool account reorder <claude|codex> <id>...`.
 - Live limit windows per account and model family in the plugin's settings page, and the same numbers from `bb pool status`.
@@ -36,4 +36,4 @@ This plugin is experimental. Routing, storage, and the CLI can change.
 
 Thread availability is answered only for the machine that owns the thread's environment. `bb pool exec -- <codex|claude> ...` runs scheduled or supervised work through the pool, with per-run accounting in [attempt receipts](RECEIPTS.md); the skills carry the detail.
 
-`bb pool account add|list|remove|enable|disable|priority|reorder`, `bb pool status`, `bb pool routing <claude|codex> [--off]`, `bb pool config`, `bb pool config set`, `bb pool parent [proxy|isolate]`, `bb pool token rotate`, and `bb pool bypass <thread-id>`. Every command takes `--json` and `--help`; `bb pool --help` lists the commands and `bb pool <command> --help` prints its arguments, options, and rules.
+`bb pool account add|login|list|remove|enable|disable|priority|reorder`, `bb pool status`, `bb pool routing <claude|codex> [--off]`, `bb pool config`, `bb pool config set`, `bb pool parent [proxy|isolate]`, `bb pool token rotate`, and `bb pool bypass <thread-id>`. Every command takes `--json` and `--help`; `bb pool --help` lists the commands and `bb pool <command> --help` prints its arguments, options, and rules.

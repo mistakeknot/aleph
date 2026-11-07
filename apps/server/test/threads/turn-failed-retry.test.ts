@@ -852,7 +852,7 @@ describe("pooled provider retry integration", () => {
         })(pool.bb);
         await pool.harness.behavior.callRpc("account.add", {
           provider: "claude",
-          source: { kind: "api-key", apiKey: "test-account" },
+          apiKey: "test-account",
           label: null,
           priority: 1,
         });
