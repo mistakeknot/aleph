@@ -216,6 +216,106 @@ installation recorded by the helper, rather than selecting another release.
 Release publication, helper setup and desktop installation remain separate
 operator steps.
 
+### Rolling back past the automations table drop
+
+The automations plugin's fourth migration (index 3, added by the upstream sync
+to `794bd2c2e7`) is `DROP TABLE IF EXISTS automation_thread_marks`. An Aleph
+release built from that upstream commit or later runs it the first time the
+server starts, and the drop cannot be undone from inside the database.
+
+The plugin migration runner (`runPluginStorageMigrations` in
+`packages/plugin-sdk/src/internal/host-policy.ts`) records applied indexes in
+the `_bb_migrations` table of the plugin's database and compares recorded
+hashes only for the migrations in the running binary's own list. A recorded
+index beyond that list is ignored, not refused. An older binary therefore
+starts normally on the migrated database, without `automation_thread_marks`.
+Its code still reads and writes that table (`markAutomationThread` when it
+starts a run, `isAutomationSpawnedThread` when a thread creates an
+automation), so those operations fail with "no such table". The helper's
+rollback returns the code with matching migrations and preserves newer data
+(see above), so it does not bring the table back; a plugin database restore is
+the operator's separate step.
+
+The database is `<dataDir>/plugins/automations/data.db`, in WAL mode, so
+`data.db-wal` and `data.db-shm` may sit beside it. `<dataDir>` is `BB_DATA_DIR`
+as seen by the server process (the server's service definition or launch
+environment), and `~/.bb` when that is unset.
+
+**Before installing a release at or after this migration**, copy the database
+while the server is running or stopped, using SQLite's online backup, which
+includes the WAL contents:
+
+```sh
+DB="<dataDir>/plugins/automations/data.db"
+BACKUP_DIR="<a directory outside dataDir>"
+test -s "$DB" || { echo "no database at $DB" >&2; exit 1; }
+mkdir -p "$BACKUP_DIR" || exit 1
+sqlite3 "$DB" ".backup '$BACKUP_DIR/automations-data.db'" || exit 1
+sqlite3 "$BACKUP_DIR/automations-data.db" "PRAGMA integrity_check;"
+sqlite3 "$BACKUP_DIR/automations-data.db" ".tables"
+```
+
+The `test -s` line matters: `sqlite3` given a mistyped path creates a new,
+empty database, and an empty backup also passes `integrity_check`.
+`integrity_check` must print `ok`, and `.tables` must list `automations`,
+`automation_runs` and `automation_thread_marks` (the backup is taken before
+the migration runs, so the table is still there). If any of these is missing,
+the backup is not usable. Keep the file until you have decided to stay
+on the new release. If the server is stopped and the database is never opened,
+copying `data.db` together with any `data.db-wal` and `data.db-shm` is also
+sound; copying `data.db` alone from a running server can miss committed rows.
+
+**To roll back to a release before this migration:**
+
+1. Stop the Aleph server and confirm no process holds the database open. If
+   it is already running older code on the migrated database, this is the
+   same step.
+2. Roll back the code (the signed channel's rollback, or reinstalling the
+   older `bb-app`) without starting the server on it yet.
+3. Move the current `data.db`, `data.db-wal` and `data.db-shm` aside, for
+   example into a `.migrated` directory next to them. A stale WAL left beside
+   a restored `data.db` would be replayed onto the wrong file, so all three
+   must move.
+4. Copy the backup to `<dataDir>/plugins/automations/data.db`, with the same
+   owner and mode as the file it replaces.
+5. Before starting, confirm the restored file has the table the older code
+   needs:
+   `sqlite3 "<dataDir>/plugins/automations/data.db" ".tables"` must list
+   `automation_thread_marks`. A clean start alone does not prove this, because
+   the older binary starts and lists automations without the table and fails
+   only when a run starts or an automation creates one.
+6. Start the server on the older code, then run `bb plugin logs automations`
+   and open the automations list. Then run one agent automation (not a script
+   automation, which never touches the table) by hand and confirm the run
+   starts and the log shows no "no such table" error.
+
+Restoring the backup discards everything the plugin wrote after the backup was
+taken: automations created or edited, run history, and their next-run times.
+Keep the moved-aside files so those rows can be read later.
+
+If there is no backup, or the data written since matters more than the
+restore, an older binary also boots on the migrated database once the dropped
+table exists again. Stop the server and recreate it with the definition from
+migration 0 in `plugins/automations/src/data.ts`:
+
+```sh
+sqlite3 "<dataDir>/plugins/automations/data.db" "
+CREATE TABLE IF NOT EXISTS automation_thread_marks (
+  thread_id TEXT PRIMARY KEY,
+  automation_id TEXT NOT NULL,
+  run_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);"
+```
+
+The table starts empty: the mark rows it held are not recovered, and the older
+code's spawned-thread check also looks at `automation_runs`, which the
+migration left intact. Rolling forward to the newer release later
+does not drop the table again, because index 3 stays recorded as applied; the
+newer code ignores the table. This in-place repair follows from reading the
+runner and the old and new code; it has not been run against a real old
+binary.
+
 ### Update request notices and audit
 
 Every Aleph update request POST writes a row to `aleph-update/audit.jsonl` in
