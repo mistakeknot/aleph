@@ -1,3 +1,4 @@
+import { capturePluginUse } from "./plugin-use-telemetry.js";
 import {
   realtimeSubscriptionTargetKey,
   type PluginReadSubscriptionTarget,
@@ -1787,6 +1788,7 @@ export function createPluginRuntime(context: PluginRuntimeContext) {
     };
     const stopping = new AbortController();
     const handle = createPluginApi({
+      recordPluginUse: () => capturePluginUse(deps, row.id),
       pluginId: row.id,
       logger: deps.logger,
       db: deps.db,

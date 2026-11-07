@@ -28,7 +28,7 @@ authentication failures, and unavailable pool sources do not schedule retries.
 Before scheduling a retry, the plugin asks the plugin that sent the failed
 message, when that plugin answers the `provider-retry.v1.consent` RPC. A
 decline skips the retry, and `explain` reports `declined-by-sender` with the
-plugin's reason. A failing or slow answer counts as consent. Automations
+plugin's reason. A sender whose consent answer fails, times out, or cannot be discovered counts as a decline (`retry consent unavailable`). Automations
 declines retries of turns that scheduled runs of recurring automations
 started, because those run again on their own schedule.
 

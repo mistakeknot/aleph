@@ -703,6 +703,7 @@ queue-transfer	M	apps/server/src/services/threads/timeline.ts
 queue-transfer	M	apps/server/src/types.ts
 queue-transfer	M	apps/server/src/ws/hub.ts
 queue-transfer	M	apps/server/test/helpers/test-app.ts
+queue-transfer	M	apps/server/test/internal/reconnect-recovery-waits-for-plugins.test.ts
 queue-transfer	A	apps/server/test/public/public-system-aleph-update.test.ts
 queue-transfer	M	apps/server/test/public/public-system-version.test.ts
 queue-transfer	M	apps/server/test/public/public-thread-data.test.ts
@@ -1119,3 +1120,8 @@ window-presets	A	packages/domain/src/window-presets.ts
 window-presets	M	packages/server-contract/src/api-types.ts
 window-presets	A	packages/server-contract/src/api/windows.ts
 automation-auto-pause	M	plugins/automations/src/data.ts
+automation-auto-pause	M	plugins/automations/src/retry-consent.ts
+automation-auto-pause	M	plugins/provider-retry/server.test.ts
+automation-auto-pause	M	plugins/provider-retry/server.ts
+automation-auto-pause	M	plugins/provider-retry/skills/provider-retry/SKILL.md
+automation-auto-pause	M	plugins/provider-retry/src/retry-contract.ts
