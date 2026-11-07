@@ -37,7 +37,8 @@ const AUTOMATION_RUN_COLUMNS = `id, automation_id AS automationId, run_mode AS r
 
 export type Db = Database.Database;
 
-const AUTOMATION_MAX_CONSECUTIVE_FAILURES = 3;
+export const AUTOMATION_QUICK_RETRY_LIMIT = 2;
+export const AUTOMATION_MAX_CONSECUTIVE_FAILURES = 3;
 export const AUTOMATION_RETRY_BASE_MS = 30_000;
 
 export interface AutomationRow {
@@ -759,15 +760,16 @@ function recordAutomationFailure(
     error: string;
     now: number;
   },
-): { consecutiveFailures: number; paused: boolean; retryAt: number | null } {
+): void {
   const automation = getAutomation(db, args.automationId);
-  if (!automation) {
-    return { consecutiveFailures: 0, paused: false, retryAt: null };
-  }
+  if (!automation) return;
   const consecutiveFailures = automation.consecutiveFailures + 1;
   const paused = consecutiveFailures >= AUTOMATION_MAX_CONSECUTIVE_FAILURES;
   const retryAt =
-    args.retrySchedule && automation.enabled && !paused
+    args.retrySchedule &&
+    automation.enabled &&
+    !paused &&
+    consecutiveFailures <= AUTOMATION_QUICK_RETRY_LIMIT
       ? args.now + automationRetryDelayMs(consecutiveFailures)
       : null;
   const lastError = paused
@@ -778,8 +780,9 @@ function recordAutomationFailure(
        enabled = CASE WHEN @paused = 1 THEN 0 ELSE enabled END,
        next_run_at = CASE
          WHEN @paused = 1 THEN NULL
-         WHEN @retryAt IS NOT NULL THEN @retryAt
-         ELSE next_run_at
+         WHEN @retryAt IS NULL THEN next_run_at
+         WHEN next_run_at IS NULL THEN @retryAt
+         ELSE MIN(@retryAt, next_run_at)
        END,
        consecutive_failures = @consecutiveFailures,
        last_run_status = 'failed',
@@ -794,7 +797,6 @@ function recordAutomationFailure(
     lastError,
     now: args.now,
   });
-  return { consecutiveFailures, paused, retryAt };
 }
 
 export function closeAutomationRun(
@@ -1000,6 +1002,24 @@ export function listRunningAutomationRunsByThread(
          ORDER BY started_at DESC, id DESC`,
     )
     .all(threadId) as AutomationRunRow[];
+}
+
+export function getLatestAutomationRunForThread(
+  db: Db,
+  threadId: string,
+): AutomationRunRow | null {
+  return optionalRunRow(
+    db
+      .prepare(
+        `SELECT
+           ${AUTOMATION_RUN_COLUMNS}
+         FROM automation_runs
+         WHERE thread_id = ?
+         ORDER BY started_at DESC, id DESC
+         LIMIT 1`,
+      )
+      .get(threadId),
+  );
 }
 
 export function listAutomationRuns(

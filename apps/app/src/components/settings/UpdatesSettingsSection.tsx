@@ -2256,9 +2256,8 @@ export function UpdatesSettingsSection() {
         {releaseNotesPanel("server")}
         {serverRunsSeparately && desktopRowNeedsAttention(desktopInfo) ? (
           <>
-            {" "}
             {desktopClientRow}
-            {releaseNotesPanel("desktop")}{" "}
+            {releaseNotesPanel("desktop")}
           </>
         ) : null}
       </BbUpdatesCard>
