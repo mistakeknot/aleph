@@ -8,6 +8,7 @@ import type {
   PluginInstallJob,
   PluginUpdateJob,
   SystemAiServicesResponse,
+  SystemAlephUpdateStatus,
   SystemAppUpdateStatus,
   SystemVersionResponse,
 } from "@bb/server-contract";
@@ -244,7 +245,24 @@ describe("cache writes over an in-flight fetch", () => {
   it("keeps Aleph updates separate when guarding an upstream update fetch", async () => {
     const staleFetch = deferred<unknown>();
     const f = observe(systemAppUpdateQueryKey(), staleFetch.promise);
-    const alephStatus = { available: null };
+    const alephStatus: SystemAlephUpdateStatus = {
+      activeThreadCount: 0,
+      capability: "startable",
+      detail: null,
+      floor: null,
+      installRequest: {
+        manifestDigest: null,
+        nonce: null,
+        requestedAt: null,
+        state: "none",
+        target: null,
+      },
+      installed: { aleph: "2", version: "0.43.4+aleph.2" },
+      lastRun: null,
+      predecessor: null,
+      selection: "up-to-date",
+      target: null,
+    };
     f.queryClient.setQueryData(systemAlephUpdateQueryKey(), alephStatus);
     try {
       const disabled = appUpdateStatus({ phase: "idle" });

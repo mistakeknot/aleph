@@ -1775,6 +1775,43 @@ describe("transfer-all queued messages (retirement forward)", () => {
     );
   }
 
+  it.each(["single", "all"] as const)(
+    "preserves queue delivery mode through the server %s transfer",
+    async (mode) => {
+      await withTestHarness(async (harness) => {
+        const fixture = seedParentFixture(harness, "host-delivery-mode");
+        const source = fixture.parentThreadId;
+        const target = seedSuccessor(harness, fixture);
+        const row = seedRow(harness, source, "wait for the next turn", {
+          deliveryMode: "queue",
+        });
+        const response =
+          mode === "all"
+            ? await transferAll(harness, source, target)
+            : await harness.app.request(
+                `/api/v1/threads/${source}/queued-messages/${row.id}/transfer`,
+                {
+                  method: "POST",
+                  headers: { "content-type": "application/json" },
+                  body: JSON.stringify({ targetThreadId: target }),
+                },
+              );
+        expect(response.status).toBe(mode === "all" ? 200 : 201);
+        expect(listQueuedThreadMessages(harness.db, source)).toEqual([]);
+        expect(listQueuedThreadMessages(harness.db, target)).toEqual([
+          expect.objectContaining({
+            originId: row.id,
+            deliveryMode: "queue",
+            claimedAt: null,
+          }),
+        ]);
+        const [moved] = await listOverHttp(harness, target);
+        expect(moved?.threadId).toBe(target);
+        expect(moved?.content).toEqual(JSON.parse(row.content));
+      });
+    },
+  );
+
   it("moves every movable row in order, keeps classification and waits, reports skips, and is idempotent", async () => {
     await withTestHarness(async (harness) => {
       const fixture = seedParentFixture(harness, "host-ta-main");

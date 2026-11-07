@@ -20,7 +20,7 @@ Every thread menu has a **Notifications** entry for unarchived threads: Default,
 - `blockerDailyCap` (**Blocker pushes per day**): blocker pushes per Pacific-time day, all sources; `0` turns them off. Default: 3.
 - `expoPushUrl` (**Expo push relay URL**): mobile relay. Default: `https://exp.host/--/api/v2/push/send`.
 
-Settings → Push notifications applies to this server immediately. Browser permission is per device, via **Allow notifications**. **Send test notification** confirms broadcast, not OS display.
+Settings → Push notifications applies only to this server immediately. Browser permission is per device, via **Allow notifications**. **Send test notification** confirms broadcast, not OS display.
 
 ## CLI and SDK
 

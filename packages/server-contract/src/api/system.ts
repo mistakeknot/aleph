@@ -223,6 +223,11 @@ const onboardingStepTelemetryPropertiesSchema = z
   })
   .strict();
 
+const releaseVersionTelemetrySchema = z
+  .string()
+  .max(32)
+  .regex(/^\d+(\.\d+){1,3}$/);
+
 export const recordTelemetryEventRequestSchema = z.discriminatedUnion("name", [
   z
     .object({
@@ -295,6 +300,17 @@ export const recordTelemetryEventRequestSchema = z.discriminatedUnion("name", [
           outcome: z.enum(["completed", "skipped"]),
           entry: onboardingEntryTelemetrySchema,
           last_step: onboardingStepTelemetrySchema,
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      name: z.literal("release_notes_opened"),
+      properties: z
+        .object({
+          release_version: releaseVersionTelemetrySchema,
+          view: z.enum(["inline", "web"]),
         })
         .strict(),
     })
