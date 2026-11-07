@@ -247,8 +247,9 @@ includes the WAL contents:
 
 ```sh
 DB="<dataDir>/plugins/automations/data.db"
+BACKUP_DIR="<a directory outside dataDir>"
 test -s "$DB" || { echo "no database at $DB" >&2; exit 1; }
-mkdir -p "$BACKUP_DIR"
+mkdir -p "$BACKUP_DIR" || exit 1
 sqlite3 "$DB" ".backup '$BACKUP_DIR/automations-data.db'" || exit 1
 sqlite3 "$BACKUP_DIR/automations-data.db" "PRAGMA integrity_check;"
 sqlite3 "$BACKUP_DIR/automations-data.db" ".tables"
@@ -284,8 +285,9 @@ sound; copying `data.db` alone from a running server can miss committed rows.
    the older binary starts and lists automations without the table and fails
    only when a run starts or an automation creates one.
 6. Start the server on the older code, then run `bb plugin logs automations`
-   and open the automations list. Then run one automation by hand and confirm
-   the run starts and the log shows no "no such table" error.
+   and open the automations list. Then run one agent automation (not a script
+   automation, which never touches the table) by hand and confirm the run
+   starts and the log shows no "no such table" error.
 
 Restoring the backup discards everything the plugin wrote after the backup was
 taken: automations created or edited, run history, and their next-run times.
