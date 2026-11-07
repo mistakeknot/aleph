@@ -121,6 +121,7 @@ describe("requestThreadTargetReprovision write reservation", () => {
         },
         environment: row,
         execution: EXECUTION,
+        originPluginId: null,
         initiator: "system",
         input: textInput("child finished"),
         provider: {
@@ -158,6 +159,7 @@ describe("requestThreadTargetReprovision write reservation", () => {
         },
         environment: row,
         execution: EXECUTION,
+        originPluginId: null,
         initiator: "system",
         input: textInput("child finished"),
         provider: {

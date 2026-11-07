@@ -718,6 +718,7 @@ queue-transfer	M	apps/server/test/system/app-update.test.ts
 queue-transfer	M	apps/server/test/system/app-version.test.ts
 queue-transfer	M	apps/server/test/threads/child-outcome-gaps.test.ts
 queue-transfer	M	apps/server/test/threads/dispatch-hooks.test.ts
+queue-transfer	M	apps/server/test/threads/dispatcher-paths.test.ts
 queue-transfer	M	apps/server/test/threads/environment-providers.test.ts
 queue-transfer	M	apps/server/test/threads/legacy-deferred-messages.test.ts
 queue-transfer	A	apps/server/test/threads/parent-system-message-revalidation.test.ts

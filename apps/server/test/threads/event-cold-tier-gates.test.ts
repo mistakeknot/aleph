@@ -183,6 +183,7 @@ describe("cold tier writable-history pins on send and context clear", () => {
       await expect(
         sendThreadMessage(harness.deps, {
           environment,
+          originPluginId: null,
           payload: { ...SEND_PAYLOAD },
           thread,
           trigger: "user",
@@ -209,6 +210,7 @@ describe("cold tier writable-history pins on send and context clear", () => {
         .run(thread.id);
       const sending = sendThreadMessage(harness.deps, {
         environment,
+        originPluginId: null,
         payload: { ...SEND_PAYLOAD },
         thread,
         trigger: "user",

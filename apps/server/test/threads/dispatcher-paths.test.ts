@@ -25,6 +25,7 @@ import {
   createQueuedMessageForThread,
   releaseStaleQueuedMessageDispatchClaims,
   sendNextQueuedMessageIfPresent,
+  transferQueuedMessage,
 } from "../../src/services/threads/queued-messages.js";
 import { applyLoggedThreadLifecycleEvent } from "../../src/services/threads/lifecycle-outcome.js";
 import { runQueuedMessageDispatch } from "../../src/services/threads/queued-message-dispatch.js";
@@ -238,6 +239,56 @@ describe("the plugin that sent a turn", () => {
 
       expect(firstText(turnRequests(harness, thread.id).at(-1))).toBe("Later");
       expect(failedTurnSender(harness, thread.id)).toBe("automations");
+    });
+  });
+
+  it("survives a transfer to another thread of the project", async () => {
+    await withTestHarness(async (harness) => {
+      const {
+        environment,
+        project,
+        thread: source,
+      } = seedRunnableThread(harness, {
+        hostId: "host-plugin-transfer",
+        status: "idle",
+      });
+      const target = seedThread(harness.deps, {
+        environmentId: environment.id,
+        projectId: project.id,
+        status: "idle",
+      });
+      seedThreadRuntimeState(harness.deps, {
+        environmentId: environment.id,
+        providerThreadId: "provider-host-plugin-transfer-target",
+        threadId: target.id,
+      });
+      const sendAt = Date.now() + 60_000;
+      const response = await acceptThreadSendRequest(harness.deps, {
+        payload: {
+          input: textInput("Moved"),
+          mode: "auto",
+          originPluginId: "automations",
+          sendAt,
+        },
+        thread: source,
+      });
+      expect(response.delivery).toBe("queued");
+      const [row] = queuedRows(harness, source.id);
+
+      await transferQueuedMessage(harness.deps, {
+        queuedMessageId: row!.id,
+        sourceThread: source,
+        targetThread: target,
+      });
+      expect(queuedRows(harness, target.id)).toHaveLength(1);
+
+      await runQueuedMessageDispatch(harness.deps, {
+        kind: "time-reached",
+        now: sendAt + 1,
+      });
+
+      expect(firstText(turnRequests(harness, target.id).at(-1))).toBe("Moved");
+      expect(failedTurnSender(harness, target.id)).toBe("automations");
     });
   });
 

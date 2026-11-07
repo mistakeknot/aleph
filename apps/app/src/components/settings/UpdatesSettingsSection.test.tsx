@@ -2934,7 +2934,7 @@ describe("UpdatesSettingsSection on an Aleph build", () => {
     );
     vi.mocked(sdk.system.appUpdate).mockResolvedValue(
       makeAppUpdateStatus({
-        current: { commit: null, version: alephVersion.currentVersion },
+        current: { commit: null, version: "0.43.4" },
         available: {
           channel: "latest",
           commit: null,
@@ -2948,6 +2948,7 @@ describe("UpdatesSettingsSection on an Aleph build", () => {
     vi.stubGlobal("fetch", fetchNotes);
     renderSection();
     await waitFor(() => expect(sdk.system.appUpdate).toHaveBeenCalled());
+    await screen.findByText("0.49.0");
     expect(
       screen.queryByRole("button", { name: /Changelog for bb/ }),
     ).toBeNull();
