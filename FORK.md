@@ -246,13 +246,20 @@ while the server is running or stopped, using SQLite's online backup, which
 includes the WAL contents:
 
 ```sh
+DB="<dataDir>/plugins/automations/data.db"
+test -s "$DB" || { echo "no database at $DB" >&2; exit 1; }
 mkdir -p "$BACKUP_DIR"
-sqlite3 "<dataDir>/plugins/automations/data.db" \
-  ".backup '$BACKUP_DIR/automations-data.db'"
+sqlite3 "$DB" ".backup '$BACKUP_DIR/automations-data.db'" || exit 1
 sqlite3 "$BACKUP_DIR/automations-data.db" "PRAGMA integrity_check;"
+sqlite3 "$BACKUP_DIR/automations-data.db" ".tables"
 ```
 
-`integrity_check` must print `ok`. Keep the file until you have decided to stay
+The `test -s` line matters: `sqlite3` given a mistyped path creates a new,
+empty database, and an empty backup also passes `integrity_check`.
+`integrity_check` must print `ok`, and `.tables` must list `automations`,
+`automation_runs` and `automation_thread_marks` (the backup is taken before
+the migration runs, so the table is still there). If any of these is missing,
+the backup is not usable. Keep the file until you have decided to stay
 on the new release. If the server is stopped and the database is never opened,
 copying `data.db` together with any `data.db-wal` and `data.db-shm` is also
 sound; copying `data.db` alone from a running server can miss committed rows.
@@ -270,9 +277,15 @@ sound; copying `data.db` alone from a running server can miss committed rows.
    must move.
 4. Copy the backup to `<dataDir>/plugins/automations/data.db`, with the same
    owner and mode as the file it replaces.
-5. Start the server on the older code, then run `bb plugin logs automations`
-   and open the automations list. A start that has no migration errors in the
-   log and lists your automations is the check.
+5. Before starting, confirm the restored file has the table the older code
+   needs:
+   `sqlite3 "<dataDir>/plugins/automations/data.db" ".tables"` must list
+   `automation_thread_marks`. A clean start alone does not prove this, because
+   the older binary starts and lists automations without the table and fails
+   only when a run starts or an automation creates one.
+6. Start the server on the older code, then run `bb plugin logs automations`
+   and open the automations list. Then run one automation by hand and confirm
+   the run starts and the log shows no "no such table" error.
 
 Restoring the backup discards everything the plugin wrote after the backup was
 taken: automations created or edited, run history, and their next-run times.
