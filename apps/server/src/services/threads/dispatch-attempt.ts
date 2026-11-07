@@ -338,6 +338,7 @@ async function runOperationDispatch(
 ): Promise<DispatchAttemptOutcome> {
   await sendThreadMessage(deps, {
     environment: source.environment,
+    originPluginId: args.originPluginId,
     requestedThreadId: args.requestedThreadId,
     payload: args.payload,
     thread: args.thread,
@@ -621,6 +622,7 @@ async function runDispatchAttempt(
       admitted.value = await admitPendingThread(deps, {
         author,
         claimed,
+        originPluginId: args.originPluginId,
         payload:
           senderThreadId === null
             ? resolvedPayload
@@ -730,6 +732,7 @@ async function runDispatchAttempt(
   try {
     await sendThreadMessage(deps, {
       environment,
+      originPluginId: args.originPluginId,
       payload: resolvedPayload,
       thread,
       trigger: args.trigger,
@@ -817,6 +820,7 @@ function consumeClaimedRows(
 interface AdmitPendingThreadArgs {
   author: DispatchAuthor;
   claimed: ClaimedQueuedThreadMessageRow[] | null;
+  originPluginId: string | null;
   payload: SendMessageRequest & { inputGroups?: PromptInput[][] };
   respectManualStopPause: boolean;
   /** Creation's own record; null on a re-attempt, which reads it back. */
@@ -911,6 +915,7 @@ async function admitPendingThread(
           execution,
           fork: startContext.fork,
           input: args.payload.input,
+          originPluginId: args.originPluginId,
           ...(startContext.providerInput === undefined
             ? {}
             : { providerInput: startContext.providerInput }),
