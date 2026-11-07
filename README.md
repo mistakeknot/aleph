@@ -71,22 +71,20 @@ own answer to a problem Aleph patched, Aleph adopts it and drops the patch.
 
 - **Version.** The package version keeps the upstream bb release Aleph is based
   on and carries the Aleph version as build metadata. The current version is
-  `0.48.0+aleph.0.9.0`: Aleph 0.9.0 on upstream bb 0.48.0. See
+  `0.48.1+aleph.0.9.0`: Aleph 0.9.0 on upstream bb 0.48.1. See
   [Versions](FORK.md#versions).
 - **Tracking.** [`UPSTREAM_BASE`](UPSTREAM_BASE) records the upstream commit,
   the upstream release and the Aleph version of the last sync; it currently
-  records upstream commit `bcefd50bf2`, three commits past the 0.48.0 release.
-  Earlier syncs were squashed into single commits, so Aleph's history did not
-  share upstream's. Since the join to upstream 0.48.0, `main` shares history with
-  upstream, and the sync to `bcefd50bf2` landed as a merge commit that records
-  the upstream commit as a second parent. `scripts/upstream-sync.sh` probes how
-  far upstream merges cleanly and prepares a sync branch; it does not by itself
-  promise a merge commit for every sync
+  records upstream commit `9662c45478`, two commits past the 0.48.1 preparation.
+  The sync to `bcefd50bf2` landed as a merge commit. Recent syncs (PR #155
+  and PR #157) are single-parent squashes, so the merge base with upstream
+  stays at `bcefd50bf2`. `scripts/upstream-sync.sh` uses the explicit base
+  recorded in `UPSTREAM_BASE`
   ([Upstream syncs in small steps](FORK.md#upstream-syncs-in-small-steps)).
 - **Carried differences.** The [patch ledger](docs/aleph-patch-ledger.md) lists
   every difference from upstream and how each is held, and is the checklist
-  for a sync. `git log --no-merges <upstream main>..HEAD` lists the carried
-  commits.
+  for a sync. `git log --no-merges <upstream main>..HEAD` lists carried commits
+  and upstream sync squash commits.
 - **Contributions.** Aleph follows upstream's conventions for patches,
   including CLI parity and the plugin API rules in [AGENTS.md](AGENTS.md), so
   patches stay upstreamable. Success is a shorter diff against upstream, not a

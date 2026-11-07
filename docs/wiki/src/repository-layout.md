@@ -2,7 +2,7 @@
 
 Aleph is a pnpm workspace. The top level holds
 <!--fig:apps=11-->11 apps (`apps/`),
-<!--fig:packages=45-->45 packages (`packages/`) and
+<!--fig:packages=46-->46 packages (`packages/`) and
 <!--fig:plugins=49-->49 plugins (`plugins/`). Integration and QA suites live in
 
 `tests/`, runnable examples in `examples/plugins/`.
