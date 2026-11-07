@@ -75,7 +75,7 @@ own answer to a problem Aleph patched, Aleph adopts it and drops the patch.
   [Versions](FORK.md#versions).
 - **Tracking.** [`UPSTREAM_BASE`](UPSTREAM_BASE) records the upstream commit,
   the upstream release and the Aleph version of the last sync; it currently
-  records upstream commit `9662c45478`, two commits past the 0.48.1 preparation.
+  records upstream commit `696709edc5`, through the plugin SDK dependency-install fix.
   The sync to `bcefd50bf2` landed as a merge commit. Recent syncs (PR #155
   and PR #157) are single-parent squashes, so the merge base with upstream
   stays at `bcefd50bf2`. `scripts/upstream-sync.sh` uses the explicit base

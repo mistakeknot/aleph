@@ -503,7 +503,6 @@ mobile	M	apps/mobile/src/data/notifications/push-subscriptions-api.ts
 mobile	M	apps/mobile/src/theme/theme.native.ts
 model-picker	A	apps/app/src/lib/thread-provider-switch.test.ts
 model-picker	A	apps/app/src/lib/thread-provider-switch.ts
-no-upstream-updates	M	apps/app/src/hooks/cache-owners/in-flight-fetch-writes.test.ts
 no-upstream-updates	A	apps/desktop/src/aleph-renderer-log-ipc.ts
 no-upstream-updates	A	apps/desktop/src/aleph-renderer-log-main.ts
 no-upstream-updates	A	apps/desktop/src/aleph-renderer-log.ts
@@ -649,7 +648,6 @@ provider-usage	A	plugins/provider-usage/usage-format.test.ts
 provider-usage	M	plugins/provider-usage/usage-format.ts
 provider-usage	M	plugins/provider-usage/usage-schema.ts
 queue-transfer	M	apps/app/src/components/thread/ThreadLifecycleFilter.tsx
-queue-transfer	M	apps/app/src/hooks/cache-owners/app-update-cache-owner.ts
 queue-transfer	M	apps/app/src/hooks/cache-owners/system-cache-effects.ts
 queue-transfer	M	apps/app/src/hooks/cache-owners/thread-lifecycle-cache.test.ts
 queue-transfer	M	apps/app/src/hooks/cache-owners/thread-runtime-cache-owner.ts
@@ -895,6 +893,9 @@ signed-update-channel	M	apps/app/src/components/settings/UpdatesSettingsSection.
 signed-update-channel	M	apps/app/src/components/settings/UpdatesSettingsSection.tsx
 signed-update-channel	A	apps/app/src/components/settings/aleph-update-presentation.test.ts
 signed-update-channel	A	apps/app/src/components/settings/aleph-update-presentation.ts
+signed-update-channel	M	apps/app/src/components/settings/changelog-preview.ts
+signed-update-channel	M	apps/app/src/hooks/cache-owners/app-update-cache-owner.ts
+signed-update-channel	M	apps/app/src/hooks/cache-owners/in-flight-fetch-writes.test.ts
 signed-update-channel	A	apps/app/src/hooks/queries/aleph-update-queries.ts
 signed-update-channel	A	apps/app/src/hooks/useAlephInstallRequest.test.tsx
 signed-update-channel	A	apps/app/src/hooks/useAlephInstallRequest.ts

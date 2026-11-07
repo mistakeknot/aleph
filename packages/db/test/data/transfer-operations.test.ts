@@ -29,6 +29,7 @@ import {
 import { createOrderKeysAfter } from "../../src/data/order-keys.js";
 import { recordProjectAttachment } from "../../src/data/project-attachments.js";
 import {
+  abortTransferOperation,
   ackTransferOperation,
   drainTransferEvents,
   getTransferOperation,
@@ -138,6 +139,38 @@ describe("unclaimed queue delivery intent", () => {
       ]);
     },
   );
+  it("keeps queue mode when abort hands messages back", () => {
+    const fixture = setup();
+    const { db, source, target, project } = fixture;
+    const row = enqueue(db, source.id, "keep queued", { deliveryMode: "queue" });
+    const retired = retire(fixture);
+    if (retired.kind !== "retired") throw new Error(retired.kind);
+    expect(abortTransferOperation(db, {
+      projectId: project.id, operationId: retired.operationId,
+      expectedRetirementOperationId: retired.operationId,
+      operationKey: "abort-mode", resolveWaitingOn,
+    }).kind).toBe("aborted");
+    expect(listQueuedThreadMessages(db, target.id)).toEqual([]);
+    expect(listQueuedThreadMessages(db, source.id)).toEqual([
+      expect.objectContaining({ originId: row.id, deliveryMode: "queue", claimedAt: null }),
+    ]);
+  });
+
+  it("keeps each delivery mode through transfer-all", () => {
+    const { db, source, target } = setup();
+    const queued = enqueue(db, source.id, "queue", { deliveryMode: "queue" });
+    const steered = enqueue(db, source.id, "steer", { deliveryMode: "steer" });
+    const result = db.transaction((tx) => transferAllQueuedThreadMessagesInTransaction(tx, {
+      sourceThreadId: source.id, targetThreadId: target.id, resolveWaitingOn,
+    }), { behavior: "immediate" });
+    expect(result.skipped).toEqual([]);
+    expect(listQueuedThreadMessages(db, source.id)).toEqual([]);
+    expect(listQueuedThreadMessages(db, target.id)).toEqual([
+      expect.objectContaining({ originId: queued.id, deliveryMode: "queue", claimedAt: null }),
+      expect.objectContaining({ originId: steered.id, deliveryMode: "steer", claimedAt: null }),
+    ]);
+  });
+
 });
 
 describe("origin identity (T-O3 and T-L1; v4 T-O1/T-O2 are outbox tests and are not covered here)", () => {
