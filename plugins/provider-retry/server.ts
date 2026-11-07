@@ -26,12 +26,20 @@ async function askSender(
 ): Promise<SenderConsent | null> {
   if (event.originPluginId === null) return null;
   const pluginId = event.originPluginId;
+  let sources;
   try {
-    const sources = await bb.sdk.plugins.experimental_discoverRpc({
+    sources = await bb.sdk.plugins.experimental_discoverRpc({
       pluginId,
       method: retryConsentMethod,
     });
-    if (sources.length === 0) return null;
+  } catch (error) {
+    bb.log.warn(
+      `Retry consent lookup for ${pluginId} failed for ${event.threadId}; retrying anyway: ${String(error)}`,
+    );
+    return { pluginId, answer: { kind: "unanswered" } };
+  }
+  if (sources.length === 0) return null;
+  try {
     const answer = await bb.sdk.plugins.callRpc({
       pluginId,
       method: retryConsentMethod,
@@ -47,9 +55,12 @@ async function askSender(
     return { pluginId, answer };
   } catch (error) {
     bb.log.warn(
-      `Retry consent from ${pluginId} failed for ${event.threadId}; retrying anyway: ${String(error)}`,
+      `Retry consent from ${pluginId} failed for ${event.threadId}; declining the retry: ${String(error)}`,
     );
-    return { pluginId, answer: { kind: "unanswered" } };
+    return {
+      pluginId,
+      answer: { kind: "decline", reason: "retry consent unavailable" },
+    };
   }
 }
 

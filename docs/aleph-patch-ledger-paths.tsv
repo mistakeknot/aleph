@@ -1120,3 +1120,7 @@ window-presets	A	packages/domain/src/window-presets.ts
 window-presets	M	packages/server-contract/src/api-types.ts
 window-presets	A	packages/server-contract/src/api/windows.ts
 automation-auto-pause	M	plugins/automations/src/data.ts
+automation-auto-pause	M	plugins/provider-retry/server.test.ts
+automation-auto-pause	M	plugins/provider-retry/server.ts
+automation-auto-pause	M	plugins/provider-retry/skills/provider-retry/SKILL.md
+automation-auto-pause	M	plugins/provider-retry/src/retry-contract.ts

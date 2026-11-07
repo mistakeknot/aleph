@@ -809,16 +809,8 @@ describe("asking the plugin that sent the failed turn", () => {
     await host.harness.dispose();
   });
 
-  it.each([
-    { label: "allows it", answer: async () => ({ kind: "allow" }) as const },
-    {
-      label: "cannot answer",
-      answer: async (): Promise<RetryConsent> => {
-        throw new Error("plugin unloaded");
-      },
-    },
-  ])("retries a turn when its sender $label", async ({ answer }) => {
-    const { host, asked } = consentHost(answer);
+  it("retries a turn when its sender allows it", async () => {
+    const { host, asked } = consentHost(async () => ({ kind: "allow" }));
     await plugin(host.bb);
 
     await host.harness.behavior.emitThreadEvent(
@@ -831,6 +823,39 @@ describe("asking the plugin that sent the failed turn", () => {
     expect(host.retries[0]?.reason).toBe("Provider overloaded");
     await host.harness.dispose();
   });
+
+  it.each([
+    {
+      label: "throws",
+      failure: () => new Error("plugin unloaded"),
+    },
+    {
+      label: "times out",
+      failure: () =>
+        new DOMException("The operation timed out.", "TimeoutError"),
+    },
+  ])(
+    "does not retry a turn when the consent call $label, and records a decline",
+    async ({ failure: makeFailure }) => {
+      const { host, asked } = consentHost(async () => {
+        throw makeFailure();
+      });
+      await plugin(host.bb);
+
+      const result = await host.harness.behavior.emitThreadEvent(
+        "turn.failed",
+        overloadedFailure({ originPluginId: SENDER }),
+      );
+
+      expect(result.errors).toEqual([]);
+      expect(asked).toHaveLength(1);
+      expect(host.retries).toEqual([]);
+      expect((await host.harness.runCli(["explain", THREAD_ID])).stdout).toBe(
+        `${THREAD_ID}: Skipped: declined-by-sender (${SENDER}: retry consent unavailable).\n`,
+      );
+      await host.harness.dispose();
+    },
+  );
 
   it("retries a turn when looking up its sender fails", async () => {
     const host = createHost([], {
