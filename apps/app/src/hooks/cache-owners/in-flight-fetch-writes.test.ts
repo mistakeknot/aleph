@@ -17,10 +17,14 @@ import {
   pluginSettingsViewQueryKey,
   pluginUpdateJobsQueryKey,
   systemAiServicesQueryKey,
+  systemAlephUpdateQueryKey,
   systemAppUpdateQueryKey,
   systemVersionQueryKey,
 } from "../queries/query-keys";
-import { hydrateAppUpdateStatus } from "./app-update-cache-owner";
+import {
+  hydrateAppUpdateStatus,
+  invalidateAlephUpdateStatus,
+} from "./app-update-cache-owner";
 import { setQueryDataOverInFlightFetch } from "./cache-effect-utils";
 import {
   applyPluginInstallJob,
@@ -236,6 +240,40 @@ describe("cache writes over an in-flight fetch", () => {
       }
     },
   );
+
+  it("keeps Aleph updates separate when guarding an upstream update fetch", async () => {
+    const staleFetch = deferred<unknown>();
+    const f = observe(systemAppUpdateQueryKey(), staleFetch.promise);
+    const alephStatus = { available: null };
+    f.queryClient.setQueryData(systemAlephUpdateQueryKey(), alephStatus);
+    try {
+      const disabled = appUpdateStatus({ phase: "idle" });
+      f.server.current = disabled;
+      hydrateAppUpdateStatus({ queryClient: f.queryClient, status: disabled });
+      staleFetch.resolve(applyingUpdate);
+      await vi.waitFor(() => expect(f.queryFn).toHaveBeenCalledTimes(2));
+      await vi.waitFor(() => expect(f.queryClient.isFetching()).toBe(0));
+      expect(f.queryClient.getQueryData(systemAppUpdateQueryKey())).toEqual(
+        disabled,
+      );
+      expect(f.queryClient.getQueryData(systemAlephUpdateQueryKey())).toBe(
+        alephStatus,
+      );
+      expect(
+        f.queryClient.getQueryState(systemAlephUpdateQueryKey())?.isInvalidated,
+      ).toBe(false);
+      invalidateAlephUpdateStatus({ queryClient: f.queryClient });
+      expect(
+        f.queryClient.getQueryState(systemAlephUpdateQueryKey())?.isInvalidated,
+      ).toBe(true);
+      expect(
+        f.queryClient.getQueryState(systemAppUpdateQueryKey())?.isInvalidated,
+      ).toBe(false);
+    } finally {
+      f.unsubscribe();
+      f.queryClient.clear();
+    }
+  });
 
   it("writes without refetching when no fetch is in flight", async () => {
     const f = observe(["idle"], Promise.resolve("fetched"));
