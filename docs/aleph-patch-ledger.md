@@ -1,6 +1,6 @@
 # Aleph patch ledger
 
-This ledger lists every difference between upstream bb 179c393b6c (the commit recorded in UPSTREAM_BASE) and Aleph, and says how each is held. It is the checklist for an upstream sync and the source of its conflict resolutions.
+This ledger lists every difference between upstream bb 794bd2c2e7 (the commit recorded in UPSTREAM_BASE) and Aleph, and says how each is held. It is the checklist for an upstream sync and the source of its conflict resolutions.
 
 Each row is a patch: where it lives, why, and the resolution to use when a sync conflicts. The path-level mapping is in `aleph-patch-ledger-paths.tsv` (one line per differing path, with the patch id, including `scripts/ci-release-check.sh`). The classification is by path rule and commit history, so a path can belong to a neighbouring patch when two patches share a file. A path that fits no row is listed under `unattributed` and blocks a sync until it is classified.
 
@@ -42,7 +42,7 @@ Held as: *plugin* means the change lives in a plugin directory; *in-tree* means 
 | fork-owned-migrations | in-tree | 78 | Fork-owned migrations A0001-A0012 in `packages/db/drizzle-aleph/` (manifest `after` and `supersedes`) beside the frozen upstream `drizzle/` folder; one fork step supersedes upstream 0143_queued_message_state | Keep the fork folder and the frozen upstream pin. A sync that adds an upstream migration is an ESCALATE item; keep journal `when` values ordered or the boot check throws (FORK.md). | **Keep.** Fork migrations A0001-A0012 in `drizzle-aleph/` (manifest `after`/`supersedes`); upstream folder stays frozen. A sync that adds a migration is an ESCALATE item; keep journal `when` increasing. |
 | fork-docs | in-tree | 40 | Fork documents, hygiene allowlist and changelog | Keep Aleph's text. | **Keep.** Aleph's text. Five shared files (api_to_audit, release-process, debugging-and-qa, CHANGELOG, changelog-preview test) conflict with upstream edits; take both sides on a sync. |
 | build-config | in-tree | 17 | Build, lint and test configuration edits | Re-apply. | **Keep.** vite-react-compiler.ts is formatting-only (format-cleanup bead). package.json versions come from the version step. app-update.ts and the integration harness conflict with upstream updateWhenIdle work. |
-| web-site | in-tree | 7 | Marketing site and blog edits | Re-apply. | **Retire after cleanup.** Retire after the format-cleanup bead: at the pinned upstream base (UPSTREAM_BASE, 179c393b6c) all 7 paths differ by formatting only. Marketplace arrival tracking in `public-marketplace.tsx` is already included. Retire by taking the pinned upstream text. Adopting upstream's text needs format:check to pass or an oxfmt ignore entry. |
+| web-site | in-tree | 7 | Marketing site and blog edits | Re-apply. | **Retire after cleanup.** Retire after the format-cleanup bead: at the pinned upstream base (UPSTREAM_BASE, 794bd2c2e7) all 7 paths differ by formatting only. Marketplace arrival tracking in `public-marketplace.tsx` is already included. Retire by taking the pinned upstream text. Adopting upstream's text needs format:check to pass or an oxfmt ignore entry. |
 | mobile | in-tree | 5 | Mobile app edits | Re-apply. | **Keep.** Mobile shell deltas still present; thread-open-follow is the verified one. Other mobile differences are likely upstream drift but unconfirmed. |
 | app-shell-ui | in-tree | 13 | App shell, pickers, dialogs and sidebar edits | Re-apply. | **Keep.** Catch-all shell row; Aleph-only hunks remain, but not every hunk is verified against upstream drift. Hunk-level review recommended before the next base move. |
 | upstream-backport | in-tree | 3 | Aleph's own small fix (offline-host discovery logs at debug, with hostId); upstream still warns | Drops out when the release carries it. | **Keep, upstream candidate.** Mislabelled: this is Aleph's own fix (offline-host discovery logs at debug); upstream still warns. Upstream candidate. Move execution-options.ts here from no-upstream-updates. |
@@ -63,11 +63,11 @@ Totals: 1126 differing paths. 3 are deletions (`.github/workflows/deploy-ai-gate
 
 ## Audit summary (bead mk-uyf3d.2)
 
-The original audit used upstream bcefd50bf2 and upstream main as fetched on 2026-11-05. This ledger now tracks differences from UPSTREAM_BASE, 179c393b6c. Each row's verdict answers four questions: still needed, superseded by upstream, movable to a plugin or upstream extension point, and worth proposing upstream. Evidence per row is in the verdict column and in the child beads. Claims marked *unverified* were not reproduced.
+The original audit used upstream bcefd50bf2 and upstream main as fetched on 2026-11-05. This ledger now tracks differences from UPSTREAM_BASE, 794bd2c2e7. Each row's verdict answers four questions: still needed, superseded by upstream, movable to a plugin or upstream extension point, and worth proposing upstream. Evidence per row is in the verdict column and in the child beads. Claims marked *unverified* were not reproduced.
 
 Verdict counts (50 rows): KEEP 46, MOVE-PLUGIN 1, UPSTREAM-CANDIDATE 2, RETIRE-BEAD 1, RETIRE-NOW 0.
 
-No row retires now: every superseded fragment needs a code change that is a child bead (rebase, test or cleanup), not a ledger-only edit. The one RETIRE-BEAD row (web-site) differs from the pinned upstream base, 179c393b6c, by formatting only; marketplace arrival tracking is already included.
+No row retires now: every superseded fragment needs a code change that is a child bead (rebase, test or cleanup), not a ledger-only edit. The one RETIRE-BEAD row (web-site) differs from the pinned upstream base, 794bd2c2e7, by formatting only; marketplace arrival tracking is already included.
 
 ### What moves to a plugin, and what stays core
 
@@ -141,7 +141,7 @@ Group counts: a 6, b 18, c 25, d 1. Each row appears once, in its main group; a 
 
 | Patch | Superseded by | Action |
 |---|---|---|
-| web-site | Upstream's own text (only formatting differs at pinned base 179c393b6c, which includes marketplace arrival tracking) | Drop the 7 paths after the format-cleanup bead and take upstream's current text; adopting upstream's text needs `format:check` to pass or an oxfmt ignore entry |
+| web-site | Upstream's own text (only formatting differs at pinned base 794bd2c2e7, which includes marketplace arrival tracking) | Drop the 7 paths after the format-cleanup bead and take upstream's current text; adopting upstream's text needs `format:check` to pass or an oxfmt ignore entry |
 
 Superseded in part, held under other rows (child beads are listed in the PR): account-pooler: quota and receipts rebase onto upstream's refusal-based quota (#6849); provider-usage: the `kind ?? "custom"` passthrough hunk (#7006); timeline-build-bound: incremental timeline path (`timeline-selection-memo.ts`, `timeline-cache.ts`, `thread-timeline-windows.ts`); diagnostics-log: composer-stuck guards that #6630 and #7001 may cover (unverified); composer-gate: the dead question-draft map; history-keybindings: Cmd-[ and Cmd-] bindings, retired to upstream by PR #128.
 
