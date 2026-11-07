@@ -703,6 +703,7 @@ queue-transfer	M	apps/server/src/services/threads/timeline.ts
 queue-transfer	M	apps/server/src/types.ts
 queue-transfer	M	apps/server/src/ws/hub.ts
 queue-transfer	M	apps/server/test/helpers/test-app.ts
+queue-transfer	M	apps/server/test/internal/reconnect-recovery-waits-for-plugins.test.ts
 queue-transfer	A	apps/server/test/public/public-system-aleph-update.test.ts
 queue-transfer	M	apps/server/test/public/public-system-version.test.ts
 queue-transfer	M	apps/server/test/public/public-thread-data.test.ts

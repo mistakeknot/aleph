@@ -88,11 +88,12 @@ import {
 } from "./internal/auth.js";
 import {
   captureTrustedRemoteAddress,
+  resolveRequestAccessRoute,
   resolveRequestAppSurface,
 } from "./request-context.js";
 import { runEventLoopWork } from "./services/system/event-loop-work.js";
 import { setTurnTelemetryDeps } from "./services/system/turn-telemetry.js";
-import { runWithTelemetryAppSurface } from "./services/system/telemetry.js";
+import { runWithTelemetryRequest } from "./services/system/telemetry.js";
 import {
   onClientSocketClose,
   onClientSocketMessage,
@@ -532,7 +533,13 @@ export function createApp(
   });
   app.use("*", async (context, next) => {
     captureTrustedRemoteAddress(context);
-    return runWithTelemetryAppSurface(resolveRequestAppSurface(context), next);
+    return runWithTelemetryRequest(
+      {
+        appSurface: resolveRequestAppSurface(context),
+        accessRoute: resolveRequestAccessRoute(context),
+      },
+      next,
+    );
   });
   app.use("*", async (context, next) => {
     const path = context.req.path;
