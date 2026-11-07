@@ -103,6 +103,43 @@ function texts(
   );
 }
 
+describe("unclaimed queue delivery intent", () => {
+  it.each(["retire", "direct"] as const)(
+    "keeps queue mode through %s transfer",
+    (mode) => {
+      const fixture = setup();
+      const { db, source, target } = fixture;
+      const row = enqueue(db, source.id, "wait for the next turn", {
+        deliveryMode: "queue",
+      });
+      expect(row.claimedAt).toBeNull();
+      if (mode === "retire") {
+        expect(retire(fixture).kind).toBe("retired");
+      } else {
+        const result = db.transaction(
+          (tx) =>
+            transferQueuedThreadMessageInTransaction(tx, {
+              queuedMessageId: row.id,
+              sourceThreadId: source.id,
+              targetThreadId: target.id,
+              resolveWaitingOn,
+            }),
+          { behavior: "immediate" },
+        );
+        expect(result.kind).toBe("transferred");
+      }
+      expect(getQueuedThreadMessage(db, row.id)).toBeNull();
+      expect(listQueuedThreadMessages(db, target.id)).toEqual([
+        expect.objectContaining({
+          originId: row.id,
+          deliveryMode: "queue",
+          claimedAt: null,
+        }),
+      ]);
+    },
+  );
+});
+
 describe("origin identity (T-O3 and T-L1; v4 T-O1/T-O2 are outbox tests and are not covered here)", () => {
   it("returns the supplied origin and stores it", () => {
     const { db, source } = setup();

@@ -2728,6 +2728,7 @@ export function transferQueuedThreadMessageInTransaction(
     reasoningLevel: source.reasoningLevel,
     permissionMode: source.permissionMode,
     serviceTier: source.serviceTier,
+    deliveryMode: source.deliveryMode,
     waitingOn: args.resolveWaitingOn(source),
     sendAt: source.sendAt,
     payload: { kind: "inline" },
