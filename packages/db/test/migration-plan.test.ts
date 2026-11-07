@@ -46,9 +46,11 @@ const POST_ORACLE_UPSTREAM = [
   "0145_terminal_sessions_status_thread_index",
   "0146_diff_viewed_files",
   "0147_git_and_pr_status_plugin_show_settings",
+  "0148_queued_message_delivery_mode",
 ];
 const POST_ORACLE_PLAN_IDS = [
   "A0011",
+  "A0012",
   "0145_terminal_sessions_status_thread_index",
   "0146_diff_viewed_files",
   "0147_git_and_pr_status_plugin_show_settings",
@@ -302,6 +304,7 @@ describe("the real migration plan", () => {
     expect(plan.superseded.map((step) => step.id)).toEqual([
       "0143_queued_message_state",
       "0144_thread_parent_notifications",
+      "0148_queued_message_delivery_mode",
     ]);
   });
 
@@ -351,8 +354,8 @@ describe("the real migration plan", () => {
 
   it("reads each source file's hash into the plan", () => {
     const input = loadMigrationPlanInput(sourceFolders);
-    expect(input.upstream).toHaveLength(148);
-    expect(input.aleph).toHaveLength(11);
+    expect(input.upstream).toHaveLength(149);
+    expect(input.aleph).toHaveLength(12);
     const plan = loadMigrationPlan(sourceFolders);
     for (const step of plan.steps) {
       if (POST_ORACLE_PLAN_IDS.includes(step.id)) continue;

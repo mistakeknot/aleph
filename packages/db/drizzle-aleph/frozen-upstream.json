@@ -593,6 +593,11 @@
     {
       "tag": "0147_git_and_pr_status_plugin_show_settings",
       "sha256": "3b73cc223c28a2293fc475d9bd2476673e2b64baae69b9bfe117ef9a6f03878f"
+    },
+    {
+      "tag": "0148_queued_message_delivery_mode",
+      "sha256": "a2edda6ce9e694aee066639b02f81d2f57d7e4789c035d75a0be61633e49f214",
+      "supersededBy": "A0012"
     }
   ]
 }

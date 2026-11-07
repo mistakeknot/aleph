@@ -80,6 +80,7 @@ describe("recordQueuedMessageWait on a thread closed after its snapshot", () => 
               requestedBy: null,
               payload: { kind: "inline" },
               systemNotice: null,
+              deliveryMode: "queue",
             },
             waitingOn: { kind: "thread-busy" },
             sendAt: null,
@@ -101,4 +102,57 @@ describe("recordQueuedMessageWait on a thread closed after its snapshot", () => 
       });
     },
   );
+});
+
+describe("Aleph queued wait creation", () => {
+  it("keeps explicit queue intent through the fenced row creator", async () => {
+    await withTestHarness(async (harness) => {
+      const { host } = seedHostSession(harness.deps, {
+        id: "queue-intent-host",
+      });
+      const { project } = seedProjectWithSource(harness.deps, {
+        hostId: host.id,
+        path: "/tmp/queue-intent",
+      });
+      const environment = seedEnvironment(harness.deps, {
+        hostId: host.id,
+        projectId: project.id,
+        path: "/tmp/queue-intent",
+        status: "ready",
+      });
+      const thread = seedThread(harness.deps, {
+        projectId: project.id,
+        environmentId: environment.id,
+        status: "idle",
+      });
+      const entry = recordQueuedMessageWait(harness.deps, {
+        thread,
+        requestedThreadId: thread.id,
+        message: {
+          input: textInput("keep queued"),
+          execution: {
+            model: "gpt-5",
+            reasoningLevel: "medium",
+            permissionMode: "full",
+            serviceTier: "default",
+            source: "client/thread/start",
+          },
+          senderThreadId: null,
+          origin: null,
+          originPluginId: null,
+          requestedBy: null,
+          payload: { kind: "inline" },
+          systemNotice: null,
+          deliveryMode: "queue",
+        },
+        waitingOn: { kind: "thread-busy" },
+        sendAt: null,
+        claimed: null,
+      });
+      expect(entry).not.toBeNull();
+      expect(listQueuedThreadMessages(harness.db, thread.id)).toEqual([
+        expect.objectContaining({ id: entry!.id, deliveryMode: "queue" }),
+      ]);
+    });
+  });
 });

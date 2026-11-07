@@ -344,6 +344,16 @@ describe("retire, moves only (G3 behavior; v4 T-T/T-C/T-I/T-R0 definitions are s
     ).toEqual(before);
   });
 
+  it("keeps queue delivery intent on the forwarding slot of a claimed row", () => {
+    const fixture = setup();
+    const { db, source } = fixture;
+    const claimed = enqueue(db, source.id, "queue after this turn", { deliveryMode: "queue" });
+    claimQueuedThreadMessage(db, noopNotifier, claimed.id);
+    const outcome = retire(fixture);
+    expect(outcome.kind).toBe("retired");
+    expect(db.$client.prepare("SELECT delivery_mode FROM queued_thread_messages WHERE forward_source_row_id = ?").get(claimed.id)).toEqual({ delivery_mode: "queue" });
+  });
+
   it("forwards a claimed inline row through a slot instead of refusing", () => {
     const fixture = setup();
     const { db, source, target } = fixture;

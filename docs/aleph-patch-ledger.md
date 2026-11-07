@@ -1,6 +1,6 @@
 # Aleph patch ledger
 
-This ledger lists every difference between upstream bb de5ef8f79a (the commit recorded in UPSTREAM_BASE) and Aleph, and says how each is held. It is the checklist for an upstream sync and the source of its conflict resolutions.
+This ledger lists every difference between upstream bb cfad1e4abd (the commit recorded in UPSTREAM_BASE) and Aleph, and says how each is held. It is the checklist for an upstream sync and the source of its conflict resolutions.
 
 Each row is a patch: where it lives, why, and the resolution to use when a sync conflicts. The path-level mapping is in `aleph-patch-ledger-paths.tsv` (one line per differing path, with the patch id, including `scripts/ci-release-check.sh`). The classification is by path rule and commit history, so a path can belong to a neighbouring patch when two patches share a file. A path that fits no row is listed under `unattributed` and blocks a sync until it is classified.
 
@@ -24,7 +24,7 @@ Held as: *plugin* means the change lives in a plugin directory; *in-tree* means 
 | tasks-plugin | plugin + in-tree | 8 | Tasks plugin detail column and links | Re-apply. | **Keep.** Palette search and the detail split have no upstream equivalent; palette search needs the Aleph-only command-palette slot. App-shell edits should be re-checked against #7056. |
 | plugin-surface | in-tree | 59 | Plugin SDK and server surface additions (search slot, appHeaderStatus, docs) | Re-apply; run plugin-api-docs surface tests. | **Keep.** Aleph slots (app-header status, command-palette search, message transfer) have no upstream equivalent; ownership is mixed across rows. Palette-search slot and sdk-compat parameter are upstream candidates. |
 | thread-search-learned | in-tree | 2 | Learned thread search selections | Re-apply. | **Keep.** Learned search selections have no upstream equivalent and need a server route plus an Aleph migration. The row's path list is incomplete (implementation files are attributed elsewhere). |
-| queue-transfer | in-tree | 136 | Queue retirement, transfer ledger and the G2-G6 capability fences (mk-ilhx, mk-be5r, mk-ni8m, mk-ct0k) | Re-apply. The queue schema lives in fork migration A0009 (see fork-owned-migrations). | **Keep.** No upstream queue retirement/transfer. Resolution: re-apply; queue schema lives in A0009. Upstream candidate: archived-thread insert fence (fb8d014dbd). |
+| queue-transfer | in-tree | 135 | Queue retirement, transfer ledger and the G2-G6 capability fences (mk-ilhx, mk-be5r, mk-ni8m, mk-ct0k) | Re-apply. The queue schema lives in fork migration A0009 (see fork-owned-migrations). | **Keep.** No upstream queue retirement/transfer. Resolution: re-apply; queue schema lives in A0009. Upstream candidate: archived-thread insert fence (fb8d014dbd). |
 | timeline-build-bound | in-tree | 11 | Bounded open-turn latest timeline builds | Re-apply. | **Keep.** , partly superseded. Upstream #6964/#7012/#7033 replace our selection reuse; the per-thread build coalescer has no upstream equivalent. Take upstream's memo/cache, re-validate the coalescer. |
 | thread-cli | in-tree | 14 | CLI changes for thread wait (`--terminal`), conditional writes (`--if-*`) and the theme command | Re-apply. | **Keep, upstream candidate.** Upstream lacks wait --terminal, the --if-* conditional writes and Aleph's theme command (upstream candidates). Send-time is now upstream's own; only a wrap-only test diff remains. |
 | layer-groups | plugin + in-tree | 20 | Sidebar pace-layer groups plugin and conditional pin writes (mk-ks92z) | Plugin files carry the change. | **Keep.** Compare-and-set thread section writes (409 on conflict) have no upstream equivalent and are a generic upstream candidate. Ledger attribution of base.ts is mixed with other rows. |
@@ -39,10 +39,10 @@ Held as: *plugin* means the change lives in a plugin directory; *in-tree* means 
 | editable-focus | in-tree | 2 | Editable focus guard | Re-apply. | **Keep.** Superset of upstream's isEditableKeyboardTarget; still needed. Small generic fix, good upstream candidate. Ties to desktop-bridge. |
 | fonts | in-tree | 2 | Ioskeley Mono font route tests | Re-apply. | **Keep.** Mono font service and route have no upstream equivalent. Could move with the themes bead if custom themes can load font files (unverified). |
 | release-qualification | in-tree | 2 | Release qualification script and CI recipes | Re-apply. | **Keep.** Release check script is Aleph-only. Upstream edited a workflow Aleph deletes (deploy-ai-gateway.yml, 7f5d39cdd8); resolve the next sync by deleting again. |
-| fork-owned-migrations | in-tree | 77 | Fork-owned migrations A0001-A0011 in `packages/db/drizzle-aleph/` (manifest `after` and `supersedes`) beside the frozen upstream `drizzle/` folder; one fork step supersedes upstream 0143_queued_message_state | Keep the fork folder and the frozen upstream pin. A sync that adds an upstream migration is an ESCALATE item; keep journal `when` values ordered or the boot check throws (FORK.md). | **Keep.** Fork migrations A0001-A0011 in `drizzle-aleph/` (manifest `after`/`supersedes`); upstream folder stays frozen. A sync that adds a migration is an ESCALATE item; keep journal `when` increasing. |
+| fork-owned-migrations | in-tree | 78 | Fork-owned migrations A0001-A0012 in `packages/db/drizzle-aleph/` (manifest `after` and `supersedes`) beside the frozen upstream `drizzle/` folder; one fork step supersedes upstream 0143_queued_message_state | Keep the fork folder and the frozen upstream pin. A sync that adds an upstream migration is an ESCALATE item; keep journal `when` values ordered or the boot check throws (FORK.md). | **Keep.** Fork migrations A0001-A0012 in `drizzle-aleph/` (manifest `after`/`supersedes`); upstream folder stays frozen. A sync that adds a migration is an ESCALATE item; keep journal `when` increasing. |
 | fork-docs | in-tree | 40 | Fork documents, hygiene allowlist and changelog | Keep Aleph's text. | **Keep.** Aleph's text. Five shared files (api_to_audit, release-process, debugging-and-qa, CHANGELOG, changelog-preview test) conflict with upstream edits; take both sides on a sync. |
 | build-config | in-tree | 17 | Build, lint and test configuration edits | Re-apply. | **Keep.** vite-react-compiler.ts is formatting-only (format-cleanup bead). package.json versions come from the version step. app-update.ts and the integration harness conflict with upstream updateWhenIdle work. |
-| web-site | in-tree | 7 | Marketing site and blog edits | Re-apply. | **Retire after cleanup.** Retire after the format-cleanup bead: at the pinned upstream base (UPSTREAM_BASE, de5ef8f79a) all 7 paths differ by formatting only. Marketplace arrival tracking in `public-marketplace.tsx` is already included. Retire by taking the pinned upstream text. Adopting upstream's text needs format:check to pass or an oxfmt ignore entry. |
+| web-site | in-tree | 7 | Marketing site and blog edits | Re-apply. | **Retire after cleanup.** Retire after the format-cleanup bead: at the pinned upstream base (UPSTREAM_BASE, cfad1e4abd) all 7 paths differ by formatting only. Marketplace arrival tracking in `public-marketplace.tsx` is already included. Retire by taking the pinned upstream text. Adopting upstream's text needs format:check to pass or an oxfmt ignore entry. |
 | mobile | in-tree | 5 | Mobile app edits | Re-apply. | **Keep.** Mobile shell deltas still present; thread-open-follow is the verified one. Other mobile differences are likely upstream drift but unconfirmed. |
 | app-shell-ui | in-tree | 13 | App shell, pickers, dialogs and sidebar edits | Re-apply. | **Keep.** Catch-all shell row; Aleph-only hunks remain, but not every hunk is verified against upstream drift. Hunk-level review recommended before the next base move. |
 | upstream-backport | in-tree | 3 | Aleph's own small fix (offline-host discovery logs at debug, with hostId); upstream still warns | Drops out when the release carries it. | **Keep, upstream candidate.** Mislabelled: this is Aleph's own fix (offline-host discovery logs at debug); upstream still warns. Upstream candidate. Move execution-options.ts here from no-upstream-updates. |
@@ -62,11 +62,11 @@ Totals: 1117 differing paths. 3 are deletions (`.github/workflows/deploy-ai-gate
 
 ## Audit summary (bead mk-uyf3d.2)
 
-The original audit used upstream bcefd50bf2 and upstream main as fetched on 2026-11-05. This ledger now tracks differences from UPSTREAM_BASE, de5ef8f79a. Each row's verdict answers four questions: still needed, superseded by upstream, movable to a plugin or upstream extension point, and worth proposing upstream. Evidence per row is in the verdict column and in the child beads. Claims marked *unverified* were not reproduced.
+The original audit used upstream bcefd50bf2 and upstream main as fetched on 2026-11-05. This ledger now tracks differences from UPSTREAM_BASE, cfad1e4abd. Each row's verdict answers four questions: still needed, superseded by upstream, movable to a plugin or upstream extension point, and worth proposing upstream. Evidence per row is in the verdict column and in the child beads. Claims marked *unverified* were not reproduced.
 
 Verdict counts (49 rows): KEEP 45, MOVE-PLUGIN 1, UPSTREAM-CANDIDATE 2, RETIRE-BEAD 1, RETIRE-NOW 0.
 
-No row retires now: every superseded fragment needs a code change that is a child bead (rebase, test or cleanup), not a ledger-only edit. The one RETIRE-BEAD row (web-site) differs from the pinned upstream base, de5ef8f79a, by formatting only; marketplace arrival tracking is already included.
+No row retires now: every superseded fragment needs a code change that is a child bead (rebase, test or cleanup), not a ledger-only edit. The one RETIRE-BEAD row (web-site) differs from the pinned upstream base, cfad1e4abd, by formatting only; marketplace arrival tracking is already included.
 
 ### What moves to a plugin, and what stays core
 
@@ -139,7 +139,7 @@ Group counts: a 6, b 18, c 24, d 1. Each row appears once, in its main group; a 
 
 | Patch | Superseded by | Action |
 |---|---|---|
-| web-site | Upstream's own text (only formatting differs at pinned base de5ef8f79a, which includes marketplace arrival tracking) | Drop the 7 paths after the format-cleanup bead and take upstream's current text; adopting upstream's text needs `format:check` to pass or an oxfmt ignore entry |
+| web-site | Upstream's own text (only formatting differs at pinned base cfad1e4abd, which includes marketplace arrival tracking) | Drop the 7 paths after the format-cleanup bead and take upstream's current text; adopting upstream's text needs `format:check` to pass or an oxfmt ignore entry |
 
 Superseded in part, held under other rows (child beads are listed in the PR): account-pooler: quota and receipts rebase onto upstream's refusal-based quota (#6849); provider-usage: the `kind ?? "custom"` passthrough hunk (#7006); timeline-build-bound: incremental timeline path (`timeline-selection-memo.ts`, `timeline-cache.ts`, `thread-timeline-windows.ts`); diagnostics-log: composer-stuck guards that #6630 and #7001 may cover (unverified); composer-gate: the dead question-draft map; history-keybindings: Cmd-[ and Cmd-] bindings, retired to upstream by PR #128.
 
@@ -147,7 +147,7 @@ Extension points that exist in upstream today: plugin SDK slots (`experimental_p
 
 ### Ledger corrections made by this audit
 
-- queue-transfer and fork-owned-migrations: the old text named migration 0151 and renumbered upstream migrations; the fork now uses the namespaced runner with `A0001` to `A0011`. Text corrected.
+- queue-transfer and fork-owned-migrations: the old text named migration 0151 and renumbered upstream migrations; the fork now uses the namespaced runner with `A0001` to `A0012`. Text corrected.
 - upstream-backport: it is Aleph's own fix, not a backport. thread-cli: send time is now upstream's own.
 - Path attribution that the paths file gets wrong (a bead covers regeneration): `execution-options.ts` sits under no-upstream-updates but belongs to upstream-backport; `base.ts` is claimed by layer-groups although it also holds event-cold-tier and thread-search code; thread-search-learned owns only two test files; credential-redaction picks up unrelated files (`app-keybindings.ts`, `app-theme.ts`, `update-state.ts`, `changelog-metadata.ts`, `native-roots.ts`, `thread-create-origin.ts`).
 

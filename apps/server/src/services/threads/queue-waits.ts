@@ -13,6 +13,7 @@ import {
 } from "@bb/db";
 import type {
   PromptInput,
+  QueuedMessageDeliveryMode,
   QueuedMessagePayload,
   QueuedMessageSystemNotice,
   QueuedMessageWaitingOn,
@@ -80,6 +81,7 @@ export interface QueuedDispatchMessage {
   payload: QueuedMessagePayload;
   /** Non-null only when core is queueing one of its own system notices. */
   systemNotice: QueuedMessageSystemNotice | null;
+  deliveryMode: QueuedMessageDeliveryMode;
 }
 
 export interface RecordQueuedMessageWaitArgs {
@@ -189,6 +191,7 @@ function createQueuedRowOrRefuse(
           sendAt: args.sendAt,
           payload: args.message.payload,
           systemNotice: args.message.systemNotice,
+          deliveryMode: args.message.deliveryMode,
         });
       },
       { behavior: "immediate" },

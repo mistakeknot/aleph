@@ -19,6 +19,7 @@ import { ensureThreadEventsHot } from "./event-cold-tier/service.js";
 export async function clearThreadContext(
   deps: LoggedPendingInteractionWorkSessionDeps,
   args: {
+    beforeCommitInTransaction?: (args: { tx: DbTransaction }) => void;
     environment: Pick<Environment, "hostId" | "id">;
     thread: Thread;
     assertDestinationCurrent?: (tx: DbTransaction) => void;
@@ -41,6 +42,7 @@ export async function clearThreadContext(
 async function clearPinnedThreadContext(
   deps: LoggedPendingInteractionWorkSessionDeps,
   args: {
+    beforeCommitInTransaction?: (args: { tx: DbTransaction }) => void;
     environment: Pick<Environment, "hostId" | "id">;
     thread: Thread;
     assertDestinationCurrent?: (tx: DbTransaction) => void;
@@ -98,7 +100,10 @@ async function clearPinnedThreadContext(
         message: THREAD_CONTEXT_CLEARED_DETAIL,
       },
     },
-    { beforeAppendInTransaction: args.assertDestinationCurrent },
+    ({ tx }) => {
+      args.assertDestinationCurrent?.(tx);
+      args.beforeCommitInTransaction?.({ tx });
+    },
   );
   deps.hub.notifyThread(
     releasedThread.id,

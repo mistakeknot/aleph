@@ -7,7 +7,7 @@ import { createConnection, migrate } from "../src/index.js";
 import { legacyOracleFolder } from "./helpers/plan-apply.js";
 
 // A0011, 0145, 0146 and 0147 postdate the pinned legacy chain.
-const POST_ORACLE_STEPS = 4;
+const POST_ORACLE_STEPS = 5;
 
 it("upgrades the merged environment schema and preserves existing hosts", () => {
   const directory = mkdtempSync(join(tmpdir(), "bb-machine-upgrade-"));
