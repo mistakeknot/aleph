@@ -12,7 +12,6 @@ import { ApiError } from "../../errors.js";
 import type { LoggedPendingInteractionWorkSessionDeps } from "../../types.js";
 import { attemptDispatch } from "./dispatch-attempt.js";
 import { requireThreadCommandEnvironment } from "./thread-command-environment.js";
-import { sendThreadMessage } from "./thread-send.js";
 import { assertThreadHostAcceptsWork } from "./thread-host-admission.js";
 import {
   INGRESS_ADMISSION_ATTEMPTS,
@@ -74,11 +73,16 @@ async function acceptResolvedThreadSendRequest(
     const environment = await requireThreadCommandEnvironment(deps, {
       thread: args.thread,
     });
-    await sendThreadMessage(deps, {
-      environment,
-      payload: request,
+    await attemptDispatch(deps, {
       requestedThreadId: args.requestedThreadId ?? args.thread.id,
       thread: args.thread,
+      payload: request,
+      source: { kind: "operation", environment },
+      queuePayload: { kind: "inline" },
+      pluginSubmission: null,
+      origin: null,
+      originPluginId: null,
+      startedOnBehalfOf: null,
       trigger: "user",
     });
     return { ok: true, delivery: "sent" };

@@ -64,5 +64,12 @@
       "transfer_entries",
       "transfer_events"
     ]
+  },
+  "A0012": {
+    "writesTables": [
+      "queued_thread_messages",
+      "transfer_entries",
+      "transfer_events"
+    ]
   }
 }

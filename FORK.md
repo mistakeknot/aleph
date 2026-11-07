@@ -502,6 +502,13 @@ and journal entry are exactly upstream's, and its `when` (1793141159432) is
 above every earlier step, so no `when` rewrite was needed. It joined
 `frozen-upstream.json` like 0144 to 0146, and no Aleph step was added.
 
+The dispatcher sync adds upstream 0148 (`queued_message_delivery_mode`). Its
+journal `when` stays at upstream's 1793309187609, above 0147 and every existing
+Aleph step (the preceding ceiling is 1793141159432). Because it alters Aleph's queued-message table, it is frozen and
+superseded by `A0012_queued_message_delivery_mode`, anchored after 0147 with
+the same timestamp and byte-identical SQL. Only A0012 executes the addition;
+existing migration SQL and timestamps remain unchanged.
+
 ### Namespaced migration runner (mk-knexd)
 
 `packages/db/src/migration-runner.ts` (with `migration-plan.ts`,

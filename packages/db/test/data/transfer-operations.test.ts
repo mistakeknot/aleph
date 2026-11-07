@@ -103,6 +103,43 @@ function texts(
   );
 }
 
+describe("unclaimed queue delivery intent", () => {
+  it.each(["retire", "direct"] as const)(
+    "keeps queue mode through %s transfer",
+    (mode) => {
+      const fixture = setup();
+      const { db, source, target } = fixture;
+      const row = enqueue(db, source.id, "wait for the next turn", {
+        deliveryMode: "queue",
+      });
+      expect(row.claimedAt).toBeNull();
+      if (mode === "retire") {
+        expect(retire(fixture).kind).toBe("retired");
+      } else {
+        const result = db.transaction(
+          (tx) =>
+            transferQueuedThreadMessageInTransaction(tx, {
+              queuedMessageId: row.id,
+              sourceThreadId: source.id,
+              targetThreadId: target.id,
+              resolveWaitingOn,
+            }),
+          { behavior: "immediate" },
+        );
+        expect(result.kind).toBe("transferred");
+      }
+      expect(getQueuedThreadMessage(db, row.id)).toBeNull();
+      expect(listQueuedThreadMessages(db, target.id)).toEqual([
+        expect.objectContaining({
+          originId: row.id,
+          deliveryMode: "queue",
+          claimedAt: null,
+        }),
+      ]);
+    },
+  );
+});
+
 describe("origin identity (T-O3 and T-L1; v4 T-O1/T-O2 are outbox tests and are not covered here)", () => {
   it("returns the supplied origin and stores it", () => {
     const { db, source } = setup();
@@ -342,6 +379,16 @@ describe("retire, moves only (G3 behavior; v4 T-T/T-C/T-I/T-R0 definitions are s
     expect(
       texts(db, target.id).map((item) => item?.type === "text" && item.text),
     ).toEqual(before);
+  });
+
+  it("keeps queue delivery intent on the forwarding slot of a claimed row", () => {
+    const fixture = setup();
+    const { db, source } = fixture;
+    const claimed = enqueue(db, source.id, "queue after this turn", { deliveryMode: "queue" });
+    claimQueuedThreadMessage(db, noopNotifier, claimed.id);
+    const outcome = retire(fixture);
+    expect(outcome.kind).toBe("retired");
+    expect(db.$client.prepare("SELECT delivery_mode FROM queued_thread_messages WHERE forward_source_row_id = ?").get(claimed.id)).toEqual({ delivery_mode: "queue" });
   });
 
   it("forwards a claimed inline row through a slot instead of refusing", () => {

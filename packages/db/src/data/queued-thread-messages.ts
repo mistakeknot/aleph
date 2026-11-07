@@ -31,6 +31,7 @@ import {
   queuedMessageStateFor,
 } from "@bb/domain";
 import type {
+  QueuedMessageDeliveryMode,
   QueuedMessageLifecycleEventType,
   QueuedMessageLifecycleFrom,
   QueuedMessageState,
@@ -104,6 +105,7 @@ export interface CreateQueuedThreadMessageInput {
   payload: QueuedMessagePayload;
   /** Non-null only for one of core's own system notices. */
   systemNotice: QueuedMessageSystemNotice | null;
+  deliveryMode?: QueuedMessageDeliveryMode;
 }
 
 export interface UpdateQueuedThreadMessageInput {
@@ -990,6 +992,7 @@ export function createQueuedThreadMessageInTransaction(
       retryAttempt:
         input.payload.kind === "retry" ? input.payload.attempt : null,
       retryReason: input.payload.kind === "retry" ? input.payload.reason : null,
+      deliveryMode: input.deliveryMode ?? "steer",
       groupWithNext: false,
       claimedAt: input.slotForSourceRowId === undefined ? null : now,
       claimToken:
@@ -2725,6 +2728,7 @@ export function transferQueuedThreadMessageInTransaction(
     reasoningLevel: source.reasoningLevel,
     permissionMode: source.permissionMode,
     serviceTier: source.serviceTier,
+    deliveryMode: source.deliveryMode,
     waitingOn: args.resolveWaitingOn(source),
     sendAt: source.sendAt,
     payload: { kind: "inline" },

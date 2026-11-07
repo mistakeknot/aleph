@@ -10,8 +10,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import Database from "better-sqlite3";
+import { PERSONAL_PROJECT_ID } from "@bb/domain";
 import { afterEach, describe, expect, it } from "vitest";
-import { createConnection, migrate, type DbConnection } from "../src/index.js";
+import {
+  createConnection,
+  createThread,
+  noopNotifier,
+  migrate,
+  type DbConnection,
+} from "../src/index.js";
 import { migrateWithFolders } from "../src/migrate.js";
 import { legacyMigrationChain } from "../src/legacy-migration-chain.js";
 import {
@@ -84,6 +91,94 @@ function upstreamFolderWithCandidate(
   return folder;
 }
 
+describe("delivery mode upgrade from the previous Aleph main", () => {
+  it("applies the delivery column after the existing migration ceiling and remains idempotent", () => {
+    const previous = mkdtempSync(join(tmpdir(), "bb-before-delivery-"));
+    tempDirs.push(previous);
+    const upstreamFolder = join(previous, "upstream");
+    const alephFolder = join(previous, "aleph");
+    cpSync(sourceFolders.upstreamFolder, upstreamFolder, { recursive: true });
+    cpSync(sourceFolders.alephFolder, alephFolder, { recursive: true });
+    for (const [path, key, field, excluded] of [
+      [
+        join(upstreamFolder, "meta/_journal.json"),
+        "entries",
+        "tag",
+        "0148_queued_message_delivery_mode",
+      ],
+      [join(alephFolder, "manifest.json"), "steps", "id", "A0012"],
+      [
+        join(alephFolder, "frozen-upstream.json"),
+        "steps",
+        "tag",
+        "0148_queued_message_delivery_mode",
+      ],
+    ]) {
+      const data = JSON.parse(readFileSync(path!, "utf8"));
+      data[key!] = data[key!].filter(
+        (step: Record<string, string>) => step[field!] !== excluded,
+      );
+      writeFileSync(path!, JSON.stringify(data));
+    }
+    const db = createConnection(":memory:");
+    try {
+      migrateWithFolders(db, { upstreamFolder, alephFolder });
+      expect(
+        db.$client.prepare("PRAGMA table_info(queued_thread_messages)").all(),
+      ).not.toContainEqual(expect.objectContaining({ name: "delivery_mode" }));
+      const ceiling = db.$client
+        .prepare("SELECT MAX(created_at) AS value FROM __drizzle_migrations")
+        .get() as { value: number };
+      expect(ceiling.value).toBe(1793141159432);
+      const thread = createThread(db, noopNotifier, {
+        projectId: PERSONAL_PROJECT_ID,
+        providerId: "test-provider",
+        status: "idle",
+      });
+      db.$client
+        .prepare(
+          "INSERT INTO queued_thread_messages (id, thread_id, content, model, reasoning_level, permission_mode, service_tier, state, sort_key, created_at, updated_at) VALUES (?, ?, ?, 'test-model', 'medium', 'full', 'default', 'queued', 'a0', 1, 1)",
+        )
+        .run("before-delivery", thread.id, "[]");
+
+      migrate(db);
+      expect(
+        db.$client.prepare("PRAGMA table_info(queued_thread_messages)").all(),
+      ).toContainEqual(
+        expect.objectContaining({
+          name: "delivery_mode",
+          notnull: 1,
+          dflt_value: "'steer'",
+        }),
+      );
+      expect(
+        db.$client
+          .prepare(
+            "SELECT created_at FROM __drizzle_migrations ORDER BY created_at DESC LIMIT 1",
+          )
+          .get(),
+      ).toEqual({ created_at: 1793309187609 });
+      expect(
+        db.$client
+          .prepare(
+            "SELECT how FROM __bb_migration_ledger WHERE namespace = 'aleph' AND tag = 'A0012'",
+          )
+          .get(),
+      ).toEqual({ how: "applied" });
+      expect(
+        db.$client
+          .prepare(
+            "SELECT content, state, delivery_mode FROM queued_thread_messages WHERE id = 'before-delivery'",
+          )
+          .get(),
+      ).toEqual({ content: "[]", state: "queued", delivery_mode: "steer" });
+      expect(() => migrate(db)).not.toThrow();
+    } finally {
+      closeConnection(db);
+    }
+  });
+});
+
 describe("loadAlignedMigrationPlan candidate steps", () => {
   it("accepts an unchanged plan", () => {
     expect(() => loadAlignedMigrationPlan(sourceFolders)).not.toThrow();
@@ -91,7 +186,7 @@ describe("loadAlignedMigrationPlan candidate steps", () => {
 
   it("refuses an Aleph statement whose target no model knows", () => {
     const alephFolder = alephFolderWithSteps([
-      { id: "A0012", sql: "ALTER TABLE ghost_table ADD COLUMN extra TEXT;" },
+      { id: "A0013", sql: "ALTER TABLE ghost_table ADD COLUMN extra TEXT;" },
     ]);
     const upstreamFolder = upstreamFolderWithCandidate(
       "0144_synthetic",
@@ -111,7 +206,7 @@ describe("loadAlignedMigrationPlan candidate steps", () => {
     applyPrefix(prepared.$client, 131);
     prepared.$client.close();
     const alephFolder = alephFolderWithSteps([
-      { id: "A0012", sql: "SELECT abs(-9223372036854775808);" },
+      { id: "A0013", sql: "SELECT abs(-9223372036854775808);" },
     ]);
     const upstreamFolder = upstreamFolderWithCandidates([], alephFolder);
     const db = createConnection(path);
@@ -134,7 +229,7 @@ describe("loadAlignedMigrationPlan candidate steps", () => {
 
   it("widens the guard to the trusted table under a candidate-created index", () => {
     const alephFolder = alephFolderWithSteps([
-      { id: "A0012", sql: "DROP INDEX candidate_idx;" },
+      { id: "A0013", sql: "DROP INDEX candidate_idx;" },
     ]);
     const upstreamFolder = upstreamFolderWithCandidates(
       [
@@ -274,14 +369,14 @@ describe("computeMigrationState history checks", () => {
     const last = manifest.steps[manifest.steps.length - 1];
     if (last === undefined) throw new Error("Manifest is empty");
     manifest.steps.push({
-      id: "A0012",
-      file: "A0012_synthetic.sql",
+      id: "A0013",
+      file: "A0013_synthetic.sql",
       after: last.id,
       when: last.when + 1000,
     });
     writeFileSync(manifestPath, JSON.stringify(manifest));
     writeFileSync(
-      join(alephFolder, "A0012_synthetic.sql"),
+      join(alephFolder, "A0013_synthetic.sql"),
       "UPDATE app_settings SET updated_at = updated_at;",
     );
     const aligned = loadAlignedMigrationPlan({
@@ -289,16 +384,16 @@ describe("computeMigrationState history checks", () => {
       alephFolder,
     });
     const step = aligned.plan.steps.find(
-      (candidate) => candidate.id === "A0012",
+      (candidate) => candidate.id === "A0013",
     );
-    if (step === undefined) throw new Error("A0012 is not planned");
+    if (step === undefined) throw new Error("A0013 is not planned");
 
     const db = createConnection(":memory:");
     try {
       migrate(db);
       db.$client
         .prepare(
-          "INSERT INTO __bb_migration_ledger (namespace, tag, sha256, how, applied_at) VALUES ('aleph', 'A0012', ?, 'applied', 1)",
+          "INSERT INTO __bb_migration_ledger (namespace, tag, sha256, how, applied_at) VALUES ('aleph', 'A0013', ?, 'applied', 1)",
         )
         .run(step.sha256);
       db.$client
@@ -308,10 +403,10 @@ describe("computeMigrationState history checks", () => {
         .run(step.sha256, Date.now() + 1000);
       expect(computeMigrationState(db.$client, aligned).pending).toEqual([]);
       db.$client
-        .prepare("DELETE FROM __bb_migration_ledger WHERE tag = 'A0012'")
+        .prepare("DELETE FROM __bb_migration_ledger WHERE tag = 'A0013'")
         .run();
       expect(() => computeMigrationState(db.$client, aligned)).toThrow(
-        /Missing migration ledger rows: aleph:A0012/,
+        /Missing migration ledger rows: aleph:A0013/,
       );
     } finally {
       closeConnection(db);
@@ -598,7 +693,10 @@ function alephFolderWithSteps(
     steps: Array<{ id: string; file: string; after: string; when: number }>;
   };
   const journal = JSON.parse(
-    readFileSync(join(sourceFolders.upstreamFolder, "meta", "_journal.json"), "utf8"),
+    readFileSync(
+      join(sourceFolders.upstreamFolder, "meta", "_journal.json"),
+      "utf8",
+    ),
   ) as { entries: Array<{ tag: string; when: number }> };
   const lastUpstream = journal.entries[journal.entries.length - 1];
   if (lastUpstream === undefined) throw new Error("Journal is empty");
@@ -606,12 +704,17 @@ function alephFolderWithSteps(
     const last = manifest.steps[manifest.steps.length - 1];
     if (last === undefined) throw new Error("Manifest is empty");
     const first = !extra.some(
-      (other) => other !== step && manifest.steps.some((s) => s.id === other.id),
+      (other) =>
+        other !== step && manifest.steps.some((s) => s.id === other.id),
     );
     manifest.steps.push({
       id: step.id,
       file: `${step.id}_synthetic.sql`,
-      after: first ? lastUpstream.tag : last.id,
+      after: first
+        ? lastUpstream.tag === "0148_queued_message_delivery_mode"
+          ? "A0012"
+          : lastUpstream.tag
+        : last.id,
       when: Math.max(last.when, lastUpstream.when) + 1000,
     });
     writeFileSync(join(alephFolder, `${step.id}_synthetic.sql`), step.sql);
@@ -626,7 +729,7 @@ describe("guard models with candidate upstream steps", () => {
 
   it("accepts an Aleph step that builds on a candidate-created table", () => {
     const alephFolder = alephFolderWithSteps([
-      { id: "A0012", sql: "CREATE INDEX zz_source_idx ON zz_source (id);" },
+      { id: "A0013", sql: "CREATE INDEX zz_source_idx ON zz_source (id);" },
     ]);
     const upstreamFolder = upstreamFolderWithCandidate(
       "0147_zz_source",
@@ -640,7 +743,7 @@ describe("guard models with candidate upstream steps", () => {
 
   it("allows a candidate to create and alter its own table", () => {
     const alephFolder = alephFolderWithSteps([
-      { id: "A0012", sql: "SELECT 1;" },
+      { id: "A0013", sql: "SELECT 1;" },
     ]);
     const upstreamFolder = upstreamFolderWithCandidate(
       "0147_zz_source",
@@ -662,7 +765,7 @@ describe("guard models with candidate upstream steps", () => {
 
   it("still refuses a candidate that alters a table the Aleph steps alter", () => {
     const alephFolder = alephFolderWithSteps([
-      { id: "A0012", sql: "SELECT 1;" },
+      { id: "A0013", sql: "SELECT 1;" },
     ]);
     const upstreamFolder = upstreamFolderWithCandidate(
       "0147_zz_threads",
@@ -684,16 +787,16 @@ describe("compat log identity handling", () => {
     });
     const db = createConnection(":memory:");
     try {
-      migrateWithFolders(db, folders(["A0012"]));
+      migrateWithFolders(db, folders(["A0013"]));
       expect(() =>
-        migrateWithFolders(db, folders(["A0012", "A0013"])),
+        migrateWithFolders(db, folders(["A0013", "A0014"])),
       ).not.toThrow();
       const rows = db.$client
         .prepare(
-          "SELECT tag FROM __bb_migration_ledger WHERE namespace = 'aleph' AND tag IN ('A0012', 'A0013') ORDER BY tag",
+          "SELECT tag FROM __bb_migration_ledger WHERE namespace = 'aleph' AND tag IN ('A0013', 'A0014') ORDER BY tag",
         )
         .all();
-      expect(rows).toEqual([{ tag: "A0012" }, { tag: "A0013" }]);
+      expect(rows).toEqual([{ tag: "A0013" }, { tag: "A0014" }]);
     } finally {
       closeConnection(db);
     }
@@ -704,18 +807,18 @@ describe("compat log identity handling", () => {
     const folders = {
       upstreamFolder: sourceFolders.upstreamFolder,
       alephFolder: alephFolderWithSteps([
-        { id: "A0012", sql },
         { id: "A0013", sql },
+        { id: "A0014", sql },
       ]),
     };
     const db = createConnection(":memory:");
     try {
       migrateWithFolders(db, folders);
       db.$client
-        .prepare("DELETE FROM __bb_migration_ledger WHERE tag = 'A0013'")
+        .prepare("DELETE FROM __bb_migration_ledger WHERE tag = 'A0014'")
         .run();
       expect(() => migrateWithFolders(db, folders)).toThrow(
-        /Missing migration ledger rows: aleph:A0013/,
+        /Missing migration ledger rows: aleph:A0014/,
       );
     } finally {
       closeConnection(db);
@@ -819,7 +922,7 @@ describe("skipped Aleph statements keep their trusted tables protected", () => {
   ])(
     "refuses the candidate that alters %s once a skipped Aleph index references it",
     (table, add, index, later) => {
-      const alephFolder = alephFolderWithSteps([{ id: "A0012", sql: index }]);
+      const alephFolder = alephFolderWithSteps([{ id: "A0013", sql: index }]);
       const upstreamFolder = upstreamFolderWithCandidates(
         [
           { tag: "0147_zz_alter", sql: `ALTER TABLE ${table} ${add};` },
@@ -847,7 +950,7 @@ describe("skipped Aleph statements keep their trusted tables protected", () => {
   ])(
     "keeps the owner of a candidate index guarded when an Aleph step drops it %s",
     (_label, drop) => {
-      const alephFolder = alephFolderWithSteps([{ id: "A0012", sql: drop }]);
+      const alephFolder = alephFolderWithSteps([{ id: "A0013", sql: drop }]);
       const upstreamFolder = upstreamFolderWithCandidates(
         [
           {
@@ -866,7 +969,7 @@ describe("skipped Aleph statements keep their trusted tables protected", () => {
 
   it("keeps the owner of a candidate trigger guarded when an Aleph step drops it", () => {
     const alephFolder = alephFolderWithSteps([
-      { id: "A0012", sql: "DROP TRIGGER zz_trigger;" },
+      { id: "A0013", sql: "DROP TRIGGER zz_trigger;" },
     ]);
     const trigger =
       "CREATE TRIGGER zz_trigger AFTER INSERT ON app_settings BEGIN SELECT 1; END;";
@@ -909,7 +1012,7 @@ describe("skipped Aleph statements keep their trusted tables protected", () => {
     "does not guard a table named only by a string literal in %s",
     (_label, statement) => {
       const alephFolder = alephFolderWithSteps([
-        { id: "A0012", sql: statement },
+        { id: "A0013", sql: statement },
       ]);
       const upstreamFolder = upstreamFolderWithCandidates(
         [
@@ -943,7 +1046,7 @@ describe("skipped Aleph statements keep their trusted tables protected", () => {
     "guards a table named as %s in a skipped Aleph statement",
     (_label, statement) => {
       const alephFolder = alephFolderWithSteps([
-        { id: "A0012", sql: statement },
+        { id: "A0013", sql: statement },
       ]);
       const upstreamFolder = upstreamFolderWithCandidates(
         [
@@ -979,7 +1082,7 @@ describe("skipped Aleph statements keep their trusted tables protected", () => {
     "guards a table named as %s in a skipped Aleph statement",
     (_label, statement) => {
       const alephFolder = alephFolderWithSteps([
-        { id: "A0012", sql: statement },
+        { id: "A0013", sql: statement },
       ]);
       const upstreamFolder = upstreamFolderWithCandidates(
         [
@@ -1005,7 +1108,7 @@ describe("skipped Aleph statements keep their trusted tables protected", () => {
     "INSERT INTO zz_source VALUES ((SELECT 1 FROM zz_source, 'app_settings'));",
     "DELETE FROM zz_source WHERE value IN (WITH q AS (SELECT 1) SELECT 1 FROM q, 'app_settings');",
   ])("guards a table named inside a nested subquery: %s", (statement) => {
-    const alephFolder = alephFolderWithSteps([{ id: "A0012", sql: statement }]);
+    const alephFolder = alephFolderWithSteps([{ id: "A0013", sql: statement }]);
     const upstreamFolder = upstreamFolderWithCandidates(
       [
         { tag: "0147_zz_source", sql: "CREATE TABLE zz_source (value TEXT);" },
@@ -1027,7 +1130,7 @@ describe("skipped Aleph statements keep their trusted tables protected", () => {
     "guards a table named after a compound select in a values list: %s",
     (statement) => {
       const alephFolder = alephFolderWithSteps([
-        { id: "A0012", sql: statement },
+        { id: "A0013", sql: statement },
       ]);
       const upstreamFolder = upstreamFolderWithCandidates(
         [
@@ -1048,7 +1151,7 @@ describe("skipped Aleph statements keep their trusted tables protected", () => {
   it("does not guard a table named only inside literal lists", () => {
     const alephFolder = alephFolderWithSteps([
       {
-        id: "A0012",
+        id: "A0013",
         sql: "INSERT INTO zz_source (value) SELECT 'x' WHERE 'x' IN ('app_settings', 'y') OR lower('app_settings') = 'z';",
       },
     ]);
@@ -1068,7 +1171,7 @@ describe("skipped Aleph statements keep their trusted tables protected", () => {
   });
 
   const loadWithStatement = (statement: string) => {
-    const alephFolder = alephFolderWithSteps([{ id: "A0012", sql: statement }]);
+    const alephFolder = alephFolderWithSteps([{ id: "A0013", sql: statement }]);
     const upstreamFolder = upstreamFolderWithCandidates(
       [
         { tag: "0147_zz_source", sql: "CREATE TABLE zz_source (value TEXT);" },
@@ -1122,7 +1225,7 @@ describe("skipped Aleph statements keep their trusted tables protected", () => {
 
   it("wraps an unexpected candidate statement failure as a guard error", () => {
     const alephFolder = alephFolderWithSteps([
-      { id: "A0012", sql: "CREATE TABLE zz_aleph (id TEXT);" },
+      { id: "A0013", sql: "CREATE TABLE zz_aleph (id TEXT);" },
     ]);
     const upstreamFolder = upstreamFolderWithCandidates(
       [{ tag: "0147_zz_broken", sql: "CREATE TABLE zz_broken (" }],
@@ -1136,7 +1239,7 @@ describe("skipped Aleph statements keep their trusted tables protected", () => {
   it("refuses a skipped statement behind a CTE that targets no known object", () => {
     const alephFolder = alephFolderWithSteps([
       {
-        id: "A0012",
+        id: "A0013",
         sql: "WITH x AS (SELECT 1) DELETE FROM zz_ghost WHERE id IN (SELECT * FROM x);",
       },
     ]);
@@ -1168,7 +1271,7 @@ describe("skipped Aleph statements keep their trusted tables protected", () => {
 
   it("still tolerates a skipped Aleph statement on a candidate-created table", () => {
     const alephFolder = alephFolderWithSteps([
-      { id: "A0012", sql: "CREATE INDEX zz_source_idx ON zz_source (id);" },
+      { id: "A0013", sql: "CREATE INDEX zz_source_idx ON zz_source (id);" },
     ]);
     const upstreamFolder = upstreamFolderWithCandidates(
       [
@@ -1198,10 +1301,10 @@ describe("compat log occurrence counting", () => {
     });
     const db = createConnection(":memory:");
     try {
-      const first = folders(["A0012"]);
+      const first = folders(["A0013"]);
       migrateWithFolders(db, first);
       const hash = loadAlignedMigrationPlan(first).plan.steps.find(
-        (step) => step.id === "A0012",
+        (step) => step.id === "A0013",
       )?.sha256;
       db.$client
         .prepare(
@@ -1209,7 +1312,7 @@ describe("compat log occurrence counting", () => {
         )
         .run(hash);
       expect(() =>
-        migrateWithFolders(db, folders(["A0012", "A0013"])),
+        migrateWithFolders(db, folders(["A0013", "A0014"])),
       ).not.toThrow();
     } finally {
       closeConnection(db);

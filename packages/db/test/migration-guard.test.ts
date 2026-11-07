@@ -1355,24 +1355,18 @@ describe("guardPlan", () => {
     });
 
     it("refuses a control character in a new Aleph step", () => {
-      const input = extend(
-        [],
-        [alephStep("A0012", "0147_git_and_pr_status_plugin_show_settings", lastWhen + 1)],
-      );
+      const input = extend([], [alephStep("A0013", "A0012", lastWhen + 1)]);
       expect(() =>
         guardInput(
           input,
           "SELECT 1;",
           "SELECT 1;\u0000 CREATE TABLE intended_new_table(id);",
         ),
-      ).toThrow(/Aleph step A0012: .*U\+0000 at offset 9/);
+      ).toThrow(/Aleph step A0013: .*U\+0000 at offset 9/);
     });
 
     it("accepts a new Aleph step without control characters", () => {
-      const input = extend(
-        [],
-        [alephStep("A0012", "0147_git_and_pr_status_plugin_show_settings", lastWhen + 1)],
-      );
+      const input = extend([], [alephStep("A0013", "A0012", lastWhen + 1)]);
       expect(() =>
         guardInput(input, "SELECT 1;", "CREATE TABLE intended_new_table(id);"),
       ).not.toThrow();
@@ -1416,26 +1410,26 @@ describe("guardPlan", () => {
       expect(() => guardInput(input)).not.toThrow();
     });
 
-    it("accepts an upstream step between 0147 and a later Aleph step", () => {
+    it("accepts an upstream step between A0012 and a later Aleph step", () => {
       const input = extend(
         [{ tag: "0148_first", when: lastWhen + 10, sha256: "first" }],
-        [alephStep("A0012", "0148_first", lastWhen + 20)],
+        [alephStep("A0013", "0148_first", lastWhen + 20)],
       );
       expect(
         buildMigrationPlan(input)
           .steps.map((step) => step.id)
           .slice(-3),
-      ).toEqual(["0147_git_and_pr_status_plugin_show_settings", "0148_first", "A0012"]);
+      ).toEqual(["A0012", "0148_first", "A0013"]);
       expect(() => guardInput(input)).not.toThrow();
     });
 
     it("refuses a later Aleph step older than the upstream step before it", () => {
       const input = extend(
         [{ tag: "0148_first", when: lastWhen + 20, sha256: "first" }],
-        [alephStep("A0012", "0148_first", lastWhen + 10)],
+        [alephStep("A0013", "0148_first", lastWhen + 10)],
       );
       expect(() => guardInput(input)).toThrow(
-        /Aleph step A0012 has when \d+, which is not after the preceding step 0148_first/,
+        /Aleph step A0013 has when \d+, which is not after the preceding step 0148_first/,
       );
     });
 
@@ -1457,14 +1451,14 @@ describe("guardPlan", () => {
         aleph: [
           ...base.aleph,
           {
-            ...alephStep("A0012", "0147_git_and_pr_status_plugin_show_settings", lastWhen + 20),
+            ...alephStep("A0013", "A0012", lastWhen + 20),
             supersedes: "0148_first",
           },
         ],
       };
       const frozenWithNew = [
         ...frozen,
-        { tag: "0148_first", sha256: "first", supersededBy: "A0012" },
+        { tag: "0148_first", sha256: "first", supersededBy: "A0013" },
       ];
       expect(() =>
         guardPlan({

@@ -149,3 +149,14 @@ export function rewindQueuedMessageStateMigration(db: DbConnection): void {
     DROP TABLE IF EXISTS __bb_migration_ledger;
   `);
 }
+
+export function dropQueuedMessageDeliveryModeColumn(db: DbConnection): void {
+  const columns = db.$client
+    .prepare<[], { name: string }>("PRAGMA table_info(queued_thread_messages)")
+    .all();
+  if (columns.some((column) => column.name === "delivery_mode")) {
+    db.$client.exec(
+      "ALTER TABLE queued_thread_messages DROP COLUMN delivery_mode",
+    );
+  }
+}

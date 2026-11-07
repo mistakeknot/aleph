@@ -67,6 +67,13 @@
       "after": "A0010",
       "when": 1792668833814,
       "supersedes": "0144_thread_parent_notifications"
+    },
+    {
+      "id": "A0012",
+      "file": "A0012_queued_message_delivery_mode.sql",
+      "after": "0147_git_and_pr_status_plugin_show_settings",
+      "when": 1793309187609,
+      "supersedes": "0148_queued_message_delivery_mode"
     }
   ]
 }

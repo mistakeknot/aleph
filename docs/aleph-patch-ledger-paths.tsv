@@ -324,6 +324,7 @@ fork-owned-migrations	A	packages/db/drizzle-aleph/A0008_aleph_install_requests.s
 fork-owned-migrations	A	packages/db/drizzle-aleph/A0009_queued_message_state.sql
 fork-owned-migrations	A	packages/db/drizzle-aleph/A0010_event_cold_tier.sql
 fork-owned-migrations	A	packages/db/drizzle-aleph/A0011_thread_parent_notifications.sql
+fork-owned-migrations	A	packages/db/drizzle-aleph/A0012_queued_message_delivery_mode.sql
 fork-owned-migrations	A	packages/db/drizzle-aleph/aleph-altered-tables.json
 fork-owned-migrations	A	packages/db/drizzle-aleph/frozen-upstream.json
 fork-owned-migrations	A	packages/db/drizzle-aleph/manifest.json
@@ -690,7 +691,6 @@ queue-transfer	A	apps/server/src/services/threads/spawn-enqueue-idempotency.ts
 queue-transfer	M	apps/server/src/services/threads/thread-context-clear.ts
 queue-transfer	M	apps/server/src/services/threads/thread-data.ts
 queue-transfer	M	apps/server/src/services/threads/thread-default-policy.ts
-queue-transfer	M	apps/server/src/services/threads/thread-events.ts
 queue-transfer	M	apps/server/src/services/threads/thread-lifecycle.ts
 queue-transfer	M	apps/server/src/services/threads/thread-provisioning-environment.ts
 queue-transfer	M	apps/server/src/services/threads/thread-provisioning.ts

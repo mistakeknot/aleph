@@ -484,6 +484,9 @@ export async function sendThreadMessage(
   if (isStandaloneBuiltinClearCommand(args.payload.input)) {
     const { requestedThreadId } = args;
     await clearThreadContext(deps, {
+      ...(args.beforeAppendInTransaction !== undefined
+        ? { beforeCommitInTransaction: args.beforeAppendInTransaction }
+        : {}),
       environment: args.environment,
       thread: args.thread,
       ...(requestedThreadId === undefined
