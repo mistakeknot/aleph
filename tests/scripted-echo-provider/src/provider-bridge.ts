@@ -92,6 +92,7 @@ export const scriptedEchoOptionsSchema = z
     goalClearNotifyDelayMs: z.number().int().nonnegative().optional(),
     goalClearReportsCleared: z.boolean().optional(),
     swallowTurnStart: z.boolean().optional(),
+    turnStartReportsRebuild: z.boolean().optional(),
     sessionRestorable: z.boolean().optional(),
     toolCallThreadIdHint: z.string().min(1).optional(),
     recoveryThreadIdHint: z.string().min(1).optional(),
@@ -1080,8 +1081,12 @@ const handlers: Record<string, RequestHandler> = {
       `turn/start:${process.pid}:${parsed.data.threadId}:${promptText(parsed.data.input)}`,
     );
     const responseDelayMs = session.options.turnStartResponseDelayMs;
+    const turnStartResult =
+      session.options.turnStartReportsRebuild === true
+        ? { sessionRebuilt: true }
+        : {};
     if (responseDelayMs === undefined) {
-      io.sendResult(id, {});
+      io.sendResult(id, turnStartResult);
     }
     if (session.options.swallowTurnStart !== true) {
       beginTurn({
@@ -1091,7 +1096,7 @@ const handlers: Record<string, RequestHandler> = {
       });
     }
     if (responseDelayMs !== undefined) {
-      setTimeout(() => io.sendResult(id, {}), responseDelayMs);
+      setTimeout(() => io.sendResult(id, turnStartResult), responseDelayMs);
     }
   },
 

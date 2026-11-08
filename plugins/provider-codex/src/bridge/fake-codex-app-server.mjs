@@ -538,6 +538,9 @@ async function handleRequest(message) {
       if (String(params.threadId).startsWith("usage-replay-")) {
         replayLastTurnUsage(params.threadId);
       }
+      if (script?.resumedGoalStatus) {
+        setFakeGoalStatus(params.threadId, script.resumedGoalStatus);
+      }
       respond(id, {
         thread: {
           id: params.threadId,

@@ -2071,10 +2071,16 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
                 threadId,
               },
             });
+            const bridgeRebuilt =
+              turnStartBridgeResultSchema.safeParse(startResult).data
+                ?.sessionRebuilt === true;
             setThreadRuntimeConfig(threadId, {
               ...currentConfig,
               contributedEnv: resolvedContributedEnv,
               envVars: resolvedEnvironment.envVars,
+              ...(bridgeRebuilt && instructions !== undefined
+                ? { instructions }
+                : {}),
               options: execOpts,
             });
             if (environmentChanged) {
@@ -2086,10 +2092,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
               });
             }
             return {
-              providerSessionRebuilt:
-                bridgeRestarted ||
-                turnStartBridgeResultSchema.safeParse(startResult).data
-                  ?.sessionRebuilt === true,
+              providerSessionRebuilt: bridgeRestarted || bridgeRebuilt,
             };
           } catch (error) {
             pendingTurnStarts.delete(threadId);

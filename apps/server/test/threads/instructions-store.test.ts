@@ -40,7 +40,10 @@ import { textInput } from "../helpers/prompt-input.js";
 import { withTestHarness } from "../helpers/test-app.js";
 import type { TestAppHarness } from "../helpers/test-app.js";
 
-const windowsTreeKills = vi.hoisted(() => ({ calls: [] as number[][] }));
+const windowsTreeKills = vi.hoisted(() => ({
+  calls: [] as number[][],
+  terminated: true,
+}));
 
 vi.mock("@bb/process-utils", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@bb/process-utils")>();
@@ -48,6 +51,7 @@ vi.mock("@bb/process-utils", async (importOriginal) => {
     ...actual,
     terminateWindowsProcessTrees: async (pids: readonly number[]) => {
       windowsTreeKills.calls.push([...pids]);
+      if (!windowsTreeKills.terminated) return false;
       for (const pid of pids) {
         try {
           process.kill(-pid, "SIGKILL");
@@ -95,6 +99,23 @@ const child = spawn(
 );
 child.unref();
 setInterval(() => {}, 1000);
+`;
+
+const PARENT_EXITS_FIRST_SCRIPT = `
+import fs from "node:fs";
+import { spawn } from "node:child_process";
+const [, , pidPath] = process.argv;
+spawn(
+  process.execPath,
+  [
+    "-e",
+    "require('node:fs').writeFileSync(process.argv[1], String(process.pid)); setInterval(() => {}, 1000);",
+    pidPath,
+  ],
+  { stdio: "inherit" },
+).unref();
+while (!fs.existsSync(pidPath)) await new Promise((resolve) => setTimeout(resolve, 20));
+process.exit(0);
 `;
 
 const OVERFLOW_SPAWNING_SCRIPT = `
@@ -1409,6 +1430,83 @@ describe("instructions store resolve caller", () => {
         });
       },
     );
+
+    it("terminates the Windows process tree after the resolver parent exited first", async () => {
+      await withTestHarness(async (harness) => {
+        const seeded = seedScenario(harness, "codex", "win-parent-exits");
+        const root = path.join(harness.config.dataDir, "win-parent-exits");
+        await mkdir(root, { recursive: true });
+        const script = path.join(root, "spawner.mjs");
+        const pidPath = path.join(root, "child.pid");
+        await writeFile(script, PARENT_EXITS_FIRST_SCRIPT, "utf8");
+        harness.deps.config.orchestration = {
+          instructionsStore: storePath(harness),
+          resolveCommand: [process.execPath, script, pidPath],
+          resolveTimeoutMs: 1_500,
+        };
+        windowsTreeKills.calls.length = 0;
+        const platform = vi
+          .spyOn(process, "platform", "get")
+          .mockReturnValue("win32");
+        let error: unknown;
+        try {
+          error = await rejection(resolveFor(harness, seeded));
+        } finally {
+          platform.mockRestore();
+        }
+        expect(error).toMatchObject({
+          body: { code: "instructions_resolve_timeout" },
+        });
+        expect(windowsTreeKills.calls).toHaveLength(1);
+        const pid = Number(await readFile(pidPath, "utf8"));
+        expect(await pidIsGone(pid)).toBe(true);
+      });
+    });
+
+    it("rejects the start when the Windows tree termination fails", async () => {
+      await withTestHarness(async (harness) => {
+        const seeded = seedScenario(harness, "codex", "win-kill-fails");
+        const root = path.join(harness.config.dataDir, "win-kill-fails");
+        await mkdir(root, { recursive: true });
+        const script = path.join(root, "spawner.mjs");
+        const pidPath = path.join(root, "child.pid");
+        await writeFile(script, CHILD_SPAWNING_SCRIPT, "utf8");
+        harness.deps.config.orchestration = {
+          instructionsStore: storePath(harness),
+          resolveCommand: [process.execPath, script, pidPath],
+          resolveTimeoutMs: 1_500,
+        };
+        windowsTreeKills.calls.length = 0;
+        windowsTreeKills.terminated = false;
+        const platform = vi
+          .spyOn(process, "platform", "get")
+          .mockReturnValue("win32");
+        let error: unknown;
+        try {
+          error = await rejection(resolveFor(harness, seeded));
+        } finally {
+          platform.mockRestore();
+          windowsTreeKills.terminated = true;
+        }
+        try {
+          expect(error).toMatchObject({
+            status: 503,
+            body: { code: "instructions_resolve_cleanup_failed" },
+          });
+          expect(windowsTreeKills.calls).toHaveLength(1);
+        } finally {
+          const grandchild = Number(await readFile(pidPath, "utf8"));
+          const [rootPid] = windowsTreeKills.calls[0] ?? [];
+          const targets = [grandchild];
+          if (rootPid !== undefined) targets.push(-rootPid);
+          for (const target of targets) {
+            try {
+              process.kill(target, "SIGKILL");
+            } catch {}
+          }
+        }
+      });
+    });
 
     it("fails retryably when the resolver cannot be spawned", async () => {
       await withTestHarness(async (harness) => {

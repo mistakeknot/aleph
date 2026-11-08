@@ -243,6 +243,60 @@ it("reports a rebuilt provider session on the turn that rebuilt it with the chan
   expect(JSON.stringify(resumes[0]?.params)).toContain("snapshot one");
 }, 30_000);
 
+it("reports a rebuilt provider session on a goal command that rebuilt it", async () => {
+  const requestLogPath = join(workspaceDir, "requests.jsonl");
+  stubFakeAppServer({
+    turns: [UNAUTHORIZED_TURN, OK_TURN],
+    turnCursorPath: join(workspaceDir, "turn-cursor"),
+    requestLogPath,
+    resumedGoalStatus: "paused",
+  });
+  harness = createBridgeJsonRpcTestHarness(handleLine);
+
+  harness.sendRequest(1, "thread/resume", {
+    threadId: THREAD_ID,
+    providerThreadId: PROVIDER_THREAD_ID,
+    cwd: workspaceDir,
+    instructionMode: "append",
+    options: { ...FULL_ACCESS_SESSION_OPTIONS, instructions: "snapshot one" },
+  });
+  expect((await harness.waitForResponse(1)).error).toBeUndefined();
+
+  harness.sendRequest(2, "turn/start", {
+    threadId: THREAD_ID,
+    providerThreadId: PROVIDER_THREAD_ID,
+    clientRequestId: "creq_cdxrcvry26",
+    input: [{ type: "text", text: "first", mentions: [] }],
+    options: { ...FULL_ACCESS_SESSION_OPTIONS, instructions: "snapshot one" },
+  });
+  expect((await harness.waitForResponse(2)).error).toBeUndefined();
+  await waitForNotification(
+    BRIDGE_NOTIFICATION_METHODS.providerRecovery,
+    () => true,
+  );
+
+  harness.sendRequest(3, "turn/start", {
+    threadId: THREAD_ID,
+    providerThreadId: PROVIDER_THREAD_ID,
+    clientRequestId: "creq_cdxrcvry27",
+    input: [{ type: "text", text: "/goal resume", mentions: [] }],
+    options: { ...FULL_ACCESS_SESSION_OPTIONS, instructions: "snapshot two" },
+  });
+  const goalTurn = await harness.waitForResponse(3);
+  expect(goalTurn.error).toBeUndefined();
+  expect(goalTurn.result).toMatchObject({
+    threadId: THREAD_ID,
+    sessionRebuilt: true,
+  });
+  const resumes = readFileSync(requestLogPath, "utf8")
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line) as { method: string; params: unknown })
+    .filter((entry) => entry.method === "thread/resume");
+  expect(resumes).toHaveLength(2);
+  expect(JSON.stringify(resumes[1]?.params)).toContain("snapshot two");
+}, 30_000);
+
 it("retries a rename inside the bridge while the rollout is not ready", async () => {
   stubFakeAppServer({ renameEmptyRolloutFailures: 2 });
   harness = createBridgeJsonRpcTestHarness(handleLine);

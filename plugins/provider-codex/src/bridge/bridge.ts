@@ -2035,7 +2035,10 @@ async function handleTurnStart(
       );
       return;
     }
-    sendResult(id, { threadId: params.threadId });
+    sendResult(id, {
+      threadId: params.threadId,
+      ...(live.rebuilt ? { sessionRebuilt: true } : {}),
+    });
     scheduleZeroWorkTurnSettlement({
       clientRequestId: params.clientRequestId,
       prepared,

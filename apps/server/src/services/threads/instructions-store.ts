@@ -171,42 +171,58 @@ function runResolveCommand(args: RunResolveArgs): Promise<string> {
       args: [...baseArgs, "--store", args.store, "--data-dir", args.dataDir],
       detached: true,
     });
-    const killTree = () => {
-      if (process.platform !== "win32") {
-        killProcessGroup({ child, signal: "SIGKILL" });
-        return;
+    const terminateWindowsTree = (force: boolean): Promise<boolean> => {
+      const pid = child.pid;
+      if (pid === undefined) return Promise.resolve(true);
+      if (!force && (child.exitCode !== null || child.signalCode !== null)) {
+        return Promise.resolve(true);
       }
-      if (
-        child.pid !== undefined &&
-        child.exitCode === null &&
-        child.signalCode === null
-      ) {
-        terminateWindowsProcessTrees([child.pid]).catch(() => undefined);
-      }
+      return terminateWindowsProcessTrees([pid]).catch(() => false);
     };
-    const settle = (finish: () => void) => {
+    const settle = (finish: () => void, options?: { forceTreeKill?: true }) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      killTree();
-      finish();
-    };
-    const timer = setTimeout(() => {
-      settle(() =>
+      if (process.platform !== "win32") {
+        killProcessGroup({ child, signal: "SIGKILL" });
+        finish();
+        return;
+      }
+      void terminateWindowsTree(options?.forceTreeKill === true).then((ok) => {
+        if (ok) {
+          finish();
+          return;
+        }
         reject(
           new ApiError(
             503,
-            "instructions_resolve_timeout",
-            `Resolving the instructions store did not finish within ${args.timeoutMs} ms. Try again.`,
-            { retryable: true, details: { timeoutMs: args.timeoutMs } },
+            "instructions_resolve_cleanup_failed",
+            "The instructions resolve command could not be fully stopped, so its child processes may still be running. The thread was not started.",
+            { retryable: true },
           ),
-        ),
+        );
+      });
+    };
+    const timer = setTimeout(() => {
+      settle(
+        () =>
+          reject(
+            new ApiError(
+              503,
+              "instructions_resolve_timeout",
+              `Resolving the instructions store did not finish within ${args.timeoutMs} ms. Try again.`,
+              { retryable: true, details: { timeoutMs: args.timeoutMs } },
+            ),
+          ),
+        { forceTreeKill: true },
       );
     }, args.timeoutMs);
     child.stdout.on("data", (chunk: Buffer) => {
       stdoutBytes += chunk.length;
       if (stdoutBytes > RESOLVE_MAX_OUTPUT_BYTES) {
-        settle(() => reject(resolveFailure({ outputOverflow: true })));
+        settle(() => reject(resolveFailure({ outputOverflow: true })), {
+          forceTreeKill: true,
+        });
         return;
       }
       stdoutChunks.push(chunk);
