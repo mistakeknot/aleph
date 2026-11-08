@@ -7,6 +7,7 @@ import type {
   PluginRpcDiscoveryQuery,
   PublishedPluginRpcMethod,
 } from "@bb/server-contract";
+import type Database from "better-sqlite3";
 import { watch } from "node:fs";
 import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -247,6 +248,11 @@ export interface PluginStartOptions {
   hold: PluginLoadHold;
 }
 
+export interface OpenPluginDatabase {
+  database: Database.Database;
+  pluginId: string;
+}
+
 export interface PluginService {
   isBuiltin(id: string): boolean;
   events: PluginThreadEventEmitter;
@@ -299,6 +305,7 @@ export interface PluginService {
     | { outcome: "unavailable"; detail: string }
   >;
   installPath(path: string): Promise<InstalledPlugin>;
+  preservePathPluginsInside(directory: string): Promise<void>;
   checkForUpdates(id?: string): Promise<PluginUpdateCheckEntry[]>;
   startPeriodicUpdateChecks(): void;
   stopPeriodicUpdateChecks(): Promise<void>;
@@ -329,6 +336,11 @@ export interface PluginService {
    * and its waits clear.
    */
   isPluginExpectedToRun(id: string): boolean;
+  /**
+   * The open `storage.database()` handles of loaded plugins, for the hourly
+   * plugin database maintenance sweep.
+   */
+  listOpenPluginDatabases(): OpenPluginDatabase[];
   /**
    * Asset backing GET /plugins/:id/assets/app.{js,css}: a reader for its
    * bytes (app.js from disk, app.css as loaded, without the Tailwind rules the
@@ -727,6 +739,8 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
     installPathSource,
     installedUpdateVersion,
     npmIntentForRow,
+    pathSourceNotice,
+    preservePathPluginsInside,
     provenanceForRow,
     reconcileBundled,
     registerInstalled,
@@ -1076,6 +1090,10 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
           }),
           isOrphanedBuiltin: isOrphanedBuiltinRow(row),
           sourceDisplay: sourceDisplayForRow(row),
+          sourceNotice:
+            row.sourceKind === "path"
+              ? pathSourceNotice({ id: row.id, rootDir: row.rootDir })
+              : null,
           updateState: updateStateForRow(row),
           enabled: row.enabled,
           description:
@@ -1742,6 +1760,11 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
         installPathSource(path, ROOT_PLUGIN_SOURCE_SELECTION),
       ),
 
+    preservePathPluginsInside: (directory) =>
+      withPluginOperationLock(REGISTRATION_MUTATION_KEY, () =>
+        preservePathPluginsInside(directory),
+      ),
+
     ...pluginUpdates,
 
     async remove(id) {
@@ -1909,6 +1932,14 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
       if (!loadPassActive) return false;
       const row = getInstalledPlugin(deps.db, id);
       return row !== undefined && getStatus(row).status === "starting";
+    },
+
+    listOpenPluginDatabases() {
+      return [...loaded].flatMap(([pluginId, plugin]) =>
+        plugin.handle.databaseHandles
+          .filter((database) => database.open)
+          .map((database) => ({ pluginId, database })),
+      );
     },
 
     getAppAsset(id, kind) {

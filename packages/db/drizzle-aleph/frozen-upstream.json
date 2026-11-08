@@ -612,6 +612,10 @@
     {
       "tag": "0151_hand_diff_viewed_files_to_git_plugin",
       "sha256": "f1329637cde53d7c05fee85a748bc6b1a74c6dd25de5b16af66e6b2bc7eec4d6"
+    },
+    {
+      "tag": "0152_small_storage_cleanups",
+      "sha256": "081722dd0217e0714a1168809f5117405d5585150f6ecaf7770ca4cc2310cd06"
     }
   ]
 }

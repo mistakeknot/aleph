@@ -239,7 +239,10 @@ describe("thread pruning", () => {
         .where(eq(threads.id, f.thread.id))
         .run();
       const before = sequences(f);
-      expect(getNextThreadPruningPolicy(f.db, new Set())).toBeNull();
+      const otherPolicies = new Set<string>(
+        THREAD_PRUNING_POLICIES.filter((policy) => policy !== "rate-limits"),
+      );
+      expect(getNextThreadPruningPolicy(f.db, otherPolicies)).toBeNull();
       const deferred = advanceThreadPruning(f.db, "rate-limits");
       expect(deferred).toMatchObject({
         action: "thread-deferred",
@@ -1326,6 +1329,59 @@ describe("thread pruning", () => {
       expect(results.reduce((sum, r) => sum + r.removed, 0)).toBe(1);
       expect(sequences(f)).toContain(1);
       expect(sequences(f)).not.toContain(2);
+    } finally {
+      f.db.$client.close();
+    }
+  });
+
+  it("enqueues every thread when a policy is new or its version changes", () => {
+    const f = setup();
+    try {
+      const other = createThread(f.db, noopNotifier, {
+        status: "idle",
+        projectId: f.project.id,
+        providerId: "codex",
+      });
+      const fixtures = [f, { ...f, thread: other }];
+      const insertUnqueuedDiffs = (from: number, through: number) => {
+        for (const fixture of fixtures)
+          for (let sequence = from; sequence <= through; sequence++)
+            fixture.db
+              .insert(events)
+              .values({
+                id: `${fixture.thread.id}-${sequence}`,
+                threadId: fixture.thread.id,
+                sequence,
+                scopeKind: "turn",
+                turnId: "turn",
+                type: "turn/diff/updated",
+                data: "{}",
+                createdAt: 1,
+              })
+              .run();
+      };
+      const others = new Set<string>([
+        "rate-limits",
+        "usage",
+        "resolved-items",
+      ]);
+      insertUnqueuedDiffs(1, 3);
+      expect(f.db.select().from(threadPruningWork).all()).toEqual([]);
+      expect(getNextThreadPruningPolicy(f.db, others)).toBe("turn-diffs");
+      cycle(f, "turn-diffs");
+      expect(fixtures.map(sequences)).toEqual([[3], [3]]);
+
+      insertUnqueuedDiffs(4, 6);
+      expect(getNextThreadPruningPolicy(f.db, others)).toBeNull();
+      f.db
+        .update(threadPruningCursors)
+        .set({ version: 0 })
+        .where(eq(threadPruningCursors.policy, "turn-diffs"))
+        .run();
+      expect(getNextThreadPruningPolicy(f.db, others)).toBe("turn-diffs");
+      cycle(f, "turn-diffs");
+      expect(fixtures.map(sequences)).toEqual([[6], [6]]);
+      expect(getNextThreadPruningPolicy(f.db, others)).toBeNull();
     } finally {
       f.db.$client.close();
     }

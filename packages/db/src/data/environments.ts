@@ -257,7 +257,6 @@ export interface UpdateEnvironmentMetadataInput {
 
 export interface RecordEnvironmentCurrentBranchInput {
   branchName: string | null;
-  defaultBranch?: string | null;
 }
 
 export interface ListRetiredLoadedEnvironmentIdsOnHostArgs {
@@ -378,9 +377,6 @@ export function recordEnvironmentCurrentBranch(
 ) {
   return updateEnvironmentMetadataRecord(db, notifier, id, {
     branchName: input.branchName,
-    ...(input.defaultBranch !== undefined
-      ? { defaultBranch: input.defaultBranch }
-      : {}),
   });
 }
 

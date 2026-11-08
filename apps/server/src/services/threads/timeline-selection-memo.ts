@@ -64,6 +64,7 @@ export interface LatestTimelineSelectionMemoArgs {
   epochSequenceStart: number;
   eventBudget: number;
   excludeDiagnosticEvents: boolean;
+  extensionStateKinds: readonly string[];
   maxInlineOutputChars: number;
   maxSeq: number;
   page: ThreadTimelinePageRequest;
@@ -268,6 +269,7 @@ function selectionMemoKey(args: LatestTimelineSelectionMemoArgs): string {
     args.maxInlineOutputChars,
     args.excludeDiagnosticEvents,
     args.epochSequenceStart,
+    args.extensionStateKinds,
   ]);
 }
 

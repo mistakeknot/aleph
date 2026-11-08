@@ -17,11 +17,15 @@ export const POST_ORACLE_UPSTREAM_TAGS = [
   "0149_coalesced_system_notices",
   "0150_thread_status_changed_at",
   "0151_hand_diff_viewed_files_to_git_plugin",
+  "0152_small_storage_cleanups",
 ] as const;
 
 export function applyPostOracleSteps(sqlite: Database.Database): void {
   for (const tag of POST_ORACLE_UPSTREAM_TAGS) {
-    const sql = readFileSync(join(sourceFolders.upstreamFolder, `${tag}.sql`), "utf8");
+    const sql = readFileSync(
+      join(sourceFolders.upstreamFolder, `${tag}.sql`),
+      "utf8",
+    );
     for (const statement of sql.split("--> statement-breakpoint")) {
       if (statement.trim() !== "") sqlite.exec(statement);
     }

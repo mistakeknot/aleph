@@ -378,6 +378,32 @@ describe("@bb/sdk", () => {
     expect(receivedSignal).toBe(controller.signal);
   });
 
+  it("sends telemetry as a keepalive request only when asked", async () => {
+    const keepalives: Array<boolean | undefined> = [];
+    const fetch: FetchImplementation = async (_input, init) => {
+      keepalives.push(init?.keepalive);
+      return jsonResponse({ body: { ok: true } });
+    };
+    const sdk = createBbSdk({
+      transport: createHttpTransport({
+        baseUrl: "http://bb.test",
+        fetch,
+        runtime: "node",
+      }),
+    });
+    const event = {
+      name: "onboarding_left",
+      properties: { step: "projects", entry: "first_run" },
+    } as const;
+
+    await sdk.system.experimental_recordTelemetryEvent(event);
+    await sdk.system.experimental_recordTelemetryEvent(event, {
+      keepalive: true,
+    });
+
+    expect(keepalives).toEqual([undefined, true]);
+  });
+
   it("forwards thread read action abort signals to fetch", async () => {
     const controller = new AbortController();
     let receivedSignal: AbortSignal | null | undefined;
@@ -1863,7 +1889,7 @@ describe("@bb/sdk", () => {
     expect(
       queue.requests.map((request) => `${request.method} ${request.url}`),
     ).toEqual([
-      "GET http://bb.test/api/v1/queued-messages?",
+      "GET http://bb.test/api/v1/queued-messages",
       "POST http://bb.test/api/v1/threads/thr_123/queued-messages/qm_1/send",
       "DELETE http://bb.test/api/v1/threads/thr_123/queued-messages/qm_1",
     ]);
@@ -1968,7 +1994,7 @@ describe("@bb/sdk", () => {
       ],
     });
 
-    expect(queue.requests[0].url).toBe("http://bb.test/api/v1/threads/count?");
+    expect(queue.requests[0].url).toBe("http://bb.test/api/v1/threads/count");
     expect(queue.requests[1].url).toBe(
       "http://bb.test/api/v1/threads/count?status=active&hostId=host_a&providerId=codex&projectId=proj_123&parentThreadId=none&groupBy=host",
     );
@@ -2091,6 +2117,7 @@ describe("@bb/sdk", () => {
       catalogEntryId: "notes",
       publisherLabel: "BB Community",
       sourceDisplay: "npm · @bb/notes · tracks compatible",
+      sourceNotice: null,
       updateState: {},
       enabled: true,
       description: "Notes",

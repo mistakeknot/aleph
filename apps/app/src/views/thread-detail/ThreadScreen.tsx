@@ -590,7 +590,6 @@ export function ThreadScreen({
       queuedMessageCount={thread.queuedMessageCount}
       pendingTodos={timeline.pendingTodos}
       activePromptMode={timeline.activePromptMode}
-      goal={timeline.goal}
       providerCommands={timeline.providerCommands}
       sessionOptions={timeline.sessionOptions}
       modelFallback={timeline.modelFallback}

@@ -52,16 +52,16 @@ function BrowseRouteOutlet({
 }) {
   switch (route.kind) {
     case "all":
-      return <ListView projectId={null} />;
+      return <ListView key="all" projectId={null} />;
     case "active":
-      return <ListView projectId={null} activeOnly />;
+      return <ListView key="active" projectId={null} activeOnly />;
     case "manage":
       return <ManagePanel />;
     case "project":
       return route.view === "board" && boardUsable ? (
         <BoardView projectId={route.projectId} />
       ) : (
-        <ListView projectId={route.projectId} />
+        <ListView key={route.projectId} projectId={route.projectId} />
       );
   }
 }

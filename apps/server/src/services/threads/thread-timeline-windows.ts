@@ -36,7 +36,7 @@ import {
 import { createSlowThreadTimelineBuildLogger } from "./timeline-build-log.js";
 import {
   buildThreadTimelineCacheKey,
-  buildThreadTimelineParamsKey,
+  buildThreadTimelineCacheRevision,
   createThreadTimelineCache,
 } from "./timeline-cache.js";
 import { clearTimelineOrderingContextCache } from "./timeline-context-order.js";
@@ -171,21 +171,33 @@ export function createThreadTimelineWindows(
         deps.providerRegistry,
         thread.providerId,
       ),
+      extensionStateKinds: Object.entries(
+        deps.providerRegistry.get(thread.providerId)?.info.extensionKinds ?? {},
+      ).flatMap(([kind, declared]) => (declared.state ? [kind] : [])),
       providerDisplayName,
       summarizeShellCommands: settings.summarizeShellCommands,
     };
     const keyArgs = {
       threadId: thread.id,
-      status: thread.status,
-      surface: resolveThreadTimelineSurface(deps.db, thread, surfaceOptions)
-        .cacheKey,
       page: request.page,
       summaryOnly: request.summaryOnly,
+      deferContent: request.deferContent,
+      includeNestedRows: request.includeNestedRows,
     };
+    const surfaceCacheKey = resolveThreadTimelineSurface(
+      deps.db,
+      thread,
+      surfaceOptions,
+    ).cacheKey;
     const buildFull = () =>
       timelineCache.getOrBuild(
         thread.id,
-        buildThreadTimelineCacheKey({ ...keyArgs, maxSeq }),
+        buildThreadTimelineCacheKey(keyArgs),
+        buildThreadTimelineCacheRevision({
+          maxSeq,
+          status: thread.status,
+          surface: surfaceCacheKey,
+        }),
         () => {
           const { profile, response: built } = buildThreadTimelineWithProfile(
             deps.db,
@@ -213,7 +225,7 @@ export function createThreadTimelineWindows(
         request.page.kind === "latest" &&
         thread.status === "active",
       maxSeq,
-      paramsKey: buildThreadTimelineParamsKey(keyArgs),
+      paramsKey: `${buildThreadTimelineCacheKey(keyArgs)}|${thread.status}|${surfaceCacheKey}`,
       threadId: thread.id,
     });
     return response;

@@ -67,9 +67,33 @@ export interface PluginHomepageSectionProps {
 /**
  * Props passed to a `settingsSection` component.
  *
- * Deliberately empty in V1; versioned additive like the other slot props.
+ * Versioned additive like the other slot props.
  */
-export interface PluginSettingsSectionProps {}
+export interface PluginSettingsSectionProps {
+  /**
+   * Internal to bb's bundled connect plugin; not part of the plugin API.
+   * Set only when the setup guide renders the section; call it when the user
+   * starts setting it up.
+   */
+  internal_DO_NOT_USE_onSetupStarted?: () => void;
+  /**
+   * Internal to bb's bundled connect plugin; not part of the plugin API.
+   * Set only when the setup guide renders the section; call it when a setup
+   * attempt fails, with the stage that failed.
+   */
+  internal_DO_NOT_USE_onSetupFailed?: (
+    stage: InternalDoNotUseSetupFailureStage,
+  ) => void;
+}
+
+/**
+ * Stage of a setup guide section's setup attempt that failed.
+ * Internal to bb's bundled connect plugin; not part of the plugin API.
+ */
+export type InternalDoNotUseSetupFailureStage =
+  | "sign_in"
+  | "pairing"
+  | "turn_on";
 
 /**
  * Props passed to an `experimental_appOverlay` component.
@@ -78,6 +102,19 @@ export interface PluginSettingsSectionProps {}
  * hooks; versioned additive like the other slot props.
  */
 export interface ExperimentalAppOverlayProps {}
+
+/**
+ * Props passed to an `internal_DO_NOT_USE_setupGuideSection` component.
+ * Internal to bb's bundled connect plugin; not part of the plugin API.
+ */
+export interface InternalDoNotUseSetupGuideSectionProps {
+  /** True when the setup guide is open on a phone. */
+  onPhone: boolean;
+  /** Call when the user starts setting up this section. */
+  onSetupStarted: () => void;
+  /** Call when a setup attempt fails, with the stage that failed. */
+  onSetupFailed: (stage: InternalDoNotUseSetupFailureStage) => void;
+}
 
 export type ExperimentalPageTitle = (
   | { title: string; breadcrumbs?: never }
@@ -930,6 +967,16 @@ export interface ExperimentalAppOverlayRegistration {
 }
 
 /**
+ * Render one row in the first-run setup guide's "Where you use bb" group.
+ * Internal to bb's bundled connect plugin; not part of the plugin API.
+ */
+export interface InternalDoNotUseSetupGuideSectionRegistration {
+  /** Unique within the plugin; letters, digits, `-`, `_`. */
+  id: string;
+  component: ComponentType<InternalDoNotUseSetupGuideSectionProps>;
+}
+
+/**
  * A name the host resolves to a glyph, in this order: a name any plugin
  * registered with `app.experimental_icons.register()`, then a built-in BB icon
  * name (`"Zap"`), then a namespaced `"<pluginId>/<name>"` glyph naming an
@@ -1325,7 +1372,7 @@ export interface ExperimentalSidebarFooter {
 
 /**
  * The one status bb would paint for a thread, already resolved through the
- * host's precedence (attention before work; plan and goal before the generic
+ * host's precedence (attention before work; plan mode before the generic
  * spinner). Draw it with {@link PluginSdkApp.experimental_ThreadStatusGlyph},
  * or resolve a row that folds in more through
  * {@link PluginSdkApp.experimental_resolveThreadStatus}.
@@ -1348,7 +1395,6 @@ export type PluginSidebarThreadIndicator =
   | "background-agent"
   | "background-command"
   | "plan-mode"
-  | "goal"
   | "runtime"
   | "queued-failed"
   | "draft"
@@ -1362,7 +1408,6 @@ export interface PluginSidebarThreadActivity {
   backgroundAgents: number;
   backgroundCommands: number;
   planMode: number;
-  goals: number;
 }
 
 /**
@@ -2017,6 +2062,40 @@ export interface ExperimentalThreadContextSegmentRegistration {
    * it out of `segments`. Omit to always show.
    */
   useVisible?(input: ExperimentalThreadContextSegmentInput): boolean;
+}
+
+/**
+ * The dismiss button of an {@link ExperimentalCollapsibleStackCardProps}
+ * card, such as exiting Plan mode or clearing a Goal. The host disables it
+ * and shows a spinner until `onDismiss` settles, and shows an error toast
+ * built from the rejection, or `failureMessage` when the error has no message
+ * of its own.
+ */
+export interface ExperimentalCollapsibleStackCardDismiss {
+  /** Accessible name of the dismiss button, e.g. `"Clear Goal"`. */
+  label: string;
+  failureMessage: string;
+  onDismiss(): Promise<void>;
+}
+
+/**
+ * Props of the host-owned `experimental_CollapsibleStackCard`: bb's
+ * collapsible card for the stack above a thread's composer, the one bb's Plan
+ * mode card uses. The header shows `icon` and `title` and toggles `children`;
+ * the card starts collapsed.
+ */
+export interface ExperimentalCollapsibleStackCardProps {
+  /** Accessible name of the card and its toggle, e.g. `"Goal"`. */
+  label: string;
+  /** Header text, e.g. `"Goal paused"`. */
+  title: string;
+  icon: BbIconName;
+  /** True draws the header in bb's working style; false draws it muted. */
+  isActive: boolean;
+  /** Adds a dismiss button to the header; omit for none. */
+  dismiss?: ExperimentalCollapsibleStackCardDismiss;
+  /** Shown while the card is expanded. */
+  children: ReactNode;
 }
 
 /**
@@ -3857,6 +3936,14 @@ export interface PluginAppSlots {
   experimental_appOverlay(
     registration: ExperimentalAppOverlayRegistration,
   ): void;
+  /**
+   * Render a setup guide row (see
+   * {@link InternalDoNotUseSetupGuideSectionRegistration}). Internal: see
+   * docs/api_to_audit.md.
+   */
+  internal_DO_NOT_USE_setupGuideSection(
+    registration: InternalDoNotUseSetupGuideSectionRegistration,
+  ): void;
   navPanel(registration: PluginNavPanelRegistration): void;
   /** Register a context-scoped tab. Experimental: see docs/api_to_audit.md. */
   experimental_tab<
@@ -5652,6 +5739,15 @@ export interface PluginSdkApp {
    * Experimental: see docs/api_to_audit.md.
    */
   experimental_useThreadContextKind(): ExperimentalThreadContextKind;
+  /**
+   * The latest state the calling plugin's provider bridge emitted for one of
+   * its declared extension kinds on a thread (`kind` is the local name from
+   * `extensionKinds`, without the plugin id), or null when there is none or
+   * the last state was null. Follows live updates while bb shows the thread.
+   * The value is whatever passed the kind's `state` schema; parse it before
+   * use. Experimental: see docs/api_to_audit.md.
+   */
+  experimental_useThreadExtensionState(threadId: string, kind: string): unknown;
   useBbContext(): BbContext;
   /**
    * The id of the plugin that owns the calling component: the same id
@@ -6120,6 +6216,13 @@ export interface PluginSdkApp {
    * remembers that per registration. Experimental: see docs/api_to_audit.md.
    */
   experimental_InfoSection: ComponentType<ExperimentalInfoSectionProps>;
+  /**
+   * bb's collapsible card for the stack above a thread's composer (see
+   * {@link ExperimentalCollapsibleStackCardProps}). Render it from a
+   * thread-scoped composer banner with `chrome: "bare"`. Experimental: see
+   * docs/api_to_audit.md.
+   */
+  experimental_CollapsibleStackCard: ComponentType<ExperimentalCollapsibleStackCardProps>;
   /**
    * The thread Info tab's label and value row (see
    * {@link ExperimentalDetailRowProps}), the one bb's own rows use.

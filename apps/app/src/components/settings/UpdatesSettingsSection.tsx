@@ -914,7 +914,10 @@ function InAppUpdateRow({
         />
       ),
       <RowStateCaption state="update-available">
-        {scheduledAppUpdateCaption(status.runningThreadCount)}
+        {scheduledAppUpdateCaption(
+          status.runningThreadCount,
+          status.scheduled.requiredIdleMs,
+        )}
       </RowStateCaption>,
     );
   }
@@ -1565,7 +1568,7 @@ export function MachineUpdateRow({
   );
 }
 
-function AutoAppUpdateSetting({
+export function AutoAppUpdateSetting({
   label,
   checked,
   onCheckedChange,
@@ -1578,7 +1581,7 @@ function AutoAppUpdateSetting({
     <div className="py-3.5 pr-4 pl-13">
       <SettingsWithControl
         label={label}
-        description="Checks every hour and restarts bb into a new version once no threads are running."
+        description="Checks every hour and restarts bb into a new version once no thread has run for 15 minutes."
       >
         <Switch
           checked={checked}

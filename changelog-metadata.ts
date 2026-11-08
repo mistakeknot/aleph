@@ -4,6 +4,10 @@ type ReleaseMeta = {
 };
 
 export const RELEASE_META: Record<string, ReleaseMeta> = {
+  "0.49.0": {
+    date: "November 6, 2026",
+    headline: "A more reliable bb",
+  },
   "0.48.0+aleph.0.9.0": {
     date: "October 29, 2026",
     headline: "Aleph 0.9.0: synced to upstream bb 0.48.0",

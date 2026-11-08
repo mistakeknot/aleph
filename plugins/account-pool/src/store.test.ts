@@ -131,8 +131,17 @@ describe("QuotaStore", () => {
     const quotas = new QuotaStore(database);
 
     const migrated = quotas.get("11111111-1111-4111-8111-111111111111");
-    expect(migrated.sevenDayUtilization).toBe(0.5);
-    expect(migrated.limitWindows).toEqual([]);
+    expect(migrated.limitWindows).toEqual([
+      {
+        slot: "secondary",
+        windowMinutes: 10_080,
+        utilization: 0.5,
+        resetAt: null,
+        status: null,
+        observedAt: 0,
+        source: "header",
+      },
+    ]);
     expect(migrated.extraUsage).toBeNull();
     expect(migrated.familyWeekly).toEqual({
       fable: null,
@@ -248,21 +257,39 @@ describe("QuotaStore", () => {
       return row?.mutation;
     }
 
+    const storedWindows = JSON.stringify([
+      {
+        slot: "primary",
+        windowMinutes: 300,
+        utilization: 0.25,
+        resetAt: 4102452000000,
+        status: "allowed",
+        observedAt: 100,
+        source: "header",
+      },
+      {
+        slot: "secondary",
+        windowMinutes: 10_080,
+        utilization: 0.5,
+        resetAt: 4102452000000,
+        status: "allowed",
+        observedAt: 100,
+        source: "header",
+      },
+    ]);
+
     function legacyInsert(database: Database.Database): void {
       database
         .prepare(
           `INSERT INTO account_quota (
-            account_id, five_hour_utilization, five_hour_reset_at,
-            five_hour_status, seven_day_utilization, seven_day_reset_at,
-            seven_day_status, representative_claim, bucket_exhaustion_json,
+            account_id, representative_claim, bucket_exhaustion_json,
             family_weekly_json, limit_windows_json, extra_usage_json,
             usage_restriction_json, observed_at, held_until, error
-          ) VALUES (?, 0.25, 4102452000000, 'allowed', 0.5, 4102452000000,
-            'allowed', 'five_hour', '{}',
+          ) VALUES (?, 'five_hour', '{}',
             '{"fable":null,"sonnet":null,"opus":null,"haiku":null,"other":null}',
-            '[]', 'null', 'null', 100, NULL, NULL)`,
+            ?, 'null', 'null', 100, NULL, NULL)`,
         )
-        .run(accountId);
+        .run(accountId, storedWindows);
     }
 
     it("reads a database written by the current schema", () => {
@@ -273,8 +300,10 @@ describe("QuotaStore", () => {
 
       expect(quota).toMatchObject({
         accountId,
-        fiveHourUtilization: 0.25,
-        sevenDayUtilization: 0.5,
+        limitWindows: [
+          expect.objectContaining({ slot: "primary", utilization: 0.25 }),
+          expect.objectContaining({ slot: "secondary", utilization: 0.5 }),
+        ],
         representativeClaim: "five_hour",
         observedAt: 100,
       });
@@ -296,8 +325,10 @@ describe("QuotaStore", () => {
 
       expect(quota).toMatchObject({
         accountId,
-        fiveHourUtilization: 0.25,
-        sevenDayUtilization: 0.5,
+        limitWindows: [
+          expect.objectContaining({ slot: "primary", utilization: 0.25 }),
+          expect.objectContaining({ slot: "secondary", utilization: 0.5 }),
+        ],
         observedAt: 100,
       });
       expect(Object.keys(quota)).not.toContain("futureMarker");
@@ -310,13 +341,24 @@ describe("QuotaStore", () => {
       const quotas = new QuotaStore(database);
       const base = quotas.get(accountId);
 
-      quotas.put({ ...base, fiveHourUtilization: 0.1, observedAt: 1 });
+      const withUtilization = (utilization: number) => [
+        {
+          slot: "primary" as const,
+          windowMinutes: 300,
+          utilization,
+          resetAt: null,
+          status: null,
+          observedAt: 1,
+          source: "header" as const,
+        },
+      ];
+      quotas.put({ ...base, limitWindows: withUtilization(0.1), observedAt: 1 });
       expect(mutationCount(database)).toBe(1);
 
-      quotas.put({ ...base, fiveHourUtilization: 0.4, observedAt: 2 });
+      quotas.put({ ...base, limitWindows: withUtilization(0.4), observedAt: 2 });
       expect(mutationCount(database)).toBe(2);
       expect(quotas.get(accountId)).toMatchObject({
-        fiveHourUtilization: 0.4,
+        limitWindows: [expect.objectContaining({ utilization: 0.4 })],
         observedAt: 2,
       });
 
@@ -325,6 +367,79 @@ describe("QuotaStore", () => {
       expect(quotas.get(accountId).observedAt).toBeNull();
       database.close();
     });
+  });
+
+  it("moves stored Claude five-hour and seven-day columns into limit windows", () => {
+    const database = new Database(":memory:");
+    const moveMigration = QUOTA_MIGRATIONS.length - 1;
+    for (const migration of QUOTA_MIGRATIONS.slice(0, moveMigration))
+      database.exec(migration);
+    const claudeId = "11111111-1111-4111-8111-111111111111";
+    const codexId = "22222222-2222-4222-8222-222222222222";
+    const codexWindows = JSON.stringify([
+      {
+        slot: "primary",
+        windowMinutes: 10_080,
+        utilization: 0.48,
+        resetAt: null,
+        status: "allowed",
+        observedAt: 10,
+        source: "usage",
+      },
+    ]);
+    const insert = database.prepare(
+      `INSERT INTO account_quota (
+        account_id, five_hour_utilization, five_hour_reset_at, five_hour_status,
+        seven_day_utilization, seven_day_reset_at, seven_day_status,
+        limit_windows_json, observed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    insert.run(
+      claudeId,
+      1,
+      4_102_444_800_000,
+      "rejected",
+      0.25,
+      4_102_448_400_000,
+      "allowed",
+      "[]",
+      50,
+    );
+    insert.run(codexId, null, null, null, null, null, null, codexWindows, 60);
+    database.exec(QUOTA_MIGRATIONS[moveMigration] ?? "");
+    const quotas = new QuotaStore(database);
+
+    expect(quotas.get(claudeId).limitWindows).toEqual([
+      {
+        slot: "primary",
+        windowMinutes: 300,
+        utilization: 1,
+        resetAt: 4_102_444_800_000,
+        status: "rejected",
+        observedAt: 50,
+        source: "header",
+      },
+      {
+        slot: "secondary",
+        windowMinutes: 10_080,
+        utilization: 0.25,
+        resetAt: 4_102_448_400_000,
+        status: "allowed",
+        observedAt: 50,
+        source: "header",
+      },
+    ]);
+    expect(quotas.get(codexId).limitWindows).toEqual(JSON.parse(codexWindows));
+    expect(
+      database
+        .prepare(
+          `SELECT count(*) AS stale FROM account_quota
+           WHERE five_hour_utilization IS NOT NULL OR five_hour_status IS NOT NULL
+             OR seven_day_utilization IS NOT NULL OR seven_day_status IS NOT NULL`,
+        )
+        .get(),
+    ).toEqual({ stale: 0 });
+    database.close();
   });
 
   it("reads and writes quotas when a newer build has added a column", () => {
@@ -336,9 +451,9 @@ describe("QuotaStore", () => {
     const quotas = new QuotaStore(database);
     const accountId = "11111111-1111-4111-8111-111111111111";
 
-    quotas.put({ ...quotas.get(accountId), sevenDayUtilization: 0.4 });
+    quotas.put({ ...quotas.get(accountId), representativeClaim: "five_hour" });
 
-    expect(quotas.get(accountId).sevenDayUtilization).toBe(0.4);
+    expect(quotas.get(accountId).representativeClaim).toBe("five_hour");
     database.close();
   });
 });

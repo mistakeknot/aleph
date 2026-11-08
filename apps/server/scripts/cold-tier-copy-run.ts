@@ -308,7 +308,7 @@ async function main(): Promise<void> {
   migrate(db);
   timings.migrateMs = elapsed(startedAt);
   report.schema = {
-    autoVacuum: getDatabaseAutoVacuumMode(db),
+    autoVacuum: getDatabaseAutoVacuumMode(db.$client),
     coldSegmentColumns: tableColumns(db, "event_cold_segments"),
     coldStateColumns: tableColumns(db, "thread_event_cold_state"),
     copyBytesAfterMigrate: fileBytes(copyPath),
@@ -401,7 +401,7 @@ async function main(): Promise<void> {
   timings.baselineMs = elapsed(startedAt);
 
   process.env.BB_EVENT_COLD_TIER = "1";
-  const sizeBefore = getDatabaseFreelistStats(db);
+  const sizeBefore = getDatabaseFreelistStats(db.$client);
   const loopDelay = monitorEventLoopDelay({ resolution: 10 });
   loopDelay.enable();
   const seen = new Set<string>();
@@ -513,10 +513,10 @@ async function main(): Promise<void> {
 
   startedAt = performance.now();
   const vacuumPasses: number[] = [];
-  let freelist = getDatabaseFreelistStats(db);
+  let freelist = getDatabaseFreelistStats(db.$client);
   while (freelist.freelistCount > 0 && vacuumPasses.length < 1000) {
     const passStarted = performance.now();
-    const result = runIncrementalVacuum(db, {
+    const result = runIncrementalVacuum(db.$client, {
       maxPages: DATABASE_INCREMENTAL_VACUUM_MAX_PAGES,
     });
     vacuumPasses.push(elapsed(passStarted));
@@ -527,7 +527,7 @@ async function main(): Promise<void> {
   timings.vacuumMs = elapsed(startedAt);
   report.size = {
     before: sizeBefore,
-    after: getDatabaseFreelistStats(db),
+    after: getDatabaseFreelistStats(db.$client),
     copyFileBytes: fileBytes(copyPath),
     vacuumPassMs: {
       count: vacuumPasses.length,

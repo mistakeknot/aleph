@@ -1,5 +1,6 @@
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -80,6 +81,13 @@ const CODEX_SCRIPT: ScriptedEchoLaunchScript = {
 };
 
 const MANAGER_BRIDGE_LAUNCH = createScriptedEchoLaunch();
+const SUPERSEDING_BRIDGE_LAUNCH = {
+  ...MANAGER_BRIDGE_LAUNCH,
+  source: {
+    ...MANAGER_BRIDGE_LAUNCH.source,
+    digest: `b${MANAGER_BRIDGE_LAUNCH.source.digest.slice(1)}`,
+  },
+};
 const MANAGER_PROVIDER = {
   bridgeLaunch: MANAGER_BRIDGE_LAUNCH,
   processKey: "fake",
@@ -267,6 +275,26 @@ describe("createAgentRuntime process lifecycle", () => {
     await runtime.shutdown();
   });
 
+  it.runIf(process.platform === "linux")(
+    "ranks provider processes ahead of bb for the out-of-memory killer",
+    async () => {
+      const manager = createProviderProcessManager({
+        onProcessExit: vi.fn(),
+        workspacePath: tmpDir,
+      });
+      onTestFinished(() => manager.shutdown());
+
+      await manager.ensureProvider(MANAGER_PROVIDER);
+      const providerPid =
+        manager.requireProviderProcess(MANAGER_PROVIDER).child.pid;
+
+      const ownScore = Number(readFileSync("/proc/self/oom_score_adj", "utf8"));
+      expect(
+        Number(readFileSync(`/proc/${providerPid}/oom_score_adj`, "utf8")),
+      ).toBe(Math.min(1_000, ownScore + 500));
+    },
+  );
+
   it("retires a threadless bridge process superseded by a new artifact hash", async () => {
     const manager = createProviderProcessManager({
       onProcessExit: vi.fn(),
@@ -286,7 +314,7 @@ describe("createAgentRuntime process lifecycle", () => {
     });
 
     await manager.ensureProvider({
-      bridgeLaunch: MANAGER_BRIDGE_LAUNCH,
+      bridgeLaunch: SUPERSEDING_BRIDGE_LAUNCH,
       processKey: freshKey,
       providerId: "fake",
     });
@@ -977,6 +1005,40 @@ describe("createAgentRuntime process lifecycle", () => {
     }
   });
 
+  it("starts threads of two skill catalogs at once without retiring either bridge", async () => {
+    const runtime = createAgentRuntime({
+      workspacePath: tmpDir,
+      onEvent: () => {},
+      onToolCall: async () => ({ contentItems: [], success: true }),
+    });
+    const bridgeLaunch = createScriptedEchoLaunch();
+    const stageSkillRoots = (name: string) => {
+      const path = join(tmpDir, `skills-${name}`);
+      mkdirSync(join(path, name), { recursive: true });
+      writeFileSync(join(path, name, "SKILL.md"), `---\nname: ${name}\n---\n`);
+      return [
+        { id: `skills:${name}`, path, skills: [{ name, description: name }] },
+      ];
+    };
+    const start = (threadId: string, skillName: string) =>
+      runtime.startThread({
+        bridgeLaunch,
+        skillRoots: stageSkillRoots(skillName),
+        environmentId: "env-1",
+        threadId,
+        projectId: "p1",
+        providerId: "scripted",
+        options: fullRuntimeOptions,
+      });
+    try {
+      await Promise.all([start("t1", "first"), start("t2", "second")]);
+      expect(runtime.hasThread("t1")).toBe(true);
+      expect(runtime.hasThread("t2")).toBe(true);
+    } finally {
+      await runtime.shutdown();
+    }
+  });
+
   it("reaps a codex session after a terminal provider error before turn start", async () => {
     const events: ThreadEvent[] = [];
     const { processLog, runtime } = createCodexRuntime({ events });
@@ -1627,6 +1689,7 @@ describe("createAgentRuntime process lifecycle", () => {
         scope: { kind: "thread" },
         item: {
           ...startedTask.item,
+          ownerStopped: true,
           status: "interrupted",
           taskStatus: "stopped",
         },
@@ -1651,6 +1714,7 @@ describe("createAgentRuntime process lifecycle", () => {
         scope: { kind: "thread" },
         item: {
           ...startedTask.item,
+          ownerStopped: true,
           status: "interrupted",
           taskStatus: "stopped",
         },

@@ -5,6 +5,8 @@ import {
   type AccountQuota,
   type AccountSummary,
   type FamilyQuota,
+  type LimitWindow,
+  type LimitWindowSlot,
 } from "./contracts.js";
 import { isPastThreshold, quotaFromHeaders, usagePercent } from "./quota.js";
 import { quotaFromUsage } from "./usage.js";
@@ -14,24 +16,87 @@ const PAST = NOW - 86_400_000;
 const FUTURE = NOW + 3_600_000;
 const ID = "11111111-1111-4111-8111-111111111111";
 
-const quota = (patch: Partial<AccountQuota> = {}): AccountQuota => ({
-  accountId: ID,
-  fiveHourUtilization: null,
-  fiveHourResetAt: null,
-  fiveHourStatus: null,
-  sevenDayUtilization: null,
-  sevenDayResetAt: null,
-  sevenDayStatus: null,
-  representativeClaim: null,
-  familyWeekly: EMPTY_FAMILY_WEEKLY,
-  limitWindows: [],
-  extraUsage: null,
-  usageRestriction: null,
-  observedAt: null,
-  heldUntil: null,
-  error: null,
-  ...patch,
-});
+interface WindowShorthand {
+  fiveHourUtilization?: number | null;
+  fiveHourResetAt?: number | null;
+  fiveHourStatus?: string | null;
+  sevenDayUtilization?: number | null;
+  sevenDayResetAt?: number | null;
+  sevenDayStatus?: string | null;
+}
+
+const shorthandWindow = (
+  slot: LimitWindowSlot,
+  utilization: number | null | undefined,
+  resetAt: number | null | undefined,
+  status: string | null | undefined,
+): LimitWindow[] =>
+  utilization === undefined && resetAt === undefined && status === undefined
+    ? []
+    : [
+        {
+          slot,
+          windowMinutes: slot === "primary" ? 300 : 10_080,
+          utilization: utilization ?? null,
+          resetAt: resetAt ?? null,
+          status: status ?? null,
+          observedAt: NOW - 1000,
+          source: "header",
+        },
+      ];
+
+const slotOf = (
+  value: { limitWindows: readonly LimitWindow[] } | null | undefined,
+  slot: LimitWindowSlot,
+): {
+  utilization: number | null;
+  resetAt: number | null;
+  status: string | null;
+} =>
+  value?.limitWindows.find((window) => window.slot === slot) ?? {
+    utilization: null,
+    resetAt: null,
+    status: null,
+  };
+
+const quota = (
+  input: Partial<AccountQuota> & WindowShorthand = {},
+): AccountQuota => {
+  const {
+    fiveHourUtilization,
+    fiveHourResetAt,
+    fiveHourStatus,
+    sevenDayUtilization,
+    sevenDayResetAt,
+    sevenDayStatus,
+    ...patch
+  } = input;
+  return {
+    accountId: ID,
+    representativeClaim: null,
+    familyWeekly: EMPTY_FAMILY_WEEKLY,
+    limitWindows: [
+      ...shorthandWindow(
+        "primary",
+        fiveHourUtilization,
+        fiveHourResetAt,
+        fiveHourStatus,
+      ),
+      ...shorthandWindow(
+        "secondary",
+        sevenDayUtilization,
+        sevenDayResetAt,
+        sevenDayStatus,
+      ),
+    ],
+    extraUsage: null,
+    usageRestriction: null,
+    observedAt: null,
+    heldUntil: null,
+    error: null,
+    ...patch,
+  };
+};
 
 const family = (patch: Partial<FamilyQuota> = {}): FamilyQuota => ({
   utilization: 0.4,
@@ -65,9 +130,9 @@ describe("quotaFromHeaders with a past-reset window", () => {
       "other",
       NOW,
     );
-    expect(next.fiveHourUtilization).toBeNull();
-    expect(next.fiveHourResetAt).toBeNull();
-    expect(next.fiveHourStatus).toBeNull();
+    expect(slotOf(next, "primary").utilization).toBeNull();
+    expect(slotOf(next, "primary").resetAt).toBeNull();
+    expect(slotOf(next, "primary").status).toBeNull();
   });
 
   it("keeps the previous value of a window whose reset is still ahead", () => {
@@ -80,9 +145,9 @@ describe("quotaFromHeaders with a past-reset window", () => {
       "other",
       NOW,
     );
-    expect(next.sevenDayUtilization).toBe(0.3);
-    expect(next.sevenDayResetAt).toBe(FUTURE);
-    expect(next.sevenDayStatus).toBe("allowed");
+    expect(slotOf(next, "secondary").utilization).toBe(0.3);
+    expect(slotOf(next, "secondary").resetAt).toBe(FUTURE);
+    expect(slotOf(next, "secondary").status).toBe("allowed");
   });
 
   it("lets fresh values override a stale window", () => {
@@ -97,9 +162,9 @@ describe("quotaFromHeaders with a past-reset window", () => {
       "other",
       NOW,
     );
-    expect(next.fiveHourUtilization).toBe(0.2);
-    expect(next.fiveHourResetAt).toBe(FUTURE);
-    expect(next.fiveHourStatus).toBe("allowed");
+    expect(slotOf(next, "primary").utilization).toBe(0.2);
+    expect(slotOf(next, "primary").resetAt).toBe(FUTURE);
+    expect(slotOf(next, "primary").status).toBe("allowed");
   });
 
   it("does not carry a stale status into a freshly reported window", () => {
@@ -114,9 +179,9 @@ describe("quotaFromHeaders with a past-reset window", () => {
       "other",
       NOW,
     );
-    expect(next.fiveHourUtilization).toBe(0.2);
-    expect(next.fiveHourStatus).toBeNull();
-    expect(next.fiveHourResetAt).toBeNull();
+    expect(slotOf(next, "primary").utilization).toBe(0.2);
+    expect(slotOf(next, "primary").status).toBeNull();
+    expect(slotOf(next, "primary").resetAt).toBeNull();
   });
 
   it("keeps a window with no reset time", () => {
@@ -127,7 +192,7 @@ describe("quotaFromHeaders with a past-reset window", () => {
       "other",
       NOW,
     );
-    expect(next.fiveHourUtilization).toBe(0.5);
+    expect(slotOf(next, "primary").utilization).toBe(0.5);
   });
 
   it("expires a past family window and keeps a future one", () => {
@@ -184,12 +249,12 @@ describe("quotaFromHeaders with a past-reset window", () => {
       sevenDayStatus: "rejected",
     });
     const next = quotaFromHeaders(ID, headers({}), allPast, "other", NOW);
-    expect(next.fiveHourUtilization).toBeNull();
-    expect(next.fiveHourResetAt).toBeNull();
-    expect(next.fiveHourStatus).toBeNull();
-    expect(next.sevenDayUtilization).toBeNull();
-    expect(next.sevenDayResetAt).toBeNull();
-    expect(next.sevenDayStatus).toBeNull();
+    expect(slotOf(next, "primary").utilization).toBeNull();
+    expect(slotOf(next, "primary").resetAt).toBeNull();
+    expect(slotOf(next, "primary").status).toBeNull();
+    expect(slotOf(next, "secondary").utilization).toBeNull();
+    expect(slotOf(next, "secondary").resetAt).toBeNull();
+    expect(slotOf(next, "secondary").status).toBeNull();
     expect(usagePercent(next, "other", NOW)).toBeNull();
     expect(isPastThreshold(next, "other", 0.9, NOW)).toBe(false);
   });
@@ -201,9 +266,9 @@ describe("quotaFromHeaders with a past-reset window", () => {
       fiveHourStatus: "allowed",
     });
     const next = quotaFromHeaders(ID, headers({}), atNow, "other", NOW);
-    expect(next.fiveHourUtilization).toBeNull();
-    expect(next.fiveHourResetAt).toBeNull();
-    expect(next.fiveHourStatus).toBeNull();
+    expect(slotOf(next, "primary").utilization).toBeNull();
+    expect(slotOf(next, "primary").resetAt).toBeNull();
+    expect(slotOf(next, "primary").status).toBeNull();
   });
 
   it("keeps utilization unknown when only a reset and status arrive for a past window", () => {
@@ -219,9 +284,9 @@ describe("quotaFromHeaders with a past-reset window", () => {
       "other",
       NOW,
     );
-    expect(next.fiveHourUtilization).toBeNull();
-    expect(next.fiveHourResetAt).toBe(Math.floor(FUTURE / 1000) * 1000);
-    expect(next.fiveHourStatus).toBe("allowed");
+    expect(slotOf(next, "primary").utilization).toBeNull();
+    expect(slotOf(next, "primary").resetAt).toBe(Math.floor(FUTURE / 1000) * 1000);
+    expect(slotOf(next, "primary").status).toBe("allowed");
   });
 });
 
@@ -240,10 +305,10 @@ describe("quotaFromUsage with a past-reset window", () => {
 
   it("stores an omitted window whose reset has passed as unknown", () => {
     const next = quotaFromUsage(ID, sevenDayOnly, stale, NOW);
-    expect(next?.fiveHourUtilization).toBeNull();
-    expect(next?.fiveHourResetAt).toBeNull();
-    expect(next?.fiveHourStatus).toBeNull();
-    expect(next?.sevenDayUtilization).toBeCloseTo(0.35);
+    expect(slotOf(next, "primary").utilization).toBeNull();
+    expect(slotOf(next, "primary").resetAt).toBeNull();
+    expect(slotOf(next, "primary").status).toBeNull();
+    expect(slotOf(next, "secondary").utilization).toBeCloseTo(0.35);
   });
 
   it("stores a null five_hour bucket whose reset has passed as unknown", () => {
@@ -253,7 +318,7 @@ describe("quotaFromUsage with a past-reset window", () => {
       stale,
       NOW,
     );
-    expect(next?.fiveHourUtilization).toBeNull();
+    expect(slotOf(next, "primary").utilization).toBeNull();
   });
 
   it("keeps the previous value of an omitted window whose reset is ahead", () => {
@@ -263,10 +328,10 @@ describe("quotaFromUsage with a past-reset window", () => {
       stale,
       NOW,
     );
-    expect(next?.fiveHourUtilization).toBeCloseTo(0.2);
-    expect(next?.sevenDayUtilization).toBe(0.3);
-    expect(next?.sevenDayResetAt).toBe(FUTURE);
-    expect(next?.sevenDayStatus).toBe("allowed");
+    expect(slotOf(next, "primary").utilization).toBeCloseTo(0.2);
+    expect(slotOf(next, "secondary").utilization).toBe(0.3);
+    expect(slotOf(next, "secondary").resetAt).toBe(FUTURE);
+    expect(slotOf(next, "secondary").status).toBe("allowed");
   });
 
   it("lets a fresh value override a stale window", () => {
@@ -279,9 +344,9 @@ describe("quotaFromUsage with a past-reset window", () => {
       stale,
       NOW,
     );
-    expect(next?.fiveHourUtilization).toBeCloseTo(0.55);
-    expect(next?.fiveHourResetAt).toBe(FUTURE);
-    expect(next?.fiveHourStatus).toBe("allowed");
+    expect(slotOf(next, "primary").utilization).toBeCloseTo(0.55);
+    expect(slotOf(next, "primary").resetAt).toBe(FUTURE);
+    expect(slotOf(next, "primary").status).toBe("allowed");
   });
 
   it("expires a past family window carried from the previous quota", () => {
@@ -319,7 +384,7 @@ describe("quotaFromUsage with a past-reset window", () => {
 });
 
 describe("account list display of an unknown window", () => {
-  it("renders a null window as a dash", () => {
+  it("omits an unknown window from the windows column", () => {
     const summary = {
       id: ID,
       label: "claude-a",
@@ -332,9 +397,6 @@ describe("account list display of an unknown window", () => {
       ...quota({ sevenDayUtilization: 0.35, sevenDayResetAt: FUTURE }),
     } as unknown as AccountSummary;
     const row = formatAccounts([summary]).split("\n")[1]?.split("\t") ?? [];
-    expect(row[7]).toBe("-");
-    expect(row[8]).toBe("-");
-    expect(row[9]).toBe("35%");
-    expect(row[10]).toBe(new Date(FUTURE).toISOString());
+    expect(row[7]).toBe(`7d=35% ${new Date(FUTURE).toISOString()}`);
   });
 });
