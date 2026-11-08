@@ -535,7 +535,7 @@ describe("parent wake policy", () => {
       await waitForParentTurnRequests(harness, fixture.parentThreadId, 1);
 
       // The user follows up. The child's second turn ends without a new
-      // agent message (tool calls only) -- getThreadTurnOutput reports null
+      // agent message (tool calls only) -- getTurnFinalOutput reports null
       // for this turn, not the previous turn's stale text. Still a
       // user-requested turn, so it must still wake.
       seedChildTurnRequest(harness, {

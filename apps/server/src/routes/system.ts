@@ -71,6 +71,7 @@ import {
 } from "../services/threads/event-cold-tier/service.js";
 import type { PluginService } from "../services/plugins/plugin-service.js";
 import { ApiError } from "../errors.js";
+import { readMultipartFormData } from "./multipart-form-data.js";
 import {
   buildAiServicesView,
   testAiService,
@@ -760,7 +761,7 @@ export function registerSystemRoutes(
   );
 
   post(routes.voiceTranscription, async (context) => {
-    const formData = await context.req.formData();
+    const formData = await readMultipartFormData(context.req);
     const file = formData.get("file");
     if (!(file instanceof File)) {
       throw new ApiError(400, "invalid_request", "Audio file is required");

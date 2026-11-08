@@ -4,7 +4,6 @@ import { and, eq, isNull } from "drizzle-orm";
 import {
   PromptInput,
   PromptMode,
-  ProjectExecutionDefaults,
   PermissionEscalation,
   ResolvedThreadExecutionOptions,
   RuntimeThreadExecutionOptions,
@@ -140,8 +139,8 @@ interface RuntimeExecutionOptionsArgs {
 }
 
 interface BuildExecutionOptionsArgs {
+  defaultModel?: string;
   hostId?: string | null;
-  projectDefaults?: ProjectExecutionDefaults | null;
   threadId: string;
 }
 
@@ -288,8 +287,8 @@ export async function buildExecutionOptions(
   args: BuildExecutionOptionsArgs,
 ): Promise<ResolvedThreadExecutionOptions> {
   const plan = await resolveExistingThreadExecutionPlan(deps, {
-    ...(args.projectDefaults !== undefined
-      ? { projectDefaults: args.projectDefaults }
+    ...(args.defaultModel !== undefined
+      ? { defaultModel: args.defaultModel }
       : {}),
     ...(args.hostId !== undefined ? { hostId: args.hostId } : {}),
     executionSource: "client/turn/requested",

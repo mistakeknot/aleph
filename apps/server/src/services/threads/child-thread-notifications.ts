@@ -21,7 +21,7 @@ import {
   childOutcomeSystemMessageKind,
   systemMessageKindForTemplate,
 } from "./system-message-kind.js";
-import { getLastThreadOutput, getThreadTurnOutput } from "./thread-data.js";
+import { getLastThreadOutput, getTurnFinalOutput } from "./thread-data.js";
 import {
   pinThreadHistory,
   type ThreadHistoryPinRelease,
@@ -263,7 +263,7 @@ function getChildThreadCompletionOutput(
   if (args.turnId === null) {
     return getLastThreadOutput(deps.db, args.childThread.id);
   }
-  return getThreadTurnOutput(deps.db, {
+  return getTurnFinalOutput(deps.db, {
     threadId: args.childThread.id,
     turnId: args.turnId,
   });

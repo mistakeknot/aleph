@@ -3,12 +3,10 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FilePreview } from "@/components/secondary-panel/FilePreview";
+import { buildMarkdownFileRouting } from "./markdown-file-routing";
+import type { MarkdownPreviewLocalFileLinkHandler } from "./markdown-local-file-link";
 import {
-  buildMarkdownFileImageRouting,
-  buildMarkdownHostFileImageRouting,
-} from "./markdown-file-image-routing";
-import type { MarkdownLinkRouting } from "./markdown-link-routing";
-import {
+  buildHostFileContentUrl,
   buildThreadHostFileContentUrl,
   buildThreadStorageRawContentUrl,
 } from "@/lib/file-content-urls";
@@ -32,7 +30,8 @@ function renderMarkdownFilePreview({
   render(
     <FilePreview
       headerMode="none"
-      markdownLinkRouting={buildMarkdownFileImageRouting({
+      markdownLinkRouting={buildMarkdownFileRouting({
+        hostId: null,
         path,
         threadId: imageContent.threadId,
         resolveRelativeSrc: (relativePath, absolutePath) =>
@@ -96,33 +95,61 @@ describe("Markdown file preview image routing", () => {
     ).toMatch(/one\.png$/u);
   });
 
-  it("preserves explicit image routing and file-link handlers", () => {
-    const linkRouting: MarkdownLinkRouting = {
-      onOpenLink: vi.fn(() => false),
-      localImage: {
-        absolutePaths: { kind: "trusted-host" },
-        resolveSrc: vi.fn(() => "/custom/image.png"),
+  it("opens links that stay inside the previewed file's root", () => {
+    const openLink = vi.fn<MarkdownPreviewLocalFileLinkHandler>(() => true);
+    render(
+      <FilePreview
+        headerMode="none"
+        markdownLinkRouting={buildMarkdownFileRouting({
+          hostId: null,
+          path: "docs/report.md",
+          rootPath: "/workspace",
+          threadId: null,
+          resolveRelativeSrc: (path) => `/content/${path}`,
+          openLink,
+        })}
+        path="docs/report.md"
+        state={{
+          kind: "ready",
+          file: {
+            contents:
+              "[sibling](notes.md#L3) [parent](../README.md) [absolute](/workspace/src/a.ts) [escape](../../etc/passwd) [outside](/tmp/x.md)",
+            name: "report.md",
+          },
+          lineRange: null,
+          textPreviewKind: "markdown",
+        }}
+      />,
+    );
+
+    for (const name of ["sibling", "parent", "absolute", "escape", "outside"]) {
+      fireEvent.click(
+        screen.queryByRole("link", { name }) ?? screen.getByText(name),
+      );
+    }
+
+    expect(openLink.mock.calls.map(([link]) => link)).toEqual([
+      {
+        lineRange: { startLineNumber: 3, endLineNumber: 3 },
+        openTargetId: null,
+        path: "/workspace/docs/notes.md",
       },
-    };
-    expect(
-      buildMarkdownFileImageRouting({
-        path: "docs/report.md",
-        rootPath: "/workspace",
-        threadId: "thr_preview",
-        linkRouting,
-        resolveRelativeSrc: vi.fn(),
-      }),
-    ).toBe(linkRouting);
+      { lineRange: null, openTargetId: null, path: "/workspace/README.md" },
+      { lineRange: null, openTargetId: null, path: "/workspace/src/a.ts" },
+    ]);
   });
 
   it("resolves nested skill and host images within the previewed folder", () => {
     render(
       <FilePreview
         headerMode="none"
-        markdownLinkRouting={buildMarkdownHostFileImageRouting({
+        markdownLinkRouting={buildMarkdownFileRouting({
+          hostId: null,
           path: "references/guide.md",
           rootPath: "/skills/example",
-          hostId: "host_skill",
+          threadId: null,
+          resolveRelativeSrc: (_relativePath, path) =>
+            buildHostFileContentUrl("host_skill", path),
         })}
         path="references/guide.md"
         state={{
@@ -150,18 +177,18 @@ describe("Markdown file preview image routing", () => {
   it("routes absolute and file-relative images in thread-storage Markdown previews", () => {
     renderMarkdownFilePreview({
       content: [
-        "![absolute](/Users/me/.bb/thread-storage/thr_preview/generated.png)",
+        "![absolute](/Users/me/.bb/thread-storage/thr_preview/generated.png)", // hygiene:allow(bb-data-path) upstream bb test fixture, generic example path
         "![relative](screenshots/chart.png)",
       ].join("\n\n"),
       imageContent: { kind: "thread-storage", threadId: "thr_preview" },
       path: "reports/nested/report.md",
-      rootPath: "/Users/me/.bb/thread-storage/thr_preview",
+      rootPath: "/Users/me/.bb/thread-storage/thr_preview", // hygiene:allow(bb-data-path) upstream bb test fixture, generic example path
     });
 
     expect(
       screen.getByRole("img", { name: "absolute" }).getAttribute("src"),
     ).toBe(
-      "/api/v1/threads/thr_preview/host-files/Users/me/.bb/thread-storage/thr_preview/generated.png",
+      "/api/v1/threads/thr_preview/host-files/Users/me/.bb/thread-storage/thr_preview/generated.png", // hygiene:allow(bb-data-path) upstream bb test fixture, generic example path
     );
     expect(
       screen.getByRole("img", { name: "relative" }).getAttribute("src"),

@@ -112,6 +112,7 @@ import {
   isReleaseVersion,
   nightlyBaseVersion,
   resolveReleaseUpdateVersion,
+  resolveSourceUpdateNotes,
   type ReleaseVersionInput,
 } from "./release-notes-model";
 import { recordReleaseNotesOpened } from "./release-notes";
@@ -2155,8 +2156,13 @@ export function UpdatesSettingsSection() {
     appUpdate,
     systemVersion: inventory.systemVersion,
   });
+  const serverSourceUpdate = resolveSourceUpdateNotes(appUpdate);
   const releaseNotesVersions: Record<ReleaseNotesRow, string | null> = {
-    server: releaseNotesVersion,
+    server:
+      inventory.systemVersion?.installKind === "source" &&
+      serverSourceUpdate === null
+        ? null
+        : releaseNotesVersion,
     desktop: resolveReleaseNotesVersion({
       isDesktop: true,
       desktopInfo,
@@ -2185,7 +2191,11 @@ export function UpdatesSettingsSection() {
   function releaseNotesPanel(row: ReleaseNotesRow): ReactNode {
     const version = releaseNotesVersions[row];
     return openReleaseNotes === row && version !== null ? (
-      <ReleaseNotesPanel id={RELEASE_NOTES_PANEL_IDS[row]} version={version} />
+      <ReleaseNotesPanel
+        id={RELEASE_NOTES_PANEL_IDS[row]}
+        version={version}
+        sourceUpdate={row === "server" ? serverSourceUpdate : null}
+      />
     ) : null;
   }
   const serverAppRow = (
