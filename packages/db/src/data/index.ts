@@ -579,6 +579,7 @@ export type {
 export type {
   ClaimedQueuedThreadMessageRow,
   QueuedMessageThreadUnavailableReason,
+  QueuedThreadMessageExecution,
   QueuedThreadMessageGroupClaimPolicy,
   QueuedThreadMessageGroupEligibility,
   QueuedThreadMessageRow,
