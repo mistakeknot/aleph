@@ -185,11 +185,11 @@ async function resolveThreadStartRuntime(
 
 async function resumeThreadRuntimeIfMissing(
   args: ResumeThreadRuntimeIfMissingArgs,
-): Promise<void> {
+): Promise<boolean> {
   const { command, entry, options } = args;
   const { resumeContext } = command;
   if (entry.runtime.hasThread(command.threadId)) {
-    return;
+    return false;
   }
   if (!resumeContext.providerThreadId) {
     throw new CommandDispatchError(
@@ -215,6 +215,7 @@ async function resumeThreadRuntimeIfMissing(
     dynamicTools: resumeContext.dynamicTools,
     instructionMode: resumeContext.instructionMode,
   });
+  return true;
 }
 
 export async function startThread(
@@ -307,6 +308,18 @@ export async function ensureThreadRuntime(
   command: ExistingThreadRuntimeCommand,
   options: CommandDispatchOptions,
 ): Promise<RuntimeEntry> {
+  return (await ensureThreadRuntimeTracked(command, options)).entry;
+}
+
+export interface EnsuredThreadRuntime {
+  entry: RuntimeEntry;
+  providerResumed: boolean;
+}
+
+export async function ensureThreadRuntimeTracked(
+  command: ExistingThreadRuntimeCommand,
+  options: CommandDispatchOptions,
+): Promise<EnsuredThreadRuntime> {
   const { resumeContext } = command;
   const entry = await requireResolvedWorkspaceForCommand({
     environmentId: command.environmentId,
@@ -330,9 +343,13 @@ export async function ensureThreadRuntime(
       `Thread ${command.threadId} still runs a turn in environment ${busyEnvironmentId}`,
     );
   }
-  await resumeThreadRuntimeIfMissing({ command, entry, options });
+  const providerResumed = await resumeThreadRuntimeIfMissing({
+    command,
+    entry,
+    options,
+  });
   markTurnSubmitTraceSpan("runtime.ready");
-  return entry;
+  return { entry, providerResumed };
 }
 
 async function runSubmittedTurn(
@@ -455,7 +472,7 @@ async function deliverSubmittedTurn(
 
 export async function submitTurn(
   command: TurnSubmitCommand,
-  entry: RuntimeEntry,
+  ensured: EnsuredThreadRuntime,
   options: CommandDispatchOptions,
 ): Promise<HostDaemonCommandResult<"turn.submit">> {
   const staged = await stageThreadCommandInput({
@@ -469,17 +486,22 @@ export async function submitTurn(
     ...command,
     input: staged.input,
   };
+  const { entry } = ensured;
+  let providerResumed = ensured.providerResumed;
   try {
-    await resumeThreadRuntimeIfMissing({
+    const resumedLate = await resumeThreadRuntimeIfMissing({
       command: stagedCommand,
       entry,
       options,
     });
+    providerResumed = providerResumed || resumedLate;
     await deliverSubmittedTurn(stagedCommand, entry);
   } catch (error) {
     await cleanupAfterPostStagingFailure(staged.cleanup);
     throw error;
   }
   markTurnSubmitTraceSpan("bridge.turnStarted");
-  return { trace: currentTurnSubmitTrace() };
+  return providerResumed
+    ? { trace: currentTurnSubmitTrace(), providerResumed }
+    : { trace: currentTurnSubmitTrace() };
 }

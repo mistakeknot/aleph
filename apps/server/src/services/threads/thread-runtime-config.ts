@@ -15,12 +15,9 @@ import type {
   HostDaemonContributedEnvEntry,
   HostDaemonInjectedSkillSource,
 } from "@bb/host-daemon-contract";
-import { COMMAND_TIMEOUT_MS } from "../../constants.js";
 import { ApiError } from "../../errors.js";
 import type { LoggedWorkSessionDeps } from "../../types.js";
 import { throwEnvironmentNotReady } from "../lib/lifecycle-api-errors.js";
-import { callHostOnlineRpcForWork } from "../hosts/online-rpc.js";
-import { joinHostPathSegments } from "../lib/host-path.js";
 import {
   buildRulesReceipt,
   type RulesReceiptDelivery,
@@ -30,6 +27,10 @@ import {
   type RecordedInstructionsSection,
   type RulesReceipt,
 } from "./instructions-store.js";
+import {
+  RULES_RECEIPT_FILE_NAME,
+  type PendingRulesReceipt,
+} from "./rules-receipt-delivery.js";
 import { requireLiveThreadStoragePath } from "./thread-storage.js";
 import {
   listPluginAgentTools,
@@ -51,13 +52,13 @@ const UPDATE_ENVIRONMENT_DIRECTORY_INSTRUCTIONS =
 
 const PLUGIN_INSTRUCTION_CONTRIBUTION_MAX_CHARS = 4096;
 
-export const RULES_RECEIPT_FILE_NAME = "rules-receipt.json";
-
 const DELIVERY_BY_PURPOSE: Record<RulesReceiptPurpose, RulesReceiptDelivery> = {
   start: "delivered",
-  turn: "resolved-only",
+  turn: "resumed",
   "dry-run": "dry-run",
 };
+
+export { RULES_RECEIPT_FILE_NAME };
 
 export interface ThreadRuntimeCommandEnvironment {
   hostId: string;
@@ -85,6 +86,7 @@ export interface ResolvedThreadRuntimeCommandConfig {
   instructions: string;
   projectId: string;
   providerId: string;
+  pendingRulesReceipt: PendingRulesReceipt | null;
   rulesReceipt: RulesReceipt;
   threadStoragePath: string;
   workspacePath: string;
@@ -314,16 +316,11 @@ export async function resolveThreadRuntimeCommandConfig(
     hostId: args.environment.hostId,
     threadId: args.thread.id,
   });
-  if (
+  const pendingRulesReceipt: PendingRulesReceipt | null =
     purpose !== "dry-run" &&
     isInstructionsStoreConfigured(deps.config.orchestration)
-  ) {
-    await writeRulesReceipt(deps, {
-      hostId: args.environment.hostId,
-      receipt: rulesReceipt,
-      threadStoragePath,
-    });
-  }
+      ? { receipt: rulesReceipt, threadStoragePath }
+      : null;
   markTurnTraceSpan("runtimeConfig.built");
   return {
     contributedEnv,
@@ -333,42 +330,9 @@ export async function resolveThreadRuntimeCommandConfig(
     instructions,
     projectId: args.thread.projectId,
     providerId: args.thread.providerId,
+    pendingRulesReceipt,
     rulesReceipt,
     threadStoragePath,
     workspacePath,
   };
-}
-
-interface WriteRulesReceiptArgs {
-  hostId: string;
-  receipt: RulesReceipt;
-  threadStoragePath: string;
-}
-
-async function writeRulesReceipt(
-  deps: LoggedWorkSessionDeps,
-  args: WriteRulesReceiptArgs,
-): Promise<void> {
-  try {
-    await callHostOnlineRpcForWork(deps, {
-      hostId: args.hostId,
-      timeoutMs: COMMAND_TIMEOUT_MS,
-      command: {
-        type: "host.write_file",
-        path: joinHostPathSegments(
-          args.threadStoragePath,
-          RULES_RECEIPT_FILE_NAME,
-        ),
-        rootPath: args.threadStoragePath,
-        content: `${JSON.stringify(args.receipt, null, 2)}\n`,
-        contentEncoding: "utf8",
-        createParents: true,
-      },
-    });
-  } catch (error) {
-    deps.logger.error(
-      { err: error, threadId: args.receipt.threadId },
-      "Failed to write the rules receipt",
-    );
-  }
 }

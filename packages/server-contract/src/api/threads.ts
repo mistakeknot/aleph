@@ -1378,7 +1378,7 @@ export const threadRulesReceiptSectionSchema = z
 export const threadRulesReceiptSchema = z
   .object({
     version: z.literal(1),
-    delivery: z.enum(["delivered", "resolved-only", "dry-run"]),
+    delivery: z.enum(["delivered", "resumed", "dry-run"]),
     threadId: z.string().min(1),
     snapshotId: z.string().min(1).nullable(),
     mode: z.string().min(1).nullable(),

@@ -703,7 +703,7 @@ describe("thread command dispatch", () => {
           fetchProjectAttachment,
         },
       ),
-    ).resolves.toEqual({ trace: { spans: [] } });
+    ).resolves.toEqual({ trace: { spans: [] }, providerResumed: true });
 
     expect(fetchProjectAttachment).toHaveBeenCalledTimes(1);
     expect(harness.runtimeState.resumedThreadId).toBe(threadId);
@@ -2246,7 +2246,7 @@ describe("thread command dispatch", () => {
       harness.dispatchOptions(),
     );
 
-    expect(result).toEqual({ trace: { spans: [] } });
+    expect(result).toEqual({ trace: { spans: [] }, providerResumed: true });
     expect(harness.provisions).toEqual([
       expect.objectContaining({
         path: "/tmp/env-lazy",
@@ -2344,7 +2344,7 @@ describe("thread command dispatch", () => {
       makeDispatchOptions({ runtimeManager: manager }),
     );
 
-    expect(result).toEqual({ trace: { spans: [] } });
+    expect(result).toEqual({ trace: { spans: [] }, providerResumed: true });
     expect(createRuntimeCalls).toBe(2);
     expect(replacementFake.state.resumedThreadId).toBe("thread-1");
     expect(replacementFake.state.ranTurnText).toBe("after exit");

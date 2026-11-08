@@ -898,7 +898,7 @@ describe("dispatchCommand", () => {
       threadStorageRootPath: "/tmp/bb-thread-storage",
     });
 
-    expect(result).toEqual({ trace: { spans: [] } });
+    expect(result).toEqual({ trace: { spans: [] }, providerResumed: true });
     expect(oldRuntime.stopThread).toHaveBeenCalledWith({
       threadId: "thread-1",
     });

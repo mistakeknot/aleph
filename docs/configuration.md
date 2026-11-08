@@ -818,22 +818,38 @@ the `docs/AGENTS.md` of a resolved store snapshot. It is off unless
   one JSON document from stdout: `{"source":"dark"}`, or
   `{"source":"active"|"lkg","snapshotId":"...","mode":"legacy"|"aleph-append","directory":"/abs/dir","files":[{"path":"docs/AGENTS.md","sha256":"<hex>","bytes":0}]}`.
   This contract is provisional until the store command ships.
-- `{"source":"dark"}` keeps today's `<dataDir>/AGENTS.md` behavior unchanged.
-- For `active` and `lkg`, bb re-checks the sha256 of `docs/AGENTS.md` (resolving
-  once more on a mismatch, then failing), replaces `{instructions_dir}` with
-  `directory`, and appends the text in place of the data-dir section.
-- A timeout or a failing command fails the start with a retryable error.
+- `{"source":"dark"}` keeps today's `<dataDir>/AGENTS.md` behavior unchanged
+  only while the data directory is not initialized. Once
+  `<dataDir>/.aleph-instructions` exists, a `dark` answer (including one that
+  arrives on the digest re-check) blocks the start with a non-retryable error
+  instead of falling back to the data-dir file.
+- For `active` and `lkg`, bb resolves the real path of `directory` and of
+  `docs/AGENTS.md`, requires both to sit inside `instructionsStore` (a symlink
+  that leaves the store blocks the start), re-checks the sha256 of
+  `docs/AGENTS.md` (resolving once more on a mismatch, then failing), replaces
+  `{instructions_dir}` with the real `directory`, and appends the text in place
+  of the data-dir section.
+- A timeout, a failing command or output over 4 MiB fails the start with a
+  retryable error. On a timeout bb kills the resolve command's whole process
+  group, not only its first process.
 - Text beginning with `<!-- aleph-instructions-stub v1 -->` is refused in every
   mode.
 - If `<dataDir>/.aleph-instructions` exists and `instructionsStore` is not set,
   starts are blocked instead of falling back to the data-dir file.
 - When the store is configured, bb writes `rules-receipt.json` to the thread's
-  storage directory: snapshot ID, mode, source, `delivery`
-  (`delivered` at session start, `resolved-only` on later turns, because
-  providers keep the first-turn instructions), the sha256 of the assembled
-  instructions, and each section's header, byte count and sha256.
-  `bb thread runtime-config --dry-run <thread>` prints the same receipt without
-  starting a session or writing a file.
+  storage directory only after the provider has accepted the instructions, and
+  it describes the last instructions actually delivered: snapshot ID, mode,
+  source, `delivery` (`delivered` when a session starts, `resumed` when a turn
+  submit had to resume the provider, which passes the instructions into the
+  resume), the sha256 of the assembled instructions, and each section's header,
+  byte count and sha256. An ordinary turn submit resolves the store but does not
+  change the file, because providers keep the instructions from the first turn,
+  and a failed start leaves no receipt. If the write fails after the provider
+  accepted the instructions, bb logs an error with `rulesReceiptWriteFailed`.
+  `bb thread runtime-config --dry-run <thread>` prints the receipt it would
+  produce, with `delivery` set to `dry-run`, without starting a session or
+  writing a file. A host daemon older than this change does not report resumes,
+  so those resumes are not recorded.
 
 ## Skills
 

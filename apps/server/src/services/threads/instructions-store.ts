@@ -1,8 +1,12 @@
-import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { DEFAULT_INSTRUCTIONS_RESOLVE_TIMEOUT_MS } from "@bb/config/bb-app-managed-config";
+import {
+  isPathWithinDirectory,
+  killProcessGroup,
+  spawnPortableOutputProcess,
+} from "@bb/process-utils";
 import { z } from "zod";
 import { ApiError } from "../../errors.js";
 import type { OrchestrationRuntimeConfig, ServerLogger } from "../../types.js";
@@ -59,7 +63,7 @@ export interface InstructionsSectionRecord {
 
 export type RulesReceiptPurpose = "start" | "turn" | "dry-run";
 
-export type RulesReceiptDelivery = "delivered" | "resolved-only" | "dry-run";
+export type RulesReceiptDelivery = "delivered" | "resumed" | "dry-run";
 
 export interface RulesReceipt {
   version: 1;
@@ -135,6 +139,15 @@ interface RunResolveArgs {
   timeoutMs: number;
 }
 
+function resolveFailure(details: unknown): ApiError {
+  return new ApiError(
+    503,
+    "instructions_resolve_failed",
+    "Resolving the instructions store failed. The thread was not started.",
+    { retryable: true, details },
+  );
+}
+
 function runResolveCommand(args: RunResolveArgs): Promise<string> {
   const [executable, ...baseArgs] = args.command;
   if (executable === undefined) {
@@ -148,50 +161,76 @@ function runResolveCommand(args: RunResolveArgs): Promise<string> {
     );
   }
   return new Promise<string>((resolve, reject) => {
-    execFile(
-      executable,
-      [...baseArgs, "--store", args.store, "--data-dir", args.dataDir],
-      {
-        encoding: "utf8",
-        killSignal: "SIGKILL",
-        maxBuffer: RESOLVE_MAX_OUTPUT_BYTES,
-        timeout: args.timeoutMs,
-        windowsHide: true,
-      },
-      (error, stdout, stderr) => {
-        if (error === null) {
-          resolve(stdout);
-          return;
-        }
-        const killed = "killed" in error && error.killed === true;
-        if (killed) {
-          reject(
-            new ApiError(
-              503,
-              "instructions_resolve_timeout",
-              `Resolving the instructions store did not finish within ${args.timeoutMs} ms. Try again.`,
-              { retryable: true, details: { timeoutMs: args.timeoutMs } },
-            ),
-          );
-          return;
-        }
+    let settled = false;
+    const stdoutChunks: Buffer[] = [];
+    let stdoutBytes = 0;
+    let stderrText = "";
+    const child = spawnPortableOutputProcess({
+      command: executable,
+      args: [...baseArgs, "--store", args.store, "--data-dir", args.dataDir],
+      detached: true,
+    });
+    const killTree = () => {
+      killProcessGroup({ child, signal: "SIGKILL" });
+    };
+    const settle = (finish: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      killTree();
+      finish();
+    };
+    const timer = setTimeout(() => {
+      settle(() =>
         reject(
           new ApiError(
             503,
-            "instructions_resolve_failed",
-            "Resolving the instructions store failed. The thread was not started.",
-            {
-              retryable: true,
-              details: {
-                exitCode: typeof error.code === "number" ? error.code : null,
-                spawnError: typeof error.code === "string" ? error.code : null,
-                stderr: stderr.slice(0, 2000),
-              },
-            },
+            "instructions_resolve_timeout",
+            `Resolving the instructions store did not finish within ${args.timeoutMs} ms. Try again.`,
+            { retryable: true, details: { timeoutMs: args.timeoutMs } },
           ),
+        ),
+      );
+    }, args.timeoutMs);
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdoutBytes += chunk.length;
+      if (stdoutBytes > RESOLVE_MAX_OUTPUT_BYTES) {
+        settle(() => reject(resolveFailure({ outputOverflow: true })));
+        return;
+      }
+      stdoutChunks.push(chunk);
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      if (stderrText.length < 2000) {
+        stderrText += chunk.toString("utf8");
+      }
+    });
+    child.on("error", (error: NodeJS.ErrnoException) => {
+      settle(() =>
+        reject(
+          resolveFailure({
+            exitCode: null,
+            spawnError: error.code ?? "spawn_error",
+            stderr: stderrText.slice(0, 2000),
+          }),
+        ),
+      );
+    });
+    child.on("close", (code) => {
+      settle(() => {
+        if (code === 0) {
+          resolve(Buffer.concat(stdoutChunks).toString("utf8"));
+          return;
+        }
+        reject(
+          resolveFailure({
+            exitCode: code,
+            spawnError: null,
+            stderr: stderrText.slice(0, 2000),
+          }),
         );
-      },
-    );
+      });
+    });
   });
 }
 
@@ -234,23 +273,64 @@ async function resolveStore(
 interface ReadResolvedAgentsArgs {
   directory: string;
   expectedSha256: string;
+  snapshotId: string;
+  storeRoot: string;
+}
+
+interface ResolvedAgents {
+  directory: string;
+  text: string;
+}
+
+function escapesStore(snapshotId: string): ApiError {
+  return blocked(
+    "instructions_path_escape",
+    "The resolved instructions snapshot points outside the configured instructions store. The thread was not started.",
+    { snapshotId },
+  );
+}
+
+function canonicalPath(target: string): string | null {
+  try {
+    return fs.realpathSync(target);
+  } catch {
+    return null;
+  }
 }
 
 function readResolvedAgents(
   args: ReadResolvedAgentsArgs,
-): { text: string } | null {
+): ResolvedAgents | null {
+  const storeRoot = canonicalPath(args.storeRoot);
+  if (storeRoot === null) {
+    return null;
+  }
+  const directory = canonicalPath(args.directory);
+  if (directory === null) {
+    return null;
+  }
+  if (directory === storeRoot || !isPathWithinDirectory(storeRoot, directory)) {
+    throw escapesStore(args.snapshotId);
+  }
+  const file = canonicalPath(
+    path.join(directory, INSTRUCTIONS_STORE_AGENTS_RELATIVE_PATH),
+  );
+  if (file === null) {
+    return null;
+  }
+  if (!isPathWithinDirectory(directory, file)) {
+    throw escapesStore(args.snapshotId);
+  }
   let content: Buffer;
   try {
-    content = fs.readFileSync(
-      path.join(args.directory, INSTRUCTIONS_STORE_AGENTS_RELATIVE_PATH),
-    );
+    content = fs.readFileSync(file);
   } catch {
     return null;
   }
   if (sha256Hex(content) !== args.expectedSha256) {
     return null;
   }
-  return { text: content.toString("utf8") };
+  return { directory, text: content.toString("utf8") };
 }
 
 type ActiveResolveResult = Extract<
@@ -271,13 +351,13 @@ function requireAgentsDigest(result: ActiveResolveResult): string {
   return entry.sha256;
 }
 
-function fillAndCheck(result: ActiveResolveResult, text: string): string {
+function fillAndCheck(directory: string, text: string): string {
   if (startsWithStubMarker(text)) {
     throw stubRefusal(INSTRUCTIONS_STORE_AGENTS_RELATIVE_PATH);
   }
   const filled = text
     .split(INSTRUCTIONS_DIR_PLACEHOLDER)
-    .join(result.directory)
+    .join(directory)
     .trim();
   if (filled.length === 0) {
     throw blocked(
@@ -305,6 +385,13 @@ function darkText(
   };
 }
 
+function requireNotDark(): never {
+  throw blocked(
+    "instructions_dark_after_init",
+    "The instructions store reported no instructions, but the data directory is already marked as using an instructions store. The thread was not started.",
+  );
+}
+
 export async function resolveUserInstructionsSection(
   deps: InstructionsConfigDeps,
 ): Promise<InstructionsSectionText | null> {
@@ -321,14 +408,17 @@ export async function resolveUserInstructionsSection(
     return darkText(deps);
   }
 
+  const initialized = dataDirMarkerExists(dataDir);
   let result = await resolveStore(orchestration, store, dataDir);
   if (result.source === "dark") {
-    return darkText(deps);
+    return initialized ? requireNotDark() : darkText(deps);
   }
 
   let agents = readResolvedAgents({
     directory: result.directory,
     expectedSha256: requireAgentsDigest(result),
+    snapshotId: result.snapshotId,
+    storeRoot: store,
   });
   if (agents === null) {
     deps.logger.warn(
@@ -337,11 +427,13 @@ export async function resolveUserInstructionsSection(
     );
     result = await resolveStore(orchestration, store, dataDir);
     if (result.source === "dark") {
-      return darkText(deps);
+      return requireNotDark();
     }
     agents = readResolvedAgents({
       directory: result.directory,
       expectedSha256: requireAgentsDigest(result),
+      snapshotId: result.snapshotId,
+      storeRoot: store,
     });
     if (agents === null) {
       throw blocked(
@@ -352,7 +444,7 @@ export async function resolveUserInstructionsSection(
     }
   }
   return {
-    text: fillAndCheck(result, agents.text),
+    text: fillAndCheck(agents.directory, agents.text),
     source: result.source,
     snapshotId: result.snapshotId,
     mode: result.mode,
