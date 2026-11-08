@@ -71,7 +71,11 @@ export interface SystemConfigArgs {
   signal?: AbortSignal;
 }
 
-export interface SystemExecutionOptionsArgs extends SystemExecutionOptionsQuery {
+export interface SystemExecutionOptionsArgs extends Omit<
+  SystemExecutionOptionsQuery,
+  "preferCached"
+> {
+  preferCached?: boolean;
   signal?: AbortSignal;
 }
 

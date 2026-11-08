@@ -243,15 +243,15 @@ async function refresh(
     return;
   }
   harness.deps.hub.notifyThread(threadId, ["events-appended"]);
-  const deadline = Date.now() + 5_000;
-  while (
-    Date.now() < deadline &&
-    !socket.messages.some(
-      (message) => JSON.parse(message).type === "thread-timeline",
+  await expect
+    .poll(
+      () =>
+        socket.messages.some(
+          (message) => JSON.parse(message).type === "thread-timeline",
+        ),
+      { timeout: 5_000 },
     )
-  ) {
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
+    .toBe(true);
   await new Promise((resolve) => setTimeout(resolve, 50));
   const signals = socket.messages
     .splice(0)

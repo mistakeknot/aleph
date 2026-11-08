@@ -43,7 +43,8 @@ import type { ClaudeOAuthLogin } from "./oauth-login.js";
 import type { CodexDeviceLogin } from "./codex-device-login.js";
 
 const DESCRIPTION = [
-  "Your own accounts are used one after another by priority, then order added. Work moves to the next of your accounts only when the current one is unavailable or at its threshold; this does not change any account's limits.",
+  "Your own accounts are used one after another by priority, then order added. Work moves to the next of your accounts only when the current one is unavailable or the provider refuses it; this does not change any account's limits.",
+  "switchThreshold is a preference, not a cutoff: new conversations go to accounts below it first, existing conversations keep their account past it, and accounts at or above it keep serving until the provider refuses them. Status shows exhausted only for an account the provider refused.",
   "When this bb server runs inside another bb server's thread, parent proxy routes its pooled traffic through that parent; isolate neutralises the inherited routing.",
   "Only threads listed in nestedLaunchThreadIds receive the parent markers that let a bb server launched inside them use this pool; other threads receive blank markers. Changes apply to the next agent start and do not revoke nested servers already running.",
   "Reorder includes every account for the provider and changes which of your accounts is used next; existing conversations stay pinned.",
@@ -946,7 +947,7 @@ export function registerPoolCli(
             {
               name: "value",
               description:
-                "HTTP(S) URL for upstream keys, a threshold, proxy/isolate, or a JSON array of exact thread IDs such as '[\"thr_example\"]' ('[]' clears it)",
+                "HTTP(S) URL for upstream keys, a number above 0 and at most 1 for switchThreshold (the quota fraction from which other accounts are preferred), proxy/isolate for parentMode, or a JSON array of exact thread IDs such as '[\"thr_example\"]' for nestedLaunchThreadIds ('[]' clears it)",
               required: true,
             },
           ],

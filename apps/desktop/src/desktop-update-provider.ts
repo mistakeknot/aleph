@@ -8,6 +8,7 @@ import {
 type DesktopReleaseChannel = "latest" | "nightly" | "aleph";
 
 interface DesktopReleaseInfo {
+  appId: "dev.bb.desktop" | "dev.bb.desktop.nightly";
   applicationName: "bb" | "bb Nightly" | "Aleph";
   channel: DesktopReleaseChannel;
   iconFileName: "icon.png" | "icon-nightly.png";
@@ -22,6 +23,7 @@ export function createDesktopReleaseInfo(
   const releaseTag = nightly ? "desktop-nightly" : "desktop-latest";
 
   return {
+    appId: nightly ? "dev.bb.desktop.nightly" : "dev.bb.desktop",
     applicationName:
       channel === "nightly"
         ? "bb Nightly"

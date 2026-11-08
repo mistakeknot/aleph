@@ -6,7 +6,7 @@ import {
   type AccountSummary,
   type FamilyQuota,
 } from "./contracts.js";
-import { isQuotaExhausted, quotaFromHeaders, usagePercent } from "./quota.js";
+import { isPastThreshold, quotaFromHeaders, usagePercent } from "./quota.js";
 import { quotaFromUsage } from "./usage.js";
 
 const NOW = 1_800_000_000_000;
@@ -170,7 +170,7 @@ describe("quotaFromHeaders with a past-reset window", () => {
 
   it("leaves routing unaffected by the unknown window", () => {
     const next = quotaFromHeaders(ID, headers({}), stale, "other", NOW);
-    expect(isQuotaExhausted(next, "other", 0.9, NOW)).toBe(false);
+    expect(isPastThreshold(next, "other", 0.9, NOW)).toBe(false);
     expect(usagePercent(next, "other", NOW)).toBe(30);
   });
 
@@ -191,7 +191,7 @@ describe("quotaFromHeaders with a past-reset window", () => {
     expect(next.sevenDayResetAt).toBeNull();
     expect(next.sevenDayStatus).toBeNull();
     expect(usagePercent(next, "other", NOW)).toBeNull();
-    expect(isQuotaExhausted(next, "other", 0.9, NOW)).toBe(false);
+    expect(isPastThreshold(next, "other", 0.9, NOW)).toBe(false);
   });
 
   it("treats a reset equal to now as past", () => {

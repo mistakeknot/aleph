@@ -2,8 +2,8 @@ import {
   canHydrateRetainedEventOutputRowsWithinDataByteLimit,
   findStoredEventRow as findStoredEventRowRecord,
   getLatestThreadOutputEventRow,
+  getTurnFinalAgentMessageEventRow,
   getLatestThreadSystemErrorEventRow,
-  getThreadOutputEventRowForTurn,
   hydrateRetainedEventOutputRows,
   listLatestTurnFinalAgentMessageEventRows,
   listStoredEventRows as listStoredEventRowRecords,
@@ -199,19 +199,26 @@ export function getLastThreadOutput(
   );
 }
 
-/**
- * The final agent message or user message produced within a single turn,
- * ignoring output from any other turn. Used to decide whether a turn's own
- * completion is genuinely new, rather than the thread's last output overall
- * (which can be stale when a turn ends without producing a new message).
- */
-export function getThreadTurnOutput(
+interface GetTurnFinalOutputArgs {
+  threadId: string;
+  turnId: string;
+}
+
+export function getTurnFinalOutput(
   db: DbConnection,
-  args: { threadId: string; turnId: string },
+  args: GetTurnFinalOutputArgs,
 ): string | null {
-  return extractThreadOutputEventRowText(
-    getThreadOutputEventRowForTurn(db, args),
-  );
+  const row = getTurnFinalAgentMessageEventRow(db, args);
+  if (!row) return null;
+  const eventRow = parseStoredEventRow(row);
+  if (
+    eventRow.type === "item/completed" &&
+    eventRow.data.item.type === "agentMessage" &&
+    eventRow.data.item.text.trim().length > 0
+  ) {
+    return eventRow.data.item.text;
+  }
+  return null;
 }
 
 interface ListLatestTurnFinalAgentRepliesArgs {

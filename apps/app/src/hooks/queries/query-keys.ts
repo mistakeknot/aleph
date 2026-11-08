@@ -452,6 +452,11 @@ type HostPathExistenceQueryKey = readonly [
   string | null,
   readonly string[],
 ];
+type HostPathExistsQueryKey = readonly [
+  typeof HOST_PATH_EXISTENCE_QUERY_KEY,
+  string,
+  string,
+];
 type HostPathExistenceQueryKeyPrefix = readonly [
   typeof HOST_PATH_EXISTENCE_QUERY_KEY,
 ];
@@ -1068,6 +1073,13 @@ export function hostPathExistenceQueryKey(
   paths: readonly string[],
 ): HostPathExistenceQueryKey {
   return [HOST_PATH_EXISTENCE_QUERY_KEY, hostId, paths];
+}
+
+export function hostPathExistsQueryKey(
+  hostId: string,
+  path: string,
+): HostPathExistsQueryKey {
+  return [HOST_PATH_EXISTENCE_QUERY_KEY, hostId, path];
 }
 
 export function hostPathExistenceQueryKeyPrefix(): HostPathExistenceQueryKeyPrefix {

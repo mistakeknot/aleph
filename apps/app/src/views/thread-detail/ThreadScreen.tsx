@@ -28,8 +28,6 @@ import {
   type ThreadTimelineEditMessageTarget,
   type ThreadTimelineForkMessageHandler,
   type ThreadTimelineInlineMessageEditor,
-  type ThreadTimelineLinkHandler,
-  type ThreadTimelineLocalFileLinkHandler,
   type ThreadTimelineUnreadDividerPlacement,
   type TimelineTitleActionResolver,
   type UseThreadTimelineControllerResult,
@@ -103,8 +101,6 @@ export interface ThreadScreenTimelineHost {
   includePluginMessageActions: boolean;
   leadingContent?: ReactNode;
   onForkMessage?: ThreadTimelineForkMessageHandler;
-  onOpenLink?: ThreadTimelineLinkHandler;
-  onOpenLocalFileLink?: ThreadTimelineLocalFileLinkHandler;
   onTitleAction?: TimelineTitleActionResolver;
   unreadDividerAutoScroll: boolean;
   unreadDividerPlacement: ThreadTimelineUnreadDividerPlacement | null;
@@ -129,7 +125,6 @@ interface ThreadScreenProps {
   thread: ThreadResponse;
   timeline: UseThreadTimelineControllerResult;
   timelineHost: ThreadScreenTimelineHost;
-  workspaceRootPath: string | undefined;
 }
 
 interface SentMessageEditSession {
@@ -201,7 +196,6 @@ export function useThreadComposerAddToChat(thread: {
     [isCompactViewport, promptDraft],
   );
 }
-
 
 function useChildThreadsSection(
   threadId: string,
@@ -453,7 +447,6 @@ export function ThreadScreen({
   thread,
   timeline,
   timelineHost,
-  workspaceRootPath,
 }: ThreadScreenProps) {
   const systemConfigQuery = useSystemConfig();
   const contextCardInset = useThreadContextCardContentInset();
@@ -522,7 +515,9 @@ export function ThreadScreen({
         isThreadTimelinePending={isThreadTimelinePending}
         timelineError={Boolean(timeline.timelineError)}
         loadingContent={
-          isPanelPresentation ? <ThreadTimelinePanelLoadingSkeleton /> : undefined
+          isPanelPresentation ? (
+            <ThreadTimelinePanelLoadingSkeleton />
+          ) : undefined
         }
         timelineErrorClassName={
           isPanelPresentation ? "mx-2 mt-4 text-destructive" : undefined
@@ -536,8 +531,6 @@ export function ThreadScreen({
         onMessageAddToChat={selectionAddToChat}
         onSelectionAddToChat={selectionAddToChat}
         onLoadOlderRows={timeline.loadOlderTimelineRows}
-        onOpenLink={timelineHost.onOpenLink}
-        onOpenLocalFileLink={timelineHost.onOpenLocalFileLink}
         onTitleAction={timelineHost.onTitleAction}
         projectId={projectId}
         resolveMentionLink={resolveMentionLink}
@@ -555,7 +548,6 @@ export function ThreadScreen({
         threadRuntimeDisplayStatus={thread.runtime.displayStatus}
         unreadDividerAutoScroll={timelineHost.unreadDividerAutoScroll}
         unreadDividerPlacement={timelineHost.unreadDividerPlacement}
-        workspaceRootPath={workspaceRootPath}
       />
     </SelectionAddToChatContext.Provider>
   );
@@ -673,7 +665,6 @@ export function ThreadScreen({
       );
   }
 }
-
 
 function ThreadScreenPanelShell({
   presentation,
