@@ -393,14 +393,12 @@ describe("runtime recovery hints", () => {
     expect(countSpawns(processLog)).toBe(1);
     expect(record.last("thread/resume")).toBeUndefined();
 
-    const restarted = await runtime.runTurn({
+    await runtime.runTurn({
       clientRequestId: "creq_rcvrrungae",
       input: [promptTextInput({ text: "after restart" })],
-      instructions: "changed snapshot",
       options: fullRuntimeOptions,
       threadId: "t-ladder-restart",
     });
-    expect(restarted).toEqual({ providerSessionRebuilt: true });
     await waitForThreadAgentMessageText({
       events,
       providerId: PROVIDER_ID,
@@ -413,180 +411,6 @@ describe("runtime recovery hints", () => {
       threadId: "t-ladder-restart",
       providerThreadId,
     });
-    expect(JSON.stringify(record.last("thread/resume")?.params)).toContain(
-      "changed snapshot",
-    );
-
-    await waitForThreadTurnCompleted({
-      events,
-      providerId: PROVIDER_ID,
-      runtime,
-      threadId: "t-ladder-restart",
-      timeoutMs: 5_000,
-    });
-    const plain = await runtime.runTurn({
-      clientRequestId: "creq_rcvrrungag",
-      input: [promptTextInput({ text: "plain follow up" })],
-      instructions: "changed snapshot",
-      options: fullRuntimeOptions,
-      threadId: "t-ladder-restart",
-    });
-    expect(plain).toEqual({ providerSessionRebuilt: false });
-  });
-
-  it("keeps the instructions a rebuilt turn delivered for a later bridge restart", async () => {
-    const { events, hints, record, runtime } = createRecoveryRuntime({
-      turnStartReportsRebuild: true,
-      failMethods: [
-        {
-          method: "turn/steer",
-          message: "the agent wedged itself; restart me",
-          times: 1,
-          recovery: { kind: "restartRecommended", retryable: false },
-        },
-      ],
-    });
-    const { providerThreadId } = await runtime.startThread({
-      environmentId: "env-1",
-      projectId: "p1",
-      providerId: PROVIDER_ID,
-      threadId: "t-rebuild-cache",
-      options: fullRuntimeOptions,
-      instructions: "snapshot one",
-    });
-    const rebuilt = await runtime.runTurn({
-      clientRequestId: "creq_rcvrrunca4",
-      input: [promptTextInput({ text: "delay:800" })],
-      instructions: "snapshot two",
-      options: fullRuntimeOptions,
-      threadId: "t-rebuild-cache",
-    });
-    expect(rebuilt).toEqual({ providerSessionRebuilt: true });
-    const { turnId } = await waitForThreadTurnStarted({
-      events,
-      providerId: PROVIDER_ID,
-      runtime,
-      threadId: "t-rebuild-cache",
-    });
-    await expect(
-      runtime.steerTurn({
-        clientRequestId: "creq_rcvrrunca2",
-        expectedTurnId: turnId,
-        input: [promptTextInput({ text: "never" })],
-        options: fullRuntimeOptions,
-        threadId: "t-rebuild-cache",
-      }),
-    ).rejects.toThrow("the agent wedged itself; restart me");
-    expect(hints).toEqual([
-      expect.objectContaining({ kind: "restartRecommended" }),
-    ]);
-    await waitForThreadTurnCompleted({
-      events,
-      providerId: PROVIDER_ID,
-      runtime,
-      threadId: "t-rebuild-cache",
-      timeoutMs: 5_000,
-    });
-    expect(record.last("thread/resume")).toBeUndefined();
-
-    await runtime.runTurn({
-      clientRequestId: "creq_rcvrrunca3",
-      input: [promptTextInput({ text: "after restart" })],
-      options: fullRuntimeOptions,
-      threadId: "t-rebuild-cache",
-    });
-    expect(record.last("thread/resume")?.params).toMatchObject({
-      providerThreadId,
-    });
-    const resumeParams = JSON.stringify(record.last("thread/resume")?.params);
-    expect(resumeParams).toContain("snapshot two");
-    expect(resumeParams).not.toContain("snapshot one");
-  });
-
-  it("keeps the rebuilt instructions across a rejected command, its retry and a later bridge restart", async () => {
-    const { events, hints, record, runtime } = createRecoveryRuntime({
-      turnStartReportsRebuild: true,
-      failMethods: [
-        {
-          method: "turn/start",
-          message: "This thread has no Goal to resume.",
-          times: 1,
-        },
-        {
-          method: "turn/steer",
-          message: "the agent wedged itself; restart me",
-          times: 1,
-          recovery: { kind: "restartRecommended", retryable: false },
-        },
-      ],
-    });
-    const { providerThreadId } = await runtime.startThread({
-      environmentId: "env-1",
-      projectId: "p1",
-      providerId: PROVIDER_ID,
-      threadId: "t-rebuild-reject",
-      options: fullRuntimeOptions,
-      instructions: "snapshot one",
-    });
-    await expect(
-      runtime.runTurn({
-        clientRequestId: "creq_rcvrrunca8",
-        input: [promptTextInput({ text: "delay:800" })],
-        instructions: "snapshot two",
-        options: fullRuntimeOptions,
-        threadId: "t-rebuild-reject",
-      }),
-    ).rejects.toThrow("This thread has no Goal to resume.");
-    expect(record.last("thread/resume")).toBeUndefined();
-    const rebuilt = await runtime.runTurn({
-      clientRequestId: "creq_rcvrrunca5",
-      input: [promptTextInput({ text: "delay:800" })],
-      instructions: "snapshot two",
-      options: fullRuntimeOptions,
-      threadId: "t-rebuild-reject",
-    });
-    expect(rebuilt).toEqual({ providerSessionRebuilt: true });
-    const { turnId } = await waitForThreadTurnStarted({
-      events,
-      providerId: PROVIDER_ID,
-      runtime,
-      threadId: "t-rebuild-reject",
-    });
-    await expect(
-      runtime.steerTurn({
-        clientRequestId: "creq_rcvrrunca6",
-        expectedTurnId: turnId,
-        input: [promptTextInput({ text: "never" })],
-        options: fullRuntimeOptions,
-        threadId: "t-rebuild-reject",
-      }),
-    ).rejects.toThrow("the agent wedged itself; restart me");
-    expect(hints).toEqual([
-      expect.objectContaining({ kind: "restartRecommended" }),
-    ]);
-    await waitForThreadTurnCompleted({
-      events,
-      providerId: PROVIDER_ID,
-      runtime,
-      threadId: "t-rebuild-reject",
-      timeoutMs: 5_000,
-    });
-    expect(record.last("thread/resume")).toBeUndefined();
-
-    await expect(
-      runtime.runTurn({
-        clientRequestId: "creq_rcvrrunca7",
-        input: [promptTextInput({ text: "after restart" })],
-        options: fullRuntimeOptions,
-        threadId: "t-rebuild-reject",
-      }),
-    ).rejects.toThrow("This thread has no Goal to resume.");
-    expect(record.last("thread/resume")?.params).toMatchObject({
-      providerThreadId,
-    });
-    const resumeParams = JSON.stringify(record.last("thread/resume")?.params);
-    expect(resumeParams).toContain("snapshot two");
-    expect(resumeParams).not.toContain("snapshot one");
   });
 
   it("authRequired on the retry after an unarchive: typed auth_required and forwarded", async () => {

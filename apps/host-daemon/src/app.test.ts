@@ -258,9 +258,7 @@ function createFakeRuntime(): AgentRuntime {
     async resumeThread() {
       return { providerThreadId: "provider-thread-app-test" };
     },
-    async runTurn() {
-      return { providerSessionRebuilt: false };
-    },
+    async runTurn() {},
     async steerTurn() {
       return { status: "steered" };
     },

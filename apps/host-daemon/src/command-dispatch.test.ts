@@ -143,7 +143,7 @@ function createRuntime(): FakeDispatchRuntime {
       hostedThreadIds.add(args.threadId);
       return { providerThreadId: "provider-thread-1" };
     }),
-    runTurn: vi.fn(async () => ({ providerSessionRebuilt: false })),
+    runTurn: vi.fn(async () => undefined),
     steerTurn: vi.fn(async () => ({ status: "steered" as const })),
     stopThread: vi.fn(async (args: { threadId: string }) => {
       activeTurnsByThreadId.delete(args.threadId);
@@ -898,7 +898,7 @@ describe("dispatchCommand", () => {
       threadStorageRootPath: "/tmp/bb-thread-storage",
     });
 
-    expect(result).toEqual({ trace: { spans: [] }, providerResumed: true });
+    expect(result).toEqual({ trace: { spans: [] } });
     expect(oldRuntime.stopThread).toHaveBeenCalledWith({
       threadId: "thread-1",
     });

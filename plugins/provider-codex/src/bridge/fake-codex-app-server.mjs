@@ -375,7 +375,6 @@ function requestFromClient(method, params) {
 
 const turnCursorPath = script?.turnCursorPath ?? null;
 const goalsByThreadId = new Map();
-const deferredResumedGoals = new Map();
 
 function setFakeGoalStatus(threadId, status) {
   const goal = {
@@ -538,12 +537,6 @@ async function handleRequest(message) {
 
       if (String(params.threadId).startsWith("usage-replay-")) {
         replayLastTurnUsage(params.threadId);
-      }
-      if (script?.resumedGoalStatus) {
-        deferredResumedGoals.set(params.threadId, {
-          status: script.resumedGoalStatus,
-          missingGets: script.resumedGoalMissingGets ?? 0,
-        });
       }
       respond(id, {
         thread: {
@@ -825,20 +818,9 @@ async function handleRequest(message) {
       }
       return;
     }
-    case "thread/goal/get": {
-      const deferred = deferredResumedGoals.get(params.threadId);
-      if (deferred !== undefined) {
-        if (deferred.missingGets > 0) {
-          deferred.missingGets -= 1;
-          respond(id, { goal: null });
-          return;
-        }
-        deferredResumedGoals.delete(params.threadId);
-        setFakeGoalStatus(params.threadId, deferred.status);
-      }
+    case "thread/goal/get":
       respond(id, { goal: goalsByThreadId.get(params.threadId) ?? null });
       return;
-    }
     case "thread/goal/clear":
       goalsByThreadId.delete(params.threadId);
       if (script?.goalClearError) {

@@ -354,41 +354,38 @@ function buildPreparedTurnSubmitCommandPayload(
     args.deps,
     args.runtimeContext.providerId,
   );
-  return attachPendingRulesReceipt(
-    {
-      type: "turn.submit",
-      environmentId: args.environmentId,
-      threadId: args.threadId,
-      bridgeLaunch,
+  return {
+    type: "turn.submit",
+    environmentId: args.environmentId,
+    threadId: args.threadId,
+    bridgeLaunch,
+    input: args.input,
+    ...(args.inputGroups !== undefined
+      ? { inputGroups: args.inputGroups }
+      : {}),
+    options: toRuntimeExecutionOptions({
+      ...args,
       input: args.input,
-      ...(args.inputGroups !== undefined
-        ? { inputGroups: args.inputGroups }
-        : {}),
-      options: toRuntimeExecutionOptions({
-        ...args,
-        input: args.input,
-        projectId: args.runtimeContext.projectId,
-        providerId: args.runtimeContext.providerId,
-        workspacePath: args.runtimeContext.workspacePath,
+      projectId: args.runtimeContext.projectId,
+      providerId: args.runtimeContext.providerId,
+      workspacePath: args.runtimeContext.workspacePath,
+    }),
+    target: args.target,
+    resumeContext: {
+      workspaceContext: workspaceContextFromPath({
+        path: args.runtimeContext.workspacePath,
       }),
-      target: args.target,
-      resumeContext: {
-        workspaceContext: workspaceContextFromPath({
-          path: args.runtimeContext.workspacePath,
-        }),
-        projectId: args.runtimeContext.projectId,
-        providerId: args.runtimeContext.providerId,
-        bridgeLaunch,
-        providerThreadId: args.providerThreadId,
-        instructions: args.runtimeContext.instructions,
-        dynamicTools: args.runtimeContext.dynamicTools,
-        contributedEnv: args.runtimeContext.contributedEnv,
-        injectedSkillSources: args.runtimeContext.injectedSkillSources,
-        instructionMode: args.runtimeContext.instructionMode,
-      },
+      projectId: args.runtimeContext.projectId,
+      providerId: args.runtimeContext.providerId,
+      bridgeLaunch,
+      providerThreadId: args.providerThreadId,
+      instructions: args.runtimeContext.instructions,
+      dynamicTools: args.runtimeContext.dynamicTools,
+      contributedEnv: args.runtimeContext.contributedEnv,
+      injectedSkillSources: args.runtimeContext.injectedSkillSources,
+      instructionMode: args.runtimeContext.instructionMode,
     },
-    args.runtimeContext.pendingRulesReceipt,
-  );
+  };
 }
 
 export function addRequestIdToTurnSubmitCommandPayload(

@@ -180,9 +180,7 @@ function createFakeRuntime() {
     resumeThread: vi.fn(async (_args: ResumeThreadArgs) => ({
       providerThreadId: "provider-1",
     })),
-    runTurn: vi.fn(async (_args: RunTurnArgs) => ({
-      providerSessionRebuilt: false,
-    })),
+    runTurn: vi.fn(async (_args: RunTurnArgs) => undefined),
     steerTurn: vi.fn(async (_args: SteerTurnArgs) => ({
       status: "steered" as const,
     })),

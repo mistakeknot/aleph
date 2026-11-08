@@ -137,10 +137,7 @@ it("waits for the previous writer before resuming during a settings rebuild", as
   const rebuiltTurn = await harness.waitForResponse(2);
 
   expect(rebuiltTurn.error).toBeUndefined();
-  expect(rebuiltTurn.result).toEqual({
-    threadId: THREAD_ID,
-    sessionRebuilt: true,
-  });
+  expect(rebuiltTurn.result).toEqual({ threadId: THREAD_ID });
 }, 30_000);
 
 it("finishes releasing the writer before acknowledging thread stop", async () => {
