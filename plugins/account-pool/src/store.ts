@@ -653,6 +653,8 @@ function dropFreshness(windows: EvidenceDocument["windows"]) {
   return result;
 }
 
+const UNREADABLE_EVIDENCE_MUTATION = -1;
+
 function convertMismatched(evidence: AccountEvidence, seq: number) {
   const windows = dropFreshness(evidence.windows);
   for (const value of Object.values(windows)) value.lastSeq = seq;
@@ -801,20 +803,29 @@ export class QuotaStore {
       .get(accountId);
     if (raw === undefined) return null;
     const row = evidenceRowSchema.safeParse(raw);
-    if (!row.success) return null;
-    let json: unknown;
-    try {
-      json = JSON.parse(row.data.evidence_json);
-    } catch {
-      return null;
+    let document: ReturnType<typeof evidenceDocumentSchema.safeParse> | null =
+      null;
+    if (row.success) {
+      try {
+        document = evidenceDocumentSchema.safeParse(
+          JSON.parse(row.data.evidence_json),
+        );
+      } catch {
+        document = null;
+      }
     }
-    const document = evidenceDocumentSchema.safeParse(json);
-    if (!document.success) return null;
-    return {
-      ...document.data,
-      seq: row.data.seq,
-      mutation: row.data.mutation,
-    };
+    if (row.success && document?.success) {
+      return {
+        ...document.data,
+        seq: row.data.seq,
+        mutation: row.data.mutation,
+      };
+    }
+    const rawSeq = (raw as { seq?: unknown }).seq;
+    const seq = Number.isInteger(rawSeq)
+      ? (rawSeq as number)
+      : (this.readCounter(accountId) ?? 0);
+    return { ...emptyEvidence(), seq, mutation: UNREADABLE_EVIDENCE_MUTATION };
   }
 
   private writeEvidenceRow(

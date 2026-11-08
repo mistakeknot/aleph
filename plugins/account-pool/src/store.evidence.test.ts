@@ -304,17 +304,33 @@ describe("quota evidence store", () => {
     expect(read.evidence.evidence.windows).toEqual({});
   });
 
-  it("treats an unreadable evidence document as missing", () => {
+  it.each([
+    ["invalid json", "not json"],
+    ["a document of the wrong shape", JSON.stringify({ windows: 7 })],
+  ])("reads an unreadable evidence document (%s) as uncertain", (_name, body) => {
     const database = migrated();
     const quotas = new QuotaStore(database);
     quotas.put(base);
     database
-      .prepare(
-        "INSERT INTO account_quota_evidence VALUES (?, 3, 1, 'not json')",
-      )
-      .run(accountId);
+      .prepare("INSERT INTO account_quota_evidence VALUES (?, 3, ?, ?)")
+      .run(accountId, mutation(database), body);
 
-    expect(quotas.read(accountId).evidence.present).toBe(false);
+    const read = quotas.read(accountId);
+    expect(read.evidence.present).toBe(true);
+    expect(read.evidence.matches).toBe(false);
+    expect(read.evidence.uncertain).toEqual({
+      claude_usage: true,
+      codex_usage: true,
+    });
+
+    let seen: Parameters<EvidenceWriter>[0] | undefined;
+    quotas.put(base, (view, seq) => {
+      seen = view;
+      return stamp("shared:5h", 1_000)(view, seq);
+    });
+    expect(seen?.matches).toBe(false);
+    expect(quotas.read(accountId).evidence.evidence.seq).toBe(4);
+    expect(quotas.read(accountId).evidence.matches).toBe(true);
   });
 
   it("ignores unknown keys inside evidence_json", () => {
