@@ -49,37 +49,20 @@ function readPendingRulesReceipt(command: object): PendingRulesReceipt | null {
 interface RecordAcceptedRulesReceiptArgs {
   command: { type: string };
   hostId: string;
-  result: unknown;
-}
-
-function resultProviderResumed(result: unknown): boolean {
-  return (
-    typeof result === "object" &&
-    result !== null &&
-    Reflect.get(result, "providerResumed") === true
-  );
 }
 
 export async function recordAcceptedRulesReceipt(
   deps: LoggedWorkSessionDeps,
   args: RecordAcceptedRulesReceiptArgs,
 ): Promise<void> {
+  if (args.command.type !== "thread.start") {
+    return;
+  }
   const pending = readPendingRulesReceipt(args.command);
   if (pending === null) {
     return;
   }
-  let delivery: "delivered" | "resumed";
-  if (args.command.type === "thread.start") {
-    delivery = "delivered";
-  } else if (
-    args.command.type === "turn.submit" &&
-    resultProviderResumed(args.result)
-  ) {
-    delivery = "resumed";
-  } else {
-    return;
-  }
-  const receipt: RulesReceipt = { ...pending.receipt, delivery };
+  const receipt: RulesReceipt = { ...pending.receipt, delivery: "delivered" };
   try {
     await callHostOnlineRpcForWork(deps, {
       hostId: args.hostId,
@@ -101,7 +84,7 @@ export async function recordAcceptedRulesReceipt(
       {
         err: error,
         threadId: receipt.threadId,
-        delivery,
+        delivery: receipt.delivery,
         rulesReceiptWriteFailed: true,
       },
       "The provider accepted the instructions but the rules receipt could not be written",

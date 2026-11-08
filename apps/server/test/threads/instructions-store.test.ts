@@ -277,7 +277,8 @@ interface Seeded {
   hostId: string;
   projectId: string;
   providerId: "codex" | "claude-code";
-  providerResumed: { value: boolean };
+  failSubmit: { value: boolean };
+  submitExtras: { value: Record<string, unknown> };
   requestTypes: string[];
   rootsCreated: Set<string>;
   thread: ReturnType<typeof seedThread>;
@@ -325,7 +326,8 @@ function seedScenario(
   const requestTypes: string[] = [];
   const failStart = { value: false };
   const failWrites = { value: false };
-  const providerResumed = { value: false };
+  const failSubmit = { value: false };
+  const submitExtras: { value: Record<string, unknown> } = { value: {} };
   registerHostRpcResponder(harness, {
     hostId,
     sessionId: session.id,
@@ -345,12 +347,16 @@ function seedScenario(
         return { ok: true, result: { providerThreadId: `provider-${label}` } };
       }
       if (command.type === "turn.submit") {
+        if (failSubmit.value) {
+          return {
+            ok: false,
+            errorCode: "provider_turn_rejected",
+            errorMessage: "The provider rejected the turn",
+          };
+        }
         return {
           ok: true,
-          result: {
-            trace: { spans: [] },
-            ...(providerResumed.value ? { providerResumed: true } : {}),
-          },
+          result: { trace: { spans: [] }, ...submitExtras.value },
         };
       }
       if (command.type === "host.write_file") {
@@ -406,13 +412,14 @@ function seedScenario(
       status: "ready",
     },
     failStart,
+    failSubmit,
     failWrites,
     hostId,
     projectId: project.id,
     providerId,
-    providerResumed,
     requestTypes,
     rootsCreated,
+    submitExtras,
     thread,
     writeRoots,
     writes,
@@ -1207,52 +1214,55 @@ describe("instructions store resolve caller", () => {
       });
     });
 
-    it("records a resumed delivery when the daemon reports a provider resume", async () => {
+    it("leaves the start receipt unchanged and writes nothing after a rebuild", async () => {
       await withTestHarness(async (harness) => {
-        const seeded = seedScenario(harness, "codex", "resumed");
-        await activeStore(harness);
+        const seeded = seedScenario(harness, "codex", "rebuild");
+        await activeStore(harness, "# Rules\n", "snap-start");
         await runLiveHostCommand(harness.deps, {
           command: await buildStart(harness, seeded, 223),
           hostId: seeded.hostId,
           timeoutMs: 5_000,
         });
-        const delivered = receiptFrom(seeded);
-        seeded.providerResumed.value = true;
-        await runLiveHostCommand(harness.deps, {
-          command: await buildSubmitCommand(harness, seeded, 230),
-          hostId: seeded.hostId,
-          timeoutMs: 5_000,
-        });
-        const resumed = receiptFrom(seeded);
-        expect(resumed.delivery).toBe("resumed");
-        expect({ ...resumed, delivery: "delivered" }).toEqual(delivered);
-      });
-    });
+        const atStart = receiptFrom(seeded);
+        const writeCount = () =>
+          seeded.requestTypes.filter((type) => type === "host.write_file")
+            .length;
+        expect(writeCount()).toBe(1);
+        await activeStore(harness, "# Changed rules\n", "snap-after-start");
 
-    it("keeps the delivered receipt when an older daemon omits providerResumed on a submit", async () => {
-      await withTestHarness(async (harness) => {
-        const seeded = seedScenario(harness, "codex", "older-daemon");
-        await activeStore(harness);
+        seeded.failSubmit.value = true;
+        await rejection(
+          runLiveHostCommand(harness.deps, {
+            command: await buildSubmitCommand(harness, seeded, 230),
+            hostId: seeded.hostId,
+            timeoutMs: 5_000,
+          }),
+        );
+        seeded.failSubmit.value = false;
+        expect(writeCount()).toBe(1);
+        expect(receiptFrom(seeded)).toEqual(atStart);
+
         await runLiveHostCommand(harness.deps, {
-          command: await buildStart(harness, seeded, 226),
-          hostId: seeded.hostId,
-          timeoutMs: 5_000,
-        });
-        const delivered = receiptFrom(seeded);
-        const writesBefore = seeded.requestTypes.filter(
-          (type) => type === "host.write_file",
-        ).length;
-        expect(seeded.providerResumed.value).toBe(false);
-        const result = await runLiveHostCommand(harness.deps, {
           command: await buildSubmitCommand(harness, seeded, 231),
           hostId: seeded.hostId,
           timeoutMs: 5_000,
         });
-        expect(result).not.toHaveProperty("providerResumed");
-        expect(receiptFrom(seeded)).toEqual(delivered);
-        expect(
-          seeded.requestTypes.filter((type) => type === "host.write_file"),
-        ).toHaveLength(writesBefore);
+        expect(writeCount()).toBe(1);
+        expect(receiptFrom(seeded)).toEqual(atStart);
+
+        seeded.submitExtras.value = {
+          providerResumed: true,
+          sessionRebuilt: true,
+        };
+        await runLiveHostCommand(harness.deps, {
+          command: await buildSubmitCommand(harness, seeded, 232),
+          hostId: seeded.hostId,
+          timeoutMs: 5_000,
+        });
+        expect(writeCount()).toBe(1);
+        expect(receiptFrom(seeded)).toEqual(atStart);
+        expect(atStart.delivery).toBe("delivered");
+        expect(atStart.snapshotId).toBe("snap-start");
       });
     });
 

@@ -64,7 +64,7 @@ export interface InstructionsSectionRecord {
 
 export type RulesReceiptPurpose = "start" | "turn" | "dry-run";
 
-export type RulesReceiptDelivery = "delivered" | "resumed" | "dry-run";
+export type RulesReceiptDelivery = "delivered" | "dry-run";
 
 export interface RulesReceipt {
   version: 1;

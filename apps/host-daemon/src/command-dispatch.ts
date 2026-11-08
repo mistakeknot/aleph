@@ -78,7 +78,6 @@ import {
   discardThreadRewind,
   deleteThreadStorage,
   ensureThreadRuntime,
-  ensureThreadRuntimeTracked,
   prepareThreadRewind,
   startThread,
   submitTurn,
@@ -423,8 +422,8 @@ const commandHandlers: CommandHandlerMap = {
     ),
   "turn.submit": (command, options) =>
     withRetainedThreadEnvironment(command, options, async () => {
-      const ensured = await ensureThreadRuntimeTracked(command, options);
-      return submitTurn(command, ensured, options);
+      const entry = await ensureThreadRuntime(command, options);
+      return submitTurn(command, entry, options);
     }),
   "thread.stop": stopThreadRuntime,
   "thread.storage.delete": async (command, options) => {

@@ -70,7 +70,6 @@ export interface ScriptedEchoLaunchScript {
   goalClearNotifyDelayMs?: number;
   goalClearReportsCleared?: boolean;
   swallowTurnStart?: boolean;
-  turnStartReportsRebuild?: boolean;
   sessionRestorable?: boolean;
   toolCallThreadIdHint?: string;
   recoveryThreadIdHint?: string;

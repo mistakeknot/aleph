@@ -321,7 +321,6 @@ async function runPinnedLiveHostCommand<
     await recordAcceptedRulesReceipt(deps, {
       command: args.command,
       hostId: args.hostId,
-      result,
     });
     return result;
   } catch (error) {

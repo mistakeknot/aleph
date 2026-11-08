@@ -487,7 +487,6 @@ interface CodexBridgeSession {
   quotaRecoveryAttempted: boolean;
   quotaRecoveryAllowed: boolean;
   rebuildBeforeNextTurnReason: string | null;
-  rebuildUnconfirmed: boolean;
   daybreakEnabled: boolean | null;
   modelCatalog: Promise<CodexModelCatalog | null> | null;
   publishedSessionOptions: string | null;
@@ -1266,7 +1265,6 @@ async function constructThreadSession(
       launchEnv[CODEX_POOL_BASE_URL_ENV] && launchEnv[CODEX_POOL_AUTH_TOKEN_ENV]
     ),
     rebuildBeforeNextTurnReason: null,
-    rebuildUnconfirmed: false,
     daybreakEnabled: null,
     modelCatalog: null,
     publishedSessionOptions: existing?.publishedSessionOptions ?? null,
@@ -1488,7 +1486,6 @@ function registerResumableSession(session: CodexBridgeSession): void {
     quotaRecoveryAttempted: false,
     quotaRecoveryAllowed: session.quotaRecoveryAllowed,
     rebuildBeforeNextTurnReason: null,
-    rebuildUnconfirmed: false,
     daybreakEnabled: session.daybreakEnabled,
     modelCatalog: null,
     publishedSessionOptions: session.publishedSessionOptions,
@@ -1674,7 +1671,6 @@ async function handleThreadConstruction(
 interface LiveSessionForTurn {
   session: CodexBridgeSession;
   connection: CodexAppServerConnection;
-  rebuilt: boolean;
 }
 
 async function requireLiveSessionForTurn(
@@ -1690,7 +1686,6 @@ async function requireLiveSessionForTurn(
     session.construction.cwd,
     decoded.sessionOptions,
   );
-  const before = session;
   if (session.connection === null || session.connection.exited) {
     session = await rebuildThreadSession(
       session,
@@ -1713,14 +1708,7 @@ async function requireLiveSessionForTurn(
   if (session.connection === null) {
     throw new Error(`No active codex session for thread "${params.threadId}"`);
   }
-  if (session !== before) {
-    session.rebuildUnconfirmed = true;
-  }
-  return {
-    session,
-    connection: session.connection,
-    rebuilt: session.rebuildUnconfirmed,
-  };
+  return { session, connection: session.connection };
 }
 
 const codexTurnStartResultSchema = z
@@ -2041,11 +2029,7 @@ async function handleTurnStart(
       );
       return;
     }
-    sendResult(id, {
-      threadId: params.threadId,
-      ...(live.rebuilt ? { sessionRebuilt: true } : {}),
-    });
-    session.rebuildUnconfirmed = false;
+    sendResult(id, { threadId: params.threadId });
     scheduleZeroWorkTurnSettlement({
       clientRequestId: params.clientRequestId,
       prepared,
@@ -2112,11 +2096,7 @@ async function handleTurnStart(
           throw error;
         });
     }
-    sendResult(id, {
-      threadId: params.threadId,
-      ...(live.rebuilt ? { sessionRebuilt: true } : {}),
-    });
-    session.rebuildUnconfirmed = false;
+    sendResult(id, { threadId: params.threadId });
     settleAcceptedDispatch({
       clientRequestId: params.clientRequestId,
       compaction,

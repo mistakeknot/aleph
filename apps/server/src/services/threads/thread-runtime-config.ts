@@ -20,7 +20,6 @@ import type { LoggedWorkSessionDeps } from "../../types.js";
 import { throwEnvironmentNotReady } from "../lib/lifecycle-api-errors.js";
 import {
   buildRulesReceipt,
-  type RulesReceiptDelivery,
   type RulesReceiptPurpose,
   isInstructionsStoreConfigured,
   resolveUserInstructionsSection,
@@ -51,12 +50,6 @@ const UPDATE_ENVIRONMENT_DIRECTORY_INSTRUCTIONS =
   "If the user asks you to move this thread to another checkout, worktree, or directory, make sure the target directory exists, then call `update_environment_directory` with its absolute path. After it succeeds, end the current turn; bb starts the next turn in the updated environment automatically so you can continue there.";
 
 const PLUGIN_INSTRUCTION_CONTRIBUTION_MAX_CHARS = 4096;
-
-const DELIVERY_BY_PURPOSE: Record<RulesReceiptPurpose, RulesReceiptDelivery> = {
-  start: "delivered",
-  turn: "resumed",
-  "dry-run": "dry-run",
-};
 
 export { RULES_RECEIPT_FILE_NAME };
 
@@ -302,7 +295,7 @@ export async function resolveThreadRuntimeCommandConfig(
     .join("\n\n");
   const purpose = args.purpose ?? "start";
   const rulesReceipt = buildRulesReceipt({
-    delivery: DELIVERY_BY_PURPOSE[purpose],
+    delivery: purpose === "dry-run" ? "dry-run" : "delivered",
     instructions,
     origin: userInstructions ?? {
       mode: null,
@@ -317,7 +310,7 @@ export async function resolveThreadRuntimeCommandConfig(
     threadId: args.thread.id,
   });
   const pendingRulesReceipt: PendingRulesReceipt | null =
-    purpose !== "dry-run" &&
+    purpose === "start" &&
     isInstructionsStoreConfigured(deps.config.orchestration)
       ? { receipt: rulesReceipt, threadStoragePath }
       : null;

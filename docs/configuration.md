@@ -841,21 +841,20 @@ the `docs/AGENTS.md` of a resolved store snapshot. It is off unless
   resolve command starts and after it returns, so a marker created while the
   command runs still blocks the start.
 - When the store is configured, bb writes `rules-receipt.json` to the thread's
-  storage directory only after the provider has accepted the instructions, and
-  it describes the last instructions actually delivered: snapshot ID, mode,
-  source, `delivery` (`delivered` when a session starts, `resumed` when a turn
-  submit rebuilt the provider session, whether the runtime resumed the thread
-  or the provider bridge rebuilt it inside the turn, which passes the
-  instructions into the rebuild; a daemon that predates the report never
-  triggers it), the sha256 of the assembled instructions, and each section's header,
-  byte count and sha256. An ordinary turn submit resolves the store but does not
-  change the file, because providers keep the instructions from the first turn,
-  and a failed start leaves no receipt. If the write fails after the provider
-  accepted the instructions, bb logs an error with `rulesReceiptWriteFailed`.
-  `bb thread runtime-config --dry-run <thread>` prints the receipt it would
-  produce, with `delivery` set to `dry-run`, without starting a session or
-  writing a file. A host daemon older than this change does not report resumes,
-  so those resumes are not recorded.
+  storage directory only when a session starts, after the provider has accepted
+  the instructions. It records the instructions delivered at start: snapshot
+  ID, mode, source, `delivery` (`delivered`), the sha256 of the assembled
+  instructions, and each section's header, byte count and sha256. A turn submit
+  still resolves the store, so a resolver failure blocks the turn, but it never
+  writes or updates the file: providers keep the instructions from the first
+  turn, and after a rebuild (a bridge restart, a runtime-managed resume, or a
+  retry after a rejected turn) the receipt still names the snapshot delivered
+  at start. A failed start leaves no receipt. If the write fails after the
+  provider accepted the instructions, bb logs an error with
+  `rulesReceiptWriteFailed`. `bb thread runtime-config --dry-run <thread>`
+  prints the receipt it would produce, with `delivery` set to `dry-run`,
+  without starting a session or writing a file. Receipts that stay accurate
+  after a rebuild are tracked in bead mk-ppvma.9.
 
 ## Skills
 
@@ -1027,7 +1026,7 @@ list|get|set|reset` or `sdk.system.uiPreferences` (see
 | `windows.presets`             | Named window presets (panes of threads, thread-title prefixes or plugin panels) opened with `/?preset=<id>`; `bb settings ui set/reset` refuses this key (403), so a layout changes only through an accepted suggestion                                                                                                                 |
 | `windows.suggestions`         | Agent-proposed preset layouts shown as an "update to suggested" prompt; written by `bb window propose`, applied when the user accepts in the window (the server cannot tell the app from another client holding the same token, so accepting is a UI convention, not an enforced boundary); `bb settings ui set/reset` refuses this key |
 | `infoPanel.collapsedSections` | Collapsed thread Info panel sections (`commits`, `uncommittedChanges`, `childThreads`, `forks`, `threadStorage`, or `<pluginId>/<sectionId>`)                                                                                                                                                                                           |
-| `threadContextCard.pinned`   | `true` (default) keeps a thread pane's thread context card open beside the transcript when the pane is wide enough; `false` opens it only from the header |
+| `threadContextCard.pinned`    | `true` (default) keeps a thread pane's thread context card open beside the transcript when the pane is wide enough; `false` opens it only from the header                                                                                                                                                                               |
 
 A legacy `__builtin__` thread list selection resolves to the bundled plugin.
 Footer IDs are `builtin:settings` (top list layout only), `builtin:mobile`,

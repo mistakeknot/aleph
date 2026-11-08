@@ -1286,10 +1286,7 @@ const turnSubmitTraceSchema = z
   })
   .strict();
 export type TurnSubmitTrace = z.infer<typeof turnSubmitTraceSchema>;
-const turnSubmitResultSchema = z.object({
-  trace: turnSubmitTraceSchema,
-  providerResumed: z.boolean().optional(),
-});
+const turnSubmitResultSchema = z.object({ trace: turnSubmitTraceSchema });
 const projectPathResultSchema = z.object({ path: z.string().min(1) }).strict();
 const projectInspectResultSchema = projectPathResultSchema
   .extend({ gitRemoteUrl: z.string().min(1).nullable() })
