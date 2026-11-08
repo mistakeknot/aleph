@@ -32,7 +32,7 @@ stats survive reloads and reset on remove). The surface that asks is
 
 Eighteen events. The seven `thread.*` ones are thread lifecycle. `interaction.pending`
 fires after core commits a pending interaction row. The four `message.*` ones fire when a
-dispatch is queued behind a wait (again when a row's wait is rewritten), when a queued row's
+dispatch is queued behind a wait (again when a row's wait or `sendAt` is rewritten), when a queued row's
 waits all clear and it dispatches, when the queued row is cancelled, or when a queue transfer
 record is delivered. Every listener sees every queued row, so a plugin that only wants its own
 filters on `entry?.waitingOn?.kind === "plugin" && entry.waitingOn.pluginId === bb.pluginId`
