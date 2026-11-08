@@ -97,3 +97,8 @@ internal-url apps/app/src/lib/server-choices.test.ts -- unchanged, already-publi
 internal-url apps/mobile/src/data/notifications/push-notification-target.test.ts -- unchanged, already-public upstream bb 0.48.x test fixture using a documentation-style private-network example address, not a real host
 internal-url apps/mobile/src/lib/shell/shell-servers.test.ts -- unchanged, already-public upstream bb 0.48.x test fixture using a documentation-style private-network example address, not a real host
 internal-url packages/mobile-bridge/test/inject.test.ts -- unchanged, already-public upstream bb 0.48.x test fixture using a documentation-style private-network example address, not a real host
+bb-host packages/connect-db/test/labels.test.ts -- unchanged, already-public upstream bb fixture, config or guide text from the 0.49.0 release; hostnames are upstream example or product hosts, none belong to this fork maintainer
+bb-host plugins/connect/app.test.tsx -- unchanged, already-public upstream bb fixture, config or guide text from the 0.49.0 release; hostnames are upstream example or product hosts, none belong to this fork maintainer
+bb-host plugins/connect/app.tsx -- unchanged, already-public upstream bb fixture, config or guide text from the 0.49.0 release; hostnames are upstream example or product hosts, none belong to this fork maintainer
+bb-data-path apps/web/src/guides/pages/switch-from-conductor.tsx -- unchanged, already-public upstream bb text naming the generic machine-directory or thread-storage convention, not a real path
+bb-data-path plugins/bb-guide/skills/bb-plugin-authoring/references/quickstart.md -- unchanged, already-public upstream bb text naming the generic machine-directory or thread-storage convention, not a real path
