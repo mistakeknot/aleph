@@ -515,6 +515,7 @@ export {
   clearQueuedThreadMessageWaitingOn,
   createQueuedThreadMessage,
   createQueuedThreadMessageInTransaction,
+  resolveQueuedMessageDestination,
   QueuedMessageThreadUnavailableError,
   deleteQueuedRetriesForThreadEventSuffixInTransaction,
   deleteClaimedQueuedThreadMessageBatchInTransaction,

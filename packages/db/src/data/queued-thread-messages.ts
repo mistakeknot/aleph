@@ -877,16 +877,30 @@ export function getThreadRedirectState(
     : { kind: "none" };
 }
 
-function resolveRedirectedCreate(
+export interface QueuedMessageDestination {
+  threadId: string;
+  redirectOpId: string | null;
+}
+
+export function resolveQueuedMessageDestination(
   tx: DbTransaction,
-  input: CreateQueuedThreadMessageInput,
-) {
+  input: {
+    threadId: string;
+    retiredPosts?: "redirect" | "refuse";
+    threadVerified?: boolean;
+  },
+): QueuedMessageDestination {
   const redirect = tx
     .select()
     .from(threadRedirects)
     .where(eq(threadRedirects.sourceThreadId, input.threadId))
     .get();
-  if (!redirect) return null;
+  if (!redirect) {
+    if (!input.threadVerified) {
+      assertThreadAcceptsQueuedMessage(tx, input.threadId);
+    }
+    return { threadId: input.threadId, redirectOpId: null };
+  }
   if (redirect.successorThreadId === null) {
     throw new QueuedMessageThreadUnavailableError(
       input.threadId,
@@ -910,20 +924,34 @@ function resolveRedirectedCreate(
       "redirect_depth_exceeded",
     );
   }
+  assertThreadAcceptsQueuedMessage(tx, redirect.successorThreadId);
+  return { threadId: redirect.successorThreadId, redirectOpId: redirect.opId };
+}
+
+function resolveRedirectedCreate(
+  tx: DbTransaction,
+  input: CreateQueuedThreadMessageInput,
+) {
+  const destination = resolveQueuedMessageDestination(tx, {
+    threadId: input.threadId,
+    retiredPosts: input.retiredPosts,
+    threadVerified: true,
+  });
+  if (destination.redirectOpId === null) return null;
   const id = input.id ?? createQueuedThreadMessageId();
   const originId = input.originId ?? id;
   const row = createQueuedThreadMessageInTransaction(tx, {
     ...input,
     id,
     originId,
-    threadId: redirect.successorThreadId,
-    threadVerified: false,
+    threadId: destination.threadId,
+    threadVerified: true,
     redirect: "direct",
   });
   tx.insert(transferEntries)
     .values({
       id: `tent_${randomUUID()}`,
-      opId: redirect.opId,
+      opId: destination.redirectOpId,
       kind: "redirected",
       originId,
       sourceRowId: null,
@@ -3021,6 +3049,10 @@ export function transferQueuedThreadMessageInTransaction(
       source.systemNotice === null
         ? null
         : (JSON.parse(source.systemNotice) as QueuedMessageSystemNotice),
+    coalesce:
+      source.coalesceKey !== null && source.coalesceState !== null
+        ? { key: source.coalesceKey, state: source.coalesceState }
+        : null,
   });
   return { kind: "transferred", queuedMessage };
 }

@@ -1,6 +1,7 @@
 import {
   createQueuedThreadMessageInTransaction,
   getPendingCoalescedQueuedThreadMessage,
+  resolveQueuedMessageDestination,
   updateCoalescedQueuedThreadMessageInTransaction,
   type QueuedThreadMessageRow,
 } from "@bb/db";
@@ -35,10 +36,13 @@ export function postCoalescedSystemNotice<State>(
   const sendAt = Date.now() + args.windowMs;
   const { created, row } = deps.db.transaction(
     (tx) => {
+      const destination = resolveQueuedMessageDestination(tx, {
+        threadId: args.threadId,
+      });
       const pending = getPendingCoalescedQueuedThreadMessage(tx, {
         coalesceKey: args.coalesceKey,
         now: Date.now(),
-        threadId: args.threadId,
+        threadId: destination.threadId,
       });
       const next = args.merge(
         pending?.coalesceState == null
@@ -54,7 +58,7 @@ export function postCoalescedSystemNotice<State>(
               id: pending.id,
               sendAt,
               systemNotice: next.notice,
-              threadId: args.threadId,
+              threadId: destination.threadId,
             });
       if (merged !== null) return { created: false, row: merged };
       return {
@@ -82,6 +86,9 @@ export function postCoalescedSystemNotice<State>(
     { behavior: "immediate" },
   );
   if (created) emitPluginMessageQueued(toThreadQueuedMessage(row));
-  deps.hub.notifyThread(args.threadId, ["queue-changed"]);
+  deps.hub.notifyThread(row.threadId, ["queue-changed"]);
+  if (row.threadId !== args.threadId) {
+    deps.hub.notifyThread(args.threadId, ["queue-changed"]);
+  }
   return { ...row, sendAt };
 }
