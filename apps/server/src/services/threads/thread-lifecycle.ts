@@ -47,7 +47,11 @@ import {
   type DbTransaction,
 } from "@bb/db";
 import { assertNever } from "@bb/core-ui";
-import { COMPETING_TURN_ERROR_CODE } from "@bb/host-daemon-contract";
+import {
+  COMPETING_TURN_ERROR_CODE,
+  STEER_UNCONFIRMED_ERROR_CODE,
+  TURN_START_UNCONFIRMED_ERROR_CODE,
+} from "@bb/host-daemon-contract";
 import {
   type ProvisioningTranscriptEntry,
   type SystemThreadInterruptedReason,
@@ -125,6 +129,10 @@ import { scheduleThreadProvisioningAdvance } from "./thread-provisioning.js";
 import { isPreStartThreadStatus } from "./thread-status.js";
 import { settleDanglingBackgroundTasksForStoppedThreadInTransaction } from "./background-task-reconciliation.js";
 import { abortPluginToolCallsForThreads } from "../plugins/plugin-tool-calls.js";
+import {
+  settleUnconfirmedSteerInTransaction,
+  settleUnconfirmedTurnStartInTransaction,
+} from "./unconfirmed-turn-requests.js";
 
 type ThreadStartCommand = Awaited<ReturnType<typeof buildThreadStartCommand>>;
 type ThreadStopCommand = ReturnType<typeof buildThreadStopCommand>;
@@ -322,6 +330,7 @@ interface InterruptActiveThreadArgs {
 interface InterruptActiveThreadsArgs {
   cause?: "host-connection-lost";
   reason: SystemThreadInterruptedReason;
+  resumingThreadIds: ReadonlySet<string>;
   threads: readonly InterruptActiveThreadArgs[];
 }
 
@@ -330,6 +339,7 @@ interface InterruptActiveThreadsForHostArgs {
   cause?: "host-connection-lost";
   hostId: string;
   reason: SystemThreadInterruptedReason;
+  resumingThreadIds: ReadonlySet<string>;
 }
 
 interface InterruptedActiveThreadResult {
@@ -840,6 +850,26 @@ function settleThreadCommandFailure(
     return emptyCommandResultSideEffects();
   }
   if (hasTerminalClientTurnRequestEvent(args.deps, args.command)) {
+    return emptyCommandResultSideEffects();
+  }
+  if (
+    args.command.type === "turn.submit" &&
+    args.report.errorCode === STEER_UNCONFIRMED_ERROR_CODE
+  ) {
+    settleUnconfirmedSteerInTransaction(args.deps.db, {
+      requestId: args.command.requestId,
+      threadId: thread.id,
+    });
+    return emptyCommandResultSideEffects();
+  }
+  if (
+    args.command.type === "turn.submit" &&
+    args.report.errorCode === TURN_START_UNCONFIRMED_ERROR_CODE
+  ) {
+    settleUnconfirmedTurnStartInTransaction(args.deps.db, {
+      requestId: args.command.requestId,
+      threadId: thread.id,
+    });
     return emptyCommandResultSideEffects();
   }
   if (args.command.type === "turn.submit") {
@@ -1976,8 +2006,10 @@ function interruptHotActiveThreads(
         const state = stateByThreadId.get(thread.threadId);
         const activeTurnId = state?.activeTurnId ?? null;
         const providerThreadId = state?.latestProviderThreadId ?? null;
-        const failureMessage =
-          threadCommandFailureMessageForInterruption(effectiveReason);
+        const resuming = args.resumingThreadIds.has(thread.threadId);
+        const failureMessage = resuming
+          ? "Thread interrupted because bb restarted"
+          : threadCommandFailureMessageForInterruption(effectiveReason);
 
         if (activeTurnId !== null) {
           eventArgs.push({
@@ -2004,8 +2036,9 @@ function interruptHotActiveThreads(
             data: buildSystemErrorEventData({
               code: "thread_command_failed",
               message: failureMessage,
-              detail:
-                threadCommandFailureDetailForInterruption(effectiveReason),
+              detail: resuming
+                ? "bb will resume the thread shortly."
+                : threadCommandFailureDetailForInterruption(effectiveReason),
             }),
           });
         }
@@ -2077,6 +2110,7 @@ function interruptHotActiveThreads(
     );
     if (
       result.interruptedTurnId !== null &&
+      !args.resumingThreadIds.has(result.threadId) &&
       thread &&
       isParentNotifiableChildThread(thread, "interrupted")
     ) {
@@ -2122,6 +2156,7 @@ export function interruptActiveThreadsForHost(
   return interruptActiveThreads(deps, {
     threads: activeThreads,
     reason: args.reason,
+    resumingThreadIds: args.resumingThreadIds,
     ...(args.cause ? { cause: args.cause } : {}),
   });
 }
@@ -2397,6 +2432,7 @@ function reconcileHotDaemonReportedThreads(
     })),
     reason: "host-daemon-restarted",
     cause: args.sameDaemonInstance ? "host-connection-lost" : undefined,
+    resumingThreadIds: new Set(),
   });
 
   if (args.activeThreadIds.length === 0) {

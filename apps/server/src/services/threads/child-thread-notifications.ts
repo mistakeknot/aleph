@@ -513,33 +513,34 @@ async function queueChildThreadTurnNotificationBatchItem(
     return;
   }
   try {
-    const row = postCoalescedSystemNotice<ChildThreadTurnNotificationBatchItem[]>(
-      deps,
-      {
-        coalesceKey: CHILD_THREAD_TURN_NOTIFICATION_COALESCE_KEY,
-        execution,
-        merge: (previous) => {
-          const items = mergeChildThreadTurnNotificationItem(
-            previous ?? [],
-            item,
-          );
-          const taxonomy = childThreadTurnStatusBatchTaxonomy(items);
-          return {
-            input: buildChildThreadTurnStatusBatchInput({ items }),
-            notice: {
-              kind: taxonomy.systemMessageKind,
-              subject: taxonomy.systemMessageSubject,
-            },
-            state: items,
-          };
-        },
-        parseState: (stored) =>
-          childThreadTurnNotificationBatchSchema.parse(JSON.parse(stored)),
-        threadId: parentThread.id,
-        windowMs: CHILD_THREAD_TURN_NOTIFICATION_BATCH_DELAY_MS,
+    const row = postCoalescedSystemNotice<
+      ChildThreadTurnNotificationBatchItem[]
+    >(deps, {
+      coalesceKey: CHILD_THREAD_TURN_NOTIFICATION_COALESCE_KEY,
+      execution,
+      merge: (previous) => {
+        const items = mergeChildThreadTurnNotificationItem(
+          previous ?? [],
+          item,
+        );
+        const taxonomy = childThreadTurnStatusBatchTaxonomy(items);
+        return {
+          input: buildChildThreadTurnStatusBatchInput({ items }),
+          notice: {
+            kind: taxonomy.systemMessageKind,
+            subject: taxonomy.systemMessageSubject,
+          },
+          state: items,
+        };
       },
-    );
-    requestQueuedMessageDispatchAt(deps, row.sendAt);
+      parseState: (stored) =>
+        childThreadTurnNotificationBatchSchema.parse(JSON.parse(stored)),
+      threadId: parentThread.id,
+      windowMs: CHILD_THREAD_TURN_NOTIFICATION_BATCH_DELAY_MS,
+    });
+    if (row !== null && row.state === "scheduled" && row.sendAt !== null) {
+      requestQueuedMessageDispatchAt(deps, row.sendAt);
+    }
     if (item.turnStatus === "completed") {
       recordDeliveredChildOutput({
         childThreadId: args.childThread.id,

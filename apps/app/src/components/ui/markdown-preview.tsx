@@ -1,8 +1,5 @@
 import { parseApplicationUrl } from "@bb/domain/application-url";
-import {
-  openApplicationUrl,
-  useApplicationLinksEnabled,
-} from "@/lib/application-url";
+import { openApplicationUrl } from "@/lib/application-url";
 import {
   Children,
   cloneElement,
@@ -196,7 +193,6 @@ interface MarkdownRenderOptions {
 }
 
 interface BuildLocalAwareUrlTransformArgs {
-  applicationLinksEnabled: boolean;
   fallbackUrlTransform: UrlTransform | undefined;
   localFileRouting: MarkdownLocalFileLinkRouting | undefined;
   localImageRouting: MarkdownLocalImageRouting | undefined;
@@ -512,7 +508,6 @@ function preserveMarkdownTaskSchemeUrlTransform(
 }
 
 function buildLocalAwareUrlTransform({
-  applicationLinksEnabled,
   fallbackUrlTransform,
   localFileRouting,
   localImageRouting,
@@ -551,7 +546,6 @@ function buildLocalAwareUrlTransform({
     if (
       key === "href" &&
       node.tagName === "a" &&
-      applicationLinksEnabled &&
       parseApplicationUrl(value) !== null
     )
       return value;
@@ -1850,7 +1844,6 @@ function MarkdownPreviewComponent({
   messageDirectives,
   urlTransform,
 }: MarkdownPreviewProps) {
-  const applicationLinksEnabled = useApplicationLinksEnabled();
   const preferredTheme = usePreferredTheme();
   const [rewriteLocalhostLinks] = useRewriteLocalhostLinksPreference();
   const [expandedImage, setExpandedImage] =
@@ -2006,17 +1999,11 @@ function MarkdownPreviewComponent({
   const resolvedUrlTransform = useMemo(
     () =>
       buildLocalAwareUrlTransform({
-        applicationLinksEnabled,
         fallbackUrlTransform: urlTransform,
         localFileRouting,
         localImageRouting,
       }),
-    [
-      applicationLinksEnabled,
-      localFileRouting,
-      localImageRouting,
-      urlTransform,
-    ],
+    [localFileRouting, localImageRouting, urlTransform],
   );
 
   const rehypeKatex = useRehypeKatex(markdownMayContainMath(body));

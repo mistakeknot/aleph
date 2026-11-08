@@ -231,6 +231,7 @@ import {
   type SystemProviderStatesResponse,
   type SystemUsageLimitsQuery,
   type SystemAppUpdateAcknowledgeRequest,
+  type SystemAppUpdateAutoRequest,
   type SystemAppUpdateApplyRequest,
   type SystemAppUpdateQuery,
   type AlephInstallRequest,
@@ -410,6 +411,7 @@ import {
   systemAlephUpdateRequestSchema,
   eventArchiveRehydrateRequestSchema,
   systemAppUpdateAcknowledgeRequestSchema,
+  systemAppUpdateAutoRequestSchema,
   systemAppUpdateApplyRequestSchema,
   systemAppUpdateQuerySchema,
   threadEventWaitQuerySchema,
@@ -2395,6 +2397,26 @@ export const publicApiRoutes = {
       method: "post",
       request: jsonRequest<EmptyInput, SystemAppUpdateAcknowledgeRequest>(
         systemAppUpdateAcknowledgeRequestSchema,
+      ),
+      response: jsonResponse<SystemAppUpdateStatus>(),
+    }),
+    scheduleAppUpdate: defineRoute({
+      path: "/system/app-update/schedule",
+      method: "post",
+      request: noRequest<EmptyInput>(),
+      response: jsonResponse<SystemAppUpdateStatus>(),
+    }),
+    cancelScheduledAppUpdate: defineRoute({
+      path: "/system/app-update/schedule/cancel",
+      method: "post",
+      request: noRequest<EmptyInput>(),
+      response: jsonResponse<SystemAppUpdateStatus>(),
+    }),
+    setAppUpdateAuto: defineRoute({
+      path: "/system/app-update/auto",
+      method: "post",
+      request: jsonRequest<EmptyInput, SystemAppUpdateAutoRequest>(
+        systemAppUpdateAutoRequestSchema,
       ),
       response: jsonResponse<SystemAppUpdateStatus>(),
     }),

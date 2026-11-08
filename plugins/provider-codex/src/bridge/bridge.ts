@@ -2067,7 +2067,6 @@ async function handleTurnStart(
         method: "thread/compact/start",
         params: { threadId: codexThreadId },
         resultSchema: ignoredChildResultSchema,
-        timeoutMs: CHILD_REQUEST_TIMEOUT_MS,
       });
     } else {
       const permissionSettings = toCodexPermissionSettings({
@@ -2099,7 +2098,6 @@ async function handleTurnStart(
             ...(cyberAccessProgram === null ? {} : { cyberAccessProgram }),
           },
           resultSchema: ignoredChildResultSchema,
-          timeoutMs: CHILD_REQUEST_TIMEOUT_MS,
         })
         .catch((error: unknown) => {
           if (session.turnPermissionSettings === permissionSettings) {
@@ -2191,7 +2189,6 @@ async function handleTurnSteer(
         input: await resolveCodexSkillInput(session, params.input),
       },
       resultSchema: ignoredChildResultSchema,
-      timeoutMs: CHILD_REQUEST_TIMEOUT_MS,
     });
     sendThreadDeltas(session, [
       {

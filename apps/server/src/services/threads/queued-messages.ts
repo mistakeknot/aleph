@@ -2,6 +2,7 @@ import { retiredUserPostsMode } from "./retired-user-posts.js";
 import {
   abortTransferOperation,
   isThreadEventsCold,
+  isAppUpdateSendHoldSet,
   claimNextQueuedThreadMessageGroup,
   claimQueuedThreadMessageGroup,
   createQueuedThreadMessageInTransaction,
@@ -177,6 +178,8 @@ export function createAutomaticQueuedMessageGroupEligibility(
             deps.hub.hasDaemonForHost(host.id)
           );
         }
+        case "app-update":
+          return !isAppUpdateSendHoldSet(deps.db);
         case "provisioning":
         case "interaction":
         case "superseded":
@@ -1044,6 +1047,8 @@ function describeCoreWait(waitingOn: QueuedMessageWaitingOn | null): string {
       return "the current turn is still starting";
     case "stopping":
       return "the thread is still stopping";
+    case "app-update":
+      return "bb is restarting to update";
     case "plugin":
       return `it is waiting on the "${waitingOn.pluginId}" plugin`;
     case "superseded":

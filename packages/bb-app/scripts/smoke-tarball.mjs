@@ -1368,7 +1368,7 @@ async function smokeInstalledPackage({ binDir, packageDir, workDir }) {
   await timed("plugin host worker bundle", () =>
     smokePluginHostWorkerBundle(packageDir),
   );
-  if (process.platform === "linux") {
+  if (process.platform === "linux" || process.platform === "darwin") {
     const results = await Promise.allSettled([
       timed("full stack", () => smokeFullStack(binDir, workDir)),
       timed("daemon join", () => smokeDaemonJoin(binDir)),
@@ -1397,7 +1397,7 @@ try {
   } else {
     const tarballPath = await timed("npm pack", () => packTarball());
     let sdkDir;
-    if (process.platform === "win32" || process.platform === "linux") {
+    if (["win32", "linux", "darwin"].includes(process.platform)) {
       const [npxResult, sdkResult] = await Promise.allSettled([
         timed("npx entrypoint", () => smokeNpxEntrypoint(tarballPath)),
         timed("sdk package", () => smokeSdkPackage(tarballPath)),

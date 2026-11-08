@@ -108,8 +108,7 @@ function referencesEventsTable(node: ts.Node): boolean {
 function calledNames(node: ts.Node): Set<string> {
   const names = new Set<string>();
   const visit = (current: ts.Node): void => {
-    if (ts.isCallExpression(current) && ts.isIdentifier(current.expression))
-      names.add(current.expression.text);
+    if (ts.isIdentifier(current)) names.add(current.text);
     ts.forEachChild(current, visit);
   };
   visit(node);
@@ -135,7 +134,7 @@ function exportedEventsReaders(): string[] {
     const callees = new Map(
       functions.map((fn) => [fn.name, calledNames(fn.body)]),
     );
-    for (let changed = true; changed;) {
+    for (let changed = true; changed; ) {
       changed = false;
       for (const fn of functions) {
         if (touching.has(fn.name)) continue;

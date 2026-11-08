@@ -65,20 +65,18 @@ describe("experiments settings", () => {
       const put = await putExperiments(harness, { timelinePush: true });
       expect(put.status).toBe(200);
       expect(experimentsSchema.parse(await readJson(put))).toEqual({
-        applicationLinks: false,
         compactExpiredCache: false,
         dismissReadNotifications: false,
         narrowPluginCss: false,
         serverMove: true,
         performanceDiagnostics: false,
         pluginUpdates: false,
-        sidebarMultiSelect: false,
+        resumeThreadsAfterRestart: false,
         skipFocusedThreadNotifications: false,
         threadContextCard: false,
         threadRowMetadata: false,
         timelinePush: true,
-        unreadDividerAtAnswer: false,
-        websocketCompression: false,
+        updateWhenIdle: false,
       });
       expect(
         harness.db.$client
@@ -106,7 +104,7 @@ describe("experiments settings", () => {
     await withTestHarness(async (harness) => {
       await putExperiments(harness, {
         timelinePush: false,
-        applicationLinks: false,
+        pluginUpdates: false,
       });
       expect(
         (
@@ -119,12 +117,12 @@ describe("experiments settings", () => {
       expect(await configExperiments(harness)).toEqual({
         ...earlyAdopterExperiments,
         timelinePush: false,
-        applicationLinks: false,
+        pluginUpdates: false,
       });
 
       harness.db.$client.prepare("DELETE FROM system_experiments").run();
       expect(await configExperiments(harness)).toEqual(earlyAdopterExperiments);
-      expect((await configExperiments(harness)).applicationLinks).toBe(true);
+      expect((await configExperiments(harness)).pluginUpdates).toBe(true);
 
       const { earlyAdopter: omitted, ...legacy } = defaultAppSettings;
       expect(omitted).toBe(false);

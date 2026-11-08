@@ -1,5 +1,6 @@
 import { retiredUserPostsMode } from "./retired-user-posts.js";
 import {
+  moveQueuedThreadMessageToFrontInTransaction,
   clearQueuedThreadMessageWaitingOn,
   createQueuedThreadMessageInTransaction,
   requeueClaimedQueuedThreadMessages,
@@ -88,6 +89,7 @@ export interface RecordQueuedMessageWaitArgs {
   thread: Thread;
   requestedThreadId?: string;
   message: QueuedDispatchMessage;
+  placement: "back" | "front";
   waitingOn: QueuedMessageWaitingOn;
   /**
    * The row's scheduled instant. Passed every time the wait is written rather
@@ -175,7 +177,7 @@ function createQueuedRowOrRefuse(
           );
         }
         assertThreadHostAcceptsWork(tx, args.thread);
-        return createQueuedThreadMessageInTransaction(tx, {
+        const created = createQueuedThreadMessageInTransaction(tx, {
           threadId: args.requestedThreadId ?? args.thread.id,
           content: args.message.input,
           retiredPosts: retiredUserPostsMode(),
@@ -193,6 +195,9 @@ function createQueuedRowOrRefuse(
           systemNotice: args.message.systemNotice,
           deliveryMode: args.message.deliveryMode,
         });
+        return args.placement === "front"
+          ? moveQueuedThreadMessageToFrontInTransaction(tx, created)
+          : created;
       },
       { behavior: "immediate" },
     );
