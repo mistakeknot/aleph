@@ -253,10 +253,7 @@ Read the installed declarations for exact current signatures.
 - `PluginMentionTrigger`
 - `PluginMessageActionContext`
 - `PluginMessageActionRegistration`
-- `ExperimentalMessageMetadataContext`
-- `ExperimentalMessageMetadataPlacement`
-- `ExperimentalMessageMetadataProps`
-- `ExperimentalMessageMetadataRegistration`
+- `ExperimentalMessageMetadataContext`, `ExperimentalMessageMetadataPlacement`, `ExperimentalMessageMetadataProps`, `ExperimentalMessageMetadataRegistration`
 - `PluginMessageDirectiveMessage`
 - `PluginMessageDirectiveOpenWorkspaceFile`
 - `PluginMessageDirectiveProps`
@@ -363,11 +360,7 @@ Read the installed declarations for exact current signatures.
 - `PluginUi`
 - `SourceCodeLineRange`
 - `SourceCodeProps`
-- `StandardSchemaV1`
-- `StandardSchemaV1InferInput`
-- `StandardSchemaV1InferOutput`
-- `StandardSchemaV1Issue`
-- `StandardSchemaV1Result`
+- `StandardSchemaV1`, `StandardSchemaV1InferInput`, `StandardSchemaV1InferOutput`, `StandardSchemaV1Issue`, `StandardSchemaV1Result`
 - `ThreadChatMessageAction`
 - `ThreadChatMessageReference`
 - `ThreadChatProps`

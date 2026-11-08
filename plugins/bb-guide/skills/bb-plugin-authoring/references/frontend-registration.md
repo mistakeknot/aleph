@@ -190,31 +190,30 @@ function Automations({ threadId }: ExperimentalThreadInfoProps) {
 
 Components receive `{ threadId, projectId, environment }` and mount once per
 visible thread; `environment` is `{ id }` taken from the thread, null only when
-the thread has no environment; read its state yourself. Return
-null to show nothing. A row renders `experimental_DetailRow`.
-Entries sort by `group`, then `order` within it (unset last), then registration
-order, bb's first on a tie, as thread actions do. Join one of bb's groups from
+the thread has no environment; read its state yourself. Return null to show
+nothing. A row renders `experimental_DetailRow`. Entries sort by `group`, then
+`order` within it (unset last), then registration order, bb's first on a tie, as
+thread actions do. Join one of bb's groups from
 `experimental_THREAD_INFO_ROW_GROUPS` or `experimental_THREAD_INFO_SECTION_GROUPS`
 (bb's entries use orders 10, 20, 30 within a group), or name your own group to
-sort it where its string falls. Inside a section slot `experimental_InfoSection` collapses and bb
-remembers it per registration. A crash removes only that row or section.
+sort it where its string falls. Inside a section slot `experimental_InfoSection`
+collapses and bb remembers it per registration. A crash removes only that row or
+section.
 
 ### Context beside a thread's composer
 
 `app.slots.experimental_threadContextSegment({ id, title, group, order?, summary, action?, details?, useVisible? })`
 adds a segment to the context row above an open thread's composer; bb's parent
-thread and the Git plugin's changed files use it too. `group`/`order` sort as for Info rows; bb's
-groups are `experimental_THREAD_CONTEXT_SEGMENT_GROUPS`, and any other string
-sorts in place (GitHub PR Status uses `"2_pullRequest"`). Each component mounts
-in its own crash boundary: `summary` in the row, `action` at its end, `details`
+thread and the Git plugin's changed files use it too. `group`/`order` sort as
+for Info rows; bb's groups are `experimental_THREAD_CONTEXT_SEGMENT_GROUPS`, and any other string sorts in
+place (GitHub PR Status uses `"2_pullRequest"`). Each component mounts in its
+own crash boundary: `summary` in the row, `action` at its end, `details`
 below it. Props carry `threadId`, `projectId`, `environment` (null without a
-usable environment), the visible `segments`
-as `{ key, pluginId }` in row order (`key` is `<pluginId>/<id>`; bb's own use
+usable environment), the visible `segments` as `{ key, pluginId }` in row order (`key` is `<pluginId>/<id>`; bb's own use
 `bb--core`), and `isExpanded`/`onToggle` (one segment is expanded at a time).
 `useVisible(input)` false leaves it out. A segment whose content is also a
 thread context card row or section hides itself while
-`experimental_useThreadContextKind()` is `card`; see
-frontend-thread-context-card.md.
+`experimental_useThreadContextKind()` is `card`; see frontend-thread-context-card.md.
 
 ### An action in every thread menu
 
@@ -255,16 +254,8 @@ app.slots.experimental_threadAction({
     icon: "Notification",
     choices: {
       items: [
-        {
-          id: "all",
-          label: "All activity",
-          selected: data.get(thread.id) === "all",
-        },
-        {
-          id: "muted",
-          label: "Muted",
-          selected: data.get(thread.id) === "muted",
-        },
+        { id: "all", label: "All activity", selected: data.get(thread.id) === "all" },
+        { id: "muted", label: "Muted", selected: data.get(thread.id) === "muted" },
       ],
     },
     run: ({ value }) => saveLevel(sdk, thread.id, value),
@@ -276,9 +267,9 @@ A replacement thread list renders bb's menus with
 `experimental_ThreadActionsMenu` and `experimental_ThreadActionsContextMenu`,
 passing its own rename editor as `requestRename` and list-only entries as
 `inline` (`{ key, group, action }`). `trigger` is a function: spread the props
-and ref it receives onto your button, or the menu never opens. `experimental_useThreadActions(thread, { keys })` returns bound
-actions for quick-action buttons, and
-`experimental_useThreadActionRegistrations()` lists every action's static
+and ref it receives onto your button, or the menu never opens.
+`experimental_useThreadActions(thread, { keys })` returns bound actions for
+quick-action buttons, and `experimental_useThreadActionRegistrations()` lists every action's static
 title and icon for a picker. Keys are `bb--core/<id>` and `<pluginId>/<id>`. For the header
 bar's center status chip slot, read references/frontend-app-header-status.md.
 
