@@ -261,6 +261,99 @@ export const quotaSchema = z
 
 export type AccountQuota = z.infer<typeof quotaSchema>;
 
+const evidenceStampSchema = z.number().int().nullable().default(null);
+
+export const FRESHNESS_STAMP_FIELDS = [
+  "utilizationAt",
+  "statusAt",
+  "resetSeenAt",
+  "durationAt",
+] as const;
+
+export const windowEvidenceSchema = z.object({
+  utilizationAt: evidenceStampSchema,
+  statusAt: evidenceStampSchema,
+  resetSeenAt: evidenceStampSchema,
+  durationAt: evidenceStampSchema,
+  reportedAt: evidenceStampSchema,
+  utilizationInvalidAt: evidenceStampSchema,
+  statusInvalidAt: evidenceStampSchema,
+  durationInvalidAt: evidenceStampSchema,
+  lastSeq: evidenceStampSchema,
+  utilizationSeq: evidenceStampSchema,
+  statusSeq: evidenceStampSchema,
+  resetSeq: evidenceStampSchema,
+  durationSeq: evidenceStampSchema,
+  utilizationInvalidSeq: evidenceStampSchema,
+  statusInvalidSeq: evidenceStampSchema,
+  durationInvalidSeq: evidenceStampSchema,
+  restrictSeq: evidenceStampSchema,
+});
+
+export type WindowEvidence = z.infer<typeof windowEvidenceSchema>;
+
+export const evidenceClassSchema = z.enum(["claude_usage", "codex_usage"]);
+
+export type EvidenceClass = z.infer<typeof evidenceClassSchema>;
+
+export const EVIDENCE_CLASSES = evidenceClassSchema.options;
+
+const classSeqsSchema = z.object({
+  claude_usage: evidenceStampSchema,
+  codex_usage: evidenceStampSchema,
+});
+
+export type ClassSeqs = z.infer<typeof classSeqsSchema>;
+
+export const evidenceDocumentSchema = z.object({
+  windows: z.record(z.string(), windowEvidenceSchema).default({}),
+  removed: z.record(z.string(), z.number().int()).default({}),
+  classUncertain: classSeqsSchema.default({
+    claude_usage: null,
+    codex_usage: null,
+  }),
+  snapshotSeq: classSeqsSchema.default({
+    claude_usage: null,
+    codex_usage: null,
+  }),
+});
+
+export type EvidenceDocument = z.infer<typeof evidenceDocumentSchema>;
+
+export const evidenceRowSchema = z.object({
+  account_id: z.string().uuid(),
+  seq: z.number().int(),
+  mutation: z.number().int(),
+  evidence_json: z.string(),
+});
+
+export interface AccountEvidence extends EvidenceDocument {
+  seq: number;
+  mutation: number;
+}
+
+export interface EvidenceView {
+  present: boolean;
+  matches: boolean;
+  uncertain: Record<EvidenceClass, boolean>;
+  evidence: AccountEvidence;
+}
+
+export interface QuotaEvidenceCurrent {
+  quota: AccountQuota;
+  evidence: EvidenceView;
+  seq: number;
+}
+
+export interface QuotaEvidenceResult {
+  quota: AccountQuota;
+  evidence: EvidenceDocument;
+}
+
+export type QuotaEvidenceUpdater = (
+  current: QuotaEvidenceCurrent,
+) => QuotaEvidenceResult;
+
 export const accountSummarySchema = accountSchema.extend({
   lastUsedHostName: z.string().min(1).nullable(),
   ...quotaFieldsShape,

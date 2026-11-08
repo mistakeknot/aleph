@@ -20,6 +20,7 @@
     "plugins/provider-codex/src/generated/",
     "packages/templates/src/generated/",
     "packages/plugin-sdk/bundled-types/",
+    "plugins/account-pool/src/fixtures/legacy-builds/",
     "packages/plugin-build/src/generated/",
     "packages/plugin-registry/r/",
     ".bb/skills/verify-bb/inventory.json",
