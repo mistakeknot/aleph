@@ -15,9 +15,21 @@ import type {
   HostDaemonContributedEnvEntry,
   HostDaemonInjectedSkillSource,
 } from "@bb/host-daemon-contract";
+import { COMMAND_TIMEOUT_MS } from "../../constants.js";
 import { ApiError } from "../../errors.js";
 import type { LoggedWorkSessionDeps } from "../../types.js";
 import { throwEnvironmentNotReady } from "../lib/lifecycle-api-errors.js";
+import { callHostOnlineRpcForWork } from "../hosts/online-rpc.js";
+import { joinHostPathSegments } from "../lib/host-path.js";
+import {
+  buildRulesReceipt,
+  type RulesReceiptDelivery,
+  type RulesReceiptPurpose,
+  isInstructionsStoreConfigured,
+  resolveUserInstructionsSection,
+  type RecordedInstructionsSection,
+  type RulesReceipt,
+} from "./instructions-store.js";
 import { requireLiveThreadStoragePath } from "./thread-storage.js";
 import {
   listPluginAgentTools,
@@ -29,11 +41,7 @@ import {
 import { resolveSkillCatalog } from "../skills/skill-catalog.js";
 import { discoverPluginSkillIds } from "../skills/injected-skills.js";
 import { UPDATE_ENVIRONMENT_DIRECTORY_TOOL } from "./thread-environment-directory.js";
-import {
-  DATA_DIR_AGENT_INSTRUCTIONS_RELATIVE_PATH,
-  WORKSPACE_AGENT_INSTRUCTIONS_RELATIVE_PATH,
-  readDataDirAgentInstructions,
-} from "./workspace-agent-instructions.js";
+import { WORKSPACE_AGENT_INSTRUCTIONS_RELATIVE_PATH } from "./workspace-agent-instructions.js";
 import { readWorkspaceAgentContext } from "./workspace-agent-context.js";
 import { resolveDeprecatedWorkspaceProvisionType } from "../environments/environment-response.js";
 import { markTurnTraceSpan } from "../system/turn-trace.js";
@@ -42,6 +50,14 @@ const UPDATE_ENVIRONMENT_DIRECTORY_INSTRUCTIONS =
   "If the user asks you to move this thread to another checkout, worktree, or directory, make sure the target directory exists, then call `update_environment_directory` with its absolute path. After it succeeds, end the current turn; bb starts the next turn in the updated environment automatically so you can continue there.";
 
 const PLUGIN_INSTRUCTION_CONTRIBUTION_MAX_CHARS = 4096;
+
+export const RULES_RECEIPT_FILE_NAME = "rules-receipt.json";
+
+const DELIVERY_BY_PURPOSE: Record<RulesReceiptPurpose, RulesReceiptDelivery> = {
+  start: "delivered",
+  turn: "resolved-only",
+  "dry-run": "dry-run",
+};
 
 export interface ThreadRuntimeCommandEnvironment {
   hostId: string;
@@ -53,6 +69,7 @@ export interface ThreadRuntimeCommandEnvironment {
 interface ResolveThreadRuntimeCommandConfigArgs {
   environment: ThreadRuntimeCommandEnvironment;
   model: string;
+  purpose?: RulesReceiptPurpose;
   thread: Thread;
 }
 
@@ -68,6 +85,7 @@ export interface ResolvedThreadRuntimeCommandConfig {
   instructions: string;
   projectId: string;
   providerId: string;
+  rulesReceipt: RulesReceipt;
   threadStoragePath: string;
   workspacePath: string;
 }
@@ -208,26 +226,26 @@ export async function resolveThreadRuntimeCommandConfig(
       pluginSkillSelections: conditionalConfiguration.selectedSkillIdsByPlugin,
     })
   ).map((entry) => entry.runtimeSource);
-  const dataDirAgentInstructions = readDataDirAgentInstructions(
-    deps.logger,
-    deps.config.dataDir,
-  );
+  const userInstructions = await resolveUserInstructionsSection(deps);
   const dynamicToolContributions = resolveDynamicTools(
     conditionalConfiguration.tools,
   );
   const dynamicTools = dynamicToolContributions.map(
     (contribution) => contribution.tool,
   );
-  const instructionSections: string[] = [];
+  const instructionSections: RecordedInstructionsSection[] = [];
   for (const contribution of dynamicToolContributions) {
     if (!contribution.instructions) continue;
     if (contribution.pluginId === null) {
-      instructionSections.push(contribution.instructions);
+      instructionSections.push({
+        header: null,
+        text: contribution.instructions,
+      });
     } else {
-      instructionSections.push(
-        `The following instructions come from the BB plugin "${contribution.pluginId}" for its tool "${contribution.tool.name}":`,
-        contribution.instructions,
-      );
+      instructionSections.push({
+        header: `The following instructions come from the BB plugin "${contribution.pluginId}" for its tool "${contribution.tool.name}":`,
+        text: contribution.instructions,
+      });
     }
   }
   for (const contribution of listPluginInstructionContributions()) {
@@ -252,34 +270,60 @@ export async function resolveThreadRuntimeCommandConfig(
     if (text.length > PLUGIN_INSTRUCTION_CONTRIBUTION_MAX_CHARS) {
       text = text.slice(0, PLUGIN_INSTRUCTION_CONTRIBUTION_MAX_CHARS);
     }
-    instructionSections.push(
-      `The following instructions come from the BB plugin "${contribution.pluginId}":`,
+    instructionSections.push({
+      header: `The following instructions come from the BB plugin "${contribution.pluginId}":`,
       text,
-    );
+    });
   }
   for (const contribution of conditionalConfiguration.dynamicInstructions) {
-    instructionSections.push(
-      `The following dynamic instructions come from the BB plugin "${contribution.pluginId}":`,
-      contribution.text,
-    );
+    instructionSections.push({
+      header: `The following dynamic instructions come from the BB plugin "${contribution.pluginId}":`,
+      text: contribution.text,
+    });
   }
-  if (dataDirAgentInstructions) {
-    instructionSections.push(
-      `The following user instructions come from <dataDir>/${DATA_DIR_AGENT_INSTRUCTIONS_RELATIVE_PATH}:`,
-      dataDirAgentInstructions,
-    );
+  if (userInstructions) {
+    instructionSections.push({
+      header: userInstructions.header,
+      text: userInstructions.text,
+    });
   }
   if (workspaceAgentContext.agentInstructions) {
-    instructionSections.push(
-      `The following workspace instructions come from ${WORKSPACE_AGENT_INSTRUCTIONS_RELATIVE_PATH}:`,
-      workspaceAgentContext.agentInstructions,
-    );
+    instructionSections.push({
+      header: `The following workspace instructions come from ${WORKSPACE_AGENT_INSTRUCTIONS_RELATIVE_PATH}:`,
+      text: workspaceAgentContext.agentInstructions,
+    });
   }
-  const instructions = instructionSections.join("\n\n");
+  const instructions = instructionSections
+    .flatMap((section) =>
+      section.header === null ? [section.text] : [section.header, section.text],
+    )
+    .join("\n\n");
+  const purpose = args.purpose ?? "start";
+  const rulesReceipt = buildRulesReceipt({
+    delivery: DELIVERY_BY_PURPOSE[purpose],
+    instructions,
+    origin: userInstructions ?? {
+      mode: null,
+      snapshotId: null,
+      source: "dark",
+    },
+    sections: instructionSections,
+    threadId: args.thread.id,
+  });
   const threadStoragePath = await requireLiveThreadStoragePath(deps, {
     hostId: args.environment.hostId,
     threadId: args.thread.id,
   });
+  if (
+    purpose !== "dry-run" &&
+    isInstructionsStoreConfigured(deps.config.orchestration)
+  ) {
+    await writeRulesReceipt(deps, {
+      hostId: args.environment.hostId,
+      receipt: rulesReceipt,
+      threadStoragePath,
+    });
+  }
   markTurnTraceSpan("runtimeConfig.built");
   return {
     contributedEnv,
@@ -289,7 +333,42 @@ export async function resolveThreadRuntimeCommandConfig(
     instructions,
     projectId: args.thread.projectId,
     providerId: args.thread.providerId,
+    rulesReceipt,
     threadStoragePath,
     workspacePath,
   };
+}
+
+interface WriteRulesReceiptArgs {
+  hostId: string;
+  receipt: RulesReceipt;
+  threadStoragePath: string;
+}
+
+async function writeRulesReceipt(
+  deps: LoggedWorkSessionDeps,
+  args: WriteRulesReceiptArgs,
+): Promise<void> {
+  try {
+    await callHostOnlineRpcForWork(deps, {
+      hostId: args.hostId,
+      timeoutMs: COMMAND_TIMEOUT_MS,
+      command: {
+        type: "host.write_file",
+        path: joinHostPathSegments(
+          args.threadStoragePath,
+          RULES_RECEIPT_FILE_NAME,
+        ),
+        rootPath: args.threadStoragePath,
+        content: `${JSON.stringify(args.receipt, null, 2)}\n`,
+        contentEncoding: "utf8",
+        createParents: true,
+      },
+    });
+  } catch (error) {
+    deps.logger.error(
+      { err: error, threadId: args.receipt.threadId },
+      "Failed to write the rules receipt",
+    );
+  }
 }

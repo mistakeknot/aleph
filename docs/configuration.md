@@ -794,6 +794,47 @@ file is treated as absent. bb injects these itself, so they apply to every
 provider; provider-native files such as a repo-root `AGENTS.md` or `CLAUDE.md`
 remain separate. See `bb guide agent-configuration`.
 
+### Instructions store (`orchestration`)
+
+An optional instructions store replaces the `<dataDir>/AGENTS.md` section with
+the `docs/AGENTS.md` of a resolved store snapshot. It is off unless
+`orchestration.instructionsStore` is set in the managed `config.json`:
+
+```json
+{
+  "orchestration": {
+    "instructionsStore": "/abs/path/to/store",
+    "resolveCommand": ["orch", "instructions", "resolve", "--json"],
+    "resolveTimeoutMs": 30000
+  }
+}
+```
+
+- `instructionsStore` is an absolute path. `resolveCommand` defaults to
+  `orch instructions resolve --json` and `resolveTimeoutMs` defaults to 30000
+  (maximum 300000).
+- Every provider session start and every turn submit runs
+  `<resolveCommand> --store <instructionsStore> --data-dir <dataDir>` and reads
+  one JSON document from stdout: `{"source":"dark"}`, or
+  `{"source":"active"|"lkg","snapshotId":"...","mode":"legacy"|"aleph-append","directory":"/abs/dir","files":[{"path":"docs/AGENTS.md","sha256":"<hex>","bytes":0}]}`.
+  This contract is provisional until the store command ships.
+- `{"source":"dark"}` keeps today's `<dataDir>/AGENTS.md` behavior unchanged.
+- For `active` and `lkg`, bb re-checks the sha256 of `docs/AGENTS.md` (resolving
+  once more on a mismatch, then failing), replaces `{instructions_dir}` with
+  `directory`, and appends the text in place of the data-dir section.
+- A timeout or a failing command fails the start with a retryable error.
+- Text beginning with `<!-- aleph-instructions-stub v1 -->` is refused in every
+  mode.
+- If `<dataDir>/.aleph-instructions` exists and `instructionsStore` is not set,
+  starts are blocked instead of falling back to the data-dir file.
+- When the store is configured, bb writes `rules-receipt.json` to the thread's
+  storage directory: snapshot ID, mode, source, `delivery`
+  (`delivered` at session start, `resolved-only` on later turns, because
+  providers keep the first-turn instructions), the sha256 of the assembled
+  instructions, and each section's header, byte count and sha256.
+  `bb thread runtime-config --dry-run <thread>` prints the same receipt without
+  starting a session or writing a file.
+
 ## Skills
 
 User-level skills live under `<dataDir>/skills/<name>/SKILL.md` (usually

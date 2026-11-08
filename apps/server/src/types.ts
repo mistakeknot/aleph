@@ -24,6 +24,12 @@ import type { ProviderLiveCommandsCache } from "./services/providers/provider-li
 
 export type ServerLogger = Pick<Logger, "debug" | "error" | "info" | "warn">;
 
+export interface OrchestrationRuntimeConfig {
+  instructionsStore?: string;
+  resolveCommand?: string[];
+  resolveTimeoutMs?: number;
+}
+
 export interface ServerRuntimeConfig {
   appVersion: string;
   builtinSkillsRootPath: string;
@@ -41,6 +47,7 @@ export interface ServerRuntimeConfig {
   appUrl?: string;
   devAppPort?: number;
   launchId?: string;
+  orchestration?: OrchestrationRuntimeConfig;
 }
 
 export interface AppDeps {

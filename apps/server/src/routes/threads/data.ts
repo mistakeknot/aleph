@@ -29,7 +29,12 @@ import {
 import type { AppDeps } from "../../types.js";
 import { COMMAND_TIMEOUT_MS } from "../../constants.js";
 import { ApiError } from "../../errors.js";
-import { requirePublicThread } from "../../services/lib/entity-lookup.js";
+import {
+  requirePublicThread,
+  requirePublicThreadEnvironment,
+} from "../../services/lib/entity-lookup.js";
+import { buildExecutionOptions } from "../../services/threads/thread-commands.js";
+import { resolveThreadRuntimeCommandConfig } from "../../services/threads/thread-runtime-config.js";
 import { withHotThreadHistory } from "../../services/threads/event-cold-tier/service.js";
 import { callHostRetryableOnlineRpc } from "../../services/hosts/online-rpc.js";
 import { requireThreadStorageTarget } from "../../services/threads/thread-storage.js";
@@ -557,6 +562,31 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
       }
       throw error;
     }
+  });
+
+  get(routes.runtimeConfig, async (context) => {
+    const threadId = context.req.param("id");
+    const { thread, environment } = requirePublicThreadEnvironment(
+      deps.db,
+      threadId,
+    );
+    const execution = await buildExecutionOptions(
+      deps,
+      {},
+      { threadId, hostId: environment.hostId },
+    );
+    const resolved = await resolveThreadRuntimeCommandConfig(deps, {
+      thread,
+      environment: {
+        hostId: environment.hostId,
+        id: environment.id,
+        path: environment.path,
+        status: environment.status,
+      },
+      model: execution.model,
+      purpose: "dry-run",
+    });
+    return context.json({ rulesReceipt: resolved.rulesReceipt });
   });
 
   get(routes.storageLocation, async (context) => {

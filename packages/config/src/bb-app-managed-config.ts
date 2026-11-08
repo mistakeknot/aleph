@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { providerNativeSkillRootsSchema } from "@bb/domain";
 import { z } from "zod";
 
@@ -63,6 +63,28 @@ export const customProviderModelSchema = z
   })
   .strict();
 
+export const DEFAULT_INSTRUCTIONS_RESOLVE_TIMEOUT_MS = 30_000;
+const MAX_INSTRUCTIONS_RESOLVE_TIMEOUT_MS = 300_000;
+
+export const bbAppOrchestrationConfigSchema = z
+  .object({
+    instructionsStore: z
+      .string()
+      .min(1)
+      .refine((value) => isAbsolute(value), {
+        message: "instructionsStore must be an absolute path",
+      })
+      .optional(),
+    resolveCommand: z.array(z.string().min(1)).min(1).optional(),
+    resolveTimeoutMs: z
+      .number()
+      .int()
+      .positive()
+      .max(MAX_INSTRUCTIONS_RESOLVE_TIMEOUT_MS)
+      .optional(),
+  })
+  .strict();
+
 const bbAppManagedEnvNameSchema = z.string().regex(PORTABLE_ENV_NAME_PATTERN);
 
 const bbAppManagedEnvConfigSchema = z.record(
@@ -75,6 +97,7 @@ const bbAppManagedConfigBoundarySchema = z
     config: bbAppManagedConfigValuesSchema.optional(),
     customModels: z.array(z.unknown()).optional(),
     sharedSkillRoots: providerNativeSkillRootsSchema.optional(),
+    orchestration: bbAppOrchestrationConfigSchema.optional(),
     serverHeaders: z.record(z.string(), z.string()).optional(),
     machineCredential: z.string().min(1).optional(),
     connectMachineId: z.string().min(1).optional(),
@@ -90,6 +113,9 @@ export const bbAppManagedEnvFileSchema = z
 
 export type BbAppManagedConfigValues = z.infer<
   typeof bbAppManagedConfigValuesSchema
+>;
+export type BbAppOrchestrationConfig = z.infer<
+  typeof bbAppOrchestrationConfigSchema
 >;
 export type CustomProviderModel = z.infer<typeof customProviderModelSchema>;
 export type BbAppManagedConfig = Omit<
@@ -187,6 +213,9 @@ export function parseBbAppManagedConfig(
   }
   if (parsed.sharedSkillRoots !== undefined) {
     config.sharedSkillRoots = parsed.sharedSkillRoots;
+  }
+  if (parsed.orchestration !== undefined) {
+    config.orchestration = parsed.orchestration;
   }
   if (parsed.serverUrl !== undefined) {
     config.serverUrl = parsed.serverUrl;

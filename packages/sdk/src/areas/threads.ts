@@ -52,6 +52,7 @@ import type {
   RecordThreadSearchSelectionRequest,
   RecordThreadSearchSelectionResponse,
   ThreadStorageFileListResponse,
+  ThreadRuntimeConfigResponse,
   ThreadStorageLocationResponse,
   ThreadStoragePathListResponse,
   ThreadTabsResponse,
@@ -242,6 +243,7 @@ export type ThreadQueueListResult = ThreadQueuedMessageListResponse;
 export type ThreadTabsResult = ThreadTabsResponse;
 export type ThreadTabsUpdateResult = ThreadTabsResponse;
 export type ThreadStorageFilesResult = ThreadStorageFileListResponse;
+export type ThreadRuntimeConfigResult = ThreadRuntimeConfigResponse;
 export type ThreadStorageLocationResult = ThreadStorageLocationResponse;
 export type ThreadStoragePathsResult = ThreadStoragePathListResponse;
 export type ThreadChildSummaryResult = ThreadChildSummaryResponse;
@@ -797,6 +799,7 @@ export interface ThreadsArea {
     args: ThreadTimelineTurnSummaryDetailsArgs,
   ): Promise<ThreadTimelineTurnSummaryDetailsResult>;
   storageFiles(args: ThreadStorageFilesArgs): Promise<ThreadStorageFilesResult>;
+  runtimeConfig(args: ThreadStatusArgs): Promise<ThreadRuntimeConfigResult>;
   storageLocation(args: ThreadStatusArgs): Promise<ThreadStorageLocationResult>;
   storagePaths(args: ThreadStoragePathsArgs): Promise<ThreadStoragePathsResult>;
   unarchive(args: ThreadActionArgs): Promise<ThreadUnarchiveResult>;
@@ -1783,6 +1786,16 @@ export function createThreadsArea(args: CreateSdkAreaArgs): ThreadsArea {
           {
             param: { id: input.threadId },
             query: { query: input.query, limit: input.limit },
+          },
+          ...signalRequestArgs(input.signal),
+        ),
+      );
+    },
+    async runtimeConfig(input) {
+      return transport.readJson(
+        transport.api.v1.threads[":id"]["runtime-config"].$get(
+          {
+            param: { id: input.threadId },
           },
           ...signalRequestArgs(input.signal),
         ),

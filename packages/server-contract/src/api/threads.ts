@@ -1367,6 +1367,38 @@ export type ThreadStorageLocationResponse = z.infer<
   typeof threadStorageLocationResponseSchema
 >;
 
+export const threadRulesReceiptSectionSchema = z
+  .object({
+    header: z.string().nullable(),
+    bytes: z.number().int().nonnegative(),
+    sha256: z.string().regex(/^[0-9a-f]{64}$/u),
+  })
+  .strict();
+
+export const threadRulesReceiptSchema = z
+  .object({
+    version: z.literal(1),
+    delivery: z.enum(["delivered", "resolved-only", "dry-run"]),
+    threadId: z.string().min(1),
+    snapshotId: z.string().min(1).nullable(),
+    mode: z.string().min(1).nullable(),
+    source: z.enum(["dark", "active", "lkg"]),
+    instructionsSha256: z.string().regex(/^[0-9a-f]{64}$/u),
+    instructionsBytes: z.number().int().nonnegative(),
+    sections: z.array(threadRulesReceiptSectionSchema),
+  })
+  .strict();
+export type ThreadRulesReceipt = z.infer<typeof threadRulesReceiptSchema>;
+
+export const threadRuntimeConfigResponseSchema = z
+  .object({
+    rulesReceipt: threadRulesReceiptSchema,
+  })
+  .strict();
+export type ThreadRuntimeConfigResponse = z.infer<
+  typeof threadRuntimeConfigResponseSchema
+>;
+
 export const timelineTurnSummaryDetailsResponseSchema = z.object({
   olderCursor: z.string().nullable().optional(),
   historySnapshot: z.string().optional(),

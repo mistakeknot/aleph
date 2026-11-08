@@ -306,6 +306,7 @@ export async function buildThreadStartCommand(
     thread: args.thread,
     environment: args.environment,
     model: args.execution.model,
+    purpose: "start",
   });
   const bridgeLaunch = requireBridgeLaunchForProviderId(deps, args.providerId);
   return {
@@ -405,6 +406,7 @@ export async function prepareTurnSubmitCommandPayload(
     thread: args.thread,
     environment: args.environment,
     model: args.execution.model,
+    purpose: "turn",
   });
   return buildPreparedTurnSubmitCommandPayload({
     deps,
