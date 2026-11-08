@@ -830,18 +830,24 @@ the `docs/AGENTS.md` of a resolved store snapshot. It is off unless
   `{instructions_dir}` with the real `directory`, and appends the text in place
   of the data-dir section.
 - A timeout, a failing command or output over 4 MiB fails the start with a
-  retryable error. On a timeout bb kills the resolve command's whole process
-  group, not only its first process.
+  retryable error. On a timeout or an output overflow bb kills the resolve
+  command's whole process tree, not only its first process (a process group on
+  POSIX, `taskkill /T` on Windows).
 - Text beginning with `<!-- aleph-instructions-stub v1 -->` is refused in every
   mode.
 - If `<dataDir>/.aleph-instructions` exists and `instructionsStore` is not set,
   starts are blocked instead of falling back to the data-dir file.
+- A `dark` answer is accepted only while the marker is absent both before the
+  resolve command starts and after it returns, so a marker created while the
+  command runs still blocks the start.
 - When the store is configured, bb writes `rules-receipt.json` to the thread's
   storage directory only after the provider has accepted the instructions, and
   it describes the last instructions actually delivered: snapshot ID, mode,
   source, `delivery` (`delivered` when a session starts, `resumed` when a turn
-  submit had to resume the provider, which passes the instructions into the
-  resume), the sha256 of the assembled instructions, and each section's header,
+  submit rebuilt the provider session, whether the runtime resumed the thread
+  or the provider bridge rebuilt it inside the turn, which passes the
+  instructions into the rebuild; a daemon that predates the report never
+  triggers it), the sha256 of the assembled instructions, and each section's header,
   byte count and sha256. An ordinary turn submit resolves the store but does not
   change the file, because providers keep the instructions from the first turn,
   and a failed start leaves no receipt. If the write fails after the provider

@@ -94,6 +94,7 @@ interface FakeRuntimeState {
   archivedThreadId: string | undefined;
   ranTurnClientRequestId: ClientTurnRequestId | undefined;
   ranTurnInput: PromptInput[] | undefined;
+  runTurnRebuildsProviderSession: boolean;
   ranTurnText: string | undefined;
   renamedTitle: string | undefined;
   resumedBridgeLaunch: AgentRuntimeBridgeLaunch | undefined;
@@ -169,6 +170,7 @@ export function createFakeRuntime() {
     archivedThreadId: undefined,
     ranTurnClientRequestId: undefined,
     ranTurnInput: undefined,
+    runTurnRebuildsProviderSession: false,
     ranTurnText: undefined,
     renamedTitle: undefined,
     resumedBridgeLaunch: undefined,
@@ -262,6 +264,7 @@ export function createFakeRuntime() {
       state.ranTurnClientRequestId = args.clientRequestId;
       state.ranTurnInput = args.input;
       activeTurnsByThreadId.set(args.threadId, `turn-${nextTurnNumber++}`);
+      return { providerSessionRebuilt: state.runTurnRebuildsProviderSession };
     },
     async steerTurn(args) {
       state.steeredTurnId = args.expectedTurnId;

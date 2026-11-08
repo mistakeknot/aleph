@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -185,6 +185,62 @@ it("raises authRequired on a terminal 401 and rebuilds the child before the next
   expect(
     notifications(BRIDGE_NOTIFICATION_METHODS.providerRecovery),
   ).toHaveLength(1);
+}, 30_000);
+
+it("reports a rebuilt provider session on the turn that rebuilt it with the changed instructions", async () => {
+  const requestLogPath = join(workspaceDir, "requests.jsonl");
+  stubFakeAppServer({
+    turns: [UNAUTHORIZED_TURN, OK_TURN],
+    turnCursorPath: join(workspaceDir, "turn-cursor"),
+    requestLogPath,
+  });
+  harness = createBridgeJsonRpcTestHarness(handleLine);
+
+  harness.sendRequest(1, "thread/resume", {
+    threadId: THREAD_ID,
+    providerThreadId: PROVIDER_THREAD_ID,
+    cwd: workspaceDir,
+    instructionMode: "append",
+    options: { ...FULL_ACCESS_SESSION_OPTIONS, instructions: "snapshot one" },
+  });
+  expect((await harness.waitForResponse(1)).error).toBeUndefined();
+
+  harness.sendRequest(2, "turn/start", {
+    threadId: THREAD_ID,
+    providerThreadId: PROVIDER_THREAD_ID,
+    clientRequestId: "creq_cdxrcvry24",
+    input: [{ type: "text", text: "first", mentions: [] }],
+    options: { ...FULL_ACCESS_SESSION_OPTIONS, instructions: "snapshot one" },
+  });
+  const firstTurn = await harness.waitForResponse(2);
+  expect(firstTurn.error).toBeUndefined();
+  expect(firstTurn.result).not.toHaveProperty("sessionRebuilt");
+  await waitForNotification(
+    BRIDGE_NOTIFICATION_METHODS.providerRecovery,
+    () => true,
+  );
+
+  harness.sendRequest(3, "turn/start", {
+    threadId: THREAD_ID,
+    providerThreadId: PROVIDER_THREAD_ID,
+    clientRequestId: "creq_cdxrcvry25",
+    input: [{ type: "text", text: "after reauth", mentions: [] }],
+    options: { ...FULL_ACCESS_SESSION_OPTIONS, instructions: "snapshot two" },
+  });
+  const rebuiltTurn = await harness.waitForResponse(3);
+  expect(rebuiltTurn.error).toBeUndefined();
+  expect(rebuiltTurn.result).toMatchObject({
+    threadId: THREAD_ID,
+    sessionRebuilt: true,
+  });
+  const resumes = readFileSync(requestLogPath, "utf8")
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line) as { method: string; params: unknown })
+    .filter((entry) => entry.method === "thread/resume");
+  expect(resumes).toHaveLength(2);
+  expect(JSON.stringify(resumes[1]?.params)).toContain("snapshot two");
+  expect(JSON.stringify(resumes[0]?.params)).toContain("snapshot one");
 }, 30_000);
 
 it("retries a rename inside the bridge while the rollout is not ready", async () => {

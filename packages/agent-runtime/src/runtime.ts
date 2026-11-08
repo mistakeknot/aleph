@@ -25,6 +25,7 @@ import {
   providerToolCallCancellationSchema,
   getJsonRpcStringParam,
   ignoredJsonRpcResultSchema,
+  turnStartBridgeResultSchema,
   parseJsonRpcLine,
   sendJsonRpcError,
   sendJsonRpcRequest,
@@ -982,18 +983,18 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
 
   async function restartThreadBridgeIfRecommended(
     args: RestartThreadBridgeArgs,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const hint = threadsAwaitingBridgeRestart.get(args.threadId);
     if (hint === undefined) {
-      return;
+      return false;
     }
     const currentConfig = threadRuntimeConfigs.get(args.threadId);
     if (!currentConfig) {
       threadsAwaitingBridgeRestart.delete(args.threadId);
-      return;
+      return false;
     }
     if (turnState.getActiveTurnId(args.threadId) !== null) {
-      return;
+      return false;
     }
     const proc = providerProcesses.requireProviderProcess({
       processKey: currentConfig.processKey,
@@ -1014,7 +1015,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
         `Deferring the "${currentConfig.providerId}" bridge restart recommended for thread "${args.threadId}": thread "${busyThreadId}" is mid-turn or has open background work on the same process.`,
         args.threadId,
       );
-      return;
+      return false;
     }
     threadsAwaitingBridgeRestart.delete(args.threadId);
     const providerThreadId = requireProviderThreadId(args.threadId);
@@ -1065,6 +1066,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
         );
       }
     }
+    return true;
   }
 
   async function resumeThreadFromConfig(args: {
@@ -2002,7 +2004,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
           const pid = threadIdentityRegistry.resolveProviderForThread(threadId);
           requireProviderProcessForThread(threadId);
           assertThreadCanStartTurn(threadId);
-          await restartThreadBridgeIfRecommended({
+          const bridgeRestarted = await restartThreadBridgeIfRecommended({
             threadId,
             options: execOpts,
             instructions,
@@ -2059,7 +2061,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
           });
           markProviderSessionNotIdle(threadId);
           try {
-            await sendCommand({
+            const startResult = await sendCommand({
               proc,
               message: cmd,
               resultSchema: ignoredJsonRpcResultSchema,
@@ -2083,6 +2085,12 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
                 threadId,
               });
             }
+            return {
+              providerSessionRebuilt:
+                bridgeRestarted ||
+                turnStartBridgeResultSchema.safeParse(startResult).data
+                  ?.sessionRebuilt === true,
+            };
           } catch (error) {
             pendingTurnStarts.delete(threadId);
             markHostedProviderSessionIdle(threadId);

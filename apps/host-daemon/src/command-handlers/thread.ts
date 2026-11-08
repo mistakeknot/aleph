@@ -355,8 +355,8 @@ export async function ensureThreadRuntimeTracked(
 async function runSubmittedTurn(
   command: TurnSubmitCommand,
   entry: RuntimeEntry,
-): Promise<void> {
-  await entry.runtime.runTurn({
+): Promise<boolean> {
+  const result = await entry.runtime.runTurn({
     threadId: command.threadId,
     input: command.input,
     clientRequestId: command.requestId,
@@ -364,13 +364,14 @@ async function runSubmittedTurn(
     contributedEnv: command.resumeContext.contributedEnv,
     instructions: command.resumeContext.instructions,
   });
+  return result.providerSessionRebuilt;
 }
 
 async function steerSubmittedTurn(
   command: TurnSubmitCommand,
   entry: RuntimeEntry,
   expectedTurnId: string,
-): Promise<void> {
+): Promise<boolean> {
   let targetTurnId = expectedTurnId;
   let activeTurnId: string | null = null;
   for (let attempt = 0; attempt < TURN_SUBMIT_STEER_ATTEMPTS; attempt += 1) {
@@ -385,7 +386,7 @@ async function steerSubmittedTurn(
     });
 
     if (result.status === "steered") {
-      return;
+      return false;
     }
     activeTurnId = result.activeTurnId;
     if (attempt === TURN_SUBMIT_STEER_ATTEMPTS - 1) {
@@ -462,7 +463,7 @@ async function resolveSubmittedTurnTarget(
 async function deliverSubmittedTurn(
   command: TurnSubmitCommand,
   entry: RuntimeEntry,
-): Promise<void> {
+): Promise<boolean> {
   const resolvedTurnId = await resolveSubmittedTurnTarget(command, entry);
   if (command.target.mode === "start" || resolvedTurnId === null) {
     return runSubmittedTurn(command, entry);
@@ -494,8 +495,8 @@ export async function submitTurn(
       entry,
       options,
     });
-    providerResumed = providerResumed || resumedLate;
-    await deliverSubmittedTurn(stagedCommand, entry);
+    const rebuilt = await deliverSubmittedTurn(stagedCommand, entry);
+    providerResumed = providerResumed || resumedLate || rebuilt;
   } catch (error) {
     await cleanupAfterPostStagingFailure(staged.cleanup);
     throw error;

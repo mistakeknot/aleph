@@ -649,7 +649,7 @@ describe("thread command dispatch", () => {
     const originalRunTurn = harness.runtime.runTurn;
     harness.runtime.runTurn = async (args) => {
       expect(harness.runtime.hasThread(args.threadId)).toBe(true);
-      await originalRunTurn(args);
+      return originalRunTurn(args);
     };
     const fetchProjectAttachment = vi.fn<FetchProjectAttachment>(
       async (args) => {
@@ -1568,6 +1568,96 @@ describe("thread command dispatch", () => {
     expect(harness.runtimeState.archivedProviderThreadId).toBe(
       "provider-archive",
     );
+  });
+
+  describe("turn.submit instruction delivery on a live thread", () => {
+    const options = {
+      model: "gpt-5",
+      serviceTier: "default",
+      reasoningLevel: "medium",
+      providerOptions: {},
+      permissionMode: "full",
+      permissionScope: "full",
+      approvalReviewer: null,
+      permissionEscalation: null,
+    } as const;
+
+    async function startLiveThread(
+      harness: ReturnType<typeof createHarness>,
+      threadId: string,
+    ): Promise<void> {
+      await dispatchCommand(
+        {
+          bridgeLaunch: DISPATCH_TEST_BRIDGE_LAUNCH,
+          type: "thread.start",
+          environmentId: "env-live-delivery",
+          threadId,
+          workspaceContext: { workspacePath: "/tmp/env-live-delivery" },
+          projectId: "project-1",
+          providerId: "fake",
+          requestId: nextClientRequestId(),
+          input: [textPromptInput("hello")],
+          options,
+          instructions: "first snapshot",
+          dynamicTools: [],
+          contributedEnv: [],
+          injectedSkillSources: [],
+          instructionMode: "append",
+        },
+        harness.dispatchOptions(),
+      );
+    }
+
+    function submitLive(
+      harness: ReturnType<typeof createHarness>,
+      threadId: string,
+    ) {
+      return dispatchCommand(
+        {
+          bridgeLaunch: DISPATCH_TEST_BRIDGE_LAUNCH,
+          type: "turn.submit",
+          environmentId: "env-live-delivery",
+          threadId,
+          requestId: nextClientRequestId(),
+          input: [textPromptInput("follow up")],
+          options,
+          resumeContext: {
+            bridgeLaunch: DISPATCH_TEST_BRIDGE_LAUNCH,
+            workspaceContext: { workspacePath: "/tmp/env-live-delivery" },
+            projectId: "project-1",
+            providerId: "fake",
+            providerThreadId: "provider-live-delivery",
+            instructions: "second snapshot",
+            dynamicTools: [],
+            contributedEnv: [],
+            injectedSkillSources: [],
+            instructionMode: "append",
+          },
+          target: { mode: "start" },
+        },
+        harness.dispatchOptions(),
+      );
+    }
+
+    it("reports providerResumed when the runtime rebuilt the provider session inside runTurn", async () => {
+      const harness = createHarness();
+      await startLiveThread(harness, "thread-live-rebuild");
+      harness.runtimeState.runTurnRebuildsProviderSession = true;
+
+      await expect(submitLive(harness, "thread-live-rebuild")).resolves.toEqual(
+        { trace: { spans: [] }, providerResumed: true },
+      );
+      expect(harness.runtimeState.resumedThreadId).toBeUndefined();
+    });
+
+    it("omits providerResumed when nothing rebuilt the provider session", async () => {
+      const harness = createHarness();
+      await startLiveThread(harness, "thread-live-plain");
+
+      await expect(submitLive(harness, "thread-live-plain")).resolves.toEqual({
+        trace: { spans: [] },
+      });
+    });
   });
 
   it("forgets archived runtime threads so later sends resume the provider thread", async () => {

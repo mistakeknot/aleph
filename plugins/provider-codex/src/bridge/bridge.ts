@@ -1671,6 +1671,7 @@ async function handleThreadConstruction(
 interface LiveSessionForTurn {
   session: CodexBridgeSession;
   connection: CodexAppServerConnection;
+  rebuilt: boolean;
 }
 
 async function requireLiveSessionForTurn(
@@ -1686,6 +1687,7 @@ async function requireLiveSessionForTurn(
     session.construction.cwd,
     decoded.sessionOptions,
   );
+  const before = session;
   if (session.connection === null || session.connection.exited) {
     session = await rebuildThreadSession(
       session,
@@ -1708,7 +1710,11 @@ async function requireLiveSessionForTurn(
   if (session.connection === null) {
     throw new Error(`No active codex session for thread "${params.threadId}"`);
   }
-  return { session, connection: session.connection };
+  return {
+    session,
+    connection: session.connection,
+    rebuilt: session !== before,
+  };
 }
 
 const codexTurnStartResultSchema = z
@@ -2096,7 +2102,10 @@ async function handleTurnStart(
           throw error;
         });
     }
-    sendResult(id, { threadId: params.threadId });
+    sendResult(id, {
+      threadId: params.threadId,
+      ...(live.rebuilt ? { sessionRebuilt: true } : {}),
+    });
     settleAcceptedDispatch({
       clientRequestId: params.clientRequestId,
       compaction,

@@ -393,12 +393,14 @@ describe("runtime recovery hints", () => {
     expect(countSpawns(processLog)).toBe(1);
     expect(record.last("thread/resume")).toBeUndefined();
 
-    await runtime.runTurn({
+    const restarted = await runtime.runTurn({
       clientRequestId: "creq_rcvrrungae",
       input: [promptTextInput({ text: "after restart" })],
+      instructions: "changed snapshot",
       options: fullRuntimeOptions,
       threadId: "t-ladder-restart",
     });
+    expect(restarted).toEqual({ providerSessionRebuilt: true });
     await waitForThreadAgentMessageText({
       events,
       providerId: PROVIDER_ID,
@@ -411,6 +413,25 @@ describe("runtime recovery hints", () => {
       threadId: "t-ladder-restart",
       providerThreadId,
     });
+    expect(JSON.stringify(record.last("thread/resume")?.params)).toContain(
+      "changed snapshot",
+    );
+
+    await waitForThreadTurnCompleted({
+      events,
+      providerId: PROVIDER_ID,
+      runtime,
+      threadId: "t-ladder-restart",
+      timeoutMs: 5_000,
+    });
+    const plain = await runtime.runTurn({
+      clientRequestId: "creq_rcvrrungag",
+      input: [promptTextInput({ text: "plain follow up" })],
+      instructions: "changed snapshot",
+      options: fullRuntimeOptions,
+      threadId: "t-ladder-restart",
+    });
+    expect(plain).toEqual({ providerSessionRebuilt: false });
   });
 
   it("authRequired on the retry after an unarchive: typed auth_required and forwarded", async () => {

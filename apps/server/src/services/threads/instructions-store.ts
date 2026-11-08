@@ -6,6 +6,7 @@ import {
   isPathWithinDirectory,
   killProcessGroup,
   spawnPortableOutputProcess,
+  terminateWindowsProcessTrees,
 } from "@bb/process-utils";
 import { z } from "zod";
 import { ApiError } from "../../errors.js";
@@ -171,7 +172,17 @@ function runResolveCommand(args: RunResolveArgs): Promise<string> {
       detached: true,
     });
     const killTree = () => {
-      killProcessGroup({ child, signal: "SIGKILL" });
+      if (process.platform !== "win32") {
+        killProcessGroup({ child, signal: "SIGKILL" });
+        return;
+      }
+      if (
+        child.pid !== undefined &&
+        child.exitCode === null &&
+        child.signalCode === null
+      ) {
+        terminateWindowsProcessTrees([child.pid]).catch(() => undefined);
+      }
     };
     const settle = (finish: () => void) => {
       if (settled) return;
@@ -408,10 +419,12 @@ export async function resolveUserInstructionsSection(
     return darkText(deps);
   }
 
-  const initialized = dataDirMarkerExists(dataDir);
+  const initializedBefore = dataDirMarkerExists(dataDir);
   let result = await resolveStore(orchestration, store, dataDir);
   if (result.source === "dark") {
-    return initialized ? requireNotDark() : darkText(deps);
+    return initializedBefore || dataDirMarkerExists(dataDir)
+      ? requireNotDark()
+      : darkText(deps);
   }
 
   let agents = readResolvedAgents({

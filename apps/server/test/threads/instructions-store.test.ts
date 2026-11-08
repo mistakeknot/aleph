@@ -3,6 +3,7 @@ import {
   chmod,
   mkdir,
   readFile,
+  rm,
   stat,
   symlink,
   writeFile,
@@ -39,6 +40,24 @@ import { textInput } from "../helpers/prompt-input.js";
 import { withTestHarness } from "../helpers/test-app.js";
 import type { TestAppHarness } from "../helpers/test-app.js";
 
+const windowsTreeKills = vi.hoisted(() => ({ calls: [] as number[][] }));
+
+vi.mock("@bb/process-utils", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@bb/process-utils")>();
+  return {
+    ...actual,
+    terminateWindowsProcessTrees: async (pids: readonly number[]) => {
+      windowsTreeKills.calls.push([...pids]);
+      for (const pid of pids) {
+        try {
+          process.kill(-pid, "SIGKILL");
+        } catch {}
+      }
+      return true;
+    },
+  };
+});
+
 const FAKE_RESOLVE_SCRIPT = `
 import fs from "node:fs";
 const [, , scenarioPath, ...rest] = process.argv;
@@ -50,6 +69,7 @@ fs.writeFileSync(countPath, String(count + 1));
 fs.appendFileSync(scenarioPath + ".args", JSON.stringify(rest) + "\\n");
 const step = scenario.steps[Math.min(count, scenario.steps.length - 1)];
 if (step.delayMs) await new Promise((resolve) => setTimeout(resolve, step.delayMs));
+if (step.touch) fs.writeFileSync(step.touch, "{}");
 if (step.exit) {
   process.stderr.write(step.stderr ?? "");
   process.exit(step.exit);
@@ -74,6 +94,25 @@ const child = spawn(
   { stdio: "ignore" },
 );
 child.unref();
+setInterval(() => {}, 1000);
+`;
+
+const OVERFLOW_SPAWNING_SCRIPT = `
+import fs from "node:fs";
+import { spawn } from "node:child_process";
+const [, , pidPath] = process.argv;
+const child = spawn(
+  process.execPath,
+  [
+    "-e",
+    "require('node:fs').writeFileSync(process.argv[1], String(process.pid)); setInterval(() => {}, 1000);",
+    pidPath,
+  ],
+  { stdio: "ignore" },
+);
+child.unref();
+while (!fs.existsSync(pidPath)) await new Promise((resolve) => setTimeout(resolve, 20));
+process.stdout.write("x".repeat(5 * 1024 * 1024));
 setInterval(() => {}, 1000);
 `;
 
@@ -105,6 +144,7 @@ interface ScenarioStep {
   repeat?: { char: string; count: number };
   result?: unknown;
   stderr?: string;
+  touch?: string;
 }
 
 interface FakeResolve {
@@ -631,6 +671,49 @@ describe("instructions store resolve caller", () => {
       });
     });
 
+    it("rejects a dark answer when the marker appears while the resolver runs", async () => {
+      await withTestHarness(async (harness) => {
+        const seeded = seedScenario(harness, "codex", "marker-during");
+        await writeFile(
+          path.join(harness.config.dataDir, "AGENTS.md"),
+          DARK_USER_TEXT,
+        );
+        const fake = await installFakeResolve(
+          path.join(harness.config.dataDir, "fake"),
+          [
+            {
+              result: { source: "dark" },
+              touch: path.join(harness.config.dataDir, ".aleph-instructions"),
+            },
+          ],
+        );
+        configure(harness, fake);
+        const error = await rejection(resolveFor(harness, seeded));
+        expect(error).toMatchObject({
+          status: 409,
+          body: { code: "instructions_dark_after_init" },
+        });
+        expect(await fake.callCount()).toBe(1);
+      });
+    });
+
+    it("accepts a dark answer when the marker is still absent after the resolver returns", async () => {
+      await withTestHarness(async (harness) => {
+        const seeded = seedScenario(harness, "codex", "marker-absent");
+        await writeFile(
+          path.join(harness.config.dataDir, "AGENTS.md"),
+          DARK_USER_TEXT,
+        );
+        const fake = await installFakeResolve(
+          path.join(harness.config.dataDir, "fake"),
+          [{ result: { source: "dark" } }],
+        );
+        configure(harness, fake);
+        const runtime = await resolveFor(harness, seeded);
+        expect(runtime.rulesReceipt.source).toBe("dark");
+      });
+    });
+
     it("rejects a start command build once the store is initialized and reports dark", async () => {
       await withTestHarness(async (harness) => {
         const seeded = seedScenario(harness, "claude-code", "init-dark-start");
@@ -978,6 +1061,51 @@ describe("instructions store resolve caller", () => {
     );
   });
 
+  describe("snapshot files that cannot be read", () => {
+    it("treats a snapshot directory that disappeared as a digest mismatch", async () => {
+      await withTestHarness(async (harness) => {
+        const seeded = seedScenario(harness, "codex", "dir-missing");
+        const snapshot = await writeSnapshot({
+          agents: "# Rules\n",
+          id: "snap-gone",
+          root: snapshotRoot(harness),
+        });
+        await rm(snapshot.directory, { recursive: true, force: true });
+        const fake = await installFakeResolve(
+          path.join(harness.config.dataDir, "fake"),
+          [{ result: snapshot.result }],
+        );
+        configure(harness, fake);
+        expect(await rejection(resolveFor(harness, seeded))).toMatchObject({
+          status: 409,
+          body: { code: "instructions_digest_mismatch" },
+        });
+        expect(await fake.callCount()).toBe(2);
+      });
+    });
+
+    it.skipIf(process.getuid?.() === 0)(
+      "treats an unreadable docs directory as a digest mismatch",
+      async () => {
+        await withTestHarness(async (harness) => {
+          const seeded = seedScenario(harness, "codex", "docs-denied");
+          const fake = await activeStore(harness, "# Rules\n", "snap-docs");
+          const docs = path.join(snapshotRoot(harness), "snap-docs", "docs");
+          await chmod(docs, 0o000);
+          try {
+            expect(await rejection(resolveFor(harness, seeded))).toMatchObject({
+              status: 409,
+              body: { code: "instructions_digest_mismatch" },
+            });
+            expect(await fake.callCount()).toBe(2);
+          } finally {
+            await chmod(docs, 0o755);
+          }
+        });
+      },
+    );
+  });
+
   describe("receipts follow delivery", () => {
     it("writes the receipt only after the provider accepts a fresh thread's start", async () => {
       await withTestHarness(async (harness) => {
@@ -1080,6 +1208,33 @@ describe("instructions store resolve caller", () => {
       });
     });
 
+    it("keeps the delivered receipt when an older daemon omits providerResumed on a submit", async () => {
+      await withTestHarness(async (harness) => {
+        const seeded = seedScenario(harness, "codex", "older-daemon");
+        await activeStore(harness);
+        await runLiveHostCommand(harness.deps, {
+          command: await buildStart(harness, seeded, 226),
+          hostId: seeded.hostId,
+          timeoutMs: 5_000,
+        });
+        const delivered = receiptFrom(seeded);
+        const writesBefore = seeded.requestTypes.filter(
+          (type) => type === "host.write_file",
+        ).length;
+        expect(seeded.providerResumed.value).toBe(false);
+        const result = await runLiveHostCommand(harness.deps, {
+          command: await buildSubmitCommand(harness, seeded, 231),
+          hostId: seeded.hostId,
+          timeoutMs: 5_000,
+        });
+        expect(result).not.toHaveProperty("providerResumed");
+        expect(receiptFrom(seeded)).toEqual(delivered);
+        expect(
+          seeded.requestTypes.filter((type) => type === "host.write_file"),
+        ).toHaveLength(writesBefore);
+      });
+    });
+
     it("logs and does not fail the command when the receipt write fails", async () => {
       await withTestHarness(async (harness) => {
         const logger = {
@@ -1177,6 +1332,103 @@ describe("instructions store resolve caller", () => {
         const pid = Number(await readFile(pidPath, "utf8"));
         expect(Number.isInteger(pid) && pid > 0).toBe(true);
         expect(await pidIsGone(pid)).toBe(true);
+      });
+    });
+
+    it("kills the whole process tree when the resolver overflows its output", async () => {
+      await withTestHarness(async (harness) => {
+        const seeded = seedScenario(harness, "codex", "overflow-tree");
+        const root = path.join(harness.config.dataDir, "overflow-tree");
+        await mkdir(root, { recursive: true });
+        const script = path.join(root, "spawner.mjs");
+        const pidPath = path.join(root, "child.pid");
+        await writeFile(script, OVERFLOW_SPAWNING_SCRIPT, "utf8");
+        harness.deps.config.orchestration = {
+          instructionsStore: storePath(harness),
+          resolveCommand: [process.execPath, script, pidPath],
+          resolveTimeoutMs: 20_000,
+        };
+        const error = await rejection(resolveFor(harness, seeded));
+        expect(error).toMatchObject({
+          body: {
+            code: "instructions_resolve_failed",
+            details: { outputOverflow: true },
+          },
+        });
+        const pid = Number(await readFile(pidPath, "utf8"));
+        expect(Number.isInteger(pid) && pid > 0).toBe(true);
+        expect(await pidIsGone(pid)).toBe(true);
+      });
+    });
+
+    it.each([
+      {
+        name: "timeout",
+        script: CHILD_SPAWNING_SCRIPT,
+        timeoutMs: 1_500,
+        code: "instructions_resolve_timeout",
+      },
+      {
+        name: "overflow",
+        script: OVERFLOW_SPAWNING_SCRIPT,
+        timeoutMs: 20_000,
+        code: "instructions_resolve_failed",
+      },
+    ])(
+      "terminates the Windows process tree when the resolver hits its $name",
+      async ({ code, name, script: source, timeoutMs }) => {
+        await withTestHarness(async (harness) => {
+          const seeded = seedScenario(harness, "codex", `win-${name}`);
+          const root = path.join(harness.config.dataDir, `win-${name}`);
+          await mkdir(root, { recursive: true });
+          const script = path.join(root, "spawner.mjs");
+          const pidPath = path.join(root, "child.pid");
+          await writeFile(script, source, "utf8");
+          harness.deps.config.orchestration = {
+            instructionsStore: storePath(harness),
+            resolveCommand: [process.execPath, script, pidPath],
+            resolveTimeoutMs: timeoutMs,
+          };
+          windowsTreeKills.calls.length = 0;
+          const platform = vi
+            .spyOn(process, "platform", "get")
+            .mockReturnValue("win32");
+          let error: unknown;
+          try {
+            error = await rejection(resolveFor(harness, seeded));
+          } finally {
+            platform.mockRestore();
+          }
+          expect(error).toMatchObject({ body: { code } });
+          expect(windowsTreeKills.calls).toHaveLength(1);
+          const [pids] = windowsTreeKills.calls;
+          expect(pids).toHaveLength(1);
+          expect(pids?.[0]).toBeGreaterThan(0);
+          const pid = Number(await readFile(pidPath, "utf8"));
+          expect(await pidIsGone(pid)).toBe(true);
+        });
+      },
+    );
+
+    it("fails retryably when the resolver cannot be spawned", async () => {
+      await withTestHarness(async (harness) => {
+        const seeded = seedScenario(harness, "codex", "spawn-fails");
+        harness.deps.config.orchestration = {
+          instructionsStore: storePath(harness),
+          resolveCommand: [
+            path.join(harness.config.dataDir, "missing", "no-such-resolver"),
+          ],
+          resolveTimeoutMs: 5_000,
+        };
+        const error = await rejection(resolveFor(harness, seeded));
+        expect(error).toMatchObject({
+          status: 503,
+          body: {
+            code: "instructions_resolve_failed",
+            retryable: true,
+            details: { exitCode: null, spawnError: "ENOENT" },
+          },
+        });
       });
     });
 
