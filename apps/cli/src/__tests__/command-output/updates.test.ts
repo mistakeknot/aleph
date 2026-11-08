@@ -473,6 +473,7 @@ function appUpdateStatus(
   return {
     activity: { phase: "idle" },
     available: {
+      behindSince: null,
       channel: "latest",
       commit: null,
       commitCount: null,
@@ -545,6 +546,7 @@ describe("bb updates app command output", () => {
       "v1.system.app-update.$get": vi.fn(async () =>
         appUpdateStatus({
           available: {
+            behindSince: "2026-11-02T12:00:00.000Z",
             channel: "main",
             commit: "b".repeat(40),
             commitCount: 12,
@@ -565,6 +567,7 @@ describe("bb updates app command output", () => {
 
     expect(collectLogPayloads(vi.mocked(console.log))).toEqual([
       `bb-app source checkout ${"a".repeat(10)} -> ${"b".repeat(10)} (+12 commits)`,
+      "Behind origin/main since 2026-11-02T12:00:00.000Z",
       "  Fix bug",
       "  Add feature",
       "  … 10 more",

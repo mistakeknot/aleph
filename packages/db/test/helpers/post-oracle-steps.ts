@@ -14,6 +14,9 @@ export const POST_ORACLE_UPSTREAM_TAGS = [
   "0146_diff_viewed_files",
   "0147_git_and_pr_status_plugin_show_settings",
   "0148_queued_message_delivery_mode",
+  "0149_coalesced_system_notices",
+  "0150_thread_status_changed_at",
+  "0151_hand_diff_viewed_files_to_git_plugin",
 ] as const;
 
 export function applyPostOracleSteps(sqlite: Database.Database): void {

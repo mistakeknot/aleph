@@ -71,5 +71,21 @@
       "transfer_entries",
       "transfer_events"
     ]
+  },
+  "A0013": {
+    "writesTables": [
+      "queued_thread_messages",
+      "transfer_entries",
+      "transfer_events"
+    ]
+  },
+  "A0014": {
+    "writesTables": [
+      "threads",
+      "thread_redirects",
+      "queued_thread_messages",
+      "transfer_entries",
+      "transfer_events"
+    ]
   }
 }

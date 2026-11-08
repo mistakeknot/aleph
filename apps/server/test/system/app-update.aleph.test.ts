@@ -110,6 +110,7 @@ describe("in-app source updates on an Aleph build", () => {
         blocked: null,
         current: { commit: COMMIT_A, kind: "source", version: ALEPH_VERSION },
         incoming: {
+          behindSince: "2026-11-02T12:00:00.000Z",
           commit: COMMIT_B,
           commitCount: 3,
           subjects: ["Upstream change"],

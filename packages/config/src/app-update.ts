@@ -196,6 +196,7 @@ export const sourceUpdateCheckSchema = z.object({
   current: sourceAppRevisionSchema,
   incoming: z
     .object({
+      behindSince: z.iso.datetime(),
       commit: gitCommitSchema,
       commitCount: z.number().int().nonnegative(),
       subjects: z.array(z.string()),

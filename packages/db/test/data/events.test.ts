@@ -35,7 +35,6 @@ import {
   getLatestCompletedThreadContextClearSequence,
   getLatestStoredConversationOutlineSequence,
   getLastStoredTurnRequestEvent,
-  getLatestThreadOutputEventRow,
   getLatestThreadSequence,
   insertEvents,
   listContextWindowUsageRows,
@@ -1399,91 +1398,6 @@ describe("events", () => {
         unlimited,
       );
     }
-  });
-
-  it("finds the latest output event row without scanning unrelated event types", () => {
-    const { db, thread } = setup();
-
-    insertEvents(db, noopNotifier, [
-      {
-        threadId: thread.id,
-        sequence: 1,
-        type: "system/manager/user_message",
-        ...threadEventFields,
-        data: JSON.stringify({ text: "manager output" }),
-      },
-      {
-        threadId: thread.id,
-        sequence: 2,
-        type: "item/completed",
-        scope: turnScope("turn-1"),
-        itemId: "msg_1",
-        itemKind: "agentMessage",
-        parentToolCallId: null,
-        data: JSON.stringify({
-          item: { id: "msg_1", type: "agentMessage", text: "assistant output" },
-        }),
-      },
-      {
-        threadId: thread.id,
-        sequence: 3,
-        type: "item/completed",
-        scope: turnScope("turn-1"),
-        itemId: "call_1",
-        itemKind: "toolCall",
-        parentToolCallId: null,
-        data: JSON.stringify({ item: { id: "call_1", type: "toolCall" } }),
-      },
-      {
-        threadId: thread.id,
-        sequence: 4,
-        type: "system/error",
-        ...threadEventFields,
-        data: JSON.stringify({ message: "ignored" }),
-      },
-    ]);
-
-    expect(
-      getLatestThreadOutputEventRow(db, { threadId: thread.id }),
-    ).toMatchObject({
-      sequence: 2,
-      itemKind: "agentMessage",
-      parentToolCallId: null,
-      type: "item/completed",
-    });
-  });
-
-  it("skips empty assistant output when a manager user message is the latest visible output", () => {
-    const { db, thread } = setup();
-
-    insertEvents(db, noopNotifier, [
-      {
-        threadId: thread.id,
-        sequence: 1,
-        type: "system/manager/user_message",
-        ...threadEventFields,
-        data: JSON.stringify({ text: "manager output" }),
-      },
-      {
-        threadId: thread.id,
-        sequence: 2,
-        type: "item/completed",
-        scope: turnScope("turn-1"),
-        itemId: "msg_1",
-        itemKind: "agentMessage",
-        parentToolCallId: null,
-        data: JSON.stringify({
-          item: { id: "msg_1", type: "agentMessage", text: "" },
-        }),
-      },
-    ]);
-
-    expect(
-      getLatestThreadOutputEventRow(db, { threadId: thread.id }),
-    ).toMatchObject({
-      sequence: 1,
-      type: "system/manager/user_message",
-    });
   });
 
   it("keeps nested-turn context usage from replacing the root turn report", () => {

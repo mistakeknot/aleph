@@ -210,7 +210,10 @@ with `sdk.system.version({ force: true })`, or by rerunning `bb updates`.
   Stable installs follow the `latest` dist-tag and nightly builds `nightly`.
 - **Source checkouts** update only from a clean `main` that fast-forwards to
   `origin/main`; bb fast-forwards, runs `pnpm install --frozen-lockfile`,
-  rebuilds, and restarts.
+  rebuilds, and restarts. The sidebar badges a source update once the server
+  is more than 30 commits behind `origin/main`, or six hours after the oldest
+  missing commit was committed. `available.behindSince` in
+  `GET /api/v1/system/app-update` and `bb updates app` report that commit time.
 
 bb does not roll back an update; a version that fails to start runs again on
 the next start, and an older release may not open a database the new version
@@ -1100,6 +1103,16 @@ either way.
   next send passes `compactFirst` so the server runs `/compact` and queues the
   message behind it. Clicking the chip keeps the full history for that one
   send.
+- `dismissReadNotifications` makes the push-notifications plugin remove a
+  thread's notifications once the thread is read on any client (opened, marked
+  read, or sent a message). Registered phones and tablets get a silent push
+  (`{"kind":"dismiss","threadId":…}`; `_contentAvailable` on iOS, data-only on
+  Android) that the mobile app's background task uses to remove that thread's
+  delivered notifications, and open web and desktop clients close the system
+  notification they are showing for it. Phones need a mobile app version with
+  the background task; an older Android app in the foreground would list the
+  silent push as a blank notification, so it is off for early adopters too.
+  The plugin reads it on each delivery and read, so a toggle applies live.
 - `narrowPluginCss` makes the app request each plugin's
   stylesheet with `css-scope=owned-root-v1`. bb then serves utilities that
   match only inside that plugin's own roots, not inside any root without a
@@ -1155,8 +1168,9 @@ either way.
   their context row, and a new thread's composer is unchanged.
   A header button opens the card or pins it: a pinned card sits beside the
   transcript in a wide pane and moves the transcript aside in a medium one,
-  and a narrow pane or window opens it over the transcript. Phones keep the
-  context row above the composer and show no card. Plugins read how a pane
+  and a narrow pane or window keeps the context row above the composer and
+  opens the card over the transcript. Phones keep the context row above the
+  composer and show no card. Plugins read how a pane
   shows thread context with `experimental_useThreadContextKind()`.
 - `threadRowMetadata` (on for early adopters) adds Metadata to the built-in
   thread list's Organize → Rows menu. With it checked (`showRowMetadata`), plugins draw details such as
@@ -1305,6 +1319,7 @@ skills.
 | `artifactsEnabled`           | `false` | Sets `CLAUDE_CODE_ARTIFACT=1` so Claude Code loads its Artifact tools (read, publish, and edit claude.ai artifacts), which it withholds from SDK sessions by default; when off, bb leaves any inherited value alone. Claude may publish private pages without asking. |
 | `sandboxEnabled`             | `true`  | Runs Bash in Claude Code's sandbox in Accept Edits and Approve for me modes; `false` uses Claude Code's own approvals and sandbox settings.                                                                                                                           |
 | `fullAccessApprovalsEnabled` | `false` | Shows Claude Code's own prompts in Full Access (`permissions.ask` rules, PreToolUse hooks that answer `ask`, and built-in safety checks); `false` approves every request. Applies from the next turn without a restart.                                               |
+| `commandDescriptionsEnabled` | `false` | Titles Bash command rows with Claude's short description of the command instead of the command itself; approval prompts and the expanded row still show the command. Takes effect from each thread's next message; existing rows keep their titles.                   |
 
 Set them with `bb plugin config provider-claude-code set <key> <value>`. Unless
 noted, a change restarts the thread's Claude process before its next turn,
@@ -1344,6 +1359,13 @@ unlimited by default; each host defaults to Auto (one thread per available
 processor), a blank host field restores Auto, and `0` pauses new work for that
 scope. Configure it on its autosaving plugin page or with
 `bb concurrency-limit status|global|host`; see the `concurrency-limit` skill.
+
+### GitHub Star
+
+The builtin GitHub Star plugin (`bb--github-star`) asks once for a star on
+GitHub after more than five prompts, when the window has been idle for 30
+seconds. The server records that it asked, so no other window or device asks
+again. Disable the plugin to never be asked.
 
 ### Keep Awake
 
@@ -1526,6 +1548,7 @@ row's Customize actions, or `bb thread-list prefs get|set|reset <key>`
 | `rowActions`          | `["bb--core/archive"]`            | Up to three thread action keys in display order; see below                                                                                  |
 | `showProviderIcons`   | `false`                           | Shows the provider icon before each thread title                                                                                            |
 | `showRowMetadata`     | `false`                           | Shows plugins' metadata on a line under each thread title; needs the `threadRowMetadata` experiment                                         |
+| `showEmptyProjects`   | `true`                            | `false` hides project groups with no visible threads when organized by project                                                              |
 | `collapsed*`          | `[]`                              | Collapsed sections, projects, threads, environments, custom sections, and machines                                                          |
 
 `rowActions` keys are `bb--core/<id>` (`split`, `newThreadInEnvironment`,

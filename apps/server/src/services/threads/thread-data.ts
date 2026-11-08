@@ -1,7 +1,7 @@
 import {
   canHydrateRetainedEventOutputRowsWithinDataByteLimit,
+  findLastRootStoredTurnStarted,
   findStoredEventRow as findStoredEventRowRecord,
-  getLatestThreadOutputEventRow,
   getTurnFinalAgentMessageEventRow,
   getLatestThreadSystemErrorEventRow,
   hydrateRetainedEventOutputRows,
@@ -168,37 +168,6 @@ export function findThreadEvent(
   return parseStoredEventRow(hydrated ?? row);
 }
 
-function extractThreadOutputEventRowText(
-  row: StoredEventRow | null,
-): string | null {
-  if (!row) return null;
-
-  const eventRow = parseStoredEventRow(row);
-
-  if (eventRow.type === "system/manager/user_message") {
-    return eventRow.data.text.length > 0 ? eventRow.data.text : null;
-  }
-
-  if (
-    eventRow.type === "item/completed" &&
-    eventRow.data.item.type === "agentMessage" &&
-    eventRow.data.item.text.length > 0
-  ) {
-    return eventRow.data.item.text;
-  }
-
-  return null;
-}
-
-export function getLastThreadOutput(
-  db: DbConnection,
-  threadId: string,
-): string | null {
-  return extractThreadOutputEventRowText(
-    getLatestThreadOutputEventRow(db, { threadId }),
-  );
-}
-
 interface GetTurnFinalOutputArgs {
   threadId: string;
   turnId: string;
@@ -219,6 +188,16 @@ export function getTurnFinalOutput(
     return eventRow.data.item.text;
   }
   return null;
+}
+
+export function getLatestTurnFinalOutput(
+  db: DbConnection,
+  threadId: string,
+): string | null {
+  const turn = findLastRootStoredTurnStarted(db, { threadId });
+  return turn
+    ? getTurnFinalOutput(db, { threadId, turnId: turn.turnId })
+    : null;
 }
 
 interface ListLatestTurnFinalAgentRepliesArgs {

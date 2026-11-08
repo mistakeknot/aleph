@@ -41,6 +41,7 @@ import {
   sendQueuedMessage,
 } from "../../src/services/threads/queued-messages.js";
 import { runQueuedMessageDispatch } from "../../src/services/threads/queued-message-dispatch.js";
+import { toThreadQueuedMessage } from "../../src/services/threads/thread-queued-messages.js";
 import {
   expireArchiveUndoGrace,
   seedEnvironment,
@@ -95,6 +96,7 @@ function recordQueuedEvents(): ThreadQueuedMessage[] {
     emitMessageCancelled: () => {},
     deliverMessageQueuedTransfer: async () => true,
     emitThreadUnarchived: () => {},
+    emitThreadRead: () => {},
     emitTurnFailed: () => {},
   });
   return queuedEvents;
@@ -300,6 +302,18 @@ async function waitForParentTurnRequests(
     }
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
+}
+
+async function releaseParentNoticeWindow(
+  harness: TestHarness,
+  parentThreadId: string,
+) {
+  const [row] = listQueuedThreadMessages(harness.db, parentThreadId);
+  if (row === undefined || row.sendAt === null) return;
+  await runQueuedMessageDispatch(harness.deps, {
+    kind: "time-reached",
+    now: row.sendAt + 1,
+  });
 }
 
 async function waitForQueuedParentNotice(
@@ -771,7 +785,8 @@ describe("parent wake policy", () => {
         turnStatus: "completed",
       });
 
-      await new Promise((resolve) => setTimeout(resolve, 2_200));
+      await waitForQueuedParentNotice(harness, fixture.parentThreadId);
+      await releaseParentNoticeWindow(harness, fixture.parentThreadId);
       const stamped = await waitForParentTurnRequests(
         harness,
         fixture.parentThreadId,
@@ -845,12 +860,20 @@ describe("parent wake policy", () => {
       expect(queuedEvents[0]).toMatchObject({
         id: held.id,
         threadId: fixture.parentThreadId,
-        waitingOn: {
-          kind: "plugin",
-          pluginId: "quota-governor",
-          reason: "quota exceeded",
-        },
+        waitingOn: { kind: "time" },
         systemNotice: { kind: "child-completed" },
+      });
+
+      await releaseParentNoticeWindow(harness, fixture.parentThreadId);
+      const [heldByHook] = listQueuedThreadMessages(
+        harness.db,
+        fixture.parentThreadId,
+      );
+      expect(heldByHook?.id).toBe(held.id);
+      expect(toThreadQueuedMessage(heldByHook!).waitingOn).toMatchObject({
+        kind: "plugin",
+        pluginId: "quota-governor",
+        reason: "quota exceeded",
       });
     });
   }, 10_000);
@@ -902,12 +925,14 @@ describe("parent wake policy", () => {
         harness,
         fixture.parentThreadId,
       );
+      await releaseParentNoticeWindow(harness, fixture.parentThreadId);
       expect(seen.at(0)).toEqual({
         initiator: "system",
-        queuedMessageCount: 0,
+        queuedMessageCount: 1,
       });
 
       const passesBeforeRecheck = seen.length;
+      await new Promise((resolve) => setTimeout(resolve, 1_100));
       await runQueuedMessageDispatch(harness.deps, { kind: "plugin-recheck" });
       expect(seen.slice(passesBeforeRecheck)).toEqual([
         { initiator: "system", queuedMessageCount: 1 },
@@ -998,7 +1023,7 @@ describe("parent wake policy", () => {
         typeof queued[0]?.waitingOn === "string"
           ? JSON.parse(queued[0].waitingOn)
           : queued[0]?.waitingOn;
-      expect(waitingOn?.kind).toBe("plugin");
+      expect(waitingOn?.kind).toBe("time");
       const systemNotice =
         typeof queued[0]?.systemNotice === "string"
           ? JSON.parse(queued[0].systemNotice)
@@ -1229,7 +1254,7 @@ describe("parent wake policy", () => {
     expect(hasDeliveredChildTurn(pair, "in-flight")).toBe(true);
   });
 
-  it("releases earlier reservations when selection throws on a later item", async () => {
+  it("keeps the earlier notice when selection throws on a later item", async () => {
     await withTestHarness(async (harness) => {
       const fixture = seedParentFixture(harness, "host-selection-fault");
       const makeChild = (title: string) =>
@@ -1272,7 +1297,6 @@ describe("parent wake policy", () => {
           turnStatus: "completed",
         });
       }
-      await new Promise((resolve) => setTimeout(resolve, 2_600));
 
       expect(
         hasDeliveredChildTurn(
@@ -1282,7 +1306,19 @@ describe("parent wake policy", () => {
           },
           "turn-1",
         ),
+      ).toBe(true);
+      expect(
+        hasDeliveredChildTurn(
+          {
+            childThreadId: bad.id,
+            parentThreadId: fixture.parentThreadId,
+          },
+          "turn-1",
+        ),
       ).toBe(false);
+      expect(
+        listQueuedThreadMessages(harness.db, fixture.parentThreadId),
+      ).toHaveLength(1);
     });
   }, 10_000);
 
@@ -1393,7 +1429,16 @@ describe("queued system notice transfer (R4 retirement forward, R6)", () => {
       turnId: "turn-1",
       turnStatus: "completed",
     });
-    return waitForQueuedParentNotice(harness, fixture.parentThreadId);
+    const row = await waitForQueuedParentNotice(
+      harness,
+      fixture.parentThreadId,
+    );
+    await releaseParentNoticeWindow(harness, fixture.parentThreadId);
+    const [current] = listQueuedThreadMessages(
+      harness.db,
+      fixture.parentThreadId,
+    );
+    return current ?? row;
   }
 
   async function listQueuedOverHttp(harness: TestHarness, threadId: string) {

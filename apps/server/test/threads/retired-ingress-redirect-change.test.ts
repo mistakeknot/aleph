@@ -106,6 +106,7 @@ async function runChangedRedirect(
     const original = harness.deps.db;
     harness.deps.db = held;
     const consulted: string[] = [];
+    const parentAborts: string[] = [];
     try {
       setPluginHookProvider({
         listHooks: (hook) =>
@@ -125,6 +126,14 @@ async function runChangedRedirect(
                       operationKey: "abort-first",
                       resolveWaitingOn: () => ({ kind: "thread-busy" }),
                     });
+                    if (ingress === "parent") {
+                      parentAborts.push(
+                        aborted.kind === "refused"
+                          ? aborted.reason
+                          : aborted.kind,
+                      );
+                      return { action: "proceed" };
+                    }
                     expect(aborted.kind).toBe("aborted");
                     const next = retireQueuedThreadMessages(other, {
                       projectId: seeded.project.id,
@@ -169,6 +178,7 @@ async function runChangedRedirect(
       return {
         outcome,
         consulted,
+        parentAborts,
         firstRows: listQueuedThreadMessages(held, seeded.firstTarget.id),
         secondRows: listQueuedThreadMessages(held, seeded.secondTarget.id),
         seeded,
@@ -192,6 +202,12 @@ describe("an arrival whose redirect changes while its dispatch hook runs", () =>
         secondHostRemoving: false,
       });
       expect(result.outcome.kind).toBe("ok");
+      if (ingress === "parent") {
+        expect(result.parentAborts).toEqual(["claims_pending"]);
+        expect(result.consulted).toEqual([result.seeded.firstTarget.id]);
+        expect(result.secondRows).toHaveLength(0);
+        return;
+      }
       expect(result.consulted).toEqual([
         result.seeded.firstTarget.id,
         result.seeded.secondTarget.id,
@@ -203,20 +219,23 @@ describe("an arrival whose redirect changes while its dispatch hook runs", () =>
       });
     });
 
-    it(`refuses a destination whose host is being removed (${ingress})`, async () => {
-      const result = await runChangedRedirect(ingress, {
-        secondHostRemoving: true,
-      });
-      if (ingress === "user") {
-        expect(result.outcome).toMatchObject({
-          kind: "error",
-          error: { body: { code: "machine_removing" } },
+    it.runIf(ingress === "user")(
+      `refuses a destination whose host is being removed (${ingress})`,
+      async () => {
+        const result = await runChangedRedirect(ingress, {
+          secondHostRemoving: true,
         });
-      } else {
-        expect(result.outcome).toEqual({ kind: "ok", response: false });
-      }
-      expect(result.firstRows).toHaveLength(0);
-      expect(result.secondRows).toHaveLength(0);
-    });
+        if (ingress === "user") {
+          expect(result.outcome).toMatchObject({
+            kind: "error",
+            error: { body: { code: "machine_removing" } },
+          });
+        } else {
+          expect(result.outcome).toEqual({ kind: "ok", response: false });
+        }
+        expect(result.firstRows).toHaveLength(0);
+        expect(result.secondRows).toHaveLength(0);
+      },
+    );
   }
 });

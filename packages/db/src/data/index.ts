@@ -76,7 +76,6 @@ export {
 export {
   createThread,
   InvalidLifecycleOwnerError,
-  countLiveThreadsInEnvironment,
   countThreads,
   countNonDeletedAssignedChildThreads,
   admitProvisionalSuccessor,
@@ -95,6 +94,8 @@ export {
   listActiveVisiblePinnedThreadRootsWithPendingInteractionState,
   listLiveThreadsInEnvironment,
   listThreadIdsInEnvironment,
+  liveThread,
+  threadHoldsEnvironment,
   listThreadMentionRowsByIds,
   listNonDeletedChildThreads,
   listThreadEnvironmentAssignmentsOnHost,
@@ -351,6 +352,7 @@ export {
   hasRootStoredTurnStarted,
   hasStoredSpawnAgentToolCall,
   hasStoredTerminalClientTurnRequestEvent,
+  hasStoredTurnCompleted,
   hasStoredTurnStarted,
   hasThreadCompletedAnyOtherTurn,
   classifyStoredProviderThreadClaim,
@@ -358,11 +360,11 @@ export {
   getLastStoredProviderThreadId,
   getStoredProviderSession,
   getLastStoredTurnRequestEvent,
+  hasStoredTurnRequestEventSince,
   listStoredTaskTurnRequestEvents,
   listLatestTurnFinalAgentMessageEventRows,
   getTurnFinalAgentMessageEventRow,
   getStoredTurnRequestEventForTurn,
-  getLatestThreadOutputEventRow,
   getLatestStoredConversationOutlineSequence,
   getLatestCompletedThreadContextClearSequence,
   getLatestThreadSystemErrorEventRow,
@@ -488,6 +490,7 @@ export {
   interruptPendingInteractionsForThreads,
   interruptPendingInteractionsForPlugin,
   listActivePluginPendingInteractions,
+  listActiveProviderPendingInteractionsForHost,
   listPendingInteractionsByThread,
   setPendingInteractionInterrupted,
   setPendingInteractionResolving,
@@ -518,6 +521,7 @@ export {
   deleteQueuedThreadMessage,
   transferQueuedThreadMessageInTransaction,
   transferAllQueuedThreadMessagesInTransaction,
+  getPendingCoalescedQueuedThreadMessage,
   getQueuedThreadMessage,
   getQueuedThreadStartMessage,
   getFirstUnclaimedQueuedRetry,
@@ -528,6 +532,7 @@ export {
   isThreadQueueAutoSendPaused,
   listDueScheduledQueuedThreadMessages,
   listIdleThreadsWithQueuedMessages,
+  listReadySystemNoticesOnBusyThreads,
   listQueuedThreadMessageCountsByThreadIds,
   listQueuedThreadMessagePluginWaitRefs,
   listQueuedThreadMessages,
@@ -547,6 +552,8 @@ export {
   releaseStaleQueuedMessageClaims,
   reorderQueuedThreadMessage,
   setQueuedThreadMessageGroupBoundary,
+  supersedeQueuedRetriesInTransaction,
+  updateCoalescedQueuedThreadMessageInTransaction,
   updateQueuedThreadMessage,
 } from "./queued-thread-messages.js";
 export {
@@ -649,12 +656,3 @@ export type {
   StoredAlephInstallRequest,
   StoredAlephInstallRequestState,
 } from "./aleph-install-requests.js";
-export {
-  clearDiffViewedFiles,
-  listDiffViewedFiles,
-  markDiffViewedFile,
-} from "./diff-viewed-files.js";
-export type {
-  DiffViewedFileRecord,
-  DiffViewedFileScope,
-} from "./diff-viewed-files.js";

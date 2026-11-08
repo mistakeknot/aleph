@@ -4,17 +4,19 @@ import { HttpError } from "./api";
 import {
   describeLifecycleError,
   formatLifecycleErrorDescription,
-  parseLifecycleError,
   type LifecycleErrorDescription,
-  type LifecycleErrorOperation,
 } from "./lifecycle-errors";
 
-interface DescriptionCase {
-  body: LifecycleApiError;
-  expected: LifecycleErrorDescription;
-  name: string;
-  operation?: LifecycleErrorOperation;
-}
+type Details<Code extends LifecycleApiError["code"]> = Extract<
+  LifecycleApiError,
+  { code: Code }
+>["details"];
+
+type Expected = [
+  severity: LifecycleErrorDescription["severity"],
+  title: string,
+  body: string,
+];
 
 function httpError(body: LifecycleApiError): HttpError {
   return new HttpError({
@@ -25,894 +27,424 @@ function httpError(body: LifecycleApiError): HttpError {
   });
 }
 
-const descriptionCases: DescriptionCase[] = [
-  {
-    name: "environment_not_ready provisioning",
-    body: {
-      code: "environment_not_ready",
-      message: "Environment unavailable",
-      details: {
-        environmentStatus: "provisioning",
-        hasPath: false,
-      },
-    },
-    expected: {
-      title: "Workspace starting",
-      body: "Workspace is still starting.",
-      severity: "info",
-    },
-  },
-  {
-    name: "environment_not_ready ready without path",
-    body: {
-      code: "environment_not_ready",
-      message: "Environment unavailable",
-      details: {
-        environmentStatus: "ready",
-        hasPath: false,
-      },
-    },
-    expected: {
-      title: "Workspace unavailable",
-      body: "Workspace is unavailable.",
-      severity: "warning",
-    },
-  },
-  {
-    name: "environment_not_ready ready with path",
-    body: {
-      code: "environment_not_ready",
-      message: "Environment unavailable",
-      details: {
-        environmentStatus: "ready",
-        hasPath: true,
-      },
-    },
-    expected: {
-      title: "Workspace unavailable",
-      body: "Workspace is unavailable.",
-      severity: "warning",
-    },
-  },
-  {
-    name: "environment_not_ready error",
-    body: {
-      code: "environment_not_ready",
-      message: "Environment unavailable",
-      details: {
-        environmentStatus: "error",
-        hasPath: false,
-      },
-    },
-    expected: {
-      title: "Workspace setup failed",
-      body: "Workspace setup failed.",
-      severity: "error",
-    },
-  },
-  {
-    name: "environment_not_ready destroyed archived thread",
-    body: {
-      code: "environment_not_ready",
-      message: "Environment unavailable",
-      details: {
-        environmentStatus: "destroyed",
-        hasPath: false,
-      },
-    },
-    expected: {
-      title: "Workspace unavailable",
-      body: "Workspace no longer exists.",
-      severity: "warning",
-    },
-  },
-  {
-    name: "thread_environment_unavailable never attached",
-    body: {
-      code: "thread_environment_unavailable",
-      message: "Thread environment is unavailable",
-      details: {
-        environmentStatus: null,
-        reason: "never_attached",
-      },
-    },
-    expected: {
-      title: "Workspace unavailable",
-      body: "Workspace is not available yet.",
-      severity: "info",
-    },
-  },
-  {
-    name: "thread_environment_unavailable destroyed",
-    body: {
-      code: "thread_environment_unavailable",
-      message: "Thread environment is unavailable",
-      details: {
-        environmentStatus: "destroyed",
-        reason: "destroyed",
-      },
-    },
-    expected: {
-      title: "Workspace unavailable",
-      body: "Workspace no longer exists.",
-      severity: "warning",
-    },
-  },
-  {
-    name: "thread_environment_unavailable provisioning",
-    body: {
-      code: "thread_environment_unavailable",
-      message: "Thread environment is unavailable",
-      details: {
-        environmentStatus: "provisioning",
-        reason: "provisioning",
-      },
-    },
-    expected: {
-      title: "Workspace starting",
-      body: "Workspace is still starting.",
-      severity: "info",
-    },
-  },
-  {
-    name: "thread_environment_unavailable errored",
-    body: {
-      code: "thread_environment_unavailable",
-      message: "Thread environment is unavailable",
-      details: {
-        environmentStatus: "error",
-        reason: "errored",
-      },
-    },
-    expected: {
-      title: "Workspace setup failed",
-      body: "Workspace setup failed.",
-      severity: "error",
-    },
-  },
-  {
-    name: "thread_not_writable archived",
-    body: {
-      code: "thread_not_writable",
-      message: "Thread is archived",
-      details: {
-        archivedAt: 10,
-        reason: "archived",
-        threadStatus: "idle",
-      },
-    },
-    expected: {
-      title: "Thread archived",
-      body: "Unarchive the thread first.",
-      severity: "info",
-    },
-  },
-  {
-    name: "thread_not_writable stopping",
-    body: {
-      code: "thread_not_writable",
-      message: "Thread is stopping",
-      details: {
-        archivedAt: null,
-        reason: "stopping",
-        threadStatus: "stopping",
-      },
-    },
-    expected: {
-      title: "Thread stopping",
-      body: "The thread is stopping.",
-      severity: "warning",
-    },
-  },
-  {
-    name: "thread_not_writable deleted",
-    body: {
-      code: "thread_not_writable",
-      message: "Thread is deleted",
-      details: {
-        archivedAt: null,
-        reason: "deleted",
-        threadStatus: "idle",
-      },
-    },
-    expected: {
-      title: "Thread deleted",
-      body: "This thread was deleted.",
-      severity: "error",
-    },
-  },
-  {
-    name: "thread_not_writable not started while starting",
-    body: {
-      code: "thread_not_writable",
-      message: "Thread is not active",
-      details: {
-        archivedAt: null,
-        reason: "not_started",
-        threadStatus: "starting",
-      },
-    },
-    expected: {
-      title: "Thread starting",
-      body: "The thread is still starting.",
-      severity: "info",
-    },
-  },
-  {
-    name: "thread_not_writable not active",
-    body: {
-      code: "thread_not_writable",
-      message: "Thread is not active",
-      details: {
-        archivedAt: null,
-        reason: "not_active",
-        threadStatus: "idle",
-      },
-    },
-    expected: {
-      title: "Thread not running",
-      body: "The thread is not running.",
-      severity: "warning",
-    },
-  },
-  {
-    name: "thread_not_writable errored",
-    body: {
-      code: "thread_not_writable",
-      message: "Thread errored",
-      details: {
-        archivedAt: null,
-        reason: "errored",
-        threadStatus: "error",
-      },
-    },
-    expected: {
-      title: "Thread failed",
-      body: "This thread failed and cannot continue.",
-      severity: "error",
-    },
-  },
-  {
-    name: "thread_not_writable already active",
-    body: {
-      code: "thread_not_writable",
-      message: "Thread already active",
-      details: {
-        archivedAt: null,
-        reason: "already_active",
-        threadStatus: "active",
-      },
-    },
-    expected: {
-      title: "Thread already running",
-      body: "The thread is already running.",
-      severity: "warning",
-    },
-  },
-  {
-    name: "thread_not_writable self_transfer",
-    body: {
-      code: "thread_not_writable",
-      message: "Cannot move to itself",
-      details: {
-        archivedAt: null,
-        reason: "self_transfer",
-        threadStatus: "active",
-      },
-    },
-    expected: {
-      title: "Cannot move to itself",
-      body: "A thread cannot move its queue to itself.",
-      severity: "warning",
-    },
-  },
-  {
-    name: "thread_not_writable unknown_thread",
-    body: {
-      code: "thread_not_writable",
-      message: "Thread not found",
-      details: {
-        archivedAt: null,
-        reason: "unknown_thread",
-        threadStatus: "active",
-      },
-    },
-    expected: {
-      title: "Thread not found",
-      body: "The target thread does not exist.",
-      severity: "error",
-    },
-  },
-  {
-    name: "thread_not_writable source_deleted",
-    body: {
-      code: "thread_not_writable",
-      message: "Thread deleted",
-      details: {
-        archivedAt: null,
-        reason: "source_deleted",
-        threadStatus: "active",
-      },
-    },
-    expected: {
-      title: "Thread deleted",
-      body: "This thread was deleted.",
-      severity: "error",
-    },
-  },
-  {
-    name: "thread_not_writable already_retired",
-    body: {
-      code: "thread_not_writable",
-      message: "Queue already moved",
-      details: {
-        archivedAt: null,
-        reason: "already_retired",
-        threadStatus: "active",
-      },
-    },
-    expected: {
-      title: "Queue already moved",
-      body: "This thread's queue was already moved.",
-      severity: "info",
-    },
-  },
-  {
-    name: "thread_not_writable source_is_retire_target",
-    body: {
-      code: "thread_not_writable",
-      message: "Cannot move queue",
-      details: {
-        archivedAt: null,
-        reason: "source_is_retire_target",
-        threadStatus: "active",
-      },
-    },
-    expected: {
-      title: "Cannot move queue",
-      body: "Another thread's queue was moved into this thread.",
-      severity: "warning",
-    },
-  },
-  {
-    name: "thread_not_writable target_retired",
-    body: {
-      code: "thread_not_writable",
-      message: "Target thread retired",
-      details: {
-        archivedAt: null,
-        reason: "target_retired",
-        threadStatus: "active",
-      },
-    },
-    expected: {
-      title: "Target thread retired",
-      body: "The target thread's queue was moved elsewhere.",
-      severity: "warning",
-    },
-  },
-  {
-    name: "thread_not_writable thread_not_writable",
-    body: {
-      code: "thread_not_writable",
-      message: "Thread not writable",
-      details: {
-        archivedAt: null,
-        reason: "thread_not_writable",
-        threadStatus: "active",
-      },
-    },
-    expected: {
-      title: "Thread not writable",
-      body: "The thread cannot accept messages.",
-      severity: "warning",
-    },
-  },
-  {
-    name: "thread_not_writable transfer_retire_disabled",
-    body: {
-      code: "thread_not_writable",
-      message: "Queue move disabled",
-      details: {
-        archivedAt: null,
-        reason: "transfer_retire_disabled",
-        threadStatus: "active",
-      },
-    },
-    expected: {
-      title: "Queue move disabled",
-      body: "Moving queues is currently disabled.",
-      severity: "warning",
-    },
-  },
-  {
-    name: "thread_not_writable retired_no_successor",
-    body: {
-      code: "thread_not_writable",
-      message: "Thread retired",
-      details: {
-        archivedAt: null,
-        reason: "retired_no_successor",
-        threadStatus: "active",
-      },
-    },
-    expected: {
-      title: "Thread retired",
-      body: "This thread was retired and its successor is gone; it cannot accept messages.",
-      severity: "warning",
-    },
-  },
-  {
-    name: "thread_not_writable redirect_depth_exceeded",
-    body: {
-      code: "thread_not_writable",
-      message: "Thread retired",
-      details: {
-        archivedAt: null,
-        reason: "redirect_depth_exceeded",
-        threadStatus: "active",
-      },
-    },
-    expected: {
-      title: "Thread retired",
-      body: "This thread was retired into another retired thread; it cannot accept messages.",
-      severity: "warning",
-    },
-  },
-  {
-    name: "thread_not_writable unknown_operation",
-    body: {
-      code: "thread_not_writable",
-      message: "Operation not found",
-      details: {
-        archivedAt: null,
-        reason: "unknown_operation",
-        threadStatus: "active",
-      },
-    },
-    expected: {
-      title: "Operation not found",
-      body: "The retirement could not be found.",
-      severity: "warning",
-    },
-  },
-  {
-    name: "thread_not_writable already_aborted",
-    body: {
-      code: "thread_not_writable",
-      message: "Already restored",
-      details: {
-        archivedAt: null,
-        reason: "already_aborted",
-        threadStatus: "active",
-      },
-    },
-    expected: {
-      title: "Already restored",
-      body: "This retirement was already restored.",
-      severity: "warning",
-    },
-  },
-  {
-    name: "thread_not_writable stale_abort",
-    body: {
-      code: "thread_not_writable",
-      message: "Retirement changed",
-      details: {
-        archivedAt: null,
-        reason: "stale_abort",
-        threadStatus: "active",
-      },
-    },
-    expected: {
-      title: "Retirement changed",
-      body: "This retirement is no longer current.",
-      severity: "warning",
-    },
-  },
-  {
-    name: "thread_not_writable successor_retired",
-    body: {
-      code: "thread_not_writable",
-      message: "Successor retired",
-      details: {
-        archivedAt: null,
-        reason: "successor_retired",
-        threadStatus: "active",
-      },
-    },
-    expected: {
-      title: "Successor retired",
-      body: "The successor thread was retired, so this cannot be restored.",
-      severity: "warning",
-    },
-  },
-  {
-    name: "thread_not_writable claims_pending",
-    body: {
-      code: "thread_not_writable",
-      message: "Messages in flight",
-      details: {
-        archivedAt: null,
-        reason: "claims_pending",
-        threadStatus: "active",
-      },
-    },
-    expected: {
-      title: "Messages in flight",
-      body: "Messages are being delivered; try again shortly.",
-      severity: "warning",
-    },
-  },
-  {
-    name: "thread_not_writable restore_key_exhausted",
-    body: {
-      code: "thread_not_writable",
-      message: "Cannot restore order",
-      details: {
-        archivedAt: null,
-        reason: "restore_key_exhausted",
-        threadStatus: "active",
-      },
-    },
-    expected: {
-      title: "Cannot restore order",
-      body: "The original message order cannot be restored.",
-      severity: "warning",
-    },
-  },
-  {
-    name: "thread_not_writable source_queue_too_large",
-    body: {
-      code: "thread_not_writable",
-      message: "Queue too large",
-      details: {
-        archivedAt: null,
-        reason: "source_queue_too_large",
-        threadStatus: "active",
-      },
-    },
-    expected: {
-      title: "Queue too large to move",
-      body: "This thread has too many queued messages to move at once. Send or remove some and try again.",
-      severity: "warning",
-    },
-  },
-  {
-    name: "thread_not_writable abort_queue_too_large",
-    body: {
-      code: "thread_not_writable",
-      message: "Retirement cannot be aborted online",
-      details: {
-        archivedAt: null,
-        reason: "abort_queue_too_large",
-        threadStatus: "active",
-      },
-    },
-    expected: {
-      title: "Too many messages to restore",
-      body: "Restoring this retirement would move too many queued messages at once. Send or remove some from the successor and try again.",
-      severity: "warning",
-    },
-  },
-  {
-    name: "thread_not_writable attachment_unavailable",
-    body: {
-      code: "thread_not_writable",
-      message: "Attachment unavailable",
-      details: {
-        archivedAt: null,
-        reason: "attachment_unavailable",
-        threadStatus: "active",
-      },
-    },
-    expected: {
-      title: "Attachment unavailable",
-      body: "An attachment could not be moved.",
-      severity: "error",
-    },
-  },
-  {
-    name: "thread_not_writable still starting",
-    body: {
-      code: "thread_not_writable",
-      message: "Thread is still starting",
-      details: {
-        archivedAt: null,
-        reason: "still_starting",
-        threadStatus: "starting",
-      },
-    },
-    expected: {
-      title: "Thread starting",
-      body: "The thread is still starting.",
-      severity: "info",
-    },
-  },
-  {
-    name: "host_unavailable suspended",
-    body: {
-      code: "host_unavailable",
-      message: "Host is suspended",
-      details: {
-        destroyedAt: null,
-        hostStatus: "disconnected",
-        reason: "suspended",
-        suspendedAt: 10,
-      },
-    },
-    expected: {
-      title: "Host paused",
-      body: "Host is paused.",
-      severity: "warning",
-    },
-  },
-  {
-    name: "host_unavailable disconnected",
-    body: {
-      code: "host_unavailable",
-      message: "Host disconnected",
-      details: {
-        destroyedAt: null,
-        hostStatus: "disconnected",
-        reason: "disconnected",
-        suspendedAt: null,
-      },
-    },
-    expected: {
-      title: "Host offline",
-      body: "Host is offline.",
-      severity: "warning",
-    },
-  },
-  {
-    name: "host_unavailable destroyed",
-    body: {
-      code: "host_unavailable",
-      message: "Host removed",
-      details: {
-        destroyedAt: 10,
-        hostStatus: null,
-        reason: "destroyed",
-        suspendedAt: null,
-      },
-    },
-    expected: {
-      title: "Host removed",
-      body: "Host was removed.",
-      severity: "error",
-    },
-  },
-  {
-    name: "project_unavailable pending deletion",
-    body: {
-      code: "project_unavailable",
-      message: "Project unavailable",
-      details: {
-        deletedAt: null,
-        reason: "pending_deletion",
-      },
-    },
-    expected: {
-      title: "Project deletion in progress",
-      body: "This project is being deleted.",
-      severity: "info",
-    },
-  },
-  {
-    name: "project_unavailable deleted",
-    body: {
-      code: "project_unavailable",
-      message: "Project unavailable",
-      details: {
-        deletedAt: 10,
-        reason: "deleted",
-      },
-    },
-    expected: {
-      title: "Project deleted",
-      body: "This project was deleted.",
-      severity: "error",
-    },
-  },
-  {
-    name: "parent_thread_invalid not found",
-    body: {
-      code: "parent_thread_invalid",
-      message: "Parent thread is invalid",
-      details: {
-        reason: "not_found",
-        subject: "parent",
-      },
-    },
-    expected: {
-      title: "Parent thread unavailable",
-      body: "That parent thread no longer exists.",
-      severity: "error",
-    },
-  },
-  {
-    name: "parent_thread_invalid archived",
-    body: {
-      code: "parent_thread_invalid",
-      message: "Parent thread is invalid",
-      details: {
-        reason: "archived",
-        subject: "parent",
-      },
-    },
-    expected: {
-      title: "Parent thread unavailable",
-      body: "Unarchive the parent thread first or choose another parent.",
-      severity: "warning",
-    },
-  },
-  {
-    name: "parent_thread_invalid deleted",
-    body: {
-      code: "parent_thread_invalid",
-      message: "Parent thread is invalid",
-      details: {
-        reason: "deleted",
-        subject: "parent",
-      },
-    },
-    expected: {
-      title: "Parent thread unavailable",
-      body: "That parent thread was deleted.",
-      severity: "error",
-    },
-  },
-  {
-    name: "parent_thread_invalid self",
-    body: {
-      code: "parent_thread_invalid",
-      message: "Parent thread is invalid",
-      details: {
-        reason: "self",
-        subject: "parent",
-      },
-    },
-    expected: {
-      title: "Parent thread unavailable",
-      body: "A thread cannot be its own parent.",
-      severity: "error",
-    },
-  },
-  {
-    name: "parent_thread_invalid cycle",
-    body: {
-      code: "parent_thread_invalid",
-      message: "Parent thread is invalid",
-      details: {
-        reason: "cycle",
-        subject: "parent",
-      },
-    },
-    expected: {
-      title: "Parent thread unavailable",
-      body: "Choose a thread that is not a child of this thread.",
-      severity: "error",
-    },
-  },
-  {
-    name: "parent_thread_invalid too deep",
-    body: {
-      code: "parent_thread_invalid",
-      message: "Parent thread is invalid",
-      details: {
-        reason: "too_deep",
-        subject: "parent",
-      },
-    },
-    expected: {
-      title: "Parent thread unavailable",
-      body: "Thread nesting is limited to 4 levels.",
-      severity: "error",
-    },
-  },
-  {
-    name: "parent_thread_invalid sender",
-    body: {
-      code: "parent_thread_invalid",
-      message: "Sender thread is invalid",
-      details: {
-        reason: "not_found",
-        subject: "sender",
-      },
-    },
-    expected: {
-      title: "Sender thread unavailable",
-      body: "The sender thread no longer exists.",
-      severity: "error",
-    },
-  },
-  {
-    name: "dispatch_rejected shows the plugin's message verbatim",
-    body: {
+function environmentNotReady(
+  environmentStatus: Details<"environment_not_ready">["environmentStatus"],
+): LifecycleApiError {
+  return {
+    code: "environment_not_ready",
+    message: "Environment unavailable",
+    details: { environmentStatus, hasPath: false },
+  };
+}
+
+function threadEnvironmentUnavailable(
+  reason: Details<"thread_environment_unavailable">["reason"],
+  environmentStatus: Details<"thread_environment_unavailable">["environmentStatus"],
+): LifecycleApiError {
+  return {
+    code: "thread_environment_unavailable",
+    message: "Thread environment is unavailable",
+    details: { environmentStatus, reason },
+  };
+}
+
+function threadNotWritable(
+  reason: Details<"thread_not_writable">["reason"],
+  threadStatus: Details<"thread_not_writable">["threadStatus"],
+  archivedAt: number | null = null,
+): LifecycleApiError {
+  return {
+    code: "thread_not_writable",
+    message: "Thread is not writable",
+    details: { archivedAt, reason, threadStatus },
+  };
+}
+
+function hostUnavailable(
+  details: Details<"host_unavailable">,
+): LifecycleApiError {
+  return { code: "host_unavailable", message: "Host unavailable", details };
+}
+
+function projectUnavailable(
+  reason: Details<"project_unavailable">["reason"],
+  deletedAt: number | null,
+): LifecycleApiError {
+  return {
+    code: "project_unavailable",
+    message: "Project unavailable",
+    details: { deletedAt, reason },
+  };
+}
+
+function parentThreadInvalid(
+  reason: Details<"parent_thread_invalid">["reason"],
+  subject: Details<"parent_thread_invalid">["subject"] = "parent",
+): LifecycleApiError {
+  return {
+    code: "parent_thread_invalid",
+    message: "Parent thread is invalid",
+    details: { reason, subject },
+  };
+}
+
+const descriptionCases: Array<[string, LifecycleApiError, Expected]> = [
+  [
+    "environment_not_ready provisioning",
+    environmentNotReady("provisioning"),
+    ["info", "Workspace starting", "Workspace is still starting."],
+  ],
+  [
+    "environment_not_ready ready",
+    environmentNotReady("ready"),
+    ["warning", "Workspace unavailable", "Workspace is unavailable."],
+  ],
+  [
+    "environment_not_ready error",
+    environmentNotReady("error"),
+    ["error", "Workspace setup failed", "Workspace setup failed."],
+  ],
+  [
+    "environment_not_ready destroyed archived thread",
+    environmentNotReady("destroyed"),
+    ["warning", "Workspace unavailable", "Workspace no longer exists."],
+  ],
+  [
+    "thread_environment_unavailable never attached",
+    threadEnvironmentUnavailable("never_attached", null),
+    ["info", "Workspace unavailable", "Workspace is not available yet."],
+  ],
+  [
+    "thread_environment_unavailable destroyed",
+    threadEnvironmentUnavailable("destroyed", "destroyed"),
+    ["warning", "Workspace unavailable", "Workspace no longer exists."],
+  ],
+  [
+    "thread_environment_unavailable provisioning",
+    threadEnvironmentUnavailable("provisioning", "provisioning"),
+    ["info", "Workspace starting", "Workspace is still starting."],
+  ],
+  [
+    "thread_environment_unavailable errored",
+    threadEnvironmentUnavailable("errored", "error"),
+    ["error", "Workspace setup failed", "Workspace setup failed."],
+  ],
+  [
+    "thread_not_writable archived",
+    threadNotWritable("archived", "idle", 10),
+    ["info", "Thread archived", "Unarchive the thread first."],
+  ],
+  [
+    "thread_not_writable stopping",
+    threadNotWritable("stopping", "stopping"),
+    ["warning", "Thread stopping", "The thread is stopping."],
+  ],
+  [
+    "thread_not_writable deleted",
+    threadNotWritable("deleted", "idle"),
+    ["error", "Thread deleted", "This thread was deleted."],
+  ],
+  [
+    "thread_not_writable not started while starting",
+    threadNotWritable("not_started", "starting"),
+    ["info", "Thread starting", "The thread is still starting."],
+  ],
+  [
+    "thread_not_writable not active",
+    threadNotWritable("not_active", "idle"),
+    ["warning", "Thread not running", "The thread is not running."],
+  ],
+  [
+    "thread_not_writable errored",
+    threadNotWritable("errored", "error"),
+    ["error", "Thread failed", "This thread failed and cannot continue."],
+  ],
+  [
+    "thread_not_writable already active",
+    threadNotWritable("already_active", "active"),
+    ["warning", "Thread already running", "The thread is already running."],
+  ],
+  [
+    "thread_not_writable still starting",
+    threadNotWritable("still_starting", "starting"),
+    ["info", "Thread starting", "The thread is still starting."],
+  ],
+  [
+    "thread_not_writable self_transfer",
+    threadNotWritable("self_transfer", "active"),
+    [
+      "warning",
+      "Cannot move to itself",
+      "A thread cannot move its queue to itself.",
+    ],
+  ],
+  [
+    "thread_not_writable unknown_thread",
+    threadNotWritable("unknown_thread", "active"),
+    ["error", "Thread not found", "The target thread does not exist."],
+  ],
+  [
+    "thread_not_writable source_deleted",
+    threadNotWritable("source_deleted", "active"),
+    ["error", "Thread deleted", "This thread was deleted."],
+  ],
+  [
+    "thread_not_writable already_retired",
+    threadNotWritable("already_retired", "active"),
+    ["info", "Queue already moved", "This thread's queue was already moved."],
+  ],
+  [
+    "thread_not_writable source_is_retire_target",
+    threadNotWritable("source_is_retire_target", "active"),
+    [
+      "warning",
+      "Cannot move queue",
+      "Another thread's queue was moved into this thread.",
+    ],
+  ],
+  [
+    "thread_not_writable target_retired",
+    threadNotWritable("target_retired", "active"),
+    [
+      "warning",
+      "Target thread retired",
+      "The target thread's queue was moved elsewhere.",
+    ],
+  ],
+  [
+    "thread_not_writable thread_not_writable",
+    threadNotWritable("thread_not_writable", "active"),
+    ["warning", "Thread not writable", "The thread cannot accept messages."],
+  ],
+  [
+    "thread_not_writable transfer_retire_disabled",
+    threadNotWritable("transfer_retire_disabled", "active"),
+    ["warning", "Queue move disabled", "Moving queues is currently disabled."],
+  ],
+  [
+    "thread_not_writable retired_no_successor",
+    threadNotWritable("retired_no_successor", "active"),
+    [
+      "warning",
+      "Thread retired",
+      "This thread was retired and its successor is gone; it cannot accept messages.",
+    ],
+  ],
+  [
+    "thread_not_writable redirect_depth_exceeded",
+    threadNotWritable("redirect_depth_exceeded", "active"),
+    [
+      "warning",
+      "Thread retired",
+      "This thread was retired into another retired thread; it cannot accept messages.",
+    ],
+  ],
+  [
+    "thread_not_writable unknown_operation",
+    threadNotWritable("unknown_operation", "active"),
+    ["warning", "Operation not found", "The retirement could not be found."],
+  ],
+  [
+    "thread_not_writable already_aborted",
+    threadNotWritable("already_aborted", "active"),
+    ["warning", "Already restored", "This retirement was already restored."],
+  ],
+  [
+    "thread_not_writable stale_abort",
+    threadNotWritable("stale_abort", "active"),
+    ["warning", "Retirement changed", "This retirement is no longer current."],
+  ],
+  [
+    "thread_not_writable successor_retired",
+    threadNotWritable("successor_retired", "active"),
+    [
+      "warning",
+      "Successor retired",
+      "The successor thread was retired, so this cannot be restored.",
+    ],
+  ],
+  [
+    "thread_not_writable claims_pending",
+    threadNotWritable("claims_pending", "active"),
+    [
+      "warning",
+      "Messages in flight",
+      "Messages are being delivered; try again shortly.",
+    ],
+  ],
+  [
+    "thread_not_writable restore_key_exhausted",
+    threadNotWritable("restore_key_exhausted", "active"),
+    [
+      "warning",
+      "Cannot restore order",
+      "The original message order cannot be restored.",
+    ],
+  ],
+  [
+    "thread_not_writable source_queue_too_large",
+    threadNotWritable("source_queue_too_large", "active"),
+    [
+      "warning",
+      "Queue too large to move",
+      "This thread has too many queued messages to move at once. Send or remove some and try again.",
+    ],
+  ],
+  [
+    "thread_not_writable abort_queue_too_large",
+    threadNotWritable("abort_queue_too_large", "active"),
+    [
+      "warning",
+      "Too many messages to restore",
+      "Restoring this retirement would move too many queued messages at once. Send or remove some from the successor and try again.",
+    ],
+  ],
+  [
+    "thread_not_writable attachment_unavailable",
+    threadNotWritable("attachment_unavailable", "active"),
+    ["error", "Attachment unavailable", "An attachment could not be moved."],
+  ],
+  [
+    "host_unavailable suspended",
+    hostUnavailable({
+      destroyedAt: null,
+      hostStatus: "disconnected",
+      reason: "suspended",
+      suspendedAt: 10,
+    }),
+    ["warning", "Host paused", "Host is paused."],
+  ],
+  [
+    "host_unavailable disconnected",
+    hostUnavailable({
+      destroyedAt: null,
+      hostStatus: "disconnected",
+      reason: "disconnected",
+      suspendedAt: null,
+    }),
+    ["warning", "Host offline", "Host is offline."],
+  ],
+  [
+    "host_unavailable destroyed",
+    hostUnavailable({
+      destroyedAt: 10,
+      hostStatus: null,
+      reason: "destroyed",
+      suspendedAt: null,
+    }),
+    ["error", "Host removed", "Host was removed."],
+  ],
+  [
+    "project_unavailable pending deletion",
+    projectUnavailable("pending_deletion", null),
+    ["info", "Project deletion in progress", "This project is being deleted."],
+  ],
+  [
+    "project_unavailable deleted",
+    projectUnavailable("deleted", 10),
+    ["error", "Project deleted", "This project was deleted."],
+  ],
+  [
+    "parent_thread_invalid not found",
+    parentThreadInvalid("not_found"),
+    [
+      "error",
+      "Parent thread unavailable",
+      "That parent thread no longer exists.",
+    ],
+  ],
+  [
+    "parent_thread_invalid archived",
+    parentThreadInvalid("archived"),
+    [
+      "warning",
+      "Parent thread unavailable",
+      "Unarchive the parent thread first or choose another parent.",
+    ],
+  ],
+  [
+    "parent_thread_invalid deleted",
+    parentThreadInvalid("deleted"),
+    ["error", "Parent thread unavailable", "That parent thread was deleted."],
+  ],
+  [
+    "parent_thread_invalid self",
+    parentThreadInvalid("self"),
+    [
+      "error",
+      "Parent thread unavailable",
+      "A thread cannot be its own parent.",
+    ],
+  ],
+  [
+    "parent_thread_invalid cycle",
+    parentThreadInvalid("cycle"),
+    [
+      "error",
+      "Parent thread unavailable",
+      "Choose a thread that is not a child of this thread.",
+    ],
+  ],
+  [
+    "parent_thread_invalid too deep",
+    parentThreadInvalid("too_deep"),
+    [
+      "error",
+      "Parent thread unavailable",
+      "Thread nesting is limited to 4 levels.",
+    ],
+  ],
+  [
+    "parent_thread_invalid sender",
+    parentThreadInvalid("not_found", "sender"),
+    [
+      "error",
+      "Sender thread unavailable",
+      "The sender thread no longer exists.",
+    ],
+  ],
+  [
+    "dispatch_rejected shows the plugin's message verbatim",
+    {
       code: "dispatch_rejected",
       message: "Sandbox quota is exhausted. Free a slot first.",
-      details: {
-        pluginId: "policy-guard",
-      },
+      details: { pluginId: "policy-guard" },
     },
-    expected: {
-      title: "Blocked by a plugin",
-      body: 'Blocked by the "policy-guard" plugin: Sandbox quota is exhausted. Free a slot first.',
-      severity: "warning",
-    },
-  },
-  {
-    name: "dispatch_hook_failed adds the recovery hint",
-    body: {
+    [
+      "warning",
+      "Blocked by a plugin",
+      'Blocked by the "policy-guard" plugin: Sandbox quota is exhausted. Free a slot first.',
+    ],
+  ],
+  [
+    "dispatch_hook_failed adds the recovery hint",
+    {
       code: "dispatch_hook_failed",
       message:
         'The "policy-guard" plugin\'s message.dispatch hook failed: did not decide within 5000ms',
-      details: {
-        pluginId: "policy-guard",
-      },
+      details: { pluginId: "policy-guard" },
     },
-    expected: {
-      title: "Plugin dispatch hook failed",
-      body: 'The "policy-guard" plugin\'s message.dispatch hook failed: did not decide within 5000ms. Disable that plugin to continue.',
-      severity: "error",
-    },
-  },
+    [
+      "error",
+      "Plugin dispatch hook failed",
+      'The "policy-guard" plugin\'s message.dispatch hook failed: did not decide within 5000ms. Disable that plugin to continue.',
+    ],
+  ],
 ];
 
-describe("parseLifecycleError", () => {
-  it("parses HttpError bodies that match the lifecycle union", () => {
-    const body: LifecycleApiError = {
-      code: "environment_not_ready",
-      message: "Environment unavailable",
-      details: {
-        environmentStatus: "provisioning",
-        hasPath: false,
-      },
-    };
-
-    expect(parseLifecycleError(httpError(body))).toEqual(body);
-  });
-
-  it("returns null for non-lifecycle errors", () => {
-    const genericError = new HttpError({
-      body: {
-        code: "invalid_request",
-        message: "Request failed",
-      },
-      code: "invalid_request",
-      message: "Request failed",
-      status: 400,
-    });
-
-    expect(parseLifecycleError(new Error("Nope"))).toBeNull();
-    expect(parseLifecycleError(genericError)).toBeNull();
-  });
-});
-
 describe("describeLifecycleError", () => {
-  it.each(descriptionCases)("$name", ({ body, expected, operation }) => {
-    expect(
-      describeLifecycleError({
-        error: httpError(body),
-        operation,
-      }),
-    ).toEqual(expected);
+  it.each(descriptionCases)("%s", (_name, body, [severity, title, text]) => {
+    expect(describeLifecycleError({ error: httpError(body) })).toEqual({
+      title,
+      body: text,
+      severity,
+    });
   });
 
   it("uses operation titles while keeping lifecycle reason text", () => {
-    const body: LifecycleApiError = {
-      code: "environment_not_ready",
-      message: "Environment unavailable",
-      details: {
-        environmentStatus: "destroyed",
-        hasPath: false,
-      },
-    };
-
     expect(
       describeLifecycleError({
-        error: httpError(body),
+        error: httpError(environmentNotReady("destroyed")),
         operation: "load_diff",
       }),
     ).toEqual({
@@ -933,11 +465,18 @@ describe("describeLifecycleError", () => {
   });
 
   it("returns null for non-lifecycle errors", () => {
-    expect(
-      describeLifecycleError({
-        error: new Error("Failed"),
-      }),
-    ).toBeNull();
+    const genericError = new HttpError({
+      body: {
+        code: "invalid_request",
+        message: "Request failed",
+      },
+      code: "invalid_request",
+      message: "Request failed",
+      status: 400,
+    });
+
+    expect(describeLifecycleError({ error: new Error("Failed") })).toBeNull();
+    expect(describeLifecycleError({ error: genericError })).toBeNull();
   });
 
   it("keeps a gate rejection readable under an operation title", () => {

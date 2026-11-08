@@ -510,6 +510,7 @@ async function createPendingThreadAndAttemptFirstDispatch(
       source: { kind: "inline" },
       queuePayload: { kind: "inline" },
       pluginSubmission: args.request.pluginSubmission ?? null,
+      systemNotice: null,
       startContext,
       executionDefaults: executionPlanArgs,
       origin: args.request.origin,
@@ -912,6 +913,7 @@ async function createThreadFromRequestWithSourcePinned(
   });
   const { initiator } = resolveDispatchAuthor({
     retrying: false,
+    systemNotice: false,
     senderThreadId: null,
     startedOnBehalfOf: request.startedOnBehalfOf,
   });

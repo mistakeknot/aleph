@@ -49,7 +49,8 @@
         "disable1MContext": false,
         "artifactsEnabled": false,
         "sandboxEnabled": true,
-        "fullAccessApprovalsEnabled": false
+        "fullAccessApprovalsEnabled": false,
+        "commandDescriptionsEnabled": false
       },
       "permissionMode": "full",
       "permissionScope": "full",
@@ -139,7 +140,8 @@
         "disable1MContext": false,
         "artifactsEnabled": false,
         "sandboxEnabled": true,
-        "fullAccessApprovalsEnabled": false
+        "fullAccessApprovalsEnabled": false,
+        "commandDescriptionsEnabled": false
       },
       "permissionMode": "full",
       "permissionScope": "full",

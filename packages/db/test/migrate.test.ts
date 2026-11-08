@@ -10,7 +10,9 @@ import {
   dropMusicModeColumns,
   dropPluginEnabledFollowsDefaultColumn,
   dropThreadParentNotificationsColumn,
-  dropQueuedMessageDeliveryModeColumn,
+  dropQueuedMessageDeliveryColumns,
+  dropThreadStatusChangedAtColumn,
+  restoreDiffViewedFilesTable,
   dropQueuedMessageEditHeldUntilColumn,
   rewindQueuedMessageStateMigration,
   rewindThreadPruningWork,
@@ -259,6 +261,12 @@ const latestMigrationWhen = Math.max(
       ).entries.map((entry) => entry.when),
   ),
 );
+
+const threadStatusChangedAtMigrationWhen = (
+  JSON.parse(
+    readFileSync(resolve(__dirname, "../drizzle/meta/_journal.json"), "utf-8"),
+  ) as { entries: { tag: string; when: number }[] }
+).entries.find((entry) => entry.tag === "0150_thread_status_changed_at")!.when;
 
 function restoreWideExperimentsTable(db: DbConnection): void {
   const columns = db.$client
@@ -606,10 +614,13 @@ function migrateFromLegacyHistory(db: DbConnection): void {
 }
 
 // A legacy database never recorded the steps planned after the pinned oracle
-// (upstream 0144 as A0011, 0145, 0146, 0147). Rewind them so a ledger-less open
+// (upstream 0144 as A0011, 0145, 0146, 0147, 0148 as A0012, 0149 as A0013,
+// 0150 as A0014, 0151). Rewind them so a ledger-less open
 // treats them as pending instead of as recorded-but-unledgered.
 function rewindPostOracleSteps(db: DbConnection): void {
-  dropQueuedMessageDeliveryModeColumn(db);
+  dropQueuedMessageDeliveryColumns(db);
+  dropThreadStatusChangedAtColumn(db);
+  restoreDiffViewedFilesTable(db);
   dropThreadParentNotificationsColumn(db);
   const oracleWhen = Math.max(
     ...(
@@ -724,7 +735,8 @@ function rewindEnvironmentProvisioningMigration(db: DbConnection): void {
   dropQueuedMessageEditHeldUntilColumn(db);
   dropMarketplaceSourceGitSubdirectoryColumn(db);
   dropThreadParentNotificationsColumn(db);
-  dropQueuedMessageDeliveryModeColumn(db);
+  dropQueuedMessageDeliveryColumns(db);
+  dropThreadStatusChangedAtColumn(db);
   db.$client.exec("DROP TRIGGER IF EXISTS threads_lifecycle_owner_insert");
   db.$client.exec("DROP TRIGGER IF EXISTS threads_lifecycle_owner_immutable");
   db.$client.exec("DROP INDEX IF EXISTS threads_lifecycle_owner_idx");
@@ -772,7 +784,8 @@ function rewindEnvironmentProvisioningMigration(db: DbConnection): void {
 function dropQueuedMessageAttemptColumns(db: DbConnection): void {
   rewindQueuedMessageStateMigration(db);
   dropThreadParentNotificationsColumn(db);
-  dropQueuedMessageDeliveryModeColumn(db);
+  dropQueuedMessageDeliveryColumns(db);
+  dropThreadStatusChangedAtColumn(db);
   const columns = db.$client
     .prepare<[], TableInfoRow>("PRAGMA table_info(queued_thread_messages)")
     .all();
@@ -875,7 +888,8 @@ function rewindMachineProvidersMigration(db: DbConnection): void {
   dropQueuedMessageEditHeldUntilColumn(db);
   dropMarketplaceSourceGitSubdirectoryColumn(db);
   dropThreadParentNotificationsColumn(db);
-  dropQueuedMessageDeliveryModeColumn(db);
+  dropQueuedMessageDeliveryColumns(db);
+  dropThreadStatusChangedAtColumn(db);
   db.$client.exec("DROP TABLE IF EXISTS ui_preference_defaults");
   db.$client.exec("DROP TABLE IF EXISTS idempotent_thread_operations");
   dropTransferLedgerSchema(db);
@@ -2605,6 +2619,56 @@ describe("migrate", () => {
     }
   });
 
+  it("backfills each thread's status change time from its last update", () => {
+    const db = createConnection(":memory:");
+
+    try {
+      migrate(db);
+      const host = upsertHost(db, noopNotifier, {
+        name: "status-changed-at-host",
+      });
+      const { project } = createProject(db, noopNotifier, {
+        name: "status-changed-at-project",
+        source: {
+          type: "local_path",
+          hostId: host.id,
+          path: "/tmp/status-changed-at",
+        },
+      });
+      const thread = createThread(db, noopNotifier, {
+        projectId: project.id,
+        providerId: "codex",
+      });
+      dropThreadStatusChangedAtColumn(db);
+      restoreDiffViewedFilesTable(db);
+      db.$client
+        .prepare<[number, string]>(
+          "UPDATE threads SET updated_at = ? WHERE id = ?",
+        )
+        .run(1_234, thread.id);
+      db.$client
+        .prepare<DeleteMigrationParameters>(
+          "DELETE FROM __drizzle_migrations WHERE created_at >= ?",
+        )
+        .run(threadStatusChangedAtMigrationWhen);
+      db.$client.exec(
+        "DELETE FROM __bb_migration_ledger WHERE tag IN ('A0014', '0150_thread_status_changed_at', '0151_hand_diff_viewed_files_to_git_plugin')",
+      );
+
+      migrate(db);
+
+      expect(
+        db.$client
+          .prepare<[string], { statusChangedAt: number }>(
+            "SELECT status_changed_at AS statusChangedAt FROM threads WHERE id = ?",
+          )
+          .get(thread.id),
+      ).toEqual({ statusChangedAt: 1_234 });
+    } finally {
+      closeConnection(db);
+    }
+  });
+
   it("applies rowid thread search rebuild after the compatible thread search hash", () => {
     const db = createConnection(":memory:");
 
@@ -3406,7 +3470,8 @@ describe("migrate", () => {
       dropQueuedMessageEditHeldUntilColumn(db);
       dropMarketplaceSourceGitSubdirectoryColumn(db);
       dropThreadParentNotificationsColumn(db);
-      dropQueuedMessageDeliveryModeColumn(db);
+      dropQueuedMessageDeliveryColumns(db);
+      dropThreadStatusChangedAtColumn(db);
       db.$client.prepare("DROP INDEX projects_deleted_idx").run();
       db.$client.prepare("ALTER TABLE projects DROP COLUMN deleted_at").run();
       db.$client.prepare("ALTER TABLE events ADD producer_event_id text").run();

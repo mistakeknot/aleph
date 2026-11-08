@@ -5,12 +5,13 @@
 ```ts
 bb.events.on("experimental_thread.events", ({ thread, sequence }) => { ... });
 bb.events.on("experimental_thread.parentChanged", ({ thread, previousParentThreadId }) => { ... }); // see backend-sdk.md
+bb.events.on("experimental_thread.read", ({ thread }) => { ... });        // thread is now read
 bb.events.on("experimental_terminal.input", ({ terminal }) => { ... });
 bb.events.on("experimental_environment.removed", ({ removal }) => { ... });
 bb.events.on("experimental_host.deleted", ({ host }) => { ... });
 bb.events.on("thread.created", ({ thread }) => { ... });
 bb.events.on("thread.active", ({ thread }) => { ... });
-bb.events.on("thread.idle", ({ thread, lastAssistantText }) => { ... });   // lastAssistantText: string | null
+bb.events.on("thread.idle", ({ thread, lastAssistantText }) => { ... });   // lastAssistantText: final root reply of the latest turn, or null
 bb.events.on("thread.failed", ({ thread, error }) => { ... });             // error: string | null
 bb.events.on("thread.archived", ({ thread }) => { ... });
 bb.events.on("thread.unarchived", ({ thread }) => { ... });
@@ -30,7 +31,7 @@ caught, logged, and counted in the plugin's handler stats (`bb plugin list`;
 stats survive reloads and reset on remove). The surface that asks is
 `bb.experimental_hooks`, below, where core acts on your answer.
 
-Eighteen events. The seven `thread.*` ones are thread lifecycle. `interaction.pending`
+Nineteen events. The seven `thread.*` ones are thread lifecycle. `interaction.pending`
 fires after core commits a pending interaction row. The four `message.*` ones fire when a
 dispatch is queued behind a wait (again when a row's wait or `sendAt` is rewritten), when a queued row's
 waits all clear and it dispatches, when the queued row is cancelled, or when a queue transfer
@@ -46,8 +47,7 @@ Delivery is at-least-once: core awaits every listener, and if one throws it rede
 each `eventId` idempotently. A landed row held by a wait also fires `message.queued` with it.
 
 `message.cancelled` fires when the user removes a queued row before it dispatched, and is the only
-signal for that removal: release resources held for a waiting message (a sandbox, a slot) there.
-Archiving the whole thread fires the thread event.
+signal for that removal: release resources held for a waiting message (a sandbox, a slot) there. Archiving the whole thread fires the thread event.
 
 `turn.failed` fires after a turn failed and the thread has already landed in `error`. Its payload
 (`PluginTurnFailedEvent`) is ids and failure facts only — `threadId`, the failed turn's

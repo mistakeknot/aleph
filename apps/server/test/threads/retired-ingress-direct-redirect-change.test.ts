@@ -125,6 +125,7 @@ async function runDirectRedirectChange(
     const original = harness.deps.db;
     harness.deps.db = held;
     const consulted: string[] = [];
+    const parentAborts: string[] = [];
     const ids = [
       seeded.source.id,
       seeded.firstTarget.id,
@@ -152,6 +153,14 @@ async function runDirectRedirectChange(
                       operationKey: "abort-first",
                       resolveWaitingOn: () => ({ kind: "thread-busy" }),
                     });
+                    if (ingress === "parent") {
+                      parentAborts.push(
+                        aborted.kind === "refused"
+                          ? aborted.reason
+                          : aborted.kind,
+                      );
+                      return { action: "proceed" };
+                    }
                     expect(aborted.kind).toBe("aborted");
                     const next = retireQueuedThreadMessages(other, {
                       projectId: seeded.project.id,
@@ -196,6 +205,7 @@ async function runDirectRedirectChange(
       return {
         outcome,
         consulted,
+        parentAborts,
         requests: Object.fromEntries(
           ids.map((id) => [id, requestCount(held, id) - before[id]!]),
         ),
@@ -223,6 +233,12 @@ describe("a direct delivery whose redirect changes while the dispatch hook proce
           secondHostRemoving: false,
         });
         expect(result.outcome.kind).toBe("ok");
+        if (ingress === "parent") {
+          expect(result.parentAborts).toEqual(["claims_pending"]);
+          expect(result.consulted).toEqual([result.seeded.firstTarget.id]);
+          expect(result.requests[result.seeded.secondTarget.id]).toBe(0);
+          return;
+        }
         expect(result.consulted).toEqual([
           result.seeded.firstTarget.id,
           result.seeded.secondTarget.id,
@@ -235,26 +251,29 @@ describe("a direct delivery whose redirect changes while the dispatch hook proce
         expect(result.queuedRows).toHaveLength(0);
       });
 
-      it(`refuses a new destination whose host is being removed (${ingress}, ${state})`, async () => {
-        const result = await runDirectRedirectChange(ingress, {
-          state,
-          secondHostRemoving: true,
-        });
-        if (ingress === "user") {
-          expect(result.outcome).toMatchObject({
-            kind: "error",
-            error: { body: { code: "machine_removing" } },
+      it.runIf(ingress === "user")(
+        `refuses a new destination whose host is being removed (${ingress}, ${state})`,
+        async () => {
+          const result = await runDirectRedirectChange(ingress, {
+            state,
+            secondHostRemoving: true,
           });
-        } else {
-          expect(result.outcome).toEqual({ kind: "ok", response: false });
-        }
-        expect(result.requests).toEqual({
-          [result.seeded.source.id]: 0,
-          [result.seeded.firstTarget.id]: 0,
-          [result.seeded.secondTarget.id]: 0,
-        });
-        expect(result.queuedRows).toHaveLength(0);
-      });
+          if (ingress === "user") {
+            expect(result.outcome).toMatchObject({
+              kind: "error",
+              error: { body: { code: "machine_removing" } },
+            });
+          } else {
+            expect(result.outcome).toEqual({ kind: "ok", response: false });
+          }
+          expect(result.requests).toEqual({
+            [result.seeded.source.id]: 0,
+            [result.seeded.firstTarget.id]: 0,
+            [result.seeded.secondTarget.id]: 0,
+          });
+          expect(result.queuedRows).toHaveLength(0);
+        },
+      );
     }
   }
 });

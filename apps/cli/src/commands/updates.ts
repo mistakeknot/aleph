@@ -111,6 +111,7 @@ async function collectMachineUpdates(
           host,
           providerStatus: await sdk.hosts.providerCliStatus({
             hostId: host.id,
+            refresh: true,
           }),
           statusError: null,
         };
@@ -402,6 +403,9 @@ function printAppUpdateStatus(status: SystemAppUpdateStatus): void {
         : `bb-app ${current} is up to date.`
       : `bb-app ${current} -> ${target}`,
   );
+  if (status.available?.behindSince != null) {
+    console.log(`Behind origin/main since ${status.available.behindSince}`);
+  }
   if (status.activity.phase === "preparing") {
     console.log(
       `Updating to ${status.activity.targetVersion}: ${status.activity.step}`,

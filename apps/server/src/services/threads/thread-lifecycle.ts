@@ -18,6 +18,7 @@ import {
   inArray,
   isNotNull,
   isNull,
+  lte,
   notInArray,
   or,
   sql,
@@ -29,13 +30,16 @@ import {
   events,
   getEnvironment,
   getHost,
+  getLatestSessionForHost,
   getLatestThreadInterruptedReason,
   getThread,
   isThreadEventsCold,
   hasStoredTerminalClientTurnRequestEvent,
+  hasStoredTurnRequestEventSince,
   listThreadIdsStoppedSinceLastTurnStart,
   listThreadIdsWithLatestHostDaemonRestartInterruption,
   listThreadTurnInterruptionEventStates,
+  liveThread,
   markThreadStorageDeleted,
   threads,
   type DbNotifier,
@@ -226,6 +230,11 @@ class InFlightRpcGuard {
 }
 
 const inFlightThreadRpcGuard = new InFlightRpcGuard();
+
+const stopsAwaitingDaemon = new Map<
+  string,
+  { hostId: string; sentAt: number }
+>();
 
 export function hasLiveThreadStartInFlight(threadId: string): boolean {
   return inFlightThreadRpcGuard.isHeld(threadId, "thread.start");
@@ -1032,6 +1041,9 @@ export async function prepareReadyThreadTurnCommand(
 export function settleThreadStopCommandResult(
   args: SettleThreadStopCommandResultArgs,
 ): CommandResultSideEffectsResult {
+  if (args.command.intent === "interrupt") {
+    rememberStopAwaitingDaemon(args);
+  }
   if (args.report.ok && args.report.result.activeTurnRetained !== true) {
     settleDanglingBackgroundTasksForStoppedThreadInTransaction(args.deps, {
       threadId: args.command.threadId,
@@ -1365,6 +1377,76 @@ function requestThreadStop(
   dispatchThreadStopCommand(deps, args);
 }
 
+export const TURN_START_DEADLINE_MS = 5 * 60_000;
+export const TURN_START_DEADLINE_RECONNECT_GRACE_MS = 60_000;
+
+export function stopRunsWhoseTurnNeverStarted(
+  deps: CommandResultSideEffectsDeps,
+  now: number,
+): void {
+  const deadline = now - TURN_START_DEADLINE_MS;
+  const activeThreads = deps.db
+    .select({
+      environmentId: environments.id,
+      hostId: environments.hostId,
+      threadId: threads.id,
+    })
+    .from(threads)
+    .innerJoin(environments, eq(threads.environmentId, environments.id))
+    .where(
+      and(
+        eq(threads.status, "active"),
+        isNull(threads.deletedAt),
+        lte(threads.statusChangedAt, deadline),
+        sql`NOT EXISTS (
+          SELECT 1 FROM ${events}
+          WHERE ${events.threadId} = ${threads.id}
+            AND ${events.type} = 'turn/completed'
+            AND ${events.createdAt} > ${deadline}
+        )`,
+      ),
+    )
+    .all();
+  for (const thread of activeThreads) {
+    const daemonConnectedAt = deps.hub.getDaemonConnectedAtForHost(
+      thread.hostId,
+    );
+    if (
+      daemonConnectedAt === null ||
+      now - daemonConnectedAt < TURN_START_DEADLINE_RECONNECT_GRACE_MS
+    ) {
+      continue;
+    }
+    if (getActiveTurnId(deps, thread.threadId) !== null) continue;
+    deps.logger.warn(
+      { threadId: thread.threadId },
+      "Stopping a run whose turn never started",
+    );
+    const notificationBuffer = new NotificationBuffer();
+    deps.db.transaction(
+      (tx) =>
+        appendSystemErrorEventInTransaction(
+          { db: tx, hub: notificationBuffer },
+          {
+            threadId: thread.threadId,
+            environmentId: thread.environmentId,
+            code: "provider_turn_start_deadline",
+            message: `The provider did not start the turn within ${TURN_START_DEADLINE_MS / 60_000} minutes, so bb stopped it. Send a message to try again.`,
+            scope: threadScope(),
+          },
+        ),
+      { behavior: "immediate" },
+    );
+    notificationBuffer.flushInto(deps.hub);
+    requestThreadStop(deps, {
+      environmentId: thread.environmentId,
+      hostId: thread.hostId,
+      interruptionReason: "provider-turn-idle",
+      threadId: thread.threadId,
+    });
+  }
+}
+
 function markThreadStopRequested(
   deps: CommandResultSideEffectsDeps,
   args: RequestThreadStopArgs,
@@ -1410,6 +1492,54 @@ function dispatchThreadStopCommand(
     .finally(() => {
       inFlightThreadRpcGuard.release(args.threadId, "thread.stop");
     });
+}
+
+function rememberStopAwaitingDaemon(
+  args: SettleThreadStopCommandResultArgs,
+): void {
+  const { hostId } = args.execution;
+  if (
+    !args.report.ok &&
+    args.report.errorCode === "host_unavailable" &&
+    getLatestSessionForHost(args.deps.db, { hostId })?.status === "active"
+  ) {
+    stopsAwaitingDaemon.set(args.command.threadId, {
+      hostId,
+      sentAt: args.execution.createdAt,
+    });
+    return;
+  }
+  stopsAwaitingDaemon.delete(args.command.threadId);
+}
+
+export function resendStopsAwaitingDaemon(
+  deps: CommandResultSideEffectsDeps,
+  hostId: string,
+): void {
+  for (const [threadId, awaiting] of stopsAwaitingDaemon) {
+    if (awaiting.hostId !== hostId) continue;
+    stopsAwaitingDaemon.delete(threadId);
+    const thread = getThread(deps.db, threadId);
+    if (
+      thread === null ||
+      thread.deletedAt !== null ||
+      thread.environmentId === null ||
+      (thread.status !== "idle" && thread.status !== "error") ||
+      hasStoredTurnRequestEventSince(deps.db, {
+        since: awaiting.sentAt,
+        threadId,
+      }) ||
+      !inFlightThreadRpcGuard.claim(threadId, "thread.stop")
+    ) {
+      continue;
+    }
+    dispatchThreadStopCommand(deps, {
+      environmentId: thread.environmentId,
+      hostId,
+      interruptionReason: "manual-stop",
+      threadId,
+    });
+  }
 }
 
 function requestPreStartThreadStop(
@@ -2226,8 +2356,7 @@ function reconcileHotDaemonReportedThreads(
         and(
           eq(environments.hostId, args.hostId),
           eq(threads.status, "error"),
-          isNull(threads.deletedAt),
-          isNull(threads.archivedAt),
+          liveThread,
           inArray(threads.id, [...args.activeThreadIds]),
         ),
       )
@@ -2282,8 +2411,7 @@ function reconcileHotDaemonReportedThreads(
       and(
         eq(environments.hostId, args.hostId),
         inArray(threads.status, ["starting", "idle"]),
-        isNull(threads.deletedAt),
-        isNull(threads.archivedAt),
+        liveThread,
         inArray(threads.id, [...args.activeThreadIds]),
       ),
     )
