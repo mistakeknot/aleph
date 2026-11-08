@@ -186,4 +186,144 @@ describe("QuotaStore", () => {
     ]);
     database.close();
   });
+
+  describe("reader hardening against later schema additions", () => {
+    const accountId = "22222222-2222-4222-8222-222222222222";
+
+    function migratedDatabase(): Database.Database {
+      const database = new Database(":memory:");
+      for (const migration of QUOTA_MIGRATIONS) database.exec(migration);
+      return database;
+    }
+
+    function addFutureSchema(database: Database.Database): void {
+      database.exec(`
+        ALTER TABLE account_quota ADD COLUMN future_marker TEXT;
+        CREATE TABLE account_quota_evidence (
+          account_id TEXT PRIMARY KEY,
+          seq INTEGER NOT NULL,
+          mutation INTEGER NOT NULL,
+          evidence_json TEXT NOT NULL
+        );
+        CREATE TABLE account_quota_mutation (
+          account_id TEXT PRIMARY KEY,
+          mutation INTEGER NOT NULL
+        );
+        CREATE TRIGGER account_quota_mutation_insert AFTER INSERT ON account_quota
+        BEGIN
+          INSERT INTO account_quota_mutation(account_id, mutation)
+            SELECT NEW.account_id, 0 WHERE NOT EXISTS (
+              SELECT 1 FROM account_quota_mutation WHERE account_id = NEW.account_id
+            );
+          UPDATE account_quota_mutation SET mutation = mutation + 1
+            WHERE account_id = NEW.account_id;
+        END;
+        CREATE TRIGGER account_quota_mutation_update AFTER UPDATE ON account_quota
+        BEGIN
+          INSERT INTO account_quota_mutation(account_id, mutation)
+            SELECT NEW.account_id, 0 WHERE NOT EXISTS (
+              SELECT 1 FROM account_quota_mutation WHERE account_id = NEW.account_id
+            );
+          UPDATE account_quota_mutation SET mutation = mutation + 1
+            WHERE account_id = NEW.account_id;
+        END;
+        CREATE TRIGGER account_quota_mutation_delete AFTER DELETE ON account_quota
+        BEGIN
+          INSERT INTO account_quota_mutation(account_id, mutation)
+            SELECT OLD.account_id, 0 WHERE NOT EXISTS (
+              SELECT 1 FROM account_quota_mutation WHERE account_id = OLD.account_id
+            );
+          UPDATE account_quota_mutation SET mutation = mutation + 1
+            WHERE account_id = OLD.account_id;
+        END;
+      `);
+    }
+
+    function mutationCount(database: Database.Database): number | undefined {
+      const row = database
+        .prepare(
+          "SELECT mutation FROM account_quota_mutation WHERE account_id = ?",
+        )
+        .get(accountId) as { mutation: number } | undefined;
+      return row?.mutation;
+    }
+
+    function legacyInsert(database: Database.Database): void {
+      database
+        .prepare(
+          `INSERT INTO account_quota (
+            account_id, five_hour_utilization, five_hour_reset_at,
+            five_hour_status, seven_day_utilization, seven_day_reset_at,
+            seven_day_status, representative_claim, bucket_exhaustion_json,
+            family_weekly_json, limit_windows_json, extra_usage_json,
+            usage_restriction_json, observed_at, held_until, error
+          ) VALUES (?, 0.25, 4102452000000, 'allowed', 0.5, 4102452000000,
+            'allowed', 'five_hour', '{}',
+            '{"fable":null,"sonnet":null,"opus":null,"haiku":null,"other":null}',
+            '[]', 'null', 'null', 100, NULL, NULL)`,
+        )
+        .run(accountId);
+    }
+
+    it("reads a database written by the current schema", () => {
+      const database = migratedDatabase();
+      legacyInsert(database);
+
+      const quota = new QuotaStore(database).get(accountId);
+
+      expect(quota).toMatchObject({
+        accountId,
+        fiveHourUtilization: 0.25,
+        sevenDayUtilization: 0.5,
+        representativeClaim: "five_hour",
+        observedAt: 100,
+      });
+      database.close();
+    });
+
+    it("reads quota rows when later columns, tables and triggers exist", () => {
+      const database = migratedDatabase();
+      legacyInsert(database);
+      addFutureSchema(database);
+      database.prepare("UPDATE account_quota SET future_marker = 'x'").run();
+
+      const unrestricted = database
+        .prepare("SELECT * FROM account_quota WHERE account_id = ?")
+        .get(accountId) as Record<string, unknown>;
+      expect(unrestricted).toHaveProperty("future_marker", "x");
+
+      const quota = new QuotaStore(database).get(accountId);
+
+      expect(quota).toMatchObject({
+        accountId,
+        fiveHourUtilization: 0.25,
+        sevenDayUtilization: 0.5,
+        observedAt: 100,
+      });
+      expect(Object.keys(quota)).not.toContain("futureMarker");
+      database.close();
+    });
+
+    it("keeps the upsert and delete working while the triggers fire", () => {
+      const database = migratedDatabase();
+      addFutureSchema(database);
+      const quotas = new QuotaStore(database);
+      const base = quotas.get(accountId);
+
+      quotas.put({ ...base, fiveHourUtilization: 0.1, observedAt: 1 });
+      expect(mutationCount(database)).toBe(1);
+
+      quotas.put({ ...base, fiveHourUtilization: 0.4, observedAt: 2 });
+      expect(mutationCount(database)).toBe(2);
+      expect(quotas.get(accountId)).toMatchObject({
+        fiveHourUtilization: 0.4,
+        observedAt: 2,
+      });
+
+      quotas.remove(accountId);
+      expect(mutationCount(database)).toBe(3);
+      expect(quotas.get(accountId).observedAt).toBeNull();
+      database.close();
+    });
+  });
 });
