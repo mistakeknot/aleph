@@ -2,6 +2,7 @@ import {
   createQueuedThreadMessageInTransaction,
   deleteCoalescedQueuedThreadMessageInTransaction,
   getPendingCoalescedQueuedThreadMessage,
+  resolveQueuedMessageDestination,
   updateCoalescedQueuedThreadMessageInTransaction,
   type QueuedThreadMessageRow,
 } from "@bb/db";
@@ -45,9 +46,12 @@ export function postCoalescedSystemNotice<State>(
   const sendAt = Date.now() + args.windowMs;
   const write = deps.db.transaction(
     (tx): CoalescedNoticeWrite => {
+      const destination = resolveQueuedMessageDestination(tx, {
+        threadId: args.threadId,
+      });
       const pending = getPendingCoalescedQueuedThreadMessage(tx, {
         coalesceKey: args.coalesceKey,
-        threadId: args.threadId,
+        threadId: destination.threadId,
       });
       const next = args.merge(
         pending?.coalesceState == null
@@ -71,7 +75,7 @@ export function postCoalescedSystemNotice<State>(
               content: next.input,
               id: pending.id,
               systemNotice: next.notice,
-              threadId: args.threadId,
+              threadId: destination.threadId,
               windowEndsAt: sendAt,
             });
       if (merged !== null) return { kind: "merged", row: merged };
@@ -99,19 +103,15 @@ export function postCoalescedSystemNotice<State>(
     },
     { behavior: "immediate" },
   );
-  switch (write.kind) {
-    case "none":
-      return null;
-    case "withdrawn":
-      emitPluginMessageCancelled(toThreadQueuedMessage(write.row));
-      deps.hub.notifyThread(args.threadId, ["queue-changed"]);
-      return null;
-    case "created":
-      emitPluginMessageQueued(toThreadQueuedMessage(write.row));
-      deps.hub.notifyThread(args.threadId, ["queue-changed"]);
-      return write.row;
-    case "merged":
-      deps.hub.notifyThread(args.threadId, ["queue-changed"]);
-      return write.row;
+  if (write.kind === "none") return null;
+  if (write.kind === "withdrawn") {
+    emitPluginMessageCancelled(toThreadQueuedMessage(write.row));
+  } else if (write.kind === "created") {
+    emitPluginMessageQueued(toThreadQueuedMessage(write.row));
   }
+  deps.hub.notifyThread(write.row.threadId, ["queue-changed"]);
+  if (write.row.threadId !== args.threadId) {
+    deps.hub.notifyThread(args.threadId, ["queue-changed"]);
+  }
+  return write.kind === "withdrawn" ? null : write.row;
 }
