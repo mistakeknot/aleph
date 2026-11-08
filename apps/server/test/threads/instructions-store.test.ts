@@ -11,7 +11,14 @@ import {
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { encodeClientTurnRequestIdNumber } from "@bb/domain";
+import {
+  createScriptedEchoRuntime,
+  fullRuntimeOptions,
+  waitForThreadTurnCompleted,
+  waitForThreadTurnStarted,
+  type ScriptedEchoLaunchScript,
+} from "@bb/agent-runtime/test";
+import { encodeClientTurnRequestIdNumber, type ThreadEvent } from "@bb/domain";
 import { runLiveHostCommand } from "../../src/services/hosts/live-command.js";
 import { setPluginAgentContributions } from "../../src/services/plugins/plugin-agent-contributions.js";
 import {
@@ -24,6 +31,7 @@ import {
   INSTRUCTIONS_STUB_MARKER,
   type RulesReceipt,
 } from "../../src/services/threads/instructions-store.js";
+import { encodeInstructionsToken } from "../../src/services/threads/rules-receipt-delivery.js";
 import {
   RULES_RECEIPT_FILE_NAME,
   resolveThreadRuntimeCommandConfig,
@@ -265,6 +273,175 @@ function snapshotResult(args: SnapshotResultArgs): Record<string, unknown> {
   };
 }
 
+type ResponderCommand = Parameters<
+  Parameters<typeof registerHostRpcResponder>[1]["handle"]
+>[0]["command"];
+type StartCommand = Extract<ResponderCommand, { type: "thread.start" }>;
+type SubmitCommand = Extract<ResponderCommand, { type: "turn.submit" }>;
+
+const NO_GOAL_REJECTION = "This thread has no Goal to resume.";
+const REJECT_FIRST_TURN_START: ScriptedEchoLaunchScript = {
+  turnStartReportsRebuild: true,
+  failMethods: [{ method: "turn/start", message: NO_GOAL_REJECTION, times: 1 }],
+};
+
+interface ChainSubmitResult {
+  installedInstructionsToken?: string;
+  providerResumed?: true;
+  trace: { spans: [] };
+}
+
+interface ChainDaemon {
+  restart(scripted: ScriptedEchoLaunchScript): void;
+  shutdown(): Promise<void>;
+  start(command: StartCommand): Promise<void>;
+  submit(command: SubmitCommand): Promise<ChainSubmitResult>;
+  wedgeBridge(): Promise<void>;
+}
+
+function createChainDaemon(
+  workspacePath: string,
+  scripted: ScriptedEchoLaunchScript,
+): ChainDaemon {
+  const events: ThreadEvent[] = [];
+  let nextWedgeRequest = 900;
+  let started: {
+    instructions: string;
+    token: string;
+    threadId: string;
+  } | null = null;
+  const runtimes: Array<ReturnType<typeof createScriptedEchoRuntime>> = [];
+  const make = (script: ScriptedEchoLaunchScript) => {
+    const runtime = createScriptedEchoRuntime({
+      runtime: { workspacePath, onEvent: (event) => events.push(event) },
+      launch: { scripted: script },
+    });
+    runtimes.push(runtime);
+    return runtime;
+  };
+  let hosted = false;
+  let runtime = make(scripted);
+  const text = (value: string) => [
+    { type: "text" as const, text: value, mentions: [] },
+  ];
+  const wedgeRequestId = () =>
+    encodeClientTurnRequestIdNumber({ value: nextWedgeRequest++ });
+  return {
+    restart(next) {
+      void runtime.shutdown();
+      runtime = make(next);
+      hosted = false;
+    },
+    async shutdown() {
+      await Promise.all(runtimes.splice(0).map((r) => r.shutdown()));
+    },
+    async start(command) {
+      hosted = true;
+      started = {
+        instructions: command.instructions ?? "",
+        token: command.instructionsToken ?? "",
+        threadId: command.threadId,
+      };
+      await runtime.startThread({
+        environmentId: command.environmentId,
+        projectId: command.projectId,
+        providerId: "fake",
+        threadId: command.threadId,
+        options: fullRuntimeOptions,
+        ...(command.instructions !== undefined
+          ? { instructions: command.instructions }
+          : {}),
+        ...(command.instructionsToken !== undefined
+          ? { instructionsToken: command.instructionsToken }
+          : {}),
+      });
+    },
+    async submit(command) {
+      const { resumeContext } = command;
+      let resumed = false;
+      if (!hosted) {
+        await runtime.resumeThread({
+          environmentId: command.environmentId,
+          projectId: resumeContext.projectId,
+          providerId: "fake",
+          providerThreadId: resumeContext.providerThreadId,
+          threadId: command.threadId,
+          options: fullRuntimeOptions,
+          instructions: resumeContext.instructions,
+          ...(resumeContext.instructionsToken !== undefined
+            ? { instructionsToken: resumeContext.instructionsToken }
+            : {}),
+        });
+        resumed = true;
+        hosted = true;
+      }
+      const result = await runtime.runTurn({
+        threadId: command.threadId,
+        input: command.input,
+        clientRequestId: command.requestId,
+        options: fullRuntimeOptions,
+        instructions: resumeContext.instructions,
+        ...(resumeContext.instructionsToken !== undefined
+          ? { instructionsToken: resumeContext.instructionsToken }
+          : {}),
+      });
+      await waitForThreadTurnCompleted({
+        events,
+        providerId: "fake",
+        runtime,
+        threadId: command.threadId,
+        timeoutMs: 5_000,
+      });
+      const providerResumed = resumed || result.providerSessionRebuilt;
+      return {
+        trace: { spans: [] },
+        ...(providerResumed ? { providerResumed: true } : {}),
+        ...(result.installedInstructionsToken !== undefined
+          ? { installedInstructionsToken: result.installedInstructionsToken }
+          : {}),
+      };
+    },
+    async wedgeBridge() {
+      if (started === null) throw new Error("start the thread first");
+      const { instructions, token, threadId } = started;
+      const turn = (value: string) => ({
+        threadId,
+        input: text(value),
+        clientRequestId: wedgeRequestId(),
+        options: fullRuntimeOptions,
+        instructions,
+        instructionsToken: token,
+      });
+      await expect(runtime.runTurn(turn("delay:800"))).rejects.toThrow(
+        NO_GOAL_REJECTION,
+      );
+      await runtime.runTurn(turn("delay:800"));
+      const { turnId } = await waitForThreadTurnStarted({
+        events,
+        providerId: "fake",
+        runtime,
+        threadId,
+      });
+      await expect(
+        runtime.steerTurn({
+          clientRequestId: wedgeRequestId(),
+          expectedTurnId: turnId,
+          input: text("never"),
+          options: fullRuntimeOptions,
+          threadId,
+        }),
+      ).rejects.toThrow("the agent wedged itself; restart me");
+      await waitForThreadTurnCompleted({
+        events,
+        providerId: "fake",
+        runtime,
+        threadId,
+        timeoutMs: 5_000,
+      });
+    },
+  };
+}
+
 interface Seeded {
   environment: {
     hostId: string;
@@ -272,12 +449,14 @@ interface Seeded {
     path: string | null;
     status: "ready";
   };
+  chain: { value: ChainDaemon | null };
   failStart: { value: boolean };
   failWrites: { value: boolean };
   hostId: string;
   projectId: string;
   providerId: "codex" | "claude-code";
   providerResumed: { value: boolean };
+  submitResultExtra: { value: Record<string, unknown> };
   requestTypes: string[];
   rootsCreated: Set<string>;
   thread: ReturnType<typeof seedThread>;
@@ -326,12 +505,17 @@ function seedScenario(
   const failStart = { value: false };
   const failWrites = { value: false };
   const providerResumed = { value: false };
+  const chain: { value: ChainDaemon | null } = { value: null };
+  const submitResultExtra: { value: Record<string, unknown> } = { value: {} };
   registerHostRpcResponder(harness, {
     hostId,
     sessionId: session.id,
-    handle: ({ command }) => {
+    handle: async ({ command }) => {
       requestTypes.push(command.type);
       if (command.type === "thread.start") {
+        if (chain.value !== null) {
+          await chain.value.start(command);
+        }
         if (failStart.value) {
           return {
             ok: false,
@@ -345,11 +529,24 @@ function seedScenario(
         return { ok: true, result: { providerThreadId: `provider-${label}` } };
       }
       if (command.type === "turn.submit") {
+        if (chain.value !== null) {
+          try {
+            return { ok: true, result: await chain.value.submit(command) };
+          } catch (error) {
+            return {
+              ok: false,
+              errorCode: "provider_turn_failed",
+              errorMessage:
+                error instanceof Error ? error.message : String(error),
+            };
+          }
+        }
         return {
           ok: true,
           result: {
             trace: { spans: [] },
             ...(providerResumed.value ? { providerResumed: true } : {}),
+            ...submitResultExtra.value,
           },
         };
       }
@@ -405,6 +602,7 @@ function seedScenario(
       path: environment.path,
       status: "ready",
     },
+    chain,
     failStart,
     failWrites,
     hostId,
@@ -413,6 +611,7 @@ function seedScenario(
     providerResumed,
     requestTypes,
     rootsCreated,
+    submitResultExtra,
     thread,
     writeRoots,
     writes,
@@ -526,6 +725,23 @@ async function activeStore(
   );
   configure(harness, fake);
   return fake;
+}
+
+async function advanceStore(
+  harness: TestAppHarness,
+  agents: string,
+  id: string,
+): Promise<void> {
+  const snapshot = await writeSnapshot({
+    agents,
+    id,
+    root: snapshotRoot(harness),
+  });
+  const fake = await installFakeResolve(
+    path.join(harness.config.dataDir, `fake-${id}`),
+    [{ result: snapshot.result }],
+  );
+  configure(harness, fake);
 }
 
 function receiptFrom(seeded: Seeded): RulesReceipt {
@@ -1226,6 +1442,228 @@ describe("instructions store resolve caller", () => {
         const resumed = receiptFrom(seeded);
         expect(resumed.delivery).toBe("resumed");
         expect({ ...resumed, delivery: "delivered" }).toEqual(delivered);
+      });
+    });
+
+    it("writes the receipt of the install a daemon token names when it reports a resume", async () => {
+      await withTestHarness(async (harness) => {
+        const seeded = seedScenario(harness, "codex", "token-valid");
+        await activeStore(harness, "# Rules\n", "snap-a");
+        await runLiveHostCommand(harness.deps, {
+          command: await buildStart(harness, seeded, 223),
+          hostId: seeded.hostId,
+          timeoutMs: 5_000,
+        });
+        const delivered = receiptFrom(seeded);
+        const { delivery: _delivery, ...installed } = delivered;
+        const token = encodeInstructionsToken({
+          ...installed,
+          snapshotId: "snap-installed",
+        });
+        seeded.providerResumed.value = true;
+        seeded.submitResultExtra.value = { installedInstructionsToken: token };
+        await runLiveHostCommand(harness.deps, {
+          command: await buildSubmitCommand(harness, seeded, 230),
+          hostId: seeded.hostId,
+          timeoutMs: 5_000,
+        });
+        expect(receiptFrom(seeded)).toEqual({
+          ...delivered,
+          snapshotId: "snap-installed",
+          delivery: "resumed",
+        });
+      });
+    });
+
+    it("falls back to the pending receipt when the daemon token is garbled or names another thread", async () => {
+      for (const kind of ["garbled", "other-thread"] as const) {
+        await withTestHarness(async (harness) => {
+          const seeded = seedScenario(harness, "codex", `token-${kind}`);
+          await activeStore(harness, "# Rules\n", "snap-a");
+          await runLiveHostCommand(harness.deps, {
+            command: await buildStart(harness, seeded, 223),
+            hostId: seeded.hostId,
+            timeoutMs: 5_000,
+          });
+          const delivered = receiptFrom(seeded);
+          const { delivery: _delivery, ...installed } = delivered;
+          seeded.providerResumed.value = true;
+          seeded.submitResultExtra.value = {
+            installedInstructionsToken:
+              kind === "garbled"
+                ? "not-a-token"
+                : encodeInstructionsToken({
+                    ...installed,
+                    threadId: "thr_someone_else",
+                    snapshotId: "snap-foreign",
+                  }),
+          };
+          await runLiveHostCommand(harness.deps, {
+            command: await buildSubmitCommand(harness, seeded, 230),
+            hostId: seeded.hostId,
+            timeoutMs: 5_000,
+          });
+          expect(receiptFrom(seeded)).toEqual({
+            ...delivered,
+            delivery: "resumed",
+          });
+        });
+      }
+    });
+
+    describe("a rejected turn after a rebuild", () => {
+      const rejectedMessage = NO_GOAL_REJECTION;
+
+      async function submitRejected(
+        harness: TestAppHarness,
+        seeded: Seeded,
+        requestNumber: number,
+      ): Promise<void> {
+        const error = await rejection(
+          runLiveHostCommand(harness.deps, {
+            command: await buildSubmitCommand(harness, seeded, requestNumber),
+            hostId: seeded.hostId,
+            timeoutMs: 10_000,
+          }),
+        );
+        expect(String(error)).toContain(rejectedMessage);
+      }
+
+      it("names the version the rebuild installed when the store advances between the rejection and the retry", async () => {
+        await withTestHarness(async (harness) => {
+          const seeded = seedScenario(harness, "codex", "chain-advance");
+          const chain = createChainDaemon(
+            harness.config.dataDir,
+            REJECT_FIRST_TURN_START,
+          );
+          seeded.chain.value = chain;
+          try {
+            await activeStore(harness, "# Rules A\n", "snap-a");
+            await runLiveHostCommand(harness.deps, {
+              command: await buildStart(harness, seeded, 223),
+              hostId: seeded.hostId,
+              timeoutMs: 5_000,
+            });
+            expect(receiptFrom(seeded)).toMatchObject({
+              snapshotId: "snap-a",
+              delivery: "delivered",
+            });
+            await advanceStore(harness, "# Rules B\n", "snap-b");
+            await submitRejected(harness, seeded, 230);
+            expect(receiptFrom(seeded)).toMatchObject({
+              snapshotId: "snap-a",
+              delivery: "delivered",
+            });
+            await advanceStore(harness, "# Rules C\n", "snap-c");
+            await runLiveHostCommand(harness.deps, {
+              command: await buildSubmitCommand(harness, seeded, 231),
+              hostId: seeded.hostId,
+              timeoutMs: 10_000,
+            });
+            const receipt = receiptFrom(seeded);
+            expect(receipt.delivery).toBe("resumed");
+            expect(receipt.snapshotId).toBe("snap-b");
+            expect(receipt.instructionsSha256).not.toBe(
+              sha256(
+                await readFile(
+                  path.join(
+                    snapshotRoot(harness),
+                    "snap-c",
+                    "docs",
+                    "AGENTS.md",
+                  ),
+                  "utf8",
+                ),
+              ),
+            );
+          } finally {
+            await chain.shutdown();
+          }
+        });
+      });
+
+      it("reports a runtime-managed resume when the turn after it is rejected and retried", async () => {
+        await withTestHarness(async (harness) => {
+          const seeded = seedScenario(harness, "codex", "chain-resume");
+          const chain = createChainDaemon(harness.config.dataDir, {});
+          seeded.chain.value = chain;
+          try {
+            await activeStore(harness, "# Rules A\n", "snap-a");
+            await runLiveHostCommand(harness.deps, {
+              command: await buildStart(harness, seeded, 223),
+              hostId: seeded.hostId,
+              timeoutMs: 5_000,
+            });
+            chain.restart({
+              failMethods: [
+                { method: "turn/start", message: NO_GOAL_REJECTION, times: 1 },
+              ],
+            });
+            await advanceStore(harness, "# Rules B\n", "snap-b");
+            await submitRejected(harness, seeded, 230);
+            expect(receiptFrom(seeded)).toMatchObject({
+              snapshotId: "snap-a",
+              delivery: "delivered",
+            });
+            await advanceStore(harness, "# Rules C\n", "snap-c");
+            await runLiveHostCommand(harness.deps, {
+              command: await buildSubmitCommand(harness, seeded, 231),
+              hostId: seeded.hostId,
+              timeoutMs: 10_000,
+            });
+            expect(receiptFrom(seeded)).toMatchObject({
+              snapshotId: "snap-b",
+              delivery: "resumed",
+            });
+          } finally {
+            await chain.shutdown();
+          }
+        });
+      });
+
+      it("reports a bridge restart between the rejection and the retry with the version it installed", async () => {
+        await withTestHarness(async (harness) => {
+          const seeded = seedScenario(harness, "codex", "chain-restart");
+          const chain = createChainDaemon(harness.config.dataDir, {
+            failMethods: [
+              { method: "turn/start", message: NO_GOAL_REJECTION, times: 1 },
+              {
+                method: "turn/steer",
+                message: "the agent wedged itself; restart me",
+                times: 1,
+                recovery: { kind: "restartRecommended", retryable: false },
+              },
+            ],
+          });
+          seeded.chain.value = chain;
+          try {
+            await activeStore(harness, "# Rules A\n", "snap-a");
+            await runLiveHostCommand(harness.deps, {
+              command: await buildStart(harness, seeded, 223),
+              hostId: seeded.hostId,
+              timeoutMs: 5_000,
+            });
+            await chain.wedgeBridge();
+            await advanceStore(harness, "# Rules B\n", "snap-b");
+            await submitRejected(harness, seeded, 230);
+            expect(receiptFrom(seeded)).toMatchObject({
+              snapshotId: "snap-a",
+              delivery: "delivered",
+            });
+            await advanceStore(harness, "# Rules C\n", "snap-c");
+            await runLiveHostCommand(harness.deps, {
+              command: await buildSubmitCommand(harness, seeded, 231),
+              hostId: seeded.hostId,
+              timeoutMs: 10_000,
+            });
+            expect(receiptFrom(seeded)).toMatchObject({
+              snapshotId: "snap-b",
+              delivery: "resumed",
+            });
+          } finally {
+            await chain.shutdown();
+          }
+        });
       });
     });
 

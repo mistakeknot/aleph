@@ -218,6 +218,7 @@ const hostDaemonThreadRuntimeContextSchema = z
     bridgeLaunch: hostDaemonBridgeLaunchSchema,
     options: runtimeThreadExecutionOptionsSchema,
     instructions: z.string().min(1),
+    instructionsToken: z.string().min(1).optional(),
     dynamicTools: z.array(dynamicToolSchema),
     contributedEnv: z.array(hostDaemonContributedEnvEntrySchema).default([]),
     injectedSkillSources: z.array(hostDaemonInjectedSkillSourceSchema),
@@ -1289,6 +1290,7 @@ export type TurnSubmitTrace = z.infer<typeof turnSubmitTraceSchema>;
 const turnSubmitResultSchema = z.object({
   trace: turnSubmitTraceSchema,
   providerResumed: z.boolean().optional(),
+  installedInstructionsToken: z.string().min(1).optional(),
 });
 const projectPathResultSchema = z.object({ path: z.string().min(1) }).strict();
 const projectInspectResultSchema = projectPathResultSchema
@@ -2099,9 +2101,7 @@ type HostDaemonRetryableOnlineRpcCommandSchema =
 type HostDaemonResultSchemaMapForTransport<
   Transport extends HostDaemonCommandTransport,
 > = {
-  [
-    Descriptor in HostDaemonCommandDescriptorForTransport<Transport> as Descriptor["type"]
-  ]: Descriptor["resultSchema"];
+  [Descriptor in HostDaemonCommandDescriptorForTransport<Transport> as Descriptor["type"]]: Descriptor["resultSchema"];
 };
 
 type HostDaemonCommandResultSchemaMap =

@@ -1611,6 +1611,7 @@ describe("thread command dispatch", () => {
     function submitLive(
       harness: ReturnType<typeof createHarness>,
       threadId: string,
+      instructionsToken?: string,
     ) {
       return dispatchCommand(
         {
@@ -1628,6 +1629,7 @@ describe("thread command dispatch", () => {
             providerId: "fake",
             providerThreadId: "provider-live-delivery",
             instructions: "second snapshot",
+            ...(instructionsToken !== undefined ? { instructionsToken } : {}),
             dynamicTools: [],
             contributedEnv: [],
             injectedSkillSources: [],
@@ -1648,6 +1650,22 @@ describe("thread command dispatch", () => {
         { trace: { spans: [] }, providerResumed: true },
       );
       expect(harness.runtimeState.resumedThreadId).toBeUndefined();
+    });
+
+    it("hands the runtime the pending token and returns the install it confirmed", async () => {
+      const harness = createHarness();
+      await startLiveThread(harness, "thread-live-token");
+      harness.runtimeState.runTurnRebuildsProviderSession = true;
+      harness.runtimeState.runTurnInstalledInstructionsToken = "token-b";
+
+      await expect(
+        submitLive(harness, "thread-live-token", "token-c"),
+      ).resolves.toEqual({
+        trace: { spans: [] },
+        providerResumed: true,
+        installedInstructionsToken: "token-b",
+      });
+      expect(harness.runtimeState.ranTurnInstructionsToken).toBe("token-c");
     });
 
     it("omits providerResumed when nothing rebuilt the provider session", async () => {

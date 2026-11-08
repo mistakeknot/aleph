@@ -5,6 +5,9 @@ export {
 export {
   createScriptedEchoRequestRecord,
   createScriptedEchoRuntime,
+  fullRuntimeOptions,
+  waitForThreadTurnCompleted,
+  waitForThreadTurnStarted,
   type ScriptedEchoLaunchScript,
   type ScriptedEchoRequestRecord,
 } from "./runtime-test-harness.js";

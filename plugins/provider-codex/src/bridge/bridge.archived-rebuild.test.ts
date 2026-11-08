@@ -138,7 +138,11 @@ async function expectRetryAfterUnarchiveSucceeds(
 
   const retried = await startTurn(4, options);
   expect(retried.error).toBeUndefined();
-  expect(retried.result).toEqual({ threadId: THREAD_ID, sessionRebuilt: true });
+  expect(retried.result).toEqual({
+    threadId: THREAD_ID,
+    sessionRebuilt: true,
+    installedInstructionsSha256: null,
+  });
   expect(sessionReplacedNotifications()).toHaveLength(1);
   expect(sessionReplacedNotifications()[0]?.params).toMatchObject({
     threadId: THREAD_ID,

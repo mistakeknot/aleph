@@ -71,6 +71,7 @@ export interface ScriptedEchoLaunchScript {
   goalClearReportsCleared?: boolean;
   swallowTurnStart?: boolean;
   turnStartReportsRebuild?: boolean;
+  omitInstalledInstructions?: boolean;
   sessionRestorable?: boolean;
   toolCallThreadIdHint?: string;
   recoveryThreadIdHint?: string;

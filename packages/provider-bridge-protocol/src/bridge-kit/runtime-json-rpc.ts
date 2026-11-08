@@ -66,7 +66,10 @@ export interface PendingJsonRpcRequest {
 export const ignoredJsonRpcResultSchema = z.unknown();
 
 export const turnStartBridgeResultSchema = z
-  .object({ sessionRebuilt: z.boolean().optional() })
+  .object({
+    sessionRebuilt: z.boolean().optional(),
+    installedInstructionsSha256: z.string().nullable().optional(),
+  })
   .passthrough();
 
 export interface ParsedJsonRpcNonJsonLine {

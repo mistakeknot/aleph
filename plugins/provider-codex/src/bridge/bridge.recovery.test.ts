@@ -1,5 +1,6 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { BRIDGE_NOTIFICATION_METHODS } from "@get-bb/plugin-sdk/provider-bridge";
@@ -110,6 +111,10 @@ afterEach(async () => {
   vi.unstubAllEnvs();
   rmSync(workspaceDir, { recursive: true, force: true });
 });
+
+function sha256Of(text: string): string {
+  return createHash("sha256").update(text).digest("hex");
+}
 
 it("raises authRequired on a terminal 401 and rebuilds the child before the next turn", async () => {
   stubFakeAppServer({
@@ -232,6 +237,7 @@ it("reports a rebuilt provider session on the turn that rebuilt it with the chan
   expect(rebuiltTurn.result).toMatchObject({
     threadId: THREAD_ID,
     sessionRebuilt: true,
+    installedInstructionsSha256: sha256Of("snapshot two"),
   });
   const resumes = readFileSync(requestLogPath, "utf8")
     .trim()
@@ -287,6 +293,7 @@ it("reports a rebuilt provider session on a goal command that rebuilt it", async
   expect(goalTurn.result).toMatchObject({
     threadId: THREAD_ID,
     sessionRebuilt: true,
+    installedInstructionsSha256: sha256Of("snapshot two"),
   });
   const resumes = readFileSync(requestLogPath, "utf8")
     .trim()
@@ -352,6 +359,7 @@ it("keeps reporting a rebuild that a rejected goal command could not confirm", a
   expect(retried.result).toMatchObject({
     threadId: THREAD_ID,
     sessionRebuilt: true,
+    installedInstructionsSha256: sha256Of("snapshot two"),
   });
 
   goalRequest(5, "creq_cdxrcvry2b", "/goal pause");

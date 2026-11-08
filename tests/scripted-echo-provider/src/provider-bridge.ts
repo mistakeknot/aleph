@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   type ClientTurnRequestId,
   type PendingInteractionPayload,
@@ -93,6 +93,7 @@ export const scriptedEchoOptionsSchema = z
     goalClearReportsCleared: z.boolean().optional(),
     swallowTurnStart: z.boolean().optional(),
     turnStartReportsRebuild: z.boolean().optional(),
+    omitInstalledInstructions: z.boolean().optional(),
     sessionRestorable: z.boolean().optional(),
     toolCallThreadIdHint: z.string().min(1).optional(),
     recoveryThreadIdHint: z.string().min(1).optional(),
@@ -183,6 +184,50 @@ const pendingReplies = new Map<JsonRpcId, PendingReply>();
 const unarchivedSessionIds = new Set<string>();
 const archivedSessionIds = new Set<string>();
 const scriptedFailureCounts = new Map<number, number>();
+
+const rebuiltInstructionsByThread = new Map<string, string | null>();
+
+function instructionsSha256Of(params: unknown): string | null {
+  const parsed = z
+    .object({
+      options: z.object({ instructions: z.string().optional() }).optional(),
+    })
+    .passthrough()
+    .safeParse(params);
+  const instructions = parsed.success
+    ? parsed.data.options?.instructions
+    : undefined;
+  return instructions === undefined
+    ? null
+    : createHash("sha256").update(instructions).digest("hex");
+}
+
+function captureRebuiltInstructions(
+  method: string,
+  params: unknown,
+  options: ScriptedEchoOptions,
+): void {
+  if (method !== BRIDGE_REQUEST_METHODS.turnStart) {
+    return;
+  }
+  if (options.turnStartReportsRebuild !== true) {
+    return;
+  }
+  const threadId = z
+    .object({ threadId: z.string() })
+    .passthrough()
+    .safeParse(params);
+  if (
+    !threadId.success ||
+    rebuiltInstructionsByThread.has(threadId.data.threadId)
+  ) {
+    return;
+  }
+  rebuiltInstructionsByThread.set(
+    threadId.data.threadId,
+    instructionsSha256Of(params),
+  );
+}
 const openBackgroundTasks = new Map<
   string,
   { providerItemId: string; familyId: string }[]
@@ -1081,9 +1126,23 @@ const handlers: Record<string, RequestHandler> = {
       `turn/start:${process.pid}:${parsed.data.threadId}:${promptText(parsed.data.input)}`,
     );
     const responseDelayMs = session.options.turnStartResponseDelayMs;
+    const installedSha256 = rebuiltInstructionsByThread.get(
+      parsed.data.threadId,
+    );
+    rebuiltInstructionsByThread.delete(parsed.data.threadId);
     const turnStartResult =
       session.options.turnStartReportsRebuild === true
-        ? { sessionRebuilt: true }
+        ? {
+            sessionRebuilt: true,
+            ...(session.options.omitInstalledInstructions === true
+              ? {}
+              : {
+                  installedInstructionsSha256:
+                    installedSha256 === undefined
+                      ? instructionsSha256Of(params)
+                      : installedSha256,
+                }),
+          }
         : {};
     if (responseDelayMs === undefined) {
       io.sendResult(id, turnStartResult);
@@ -1388,6 +1447,7 @@ export function handleLine(line: string): void {
   }
   recordRequest(method, params);
   const options = optionsForRequest(params);
+  captureRebuiltInstructions(method, params, options);
   if (applyScriptedMethodPolicy(id, method, options) === "handled") {
     return;
   }

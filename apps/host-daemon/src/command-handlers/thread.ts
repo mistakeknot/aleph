@@ -212,6 +212,9 @@ async function resumeThreadRuntimeIfMissing(
     contributedEnv: resumeContext.contributedEnv,
     options: command.options,
     instructions: resumeContext.instructions,
+    ...(resumeContext.instructionsToken !== undefined
+      ? { instructionsToken: resumeContext.instructionsToken }
+      : {}),
     dynamicTools: resumeContext.dynamicTools,
     instructionMode: resumeContext.instructionMode,
   });
@@ -254,6 +257,9 @@ export async function startThread(
       input: staged.input,
       options: command.options,
       instructions: command.instructions,
+      ...(command.instructionsToken !== undefined
+        ? { instructionsToken: command.instructionsToken }
+        : {}),
       dynamicTools: command.dynamicTools,
       instructionMode: command.instructionMode,
       ...(command.fork ? { fork: command.fork } : {}),
@@ -352,26 +358,40 @@ export async function ensureThreadRuntimeTracked(
   return { entry, providerResumed };
 }
 
+interface DeliveredSubmittedTurn {
+  rebuilt: boolean;
+  installedInstructionsToken?: string;
+}
+
 async function runSubmittedTurn(
   command: TurnSubmitCommand,
   entry: RuntimeEntry,
-): Promise<boolean> {
+): Promise<DeliveredSubmittedTurn> {
+  const { resumeContext } = command;
   const result = await entry.runtime.runTurn({
     threadId: command.threadId,
     input: command.input,
     clientRequestId: command.requestId,
     options: command.options,
-    contributedEnv: command.resumeContext.contributedEnv,
-    instructions: command.resumeContext.instructions,
+    contributedEnv: resumeContext.contributedEnv,
+    instructions: resumeContext.instructions,
+    ...(resumeContext.instructionsToken !== undefined
+      ? { instructionsToken: resumeContext.instructionsToken }
+      : {}),
   });
-  return result.providerSessionRebuilt;
+  return {
+    rebuilt: result.providerSessionRebuilt,
+    ...(result.installedInstructionsToken !== undefined
+      ? { installedInstructionsToken: result.installedInstructionsToken }
+      : {}),
+  };
 }
 
 async function steerSubmittedTurn(
   command: TurnSubmitCommand,
   entry: RuntimeEntry,
   expectedTurnId: string,
-): Promise<boolean> {
+): Promise<DeliveredSubmittedTurn> {
   let targetTurnId = expectedTurnId;
   let activeTurnId: string | null = null;
   for (let attempt = 0; attempt < TURN_SUBMIT_STEER_ATTEMPTS; attempt += 1) {
@@ -383,10 +403,13 @@ async function steerSubmittedTurn(
       options: command.options,
       contributedEnv: command.resumeContext.contributedEnv,
       instructions: command.resumeContext.instructions,
+      ...(command.resumeContext.instructionsToken !== undefined
+        ? { instructionsToken: command.resumeContext.instructionsToken }
+        : {}),
     });
 
     if (result.status === "steered") {
-      return false;
+      return { rebuilt: false };
     }
     activeTurnId = result.activeTurnId;
     if (attempt === TURN_SUBMIT_STEER_ATTEMPTS - 1) {
@@ -463,7 +486,7 @@ async function resolveSubmittedTurnTarget(
 async function deliverSubmittedTurn(
   command: TurnSubmitCommand,
   entry: RuntimeEntry,
-): Promise<boolean> {
+): Promise<DeliveredSubmittedTurn> {
   const resolvedTurnId = await resolveSubmittedTurnTarget(command, entry);
   if (command.target.mode === "start" || resolvedTurnId === null) {
     return runSubmittedTurn(command, entry);
@@ -489,20 +512,26 @@ export async function submitTurn(
   };
   const { entry } = ensured;
   let providerResumed = ensured.providerResumed;
+  let installedInstructionsToken: string | undefined;
   try {
     const resumedLate = await resumeThreadRuntimeIfMissing({
       command: stagedCommand,
       entry,
       options,
     });
-    const rebuilt = await deliverSubmittedTurn(stagedCommand, entry);
-    providerResumed = providerResumed || resumedLate || rebuilt;
+    const delivered = await deliverSubmittedTurn(stagedCommand, entry);
+    providerResumed = providerResumed || resumedLate || delivered.rebuilt;
+    installedInstructionsToken = delivered.installedInstructionsToken;
   } catch (error) {
     await cleanupAfterPostStagingFailure(staged.cleanup);
     throw error;
   }
   markTurnSubmitTraceSpan("bridge.turnStarted");
-  return providerResumed
-    ? { trace: currentTurnSubmitTrace(), providerResumed }
-    : { trace: currentTurnSubmitTrace() };
+  return {
+    trace: currentTurnSubmitTrace(),
+    ...(providerResumed ? { providerResumed } : {}),
+    ...(installedInstructionsToken !== undefined
+      ? { installedInstructionsToken }
+      : {}),
+  };
 }

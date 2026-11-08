@@ -1,4 +1,8 @@
-import { attachPendingRulesReceipt } from "./rules-receipt-delivery.js";
+import {
+  attachPendingRulesReceipt,
+  encodeInstructionsToken,
+  type PendingRulesReceipt,
+} from "./rules-receipt-delivery.js";
 import { environments, hasStoredSpawnAgentToolCall, threads } from "@bb/db";
 import { and, eq, isNull } from "drizzle-orm";
 import {
@@ -299,6 +303,16 @@ export async function buildExecutionOptions(
   return plan.resolvedExecution;
 }
 
+function instructionsTokenField(
+  pending: PendingRulesReceipt | null,
+): { instructionsToken: string } | Record<string, never> {
+  if (pending === null || pending.receipt.source === "dark") {
+    return {};
+  }
+  const { delivery: _delivery, ...identity } = pending.receipt;
+  return { instructionsToken: encodeInstructionsToken(identity) };
+}
+
 export async function buildThreadStartCommand(
   deps: LoggedWorkSessionDeps,
   args: ThreadStartCommandArgs,
@@ -336,6 +350,7 @@ export async function buildThreadStartCommand(
         threadId: args.thread.id,
       }),
       instructions: runtimeContext.instructions,
+      ...instructionsTokenField(runtimeContext.pendingRulesReceipt),
       dynamicTools: runtimeContext.dynamicTools,
       contributedEnv: runtimeContext.contributedEnv,
       injectedSkillSources: runtimeContext.injectedSkillSources,
@@ -381,6 +396,7 @@ function buildPreparedTurnSubmitCommandPayload(
         bridgeLaunch,
         providerThreadId: args.providerThreadId,
         instructions: args.runtimeContext.instructions,
+        ...instructionsTokenField(args.runtimeContext.pendingRulesReceipt),
         dynamicTools: args.runtimeContext.dynamicTools,
         contributedEnv: args.runtimeContext.contributedEnv,
         injectedSkillSources: args.runtimeContext.injectedSkillSources,

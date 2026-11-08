@@ -82,8 +82,70 @@ interface RecordThreadExecutionOptionsArgs {
   threadId: string;
 }
 
+interface InstructionAttempt {
+  instructions: string;
+  token: string | undefined;
+}
+
+const MAX_INSTRUCTION_ATTEMPTS = 8;
+
+interface InstalledInstructions {
+  instructions: string | undefined;
+  token: string | undefined;
+  unconfirmedToken: string | undefined;
+  unrecognized: boolean;
+}
+
+function resolveInstalledInstructions(args: {
+  attempts: ReadonlyMap<string, InstructionAttempt> | undefined;
+  currentConfig: ThreadRuntimeConfig;
+  invocation: { instructions: string | undefined; token: string | undefined };
+  rebuilt: boolean;
+  reportedSha256: string | null | undefined;
+}): InstalledInstructions {
+  const { currentConfig, reportedSha256 } = args;
+  const unchanged: InstalledInstructions = {
+    instructions: currentConfig.instructions,
+    token: currentConfig.instructionsToken,
+    unconfirmedToken: currentConfig.unconfirmedInstructionsToken,
+    unrecognized: false,
+  };
+  if (!args.rebuilt) {
+    return unchanged;
+  }
+  if (reportedSha256 === null) {
+    return {
+      instructions: undefined,
+      token: undefined,
+      unconfirmedToken: undefined,
+      unrecognized: false,
+    };
+  }
+  if (reportedSha256 === undefined) {
+    return args.invocation.instructions === undefined
+      ? unchanged
+      : {
+          instructions: args.invocation.instructions,
+          token: args.invocation.token,
+          unconfirmedToken: args.invocation.token,
+          unrecognized: false,
+        };
+  }
+  const attempt = args.attempts?.get(reportedSha256);
+  if (attempt === undefined) {
+    return { ...unchanged, unconfirmedToken: undefined, unrecognized: true };
+  }
+  return {
+    instructions: attempt.instructions,
+    token: attempt.token,
+    unconfirmedToken: attempt.token,
+    unrecognized: false,
+  };
+}
+
 interface RestartThreadBridgeArgs {
   instructions: string | undefined;
+  instructionsToken: string | undefined;
   options: AgentRuntimeExecutionOptions;
   threadId: string;
 }
@@ -210,7 +272,9 @@ interface ThreadRuntimeConfig {
   dynamicTools?: DynamicTool[];
   environmentId: string;
   instructionMode: InstructionMode;
-  instructions?: string;
+  instructions?: string | undefined;
+  instructionsToken?: string | undefined;
+  unconfirmedInstructionsToken?: string | undefined;
   envVars: Record<string, string>;
   options: AgentRuntimeExecutionOptions;
   processKey: string;
@@ -272,6 +336,10 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
   let nextRequestId = 1;
   const threadIdentityRegistry = new RuntimeThreadIdentityRegistry();
   const threadRuntimeConfigs = new Map<string, ThreadRuntimeConfig>();
+  const turnInstructionAttempts = new Map<
+    string,
+    Map<string, InstructionAttempt>
+  >();
   const rateLimitedRetryDelaysMs =
     options.rateLimitRetry?.delaysMs ?? DEFAULT_RATE_LIMITED_RETRY_DELAYS_MS;
   const threadCreationRequestTimeoutMs =
@@ -729,6 +797,30 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
     threadRuntimeConfigs.set(threadId, config);
   }
 
+  function recordInstructionAttempt(
+    threadId: string,
+    instructions: string | undefined,
+    token: string | undefined,
+  ): void {
+    if (instructions === undefined) {
+      return;
+    }
+    let attempts = turnInstructionAttempts.get(threadId);
+    if (attempts === undefined) {
+      attempts = new Map();
+      turnInstructionAttempts.set(threadId, attempts);
+    }
+    const sha = createHash("sha256").update(instructions).digest("hex");
+    attempts.delete(sha);
+    attempts.set(sha, { instructions, token });
+    for (const oldest of attempts.keys()) {
+      if (attempts.size <= MAX_INSTRUCTION_ATTEMPTS) {
+        break;
+      }
+      attempts.delete(oldest);
+    }
+  }
+
   function updateSessionRestoreCapability(
     threadId: string,
     sessionRestorable: boolean | undefined,
@@ -743,6 +835,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
   }
 
   function clearThreadRuntimeConfig(threadId: string): void {
+    turnInstructionAttempts.delete(threadId);
     threadsAwaitingBridgeRestart.delete(threadId);
     threadsRetryingBridgeRestartOnIdle.delete(threadId);
     idleProviderSessionSinceMsByThreadId.delete(threadId);
@@ -971,6 +1064,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
           threadId: args.threadId,
           options: currentConfig.options,
           instructions: currentConfig.instructions,
+          instructionsToken: currentConfig.instructionsToken,
         });
       },
     }).catch((error: unknown) => {
@@ -1038,6 +1132,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
     await resumeThreadFromConfig({
       currentConfig,
       instructions: args.instructions,
+      instructionsToken: args.instructionsToken,
       options: args.options,
       providerThreadId,
       threadId: args.threadId,
@@ -1055,6 +1150,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
         await resumeThreadFromConfig({
           currentConfig: hosted.config,
           instructions: hosted.config.instructions,
+          instructionsToken: hosted.config.instructionsToken,
           options: hosted.config.options,
           providerThreadId: hosted.providerThreadId,
           threadId: hosted.threadId,
@@ -1072,12 +1168,17 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
   async function resumeThreadFromConfig(args: {
     currentConfig: ThreadRuntimeConfig;
     instructions: string | undefined;
+    instructionsToken: string | undefined;
     options: AgentRuntimeExecutionOptions;
     providerThreadId: string;
     threadId: string;
   }): Promise<void> {
     const { currentConfig } = args;
     const resumeInstructions = args.instructions ?? currentConfig.instructions;
+    const resumeInstructionsToken =
+      args.instructions !== undefined
+        ? args.instructionsToken
+        : currentConfig.instructionsToken;
     await runtime.resumeThread({
       bridgeLaunch: currentConfig.bridgeLaunch,
       skillRoots: currentConfig.skillRoots,
@@ -1092,6 +1193,9 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
       options: args.options,
       ...(resumeInstructions !== undefined
         ? { instructions: resumeInstructions }
+        : {}),
+      ...(resumeInstructionsToken !== undefined
+        ? { instructionsToken: resumeInstructionsToken }
         : {}),
       ...(currentConfig.dynamicTools !== undefined
         ? { dynamicTools: currentConfig.dynamicTools }
@@ -1532,6 +1636,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
       input,
       options: execOpts,
       instructions,
+      instructionsToken,
       dynamicTools,
       instructionMode = "append",
       fork,
@@ -1579,12 +1684,14 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
             envVars: resolvedEnvironment.envVars,
             instructionMode,
             instructions,
+            instructionsToken,
             options: execOpts,
             processKey,
             projectId,
             providerId,
             sessionRestorable: false,
           });
+          turnInstructionAttempts.delete(threadId);
 
           const providerExecutionContext = toProviderExecutionContext({
             envVars: resolvedEnvironment.envVars,
@@ -1668,6 +1775,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
               options: execOpts,
               contributedEnv,
               instructions,
+              instructionsToken,
             });
           }
 
@@ -1860,6 +1968,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
       contributedEnv = [],
       options: execOpts,
       instructions,
+      instructionsToken,
       dynamicTools,
       instructionMode = "append",
     }) {
@@ -1918,12 +2027,15 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
             envVars: resolvedEnvironment.envVars,
             instructionMode,
             instructions,
+            instructionsToken,
+            unconfirmedInstructionsToken: instructionsToken,
             options: execOpts,
             processKey,
             projectId,
             providerId,
             sessionRestorable: false,
           });
+          turnInstructionAttempts.delete(threadId);
 
           if (providerThreadId) {
             recordProviderThreadIdentity(proc, threadId, providerThreadId);
@@ -1997,6 +2109,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
       options: execOpts,
       contributedEnv,
       instructions,
+      instructionsToken,
     }) {
       return runThreadOperation({
         threadId,
@@ -2008,6 +2121,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
             threadId,
             options: execOpts,
             instructions,
+            instructionsToken,
           });
           const proc = requireProviderProcessForThread(threadId);
           assertProviderSupportsExecutionOptions({
@@ -2060,6 +2174,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
             watchdogFired: false,
           });
           markProviderSessionNotIdle(threadId);
+          recordInstructionAttempt(threadId, instructions, instructionsToken);
           try {
             const startResult = await sendCommand({
               proc,
@@ -2071,16 +2186,31 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
                 threadId,
               },
             });
-            const bridgeRebuilt =
-              turnStartBridgeResultSchema.safeParse(startResult).data
-                ?.sessionRebuilt === true;
+            const parsedStart =
+              turnStartBridgeResultSchema.safeParse(startResult).data;
+            const bridgeRebuilt = parsedStart?.sessionRebuilt === true;
+            const installed = resolveInstalledInstructions({
+              currentConfig,
+              attempts: turnInstructionAttempts.get(threadId),
+              invocation: { instructions, token: instructionsToken },
+              rebuilt: bridgeRebuilt,
+              reportedSha256: parsedStart?.installedInstructionsSha256,
+            });
+            if (installed.unrecognized) {
+              options.onStderr?.(
+                `Thread "${threadId}" rebuilt its provider session with instructions this runtime did not send; not reporting a rebuild receipt.`,
+                threadId,
+              );
+            }
+            const confirmedToken = installed.unconfirmedToken;
+            turnInstructionAttempts.delete(threadId);
             setThreadRuntimeConfig(threadId, {
               ...currentConfig,
               contributedEnv: resolvedContributedEnv,
               envVars: resolvedEnvironment.envVars,
-              ...(bridgeRebuilt && instructions !== undefined
-                ? { instructions }
-                : {}),
+              instructions: installed.instructions,
+              instructionsToken: installed.token,
+              unconfirmedInstructionsToken: undefined,
               options: execOpts,
             });
             if (environmentChanged) {
@@ -2092,7 +2222,13 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
               });
             }
             return {
-              providerSessionRebuilt: bridgeRestarted || bridgeRebuilt,
+              providerSessionRebuilt:
+                bridgeRestarted ||
+                confirmedToken !== undefined ||
+                (bridgeRebuilt && !installed.unrecognized),
+              ...(confirmedToken !== undefined
+                ? { installedInstructionsToken: confirmedToken }
+                : {}),
             };
           } catch (error) {
             pendingTurnStarts.delete(threadId);
@@ -2111,6 +2247,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
       options: execOpts,
       contributedEnv,
       instructions,
+      instructionsToken,
     }) {
       return runThreadOperation({
         threadId,
@@ -2138,6 +2275,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
             threadId,
             options: execOpts,
             instructions,
+            instructionsToken,
           });
           const proc = requireProviderProcessForThread(threadId);
           const currentConfig = threadRuntimeConfigs.get(threadId);

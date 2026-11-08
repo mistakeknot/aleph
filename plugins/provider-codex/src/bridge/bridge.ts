@@ -488,6 +488,7 @@ interface CodexBridgeSession {
   quotaRecoveryAllowed: boolean;
   rebuildBeforeNextTurnReason: string | null;
   rebuildUnconfirmed: boolean;
+  rebuildInstructionsSha256: string | null;
   daybreakEnabled: boolean | null;
   modelCatalog: Promise<CodexModelCatalog | null> | null;
   publishedSessionOptions: string | null;
@@ -1267,6 +1268,7 @@ async function constructThreadSession(
     ),
     rebuildBeforeNextTurnReason: null,
     rebuildUnconfirmed: false,
+    rebuildInstructionsSha256: null,
     daybreakEnabled: null,
     modelCatalog: null,
     publishedSessionOptions: existing?.publishedSessionOptions ?? null,
@@ -1489,6 +1491,7 @@ function registerResumableSession(session: CodexBridgeSession): void {
     quotaRecoveryAllowed: session.quotaRecoveryAllowed,
     rebuildBeforeNextTurnReason: null,
     rebuildUnconfirmed: false,
+    rebuildInstructionsSha256: null,
     daybreakEnabled: session.daybreakEnabled,
     modelCatalog: null,
     publishedSessionOptions: session.publishedSessionOptions,
@@ -1675,6 +1678,7 @@ interface LiveSessionForTurn {
   session: CodexBridgeSession;
   connection: CodexAppServerConnection;
   rebuilt: boolean;
+  rebuiltInstructionsSha256: string | null;
 }
 
 async function requireLiveSessionForTurn(
@@ -1715,11 +1719,18 @@ async function requireLiveSessionForTurn(
   }
   if (session !== before) {
     session.rebuildUnconfirmed = true;
+    session.rebuildInstructionsSha256 =
+      params.options.instructions === undefined
+        ? null
+        : createHash("sha256")
+            .update(params.options.instructions)
+            .digest("hex");
   }
   return {
     session,
     connection: session.connection,
     rebuilt: session.rebuildUnconfirmed,
+    rebuiltInstructionsSha256: session.rebuildInstructionsSha256,
   };
 }
 
@@ -2043,9 +2054,15 @@ async function handleTurnStart(
     }
     sendResult(id, {
       threadId: params.threadId,
-      ...(live.rebuilt ? { sessionRebuilt: true } : {}),
+      ...(live.rebuilt
+        ? {
+            sessionRebuilt: true,
+            installedInstructionsSha256: live.rebuiltInstructionsSha256,
+          }
+        : {}),
     });
     session.rebuildUnconfirmed = false;
+    session.rebuildInstructionsSha256 = null;
     scheduleZeroWorkTurnSettlement({
       clientRequestId: params.clientRequestId,
       prepared,
@@ -2114,9 +2131,15 @@ async function handleTurnStart(
     }
     sendResult(id, {
       threadId: params.threadId,
-      ...(live.rebuilt ? { sessionRebuilt: true } : {}),
+      ...(live.rebuilt
+        ? {
+            sessionRebuilt: true,
+            installedInstructionsSha256: live.rebuiltInstructionsSha256,
+          }
+        : {}),
     });
     session.rebuildUnconfirmed = false;
+    session.rebuildInstructionsSha256 = null;
     settleAcceptedDispatch({
       clientRequestId: params.clientRequestId,
       compaction,

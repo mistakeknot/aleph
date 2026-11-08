@@ -140,6 +140,7 @@ it("waits for the previous writer before resuming during a settings rebuild", as
   expect(rebuiltTurn.result).toEqual({
     threadId: THREAD_ID,
     sessionRebuilt: true,
+    installedInstructionsSha256: null,
   });
 }, 30_000);
 

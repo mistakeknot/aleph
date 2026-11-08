@@ -589,6 +589,228 @@ describe("runtime recovery hints", () => {
     expect(resumeParams).not.toContain("snapshot one");
   });
 
+  it("keeps a resume's install identity across a rejected turn until a turn delivers it", async () => {
+    const { events, runtime } = createRecoveryRuntime({
+      failMethods: [
+        {
+          method: "turn/start",
+          message: "This thread has no Goal to resume.",
+          times: 1,
+        },
+      ],
+    });
+    const providerThreadId = await startThread(runtime, "t-token-resume");
+    await runtime.resumeThread({
+      environmentId: "env-1",
+      projectId: "p1",
+      providerId: PROVIDER_ID,
+      providerThreadId,
+      threadId: "t-token-resume",
+      options: fullRuntimeOptions,
+      instructions: "snapshot B",
+      instructionsToken: "token-B",
+    });
+    await expect(
+      runtime.runTurn({
+        clientRequestId: "creq_tkrjctaaa2",
+        input: [promptTextInput({ text: "first try" })],
+        instructions: "snapshot C",
+        instructionsToken: "token-C",
+        options: fullRuntimeOptions,
+        threadId: "t-token-resume",
+      }),
+    ).rejects.toThrow("This thread has no Goal to resume.");
+    const retried = await runtime.runTurn({
+      clientRequestId: "creq_tkrjctaaa3",
+      input: [promptTextInput({ text: "second try" })],
+      instructions: "snapshot C",
+      instructionsToken: "token-C",
+      options: fullRuntimeOptions,
+      threadId: "t-token-resume",
+    });
+    expect(retried).toEqual({
+      providerSessionRebuilt: true,
+      installedInstructionsToken: "token-B",
+    });
+    await waitForThreadTurnCompleted({
+      events,
+      providerId: PROVIDER_ID,
+      runtime,
+      threadId: "t-token-resume",
+      timeoutMs: 5_000,
+    });
+    const plain = await runtime.runTurn({
+      clientRequestId: "creq_tkrjctaaa4",
+      input: [promptTextInput({ text: "plain follow up" })],
+      instructions: "snapshot C",
+      instructionsToken: "token-C",
+      options: fullRuntimeOptions,
+      threadId: "t-token-resume",
+    });
+    expect(plain).toEqual({ providerSessionRebuilt: false });
+  });
+
+  it("reports the install a rejected rebuild made, not the retry's snapshot", async () => {
+    const { runtime } = createRecoveryRuntime({
+      turnStartReportsRebuild: true,
+      failMethods: [
+        {
+          method: "turn/start",
+          message: "This thread has no Goal to resume.",
+          times: 1,
+        },
+      ],
+    });
+    await runtime.startThread({
+      environmentId: "env-1",
+      projectId: "p1",
+      providerId: PROVIDER_ID,
+      threadId: "t-token-advance",
+      options: fullRuntimeOptions,
+      instructions: "snapshot A",
+      instructionsToken: "token-A",
+    });
+    await expect(
+      runtime.runTurn({
+        clientRequestId: "creq_tkadvaaaa2",
+        input: [promptTextInput({ text: "first try" })],
+        instructions: "snapshot B",
+        instructionsToken: "token-B",
+        options: fullRuntimeOptions,
+        threadId: "t-token-advance",
+      }),
+    ).rejects.toThrow("This thread has no Goal to resume.");
+    const retried = await runtime.runTurn({
+      clientRequestId: "creq_tkadvaaaa3",
+      input: [promptTextInput({ text: "second try" })],
+      instructions: "snapshot C",
+      instructionsToken: "token-C",
+      options: fullRuntimeOptions,
+      threadId: "t-token-advance",
+    });
+    expect(retried).toEqual({
+      providerSessionRebuilt: true,
+      installedInstructionsToken: "token-B",
+    });
+  });
+
+  it("keeps the identity a restart installed when the turn that triggered it is rejected", async () => {
+    const { events, runtime } = createRecoveryRuntime({
+      failMethods: [
+        {
+          method: "turn/start",
+          message: "This thread has no Goal to resume.",
+          times: 1,
+        },
+        {
+          method: "turn/steer",
+          message: "the agent wedged itself; restart me",
+          times: 1,
+          recovery: { kind: "restartRecommended", retryable: false },
+        },
+      ],
+    });
+    await runtime.startThread({
+      environmentId: "env-1",
+      projectId: "p1",
+      providerId: PROVIDER_ID,
+      threadId: "t-token-restart",
+      options: fullRuntimeOptions,
+      instructions: "snapshot A",
+      instructionsToken: "token-A",
+    });
+    await expect(
+      runtime.runTurn({
+        clientRequestId: "creq_tkrestaaa2",
+        input: [promptTextInput({ text: "delay:800" })],
+        instructions: "snapshot A",
+        instructionsToken: "token-A",
+        options: fullRuntimeOptions,
+        threadId: "t-token-restart",
+      }),
+    ).rejects.toThrow("This thread has no Goal to resume.");
+    await runtime.runTurn({
+      clientRequestId: "creq_tkrestaaa3",
+      input: [promptTextInput({ text: "delay:800" })],
+      instructions: "snapshot A",
+      instructionsToken: "token-A",
+      options: fullRuntimeOptions,
+      threadId: "t-token-restart",
+    });
+    const { turnId } = await waitForThreadTurnStarted({
+      events,
+      providerId: PROVIDER_ID,
+      runtime,
+      threadId: "t-token-restart",
+    });
+    await expect(
+      runtime.steerTurn({
+        clientRequestId: "creq_tkrestaaa4",
+        expectedTurnId: turnId,
+        input: [promptTextInput({ text: "never" })],
+        options: fullRuntimeOptions,
+        threadId: "t-token-restart",
+      }),
+    ).rejects.toThrow("the agent wedged itself; restart me");
+    await waitForThreadTurnCompleted({
+      events,
+      providerId: PROVIDER_ID,
+      runtime,
+      threadId: "t-token-restart",
+      timeoutMs: 5_000,
+    });
+    await expect(
+      runtime.runTurn({
+        clientRequestId: "creq_tkrestaaa5",
+        input: [promptTextInput({ text: "after restart" })],
+        instructions: "snapshot B",
+        instructionsToken: "token-B",
+        options: fullRuntimeOptions,
+        threadId: "t-token-restart",
+      }),
+    ).rejects.toThrow("This thread has no Goal to resume.");
+    const retried = await runtime.runTurn({
+      clientRequestId: "creq_tkrestaaa6",
+      input: [promptTextInput({ text: "after restart" })],
+      instructions: "snapshot C",
+      instructionsToken: "token-C",
+      options: fullRuntimeOptions,
+      threadId: "t-token-restart",
+    });
+    expect(retried).toEqual({
+      providerSessionRebuilt: true,
+      installedInstructionsToken: "token-B",
+    });
+  });
+
+  it("falls back to the current turn's identity when the bridge does not report what it installed", async () => {
+    const { runtime } = createRecoveryRuntime({
+      turnStartReportsRebuild: true,
+      omitInstalledInstructions: true,
+    });
+    await runtime.startThread({
+      environmentId: "env-1",
+      projectId: "p1",
+      providerId: PROVIDER_ID,
+      threadId: "t-token-legacy",
+      options: fullRuntimeOptions,
+      instructions: "snapshot A",
+      instructionsToken: "token-A",
+    });
+    const rebuilt = await runtime.runTurn({
+      clientRequestId: "creq_tkfbackaa2",
+      input: [promptTextInput({ text: "go" })],
+      instructions: "snapshot B",
+      instructionsToken: "token-B",
+      options: fullRuntimeOptions,
+      threadId: "t-token-legacy",
+    });
+    expect(rebuilt).toEqual({
+      providerSessionRebuilt: true,
+      installedInstructionsToken: "token-B",
+    });
+  });
+
   it("authRequired on the retry after an unarchive: typed auth_required and forwarded", async () => {
     const { hints, record, runtime } = createRecoveryRuntime({
       failMethods: [

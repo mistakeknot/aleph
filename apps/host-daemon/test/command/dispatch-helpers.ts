@@ -94,6 +94,8 @@ interface FakeRuntimeState {
   archivedThreadId: string | undefined;
   ranTurnClientRequestId: ClientTurnRequestId | undefined;
   ranTurnInput: PromptInput[] | undefined;
+  ranTurnInstructionsToken: string | undefined;
+  runTurnInstalledInstructionsToken: string | undefined;
   runTurnRebuildsProviderSession: boolean;
   ranTurnText: string | undefined;
   renamedTitle: string | undefined;
@@ -170,6 +172,8 @@ export function createFakeRuntime() {
     archivedThreadId: undefined,
     ranTurnClientRequestId: undefined,
     ranTurnInput: undefined,
+    ranTurnInstructionsToken: undefined,
+    runTurnInstalledInstructionsToken: undefined,
     runTurnRebuildsProviderSession: false,
     ranTurnText: undefined,
     renamedTitle: undefined,
@@ -264,7 +268,16 @@ export function createFakeRuntime() {
       state.ranTurnClientRequestId = args.clientRequestId;
       state.ranTurnInput = args.input;
       activeTurnsByThreadId.set(args.threadId, `turn-${nextTurnNumber++}`);
-      return { providerSessionRebuilt: state.runTurnRebuildsProviderSession };
+      state.ranTurnInstructionsToken = args.instructionsToken;
+      return {
+        providerSessionRebuilt: state.runTurnRebuildsProviderSession,
+        ...(state.runTurnInstalledInstructionsToken !== undefined
+          ? {
+              installedInstructionsToken:
+                state.runTurnInstalledInstructionsToken,
+            }
+          : {}),
+      };
     },
     async steerTurn(args) {
       state.steeredTurnId = args.expectedTurnId;

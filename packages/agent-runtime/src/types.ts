@@ -157,6 +157,7 @@ export interface StartThreadArgs {
   input?: PromptInput[];
   options: AgentRuntimeExecutionOptions;
   instructions?: string;
+  instructionsToken?: string;
   dynamicTools?: DynamicTool[];
   instructionMode?: InstructionMode;
   fork?: {
@@ -205,6 +206,7 @@ export interface ResumeThreadArgs {
   contributedEnv?: readonly AgentRuntimeContributedEnvEntry[];
   options: AgentRuntimeExecutionOptions;
   instructions?: string;
+  instructionsToken?: string;
   dynamicTools?: DynamicTool[];
   instructionMode?: InstructionMode;
 }
@@ -220,10 +222,12 @@ export interface RunTurnArgs {
   options: AgentRuntimeExecutionOptions;
   contributedEnv?: readonly AgentRuntimeContributedEnvEntry[];
   instructions?: string;
+  instructionsToken?: string;
 }
 
 export interface RunTurnResult {
   providerSessionRebuilt: boolean;
+  installedInstructionsToken?: string;
 }
 
 export interface SteerTurnArgs {
@@ -234,6 +238,7 @@ export interface SteerTurnArgs {
   options: AgentRuntimeExecutionOptions;
   contributedEnv?: readonly AgentRuntimeContributedEnvEntry[];
   instructions?: string;
+  instructionsToken?: string;
 }
 
 interface SteerTurnAppliedResult {

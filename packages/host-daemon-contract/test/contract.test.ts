@@ -695,6 +695,10 @@ const INTENTIONAL_OPTIONAL_HOST_DAEMON_FIELDS: Record<string, string> = {
     "a provider-native root names a vendor-plugin marker file only when the plugin that knows that vendor layout declares one; absence means every skill-shaped directory under the root is a skill, and core names no vendor path itself.",
   "hostDaemonOnlineRpcCommandSchema.sharedSkillRoots.user.skipIfManifest":
     "a provider-native root names a vendor-plugin marker file only when the plugin that knows that vendor layout declares one; absence means every skill-shaped directory under the root is a skill, and core names no vendor path itself.",
+  "hostDaemonCommandSchema.instructionsToken":
+    "thread.start carries an instructions token only when the server holds a rules receipt awaiting delivery; absence means nothing is pending, and an older daemon ignores the field.",
+  "hostDaemonCommandSchema.resumeContext.instructionsToken":
+    "turn.submit carries an instructions token only when the server holds a rules receipt awaiting delivery; absence means nothing is pending, and an older daemon ignores the field.",
   "hostDaemonCommandSchema.targetPath":
     "project.clone omits targetPath when the daemon should derive its default checkout location for the project.",
   "hostDaemonOnlineRpcCommandSchema.expectedSha256":
