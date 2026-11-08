@@ -19,7 +19,7 @@ import {
   type AccountEvidence,
   type EvidenceDocument,
   type EvidenceView,
-  type EvidenceWriter,
+  type QuotaEvidenceUpdater,
   type SwitchLogEntry,
   type Account,
   type AccountQuota,
@@ -718,14 +718,18 @@ export class QuotaStore {
     })();
   }
 
-  put(quota: AccountQuota, evidenceWriter?: EvidenceWriter): void {
+  put(quota: AccountQuota): void {
     const value = quotaSchema.parse(quota);
-    if (evidenceWriter === undefined) {
-      this.upsertQuota(value);
-    } else {
-      this.db.transaction(() => {
-        const stored = this.readEvidenceRow(value.accountId);
-        const counter = this.readCounter(value.accountId);
+    this.upsertQuota(value);
+    this.sampler?.record(value);
+  }
+
+  update(accountId: string, compute: QuotaEvidenceUpdater): AccountQuota {
+    const written = this.db
+      .transaction(() => {
+        const quota = this.get(accountId);
+        const stored = this.readEvidenceRow(accountId);
+        const counter = this.readCounter(accountId);
         const seq = (stored?.seq ?? 0) + 1;
         const matches =
           stored !== null && counter !== null && counter === stored.mutation;
@@ -735,20 +739,25 @@ export class QuotaStore {
             : matches
               ? stored
               : convertMismatched(stored, seq);
-        const view: EvidenceView = {
+        const evidence: EvidenceView = {
           present: stored !== null,
           matches: stored === null || matches,
           uncertain: this.uncertainOf(base, stored !== null && !matches),
           evidence: base,
         };
-        const document = evidenceDocumentSchema.parse(
-          evidenceWriter(view, seq),
-        );
+        const result = compute({ quota, evidence, seq });
+        const value = quotaSchema.parse(result.quota);
+        if (value.accountId !== accountId) {
+          throw new Error("Updated quota belongs to a different account.");
+        }
+        const document = evidenceDocumentSchema.parse(result.evidence);
         this.upsertQuota(value);
-        this.writeEvidenceRow(value.accountId, seq, document);
-      }).immediate();
-    }
-    this.sampler?.record(value);
+        this.writeEvidenceRow(accountId, seq, document);
+        return value;
+      })
+      .immediate();
+    this.sampler?.record(written);
+    return written;
   }
 
   remove(accountId: string): void {

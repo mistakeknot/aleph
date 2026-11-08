@@ -339,10 +339,20 @@ export interface EvidenceView {
   evidence: AccountEvidence;
 }
 
-export type EvidenceWriter = (
-  current: EvidenceView,
-  seq: number,
-) => EvidenceDocument;
+export interface QuotaEvidenceCurrent {
+  quota: AccountQuota;
+  evidence: EvidenceView;
+  seq: number;
+}
+
+export interface QuotaEvidenceResult {
+  quota: AccountQuota;
+  evidence: EvidenceDocument;
+}
+
+export type QuotaEvidenceUpdater = (
+  current: QuotaEvidenceCurrent,
+) => QuotaEvidenceResult;
 
 export const accountSummarySchema = accountSchema.extend({
   lastUsedHostName: z.string().min(1).nullable(),

@@ -1,0 +1,22 @@
+{
+  "builds": {
+    "old": {
+      "commit": "cd650e592e018b8c63b0f2f2b43075480f51c481",
+      "files": {
+        "contracts.ts": "f7985d91fb81e4852319f59d0c6c0365f1ca46d0d2f38517e4b0f8d84ad19309",
+        "quota-history.ts": "f25671e6cd0fb88d8e67e74efab03db762c6d5141a7df4364e797ca908c742d9",
+        "store.ts": "bd460ca0cee82463da5ec2792242c17f085227fb8ce53d88d36fd1f3e7c9fb6c",
+        "migration-runner.ts": "d18649d4941c714edfac43c0664c6ca0c2c439218119d3fc00f7e1db40e47fec"
+      }
+    },
+    "a0": {
+      "commit": "db0226b7d170e21aa9a960cdfd0b08947a4bca75",
+      "files": {
+        "contracts.ts": "f7985d91fb81e4852319f59d0c6c0365f1ca46d0d2f38517e4b0f8d84ad19309",
+        "quota-history.ts": "f25671e6cd0fb88d8e67e74efab03db762c6d5141a7df4364e797ca908c742d9",
+        "store.ts": "19f2e5b9264fcf78571909d74a49eeb018aa74f4b4990fa735f1443d22d20dce",
+        "migration-runner.ts": "d18649d4941c714edfac43c0664c6ca0c2c439218119d3fc00f7e1db40e47fec"
+      }
+    }
+  }
+}

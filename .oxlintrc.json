@@ -21,7 +21,8 @@
     "apps/mobile/.expo/**",
     "packages/templates/src/generated/**",
     "packages/plugin-build/src/generated/**",
-    "packages/plugin-sdk/bundled-types/**"
+    "packages/plugin-sdk/bundled-types/**",
+    "plugins/account-pool/src/fixtures/legacy-builds/**"
   ],
   "overrides": [
     {
