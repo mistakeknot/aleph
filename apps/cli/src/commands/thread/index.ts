@@ -1,4 +1,5 @@
 import { registerContextCommand } from "./context.js";
+import { registerRuntimeConfigCommand } from "./runtime-config.js";
 import { registerSessionStateCommands } from "./session-state.js";
 import { Command } from "commander";
 import { registerActionsCommands } from "./actions.js";
@@ -24,6 +25,7 @@ export function registerThreadCommands(
   registerListCommand(thread, getUrl);
   registerCountCommand(thread, getUrl);
   registerContextCommand(thread, getUrl);
+  registerRuntimeConfigCommand(thread, getUrl);
   registerSessionStateCommands(thread, getUrl);
   registerShowCommand(thread, getUrl);
   registerOpenCommand(thread, getUrl);

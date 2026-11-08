@@ -446,6 +446,7 @@ type ExpectedThreadsKey =
   | "resolveMentions"
   | "restoreEnvironment"
   | "retry"
+  | "runtimeConfig"
   | "search"
   | "send"
   | "spawn"

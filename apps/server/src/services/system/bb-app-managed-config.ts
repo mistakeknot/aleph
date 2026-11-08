@@ -9,7 +9,11 @@ import {
   type BbAppManagedEnvFile,
 } from "@bb/config/bb-app-managed-config";
 import { validateOptionalUrl } from "@bb/config/public-url";
-import type { ServerLogger, ServerRuntimeConfig } from "../../types.js";
+import type {
+  OrchestrationRuntimeConfig,
+  ServerLogger,
+  ServerRuntimeConfig,
+} from "../../types.js";
 import type { NotificationHub } from "../../ws/hub.js";
 
 interface ApplyBbAppManagedConfigArgs {
@@ -58,7 +62,21 @@ function replaceRuntimeConfig(
   if (nextConfig.appUrl === undefined) {
     delete targetConfig.appUrl;
   }
+  if (nextConfig.orchestration === undefined) {
+    delete targetConfig.orchestration;
+  }
   Object.assign(targetConfig, nextConfig);
+}
+
+function setOptionalOrchestration(
+  config: ServerRuntimeConfig,
+  value: OrchestrationRuntimeConfig | undefined,
+): void {
+  if (value === undefined) {
+    delete config.orchestration;
+    return;
+  }
+  config.orchestration = value;
 }
 
 function setOptionalAppUrl(
@@ -98,6 +116,11 @@ export function applyBbAppManagedConfig(
     args.managedConfig.customModels ?? args.baseConfig.customModels;
   args.targetConfig.sharedSkillRoots =
     args.managedConfig.sharedSkillRoots ?? args.baseConfig.sharedSkillRoots;
+
+  setOptionalOrchestration(
+    args.targetConfig,
+    args.managedConfig.orchestration ?? args.baseConfig.orchestration,
+  );
 
   setOptionalAppUrl(
     args.targetConfig,

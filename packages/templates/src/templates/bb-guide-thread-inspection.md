@@ -56,6 +56,7 @@ Sections:
 Inspecting:
 
   bb thread context [id]                   Show recorded context usage and available breakdown (--self, --json)
+  bb thread runtime-config [id] --dry-run  Resolve the instructions the thread would start with and print the rules receipt, without starting a session (--self, --json)
   bb thread commands [id]                  List the slash commands the thread's agent has advertised (--self, --json)
   bb thread options [id]                   List the session options the agent reports, with current values (--self, --json)
     --set <option=value>                   Choose a value, applied on the thread's next turn (repeatable)

@@ -222,6 +222,10 @@ export interface RunTurnArgs {
   instructions?: string;
 }
 
+export interface RunTurnResult {
+  providerSessionRebuilt: boolean;
+}
+
 export interface SteerTurnArgs {
   threadId: string;
   expectedTurnId: string;
@@ -341,7 +345,7 @@ export interface AgentRuntime {
 
   resumeThread(args: ResumeThreadArgs): Promise<ResumeThreadResult>;
 
-  runTurn(args: RunTurnArgs): Promise<void>;
+  runTurn(args: RunTurnArgs): Promise<RunTurnResult>;
 
   steerTurn(args: SteerTurnArgs): Promise<SteerTurnResult>;
 

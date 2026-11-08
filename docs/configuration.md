@@ -794,6 +794,69 @@ file is treated as absent. bb injects these itself, so they apply to every
 provider; provider-native files such as a repo-root `AGENTS.md` or `CLAUDE.md`
 remain separate. See `bb guide agent-configuration`.
 
+### Instructions store (`orchestration`)
+
+An optional instructions store replaces the `<dataDir>/AGENTS.md` section with
+the `docs/AGENTS.md` of a resolved store snapshot. It is off unless
+`orchestration.instructionsStore` is set in the managed `config.json`:
+
+```json
+{
+  "orchestration": {
+    "instructionsStore": "/abs/path/to/store",
+    "resolveCommand": ["orch", "instructions", "resolve", "--json"],
+    "resolveTimeoutMs": 30000
+  }
+}
+```
+
+- `instructionsStore` is an absolute path. `resolveCommand` defaults to
+  `orch instructions resolve --json` and `resolveTimeoutMs` defaults to 30000
+  (maximum 300000).
+- Every provider session start and every turn submit runs
+  `<resolveCommand> --store <instructionsStore> --data-dir <dataDir>` and reads
+  one JSON document from stdout: `{"source":"dark"}`, or
+  `{"source":"active"|"lkg","snapshotId":"...","mode":"legacy"|"aleph-append","directory":"/abs/dir","files":[{"path":"docs/AGENTS.md","sha256":"<hex>","bytes":0}]}`.
+  This contract is provisional until the store command ships.
+- `{"source":"dark"}` keeps today's `<dataDir>/AGENTS.md` behavior unchanged
+  only while the data directory is not initialized. Once
+  `<dataDir>/.aleph-instructions` exists, a `dark` answer (including one that
+  arrives on the digest re-check) blocks the start with a non-retryable error
+  instead of falling back to the data-dir file.
+- For `active` and `lkg`, bb resolves the real path of `directory` and of
+  `docs/AGENTS.md`, requires both to sit inside `instructionsStore` (a symlink
+  that leaves the store blocks the start), re-checks the sha256 of
+  `docs/AGENTS.md` (resolving once more on a mismatch, then failing), replaces
+  `{instructions_dir}` with the real `directory`, and appends the text in place
+  of the data-dir section.
+- A timeout, a failing command or output over 4 MiB fails the start with a
+  retryable error. On a timeout or an output overflow bb kills the resolve
+  command's whole process tree, not only its first process (a process group on
+  POSIX, `taskkill /T` on Windows).
+- Text beginning with `<!-- aleph-instructions-stub v1 -->` is refused in every
+  mode.
+- If `<dataDir>/.aleph-instructions` exists and `instructionsStore` is not set,
+  starts are blocked instead of falling back to the data-dir file.
+- A `dark` answer is accepted only while the marker is absent both before the
+  resolve command starts and after it returns, so a marker created while the
+  command runs still blocks the start.
+- When the store is configured, bb writes `rules-receipt.json` to the thread's
+  storage directory only after the provider has accepted the instructions, and
+  it describes the last instructions actually delivered: snapshot ID, mode,
+  source, `delivery` (`delivered` when a session starts, `resumed` when a turn
+  submit rebuilt the provider session, whether the runtime resumed the thread
+  or the provider bridge rebuilt it inside the turn, which passes the
+  instructions into the rebuild; a daemon that predates the report never
+  triggers it), the sha256 of the assembled instructions, and each section's header,
+  byte count and sha256. An ordinary turn submit resolves the store but does not
+  change the file, because providers keep the instructions from the first turn,
+  and a failed start leaves no receipt. If the write fails after the provider
+  accepted the instructions, bb logs an error with `rulesReceiptWriteFailed`.
+  `bb thread runtime-config --dry-run <thread>` prints the receipt it would
+  produce, with `delivery` set to `dry-run`, without starting a session or
+  writing a file. A host daemon older than this change does not report resumes,
+  so those resumes are not recorded.
+
 ## Skills
 
 User-level skills live under `<dataDir>/skills/<name>/SKILL.md` (usually

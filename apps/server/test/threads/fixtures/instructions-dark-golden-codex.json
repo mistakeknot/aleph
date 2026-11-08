@@ -1,0 +1,198 @@
+{
+  "start": {
+    "type": "thread.start",
+    "environmentId": "<environment>",
+    "threadId": "<thread>",
+    "workspaceContext": {
+      "workspacePath": "<dataDir>/golden-workspace"
+    },
+    "projectId": "<project>",
+    "providerId": "codex",
+    "bridgeLaunch": {
+      "pluginId": "provider-codex",
+      "source": {
+        "kind": "artifact",
+        "digest": "00026aaee17a8a8c5ba6c0dc47a162da2a6fd0f8510f0b74842096ac2c807ab3",
+        "byteLength": 41
+      },
+      "providerOptions": {},
+      "envPassthrough": [],
+      "capabilities": {
+        "providerInstallation": true,
+        "supportsServiceTier": true,
+        "supportsThreadArchive": true,
+        "supportsThreadRename": true,
+        "permissionModes": ["accept-edits", "auto", "full"],
+        "fork": "checkpoint"
+      }
+    },
+    "requestId": "creq_22222222bf",
+    "input": [
+      {
+        "type": "text",
+        "text": "hello",
+        "mentions": []
+      }
+    ],
+    "options": {
+      "model": "gpt-5",
+      "serviceTier": "default",
+      "reasoningLevel": "medium",
+      "providerOptions": {
+        "memoryEnabled": true,
+        "providerSubagentsEnabled": true
+      },
+      "permissionMode": "full",
+      "permissionScope": "full",
+      "approvalReviewer": null,
+      "permissionEscalation": null
+    },
+    "instructions": "If the user asks you to move this thread to another checkout, worktree, or directory, make sure the target directory exists, then call `update_environment_directory` with its absolute path. After it succeeds, end the current turn; bb starts the next turn in the updated environment automatically so you can continue there.\n\nThe following instructions come from the BB plugin \"tooldemo\" for its tool \"demo_lookup\":\n\nCall demo_lookup before guessing.\n\nThe following instructions come from the BB plugin \"connect\":\n\nRemote session for <thread> in <project>\n\nThe following dynamic instructions come from the BB plugin \"dyn\":\n\nDynamic text for the thread.\n\nThe following user instructions come from <dataDir>/AGENTS.md:\n\n# User Rules\n\nPrefer concise progress updates.\n\nThe following workspace instructions come from .bb/AGENTS.md:\n\n# Project Rules\n\nAlways run the smoke test before pushing.\n",
+    "dynamicTools": [
+      {
+        "name": "update_environment_directory",
+        "description": "Move this bb thread to a different working directory for subsequent turns. Use this when the user asks to switch to a new checkout, worktree, or local directory. The path must be an absolute existing directory on the current host. The tool reuses this project's existing bb environment for that host/path, otherwise it creates an unmanaged environment after validating the path. Another project may hold its own environment for the same directory; that is allowed, except for a bb-managed worktree owned by another project, which this tool refuses. After a successful switch, end the current turn because the running provider cwd will not change until the next turn; bb then starts the next turn in the new directory automatically so you can continue the task there.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Absolute path to an existing directory on the current host."
+            }
+          },
+          "required": ["path"],
+          "additionalProperties": false
+        },
+        "presentation": {
+          "label": {
+            "pending": "Moving the thread directory",
+            "completed": "Moved the thread directory"
+          },
+          "icon": {
+            "glyph": "FolderOpen"
+          }
+        }
+      },
+      {
+        "name": "demo_lookup",
+        "description": "Look up demo data",
+        "inputSchema": {
+          "type": "object"
+        }
+      }
+    ],
+    "contributedEnv": [],
+    "injectedSkillSources": [],
+    "instructionMode": "append",
+    "threadStoragePath": "/tmp/bb-host-data/host-golden/thread-storage/<thread>"
+  },
+  "submit": {
+    "type": "turn.submit",
+    "environmentId": "<environment>",
+    "threadId": "<thread>",
+    "bridgeLaunch": {
+      "pluginId": "provider-codex",
+      "source": {
+        "kind": "artifact",
+        "digest": "00026aaee17a8a8c5ba6c0dc47a162da2a6fd0f8510f0b74842096ac2c807ab3",
+        "byteLength": 41
+      },
+      "providerOptions": {},
+      "envPassthrough": [],
+      "capabilities": {
+        "providerInstallation": true,
+        "supportsServiceTier": true,
+        "supportsThreadArchive": true,
+        "supportsThreadRename": true,
+        "permissionModes": ["accept-edits", "auto", "full"],
+        "fork": "checkpoint"
+      }
+    },
+    "input": [
+      {
+        "type": "text",
+        "text": "continue",
+        "mentions": []
+      }
+    ],
+    "options": {
+      "model": "gpt-5",
+      "serviceTier": "default",
+      "reasoningLevel": "medium",
+      "providerOptions": {
+        "memoryEnabled": true,
+        "providerSubagentsEnabled": true
+      },
+      "permissionMode": "full",
+      "permissionScope": "full",
+      "approvalReviewer": null,
+      "permissionEscalation": null
+    },
+    "target": {
+      "mode": "start"
+    },
+    "resumeContext": {
+      "workspaceContext": {
+        "workspacePath": "<dataDir>/golden-workspace"
+      },
+      "projectId": "<project>",
+      "providerId": "codex",
+      "bridgeLaunch": {
+        "pluginId": "provider-codex",
+        "source": {
+          "kind": "artifact",
+          "digest": "00026aaee17a8a8c5ba6c0dc47a162da2a6fd0f8510f0b74842096ac2c807ab3",
+          "byteLength": 41
+        },
+        "providerOptions": {},
+        "envPassthrough": [],
+        "capabilities": {
+          "providerInstallation": true,
+          "supportsServiceTier": true,
+          "supportsThreadArchive": true,
+          "supportsThreadRename": true,
+          "permissionModes": ["accept-edits", "auto", "full"],
+          "fork": "checkpoint"
+        }
+      },
+      "providerThreadId": "provider-golden",
+      "instructions": "If the user asks you to move this thread to another checkout, worktree, or directory, make sure the target directory exists, then call `update_environment_directory` with its absolute path. After it succeeds, end the current turn; bb starts the next turn in the updated environment automatically so you can continue there.\n\nThe following instructions come from the BB plugin \"tooldemo\" for its tool \"demo_lookup\":\n\nCall demo_lookup before guessing.\n\nThe following instructions come from the BB plugin \"connect\":\n\nRemote session for <thread> in <project>\n\nThe following dynamic instructions come from the BB plugin \"dyn\":\n\nDynamic text for the thread.\n\nThe following user instructions come from <dataDir>/AGENTS.md:\n\n# User Rules\n\nPrefer concise progress updates.\n\nThe following workspace instructions come from .bb/AGENTS.md:\n\n# Project Rules\n\nAlways run the smoke test before pushing.\n",
+      "dynamicTools": [
+        {
+          "name": "update_environment_directory",
+          "description": "Move this bb thread to a different working directory for subsequent turns. Use this when the user asks to switch to a new checkout, worktree, or local directory. The path must be an absolute existing directory on the current host. The tool reuses this project's existing bb environment for that host/path, otherwise it creates an unmanaged environment after validating the path. Another project may hold its own environment for the same directory; that is allowed, except for a bb-managed worktree owned by another project, which this tool refuses. After a successful switch, end the current turn because the running provider cwd will not change until the next turn; bb then starts the next turn in the new directory automatically so you can continue the task there.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string",
+                "description": "Absolute path to an existing directory on the current host."
+              }
+            },
+            "required": ["path"],
+            "additionalProperties": false
+          },
+          "presentation": {
+            "label": {
+              "pending": "Moving the thread directory",
+              "completed": "Moved the thread directory"
+            },
+            "icon": {
+              "glyph": "FolderOpen"
+            }
+          }
+        },
+        {
+          "name": "demo_lookup",
+          "description": "Look up demo data",
+          "inputSchema": {
+            "type": "object"
+          }
+        }
+      ],
+      "contributedEnv": [],
+      "injectedSkillSources": [],
+      "instructionMode": "append"
+    }
+  }
+}

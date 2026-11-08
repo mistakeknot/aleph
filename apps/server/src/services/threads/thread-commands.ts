@@ -1,3 +1,4 @@
+import { attachPendingRulesReceipt } from "./rules-receipt-delivery.js";
 import { environments, hasStoredSpawnAgentToolCall, threads } from "@bb/db";
 import { and, eq, isNull } from "drizzle-orm";
 import {
@@ -226,18 +227,19 @@ function toRuntimeExecutionOptions(
     args.projectId,
     args.hostId,
   );
-  const model = args.deps.lifecycleDedupers.providerModelCatalogs.getCachedModel(
-    args.deps,
-    {
-      hostId: args.hostId,
-      providerId: args.providerId,
-      workspacePaths:
-        checkoutPath === undefined
-          ? [args.workspacePath]
-          : [args.workspacePath, checkoutPath],
-      model: args.execution.model,
-    },
-  );
+  const model =
+    args.deps.lifecycleDedupers.providerModelCatalogs.getCachedModel(
+      args.deps,
+      {
+        hostId: args.hostId,
+        providerId: args.providerId,
+        workspacePaths:
+          checkoutPath === undefined
+            ? [args.workspacePath]
+            : [args.workspacePath, checkoutPath],
+        model: args.execution.model,
+      },
+    );
   const reasoningLevel =
     model === null ||
     model.supportedReasoningEfforts.some(
@@ -306,39 +308,43 @@ export async function buildThreadStartCommand(
     thread: args.thread,
     environment: args.environment,
     model: args.execution.model,
+    purpose: "start",
   });
   const bridgeLaunch = requireBridgeLaunchForProviderId(deps, args.providerId);
-  return {
-    type: "thread.start",
-    environmentId: args.environment.id,
-    threadId: args.thread.id,
-    workspaceContext: workspaceContextFromPath({
-      path: runtimeContext.workspacePath,
-    }),
-    projectId: args.projectId,
-    providerId: args.providerId,
-    bridgeLaunch,
-    requestId: args.requestId,
-    input: args.input,
-    ...(args.inputGroups !== undefined
-      ? { inputGroups: args.inputGroups }
-      : {}),
-    options: toRuntimeExecutionOptions({
-      ...args,
-      deps,
-      hostId: args.environment.hostId,
-      workspacePath: runtimeContext.workspacePath,
-      input: args.input,
+  return attachPendingRulesReceipt(
+    {
+      type: "thread.start",
+      environmentId: args.environment.id,
       threadId: args.thread.id,
-    }),
-    instructions: runtimeContext.instructions,
-    dynamicTools: runtimeContext.dynamicTools,
-    contributedEnv: runtimeContext.contributedEnv,
-    injectedSkillSources: runtimeContext.injectedSkillSources,
-    instructionMode: runtimeContext.instructionMode,
-    threadStoragePath: runtimeContext.threadStoragePath,
-    ...(args.fork ? { fork: args.fork } : {}),
-  };
+      workspaceContext: workspaceContextFromPath({
+        path: runtimeContext.workspacePath,
+      }),
+      projectId: args.projectId,
+      providerId: args.providerId,
+      bridgeLaunch,
+      requestId: args.requestId,
+      input: args.input,
+      ...(args.inputGroups !== undefined
+        ? { inputGroups: args.inputGroups }
+        : {}),
+      options: toRuntimeExecutionOptions({
+        ...args,
+        deps,
+        hostId: args.environment.hostId,
+        workspacePath: runtimeContext.workspacePath,
+        input: args.input,
+        threadId: args.thread.id,
+      }),
+      instructions: runtimeContext.instructions,
+      dynamicTools: runtimeContext.dynamicTools,
+      contributedEnv: runtimeContext.contributedEnv,
+      injectedSkillSources: runtimeContext.injectedSkillSources,
+      instructionMode: runtimeContext.instructionMode,
+      threadStoragePath: runtimeContext.threadStoragePath,
+      ...(args.fork ? { fork: args.fork } : {}),
+    },
+    runtimeContext.pendingRulesReceipt,
+  );
 }
 
 function buildPreparedTurnSubmitCommandPayload(
@@ -348,38 +354,41 @@ function buildPreparedTurnSubmitCommandPayload(
     args.deps,
     args.runtimeContext.providerId,
   );
-  return {
-    type: "turn.submit",
-    environmentId: args.environmentId,
-    threadId: args.threadId,
-    bridgeLaunch,
-    input: args.input,
-    ...(args.inputGroups !== undefined
-      ? { inputGroups: args.inputGroups }
-      : {}),
-    options: toRuntimeExecutionOptions({
-      ...args,
-      input: args.input,
-      projectId: args.runtimeContext.projectId,
-      providerId: args.runtimeContext.providerId,
-      workspacePath: args.runtimeContext.workspacePath,
-    }),
-    target: args.target,
-    resumeContext: {
-      workspaceContext: workspaceContextFromPath({
-        path: args.runtimeContext.workspacePath,
-      }),
-      projectId: args.runtimeContext.projectId,
-      providerId: args.runtimeContext.providerId,
+  return attachPendingRulesReceipt(
+    {
+      type: "turn.submit",
+      environmentId: args.environmentId,
+      threadId: args.threadId,
       bridgeLaunch,
-      providerThreadId: args.providerThreadId,
-      instructions: args.runtimeContext.instructions,
-      dynamicTools: args.runtimeContext.dynamicTools,
-      contributedEnv: args.runtimeContext.contributedEnv,
-      injectedSkillSources: args.runtimeContext.injectedSkillSources,
-      instructionMode: args.runtimeContext.instructionMode,
+      input: args.input,
+      ...(args.inputGroups !== undefined
+        ? { inputGroups: args.inputGroups }
+        : {}),
+      options: toRuntimeExecutionOptions({
+        ...args,
+        input: args.input,
+        projectId: args.runtimeContext.projectId,
+        providerId: args.runtimeContext.providerId,
+        workspacePath: args.runtimeContext.workspacePath,
+      }),
+      target: args.target,
+      resumeContext: {
+        workspaceContext: workspaceContextFromPath({
+          path: args.runtimeContext.workspacePath,
+        }),
+        projectId: args.runtimeContext.projectId,
+        providerId: args.runtimeContext.providerId,
+        bridgeLaunch,
+        providerThreadId: args.providerThreadId,
+        instructions: args.runtimeContext.instructions,
+        dynamicTools: args.runtimeContext.dynamicTools,
+        contributedEnv: args.runtimeContext.contributedEnv,
+        injectedSkillSources: args.runtimeContext.injectedSkillSources,
+        instructionMode: args.runtimeContext.instructionMode,
+      },
     },
-  };
+    args.runtimeContext.pendingRulesReceipt,
+  );
 }
 
 export function addRequestIdToTurnSubmitCommandPayload(
@@ -405,6 +414,7 @@ export async function prepareTurnSubmitCommandPayload(
     thread: args.thread,
     environment: args.environment,
     model: args.execution.model,
+    purpose: "turn",
   });
   return buildPreparedTurnSubmitCommandPayload({
     deps,

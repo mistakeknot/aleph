@@ -6,6 +6,7 @@ import {
   type HostDaemonCommandResult,
   type HostDaemonSettledCommandType,
 } from "@bb/host-daemon-contract";
+import { recordAcceptedRulesReceipt } from "../threads/rules-receipt-delivery.js";
 import { ApiError } from "../../errors.js";
 import {
   buildCommandResultSettlementDeps,
@@ -316,6 +317,11 @@ async function runPinnedLiveHostCommand<
         execution,
         result,
       }),
+    });
+    await recordAcceptedRulesReceipt(deps, {
+      command: args.command,
+      hostId: args.hostId,
+      result,
     });
     return result;
   } catch (error) {

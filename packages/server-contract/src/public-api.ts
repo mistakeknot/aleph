@@ -301,6 +301,7 @@ import {
   type ThreadSearchResponse,
   type RecordThreadSearchSelectionRequest,
   type RecordThreadSearchSelectionResponse,
+  type ThreadRuntimeConfigResponse,
   type ThreadStorageFileListResponse,
   type ThreadStorageFilesQuery,
   type ThreadStorageLocationResponse,
@@ -1966,6 +1967,12 @@ export const publicApiRoutes = {
         threadStorageFilesQuerySchema,
       ),
       response: jsonResponse<ThreadStorageFileListResponse>(),
+    }),
+    runtimeConfig: defineRoute({
+      path: "/threads/:id/runtime-config",
+      method: "get",
+      request: noRequest<PathId>(),
+      response: jsonResponse<ThreadRuntimeConfigResponse>(),
     }),
     storageLocation: defineRoute({
       path: "/threads/:id/thread-storage/location",
