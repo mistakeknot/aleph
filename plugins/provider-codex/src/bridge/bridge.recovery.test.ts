@@ -297,6 +297,77 @@ it("reports a rebuilt provider session on a goal command that rebuilt it", async
   expect(JSON.stringify(resumes[1]?.params)).toContain("snapshot two");
 }, 30_000);
 
+it("keeps reporting a rebuild that a rejected goal command could not confirm", async () => {
+  const requestLogPath = join(workspaceDir, "requests.jsonl");
+  stubFakeAppServer({
+    turns: [UNAUTHORIZED_TURN, OK_TURN],
+    turnCursorPath: join(workspaceDir, "turn-cursor"),
+    requestLogPath,
+    resumedGoalStatus: "paused",
+    resumedGoalMissingGets: 1,
+  });
+  harness = createBridgeJsonRpcTestHarness(handleLine);
+
+  harness.sendRequest(1, "thread/resume", {
+    threadId: THREAD_ID,
+    providerThreadId: PROVIDER_THREAD_ID,
+    cwd: workspaceDir,
+    instructionMode: "append",
+    options: { ...FULL_ACCESS_SESSION_OPTIONS, instructions: "snapshot one" },
+  });
+  expect((await harness.waitForResponse(1)).error).toBeUndefined();
+
+  harness.sendRequest(2, "turn/start", {
+    threadId: THREAD_ID,
+    providerThreadId: PROVIDER_THREAD_ID,
+    clientRequestId: "creq_cdxrcvry28",
+    input: [{ type: "text", text: "first", mentions: [] }],
+    options: { ...FULL_ACCESS_SESSION_OPTIONS, instructions: "snapshot one" },
+  });
+  expect((await harness.waitForResponse(2)).error).toBeUndefined();
+  await waitForNotification(
+    BRIDGE_NOTIFICATION_METHODS.providerRecovery,
+    () => true,
+  );
+
+  const goalRequest = (id: number, clientRequestId: string, text: string) =>
+    harness.sendRequest(id, "turn/start", {
+      threadId: THREAD_ID,
+      providerThreadId: PROVIDER_THREAD_ID,
+      clientRequestId,
+      input: [{ type: "text", text, mentions: [] }],
+      options: {
+        ...FULL_ACCESS_SESSION_OPTIONS,
+        instructions: "snapshot two",
+      },
+    });
+
+  goalRequest(3, "creq_cdxrcvry29", "/goal resume");
+  const rejected = await harness.waitForResponse(3);
+  expect(rejected.error?.message).toContain("no Goal to resume");
+
+  goalRequest(4, "creq_cdxrcvry2a", "/goal resume");
+  const retried = await harness.waitForResponse(4);
+  expect(retried.error).toBeUndefined();
+  expect(retried.result).toMatchObject({
+    threadId: THREAD_ID,
+    sessionRebuilt: true,
+  });
+
+  goalRequest(5, "creq_cdxrcvry2b", "/goal pause");
+  const later = await harness.waitForResponse(5);
+  expect(later.error).toBeUndefined();
+  expect(later.result).toEqual({ threadId: THREAD_ID });
+
+  const resumes = readFileSync(requestLogPath, "utf8")
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line) as { method: string; params: unknown })
+    .filter((entry) => entry.method === "thread/resume");
+  expect(resumes).toHaveLength(2);
+  expect(JSON.stringify(resumes[1]?.params)).toContain("snapshot two");
+}, 30_000);
+
 it("retries a rename inside the bridge while the rollout is not ready", async () => {
   stubFakeAppServer({ renameEmptyRolloutFailures: 2 });
   harness = createBridgeJsonRpcTestHarness(handleLine);
