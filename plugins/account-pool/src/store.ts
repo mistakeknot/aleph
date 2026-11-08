@@ -571,6 +571,8 @@ const quotaRowSchema = z
   })
   .strict();
 
+const QUOTA_ROW_COLUMNS = Object.keys(quotaRowSchema.shape).join(", ");
+
 const EMPTY_QUOTA = {
   usageRestriction: null,
   extraUsage: null,
@@ -599,7 +601,9 @@ export class QuotaStore {
       .optional()
       .parse(
         this.db
-          .prepare("SELECT * FROM account_quota WHERE account_id = ?")
+          .prepare(
+            `SELECT ${QUOTA_ROW_COLUMNS} FROM account_quota WHERE account_id = ?`,
+          )
           .get(accountId),
       );
     if (row === undefined) {
