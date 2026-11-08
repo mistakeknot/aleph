@@ -9,16 +9,24 @@ import {
   accountSchema,
   accountSecretSchema,
   EMPTY_FAMILY_WEEKLY,
+  evidenceDocumentSchema,
+  evidenceRowSchema,
+  FRESHNESS_STAMP_FIELDS,
   hubTokenSummarySchema,
   providerSchema,
   quotaSchema,
   switchReasonSchema,
+  type AccountEvidence,
+  type EvidenceDocument,
+  type EvidenceView,
+  type EvidenceWriter,
   type SwitchLogEntry,
   type Account,
   type AccountQuota,
   type AccountSecret,
   type HubTokenSummary,
   type PoolProvider,
+  type WindowEvidence,
 } from "./contracts.js";
 
 const ACCOUNTS_KEY = "accounts:v1";
@@ -590,6 +598,71 @@ const EMPTY_QUOTA = {
   error: null,
 };
 
+export interface QuotaRead {
+  quota: AccountQuota;
+  evidence: EvidenceView;
+}
+
+export function quotaWindowKeys(quota: AccountQuota): string[] {
+  const keys: string[] = [];
+  if (
+    quota.fiveHourUtilization !== null ||
+    quota.fiveHourResetAt !== null ||
+    quota.fiveHourStatus !== null
+  ) {
+    keys.push("shared:5h");
+  }
+  if (
+    quota.sevenDayUtilization !== null ||
+    quota.sevenDayResetAt !== null ||
+    quota.sevenDayStatus !== null
+  ) {
+    keys.push("shared:7d");
+  }
+  for (const [family, value] of Object.entries(quota.familyWeekly)) {
+    if (value !== null) keys.push(`family:${family}`);
+  }
+  for (const window of quota.limitWindows) {
+    keys.push(`limit:${window.slot}`);
+  }
+  return keys;
+}
+
+function emptyClassSeqs() {
+  return { claude_usage: null, codex_usage: null };
+}
+
+function emptyEvidence(): AccountEvidence {
+  return {
+    seq: 0,
+    mutation: 0,
+    windows: {},
+    removed: {},
+    classUncertain: emptyClassSeqs(),
+    snapshotSeq: emptyClassSeqs(),
+  };
+}
+
+function dropFreshness(windows: EvidenceDocument["windows"]) {
+  const result: EvidenceDocument["windows"] = {};
+  for (const [key, value] of Object.entries(windows)) {
+    const cleared: WindowEvidence = { ...value };
+    for (const field of FRESHNESS_STAMP_FIELDS) cleared[field] = null;
+    result[key] = cleared;
+  }
+  return result;
+}
+
+function convertMismatched(evidence: AccountEvidence, seq: number) {
+  const windows = dropFreshness(evidence.windows);
+  for (const value of Object.values(windows)) value.lastSeq = seq;
+  return {
+    ...evidence,
+    windows,
+    classUncertain: { claude_usage: seq, codex_usage: seq },
+  };
+}
+
 export class QuotaStore {
   constructor(
     private readonly db: Database.Database,
@@ -628,8 +701,181 @@ export class QuotaStore {
     });
   }
 
-  put(quota: AccountQuota): void {
+  read(accountId: string): QuotaRead {
+    return this.db.transaction((): QuotaRead => {
+      const exists = this.quotaRowExists(accountId);
+      const quota = this.get(accountId);
+      if (!exists) return { quota, evidence: this.absentView() };
+      return {
+        quota,
+        evidence: this.viewOf(
+          this.readEvidenceRow(accountId),
+          this.readCounter(accountId),
+        ),
+      };
+    })();
+  }
+
+  put(quota: AccountQuota, evidenceWriter?: EvidenceWriter): void {
     const value = quotaSchema.parse(quota);
+    if (evidenceWriter === undefined) {
+      this.upsertQuota(value);
+    } else {
+      this.db.transaction(() => {
+        const stored = this.readEvidenceRow(value.accountId);
+        const counter = this.readCounter(value.accountId);
+        const seq = (stored?.seq ?? 0) + 1;
+        const matches =
+          stored !== null && counter !== null && counter === stored.mutation;
+        const base: AccountEvidence =
+          stored === null
+            ? emptyEvidence()
+            : matches
+              ? stored
+              : convertMismatched(stored, seq);
+        const view: EvidenceView = {
+          present: stored !== null,
+          matches: stored === null || matches,
+          uncertain: this.uncertainOf(base, stored !== null && !matches),
+          evidence: base,
+        };
+        const document = evidenceDocumentSchema.parse(
+          evidenceWriter(view, seq),
+        );
+        this.upsertQuota(value);
+        this.writeEvidenceRow(value.accountId, seq, document);
+      }).immediate();
+    }
+    this.sampler?.record(value);
+  }
+
+  remove(accountId: string): void {
+    this.db.transaction(() => {
+      const stored = this.readEvidenceRow(accountId);
+      const exists = this.quotaRowExists(accountId);
+      if (exists || stored !== null) {
+        const seq = (stored?.seq ?? 0) + 1;
+        const held = new Set<string>(Object.keys(stored?.windows ?? {}));
+        if (exists) {
+          for (const key of quotaWindowKeys(this.get(accountId))) held.add(key);
+        }
+        const removed = { ...(stored?.removed ?? {}) };
+        for (const key of held) removed[key] = seq;
+        this.db
+          .prepare("DELETE FROM account_quota WHERE account_id = ?")
+          .run(accountId);
+        this.writeEvidenceRow(accountId, seq, {
+          windows: {},
+          removed,
+          classUncertain: emptyClassSeqs(),
+          snapshotSeq: stored?.snapshotSeq ?? emptyClassSeqs(),
+        });
+      }
+    }).immediate();
+    this.sampler?.forget(accountId);
+  }
+
+  private quotaRowExists(accountId: string): boolean {
+    return (
+      this.db
+        .prepare("SELECT 1 AS present FROM account_quota WHERE account_id = ?")
+        .get(accountId) !== undefined
+    );
+  }
+
+  private readCounter(accountId: string): number | null {
+    const row = this.db
+      .prepare(
+        "SELECT mutation FROM account_quota_mutation WHERE account_id = ?",
+      )
+      .get(accountId) as { mutation: number } | undefined;
+    return row === undefined ? null : row.mutation;
+  }
+
+  private readEvidenceRow(accountId: string): AccountEvidence | null {
+    const raw = this.db
+      .prepare(
+        `SELECT account_id, seq, mutation, evidence_json
+         FROM account_quota_evidence WHERE account_id = ?`,
+      )
+      .get(accountId);
+    if (raw === undefined) return null;
+    const row = evidenceRowSchema.safeParse(raw);
+    if (!row.success) return null;
+    let json: unknown;
+    try {
+      json = JSON.parse(row.data.evidence_json);
+    } catch {
+      return null;
+    }
+    const document = evidenceDocumentSchema.safeParse(json);
+    if (!document.success) return null;
+    return {
+      ...document.data,
+      seq: row.data.seq,
+      mutation: row.data.mutation,
+    };
+  }
+
+  private writeEvidenceRow(
+    accountId: string,
+    seq: number,
+    document: EvidenceDocument,
+  ): void {
+    const counter = this.readCounter(accountId);
+    if (counter === null) {
+      throw new Error("Quota mutation counter is missing after a write.");
+    }
+    this.db
+      .prepare(
+        `INSERT INTO account_quota_evidence (account_id, seq, mutation, evidence_json)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(account_id) DO UPDATE SET
+           seq = excluded.seq,
+           mutation = excluded.mutation,
+           evidence_json = excluded.evidence_json`,
+      )
+      .run(accountId, seq, counter, JSON.stringify(document));
+  }
+
+  private absentView(): EvidenceView {
+    return {
+      present: false,
+      matches: true,
+      uncertain: { claude_usage: false, codex_usage: false },
+      evidence: emptyEvidence(),
+    };
+  }
+
+  private uncertainOf(
+    evidence: AccountEvidence,
+    mismatched: boolean,
+  ): EvidenceView["uncertain"] {
+    return {
+      claude_usage:
+        mismatched || evidence.classUncertain.claude_usage !== null,
+      codex_usage: mismatched || evidence.classUncertain.codex_usage !== null,
+    };
+  }
+
+  private viewOf(
+    stored: AccountEvidence | null,
+    counter: number | null,
+  ): EvidenceView {
+    if (stored === null) return this.absentView();
+    const matches = counter !== null && counter === stored.mutation;
+    const evidence: AccountEvidence = matches
+      ? stored
+      : { ...stored, windows: dropFreshness(stored.windows) };
+    return {
+      present: true,
+      matches,
+      uncertain: this.uncertainOf(evidence, !matches),
+      evidence,
+    };
+  }
+
+  private upsertQuota(value: AccountQuota): void {
     this.db
       .prepare(
         `INSERT INTO account_quota (
@@ -671,14 +917,6 @@ export class QuotaStore {
         value.heldUntil,
         value.error,
       );
-    this.sampler?.record(value);
-  }
-
-  remove(accountId: string): void {
-    this.db
-      .prepare("DELETE FROM account_quota WHERE account_id = ?")
-      .run(accountId);
-    this.sampler?.forget(accountId);
   }
 }
 
@@ -939,4 +1177,43 @@ export const QUOTA_MIGRATIONS = [
     reset_at INTEGER
   );
   CREATE INDEX pool_quota_sample_key ON pool_quota_sample (account_id, window_key, sampled_at)`,
+  `CREATE TABLE account_quota_evidence (
+    account_id TEXT PRIMARY KEY,
+    seq INTEGER NOT NULL,
+    mutation INTEGER NOT NULL,
+    evidence_json TEXT NOT NULL
+  );
+  CREATE TABLE account_quota_mutation (
+    account_id TEXT PRIMARY KEY,
+    mutation INTEGER NOT NULL
+  );
+  INSERT INTO account_quota_mutation (account_id, mutation)
+    SELECT account_id, 0 FROM account_quota;
+  CREATE TRIGGER account_quota_mutation_insert AFTER INSERT ON account_quota
+  BEGIN
+    INSERT INTO account_quota_mutation(account_id, mutation)
+      SELECT NEW.account_id, 0 WHERE NOT EXISTS (
+        SELECT 1 FROM account_quota_mutation WHERE account_id = NEW.account_id
+      );
+    UPDATE account_quota_mutation SET mutation = mutation + 1
+      WHERE account_id = NEW.account_id;
+  END;
+  CREATE TRIGGER account_quota_mutation_update AFTER UPDATE ON account_quota
+  BEGIN
+    INSERT INTO account_quota_mutation(account_id, mutation)
+      SELECT NEW.account_id, 0 WHERE NOT EXISTS (
+        SELECT 1 FROM account_quota_mutation WHERE account_id = NEW.account_id
+      );
+    UPDATE account_quota_mutation SET mutation = mutation + 1
+      WHERE account_id = NEW.account_id;
+  END;
+  CREATE TRIGGER account_quota_mutation_delete AFTER DELETE ON account_quota
+  BEGIN
+    INSERT INTO account_quota_mutation(account_id, mutation)
+      SELECT OLD.account_id, 0 WHERE NOT EXISTS (
+        SELECT 1 FROM account_quota_mutation WHERE account_id = OLD.account_id
+      );
+    UPDATE account_quota_mutation SET mutation = mutation + 1
+      WHERE account_id = OLD.account_id;
+  END`,
 ];

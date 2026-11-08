@@ -197,46 +197,7 @@ describe("QuotaStore", () => {
     }
 
     function addFutureSchema(database: Database.Database): void {
-      database.exec(`
-        ALTER TABLE account_quota ADD COLUMN future_marker TEXT;
-        CREATE TABLE account_quota_evidence (
-          account_id TEXT PRIMARY KEY,
-          seq INTEGER NOT NULL,
-          mutation INTEGER NOT NULL,
-          evidence_json TEXT NOT NULL
-        );
-        CREATE TABLE account_quota_mutation (
-          account_id TEXT PRIMARY KEY,
-          mutation INTEGER NOT NULL
-        );
-        CREATE TRIGGER account_quota_mutation_insert AFTER INSERT ON account_quota
-        BEGIN
-          INSERT INTO account_quota_mutation(account_id, mutation)
-            SELECT NEW.account_id, 0 WHERE NOT EXISTS (
-              SELECT 1 FROM account_quota_mutation WHERE account_id = NEW.account_id
-            );
-          UPDATE account_quota_mutation SET mutation = mutation + 1
-            WHERE account_id = NEW.account_id;
-        END;
-        CREATE TRIGGER account_quota_mutation_update AFTER UPDATE ON account_quota
-        BEGIN
-          INSERT INTO account_quota_mutation(account_id, mutation)
-            SELECT NEW.account_id, 0 WHERE NOT EXISTS (
-              SELECT 1 FROM account_quota_mutation WHERE account_id = NEW.account_id
-            );
-          UPDATE account_quota_mutation SET mutation = mutation + 1
-            WHERE account_id = NEW.account_id;
-        END;
-        CREATE TRIGGER account_quota_mutation_delete AFTER DELETE ON account_quota
-        BEGIN
-          INSERT INTO account_quota_mutation(account_id, mutation)
-            SELECT OLD.account_id, 0 WHERE NOT EXISTS (
-              SELECT 1 FROM account_quota_mutation WHERE account_id = OLD.account_id
-            );
-          UPDATE account_quota_mutation SET mutation = mutation + 1
-            WHERE account_id = OLD.account_id;
-        END;
-      `);
+      database.exec("ALTER TABLE account_quota ADD COLUMN future_marker TEXT;");
     }
 
     function mutationCount(database: Database.Database): number | undefined {
@@ -281,7 +242,7 @@ describe("QuotaStore", () => {
       database.close();
     });
 
-    it("reads quota rows when later columns, tables and triggers exist", () => {
+    it("reads quota rows when later columns exist", () => {
       const database = migratedDatabase();
       legacyInsert(database);
       addFutureSchema(database);
