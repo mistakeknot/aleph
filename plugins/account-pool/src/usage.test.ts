@@ -99,4 +99,66 @@ describe("quotaFromUsage", () => {
     );
     expect(next?.limitWindows).toEqual(previous.limitWindows);
   });
+
+  it("clears every stored window when the payload explicitly nulls both", () => {
+    const previous = quota([
+      fiveHour(1, FUTURE_RESET, "rejected"),
+      {
+        slot: "secondary",
+        windowMinutes: 10_080,
+        utilization: 0.9,
+        resetAt: SEVEN_DAY_RESET,
+        status: "allowed",
+        observedAt: 1,
+        source: "header",
+      },
+    ]);
+    const next = quotaFromUsage(
+      ACCOUNT_ID,
+      { five_hour: null, seven_day: null },
+      previous,
+      NOW,
+    );
+    expect(next?.limitWindows).toEqual([]);
+    expect(isQuotaExhausted(previous, null, NOW)).toBe(true);
+    expect(next === null ? null : isQuotaExhausted(next, null, NOW)).toBe(
+      false,
+    );
+  });
+
+  it("clears only the nulled window and keeps an omitted one while its reset is ahead", () => {
+    const previous = quota([
+      fiveHour(1, FUTURE_RESET, "rejected"),
+      {
+        slot: "secondary",
+        windowMinutes: 10_080,
+        utilization: 0.9,
+        resetAt: SEVEN_DAY_RESET,
+        status: "allowed",
+        observedAt: 1,
+        source: "header",
+      },
+    ]);
+    const next = quotaFromUsage(
+      ACCOUNT_ID,
+      { five_hour: null },
+      previous,
+      NOW,
+    );
+    expect(next?.limitWindows.map((window) => window.slot)).toEqual([
+      "secondary",
+    ]);
+    expect(next?.limitWindows[0]?.utilization).toBe(0.9);
+  });
+
+  it("ignores an empty payload", () => {
+    expect(
+      quotaFromUsage(
+        ACCOUNT_ID,
+        {},
+        quota([fiveHour(1, FUTURE_RESET, "rejected")]),
+        NOW,
+      ),
+    ).toBeNull();
+  });
 });

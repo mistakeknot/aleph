@@ -754,4 +754,52 @@ describe("QuotaSampler and sample store", () => {
       0.1, 0.2, 0.3,
     ]);
   });
+
+  it("keeps burn history continuous across the window key migration", () => {
+    const db = new Database(":memory:");
+    databases.push(db);
+    const lastMigration = QUOTA_MIGRATIONS.length - 1;
+    for (const migration of QUOTA_MIGRATIONS.slice(0, lastMigration))
+      db.exec(migration);
+    const legacy = new QuotaSampleStore(db);
+    const stored = (
+      windowKey: QuotaSample["windowKey"],
+      minutesAgo: number,
+      utilization: number,
+    ) => ({
+      accountId: A,
+      windowKey,
+      sampledAt: NOW - minutesAgo * MINUTE,
+      utilization,
+      resetAt: FAR,
+    });
+    legacy.insert(stored("seven-day", 50, 0.1));
+    legacy.insert(stored("seven-day", 30, 0.3));
+    legacy.insert(stored("five-hour", 50, 0.2));
+    legacy.insert(stored("five-hour", 30, 0.25));
+
+    db.exec(QUOTA_MIGRATIONS[lastMigration] ?? "");
+
+    const migrated = new QuotaSampleStore(db);
+    expect(migrated.list().map((row) => row.windowKey).sort()).toEqual([
+      "primary",
+      "primary",
+      "secondary",
+      "secondary",
+    ]);
+    migrated.insert(stored("secondary", 10, 0.4));
+    migrated.insert(stored("primary", 10, 0.3));
+    const weekly = pooledConsumption(
+      migrated.list(),
+      [pooled(A, "secondary")],
+      NOW,
+    );
+    const short = pooledConsumption(
+      migrated.list(),
+      [pooled(A, "primary")],
+      NOW,
+    );
+    expect(weekly.pct).toBeCloseTo(30, 6);
+    expect(short.pct).toBeCloseTo(10, 6);
+  });
 });

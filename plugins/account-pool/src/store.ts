@@ -989,5 +989,10 @@ export const QUOTA_MIGRATIONS = [
   UPDATE account_quota SET
     five_hour_utilization = NULL, five_hour_reset_at = NULL,
     five_hour_status = NULL, seven_day_utilization = NULL,
-    seven_day_reset_at = NULL, seven_day_status = NULL`,
+    seven_day_reset_at = NULL, seven_day_status = NULL;
+  UPDATE pool_quota_sample SET window_key = CASE window_key
+    WHEN 'five-hour' THEN 'primary'
+    ELSE 'secondary'
+  END
+  WHERE window_key IN ('five-hour', 'seven-day')`,
 ];

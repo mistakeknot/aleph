@@ -148,8 +148,8 @@ export function quotaFromUsage(
   if (!parsed.success) return null;
   const data = parsed.data;
   if (
-    data.five_hour == null &&
-    data.seven_day == null &&
+    data.five_hour === undefined &&
+    data.seven_day === undefined &&
     data.seven_day_fable == null &&
     data.seven_day_sonnet == null &&
     data.seven_day_opus == null &&

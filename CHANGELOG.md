@@ -14,6 +14,59 @@
   backup is made. Two new host commands, `host.secret_probe` and
   `host.secret_commit`, back this.
 
+## 0.48.0+aleph.0.9.0
+
+Aleph 0.9.0 syncs Aleph to upstream bb 0.48.0 (`desktop-v0.48.0`, commit
+`1a4a1d254c`), the release after the 0.47.0 base of Aleph 0.8. Everything in the
+upstream 0.48.0 notes below applies. Aleph's own changes carry over, including
+the changes made since 0.8.0 that are listed here.
+
+### Aleph
+
+- Workspace-write threads can be allowed to write to extra directories, such as
+  a shared build cache on another disk, by listing them in the host-daemon
+  environment variable `BB_EXTRA_WORKSPACE_WRITE_ROOTS` (off by default, read
+  at startup). It applies to Codex, Claude Code and ACP threads. Unsafe entries
+  (a filesystem root, the home directory or its ancestors, home dot-directories
+  and the bb data directory) are refused with a warning.
+- The Account Pooler header chip shows how fast the pool is burning quota:
+  the percentage of one weekly window all OAuth accounts of a provider used in
+  the last hour, per provider (compact viewports show the larger figure). It
+  comes from a new `burn.get` rpc backed by a `pool_quota_sample` table that
+  records utilization changes when quota is stored and keeps 26 hours. Resets,
+  new accounts and reading jitter do not count as use, and the figure is `—`
+  until an account has two readings or while this server proxies to a parent
+  pool. `bb pool burn [--json]` prints the same figures.
+- Five upstream fixes are backported (get-bb/bb #6247, #6255, #6243, #6334 and
+  #6358): messages queued after a manual stop are sent; an automatic queued
+  message no longer overtakes a pending send; parent notices are retried after a
+  dispatch status change and queued during manual compaction; and forks of
+  Claude Code threads read the session's own config dir and keep their fork
+  intent across a failed start. Upstream #6233 is deliberately not taken, so
+  Full Access still pauses on Claude Code's own prompts, as in 0.8.0.
+- `bb-app start` no longer kills the server while it migrates the database. The
+  health deadline slides while a migration holds the migrating lock, progress is
+  logged every 10 s, and stopping during a migration waits for it. The generated
+  systemd unit sets `TimeoutStopSec=3900`. Existing units need a drop-in with the
+  same setting; see FORK.md "Migration-safe update".
+- The migrating lock removes its holder info file on release. A leftover info
+  file from a crashed migration is ignored when its process is gone, was
+  replaced by another process on the same pid, or is more than an hour old.
+- The server defers SIGTERM and SIGINT until its database migration finishes,
+  so `systemctl stop` or a launcher stop no longer kills a migration partway.
+  The server publishes a startup marker first, and the launcher rechecks it
+  before escalating to SIGKILL, so a stop that arrives before the migrating
+  marker exists is not killed either.
+- Upstream 0.48.0 removes the embedded side chat. The composer's
+  pending-interaction gate, which held a send until the pending-interaction
+  check had finished or failed, now runs on the thread screen's composer.
+- Task links in messages still open the task in the Tasks plugin panel; they
+  now go through upstream's panel controller.
+- Thread rows keep Aleph's provider icon colours and hull badge next to
+  upstream's new row metadata.
+- Upstream migration 0147 keeps its number and SQL and joins the upstream
+  journal after the frozen set. No Aleph migration is added.
+
 ## 0.49.0
 
 A reliability release: threads get unstuck on their own, retries and automations ride out provider outages, reconnecting machines catch up on what they missed, and the server no longer stalls on database maintenance or long threads. bb also loads pages and creates threads faster. This release includes everything from 0.48.1, which shipped without notes.
@@ -135,59 +188,6 @@ Off by default, even for early adopters:
 ### Thanks
 
 Thank you to [@Andrew-Girgis](https://github.com/Andrew-Girgis), [@Danielalnajjar](https://github.com/Danielalnajjar), [@JackALaing](https://github.com/JackALaing), [@MGrin](https://github.com/MGrin), [@MarcoFlare](https://github.com/MarcoFlare), [@OXI-717](https://github.com/OXI-717), [@SergeyZh](https://github.com/SergeyZh), [@Willhong](https://github.com/Willhong), [@aMoonshine](https://github.com/aMoonshine), [@ahmedhesham6](https://github.com/ahmedhesham6), [@alexandre-vl](https://github.com/alexandre-vl), [@biesnecker](https://github.com/biesnecker), [@dillonzq](https://github.com/dillonzq), [@dpolishuk](https://github.com/dpolishuk), [@hellno](https://github.com/hellno), [@lanjak](https://github.com/lanjak), [@neoromantic](https://github.com/neoromantic), [@nwlodychak](https://github.com/nwlodychak), [@ratulsarna](https://github.com/ratulsarna), [@renescheepers](https://github.com/renescheepers), [@salemsayed](https://github.com/salemsayed), [@scowalt](https://github.com/scowalt), [@smsunarto](https://github.com/smsunarto), and [@yteruel31](https://github.com/yteruel31) for contributions to this release.
-
-## 0.48.0+aleph.0.9.0
-
-Aleph 0.9.0 syncs Aleph to upstream bb 0.48.0 (`desktop-v0.48.0`, commit
-`1a4a1d254c`), the release after the 0.47.0 base of Aleph 0.8. Everything in the
-upstream 0.48.0 notes below applies. Aleph's own changes carry over, including
-the changes made since 0.8.0 that are listed here.
-
-### Aleph
-
-- Workspace-write threads can be allowed to write to extra directories, such as
-  a shared build cache on another disk, by listing them in the host-daemon
-  environment variable `BB_EXTRA_WORKSPACE_WRITE_ROOTS` (off by default, read
-  at startup). It applies to Codex, Claude Code and ACP threads. Unsafe entries
-  (a filesystem root, the home directory or its ancestors, home dot-directories
-  and the bb data directory) are refused with a warning.
-- The Account Pooler header chip shows how fast the pool is burning quota:
-  the percentage of one weekly window all OAuth accounts of a provider used in
-  the last hour, per provider (compact viewports show the larger figure). It
-  comes from a new `burn.get` rpc backed by a `pool_quota_sample` table that
-  records utilization changes when quota is stored and keeps 26 hours. Resets,
-  new accounts and reading jitter do not count as use, and the figure is `—`
-  until an account has two readings or while this server proxies to a parent
-  pool. `bb pool burn [--json]` prints the same figures.
-- Five upstream fixes are backported (get-bb/bb #6247, #6255, #6243, #6334 and
-  #6358): messages queued after a manual stop are sent; an automatic queued
-  message no longer overtakes a pending send; parent notices are retried after a
-  dispatch status change and queued during manual compaction; and forks of
-  Claude Code threads read the session's own config dir and keep their fork
-  intent across a failed start. Upstream #6233 is deliberately not taken, so
-  Full Access still pauses on Claude Code's own prompts, as in 0.8.0.
-- `bb-app start` no longer kills the server while it migrates the database. The
-  health deadline slides while a migration holds the migrating lock, progress is
-  logged every 10 s, and stopping during a migration waits for it. The generated
-  systemd unit sets `TimeoutStopSec=3900`. Existing units need a drop-in with the
-  same setting; see FORK.md "Migration-safe update".
-- The migrating lock removes its holder info file on release. A leftover info
-  file from a crashed migration is ignored when its process is gone, was
-  replaced by another process on the same pid, or is more than an hour old.
-- The server defers SIGTERM and SIGINT until its database migration finishes,
-  so `systemctl stop` or a launcher stop no longer kills a migration partway.
-  The server publishes a startup marker first, and the launcher rechecks it
-  before escalating to SIGKILL, so a stop that arrives before the migrating
-  marker exists is not killed either.
-- Upstream 0.48.0 removes the embedded side chat. The composer's
-  pending-interaction gate, which held a send until the pending-interaction
-  check had finished or failed, now runs on the thread screen's composer.
-- Task links in messages still open the task in the Tasks plugin panel; they
-  now go through upstream's panel controller.
-- Thread rows keep Aleph's provider icon colours and hull badge next to
-  upstream's new row metadata.
-- Upstream migration 0147 keeps its number and SQL and joins the upstream
-  journal after the frozen set. No Aleph migration is added.
 
 ## 0.48.0
 
