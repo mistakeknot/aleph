@@ -35,9 +35,9 @@ describe("thread provider validation", () => {
 
       expect(response.status).toBe(400);
       expect(await readJson(response)).toMatchObject({
-        code: "invalid_request",
+        code: "unknown_provider",
         message: expect.stringMatching(
-          /Unknown provider "unregistered-provider".*codex.*claude-code/u,
+          /Unknown provider "unregistered-provider".*claude-code.*codex/u,
         ),
       });
       expect(countThreads(harness.db, { projectId: project.id }).total).toBe(0);
