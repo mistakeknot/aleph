@@ -674,7 +674,7 @@ async function removeDirectoryIfEmpty(pathToRemove: string): Promise<void> {
 
 export const SAVED_WORK_REF_PREFIX = "refs/bb/saved-work/";
 
-const SAVED_WORK_ENV: NodeJS.ProcessEnv = {
+const REPOSITORY_LOCATION_ENV: NodeJS.ProcessEnv = {
   GIT_DIR: undefined,
   GIT_WORK_TREE: undefined,
   GIT_INDEX_FILE: undefined,
@@ -683,6 +683,10 @@ const SAVED_WORK_ENV: NodeJS.ProcessEnv = {
   GIT_ALTERNATE_OBJECT_DIRECTORIES: undefined,
   GIT_NAMESPACE: undefined,
   GIT_PREFIX: undefined,
+};
+
+const SAVED_WORK_ENV: NodeJS.ProcessEnv = {
+  ...REPOSITORY_LOCATION_ENV,
   GIT_OPTIONAL_LOCKS: "0",
   GIT_AUTHOR_NAME: "bb worktree cleanup",
   GIT_AUTHOR_EMAIL: "bb-cleanup@localhost",
@@ -716,7 +720,9 @@ function findUnsavableStatusEntry(statusZ: string): string | null {
         return `${entry} is a nested repository, which cannot be saved`;
       continue;
     }
-    if (kind !== "1" && kind !== "2" && kind !== "u") continue;
+    if (kind === "u")
+      return "the index has unresolved merge conflicts, which cannot be saved";
+    if (kind !== "1" && kind !== "2") continue;
     const fields = record.split(" ");
     const sub = fields[2] ?? "";
     if (sub.startsWith("S") && (sub[2] === "M" || sub[3] === "U")) {
@@ -864,6 +870,7 @@ export async function removeWorktree(args: RemoveWorktreeArgs): Promise<void> {
 
   const commonDirResult = await runGit(["rev-parse", "--git-common-dir"], {
     cwd: workspacePath,
+    env: REPOSITORY_LOCATION_ENV,
     ...(args.signal !== undefined ? { signal: args.signal } : {}),
     allowFailure: true,
   });
@@ -911,6 +918,7 @@ export async function removeWorktree(args: RemoveWorktreeArgs): Promise<void> {
             ],
             {
               cwd: path.dirname(workspacePath),
+              env: REPOSITORY_LOCATION_ENV,
               ...(args.signal !== undefined ? { signal: args.signal } : {}),
               allowFailure: true,
             },

@@ -226,31 +226,57 @@ describe("removeWorktree saves uncommitted work (mk-rygli)", () => {
     expect(await git(repo, "show", `${second}:new.txt`)).toBe("second\n");
   });
 
-  it("ignores an inherited GIT_DIR, GIT_WORK_TREE and GIT_INDEX_FILE", async () => {
-    const other = join(root, "other");
-    await mkdir(other, { recursive: true });
-    await git(other, "init", "--initial-branch=main");
-    const saved = {
-      GIT_DIR: process.env.GIT_DIR,
-      GIT_WORK_TREE: process.env.GIT_WORK_TREE,
-      GIT_INDEX_FILE: process.env.GIT_INDEX_FILE,
-    };
-    process.env.GIT_DIR = join(other, ".git");
-    process.env.GIT_WORK_TREE = other;
-    process.env.GIT_INDEX_FILE = join(other, ".git", "index");
-    await writeFile(join(worktree, "new.txt"), "new\n");
-    let ref: string | null;
-    try {
-      ref = await saveUncommittedWork({ path: worktree });
-    } finally {
-      for (const [key, value] of Object.entries(saved)) {
-        if (value === undefined) delete process.env[key];
-        else process.env[key] = value;
+  for (const [label, gitDir] of [
+    ["another repository", "other/.git"],
+    ["a missing path", "missing/.git"],
+  ] as const) {
+    it(`ignores an inherited GIT_DIR pointing at ${label}`, async () => {
+      const other = join(root, "other");
+      await mkdir(other, { recursive: true });
+      await git(other, "init", "--initial-branch=main");
+      const keys = ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"] as const;
+      const saved = keys.map((key) => [key, process.env[key]] as const);
+      try {
+        await writeFile(join(worktree, "new.txt"), "new\n");
+        process.env.GIT_DIR = join(root, gitDir);
+        process.env.GIT_WORK_TREE = other;
+        process.env.GIT_INDEX_FILE = join(other, ".git", "index");
+        await removeWorktree({ path: worktree });
+      } finally {
+        for (const [key, value] of saved) {
+          if (value === undefined) delete process.env[key];
+          else process.env[key] = value;
+        }
       }
-    }
+      const ref = (await savedRefs(repo))[0];
 
-    expect(await git(repo, "show", `${ref}:new.txt`)).toBe("new\n");
-    expect(existsSync(join(other, ".git", "index"))).toBe(false);
+      expect(existsSync(worktree)).toBe(false);
+      expect(await git(repo, "show", `${ref}:new.txt`)).toBe("new\n");
+      expect(existsSync(join(other, ".git", "index"))).toBe(false);
+    });
+  }
+
+  it("refuses to remove a worktree with unresolved merge conflicts", async () => {
+    await git(worktree, "switch", "-c", "side");
+    await writeFile(join(worktree, "tracked.txt"), "side\n");
+    await git(worktree, "commit", "-am", "side");
+    await git(worktree, "switch", "feature");
+    await writeFile(join(worktree, "tracked.txt"), "feature again\n");
+    await git(worktree, "commit", "-am", "feature again");
+    await git(worktree, "merge", "side").catch(() => undefined);
+    await writeFile(join(worktree, "staged.txt"), "staged during merge\n");
+    await git(worktree, "add", "staged.txt");
+    await writeFile(join(worktree, "staged.txt"), "edited after staging\n");
+    expect(await git(worktree, "ls-files", "-u")).not.toBe("");
+
+    await expect(removeWorktree({ path: worktree })).rejects.toMatchObject({
+      code: "dirty_worktree_not_saved",
+    });
+
+    expect(await readFile(join(worktree, "staged.txt"), "utf8")).toBe(
+      "edited after staging\n",
+    );
+    expect(await savedRefs(repo)).toEqual([]);
   });
 
   it("refuses to remove a worktree whose submodule has uncommitted changes", async () => {
@@ -286,6 +312,9 @@ describe("removeWorktree saves uncommitted work (mk-rygli)", () => {
     const nested = join(worktree, "nested");
     await mkdir(nested, { recursive: true });
     await git(nested, "init", "--initial-branch=main");
+    await writeFile(join(nested, "committed.txt"), "committed\n");
+    await git(nested, "add", ".");
+    await git(nested, "commit", "-m", "nested");
     await writeFile(join(nested, "work.txt"), "nested work\n");
 
     await expect(removeWorktree({ path: worktree })).rejects.toMatchObject({

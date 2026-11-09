@@ -143,8 +143,8 @@ when detached) and the time in milliseconds plus a random suffix. Its first
 parent is the branch head and its second parent, when the staged state
 differed, holds the staged files. The branch and the index are not changed,
 and no git hooks run. If the save fails, or a submodule or an untracked nested
-repository has changes that a commit cannot hold, the worktree is left in
-place. Then `git worktree remove --force` runs and the directory is deleted.
+repository has changes that a commit cannot hold, or a merge is left with
+unresolved conflicts, the worktree is left in place. Then `git worktree remove --force` runs and the directory is deleted.
 The branch is left behind, so work you committed to it survives the worktree.
 
 To list and restore saved work from the main checkout:
