@@ -194,12 +194,41 @@ export function throwUnregisteredProviderError(
     .list()
     .map((entry) => entry.info.id)
     .sort();
+  const suggestedProviderId = suggestProviderId(providerId, validIds);
+  const hint =
+    suggestedProviderId === null
+      ? ""
+      : ` did you mean "${suggestedProviderId}"?`;
   throw new ApiError(
     400,
     "unknown_provider",
-    `Unknown provider "${providerId}". Valid provider ids: ${validIds.join(", ") || "none registered"}.`,
-    { details: { providerId, validProviderIds: validIds } },
+    `Unknown provider "${providerId}":${hint} Valid provider ids: ${validIds.join(", ") || "none registered"}.`,
+    {
+      details: {
+        providerId,
+        validProviderIds: validIds,
+        ...(suggestedProviderId === null ? {} : { suggestedProviderId }),
+      },
+    },
   );
+}
+
+function suggestProviderId(
+  requested: string,
+  validIds: readonly string[],
+): string | null {
+  const needle = requested.trim().toLowerCase();
+  if (needle.length === 0) {
+    return null;
+  }
+  const matches = validIds.filter((id) => {
+    const candidate = id.toLowerCase();
+    return (
+      candidate.includes(needle) ||
+      (needle.length > candidate.length && needle.startsWith(candidate))
+    );
+  });
+  return matches.length === 1 ? (matches[0] ?? null) : null;
 }
 
 export function resolveCreateThreadExecutionDefaults(

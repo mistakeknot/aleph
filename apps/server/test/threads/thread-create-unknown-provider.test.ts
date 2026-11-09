@@ -1,4 +1,9 @@
-import { threads, upsertProjectExecutionDefaults } from "@bb/db";
+import {
+  ensurePersonalProject,
+  threads,
+  upsertProjectExecutionDefaults,
+} from "@bb/db";
+import { PERSONAL_PROJECT_ID } from "@bb/domain";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_ENVIRONMENT_PROVIDER_ID } from "../../src/services/environments/environment-provider-ids.js";
 import { createProviderRegistryService } from "../../src/services/providers/provider-registry.js";
@@ -8,6 +13,7 @@ import {
   seedEnvironment,
   seedHostSession,
   seedProjectWithSource,
+  seedThreadFixture,
 } from "../helpers/seed.js";
 import { withTestHarness, type TestAppHarness } from "../helpers/test-app.js";
 import { installFakeGitWorktreeProvider } from "../helpers/environment-provider.js";
@@ -111,6 +117,109 @@ describe("thread create with an unregistered provider id", () => {
 
       expect(response.status).toBe(201);
       expect(harness.db.select().from(threads).all()).toHaveLength(1);
+    });
+  });
+});
+
+const SEEDED_THREAD_COUNT = 1;
+
+describe("thread spawn request shapes with an unregistered provider id", () => {
+  type SpawnShape = "project-default" | "reuse" | "personal" | "unmanaged";
+
+  async function spawnClaude(
+    harness: TestAppHarness,
+    args: {
+      providerId: string;
+      shape: SpawnShape;
+      withParent: boolean;
+      inFixtureProject?: boolean;
+    },
+  ) {
+    const { host, environment, project, thread } = seedThreadFixture(harness, {
+      thread: { providerId: "claude-code" },
+    });
+    ensurePersonalProject(harness.deps.db);
+    const environments = {
+      "project-default": { type: "project-default" },
+      reuse: { type: "reuse", environmentId: environment.id },
+      personal: {
+        type: "host",
+        hostId: host.id,
+        workspace: { type: "personal" },
+      },
+      unmanaged: {
+        type: "host",
+        hostId: host.id,
+        workspace: { type: "unmanaged", path: null },
+      },
+    } as const;
+    const response = await harness.app.request("/api/v1/threads", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        origin: "cli",
+        projectId: args.inFixtureProject === true ? project.id : PERSONAL_PROJECT_ID,
+        providerId: args.providerId,
+        input: [{ type: "text", text: "Start" }],
+        environment: environments[args.shape],
+        startedOnBehalfOf: null,
+        originKind: null,
+        ...(args.withParent
+          ? { parentThreadId: thread.id, senderThreadId: thread.id }
+          : {}),
+      }),
+    });
+    return response;
+  }
+
+  for (const shape of [
+    "project-default",
+    "reuse",
+    "personal",
+    "unmanaged",
+  ] as const) {
+    for (const withParent of [true, false]) {
+      it(`rejects claude with a did-you-mean hint and creates no thread (${shape}, ${withParent ? "with" : "without"} parent)`, async () => {
+        await withTestHarness(async (harness) => {
+          const response = await spawnClaude(harness, {
+            providerId: "claude",
+            shape,
+            withParent,
+          });
+
+          expect(response.status).toBe(400);
+          const body = (await readJson(response)) as {
+            code?: string;
+            message?: string;
+            details?: { providerId?: string; suggestedProviderId?: string };
+          };
+          expect(body.code).toBe("unknown_provider");
+          expect(body.message).toContain('Unknown provider "claude"');
+          expect(body.message).toContain('did you mean "claude-code"?');
+          expect(body.message).toContain("codex");
+          expect(body.details?.providerId).toBe("claude");
+          expect(body.details?.suggestedProviderId).toBe("claude-code");
+          expect(harness.db.select().from(threads).all()).toHaveLength(
+            SEEDED_THREAD_COUNT,
+          );
+        });
+      });
+    }
+  }
+
+  it("still spawns a registered provider with the same request shape", async () => {
+    await withTestHarness(async (harness) => {
+      const response = await spawnClaude(harness, {
+        providerId: "claude-code",
+        shape: "reuse",
+        withParent: true,
+        inFixtureProject: true,
+      });
+
+      expect(response.status).toBe(201);
+      expect(harness.db.select().from(threads).all()).toHaveLength(
+        SEEDED_THREAD_COUNT + 1,
+      );
     });
   });
 });

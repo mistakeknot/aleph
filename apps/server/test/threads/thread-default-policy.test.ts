@@ -111,6 +111,60 @@ describe("resolveCreateThreadExecutionDefaults", () => {
     }
   });
 
+  it("suggests the one registered id an unregistered id is a prefix of", () => {
+    expect(() =>
+      resolveCreateThreadExecutionDefaults(registry, {
+        storedDefaults: null,
+        requestedProviderId: "claude",
+      }),
+    ).toThrowError(
+      expect.objectContaining({
+        message: expect.stringContaining('did you mean "claude-code"?'),
+        body: expect.objectContaining({
+          details: expect.objectContaining({
+            suggestedProviderId: "claude-code",
+          }),
+        }),
+      }),
+    );
+  });
+
+  it("matches the suggestion without regard to case or surrounding text", () => {
+    for (const requested of ["Claude", "CODEX-cli"]) {
+      let caught: unknown;
+      try {
+        resolveCreateThreadExecutionDefaults(registry, {
+          storedDefaults: null,
+          requestedProviderId: requested,
+        });
+      } catch (error) {
+        caught = error;
+      }
+      expect((caught as Error).message).toContain("did you mean");
+    }
+  });
+
+  it("offers no suggestion when no id or several ids are close", () => {
+    for (const requested of ["unrelated", "c"]) {
+      let caught: unknown;
+      try {
+        resolveCreateThreadExecutionDefaults(registry, {
+          storedDefaults: null,
+          requestedProviderId: requested,
+        });
+      } catch (error) {
+        caught = error;
+      }
+      const message = (caught as Error).message;
+      expect(message).toContain(`Unknown provider "${requested}"`);
+      expect(message).not.toContain("did you mean");
+      expect(caught).toMatchObject({ body: { code: "unknown_provider" } });
+      expect(
+        (caught as { body: { details: object } }).body.details,
+      ).not.toHaveProperty("suggestedProviderId");
+    }
+  });
+
   it("answers a retryable error instead of unknown_provider while registration is pending", async () => {
     const pending = createProviderRegistryService({
       deferRegistrationsSettled: true,
