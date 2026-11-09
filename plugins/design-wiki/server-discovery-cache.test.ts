@@ -15,7 +15,13 @@ async function setup(options: { failFirstProject?: boolean } = {}) {
     [`${CUJ_DIR}/b.md`]: doc("cuj-b"),
   };
   const counts = { project: 0, list: 0, read: 0 };
-  const faults = { list: 0, read: new Set<string>(), truncated: false };
+  const faults = {
+    list: 0,
+    read: new Set<string>(),
+    binary: new Set<string>(),
+    truncated: false,
+    listError: null as (() => unknown) | null,
+  };
   let failProject = options.failFirstProject === true;
   const fake = createFakePluginHost({
     pluginId: "bb--design-wiki",
@@ -46,6 +52,7 @@ async function setup(options: { failFirstProject?: boolean } = {}) {
       files: {
         listPaths: async ({ path }: { path: string }) => {
           counts.list += 1;
+          if (faults.listError !== null) throw faults.listError();
           if (faults.list > 0) {
             faults.list -= 1;
             throw new Error("host busy");
@@ -67,6 +74,15 @@ async function setup(options: { failFirstProject?: boolean } = {}) {
           if (faults.read.has(path)) throw new Error("host busy");
           const content = files[path];
           if (content === undefined) throw new Error("No such file");
+          if (faults.binary.has(path)) {
+            return {
+              path,
+              content: Buffer.from(content).toString("base64"),
+              contentEncoding: "base64",
+              sizeBytes: content.length,
+              sha256: "x",
+            };
+          }
           return {
             path,
             content,
@@ -231,6 +247,90 @@ describe("Design Wiki discovery with read failures", () => {
       projectId: "p1",
     })) as { errors: { message: string }[] };
     expect(first.errors.length).toBeGreaterThan(0);
+    await fake.harness.callRpc("list", { projectId: "p1" });
+    expect(counts.project).toBe(1);
+  });
+
+  it("keeps reusing a read that skipped a page for not being text", async () => {
+    const { fake, counts, faults } = await setup();
+    faults.binary.add(`${CUJ_DIR}/b.md`);
+    const first = (await fake.harness.callRpc("list", {
+      projectId: "p1",
+    })) as { errors: { message: string }[]; pages: unknown[] };
+    expect(first.errors).toHaveLength(1);
+    expect(first.errors[0]?.message).toContain("not a text file");
+    expect(first.pages).toHaveLength(1);
+    await fake.harness.callRpc("list", { projectId: "p1" });
+    await fake.harness.callRpc("page", { projectId: "p1", pageId: "cuj-a" });
+    expect(counts.project).toBe(1);
+    expect(counts.read).toBe(2);
+  });
+
+  it("retries a read that has both a rejected page and a failed file read", async () => {
+    const { fake, counts, files, faults } = await setup();
+    files[`${CUJ_DIR}/huge.md`] = doc("cuj-huge") + "x".repeat(600_000);
+    faults.read.add(`${CUJ_DIR}/b.md`);
+    const first = (await fake.harness.callRpc("list", {
+      projectId: "p1",
+    })) as { errors: unknown[] };
+    expect(first.errors).toHaveLength(2);
+    faults.read.clear();
+    const second = (await fake.harness.callRpc("list", {
+      projectId: "p1",
+    })) as { pages: unknown[]; errors: unknown[] };
+    expect(second.pages).toHaveLength(2);
+    expect(second.errors).toHaveLength(1);
+    expect(counts.project).toBe(2);
+  });
+});
+
+describe("Design Wiki discovery with host errors on the listing", () => {
+  function hostError(status: number, code: string, message: string) {
+    return () => Object.assign(new Error(message), { status, code });
+  }
+
+  it("does not reuse a read that lost the wiki to a missing host", async () => {
+    const { fake, counts, faults } = await setup();
+    faults.listError = hostError(404, "host_not_found", "Host not found");
+    const first = (await fake.harness.callRpc("list", {
+      projectId: "p1",
+    })) as { pages: unknown[]; errors: unknown[] };
+    expect(first.pages).toHaveLength(0);
+    expect(first.errors.length).toBeGreaterThan(0);
+    faults.listError = null;
+    const second = (await fake.harness.callRpc("list", {
+      projectId: "p1",
+    })) as { pages: unknown[]; errors: unknown[] };
+    expect(second.pages).toHaveLength(2);
+    expect(second.errors).toHaveLength(0);
+    expect(counts.project).toBe(2);
+  });
+
+  it("does not treat a message that says not found as a missing wiki", async () => {
+    const { fake, counts, faults } = await setup();
+    faults.listError = hostError(500, "command_failed", "Path not found");
+    const first = (await fake.harness.callRpc("list", {
+      projectId: "p1",
+    })) as { errors: unknown[] };
+    expect(first.errors.length).toBeGreaterThan(0);
+    faults.listError = null;
+    await fake.harness.callRpc("list", { projectId: "p1" });
+    expect(counts.project).toBe(2);
+  });
+
+  it("treats a missing wiki directory as no wiki yet and reuses it", async () => {
+    const { fake, counts, faults } = await setup();
+    faults.listError = hostError(
+      404,
+      "ENOENT",
+      "ENOENT: no such file or directory",
+    );
+    const first = (await fake.harness.callRpc("list", {
+      projectId: "p1",
+    })) as { state: string; pages: unknown[]; errors: unknown[] };
+    expect(first.state).toBe("empty");
+    expect(first.pages).toHaveLength(0);
+    expect(first.errors).toHaveLength(0);
     await fake.harness.callRpc("list", { projectId: "p1" });
     expect(counts.project).toBe(1);
   });

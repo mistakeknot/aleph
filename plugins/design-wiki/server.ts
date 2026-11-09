@@ -78,8 +78,7 @@ interface PinThreadRow {
 const MAX_LISTED_FILES = 10_000;
 const MAX_PAGE_BYTES = 512 * 1024;
 const DISCOVERY_TTL_MS = 10_000;
-const MISSING_PATH_PATTERN =
-  /not found|no such|enoent|does not exist|not a directory/i;
+const MISSING_PATH_CODES: ReadonlySet<string> = new Set(["ENOENT", "ENOTDIR"]);
 
 interface CheckoutRoot {
   hostId: string;
@@ -91,10 +90,10 @@ function errorMessage(error: unknown): string {
 }
 
 function isMissingPath(error: unknown): boolean {
-  if (typeof error === "object" && error !== null && "status" in error) {
-    if (error.status === 404) return true;
+  if (typeof error !== "object" || error === null || !("code" in error)) {
+    return false;
   }
-  return MISSING_PATH_PATTERN.test(errorMessage(error));
+  return typeof error.code === "string" && MISSING_PATH_CODES.has(error.code);
 }
 
 interface PinCardKey {
