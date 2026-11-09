@@ -203,7 +203,7 @@ describe("thread-list plugin", () => {
       },
       rpc: {
         listPreferences: () => new Promise(() => undefined),
-        listHullDesignations: () => ({ designations: {} }),
+        listHullDesignations: () => ({ designations: {}, names: {} }),
       },
     });
     expect(screen.getByLabelText("Loading sidebar navigation")).not.toBeNull();

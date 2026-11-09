@@ -412,13 +412,17 @@ is browser-local: it is not a server setting or a CLI/SDK option. The sidebar
 thread list's Active/Archived filter is the Thread list plugin's
 `threadLifecycles` preference.
 
-Thread rows can show a project hull designation badge. The Thread list plugin
-reads `hull-designations.json` from bb's data directory, or the file named by
-`BB_HULL_DESIGNATIONS_FILE`: a JSON array of `{ projectId, designation,
-approved }` or `{ threadId, designation, approved }` rows; a thread row wins over
-its project's row, and only approved rows with a designation show. A missing
-or malformed file shows no badges; it is fetched when the sidebar mounts, so
-reload the app after editing it.
+Thread rows can show a hull designation badge. The Thread list plugin reads
+`hull-designations.json` from bb's data directory, or the file named by
+`BB_HULL_DESIGNATIONS_FILE`: a JSON array of approved rows with a `designation`
+and any of `projectId`, `threadId`, `name` and an optional `aliases` string
+array. A thread uses the first match of: a row for its `threadId`; its title
+prefix (the text before the first ` | `) matched to a row's `name` or `aliases`
+after lowercasing and keeping only letters and digits, ignoring a name that two
+rows map to different designations; then a row for its `projectId`. Only
+approved rows with a designation show. A missing or malformed file shows no
+badges; it is fetched when the sidebar mounts, so reload the app after editing
+it.
 
 Sidebar width and open state are per window and stay local to the browser.
 

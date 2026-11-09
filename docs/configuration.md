@@ -1708,16 +1708,34 @@ thread in a split.
 
 ### Hull designation badges
 
-The Thread list plugin can show a project's hull designation as a small badge
-before each thread title. It reads a host-local `hull-designations.json` from
-bb's data directory; set `BB_HULL_DESIGNATIONS_FILE` to an absolute path to read
-a different file. The file is a JSON array of `{ "projectId", "designation",
-"approved" }` rows, or `{ "threadId", "designation", "approved" }` rows to badge
-one thread. A thread's own row wins over its project's row. Only rows with
-`approved: true` and a non-empty designation show, and extra fields are
-ignored. A missing or malformed file shows no badges.
+The Thread list plugin can show a hull designation as a small badge before
+each thread title. It reads a host-local `hull-designations.json` from bb's data
+directory; set `BB_HULL_DESIGNATIONS_FILE` to an absolute path to read a
+different file. The file is a JSON array of rows with a non-empty `designation`
+and `"approved": true`, plus any of `projectId`, `threadId`, `name` and an
+optional `aliases` array of strings. Only approved rows with a designation show,
+and extra fields are ignored. A missing or malformed file shows no badges.
+
+Each thread takes the first of these that matches:
+
+1. A row whose `threadId` is the thread's id.
+2. The thread title's prefix. When the title reads `<Name> | ...`, `<Name>` is
+   the text before the first ` | `, trimmed. The badge is the designation of the
+   approved row whose `name` or `aliases` entry matches `<Name>`. Matching
+   lowercases both sides and keeps only letters and digits, so "Mind State",
+   "Mind-State" and "mindstate" are equal. If two approved rows give the same
+   name different designations, that name matches nothing; rows that agree on
+   the designation do not conflict. A title with no ` | ` has no prefix. A row
+   with only a `name` (no `projectId` or `threadId`) is enough for this step.
+3. A row whose `projectId` is the thread's project id.
+
+Renaming a thread changes its badge on the next render, since the title is part
+of the row.
 The server re-reads the file when its modification time or size changes, but the
-sidebar fetches it when it mounts, so reload the app to see edits.
+sidebar fetches it when it mounts, so reload the app to see edits. The
+`listHullDesignations` RPC returns `{ designations, names }`: `designations`
+maps thread and project ids to designations, and `names` maps normalized names
+to designations with conflicting names already removed.
 
 ### Thread list provider icons
 
