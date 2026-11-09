@@ -206,7 +206,6 @@ describe("ensureIoskeleyMonoFont", () => {
         return new Response(body, { status: 200 });
       });
       const logger = testLogger();
-      let settled = false;
 
       const pending = ensureIoskeleyMonoFont({
         dataDir,
@@ -215,16 +214,20 @@ describe("ensureIoskeleyMonoFont", () => {
         assetUrl: "https://example.test/IoskeleyMono-Web.zip",
         expectedSha256: ZIP_FIXTURE_SHA256,
         zipEntryName: ENTRY_NAME,
-      }).then(() => {
-        settled = true;
-      });
+      }).then(() => "settled" as const);
 
       await vi.advanceTimersByTimeAsync(60_000);
       vi.useRealTimers();
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      let deadline: ReturnType<typeof setTimeout> | undefined;
+      const outcome = await Promise.race([
+        pending,
+        new Promise<"still-pending">((resolve) => {
+          deadline = setTimeout(() => resolve("still-pending"), 2_000);
+        }),
+      ]);
+      clearTimeout(deadline);
 
-      expect(settled).toBe(true);
-      await pending;
+      expect(outcome).toBe("settled");
       await expect(
         readFile(resolveIoskeleyMonoFontPath(dataDir)),
       ).rejects.toThrow();
