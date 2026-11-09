@@ -241,6 +241,7 @@ event-cold-tier	A	apps/server/test/public/public-system-event-archive.test.ts
 event-cold-tier	M	apps/server/test/public/public-thread-compaction.test.ts
 event-cold-tier	M	apps/server/test/server-move/export.test.ts
 event-cold-tier	M	apps/server/test/services/periodic-sweeps.test.ts
+event-cold-tier	M	apps/server/test/system/periodic-sweep-jobs.test.ts
 event-cold-tier	M	apps/server/test/system/thread-pruning-sweep.test.ts
 event-cold-tier	A	apps/server/test/threads/event-cold-tier-durability.test.ts
 event-cold-tier	A	apps/server/test/threads/event-cold-tier-gates-inference.test.ts

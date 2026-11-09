@@ -616,6 +616,10 @@
     {
       "tag": "0152_small_storage_cleanups",
       "sha256": "081722dd0217e0714a1168809f5117405d5585150f6ecaf7770ca4cc2310cd06"
+    },
+    {
+      "tag": "0153_sweep_item_failures",
+      "sha256": "3988923282f618cff346fcc057b7eb9a5b79f6af8f39332385a898ca46660336"
     }
   ]
 }
