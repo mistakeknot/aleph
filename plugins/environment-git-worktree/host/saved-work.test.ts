@@ -253,6 +253,11 @@ describe("removeWorktree saves uncommitted work (mk-rygli)", () => {
       expect(existsSync(worktree)).toBe(false);
       expect(await git(repo, "show", `${ref}:new.txt`)).toBe("new\n");
       expect(existsSync(join(other, ".git", "index"))).toBe(false);
+      const listed = await git(repo, "worktree", "list", "--porcelain");
+      expect(
+        listed.split("\n").filter((line) => line.startsWith("worktree ")),
+      ).toHaveLength(1);
+      await git(repo, "worktree", "add", join(root, "again"), "feature");
     });
   }
 

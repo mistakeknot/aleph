@@ -66,7 +66,7 @@ async function withCheckoutMutationAdmission<T>(
 
 async function tryResolveCheckoutMutationLockSpec(
   checkoutPath: string,
-  options: GitProcessOptions,
+  options: GitProcessOptions & Pick<RunGitOptions, "env">,
 ): Promise<ProcessLocalQueuedLockSpec | null> {
   const result = await runGit(["rev-parse", "--absolute-git-dir"], {
     cwd: checkoutPath,
@@ -85,7 +85,7 @@ export async function tryWithCheckoutMutationLock<T>(
   checkoutPath: string,
   work: ProcessLocalQueuedLockWork<T>,
   signal?: AbortSignal,
-  options: GitProcessOptions = {},
+  options: GitProcessOptions & Pick<RunGitOptions, "env"> = {},
 ): Promise<T | null> {
   return withCheckoutMutationAdmission(
     checkoutPath,

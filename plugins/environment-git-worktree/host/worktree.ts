@@ -925,7 +925,7 @@ export async function removeWorktree(args: RemoveWorktreeArgs): Promise<void> {
           ),
         ),
       args.signal,
-      signalOptions(args.signal),
+      { ...signalOptions(args.signal), env: REPOSITORY_LOCATION_ENV },
     );
   }
 
