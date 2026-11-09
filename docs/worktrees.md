@@ -137,11 +137,14 @@ jobs), and any process you started there yourself, such as a shell you `cd`'d
 into the worktree or an editor terminal. Each process gets `SIGTERM`, then
 `SIGKILL` after a short grace period. If the worktree has uncommitted changes,
 bb saves them before removing it: staged, unstaged and untracked files (not
-ignored ones) go into a commit on the ref
-`refs/bb/saved-work/<branch>/<time in ms>`, whose first parent is the branch
-head and whose second parent, when the staged state differed, holds the staged
-files. The branch itself is not moved. If the save fails, the worktree is left
-in place. Then `git worktree remove --force` runs and the directory is deleted.
+ignored ones) go into a commit on its own ref under `refs/bb/saved-work/`,
+named after the branch (with `%` written as `%25` and `/` as `%2F`, or `HEAD`
+when detached) and the time in milliseconds plus a random suffix. Its first
+parent is the branch head and its second parent, when the staged state
+differed, holds the staged files. The branch and the index are not changed,
+and no git hooks run. If the save fails, or a submodule or an untracked nested
+repository has changes that a commit cannot hold, the worktree is left in
+place. Then `git worktree remove --force` runs and the directory is deleted.
 The branch is left behind, so work you committed to it survives the worktree.
 
 To list and restore saved work from the main checkout:
