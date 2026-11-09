@@ -81,6 +81,11 @@ describe("buildClaudeCodeModels", () => {
         displayName: "claude-custom-eap[1m]",
         isDefault: false,
       },
+      {
+        model: "claude-fable-5-2[1m]",
+        displayName: "Fable 5.2 (1M)",
+        isDefault: false,
+      },
     ]);
   });
 
@@ -146,5 +151,88 @@ describe("buildClaudeCodeModels", () => {
     expect(result.models.find((model) => model.isDefault)?.model).toBe(
       "claude-sonnet-5",
     );
+  });
+
+  describe("Fable 5.2 fallback", () => {
+    const fable52 = (models: ReturnType<typeof buildClaudeCodeModels>) =>
+      models.models.filter((model) => model.model.includes("fable-5-2"));
+    const reported = (value: string, resolvedModel: string): ModelInfo => ({
+      value,
+      resolvedModel,
+      displayName: "Fable",
+      description: "Fable 5.2",
+      supportedEffortLevels: ["low", "high"],
+    });
+
+    it("adds the 1M variant when Claude Code does not report it", () => {
+      const result = buildClaudeCodeModels(DISCOVERED_MODELS);
+
+      expect(fable52(result)).toEqual([
+        expect.objectContaining({
+          id: "claude-fable-5-2[1m]",
+          model: "claude-fable-5-2[1m]",
+          displayName: "Fable 5.2 (1M)",
+          defaultReasoningEffort: "high",
+          isDefault: false,
+        }),
+      ]);
+      expect(
+        fable52(result)[0]?.supportedReasoningEfforts.map(
+          (effort) => effort.reasoningEffort,
+        ),
+      ).toEqual(["low", "medium", "high", "xhigh", "ultracode", "max"]);
+    });
+
+    it("takes effort levels from the reported Fable 5.1 entry", () => {
+      const result = buildClaudeCodeModels(
+        DISCOVERED_MODELS.map((model) =>
+          model.value === "claude-fable-5-1[1m]"
+            ? { ...model, supportedEffortLevels: ["medium", "high"] }
+            : model,
+        ),
+      );
+
+      expect(
+        fable52(result)[0]?.supportedReasoningEfforts.map(
+          (effort) => effort.reasoningEffort,
+        ),
+      ).toEqual(["medium", "high"]);
+    });
+
+    it("uses a fixed effort list when Fable 5.1 is not reported", () => {
+      const result = buildClaudeCodeModels(
+        DISCOVERED_MODELS.filter(
+          (model) => model.value !== "claude-fable-5-1[1m]",
+        ),
+      );
+
+      expect(
+        fable52(result)[0]?.supportedReasoningEfforts.map(
+          (effort) => effort.reasoningEffort,
+        ),
+      ).toEqual(["low", "medium", "high", "xhigh", "ultracode", "max"]);
+    });
+
+    it.each([
+      ["the 1M alias", reported("claude-fable-5-2[1m]", "claude-fable-5-2")],
+      ["the bare id", reported("claude-fable-5-2", "claude-fable-5-2")],
+      [
+        "a 1M resolved id",
+        reported("claude-fable-5-2[1m]", "claude-fable-5-2[1m]"),
+      ],
+    ])("adds nothing when Claude Code reports %s", (_label, info) => {
+      const result = buildClaudeCodeModels([...DISCOVERED_MODELS, info]);
+
+      expect(fable52(result)).toHaveLength(1);
+      expect(fable52(result)[0]?.supportedReasoningEfforts).toHaveLength(2);
+    });
+
+    it("never becomes the default model", () => {
+      const result = buildClaudeCodeModels(DISCOVERED_MODELS);
+
+      expect(result.models.find((model) => model.isDefault)?.model).toBe(
+        "claude-opus-5-5[1m]",
+      );
+    });
   });
 });

@@ -3775,6 +3775,7 @@ describe("bridge", () => {
     expect(models.map((model) => model.model)).toEqual([
       "claude-opus-5[1m]",
       "claude-sonnet-5",
+      "claude-fable-5-2[1m]",
     ]);
     expect(models.filter((model) => model.isDefault)).toEqual([
       expect.objectContaining({
@@ -3855,7 +3856,10 @@ describe("bridge", () => {
     };
 
     await expect(listClaudeCodeBridgeModels(env)).resolves.toMatchObject({
-      models: [expect.objectContaining({ model: "claude-sonnet-5" })],
+      models: [
+        expect.objectContaining({ model: "claude-sonnet-5" }),
+        expect.objectContaining({ model: "claude-fable-5-2[1m]" }),
+      ],
     });
     expect(queryMock).toHaveBeenCalledTimes(2);
     expect(queryMock.mock.calls[1]?.[0]?.options.env).toEqual({
