@@ -627,6 +627,12 @@ it joined `frozen-upstream.json` unchanged at upstream's timestamp, above the
 preceding ceiling, and no Aleph step was added. Its tag differs from the legacy
 chain's `0152_event_cold_tier`.
 
+The sync of upstream `b99706a7f8` (one item sweep runner for every periodic
+sweep job) adds upstream 0153 (`sweep_item_failures`), a new table that records
+failed sweep items with retry backoff. It touches no Aleph-altered table, so it
+joined `frozen-upstream.json` unchanged at upstream's timestamp, above the
+preceding ceiling, and no Aleph step was added.
+
 ### Namespaced migration runner (mk-knexd)
 
 `packages/db/src/migration-runner.ts` (with `migration-plan.ts`,

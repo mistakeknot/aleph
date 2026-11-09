@@ -6,7 +6,7 @@ import {
   reserveEnvironment,
 } from "@bb/db";
 import { describe, expect, it } from "vitest";
-import { runThreadPruningSweep } from "../../src/services/system/thread-pruning-sweep.js";
+import { threadPruningSweep } from "../../src/services/system/thread-pruning-sweep.js";
 import {
   countThreadEvents,
   forceColdStateRow,
@@ -175,12 +175,12 @@ describe("thread pruning skips cold threads", () => {
       forceColdStateRow(harness.db, thread.id);
       const before = countThreadEvents(harness.db, thread.id);
 
-      await runThreadPruningSweep(harness.deps, {
+      await threadPruningSweep(harness.deps, {
         busyBatchSize: 64,
         elapsedBudgetMs: 1000,
         idleBatchSize: 500,
         maxAdvances: 64,
-      });
+      }).run(harness.deps, Date.now());
 
       expect(countThreadEvents(harness.db, thread.id)).toBe(before);
       expect(workCount(harness, thread.id)).toBeGreaterThan(0);
