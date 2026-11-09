@@ -22,19 +22,49 @@ import type {
 } from "@bb/server-contract";
 import { ApiError } from "../../errors.js";
 import type { ServerLogger, ServerRuntimeConfig } from "../../types.js";
+import type { AppUpdateSendHold } from "./app-update-send-hold.js";
 import type { AppVersionService } from "./app-version.js";
 import type { LauncherChannel } from "./launcher-channel.js";
 
 const SOURCE_CHECK_TTL_MS = 60 * 60 * 1000;
 const FIRST_STATUS_WAIT_MS = 1_000;
 
+export type AppUpdateServiceStatus = Omit<
+  SystemAppUpdateStatus,
+  "autoUpdate" | "availableSkipped" | "scheduled"
+>;
+
+export type RunningThreadsPolicy =
+  | { kind: "refuse" }
+  | { kind: "interrupt" }
+  | { kind: "wait"; shouldDefer: (runningThreadCount: number) => boolean };
+
 export interface AppUpdateService {
-  acknowledgeResult(args: { id: string }): Promise<SystemAppUpdateStatus>;
+  acknowledgeResult(args: { id: string }): Promise<AppUpdateServiceStatus>;
   apply(args: {
-    confirmInterruptingThreads: boolean;
-  }): Promise<SystemAppUpdateStatus>;
+    runningThreads: RunningThreadsPolicy;
+  }): Promise<AppUpdateServiceStatus>;
   dispose(): void;
-  getStatus(args: { forceRefresh: boolean }): Promise<SystemAppUpdateStatus>;
+  getStatus(args: { forceRefresh: boolean }): Promise<AppUpdateServiceStatus>;
+}
+
+export function runningThreadsError(
+  count: number,
+  threadsResume: boolean,
+): ApiError {
+  const running = `${String(count)} thread${count === 1 ? " is" : "s are"} running.`;
+  return new ApiError(
+    409,
+    "threads_running",
+    threadsResume
+      ? `${running} Updating restarts bb, and ${count === 1 ? "it resumes" : "they resume"} after the update.`
+      : `${running} Updating restarts bb and interrupts ${count === 1 ? "it" : "them"}.`,
+    { details: { runningThreadCount: count } },
+  );
+}
+
+export function threadsStartedMessage(count: number): string {
+  return `${String(count)} thread${count === 1 ? "" : "s"} started while bb was downloading the update. Update again to restart.`;
 }
 
 interface CreateAppUpdateServiceArgs {
@@ -48,7 +78,9 @@ interface CreateAppUpdateServiceArgs {
   mode: AppUpdateMode | null;
   notifyChanged: () => void;
   now?: () => number;
+  sendHold: AppUpdateSendHold;
   sourceCheckTtlMs?: number;
+  threadsResumeAfterRestart: () => boolean;
 }
 
 function toPublicRevision(revision: AppRevision): SystemAppUpdateRevision {
@@ -134,27 +166,41 @@ export function createAppUpdateService(
   let lastSourceCheckAttemptAt: number | null = null;
   let sourceCheckInflight: Promise<SourceUpdateCheck | null> | null = null;
   let launcherConnected = args.launcher !== null;
-  let confirmedInterruptingThreads = false;
+  let runningThreadsPolicy: RunningThreadsPolicy = { kind: "refuse" };
   let decidedReadyAt: string | null = null;
+  let holdingSends = false;
+
+  const releaseSends = (): void => {
+    if (!holdingSends) return;
+    holdingSends = false;
+    args.sendHold.release();
+  };
 
   const decideRestart = (launcher: LauncherChannel, readyAt: string): void => {
     if (decidedReadyAt === readyAt) return;
     decidedReadyAt = readyAt;
+    holdingSends = true;
+    args.sendHold.hold();
     const runningThreadCount = args.countRunningThreads();
+    const policy = runningThreadsPolicy;
     const request: AppUpdateLauncherRequest =
-      runningThreadCount > 0 && !confirmedInterruptingThreads
-        ? {
-            message: `${String(runningThreadCount)} thread${
-              runningThreadCount === 1 ? "" : "s"
-            } started while bb was downloading the update. Update again to restart.`,
-            type: "cancel",
-          }
-        : { type: "restart" };
+      policy.kind === "wait"
+        ? policy.shouldDefer(runningThreadCount)
+          ? { type: "defer" }
+          : { type: "restart" }
+        : runningThreadCount === 0 || policy.kind === "interrupt"
+          ? { type: "restart" }
+          : {
+              message: threadsStartedMessage(runningThreadCount),
+              type: "cancel",
+            };
+    if (request.type !== "restart") releaseSends();
     void launcher.request(request).catch((error: unknown) => {
       args.logger.warn(
         { error: errorMessage(error), request: request.type },
         "Launcher did not accept the restart decision",
       );
+      releaseSends();
     });
   };
 
@@ -165,6 +211,8 @@ export function createAppUpdateService(
       resolveFirstStatus = null;
       if (status.activity.phase === "ready" && args.launcher !== null) {
         decideRestart(args.launcher, status.activity.startedAt);
+      } else if (status.activity.phase === "idle") {
+        releaseSends();
       }
       args.notifyChanged();
     }) ?? (() => undefined);
@@ -308,7 +356,7 @@ export function createAppUpdateService(
     forceRefresh,
   }: {
     forceRefresh: boolean;
-  }): Promise<SystemAppUpdateStatus> => {
+  }): Promise<AppUpdateServiceStatus> => {
     const support = resolveSupport();
     if (support.kind === "supported" && launcherStatus === null) {
       await Promise.race([
@@ -363,7 +411,7 @@ export function createAppUpdateService(
       }
       return getStatus({ forceRefresh: false });
     },
-    async apply({ confirmInterruptingThreads }) {
+    async apply({ runningThreads }) {
       if (isAlephAppVersion(args.config.appVersion)) {
         throw new ApiError(
           409,
@@ -394,16 +442,17 @@ export function createAppUpdateService(
           "bb is already up to date.",
         );
       }
-      if (status.runningThreadCount > 0 && !confirmInterruptingThreads) {
-        throw new ApiError(
-          409,
-          "threads_running",
-          `${String(status.runningThreadCount)} thread${
-            status.runningThreadCount === 1 ? " is" : "s are"
-          } running. Updating restarts bb and interrupts ${
-            status.runningThreadCount === 1 ? "it" : "them"
-          }.`,
-          { details: { runningThreadCount: status.runningThreadCount } },
+      if (runningThreads.kind === "wait") {
+        if (runningThreads.shouldDefer(status.runningThreadCount)) {
+          return status;
+        }
+      } else if (
+        runningThreads.kind === "refuse" &&
+        status.runningThreadCount > 0
+      ) {
+        throw runningThreadsError(
+          status.runningThreadCount,
+          args.threadsResumeAfterRestart(),
         );
       }
       const target: AppUpdateTarget | null =
@@ -419,7 +468,7 @@ export function createAppUpdateService(
           "bb is already up to date.",
         );
       }
-      confirmedInterruptingThreads = confirmInterruptingThreads;
+      runningThreadsPolicy = runningThreads;
       try {
         await launcher.request({
           target,

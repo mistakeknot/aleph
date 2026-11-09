@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it, type TestContext } from "vitest";
 import {
   createBbAppArtifactService,
   defaultCommandRunner,
@@ -22,7 +22,6 @@ import {
 } from "../../src/services/install/bb-app-artifact.js";
 
 const execFileAsync = promisify(execFile);
-const roots: string[] = [];
 const ARTIFACT_LIFECYCLE_TIMEOUT_MS = 15_000;
 const MODES = ["repo-src", "repo-dist", "packaged"] as const;
 const packageJson = {
@@ -81,9 +80,12 @@ async function writeHostPackage(root: string, readme: string): Promise<void> {
   );
 }
 
-async function fixture(mode: Mode) {
+async function fixture(mode: Mode, { onTestFinished }: TestContext) {
   const root = await mkdtemp(join(tmpdir(), `bb-artifact-${mode}-`));
-  roots.push(root);
+  onTestFinished(async () => {
+    await restoreTreeWritable(root).catch(() => undefined);
+    await rm(root, { force: true, recursive: true });
+  });
   const packageRoot = isRepoMode(mode) ? join(root, "packages/bb-app") : root;
   const serverEntry =
     mode === "repo-src"
@@ -128,20 +130,11 @@ async function restoreTreeWritable(directory: string): Promise<void> {
   }
 }
 
-afterEach(async () => {
-  await Promise.all(
-    roots.splice(0).map(async (root) => {
-      await restoreTreeWritable(root).catch(() => undefined);
-      await rm(root, { force: true, recursive: true });
-    }),
-  );
-});
-
 describe("bb-app artifact service (desktop packaging)", () => {
   it(
     "packs the runtime when Electron Builder omits the README",
-    async () => {
-      const test = await fixture("packaged");
+    async (context) => {
+      const test = await fixture("packaged", context);
       await rm(join(test.packageRoot, "README.md"));
       const service = createBbAppArtifactService({
         dataDir: join(test.root, "data"),
@@ -178,8 +171,8 @@ describe("bb-app artifact service (desktop packaging)", () => {
 
   it(
     "packs with the bundled npm when the server has no npm on PATH",
-    async () => {
-      const test = await fixture("packaged");
+    async (context) => {
+      const test = await fixture("packaged", context);
       const service = createBbAppArtifactService({
         dataDir: join(test.root, "data"),
         serverEntryUrl: pathToFileURL(test.serverEntry).href,
@@ -209,8 +202,8 @@ describe("bb-app artifact service (desktop packaging)", () => {
       (typeof process.getuid === "function" && process.getuid() === 0),
   )(
     "serves the tarball and removes its temporary copy from a read-only install",
-    async () => {
-      const test = await fixture("packaged");
+    async (context) => {
+      const test = await fixture("packaged", context);
       const dataDir = join(test.root, "data");
       const nested = join(
         test.packageRoot,
@@ -245,8 +238,8 @@ describe("bb-app artifact service (desktop packaging)", () => {
     ARTIFACT_LIFECYCLE_TIMEOUT_MS,
   );
 
-  it("rejects missing runtime files even when the README is absent", async () => {
-    const test = await fixture("packaged");
+  it("rejects missing runtime files even when the README is absent", async (context) => {
+    const test = await fixture("packaged", context);
     const runtimePath = join(
       test.packageRoot,
       "host-daemon/dist/daemon-bundle.mjs",
@@ -264,8 +257,8 @@ describe("bb-app artifact service (desktop packaging)", () => {
     });
   });
 
-  it("propagates README copy failures other than a missing file", async () => {
-    const test = await fixture("packaged");
+  it("propagates README copy failures other than a missing file", async (context) => {
+    const test = await fixture("packaged", context);
     const readmePath = join(test.packageRoot, "README.md");
     await rm(readmePath);
     await mkdir(readmePath);
@@ -283,11 +276,11 @@ describe("bb-app artifact service (desktop packaging)", () => {
   });
 });
 
-describe.each(MODES)("bb-app artifact service (%s)", (mode) => {
+describe.concurrent.each(MODES)("bb-app artifact service (%s)", (mode) => {
   it(
     "packs only the enrolled host runtime as an exact-version npm package",
-    async () => {
-      const test = await fixture(mode);
+    async (context) => {
+      const test = await fixture(mode, context);
       const calls: Array<{
         command: string;
         args: readonly string[];
@@ -373,8 +366,8 @@ describe.each(MODES)("bb-app artifact service (%s)", (mode) => {
 
   it(
     "content-addresses rebuilds when package contents change",
-    async () => {
-      const test = await fixture(mode);
+    async (context) => {
+      const test = await fixture(mode, context);
       const calls: Array<{ command: string }> = [];
       const runner: BbAppArtifactCommandRunner = async (command, args, cwd) => {
         calls.push({ command });
@@ -413,8 +406,8 @@ describe.each(MODES)("bb-app artifact service (%s)", (mode) => {
 
   it(
     "separates protocol cache keys without changing identical content digests",
-    async () => {
-      const test = await fixture(mode);
+    async (context) => {
+      const test = await fixture(mode, context);
       const runner: BbAppArtifactCommandRunner = async (command, args, cwd) => {
         if (command === "pnpm") {
           await test.refreshHostPackage();
@@ -445,8 +438,8 @@ describe.each(MODES)("bb-app artifact service (%s)", (mode) => {
 
   it(
     "keeps the previous content-addressed artifact when a rebuild fails",
-    async () => {
-      const test = await fixture(mode);
+    async (context) => {
+      const test = await fixture(mode, context);
       let failNextPack = false;
       const runner: BbAppArtifactCommandRunner = async (command, args, cwd) => {
         if (command === "pnpm") {

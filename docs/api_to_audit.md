@@ -1074,8 +1074,9 @@ Docs: `backend-sdk.md`.
 `experimental_useExperiment(key)` returns whether the bb experiment `key` is
 on, from the same live system config core reads (Settings → Experiments,
 `bb settings experiment`). It is false while config loads and for unknown
-keys. First caller: the built-in thread list, which gates multi-row selection
-on `sidebarMultiSelect`.
+keys. Callers: the built-in thread list, which gates row metadata on
+`threadRowMetadata`, and push notifications, which reads
+`skipFocusedThreadNotifications`.
 
 **Audit before stabilizing.**
 
@@ -1449,7 +1450,14 @@ fires after a final unterminated line is emitted.
 
 `experimental_FileLink` and `experimental_openFilePreview` open explicit live
 workspace, host and thread-storage file targets through the current surface's
-shared file-tab controller. `experimental_openFileExternally` opens a target
+shared file-tab controller. `experimental_openFilePreview`'s optional
+`opener` (`ExperimentalFilePreviewOptions`) names one of the calling plugin's
+`fileOpener` registrations to show the file with for that open; it becomes
+the same one-off viewer override the file-link "Open with" menu passes, and an
+unregistered id falls back to BB's preview. A `fileOpener` with
+`extensions: []` is never chosen by extension or listed under "Open with", so
+it shows only files its plugin opens this way; Inline visualizations' expanded
+page is the first caller. `experimental_openFileExternally` opens a target
 in the client's preferred external app. The boolean results report host
 acceptance, and malformed targets stay inert.
 `experimental_useCanOpenFileExternally(target)` is a hook that reports
@@ -2688,6 +2696,39 @@ loader callback.
    that through `useComposer()` rather than a renderer prop.
 6. **Size and virtualization.** Neither component caps input size or
    virtualizes. Audit against a plugin that renders a very large file or patch.
+
+## `experimental_FilePreview` (`@get-bb/plugin-sdk/app`)
+
+Host-owned side-panel preview of one live file target. bb loads the file and
+draws its usual preview header (path, Preview/Raw toggle, open in browser,
+Open in editor, download, and the file menu with copy and refresh) and its
+loading, empty, missing and error states. `renderPreview({ content, url })`
+draws the Preview body of an HTML, Markdown or CSV file in place of bb's;
+`url` is the absolute raw-file URL. Raw mode and every other file type keep
+bb's rendering, and a refresh passes the new text. Inside a panel tab it
+loads only while the tab is showing, the visibility `experimental_useTabVisible`
+reports; elsewhere it loads at once.
+
+**Core callers.** It renders the same workspace, thread-storage and host file
+tab contents the side panel renders, so the header, loading and refresh are
+core's own; core's previews reach `FilePreview` through those components with
+no body override. Open in editor uses `useLiveFileOpenTargets` and the
+`openFileExternally` intent, the path core's file previews use. The first
+plugin caller is the Inline visualizations `page` file opener, which draws the
+themed inline-vis frame as the body.
+
+Docs: `frontend-components.md`.
+
+**Audit before stabilizing.**
+
+1. Decide whether the body override should also cover files without a
+   Preview mode (plain text, images), and what the toggle shows for them.
+2. Confirm surface-specific header behaviour: core's thread view passes its
+   own Open in editor handlers and a line number for host files; the
+   component passes none, and Add to chat comes only from the surrounding
+   `SelectionAddToChatContext`.
+3. Decide whether `renderPreview` should receive the line range a file open
+   requested.
 
 ## `app.slots.experimental_sourceCodeRenderer` / `app.slots.experimental_diffRenderer` (`@get-bb/plugin-sdk/app`)
 
@@ -4026,6 +4067,49 @@ credentials with 403. Core caller: `bb admin event-archive`.
 Stabilize after the first runs against a production-sized database, after
 deciding whether rehydrate `all` should run in caller-sized batches and report
 progress, and after phase 2 decides which classes become deletion candidates.
+
+## `PluginBbSdk.system.experimental_scheduleAppUpdate`, `experimental_cancelScheduledAppUpdate`, and `experimental_setAppUpdateAuto`
+
+`experimental_scheduleAppUpdate()` updates bb once no thread is running
+(`starting` or `active`). With none running it starts the update at once, like
+`applyAppUpdate`; otherwise it returns the status with `scheduled:
+{ requestedAt }` and the server starts the update after running threads have
+stayed at zero for five seconds. A thread that starts while the update downloads
+puts it back to waiting instead of recording a failure: the server sends the
+launcher a `defer` decision, and the desktop service hands the download back.
+`scheduled` stays set while that update downloads; clients tell waiting from
+downloading by `activity.phase`. Scheduling again while one is pending returns
+it unchanged. Both refuse like `applyAppUpdate` when the update is unsupported,
+blocked, unavailable, or already running, and 403 for machine credentials.
+Both return 403 `update_when_idle_experiment_disabled` while the
+`updateWhenIdle` experiment is off, and turning it off drops a waiting update.
+While it is on, the server sends `app-update-changed` whenever the running
+thread count changes, so `runningThreadCount` stays current for clients.
+`experimental_cancelScheduledAppUpdate()` clears the schedule, and a scheduled
+update that is already downloading defers instead of restarting; it is a no-op
+without one. Cancelling also records the available version as skipped
+(`availableSkipped: true` in the status), so the server's automatic check does
+not schedule it again until a newer one appears; that check also skips a
+version whose last update attempt failed.
+`experimental_setAppUpdateAuto({ enabled })` saves the automatic update setting
+(`autoUpdate` in the status) and returns the status. While it and the
+experiment are on, the server checks right away, 30 s after boot, and every
+hour, and schedules what it finds; turning it off stops the checks and
+drops a waiting update. It returns 403 like the schedule routes. Applying by
+hand also clears a schedule, and schedule, apply, and the
+scheduled start run one at a time. A scheduled start the server refuses ends the
+schedule with only a log line; the status's `blocked`, `support`, or `activity`
+shows why. The schedule lives in server memory and is lost when the server
+restarts. Core callers: Settings → Updates (the "Restart and update bb
+automatically" switch, and Skip this version on a waiting update) and
+`bb updates app apply --when-idle` / `bb updates app cancel` /
+`bb updates app auto`.
+
+Stabilize after deciding whether the schedule should persist across server
+restarts, whether threads waiting on a user decision should count as running,
+and whether the settle window should be configurable, and once the
+`updateWhenIdle` experiment ships on for everyone; then rename project-wide and
+remove this entry.
 
 ## `PluginBbSdk.hosts.experimental_discoverRepos`
 

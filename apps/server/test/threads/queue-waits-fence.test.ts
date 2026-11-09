@@ -64,6 +64,7 @@ describe("recordQueuedMessageWait on a thread closed after its snapshot", () => 
         let caught: unknown;
         try {
           recordQueuedMessageWait(harness.deps, {
+            placement: "back",
             thread: snapshot,
             message: {
               input: textInput("late"),
@@ -126,6 +127,7 @@ describe("Aleph queued wait creation", () => {
         status: "idle",
       });
       const entry = recordQueuedMessageWait(harness.deps, {
+        placement: "back",
         thread,
         requestedThreadId: thread.id,
         message: {

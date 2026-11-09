@@ -40,6 +40,8 @@ import {
   createThreadTimelineCache,
 } from "./timeline-cache.js";
 import { clearTimelineOrderingContextCache } from "./timeline-context-order.js";
+import { forgetTimelineProjectionFolds } from "./timeline-projection-fold.js";
+import { forgetLatestTimelineSelections } from "./timeline-selection-memo.js";
 import { createTimelineServedWindowsCache } from "./timeline-served-windows-cache.js";
 import { timelineRowHash, timelineWindowTag } from "./timeline-window-tag.js";
 import { isCompactionOfferEnabled } from "./compaction-offer.js";
@@ -399,6 +401,10 @@ export function createThreadTimelineWindows(
     const compacted = message.changes.includes("history-compacted");
     if (rewritten) {
       clearTimelineOrderingContextCache(deps.db);
+    }
+    if (rewritten || compacted) {
+      forgetLatestTimelineSelections(deps.db, message.id);
+      forgetTimelineProjectionFolds(deps.db, message.id);
     }
     if (
       rewritten ||

@@ -611,11 +611,14 @@ export type SystemAppUpdateResult = z.infer<typeof systemAppUpdateResultSchema>;
 export const systemAppUpdateStatusSchema = z.object({
   desktopUpdateSupported: z.literal(true).optional(),
   activity: systemAppUpdateActivitySchema,
+  autoUpdate: z.boolean(),
   available: systemAppUpdateAvailableSchema.nullable(),
+  availableSkipped: z.boolean(),
   blocked: systemAppUpdateBlockedSchema.nullable(),
   current: systemAppUpdateRevisionSchema,
   lastResult: systemAppUpdateResultSchema.nullable(),
   runningThreadCount: z.number().int().nonnegative(),
+  scheduled: z.object({ requestedAt: z.string() }).nullable(),
   support: systemAppUpdateSupportSchema,
 });
 export type SystemAppUpdateStatus = z.infer<typeof systemAppUpdateStatusSchema>;
@@ -630,6 +633,13 @@ export const systemAppUpdateApplyRequestSchema = z.object({
 });
 export type SystemAppUpdateApplyRequest = z.infer<
   typeof systemAppUpdateApplyRequestSchema
+>;
+
+export const systemAppUpdateAutoRequestSchema = z.object({
+  enabled: z.boolean(),
+});
+export type SystemAppUpdateAutoRequest = z.infer<
+  typeof systemAppUpdateAutoRequestSchema
 >;
 
 export const systemAppUpdateAcknowledgeRequestSchema = z.object({

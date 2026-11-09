@@ -11,6 +11,11 @@ import {
   ensurePersonalProject,
   getAppSettings,
   getDisabledProviderIds,
+  getExperiments,
+  getAutoAppUpdate,
+  getSkippedAppUpdate,
+  setAutoAppUpdate,
+  setSkippedAppUpdate,
   listRunningThreads,
   setAppSettings,
   type DbConnection,
@@ -35,6 +40,8 @@ import {
   createAppUpdateService,
   type AppUpdateService,
 } from "../../src/services/system/app-update.js";
+import { createScheduledAppUpdateService } from "../../src/services/system/app-update-schedule.js";
+import { createAppUpdateSendHold } from "../../src/services/system/app-update-send-hold.js";
 import {
   createCliCommandService,
   type CliCommandService,
@@ -291,19 +298,55 @@ export async function createTestAppHarness(
     config,
     logger,
   });
-  const appUpdate =
-    appUpdateService ??
-    createAppUpdateService({
-      currentCommit: null,
-      appSurface: "web",
-      appVersion,
-      config,
-      countRunningThreads: () => listRunningThreads(db).length,
-      launcher: null,
-      logger,
-      mode: null,
-      notifyChanged: () => hub.notifySystem(["app-update-changed"]),
-    });
+  const countRunningThreads = (): number => listRunningThreads(db).length;
+  const notifyAppUpdateChanged = (): void =>
+    hub.notifySystem(["app-update-changed"]);
+  const appUpdate = createScheduledAppUpdateService({
+    autoCheckMs: null,
+    countRunningThreads,
+    inner:
+      appUpdateService ??
+      createAppUpdateService({
+        currentCommit: null,
+        appSurface: "web",
+        appVersion,
+        config,
+        countRunningThreads,
+        launcher: null,
+        logger,
+        mode: null,
+        notifyChanged: notifyAppUpdateChanged,
+        threadsResumeAfterRestart: () =>
+          getExperiments(db).resumeThreadsAfterRestart,
+        sendHold: createAppUpdateSendHold({
+          aiServices,
+          config,
+          db,
+          hub,
+          lifecycleDedupers,
+          logger,
+          machineAuth: testMachineAuth,
+          pendingInteractions,
+          pluginHostArtifacts,
+          providerRegistry,
+          skillTreeRegistry,
+          telemetry,
+          terminalSessions,
+        }),
+      }),
+    isEnabled: () => getExperiments(db).updateWhenIdle,
+    logger,
+    notifyChanged: notifyAppUpdateChanged,
+    onChangedMessage: (listener) => hub.onChangedMessage(listener),
+    autoUpdate: {
+      get: () => getAutoAppUpdate(db),
+      set: (enabled) => setAutoAppUpdate(db, enabled),
+    },
+    skippedUpdate: {
+      get: () => getSkippedAppUpdate(db),
+      set: (key) => setSkippedAppUpdate(db, key),
+    },
+  });
   const deps: ServerAppDeps = {
     alephUpdate: alephUpdateService ?? null,
     appUpdate,

@@ -77,11 +77,13 @@ describe("in-app npm updates on an Aleph build", () => {
       logger: testLogger,
       mode: "npm",
       notifyChanged: () => undefined,
+      sendHold: { hold: () => undefined, release: () => undefined },
+      threadsResumeAfterRestart: () => false,
     });
     launcher.pushIdle();
 
     const error = await service
-      .apply({ confirmInterruptingThreads: true })
+      .apply({ runningThreads: { kind: "interrupt" } })
       .then(
         () => null,
         (caught: unknown) => caught,
@@ -139,6 +141,8 @@ describe("in-app source updates on an Aleph build", () => {
       logger: testLogger,
       mode: "source",
       notifyChanged: () => undefined,
+      sendHold: { hold: () => undefined, release: () => undefined },
+      threadsResumeAfterRestart: () => false,
     });
   }
 
@@ -160,7 +164,7 @@ describe("in-app source updates on an Aleph build", () => {
     const service = createSourceService(launcher);
 
     const error = await service
-      .apply({ confirmInterruptingThreads: true })
+      .apply({ runningThreads: { kind: "interrupt" } })
       .then(
         () => null,
         (caught: unknown) => caught,

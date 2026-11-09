@@ -1,5 +1,6 @@
 import {
   createQueuedThreadMessageInTransaction,
+  deleteCoalescedQueuedThreadMessageInTransaction,
   getPendingCoalescedQueuedThreadMessage,
   resolveQueuedMessageDestination,
   updateCoalescedQueuedThreadMessageInTransaction,
@@ -11,7 +12,10 @@ import type {
   ResolvedThreadExecutionOptions,
 } from "@bb/domain";
 import type { AppDeps } from "../../types.js";
-import { emitPluginMessageQueued } from "../plugins/plugin-thread-events.js";
+import {
+  emitPluginMessageCancelled,
+  emitPluginMessageQueued,
+} from "../plugins/plugin-thread-events.js";
 import { toThreadQueuedMessage } from "./thread-queued-messages.js";
 
 export interface CoalescedNotice<State> {
@@ -23,25 +27,30 @@ export interface CoalescedNotice<State> {
 export interface PostCoalescedSystemNoticeArgs<State> {
   coalesceKey: string;
   execution: ResolvedThreadExecutionOptions;
-  merge: (previous: State | null) => CoalescedNotice<State>;
+  merge: (previous: State | null) => CoalescedNotice<State> | null;
   parseState: (stored: string) => State;
   threadId: string;
   windowMs: number;
 }
 
+type CoalescedNoticeWrite =
+  | { kind: "created"; row: QueuedThreadMessageRow }
+  | { kind: "merged"; row: QueuedThreadMessageRow }
+  | { kind: "withdrawn"; row: QueuedThreadMessageRow }
+  | { kind: "none" };
+
 export function postCoalescedSystemNotice<State>(
   deps: Pick<AppDeps, "db" | "hub">,
   args: PostCoalescedSystemNoticeArgs<State>,
-): QueuedThreadMessageRow & { sendAt: number } {
+): QueuedThreadMessageRow | null {
   const sendAt = Date.now() + args.windowMs;
-  const { created, row } = deps.db.transaction(
-    (tx) => {
+  const write = deps.db.transaction(
+    (tx): CoalescedNoticeWrite => {
       const destination = resolveQueuedMessageDestination(tx, {
         threadId: args.threadId,
       });
       const pending = getPendingCoalescedQueuedThreadMessage(tx, {
         coalesceKey: args.coalesceKey,
-        now: Date.now(),
         threadId: destination.threadId,
       });
       const next = args.merge(
@@ -49,6 +58,15 @@ export function postCoalescedSystemNotice<State>(
           ? null
           : args.parseState(pending.coalesceState),
       );
+      if (next === null) {
+        const withdrawn =
+          pending === null
+            ? null
+            : deleteCoalescedQueuedThreadMessageInTransaction(tx, pending);
+        return withdrawn === null
+          ? { kind: "none" }
+          : { kind: "withdrawn", row: withdrawn };
+      }
       const merged =
         pending === null
           ? null
@@ -56,13 +74,13 @@ export function postCoalescedSystemNotice<State>(
               coalesceState: JSON.stringify(next.state),
               content: next.input,
               id: pending.id,
-              sendAt,
               systemNotice: next.notice,
               threadId: destination.threadId,
+              windowEndsAt: sendAt,
             });
-      if (merged !== null) return { created: false, row: merged };
+      if (merged !== null) return { kind: "merged", row: merged };
       return {
-        created: true,
+        kind: "created",
         row: createQueuedThreadMessageInTransaction(tx, {
           threadId: args.threadId,
           content: next.input,
@@ -85,10 +103,15 @@ export function postCoalescedSystemNotice<State>(
     },
     { behavior: "immediate" },
   );
-  if (created) emitPluginMessageQueued(toThreadQueuedMessage(row));
-  deps.hub.notifyThread(row.threadId, ["queue-changed"]);
-  if (row.threadId !== args.threadId) {
+  if (write.kind === "none") return null;
+  if (write.kind === "withdrawn") {
+    emitPluginMessageCancelled(toThreadQueuedMessage(write.row));
+  } else if (write.kind === "created") {
+    emitPluginMessageQueued(toThreadQueuedMessage(write.row));
+  }
+  deps.hub.notifyThread(write.row.threadId, ["queue-changed"]);
+  if (write.row.threadId !== args.threadId) {
     deps.hub.notifyThread(args.threadId, ["queue-changed"]);
   }
-  return { ...row, sendAt };
+  return write.kind === "withdrawn" ? null : write.row;
 }

@@ -20,6 +20,7 @@ import {
   threadIdentityResultSchema,
 } from "@bb/provider-bridge-protocol";
 import {
+  JsonRpcRequestTimeoutError,
   JsonRpcResponseError,
   PROVIDER_TOOL_CALL_CANCELLED_METHOD,
   providerToolCallCancellationSchema,
@@ -67,6 +68,7 @@ import type {
   AgentRuntimeOptions,
   AgentRuntimeSkillRoot,
   ReapedIdleProviderSession,
+  RunTurnResult,
 } from "./types.js";
 import {
   resolveContributedEnvironment,
@@ -354,7 +356,12 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
       threadIdentityRegistry.clearThread(threadId);
       clearThreadRuntimeConfig(threadId);
       turnState.clearThread(threadId);
-      backgroundWorkState.clearThread(threadId);
+      const settlements = backgroundWorkState.settleThread(threadId);
+      if (!suppressedThreadEventIds.has(threadId)) {
+        for (const event of settlements) {
+          options.onEvent(event);
+        }
+      }
       threadEventGrammar.clearThread(threadId);
     },
     onStderr: options.onStderr,
@@ -461,6 +468,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
     message: SendJsonRpcRequestArgs<TResult>["message"];
     resultSchema: SendJsonRpcRequestArgs<TResult>["resultSchema"];
     timeoutMs?: number;
+    afterTimeout?: SendJsonRpcRequestArgs<TResult>["afterTimeout"];
     recovery?: RequestRecoveryArgs;
   }): Promise<TResult> {
     return sendRequestWithRecovery({
@@ -474,6 +482,9 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
         pending: args.proc.pending,
         resultSchema: args.resultSchema,
         ...(args.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {}),
+        ...(args.afterTimeout !== undefined
+          ? { afterTimeout: args.afterTimeout }
+          : {}),
       },
     });
   }
@@ -2048,41 +2059,68 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
             providerId: pid,
           });
           assertThreadCanStartTurn(threadId);
-          pendingTurnStarts.set(threadId, {
+          const pendingTurnStart = {
             sinceMs: Date.now(),
             watchdogFired: false,
-          });
+          };
+          pendingTurnStarts.set(threadId, pendingTurnStart);
           markProviderSessionNotIdle(threadId);
+          let status: RunTurnResult["status"] = "started";
           try {
             await sendCommand({
               proc,
               message: cmd,
               resultSchema: ignoredJsonRpcResultSchema,
+              afterTimeout: {
+                resolve: () => {},
+                reject: (error) => {
+                  if (pendingTurnStarts.get(threadId) !== pendingTurnStart) {
+                    return;
+                  }
+                  pendingTurnStarts.delete(threadId);
+                  markHostedProviderSessionIdle(threadId);
+                  options.onEvent({
+                    type: "system/error",
+                    threadId,
+                    scope: { kind: "thread" },
+                    code: "provider_turn_start_failed",
+                    message: `The provider failed to start the turn after its request timed out: ${error.message}`,
+                  });
+                },
+              },
               recovery: {
                 providerId: pid,
                 providerThreadId: adapterCommand.providerThreadId,
                 threadId,
               },
             });
-            setThreadRuntimeConfig(threadId, {
-              ...currentConfig,
-              contributedEnv: resolvedContributedEnv,
-              envVars: resolvedEnvironment.envVars,
-              options: execOpts,
-            });
-            if (environmentChanged) {
-              emitResolvedProviderEnvironment({
-                droppedContributions: resolvedEnvironment.droppedContributions,
-                entries: resolvedEnvironment.entries,
-                providerThreadId,
-                threadId,
-              });
-            }
           } catch (error) {
-            pendingTurnStarts.delete(threadId);
-            markHostedProviderSessionIdle(threadId);
-            throw error;
+            if (!(error instanceof JsonRpcRequestTimeoutError)) {
+              pendingTurnStarts.delete(threadId);
+              markHostedProviderSessionIdle(threadId);
+              throw error;
+            }
+            options.onStderr?.(
+              `Turn start for thread "${threadId}" timed out; whether the provider starts it is unconfirmed.`,
+              threadId,
+            );
+            status = "unconfirmed";
           }
+          setThreadRuntimeConfig(threadId, {
+            ...currentConfig,
+            contributedEnv: resolvedContributedEnv,
+            envVars: resolvedEnvironment.envVars,
+            options: execOpts,
+          });
+          if (environmentChanged) {
+            emitResolvedProviderEnvironment({
+              droppedContributions: resolvedEnvironment.droppedContributions,
+              entries: resolvedEnvironment.entries,
+              providerThreadId,
+              threadId,
+            });
+          }
+          return { status };
         },
       });
     },
@@ -2207,6 +2245,13 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
             ) {
               turnState.clearThread(threadId);
               return { status: "stale", activeTurnId: null };
+            }
+            if (error instanceof JsonRpcRequestTimeoutError) {
+              options.onStderr?.(
+                `Steer for thread "${threadId}" on turn "${expectedTurnId}" timed out; its delivery is unconfirmed.`,
+                threadId,
+              );
+              return { status: "unconfirmed" };
             }
             throw error;
           }
@@ -2621,9 +2666,11 @@ export function createAgentRuntime(options: AgentRuntimeOptions): AgentRuntime {
       threadOperationCounts.clear();
       threadGoalState.clear();
       turnState.clear();
-      backgroundWorkState.clear();
       threadEventGrammar.clear();
       await providerProcesses.shutdown();
+      for (const event of backgroundWorkState.settleAll()) {
+        options.onEvent(event);
+      }
     },
   };
 

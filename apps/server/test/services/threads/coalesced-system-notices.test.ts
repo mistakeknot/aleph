@@ -7,7 +7,9 @@ import {
   upsertHost,
 } from "@bb/db";
 import { createMigratedConnection } from "@bb/db/testing";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { setPluginThreadEventEmitter } from "../../../src/services/plugins/plugin-thread-events.js";
+import type { PluginThreadEventEmitter } from "../../../src/services/plugins/plugin-service.js";
 import { postCoalescedSystemNotice } from "../../../src/services/threads/coalesced-system-notices.js";
 
 const COALESCE_KEY = "test-notices";
@@ -41,6 +43,7 @@ function post(
   deps: Parameters<typeof postCoalescedSystemNotice>[0],
   threadId: string,
   label: string,
+  options: { withdrawWhenPending?: boolean } = {},
 ) {
   return postCoalescedSystemNotice<string[]>(deps, {
     coalesceKey: COALESCE_KEY,
@@ -52,6 +55,7 @@ function post(
       source: "client/turn/requested",
     },
     merge: (previous) => {
+      if (options.withdrawWhenPending && previous !== null) return null;
       const state = [...(previous ?? []), label];
       return {
         input: [{ type: "text", text: state.join(","), mentions: [] }],
@@ -64,6 +68,10 @@ function post(
     windowMs: 60_000,
   });
 }
+
+afterEach(() => {
+  setPluginThreadEventEmitter(undefined);
+});
 
 describe("postCoalescedSystemNotice", () => {
   it("extends one batch on the successor for notices addressed to a retired parent", () => {
@@ -81,13 +89,13 @@ describe("postCoalescedSystemNotice", () => {
     const first = post(deps, parent.id, "child-a");
     const second = post(deps, parent.id, "child-b");
 
-    expect(first.threadId).toBe(successor.id);
-    expect(second.id).toBe(first.id);
+    expect(first?.threadId).toBe(successor.id);
+    expect(second?.id).toBe(first?.id);
     expect(listQueuedThreadMessages(db, parent.id)).toEqual([]);
     const rows = listQueuedThreadMessages(db, successor.id);
     expect(rows).toHaveLength(1);
     expect(rows[0]?.coalesceState).toBe(JSON.stringify(["child-a", "child-b"]));
-    expect(second.sendAt).toBeGreaterThanOrEqual(first.sendAt);
+    expect(second?.sendAt).toBeGreaterThanOrEqual(first?.sendAt ?? 0);
     expect(notifyThread).toHaveBeenCalledWith(successor.id, ["queue-changed"]);
   });
 
@@ -98,5 +106,39 @@ describe("postCoalescedSystemNotice", () => {
     const rows = listQueuedThreadMessages(db, parent.id);
     expect(rows).toHaveLength(1);
     expect(rows[0]?.coalesceState).toBe(JSON.stringify(["child-a", "child-b"]));
+  });
+
+  it("withdraws the successor's batch through the retired parent", () => {
+    const { db, deps, notifyThread, parent, project, successor } = setup();
+    const cancelled: string[] = [];
+    setPluginThreadEventEmitter({
+      emitMessageCancelled: (entry: { id: string }) => cancelled.push(entry.id),
+      emitMessageQueued: () => {},
+    } as unknown as PluginThreadEventEmitter);
+    const retired = retireQueuedThreadMessages(db, {
+      projectId: project.id,
+      sourceThreadId: parent.id,
+      targetThreadId: successor.id,
+      operationKey: "retire-parent",
+      retireEnabled: true,
+      resolveWaitingOn: () => ({ kind: "thread-busy" }),
+    });
+    expect(retired.kind).toBe("retired");
+
+    const batch = post(deps, parent.id, "child-a");
+    expect(batch?.threadId).toBe(successor.id);
+    expect(listQueuedThreadMessages(db, successor.id)).toHaveLength(1);
+    notifyThread.mockClear();
+
+    const withdrawn = post(deps, parent.id, "child-a", {
+      withdrawWhenPending: true,
+    });
+
+    expect(withdrawn).toBeNull();
+    expect(listQueuedThreadMessages(db, successor.id)).toEqual([]);
+    expect(listQueuedThreadMessages(db, parent.id)).toEqual([]);
+    expect(cancelled).toEqual([batch?.id]);
+    expect(notifyThread).toHaveBeenCalledWith(successor.id, ["queue-changed"]);
+    expect(notifyThread).toHaveBeenCalledWith(parent.id, ["queue-changed"]);
   });
 });

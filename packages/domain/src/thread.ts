@@ -51,7 +51,6 @@ export type ThreadRuntimeState = z.infer<typeof threadRuntimeStateSchema>;
 
 export type ThreadActivityState = z.infer<typeof threadActivityStateSchema>;
 
-
 export const threadQueuedMessageSchema = z.object({
   id: z.string(),
   origin: threadCreateOriginSchema.nullable(),
@@ -82,7 +81,6 @@ export const threadQueuedMessageSchema = z.object({
    * line behind the running turn.
    */
   waitingOn: queuedMessageWaitingOnSchema.nullable(),
-  systemNotice: queuedMessageSystemNoticeSchema.nullable(),
   /**
    * Why this row's last DRAIN attempt failed outright, or null when it has not
    * failed one — which is every row that has never been re-attempted, and
@@ -96,6 +94,7 @@ export const threadQueuedMessageSchema = z.object({
    */
   failureReason: queuedMessageFailureReasonSchema.nullable(),
   payload: queuedMessagePayloadSchema,
+  systemNotice: queuedMessageSystemNoticeSchema.nullable(),
   /**
    * Whether the sender may still rewrite this row's input. Not derivable from
    * `payload` alone: a `retry` row is never editable, and an `inline` row

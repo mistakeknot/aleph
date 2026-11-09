@@ -10,6 +10,9 @@ import {
 import {
   deleteClaimedQueuedThreadMessageBatchInTransaction,
   getEnvironment,
+  getExperiments,
+  hasLiveQueuedRetry,
+  isAppUpdateSendHoldSet,
   type EnvironmentRow,
   getThread,
   isThreadQueueAutoSendPaused,
@@ -486,6 +489,9 @@ async function runDispatchAttempt(
     deliveryMode: run.deliveryMode,
   };
 
+  const retriesGoFirst = getExperiments(
+    deps.db,
+  ).resumeThreadsAfterRestart;
   const waitOn = (
     waitingOn: QueuedMessageWaitingOn,
     sendAt: number | null,
@@ -494,6 +500,8 @@ async function runDispatchAttempt(
       thread,
       requestedThreadId: args.requestedThreadId,
       message: queuedMessage,
+      placement:
+        retriesGoFirst && args.queuePayload.kind === "retry" ? "front" : "back",
       waitingOn,
       sendAt,
       claimed,
@@ -564,6 +572,22 @@ async function runDispatchAttempt(
     const sendAt = payload.sendAt ?? null;
     if (!sendNow && sendAt !== null && sendAt > Date.now()) {
       continued.outcome = waitOn({ kind: "time" }, sendAt);
+      return;
+    }
+
+    if (isAppUpdateSendHoldSet(deps.db)) {
+      continued.outcome = waitOn({ kind: "app-update" }, null);
+      return;
+    }
+
+    if (
+      claimed !== null &&
+      !sendNow &&
+      args.queuePayload.kind !== "retry" &&
+      retriesGoFirst &&
+      hasLiveQueuedRetry(deps.db, thread.id)
+    ) {
+      continued.outcome = waitOn({ kind: "thread-busy" }, null);
       return;
     }
 

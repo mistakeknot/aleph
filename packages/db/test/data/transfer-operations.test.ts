@@ -188,7 +188,6 @@ describe("unclaimed queue delivery intent", () => {
       }
       const pending = getPendingCoalescedQueuedThreadMessage(db, {
         coalesceKey: "notices",
-        now: Date.now(),
         threadId: target.id,
       });
       expect(pending).toEqual(

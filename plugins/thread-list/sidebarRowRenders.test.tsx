@@ -119,25 +119,27 @@ describe.each<OrganizationMode>(["chronological", "project"])(
   (organizationMode) => {
     it("redraws only the previously and newly selected rows", async () => {
       setPreferencesMirrorStorageForTest(null);
-      const slot = renderSlot(registration, props("thr_a"), {
-        sidebarThreads: {
-          projects: [
-            makePluginProject({
-              id: PERSONAL_PROJECT_ID,
-              name: "Personal",
-              isPersonal: true,
+      const slot = await act(async () =>
+        renderSlot(registration, props("thr_a"), {
+          sidebarThreads: {
+            projects: [
+              makePluginProject({
+                id: PERSONAL_PROJECT_ID,
+                name: "Personal",
+                isPersonal: true,
+              }),
+            ],
+            sections: [],
+            threads: THREADS,
+          },
+          rpc: {
+            listPreferences: () => ({
+              preferences: { ...defaultPreferences(), organizationMode },
             }),
-          ],
-          sections: [],
-          threads: THREADS,
-        },
-        rpc: {
-          listPreferences: () => ({
-            preferences: { ...defaultPreferences(), organizationMode },
-          }),
-          setPreference: (input: unknown) => input,
-        },
-      });
+            setPreference: (input: unknown) => input,
+          },
+        }),
+      );
       await screen.findByText("Thread e");
       await act(async () => undefined);
       await settleRowCommits();

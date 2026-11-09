@@ -138,7 +138,7 @@ const healthyPool = machine("source:account-pool", "Account Pooler", [
   provider(
     "team-claude",
     "claude-code",
-    measured("team@example.com", 97, "Max (20x)", {
+    measured("team@example.com", 97, "Ultra", {
       usedPercent: 71,
       resetsInHours: 1,
     }),
@@ -246,7 +246,7 @@ const mixedPool = machine("source:account-pool", "Account Pooler", [
   provider(
     "team",
     "claude-code",
-    twoWindows("team@example.com", 97, 71, "Max (20x)"),
+    twoWindows("team@example.com", 97, 71, "Ultra"),
   ),
   provider(
     "research-long-account-name",
@@ -317,7 +317,7 @@ function liveUsage(
 const liveCodexWork = liveUsage("work@example.com", "Pro", [
   ["Weekly limit", 74, 95.6],
 ]);
-const liveClaude = liveUsage("personal@example.com", "Max (20x)", [
+const liveClaude = liveUsage("personal@example.com", "Ultra", [
   ["Five-hour limit", 7, 2.8],
   ["Weekly limit", 10, 146.3],
   ["Weekly · Fable", 0, 146.3],
@@ -365,7 +365,7 @@ const liveMachines = [
       "pool-claude-personal",
       "claude-code",
       "personal@example.com",
-      liveUsage("personal@example.com", "Max (20x)", [
+      liveUsage("personal@example.com", "Ultra", [
         ["Five-hour limit", 7, 2.8],
         ["Weekly limit", 9, 146.3],
         ["Weekly · Fable", 0, 146.3],

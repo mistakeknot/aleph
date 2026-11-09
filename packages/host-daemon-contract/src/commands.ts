@@ -1254,6 +1254,9 @@ const threadStartResultSchema = z.object({
   providerThreadId: z.string().min(1),
 });
 export const COMPETING_TURN_ERROR_CODE = "competing_turn" as const;
+export const STEER_UNCONFIRMED_ERROR_CODE = "steer_unconfirmed" as const;
+export const TURN_START_UNCONFIRMED_ERROR_CODE =
+  "turn_start_unconfirmed" as const;
 
 const threadStopResultSchema = z
   .object({
