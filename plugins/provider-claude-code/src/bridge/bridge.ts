@@ -2534,6 +2534,7 @@ async function handleThreadFork(
     forkedProviderThreadId = await forkClaudeSession({
       configDirectory: claudeConfigDirectory(
         buildSessionEnv(readConfigEnvOverrides(params.config)),
+        params.cwd,
       ),
       sourceSessionId: params.sourceProviderThreadId,
       upToMessageId: params.sourceProviderCheckpointId,

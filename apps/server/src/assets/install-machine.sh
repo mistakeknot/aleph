@@ -1176,6 +1176,7 @@ Environment="BB_DATA_DIR=$escaped_data_dir"
 Restart=always
 RestartSec=2
 TimeoutStopSec=3900
+OOMPolicy=continue
 
 [Install]
 WantedBy=$service_target

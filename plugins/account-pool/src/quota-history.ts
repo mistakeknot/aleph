@@ -33,23 +33,11 @@ function quotaWindows(quota: AccountQuota): Array<{
   utilization: number | null;
   resetAt: number | null;
 }> {
-  return [
-    {
-      windowKey: "five-hour",
-      utilization: quota.fiveHourUtilization,
-      resetAt: quota.fiveHourResetAt,
-    },
-    {
-      windowKey: "seven-day",
-      utilization: quota.sevenDayUtilization,
-      resetAt: quota.sevenDayResetAt,
-    },
-    ...quota.limitWindows.map((window) => ({
-      windowKey: window.slot,
-      utilization: window.utilization,
-      resetAt: window.resetAt,
-    })),
-  ];
+  return quota.limitWindows.map((window) => ({
+    windowKey: window.slot,
+    utilization: window.utilization,
+    resetAt: window.resetAt,
+  }));
 }
 
 export class QuotaSampler {

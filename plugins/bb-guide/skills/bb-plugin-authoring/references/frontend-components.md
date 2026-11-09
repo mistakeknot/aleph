@@ -108,8 +108,8 @@ routing?, allowProviderChange?, align?, disabled?, className? }`, where `routing
   as the Worktree provider does.
 - `experimental_useBranches({ hostId, projectId, query? })` — returns
   `{ branches, remoteBranches, isLoading, refresh }` for the same project-source
-  query as the host picker. `refresh()` performs a blocking refresh from the
-  enrolled machine. Use this when the plugin owns the menu or selection model.
+  query as the host picker. `refresh()` performs a blocking fetch of `origin` (or
+  the only remote when there is no `origin`) on the enrolled machine. Use this when the plugin owns the menu or selection model.
 - `experimental_useCheckoutState({ hostId, projectId })` — returns
   `{ isGit, unborn, detached, dirty, currentBranch, operation }`. Combine it
   with `experimental_useBranches` for checkout-specific controls. The Project
@@ -255,7 +255,10 @@ className?, draftKey? }` — the `default*` props are SEEDS, not controlled
   seeds the draft only while it is still empty; `layout` is `"contained"`
   (default) or `"document"` like `ThreadChat`; `focusRequest` is a
   change-detected nonce that focuses the editor; `draftKey` picks where the
-  draft persists (default: a key scoped to your plugin).
+  draft persists (default: a key scoped to your plugin). The project selector
+  offers the same "New project" entry as bb's main new-thread view; the
+  project it creates becomes this composer's selection without navigating
+  away.
 
   This component has no plugin composer-host binding. Composer customizations
   and `useComposer()` writes do not reach this composer instance.

@@ -50,6 +50,7 @@ const POST_ORACLE_UPSTREAM = [
   "0149_coalesced_system_notices",
   "0150_thread_status_changed_at",
   "0151_hand_diff_viewed_files_to_git_plugin",
+  "0152_small_storage_cleanups",
 ];
 const POST_ORACLE_PLAN_IDS = [
   "A0011",
@@ -57,6 +58,7 @@ const POST_ORACLE_PLAN_IDS = [
   "A0013",
   "A0014",
   "0151_hand_diff_viewed_files_to_git_plugin",
+  "0152_small_storage_cleanups",
   "0145_terminal_sessions_status_thread_index",
   "0146_diff_viewed_files",
   "0147_git_and_pr_status_plugin_show_settings",
@@ -362,7 +364,7 @@ describe("the real migration plan", () => {
 
   it("reads each source file's hash into the plan", () => {
     const input = loadMigrationPlanInput(sourceFolders);
-    expect(input.upstream).toHaveLength(152);
+    expect(input.upstream).toHaveLength(153);
     expect(input.aleph).toHaveLength(14);
     const plan = loadMigrationPlan(sourceFolders);
     for (const step of plan.steps) {

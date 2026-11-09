@@ -1355,7 +1355,7 @@ describe("guardPlan", () => {
     });
 
     it("refuses a control character in a new Aleph step", () => {
-      const input = extend([], [alephStep("A0015", "0151_hand_diff_viewed_files_to_git_plugin", lastWhen + 1)]);
+      const input = extend([], [alephStep("A0015", "0152_small_storage_cleanups", lastWhen + 1)]);
       expect(() =>
         guardInput(
           input,
@@ -1366,7 +1366,7 @@ describe("guardPlan", () => {
     });
 
     it("accepts a new Aleph step without control characters", () => {
-      const input = extend([], [alephStep("A0015", "0151_hand_diff_viewed_files_to_git_plugin", lastWhen + 1)]);
+      const input = extend([], [alephStep("A0015", "0152_small_storage_cleanups", lastWhen + 1)]);
       expect(() =>
         guardInput(input, "SELECT 1;", "CREATE TABLE intended_new_table(id);"),
       ).not.toThrow();
@@ -1419,7 +1419,7 @@ describe("guardPlan", () => {
         buildMigrationPlan(input)
           .steps.map((step) => step.id)
           .slice(-3),
-      ).toEqual(["0151_hand_diff_viewed_files_to_git_plugin", "0148_first", "A0015"]);
+      ).toEqual(["0152_small_storage_cleanups", "0148_first", "A0015"]);
       expect(() => guardInput(input)).not.toThrow();
     });
 
@@ -1451,7 +1451,7 @@ describe("guardPlan", () => {
         aleph: [
           ...base.aleph,
           {
-            ...alephStep("A0015", "0151_hand_diff_viewed_files_to_git_plugin", lastWhen + 20),
+            ...alephStep("A0015", "0152_small_storage_cleanups", lastWhen + 20),
             supersedes: "0148_first",
           },
         ],

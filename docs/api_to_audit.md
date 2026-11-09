@@ -1308,6 +1308,91 @@ can close (then `HOST_DAEMON_COMPATIBLE_PROTOCOL_VERSIONS` goes back to the
 current version only). Decide whether the Cloudflare machine tunnel should
 move onto the same frpc runner once next replaces it.
 
+## `app.slots.internal_DO_NOT_USE_setupGuideSection` (`@get-bb/plugin-sdk/app`)
+
+Internal to bb's bundled `connect` plugin: the `internal_DO_NOT_USE_` prefix marks members that are not part of the plugin API, are not offered to third-party plugins, and may change or disappear in any release.
+
+`internal_DO_NOT_USE_setupGuideSection({ id, component })` registers one row
+for the first-run setup guide's "Where you use bb" group. Core renders the
+group heading and the `<ul>`; the component renders the `<li>` (the connect
+plugin uses `SetupOptionRow` from `@bb/shared-ui/setup-option-row`). The
+component receives `InternalDoNotUseSetupGuideSectionProps`:
+`{ onPhone, onSetupStarted, onSetupFailed }`. `onPhone` is true when the guide
+is open on a phone, so the row hides install links and phone pairing. The row
+calls `onSetupStarted()` when the user starts setting it up and
+`onSetupFailed(stage)` (`InternalDoNotUseSetupFailureStage`: `sign_in`,
+`pairing`, or `turn_on`) when an attempt fails, so the guide can record the
+step. Core's `PluginSetupGuideSections` renders a plugin's rows through
+the ordinary plugin slot boundary.
+
+Callers: the bundled `connect` plugin only. Core caller: the onboarding
+Devices step, which renders `PluginSetupGuideSections` for `connect`.
+
+**Audit before stabilizing.** Decide whether other plugins should contribute
+setup guide rows, which groups they may target, and whether the guide should
+own the row chrome instead of the plugin rendering `SetupOptionRow`.
+
+## `PluginSettingsSectionProps.internal_DO_NOT_USE_onSetupStarted` and `internal_DO_NOT_USE_onSetupFailed` (`@get-bb/plugin-sdk/app`)
+
+Internal to bb's bundled `connect` plugin: the `internal_DO_NOT_USE_` prefix marks members that are not part of the plugin API, are not offered to third-party plugins, and may change or disappear in any release.
+
+`internal_DO_NOT_USE_onSetupStarted` is set only when the setup guide renders a
+plugin's settings section inline (the current guide's Devices step expands the
+bb connect settings under Set up). The section calls it when the user actually
+starts setting up: bb connect calls it when getbb.app sign-in starts, a pairing
+code is submitted, or Turn on is pressed, so the current guide records
+`remote_access` `started` at the same moment as the redesigned guide's
+`onSetupStarted`. `internal_DO_NOT_USE_onSetupFailed(stage)` is its failure
+counterpart, called with the same `InternalDoNotUseSetupFailureStage` the
+redesigned guide's `onSetupFailed` receives (`sign_in` when getbb.app sign-in
+can't start or ends denied, expired, or failed; `pairing` when a pairing code
+is rejected; `turn_on` when turning remote access on fails). Core's
+`PluginSettingsSections` passes them through its `onSetupStarted` and
+`onSetupFailed` props; Settings never sets them.
+
+Callers: the bundled `connect` plugin only. Core caller: the onboarding
+Devices step (current guide), which renders `PluginSettingsSections` for
+`connect`.
+
+**Audit before stabilizing.** Decide whether the setup guide should render
+setup guide rows in both variants instead, which would make this prop
+unnecessary.
+
+## `PluginProviderDeclaration.internal_DO_NOT_USE_guidedSignIn` and `SystemProviderState.internal_DO_NOT_USE_guidedSignIn`
+
+Internal to bb's own provider plugins: the `internal_DO_NOT_USE_` prefix marks members that are not part of the plugin API, are not offered to third-party plugins, and may change or disappear in any release.
+
+A provider declaration sets `internal_DO_NOT_USE_guidedSignIn: true` when the
+redesigned first-run setup guide should run its sign-in in the guided panel:
+the guide runs the provider's login command, keeps its terminal behind Show
+terminal, reads the sign-in link and code from the output, and shows them in
+the row. Every other provider is terminal-first: the guide opens the login
+terminal in the row. The validator fills `false` when the field is absent and
+refuses a non-boolean. The server keeps it on the provider registration and
+projects it onto every provider-states row (`GET /system/provider-states`) as
+a required boolean, so the Agent step's row and its sign-in mode come from the
+same response. It is not part of `ProviderInfo`. Today's guide ignores it.
+
+Callers: `provider-claude-code`, `provider-codex`, and `provider-acp` for its
+Cursor agent only. Core caller: the onboarding Agent step
+(`OnboardingFlow`), which reads `SystemProviderState.internal_DO_NOT_USE_guidedSignIn`
+instead of a list of provider ids.
+
+**Audit before stabilizing.** Decide whether the provider should describe its
+sign-in output itself (link and code patterns, or a structured sign-in
+request from the bridge) instead of core parsing terminal text, and whether
+Pi's terminal `/login` flow belongs in the same declaration.
+
+## `ProviderHealth.internal_DO_NOT_USE_setupGuidePlanLabel` and `SystemProviderState.internal_DO_NOT_USE_setupGuidePlanLabel`
+
+Internal to bb's own provider plugins: the `internal_DO_NOT_USE_` prefix marks members that are not part of the plugin API, are not offered to third-party plugins, and may change or disappear in any release.
+
+A provider bridge's health result may set `internal_DO_NOT_USE_setupGuidePlanLabel` to a plan name (for example "Plus") that only the redesigned first-run setup guide shows next to the account on a ready agent row. `planLabel` keeps its existing meaning, so today's guide and every other surface show what they showed before. The field is optional on the bridge result and passes through older daemons unchanged; the server fills `null` when it is absent, so provider-states rows always carry it.
+
+Callers: `provider-codex` only (its ChatGPT plan). Core caller: the new guide's Agent step (`OnboardingFlow`), which prefers it over `planLabel`.
+
+**Audit before stabilizing.** Decide whether the plan should become part of `planLabel` everywhere (Settings, today's guide) and the field be removed.
+
 ## Bridge record mode (`experimental_recordProviderChildIo` and `experimental_isProviderBridgeRecording`)
 
 **Kept experimental (2026-08-22).** The recording entry shape is a de-facto
@@ -3052,9 +3137,10 @@ off by default. The row grows to two lines only
 while an item draws something, the line is hidden while the row is renamed or
 customized, and clicks on it go through the row's own click handling. The
 GitHub PR Status plugin registers the first item: the current-branch pull
-request's `#number` in the state's color (a draft's in the subtle foreground), plus a yellow
-dot while an open or draft PR's checks run or a red cross when they fail or the
-PR has conflicts (passing checks show nothing), from one `useData` read of
+request's `#number` in the state's color (a draft's in the subtle foreground), plus a red
+cross when an open or draft PR needs action (failing checks, changes requested,
+conflicts, behind its base or blocked by rules) or else a yellow dot while its checks run,
+from one `useData` read of
 every listed environment. No core row indicator moved into the slot: the status
 glyph, split mini-map, shortcut pill and hover actions share the row's fixed
 trailing box, the cross-project icon depends on the row's position in the
@@ -4017,12 +4103,33 @@ through `provider-cli-install-store`), `NewThreadComposer`'s `new_thread_submit`
 `PluginCreateButton`'s `plugin_creation_started`, and Settings → Updates'
 changelog (`release_notes_opened`, inline or on the web). `bb plugin new` sends
 `plugin_creation_started` through the same SDK method. The setup guide's
-Plugins step reports `recommendation` `shown` and `selected` with a per-visit
-`recommendation_id`; `selected` also stores that id in server-owned settings
+Plugins step reports `recommendation` `shown`, `selected` and `deselected`
+(a featured plugin switched back off) with a per-visit `recommendation_id`; `selected` also stores that id in server-owned settings
 until the plugin's next use, disable or uninstall. `NewThreadComposer` also
 reports `new_thread_blocker` once per blocker reason while a draft exists.
+`onboarding_agent_state` adds `agent_statuses`, each agent's provider status
+by id; the server keeps only shipped agent ids.
 `onboarding_operation` reports a guide action's started, succeeded or failed
-outcome with only a public agent id or counts.
+outcome with only a public agent or plugin id or counts and, for the Projects
+step, whether the scan ran out of time and how many folders it could not open.
+A failed operation or `onboarding_sign_in` adds a `failure_reason` from a fixed
+set (`no_host`, `host_unavailable`, `timed_out`, `not_found`, `permission`,
+`command_failed`, `unsupported`, or `other`); a failed `remote_access` adds a
+`failure_stage` (`sign_in`, `pairing`, or `turn_on`) instead.
+`onboarding_left` reports the step a guide was on when the page unloaded
+before the guide finished; it passes the optional second argument
+`{ keepalive: true }`, which sends the request with `fetch`'s `keepalive` so it
+outlives the page. A failed `new_thread_submit` may add `failure_reason` from
+the same fixed set.
+`onboarding_error` reports `kind` (`render`, `uncaught` or
+`unhandled_rejection`) with the guide's step, from `OnboardingErrorTelemetry`
+around the guide in `OnboardingGate`, which reports and rethrows render errors
+and listens for window errors only while the guide is open.
+`onboarding_exposed` (`entry`) marks the guide being shown; the server saves
+the assignment, adds `setup_guide_variant` and `setup_guide_source`, sets
+`setup_guide_variant` as a person property (`$set`), and sends
+`$feature_flag_called` when the variant came from the PostHog flag. Every
+setup-guide event gets `setup_guide_variant` from the server.
 
 Stabilize after deciding whether third-party plugins may emit product events
 at all and, if so, how they are namespaced and rate limited.
@@ -4117,7 +4224,9 @@ remove this entry.
 repositories under the machine's home directory with local activity in the
 last 30 days, newest first, each with `path`, `name`, `lastActivityAt`,
 `originUrl`, and the bound `projectId` or null; `truncated` reports an
-exhausted three-second walk budget. The walk skips dot, build, and scratch
+exhausted three-second walk budget, and `unreadableCount` counts folders the
+scan was not allowed to open (`EACCES`/`EPERM`, such as macOS
+privacy-protected folders). The walk skips dot, build, and scratch
 directories, linked worktrees, and submodules. Core callers: the setup guide
 (`OnboardingFlow`) and `bb project discover`; it rides the
 `host.discover_repos` daemon command.
@@ -4418,6 +4527,24 @@ own value, so plugins built against the old constant keep working.
 - **Behavior:** a registration is `{ id, title, group, order?, summary, action?, details?, useVisible? }`. Segments share the context row above an existing thread's composer, and the host mounts each component in its own crash boundary: `summary` in the row (wrapped in a group named by `title`), `action` at the row's end after every summary, and `details` below the row. Segments sort like Info rows and thread actions: by `group` (string compare), then `order` within it (unset last), then registration order, core first on a tie. Core's groups are `experimental_THREAD_CONTEXT_SEGMENT_GROUPS`: `thread` (`1_thread`: parent thread) and `git` (`3_git`: changed files). The constant names only groups core renders; a plugin names its own group, placed where its string sorts. Each entry of `segments` is `{ key, pluginId }` with `key` `<pluginId>/<id>`, the key shape thread actions use; core's segments use `bb--core`. `useVisible(input)` runs in plugin scope per thread; false, or a crash, leaves the segment out of the row and of `segments`. Props carry `threadId`, `projectId`, `environment`, the visible `segments` in row order, and the shared disclosure state: one segment of the row is expanded at a time, keyed by `key`. `environment` is `{ id }`, or null when the thread has no environment, its host is not active, or the environment is not a usable checkout. The row is withheld while core's workspace status loads and while a question is pending, and read-only history (archived thread or gone environment) shows core's parent thread only. The banner renders under every composer plugin, because the host draws it above `ComposerBox`.
 - **Core callers:** `ThreadPromptContextBanner` (`apps/app/src/components/promptbox/banner/ThreadPromptContextBanner.tsx`) registers the parent thread (summary and details, including read-only history) and changed files (summary, merge-base action, details) through `definePluginApp` and the same collector, and renders them with plugin registrations through `useThreadContextSegments` and `ThreadContextSegmentMount` (`apps/app/src/components/plugin/PluginThreadContextSegments.tsx`). Core segments read pane-local data from a React context and render without a plugin crash boundary, as core Info rows do. The GitHub PR Status plugin registers the pull request segment in its own group `2_pullRequest`, between core's two and its Mark ready and merge actions. Active child threads are a separate core row above the context row (`ThreadChildThreadsBanner`), not a segment. Contract tests: `ThreadPromptContextBanner.segments.test.tsx`.
 - **Stabilization:** audit per-component mounts and crash recovery across reloads and plugin disable, `segments` stability while visibility settles, focus handoff between a plugin's summary and details, independent panes, and compact widths with several plugin segments. Then rename project-wide and remove this entry.
+
+## Collapsible stack card (`experimental_CollapsibleStackCard`)
+
+- **Surface:** `PluginSdkApp.experimental_CollapsibleStackCard`, `ExperimentalCollapsibleStackCardProps` and `ExperimentalCollapsibleStackCardDismiss`.
+- **Behavior:** bb's collapsible card for the stack above a thread's composer. Props are `{ label, title, icon, isActive, dismiss?, children }`. The card and its toggle are named by `label`; the header shows `icon` and `title`, in bb's working style when `isActive` and muted otherwise, and toggles `children`. The card starts collapsed and keeps its expansion while mounted. `dismiss` is `{ label, failureMessage, onDismiss }`: a header button named by `label` that bb disables, with a spinner, until `onDismiss()` settles, and on rejection bb shows its mutation error toast with `failureMessage` as the fallback. A plugin renders it from a thread-scoped composer banner with `chrome: "bare"`, which places it with the other plugin banners above bb's own stacked cards.
+- **Core callers:** bb's Plan mode card (`apps/app/src/components/promptbox/banner/ThreadPromptModeCard.tsx`) renders through the same `CollapsibleStackCard` (`apps/app/src/components/promptbox/banner/CollapsibleStackCard.tsx`). The Codex provider plugin's Goal banner renders it. Tests: `ThreadPromptModeCard.test.tsx` (expansion, pending dismiss, failure toast) and the Codex plugin's `goal-card.test.tsx`.
+- **Stabilization:** decide whether bb's workflow, background command and todo cards should use it too, whether banners need a placement among bb's cards, and whether `dismiss` should support a confirmation. Then rename project-wide and remove this entry.
+
+## Thread extension state (`experimental_useThreadExtensionState`)
+
+- **Surface:** `PluginSdkApp.experimental_useThreadExtensionState(threadId, kind)` and the timeline response's `extensionStates` window field (`@bb/server-contract`).
+- **Behavior:** returns the latest `extension.state` payload the calling plugin's provider bridge emitted for its declared kind `kind` (the local name; the host prefixes the calling plugin's id, so a plugin reads only its own kinds), or null when there is none or the last payload was null. The server fills `extensionStates` on the latest timeline page with the latest state of each kind the thread's provider declares with a `state` schema, keyed by the namespaced kind; older pages carry `{}`. Payloads are JSON that already passed the kind's schema, typed `unknown` for the caller to parse. The hook reads the thread's cached timeline query without refetching on mount, so it follows the timeline's live updates while bb shows the thread and is not a general-purpose read for threads bb is not showing.
+- **Core callers:** none. bb's own state kinds (provider commands, session options, todos) keep their typed timeline fields; the Codex Goal banner is the first caller.
+- **Stabilization:** decide whether the hook needs a batched form for thread lists, and whether kinds declared by another installed provider should be readable. Then rename project-wide and remove this entry.
+
+## Retired Goal activity (`PluginSidebarThreadActivity.goals`, the `goal` sidebar indicator)
+
+bb no longer tracks provider Goals in core: the Codex plugin draws its own Goal card, and the sidebar no longer shows a Goal glyph, so a Goal thread shows bb's ordinary working indicator. `ThreadActivityState.activeGoalCount` is gone from the thread list API. `goals` is gone from the `PluginSidebarThreadActivity` typings, but the host still sends `goals: 0` in every thread's `activity` at runtime (`apps/app/src/lib/plugin-sidebar-threads.ts`), so already-built plugins that read it keep running; `"goal"` is gone from `PluginSidebarThreadIndicator` and is never reported. A provider plugin reads its own Goal state with `experimental_useThreadExtensionState`. Stop sending `goals` at the next major.
 
 ## Provider skills index
 

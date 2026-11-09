@@ -109,6 +109,7 @@ describe("delivery mode upgrade from the previous Aleph main", () => {
           "0149_coalesced_system_notices",
           "0150_thread_status_changed_at",
           "0151_hand_diff_viewed_files_to_git_plugin",
+          "0152_small_storage_cleanups",
         ],
       ],
       [
@@ -126,6 +127,7 @@ describe("delivery mode upgrade from the previous Aleph main", () => {
           "0149_coalesced_system_notices",
           "0150_thread_status_changed_at",
           "0151_hand_diff_viewed_files_to_git_plugin",
+          "0152_small_storage_cleanups",
         ],
       ],
     ];
@@ -177,7 +179,7 @@ describe("delivery mode upgrade from the previous Aleph main", () => {
             "SELECT created_at FROM __drizzle_migrations ORDER BY created_at DESC LIMIT 1",
           )
           .get(),
-      ).toEqual({ created_at: 1793738260717 });
+      ).toEqual({ created_at: 1793861269499 });
       expect(
         db.$client
           .prepare(

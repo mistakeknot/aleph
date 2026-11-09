@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import {
   encodeClientTurnRequestIdNumber,
@@ -12,6 +13,7 @@ import {
   deleteThreadEventSuffixInTransaction,
   getLatestThreadSequence,
   noopNotifier,
+  threads,
 } from "@bb/db";
 import { pruneThreadEventHistory } from "../../../src/services/system/event-pruning.js";
 import {
@@ -44,6 +46,7 @@ import {
 
 interface BuildArgs {
   eventBudget: number;
+  extensionStateKinds?: readonly string[];
   includeDiagnosticOperations: boolean;
   maxSeq?: number;
   page: ThreadTimelinePageRequest;
@@ -662,6 +665,8 @@ function latestArgs(
   };
 }
 
+const CODEX_GOAL_KIND = "provider-codex/goal";
+
 const singleSegmentArgs: BuildArgs = {
   eventBudget: 200,
   includeDiagnosticOperations: false,
@@ -697,10 +702,23 @@ function planStepsRow(turnId: string, id: string, step: string): RowSpec {
   });
 }
 
+function advanceSettledThreadPruning(
+  testThread: TestThread,
+  policy: "resolved-items" | "usage",
+) {
+  testThread.db
+    .update(threads)
+    .set({ status: "idle" })
+    .where(eq(threads.id, testThread.thread.id))
+    .run();
+  return advanceThreadPruning(testThread.db, policy);
+}
+
 function pruneUsageSnapshots(testThread: TestThread): void {
   for (let pass = 0; pass < 100; pass += 1) {
     if (
-      advanceThreadPruning(testThread.db, "usage").action === "cycle-complete"
+      advanceSettledThreadPruning(testThread, "usage").action ===
+      "cycle-complete"
     )
       return;
   }
@@ -976,6 +994,10 @@ describe("latest timeline selection memo", () => {
   it("rebuilds a snapshot below the head without leaking later head state, and reuses at the head", () => {
     withTestThread((testThread) => {
       const state = initialState();
+      const args: BuildArgs = {
+        ...singleSegmentArgs,
+        extensionStateKinds: [CODEX_GOAL_KIND],
+      };
       append(testThread, [
         ...startTurn(state),
         goalRow(testThread.thread.id, "first goal"),
@@ -995,15 +1017,15 @@ describe("latest timeline selection memo", () => {
       ]);
       const initial = expectWarmEqualsCold(
         testThread,
-        singleSegmentArgs,
+        args,
         "initial",
       );
       expect({
-        goal: initial.response.goal?.objective,
+        goal: initial.response.extensionStates[CODEX_GOAL_KIND],
         todos: initial.response.pendingTodos?.items.map((item) => item.text),
         workflows: initial.response.activeWorkflows.map((row) => row.itemId),
       }).toEqual({
-        goal: "first goal",
+        goal: expect.objectContaining({ objective: "first goal" }),
         todos: ["Ship it", "Ship it docs"],
         workflows: ["task:wf-1"],
       });
@@ -1018,25 +1040,29 @@ describe("latest timeline selection memo", () => {
       ]);
       const lagging = expectWarmEqualsCold(
         testThread,
-        { ...singleSegmentArgs, maxSeq: laggingSeq },
+        { ...args, maxSeq: laggingSeq },
         "lagging snapshot",
       );
       expect(selectionWasReused(lagging.profile)).toBe(false);
       expect({
         activeWorkflows: lagging.response.activeWorkflows,
-        goal: lagging.response.goal?.objective,
+        extensionStates: lagging.response.extensionStates,
         maxSeq: lagging.response.maxSeq,
         todos: lagging.response.pendingTodos?.items.map((item) => item.text),
       }).toEqual({
         activeWorkflows: [],
-        goal: "first goal",
+        extensionStates: {
+          [CODEX_GOAL_KIND]: expect.objectContaining({
+            objective: "first goal",
+          }),
+        },
         maxSeq: laggingSeq,
         todos: ["Ship it", "Ship it docs"],
       });
 
-      expectWarmEqualsCold(testThread, singleSegmentArgs, "head snapshot");
+      expectWarmEqualsCold(testThread, args, "head snapshot");
       append(testThread, [messageDelta("turn-2", "message-2", "four\n")]);
-      const head = expectWarmEqualsCold(testThread, singleSegmentArgs, "head");
+      const head = expectWarmEqualsCold(testThread, args, "head");
       expect(selectionWasReused(head.profile)).toBe(true);
     });
   });
@@ -1145,18 +1171,8 @@ describe("latest timeline selection memo", () => {
   it.each([
     {
       name: "resolved deltas are pruned",
-      rewrite: (testThread: TestThread) => {
-        const setStatus = testThread.db.$client.prepare(
-          "UPDATE threads SET status = ? WHERE id = ?",
-        );
-        setStatus.run("idle", testThread.thread.id);
-        const { removed } = advanceThreadPruning(
-          testThread.db,
-          "resolved-items",
-        );
-        setStatus.run("active", testThread.thread.id);
-        return removed;
-      },
+      rewrite: (testThread: TestThread) =>
+        advanceSettledThreadPruning(testThread, "resolved-items").removed,
     },
     {
       name: "another connection deletes a delta",

@@ -150,6 +150,8 @@ export const systemProviderStateSchema = providerHealthSchema.extend({
   providerId: z.string().min(1),
   displayName: z.string().min(1),
   localLoginCommand: z.string().min(1).nullable(),
+  internal_DO_NOT_USE_guidedSignIn: z.boolean(),
+  internal_DO_NOT_USE_setupGuidePlanLabel: z.string().min(1).nullable(),
 });
 export type SystemProviderState = z.infer<typeof systemProviderStateSchema>;
 
@@ -224,9 +226,24 @@ const onboardingStepTelemetryPropertiesSchema = z
   })
   .strict();
 
+const onboardingFailureReasonTelemetrySchema = z.enum([
+  "no_host",
+  "host_unavailable",
+  "timed_out",
+  "not_found",
+  "permission",
+  "command_failed",
+  "unsupported",
+  "other",
+]);
+
 const telemetryResourceIdSchema = z
   .string()
   .regex(/^[a-z0-9][a-z0-9_-]{0,127}$/);
+
+const agentStatusesTelemetrySchema = z
+  .record(z.string().min(1).max(256), providerHealthSchema.shape.status)
+  .refine((statuses) => Object.keys(statuses).length <= 64);
 
 const releaseVersionTelemetrySchema = z
   .string()
@@ -242,7 +259,7 @@ export const recordTelemetryEventRequestSchema = z.discriminatedUnion("name", [
           resource_type: z.enum(["plugin"]),
           resource_id: telemetryResourceIdSchema,
           recommendation_id: z.string().regex(/^[A-Za-z0-9_-]{21}$/),
-          action: z.enum(["shown", "selected"]),
+          action: z.enum(["shown", "selected", "deselected"]),
           surface: z.enum(["onboarding"]),
           entry: onboardingEntryTelemetrySchema,
         })
@@ -263,11 +280,19 @@ export const recordTelemetryEventRequestSchema = z.discriminatedUnion("name", [
             "import",
             "remote_access",
             "add_machine",
+            "enable",
+            "disable",
+            "load",
+            "finish",
           ]),
           outcome: z.enum(["started", "succeeded", "failed"]),
           resource_id: telemetryResourceIdSchema.optional(),
           item_count: z.number().int().nonnegative().optional(),
           succeeded_count: z.number().int().nonnegative().optional(),
+          timed_out: z.boolean().optional(),
+          unreadable_count: z.number().int().nonnegative().optional(),
+          failure_reason: onboardingFailureReasonTelemetrySchema.optional(),
+          failure_stage: z.enum(["sign_in", "pairing", "turn_on"]).optional(),
         })
         .strict(),
     })
@@ -280,6 +305,7 @@ export const recordTelemetryEventRequestSchema = z.discriminatedUnion("name", [
           entry: onboardingEntryTelemetrySchema,
           agent_installed: z.boolean().nullable(),
           agent_ready: z.boolean().nullable(),
+          agent_statuses: agentStatusesTelemetrySchema.optional(),
         })
         .strict(),
     })
@@ -297,6 +323,8 @@ export const recordTelemetryEventRequestSchema = z.discriminatedUnion("name", [
             "failed",
             "cancelled",
           ]),
+          resource_id: telemetryResourceIdSchema,
+          failure_reason: onboardingFailureReasonTelemetrySchema.optional(),
         })
         .strict(),
     })
@@ -322,9 +350,21 @@ export const recordTelemetryEventRequestSchema = z.discriminatedUnion("name", [
   z
     .object({
       name: z.literal("new_thread_submit"),
-      properties: z
-        .object({ outcome: z.enum(["started", "accepted", "failed"]) })
-        .strict(),
+      properties: z.discriminatedUnion("outcome", [
+        z.object({ outcome: z.enum(["started", "accepted"]) }).strict(),
+        z
+          .object({
+            outcome: z.literal("failed"),
+            failure_reason: onboardingFailureReasonTelemetrySchema.optional(),
+          })
+          .strict(),
+      ]),
+    })
+    .strict(),
+  z
+    .object({
+      name: z.literal("onboarding_exposed"),
+      properties: z.object({ entry: onboardingEntryTelemetrySchema }).strict(),
     })
     .strict(),
   z
@@ -367,6 +407,24 @@ export const recordTelemetryEventRequestSchema = z.discriminatedUnion("name", [
     .strict(),
   z
     .object({
+      name: z.literal("onboarding_left"),
+      properties: onboardingStepTelemetryPropertiesSchema,
+    })
+    .strict(),
+  z
+    .object({
+      name: z.literal("onboarding_error"),
+      properties: z
+        .object({
+          step: onboardingStepTelemetrySchema,
+          entry: onboardingEntryTelemetrySchema,
+          kind: z.enum(["render", "uncaught", "unhandled_rejection"]),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
       name: z.literal("release_notes_opened"),
       properties: z
         .object({
@@ -385,6 +443,16 @@ export const recordTelemetryEventRequestSchema = z.discriminatedUnion("name", [
 ]);
 export type RecordTelemetryEventRequest = z.infer<
   typeof recordTelemetryEventRequestSchema
+>;
+
+export const setupGuideVariantSchema = z.enum(["control", "new"]);
+export type SetupGuideVariant = z.infer<typeof setupGuideVariantSchema>;
+
+export const systemSetupGuideResponseSchema = z.object({
+  variant: setupGuideVariantSchema,
+});
+export type SystemSetupGuideResponse = z.infer<
+  typeof systemSetupGuideResponseSchema
 >;
 
 export const serverAccessStatusSchema = z.object({
@@ -618,7 +686,12 @@ export const systemAppUpdateStatusSchema = z.object({
   current: systemAppUpdateRevisionSchema,
   lastResult: systemAppUpdateResultSchema.nullable(),
   runningThreadCount: z.number().int().nonnegative(),
-  scheduled: z.object({ requestedAt: z.string() }).nullable(),
+  scheduled: z
+    .object({
+      requestedAt: z.string(),
+      requiredIdleMs: z.number().int().nonnegative(),
+    })
+    .nullable(),
   support: systemAppUpdateSupportSchema,
 });
 export type SystemAppUpdateStatus = z.infer<typeof systemAppUpdateStatusSchema>;

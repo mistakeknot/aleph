@@ -620,6 +620,13 @@ copies `diff_viewed_files` into the git plugin's key-value store and drops the
 table; it touches no Aleph-altered table, so it joined `frozen-upstream.json`
 unchanged and no Aleph step was added.
 
+The upstream 0.49.0 sync (part 4) adds upstream 0152
+(`small_storage_cleanups`), which clears two maintenance cursors and adds a
+partial index on exited terminal sessions. It touches no Aleph-altered table, so
+it joined `frozen-upstream.json` unchanged at upstream's timestamp, above the
+preceding ceiling, and no Aleph step was added. Its tag differs from the legacy
+chain's `0152_event_cold_tier`.
+
 ### Namespaced migration runner (mk-knexd)
 
 `packages/db/src/migration-runner.ts` (with `migration-plan.ts`,

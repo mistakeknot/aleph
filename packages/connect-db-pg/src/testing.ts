@@ -1,56 +1,132 @@
+import { rmSync } from "node:fs";
+import { readFile, writeFile } from "node:fs/promises";
 import { builtinModules } from "node:module";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
-import {
-  type PgQueryable,
-  type SqlBackend,
-  pgBackend,
-} from "@bb/connect-db/store";
-import { applyConnectDbPgMigrations } from "./migrate.js";
+import { type ConnectDb, schema } from "@bb/connect-db";
+import { getTableName } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/pglite";
+import { applyConnectDbMigrations } from "./migrate.js";
+import type { PgQueryable } from "./pg-client.js";
+import { pgliteQueryable } from "./pglite.js";
+import { servePglite } from "./wire-server.js";
 
-const INT8_OID = 20;
+export { pgliteQueryable };
 
-export interface PgliteConnectDb {
-  pglite: PGlite;
-  queryable: PgQueryable;
-  backend: SqlBackend;
-  close(): Promise<void>;
+const SCHEMA_FINGERPRINT = `SELECT md5(
+  coalesce((SELECT string_agg(table_name || '.' || column_name || ':' || data_type || ':' || is_nullable, ',' ORDER BY table_name, column_name)
+    FROM information_schema.columns WHERE table_schema = 'public'), '')
+  || coalesce((SELECT string_agg(tgname, ',' ORDER BY tgname) FROM pg_trigger WHERE NOT tgisinternal), '')
+) AS fingerprint`;
+
+const DATA_TABLES = Object.values(schema)
+  .map((table) => `"${getTableName(table)}"`)
+  .join(", ");
+
+const TEMPLATE_PATH_ENV = "BB_TEST_CONNECT_DB_TEMPLATE";
+
+let template: Promise<Blob> | null = null;
+let templateFingerprint: string | null = null;
+const idle: PGlite[] = [];
+
+async function fingerprint(pglite: PGlite): Promise<string> {
+  const { rows } = await pglite.query<{ fingerprint: string }>(
+    SCHEMA_FINGERPRINT,
+  );
+  return rows[0]?.fingerprint ?? "";
 }
 
-export function pgliteQueryable(pglite: PGlite): PgQueryable {
-  return {
-    async queryArrays(text, params) {
-      const result = await pglite.query<unknown[]>(text, [...params], {
-        rowMode: "array",
-        parsers: { [INT8_OID]: (value: string) => Number(value) },
-      });
-      return { rows: result.rows, rowCount: result.affectedRows ?? 0 };
-    },
-  };
-}
-
-let migratedDataDir: Promise<Blob> | undefined;
-
-async function createMigratedDataDir(): Promise<Blob> {
+async function buildTemplate(): Promise<Blob> {
   const pglite = new PGlite();
   try {
-    await applyConnectDbPgMigrations(pgliteQueryable(pglite));
+    await applyConnectDbMigrations(pgliteQueryable(pglite));
     return await pglite.dumpDataDir("none");
   } finally {
     await pglite.close();
   }
 }
 
-export async function createMigratedPglite(): Promise<PgliteConnectDb> {
-  const pglite = new PGlite({
-    loadDataDir: await (migratedDataDir ??= createMigratedDataDir()),
-  });
+function migratedTemplate(): Promise<Blob> {
+  template ??= (async () => {
+    const path = process.env[TEMPLATE_PATH_ENV];
+    if (path === undefined) return buildTemplate();
+    return new Blob([await readFile(path)]);
+  })();
+  return template;
+}
+
+export async function setupTestConnectDbTemplate(): Promise<() => void> {
+  const path = join(tmpdir(), `bb-connect-db-template-${process.pid}.tar`);
+  await writeFile(
+    path,
+    Buffer.from(await (await buildTemplate()).arrayBuffer()),
+  );
+  process.env[TEMPLATE_PATH_ENV] = path;
+  return () => {
+    delete process.env[TEMPLATE_PATH_ENV];
+    rmSync(path, { force: true });
+  };
+}
+
+async function reusable(pglite: PGlite): Promise<boolean> {
+  try {
+    await pglite.exec("ROLLBACK");
+    if ((await fingerprint(pglite)) !== templateFingerprint) return false;
+    await pglite.exec(`TRUNCATE ${DATA_TABLES} CASCADE`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function migratedPglite(): Promise<PGlite> {
+  for (let pglite = idle.pop(); pglite; pglite = idle.pop()) {
+    if (await reusable(pglite)) return pglite;
+    await pglite.close().catch(() => undefined);
+  }
+  const pglite = new PGlite({ loadDataDir: await migratedTemplate() });
   await pglite.waitReady;
-  const queryable = pgliteQueryable(pglite);
+  templateFingerprint ??= await fingerprint(pglite);
+  return pglite;
+}
+
+export interface TestConnectDb {
+  db: ConnectDb;
+  pglite: PGlite;
+  queryable: PgQueryable;
+  close(): Promise<void>;
+}
+
+export async function createTestConnectDb(): Promise<TestConnectDb> {
+  const pglite = await migratedPglite();
+  let released = false;
   return {
+    db: drizzle({ client: pglite, schema }),
     pglite,
-    queryable,
-    backend: pgBackend(queryable),
-    close: () => pglite.close(),
+    queryable: pgliteQueryable(pglite),
+    async close() {
+      if (released) return;
+      released = true;
+      idle.push(pglite);
+    },
+  };
+}
+
+export interface ServedTestConnectDb extends TestConnectDb {
+  connectionString: string;
+}
+
+export async function serveTestConnectDb(): Promise<ServedTestConnectDb> {
+  const database = await createTestConnectDb();
+  const server = await servePglite(database.pglite);
+  return {
+    ...database,
+    connectionString: server.connectionString,
+    async close() {
+      await server.close();
+      await database.pglite.close();
+    },
   };
 }
 

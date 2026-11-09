@@ -36,9 +36,9 @@ interface GetPullRequestForCurrentBranchArgs {
   refresh: boolean;
 }
 
-interface RunPullRequestActionForCurrentBranchArgs {
+interface RunPullRequestActionArgs {
   cwd: string;
-  localBranch: string;
+  url: string;
   action: HostPullRequestAction;
 }
 
@@ -323,16 +323,15 @@ function getMergeMethodFlag(
 
 function buildPullRequestActionArgs(
   action: HostPullRequestAction,
-  selector: string | null,
+  url: string,
 ): string[] {
-  const target = selector ? [selector] : [];
   switch (action.operation) {
     case "ready":
-      return ["pr", "ready", ...target];
+      return ["pr", "ready", url];
     case "draft":
-      return ["pr", "ready", ...target, "--undo"];
+      return ["pr", "ready", url, "--undo"];
     case "merge":
-      return ["pr", "merge", ...target, getMergeMethodFlag(action.method)];
+      return ["pr", "merge", url, getMergeMethodFlag(action.method)];
   }
 }
 
@@ -601,10 +600,13 @@ function parseGitRemoteRepository(
   return { host: host.toLowerCase(), owner, repository };
 }
 
-async function getPullRequestTarget(
+type BranchConfigRead =
+  | { outcome: "read"; config: Map<string, string> }
+  | Extract<HostPullRequestLookup, { outcome: "unavailable" }>;
+
+async function readBranchConfig(
   args: Pick<GetPullRequestForCurrentBranchArgs, "cwd" | "localBranch">,
-): Promise<PullRequestTargetLookup> {
-  const branchConfigPrefix = `branch.${args.localBranch}`;
+): Promise<BranchConfigRead> {
   const escapedBranch = escapeGitConfigRegexp(args.localBranch);
   let configResult: GitCommandResult;
   try {
@@ -613,7 +615,7 @@ async function getPullRequestTarget(
         "config",
         "--null",
         "--get-regexp",
-        `^(branch\\.${escapedBranch}\\.(remote|merge)|remote\\..*\\.url)$`,
+        `^(branch\\.${escapedBranch}\\.(remote|merge|pushremote)|remote\\.pushdefault|remote\\..*\\.(url|gh-resolved))$`,
       ],
       {
         cwd: args.cwd,
@@ -633,8 +635,17 @@ async function getPullRequestTarget(
       configResult.stderr.trim(),
     );
   }
+  return {
+    outcome: "read",
+    config: parseNullTerminatedGitConfig(configResult.stdout),
+  };
+}
 
-  const config = parseNullTerminatedGitConfig(configResult.stdout);
+function getPullRequestTarget(
+  localBranch: string,
+  config: Map<string, string>,
+): PullRequestTargetLookup {
+  const branchConfigPrefix = `branch.${localBranch}`;
   const remote = config.get(`${branchConfigPrefix}.remote`) ?? "";
   const remoteRef = config.get(`${branchConfigPrefix}.merge`) ?? "";
   const remoteBranchPrefix = "refs/heads/";
@@ -643,7 +654,7 @@ async function getPullRequestTarget(
   }
 
   const upstreamBranch = remoteRef.slice(remoteBranchPrefix.length);
-  if (!upstreamBranch || upstreamBranch === args.localBranch) {
+  if (!upstreamBranch || upstreamBranch === localBranch) {
     return { outcome: "current-branch" };
   }
 
@@ -699,26 +710,12 @@ function parseGhRepoOverride(value: string): GitRemoteRepository | null {
   return null;
 }
 
-async function resolveBranchReadTarget(
-  args: Pick<GetPullRequestForCurrentBranchArgs, "cwd" | "localBranch">,
+function resolveBranchReadTarget(
+  localBranch: string,
+  config: Map<string, string>,
   target: Exclude<PullRequestTargetLookup, { outcome: "unavailable" }>,
-): Promise<Extract<ReadTarget, { kind: "branch" }> | null> {
-  const branchKey = `branch.${args.localBranch}`;
-  const escapedBranch = escapeGitConfigRegexp(args.localBranch);
-  const configResult = await runGit(
-    [
-      "config",
-      "--null",
-      "--get-regexp",
-      `^(branch\\.${escapedBranch}\\.(remote|pushremote)|remote\\.pushdefault|remote\\..*\\.(url|gh-resolved))$`,
-    ],
-    {
-      cwd: args.cwd,
-      allowFailure: true,
-      timeoutMs: GIT_UPSTREAM_LOOKUP_TIMEOUT_MS,
-    },
-  );
-  const config = parseNullTerminatedGitConfig(configResult.stdout);
+): Extract<ReadTarget, { kind: "branch" }> | null {
+  const branchKey = `branch.${localBranch}`;
   const remotes: {
     name: string;
     repository: GitRemoteRepository;
@@ -777,7 +774,7 @@ async function resolveBranchReadTarget(
     host: base.host,
     owner: base.owner,
     repository: base.repository,
-    branch: args.localBranch,
+    branch: localBranch,
     headOwner:
       pushRepository === null || sameOwner(pushRepository.owner)
         ? null
@@ -788,9 +785,16 @@ async function resolveBranchReadTarget(
 export async function prepareCurrentBranchRead(
   args: GetPullRequestForCurrentBranchArgs,
 ): Promise<PreparedRead> {
-  const target = await getPullRequestTarget(args);
+  const branchConfig = await readBranchConfig(args);
+  if (branchConfig.outcome === "unavailable")
+    return preparedResult(branchConfig);
+  const target = getPullRequestTarget(args.localBranch, branchConfig.config);
   if (target.outcome === "unavailable") return preparedResult(target);
-  const branchTarget = await resolveBranchReadTarget(args, target);
+  const branchTarget = resolveBranchReadTarget(
+    args.localBranch,
+    branchConfig.config,
+    target,
+  );
   if (branchTarget !== null)
     return prepareRead(
       branchTarget,
@@ -835,17 +839,10 @@ export async function getPullRequestForCurrentBranch(
   return startRead(await prepareCurrentBranchRead(args));
 }
 
-export async function runPullRequestActionForCurrentBranch(
-  args: RunPullRequestActionForCurrentBranchArgs,
+export async function runPullRequestAction(
+  args: RunPullRequestActionArgs,
 ): Promise<{ ok: true } | { ok: false; message: string }> {
-  const target = await getPullRequestTarget(args);
-  if (target.outcome === "unavailable") {
-    return { ok: false, message: target.message };
-  }
-  const ghArgs = buildPullRequestActionArgs(
-    args.action,
-    target.outcome === "upstream-branch" ? target.selector : null,
-  );
+  const ghArgs = buildPullRequestActionArgs(args.action, args.url);
   try {
     await runGh(ghArgs, {
       priority: "interactive",

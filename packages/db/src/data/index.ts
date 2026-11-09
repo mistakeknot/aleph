@@ -258,7 +258,7 @@ export {
   createPluginStateSnapshot,
   deletePluginStateSnapshot,
   getPluginStateSnapshot,
-  listExpiredPluginStateSnapshots,
+  listDiscardablePluginStateSnapshots,
   listGarbageCollectablePluginArtifacts,
   listIncompletePluginRollbackSnapshots,
   listPluginStateSnapshots,
@@ -435,6 +435,7 @@ export {
   listOpenTurnInputAcceptedRowsByThreadIds,
   listOpenBackgroundTaskItemRowsForHost,
   listOpenBackgroundTaskItemRowsForThread,
+  listOwnerStoppedBackgroundTaskRowsForHost,
   getUnfinishedCommandItemData,
   listCommandItemDataByItemIds,
   listThreadEventSuffixBackgroundSettlementRows,
@@ -483,8 +484,10 @@ export type {
 export {
   countTerminalSessions,
   createTerminalSession,
+  EXITED_TERMINAL_SESSION_ROW_RETENTION_MS,
   getTerminalSession,
   listTerminalSessions,
+  pruneExitedTerminalSessions,
   updateTerminalSession,
   updateTerminalSessions,
 } from "./terminal-sessions.js";
@@ -628,26 +631,22 @@ export {
 
 export * from "./event-cold-tier.js";
 export {
-  compactDatabase,
   dropDeferredLegacyTables,
   runIncrementalVacuum,
   getDatabaseAutoVacuumMode,
-  DATABASE_COMPACTION_MIN_RECLAIMABLE_BYTES,
-  DATABASE_COMPACTION_MIN_RECLAIMABLE_RATIO,
   DATABASE_INCREMENTAL_VACUUM_MIN_FREELIST_PAGES,
   DATABASE_INCREMENTAL_VACUUM_MAX_PAGES,
   DATABASE_MAINTENANCE_BUSY_TIMEOUT_MS,
-  getDatabaseCompactionStats,
   getDatabaseFreelistStats,
   getDatabaseMaintenanceActivity,
   isDatabaseMaintenanceIdle,
   listDeferredLegacyTables,
-  shouldCompactDatabase,
   shouldRunIncrementalVacuum,
 } from "./maintenance.js";
 export * from "./machines.js";
 export {
   advanceThreadPruning,
+  deleteThreadScopedPruningCursors,
   getNextThreadPruningPolicy,
   THREAD_PRUNING_POLICIES,
 } from "./thread-pruning.js";

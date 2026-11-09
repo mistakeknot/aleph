@@ -4,11 +4,14 @@ import {
   type AccountQuota,
   type FamilyQuota,
   type FamilyWeekly,
+  type LimitWindow,
+  type LimitWindowSlot,
   type ModelFamily,
 } from "./contracts.js";
 import {
+  CLAUDE_WINDOWS,
   expireFamilyWeekly,
-  mergeWindow,
+  isPastReset,
   modelFamily,
   parseReset,
 } from "./quota.js";
@@ -124,6 +127,17 @@ function limitBucket(
   );
 }
 
+function usageWindow(
+  slot: LimitWindowSlot,
+  bucket: UsageBucket | null | undefined,
+  now: number,
+): LimitWindow | null {
+  const normalized = bucket == null ? null : normalizeBucket(bucket, now);
+  return normalized === null
+    ? null
+    : { slot, windowMinutes: CLAUDE_WINDOWS[slot].minutes, ...normalized };
+}
+
 export function quotaFromUsage(
   accountId: string,
   payload: object,
@@ -134,8 +148,8 @@ export function quotaFromUsage(
   if (!parsed.success) return null;
   const data = parsed.data;
   if (
-    data.five_hour == null &&
-    data.seven_day == null &&
+    data.five_hour === undefined &&
+    data.seven_day === undefined &&
     data.seven_day_fable == null &&
     data.seven_day_sonnet == null &&
     data.seven_day_opus == null &&
@@ -173,36 +187,33 @@ export function quotaFromUsage(
     const normalized = normalizeBucket(bucket, now);
     if (normalized !== null) familyWeekly[family] = normalized;
   }
-  const fiveHour =
-    data.five_hour == null ? null : normalizeBucket(data.five_hour, now);
-  const sevenDay =
-    data.seven_day == null ? null : normalizeBucket(data.seven_day, now);
-  const mergedFiveHour = mergeWindow(
-    {
-      utilization: fiveHour?.utilization ?? null,
-      resetAt: fiveHour?.resetAt ?? null,
-      status: fiveHour?.status ?? null,
-    },
-    {
-      utilization: previous.fiveHourUtilization,
-      resetAt: previous.fiveHourResetAt,
-      status: previous.fiveHourStatus,
-    },
-    now,
-  );
-  const mergedSevenDay = mergeWindow(
-    {
-      utilization: sevenDay?.utilization ?? null,
-      resetAt: sevenDay?.resetAt ?? null,
-      status: sevenDay?.status ?? null,
-    },
-    {
-      utilization: previous.sevenDayUtilization,
-      resetAt: previous.sevenDayResetAt,
-      status: previous.sevenDayStatus,
-    },
-    now,
-  );
+  const limitWindows =
+    data.five_hour === undefined && data.seven_day === undefined
+      ? previous.limitWindows
+      : (
+          [
+            ["primary", data.five_hour],
+            ["secondary", data.seven_day],
+          ] as const
+        ).flatMap(([slot, bucket]): LimitWindow[] => {
+          if (bucket === null) return [];
+          const stored = previous.limitWindows.find((w) => w.slot === slot);
+          const kept =
+            stored === undefined || isPastReset(stored.resetAt, now)
+              ? null
+              : stored;
+          const fresh = usageWindow(slot, bucket, now);
+          if (fresh === null) return kept === null ? [] : [kept];
+          if (kept === null) return [fresh];
+          return [
+            {
+              ...fresh,
+              utilization: fresh.utilization ?? kept.utilization,
+              resetAt: fresh.resetAt ?? kept.resetAt,
+              status: fresh.status ?? kept.status,
+            },
+          ];
+        });
   return {
     ...previous,
     accountId,
@@ -223,13 +234,8 @@ export function quotaFromUsage(
               observedAt: now,
               source: "usage",
             },
-    fiveHourUtilization: mergedFiveHour.utilization,
-    fiveHourResetAt: mergedFiveHour.resetAt,
-    fiveHourStatus: mergedFiveHour.status,
-    sevenDayUtilization: mergedSevenDay.utilization,
-    sevenDayResetAt: mergedSevenDay.resetAt,
-    sevenDayStatus: mergedSevenDay.status,
     familyWeekly,
+    limitWindows,
     observedAt: now,
   };
 }

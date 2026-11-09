@@ -5,6 +5,7 @@ import type {
   FamilyQuota,
   FamilyWeekly,
   LimitWindow,
+  LimitWindowSlot,
   ModelFamily,
   SwitchReason,
 } from "./contracts.js";
@@ -12,6 +13,14 @@ import type {
 const PREFIX = "anthropic-ratelimit-unified-";
 const SCOPED_HEADER =
   /^anthropic-ratelimit-unified-7d_(.+)-(utilization|reset|status)$/u;
+
+export const CLAUDE_WINDOWS = {
+  primary: { minutes: 300, header: "5h" },
+  secondary: { minutes: 10_080, header: "7d" },
+} as const satisfies Record<
+  LimitWindowSlot,
+  { minutes: number; header: string }
+>;
 
 interface ScopedHeaderValues {
   utilization: number | null;
@@ -72,29 +81,8 @@ function scopedHeaderValues(headers: Headers): ScopedHeaderValues | null {
   return [...buckets.values()][0] ?? null;
 }
 
-export interface WindowReading {
-  utilization: number | null;
-  resetAt: number | null;
-  status: string | null;
-}
-
 export function isPastReset(resetAt: number | null, now: number): boolean {
   return resetAt !== null && resetAt <= now;
-}
-
-export function mergeWindow(
-  fresh: WindowReading,
-  previous: WindowReading,
-  now: number,
-): WindowReading {
-  const retained = isPastReset(previous.resetAt, now)
-    ? { utilization: null, resetAt: null, status: null }
-    : previous;
-  return {
-    utilization: fresh.utilization ?? retained.utilization,
-    resetAt: fresh.resetAt ?? retained.resetAt,
-    status: fresh.status ?? retained.status,
-  };
 }
 
 export function expireFamilyQuota(
@@ -117,6 +105,34 @@ export function expireFamilyWeekly(
   };
 }
 
+function windowFromHeaders(
+  headers: Headers,
+  slot: LimitWindowSlot,
+  previous: AccountQuota,
+  now: number,
+): LimitWindow | null {
+  const { minutes, header } = CLAUDE_WINDOWS[slot];
+  const utilization = parseNumber(
+    headers.get(`${PREFIX}${header}-utilization`),
+  );
+  const resetAt = parseReset(headers.get(`${PREFIX}${header}-reset`));
+  const status = headers.get(`${PREFIX}${header}-status`);
+  const stored =
+    previous.limitWindows.find((window) => window.slot === slot) ?? null;
+  const prior = stored !== null && isPastReset(stored.resetAt, now) ? null : stored;
+  if (utilization === null && resetAt === null && status === null)
+    return prior;
+  return {
+    slot,
+    windowMinutes: minutes,
+    utilization: utilization ?? prior?.utilization ?? null,
+    resetAt: resetAt ?? prior?.resetAt ?? null,
+    status: status ?? prior?.status ?? null,
+    observedAt: now,
+    source: "header",
+  };
+}
+
 export function quotaFromHeaders(
   accountId: string,
   headers: Headers,
@@ -124,16 +140,11 @@ export function quotaFromHeaders(
   family: ModelFamily,
   now: number,
 ): AccountQuota {
-  const fiveHourUtilization = parseNumber(
-    headers.get(`${PREFIX}5h-utilization`),
+  const primary = windowFromHeaders(headers, "primary", previous, now);
+  const secondary = windowFromHeaders(headers, "secondary", previous, now);
+  const limitWindows = [primary, secondary].filter(
+    (window): window is LimitWindow => window !== null,
   );
-  const fiveHourResetAt = parseReset(headers.get(`${PREFIX}5h-reset`));
-  const fiveHourStatus = headers.get(`${PREFIX}5h-status`);
-  const sevenDayUtilization = parseNumber(
-    headers.get(`${PREFIX}7d-utilization`),
-  );
-  const sevenDayResetAt = parseReset(headers.get(`${PREFIX}7d-reset`));
-  const sevenDayStatus = headers.get(`${PREFIX}7d-status`);
   const representativeClaim = headers.get(`${PREFIX}representative-claim`);
   const overageStatus = headers.get(`${PREFIX}overage-status`);
   const extraUsage: AccountQuota["extraUsage"] =
@@ -162,39 +173,8 @@ export function quotaFromHeaders(
             source: "header",
           },
         };
-  const fiveHour = mergeWindow(
-    {
-      utilization: fiveHourUtilization,
-      resetAt: fiveHourResetAt,
-      status: fiveHourStatus,
-    },
-    {
-      utilization: previous.fiveHourUtilization,
-      resetAt: previous.fiveHourResetAt,
-      status: previous.fiveHourStatus,
-    },
-    now,
-  );
-  const sevenDay = mergeWindow(
-    {
-      utilization: sevenDayUtilization,
-      resetAt: sevenDayResetAt,
-      status: sevenDayStatus,
-    },
-    {
-      utilization: previous.sevenDayUtilization,
-      resetAt: previous.sevenDayResetAt,
-      status: previous.sevenDayStatus,
-    },
-    now,
-  );
   const observed =
-    fiveHourUtilization !== null ||
-    fiveHourResetAt !== null ||
-    fiveHourStatus !== null ||
-    sevenDayUtilization !== null ||
-    sevenDayResetAt !== null ||
-    sevenDayStatus !== null ||
+    limitWindows.some((window) => !previous.limitWindows.includes(window)) ||
     representativeClaim !== null ||
     extraUsage !== previous.extraUsage ||
     scoped !== null;
@@ -202,15 +182,9 @@ export function quotaFromHeaders(
     accountId,
     usageRestriction: previous.usageRestriction,
     extraUsage,
-    fiveHourUtilization: fiveHour.utilization,
-    fiveHourResetAt: fiveHour.resetAt,
-    fiveHourStatus: fiveHour.status,
-    sevenDayUtilization: sevenDay.utilization,
-    sevenDayResetAt: sevenDay.resetAt,
-    sevenDayStatus: sevenDay.status,
     representativeClaim: representativeClaim ?? previous.representativeClaim,
     familyWeekly,
-    limitWindows: previous.limitWindows,
+    limitWindows,
     observedAt: observed ? now : previous.observedAt,
     heldUntil: previous.heldUntil,
     error: previous.error,
@@ -229,16 +203,6 @@ function quotaWindows(
 ): QuotaWindow[] {
   const familyQuota = family === null ? null : quota.familyWeekly[family];
   return [
-    {
-      utilization: quota.fiveHourUtilization,
-      status: quota.fiveHourStatus,
-      resetAt: quota.fiveHourResetAt,
-    },
-    {
-      utilization: quota.sevenDayUtilization,
-      status: quota.sevenDayStatus,
-      resetAt: quota.sevenDayResetAt,
-    },
     ...quota.limitWindows,
     ...(familyQuota === null ? [] : [familyQuota]),
   ];
@@ -303,20 +267,6 @@ export function isPastThreshold(
   );
 }
 
-export function longestLimitWindow(
-  windows: readonly LimitWindow[],
-): LimitWindow | null {
-  let longest: LimitWindow | null = null;
-  for (const window of windows) {
-    if (
-      longest === null ||
-      (window.windowMinutes ?? 0) > (longest.windowMinutes ?? 0)
-    )
-      longest = window;
-  }
-  return longest;
-}
-
 export function isUsageRestricted(
   quota: AccountQuota | AccountSummary,
   now: number,
@@ -346,18 +296,6 @@ export function isQuotaRejection(headers: Headers): boolean {
       return true;
   }
   return false;
-}
-
-export function governingWeeklyResetAt(
-  quota: AccountQuota,
-  family: ModelFamily,
-): number | null {
-  return (
-    quota.familyWeekly[family]?.resetAt ??
-    quota.sevenDayResetAt ??
-    longestLimitWindow(quota.limitWindows)?.resetAt ??
-    null
-  );
 }
 
 export function accountStatus(
@@ -395,8 +333,6 @@ export function usagePercent(
     if (utilization === null || (resetAt !== null && resetAt <= now)) return;
     highest = Math.max(highest ?? utilization, utilization);
   };
-  include(quota.fiveHourUtilization, quota.fiveHourResetAt);
-  include(quota.sevenDayUtilization, quota.sevenDayResetAt);
   for (const window of quota.limitWindows)
     include(window.utilization, window.resetAt);
   const familyQuota = family === null ? null : quota.familyWeekly[family];

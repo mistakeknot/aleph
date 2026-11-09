@@ -6,7 +6,6 @@ import type {
   ResolvedThreadExecutionOptions,
   ThreadQueuedMessage,
   ThreadTimelineActivePromptMode,
-  ThreadTimelineGoal,
 } from "@bb/domain";
 import type {
   ExistingThreadExecutionInputSources,
@@ -20,8 +19,7 @@ import type { PluginComposerHost } from "@/components/plugin/plugin-composer-hos
 
 export const promptAreaMocks = {
   unknownReasoning: false,
-  cancelThreadPlanMutate: vi.fn(),
-  clearThreadGoalMutate: vi.fn(),
+  cancelThreadPlanMutateAsync: vi.fn(),
   createThreadMutateAsync: vi.fn(),
   defaultExecutionOptions: null as ResolvedThreadExecutionOptions | null,
   executionInputSources: {} as ExistingThreadExecutionInputSources,
@@ -515,28 +513,6 @@ vi.mock("@/components/promptbox/banner/ThreadBackgroundCommandsCard", () => ({
   ThreadBackgroundCommandsCard: () => null,
 }));
 
-vi.mock("@/components/promptbox/banner/ThreadGoalCard", () => ({
-  ThreadGoalCard: ({
-    goal,
-    onClearGoal,
-  }: {
-    goal: ThreadTimelineGoal | null;
-    onClearGoal?: () => void;
-  }) =>
-    goal ? (
-      <div data-testid="composer-stack-item">
-        Goal banner
-        {onClearGoal ? (
-          <button
-            type="button"
-            aria-label="Clear active Goal"
-            onClick={onClearGoal}
-          />
-        ) : null}
-      </div>
-    ) : null,
-}));
-
 vi.mock("@/components/promptbox/banner/ThreadPromptContextBanner", () => ({
   ThreadPromptContextBanner: () => null,
   ThreadChildThreadsBanner: ({
@@ -557,7 +533,7 @@ vi.mock("@/components/promptbox/banner/ThreadPromptModeCard", () => ({
     onExitPlanMode,
   }: {
     activePromptMode: ThreadTimelineActivePromptMode | null;
-    onExitPlanMode?: () => void;
+    onExitPlanMode?: () => Promise<void>;
   }) =>
     activePromptMode ? (
       <div data-testid="composer-stack-item">
@@ -566,7 +542,7 @@ vi.mock("@/components/promptbox/banner/ThreadPromptModeCard", () => ({
           <button
             type="button"
             aria-label="Exit plan mode"
-            onClick={onExitPlanMode}
+            onClick={() => void onExitPlanMode()}
           />
         ) : null}
       </div>
@@ -706,11 +682,7 @@ vi.mock("@/hooks/mutations/project-mutations", () => ({
 vi.mock("@/hooks/mutations/thread-runtime-mutations", () => ({
   useCancelThreadPlan: () => ({
     isPending: false,
-    mutate: promptAreaMocks.cancelThreadPlanMutate,
-  }),
-  useClearThreadGoal: () => ({
-    isPending: false,
-    mutate: promptAreaMocks.clearThreadGoalMutate,
+    mutateAsync: promptAreaMocks.cancelThreadPlanMutateAsync,
   }),
   useCreateThread: () => ({
     isPending: false,

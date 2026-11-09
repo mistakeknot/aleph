@@ -373,7 +373,7 @@ export class PoolOperations {
             short: SampleWindowKey | null;
           } =
             provider === "claude"
-              ? { weekly: "seven-day", short: "five-hour" }
+              ? { weekly: "secondary", short: "primary" }
               : codexWindowKeys(account.limitWindows);
           return { id: account.id, label: account.label, keys };
         });

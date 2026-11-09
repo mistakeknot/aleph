@@ -5,6 +5,7 @@ import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import type {
   AccountPoolConfig,
   AccountSummary,
+  LimitWindow,
   PoolStatus,
 } from "./src/contracts.js";
 
@@ -17,6 +18,23 @@ afterEach(() => {
 });
 
 const STATUS_CACHE_KEY = "account-pool:status";
+
+function claudeWindow(
+  slot: LimitWindow["slot"],
+  utilization: number,
+  overrides: Partial<LimitWindow> = {},
+): LimitWindow {
+  return {
+    slot,
+    windowMinutes: slot === "primary" ? 300 : 10_080,
+    utilization,
+    resetAt: null,
+    status: null,
+    observedAt: 1,
+    source: "usage",
+    ...overrides,
+  };
+}
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -64,12 +82,6 @@ function account(overrides: Partial<AccountSummary> = {}): AccountSummary {
     lastUsedAt: 2,
     lastUsedHostId: "host-one",
     lastUsedHostName: "bee",
-    fiveHourUtilization: 0.21,
-    fiveHourResetAt: null,
-    fiveHourStatus: null,
-    sevenDayUtilization: null,
-    sevenDayResetAt: null,
-    sevenDayStatus: null,
     representativeClaim: null,
     familyWeekly: {
       fable: null,
@@ -78,7 +90,7 @@ function account(overrides: Partial<AccountSummary> = {}): AccountSummary {
       haiku: null,
       other: null,
     },
-    limitWindows: [],
+    limitWindows: [claudeWindow("primary", 0.21)],
     extraUsage: null,
     usageRestriction: null,
     observedAt: 1,
@@ -220,7 +232,7 @@ describe("Account Pool settings", () => {
   it("renders cached accounts as refreshing until live status arrives, then caches it", async () => {
     window.localStorage.setItem(
       STATUS_CACHE_KEY,
-      JSON.stringify(status([account({ fiveHourUtilization: 0.21 })])),
+      JSON.stringify(status([account({ limitWindows: [claudeWindow("primary", 0.21)] })])),
     );
     const live = deferred<PoolStatus>();
     const slot = render([], { "status.get": () => live.promise });
@@ -230,14 +242,16 @@ describe("Account Pool settings", () => {
     expect(slot.getByText(/· refreshing…$/)).toBeTruthy();
     expect(slot.queryByText("Loading…")).toBeNull();
     expect(slot.queryByText("No accounts added")).toBeNull();
-    live.resolve(status([account({ fiveHourUtilization: 0.6 })]));
+    live.resolve(
+      status([account({ limitWindows: [claudeWindow("primary", 0.6)] })]),
+    );
     expect(await slot.findByText("60%")).toBeTruthy();
     expect(slot.queryByText("refreshing usage…")).toBeNull();
     expect(slot.queryByText(/· refreshing…$/)).toBeNull();
     const cached = JSON.parse(
       window.localStorage.getItem(STATUS_CACHE_KEY) ?? "null",
     ) as PoolStatus;
-    expect(cached.accounts[0]?.fiveHourUtilization).toBe(0.6);
+    expect(cached.accounts[0]?.limitWindows[0]?.utilization).toBe(0.6);
   });
 
   it("ignores a malformed status cache and shows the loading state", async () => {
@@ -265,16 +279,44 @@ describe("Account Pool settings", () => {
     );
   });
 
-  it("renders fixed quota slots with missing buckets as em dashes", async () => {
-    const slot = render();
+  it("renders only the windows a Claude account reports and an unobserved Fable slot as an em dash", async () => {
+    const slot = render([
+      account({ limitWindows: [claudeWindow("secondary", 0.3)] }),
+    ]);
     expect(await slot.findByText("person@example.com")).toBeTruthy();
-    expect(slot.getByText("5H")).toBeTruthy();
     expect(slot.getByText("7D")).toBeTruthy();
+    expect(slot.getByText("30%")).toBeTruthy();
+    expect(slot.queryByText("5H")).toBeNull();
     expect(slot.getByText("FABLE")).toBeTruthy();
-    expect(slot.getAllByText("—")).toHaveLength(2);
+    expect(slot.getAllByText("—")).toHaveLength(1);
     expect(
       slot.getByText("Hub accepting · 2 in flight · used by bee"),
     ).toBeTruthy();
+    fireEvent.click(
+      await slot.findByRole("button", {
+        name: "Open person@example.com details",
+      }),
+    );
+    expect(await slot.findByText("7 day")).toBeTruthy();
+    expect(slot.queryByText("Weekly")).toBeNull();
+    expect(slot.queryByText("5 hour")).toBeNull();
+  });
+
+  it("renders a Claude account with no observed windows as empty 5H and 7D slots", async () => {
+    const slot = render([account({ limitWindows: [] })]);
+    expect(await slot.findByText("person@example.com")).toBeTruthy();
+    expect(slot.getByText("5H")).toBeTruthy();
+    expect(slot.getByText("7D")).toBeTruthy();
+    expect(slot.queryByText("LIMIT")).toBeNull();
+    expect(slot.getAllByText("—")).toHaveLength(3);
+    fireEvent.click(
+      await slot.findByRole("button", {
+        name: "Open person@example.com details",
+      }),
+    );
+    expect(await slot.findByText("5 hour")).toBeTruthy();
+    expect(slot.getByText("7 day")).toBeTruthy();
+    expect(slot.queryByText("No usage limits observed yet.")).toBeNull();
   });
 
   it("keeps the quota slots visible at mobile widths", async () => {
@@ -288,12 +330,16 @@ describe("Account Pool settings", () => {
     const slot = render([
       account({
         status: "exhausted",
-        fiveHourUtilization: 1,
-        fiveHourStatus: "rejected",
-        fiveHourResetAt: Date.now() + 2 * 60 * 60 * 1_000,
-        sevenDayUtilization: 0.99,
-        sevenDayStatus: "allowed",
-        sevenDayResetAt: Date.now() + 6 * 24 * 60 * 60 * 1_000,
+        limitWindows: [
+          claudeWindow("primary", 1, {
+            status: "rejected",
+            resetAt: Date.now() + 2 * 60 * 60 * 1_000,
+          }),
+          claudeWindow("secondary", 0.99, {
+            status: "allowed",
+            resetAt: Date.now() + 6 * 24 * 60 * 60 * 1_000,
+          }),
+        ],
       }),
     ]);
     expect(await slot.findByText("Exhausted · resets in 2h 0m")).toBeTruthy();
@@ -308,8 +354,6 @@ describe("Account Pool settings", () => {
         label: "pro@example.com",
         codexAccountId: "chatgpt-account",
         status: "exhausted",
-        fiveHourUtilization: 0.25,
-        fiveHourResetAt: Date.now() + 60 * 60 * 1_000,
         limitWindows: [
           {
             slot: "primary",
@@ -931,7 +975,7 @@ function codexAccount(
 describe("Account Pool header status", () => {
   it("shows one chip per provider with the tightest window's percent", async () => {
     const slot = renderHeaderStatus([
-      account({ provider: "claude", fiveHourUtilization: 0.4 }),
+      account({ provider: "claude", limitWindows: [claudeWindow("primary", 0.4)] }),
       codexAccount(0.1),
     ]);
     expect(await slot.findByText("40%")).toBeTruthy();
@@ -939,7 +983,7 @@ describe("Account Pool header status", () => {
   });
 
   it("renders the default tone below the switch threshold", async () => {
-    const slot = renderHeaderStatus([account({ fiveHourUtilization: 0.5 })], {
+    const slot = renderHeaderStatus([account({ limitWindows: [claudeWindow("primary", 0.5)] })], {
       configOverrides: { switchThreshold: 0.9 },
     });
     const percent = await slot.findByText("50%");
@@ -947,7 +991,7 @@ describe("Account Pool header status", () => {
   });
 
   it("renders the warning tone at threshold minus 0.1", async () => {
-    const slot = renderHeaderStatus([account({ fiveHourUtilization: 0.8 })], {
+    const slot = renderHeaderStatus([account({ limitWindows: [claudeWindow("primary", 0.8)] })], {
       configOverrides: { switchThreshold: 0.9 },
     });
     const percent = await slot.findByText("80%");
@@ -955,7 +999,7 @@ describe("Account Pool header status", () => {
   });
 
   it("renders the destructive tone at full utilization", async () => {
-    const slot = renderHeaderStatus([account({ fiveHourUtilization: 1 })], {
+    const slot = renderHeaderStatus([account({ limitWindows: [claudeWindow("primary", 1)] })], {
       configOverrides: { switchThreshold: 0.9 },
     });
     const percent = await slot.findByText("100%");
@@ -964,7 +1008,7 @@ describe("Account Pool header status", () => {
 
   it("renders the destructive tone when the window is rejected", async () => {
     const slot = renderHeaderStatus([
-      account({ fiveHourUtilization: 0.2, fiveHourStatus: "rejected" }),
+      account({ limitWindows: [claudeWindow("primary", 0.2, { status: "rejected" })] }),
     ]);
     const percent = await slot.findByText("20%");
     expect(percent.className).toContain("text-destructive-text");
@@ -1126,7 +1170,7 @@ describe("Account Pool header status", () => {
   });
 
   it("opens settings on click", async () => {
-    const slot = renderHeaderStatus([account({ fiveHourUtilization: 0.4 })]);
+    const slot = renderHeaderStatus([account({ limitWindows: [claudeWindow("primary", 0.4)] })]);
     const button = await slot.findByTestId("account-pool-header-status");
     fireEvent.click(button);
     expect(slot.openSettings).toHaveBeenCalledTimes(1);
@@ -1162,7 +1206,7 @@ describe("Account Pool header status", () => {
     it("shows each provider's pooled burn per hour next to its quota percent", async () => {
       const slot = renderHeaderStatus(
         [
-          account({ provider: "claude", fiveHourUtilization: 0.4 }),
+          account({ provider: "claude", limitWindows: [claudeWindow("primary", 0.4)] }),
           codexAccount(0.1),
         ],
         { extraRpc: { "burn.get": () => burn({ claude: 1.26, codex: 0 }) } },
@@ -1173,7 +1217,7 @@ describe("Account Pool header status", () => {
     });
 
     it("shows an em dash when a provider has no burn reading", async () => {
-      const slot = renderHeaderStatus([account({ fiveHourUtilization: 0.4 })], {
+      const slot = renderHeaderStatus([account({ limitWindows: [claudeWindow("primary", 0.4)] })], {
         extraRpc: { "burn.get": () => burn() },
       });
       expect(await slot.findByTestId("account-pool-burn-claude")).toBeTruthy();
@@ -1183,7 +1227,7 @@ describe("Account Pool header status", () => {
     });
 
     it("degrades to an em dash when burn.get fails and leaves quota intact", async () => {
-      const slot = renderHeaderStatus([account({ fiveHourUtilization: 0.4 })], {
+      const slot = renderHeaderStatus([account({ limitWindows: [claudeWindow("primary", 0.4)] })], {
         extraRpc: {
           "burn.get": () => {
             throw new Error("boom");
@@ -1201,7 +1245,7 @@ describe("Account Pool header status", () => {
     it("shows the larger provider burn beside the worst percent on a compact viewport", async () => {
       const slot = renderHeaderStatus(
         [
-          account({ provider: "claude", fiveHourUtilization: 0.4 }),
+          account({ provider: "claude", limitWindows: [claudeWindow("primary", 0.4)] }),
           codexAccount(0.9),
         ],
         {
@@ -1215,7 +1259,7 @@ describe("Account Pool header status", () => {
     });
 
     it("explains the figure in the hover card", async () => {
-      const slot = renderHeaderStatus([account({ fiveHourUtilization: 0.4 })], {
+      const slot = renderHeaderStatus([account({ limitWindows: [claudeWindow("primary", 0.4)] })], {
         extraRpc: {
           "burn.get": () => burn({ claude: 1.26, claudeAlt: 2.5 }),
         },
@@ -1237,7 +1281,7 @@ describe("Account Pool header status", () => {
   it("collapses to a single icon and the worst percent on a compact viewport", async () => {
     const slot = renderHeaderStatus(
       [
-        account({ provider: "claude", fiveHourUtilization: 0.4 }),
+        account({ provider: "claude", limitWindows: [claudeWindow("primary", 0.4)] }),
         codexAccount(0.9),
       ],
       { isCompactViewport: true },
@@ -1260,7 +1304,7 @@ describe("Account Pool header status", () => {
         rpc: {
           "status.get": () => ({
             ...status([
-              account({ provider: "claude", fiveHourUtilization: 0.4 }),
+              account({ provider: "claude", limitWindows: [claudeWindow("primary", 0.4)] }),
               codexAccount(0.9),
             ]),
             routing: { claude: true, codex: false },
@@ -1279,7 +1323,7 @@ describe("Account Pool header status", () => {
     const active = account({
       id: "33333333-3333-4333-8333-333333333333",
       provider: "claude",
-      fiveHourUtilization: 0.9,
+      limitWindows: [claudeWindow("primary", 0.9)],
     });
     const slot = renderSlot(
       app.appHeaderStatuses[0]!,
@@ -1294,7 +1338,7 @@ describe("Account Pool header status", () => {
         rpc: {
           "status.get": () => ({
             ...status([
-              account({ provider: "claude", fiveHourUtilization: 0.4 }),
+              account({ provider: "claude", limitWindows: [claudeWindow("primary", 0.4)] }),
               active,
             ]),
             activeAccountIds: { claude: active.id, codex: null },
@@ -1310,7 +1354,7 @@ describe("Account Pool header status", () => {
   });
 
   it("collapses to a single icon when available width is too narrow", async () => {
-    const slot = renderHeaderStatus([account({ fiveHourUtilization: 0.4 })], {
+    const slot = renderHeaderStatus([account({ limitWindows: [claudeWindow("primary", 0.4)] })], {
       availableWidth: 150,
     });
     expect(await slot.findByText("40%")).toBeTruthy();
@@ -1318,7 +1362,7 @@ describe("Account Pool header status", () => {
   });
 
   it("does not collapse when available width is ample", async () => {
-    const slot = renderHeaderStatus([account({ fiveHourUtilization: 0.4 })], {
+    const slot = renderHeaderStatus([account({ limitWindows: [claudeWindow("primary", 0.4)] })], {
       availableWidth: 600,
     });
     expect(await slot.findByText("40%")).toBeTruthy();

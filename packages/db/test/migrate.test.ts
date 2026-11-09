@@ -475,6 +475,12 @@ const curatedMarketplaceRenameMigrationPath = resolve(
   legacyCompatDir,
   "0098_rename_curated_marketplace.sql",
 );
+const smallStorageCleanupsMigrationPath = resolve(
+  __dirname,
+  "..",
+  "drizzle",
+  "0152_small_storage_cleanups.sql",
+);
 const providerUsagePluginIdMigrationPath = resolve(
   legacyCompatDir,
   "0138_rename_provider_usage_plugin_id.sql",
@@ -615,7 +621,7 @@ function migrateFromLegacyHistory(db: DbConnection): void {
 
 // A legacy database never recorded the steps planned after the pinned oracle
 // (upstream 0144 as A0011, 0145, 0146, 0147, 0148 as A0012, 0149 as A0013,
-// 0150 as A0014, 0151). Rewind them so a ledger-less open
+// 0150 as A0014, 0151, 0152). Rewind them so a ledger-less open
 // treats them as pending instead of as recorded-but-unledgered.
 function rewindPostOracleSteps(db: DbConnection): void {
   dropQueuedMessageDeliveryColumns(db);
@@ -2652,7 +2658,7 @@ describe("migrate", () => {
         )
         .run(threadStatusChangedAtMigrationWhen);
       db.$client.exec(
-        "DELETE FROM __bb_migration_ledger WHERE tag IN ('A0014', '0150_thread_status_changed_at', '0151_hand_diff_viewed_files_to_git_plugin')",
+        "DELETE FROM __bb_migration_ledger WHERE tag IN ('A0014', '0150_thread_status_changed_at', '0151_hand_diff_viewed_files_to_git_plugin', '0152_small_storage_cleanups')",
       );
 
       migrate(db);
@@ -4423,6 +4429,81 @@ describe("migrate", () => {
         },
         { name: "bb-community", etag: null, lastModified: null },
       ]);
+    } finally {
+      closeConnection(db);
+    }
+  });
+
+  it("drops archived threads' per-thread pruning cursors and the superseded truncation cursors", () => {
+    const db = createConnection(":memory:");
+    try {
+      migrate(db);
+      const host = upsertHost(db, noopNotifier, {
+        id: "host-small-storage-cleanups",
+        name: "Cleanup Host",
+      });
+      const { project } = createProject(db, noopNotifier, {
+        name: "Cleanup Project",
+        source: {
+          type: "local_path",
+          hostId: host.id,
+          path: "/tmp/small-storage-cleanups",
+        },
+      });
+      const live = createThread(db, noopNotifier, {
+        projectId: project.id,
+        providerId: "codex",
+      });
+      const archived = createThread(db, noopNotifier, {
+        projectId: project.id,
+        providerId: "codex",
+      });
+      db.$client
+        .prepare<[string]>("UPDATE threads SET archived_at = 1 WHERE id = ?")
+        .run(archived.id);
+      const insertCursor = db.$client.prepare<[string, string, string | null]>(
+        `INSERT INTO thread_pruning_cursors (policy, scope, thread_id, version, updated_at)
+          VALUES (?, ?, ?, 1, 1)`,
+      );
+      insertCursor.run("usage", "", null);
+      insertCursor.run("usage", live.id, live.id);
+      insertCursor.run("usage", archived.id, archived.id);
+      insertCursor.run("turn-diffs", archived.id, archived.id);
+      const insertScanCursor = db.$client.prepare<[string, string]>(
+        `INSERT INTO maintenance_scan_cursors (id, policy, version, item_kind, output_path, updated_at)
+          VALUES (?, ?, 1, 'commandExecution', 'aggregatedOutput', 1)`,
+      );
+      insertScanCursor.run(
+        "completed_event_output_truncation:v1:commandExecution:aggregatedOutput",
+        "completed_event_output_truncation",
+      );
+      insertScanCursor.run(
+        "legacy_completed_event_output_sidecar:v1:commandExecution:aggregatedOutput",
+        "legacy_completed_event_output_sidecar",
+      );
+
+      runMigrationFile({
+        db,
+        migrationPath: smallStorageCleanupsMigrationPath,
+      });
+
+      expect(
+        db.$client
+          .prepare<[], { policy: string; scope: string }>(
+            "SELECT policy, scope FROM thread_pruning_cursors ORDER BY scope",
+          )
+          .all(),
+      ).toEqual([
+        { policy: "usage", scope: "" },
+        { policy: "usage", scope: live.id },
+      ]);
+      expect(
+        db.$client
+          .prepare<[], { policy: string }>(
+            "SELECT policy FROM maintenance_scan_cursors",
+          )
+          .all(),
+      ).toEqual([{ policy: "legacy_completed_event_output_sidecar" }]);
     } finally {
       closeConnection(db);
     }

@@ -3,29 +3,80 @@ import {
   EMPTY_FAMILY_WEEKLY,
   type Account,
   type AccountQuota,
+  type LimitWindow,
+  type LimitWindowSlot,
 } from "./contracts.js";
 import { switchReason, usagePercent } from "./quota.js";
 
 const NOW = 1_800_000_000_000;
 const account = { id: "a", enabled: true } as Account;
-const quota = (patch: Partial<AccountQuota> = {}): AccountQuota => ({
-  accountId: "11111111-1111-4111-8111-111111111111",
-  fiveHourUtilization: null,
-  fiveHourResetAt: null,
-  fiveHourStatus: null,
-  sevenDayUtilization: null,
-  sevenDayResetAt: null,
-  sevenDayStatus: null,
-  representativeClaim: null,
-  familyWeekly: EMPTY_FAMILY_WEEKLY,
-  limitWindows: [],
-  extraUsage: null,
-  usageRestriction: null,
-  observedAt: null,
-  heldUntil: null,
-  error: null,
-  ...patch,
-});
+interface WindowShorthand {
+  fiveHourUtilization?: number | null;
+  fiveHourResetAt?: number | null;
+  fiveHourStatus?: string | null;
+  sevenDayUtilization?: number | null;
+  sevenDayResetAt?: number | null;
+  sevenDayStatus?: string | null;
+}
+
+const shorthandWindow = (
+  slot: LimitWindowSlot,
+  utilization: number | null | undefined,
+  resetAt: number | null | undefined,
+  status: string | null | undefined,
+): LimitWindow[] =>
+  utilization === undefined && resetAt === undefined && status === undefined
+    ? []
+    : [
+        {
+          slot,
+          windowMinutes: slot === "primary" ? 300 : 10_080,
+          utilization: utilization ?? null,
+          resetAt: resetAt ?? null,
+          status: status ?? null,
+          observedAt: NOW - 1000,
+          source: "header",
+        },
+      ];
+
+const quota = (
+  input: Partial<AccountQuota> & WindowShorthand = {},
+): AccountQuota => {
+  const {
+    fiveHourUtilization,
+    fiveHourResetAt,
+    fiveHourStatus,
+    sevenDayUtilization,
+    sevenDayResetAt,
+    sevenDayStatus,
+    ...patch
+  } = input;
+  return {
+    accountId: "11111111-1111-4111-8111-111111111111",
+    representativeClaim: null,
+    familyWeekly: EMPTY_FAMILY_WEEKLY,
+    limitWindows: [
+      ...shorthandWindow(
+        "primary",
+        fiveHourUtilization,
+        fiveHourResetAt,
+        fiveHourStatus,
+      ),
+      ...shorthandWindow(
+        "secondary",
+        sevenDayUtilization,
+        sevenDayResetAt,
+        sevenDayStatus,
+      ),
+    ],
+    extraUsage: null,
+    usageRestriction: null,
+    observedAt: null,
+    heldUntil: null,
+    error: null,
+    ...patch,
+  };
+};
 
 describe("switchReason", () => {
   it("classifies why the previous active account was left", () => {

@@ -260,6 +260,16 @@ describe("resolveCreateThreadExecutionDefaults", () => {
     });
   });
 
+  it("falls back to the product default when the stored provider is no longer registered", () => {
+    expect(
+      resolveCreateThreadExecutionDefaults(registry, {
+        storedDefaults: makeDefaults({ providerId: "acp-removed-plugin" }),
+      }),
+    ).toEqual(
+      resolveCreateThreadExecutionDefaults(registry, { storedDefaults: null }),
+    );
+  });
+
   it("skips unavailable providers when choosing the product default", async () => {
     const degradedRegistry = createProviderRegistryService();
     await registerFirstPartyProviders(degradedRegistry, {
@@ -675,25 +685,22 @@ describe("resolveProjectDefaultThreadEnvironment", () => {
         hostId: host.id,
         path: "/tmp/git-default-source",
       });
-      registerHostRpcResponder(harness, {
+      const responder = registerHostRpcResponder(harness, {
         hostId: host.id,
         sessionId: session.id,
-        handle: () => ({
-          ok: true,
-          result: {
-            checkout: {
-              kind: "branch" as const,
-              branchName: "feature",
-              headSha: "abc123",
+        handle: (request) => {
+          expect(request.command.type).toBe("host.inspect_git_checkout");
+          return {
+            ok: true,
+            result: {
+              checkout: {
+                kind: "branch" as const,
+                branchName: "feature",
+                headSha: "abc123",
+              },
             },
-            defaultBranch: "main",
-            defaultBranchRelation: null,
-            isWorktree: false,
-            hasUncommittedChanges: false,
-            operation: { kind: "none" as const },
-            originDefaultBranch: null,
-          } satisfies GitSourceInspection,
-        }),
+          };
+        },
       });
 
       await expect(
@@ -704,8 +711,9 @@ describe("resolveProjectDefaultThreadEnvironment", () => {
         type: "provider",
         environmentProviderId: "git-worktree",
         machine: { type: "existing", hostId: host.id },
-        inputs: { branch: { kind: "named", name: "main" } },
+        inputs: { branch: { kind: "default" } },
       });
+      expect(responder.requests).toHaveLength(1);
     });
   });
 

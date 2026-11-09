@@ -62,6 +62,7 @@ const SYSTEM_THEME_QUERY_KEY = "systemTheme";
 export const SYSTEM_EXECUTION_OPTIONS_QUERY_KEY = "systemExecutionOptions";
 const SYSTEM_CLI_SKILLS_QUERY_KEY = "systemCliSkills";
 const SYSTEM_CLI_COMMAND_QUERY_KEY = "systemCliCommand";
+const SYSTEM_SETUP_GUIDE_QUERY_KEY = "systemSetupGuide";
 const SYSTEM_VERSION_QUERY_KEY = "systemVersion";
 const SYSTEM_APP_UPDATE_QUERY_KEY = "systemAppUpdate";
 const SYSTEM_ALEPH_UPDATE_QUERY_KEY = "systemAlephUpdate";
@@ -417,6 +418,7 @@ type SystemThemeQueryKey = readonly [typeof SYSTEM_THEME_QUERY_KEY, string];
 type AllSystemThemesQueryKeyPrefix = readonly [typeof SYSTEM_THEME_QUERY_KEY];
 type SystemCliSkillsQueryKey = readonly [typeof SYSTEM_CLI_SKILLS_QUERY_KEY];
 type SystemCliCommandQueryKey = readonly [typeof SYSTEM_CLI_COMMAND_QUERY_KEY];
+type SystemSetupGuideQueryKey = readonly [typeof SYSTEM_SETUP_GUIDE_QUERY_KEY];
 type SystemVersionQueryKey = readonly [typeof SYSTEM_VERSION_QUERY_KEY];
 type SystemAppUpdateQueryKey = readonly [typeof SYSTEM_APP_UPDATE_QUERY_KEY];
 type SystemAlephUpdateQueryKey = readonly [
@@ -984,6 +986,10 @@ export function systemCliSkillsQueryKey(): SystemCliSkillsQueryKey {
 
 export function systemCliCommandQueryKey(): SystemCliCommandQueryKey {
   return [SYSTEM_CLI_COMMAND_QUERY_KEY];
+}
+
+export function systemSetupGuideQueryKey(): SystemSetupGuideQueryKey {
+  return [SYSTEM_SETUP_GUIDE_QUERY_KEY];
 }
 
 export function systemConfigQueryKey(): SystemConfigQueryKey {

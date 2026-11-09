@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, it } from "vitest";
-import type { AccountQuota } from "./contracts.js";
+import type { AccountQuota, LimitWindow } from "./contracts.js";
 import {
   codexWindowKeys,
   pooledConsumption,
@@ -25,7 +25,7 @@ function sample(
   minutesAgo: number,
   utilization: number,
   resetAt: number | null = FAR,
-  windowKey: QuotaSample["windowKey"] = "seven-day",
+  windowKey: QuotaSample["windowKey"] = "secondary",
 ): QuotaSample {
   return {
     accountId,
@@ -38,7 +38,7 @@ function sample(
 
 function pooled(
   id: string,
-  windowKey: PooledAccount["windowKey"] = "seven-day",
+  windowKey: PooledAccount["windowKey"] = "secondary",
 ) {
   return { id, label: `acct-${id.slice(0, 1)}`, windowKey };
 }
@@ -485,17 +485,46 @@ describe("codexWindowKeys", () => {
   });
 });
 
-function quota(overrides: Partial<AccountQuota> = {}): AccountQuota {
+interface WindowShorthand {
+  fiveHourUtilization?: number | null;
+  fiveHourResetAt?: number | null;
+  sevenDayUtilization?: number | null;
+  sevenDayResetAt?: number | null;
+}
+
+function shorthandWindow(
+  slot: "primary" | "secondary",
+  utilization: number | null | undefined,
+  resetAt: number | null | undefined,
+): LimitWindow[] {
+  if (utilization === undefined && resetAt === undefined) return [];
+  return [
+    {
+      slot,
+      windowMinutes: slot === "primary" ? 300 : 10_080,
+      utilization: utilization ?? null,
+      resetAt: resetAt ?? null,
+      status: null,
+      observedAt: 0,
+      source: "header",
+    },
+  ];
+}
+
+function quota(
+  input: Partial<AccountQuota> & WindowShorthand = {},
+): AccountQuota {
+  const {
+    fiveHourUtilization,
+    fiveHourResetAt,
+    sevenDayUtilization,
+    sevenDayResetAt,
+    ...overrides
+  } = input;
   return {
     accountId: A,
     usageRestriction: null,
     extraUsage: null,
-    fiveHourUtilization: null,
-    fiveHourResetAt: null,
-    fiveHourStatus: null,
-    sevenDayUtilization: null,
-    sevenDayResetAt: null,
-    sevenDayStatus: null,
     representativeClaim: null,
     familyWeekly: {
       fable: null,
@@ -504,7 +533,10 @@ function quota(overrides: Partial<AccountQuota> = {}): AccountQuota {
       haiku: null,
       other: null,
     },
-    limitWindows: [],
+    limitWindows: [
+      ...shorthandWindow("primary", fiveHourUtilization, fiveHourResetAt),
+      ...shorthandWindow("secondary", sevenDayUtilization, sevenDayResetAt),
+    ],
     observedAt: null,
     heldUntil: null,
     error: null,
@@ -558,9 +590,9 @@ describe("QuotaSampler and sample store", () => {
       }),
     );
     expect(rows()).toEqual([
-      expect.objectContaining({ window_key: "five-hour", utilization: 0.1 }),
+      expect.objectContaining({ window_key: "primary", utilization: 0.1 }),
       expect.objectContaining({
-        window_key: "seven-day",
+        window_key: "secondary",
         utilization: 0.2,
         reset_at: FAR,
       }),
@@ -683,7 +715,9 @@ describe("QuotaSampler and sample store", () => {
     );
     db.exec("DROP TABLE pool_quota_sample");
     expect(() => quotas.put(quota({ sevenDayUtilization: 0.2 }))).not.toThrow();
-    expect(quotas.get(A).sevenDayUtilization).toBe(0.2);
+    expect(
+      quotas.get(A).limitWindows.find((w) => w.slot === "secondary")?.utilization,
+    ).toBe(0.2);
     now += MINUTE;
     quotas.put(quota({ sevenDayUtilization: 0.3 }));
     expect(errors).toHaveLength(1);
@@ -719,5 +753,53 @@ describe("QuotaSampler and sample store", () => {
     expect(samples.list().map((row) => row.utilization)).toEqual([
       0.1, 0.2, 0.3,
     ]);
+  });
+
+  it("keeps burn history continuous across the window key migration", () => {
+    const db = new Database(":memory:");
+    databases.push(db);
+    const lastMigration = QUOTA_MIGRATIONS.length - 1;
+    for (const migration of QUOTA_MIGRATIONS.slice(0, lastMigration))
+      db.exec(migration);
+    const legacy = new QuotaSampleStore(db);
+    const stored = (
+      windowKey: QuotaSample["windowKey"],
+      minutesAgo: number,
+      utilization: number,
+    ) => ({
+      accountId: A,
+      windowKey,
+      sampledAt: NOW - minutesAgo * MINUTE,
+      utilization,
+      resetAt: FAR,
+    });
+    legacy.insert(stored("seven-day", 50, 0.1));
+    legacy.insert(stored("seven-day", 30, 0.3));
+    legacy.insert(stored("five-hour", 50, 0.2));
+    legacy.insert(stored("five-hour", 30, 0.25));
+
+    db.exec(QUOTA_MIGRATIONS[lastMigration] ?? "");
+
+    const migrated = new QuotaSampleStore(db);
+    expect(migrated.list().map((row) => row.windowKey).sort()).toEqual([
+      "primary",
+      "primary",
+      "secondary",
+      "secondary",
+    ]);
+    migrated.insert(stored("secondary", 10, 0.4));
+    migrated.insert(stored("primary", 10, 0.3));
+    const weekly = pooledConsumption(
+      migrated.list(),
+      [pooled(A, "secondary")],
+      NOW,
+    );
+    const short = pooledConsumption(
+      migrated.list(),
+      [pooled(A, "primary")],
+      NOW,
+    );
+    expect(weekly.pct).toBeCloseTo(30, 6);
+    expect(short.pct).toBeCloseTo(10, 6);
   });
 });
