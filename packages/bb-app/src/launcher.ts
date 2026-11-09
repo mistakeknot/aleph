@@ -922,9 +922,6 @@ export function parseLauncherArgs(args: string[]): ParsedLauncherArgs {
   if (readBooleanOption(parsed.values["perf-diagnostics"])) {
     options.performanceDiagnostics = true;
   }
-  if (readBooleanOption(parsed.values["perf-diagnostics"])) {
-    options.performanceDiagnostics = true;
-  }
   const dataDir = readStringOption(parsed.values["data-dir"]);
   const enrollKey = readStringOption(parsed.values["enroll-key"]);
   const hostDaemonPort = readStringOption(parsed.values["host-daemon-port"]);
