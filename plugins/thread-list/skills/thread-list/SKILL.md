@@ -111,10 +111,13 @@ its place until another thread is opened.
 
 Hull designation badges: if `hull-designations.json` exists in bb's data
 directory (or at the path in `BB_HULL_DESIGNATIONS_FILE`), each thread row shows
-the designation of its thread or, failing that, its project. The file is a JSON
-array of `{ projectId, designation, approved }` or `{ threadId, designation,
-approved }` rows; a thread row wins over its project's row, and only approved
-rows with a designation show. A
+a designation, taken from the first match of: a row for its `threadId`; the
+title prefix (the text before the first ` | `) matched to an approved row's
+`name` or `aliases` entry after lowercasing and keeping only letters and digits
+(a name that two rows map to different designations matches nothing); then a row
+for its `projectId`. The file is a JSON array of rows with a `designation`,
+`approved: true`, and any of `projectId`, `threadId`, `name` and an optional
+`aliases` string array; only approved rows with a designation show. A
 missing or malformed file shows no badges. The sidebar fetches the file when the
 sidebar mounts, so reload the app after editing it.
 

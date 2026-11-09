@@ -1060,6 +1060,8 @@ thread-list-icons	M	plugins/thread-list/server.test.ts
 thread-list-icons	M	plugins/thread-list/server.ts
 thread-list-icons	A	plugins/thread-list/shared/hull-designations.test.ts
 thread-list-icons	A	plugins/thread-list/shared/hull-designations.ts
+thread-list-icons	A	plugins/thread-list/shared/hull-names.test.ts
+thread-list-icons	A	plugins/thread-list/shared/hull-names.ts
 thread-list-icons	A	plugins/thread-list/shared/preferences.test.ts
 thread-list-icons	M	plugins/thread-list/shared/preferences.ts
 thread-list-icons	A	plugins/thread-list/shared/tint-color.ts

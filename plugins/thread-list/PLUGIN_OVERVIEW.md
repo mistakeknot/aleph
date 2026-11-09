@@ -9,7 +9,7 @@ The sidebar thread list, as a plugin.
 - Agent provider icons before thread titles, controlled by Organize → Rows → Provider icons.
 - A metadata line under thread titles where plugins show details such as the pull request number, controlled by Organize → Rows → Metadata while the Thread row metadata experiment is on.
 - Unread threads listed above read ones, controlled by Organize → Groups → By read status.
-- An optional hull designation badge on each thread row, read from `hull-designations.json` in bb's data directory (or the file named by `BB_HULL_DESIGNATIONS_FILE`): a JSON array of `{ projectId, designation, approved }` or `{ threadId, designation, approved }` rows, where a thread row wins over its project row; only approved rows with a designation show, and a missing or invalid file shows no badges.
+- An optional hull designation badge on each thread row, read from `hull-designations.json` in bb's data directory (or the file named by `BB_HULL_DESIGNATIONS_FILE`): a JSON array of approved rows with a `designation` and any of `projectId`, `threadId`, `name` and an optional `aliases` string array. A thread resolves its badge in order: a row for its `threadId`; the title prefix (the text before the first ` | `) matched to an approved row's `name` or `aliases` after lowercasing and keeping only letters and digits, skipping a name that maps to two different designations; then a row for its `projectId`. Only approved rows with a designation show, and a missing or invalid file shows no badges. The `listHullDesignations` RPC returns `{ designations, names }`; `shared/hull-names.ts` holds the normalization and resolver.
 
 ## How it works
 

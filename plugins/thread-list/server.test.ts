@@ -390,17 +390,29 @@ describe("thread-list hull designations rpc", () => {
       await plugin(host.bb);
       await expect(
         host.harness.behavior.callRpc("listHullDesignations", null),
-      ).resolves.toEqual({ designations: {} });
+      ).resolves.toEqual({ designations: {}, names: {} });
       writeFileSync(
         join(dir, "hull-designations.json"),
         JSON.stringify([
           { projectId: "proj_test1", designation: "GSV-T1·◐", approved: true },
           { projectId: "proj_test2", designation: "GSV-T2·◐", approved: false },
+          {
+            threadId: "thr_test3",
+            name: "Mind State",
+            aliases: ["Mind-Alias"],
+            designation: "GSV-T3·◐",
+            approved: true,
+          },
+          { name: "Clash", designation: "GSV-A·◐", approved: true },
+          { name: "clash", designation: "GSV-B·◐", approved: true },
         ]),
       );
       await expect(
         host.harness.behavior.callRpc("listHullDesignations", null),
-      ).resolves.toEqual({ designations: { proj_test1: "GSV-T1·◐" } });
+      ).resolves.toEqual({
+        designations: { proj_test1: "GSV-T1·◐", thr_test3: "GSV-T3·◐" },
+        names: { mindstate: "GSV-T3·◐", mindalias: "GSV-T3·◐" },
+      });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

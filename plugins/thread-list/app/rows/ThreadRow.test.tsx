@@ -54,7 +54,10 @@ import {
   preferenceValueAtom,
   resetPreferencesSyncForTest,
 } from "../preferences/preferences-sync.js";
-import { hullDesignationsAtom } from "../preferences/hull-designations.js";
+import {
+  hullDesignationsAtom,
+  hullNameDesignationsAtom,
+} from "../preferences/hull-designations.js";
 import { HullDesignationsSync } from "../preferences/HullDesignationsSync.js";
 import {
   CustomizeRowActionsContext,
@@ -413,7 +416,15 @@ afterEach(() => {
 describe("ThreadRow hull designation badge", () => {
   afterEach(() => {
     getDefaultStore().set(hullDesignationsAtom, {});
+    getDefaultStore().set(hullNameDesignationsAtom, {});
   });
+
+  function badgeText(container: HTMLElement): string | undefined {
+    return (
+      container.querySelector("[data-sidebar-thread-hull-designation]")
+        ?.textContent ?? undefined
+    );
+  }
 
   it("shows the designation badge for a mapped project", () => {
     getDefaultStore().set(hullDesignationsAtom, { proj_test1: "GSV-T1·◐" });
@@ -445,6 +456,105 @@ describe("ThreadRow hull designation badge", () => {
       other.container.querySelector("[data-sidebar-thread-hull-designation]")
         ?.textContent,
     ).toBe("GSV-P1·◐");
+  });
+
+  it("lets a thread row override beat the title prefix", () => {
+    getDefaultStore().set(hullDesignationsAtom, {
+      thr_test1: "GSV-T1·◐",
+      proj_test1: "GSV-P1·◐",
+    });
+    getDefaultStore().set(hullNameDesignationsAtom, { mindstate: "GSV-N1·◐" });
+    const { container } = renderThreadRow({
+      thread: createThread({
+        id: "thr_test1",
+        projectId: "proj_test1",
+        title: "Mind State | coordinator",
+      }),
+    });
+    expect(badgeText(container)).toBe("GSV-T1·◐");
+  });
+
+  it("lets the title prefix beat the project designation", () => {
+    getDefaultStore().set(hullDesignationsAtom, { proj_host: "GSV-HOST·◐" });
+    getDefaultStore().set(hullNameDesignationsAtom, { mindstate: "GSV-N1·◐" });
+    const { container } = renderThreadRow({
+      thread: createThread({
+        id: "thr_test2",
+        projectId: "proj_host",
+        title: "Mind-State | coordinator",
+      }),
+    });
+    expect(badgeText(container)).toBe("GSV-N1·◐");
+  });
+
+  it("falls back to the project designation when the title has no prefix", () => {
+    getDefaultStore().set(hullDesignationsAtom, { proj_host: "GSV-HOST·◐" });
+    getDefaultStore().set(hullNameDesignationsAtom, { mindstate: "GSV-N1·◐" });
+    const { container } = renderThreadRow({
+      thread: createThread({
+        id: "thr_test3",
+        projectId: "proj_host",
+        title: "Mind State",
+      }),
+    });
+    expect(badgeText(container)).toBe("GSV-HOST·◐");
+  });
+
+  it("falls back to the project designation when the prefix is unknown", () => {
+    getDefaultStore().set(hullDesignationsAtom, { proj_host: "GSV-HOST·◐" });
+    getDefaultStore().set(hullNameDesignationsAtom, { mindstate: "GSV-N1·◐" });
+    const { container } = renderThreadRow({
+      thread: createThread({
+        id: "thr_test4",
+        projectId: "proj_host",
+        title: "Unlisted | coordinator",
+      }),
+    });
+    expect(badgeText(container)).toBe("GSV-HOST·◐");
+  });
+
+  it("resolves a thread-row alias in a project with another designation", () => {
+    getDefaultStore().set(hullDesignationsAtom, {
+      thr_test5: "GSV-F4·◐",
+      proj_host: "GSV-F8·◐",
+    });
+    getDefaultStore().set(hullNameDesignationsAtom, {
+      rakesofbabel: "GSV-F4·◐",
+      rakes: "GSV-F4·◐",
+      hosts: "GSV-F8·◐",
+    });
+    const { container } = renderThreadRow({
+      thread: createThread({
+        id: "thr_test6",
+        projectId: "proj_host",
+        title: "Rakes | worker",
+      }),
+    });
+    expect(badgeText(container)).toBe("GSV-F4·◐");
+  });
+
+  it("changes the badge when the thread is renamed", () => {
+    getDefaultStore().set(hullDesignationsAtom, { proj_host: "GSV-HOST·◐" });
+    getDefaultStore().set(hullNameDesignationsAtom, { mindstate: "GSV-N1·◐" });
+    const thread = createThread({
+      id: "thr_test7",
+      projectId: "proj_host",
+      title: "Unlisted | coordinator",
+    });
+    const view = renderThreadRow({ thread });
+    expect(badgeText(view.container)).toBe("GSV-HOST·◐");
+    view.rerenderThreadRow({
+      ...thread,
+      title: "Mind State | coordinator",
+      displayTitle: "Mind State | coordinator",
+    });
+    expect(badgeText(view.container)).toBe("GSV-N1·◐");
+    view.rerenderThreadRow({
+      ...thread,
+      title: "Renamed",
+      displayTitle: "Renamed",
+    });
+    expect(badgeText(view.container)).toBe("GSV-HOST·◐");
   });
 
   it("keeps the badge non-interactive and the row link navigable", () => {
@@ -482,6 +592,7 @@ describe("ThreadRow hull designation badge", () => {
         rpc: {
           listHullDesignations: () => ({
             designations: { proj_test1: "GSV-T1·◐" },
+            names: {},
           }),
         },
       },
@@ -495,6 +606,35 @@ describe("ThreadRow hull designation badge", () => {
     expect(slot.rpcCalls.map((call) => call.method)).toContain(
       "listHullDesignations",
     );
+  });
+
+  it("hydrates name designations from the rpc into the row", async () => {
+    const thread = createThread({
+      projectId: "proj_other",
+      title: "Mind State | coordinator",
+      displayTitle: "Mind State | coordinator",
+    });
+    const Both = () => (
+      <>
+        <HullDesignationsSync />
+        <ThreadRowHarness thread={thread} />
+      </>
+    );
+    const slot = renderSlot(
+      { component: Both },
+      {},
+      {
+        sidebarThreads: { threads: [thread], projects: [] },
+        providers: { providers: [] },
+        rpc: {
+          listHullDesignations: () => ({
+            designations: {},
+            names: { mindstate: "GSV-N1·◐" },
+          }),
+        },
+      },
+    );
+    await waitFor(() => expect(badgeText(slot.container)).toBe("GSV-N1·◐"));
   });
 
   it("shows no badge when the project has no designation", () => {

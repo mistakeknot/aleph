@@ -62,7 +62,10 @@ export const threadListRpcContract = defineRpcContract({
   listHullDesignations: {
     input: z.null(),
     output: z
-      .object({ designations: z.record(z.string(), z.string()) })
+      .object({
+        designations: z.record(z.string(), z.string()),
+        names: z.record(z.string(), z.string()),
+      })
       .strict(),
   },
 });
@@ -210,7 +213,7 @@ export default async function threadListPlugin(bb: BbPluginApi) {
 
   bb.rpc.register(threadListRpcContract, {
     async listHullDesignations() {
-      return { designations: readHullDesignations() };
+      return readHullDesignations();
     },
     async listPreferences() {
       return { preferences: await store.readAll() };

@@ -65,7 +65,11 @@ import {
   THREAD_ROW_METADATA_EXPERIMENT,
   threadRowActionsAtom,
 } from "../preferences/atoms.js";
-import { hullDesignationsAtom } from "../preferences/hull-designations.js";
+import {
+  hullDesignationsAtom,
+  hullNameDesignationsAtom,
+} from "../preferences/hull-designations.js";
+import { resolveHullDesignation } from "../../shared/hull-names.js";
 import { resolveProviderIconColor } from "./provider-icon-color.js";
 import { ShortcutPill } from "@/components/ui/shortcut-pill";
 import { SidebarStickyTier } from "../ui/sidebar.js";
@@ -266,12 +270,21 @@ function renderThreadRowContainer({
 function ThreadRowHullBadge({
   threadId,
   projectId,
+  title,
 }: {
   threadId: string;
   projectId: string;
+  title: string;
 }) {
   const designations = useAtomValue(hullDesignationsAtom);
-  const designation = designations[threadId] ?? designations[projectId];
+  const names = useAtomValue(hullNameDesignationsAtom);
+  const designation = resolveHullDesignation({
+    threadId,
+    projectId,
+    title,
+    designations,
+    names,
+  });
   if (designation === undefined) return null;
   return (
     <span
@@ -707,6 +720,7 @@ function ThreadRowComponent({
             <ThreadRowHullBadge
               threadId={thread.id}
               projectId={thread.projectId}
+              title={thread.displayTitle}
             />
             {isEditing ? (
               <span className="pointer-events-auto relative z-10 min-w-0 flex-1 overflow-visible">
