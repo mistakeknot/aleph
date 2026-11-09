@@ -38,9 +38,15 @@ function StatusChips(props: {
   onToggle: (status: WikiStatus) => void;
 }) {
   return (
-    <div role="group" aria-label="Filter by status" className="flex flex-wrap gap-2">
+    <div
+      role="group"
+      aria-label="Filter by status"
+      className="flex flex-wrap gap-2"
+    >
       {WIKI_STATUSES.map((status) => {
-        const count = props.pages.filter((page) => page.status === status).length;
+        const count = props.pages.filter(
+          (page) => page.status === status,
+        ).length;
         const pressed = props.active.has(status);
         return (
           <button
@@ -74,7 +80,7 @@ function PageRow(props: {
     <li
       data-wiki-row={page.id}
       className={cn(
-        "flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md px-2 py-2",
+        "flex min-w-0 flex-col gap-1 rounded-md px-2 py-2",
         props.selected && "bg-muted",
       )}
     >
@@ -82,23 +88,27 @@ function PageRow(props: {
         type="button"
         aria-current={props.selected ? "page" : undefined}
         onClick={() => props.onSelect(page)}
-        className="min-w-0 flex-1 text-left text-sm font-medium hover:underline"
+        data-wiki-title
+        className="block w-full min-w-0 break-words text-left text-sm font-medium leading-snug text-foreground hover:underline"
       >
         {page.title}
       </button>
-      <span className="font-mono text-xs text-subtle-foreground">{page.id}</span>
-      <StatusPill status={page.status} />
-      {page.card === null ? null : (
-        <CardLink
-          cardKey={page.card}
-          {...(props.onOpenCard === undefined
-            ? {}
-            : { onOpenCard: props.onOpenCard })}
-        />
-      )}
-      <span className="text-xs tabular-nums text-subtle-foreground">
-        {page.updated}
-      </span>
+      <div
+        data-wiki-meta
+        className="flex min-w-0 items-center gap-x-2 overflow-hidden whitespace-nowrap text-xs text-subtle-foreground"
+      >
+        <span className="min-w-0 shrink truncate font-mono">{page.id}</span>
+        <StatusPill status={page.status} />
+        {page.card === null ? null : (
+          <CardLink
+            cardKey={page.card}
+            {...(props.onOpenCard === undefined
+              ? {}
+              : { onOpenCard: props.onOpenCard })}
+          />
+        )}
+        <span className="ml-auto shrink-0 tabular-nums">{page.updated}</span>
+      </div>
     </li>
   );
 }
@@ -142,7 +152,11 @@ export function WikiListView(props: WikiListViewProps) {
         const errors = list.errors.filter((error) => error.kind === kind);
         if (pages.length === 0 && errors.length === 0) return null;
         return (
-          <section key={kind} aria-label={KIND_LABEL[kind]} className="flex flex-col gap-1">
+          <section
+            key={kind}
+            aria-label={KIND_LABEL[kind]}
+            className="flex flex-col gap-1"
+          >
             <h2 className="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">
               {KIND_LABEL[kind]}
             </h2>

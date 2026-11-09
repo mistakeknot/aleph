@@ -8,7 +8,7 @@ export const STATUS_LABEL: Record<WikiStatus, string> = {
 };
 
 export const STATUS_TONE: Record<WikiStatus, string> = {
-  ruled: "border-success/30 bg-success/10 text-success",
+  ruled: "border-success/30 bg-success/10 text-success-foreground",
   "design-choice": "border-warning/30 bg-warning/10 text-warning-text",
   open: "border-destructive/30 bg-destructive/10 text-destructive-text",
 };

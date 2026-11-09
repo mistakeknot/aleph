@@ -76,6 +76,7 @@ interface PinThreadRow {
 
 const MAX_LISTED_FILES = 10_000;
 const MAX_PAGE_BYTES = 512 * 1024;
+const DISCOVERY_TTL_MS = 10_000;
 const MISSING_PATH_PATTERN =
   /not found|no such|enoent|does not exist|not a directory/i;
 
@@ -491,7 +492,50 @@ export default async function designWikiPlugin(bb: BbPluginApi): Promise<void> {
     };
   }
 
-  async function discover(projectId: string): Promise<WikiDiscovery> {
+  interface DiscoveryEntry {
+    startedAt: number;
+    settled: boolean;
+    result: Promise<WikiDiscovery>;
+  }
+  const discoveries = new Map<string, DiscoveryEntry>();
+
+  function discover(
+    projectId: string,
+    options: { maxAgeMs?: number; fresh?: boolean } = {},
+  ): Promise<WikiDiscovery> {
+    const now = Date.now();
+    const cached = discoveries.get(projectId);
+    if (
+      options.fresh !== true &&
+      cached !== undefined &&
+      (!cached.settled || now - cached.startedAt < (options.maxAgeMs ?? 0))
+    ) {
+      return cached.result;
+    }
+    for (const [key, candidate] of discoveries) {
+      if (candidate.settled && now - candidate.startedAt >= DISCOVERY_TTL_MS) {
+        discoveries.delete(key);
+      }
+    }
+    const entry: DiscoveryEntry = {
+      startedAt: now,
+      settled: false,
+      result: discoverUncached(projectId),
+    };
+    discoveries.set(projectId, entry);
+    void entry.result.then((discovery) => {
+      entry.settled = true;
+      if (
+        discovery.list.state === "unavailable" &&
+        discoveries.get(projectId) === entry
+      ) {
+        discoveries.delete(projectId);
+      }
+    });
+    return entry.result;
+  }
+
+  async function discoverUncached(projectId: string): Promise<WikiDiscovery> {
     let root: CheckoutRoot | null;
     try {
       root = await checkoutRoot(projectId);
@@ -531,12 +575,12 @@ export default async function designWikiPlugin(bb: BbPluginApi): Promise<void> {
         }));
       },
       async list({ projectId }) {
-        return (await discover(projectId)).list;
+        return (await discover(projectId, { maxAgeMs: DISCOVERY_TTL_MS })).list;
       },
       async page({ projectId, pageId }): Promise<WikiPageResult> {
-        const found = (await discover(projectId)).pages.find(
-          (page) => page.id === pageId,
-        );
+        const found = (
+          await discover(projectId, { maxAgeMs: DISCOVERY_TTL_MS })
+        ).pages.find((page) => page.id === pageId);
         return found === undefined
           ? { state: "missing" }
           : { state: "found", page: found };
@@ -557,7 +601,7 @@ export default async function designWikiPlugin(bb: BbPluginApi): Promise<void> {
       async createPin({ projectId, pageId, claim, body }) {
         const text = cleanBody(body);
         if (text === null) return fail("invalid-body");
-        const discovery = await discover(projectId);
+        const discovery = await discover(projectId, { fresh: true });
         const anchor = resolvePinAnchor(
           { pageId, sourcePath: "", claim: null },
           discovery,
@@ -878,7 +922,10 @@ export default async function designWikiPlugin(bb: BbPluginApi): Promise<void> {
         if (row === undefined) {
           return refuse("not-found", "This pin no longer exists.");
         }
-        const linked = cardKeysOf(row, await discover(projectId));
+        const linked = cardKeysOf(
+          row,
+          await discover(projectId, { fresh: true }),
+        );
         if (!linked.some((entry) => entry.key === key)) {
           return refuse("not-linked", `${key} is not a card on this pin.`);
         }
