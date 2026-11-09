@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { experimental_useRpcQuery as useRpcQuery } from "@get-bb/plugin-sdk/app";
 import { designWikiRpcContract } from "../contract.js";
 import { WikiListView } from "./wiki-list-view.js";
@@ -107,11 +108,6 @@ export function WikiBrowser(props: WikiBrowserProps) {
     input: { projectId },
   });
 
-  if (list.error !== null && list.data === undefined) {
-    return <Message tone="error">Could not load the design wiki.</Message>;
-  }
-  if (list.data === undefined) return <Message>Loading wiki…</Message>;
-
   if (layout === "stacked" && pageId !== null) {
     return (
       <div className="flex min-h-0 flex-col gap-4">
@@ -127,26 +123,37 @@ export function WikiBrowser(props: WikiBrowserProps) {
     );
   }
 
-  const known =
-    list.data.state === "unavailable"
-      ? null
-      : new Set(list.data.pages.map((page) => page.id));
-  const listView = (
-    <div className="flex min-w-0 flex-col gap-4">
-      <WikiListView
-        list={list.data}
-        selectedId={pageId}
-        onSelect={(page) => onSelectPage(page.id)}
-        onOpenCard={openCard}
-      />
-      {known === null ? null : (
-        <DetachedPins
-          projectId={projectId}
-          threadId={threadId}
-          pageIds={known}
+  const listData = list.data;
+  let listBody: ReactNode;
+  if (listData !== undefined) {
+    const known =
+      listData.state === "unavailable"
+        ? null
+        : new Set(listData.pages.map((page) => page.id));
+    listBody = (
+      <>
+        <WikiListView
+          list={listData}
+          selectedId={pageId}
+          onSelect={(page) => onSelectPage(page.id)}
+          onOpenCard={openCard}
         />
-      )}
-    </div>
+        {known === null ? null : (
+          <DetachedPins
+            projectId={projectId}
+            threadId={threadId}
+            pageIds={known}
+          />
+        )}
+      </>
+    );
+  } else if (list.error !== null) {
+    listBody = <Message tone="error">Could not load the design wiki.</Message>;
+  } else {
+    listBody = <Message>Loading wiki…</Message>;
+  }
+  const listView = (
+    <div className="flex min-w-0 flex-col gap-4">{listBody}</div>
   );
   if (layout === "stacked") return listView;
   return (
