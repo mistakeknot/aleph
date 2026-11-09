@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Agent providers
+
+- Claude Code offers Fable 5.2 with its 1M context.
+
 ### Secrets
 
 - **Secret requests are checked against a host allowlist.** `bb secret request`

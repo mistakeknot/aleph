@@ -71,6 +71,51 @@ function buildModel(
   };
 }
 
+const FABLE_5_2_MODEL = "claude-fable-5-2";
+const FABLE_5_2_ONE_MILLION_MODEL = `${FABLE_5_2_MODEL}[1m]`;
+const FABLE_5_1_MODEL = "claude-fable-5-1";
+const FABLE_5_2_FALLBACK_EFFORT_LEVELS: ModelInfo["supportedEffortLevels"] = [
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+];
+
+function stripOneMillionSuffix(model: string): string {
+  return model.endsWith("[1m]") ? model.slice(0, -"[1m]".length) : model;
+}
+
+function reportsModel(modelInfo: ModelInfo, model: string): boolean {
+  return (
+    stripOneMillionSuffix(modelInfo.value) === model ||
+    stripOneMillionSuffix(modelInfo.resolvedModel ?? "") === model
+  );
+}
+
+function buildFable52Fallback(
+  discoveredModels: readonly ModelInfo[],
+): AvailableModel | null {
+  if (discoveredModels.some((info) => reportsModel(info, FABLE_5_2_MODEL))) {
+    return null;
+  }
+  const fable51 = discoveredModels.find((info) =>
+    reportsModel(info, FABLE_5_1_MODEL),
+  );
+  return buildModel(
+    {
+      value: FABLE_5_2_ONE_MILLION_MODEL,
+      resolvedModel: FABLE_5_2_MODEL,
+      displayName: "Fable",
+      description: "Fable 5.2",
+      supportedEffortLevels:
+        fable51?.supportedEffortLevels ?? FABLE_5_2_FALLBACK_EFFORT_LEVELS,
+    },
+    FABLE_5_2_ONE_MILLION_MODEL,
+    deriveClaudeModelDisplayName(FABLE_5_2_ONE_MILLION_MODEL) ?? "Fable 5.2",
+  );
+}
+
 interface ListClaudeCodeModelsResult {
   models: AvailableModel[];
   selectedOnlyModels: AvailableModel[];
@@ -98,6 +143,10 @@ export function buildClaudeCodeModels(
         deriveClaudeModelDisplayName(model) ?? modelInfo.displayName,
       ),
     );
+  }
+  const fable52Fallback = buildFable52Fallback(discoveredModels);
+  if (fable52Fallback !== null) {
+    models.push(fable52Fallback);
   }
   const selectedOnlyModels: AvailableModel[] = [];
   for (const modelInfo of discoveredModels) {
