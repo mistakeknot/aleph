@@ -112,7 +112,7 @@ its place until another thread is opened.
 Hull designation badges: if `hull-designations.json` exists in bb's data
 directory (or at the path in `BB_HULL_DESIGNATIONS_FILE`), each thread row shows
 a designation, taken from the first match of: a row for its `threadId`; the
-title prefix (the text before the first ` | `) matched to an approved row's
+title prefix (the text before the first spaced pipe separator) matched to an approved row's
 `name` or `aliases` entry after lowercasing and keeping only letters and digits
 (a name that two rows map to different designations matches nothing); then a row
 for its `projectId`. The file is a JSON array of rows with a `designation`,
