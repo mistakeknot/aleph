@@ -6,6 +6,7 @@ import {
   type GitWorktreeEntry,
 } from "./worktree-list.js";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import {
@@ -670,6 +671,123 @@ async function removeDirectoryIfEmpty(pathToRemove: string): Promise<void> {
   }
 }
 
+/** Where cleanup saves uncommitted work before it removes a worktree (Aleph, mk-rygli). Shared by every worktree of the repository. */
+export const SAVED_WORK_REF_PREFIX = "refs/bb/saved-work/";
+
+const SAVED_WORK_IDENTITY = {
+  GIT_AUTHOR_NAME: "bb worktree cleanup",
+  GIT_AUTHOR_EMAIL: "bb-cleanup@localhost",
+  GIT_COMMITTER_NAME: "bb worktree cleanup",
+  GIT_COMMITTER_EMAIL: "bb-cleanup@localhost",
+};
+
+/**
+ * Saves a dirty worktree's uncommitted work to a ref under SAVED_WORK_REF_PREFIX and returns the ref, or null when
+ * there is nothing to save. Nothing in the worktree changes: the branch is not moved, the real index is only read,
+ * and the snapshot is built in a temporary index. The saved commit's tree is the working tree (tracked changes,
+ * deletions and untracked files; ignored files are left out, so build output is not copied). Its first parent is
+ * HEAD; when the index differs from both HEAD and the working tree, a second parent holds the staged state exactly.
+ * Throws when the work cannot be saved, so the caller removes nothing.
+ */
+export async function saveUncommittedWork(args: {
+  path: string;
+  signal?: AbortSignal | undefined;
+}): Promise<string | null> {
+  const opts = {
+    cwd: args.path,
+    ...(args.signal !== undefined ? { signal: args.signal } : {}),
+  };
+  const status = await runGit(
+    ["status", "--porcelain", "--untracked-files=all"],
+    opts,
+  );
+  if (status.stdout.trim() === "") return null;
+
+  const head = await runGit(["rev-parse", "--verify", "-q", "HEAD^{commit}"], {
+    ...opts,
+    allowFailure: true,
+  });
+  const headCommit = head.exitCode === 0 ? head.stdout.trim() : null;
+  const branch = await runGit(["symbolic-ref", "--short", "-q", "HEAD"], {
+    ...opts,
+    allowFailure: true,
+  });
+  const branchName =
+    branch.exitCode === 0 && branch.stdout.trim() !== ""
+      ? branch.stdout.trim()
+      : "detached";
+  const env = { ...process.env, ...SAVED_WORK_IDENTITY };
+  const parentArgs = headCommit !== null ? ["-p", headCommit] : [];
+
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "bb-saved-work-"));
+  try {
+    const tmpEnv = { ...env, GIT_INDEX_FILE: path.join(tmp, "index") };
+    if (headCommit !== null)
+      await runGit(["read-tree", headCommit], { ...opts, env: tmpEnv });
+    await runGit(["add", "-A", "--", "."], { ...opts, env: tmpEnv });
+    const workTree = (
+      await runGit(["write-tree"], { ...opts, env: tmpEnv })
+    ).stdout.trim();
+
+    // The staged state, when it is neither HEAD nor the working tree. write-tree only reads the real index; a
+    // conflicted index cannot be written and is skipped (the working tree still holds the files).
+    const extraParents: string[] = [];
+    const indexTree = await runGit(["write-tree"], {
+      ...opts,
+      allowFailure: true,
+    });
+    const headTree =
+      headCommit !== null
+        ? (
+            await runGit(["rev-parse", `${headCommit}^{tree}`], opts)
+          ).stdout.trim()
+        : null;
+    const staged = indexTree.exitCode === 0 ? indexTree.stdout.trim() : null;
+    if (staged !== null && staged !== headTree && staged !== workTree) {
+      const indexCommit = await runGit(
+        [
+          "commit-tree",
+          staged,
+          ...parentArgs,
+          "-m",
+          `bb: staged changes on ${branchName}`,
+        ],
+        { ...opts, env },
+      );
+      extraParents.push("-p", indexCommit.stdout.trim());
+    }
+
+    const message = `bb: uncommitted work saved before the worktree on ${branchName} was removed\n\nWorktree: ${args.path}`;
+    const commit = (
+      await runGit(
+        [
+          "commit-tree",
+          workTree,
+          ...parentArgs,
+          ...extraParents,
+          "-m",
+          message,
+        ],
+        { ...opts, env },
+      )
+    ).stdout.trim();
+    const ref = `${SAVED_WORK_REF_PREFIX}${branchName}/${Date.now()}`;
+    await runGit(
+      [
+        "update-ref",
+        "-m",
+        "bb: save uncommitted work before worktree removal",
+        ref,
+        commit,
+      ],
+      opts,
+    );
+    return ref;
+  } finally {
+    await fs.rm(tmp, { recursive: true, force: true });
+  }
+}
+
 export async function removeWorktree(args: RemoveWorktreeArgs): Promise<void> {
   throwIfProvisionAborted(args.signal);
   const workspacePath = path.resolve(args.path);
@@ -693,6 +811,31 @@ export async function removeWorktree(args: RemoveWorktreeArgs): Promise<void> {
   });
 
   if (commonDirResult.exitCode === 0) {
+    // Aleph (mk-rygli): the forced remove below deletes uncommitted work, so save it first. A failure to save stops the
+    // removal: the worktree stays, and the environment reports the failure.
+    let savedRef: string | null;
+    try {
+      savedRef = await saveUncommittedWork({
+        path: workspacePath,
+        signal: args.signal,
+      });
+    } catch (error) {
+      if (isProvisionAbortError(error)) throw error;
+      throw new WorkspaceError(
+        "dirty_worktree_not_saved",
+        `The worktree at ${workspacePath} has uncommitted changes that could not be saved, so it was left in place: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    if (savedRef !== null) {
+      emitStep({
+        onProgress: args.onProgress,
+        key: "saved-uncommitted-work",
+        text: `Saved uncommitted work to ${savedRef}`,
+        status: "completed",
+        startedAt: Date.now(),
+      });
+    }
+    throwIfProvisionAborted(args.signal);
     const commonDir = path.resolve(
       workspacePath,
       commonDirResult.stdout.trim(),

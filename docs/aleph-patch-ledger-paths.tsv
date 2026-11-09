@@ -1125,3 +1125,6 @@ automation-auto-pause	M	plugins/provider-retry/server.test.ts
 automation-auto-pause	M	plugins/provider-retry/server.ts
 automation-auto-pause	M	plugins/provider-retry/skills/provider-retry/SKILL.md
 automation-auto-pause	M	plugins/provider-retry/src/retry-contract.ts
+worktree-saved-work	M	docs/worktrees.md
+worktree-saved-work	A	plugins/environment-git-worktree/host/saved-work.test.ts
+worktree-saved-work	M	plugins/environment-git-worktree/host/worktree.ts

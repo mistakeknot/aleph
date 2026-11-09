@@ -135,11 +135,25 @@ every process whose working directory is inside the worktree — the agent's
 provider process, its background jobs (dev servers, MCP servers, `nohup`
 jobs), and any process you started there yourself, such as a shell you `cd`'d
 into the worktree or an editor terminal. Each process gets `SIGTERM`, then
-`SIGKILL` after a short grace period. Then `git worktree remove --force` runs
-and the directory is deleted. The branch is left behind, so work you committed
-to it survives the worktree. If you want to keep uncommitted work, commit and
-push (or open a PR) from inside the worktree before letting the thread go, and
-move your own shells out of the worktree first if you want to keep them.
+`SIGKILL` after a short grace period. If the worktree has uncommitted changes,
+bb saves them before removing it: staged, unstaged and untracked files (not
+ignored ones) go into a commit on the ref
+`refs/bb/saved-work/<branch>/<time in ms>`, whose first parent is the branch
+head and whose second parent, when the staged state differed, holds the staged
+files. The branch itself is not moved. If the save fails, the worktree is left
+in place. Then `git worktree remove --force` runs and the directory is deleted.
+The branch is left behind, so work you committed to it survives the worktree.
+
+To list and restore saved work from the main checkout:
+
+```bash
+git for-each-ref refs/bb/saved-work/
+git switch -c restored <saved ref>
+```
+
+Saved refs are never deleted for you; remove one with `git update-ref -d` when
+you no longer need it. Move your own shells out of the worktree first if you
+want to keep them.
 
 ## Run teardown with `.bb-env-teardown.sh`
 
