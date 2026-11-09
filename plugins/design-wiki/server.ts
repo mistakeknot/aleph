@@ -526,7 +526,7 @@ export default async function designWikiPlugin(bb: BbPluginApi): Promise<void> {
     void entry.result.then((discovery) => {
       entry.settled = true;
       if (
-        discovery.list.state === "unavailable" &&
+        discovery.incomplete === true &&
         discoveries.get(projectId) === entry
       ) {
         discoveries.delete(projectId);
@@ -560,7 +560,7 @@ export default async function designWikiPlugin(bb: BbPluginApi): Promise<void> {
       pages: [],
       errors: [],
     };
-    return { list, pages: [] };
+    return { list, pages: [], incomplete: true };
   }
 
   bb.rpc.register(

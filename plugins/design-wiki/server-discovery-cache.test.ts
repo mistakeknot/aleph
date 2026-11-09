@@ -15,6 +15,7 @@ async function setup(options: { failFirstProject?: boolean } = {}) {
     [`${CUJ_DIR}/b.md`]: doc("cuj-b"),
   };
   const counts = { project: 0, list: 0, read: 0 };
+  const faults = { list: 0, read: new Set<string>() };
   let failProject = options.failFirstProject === true;
   const fake = createFakePluginHost({
     pluginId: "bb--design-wiki",
@@ -45,6 +46,10 @@ async function setup(options: { failFirstProject?: boolean } = {}) {
       files: {
         listPaths: async ({ path }: { path: string }) => {
           counts.list += 1;
+          if (faults.list > 0) {
+            faults.list -= 1;
+            throw new Error("host busy");
+          }
           const prefix = `${path}/`;
           return {
             paths: Object.keys(files)
@@ -59,6 +64,7 @@ async function setup(options: { failFirstProject?: boolean } = {}) {
         },
         read: async ({ path }: { path: string }) => {
           counts.read += 1;
+          if (faults.read.has(path)) throw new Error("host busy");
           const content = files[path];
           if (content === undefined) throw new Error("No such file");
           return {
@@ -73,7 +79,7 @@ async function setup(options: { failFirstProject?: boolean } = {}) {
     },
   });
   await plugin(fake.bb);
-  return { fake, counts, files };
+  return { fake, counts, files, faults };
 }
 
 afterEach(() => {
@@ -133,5 +139,74 @@ describe("Design Wiki discovery sharing", () => {
     await fake.harness.callRpc("list", { projectId: "p1" });
     await fake.harness.callRpc("list", { projectId: "p2" });
     expect(counts.project).toBe(2);
+  });
+});
+
+describe("Design Wiki discovery with read failures", () => {
+  it("does not reuse a read that lost a page to a file failure", async () => {
+    const { fake, counts, faults } = await setup();
+    faults.read.add(`${CUJ_DIR}/b.md`);
+    const first = await fake.harness.callRpc("page", {
+      projectId: "p1",
+      pageId: "cuj-b",
+    });
+    expect(first).toMatchObject({ state: "missing" });
+    faults.read.clear();
+    const second = await fake.harness.callRpc("page", {
+      projectId: "p1",
+      pageId: "cuj-b",
+    });
+    expect(second).toMatchObject({ state: "found" });
+    expect(counts.project).toBe(2);
+  });
+
+  it("does not reuse a read that lost a directory to a listing failure", async () => {
+    const { fake, counts, faults } = await setup();
+    faults.list = 1;
+    const first = (await fake.harness.callRpc("list", {
+      projectId: "p1",
+    })) as { pages: unknown[]; errors: unknown[] };
+    expect(first.pages).toHaveLength(0);
+    expect(first.errors).toHaveLength(1);
+    const second = (await fake.harness.callRpc("list", {
+      projectId: "p1",
+    })) as { pages: unknown[]; errors: unknown[] };
+    expect(second.pages).toHaveLength(2);
+    expect(second.errors).toHaveLength(0);
+    expect(counts.project).toBe(2);
+  });
+
+  it("gives every joiner of a failing read the failure, then retries", async () => {
+    const { fake, counts, faults } = await setup();
+    faults.read.add(`${CUJ_DIR}/a.md`);
+    const [list, pageA, pageB] = await Promise.all([
+      fake.harness.callRpc("list", { projectId: "p1" }),
+      fake.harness.callRpc("page", { projectId: "p1", pageId: "cuj-a" }),
+      fake.harness.callRpc("page", { projectId: "p1", pageId: "cuj-b" }),
+    ]);
+    expect(counts.project).toBe(1);
+    expect(list).toMatchObject({
+      errors: [{ path: `docs/wiki/src/cujs/a.md` }],
+    });
+    expect(pageA).toMatchObject({ state: "missing" });
+    expect(pageB).toMatchObject({ state: "found" });
+    faults.read.clear();
+    const retry = await fake.harness.callRpc("page", {
+      projectId: "p1",
+      pageId: "cuj-a",
+    });
+    expect(retry).toMatchObject({ state: "found" });
+    expect(counts.project).toBe(2);
+  });
+
+  it("keeps reusing a read whose only errors are invalid pages", async () => {
+    const { fake, counts, files } = await setup();
+    files[`${CUJ_DIR}/bad.md`] = "no front matter at all";
+    const first = (await fake.harness.callRpc("list", {
+      projectId: "p1",
+    })) as { errors: unknown[] };
+    expect(first.errors).toHaveLength(1);
+    await fake.harness.callRpc("list", { projectId: "p1" });
+    expect(counts.project).toBe(1);
   });
 });

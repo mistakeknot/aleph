@@ -23,6 +23,7 @@ export interface WikiFileSource {
 export interface WikiDiscovery {
   list: WikiList;
   pages: WikiPage[];
+  incomplete?: boolean;
 }
 
 export function toSummary(page: WikiPage): WikiPageSummary {
@@ -57,7 +58,7 @@ async function mapLimited<T, R>(
 
 type PageOutcome =
   | { ok: true; page: WikiPage }
-  | { ok: false; error: WikiPageError };
+  | { ok: false; transient?: boolean; error: WikiPageError };
 
 export async function discoverWiki(
   source: WikiFileSource,
@@ -66,6 +67,7 @@ export async function discoverWiki(
   const targets: { kind: WikiKind; path: string }[] = [];
   const errors: WikiPageError[] = [];
   let foundDirectory = false;
+  let incomplete = false;
 
   for (const kind of kinds) {
     const directory = WIKI_SOURCE_DIRECTORIES[kind];
@@ -73,6 +75,7 @@ export async function discoverWiki(
     try {
       names = await source.listMarkdownFiles(directory);
     } catch (error) {
+      incomplete = true;
       errors.push({
         kind,
         path: directory,
@@ -97,6 +100,7 @@ export async function discoverWiki(
     } catch (error) {
       return {
         ok: false,
+        transient: true,
         error: {
           ...target,
           message: `Could not read page: ${describeFailure(error)}`,
@@ -109,6 +113,7 @@ export async function discoverWiki(
   const seen = new Set<string>();
   for (const outcome of outcomes) {
     if (!outcome.ok) {
+      if (outcome.transient === true) incomplete = true;
       errors.push(outcome.error);
       continue;
     }
@@ -132,6 +137,7 @@ export async function discoverWiki(
   if (pages.length === 0 && errors.length === 0) {
     return {
       pages,
+      incomplete,
       list: {
         state: "empty",
         message: foundDirectory
@@ -144,6 +150,7 @@ export async function discoverWiki(
   }
   return {
     pages,
+    incomplete,
     list: {
       state: "ready",
       message: null,
