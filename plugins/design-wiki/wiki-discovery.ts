@@ -15,6 +15,8 @@ export const WIKI_SOURCE_DIRECTORIES: Record<WikiKind, string> = {
 const READ_CONCURRENCY = 8;
 const KIND_ORDER: Record<WikiKind, number> = { cuj: 0, requirement: 1 };
 
+export class WikiSourceRejectedError extends Error {}
+
 export interface WikiFileSource {
   listMarkdownFiles(directory: string): Promise<string[] | null>;
   readText(path: string): Promise<string>;
@@ -75,7 +77,7 @@ export async function discoverWiki(
     try {
       names = await source.listMarkdownFiles(directory);
     } catch (error) {
-      incomplete = true;
+      if (!(error instanceof WikiSourceRejectedError)) incomplete = true;
       errors.push({
         kind,
         path: directory,
@@ -100,7 +102,7 @@ export async function discoverWiki(
     } catch (error) {
       return {
         ok: false,
-        transient: true,
+        transient: !(error instanceof WikiSourceRejectedError),
         error: {
           ...target,
           message: `Could not read page: ${describeFailure(error)}`,

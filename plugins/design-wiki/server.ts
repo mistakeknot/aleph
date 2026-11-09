@@ -31,6 +31,7 @@ import {
 } from "./pin-anchor.js";
 import {
   discoverWiki,
+  WikiSourceRejectedError,
   type WikiDiscovery,
   type WikiFileSource,
 } from "./wiki-discovery.js";
@@ -460,7 +461,7 @@ export default async function designWikiPlugin(bb: BbPluginApi): Promise<void> {
           throw error;
         }
         if (result.truncated) {
-          throw new Error(
+          throw new WikiSourceRejectedError(
             `${directory} holds more than ${MAX_LISTED_FILES} entries, so the listing is incomplete`,
           );
         }
@@ -482,10 +483,10 @@ export default async function designWikiPlugin(bb: BbPluginApi): Promise<void> {
           rootPath: root.path,
         });
         if (file.contentEncoding !== "utf8") {
-          throw new Error("The page is not a text file");
+          throw new WikiSourceRejectedError("The page is not a text file");
         }
         if (file.sizeBytes > MAX_PAGE_BYTES) {
-          throw new Error("The page is larger than 512 KB");
+          throw new WikiSourceRejectedError("The page is larger than 512 KB");
         }
         return file.content;
       },

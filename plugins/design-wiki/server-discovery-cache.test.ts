@@ -15,7 +15,7 @@ async function setup(options: { failFirstProject?: boolean } = {}) {
     [`${CUJ_DIR}/b.md`]: doc("cuj-b"),
   };
   const counts = { project: 0, list: 0, read: 0 };
-  const faults = { list: 0, read: new Set<string>() };
+  const faults = { list: 0, read: new Set<string>(), truncated: false };
   let failProject = options.failFirstProject === true;
   const fake = createFakePluginHost({
     pluginId: "bb--design-wiki",
@@ -59,7 +59,7 @@ async function setup(options: { failFirstProject?: boolean } = {}) {
                 path: file.slice(prefix.length),
                 name: file.slice(file.lastIndexOf("/") + 1),
               })),
-            truncated: false,
+            truncated: faults.truncated,
           };
         },
         read: async ({ path }: { path: string }) => {
@@ -206,6 +206,31 @@ describe("Design Wiki discovery with read failures", () => {
       projectId: "p1",
     })) as { errors: unknown[] };
     expect(first.errors).toHaveLength(1);
+    await fake.harness.callRpc("list", { projectId: "p1" });
+    expect(counts.project).toBe(1);
+  });
+
+  it("keeps reusing a read that skipped a page for being too large", async () => {
+    const { fake, counts, files } = await setup();
+    files[`${CUJ_DIR}/huge.md`] = doc("cuj-huge") + "x".repeat(600_000);
+    const first = (await fake.harness.callRpc("list", {
+      projectId: "p1",
+    })) as { errors: { message: string }[] };
+    expect(first.errors).toHaveLength(1);
+    expect(first.errors[0]?.message).toContain("larger than 512 KB");
+    await fake.harness.callRpc("list", { projectId: "p1" });
+    await fake.harness.callRpc("page", { projectId: "p1", pageId: "cuj-a" });
+    expect(counts.project).toBe(1);
+    expect(counts.read).toBe(3);
+  });
+
+  it("keeps reusing a read whose directory listing was over the limit", async () => {
+    const { fake, counts, faults } = await setup();
+    faults.truncated = true;
+    const first = (await fake.harness.callRpc("list", {
+      projectId: "p1",
+    })) as { errors: { message: string }[] };
+    expect(first.errors.length).toBeGreaterThan(0);
     await fake.harness.callRpc("list", { projectId: "p1" });
     expect(counts.project).toBe(1);
   });
