@@ -14,7 +14,11 @@ import {
   type NotificationLevel,
 } from "./preferences.js";
 import { createPushNotificationsPlugin } from "./server.js";
-import type { ExpoPushMessage, PushSenderFetch } from "./sender.js";
+import type {
+  ExpoAlertPushMessage,
+  ExpoPushMessage,
+  PushSenderFetch,
+} from "./sender.js";
 
 type ThreadResponse = PluginThreadEventPayloads["thread.idle"]["thread"];
 type PendingInteraction =
@@ -56,6 +60,15 @@ function createFakeExpo(): FakeExpo {
   return { fetch, requests, ticketErrors, urls };
 }
 
+function alertMessage(
+  message: ExpoPushMessage | undefined,
+): ExpoAlertPushMessage {
+  if (message === undefined || !("title" in message)) {
+    throw new Error("Expected an alert push message");
+  }
+  return message;
+}
+
 function pendingQuestion(threadId: string, prompt: string): PendingInteraction {
   return {
     id: `interaction-${threadId}`,
@@ -93,6 +106,7 @@ function pendingQuestion(threadId: string, prompt: string): PendingInteraction {
 
 interface SetupOptions {
   appUrl?: string | null;
+  dismissReadNotifications?: boolean;
   expo?: FakeExpo;
   fetch?: PushSenderFetch;
   now?: () => number;
@@ -178,6 +192,12 @@ async function setup(options: SetupOptions = {}) {
       },
     },
   });
+  if (options.dismissReadNotifications !== undefined) {
+    const dismissReadNotifications = options.dismissReadNotifications;
+    fake.harness.sdk.stub("system.config", () => ({
+      experiments: { dismissReadNotifications },
+    }));
+  }
   await createPushNotificationsPlugin({
     coalesceMs: COALESCE_MS,
     createId: () => `subscription-${nextId++}`,
@@ -188,10 +208,11 @@ async function setup(options: SetupOptions = {}) {
   async function addSubscription(
     expoPushToken = "ExponentPushToken[phone]",
     deviceLabel = "Phone",
+    platform: "ios" | "android" = "ios",
   ) {
     return fake.harness.behavior.callRpc("pushSubscriptions.add", {
       expoPushToken,
-      platform: "ios",
+      platform,
       deviceLabel,
     });
   }
@@ -572,8 +593,8 @@ describe("push sender", () => {
       await vi.waitFor(() => expect(host.expo.requests).toHaveLength(4));
       const bodies = Object.fromEntries(
         host.expo.requests.map((request) => [
-          request[0]?.title,
-          request[0]?.body,
+          alertMessage(request[0]).title,
+          alertMessage(request[0]).body,
         ]),
       );
       expect(bodies).toEqual({
@@ -709,6 +730,125 @@ describe("push sender", () => {
       host.interactions.set(answered.id, []);
       await waitForCoalesce();
       expect(host.expo.requests).toHaveLength(1);
+    } finally {
+      await host.cleanup();
+    }
+  });
+
+  it("tells every device and client to remove a notified thread's notifications once it is read", async () => {
+    const host = await setup({
+      appUrl: "https://bb.example.com",
+      dismissReadNotifications: true,
+    });
+    try {
+      await host.addSubscription();
+      await host.addSubscription(
+        "ExponentPushToken[pixel]",
+        "Pixel",
+        "android",
+      );
+      const notified = host.setThread();
+      const quiet = host.setThread();
+      const dismissals = () =>
+        host.harness.realtimeSignals.filter(
+          (signal) => signal.channel === "notification-dismiss",
+        );
+
+      await host.harness.behavior.emitThreadEvent("experimental_thread.read", {
+        thread: notified,
+      });
+      await host.harness.behavior.emitThreadEvent("thread.idle", {
+        thread: notified,
+        lastAssistantText: "Done",
+      });
+      await vi.waitFor(() => expect(host.expo.requests).toHaveLength(1));
+
+      const read = { ...notified, lastReadAt: 200 };
+      await host.harness.behavior.emitThreadEvent("experimental_thread.read", {
+        thread: read,
+      });
+      await vi.waitFor(() => expect(host.expo.requests).toHaveLength(2));
+      expect(host.expo.requests[1]).toEqual(
+        [
+          ["ExponentPushToken[phone]", "subscription-1"],
+          ["ExponentPushToken[pixel]", "subscription-2"],
+        ].map(([to, subscriptionId]) => ({
+          to,
+          data: {
+            kind: "dismiss",
+            threadId: notified.id,
+            subscriptionId,
+            serverUrl: "https://bb.example.com",
+          },
+          _contentAvailable: true,
+          priority: "normal",
+        })),
+      );
+      expect(dismissals().map((signal) => signal.payload)).toEqual([
+        { threadId: notified.id },
+      ]);
+
+      await host.harness.behavior.emitThreadEvent("experimental_thread.read", {
+        thread: read,
+      });
+      await host.harness.behavior.emitThreadEvent("experimental_thread.read", {
+        thread: { ...quiet, lastReadAt: 200 },
+      });
+      await waitForCoalesce();
+      expect(host.expo.requests).toHaveLength(2);
+      expect(dismissals()).toHaveLength(1);
+    } finally {
+      await host.cleanup();
+    }
+  });
+
+  it("dismisses a thread notified only on web and desktop", async () => {
+    const host = await setup({ dismissReadNotifications: true });
+    try {
+      const thread = host.setThread();
+      await host.harness.behavior.emitThreadEvent("thread.idle", {
+        thread,
+        lastAssistantText: "Done",
+      });
+      await vi.waitFor(() => expect(host.clientSignals()).toHaveLength(1));
+
+      await host.harness.behavior.emitThreadEvent("experimental_thread.read", {
+        thread: { ...thread, lastReadAt: 200 },
+      });
+      await vi.waitFor(() =>
+        expect(
+          host.harness.realtimeSignals
+            .filter((signal) => signal.channel === "notification-dismiss")
+            .map((signal) => signal.payload),
+        ).toEqual([{ threadId: thread.id }]),
+      );
+      expect(host.expo.requests).toHaveLength(0);
+    } finally {
+      await host.cleanup();
+    }
+  });
+
+  it("sends no dismissal while the dismissReadNotifications experiment is off", async () => {
+    const host = await setup({ dismissReadNotifications: false });
+    try {
+      await host.addSubscription();
+      const thread = host.setThread();
+      await host.harness.behavior.emitThreadEvent("thread.idle", {
+        thread,
+        lastAssistantText: "Done",
+      });
+      await vi.waitFor(() => expect(host.expo.requests).toHaveLength(1));
+
+      await host.harness.behavior.emitThreadEvent("experimental_thread.read", {
+        thread: { ...thread, lastReadAt: 200 },
+      });
+      await waitForCoalesce();
+      expect(host.expo.requests).toHaveLength(1);
+      expect(
+        host.harness.realtimeSignals.filter(
+          (signal) => signal.channel === "notification-dismiss",
+        ),
+      ).toEqual([]);
     } finally {
       await host.cleanup();
     }
@@ -916,8 +1056,8 @@ describe("sending notifications", () => {
         },
       ]);
       expect(host.expo.requests).toHaveLength(1);
-      const message = host.expo.requests[0]?.[0];
-      expect(message?.title).toHaveLength(80);
+      const message = alertMessage(host.expo.requests[0]?.[0]);
+      expect(message.title).toHaveLength(80);
       expect(message).toMatchObject({
         to: "ExponentPushToken[phone]",
         body: "Production is down",
@@ -1951,10 +2091,10 @@ describe("blocker push notifications", () => {
         mobileSent: 1,
         mobileFailure: null,
       });
-      const message = host.expo.requests[0]?.[0];
-      expect(message?.title).toHaveLength(80);
-      expect(message?.body).toHaveLength(180);
-      expect(message?.data).toEqual({
+      const message = alertMessage(host.expo.requests[0]?.[0]);
+      expect(message.title).toHaveLength(80);
+      expect(message.body).toHaveLength(180);
+      expect(message.data).toEqual({
         kind: "blocker",
         serverUrl: "https://bb.test",
         subscriptionId: "subscription-1",

@@ -245,6 +245,11 @@ export const BUILTIN_PLUGINS = [
     pluginId: "bb--composer",
     defaultEnabled: true,
   },
+  {
+    name: "github-star",
+    pluginId: "bb--github-star",
+    defaultEnabled: true,
+  },
 ].map((plugin): BundledPluginDefinition => ({
   ...plugin,
   autoInstall: true,

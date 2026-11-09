@@ -52,6 +52,7 @@ import {
   runStartupRecoverySweep,
 } from "./services/system/periodic-sweeps.js";
 import { installProviderModelCatalogPrewarm } from "./services/providers/provider-model-catalog-prewarm.js";
+import { installProviderCliStatusPrewarm } from "./services/system/provider-cli-status-prewarm.js";
 import {
   createProviderRegistryService,
   type ProviderRegistryService,
@@ -476,6 +477,10 @@ export async function runServer(
     pendingServerMove === null
       ? installProviderModelCatalogPrewarm(sweepDeps)
       : null;
+  const providerCliStatusPrewarm =
+    pendingServerMove === null
+      ? installProviderCliStatusPrewarm(sweepDeps)
+      : null;
   if (pendingServerMove === null) {
     await runStartupRecoverySweep(sweepDeps).catch((error) => {
       logger.error({ err: error }, "Startup recovery sweep failed");
@@ -553,6 +558,7 @@ export async function runServer(
       serverMove.dispose();
       appUpdate.dispose();
       providerModelCatalogPrewarm?.stop();
+      providerCliStatusPrewarm?.stop();
       eventLoopStallMonitor.stop();
       await performanceDiagnostics.stop();
       stopDaemonLivenessChecks();

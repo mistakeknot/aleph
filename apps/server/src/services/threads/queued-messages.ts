@@ -38,7 +38,6 @@ import {
 import {
   flattenPromptInputGroups,
   isQueuedMessageFailedState,
-  queuedMessageSystemNoticeSchema,
 } from "@bb/domain";
 import type {
   QueuedMessageDeliveryMode,
@@ -61,6 +60,7 @@ import type {
 import { ApiError } from "../../errors.js";
 import { isCommandTimeoutError } from "../lib/error-log-fields.js";
 import {
+  parseStoredQueuedThreadMessageSystemNotice,
   parseStoredQueuedThreadMessageWaitingOn,
   storedQueuedThreadMessageRequestedBy,
   toThreadQueuedMessage,
@@ -71,20 +71,11 @@ import {
   isActiveTurnMainRunIdle,
   isManualCompactionActive,
 } from "./thread-events.js";
-import { noteDispatchRequeued } from "./dispatch-hooks.js";
-import { checkParentThreadHeld } from "./parent-wake-policy.js";
 import { attemptDispatch, threadTargetHostId } from "./dispatch-attempt.js";
-import {
-  deliverParentSystemMessage,
-  type ParentSystemClaim,
-  ParentSystemMessageCompactionActiveError,
-} from "./parent-system-messages.js";
 import {
   createQueuedMessageClaimLostError,
   QUEUED_MESSAGE_AUTO_SEND_PAUSED_CODE,
   QUEUED_MESSAGE_CLAIM_LOST_CODE,
-  recordQueuedMessageWait,
-  settleQueueRowDispatched,
 } from "./queue-waits.js";
 import { recordQueuedMessageDrainFailure } from "./queue-drain-failure.js";
 import {
@@ -188,6 +179,7 @@ export function createAutomaticQueuedMessageGroupEligibility(
         }
         case "provisioning":
         case "interaction":
+        case "superseded":
           return false;
       }
     });
@@ -932,82 +924,6 @@ async function sendClaimedQueuedMessage(
   });
 }
 
-async function sendClaimedSystemNotice(
-  deps: LoggedPendingInteractionWorkSessionDeps,
-  args: SendClaimedQueuedMessageForThreadArgs,
-): Promise<ThreadQueuedMessage | null> {
-  const lead = args.queuedMessages[0]!;
-  if (lead.systemNotice === null) {
-    return null;
-  }
-  const notice = queuedMessageSystemNoticeSchema.parse(
-    JSON.parse(lead.systemNotice),
-  );
-  const queuedMessage = toThreadQueuedMessage(lead);
-  const claim: ParentSystemClaim = { rows: args.queuedMessages, state: "held" };
-  let delivered: boolean | null = null;
-  const deliver = async (): Promise<void> => {
-    delivered = await deliverParentSystemMessage(deps, {
-      claim,
-      input: queuedMessage.content,
-      parentThread: args.thread,
-      systemMessageKind: notice.kind,
-      systemMessageSubject: notice.subject,
-    });
-  };
-  if (!args.sendNow) {
-    const held = await checkParentThreadHeld(deps, {
-      input: queuedMessage.content,
-      parentThread: args.thread,
-      queuedMessages: args.queuedMessages.map(toThreadQueuedMessage),
-      continueAfterHooks: deliver,
-    });
-    if (held.held) {
-      noteDispatchRequeued(args.thread.id);
-      const execution = await buildExecutionOptions(
-        deps,
-        {},
-        { threadId: args.thread.id },
-      );
-      recordQueuedMessageWait(deps, {
-        thread: args.thread,
-        message: {
-          input: queuedMessage.content,
-          execution,
-          senderThreadId: null,
-          origin: null,
-          originPluginId: null,
-          requestedBy: null,
-          payload: queuedMessage.payload,
-          systemNotice: notice,
-          deliveryMode: args.queuedMessages[0]!.deliveryMode,
-        },
-        waitingOn: {
-          kind: "plugin",
-          pluginId: held.pluginId,
-          reason: held.reason,
-        },
-        sendAt: held.sendAt,
-        claimed: args.queuedMessages,
-      });
-      return queuedMessage;
-    }
-  }
-  if (delivered === null) {
-    await deliver();
-  }
-  if (!delivered) {
-    // The thread changed under the drain. Leave the row claimed-and-released
-    // by the caller's error path rather than consuming a notice nobody got.
-    throw createQueuedMessageClaimLostError();
-  }
-  if (claim.state === "requeued") {
-    return queuedMessage;
-  }
-  settleQueueRowDispatched({ row: lead });
-  return queuedMessage;
-}
-
 /**
  * Re-attempts a claimed group through the dispatch checkpoint.
  *
@@ -1045,10 +961,6 @@ async function sendPinnedClaimedQueuedMessageForThread(
   deps: LoggedPendingInteractionWorkSessionDeps,
   args: SendClaimedQueuedMessageForThreadArgs,
 ): Promise<ThreadQueuedMessage> {
-  const notice = await sendClaimedSystemNotice(deps, args);
-  if (notice) {
-    return notice;
-  }
   const queuedMessages = args.queuedMessages.map(toThreadQueuedMessage);
   const queuedMessage = queuedMessages[0]!;
   const inputGroups = queuedMessages.map(
@@ -1056,16 +968,21 @@ async function sendPinnedClaimedQueuedMessageForThread(
   );
   const input = flattenPromptInputGroups(inputGroups);
   const lead = args.queuedMessages[0]!;
+  const mode =
+    args.mode === "auto" && !args.sendNow
+      ? sendModeForDeliveryMode(args.queuedMessages)
+      : args.mode;
+  const systemNotice = parseStoredQueuedThreadMessageSystemNotice(lead);
   const outcome = await attemptDispatch(deps, {
     thread: args.thread,
     payload: {
-      ...sendQueuedMessagePayload(
-        { ...queuedMessage, content: input },
-        args.mode === "auto" && !args.sendNow
-          ? sendModeForDeliveryMode(args.queuedMessages)
-          : args.mode,
-        lead.senderThreadId,
-      ),
+      ...(systemNotice === null
+        ? sendQueuedMessagePayload(
+            { ...queuedMessage, content: input },
+            mode,
+            lead.senderThreadId,
+          )
+        : { input, mode }),
       ...(inputGroups.length > 1 ? { inputGroups } : {}),
     },
     source: {
@@ -1076,6 +993,7 @@ async function sendPinnedClaimedQueuedMessageForThread(
     },
     queuePayload: queuedMessage.payload,
     pluginSubmission: null,
+    systemNotice,
     ...(queuedMessage.payload.kind === "retry"
       ? {
           retryOf: {
@@ -1128,6 +1046,8 @@ function describeCoreWait(waitingOn: QueuedMessageWaitingOn | null): string {
       return "the thread is still stopping";
     case "plugin":
       return `it is waiting on the "${waitingOn.pluginId}" plugin`;
+    case "superseded":
+      return "a newer message was sent after it";
     case "time":
     case "thread-busy":
     case undefined:
@@ -1188,8 +1108,7 @@ async function sendPinnedQueuedMessage(
     await releaseQueuedMessageClaims(deps, queuedMessages);
     if (
       isQueuedMessageAutoSendPausedError(error) ||
-      error instanceof ThreadContextClearInProgressError ||
-      error instanceof ParentSystemMessageCompactionActiveError
+      error instanceof ThreadContextClearInProgressError
     ) {
       return toThreadQueuedMessage(queuedMessages[0]!);
     }
@@ -1272,8 +1191,7 @@ export async function sendNextQueuedMessageIfPresent(
     if (
       isQueuedMessageClaimLostError(error) ||
       isQueuedMessageAutoSendPausedError(error) ||
-      error instanceof ThreadContextClearInProgressError ||
-      error instanceof ParentSystemMessageCompactionActiveError
+      error instanceof ThreadContextClearInProgressError
     ) {
       return false;
     }

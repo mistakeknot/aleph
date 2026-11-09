@@ -899,6 +899,8 @@ export function describeQueueWait(row: {
       return "waiting for a pending interaction";
     case "plugin":
       return `${waitingOn.pluginId}: ${waitingOn.reason}`;
+    case "superseded":
+      return "not sent: a newer message was sent after it";
   }
 }
 

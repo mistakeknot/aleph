@@ -1,69 +1,21 @@
 import {
-  deleteClaimedQueuedThreadMessageBatchInTransaction,
-  getLatestThreadSequence,
-  getEnvironment,
-  getHost,
+  createQueuedThreadMessageInTransaction,
   getThread,
-  requireThreadLifecycleEventApplied,
-  type ClaimedQueuedThreadMessageRow,
-  type DbTransaction,
+  QueuedMessageThreadUnavailableError,
 } from "@bb/db";
 import type {
   PromptInput,
   PromptMentionResource,
   PromptTextMention,
-  ResolvedThreadExecutionOptions,
   SystemMessageKind,
-  SystemMessageSubject,
   Thread,
+  SystemMessageSubject,
 } from "@bb/domain";
-import type { HostDaemonCommand } from "@bb/host-daemon-contract";
 import type { LoggedPendingInteractionWorkSessionDeps } from "../../types.js";
-import { requireThreadEnvironment } from "../lib/entity-lookup.js";
-import {
-  createQueuedThreadMessageInTransaction,
-  QueuedMessageThreadUnavailableError,
-} from "@bb/db";
+import { buildExecutionOptions } from "./thread-commands.js";
+import { attemptQueuedMessageNow } from "./queued-message-dispatch.js";
 import { emitPluginMessageQueued } from "../plugins/plugin-thread-events.js";
 import { toThreadQueuedMessage } from "./thread-queued-messages.js";
-import {
-  addRequestIdToTurnSubmitCommandPayload,
-  buildExecutionOptions,
-  prepareTurnSubmitCommandPayload,
-  type PreparedTurnSubmitCommandPayload,
-} from "./thread-commands.js";
-import {
-  ensureThreadCanStartRequest,
-  prepareReadyThreadTurnCommand,
-} from "./thread-lifecycle.js";
-import { applyLoggedThreadLifecycleEventInTransaction } from "./lifecycle-outcome.js";
-import { buildThreadStatusChangeMetadata } from "./thread-runtime-display.js";
-import {
-  appendClientTurnEventInTransaction,
-  appendPreparedClientTurnRequestedEventWithNotificationInTransaction,
-  createClientTurnRequestId,
-  getActiveTurnId,
-  isManualCompactionActive,
-} from "./thread-events.js";
-import {
-  dispatchTurnDuringReprovision,
-  requireReadyThreadEnvironment,
-  type ReadyThreadEnvironment,
-} from "./thread-turn-dispatch.js";
-import { resolvePermissionEscalation } from "./thread-runtime-config.js";
-import { ensureHostSessionReadyForWork } from "../hosts/host-lifecycle.js";
-import { isHostUnavailableApiError } from "../hosts/online-rpc.js";
-import {
-  LIVE_DAEMON_COMMAND_TIMEOUT_MS,
-  startLiveHostCommand,
-} from "../hosts/live-command.js";
-import { createQueuedMessageClaimLostError } from "./queue-waits.js";
-import { queueInputForStartingTurn } from "./thread-turn-starting.js";
-import {
-  ThreadContextClearInProgressError,
-  withThreadSendGuard,
-} from "./thread-context-mutation-guard.js";
-import { requestQueuedMessageDispatch } from "./queued-message-dispatch.js";
 import {
   INGRESS_ADMISSION_ATTEMPTS,
   RetirementAppearedError,
@@ -72,16 +24,6 @@ import {
 } from "./retired-ingress.js";
 import { assertThreadHostAcceptsWork } from "./thread-host-admission.js";
 import { ApiError } from "../../errors.js";
-import {
-  checkParentThreadHeld,
-  type ParentThreadHeldResult,
-} from "./parent-wake-policy.js";
-
-const PARENT_SYSTEM_MESSAGE_SOURCE = "tell";
-
-class ParentSystemMessageStateChangedError extends Error {}
-
-export class ParentSystemMessageCompactionActiveError extends Error {}
 
 export interface ParentSystemMessageTaxonomy {
   systemMessageKind: SystemMessageKind;
@@ -135,59 +77,6 @@ interface BuildParentSystemThreadMentionArgs {
 interface RenderedParentSystemSlotParts {
   prefix: string;
   suffix: string;
-}
-
-export interface ParentSystemClaim {
-  rows: readonly ClaimedQueuedThreadMessageRow[];
-  state: "held" | "consumed" | "requeued";
-}
-
-function consumeParentSystemClaimInTransaction(
-  tx: DbTransaction,
-  claim: ParentSystemClaim | undefined,
-): void {
-  if (claim === undefined) {
-    return;
-  }
-  const consumed = deleteClaimedQueuedThreadMessageBatchInTransaction(tx, {
-    queuedMessages: claim.rows,
-  });
-  if (!consumed) {
-    throw createQueuedMessageClaimLostError();
-  }
-  claim.state = "consumed";
-}
-
-interface QueueReadyParentSystemMessageArgs extends ParentSystemMessageTaxonomy {
-  claim?: ParentSystemClaim;
-  environment: ReadyThreadEnvironment;
-  execution: ResolvedThreadExecutionOptions;
-  input: PromptInput[];
-  requestedThreadId?: string;
-  thread: Thread;
-}
-
-interface QueueActiveParentSystemMessageInTransactionArgs extends QueueReadyParentSystemMessageArgs {
-  preparedCommand: PreparedTurnSubmitCommandPayload;
-}
-
-function parentSystemTurnRequestFields(
-  args: QueueReadyParentSystemMessageArgs,
-) {
-  return {
-    threadId: args.thread.id,
-    environmentId: args.environment.id,
-    type: "client/turn/requested",
-    input: args.input,
-    execution: args.execution,
-    initiator: "system",
-    originPluginId: null,
-    senderThreadId: null,
-    systemMessageKind: args.systemMessageKind,
-    systemMessageSubject: args.systemMessageSubject,
-    requestMethod: "turn/start",
-    source: PARENT_SYSTEM_MESSAGE_SOURCE,
-  } as const;
 }
 
 function splitRenderedParentSystemSlot(
@@ -269,306 +158,6 @@ export function buildParentSystemThreadMention(
   };
 }
 
-function requireParentWritableInTransaction(
-  tx: DbTransaction,
-  threadId: string,
-  claimed: boolean,
-  requestedThreadId: string | undefined,
-): Thread {
-  const currentThread = getThread(tx, threadId);
-  if (currentThread === null || currentThread.deletedAt !== null) {
-    throw new QueuedMessageThreadUnavailableError(threadId, "deleted");
-  }
-  if (!claimed) {
-    assertAdmittedDestinationInTransaction(
-      tx,
-      requestedThreadId ?? threadId,
-      threadId,
-    );
-  }
-  if (currentThread.archivedAt !== null) {
-    throw new QueuedMessageThreadUnavailableError(threadId, "archived");
-  }
-  return currentThread;
-}
-
-function queueActiveParentSystemMessageInTransaction(
-  tx: DbTransaction,
-  args: QueueActiveParentSystemMessageInTransactionArgs,
-): Extract<HostDaemonCommand, { type: "turn.submit" }> | null {
-  if (args.claim === undefined) {
-    assertAdmittedDestinationInTransaction(
-      tx,
-      args.requestedThreadId ?? args.thread.id,
-      args.thread.id,
-    );
-  }
-  const currentThread = getThread(tx, args.thread.id);
-  if (
-    !currentThread ||
-    currentThread.environmentId !== args.environment.id ||
-    currentThread.archivedAt !== null ||
-    currentThread.deletedAt !== null
-  ) {
-    return null;
-  }
-  if (currentThread.status !== "active") {
-    throw new ParentSystemMessageStateChangedError();
-  }
-  if (isManualCompactionActive({ db: tx }, currentThread)) {
-    throw new ParentSystemMessageCompactionActiveError();
-  }
-
-  const expectedSteerTurnId = getActiveTurnId({ db: tx }, args.thread.id);
-  consumeParentSystemClaimInTransaction(tx, args.claim);
-  const request = appendClientTurnEventInTransaction(tx, {
-    ...parentSystemTurnRequestFields(args),
-    target: {
-      kind: "auto",
-      expectedTurnId: expectedSteerTurnId,
-    },
-  });
-  return addRequestIdToTurnSubmitCommandPayload({
-    requestId: request.requestId,
-    preparedCommand: {
-      ...args.preparedCommand,
-      target: {
-        mode: "auto",
-        expectedTurnId: expectedSteerTurnId,
-      },
-    },
-  });
-}
-
-async function queueActiveParentSystemMessage(
-  deps: LoggedPendingInteractionWorkSessionDeps,
-  args: QueueReadyParentSystemMessageArgs,
-): Promise<boolean> {
-  const expectedSteerTurnId = getActiveTurnId(deps, args.thread.id);
-  if (expectedSteerTurnId === null) {
-    const outcome = queueInputForStartingTurn(deps, {
-      claimed: args.claim?.rows ?? null,
-      input: {
-        input: args.input,
-        execution: args.execution,
-        payload: { kind: "inline" },
-        senderThreadId: null,
-        origin: null,
-        originPluginId: null,
-        requestedBy: null,
-        systemNotice: {
-          kind: args.systemMessageKind,
-          subject: args.systemMessageSubject,
-        },
-        deliveryMode: "steer",
-      },
-      threadId: args.thread.id,
-      ...(args.requestedThreadId !== undefined
-        ? { requestedThreadId: args.requestedThreadId }
-        : {}),
-    });
-    if (outcome.kind === "queued") {
-      if (args.claim !== undefined) {
-        args.claim.state = "requeued";
-      }
-      return true;
-    }
-    if (outcome.kind === "dispatched") return false;
-    if (outcome.kind === "retry") {
-      const currentThread = outcome.thread;
-      if (
-        currentThread === null ||
-        currentThread.archivedAt !== null ||
-        currentThread.deletedAt !== null ||
-        currentThread.status === "stopping"
-      ) {
-        return false;
-      }
-      return queueReadyParentSystemMessage(deps, {
-        ...args,
-        thread: currentThread,
-      });
-    }
-  }
-  const permissionEscalation = resolvePermissionEscalation({
-    initiator: "system",
-  });
-  await ensureHostSessionReadyForWork(deps, {
-    hostId: args.environment.hostId,
-  });
-  const preparedCommand = await prepareTurnSubmitCommandPayload(deps, {
-    thread: args.thread,
-    input: args.input,
-    execution: args.execution,
-    permissionEscalation,
-    target: {
-      mode: "auto",
-      expectedTurnId: expectedSteerTurnId,
-    },
-    environment: {
-      id: args.environment.id,
-      hostId: args.environment.hostId,
-      path: args.environment.path,
-      status: args.environment.status,
-    },
-  });
-
-  const command = deps.db.transaction(
-    (tx) =>
-      queueActiveParentSystemMessageInTransaction(tx, {
-        ...args,
-        preparedCommand,
-      }),
-    { behavior: "immediate" },
-  );
-  if (command === null) {
-    return false;
-  }
-
-  deps.hub.notifyThread(args.thread.id, ["events-appended"], {
-    timelineSequence: getLatestThreadSequence(deps.db, {
-      threadId: args.thread.id,
-    }),
-    eventTypes: ["client/turn/requested"],
-  });
-  startLiveHostCommand(deps, {
-    command,
-    hostId: args.environment.hostId,
-    timeoutMs: LIVE_DAEMON_COMMAND_TIMEOUT_MS,
-    onError: ({ error }) => {
-      deps.logger.warn(
-        { err: error, threadId: args.thread.id },
-        "Live active parent system message command failed",
-      );
-    },
-  });
-  return true;
-}
-
-async function queueReadyParentSystemMessage(
-  deps: LoggedPendingInteractionWorkSessionDeps,
-  args: QueueReadyParentSystemMessageArgs,
-): Promise<boolean> {
-  if (args.thread.status === "active") {
-    return queueActiveParentSystemMessage(deps, args);
-  }
-
-  const permissionEscalation = resolvePermissionEscalation({
-    initiator: "system",
-  });
-  const requestId = createClientTurnRequestId();
-
-  const command = await prepareReadyThreadTurnCommand(deps, {
-    thread: args.thread,
-    input: args.input,
-    requestId,
-    execution: args.execution,
-    permissionEscalation,
-    environment: {
-      id: args.environment.id,
-      hostId: args.environment.hostId,
-      path: args.environment.path,
-      status: args.environment.status,
-    },
-    projectId: args.thread.projectId,
-    providerId: args.thread.providerId,
-    syncGeneratedTitle: false,
-  });
-  const activeThread: Thread | null = deps.db.transaction(
-    (tx) => {
-      const currentThread = requireParentWritableInTransaction(
-        tx,
-        args.thread.id,
-        args.claim !== undefined,
-        args.requestedThreadId,
-      );
-      if (
-        currentThread.environmentId !== args.environment.id ||
-        currentThread.status !== args.thread.status
-      ) {
-        throw new ParentSystemMessageStateChangedError();
-      }
-      ensureThreadCanStartRequest(currentThread);
-      consumeParentSystemClaimInTransaction(tx, args.claim);
-      appendPreparedClientTurnRequestedEventWithNotificationInTransaction(tx, {
-        ...parentSystemTurnRequestFields(args),
-        target: { kind: "new-turn" },
-        requestId,
-      });
-      const dispatchKind = command.mode;
-      if (dispatchKind !== "turn.submit") {
-        return null;
-      }
-      return requireThreadLifecycleEventApplied(
-        applyLoggedThreadLifecycleEventInTransaction(
-          { db: tx, logger: deps.logger },
-          { event: { type: "run.started" }, threadId: args.thread.id },
-        ),
-      );
-    },
-    { behavior: "immediate" },
-  );
-  deps.hub.notifyThread(args.thread.id, ["events-appended"], {
-    timelineSequence: getLatestThreadSequence(deps.db, {
-      threadId: args.thread.id,
-    }),
-    eventTypes: ["client/turn/requested"],
-  });
-  startLiveHostCommand(deps, {
-    command: command.command,
-    hostId: args.environment.hostId,
-    timeoutMs: LIVE_DAEMON_COMMAND_TIMEOUT_MS,
-    onError: ({ error }) => {
-      deps.logger.warn(
-        { err: error, threadId: args.thread.id },
-        "Live parent system message command failed",
-      );
-    },
-  });
-  if (activeThread) {
-    deps.hub.notifyThread(
-      args.thread.id,
-      ["status-changed"],
-      buildThreadStatusChangeMetadata(deps, activeThread),
-    );
-  }
-  return true;
-}
-
-/**
- * `checkParentThreadHeld` runs a plugin's `message.dispatch` hook, which is
- * fail-closed: a handler that throws, times out, or rejects raises rather
- * than returning a decision. Letting that propagate out of
- * `queueParentSystemMessage` would drop the notice entirely, since none of
- * its callers retry — they log and move on. Treat a failed hook check the
- * same as a held thread instead, so the notice is always recorded durably
- * and can be delivered once the thread is next dispatched to.
- */
-async function checkParentThreadHeldTolerantly(
-  deps: LoggedPendingInteractionWorkSessionDeps,
-  args: {
-    continueAfterHooks?: () => Promise<void>;
-    input: PromptInput[];
-    parentThread: Thread;
-  },
-): Promise<ParentThreadHeldResult> {
-  try {
-    return await checkParentThreadHeld(deps, args);
-  } catch (error) {
-    deps.logger.error(
-      { err: error, parentThreadId: args.parentThread.id },
-      "Parent-thread dispatch-hook check failed; queuing the notice instead of dropping it",
-    );
-    return {
-      held: true,
-      pluginId: "unknown",
-      reason:
-        "A dispatch hook failed while checking whether this thread could be sent to.",
-      sendAt: null,
-    };
-  }
-}
-
 function isHostRefusal(error: ApiError): boolean {
   return (
     error.body.code === "machine_removing" ||
@@ -599,7 +188,7 @@ async function queueParentSystemMessageToResolvedParent(
   args: QueueParentSystemMessageArgs,
 ): Promise<boolean> {
   const requestedParent = getThread(deps.db, args.parentThreadId);
-  if (!requestedParent || requestedParent.deletedAt !== null) {
+  if (requestedParent === null || requestedParent.deletedAt !== null) {
     return false;
   }
   const resolution = resolveRetiredIngress(deps.db, requestedParent, {
@@ -609,85 +198,19 @@ async function queueParentSystemMessageToResolvedParent(
     return false;
   }
   const parentThread = resolution.thread;
-  if (parentThread.archivedAt !== null || parentThread.deletedAt !== null) {
+  if (!isWritableParent(parentThread)) {
     return false;
   }
-  const hasPendingInteraction =
-    deps.pendingInteractions.hasTurnBoundPendingThreadInteraction(
-      parentThread.id,
-    );
-  const delivery: {
-    result: { delivered: boolean } | { error: unknown } | null;
-  } = { result: null };
-  const deliverNow = async (): Promise<void> => {
-    try {
-      delivery.result = {
-        delivered: await deliverParentSystemMessage(deps, {
-          input: args.input,
-          parentThread,
-          requestedThreadId: requestedParent.id,
-          systemMessageKind: args.systemMessageKind,
-          systemMessageSubject: args.systemMessageSubject,
-        }),
-      };
-    } catch (error) {
-      delivery.result = { error };
-    }
-  };
-  const held = hasPendingInteraction
-    ? ({ held: false } as const)
-    : await checkParentThreadHeldTolerantly(deps, {
-        continueAfterHooks: deliverNow,
-        input: args.input,
-        parentThread,
-      });
-  let hostUnavailable = false;
-  if (!hasPendingInteraction && !held.held) {
-    if (delivery.result === null) {
-      await deliverNow();
-    }
-    const outcome = delivery.result!;
-    if ("delivered" in outcome) {
-      return outcome.delivered;
-    }
-    if (outcome.error instanceof ApiError && isHostRefusal(outcome.error)) {
-      deps.logger.warn(
-        { parentThreadId: parentThread.id, code: outcome.error.body.code },
-        "Parent system notice dropped: the parent thread's machine is not accepting work",
-      );
-      return false;
-    }
-    hostUnavailable =
-      outcome.error instanceof Error &&
-      isHostUnavailableApiError(outcome.error);
-    if (
-      !(outcome.error instanceof ThreadContextClearInProgressError) &&
-      !(outcome.error instanceof ParentSystemMessageCompactionActiveError) &&
-      !hostUnavailable
-    ) {
-      throw outcome.error;
-    }
-  }
-
   const execution = await buildExecutionOptions(
     deps,
     {},
-    {
-      threadId: parentThread.id,
-    },
+    { threadId: parentThread.id },
   );
-  const host = hostUnavailable
-    ? getHost(
-        deps.db,
-        requireThreadEnvironment(deps.db, parentThread.id).environment.hostId,
-      )
-    : null;
-  if (hostUnavailable && !host) {
-    throw new Error("Parent host disappeared while queueing a system message");
-  }
+  let row: ReturnType<typeof createQueuedThreadMessageInTransaction> | null;
   try {
-    const queuedRow = deps.db.transaction(
+    row = deps.db.transaction(
       (tx) => {
+        if (!isWritableParent(getThread(tx, parentThread.id))) return null;
         assertAdmittedDestinationInTransaction(
           tx,
           requestedParent.id,
@@ -698,38 +221,22 @@ async function queueParentSystemMessageToResolvedParent(
           threadId: requestedParent.id,
           content: args.input,
           senderThreadId: null,
-          origin: null,
-          originPluginId: null,
           model: execution.model,
           reasoningLevel: execution.reasoningLevel,
           permissionMode: execution.permissionMode,
           serviceTier: execution.serviceTier,
-          waitingOn: host
-            ? { kind: "host-offline", hostName: host.name }
-            : hasPendingInteraction
-              ? { kind: "interaction" }
-              : held.held
-                ? {
-                    kind: "plugin",
-                    pluginId: held.pluginId,
-                    reason: held.reason,
-                  }
-                : { kind: "thread-busy" },
-          sendAt: held.held ? held.sendAt : null,
+          waitingOn: null,
+          sendAt: null,
           payload: { kind: "inline" },
           systemNotice: {
             kind: args.systemMessageKind,
             subject: args.systemMessageSubject,
           },
+          deliveryMode: "steer",
         });
       },
       { behavior: "immediate" },
     );
-    deps.hub.notifyThread(queuedRow.threadId, ["queue-changed"]);
-    if (queuedRow.threadId !== requestedParent.id) {
-      deps.hub.notifyThread(requestedParent.id, ["queue-changed"]);
-    }
-    emitPluginMessageQueued(toThreadQueuedMessage(queuedRow));
   } catch (error) {
     if (error instanceof ApiError && isHostRefusal(error)) {
       deps.logger.warn(
@@ -750,134 +257,18 @@ async function queueParentSystemMessageToResolvedParent(
     );
     return false;
   }
-  if (!hasPendingInteraction && !held.held && !hostUnavailable) {
-    requestQueuedMessageDispatch(deps, {
-      kind: "thread-ready",
-      threadId: parentThread.id,
-    });
+  if (row === null) return false;
+  emitPluginMessageQueued(toThreadQueuedMessage(row));
+  deps.hub.notifyThread(row.threadId, ["queue-changed"]);
+  if (row.threadId !== requestedParent.id) {
+    deps.hub.notifyThread(requestedParent.id, ["queue-changed"]);
   }
+  await attemptQueuedMessageNow(deps, row);
   return true;
 }
 
-interface DeliverParentSystemMessageArgs extends ParentSystemMessageTaxonomy {
-  claim?: ParentSystemClaim;
-  input: PromptInput[];
-  parentThread: Thread;
-  requestedThreadId?: string;
-}
-
-/**
- * Dispatches a parent-system notice, with no interaction check of its own.
- *
- * Split out so the queue drain can deliver a notice that QUEUED on an
- * interaction without re-entering the check that queued it — which, on a
- * thread whose interaction settled a moment ago, would otherwise be a race
- * that could queue a second copy of the same notice.
- */
-export async function deliverParentSystemMessage(
-  deps: LoggedPendingInteractionWorkSessionDeps,
-  args: DeliverParentSystemMessageArgs,
-): Promise<boolean> {
-  return withThreadSendGuard(args.parentThread.id, () =>
-    deliverParentSystemMessageWithContextGuard(deps, args),
+function isWritableParent(thread: Thread | null): thread is Thread {
+  return (
+    thread !== null && thread.archivedAt === null && thread.deletedAt === null
   );
-}
-
-async function deliverParentSystemMessageWithContextGuard(
-  deps: LoggedPendingInteractionWorkSessionDeps,
-  args: DeliverParentSystemMessageArgs,
-): Promise<boolean> {
-  try {
-    return await deliverParentSystemMessageToWritableParent(deps, args);
-  } catch (error) {
-    if (!(error instanceof QueuedMessageThreadUnavailableError)) throw error;
-    deps.logger.warn(
-      {
-        parentThreadId: error.threadId,
-        reason: error.reason,
-        phase: "post-hook",
-        dropped: true,
-      },
-      "Parent system notice dropped: the parent thread is no longer writable",
-    );
-    return false;
-  }
-}
-
-async function deliverParentSystemMessageToWritableParent(
-  deps: LoggedPendingInteractionWorkSessionDeps,
-  args: DeliverParentSystemMessageArgs,
-): Promise<boolean> {
-  while (true) {
-    const parentThread = getThread(deps.db, args.parentThread.id);
-    if (!parentThread) {
-      return false;
-    }
-    try {
-      return await attemptParentSystemMessageDelivery(deps, {
-        ...args,
-        parentThread,
-      });
-    } catch (error) {
-      if (!(error instanceof ParentSystemMessageStateChangedError)) {
-        throw error;
-      }
-    }
-  }
-}
-
-async function attemptParentSystemMessageDelivery(
-  deps: LoggedPendingInteractionWorkSessionDeps,
-  args: DeliverParentSystemMessageArgs,
-): Promise<boolean> {
-  const { parentThread } = args;
-  const { environment } = requireThreadEnvironment(deps.db, parentThread.id);
-  const execution = await buildExecutionOptions(
-    deps,
-    {},
-    {
-      threadId: parentThread.id,
-    },
-  );
-  if (
-    await dispatchTurnDuringReprovision({
-      beforeRequestAppendInTransaction: ({ tx }) => {
-        requireParentWritableInTransaction(
-          tx,
-          parentThread.id,
-          args.claim !== undefined,
-          args.requestedThreadId,
-        );
-        consumeParentSystemClaimInTransaction(tx, args.claim);
-      },
-      deps,
-      environment,
-      execution,
-      initiator: "system",
-      input: args.input,
-      originPluginId: null,
-      senderThreadId: null,
-      systemMessageKind: args.systemMessageKind,
-      systemMessageSubject: args.systemMessageSubject,
-      thread: parentThread,
-    })
-  ) {
-    return true;
-  }
-
-  const readyEnvironment = requireReadyThreadEnvironment(
-    getEnvironment(deps.db, environment.id) ?? environment,
-  );
-  return await queueReadyParentSystemMessage(deps, {
-    ...(args.claim !== undefined ? { claim: args.claim } : {}),
-    ...(args.requestedThreadId !== undefined
-      ? { requestedThreadId: args.requestedThreadId }
-      : {}),
-    thread: parentThread,
-    input: args.input,
-    execution,
-    environment: readyEnvironment,
-    systemMessageKind: args.systemMessageKind,
-    systemMessageSubject: args.systemMessageSubject,
-  });
 }

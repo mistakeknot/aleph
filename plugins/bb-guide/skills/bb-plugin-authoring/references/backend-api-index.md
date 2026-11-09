@@ -204,7 +204,6 @@ Check imports here, behavior in the Plugin Guide, and signatures in the installe
 - `ExperimentalComposerThreadLink`
 - `ExperimentalComposerThreadLinks`
 - `ExperimentalComposerThreadRelation`
-- `ExperimentalComposerView`
 - `ExperimentalComposerVoice`
 - `ExperimentalDroppedThreadMention`
 - `ExperimentalFailedVoiceRecording`

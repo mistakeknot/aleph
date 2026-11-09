@@ -49,7 +49,7 @@ import {
 } from "../src/services/threads/event-cold-tier/service.js";
 import {
   getLastThreadErrorMessage,
-  getLastThreadOutput,
+  getLatestTurnFinalOutput,
 } from "../src/services/threads/thread-data.js";
 
 const CANDIDATE_PAGE = 500;
@@ -176,7 +176,7 @@ function keeperConsumerSnapshot(db: DbConnection, threadId: string): string {
   return sha256({
     error: getLastThreadErrorMessage(db, threadId),
     highWater: getHighWaterMarks(db, [threadId]),
-    output: getLastThreadOutput(db, threadId),
+    output: getLatestTurnFinalOutput(db, threadId),
     pending: hasTurnBoundActivePendingInteractionForThread(db, threadId),
     spawnAgent: hasStoredSpawnAgentToolCall(db, threadId),
   });

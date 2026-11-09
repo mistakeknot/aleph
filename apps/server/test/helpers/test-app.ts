@@ -39,10 +39,7 @@ import {
   createCliCommandService,
   type CliCommandService,
 } from "../../src/services/system/cli-command.js";
-import {
-  createAppVersionService,
-  type AppVersionService,
-} from "../../src/services/system/app-version.js";
+import { createAppVersionService } from "../../src/services/system/app-version.js";
 import { createBbAppManagedConfigReloader } from "../../src/services/system/bb-app-managed-config.js";
 import { createNoopTelemetryService } from "../../src/services/system/telemetry.js";
 import { TerminalSessionLifecycle } from "../../src/services/terminals/terminal-session-lifecycle.js";
@@ -97,7 +94,6 @@ export async function installTestBuiltinPlugin(
 export type TestAppHarnessConfigOverrides = Partial<ServerRuntimeConfig> & {
   alephUpdateService?: AlephUpdateService;
   appUpdateService?: AppUpdateService;
-  appVersionService?: AppVersionService;
   cliCommandService?: CliCommandService;
   terminalAttachTimeoutMs?: number;
   terminalCloseTimeoutMs?: number;
@@ -165,7 +161,6 @@ export async function createTestAppHarness(
   const {
     alephUpdateService,
     appUpdateService,
-    appVersionService,
     cliCommandService,
     terminalAttachTimeoutMs = TEST_TERMINAL_RPC_TIMEOUT_MS,
     terminalCloseTimeoutMs,
@@ -290,14 +285,12 @@ export async function createTestAppHarness(
   });
   pendingInteractions.start();
   setPluginToolCallRegistry(new PluginToolCallRegistry({ logger }));
-  const appVersion =
-    appVersionService ??
-    createAppVersionService({
-      sourceCommit: null,
-      installKind: null,
-      config,
-      logger,
-    });
+  const appVersion = createAppVersionService({
+    sourceCommit: null,
+    installKind: null,
+    config,
+    logger,
+  });
   const appUpdate =
     appUpdateService ??
     createAppUpdateService({
@@ -459,6 +452,7 @@ export async function startTestServer(
       await tunnelIngress.closeAll();
       await closeWebSockets();
       await closeServer;
+      await pluginService.stop();
       await harness.cleanup();
     },
   };

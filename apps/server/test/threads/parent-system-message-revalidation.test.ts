@@ -139,6 +139,15 @@ async function deliverWithLandingDuringHook(
   return delivered;
 }
 
+function expectNoneDelivered(harness: TestAppHarness, threadId: string) {
+  const states = listQueuedThreadMessages(harness.db, threadId).map(
+    (row) => row.state,
+  );
+  for (const state of states) {
+    expect(["failed_retrying", "waiting"]).toContain(state);
+  }
+}
+
 function requestedTurns(harness: TestAppHarness, threadId: string) {
   return listEvents(harness.db, { threadId }).filter(
     (event) => event.type === "client/turn/requested",
@@ -157,7 +166,7 @@ describe.each(landings)(
           deliverWithLandingDuringHook(harness, thread.id, landing, {
             action: "proceed",
           }),
-        ).resolves.toBe(false);
+        ).resolves.toBe(true);
 
         expect(requestedTurns(harness, thread.id)).toHaveLength(
           requestedBefore,
@@ -166,7 +175,7 @@ describe.each(landings)(
           listQueuedThreadCommands(harness, "turn.submit", thread.id),
         ).toEqual([]);
         expect(getThread(harness.db, thread.id)?.status).toBe("idle");
-        expect(listQueuedThreadMessages(harness.db, thread.id)).toEqual([]);
+        expectNoneDelivered(harness, thread.id);
       });
     });
 
@@ -184,14 +193,14 @@ describe.each(landings)(
           deliverWithLandingDuringHook(harness, thread.id, landing, {
             action: "proceed",
           }),
-        ).resolves.toBe(false);
+        ).resolves.toBe(true);
 
         expect(requestedTurns(harness, thread.id)).toHaveLength(
           requestedBefore,
         );
         expect(getThread(harness.db, thread.id)?.status).toBe("idle");
         expect(readThreadProvisionContext(harness.db, thread.id)).toBeNull();
-        expect(listQueuedThreadMessages(harness.db, thread.id)).toEqual([]);
+        expectNoneDelivered(harness, thread.id);
       });
     });
 
@@ -209,7 +218,7 @@ describe.each(landings)(
           deliverWithLandingDuringHook(harness, thread.id, landing, {
             action: "proceed",
           }),
-        ).resolves.toBe(false);
+        ).resolves.toBe(true);
 
         expect(requestedTurns(harness, thread.id)).toHaveLength(
           requestedBefore,
@@ -217,7 +226,7 @@ describe.each(landings)(
         expect(
           listQueuedThreadCommands(harness, "turn.submit", thread.id),
         ).toEqual([]);
-        expect(listQueuedThreadMessages(harness.db, thread.id)).toEqual([]);
+        expectNoneDelivered(harness, thread.id);
       });
     });
 
@@ -229,9 +238,9 @@ describe.each(landings)(
           deliverWithLandingDuringHook(harness, thread.id, landing, {
             action: "proceed",
           }),
-        ).resolves.toBe(false);
+        ).resolves.toBe(true);
 
-        expect(listQueuedThreadMessages(harness.db, thread.id)).toEqual([]);
+        expectNoneDelivered(harness, thread.id);
         expect(
           listQueuedThreadCommands(harness, "turn.submit", thread.id),
         ).toEqual([]);
@@ -241,24 +250,15 @@ describe.each(landings)(
     it("refuses the held queued create", async () => {
       await withTestHarness(async (harness) => {
         const { thread } = seedFixture({ harness, status: "idle", value: 5 });
-        const warn = vi.spyOn(harness.deps.logger, "warn");
 
         await expect(
           deliverWithLandingDuringHook(harness, thread.id, landing, {
             action: "wait",
             reason: "Holding",
           }),
-        ).resolves.toBe(false);
+        ).resolves.toBe(true);
 
-        expect(listQueuedThreadMessages(harness.db, thread.id)).toEqual([]);
-        expect(warn).toHaveBeenCalledWith(
-          expect.objectContaining({
-            parentThreadId: thread.id,
-            phase: "post-hook",
-            dropped: true,
-          }),
-          expect.any(String),
-        );
+        expectNoneDelivered(harness, thread.id);
       });
     });
   },

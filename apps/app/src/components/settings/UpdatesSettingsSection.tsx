@@ -71,7 +71,7 @@ import { appToast } from "@/components/ui/app-toast";
 import { BbLogo } from "@/components/ui/bb-logo";
 import { AlephUpdateRow, useAlephUpdateRowStatus } from "./AlephUpdateRow";
 import { SettingsSection } from "@/components/ui/settings-section";
-import { invalidateHostProviderCliStatus } from "@/hooks/cache-owners/provider-cli-status-cache-owner";
+import { refreshHostProviderCliStatus } from "@/hooks/cache-owners/provider-cli-status-cache-owner";
 import { hydrateAppUpdateStatus } from "@/hooks/cache-owners/app-update-cache-owner";
 import { hydrateSystemVersionCache } from "@/hooks/cache-owners/system-version-cache-owner";
 import { useApplyAppUpdate } from "@/hooks/mutations/app-update-mutations";
@@ -2079,7 +2079,7 @@ export function UpdatesSettingsSection() {
       }
       await Promise.all(
         connectedHostIds.map((hostId) =>
-          invalidateHostProviderCliStatus({ queryClient, hostId }),
+          refreshHostProviderCliStatus({ queryClient, hostId }),
         ),
       );
     });
@@ -2284,7 +2284,7 @@ export function UpdatesSettingsSection() {
         onRetryDaemonUpdate={retryDaemonUpdate}
         onRetryAllDaemonUpdates={retryAllStalledDaemonUpdates}
         onRecheckClis={(hostId) => {
-          void invalidateHostProviderCliStatus({ queryClient, hostId });
+          void refreshHostProviderCliStatus({ queryClient, hostId });
         }}
       />
       {inventory.plugins === null ? null : (

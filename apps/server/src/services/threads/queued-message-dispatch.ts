@@ -8,6 +8,7 @@ import {
   isThreadEventsCold,
   listDueScheduledQueuedThreadMessages,
   listIdleThreadsWithQueuedMessages,
+  listReadySystemNoticesOnBusyThreads,
   listQueuedThreadMessagePluginWaitRefs,
   listQueuedThreadMessagesByWaitHolder,
   listQueuedThreadMessagesWaitingOnKind,
@@ -215,6 +216,25 @@ export function requestQueuedMessageDispatch(
   }
 }
 
+export function requestQueuedMessageDispatchAt(
+  deps: QueueDispatchDeps,
+  at: number,
+): void {
+  setTimeout(
+    () => {
+      if (Date.now() < at) {
+        requestQueuedMessageDispatchAt(deps, at);
+        return;
+      }
+      requestQueuedMessageDispatch(deps, {
+        kind: "time-reached",
+        now: Date.now(),
+      });
+    },
+    Math.max(0, at - Date.now()),
+  ).unref();
+}
+
 export async function runQueuedMessageDispatch(
   deps: QueueDispatchDeps,
   wake: QueuedMessageDispatchWake,
@@ -399,6 +419,17 @@ async function runEditReleasedDispatch(
   await runThreadReadyDispatch(deps, row.threadId);
 }
 
+export async function attemptQueuedMessageNow(
+  deps: QueueDispatchDeps,
+  row: QueuedMessageDispatchRef,
+): Promise<void> {
+  await attemptAutomaticQueuedMessage(deps, row, {
+    now: Date.now(),
+    respectRequeuePacing: false,
+    retryingFailure: false,
+  });
+}
+
 async function attemptAutomaticQueuedMessage(
   deps: QueueDispatchDeps,
   row: QueuedMessageDispatchRef,
@@ -559,6 +590,13 @@ async function runFailedRetryDispatch(
 async function runIdleThreadRecovery(deps: QueueDispatchDeps): Promise<void> {
   for (const candidate of listIdleThreadsWithQueuedMessages(deps.db)) {
     await runThreadReadyDispatch(deps, candidate.threadId);
+  }
+  for (const row of listReadySystemNoticesOnBusyThreads(deps.db)) {
+    await attemptAutomaticQueuedMessage(deps, row, {
+      now: Date.now(),
+      respectRequeuePacing: true,
+      retryingFailure: false,
+    });
   }
 }
 

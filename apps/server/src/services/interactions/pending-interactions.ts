@@ -6,6 +6,7 @@ import {
   getPendingInteraction,
   getPendingInteractionByProviderRequest,
   getThread,
+  hasStoredTurnCompleted,
   interruptPendingInteractionsForThreadIds,
   interruptPendingInteractionsForThreads,
   interruptPendingInteractionsForPlugin,
@@ -21,6 +22,7 @@ import {
 } from "@bb/db";
 import { ensureThreadEventsHot } from "../threads/event-cold-tier/service.js";
 import { pinThreadHistory } from "../threads/event-cold-tier/pins.js";
+import { NotificationBuffer } from "../lib/notification-buffer.js";
 import {
   isApprovalPendingInteractionPayload,
   isPluginPendingInteractionPayload,
@@ -338,6 +340,8 @@ function notifyInteractionChanged({
 export class PendingInteractionLifecycle {
   private readonly deps: CreateLifecycleDeps;
   private readonly pluginWaiters = new Map<string, PluginInteractionWaiter>();
+  private readonly answersAwaitingDaemon = new Set<string>();
+  private readonly redeliveredAnswers = new Set<string>();
   private pluginDirectory: PendingInteractionPluginDirectory | null = null;
   private started = false;
   private interactionSettledListener: ThreadInteractionSettledListener | null =
@@ -435,6 +439,17 @@ export class PendingInteractionLifecycle {
       return {
         outcome: "rejected",
         reason: `Thread ${interaction.threadId} belongs to provider ${thread.providerId}, not ${interaction.providerId}`,
+      };
+    }
+    if (
+      hasStoredTurnCompleted(this.deps.db, {
+        threadId: interaction.threadId,
+        turnId: interaction.turnId,
+      })
+    ) {
+      return {
+        outcome: "rejected",
+        reason: `Turn ${interaction.turnId} already ended`,
       };
     }
     const unsupportedReason = getUnsupportedPendingInteractionReason(
@@ -858,6 +873,20 @@ export class PendingInteractionLifecycle {
     args: SettleInteractiveResolveCommandResultArgs,
   ): void {
     if (!args.report.ok) {
+      if (args.report.errorCode === "host_unavailable") {
+        this.answersAwaitingDaemon.add(args.command.interactionId);
+        return;
+      }
+      if (
+        args.report.errorCode === "stale_interactive_request" &&
+        this.redeliveredAnswers.delete(args.command.interactionId)
+      ) {
+        this.completeResolvingInteractionInTransaction(args.deps, {
+          interactionId: args.command.interactionId,
+          resolution: args.command.resolution,
+        });
+        return;
+      }
       this.interruptPendingInteractionInTransaction(args.deps, {
         interactionId: args.command.interactionId,
         reason: args.report.errorMessage,
@@ -865,6 +894,7 @@ export class PendingInteractionLifecycle {
       return;
     }
 
+    this.redeliveredAnswers.delete(args.command.interactionId);
     const completed = this.completeResolvingInteractionInTransaction(
       args.deps,
       {
@@ -978,23 +1008,86 @@ export class PendingInteractionLifecycle {
     );
 
     if (updated) {
-      startLiveHostCommand(
-        { ...this.deps, pendingInteractions: this },
-        {
-          command,
-          hostId: environment.hostId,
-          timeoutMs: LIVE_DAEMON_COMMAND_TIMEOUT_MS,
-          onError: ({ error }) => {
-            this.deps.logger.warn(
-              { err: error, interactionId: args.interaction.id },
-              "Live interactive resolve command failed",
-            );
-          },
-        },
-      );
+      this.startInteractiveResolveCommand(command, environment.hostId);
     }
 
     return updated;
+  }
+
+  private startInteractiveResolveCommand(
+    command: ReturnType<typeof buildInteractiveResolveCommand>,
+    hostId: string,
+  ): void {
+    startLiveHostCommand(
+      { ...this.deps, pendingInteractions: this },
+      {
+        command,
+        hostId,
+        timeoutMs: LIVE_DAEMON_COMMAND_TIMEOUT_MS,
+        onError: ({ error }) => {
+          this.deps.logger.warn(
+            { err: error, interactionId: command.interactionId },
+            "Live interactive resolve command failed",
+          );
+        },
+      },
+    );
+  }
+
+  completeResolvingInteractionWithoutAck(interactionId: string): void {
+    const row = getPendingInteraction(this.deps.db, interactionId);
+    if (row === null || row.status !== "resolving") return;
+    const interaction = toPendingInteraction(row);
+    if (interaction.resolution === null) return;
+    const resolution = interaction.resolution;
+    const notifications = new NotificationBuffer();
+    this.deps.db.transaction(
+      (tx) =>
+        this.completeResolvingInteractionInTransaction(
+          { db: tx, hub: notifications },
+          { interactionId, resolution },
+        ),
+      { behavior: "immediate" },
+    );
+    notifications.flushInto(this.deps.hub);
+  }
+
+  redeliverAnswersAwaitingDaemon(hostId: string): void {
+    for (const interactionId of this.answersAwaitingDaemon) {
+      const row = getPendingInteraction(this.deps.db, interactionId);
+      if (row === null || row.status !== "resolving") {
+        this.answersAwaitingDaemon.delete(interactionId);
+        continue;
+      }
+      if (this.interactionEnvironment(row)?.hostId !== hostId) continue;
+      this.answersAwaitingDaemon.delete(interactionId);
+      this.redeliverResolvingInteraction(interactionId);
+    }
+  }
+
+  redeliverResolvingInteraction(interactionId: string): void {
+    const row = getPendingInteraction(this.deps.db, interactionId);
+    if (row === null || row.status !== "resolving") return;
+    const interaction = toPendingInteraction(row);
+    const environment = this.interactionEnvironment(row);
+    if (environment === null || interaction.resolution === null) return;
+    this.redeliveredAnswers.add(interactionId);
+    this.startInteractiveResolveCommand(
+      buildInteractiveResolveCommand({
+        environmentId: environment.id,
+        interaction,
+        resolution: interaction.resolution,
+      }),
+      environment.hostId,
+    );
+  }
+
+  private interactionEnvironment(row: PendingInteractionRow) {
+    const environmentId =
+      getThread(this.deps.db, row.threadId)?.environmentId ?? null;
+    return environmentId === null
+      ? null
+      : getEnvironment(this.deps.db, environmentId);
   }
 
   private requireInteraction(interactionId: string): PendingInteraction {
@@ -1037,9 +1130,41 @@ export class PendingInteractionLifecycle {
     return interaction;
   }
 
+  private endProviderWaitForInterruptedInteraction(
+    interaction: PendingInteraction,
+  ): void {
+    if (interaction.status !== "interrupted") return;
+    const row = getPendingInteraction(this.deps.db, interaction.id);
+    if (
+      row === null ||
+      row.status !== "interrupted" ||
+      row.originKind !== "provider" ||
+      row.providerId === null ||
+      row.providerThreadId === null ||
+      row.providerRequestId === null
+    ) {
+      return;
+    }
+    const environment = this.interactionEnvironment(row);
+    if (environment === null) return;
+    this.deps.hub.sendDaemonMessage(environment.hostId, {
+      type: "interactive-requests.end",
+      requests: [
+        {
+          threadId: row.threadId,
+          providerId: row.providerId,
+          providerThreadId: row.providerThreadId,
+          providerRequestId: row.providerRequestId,
+        },
+      ],
+      reason: row.statusReason ?? "The question was closed",
+    });
+  }
+
   private settleInteractionTerminalState(
     interaction: PendingInteraction,
   ): void {
+    this.endProviderWaitForInterruptedInteraction(interaction);
     appendPendingInteractionTimelineEvent(this.deps, interaction);
     notifyInteractionChanged({
       deps: this.deps,
@@ -1052,6 +1177,11 @@ export class PendingInteractionLifecycle {
     deps: PendingInteractionTransactionDeps,
     interaction: PendingInteraction,
   ): void {
+    if (interaction.status === "interrupted") {
+      queueMicrotask(() =>
+        this.endProviderWaitForInterruptedInteraction(interaction),
+      );
+    }
     appendPendingInteractionTimelineEventInTransaction(deps, interaction);
     notifyInteractionChanged({
       deps,

@@ -36,8 +36,8 @@ function seedParentAndChild(harness: TestAppHarness) {
   return { child, ids, parent: fixture.thread, fixture };
 }
 
-describe("cold tier parent-wake batch pins", () => {
-  it("holds the child's pin from queueing until flush and refuses a move meanwhile", async () => {
+describe("cold tier parent-wake notices hold no pin", () => {
+  it("captures the child's output at queue time so a move is not refused", async () => {
     await withChildThreadNotificationClock(async (harness) => {
       const { child, ids, parent } = seedParentAndChild(harness);
       await queueChildThreadTurnNotificationBestEffort(harness.deps, {
@@ -46,33 +46,16 @@ describe("cold tier parent-wake batch pins", () => {
         turnId: "turn-1",
         turnStatus: "completed",
       });
-      expect(getThreadHistoryPinCount(child.id)).toBe(1);
+      expect(getThreadHistoryPinCount(child.id)).toBe(0);
       forceColdEligible(harness.db, ids);
-      const refused = await attemptColdMove(harness, child.id);
-      expect(refused).toMatchObject({ outcome: "skipped", reason: "pinned" });
-      await flushChildThreadNotifications();
+      const moved = await attemptColdMove(harness, child.id);
+      expect(moved).not.toMatchObject({ reason: "pinned" });
+      await flushChildThreadNotifications(harness);
       expect(getThreadHistoryPinCount(child.id)).toBe(0);
     });
   });
 
-  it("slot replacement acquires no second pin", async () => {
-    await withChildThreadNotificationClock(async (harness) => {
-      const { child, parent } = seedParentAndChild(harness);
-      for (const turnStatus of ["failed", "completed"] as const) {
-        await queueChildThreadTurnNotificationBestEffort(harness.deps, {
-          childThread: child,
-          parentThreadId: parent.id,
-          turnId: "turn-1",
-          turnStatus,
-        });
-      }
-      expect(getThreadHistoryPinCount(child.id)).toBe(1);
-      await flushChildThreadNotifications();
-      expect(getThreadHistoryPinCount(child.id)).toBe(0);
-    });
-  });
-
-  it("a batch for a missing parent still releases every pin", async () => {
+  it("a notice for a missing parent holds no pin", async () => {
     await withChildThreadNotificationClock(async (harness) => {
       const { child } = seedParentAndChild(harness);
       await queueChildThreadTurnNotificationBestEffort(harness.deps, {
@@ -81,30 +64,8 @@ describe("cold tier parent-wake batch pins", () => {
         turnId: "turn-1",
         turnStatus: "completed",
       });
-      expect(getThreadHistoryPinCount(child.id)).toBe(1);
-      await flushChildThreadNotifications();
       expect(getThreadHistoryPinCount(child.id)).toBe(0);
-    });
-  });
-
-  it("overlapping batches for different parents hold separate pins and all release", async () => {
-    await withChildThreadNotificationClock(async (harness) => {
-      const { child, parent, fixture } = seedParentAndChild(harness);
-      const otherParent = seedThread(harness.deps, {
-        environmentId: fixture.environment.id,
-        projectId: fixture.project.id,
-        title: "Other parent",
-      });
-      for (const parentThreadId of [parent.id, otherParent.id]) {
-        await queueChildThreadTurnNotificationBestEffort(harness.deps, {
-          childThread: child,
-          parentThreadId,
-          turnId: "turn-1",
-          turnStatus: "completed",
-        });
-      }
-      expect(getThreadHistoryPinCount(child.id)).toBe(2);
-      await flushChildThreadNotifications();
+      await flushChildThreadNotifications(harness);
       expect(getThreadHistoryPinCount(child.id)).toBe(0);
     });
   });

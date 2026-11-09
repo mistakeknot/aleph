@@ -598,6 +598,20 @@
       "tag": "0148_queued_message_delivery_mode",
       "sha256": "a2edda6ce9e694aee066639b02f81d2f57d7e4789c035d75a0be61633e49f214",
       "supersededBy": "A0012"
+    },
+    {
+      "tag": "0149_coalesced_system_notices",
+      "sha256": "fe99416903f17d99c87cfb9a0c26861e798cccf6d65be93fada0741bda361963",
+      "supersededBy": "A0013"
+    },
+    {
+      "tag": "0150_thread_status_changed_at",
+      "sha256": "11156322dda88868d864492e85877c973c3edf1404b3bc521d0710989a120436",
+      "supersededBy": "A0014"
+    },
+    {
+      "tag": "0151_hand_diff_viewed_files_to_git_plugin",
+      "sha256": "f1329637cde53d7c05fee85a748bc6b1a74c6dd25de5b16af66e6b2bc7eec4d6"
     }
   ]
 }

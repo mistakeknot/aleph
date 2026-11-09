@@ -48,6 +48,10 @@ export function emitPluginThreadDeleted(thread: Thread): void {
   emitter?.emitThreadDeleted(thread);
 }
 
+export function emitPluginThreadRead(threadId: string): void {
+  emitter?.emitThreadRead(threadId);
+}
+
 export function emitPluginInteractionPending(
   thread: Thread,
   interaction: PendingInteraction,

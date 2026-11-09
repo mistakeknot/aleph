@@ -56,6 +56,7 @@ function captureEnvironmentRemovals(): string[] {
     emitThreadUnarchived: ignore,
     emitThreadParentChanged: ignore,
     emitThreadDeleted: ignore,
+    emitThreadRead: ignore,
     emitMessageQueued: ignore,
     deliverMessageQueuedTransfer: () => Promise.resolve(true),
     emitMessageDispatched: ignore,

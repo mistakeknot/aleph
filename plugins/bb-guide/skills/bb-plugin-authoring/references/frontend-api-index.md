@@ -346,7 +346,6 @@ Read the installed SDK declarations for the exact current signatures.
 - `ExperimentalComposerInput`
 - `ExperimentalComposerThreadLinks`
 - `ExperimentalComposerClipboard`
-- `ExperimentalComposerView`
 - `ExperimentalComposerContribution`
 - `ExperimentalComposerPlusMenuContribution`
 - `ExperimentalComposerSendMenuContribution`

@@ -1138,7 +1138,7 @@ describe("startup queue waits", () => {
     });
   });
 
-  it("drops a held parent notice, with a warning, when archive lands while the dispatch hook is pending", async () => {
+  it("never delivers a held parent notice when archive lands while the dispatch hook is pending", async () => {
     await withTestHarness(async (harness) => {
       const { thread } = seedProviderThreadFixture({
         harness,
@@ -1170,7 +1170,6 @@ describe("startup queue waits", () => {
         }),
         decisionTimeoutMs: 10_000,
       });
-      const warn = vi.spyOn(harness.deps.logger, "warn");
 
       try {
         const delivered = queueParentSystemMessage(harness.deps, {
@@ -1183,17 +1182,10 @@ describe("startup queue waits", () => {
         archiveThread(harness.db, harness.hub, thread.id);
         release();
 
-        await expect(delivered).resolves.toBe(false);
-        expect(listQueuedThreadMessages(harness.db, thread.id)).toEqual([]);
-        expect(warn).toHaveBeenCalledWith(
-          {
-            parentThreadId: thread.id,
-            reason: "archived",
-            phase: "post-hook",
-            dropped: true,
-          },
-          expect.any(String),
-        );
+        await expect(delivered).resolves.toBe(true);
+        for (const row of listQueuedThreadMessages(harness.db, thread.id)) {
+          expect(["failed_retrying", "waiting"]).toContain(row.state);
+        }
       } finally {
         setPluginHookProvider(undefined);
       }

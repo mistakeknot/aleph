@@ -20,6 +20,7 @@ import {
   claimQueuedThreadMessage,
   createQueuedThreadMessage,
   createQueuedThreadMessageInTransaction,
+  getPendingCoalescedQueuedThreadMessage,
   getQueuedThreadMessage,
   listQueuedThreadMessages,
   reorderQueuedThreadMessage,
@@ -79,6 +80,7 @@ function enqueue(
 }
 
 const resolveWaitingOn = () => ({ kind: "thread-busy" }) as const;
+const keepTimeWait = () => ({ kind: "time" }) as const;
 
 function retire(
   fixture: ReturnType<typeof setup>,
@@ -155,6 +157,49 @@ describe("unclaimed queue delivery intent", () => {
       expect.objectContaining({ originId: row.id, deliveryMode: "queue", claimedAt: null }),
     ]);
   });
+
+  it.each(["retire", "direct"] as const)(
+    "keeps coalescing state through %s transfer during the window",
+    (mode) => {
+      const fixture = setup();
+      const { db, source, target } = fixture;
+      const row = enqueue(db, source.id, "batch", {
+        coalesce: { key: "notices", state: '["child-a"]' },
+        deliveryMode: "steer",
+        sendAt: Date.now() + 60_000,
+        waitingOn: { kind: "time" },
+      });
+      if (mode === "retire") {
+        expect(retire(fixture, { resolveWaitingOn: keepTimeWait }).kind).toBe(
+          "retired",
+        );
+      } else {
+        const result = db.transaction(
+          (tx) =>
+            transferQueuedThreadMessageInTransaction(tx, {
+              queuedMessageId: row.id,
+              sourceThreadId: source.id,
+              targetThreadId: target.id,
+              resolveWaitingOn: keepTimeWait,
+            }),
+          { behavior: "immediate" },
+        );
+        expect(result.kind).toBe("transferred");
+      }
+      const pending = getPendingCoalescedQueuedThreadMessage(db, {
+        coalesceKey: "notices",
+        now: Date.now(),
+        threadId: target.id,
+      });
+      expect(pending).toEqual(
+        expect.objectContaining({
+          coalesceKey: "notices",
+          coalesceState: '["child-a"]',
+          originId: row.id,
+        }),
+      );
+    },
+  );
 
   it("keeps each delivery mode through transfer-all", () => {
     const { db, source, target } = setup();

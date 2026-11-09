@@ -990,7 +990,6 @@ describe("in-turn timeline windows", () => {
     const budgeted = buildPage(db, thread, 100, null);
 
     expect(budgeted.response.timelinePage.olderCursor).toBeNull();
-    expect(budgeted.response.timelinePage.olderCursor).toBeNull();
     expect(budgeted.response.rows).toEqual(
       buildPage(db, thread, LARGE_BUDGET, null).response.rows,
     );
@@ -1269,7 +1268,6 @@ describe("in-turn timeline windows", () => {
     ]);
 
     const latest = buildPage(db, thread, LARGE_BUDGET, null);
-    expect(latest.response.timelinePage.olderCursor).toBeNull();
     expect(latest.response.timelinePage.olderCursor).toBeNull();
     expect(latest.response.rows).toHaveLength(1);
     const row = latest.response.rows[0]!;
@@ -1766,7 +1764,6 @@ describe("timeline window hints", () => {
     const timeline = buildPage(db, thread, 1_501, null).response;
 
     expect(timeline.timelinePage.olderCursor).toBeNull();
-    expect(timeline.timelinePage.olderCursor).toBeNull();
     expect(timeline.rows).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -1820,7 +1817,6 @@ describe("timeline window hints", () => {
       latest.timelinePage.olderCursor,
       1,
     ).response;
-    expect(older.timelinePage.olderCursor).toBeNull();
     expect(older.timelinePage.olderCursor).toBeNull();
     expect(older.rows).toEqual([
       expect.objectContaining({

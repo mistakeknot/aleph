@@ -34,6 +34,7 @@ import {
   claimEnvironmentPath,
   bindEnvironmentPath,
   listProviderLifecycleEnvironments,
+  liveThread,
   updatePreparingEnvironment,
   type DbConnection,
   type DbTransaction,
@@ -1320,8 +1321,7 @@ function listStopRequestedEnvironmentProvisionThreads(
       and(
         eq(threads.environmentId, environmentId),
         eq(threads.status, "stopping"),
-        isNull(threads.archivedAt),
-        isNull(threads.deletedAt),
+        liveThread,
       ),
     )
     .all();
@@ -1942,8 +1942,7 @@ function recoverEnvironmentProvisionRequest(
       and(
         eq(threads.environmentId, environment.id),
         eq(threads.status, "starting"),
-        isNull(threads.archivedAt),
-        isNull(threads.deletedAt),
+        liveThread,
       ),
     )
     .all();

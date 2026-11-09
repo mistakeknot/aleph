@@ -525,6 +525,7 @@ async function editHotThreadMessage(
   });
   const { initiator } = resolveDispatchAuthor({
     retrying: false,
+    systemNotice: false,
     senderThreadId,
     startedOnBehalfOf: null,
   });
@@ -720,6 +721,7 @@ async function editHotThreadMessage(
       },
       queuePayload: { kind: "inline" },
       pluginSubmission: null,
+      systemNotice: null,
       origin: null,
       originPluginId: null,
       startedOnBehalfOf: null,

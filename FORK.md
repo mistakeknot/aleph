@@ -609,6 +609,17 @@ superseded by `A0012_queued_message_delivery_mode`, anchored after 0147 with
 the same timestamp and byte-identical SQL. Only A0012 executes the addition;
 existing migration SQL and timestamps remain unchanged.
 
+The upstream 0.49.0 sync (part 2) adds upstream 0149 (`coalesced_system_notices`),
+0150 (`thread_status_changed_at`) and 0151
+(`hand_diff_viewed_files_to_git_plugin`). 0149 adds a column to the
+queued-message table and 0150 adds one to the thread table, both Aleph-altered, so
+each is frozen and superseded by an Aleph step with byte-identical SQL:
+`A0013_coalesced_system_notices` and `A0014_thread_status_changed_at`, chained
+after A0012 at upstream's timestamps (each above the preceding ceiling). 0151
+copies `diff_viewed_files` into the git plugin's key-value store and drops the
+table; it touches no Aleph-altered table, so it joined `frozen-upstream.json`
+unchanged and no Aleph step was added.
+
 ### Namespaced migration runner (mk-knexd)
 
 `packages/db/src/migration-runner.ts` (with `migration-plan.ts`,
@@ -617,7 +628,7 @@ existing migration SQL and timestamps remain unchanged.
 `migration-step-checks.ts` and `legacy-migration-chain.ts`) replaces the single
 Drizzle journal with two namespaces: the frozen upstream folder
 (`drizzle/`, pinned by `drizzle-aleph/frozen-upstream.json`) and the
-fork-owned folder `packages/db/drizzle-aleph/` (`A0001` to `A0011`, ordered by
+fork-owned folder `packages/db/drizzle-aleph/` (`A0001` to `A0014`, ordered by
 `manifest.json`, checked by `step-checks.json`; `A0010` is the event cold tier that
 main carries as upstream-numbered `0152_event_cold_tier`, which the legacy chain
 maps to it). Applied steps are recorded in

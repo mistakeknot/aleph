@@ -1394,10 +1394,6 @@ export interface GetLatestCompletedThreadContextClearSequenceArgs {
   threadId: string;
 }
 
-export interface GetLatestThreadOutputEventRowArgs {
-  threadId: string;
-}
-
 export interface GetLatestThreadSystemErrorEventRowArgs {
   threadId: string;
 }
@@ -2891,6 +2887,26 @@ export function hasThreadCompletedAnyOtherTurn(
   return row !== undefined;
 }
 
+export function hasStoredTurnCompleted(
+  db: DbQueryConnection,
+  args: HasStoredTurnStartedArgs,
+): boolean {
+  const row = db
+    .select({ sequence: events.sequence })
+    .from(events)
+    .where(
+      and(
+        eq(events.threadId, args.threadId),
+        eq(events.type, "turn/completed"),
+        eq(events.turnId, args.turnId),
+      ),
+    )
+    .limit(1)
+    .get();
+
+  return row !== undefined;
+}
+
 export interface HasStoredTerminalClientTurnRequestEventArgs {
   requestId: ClientTurnRequestId;
   threadId: string;
@@ -4321,33 +4337,6 @@ export function getLatestTokenUsageRow(
   );
 }
 
-export function getLatestThreadOutputEventRow(
-  db: DbConnection,
-  args: GetLatestThreadOutputEventRowArgs,
-): StoredEventRow | null {
-  return (
-    db
-      .select(storedEventRowFields)
-      .from(events)
-      .where(
-        sql`${events.threadId} = ${args.threadId} AND (
-        (
-          ${events.type} = 'system/manager/user_message'
-          AND COALESCE(json_extract(${events.data}, '$.text'), '') <> ''
-        )
-        OR (
-          ${events.type} = 'item/completed'
-          AND ${events.itemKind} = 'agentMessage'
-          AND COALESCE(json_extract(${events.data}, '$.item.text'), '') <> ''
-        )
-      )`,
-      )
-      .orderBy(desc(events.sequence))
-      .limit(1)
-      .get() ?? null
-  );
-}
-
 interface GetTurnFinalAgentMessageEventRowArgs {
   threadId: string;
   turnId: string;
@@ -5097,6 +5086,24 @@ export function getLastStoredTurnRequestEvent(
       .orderBy(sql`${events.sequence} DESC`)
       .limit(1)
       .get() ?? null
+  );
+}
+
+export function hasStoredTurnRequestEventSince(
+  db: DbQueryConnection,
+  args: { since: number; threadId: string },
+): boolean {
+  return (
+    db
+      .select({ id: events.id })
+      .from(events)
+      .where(
+        sql`${events.threadId} = ${args.threadId}
+        AND ${events.type} = 'client/turn/requested'
+        AND ${events.createdAt} >= ${args.since}`,
+      )
+      .limit(1)
+      .get() !== undefined
   );
 }
 
