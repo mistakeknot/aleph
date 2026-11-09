@@ -135,11 +135,30 @@ every process whose working directory is inside the worktree — the agent's
 provider process, its background jobs (dev servers, MCP servers, `nohup`
 jobs), and any process you started there yourself, such as a shell you `cd`'d
 into the worktree or an editor terminal. Each process gets `SIGTERM`, then
-`SIGKILL` after a short grace period. Then `git worktree remove --force` runs
-and the directory is deleted. The branch is left behind, so work you committed
-to it survives the worktree. If you want to keep uncommitted work, commit and
-push (or open a PR) from inside the worktree before letting the thread go, and
-move your own shells out of the worktree first if you want to keep them.
+`SIGKILL` after a short grace period. If the worktree has uncommitted changes,
+bb saves them before removing it: staged, unstaged and untracked files (not
+ignored ones) go into a commit on its own ref under `refs/bb/saved-work/`,
+named after the branch (with `%` written as `%25` and `/` as `%2F`, or `HEAD`
+when detached) and the time in milliseconds plus a random suffix. Its first
+parent is the branch head. A second parent holding the staged files is
+added only when the staged state differs from both the branch head and the
+working tree. The branch and the index are not changed,
+and no git hooks run. If the save fails, or a submodule or an untracked nested
+repository has changes that a commit cannot hold, or a merge is left with
+unresolved conflicts, the worktree is left in place. Otherwise `git worktree remove --force` runs
+and the directory is deleted.
+The branch is left behind, so work you committed to it survives the worktree.
+
+To list and restore saved work from the main checkout:
+
+```bash
+git for-each-ref refs/bb/saved-work/
+git switch -c restored <saved ref>
+```
+
+Saved refs are never deleted for you; remove one with `git update-ref -d` when
+you no longer need it. Move your own shells out of the worktree first if you
+want to keep them.
 
 ## Run teardown with `.bb-env-teardown.sh`
 

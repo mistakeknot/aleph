@@ -5,7 +5,9 @@ import {
   selectAdoptableWorktrees,
   type GitWorktreeEntry,
 } from "./worktree-list.js";
+import { randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import {
@@ -670,6 +672,186 @@ async function removeDirectoryIfEmpty(pathToRemove: string): Promise<void> {
   }
 }
 
+export const SAVED_WORK_REF_PREFIX = "refs/bb/saved-work/";
+
+const REPOSITORY_LOCATION_ENV: NodeJS.ProcessEnv = {
+  GIT_DIR: undefined,
+  GIT_WORK_TREE: undefined,
+  GIT_INDEX_FILE: undefined,
+  GIT_COMMON_DIR: undefined,
+  GIT_OBJECT_DIRECTORY: undefined,
+  GIT_ALTERNATE_OBJECT_DIRECTORIES: undefined,
+  GIT_NAMESPACE: undefined,
+  GIT_PREFIX: undefined,
+};
+
+const SAVED_WORK_ENV: NodeJS.ProcessEnv = {
+  ...REPOSITORY_LOCATION_ENV,
+  GIT_OPTIONAL_LOCKS: "0",
+  GIT_AUTHOR_NAME: "bb worktree cleanup",
+  GIT_AUTHOR_EMAIL: "bb-cleanup@localhost",
+  GIT_COMMITTER_NAME: "bb worktree cleanup",
+  GIT_COMMITTER_EMAIL: "bb-cleanup@localhost",
+};
+
+const SAVED_WORK_GIT_CONFIG = [
+  "--no-optional-locks",
+  "-c",
+  "core.hooksPath=/dev/null",
+  "-c",
+  "core.fsmonitor=false",
+  "-c",
+  "core.splitIndex=false",
+];
+
+export function encodeSavedWorkBranch(branch: string): string {
+  return branch.replaceAll("%", "%25").replaceAll("/", "%2F");
+}
+
+function findUnsavableStatusEntry(statusZ: string): string | null {
+  const records = statusZ.split("\0");
+  for (let i = 0; i < records.length; i += 1) {
+    const record = records[i]!;
+    if (record === "") continue;
+    const kind = record[0];
+    if (kind === "?") {
+      const entry = record.slice(2);
+      if (entry.endsWith("/"))
+        return `${entry} is a nested repository, which cannot be saved`;
+      continue;
+    }
+    if (kind === "u")
+      return "the index has unresolved merge conflicts, which cannot be saved";
+    if (kind !== "1" && kind !== "2") continue;
+    const fields = record.split(" ");
+    const sub = fields[2] ?? "";
+    if (sub.startsWith("S") && (sub[2] === "M" || sub[3] === "U")) {
+      const pathIndex = kind === "1" ? 8 : kind === "2" ? 9 : 10;
+      return `submodule ${fields.slice(pathIndex).join(" ")} has uncommitted changes, which cannot be saved`;
+    }
+    if (kind === "2") i += 1;
+  }
+  return null;
+}
+
+async function copyFileIfPresent(from: string, to: string): Promise<boolean> {
+  try {
+    await fs.copyFile(from, to);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+export async function saveUncommittedWork(args: {
+  path: string;
+  signal?: AbortSignal | undefined;
+}): Promise<string | null> {
+  const opts = {
+    cwd: args.path,
+    env: SAVED_WORK_ENV,
+    ...(args.signal !== undefined ? { signal: args.signal } : {}),
+  };
+  const git = (gitArgs: string[], extra: Record<string, unknown> = {}) =>
+    runGit([...SAVED_WORK_GIT_CONFIG, ...gitArgs], { ...opts, ...extra });
+
+  const status = await git([
+    "status",
+    "--porcelain=v2",
+    "-z",
+    "--untracked-files=all",
+    "--ignore-submodules=none",
+  ]);
+  if (status.stdout === "") return null;
+  const unsavable = findUnsavableStatusEntry(status.stdout);
+  if (unsavable !== null) throw new Error(unsavable);
+
+  const head = await git(["rev-parse", "--verify", "-q", "HEAD^{commit}"], {
+    allowFailure: true,
+  });
+  const headCommit = head.exitCode === 0 ? head.stdout.trim() : null;
+  const branch = await git(["symbolic-ref", "--short", "-q", "HEAD"], {
+    allowFailure: true,
+  });
+  const branchName =
+    branch.exitCode === 0 && branch.stdout.trim() !== ""
+      ? branch.stdout.trim()
+      : "HEAD";
+  const realIndex = path.resolve(
+    args.path,
+    (await git(["rev-parse", "--git-path", "index"])).stdout.trim(),
+  );
+  const parentArgs = headCommit !== null ? ["-p", headCommit] : [];
+
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "bb-saved-work-"));
+  try {
+    const workIndex = path.join(tmp, "work-index");
+    const stagedIndex = path.join(tmp, "staged-index");
+    const hasIndex = await copyFileIfPresent(realIndex, workIndex);
+    if (hasIndex) await fs.copyFile(realIndex, stagedIndex);
+    const workEnv = { ...SAVED_WORK_ENV, GIT_INDEX_FILE: workIndex };
+    if (!hasIndex && headCommit !== null)
+      await git(["read-tree", headCommit], { env: workEnv });
+    await git(["add", "-A", "--", "."], { env: workEnv });
+    const workTree = (
+      await git(["write-tree"], { env: workEnv })
+    ).stdout.trim();
+
+    const extraParents: string[] = [];
+    const indexTree = hasIndex
+      ? await git(["write-tree"], {
+          env: { ...SAVED_WORK_ENV, GIT_INDEX_FILE: stagedIndex },
+          allowFailure: true,
+        })
+      : null;
+    const headTree =
+      headCommit !== null
+        ? (await git(["rev-parse", `${headCommit}^{tree}`])).stdout.trim()
+        : null;
+    const staged =
+      indexTree !== null && indexTree.exitCode === 0
+        ? indexTree.stdout.trim()
+        : null;
+    if (staged !== null && staged !== headTree && staged !== workTree) {
+      const indexCommit = await git([
+        "commit-tree",
+        "--no-gpg-sign",
+        staged,
+        ...parentArgs,
+        "-m",
+        `bb: staged changes on ${branchName}`,
+      ]);
+      extraParents.push("-p", indexCommit.stdout.trim());
+    }
+
+    const message = `bb: uncommitted work saved before the worktree on ${branchName} was removed\n\nWorktree: ${args.path}`;
+    const commit = (
+      await git([
+        "commit-tree",
+        "--no-gpg-sign",
+        workTree,
+        ...parentArgs,
+        ...extraParents,
+        "-m",
+        message,
+      ])
+    ).stdout.trim();
+    const ref = `${SAVED_WORK_REF_PREFIX}${encodeSavedWorkBranch(branchName)}/${Date.now()}-${randomBytes(4).toString("hex")}`;
+    await git([
+      "update-ref",
+      "-m",
+      "bb: save uncommitted work before worktree removal",
+      ref,
+      commit,
+      "",
+    ]);
+    return ref;
+  } finally {
+    await fs.rm(tmp, { recursive: true, force: true });
+  }
+}
+
 export async function removeWorktree(args: RemoveWorktreeArgs): Promise<void> {
   throwIfProvisionAborted(args.signal);
   const workspacePath = path.resolve(args.path);
@@ -688,11 +870,35 @@ export async function removeWorktree(args: RemoveWorktreeArgs): Promise<void> {
 
   const commonDirResult = await runGit(["rev-parse", "--git-common-dir"], {
     cwd: workspacePath,
+    env: REPOSITORY_LOCATION_ENV,
     ...(args.signal !== undefined ? { signal: args.signal } : {}),
     allowFailure: true,
   });
 
   if (commonDirResult.exitCode === 0) {
+    let savedRef: string | null;
+    try {
+      savedRef = await saveUncommittedWork({
+        path: workspacePath,
+        signal: args.signal,
+      });
+    } catch (error) {
+      if (isProvisionAbortError(error)) throw error;
+      throw new WorkspaceError(
+        "dirty_worktree_not_saved",
+        `The worktree at ${workspacePath} has uncommitted changes that could not be saved, so it was left in place: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    if (savedRef !== null) {
+      emitStep({
+        onProgress: args.onProgress,
+        key: "saved-uncommitted-work",
+        text: `Saved uncommitted work to ${savedRef}`,
+        status: "completed",
+        startedAt: Date.now(),
+      });
+    }
+    throwIfProvisionAborted(args.signal);
     const commonDir = path.resolve(
       workspacePath,
       commonDirResult.stdout.trim(),
@@ -712,13 +918,14 @@ export async function removeWorktree(args: RemoveWorktreeArgs): Promise<void> {
             ],
             {
               cwd: path.dirname(workspacePath),
+              env: REPOSITORY_LOCATION_ENV,
               ...(args.signal !== undefined ? { signal: args.signal } : {}),
               allowFailure: true,
             },
           ),
         ),
       args.signal,
-      signalOptions(args.signal),
+      { ...signalOptions(args.signal), env: REPOSITORY_LOCATION_ENV },
     );
   }
 
