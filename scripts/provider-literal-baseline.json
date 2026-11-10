@@ -53,19 +53,19 @@
       "count": 1,
       "reason": "session-search reads Claude and Codex session files, so its adapter, parser protocol and contracts name the two providers it parses (new in the upstream sync, bead mk-uyf3d.4).",
       "owner": "session-search (upstream sync)",
-      "diesAt": "when session-search resolves parsers through the provider registry; follow-up bead to remove these references"
+      "diesAt": "when session-search resolves parsers through the provider registry; bead mk-5vobm removes these references"
     },
     "packages/session-search/src/contracts.ts": {
       "count": 2,
       "reason": "session-search reads Claude and Codex session files, so its adapter, parser protocol and contracts name the two providers it parses (new in the upstream sync, bead mk-uyf3d.4).",
       "owner": "session-search (upstream sync)",
-      "diesAt": "when session-search resolves parsers through the provider registry; follow-up bead to remove these references"
+      "diesAt": "when session-search resolves parsers through the provider registry; bead mk-5vobm removes these references"
     },
     "packages/session-search/src/parser/protocol.ts": {
       "count": 3,
       "reason": "session-search reads Claude and Codex session files, so its adapter, parser protocol and contracts name the two providers it parses (new in the upstream sync, bead mk-uyf3d.4).",
       "owner": "session-search (upstream sync)",
-      "diesAt": "when session-search resolves parsers through the provider registry; follow-up bead to remove these references"
+      "diesAt": "when session-search resolves parsers through the provider registry; bead mk-5vobm removes these references"
     }
   }
 }

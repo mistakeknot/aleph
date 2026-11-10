@@ -2509,7 +2509,6 @@ describe("@bb/sdk", () => {
   it("resolves waitForTerminal with error instead of throwing when the thread is stuck in error", async () => {
     const queue = createFetchQueue([
       { body: { id: "thr_terminal_error", status: "error" } },
-      // The wait checks for a pending retry before it gives up on `error`.
       { body: [] },
       { body: { id: "thr_terminal_error", status: "error" } },
     ]);
