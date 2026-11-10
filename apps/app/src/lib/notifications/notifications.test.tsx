@@ -74,6 +74,9 @@ describe("toast history", () => {
     act(() => {
       toast.dismiss();
     });
+    await waitFor(() =>
+      expect(document.querySelectorAll("[data-sonner-toast]")).toHaveLength(0),
+    );
   });
 });
 
