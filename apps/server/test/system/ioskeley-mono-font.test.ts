@@ -185,4 +185,55 @@ describe("ensureIoskeleyMonoFont", () => {
     ).rejects.toThrow();
     expect(logger.warn).toHaveBeenCalledTimes(1);
   });
+
+  it("gives up and warns when the response body stalls after the headers arrive", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const fetchFn = vi.fn(async (_url: unknown, init?: RequestInit) => {
+        const signal = init?.signal;
+        const body = new ReadableStream<Uint8Array>({
+          start(streamController) {
+            streamController.enqueue(
+              new Uint8Array(ZIP_FIXTURE.subarray(0, 8)),
+            );
+            signal?.addEventListener("abort", () => {
+              streamController.error(
+                new DOMException("The operation was aborted.", "AbortError"),
+              );
+            });
+          },
+        });
+        return new Response(body, { status: 200 });
+      });
+      const logger = testLogger();
+
+      const pending = ensureIoskeleyMonoFont({
+        dataDir,
+        logger,
+        fetchFn,
+        assetUrl: "https://example.test/IoskeleyMono-Web.zip",
+        expectedSha256: ZIP_FIXTURE_SHA256,
+        zipEntryName: ENTRY_NAME,
+      }).then(() => "settled" as const);
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      vi.useRealTimers();
+      let deadline: ReturnType<typeof setTimeout> | undefined;
+      const outcome = await Promise.race([
+        pending,
+        new Promise<"still-pending">((resolve) => {
+          deadline = setTimeout(() => resolve("still-pending"), 2_000);
+        }),
+      ]);
+      clearTimeout(deadline);
+
+      expect(outcome).toBe("settled");
+      await expect(
+        readFile(resolveIoskeleyMonoFontPath(dataDir)),
+      ).rejects.toThrow();
+      expect(logger.warn).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

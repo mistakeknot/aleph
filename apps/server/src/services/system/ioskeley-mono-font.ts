@@ -117,18 +117,20 @@ export async function ensureIoskeleyMonoFont(
       () => controller.abort(),
       IOSKELEY_MONO_DOWNLOAD_TIMEOUT_MS,
     );
-    let response: Response;
+    let zipBuffer: Buffer;
     try {
-      response = await fetchImpl(assetUrl, { signal: controller.signal });
+      const response = await fetchImpl(assetUrl, {
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        throw new Error(
+          `Ioskeley Mono asset download failed: ${response.status} ${response.statusText}`,
+        );
+      }
+      zipBuffer = Buffer.from(await response.arrayBuffer());
     } finally {
       clearTimeout(timeout);
     }
-    if (!response.ok) {
-      throw new Error(
-        `Ioskeley Mono asset download failed: ${response.status} ${response.statusText}`,
-      );
-    }
-    const zipBuffer = Buffer.from(await response.arrayBuffer());
     const actualSha256 = createHash("sha256").update(zipBuffer).digest("hex");
     if (actualSha256 !== expectedSha256) {
       throw new Error(
