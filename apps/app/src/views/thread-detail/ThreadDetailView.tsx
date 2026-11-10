@@ -539,12 +539,7 @@ function ThreadDetailViewInternal(
     threadId,
     enabled: timelineEnabled,
   });
-  useThreadViewTiming(
-    threadId,
-    timelineEnabled &&
-      !timeline.timelineLoading &&
-      timeline.timelineRows.length > 0,
-  );
+  useThreadViewTiming(threadId, timelineEnabled && timeline.timelineResolved);
   const updateThread = useUpdateThread({
     errorMessage: "Failed to assign parent thread.",
   });

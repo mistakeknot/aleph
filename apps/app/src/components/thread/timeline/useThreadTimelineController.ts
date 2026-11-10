@@ -57,6 +57,7 @@ export interface UseThreadTimelineControllerResult {
   pendingTodos: ThreadTimelineResponse["pendingTodos"];
   timelineError: Error | null;
   timelineLoading: boolean;
+  timelineResolved: boolean;
   timelineRows: TimelineRow[];
 }
 
@@ -335,6 +336,7 @@ export function useThreadTimelineController({
     pendingTodos: latestTimeline?.pendingTodos ?? null,
     timelineError,
     timelineLoading,
+    timelineResolved: hasResolvedTimeline && !timelineLoading,
     timelineRows,
   };
 }

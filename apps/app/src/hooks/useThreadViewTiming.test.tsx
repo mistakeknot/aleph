@@ -4,12 +4,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   record: vi.fn(),
+  viewed: [] as string[],
   hidden: 0,
   visible: true,
 }));
 
 vi.mock("../lib/client-timing", () => ({
   clientTimingHiddenCount: () => mocks.hidden,
+  markThreadViewed: (threadId: string) => {
+    mocks.viewed.push(`+${threadId}`);
+    return () => mocks.viewed.push(`-${threadId}`);
+  },
   recordClientTiming: mocks.record,
 }));
 vi.mock("../lib/document-visibility", () => ({
@@ -33,6 +38,7 @@ beforeEach(() => {
   now = 0;
   frames = new Map();
   mocks.record.mockReset();
+  mocks.viewed = [];
   mocks.hidden = 0;
   mocks.visible = true;
   vi.spyOn(performance, "now").mockImplementation(() => now);
@@ -95,5 +101,15 @@ describe("useThreadViewTiming", () => {
     rerender({ ready: true });
     runFrames(5_000);
     expect(mocks.record).not.toHaveBeenCalled();
+  });
+
+  it("marks the shown thread as viewed and releases it on switch and unmount", () => {
+    const { rerender, unmount } = renderHook(
+      ({ threadId }) => useThreadViewTiming(threadId, false),
+      { initialProps: { threadId: "thr_a" } },
+    );
+    rerender({ threadId: "thr_b" });
+    unmount();
+    expect(mocks.viewed).toEqual(["+thr_a", "-thr_a", "+thr_b", "-thr_b"]);
   });
 });

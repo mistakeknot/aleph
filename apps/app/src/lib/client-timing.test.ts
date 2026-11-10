@@ -35,6 +35,7 @@ const {
   CLIENT_TIMING_MAX_QUEUE,
   flushClientTiming,
   installClientTiming,
+  markThreadViewed,
   noteStreamApplied,
   noteStreamCommitted,
   recordClientTiming,
@@ -147,6 +148,8 @@ describe("client timing", () => {
   });
 
   it("measures stream lag from the latest apply, at most once a second", () => {
+    markThreadViewed("thr_a");
+    markThreadViewed("thr_b");
     noteStreamApplied("thr_a");
     now = 10;
     noteStreamApplied("thr_a");
@@ -172,16 +175,19 @@ describe("client timing", () => {
 
   it("keeps at most 32 pending stream applies and drops stale ones", () => {
     for (let index = 0; index < 40; index += 1) {
+      markThreadViewed(`thr_${index}`);
       noteStreamApplied(`thr_${index}`);
     }
     expect(streamAppliedCountForTests()).toBe(32);
     now = 60_001;
+    markThreadViewed("thr_new");
     noteStreamApplied("thr_new");
     expect(streamAppliedCountForTests()).toBe(1);
   });
 
   it("ignores applies while hidden and does not count background time on return", () => {
     installClientTiming();
+    markThreadViewed("thr_a");
     noteStreamApplied("thr_a");
     mocks.visible = false;
     for (const listener of mocks.visibility) listener();
@@ -191,6 +197,24 @@ describe("client timing", () => {
     now = 5_000;
     mocks.visible = true;
     for (const listener of mocks.visibility) listener();
+    noteStreamCommitted("thr_a");
+    flushClientTiming();
+    expect(mocks.record).not.toHaveBeenCalled();
+  });
+
+  it("ignores applies for threads not in view and forgets them when the view leaves", () => {
+    noteStreamApplied("thr_a");
+    expect(streamAppliedCountForTests()).toBe(0);
+    const leaveFirst = markThreadViewed("thr_a");
+    const leaveSecond = markThreadViewed("thr_a");
+    noteStreamApplied("thr_a");
+    leaveFirst();
+    leaveFirst();
+    expect(streamAppliedCountForTests()).toBe(1);
+    leaveSecond();
+    expect(streamAppliedCountForTests()).toBe(0);
+    now = 20_000;
+    markThreadViewed("thr_a");
     noteStreamCommitted("thr_a");
     flushClientTiming();
     expect(mocks.record).not.toHaveBeenCalled();

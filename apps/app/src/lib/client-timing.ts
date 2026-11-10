@@ -24,6 +24,7 @@ let flushTimer: ReturnType<typeof setTimeout> | null = null;
 let lastStreamLagAt = Number.NEGATIVE_INFINITY;
 let hiddenCount = 0;
 const streamAppliedAt = new Map<string, number>();
+const viewedThreads = new Map<string, number>();
 let uninstall: (() => void) | null = null;
 
 function clientDevice(): RecordClientTimingRequest["device"] {
@@ -87,8 +88,24 @@ export function clientTimingHiddenCount(): number {
   return hiddenCount;
 }
 
+export function markThreadViewed(threadId: string): () => void {
+  viewedThreads.set(threadId, (viewedThreads.get(threadId) ?? 0) + 1);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    const count = (viewedThreads.get(threadId) ?? 1) - 1;
+    if (count > 0) {
+      viewedThreads.set(threadId, count);
+      return;
+    }
+    viewedThreads.delete(threadId);
+    streamAppliedAt.delete(threadId);
+  };
+}
+
 export function noteStreamApplied(threadId: string): void {
-  if (!isDocumentVisible()) return;
+  if (!isDocumentVisible() || !viewedThreads.has(threadId)) return;
   const now = performance.now();
   streamAppliedAt.delete(threadId);
   for (const [id, appliedAt] of streamAppliedAt) {
@@ -156,4 +173,5 @@ export function resetClientTimingForTests(): void {
   lastStreamLagAt = Number.NEGATIVE_INFINITY;
   hiddenCount = 0;
   streamAppliedAt.clear();
+  viewedThreads.clear();
 }

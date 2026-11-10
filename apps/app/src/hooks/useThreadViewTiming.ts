@@ -1,7 +1,8 @@
-import { useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { isDocumentVisible } from "../lib/document-visibility";
 import {
   clientTimingHiddenCount,
+  markThreadViewed,
   recordClientTiming,
 } from "../lib/client-timing";
 
@@ -16,6 +17,7 @@ interface ThreadViewTimingEntry {
 
 export function useThreadViewTiming(threadId: string, ready: boolean): void {
   const entryRef = useRef<ThreadViewTimingEntry | null>(null);
+  useEffect(() => markThreadViewed(threadId), [threadId]);
   useLayoutEffect(() => {
     let entry = entryRef.current;
     if (entry === null || entry.threadId !== threadId) {

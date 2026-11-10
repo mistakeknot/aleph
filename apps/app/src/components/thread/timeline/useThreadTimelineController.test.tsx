@@ -1247,6 +1247,24 @@ describe("useThreadTimelineController commits", () => {
     },
   );
 
+  it("reports an empty timeline as resolved once it loads, and not before", async () => {
+    const pending = createDeferredPromise<ThreadTimelineResponse>();
+    vi.mocked(sdk.threads.timeline).mockReturnValueOnce(pending.promise);
+    const { wrapper } = createQueryClientTestHarness();
+    const { result } = renderHook(
+      () => useThreadTimelineController({ threadId: "thread-1" }),
+      { wrapper },
+    );
+    expect(result.current.timelineResolved).toBe(false);
+
+    pending.resolve(makeTimelineResponse());
+
+    await waitFor(() => {
+      expect(result.current.timelineResolved).toBe(true);
+    });
+    expect(result.current.timelineRows).toHaveLength(0);
+  });
+
   it("keeps a loaded empty timeline out of the loading state while it refetches", async () => {
     vi.mocked(sdk.threads.timeline)
       .mockResolvedValueOnce(makeTimelineResponse())
