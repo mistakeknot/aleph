@@ -10,6 +10,7 @@ import {
   type ThreadTimelineResponse,
 } from "@bb/server-contract";
 import { markStreamTrace } from "@/lib/stream-trace";
+import { noteStreamApplied } from "@/lib/client-timing";
 import { wsManager } from "@/lib/ws";
 import {
   systemConfigQueryKey,
@@ -126,6 +127,7 @@ export function applyThreadTimelineSignal(
   }
   const { timeline } = resolved;
   queryClient.setQueryData(queryKey, timeline);
+  noteStreamApplied(target.threadId);
   clearThreadTimelineUnseenEvents(
     queryClient,
     target.threadId,

@@ -82,6 +82,7 @@ import {
   useThreadTimelineNavigation,
 } from "./ThreadTimelineNavigationContext";
 import { markStreamTrace } from "@/lib/stream-trace";
+import { noteStreamCommitted } from "@/lib/client-timing";
 
 interface ConversationMessageContentBaseProps {
   actionMetadata?: ReactNode;
@@ -508,6 +509,7 @@ function AssistantConversationMessage({
         threadId: threadId ?? null,
         textLength: text.length,
       });
+      if (threadId) noteStreamCommitted(threadId);
     }
   }, [id, streaming, text, threadId]);
   const { split: streamingSplit, liveMarkdown } = useMemo(

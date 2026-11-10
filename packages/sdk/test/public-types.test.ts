@@ -376,6 +376,7 @@ type ExpectedSystemKey =
   | "experimental_eventArchiveRehydrate"
   | "experimental_eventArchiveStatus"
   | "experimental_installCliCommand"
+  | "experimental_recordClientTiming"
   | "experimental_recordTelemetryEvent"
   | "experimental_removeCliCommand"
   | "experimental_scheduleAppUpdate"

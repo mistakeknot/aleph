@@ -396,6 +396,18 @@ export function registerSystemRoutes(
     return context.json({ ok: true });
   });
 
+  post(routes.recordClientTiming, (context, payload) => {
+    deps.logger.info(
+      {
+        device: payload.device,
+        surface: payload.surface,
+        samples: payload.samples,
+      },
+      "Client timing",
+    );
+    return context.json({ ok: true });
+  });
+
   put(routes.keyboardSettings, (context, payload) => {
     setAppKeybindingOverrides(deps.db, payload);
     deps.hub.notifySystem(["config-changed"]);

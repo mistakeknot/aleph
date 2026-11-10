@@ -445,6 +445,34 @@ export type RecordTelemetryEventRequest = z.infer<
   typeof recordTelemetryEventRequestSchema
 >;
 
+export const clientTimingKindSchema = z.enum([
+  "thread-view",
+  "send-ack",
+  "stream-lag",
+  "rtt",
+]);
+export type ClientTimingKind = z.infer<typeof clientTimingKindSchema>;
+
+export const clientTimingSampleSchema = z
+  .object({
+    kind: clientTimingKindSchema,
+    ms: z.number().finite().min(0).max(600_000),
+    cached: z.boolean().optional(),
+  })
+  .strict();
+export type ClientTimingSample = z.infer<typeof clientTimingSampleSchema>;
+
+export const recordClientTimingRequestSchema = z
+  .object({
+    device: z.enum(["desktop", "mobile"]),
+    surface: z.enum(["local", "remote"]),
+    samples: z.array(clientTimingSampleSchema).min(1).max(200),
+  })
+  .strict();
+export type RecordClientTimingRequest = z.infer<
+  typeof recordClientTimingRequestSchema
+>;
+
 export const setupGuideVariantSchema = z.enum(["control", "new"]);
 export type SetupGuideVariant = z.infer<typeof setupGuideVariantSchema>;
 

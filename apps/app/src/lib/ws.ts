@@ -46,6 +46,7 @@ type ConnectionStateCallback = () => void;
 type ResumedCallback = (
   releasedTargets: readonly RealtimeSubscriptionTarget[],
 ) => void;
+type RoundTripCallback = (ms: number) => void;
 export type WebSocketConnectionState =
   | "connecting"
   | "connected"
@@ -109,6 +110,8 @@ export class WebSocketManager {
   private connectedCallbacks = new Set<ConnectedCallback>();
   private connectionStateCallbacks = new Set<ConnectionStateCallback>();
   private resumedCallbacks = new Set<ResumedCallback>();
+  private roundTripCallbacks = new Set<RoundTripCallback>();
+  private pingSentAt: number | null = null;
   private hasConnected = false;
   private connectionState: WebSocketConnectionState = "connecting";
   private readonly browserEvents: WebSocketManagerBrowserEvents;
@@ -362,6 +365,7 @@ export class WebSocketManager {
       this.pingTimer = null;
     }
     this.clearPongTimer();
+    this.pingSentAt = null;
   }
 
   private sendPing({
@@ -382,6 +386,7 @@ export class WebSocketManager {
       return;
     }
     this.sendMessage({ type: "ping" });
+    this.pingSentAt ??= performance.now();
     const deadline = now + timeoutMs;
     if (this.pongTimer !== null) {
       if (this.pongDeadline <= deadline) {
@@ -400,6 +405,18 @@ export class WebSocketManager {
     if (this.pongTimer !== null) {
       clearTimeout(this.pongTimer);
       this.pongTimer = null;
+    }
+  }
+
+  private notePong(): void {
+    const sentAt = this.pingSentAt;
+    this.pingSentAt = null;
+    if (sentAt === null) {
+      return;
+    }
+    const ms = performance.now() - sentAt;
+    for (const callback of this.roundTripCallbacks) {
+      callback(ms);
     }
   }
 
@@ -425,6 +442,7 @@ export class WebSocketManager {
 
     if (pongMessageLenientSchema.safeParse(parsed).success) {
       this.clearPongTimer();
+      this.notePong();
       return;
     }
 
@@ -687,6 +705,13 @@ export class WebSocketManager {
     this.resumedCallbacks.add(callback);
     return () => {
       this.resumedCallbacks.delete(callback);
+    };
+  }
+
+  onRoundTrip(callback: RoundTripCallback): () => void {
+    this.roundTripCallbacks.add(callback);
+    return () => {
+      this.roundTripCallbacks.delete(callback);
     };
   }
 
