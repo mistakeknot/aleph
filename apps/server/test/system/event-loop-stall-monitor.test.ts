@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setExperiments } from "@bb/db";
+import type { GcWindowSummary, HeapSummary } from "@bb/process-utils";
 import { createMigratedConnection } from "@bb/db/testing";
 import { startGatedPerformanceDiagnostics } from "../../src/services/system/performance-diagnostics.js";
 import { NotificationHub } from "../../src/ws/hub.js";
@@ -22,13 +23,14 @@ let blockedMs = 0;
 function advanceSampleWindow(maxDelayMs?: number): void {
   if (maxDelayMs === undefined) {
     vi.advanceTimersByTime(EVENT_LOOP_STALL_MONITOR_INTERVAL_MS);
-    return;
+  } else {
+    vi.advanceTimersByTime(EVENT_LOOP_GAP_INTERVAL_MS / 2);
+    blockedMs += maxDelayMs - EVENT_LOOP_GAP_INTERVAL_MS;
+    vi.advanceTimersByTime(
+      EVENT_LOOP_STALL_MONITOR_INTERVAL_MS - EVENT_LOOP_GAP_INTERVAL_MS / 2,
+    );
   }
-  vi.advanceTimersByTime(EVENT_LOOP_GAP_INTERVAL_MS / 2);
-  blockedMs += maxDelayMs - EVENT_LOOP_GAP_INTERVAL_MS;
-  vi.advanceTimersByTime(
-    EVENT_LOOP_STALL_MONITOR_INTERVAL_MS - EVENT_LOOP_GAP_INTERVAL_MS / 2,
-  );
+  vi.advanceTimersToNextTimer();
 }
 
 const EMPTY_WORK_SNAPSHOT = {
@@ -39,6 +41,29 @@ const EMPTY_WORK_SNAPSHOT = {
   longestSynchronousWorkWallMs: null,
   longestSynchronousWorkCpuMs: null,
 };
+
+const QUIET_GC: GcWindowSummary = {
+  gcCount: 0,
+  gcDurationMs: 0,
+  gcMaxDurationMs: 0,
+  gcMaxKind: null,
+  gcByKind: {},
+};
+
+const TEST_HEAP: HeapSummary = {
+  heapUsedMb: 512,
+  heapTotalMb: 600,
+  heapLimitMb: 4144,
+  heapUsedOfLimit: 0.124,
+  externalMb: 30,
+  mallocedMb: 2,
+  nativeContexts: 1,
+  detachedContexts: 0,
+};
+
+function fakeGcWindow(summary: GcWindowSummary = QUIET_GC) {
+  return { take: vi.fn(() => summary), stop: vi.fn() };
+}
 
 describe("event loop stall monitor", () => {
   beforeEach(() => {
@@ -62,7 +87,12 @@ describe("event loop stall monitor", () => {
       const expectedThreshold = thresholdMs ?? 500;
       const logger = { info: vi.fn() };
 
-      const monitor = startEventLoopStallMonitor({ logger, thresholdMs });
+      const monitor = startEventLoopStallMonitor({
+        logger,
+        thresholdMs,
+        gcWindow: fakeGcWindow(),
+        heapSummary: () => TEST_HEAP,
+      });
       advanceSampleWindow(expectedThreshold);
       advanceSampleWindow();
 
@@ -78,6 +108,9 @@ describe("event loop stall monitor", () => {
           stallAttribution: "unattributed",
           stallCauseCandidate: null,
           ...EMPTY_WORK_SNAPSHOT,
+          ...QUIET_GC,
+          stallGcCandidate: false,
+          heap: TEST_HEAP,
         },
         "Event loop stalled",
       );
@@ -306,6 +339,57 @@ describe("event loop stall monitor", () => {
     } finally {
       monitor.stop();
     }
+  });
+
+  it("marks a stall covered by one GC pause as a GC candidate", () => {
+    const logger = { info: vi.fn() };
+    const gc: GcWindowSummary = {
+      gcCount: 3,
+      gcDurationMs: 1_960,
+      gcMaxDurationMs: 1_950,
+      gcMaxKind: "major",
+      gcByKind: {
+        minor: { count: 2, durationMs: 10, maxDurationMs: 6 },
+        major: { count: 1, durationMs: 1_950, maxDurationMs: 1_950 },
+      },
+    };
+    const gcWindow = fakeGcWindow(gc);
+    const monitor = startEventLoopStallMonitor({
+      logger,
+      gcWindow,
+      heapSummary: () => TEST_HEAP,
+    });
+    try {
+      advanceSampleWindow(2_000);
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.objectContaining({
+          maxDelayMs: 2_000,
+          stallAttribution: "unattributed",
+          ...gc,
+          stallGcCandidate: true,
+          heap: TEST_HEAP,
+        }),
+        "Event loop stalled",
+      );
+    } finally {
+      monitor.stop();
+    }
+    expect(gcWindow.stop).not.toHaveBeenCalled();
+  });
+
+  it("drains the GC window on quiet samples so a later stall sees only its own pauses", () => {
+    const logger = { info: vi.fn() };
+    const gcWindow = fakeGcWindow();
+    const monitor = startEventLoopStallMonitor({
+      logger,
+      gcWindow,
+      heapSummary: () => TEST_HEAP,
+    });
+    advanceSampleWindow();
+    advanceSampleWindow();
+    expect(gcWindow.take).toHaveBeenCalledTimes(2);
+    expect(logger.info).not.toHaveBeenCalled();
+    monitor.stop();
   });
 
   it("serializes CPU profiles outside the server thread", async () => {

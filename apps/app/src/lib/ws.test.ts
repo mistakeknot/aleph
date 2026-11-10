@@ -614,6 +614,23 @@ describe("WebSocketManager liveness", () => {
     ]);
   });
 
+  it("reports the ping to pong round trip once per answered ping", () => {
+    const { manager, socket } = createLiveManager();
+    const trips: number[] = [];
+    const now = vi.spyOn(performance, "now");
+    now.mockReturnValue(1_000);
+    manager.onRoundTrip((ms) => trips.push(ms));
+
+    vi.advanceTimersByTime(REALTIME_PING_INTERVAL_MS);
+    expect(pingCount(socket)).toBe(1);
+    now.mockReturnValue(1_120);
+    receive(socket, { type: "pong" });
+    receive(socket, { type: "pong" });
+
+    expect(trips).toEqual([120]);
+    now.mockRestore();
+  });
+
   it("treats any inbound frame as liveness and skips pings while frames flow", () => {
     const { socket } = createLiveManager();
 

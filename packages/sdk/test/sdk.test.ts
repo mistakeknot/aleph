@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Environment, JsonValue } from "@bb/domain";
 import { createBbSdk } from "../src/core.js";
 import { createHttpTransport } from "../src/transport-http.js";
+import type { SystemRecordClientTimingArgs } from "../src/areas/system.js";
 import { ThreadWaitTimeoutError } from "../src/areas/threads.js";
 import type { FetchImplementation } from "../src/response.js";
 
@@ -402,6 +403,39 @@ describe("@bb/sdk", () => {
     });
 
     expect(keepalives).toEqual([undefined, true]);
+  });
+
+  it("posts client timing to the local timing route with optional keepalive", async () => {
+    const calls: Array<{ url: string; keepalive: boolean | undefined }> = [];
+    const fetch: FetchImplementation = async (input, init) => {
+      calls.push({
+        url: input instanceof Request ? input.url : String(input),
+        keepalive: init?.keepalive,
+      });
+      return jsonResponse({ body: { ok: true } });
+    };
+    const sdk = createBbSdk({
+      transport: createHttpTransport({
+        baseUrl: "http://bb.test",
+        fetch,
+        runtime: "node",
+      }),
+    });
+    const batch: SystemRecordClientTimingArgs = {
+      device: "desktop",
+      surface: "local",
+      samples: [{ kind: "rtt", ms: 12 }],
+    };
+
+    await sdk.system.experimental_recordClientTiming(batch);
+    await sdk.system.experimental_recordClientTiming(batch, {
+      keepalive: true,
+    });
+
+    expect(calls).toEqual([
+      { url: "http://bb.test/api/v1/system/client-timing", keepalive: undefined },
+      { url: "http://bb.test/api/v1/system/client-timing", keepalive: true },
+    ]);
   });
 
   it("forwards thread read action abort signals to fetch", async () => {

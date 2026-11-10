@@ -14,6 +14,7 @@ import type {
 } from "@bb/server-contract";
 import type { AppCreateThreadRequest } from "@bb/client-core";
 import { BbHttpError, sdk } from "@/lib/sdk";
+import { timeSendAck } from "@/lib/client-timing";
 import { wsManager } from "@/lib/ws";
 import type { QueuedMessageReorderRequest } from "@/lib/queued-message-reorder";
 import type {
@@ -168,7 +169,7 @@ export function sendThreadMessageMutationOptions(queryClient: QueryClient) {
       showErrorToast: false,
     },
     mutationFn: async ({ id, ...request }: SendThreadMessageMutationRequest) =>
-      await sdk.threads.send({ threadId: id, ...request }),
+      await timeSendAck(() => sdk.threads.send({ threadId: id, ...request })),
     onMutate: async (variables): Promise<SendThreadMessageTransaction> =>
       beginSendThreadMessageTransaction({
         queryClient,

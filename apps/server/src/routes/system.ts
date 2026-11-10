@@ -44,6 +44,7 @@ import {
   type SystemEnvironmentProvider,
 } from "@bb/server-contract";
 import type { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import {
   hashedAssetCacheControl,
   pluginImageResponse,
@@ -163,6 +164,8 @@ function resolveSystemServerUrl(
   }
   return forwardedUrl.origin;
 }
+
+const CLIENT_TIMING_MAX_BODY_BYTES = 32 * 1024;
 
 export function registerSystemRoutes(
   app: Hono,
@@ -392,6 +395,31 @@ export function registerSystemRoutes(
     }
     deps.telemetry.capture(
       await deps.setupGuideExperiment.annotate(withReportedProviderId(payload)),
+    );
+    return context.json({ ok: true });
+  });
+
+  app.use(
+    routes.recordClientTiming.path,
+    bodyLimit({
+      maxSize: CLIENT_TIMING_MAX_BODY_BYTES,
+      onError: () => {
+        throw new ApiError(
+          413,
+          "payload_too_large",
+          "Client timing body is too large",
+        );
+      },
+    }),
+  );
+  post(routes.recordClientTiming, (context, payload) => {
+    deps.logger.info(
+      {
+        device: payload.device,
+        surface: payload.surface,
+        samples: payload.samples,
+      },
+      "Client timing",
     );
     return context.json({ ok: true });
   });

@@ -1,7 +1,12 @@
 import { startStallWindowCollector } from "./stall-windows.js";
 import { Worker } from "node:worker_threads";
 import { setImmediate } from "node:timers/promises";
-import { performance, PerformanceObserver } from "node:perf_hooks";
+import { performance } from "node:perf_hooks";
+import {
+  startGcWindowObserver,
+  takeHeapSpaceSummary,
+  takeHeapSummary,
+} from "./gc-window.js";
 import { createEventLoopDelayHistogram } from "./event-loop-delay.js";
 import { observeEventLoopGaps } from "./event-loop-gaps.js";
 import { profileWorkerSource } from "./generated/profile-worker.js";
@@ -15,17 +20,7 @@ export async function startPerformanceDiagnostics(options: {
 }): Promise<{ stop: () => Promise<void> }> {
   const histogram = createEventLoopDelayHistogram();
   const gaps = observeEventLoopGaps(histogram.record);
-  let gcDurationMs = 0;
-  let gcCount = 0;
-  let gcMaxDurationMs = 0;
-  const observer = new PerformanceObserver((list) => {
-    for (const entry of list.getEntries()) {
-      gcDurationMs += entry.duration;
-      gcCount += 1;
-      gcMaxDurationMs = Math.max(gcMaxDurationMs, entry.duration);
-    }
-  });
-  observer.observe({ entryTypes: ["gc"] });
+  const gcWindow = startGcWindowObserver();
   let previousCpu = process.cpuUsage();
   let previousThreadCpu = process.threadCpuUsage();
   let previousTime = performance.now();
@@ -57,10 +52,10 @@ export async function startPerformanceDiagnostics(options: {
         maxDelayMs: delay.maxDelayMs,
         p99DelayMs: delay.p99DelayMs,
         delayResolutionMs: delay.resolutionMs,
-        gcDurationMs,
-        gcCount,
-        gcMaxDurationMs,
+        ...gcWindow.take(),
         memory: process.memoryUsage(),
+        heap: takeHeapSummary(),
+        heapSpaces: takeHeapSpaceSummary(),
       },
       "Server performance sample",
     );
@@ -68,9 +63,6 @@ export async function startPerformanceDiagnostics(options: {
     previousThreadCpu = threadCpu;
     previousTime = now;
     previousUtilization = utilization;
-    gcDurationMs = 0;
-    gcCount = 0;
-    gcMaxDurationMs = 0;
   }, 5_000);
   summaryTimer.unref();
 
@@ -161,7 +153,7 @@ export async function startPerformanceDiagnostics(options: {
         clearInterval(profileTimer);
         clearInterval(summaryTimer);
         gaps.stop();
-        observer.disconnect();
+        gcWindow.stop();
         worker.ref();
         await rotation;
         stallWindows.stop();

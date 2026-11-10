@@ -43,6 +43,7 @@ import type {
   SystemVersionQuery,
   SystemVersionResponse,
   SystemVoiceTranscriptionResponse,
+  RecordClientTimingRequest,
   RecordTelemetryEventRequest,
   TestAiServiceRequest,
   TestAiServiceResponse,
@@ -147,6 +148,13 @@ export interface SystemRecordTelemetryEventOptions {
 export interface SystemRecordTelemetryEventResult {
   ok: true;
 }
+export type SystemRecordClientTimingArgs = RecordClientTimingRequest;
+export interface SystemRecordClientTimingOptions {
+  keepalive: boolean;
+}
+export interface SystemRecordClientTimingResult {
+  ok: true;
+}
 
 export interface SystemAiServicesArgs {
   signal?: AbortSignal;
@@ -244,6 +252,10 @@ export interface SystemArea {
     args: SystemRecordTelemetryEventArgs,
     options?: SystemRecordTelemetryEventOptions,
   ): Promise<SystemRecordTelemetryEventResult>;
+  experimental_recordClientTiming(
+    args: SystemRecordClientTimingArgs,
+    options?: SystemRecordClientTimingOptions,
+  ): Promise<SystemRecordClientTimingResult>;
   reloadConfig(): Promise<SystemReloadConfigResult>;
   setAiServiceSelection(
     args: SystemSetAiServiceSelectionArgs,
@@ -472,6 +484,16 @@ export function createSystemArea(args: CreateSdkAreaArgs): SystemArea {
     async experimental_recordTelemetryEvent(input, options) {
       return transport.readJson(
         transport.api.v1.system.telemetry.events.$post(
+          { json: input },
+          ...(options === undefined
+            ? []
+            : [{ init: { keepalive: options.keepalive } }]),
+        ),
+      );
+    },
+    async experimental_recordClientTiming(input, options) {
+      return transport.readJson(
+        transport.api.v1.system["client-timing"].$post(
           { json: input },
           ...(options === undefined
             ? []

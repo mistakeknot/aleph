@@ -208,6 +208,7 @@ import {
   useToggleThreadSecondaryPanelSelection,
 } from "./threadSecondaryPanelSelection";
 import { useRouteState } from "@/hooks/useRouteState";
+import { useThreadViewTiming } from "@/hooks/useThreadViewTiming";
 import { usePaneContext } from "./PaneContext";
 import { PaneThreadActionCommandHandler } from "./PaneThreadActionCommandHandler";
 
@@ -538,6 +539,7 @@ function ThreadDetailViewInternal(
     threadId,
     enabled: timelineEnabled,
   });
+  useThreadViewTiming(threadId, timelineEnabled && timeline.timelineResolved);
   const updateThread = useUpdateThread({
     errorMessage: "Failed to assign parent thread.",
   });

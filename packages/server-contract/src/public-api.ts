@@ -8,11 +8,13 @@ import {
 } from "./api/machine-environment.js";
 import {
   machineEnvironmentReplaceSchema,
+  recordClientTimingRequestSchema,
   recordTelemetryEventRequestSchema,
   setAiServiceSelectionRequestSchema,
   systemProviderEnabledRequestSchema,
   testAiServiceRequestSchema,
   type MachineEnvironmentReplace,
+  type RecordClientTimingRequest,
   type RecordTelemetryEventRequest,
   type SetAiServiceSelectionRequest,
   type SystemAiServicesResponse,
@@ -2069,6 +2071,14 @@ export const publicApiRoutes = {
       method: "post",
       request: jsonRequest<EmptyInput, RecordTelemetryEventRequest>(
         recordTelemetryEventRequestSchema,
+      ),
+      response: jsonResponse<{ ok: true }>(),
+    }),
+    recordClientTiming: defineRoute({
+      path: "/system/client-timing",
+      method: "post",
+      request: jsonRequest<EmptyInput, RecordClientTimingRequest>(
+        recordClientTimingRequestSchema,
       ),
       response: jsonResponse<{ ok: true }>(),
     }),
