@@ -74,6 +74,12 @@ describe("toast history", () => {
     act(() => {
       toast.dismiss();
     });
+    // sonner removes a dismissed toast on a bare 200ms timer it never clears
+    // on unmount. Drain it here, while jsdom is still alive, so it cannot fire
+    // after the environment is torn down.
+    await waitFor(() =>
+      expect(document.querySelectorAll("[data-sonner-toast]")).toHaveLength(0),
+    );
   });
 });
 
