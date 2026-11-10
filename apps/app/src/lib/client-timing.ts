@@ -16,6 +16,7 @@ export const CLIENT_TIMING_FLUSH_MS = 30_000;
 const MAX_SAMPLE_MS = 600_000;
 const STREAM_LAG_MAX_MS = 60_000;
 const STREAM_LAG_MIN_GAP_MS = 1_000;
+const STREAM_APPLIED_MAX_THREADS = 32;
 const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 
 let queue: ClientTimingSample[] = [];
@@ -87,7 +88,19 @@ export function clientTimingHiddenCount(): number {
 }
 
 export function noteStreamApplied(threadId: string): void {
-  streamAppliedAt.set(threadId, performance.now());
+  if (!isDocumentVisible()) return;
+  const now = performance.now();
+  streamAppliedAt.delete(threadId);
+  for (const [id, appliedAt] of streamAppliedAt) {
+    if (
+      now - appliedAt <= STREAM_LAG_MAX_MS &&
+      streamAppliedAt.size < STREAM_APPLIED_MAX_THREADS
+    ) {
+      break;
+    }
+    streamAppliedAt.delete(id);
+  }
+  streamAppliedAt.set(threadId, now);
 }
 
 export function noteStreamCommitted(threadId: string): void {
@@ -115,9 +128,9 @@ export function installClientTiming(): () => void {
     recordClientTiming("rtt", ms);
   });
   const stopVisibility = subscribeToDocumentVisibility(() => {
+    streamAppliedAt.clear();
     if (isDocumentVisible()) return;
     hiddenCount += 1;
-    streamAppliedAt.clear();
     flushClientTiming(true);
   });
   const onPageHide = () => flushClientTiming(true);
@@ -129,6 +142,10 @@ export function installClientTiming(): () => void {
     uninstall = null;
   };
   return uninstall;
+}
+
+export function streamAppliedCountForTests(): number {
+  return streamAppliedAt.size;
 }
 
 export function resetClientTimingForTests(): void {

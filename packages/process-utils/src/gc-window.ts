@@ -1,4 +1,4 @@
-import { constants, PerformanceObserver } from "node:perf_hooks";
+import { constants, performance, PerformanceObserver } from "node:perf_hooks";
 import type { PerformanceEntry } from "node:perf_hooks";
 import { getHeapSpaceStatistics, getHeapStatistics } from "node:v8";
 
@@ -19,11 +19,18 @@ export interface GcWindowSummary {
 }
 
 export interface GcWindow {
-  take: () => GcWindowSummary;
+  take: (untilMs?: number) => GcWindowSummary;
   stop: () => void;
 }
 
+interface GcPause {
+  startTime: number;
+  duration: number;
+  kind: GcKind;
+}
+
 const BYTES_PER_MEGABYTE = 1024 * 1024;
+const MAX_PENDING_GC_PAUSES = 4096;
 
 function gcKindOf(entry: PerformanceEntry): GcKind {
   const kind = (entry as PerformanceEntry & { detail?: { kind?: number } })
@@ -50,55 +57,65 @@ function roundMb(bytes: number): number {
   return Math.round((bytes / BYTES_PER_MEGABYTE) * 10) / 10;
 }
 
-export function startGcWindowObserver(): GcWindow {
-  let gcCount = 0;
+function summarizeGcPauses(pauses: readonly GcPause[]): GcWindowSummary {
   let gcDurationMs = 0;
   let gcMaxDurationMs = 0;
   let gcMaxKind: GcKind | null = null;
-  let gcByKind: Partial<Record<GcKind, GcKindSummary>> = {};
-  const observer = new PerformanceObserver((list) => {
-    for (const entry of list.getEntries()) {
-      const kind = gcKindOf(entry);
-      gcCount += 1;
-      gcDurationMs += entry.duration;
-      if (entry.duration > gcMaxDurationMs) {
-        gcMaxDurationMs = entry.duration;
-        gcMaxKind = kind;
-      }
-      const summary = (gcByKind[kind] ??= {
-        count: 0,
-        durationMs: 0,
-        maxDurationMs: 0,
-      });
-      summary.count += 1;
-      summary.durationMs += entry.duration;
-      summary.maxDurationMs = Math.max(summary.maxDurationMs, entry.duration);
+  const gcByKind: Partial<Record<GcKind, GcKindSummary>> = {};
+  for (const pause of pauses) {
+    gcDurationMs += pause.duration;
+    if (pause.duration > gcMaxDurationMs) {
+      gcMaxDurationMs = pause.duration;
+      gcMaxKind = pause.kind;
     }
-  });
+    const summary = (gcByKind[pause.kind] ??= {
+      count: 0,
+      durationMs: 0,
+      maxDurationMs: 0,
+    });
+    summary.count += 1;
+    summary.durationMs += pause.duration;
+    summary.maxDurationMs = Math.max(summary.maxDurationMs, pause.duration);
+  }
+  for (const summary of Object.values(gcByKind)) {
+    summary.durationMs = roundMs(summary.durationMs);
+    summary.maxDurationMs = roundMs(summary.maxDurationMs);
+  }
+  return {
+    gcCount: pauses.length,
+    gcDurationMs: roundMs(gcDurationMs),
+    gcMaxDurationMs: roundMs(gcMaxDurationMs),
+    gcMaxKind,
+    gcByKind,
+  };
+}
+
+export function startGcWindowObserver(): GcWindow {
+  let pending: GcPause[] = [];
+  const add = (entries: readonly PerformanceEntry[]) => {
+    for (const entry of entries) {
+      pending.push({
+        startTime: entry.startTime,
+        duration: entry.duration,
+        kind: gcKindOf(entry),
+      });
+    }
+    if (pending.length > MAX_PENDING_GC_PAUSES) {
+      pending = pending.slice(-MAX_PENDING_GC_PAUSES);
+    }
+  };
+  const observer = new PerformanceObserver((list) => add(list.getEntries()));
   observer.observe({ entryTypes: ["gc"] });
   return {
-    take: () => {
-      const byKind: Partial<Record<GcKind, GcKindSummary>> = {};
-      for (const [kind, summary] of Object.entries(gcByKind)) {
-        byKind[kind as GcKind] = {
-          count: summary.count,
-          durationMs: roundMs(summary.durationMs),
-          maxDurationMs: roundMs(summary.maxDurationMs),
-        };
+    take: (untilMs = performance.now()) => {
+      add(observer.takeRecords());
+      const inWindow: GcPause[] = [];
+      const later: GcPause[] = [];
+      for (const pause of pending) {
+        (pause.startTime < untilMs ? inWindow : later).push(pause);
       }
-      const result: GcWindowSummary = {
-        gcCount,
-        gcDurationMs: roundMs(gcDurationMs),
-        gcMaxDurationMs: roundMs(gcMaxDurationMs),
-        gcMaxKind,
-        gcByKind: byKind,
-      };
-      gcCount = 0;
-      gcDurationMs = 0;
-      gcMaxDurationMs = 0;
-      gcMaxKind = null;
-      gcByKind = {};
-      return result;
+      pending = later;
+      return summarizeGcPauses(inWindow);
     },
     stop: () => observer.disconnect(),
   };

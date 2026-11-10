@@ -4,6 +4,7 @@ import {
   takeHeapSummary,
 } from "@bb/process-utils";
 import type { GcWindow, HeapSummary } from "@bb/process-utils";
+import { performance } from "node:perf_hooks";
 import type { ServerLogger } from "../../types.js";
 import { takeEventLoopWorkWindowSnapshot } from "./event-loop-work.js";
 
@@ -24,13 +25,18 @@ export function startEventLoopStallMonitor(
 ): EventLoopStallMonitor {
   const gcWindow = options.gcWindow ?? startGcWindowObserver();
   const heapSummary = options.heapSummary ?? takeHeapSummary;
+  let pendingReport: ReturnType<typeof setImmediate> | null = null;
   const sampler = startEventLoopDelaySampler({
     now: options.now,
     thresholdMs: options.thresholdMs,
     onSample: ({ stall }) => {
       const work = takeEventLoopWorkWindowSnapshot();
-      const gc = gcWindow.take();
-      if (stall !== null) {
+      const sampledAt = performance.now();
+      if (pendingReport !== null) clearImmediate(pendingReport);
+      pendingReport = setImmediate(() => {
+        pendingReport = null;
+        const gc = gcWindow.take(sampledAt);
+        if (stall === null) return;
         const hasCandidate =
           work.longestSynchronousWorkWallMs !== null &&
           work.longestSynchronousWorkWallMs + stall.resolutionMs >=
@@ -50,12 +56,14 @@ export function startEventLoopStallMonitor(
           },
           "Event loop stalled",
         );
-      }
+      });
     },
   });
   return {
     stop: () => {
       sampler.stop();
+      if (pendingReport !== null) clearImmediate(pendingReport);
+      pendingReport = null;
       if (options.gcWindow === undefined) gcWindow.stop();
     },
   };

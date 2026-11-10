@@ -1,4 +1,7 @@
-import { setTimeout as delay } from "node:timers/promises";
+import { performance } from "node:perf_hooks";
+import { setImmediate, setTimeout as delay } from "node:timers/promises";
+import v8 from "node:v8";
+import vm from "node:vm";
 import { describe, expect, it } from "vitest";
 import {
   startGcWindowObserver,
@@ -45,6 +48,24 @@ describe("GC window observer", () => {
         gcMaxKind: null,
         gcByKind: {},
       });
+    } finally {
+      window.stop();
+    }
+  });
+
+  it("attributes a pause to the window it started in, even when delivered later", async () => {
+    v8.setFlagsFromString("--expose-gc");
+    const forceGc = vm.runInNewContext("gc") as () => void;
+    const window = startGcWindowObserver();
+    try {
+      const before = performance.now();
+      forceGc();
+      const cutoff = performance.now();
+      expect(window.take(before).gcByKind.major).toBeUndefined();
+      await setImmediate();
+      const summary = window.take(cutoff);
+      expect(summary.gcByKind.major?.count).toBeGreaterThanOrEqual(1);
+      expect(window.take(cutoff).gcCount).toBe(0);
     } finally {
       window.stop();
     }

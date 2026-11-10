@@ -23,13 +23,14 @@ let blockedMs = 0;
 function advanceSampleWindow(maxDelayMs?: number): void {
   if (maxDelayMs === undefined) {
     vi.advanceTimersByTime(EVENT_LOOP_STALL_MONITOR_INTERVAL_MS);
-    return;
+  } else {
+    vi.advanceTimersByTime(EVENT_LOOP_GAP_INTERVAL_MS / 2);
+    blockedMs += maxDelayMs - EVENT_LOOP_GAP_INTERVAL_MS;
+    vi.advanceTimersByTime(
+      EVENT_LOOP_STALL_MONITOR_INTERVAL_MS - EVENT_LOOP_GAP_INTERVAL_MS / 2,
+    );
   }
-  vi.advanceTimersByTime(EVENT_LOOP_GAP_INTERVAL_MS / 2);
-  blockedMs += maxDelayMs - EVENT_LOOP_GAP_INTERVAL_MS;
-  vi.advanceTimersByTime(
-    EVENT_LOOP_STALL_MONITOR_INTERVAL_MS - EVENT_LOOP_GAP_INTERVAL_MS / 2,
-  );
+  vi.advanceTimersToNextTimer();
 }
 
 const EMPTY_WORK_SNAPSHOT = {

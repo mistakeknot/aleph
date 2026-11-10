@@ -39,6 +39,7 @@ const {
   noteStreamCommitted,
   recordClientTiming,
   resetClientTimingForTests,
+  streamAppliedCountForTests,
   timeSendAck,
 } = await import("./client-timing");
 
@@ -167,5 +168,31 @@ describe("client timing", () => {
       { kind: "stream-lag", ms: 35 },
       { kind: "stream-lag", ms: 20 },
     ]);
+  });
+
+  it("keeps at most 32 pending stream applies and drops stale ones", () => {
+    for (let index = 0; index < 40; index += 1) {
+      noteStreamApplied(`thr_${index}`);
+    }
+    expect(streamAppliedCountForTests()).toBe(32);
+    now = 60_001;
+    noteStreamApplied("thr_new");
+    expect(streamAppliedCountForTests()).toBe(1);
+  });
+
+  it("ignores applies while hidden and does not count background time on return", () => {
+    installClientTiming();
+    noteStreamApplied("thr_a");
+    mocks.visible = false;
+    for (const listener of mocks.visibility) listener();
+    now = 100;
+    noteStreamApplied("thr_a");
+    expect(streamAppliedCountForTests()).toBe(0);
+    now = 5_000;
+    mocks.visible = true;
+    for (const listener of mocks.visibility) listener();
+    noteStreamCommitted("thr_a");
+    flushClientTiming();
+    expect(mocks.record).not.toHaveBeenCalled();
   });
 });
