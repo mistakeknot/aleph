@@ -2932,6 +2932,7 @@ describe("host-daemon session schemas", () => {
         sessionId: "session_123",
         machineEnvironment: { revision: 0, entries: [] },
         idleProviderSessionTimeoutMinutes: 30,
+        agentCpuPriority: false,
         heartbeatIntervalMs: 5_000,
         leaseTimeoutMs: 30_000,
         connectShares: {
@@ -2959,6 +2960,7 @@ describe("host-daemon session schemas", () => {
         sessionId: "session_default_shares",
         machineEnvironment: { revision: 0, entries: [] },
         idleProviderSessionTimeoutMinutes: 30,
+        agentCpuPriority: false,
         heartbeatIntervalMs: 5_000,
         leaseTimeoutMs: 30_000,
         endedInteractiveRequests: [],
@@ -2970,6 +2972,7 @@ describe("host-daemon session schemas", () => {
         sessionId: "session_default_next",
         machineEnvironment: { revision: 0, entries: [] },
         idleProviderSessionTimeoutMinutes: 30,
+        agentCpuPriority: false,
         heartbeatIntervalMs: 5_000,
         leaseTimeoutMs: 30_000,
         endedInteractiveRequests: [],

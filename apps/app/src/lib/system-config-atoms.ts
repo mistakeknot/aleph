@@ -30,6 +30,7 @@ const unavailableSystemConfig: SystemConfigResponse = {
   keybindingOverrides: [],
   performanceDiagnosticsAvailable: false,
   experiments: {
+    agentCpuPriority: false,
     compactExpiredCache: false,
     dismissReadNotifications: false,
     narrowPluginCss: false,
@@ -41,6 +42,7 @@ const unavailableSystemConfig: SystemConfigResponse = {
     threadContextCard: false,
     threadRowMetadata: false,
     updateWhenIdle: false,
+    walCheckpointWorker: false,
   },
   appearance: defaultAppTheme,
   customThemes: [],

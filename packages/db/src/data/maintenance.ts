@@ -363,9 +363,7 @@ export function runIncrementalVacuum(
     work: () => {
       const before = getDatabaseFreelistStats(client);
 
-      client.exec("PRAGMA wal_checkpoint(PASSIVE)");
       client.exec(`PRAGMA incremental_vacuum(${args.maxPages})`);
-      client.exec("PRAGMA wal_checkpoint(PASSIVE)");
 
       return {
         after: getDatabaseFreelistStats(client),

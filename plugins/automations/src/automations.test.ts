@@ -243,6 +243,7 @@ function createAutomationServiceBb() {
         },
       },
     },
+    server: { loopbackBaseUrl: "http://127.0.0.1:38886" },
     realtime: { publish: () => undefined },
     log: {
       debug: () => undefined,
@@ -995,6 +996,7 @@ describe("automation data access", () => {
             },
           },
         },
+        server: { loopbackBaseUrl: "http://127.0.0.1:38886" },
         realtime: { publish: () => undefined },
         log: {
           debug: () => undefined,
@@ -1006,7 +1008,6 @@ describe("automation data access", () => {
 
       await sweepDueAutomations(bb, db, {
         pluginDataDir: "/tmp",
-        serverUrl: "http://127.0.0.1:38886",
         serverHostId: "host_server",
         scriptRuns: createScriptRunScope(),
         now: 1000,
@@ -1158,7 +1159,6 @@ describe("automation service", () => {
       bb: createAutomationServiceBb(),
       db,
       pluginDataDir,
-      serverUrl: "http://127.0.0.1:38886",
       scriptRuns: createScriptRunScope(),
     });
     try {
@@ -1277,7 +1277,6 @@ describe("automation service", () => {
       bb,
       db,
       pluginDataDir,
-      serverUrl: "http://127.0.0.1:38886",
       scriptRuns: createScriptRunScope(),
     });
     serverHostId = "host_server";
@@ -1309,7 +1308,6 @@ describe("automation service", () => {
       bb: createAutomationServiceBb(),
       db,
       pluginDataDir,
-      serverUrl: "http://127.0.0.1:38886",
       scriptRuns: createScriptRunScope(),
     });
     try {
@@ -1433,6 +1431,7 @@ describe("automation service", () => {
           },
         },
       },
+      server: { loopbackBaseUrl: "http://127.0.0.1:38886" },
       realtime: { publish: () => undefined },
       log: {
         debug: () => undefined,
@@ -1445,7 +1444,6 @@ describe("automation service", () => {
       bb,
       db,
       pluginDataDir: "/tmp",
-      serverUrl: "http://127.0.0.1:38886",
       scriptRuns: createScriptRunScope(),
     });
 
@@ -1497,7 +1495,6 @@ describe("automation service", () => {
       bb: createAutomationServiceBb(),
       db,
       pluginDataDir,
-      serverUrl: "http://127.0.0.1:38886",
       scriptRuns: createScriptRunScope(),
     });
 
@@ -1550,7 +1547,6 @@ describe("automation service", () => {
       bb: createAutomationServiceBb(),
       db,
       pluginDataDir,
-      serverUrl: "http://127.0.0.1:38886",
       scriptRuns: createScriptRunScope(),
     });
 
@@ -1610,7 +1606,6 @@ describe("automation service", () => {
       bb: createAutomationServiceBb(),
       db,
       pluginDataDir,
-      serverUrl: "http://127.0.0.1:38886",
       scriptRuns: createScriptRunScope(),
     });
 
@@ -1668,7 +1663,6 @@ describe("automation service", () => {
       bb: createAutomationServiceBb(),
       db,
       pluginDataDir,
-      serverUrl: "http://127.0.0.1:38886",
       scriptRuns: createScriptRunScope(),
     });
 
@@ -1708,7 +1702,6 @@ describe("automation CLI --script-file", () => {
       bb: serviceBb,
       db,
       pluginDataDir,
-      serverUrl: "http://127.0.0.1:1",
       scriptRuns: createScriptRunScope(),
     });
     const sdk = {
@@ -2552,6 +2545,7 @@ describe("script project context", () => {
           }),
         },
       },
+      server: { loopbackBaseUrl: "http://127.0.0.1:38886" },
       realtime: { publish: () => undefined },
       log: {
         debug: () => undefined,
@@ -2574,7 +2568,6 @@ describe("script project context", () => {
             now: Date.now(),
           });
         },
-        serverUrl: "http://127.0.0.1:38886",
         scriptRuns: createScriptRunScope(),
         resolveWorkingDirectory: createScriptWorkingDirectoryResolver({
           sdk: bb.sdk,
@@ -2606,7 +2599,6 @@ describe("script project context", () => {
         } as never,
         db,
         pluginDataDir,
-        serverUrl: "http://127.0.0.1:38886",
         scriptRuns: createScriptRunScope(),
       });
       const shown = await service.get({

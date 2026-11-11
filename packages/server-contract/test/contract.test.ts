@@ -558,7 +558,6 @@ const OPTIONAL_SERVER_FIELD_GROUPS: readonly OptionalServerFieldGroup[] = [
       "threadTimelineQuerySchema.segmentLimit",
       "threadTimelineQuerySchema.beforeAnchorSeq",
       "threadTimelineQuerySchema.beforeAnchorId",
-      "threadTimelineQuerySchema.summaryOnly",
       "threadTimelineQuerySchema.afterTag",
       "threadTimelineQuerySchema.deferContent",
     ],

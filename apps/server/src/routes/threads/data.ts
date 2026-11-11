@@ -1,11 +1,8 @@
-import { extractThreadContextWindowUsage } from "@bb/thread-view";
 import {
   getAppSettings,
   getDatabaseDataVersion,
   getThreadPluginMetadata,
   patchThreadPluginMetadata,
-  getLatestCompletedThreadContextClearSequence,
-  listContextWindowUsageRows,
   getLatestThreadSequence,
   getLatestStoredConversationOutlineSequence,
   listQueuedThreadMessages,
@@ -28,23 +25,26 @@ import {
 } from "@bb/server-contract";
 import type { AppDeps } from "../../types.js";
 import { COMMAND_TIMEOUT_MS } from "../../constants.js";
+import { buildExecutionOptions } from "../../services/threads/thread-commands.js";
+import { resolveThreadRuntimeCommandConfig } from "../../services/threads/thread-runtime-config.js";
+import { toThreadResponseFromThread } from "../../services/threads/thread-runtime-display.js";
+import { resolveThreadStatusWaitOutcome } from "../../services/threads/thread-status-wait.js";
+import { withHotThreadHistory } from "../../services/threads/event-cold-tier/service.js";
 import { ApiError } from "../../errors.js";
 import {
   requirePublicThread,
   requirePublicThreadEnvironment,
 } from "../../services/lib/entity-lookup.js";
-import { buildExecutionOptions } from "../../services/threads/thread-commands.js";
-import { resolveThreadRuntimeCommandConfig } from "../../services/threads/thread-runtime-config.js";
-import { withHotThreadHistory } from "../../services/threads/event-cold-tier/service.js";
 import { callHostRetryableOnlineRpc } from "../../services/hosts/online-rpc.js";
 import { requireThreadStorageTarget } from "../../services/threads/thread-storage.js";
 import { toThreadQueuedMessage } from "../../services/threads/thread-queued-messages.js";
+import { isCompactionOfferEnabled } from "../../services/threads/compaction-offer.js";
 import {
-  isCompactionOfferEnabled,
-  withCompactionOffer,
-} from "../../services/threads/compaction-offer.js";
+  readThreadContextWindowUsage,
+  readThreadHeadState,
+  resolveThreadHeadStateOptions,
+} from "../../services/threads/thread-head-state.js";
 import {
-  toThreadEventWithMeta,
   buildThreadConversationOutlineProjectionKey,
   getThreadMessage,
   buildTimelineTurnSummaryDetails,
@@ -67,8 +67,6 @@ import {
   listThreadEventRows,
 } from "../../services/threads/thread-data.js";
 import { listThreadPromptHistory } from "../../services/prompt-history.js";
-import { toThreadResponseFromThread } from "../../services/threads/thread-runtime-display.js";
-import { resolveThreadStatusWaitOutcome } from "../../services/threads/thread-status-wait.js";
 import { tryResolveExistingThreadExecutionPlan } from "../../services/threads/thread-execution-plan.js";
 import {
   parseBoundedPositiveOptionalInteger,
@@ -231,35 +229,34 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
     return context.json(result.metadata);
   });
 
-  get(routes.context, (context) =>
-    withHotPublicThread(context.req.param("id"), (thread) => {
-      const sequenceStart =
-        getLatestCompletedThreadContextClearSequence(deps.db, {
-          threadId: thread.id,
-        }) ?? 0;
-      const rows = listContextWindowUsageRows(deps.db, {
-        threadId: thread.id,
-        sequenceStart,
-      });
-      const usage = extractThreadContextWindowUsage(
-        rows.map(toThreadEventWithMeta),
-      );
+  get(routes.context, (context) => {
+    return withHotPublicThread(context.req.param("id"), (thread) => {
       return context.json({
-        usage:
-          usage === null
-            ? null
-            : withCompactionOffer(deps.db, {
-                enabled: isCompactionOfferEnabled(deps, thread.providerId),
-                sequenceStart,
-                threadId: thread.id,
-                usage,
-              }),
+        usage: readThreadContextWindowUsage(deps.db, {
+          compactionOfferEnabled: isCompactionOfferEnabled(
+            deps,
+            thread.providerId,
+          ),
+          threadId: thread.id,
+        }),
       });
-    }),
-  );
+    });
+  });
 
-  get(routes.timeline, (context, query) =>
-    withHotPublicThread(context.req.param("id"), (thread) => {
+  get(routes.headState, (context) => {
+    return withHotPublicThread(context.req.param("id"), (thread) => {
+      return context.json(
+        readThreadHeadState(
+          deps.db,
+          thread,
+          resolveThreadHeadStateOptions(deps, thread.providerId),
+        ),
+      );
+    });
+  });
+
+  get(routes.timeline, (context, query) => {
+    return withHotPublicThread(context.req.param("id"), (thread) => {
       return context.json(
         timelineWindows.read(
           thread,
@@ -267,16 +264,15 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
             deferContent: query.deferContent === "true",
             includeNestedRows: query.includeNestedRows === "true",
             page: parseThreadTimelinePage(query),
-            summaryOnly: query.summaryOnly === "true",
           },
           query.afterTag,
         ),
       );
-    }),
-  );
+    });
+  });
 
-  get(routes.conversationOutline, (context, query) =>
-    withHotPublicThread(context.req.param("id"), (thread) => {
+  get(routes.conversationOutline, (context, query) => {
+    return withHotPublicThread(context.req.param("id"), (thread) => {
       const selectItems = (
         items: ThreadConversationOutlineResponse["items"],
       ) =>
@@ -324,11 +320,11 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
         conversationOutlineCache.delete(oldest);
       }
       return context.json({ ...response, items: selectItems(response.items) });
-    }),
-  );
+    });
+  });
 
-  get(routes.message, (context, query) =>
-    withHotPublicThread(context.req.param("id"), (thread) => {
+  get(routes.message, (context, query) => {
+    return withHotPublicThread(context.req.param("id"), (thread) => {
       const seq = context.req.param("seq");
       if (!/^\d+$/.test(seq)) {
         throw new ApiError(
@@ -345,11 +341,11 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
           after: parseOptionalInteger(query.after, "after") ?? 0,
         }),
       );
-    }),
-  );
+    });
+  });
 
-  get(routes.timelineTurnSummaryDetails, (context, query) =>
-    withHotPublicThread(context.req.param("id"), (thread) => {
+  get(routes.timelineTurnSummaryDetails, (context, query) => {
+    return withHotPublicThread(context.req.param("id"), (thread) => {
       const settings = getAppSettings(deps.db);
       return context.json(
         buildTimelineTurnSummaryDetails(deps.db, thread, {
@@ -372,8 +368,8 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
           sourceSeqEnd: parseInteger(query.sourceSeqEnd, "sourceSeqEnd"),
         }),
       );
-    }),
-  );
+    });
+  });
 
   get(routes.output, (context) => {
     requirePublicThread(deps.db, context.req.param("id"));

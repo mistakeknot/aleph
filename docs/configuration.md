@@ -1171,13 +1171,25 @@ bb stores only the experiments you set; the others follow the shipped default.
 The `earlyAdopter` general setting (the Become an early adopter banner on
 Settings → Experiments, `bb settings general earlyAdopter on`) switches the
 shipped default to the early adopter default: experiments marked Early adopter
-(currently `compactExpiredCache`, `dismissReadNotifications`,
+(currently `agentCpuPriority`, `compactExpiredCache`, `dismissReadNotifications`,
 `narrowPluginCss`, `pluginUpdates`, `skipFocusedThreadNotifications`,
 `threadRowMetadata`, and `updateWhenIdle`) turn on, and the rest stay off. An experiment you set yourself keeps your value
 either way.
 `/system/config` and `sdk.system.config()` return the resolved values in
 `experiments`.
 
+- `agentCpuPriority` keeps bb responsive when agents saturate the CPU. The
+  host daemon starts provider processes and environment setup and teardown
+  scripts at nice 10 (below-normal on Windows), inherited by
+  the builds and tests they run; terminals keep normal priority. On macOS the
+  launcher also starts the server and daemon with application scheduling
+  (`taskpolicy -a`). Turning it on or off takes effect after restarting bb,
+  including the restart an update performs: running provider processes serve
+  new threads too, and a lowered process cannot be raised again. See
+  [slow database operations](debugging-and-qa.md#slow-database-operations).
+  Aleph keeps its independent worker priority and scope hooks; `BB_AGENT_NICE`
+  still overrides niceness, with `0` opting out. The experiment never raises
+  a process that already has a more reduced priority.
 - `compactExpiredCache` (on for early adopters) reports `compactionOfferAt` on a thread's context
   usage (timeline `contextWindowUsage` and `bb thread context`) once the
   provider has reported a prompt-cache lifetime, the provider supports manual
@@ -1325,6 +1337,21 @@ either way.
   experiment is off, the schedule and automatic update routes return 403
   `update_when_idle_experiment_disabled`, the CLI commands print how to turn it
   on, and turning it off drops a waiting update. See `bb guide machines`.
+- `walCheckpointWorker` moves SQLite WAL checkpoints for `bb.db` and plugin
+  `data.db` files off the server's main thread. A background worker thread
+  opens its own connection to each database and runs `wal_checkpoint(PASSIVE)`
+  every 100 ms, and right away again while the WAL holds 4,096 frames or more
+  and is still growing; the server's own connections set
+  `wal_autocheckpoint=0`, so a commit no longer copies the WAL into the
+  database file and fsyncs it. If sustained writes grow the WAL past 16,384
+  frames across two worker passes, the server checkpoints the small remaining
+  tail itself between tasks and logs "Sustained writes outpaced the WAL
+  checkpoint worker". The hourly incremental vacuum waits for a worker pass
+  around each chunk instead of checkpointing inline. If the worker exits or
+  cannot open a database, those connections go back to checkpointing on
+  commit and bb logs a warning; a worker that had started restarts after
+  10 seconds. The experiment applies live: turning it off stops the worker
+  after a final checkpoint and restores `wal_autocheckpoint=1000`.
 
 ## Thread Timeline Window
 
