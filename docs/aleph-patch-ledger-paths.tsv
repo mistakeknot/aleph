@@ -1082,7 +1082,6 @@ timeline-build-bound	A	apps/server/test/services/threads/timeline-open-turn-burs
 timeline-build-bound	A	apps/server/test/services/threads/timeline-parent-lookups.test.ts
 timeline-build-bound	M	apps/server/test/services/threads/timeline-selection-memo.test.ts
 timeline-build-bound	M	apps/server/test/services/threads/timeline-workflow-progress-window.test.ts
-timeline-build-bound	M	packages/thread-view/src/build-thread-timeline.ts
 upstream-backport	M	apps/server/src/services/providers/provider-registry.ts
 upstream-backport	M	apps/server/src/services/threads/project-execution-defaults.ts
 upstream-backport	M	apps/server/test/system/execution-options.test.ts
