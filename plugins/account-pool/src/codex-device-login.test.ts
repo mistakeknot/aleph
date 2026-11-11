@@ -1,10 +1,13 @@
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
+import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AccountSummary } from "./contracts.js";
 import {
   CodexDeviceLogin,
   type CodexDeviceAccount,
 } from "./codex-device-login.js";
+import { codexLoginStartSchema } from "./contracts.js";
+import { createAccountPoolPlugin } from "./server.js";
 
 const NEW_ACCOUNT = { kind: "add", label: null, priority: 100 } as const;
 
@@ -128,6 +131,104 @@ function createPollingHarness(args?: {
 }
 
 describe("Codex device login", () => {
+  it("returns a secret-free terminal error when the token exchange rejects", async () => {
+    let now = 0;
+    const saveLogin = vi.fn();
+    const login = new CodexDeviceLogin({
+      now: () => now,
+      validateTarget: async () => {},
+      saveLogin,
+      fetch: async (input) => {
+        const url = String(input);
+        if (url.endsWith("/usercode"))
+          return Response.json({
+            device_auth_id: "device-secret",
+            user_code: "USER-SECRET",
+            interval: 5,
+          });
+        if (url.endsWith("/deviceauth/token"))
+          return Response.json({
+            authorization_code: "authorization-secret",
+            code_challenge: "challenge-secret",
+            code_verifier: "verifier-secret",
+          });
+        throw new TypeError(
+          "Network failed: authorization-secret verifier-secret",
+        );
+      },
+    });
+    try {
+      const started = await login.start(NEW_ACCOUNT);
+      now = 5_000;
+      expect(await login.poll({ sessionId: started.sessionId })).toEqual({
+        status: "error",
+        message: "Codex token exchange failed. Start again.",
+      });
+      expect(saveLogin).not.toHaveBeenCalled();
+    } finally {
+      login.dispose();
+    }
+  });
+
+  it("login-poll waits for the server interval before and between token polls", async () => {
+    const host = createFakePluginHost({
+      pluginId: "account-pool",
+      sdk: { hosts: { list: async () => [] } },
+    });
+    const pollTimes: number[] = [];
+    const poll = CodexDeviceLogin.prototype.poll;
+    vi.spyOn(CodexDeviceLogin.prototype, "poll").mockImplementation(
+      function (this: CodexDeviceLogin, input) {
+        pollTimes.push(Date.now());
+        return poll.call(this, input);
+      },
+    );
+    let tokenPolls = 0;
+    try {
+      await createAccountPoolPlugin({
+        fetch: async (input) => {
+          const url = String(input);
+          if (url.endsWith("/usercode"))
+            return Response.json({
+              device_auth_id: "device-secret",
+              user_code: "USER-SECRET",
+              interval: 1,
+            });
+          if (url.endsWith("/deviceauth/token")) {
+            tokenPolls += 1;
+            return Response.json(
+              {
+                error: {
+                  code: tokenPolls === 1 ? "authorization_pending" : "denied",
+                },
+              },
+              { status: 403 },
+            );
+          }
+          throw new Error("Unexpected request");
+        },
+      })(host.bb);
+      const before = Date.now();
+      const started = codexLoginStartSchema.parse(
+        await host.harness.behavior.callRpc("codexLogin.start", NEW_ACCOUNT),
+      );
+      const result = await host.harness.behavior.runCli([
+        "account",
+        "login-poll",
+        "--session",
+        started.sessionId,
+      ]);
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("Codex authorization was declined");
+      expect(pollTimes).toHaveLength(2);
+      expect(tokenPolls).toBe(2);
+      expect(pollTimes[0]! - before).toBeGreaterThanOrEqual(1_000);
+      expect(pollTimes[1]! - pollTimes[0]!).toBeGreaterThanOrEqual(1_000);
+    } finally {
+      await host.harness.lifecycle.dispose();
+    }
+  });
+
   it("polls pending then exchanges and stores the ID-token account claims", async () => {
     let now = Date.parse("2026-09-04T12:00:00Z");
     let polls = 0;

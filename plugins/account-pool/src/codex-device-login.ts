@@ -331,8 +331,14 @@ export class CodexDeviceLogin {
       exchanging = true;
       return await this.exchange(parsed.data, session.target);
     } catch (error) {
-      if (exchanging && error instanceof DeviceLoginTimeoutError) {
-        return { status: "error", message: error.message };
+      if (exchanging) {
+        return {
+          status: "error",
+          message:
+            error instanceof DeviceLoginTimeoutError
+              ? error.message
+              : "Codex token exchange failed. Start again.",
+        };
       }
       if (this.now() < session.expiresAt) return { status: "pending" };
       this.deleteSession(session.sessionId);
