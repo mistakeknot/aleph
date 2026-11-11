@@ -104,6 +104,7 @@ describe("test harness teardown of deferred work", () => {
         vi.useFakeTimers();
         requestQueuedMessageDispatchAt(harness.deps, Date.now() + 1000);
         expect(vi.getTimerCount()).toBe(1);
+        deferredWork.mockClear();
       });
       await vi.advanceTimersByTimeAsync(1000);
       expect(
