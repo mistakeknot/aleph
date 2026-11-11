@@ -206,6 +206,68 @@ describe("test harness teardown of deferred work", () => {
     expect(settled).toBe(false);
   });
 
+  it("keeps awaiting later live work while dropping work stuck behind a discarded fake timer", async () => {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let laterFinished = false;
+    await withTestHarness(async (harness) => {
+      deferAfterResponse({
+        config: harness.config,
+        logger: LOGGER,
+        name: "live then fake",
+        work: async () => {
+          await gate;
+          await new Promise((resolve) => setTimeout(resolve, 60));
+        },
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+      vi.useFakeTimers();
+      release();
+      await vi.advanceTimersByTimeAsync(0);
+      vi.useRealTimers();
+      deferAfterResponse({
+        config: harness.config,
+        logger: LOGGER,
+        name: "later live work",
+        work: async () => {
+          await sleep(800);
+          laterFinished = true;
+        },
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+    });
+    expect(laterFinished).toBe(true);
+  });
+
+  it("does not hang when only setImmediate was faked and then discarded", async () => {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const outcome = await Promise.race([
+      withTestHarness(async (harness) => {
+        deferAfterResponse({
+          config: harness.config,
+          logger: LOGGER,
+          name: "live then fake immediate",
+          work: async () => {
+            await gate;
+            await new Promise((resolve) => setImmediate(resolve));
+          },
+        });
+        await new Promise((resolve) => setImmediate(resolve));
+        vi.useFakeTimers({ toFake: ["setImmediate", "clearImmediate"] });
+        release();
+        await Promise.resolve();
+        vi.useRealTimers();
+      }).then(() => "completed"),
+      sleep(5000).then(() => "hung"),
+    ]);
+    expect(outcome).toBe("completed");
+  });
+
   it("awaits live work after a fake clock was installed and restored", async () => {
     let finished = false;
     await withTestHarness(async (harness) => {
