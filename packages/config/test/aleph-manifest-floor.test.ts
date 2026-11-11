@@ -662,7 +662,11 @@ describe("concurrent observations", () => {
     vi.useFakeTimers({ toFake: ["Date", "performance"] });
     try {
       expect(realTryLock(holder.fd)).toBe(true);
+      const attemptsBefore = tryLockSpy.mock.calls.length;
       const pending = codeOf(() => accept(gens[1]!, floor));
+      while (tryLockSpy.mock.calls.length === attemptsBefore) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
       for (let i = 0; i < 40; i += 1) {
         await new Promise((resolve) => setTimeout(resolve, 5));
         vi.advanceTimersByTime(1_000);
