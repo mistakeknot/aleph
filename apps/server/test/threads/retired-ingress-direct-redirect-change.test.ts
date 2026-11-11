@@ -142,10 +142,6 @@ async function runDirectRedirectChange(
                 {
                   pluginId: "holder",
                   handler: (context: { thread: { id: string } }) => {
-                    // The provider is process-global and server test files
-                    // share a worker (isolate: false), so a deferred queued
-                    // drain left by an earlier file can consult this hook for
-                    // one of its own threads. Only this test's threads count.
                     if (!ids.includes(context.thread.id)) {
                       return { action: "proceed" };
                     }
