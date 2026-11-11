@@ -439,3 +439,183 @@ describe("Codex device login", () => {
     expect(logged).toEqual([]);
   });
 });
+
+describe("Codex device login request deadlines", () => {
+  it.each([
+    ["start", "fetch"],
+    ["poll", "fetch"],
+    ["exchange", "fetch"],
+    ["start", "body"],
+    ["poll", "body"],
+    ["exchange", "body"],
+  ] as const)("bounds a stalled %s %s", async (stage, stalledPart) => {
+    const nativeTimeout = AbortSignal.timeout.bind(AbortSignal);
+    const timeout = vi
+      .spyOn(AbortSignal, "timeout")
+      .mockImplementation((ms) => {
+        expect(ms).toBe(15_000);
+        return nativeTimeout(20);
+      });
+    let now = 0;
+    const saveLogin = vi.fn();
+    const login = new CodexDeviceLogin({
+      now: () => now,
+      validateTarget: async () => {},
+      saveLogin,
+      fetch: async (input, init) => {
+        expect(init?.signal).toBeInstanceOf(AbortSignal);
+        const url = String(input);
+        if (
+          (stage === "start" && url.endsWith("/usercode")) ||
+          (stage === "poll" && url.endsWith("/deviceauth/token")) ||
+          (stage === "exchange" && url.endsWith("/oauth/token"))
+        ) {
+          if (stalledPart === "fetch")
+            return await new Promise<Response>(() => {});
+          return new Response(new ReadableStream());
+        }
+        if (url.endsWith("/usercode"))
+          return Response.json({
+            device_auth_id: "device-secret",
+            user_code: "USER-SECRET",
+            interval: 5,
+            expires_in: 600,
+          });
+        return Response.json({
+          authorization_code: "authorization-secret",
+          code_challenge: "challenge-secret",
+          code_verifier: "verifier-secret",
+        });
+      },
+    });
+    let watchdog: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const operation = (async () => {
+        if (stage === "start")
+          return await login
+            .start(NEW_ACCOUNT)
+            .catch((error: Error) => error.message);
+        const started = await login.start(NEW_ACCOUNT);
+        now += 5_000;
+        return await login.poll({ sessionId: started.sessionId });
+      })();
+      const result = await Promise.race([
+        operation,
+        new Promise<never>((_, reject) => {
+          watchdog = setTimeout(
+            () => reject(new Error("Request exceeded deadline watchdog")),
+            1_000,
+          );
+        }),
+      ]);
+      const message = "Codex device login request timed out. Try again.";
+      expect(result).toEqual(
+        stage === "start"
+          ? message
+          : stage === "poll"
+            ? { status: "pending" }
+            : { status: "error", message },
+      );
+      expect(timeout).toHaveBeenCalled();
+      expect(saveLogin).not.toHaveBeenCalled();
+    } finally {
+      clearTimeout(watchdog);
+      login.dispose();
+    }
+  });
+
+  it.each([false, true])(
+    "honours the abort signal and preserves poll session state (expires during request: %s)",
+    async (expiresDuringRequest) => {
+      const nativeTimeout = AbortSignal.timeout.bind(AbortSignal);
+      vi.spyOn(AbortSignal, "timeout").mockImplementation(() =>
+        nativeTimeout(20),
+      );
+      let now = 0;
+      let polls = 0;
+      let aborted = false;
+      const saveLogin = vi.fn(async (account: CodexDeviceAccount) =>
+        summary(account),
+      );
+      const login = new CodexDeviceLogin({
+        now: () => now,
+        validateTarget: async () => {},
+        saveLogin,
+        fetch: async (input, init) => {
+          const signal = init?.signal;
+          if (!signal)
+            throw new Error("Request did not include an abort signal");
+          const url = String(input);
+          if (url.endsWith("/usercode"))
+            return Response.json({
+              device_auth_id: "device-secret",
+              user_code: "USER-SECRET",
+              interval: 5,
+              expires_in: 600,
+            });
+          if (url.endsWith("/deviceauth/token")) {
+            polls += 1;
+            if (polls === 1) {
+              if (expiresDuringRequest) now = 600_000;
+              return await new Promise<Response>((_, reject) => {
+                const onAbort = () => {
+                  aborted = true;
+                  reject(signal.reason);
+                };
+                if (signal.aborted) onAbort();
+                else signal.addEventListener("abort", onAbort, { once: true });
+              });
+            }
+            return Response.json({
+              authorization_code: "authorization-secret",
+              code_challenge: "challenge-secret",
+              code_verifier: "verifier-secret",
+            });
+          }
+          return Response.json({
+            access_token: "access-secret",
+            refresh_token: "refresh-secret",
+            id_token: jwt({ chatgpt_account_id: "account-id" }),
+          });
+        },
+      });
+      try {
+        const started = await login.start(NEW_ACCOUNT);
+        now = 5_000;
+        expect(await login.poll({ sessionId: started.sessionId })).toEqual(
+          expiresDuringRequest
+            ? { status: "error", message: "Code expired, start again." }
+            : { status: "pending" },
+        );
+        expect(aborted).toBe(true);
+        expect(saveLogin).not.toHaveBeenCalled();
+        if (expiresDuringRequest) {
+          expect(await login.poll({ sessionId: started.sessionId })).toEqual({
+            status: "error",
+            message: "Login session was not found. Start again.",
+          });
+          expect(polls).toBe(1);
+          return;
+        }
+        expect(login.nextPollDelayMs(started.sessionId)).toBe(5_000);
+        expect(await login.poll({ sessionId: started.sessionId })).toEqual({
+          status: "pending",
+        });
+        expect(polls).toBe(1);
+        now += 5_000;
+        expect(
+          await login.poll({ sessionId: started.sessionId }),
+        ).toMatchObject({ status: "complete" });
+        expect(polls).toBe(2);
+        expect(saveLogin).toHaveBeenCalledTimes(1);
+        expect(await login.poll({ sessionId: started.sessionId })).toEqual({
+          status: "error",
+          message: "Login session was not found. Start again.",
+        });
+      } finally {
+        login.dispose();
+      }
+    },
+    2_000,
+  );
+});
