@@ -1,4 +1,5 @@
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
+import * as timers from "node:timers/promises";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AccountSummary } from "./contracts.js";
@@ -8,6 +9,10 @@ import {
 } from "./codex-device-login.js";
 import { codexLoginStartSchema } from "./contracts.js";
 import { createAccountPoolPlugin } from "./server.js";
+
+vi.mock("node:timers/promises", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:timers/promises")>()),
+}));
 
 const NEW_ACCOUNT = { kind: "add", label: null, priority: 100 } as const;
 
@@ -171,6 +176,15 @@ describe("Codex device login", () => {
   });
 
   it("login-poll waits for the server interval before and between token polls", async () => {
+    let now = 0;
+    const wait = timers.setTimeout;
+    vi.spyOn(timers, "setTimeout").mockImplementation(
+      async (delay, value, options) => {
+        const result = await wait(0, value, options);
+        now += delay ?? 0;
+        return result;
+      },
+    );
     const host = createFakePluginHost({
       pluginId: "account-pool",
       sdk: { hosts: { list: async () => [] } },
@@ -179,13 +193,15 @@ describe("Codex device login", () => {
     const poll = CodexDeviceLogin.prototype.poll;
     vi.spyOn(CodexDeviceLogin.prototype, "poll").mockImplementation(
       function (this: CodexDeviceLogin, input) {
-        pollTimes.push(Date.now());
+        pollTimes.push(now);
+        expect(now).toBe(pollTimes.length * 1_000);
         return poll.call(this, input);
       },
     );
     let tokenPolls = 0;
     try {
       await createAccountPoolPlugin({
+        now: () => now,
         fetch: async (input) => {
           const url = String(input);
           if (url.endsWith("/usercode"))
@@ -208,7 +224,7 @@ describe("Codex device login", () => {
           throw new Error("Unexpected request");
         },
       })(host.bb);
-      const before = Date.now();
+      const before = now;
       const started = codexLoginStartSchema.parse(
         await host.harness.behavior.callRpc("codexLogin.start", NEW_ACCOUNT),
       );
