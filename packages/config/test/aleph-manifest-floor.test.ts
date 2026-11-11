@@ -664,8 +664,6 @@ describe("concurrent observations", () => {
       expect(realTryLock(holder.fd)).toBe(true);
       const attemptsBefore = tryLockSpy.mock.calls.length;
       const pending = codeOf(() => accept(gens[1]!, floor));
-      // Bounded by iteration count: Date and performance are faked here, so
-      // elapsed time cannot be measured, but setTimeout is real.
       const maxWaitPolls = 1_000;
       let waitPolls = 0;
       while (tryLockSpy.mock.calls.length === attemptsBefore) {
