@@ -53,7 +53,11 @@ export async function cancelAndAwaitDeferredWorkForTesting(
   for (;;) {
     for (const cancel of pendingCancels.values()) cancel();
     pendingCancels.clear();
-    if (!options.awaitInFlight || inFlightWork.size === 0) return;
+    if (!options.awaitInFlight) {
+      inFlightWork.clear();
+      return;
+    }
+    if (inFlightWork.size === 0) return;
     await Promise.allSettled([...inFlightWork]);
   }
 }

@@ -106,4 +106,30 @@ describe("test harness teardown of deferred work", () => {
     }
     expect(settled).toBe(false);
   });
+
+  it("does not wait on work abandoned under fake timers once real timers return", async () => {
+    try {
+      await withTestHarness(async () => {
+        vi.useFakeTimers();
+        deferAfterResponse({
+          config: CONFIG,
+          logger: LOGGER,
+          name: "abandoned on fake timer",
+          work: async () => {
+            await new Promise((resolve) => setTimeout(resolve, 60));
+          },
+        });
+        await vi.advanceTimersByTimeAsync(0);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+    const outcome = await Promise.race([
+      cancelAndAwaitDeferredWorkForTesting({ awaitInFlight: true }).then(
+        () => "completed",
+      ),
+      sleep(500).then(() => "hung"),
+    ]);
+    expect(outcome).toBe("completed");
+  });
 });
