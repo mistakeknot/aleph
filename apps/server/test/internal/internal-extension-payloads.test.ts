@@ -610,11 +610,6 @@ describe("extension kind ownership at ingest", () => {
   });
 
   it("keeps a chosen session option pending until the agent reports it, and refuses the server's own state kind from a provider", async () => {
-    // The latest timeline window of an active thread is served from a
-    // coalesced snapshot for up to 250-500ms once a build took 50ms or more,
-    // which happens under CPU load. This test reads the timeline right after
-    // each write and needs a fresh build every time, so it uses an idle thread,
-    // which the coalescer never serves from a snapshot.
     const { harness, session, thread } = await setup({ threadStatus: "idle" });
     try {
       const modeState = (value: string) =>
