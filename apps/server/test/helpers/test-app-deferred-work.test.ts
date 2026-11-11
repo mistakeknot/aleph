@@ -1,10 +1,12 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import * as responseDeferral from "../../src/services/lib/response-deferral.js";
 import {
   cancelAndAwaitDeferredWorkForTesting,
   deferAfterResponse,
   enableDeferredWorkTrackingForTesting,
   trackDeferredTimer,
 } from "../../src/services/lib/response-deferral.js";
+import { requestQueuedMessageDispatchAt } from "../../src/services/threads/queued-message-dispatch.js";
 import { withTestHarness } from "./test-app.js";
 
 const LOGGER = { warn: () => undefined };
@@ -93,6 +95,25 @@ describe("test harness teardown of deferred work", () => {
     await cancelAndAwaitDeferredWorkForTesting({});
     await sleep(80);
     expect(fired).toBe(false);
+  });
+
+  it("cancels scheduled queued message dispatch when the harness is cleaned up", async () => {
+    const deferredWork = vi.spyOn(responseDeferral, "deferAfterResponse");
+    try {
+      await withTestHarness(async (harness) => {
+        vi.useFakeTimers();
+        requestQueuedMessageDispatchAt(harness.deps, Date.now() + 1000);
+        expect(vi.getTimerCount()).toBe(1);
+      });
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(
+        deferredWork.mock.calls.filter(
+          ([args]) => args.name === "Queued message dispatch",
+        ),
+      ).toEqual([]);
+    } finally {
+      deferredWork.mockRestore();
+    }
   });
 
   it("does not wait on in-flight work while fake timers are active", async () => {
