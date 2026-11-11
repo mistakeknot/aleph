@@ -22,7 +22,11 @@ import {
   type Thread,
 } from "@bb/domain";
 import type { LoggedPendingInteractionWorkSessionDeps } from "../../types.js";
-import { deferAfterResponse } from "../lib/response-deferral.js";
+import {
+  deferAfterResponse,
+  releaseDeferredTimer,
+  trackDeferredTimer,
+} from "../lib/response-deferral.js";
 import {
   isCommandTimeoutError,
   runtimeErrorLogFields,
@@ -224,8 +228,9 @@ export function requestQueuedMessageDispatchAt(
   deps: QueueDispatchDeps,
   at: number,
 ): void {
-  setTimeout(
+  const timer = setTimeout(
     () => {
+      releaseDeferredTimer(timer);
       if (Date.now() < at) {
         requestQueuedMessageDispatchAt(deps, at);
         return;
@@ -236,7 +241,9 @@ export function requestQueuedMessageDispatchAt(
       });
     },
     Math.max(0, at - Date.now()),
-  ).unref();
+  );
+  timer.unref();
+  trackDeferredTimer(timer, deps.config);
 }
 
 export async function runQueuedMessageDispatch(
