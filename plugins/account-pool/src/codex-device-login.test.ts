@@ -462,7 +462,8 @@ describe("Codex device login request deadlines", () => {
       now: () => now,
       validateTarget: async () => {},
       saveLogin,
-      fetch: async (input) => {
+      fetch: async (input, init) => {
+        expect(init?.signal).toBeInstanceOf(AbortSignal);
         const url = String(input);
         if (
           (stage === "start" && url.endsWith("/usercode")) ||
@@ -509,7 +510,11 @@ describe("Codex device login request deadlines", () => {
       ]);
       const message = "Codex device login request timed out. Try again.";
       expect(result).toEqual(
-        stage === "start" ? message : { status: "error", message },
+        stage === "start"
+          ? message
+          : stage === "poll"
+            ? { status: "pending" }
+            : { status: "error", message },
       );
       expect(timeout).toHaveBeenCalled();
       expect(saveLogin).not.toHaveBeenCalled();
@@ -518,4 +523,99 @@ describe("Codex device login request deadlines", () => {
       login.dispose();
     }
   });
+
+  it.each([false, true])(
+    "honours the abort signal and preserves poll session state (expires during request: %s)",
+    async (expiresDuringRequest) => {
+      const nativeTimeout = AbortSignal.timeout.bind(AbortSignal);
+      vi.spyOn(AbortSignal, "timeout").mockImplementation(() =>
+        nativeTimeout(20),
+      );
+      let now = 0;
+      let polls = 0;
+      let aborted = false;
+      const saveLogin = vi.fn(async (account: CodexDeviceAccount) =>
+        summary(account),
+      );
+      const login = new CodexDeviceLogin({
+        now: () => now,
+        validateTarget: async () => {},
+        saveLogin,
+        fetch: async (input, init) => {
+          const signal = init?.signal;
+          if (!signal)
+            throw new Error("Request did not include an abort signal");
+          const url = String(input);
+          if (url.endsWith("/usercode"))
+            return Response.json({
+              device_auth_id: "device-secret",
+              user_code: "USER-SECRET",
+              interval: 5,
+              expires_in: 600,
+            });
+          if (url.endsWith("/deviceauth/token")) {
+            polls += 1;
+            if (polls === 1) {
+              if (expiresDuringRequest) now = 600_000;
+              return await new Promise<Response>((_, reject) => {
+                const onAbort = () => {
+                  aborted = true;
+                  reject(signal.reason);
+                };
+                if (signal.aborted) onAbort();
+                else signal.addEventListener("abort", onAbort, { once: true });
+              });
+            }
+            return Response.json({
+              authorization_code: "authorization-secret",
+              code_challenge: "challenge-secret",
+              code_verifier: "verifier-secret",
+            });
+          }
+          return Response.json({
+            access_token: "access-secret",
+            refresh_token: "refresh-secret",
+            id_token: jwt({ chatgpt_account_id: "account-id" }),
+          });
+        },
+      });
+      try {
+        const started = await login.start(NEW_ACCOUNT);
+        now = 5_000;
+        expect(await login.poll({ sessionId: started.sessionId })).toEqual(
+          expiresDuringRequest
+            ? { status: "error", message: "Code expired, start again." }
+            : { status: "pending" },
+        );
+        expect(aborted).toBe(true);
+        expect(saveLogin).not.toHaveBeenCalled();
+        if (expiresDuringRequest) {
+          expect(await login.poll({ sessionId: started.sessionId })).toEqual({
+            status: "error",
+            message: "Login session was not found. Start again.",
+          });
+          expect(polls).toBe(1);
+          return;
+        }
+        expect(login.nextPollDelayMs(started.sessionId)).toBe(5_000);
+        expect(await login.poll({ sessionId: started.sessionId })).toEqual({
+          status: "pending",
+        });
+        expect(polls).toBe(1);
+        now += 5_000;
+        expect(
+          await login.poll({ sessionId: started.sessionId }),
+        ).toMatchObject({ status: "complete" });
+        expect(polls).toBe(2);
+        expect(saveLogin).toHaveBeenCalledTimes(1);
+        expect(await login.poll({ sessionId: started.sessionId })).toEqual({
+          status: "error",
+          message: "Login session was not found. Start again.",
+        });
+      } finally {
+        login.dispose();
+      }
+    },
+    2_000,
+  );
 });

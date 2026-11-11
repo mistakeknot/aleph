@@ -255,6 +255,7 @@ export class CodexDeviceLogin {
     }
     session.polling = true;
     session.nextPollAt = now + session.intervalMs;
+    let exchanging = false;
     try {
       const { response, payload } = await this.request(
         `${this.authBaseUrl}/api/accounts/deviceauth/token`,
@@ -327,9 +328,10 @@ export class CodexDeviceLogin {
         };
       }
       this.deleteSession(session.sessionId);
+      exchanging = true;
       return await this.exchange(parsed.data, session.target);
     } catch (error) {
-      if (error instanceof DeviceLoginTimeoutError) {
+      if (exchanging && error instanceof DeviceLoginTimeoutError) {
         return { status: "error", message: error.message };
       }
       if (this.now() < session.expiresAt) return { status: "pending" };
