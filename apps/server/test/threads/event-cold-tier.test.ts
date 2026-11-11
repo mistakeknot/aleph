@@ -12,6 +12,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createEnvironment,
+  requestThreadPurge,
+  getThread,
   createProject,
   createThread,
   getEventColdSegment,
@@ -35,7 +37,11 @@ import {
   coldManifestPath,
   readColdManifestEntries,
 } from "../../src/services/threads/event-cold-tier/manifest.js";
-import { pinThreadHistory } from "../../src/services/threads/event-cold-tier/pins.js";
+import { threadPurgeSweep } from "../../src/services/threads/thread-purge.js";
+import {
+  getThreadHistoryPinCount,
+  pinThreadHistory,
+} from "../../src/services/threads/event-cold-tier/pins.js";
 import {
   buildColdSegmentFrame,
   cleanupStaleStagingFiles,
@@ -94,7 +100,7 @@ function makeDeps(db: DbConnection) {
   const deps = {
     config: { dataDir },
     db,
-    hub: { notifyThread },
+    hub: { notifyThread, notifyProject: vi.fn(), hasClients: () => false },
     logger,
   } as unknown as EventColdTierDeps;
   return { deps, logger, notifyThread };
@@ -418,6 +424,29 @@ describe("cold tier service", () => {
       outcome: "skipped",
       reason: "pinned",
     });
+  });
+
+  it("rehydrates a queued purge and holds its history pin through event deletion", async () => {
+    const { db, deps, thread } = setup();
+    const eventCount = readRows(db, thread.id).length;
+    await moveThreadEventsToColdTier(deps, thread.id, {
+      config: CONFIG,
+      now: NOW,
+    });
+    expect(isThreadEventsCold(db, thread.id)).toBe(true);
+    const pinCounts: number[] = [];
+    db.$client.function("observe_purge_pin", () => {
+      pinCounts.push(getThreadHistoryPinCount(thread.id));
+      return 1;
+    });
+    db.$client.exec(`CREATE TEMP TRIGGER observe_purge BEFORE DELETE ON events
+      WHEN old.thread_id = '${thread.id}' BEGIN SELECT observe_purge_pin(); END`);
+    requestThreadPurge(db, { now: NOW, threadId: thread.id });
+    await threadPurgeSweep(deps).run(deps, NOW);
+    expect(getThread(db, thread.id)).toBeNull();
+    expect(pinCounts.length).toBeGreaterThanOrEqual(eventCount);
+    expect(pinCounts.every((count) => count > 0)).toBe(true);
+    expect(getThreadHistoryPinCount(thread.id)).toBe(0);
   });
 
   it("makes a live row with a missing file an error, not a silent loss", async () => {

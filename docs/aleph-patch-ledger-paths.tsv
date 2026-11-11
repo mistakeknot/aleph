@@ -1132,3 +1132,4 @@ worktree-saved-work	M	docs/worktrees.md
 worktree-saved-work	M	packages/environment-provider-host/src/locks.ts
 worktree-saved-work	A	plugins/environment-git-worktree/host/saved-work.test.ts
 worktree-saved-work	M	plugins/environment-git-worktree/host/worktree.ts
+event-cold-tier	M	apps/server/src/services/threads/thread-purge.ts
