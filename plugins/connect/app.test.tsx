@@ -1392,9 +1392,6 @@ describe("connect setup guide section", () => {
       },
     );
 
-    // A click before the initial status load has resolved is swallowed by
-    // setUp (it only refetches), so wait for the status RPC to resolve and
-    // flush its state update before clicking.
     const setUp = await slot.findByRole("button", { name: "Set up" });
     await waitFor(() => expect(statusServed).toBe(true));
     await act(async () => {});
