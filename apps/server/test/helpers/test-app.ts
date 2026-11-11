@@ -1,13 +1,15 @@
 import { installDefaultEnvironmentProviders } from "./environment-provider.js";
 import { registerTestHarnessWarmup } from "./test-harness-warmup.js";
 import { setPluginEnvironmentProviderBridge } from "../../src/services/plugins/plugin-environment-provider-registry.js";
-import { cancelAndAwaitDeferredWorkForTesting } from "../../src/services/lib/response-deferral.js";
+import {
+  cancelAndAwaitDeferredWorkForTesting,
+  enableDeferredWorkTrackingForTesting,
+} from "../../src/services/lib/response-deferral.js";
 import { clearAllThreadProvisionSchedules } from "../../src/services/threads/thread-startup-store.js";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { serve } from "@hono/node-server";
-import { vi } from "vitest";
 import type { AddressInfo } from "node:net";
 import {
   ensurePersonalProject,
@@ -395,6 +397,7 @@ export async function createTestAppHarness(
     watchInterests,
     sharedPorts,
   };
+  enableDeferredWorkTrackingForTesting();
   const { app, pluginCatalogService, pluginService, serverMove } =
     createApp(deps);
   installDefaultEnvironmentProviders();
@@ -409,9 +412,7 @@ export async function createTestAppHarness(
     pluginCatalogService,
     serverMove,
     async cleanup(): Promise<void> {
-      await cancelAndAwaitDeferredWorkForTesting({
-        awaitInFlight: !vi.isFakeTimers(),
-      });
+      await cancelAndAwaitDeferredWorkForTesting();
       clearAllThreadProvisionSchedules();
       setPluginEnvironmentProviderBridge(undefined);
       await pluginService.stop();

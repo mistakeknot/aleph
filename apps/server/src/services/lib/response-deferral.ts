@@ -9,11 +9,21 @@ interface DeferAfterResponseArgs {
   work: () => Promise<void>;
 }
 
+const realSetTimeout = globalThis.setTimeout;
 const pendingCancels = new Map<object, () => void>();
-const inFlightWork = new Set<Promise<void>>();
+const inFlightWork = new Map<Promise<void>, boolean>();
+let trackingEnabled = false;
+
+function timersAreFaked(): boolean {
+  return globalThis.setTimeout !== realSetTimeout;
+}
+
+export function enableDeferredWorkTrackingForTesting(): void {
+  trackingEnabled = true;
+}
 
 export function deferAfterResponse(args: DeferAfterResponseArgs): void {
-  const clear = clearImmediate;
+  const clear = trackingEnabled ? clearImmediate : undefined;
   const immediate = setImmediate(() => {
     pendingCancels.delete(immediate);
     const running = args.work().catch((error) => {
@@ -25,16 +35,17 @@ export function deferAfterResponse(args: DeferAfterResponseArgs): void {
         `${args.name} failed`,
       );
     });
-    inFlightWork.add(running);
-    const settled = () => {
+    if (!trackingEnabled) return;
+    inFlightWork.set(running, timersAreFaked());
+    void running.finally(() => {
       inFlightWork.delete(running);
-    };
-    void running.then(settled, settled);
+    });
   });
-  pendingCancels.set(immediate, () => clear(immediate));
+  if (clear) pendingCancels.set(immediate, () => clear(immediate));
 }
 
 export function trackDeferredTimer(timer: NodeJS.Timeout): void {
+  if (!trackingEnabled) return;
   const clear = clearTimeout;
   pendingCancels.set(timer, () => clear(timer));
 }
@@ -43,21 +54,15 @@ export function releaseDeferredTimer(timer: NodeJS.Timeout): void {
   pendingCancels.delete(timer);
 }
 
-interface CancelAndAwaitDeferredWorkOptions {
-  awaitInFlight: boolean;
-}
-
-export async function cancelAndAwaitDeferredWorkForTesting(
-  options: CancelAndAwaitDeferredWorkOptions,
-): Promise<void> {
+export async function cancelAndAwaitDeferredWorkForTesting(): Promise<void> {
   for (;;) {
     for (const cancel of pendingCancels.values()) cancel();
     pendingCancels.clear();
-    if (!options.awaitInFlight) {
-      inFlightWork.clear();
-      return;
+    const fakedNow = timersAreFaked();
+    for (const [running, startedFaked] of inFlightWork) {
+      if (fakedNow || startedFaked) inFlightWork.delete(running);
     }
     if (inFlightWork.size === 0) return;
-    await Promise.allSettled([...inFlightWork]);
+    await Promise.allSettled([...inFlightWork.keys()]);
   }
 }
