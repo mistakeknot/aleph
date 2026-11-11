@@ -353,6 +353,36 @@ describe("test harness teardown of deferred work", () => {
     });
   });
 
+  it("still bounds a discarded fake timer after the module is reloaded", async () => {
+    vi.resetModules();
+    const fresh = await import("../../src/services/lib/response-deferral.js");
+    const scope = { isDevelopment: false };
+    fresh.enableDeferredWorkTrackingForTesting(scope);
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    fresh.deferAfterResponse({
+      config: scope,
+      logger: LOGGER,
+      name: "live then fake after reload",
+      work: async () => {
+        await gate;
+        await new Promise((resolve) => setTimeout(resolve, 60));
+      },
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    vi.useFakeTimers();
+    release();
+    await vi.advanceTimersByTimeAsync(0);
+    vi.useRealTimers();
+    const outcome = await Promise.race([
+      fresh.cancelAndAwaitDeferredWorkForTesting(scope).then(() => "completed"),
+      sleep(5000).then(() => "hung"),
+    ]);
+    expect(outcome).toBe("completed");
+  });
+
   it("leaves deferred work untouched until tracking is enabled", async () => {
     vi.resetModules();
     const fresh = await import("../../src/services/lib/response-deferral.js");

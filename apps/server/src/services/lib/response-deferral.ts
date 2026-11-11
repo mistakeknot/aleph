@@ -34,8 +34,16 @@ const pendingCancels = new Map<object, PendingEntry>();
 const inFlightWork = new Map<Promise<void>, InFlightEntry>();
 const liveScopes = new Set<object>();
 let trackingEnabled = false;
-let clockEpoch = 0;
-const clockSwapWaiters = new Set<() => void>();
+const CLOCK_WATCH_KEY = Symbol.for("aleph.deferredWork.clockWatch");
+
+interface ClockWatch {
+  epoch: number;
+  waiters: Set<() => void>;
+}
+
+const clockWatch = ((globalThis as Record<symbol, ClockWatch | undefined>)[
+  CLOCK_WATCH_KEY
+] ??= { epoch: 0, waiters: new Set() });
 
 function timersAreFaked(): boolean {
   return WATCHED_SCHEDULERS.some(
@@ -54,8 +62,8 @@ function watchClockSwaps(): void {
       get: () => current,
       set: (value: unknown) => {
         current = value;
-        clockEpoch += 1;
-        for (const notify of [...clockSwapWaiters]) notify();
+        clockWatch.epoch += 1;
+        for (const notify of [...clockWatch.waiters]) notify();
       },
     });
   }
@@ -82,7 +90,7 @@ export function deferAfterResponse(args: DeferAfterResponseArgs): void {
     });
     if (!trackingEnabled) return;
     inFlightWork.set(running, {
-      clockEpoch,
+      clockEpoch: clockWatch.epoch,
       scope: args.config,
       startedFaked: timersAreFaked(),
     });
@@ -142,7 +150,7 @@ function awaitBounded(
   return new Promise((resolve) => {
     let deadline: NodeJS.Timeout | undefined;
     const finish = (): void => {
-      clockSwapWaiters.delete(arm);
+      clockWatch.waiters.delete(arm);
       realClearTimeout(deadline);
       resolve();
     };
@@ -154,7 +162,7 @@ function awaitBounded(
       }, CLOCK_CHANGE_GRACE_MS);
     };
     running.then(finish, finish);
-    if (clockEpoch !== entry.clockEpoch) arm();
-    else clockSwapWaiters.add(arm);
+    if (clockWatch.epoch !== entry.clockEpoch) arm();
+    else clockWatch.waiters.add(arm);
   });
 }
