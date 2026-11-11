@@ -664,11 +664,6 @@ describe("concurrent observations", () => {
       expect(realTryLock(holder.fd)).toBe(true);
       const attemptsBefore = tryLockSpy.mock.calls.length;
       const pending = codeOf(() => accept(gens[1]!, floor));
-      // The lock deadline is fixed against the faked clock when acquisition
-      // starts, and signature verification (a real ssh-keygen process) runs
-      // first. Only advance the clock once acquisition is actually polling,
-      // or a slow verification leaves the deadline beyond the advanced time
-      // and the call never times out.
       while (tryLockSpy.mock.calls.length === attemptsBefore) {
         await new Promise((resolve) => setTimeout(resolve, 5));
       }
