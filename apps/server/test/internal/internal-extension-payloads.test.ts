@@ -72,7 +72,7 @@ function registerExtensionProvider(
   });
 }
 
-async function setup() {
+async function setup(options: { threadStatus?: "active" | "idle" } = {}) {
   const harness = await createTestAppHarness();
   registerExtensionProvider(harness, {
     pluginId: PLUGIN_ID,
@@ -95,7 +95,7 @@ async function setup() {
     projectId: project.id,
     environmentId: environment.id,
     providerId: PROVIDER_ID,
-    status: "active",
+    status: options.threadStatus ?? "active",
   });
   return { harness, session, thread };
 }
@@ -610,7 +610,7 @@ describe("extension kind ownership at ingest", () => {
   });
 
   it("keeps a chosen session option pending until the agent reports it, and refuses the server's own state kind from a provider", async () => {
-    const { harness, session, thread } = await setup();
+    const { harness, session, thread } = await setup({ threadStatus: "idle" });
     try {
       const modeState = (value: string) =>
         extensionStateEvent(
