@@ -142,6 +142,9 @@ async function runDirectRedirectChange(
                 {
                   pluginId: "holder",
                   handler: (context: { thread: { id: string } }) => {
+                    if (!ids.includes(context.thread.id)) {
+                      return { action: "proceed" };
+                    }
                     consulted.push(context.thread.id);
                     if (context.thread.id === seeded.secondTarget.id) {
                       return { action: "proceed" };
