@@ -383,6 +383,28 @@ describe("test harness teardown of deferred work", () => {
     expect(outcome).toBe("completed");
   });
 
+  it("still awaits real work after the module is reloaded under fake timers", async () => {
+    vi.useFakeTimers();
+    vi.resetModules();
+    const fresh = await import("../../src/services/lib/response-deferral.js");
+    vi.useRealTimers();
+    const scope = { isDevelopment: false };
+    fresh.enableDeferredWorkTrackingForTesting(scope);
+    let finished = false;
+    fresh.deferAfterResponse({
+      config: scope,
+      logger: LOGGER,
+      name: "real work after reload under fakes",
+      work: async () => {
+        await sleep(80);
+        finished = true;
+      },
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    await fresh.cancelAndAwaitDeferredWorkForTesting(scope);
+    expect(finished).toBe(true);
+  });
+
   it("leaves deferred work untouched until tracking is enabled", async () => {
     vi.resetModules();
     const fresh = await import("../../src/services/lib/response-deferral.js");

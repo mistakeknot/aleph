@@ -9,15 +9,12 @@ interface DeferAfterResponseArgs {
   work: () => Promise<void>;
 }
 
-const realSetTimeout = globalThis.setTimeout;
-const realClearTimeout = globalThis.clearTimeout;
 const CLOCK_CHANGE_GRACE_MS = 1500;
 const WATCHED_SCHEDULERS = [
   "setTimeout",
   "setImmediate",
   "setInterval",
 ] as const;
-const realSchedulers = WATCHED_SCHEDULERS.map((name) => globalThis[name]);
 
 interface PendingEntry {
   cancel: () => void;
@@ -38,16 +35,25 @@ const CLOCK_WATCH_KEY = Symbol.for("aleph.deferredWork.clockWatch");
 
 interface ClockWatch {
   epoch: number;
+  realClearTimeout: typeof clearTimeout;
+  realSchedulers: unknown[];
+  realSetTimeout: typeof setTimeout;
   waiters: Set<() => void>;
 }
 
 const clockWatch = ((globalThis as Record<symbol, ClockWatch | undefined>)[
   CLOCK_WATCH_KEY
-] ??= { epoch: 0, waiters: new Set() });
+] ??= {
+  epoch: 0,
+  realClearTimeout: globalThis.clearTimeout,
+  realSchedulers: WATCHED_SCHEDULERS.map((name) => globalThis[name]),
+  realSetTimeout: globalThis.setTimeout,
+  waiters: new Set(),
+});
 
 function timersAreFaked(): boolean {
   return WATCHED_SCHEDULERS.some(
-    (name, index) => globalThis[name] !== realSchedulers[index],
+    (name, index) => globalThis[name] !== clockWatch.realSchedulers[index],
   );
 }
 
@@ -151,12 +157,12 @@ function awaitBounded(
     let deadline: NodeJS.Timeout | undefined;
     const finish = (): void => {
       clockWatch.waiters.delete(arm);
-      realClearTimeout(deadline);
+      clockWatch.realClearTimeout(deadline);
       resolve();
     };
     const arm = (): void => {
       if (deadline) return;
-      deadline = realSetTimeout(() => {
+      deadline = clockWatch.realSetTimeout(() => {
         inFlightWork.delete(running);
         finish();
       }, CLOCK_CHANGE_GRACE_MS);
