@@ -5,17 +5,13 @@ import {
   applyThreadTimelineDelta,
   isThreadTimelineDelta,
   type ReceivedThreadTimelineSignal,
-  type SystemConfigResponse,
   type ThreadTimelineReadResponse,
   type ThreadTimelineResponse,
 } from "@bb/server-contract";
 import { markStreamTrace } from "@/lib/stream-trace";
 import { noteStreamApplied } from "@/lib/client-timing";
 import { wsManager } from "@/lib/ws";
-import {
-  systemConfigQueryKey,
-  threadTimelineQueryKey,
-} from "../queries/query-keys";
+import { threadTimelineQueryKey } from "../queries/query-keys";
 import { clearThreadTimelineUnseenEvents } from "./thread-timeline-unseen-events";
 
 export const COMPACT_THREAD_TIMELINE_SEGMENT_LIMIT = 8;
@@ -26,28 +22,11 @@ export function resolveThreadTimelineSegmentLimit(): number | undefined {
     : undefined;
 }
 
-export function isThreadTimelinePushEnabled(
-  config: SystemConfigResponse | undefined,
-): boolean {
-  return config?.experiments.timelinePush === true;
-}
-
-export function isCachedThreadTimelinePushEnabled(
-  queryClient: QueryClient,
-): boolean {
-  return isThreadTimelinePushEnabled(
-    queryClient.getQueryData<SystemConfigResponse>(systemConfigQueryKey()),
-  );
-}
-
 export function syncThreadTimelineSubscriptionTag(
   queryClient: QueryClient,
   threadId: string,
   tag: string,
 ): void {
-  if (!isCachedThreadTimelinePushEnabled(queryClient)) {
-    return;
-  }
   wsManager.syncThreadTimelineTag(
     {
       kind: "thread-timeline",
@@ -101,10 +80,7 @@ export function applyThreadTimelineSignal(
   signal: ReceivedThreadTimelineSignal,
 ): void {
   const { target } = signal;
-  if (
-    !isCachedThreadTimelinePushEnabled(queryClient) ||
-    target.segmentLimit !== (resolveThreadTimelineSegmentLimit() ?? null)
-  ) {
+  if (target.segmentLimit !== (resolveThreadTimelineSegmentLimit() ?? null)) {
     return;
   }
   const queryKey = threadTimelineQueryKey(target.threadId);

@@ -38,8 +38,11 @@ const EMPTY_WORK_SNAPSHOT = {
   lastCompletedWork: null,
   lastCompletedWorkWallMs: null,
   longestSynchronousWork: null,
+  longestSynchronousWorkCaller: null,
   longestSynchronousWorkWallMs: null,
   longestSynchronousWorkCpuMs: null,
+  longestSynchronousWorkVoluntaryContextSwitches: null,
+  longestSynchronousWorkInvoluntaryContextSwitches: null,
 };
 
 const QUIET_GC: GcWindowSummary = {
@@ -175,8 +178,8 @@ describe("event loop stall monitor", () => {
         inFlightWorkAtObservation: "GET /api/v1/threads/thr_example/timeline",
         lastCompletedWork: null,
         lastCompletedWorkWallMs: null,
-        longestSynchronousWork: null,
-        longestSynchronousWorkWallMs: null,
+        longestSynchronousWork:
+          "GET /api/v1/threads/thr_example/timeline (until first await)",
         stallAttribution: "unattributed",
         stallCauseCandidate: null,
       }),
@@ -411,6 +414,7 @@ describe("event loop stall monitor", () => {
     try {
       recorder = await startGatedPerformanceDiagnostics({
         allowed: true,
+        codeOwners: () => [],
         dataDir,
         db,
         hub: new NotificationHub(),

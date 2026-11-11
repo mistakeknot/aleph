@@ -1,4 +1,7 @@
-import { startStallWindowCollector } from "./stall-windows.js";
+import {
+  startStallWindowCollector,
+  type ProfileCodeOwner,
+} from "./stall-windows.js";
 import { Worker } from "node:worker_threads";
 import { setImmediate } from "node:timers/promises";
 import { performance } from "node:perf_hooks";
@@ -12,6 +15,7 @@ import { observeEventLoopGaps } from "./event-loop-gaps.js";
 import { profileWorkerSource } from "./generated/profile-worker.js";
 
 export async function startPerformanceDiagnostics(options: {
+  codeOwners: () => readonly ProfileCodeOwner[];
   dataDir: string;
   logger: {
     info(fields: object, message: string): void;
@@ -130,7 +134,11 @@ export async function startPerformanceDiagnostics(options: {
       worker.postMessage(
         command === "start"
           ? command
-          : { command, stalls: stallWindows.take() },
+          : {
+              command,
+              stalls: stallWindows.take(),
+              codeOwners: options.codeOwners(),
+            },
       );
     }).catch(() => {});
   };
