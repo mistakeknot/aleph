@@ -439,3 +439,83 @@ describe("Codex device login", () => {
     expect(logged).toEqual([]);
   });
 });
+
+describe("Codex device login request deadlines", () => {
+  it.each([
+    ["start", "fetch"],
+    ["poll", "fetch"],
+    ["exchange", "fetch"],
+    ["start", "body"],
+    ["poll", "body"],
+    ["exchange", "body"],
+  ] as const)("bounds a stalled %s %s", async (stage, stalledPart) => {
+    const nativeTimeout = AbortSignal.timeout.bind(AbortSignal);
+    const timeout = vi
+      .spyOn(AbortSignal, "timeout")
+      .mockImplementation((ms) => {
+        expect(ms).toBe(15_000);
+        return nativeTimeout(20);
+      });
+    let now = 0;
+    const saveLogin = vi.fn();
+    const login = new CodexDeviceLogin({
+      now: () => now,
+      validateTarget: async () => {},
+      saveLogin,
+      fetch: async (input) => {
+        const url = String(input);
+        if (
+          (stage === "start" && url.endsWith("/usercode")) ||
+          (stage === "poll" && url.endsWith("/deviceauth/token")) ||
+          (stage === "exchange" && url.endsWith("/oauth/token"))
+        ) {
+          if (stalledPart === "fetch")
+            return await new Promise<Response>(() => {});
+          return new Response(new ReadableStream());
+        }
+        if (url.endsWith("/usercode"))
+          return Response.json({
+            device_auth_id: "device-secret",
+            user_code: "USER-SECRET",
+            interval: 5,
+            expires_in: 600,
+          });
+        return Response.json({
+          authorization_code: "authorization-secret",
+          code_challenge: "challenge-secret",
+          code_verifier: "verifier-secret",
+        });
+      },
+    });
+    let watchdog: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const operation = (async () => {
+        if (stage === "start")
+          return await login
+            .start(NEW_ACCOUNT)
+            .catch((error: Error) => error.message);
+        const started = await login.start(NEW_ACCOUNT);
+        now += 5_000;
+        return await login.poll({ sessionId: started.sessionId });
+      })();
+      const result = await Promise.race([
+        operation,
+        new Promise<never>((_, reject) => {
+          watchdog = setTimeout(
+            () => reject(new Error("Request exceeded deadline watchdog")),
+            1_000,
+          );
+        }),
+      ]);
+      const message = "Codex device login request timed out. Try again.";
+      expect(result).toEqual(
+        stage === "start" ? message : { status: "error", message },
+      );
+      expect(timeout).toHaveBeenCalled();
+      expect(saveLogin).not.toHaveBeenCalled();
+    } finally {
+      clearTimeout(watchdog);
+      login.dispose();
+    }
+  });
+});

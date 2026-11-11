@@ -10,6 +10,14 @@ import type { AccountSummary, LoginTarget } from "./contracts.js";
 import { LoginTargetError } from "./operations.js";
 
 const LOGIN_SESSION_TTL_MS = 10 * 60 * 1_000;
+const REQUEST_TIMEOUT_MS = 15_000;
+
+class DeviceLoginTimeoutError extends Error {
+  constructor() {
+    super("Codex device login request timed out. Try again.");
+  }
+}
+
 const DEVICE_CALLBACK_PATH = "/deviceauth/callback";
 
 const intervalSchema = z.union([
@@ -186,7 +194,7 @@ export class CodexDeviceLogin {
     for (const [sessionId, session] of this.sessions) {
       if (pruneBefore >= session.expiresAt) this.deleteSession(sessionId);
     }
-    const response = await this.fetch(
+    const { response, payload } = await this.request(
       `${this.authBaseUrl}/api/accounts/deviceauth/usercode`,
       {
         method: "POST",
@@ -198,12 +206,10 @@ export class CodexDeviceLogin {
       },
     );
     if (!response.ok) {
-      await response.body?.cancel();
       throw new Error(
         `Codex device login could not start (HTTP ${response.status}). Try again.`,
       );
     }
-    const payload = await response.json().catch(() => null);
     const parsed = userCodeResponseSchema.safeParse(payload);
     if (!parsed.success) {
       throw new Error("Codex device login returned an invalid response.");
@@ -250,7 +256,7 @@ export class CodexDeviceLogin {
     session.polling = true;
     session.nextPollAt = now + session.intervalMs;
     try {
-      const response = await this.fetch(
+      const { response, payload } = await this.request(
         `${this.authBaseUrl}/api/accounts/deviceauth/token`,
         {
           method: "POST",
@@ -263,6 +269,7 @@ export class CodexDeviceLogin {
             user_code: session.userCode,
           }),
         },
+        true,
       );
       if (this.sessions.get(session.sessionId) !== session) {
         return {
@@ -274,7 +281,6 @@ export class CodexDeviceLogin {
         this.deleteSession(session.sessionId);
         return { status: "error", message: "Code expired, start again." };
       }
-      const payload = await response.json().catch(() => null);
       const parsedError = deviceErrorResponseSchema.safeParse(payload);
       const errorCode = parsedError.success
         ? parsedError.data.error?.code
@@ -322,7 +328,10 @@ export class CodexDeviceLogin {
       }
       this.deleteSession(session.sessionId);
       return await this.exchange(parsed.data, session.target);
-    } catch {
+    } catch (error) {
+      if (error instanceof DeviceLoginTimeoutError) {
+        return { status: "error", message: error.message };
+      }
       if (this.now() < session.expiresAt) return { status: "pending" };
       this.deleteSession(session.sessionId);
       return { status: "error", message: "Code expired, start again." };
@@ -363,32 +372,67 @@ export class CodexDeviceLogin {
     return this.sessions.delete(sessionId);
   }
 
+  private async request(
+    url: string,
+    init: RequestInit,
+    readErrorBody = false,
+  ): Promise<{ response: Response; payload: unknown }> {
+    const signal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+    let onTimeout = () => {};
+    const timedOut = new Promise<never>((_, reject) => {
+      onTimeout = () => reject(new DeviceLoginTimeoutError());
+      if (signal.aborted) onTimeout();
+      else signal.addEventListener("abort", onTimeout, { once: true });
+    });
+    try {
+      return await Promise.race([
+        (async () => {
+          const response = await this.fetch(url, { ...init, signal });
+          if (signal.aborted) {
+            void response.body?.cancel().catch(() => undefined);
+            throw new DeviceLoginTimeoutError();
+          }
+          if (!response.ok && !readErrorBody) {
+            await response.body?.cancel();
+            return { response, payload: null };
+          }
+          const payload: unknown = await response.json().catch(() => null);
+          return { response, payload };
+        })(),
+        timedOut,
+      ]);
+    } finally {
+      signal.removeEventListener("abort", onTimeout);
+    }
+  }
+
   private async exchange(
     authorized: z.infer<typeof deviceTokenResponseSchema>,
     target: LoginTarget,
   ): Promise<CodexDeviceLoginPoll> {
-    const response = await this.fetch(`${this.authBaseUrl}/oauth/token`, {
-      method: "POST",
-      headers: {
-        accept: "application/json",
-        "content-type": "application/x-www-form-urlencoded",
+    const { response, payload } = await this.request(
+      `${this.authBaseUrl}/oauth/token`,
+      {
+        method: "POST",
+        headers: {
+          accept: "application/json",
+          "content-type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          grant_type: "authorization_code",
+          code: authorized.authorization_code,
+          redirect_uri: `${this.authBaseUrl}${DEVICE_CALLBACK_PATH}`,
+          client_id: CODEX_OAUTH_CLIENT_ID,
+          code_verifier: authorized.code_verifier,
+        }).toString(),
       },
-      body: new URLSearchParams({
-        grant_type: "authorization_code",
-        code: authorized.authorization_code,
-        redirect_uri: `${this.authBaseUrl}${DEVICE_CALLBACK_PATH}`,
-        client_id: CODEX_OAUTH_CLIENT_ID,
-        code_verifier: authorized.code_verifier,
-      }).toString(),
-    });
+    );
     if (!response.ok) {
-      await response.body?.cancel();
       return {
         status: "error",
         message: `Codex token exchange failed (HTTP ${response.status}). Start again.`,
       };
     }
-    const payload = await response.json().catch(() => null);
     const parsed = tokenResponseSchema.safeParse(payload);
     if (!parsed.success) {
       return {
