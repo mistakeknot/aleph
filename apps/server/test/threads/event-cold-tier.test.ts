@@ -412,13 +412,16 @@ describe("cold tier service", () => {
       now: NOW,
     });
     expect(isThreadEventsCold(db, thread.id)).toBe(true);
+    expect(getThread(db, thread.id)?.deletedAt).toBeNull();
     const seen = await withHotThreadHistory(deps, thread.id, async () => {
+      expect(getThreadHistoryPinCount(thread.id)).toBeGreaterThan(0);
       const blocked = await moveThreadEventsToColdTier(deps, thread.id, {
         config: CONFIG,
         now: Date.now() + 30 * DAY_MS,
       });
       return { blocked, cold: isThreadEventsCold(db, thread.id) };
     });
+    expect(getThreadHistoryPinCount(thread.id)).toBe(0);
     expect(seen.cold).toBe(false);
     expect(seen.blocked).toMatchObject({
       outcome: "skipped",
@@ -426,28 +429,50 @@ describe("cold tier service", () => {
     });
   });
 
-  it("rehydrates a queued purge and holds its history pin through event deletion", async () => {
-    const { db, deps, thread } = setup();
-    const eventCount = readRows(db, thread.id).length;
-    await moveThreadEventsToColdTier(deps, thread.id, {
-      config: CONFIG,
-      now: NOW,
-    });
-    expect(isThreadEventsCold(db, thread.id)).toBe(true);
-    const pinCounts: number[] = [];
-    db.$client.function("observe_purge_pin", () => {
-      pinCounts.push(getThreadHistoryPinCount(thread.id));
-      return 1;
-    });
-    db.$client.exec(`CREATE TEMP TRIGGER observe_purge BEFORE DELETE ON events
-      WHEN old.thread_id = '${thread.id}' BEGIN SELECT observe_purge_pin(); END`);
-    requestThreadPurge(db, { now: NOW, threadId: thread.id });
-    await threadPurgeSweep(deps).run(deps, NOW);
-    expect(getThread(db, thread.id)).toBeNull();
-    expect(pinCounts.length).toBeGreaterThanOrEqual(eventCount);
-    expect(pinCounts.every((count) => count > 0)).toBe(true);
-    expect(getThreadHistoryPinCount(thread.id)).toBe(0);
-  });
+  it.each(["healthy", "missing", "corrupt"] as const)(
+    "purges %s cold history without reading the archive and retires its metadata",
+    async (archive) => {
+      const { db, deps, thread } = setup();
+      const move = await moveThreadEventsToColdTier(deps, thread.id, {
+        config: CONFIG,
+        now: NOW,
+      });
+      const segment = getEventColdSegment(db, move.segmentId!)!;
+      const path = resolveDataDirPath(dataDir, segment.path);
+      if (archive === "missing") await rm(path);
+      if (archive === "corrupt") await writeFile(path, "corrupt archive");
+      const hotRows = readRows(db, thread.id).length;
+      const pinCounts: number[] = [];
+      db.$client.function("observe_purge_pin", () => {
+        pinCounts.push(getThreadHistoryPinCount(thread.id));
+        return 1;
+      });
+      db.$client.exec(`CREATE TEMP TRIGGER observe_purge BEFORE DELETE ON events
+        WHEN old.thread_id = '${thread.id}' BEGIN SELECT observe_purge_pin(); END`);
+      db.$client
+        .prepare("UPDATE threads SET deleted_at = ? WHERE id = ?")
+        .run(NOW, thread.id);
+      requestThreadPurge(db, { now: NOW, threadId: thread.id });
+      await threadPurgeSweep(deps).run(deps, NOW);
+      expect(getThread(db, thread.id)).toBeNull();
+      expect(pinCounts).toHaveLength(hotRows);
+      expect(pinCounts.every((count) => count > 0)).toBe(true);
+      expect(getThreadHistoryPinCount(thread.id)).toBe(0);
+      expect(getThreadEventColdStateRow(db, thread.id)).toBeNull();
+      expect(getEventColdSegment(db, segment.segmentId)).toMatchObject({
+        lifecycle: "orphaned",
+        endedAt: expect.any(Number),
+      });
+      expect(
+        (await readColdManifestEntries(dataDir)).map((entry) => entry.kind),
+      ).toEqual(["pending", "committed"]);
+      const reconciled = await reconcileEventColdTier(deps, NOW);
+      expect(reconciled.missingLiveSegments).toEqual([]);
+      expect(reconciled.classes.ended.count).toBe(
+        archive === "missing" ? 0 : 1,
+      );
+    },
+  );
 
   it("makes a live row with a missing file an error, not a silent loss", async () => {
     const { db, deps, thread } = setup();

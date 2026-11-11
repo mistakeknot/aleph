@@ -263,4 +263,4 @@ The paged timeline added eight exported db functions that read `events`. Every c
 | hasStoredItemEventRowsThroughSequence @ events.ts:3798     | R   | existence of earlier rows for appended items  | timeline-selection-memo.ts:324 | yes            | **HYDRATE** (timeline) |
 | listStoredTimelineItemEventRowsByItems @ events.ts:3823    | R   | head-state rows for selected items            | timeline.ts:1028               | yes            | **HYDRATE** (timeline) |
 
-| deleteThreadPurgeBatch | HYDRATE through threadPurgeSweep withHotThreadHistory before deleting events; the pin covers all paced batches. |
+| deleteThreadPurgeBatch | EXCLUDE from hydration: threadPurgeSweep holds a history pin while deleting an already-deleted thread, then retires its orphaned cold segments without reading the archive. |

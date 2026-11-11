@@ -785,6 +785,7 @@ export function listEventColdSegments(
 export function markOrphanedEventColdSegments(
   db: DbQueryConnection,
   now: number,
+  threadId?: string,
 ): string[] {
   return db
     .all<{ segment_id: string }>(
@@ -792,6 +793,7 @@ export function markOrphanedEventColdSegments(
       UPDATE event_cold_segments
       SET lifecycle = 'orphaned', ended_at = ${now}
       WHERE lifecycle = 'live'
+        AND (${threadId ?? null} IS NULL OR thread_id = ${threadId ?? null})
         AND NOT EXISTS (
           SELECT 1 FROM threads WHERE threads.id = event_cold_segments.thread_id
         )

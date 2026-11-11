@@ -3,9 +3,10 @@ import {
   deleteThreadPurgeBatch,
   listRunningThreads,
   nextThreadPurge,
+  markOrphanedEventColdSegments,
 } from "@bb/db";
 import type { AppDeps } from "../../types.js";
-import { withHotThreadHistory } from "./event-cold-tier/service.js";
+import { pinThreadHistory } from "./event-cold-tier/pins.js";
 import { NotificationBuffer } from "../lib/notification-buffer.js";
 import { isServerMoveFrozen } from "../server-move/freeze-state.js";
 import { defineScanSweep, type ItemSweep } from "../system/item-sweep.js";
@@ -34,6 +35,7 @@ function purgeThreadBatch(deps: ThreadPurgeDeps, threadId: string): boolean {
       });
       if (deleted > 0) return;
       deleteThread(tx, notifications, threadId);
+      markOrphanedEventColdSegments(tx, Date.now(), threadId);
       finished = true;
     },
     { behavior: "immediate" },
@@ -60,8 +62,9 @@ export function threadPurgeSweep(deps: ThreadPurgeDeps): ItemSweep {
       return threadId === null ? [] : [threadId];
     },
     key: (threadId) => threadId,
-    process: async (threadId) =>
-      withHotThreadHistory(deps, threadId, async () => {
+    process: async (threadId) => {
+      const release = pinThreadHistory(threadId);
+      try {
         for (;;) {
           const restMs = resumeAt - performance.now();
           if (restMs > 0)
@@ -91,6 +94,9 @@ export function threadPurgeSweep(deps: ThreadPurgeDeps): ItemSweep {
             );
           if (finished) return;
         }
-      }),
+      } finally {
+        release();
+      }
+    },
   });
 }
