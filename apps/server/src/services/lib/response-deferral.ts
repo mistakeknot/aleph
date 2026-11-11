@@ -11,7 +11,7 @@ interface DeferAfterResponseArgs {
 
 const realSetTimeout = globalThis.setTimeout;
 const realClearTimeout = globalThis.clearTimeout;
-const CLOCK_CHANGE_GRACE_MS = 500;
+const CLOCK_CHANGE_GRACE_MS = 1500;
 const WATCHED_SCHEDULERS = [
   "setTimeout",
   "setImmediate",
@@ -35,6 +35,7 @@ const inFlightWork = new Map<Promise<void>, InFlightEntry>();
 const liveScopes = new Set<object>();
 let trackingEnabled = false;
 let clockEpoch = 0;
+const clockSwapWaiters = new Set<() => void>();
 
 function timersAreFaked(): boolean {
   return WATCHED_SCHEDULERS.some(
@@ -54,6 +55,7 @@ function watchClockSwaps(): void {
       set: (value: unknown) => {
         current = value;
         clockEpoch += 1;
+        for (const notify of [...clockSwapWaiters]) notify();
       },
     });
   }
@@ -126,30 +128,33 @@ export async function cancelAndAwaitDeferredWorkForTesting(
         inFlightWork.delete(running);
         continue;
       }
-      waits.push(
-        entry.clockEpoch === clockEpoch
-          ? running.then(noop, noop)
-          : awaitWithGrace(running),
-      );
+      waits.push(awaitBounded(running, entry));
     }
     if (waits.length === 0) return;
     await Promise.all(waits);
   }
 }
 
-function noop(): void {}
-
-async function awaitWithGrace(running: Promise<void>): Promise<void> {
-  let deadline: NodeJS.Timeout | undefined;
-  const expired = await Promise.race([
-    running.then(
-      () => false,
-      () => false,
-    ),
-    new Promise<boolean>((resolve) => {
-      deadline = realSetTimeout(() => resolve(true), CLOCK_CHANGE_GRACE_MS);
-    }),
-  ]);
-  realClearTimeout(deadline);
-  if (expired) inFlightWork.delete(running);
+function awaitBounded(
+  running: Promise<void>,
+  entry: InFlightEntry,
+): Promise<void> {
+  return new Promise((resolve) => {
+    let deadline: NodeJS.Timeout | undefined;
+    const finish = (): void => {
+      clockSwapWaiters.delete(arm);
+      realClearTimeout(deadline);
+      resolve();
+    };
+    const arm = (): void => {
+      if (deadline) return;
+      deadline = realSetTimeout(() => {
+        inFlightWork.delete(running);
+        finish();
+      }, CLOCK_CHANGE_GRACE_MS);
+    };
+    running.then(finish, finish);
+    if (clockEpoch !== entry.clockEpoch) arm();
+    else clockSwapWaiters.add(arm);
+  });
 }

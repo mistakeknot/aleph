@@ -288,6 +288,53 @@ describe("test harness teardown of deferred work", () => {
     expect(finished).toBe(true);
   });
 
+  it("awaits slow live work across an unrelated clock swap", async () => {
+    let finished = false;
+    await withTestHarness(async (harness) => {
+      deferAfterResponse({
+        config: harness.config,
+        logger: LOGGER,
+        name: "slow live across clock swap",
+        work: async () => {
+          await sleep(900);
+          finished = true;
+        },
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+      vi.useFakeTimers();
+      vi.useRealTimers();
+    });
+    expect(finished).toBe(true);
+  });
+
+  it("bounds a wait already underway when the clock is swapped during it", async () => {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const scope = { isDevelopment: false };
+    deferAfterResponse({
+      config: scope,
+      logger: LOGGER,
+      name: "swap during wait",
+      work: async () => {
+        await gate;
+        await new Promise((resolve) => setTimeout(resolve, 60));
+      },
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    const cleanup = cancelAndAwaitDeferredWorkForTesting(scope);
+    vi.useFakeTimers();
+    release();
+    await vi.advanceTimersByTimeAsync(0);
+    vi.useRealTimers();
+    const outcome = await Promise.race([
+      cleanup.then(() => "completed"),
+      sleep(4000).then(() => "hung"),
+    ]);
+    expect(outcome).toBe("completed");
+  });
+
   it("leaves another live harness's deferred work alone", async () => {
     let ran = false;
     await withTestHarness(async (first) => {
