@@ -19,6 +19,7 @@ import { AccountStore } from "./store.js";
 const UPSTREAM = "https://anthropic.test";
 const AUTH = "https://auth.test";
 const CODEX_AUTH = "https://codex-auth.test";
+const CODEX_POLL_INTERVAL_SECONDS = 1;
 
 interface Identity {
   uuid: string;
@@ -70,6 +71,13 @@ class FakeProviders {
   readonly upstreamAuthorizations: string[] = [];
   readonly usageAuthorizations: string[] = [];
   refreshRequests = 0;
+  private clockSkewMs = 0;
+
+  readonly now = (): number => Date.now() + this.clockSkewMs;
+
+  advanceClock(ms: number): void {
+    this.clockSkewMs += ms;
+  }
 
   grant(identity: Identity): Grant {
     this.issued += 1;
@@ -147,7 +155,7 @@ class FakeProviders {
         return Response.json({
           device_auth_id: "device",
           user_code: "ABCD-1234",
-          interval: 1,
+          interval: CODEX_POLL_INTERVAL_SECONDS,
           expires_in: 600,
         });
       }
@@ -199,6 +207,7 @@ async function startPool(providers: FakeProviders) {
   });
   await createAccountPoolPlugin({
     fetch: providers.fetch,
+    now: providers.now,
     refreshUrl: `${AUTH}/token`,
     usageUrl: `${AUTH}/usage`,
     oauthAuthorizeUrl: `${AUTH}/authorize`,
@@ -539,6 +548,7 @@ describe("Account Pooler logins", () => {
       const sessionId = started.stdout.match(/Session ID: ([0-9a-f-]+)/u)?.[1];
       if (sessionId === undefined) throw new Error("No Codex session.");
       providers.nextCodexLogin = identity;
+      providers.advanceClock(CODEX_POLL_INTERVAL_SECONDS * 1_000);
       return pool.host.harness.behavior.runCli([
         "account",
         "login-poll",
