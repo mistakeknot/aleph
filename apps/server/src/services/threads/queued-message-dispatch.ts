@@ -243,7 +243,7 @@ export function requestQueuedMessageDispatchAt(
     Math.max(0, at - Date.now()),
   );
   timer.unref();
-  trackDeferredTimer(timer);
+  trackDeferredTimer(timer, deps.config);
 }
 
 export async function runQueuedMessageDispatch(

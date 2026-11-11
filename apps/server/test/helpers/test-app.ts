@@ -397,7 +397,7 @@ export async function createTestAppHarness(
     watchInterests,
     sharedPorts,
   };
-  enableDeferredWorkTrackingForTesting();
+  enableDeferredWorkTrackingForTesting(config);
   const { app, pluginCatalogService, pluginService, serverMove } =
     createApp(deps);
   installDefaultEnvironmentProviders();
@@ -412,7 +412,7 @@ export async function createTestAppHarness(
     pluginCatalogService,
     serverMove,
     async cleanup(): Promise<void> {
-      await cancelAndAwaitDeferredWorkForTesting();
+      await cancelAndAwaitDeferredWorkForTesting(config);
       clearAllThreadProvisionSchedules();
       setPluginEnvironmentProviderBridge(undefined);
       await pluginService.stop();

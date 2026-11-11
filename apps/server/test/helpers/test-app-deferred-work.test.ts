@@ -16,7 +16,7 @@ function sleep(ms: number): Promise<void> {
 
 describe("test harness teardown of deferred work", () => {
   beforeAll(() => {
-    enableDeferredWorkTrackingForTesting();
+    enableDeferredWorkTrackingForTesting({});
   });
 
   afterEach(() => {
@@ -88,8 +88,9 @@ describe("test harness teardown of deferred work", () => {
       setTimeout(() => {
         fired = true;
       }, 30),
+      CONFIG,
     );
-    await cancelAndAwaitDeferredWorkForTesting();
+    await cancelAndAwaitDeferredWorkForTesting({});
     await sleep(80);
     expect(fired).toBe(false);
   });
@@ -150,7 +151,7 @@ describe("test harness teardown of deferred work", () => {
     });
     vi.useRealTimers();
     const outcome = await Promise.race([
-      cancelAndAwaitDeferredWorkForTesting().then(() => "completed"),
+      cancelAndAwaitDeferredWorkForTesting({}).then(() => "completed"),
       sleep(500).then(() => "hung"),
     ]);
     expect(outcome).toBe("completed");
@@ -175,6 +176,74 @@ describe("test harness teardown of deferred work", () => {
     expect(finished).toBe(true);
   });
 
+  it("does not hang when work started live and awaits a fake timer that is later discarded", async () => {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let settled = false;
+    const outcome = await Promise.race([
+      withTestHarness(async (harness) => {
+        deferAfterResponse({
+          config: harness.config,
+          logger: LOGGER,
+          name: "live then fake",
+          work: async () => {
+            await gate;
+            await new Promise((resolve) => setTimeout(resolve, 60));
+            settled = true;
+          },
+        });
+        await new Promise((resolve) => setImmediate(resolve));
+        vi.useFakeTimers();
+        release();
+        await vi.advanceTimersByTimeAsync(0);
+        vi.useRealTimers();
+      }).then(() => "completed"),
+      sleep(5000).then(() => "hung"),
+    ]);
+    expect(outcome).toBe("completed");
+    expect(settled).toBe(false);
+  });
+
+  it("awaits live work after a fake clock was installed and restored", async () => {
+    let finished = false;
+    await withTestHarness(async (harness) => {
+      deferAfterResponse({
+        config: harness.config,
+        logger: LOGGER,
+        name: "live across clock swap",
+        work: async () => {
+          await sleep(60);
+          finished = true;
+        },
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+      vi.useFakeTimers();
+      vi.useRealTimers();
+      expect(finished).toBe(false);
+    });
+    expect(finished).toBe(true);
+  });
+
+  it("leaves another live harness's deferred work alone", async () => {
+    let ran = false;
+    await withTestHarness(async (first) => {
+      await withTestHarness(async () => {
+        deferAfterResponse({
+          config: first.config,
+          logger: LOGGER,
+          name: "outer harness work",
+          work: async () => {
+            ran = true;
+          },
+        });
+      });
+      await sleep(20);
+      expect(ran).toBe(true);
+    });
+  });
+
   it("leaves deferred work untouched until tracking is enabled", async () => {
     vi.resetModules();
     const fresh = await import("../../src/services/lib/response-deferral.js");
@@ -187,7 +256,7 @@ describe("test harness teardown of deferred work", () => {
         ran = true;
       },
     });
-    await fresh.cancelAndAwaitDeferredWorkForTesting();
+    await fresh.cancelAndAwaitDeferredWorkForTesting({});
     await sleep(20);
     expect(ran).toBe(true);
   });

@@ -10,16 +10,49 @@ interface DeferAfterResponseArgs {
 }
 
 const realSetTimeout = globalThis.setTimeout;
-const pendingCancels = new Map<object, () => void>();
-const inFlightWork = new Map<Promise<void>, boolean>();
+const realClearTimeout = globalThis.clearTimeout;
+const CLOCK_CHANGE_GRACE_MS = 500;
+
+interface PendingEntry {
+  cancel: () => void;
+  scope: object;
+}
+
+interface InFlightEntry {
+  clockEpoch: number;
+  scope: object;
+  startedFaked: boolean;
+}
+
+const pendingCancels = new Map<object, PendingEntry>();
+const inFlightWork = new Map<Promise<void>, InFlightEntry>();
+const liveScopes = new Set<object>();
 let trackingEnabled = false;
+let clockEpoch = 0;
 
 function timersAreFaked(): boolean {
   return globalThis.setTimeout !== realSetTimeout;
 }
 
-export function enableDeferredWorkTrackingForTesting(): void {
+function watchClockSwaps(): void {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "setTimeout");
+  if (!descriptor?.configurable || descriptor.get) return;
+  let current = globalThis.setTimeout;
+  Object.defineProperty(globalThis, "setTimeout", {
+    configurable: true,
+    enumerable: descriptor.enumerable,
+    get: () => current,
+    set: (value: typeof setTimeout) => {
+      current = value;
+      clockEpoch += 1;
+    },
+  });
+}
+
+export function enableDeferredWorkTrackingForTesting(scope: object): void {
+  if (!trackingEnabled) watchClockSwaps();
   trackingEnabled = true;
+  liveScopes.add(scope);
 }
 
 export function deferAfterResponse(args: DeferAfterResponseArgs): void {
@@ -36,33 +69,73 @@ export function deferAfterResponse(args: DeferAfterResponseArgs): void {
       );
     });
     if (!trackingEnabled) return;
-    inFlightWork.set(running, timersAreFaked());
+    inFlightWork.set(running, {
+      clockEpoch,
+      scope: args.config,
+      startedFaked: timersAreFaked(),
+    });
     void running.finally(() => {
       inFlightWork.delete(running);
     });
   });
-  if (clear) pendingCancels.set(immediate, () => clear(immediate));
+  if (clear) {
+    pendingCancels.set(immediate, {
+      cancel: () => clear(immediate),
+      scope: args.config,
+    });
+  }
 }
 
-export function trackDeferredTimer(timer: NodeJS.Timeout): void {
+export function trackDeferredTimer(timer: NodeJS.Timeout, scope: object): void {
   if (!trackingEnabled) return;
   const clear = clearTimeout;
-  pendingCancels.set(timer, () => clear(timer));
+  pendingCancels.set(timer, { cancel: () => clear(timer), scope });
 }
 
 export function releaseDeferredTimer(timer: NodeJS.Timeout): void {
   pendingCancels.delete(timer);
 }
 
-export async function cancelAndAwaitDeferredWorkForTesting(): Promise<void> {
+export async function cancelAndAwaitDeferredWorkForTesting(
+  scope: object,
+): Promise<void> {
+  liveScopes.delete(scope);
+  const owned = (entryScope: object): boolean =>
+    entryScope === scope || !liveScopes.has(entryScope);
   for (;;) {
-    for (const cancel of pendingCancels.values()) cancel();
-    pendingCancels.clear();
-    const fakedNow = timersAreFaked();
-    for (const [running, startedFaked] of inFlightWork) {
-      if (fakedNow || startedFaked) inFlightWork.delete(running);
+    for (const [handle, entry] of pendingCancels) {
+      if (!owned(entry.scope)) continue;
+      entry.cancel();
+      pendingCancels.delete(handle);
     }
-    if (inFlightWork.size === 0) return;
-    await Promise.allSettled([...inFlightWork.keys()]);
+    const fakedNow = timersAreFaked();
+    const awaited: Promise<void>[] = [];
+    let clockChanged = false;
+    for (const [running, entry] of inFlightWork) {
+      if (!owned(entry.scope)) continue;
+      if (fakedNow || entry.startedFaked) {
+        inFlightWork.delete(running);
+        continue;
+      }
+      awaited.push(running);
+      if (entry.clockEpoch !== clockEpoch) clockChanged = true;
+    }
+    if (awaited.length === 0) return;
+    const settled = Promise.allSettled(awaited);
+    if (!clockChanged) {
+      await settled;
+      continue;
+    }
+    let deadline: NodeJS.Timeout | undefined;
+    const expired = await Promise.race([
+      settled.then(() => false),
+      new Promise<boolean>((resolve) => {
+        deadline = realSetTimeout(() => resolve(true), CLOCK_CHANGE_GRACE_MS);
+      }),
+    ]);
+    realClearTimeout(deadline);
+    if (expired) {
+      for (const running of awaited) inFlightWork.delete(running);
+    }
   }
 }
