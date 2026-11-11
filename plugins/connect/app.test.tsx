@@ -1365,6 +1365,7 @@ describe("connect setup guide section", () => {
   it("reports a sign-in that could not start or was denied as a sign-in failure", async () => {
     const onSetupFailed = vi.fn();
     let startFails = true;
+    let statusServed = false;
     const account = fakeAccountSdk({
       "login.start": () => {
         if (startFails) throw new Error("HTTP 500: profile_unavailable");
@@ -1381,11 +1382,23 @@ describe("connect setup guide section", () => {
       {
         openUrl: () => true,
         sdk: account.sdk,
-        rpc: { status: () => status() },
+        rpc: {
+          status: () => {
+            const next = status();
+            statusServed = true;
+            return next;
+          },
+        },
       },
     );
 
-    fireEvent.click(await slot.findByRole("button", { name: "Set up" }));
+    // A click before the initial status load has resolved is swallowed by
+    // setUp (it only refetches), so wait for the status RPC to resolve and
+    // flush its state update before clicking.
+    const setUp = await slot.findByRole("button", { name: "Set up" });
+    await waitFor(() => expect(statusServed).toBe(true));
+    await act(async () => {});
+    fireEvent.click(setUp);
     await waitFor(() =>
       expect(onSetupFailed).toHaveBeenCalledExactlyOnceWith("sign_in"),
     );
