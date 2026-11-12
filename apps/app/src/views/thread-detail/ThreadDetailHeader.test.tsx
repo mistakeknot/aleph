@@ -844,6 +844,7 @@ describe("ThreadDetailHeader", () => {
     render(
       <PaneContext.Provider value={{ ...PANE_CONTEXT, isFocused: true }}>
         <ThreadDetailHeader
+          environmentId={null}
           actionsMenu={null}
           isSecondaryPanelOpen={false}
           onToggleSecondaryPanel={vi.fn()}
@@ -867,6 +868,7 @@ describe("ThreadDetailHeader", () => {
         }}
       >
         <ThreadDetailHeader
+          environmentId={null}
           actionsMenu={null}
           isSecondaryPanelOpen={false}
           onToggleSecondaryPanel={vi.fn()}

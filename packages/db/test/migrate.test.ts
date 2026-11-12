@@ -633,6 +633,7 @@ function migrateFromLegacyHistory(db: DbConnection): void {
 // 0150 as A0014, 0151, 0152). Rewind them so a ledger-less open
 // treats them as pending instead of as recorded-but-unledgered.
 function rewindPostOracleSteps(db: DbConnection): void {
+  dropPluginFailureLabelColumns(db);
   dropQueuedMessageDeliveryColumns(db);
   dropThreadStatusChangedAtColumn(db);
   restoreDiffViewedFilesTable(db);
