@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { createConnection, migrate } from "../src/index.js";
-import { restoreDiffViewedFilesTable } from "./helpers/rewind.js";
+import {
+  dropPluginFailureLabelColumns,
+  restoreDiffViewedFilesTable,
+} from "./helpers/rewind.js";
 
 const handoffMigrationWhen = 1793738260717;
 
@@ -10,6 +13,7 @@ function databaseBeforeHandoff(
   const db = createConnection(":memory:");
   migrate(db);
   restoreDiffViewedFilesTable(db);
+  dropPluginFailureLabelColumns(db);
   db.$client.pragma("foreign_keys = OFF");
   const insert = db.$client.prepare(
     "INSERT INTO diff_viewed_files (environment_id, target_key, path, revision, updated_at) VALUES (?, ?, ?, ?, ?)",
@@ -27,6 +31,7 @@ function databaseBeforeHandoff(
       "0153_sweep_item_failures",
       "0154_thread_purges",
       "0155_declare_project_sources_default_index",
+      "0156_plugin_failure_labels",
     );
   return db;
 }

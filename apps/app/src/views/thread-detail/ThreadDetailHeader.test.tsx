@@ -32,9 +32,19 @@ import {
 } from "@bb/shared-ui/inline-rename-presentation-cases";
 import { RenameControllerProvider } from "@/components/sidebar/SidebarInlineRename";
 import type {
+  ExperimentalThreadHeaderTitleProps,
   PluginThreadActionRegistration,
   PluginThreadActionTarget,
 } from "@get-bb/plugin-sdk";
+import {
+  resetPluginSlotStoreForTest,
+  setPluginSlotRegistrations,
+} from "@/lib/plugin-slots";
+import {
+  collectPluginAppRegistrations,
+  definePluginApp,
+} from "@/lib/plugin-app-definition";
+import { resetAllCrashedPluginSlotsForTest } from "@/components/plugin/PluginSlotMount";
 
 const mocks = vi.hoisted(() => ({
   renameThreadAsync: vi.fn(),
@@ -193,6 +203,8 @@ const PANE_CONTEXT: PaneContextValue = {
 afterEach(() => {
   cleanup();
   resetThreadActionRegistryForTest();
+  resetPluginSlotStoreForTest();
+  resetAllCrashedPluginSlotsForTest();
   viewportState.isCompactViewport = false;
   viewportState.isPointerCoarse = false;
   mocks.renameThreadAsync.mockReset();
@@ -206,6 +218,7 @@ describe("ThreadDetailHeader", () => {
     render(
       <PaneContext.Provider value={PANE_CONTEXT}>
         <ThreadDetailHeader
+          environmentId={null}
           actionsMenu={null}
           isSecondaryPanelOpen
           onToggleSecondaryPanel={vi.fn()}
@@ -224,6 +237,7 @@ describe("ThreadDetailHeader", () => {
     const header = (isSecondaryPanelOpen: boolean) => (
       <PaneContext.Provider value={PANE_CONTEXT}>
         <ThreadDetailHeader
+          environmentId={null}
           actionsMenu={null}
           isSecondaryPanelOpen={isSecondaryPanelOpen}
           onToggleSecondaryPanel={vi.fn()}
@@ -256,6 +270,7 @@ describe("ThreadDetailHeader", () => {
     render(
       <PaneContext.Provider value={PANE_CONTEXT}>
         <ThreadDetailHeader
+          environmentId={null}
           actionsMenu={null}
           isSecondaryPanelOpen
           onToggleSecondaryPanel={vi.fn()}
@@ -282,6 +297,7 @@ describe("ThreadDetailHeader", () => {
       render(
         <PaneContext.Provider value={PANE_CONTEXT}>
           <ThreadDetailHeader
+            environmentId={null}
             actionsMenu={null}
             isSecondaryPanelOpen={false}
             onToggleSecondaryPanel={vi.fn()}
@@ -311,6 +327,7 @@ describe("ThreadDetailHeader", () => {
         }}
       >
         <ThreadDetailHeader
+          environmentId={null}
           actionsMenu={null}
           isSecondaryPanelOpen
           onToggleSecondaryPanel={vi.fn()}
@@ -352,6 +369,7 @@ describe("ThreadDetailHeader", () => {
         <HeaderActionCollectors />
         <PaneContext.Provider value={splitContext}>
           <ThreadDetailHeader
+            environmentId={null}
             actionsMenu={({ includeResponsiveActions, headerActions }) => (
               <>
                 <span>Thread menu</span>
@@ -415,6 +433,7 @@ describe("ThreadDetailHeader", () => {
         <HeaderActionCollectors />
         <PaneContext.Provider value={splitContext}>
           <ThreadDetailHeader
+            environmentId={null}
             actionsMenu={({ includeResponsiveActions, headerActions }) => (
               <>
                 <span>Thread menu</span>
@@ -459,6 +478,7 @@ describe("ThreadDetailHeader", () => {
         />
         <PaneContext.Provider value={PANE_CONTEXT}>
           <ThreadDetailHeader
+            environmentId={null}
             actionsMenu={null}
             isSecondaryPanelOpen={false}
             onToggleSecondaryPanel={vi.fn()}
@@ -487,6 +507,7 @@ describe("ThreadDetailHeader", () => {
     const { container } = render(
       <PaneContext.Provider value={PANE_CONTEXT}>
         <ThreadDetailHeader
+          environmentId={null}
           actionsMenu={null}
           isSecondaryPanelOpen={false}
           onToggleSecondaryPanel={vi.fn()}
@@ -520,6 +541,7 @@ describe("ThreadDetailHeader", () => {
       >
         <PaneContext.Provider value={PANE_CONTEXT}>
           <ThreadDetailHeader
+            environmentId={null}
             actionsMenu={null}
             isSecondaryPanelOpen={false}
             onToggleSecondaryPanel={vi.fn()}
@@ -558,6 +580,7 @@ describe("ThreadDetailHeader", () => {
         >
           <PaneContext.Provider value={PANE_CONTEXT}>
             <ThreadDetailHeader
+              environmentId={null}
               actionsMenu={null}
               isSecondaryPanelOpen={false}
               onToggleSecondaryPanel={vi.fn()}
@@ -603,6 +626,7 @@ describe("ThreadDetailHeader", () => {
       >
         <PaneContext.Provider value={PANE_CONTEXT}>
           <ThreadDetailHeader
+            environmentId={null}
             actionsMenu={null}
             isSecondaryPanelOpen={false}
             onToggleSecondaryPanel={vi.fn()}
@@ -630,6 +654,7 @@ describe("ThreadDetailHeader", () => {
       >
         <PaneContext.Provider value={PANE_CONTEXT}>
           <ThreadDetailHeader
+            environmentId={null}
             actionsMenu={null}
             isSecondaryPanelOpen={false}
             onToggleSecondaryPanel={vi.fn()}
@@ -650,6 +675,7 @@ describe("ThreadDetailHeader", () => {
     render(
       <PaneContext.Provider value={PANE_CONTEXT}>
         <ThreadDetailHeader
+          environmentId={null}
           actionsMenu={null}
           isSecondaryPanelOpen={false}
           onToggleSecondaryPanel={vi.fn()}
@@ -683,6 +709,7 @@ describe("ThreadDetailHeader", () => {
     const header = (threadId: string, threadTitle: string) => (
       <PaneContext.Provider value={PANE_CONTEXT}>
         <ThreadDetailHeader
+          environmentId={null}
           actionsMenu={null}
           isSecondaryPanelOpen={false}
           onToggleSecondaryPanel={vi.fn()}
@@ -722,6 +749,7 @@ describe("ThreadDetailHeader", () => {
     render(
       <PaneContext.Provider value={PANE_CONTEXT}>
         <ThreadDetailHeader
+          environmentId={null}
           actionsMenu={null}
           isSecondaryPanelOpen={false}
           onToggleSecondaryPanel={vi.fn()}
@@ -758,6 +786,7 @@ describe("ThreadDetailHeader", () => {
             value={{ ...PANE_CONTEXT, reservesWindowPanelToggle: true }}
           >
             <ThreadDetailHeader
+              environmentId={null}
               actionsMenu={null}
               isSecondaryPanelOpen={false}
               onToggleSecondaryPanel={vi.fn()}
@@ -790,6 +819,7 @@ describe("ThreadDetailHeader", () => {
         }}
       >
         <ThreadDetailHeader
+          environmentId={null}
           actionsMenu={null}
           isSecondaryPanelOpen={false}
           onToggleSecondaryPanel={vi.fn()}
@@ -856,6 +886,7 @@ describe("ThreadDetailHeader", () => {
       <AppCommandProvider>
         <PaneContext.Provider value={{ ...PANE_CONTEXT, isFocused: focused }}>
           <ThreadDetailHeader
+            environmentId={null}
             actionsMenu={(args) => {
               menuArgs.current = args;
               return null;
@@ -871,18 +902,16 @@ describe("ThreadDetailHeader", () => {
     return menuArgs;
   }
 
-  async function expectRenamePresentation(
-    outcome: RenamePresentationOutcome,
-  ) {
+  async function expectRenamePresentation(outcome: RenamePresentationOutcome) {
     if (outcome === "none") {
       expect(screen.queryByRole("textbox", { name: "Thread name" })).toBeNull();
       return;
     }
     const input = await screen.findByRole("textbox", { name: "Thread name" });
     expect(input).toHaveProperty("value", "Focused thread");
-    expect(input.closest('[role="dialog"]') === null ? "inline" : "dialog").toBe(
-      outcome,
-    );
+    expect(
+      input.closest('[role="dialog"]') === null ? "inline" : "dialog",
+    ).toBe(outcome);
     fireEvent.keyDown(input, { key: "Escape" });
     await waitFor(() =>
       expect(screen.queryByRole("textbox", { name: "Thread name" })).toBeNull(),
@@ -972,4 +1001,161 @@ describe("ThreadDetailHeader", () => {
       }
     },
   );
+});
+
+describe("experimental_threadHeaderTitle", () => {
+  function Breadcrumb(props: ExperimentalThreadHeaderTitleProps) {
+    return (
+      <span data-testid="plugin-title" data-props={JSON.stringify(props)}>
+        <button type="button">acme</button>
+        <span> › feature-x</span>
+      </span>
+    );
+  }
+
+  function Crashes(): never {
+    throw new Error("title crashed");
+  }
+
+  function registerTitles(
+    pluginId: string,
+    setup: Parameters<typeof definePluginApp>[0],
+  ) {
+    setPluginSlotRegistrations(
+      pluginId,
+      collectPluginAppRegistrations(definePluginApp(setup)),
+    );
+  }
+
+  function renderHeader(
+    pane: Partial<PaneContextValue> = {},
+    actionsMenu: ThreadDetailHeaderActionsMenuArgs[] = [],
+  ) {
+    return render(
+      <AppCommandProvider>
+        <PaneContext.Provider value={{ ...PANE_CONTEXT, ...pane }}>
+          <ThreadDetailHeader
+            environmentId="env_header"
+            actionsMenu={(args) => {
+              actionsMenu.push(args);
+              return (
+                <button type="button" aria-label="Thread actions">
+                  ···
+                </button>
+              );
+            }}
+            isSecondaryPanelOpen={false}
+            onToggleSecondaryPanel={vi.fn()}
+            thread={THREAD_TARGET}
+            threadTitle="Core title"
+          />
+        </PaneContext.Provider>
+      </AppCommandProvider>,
+    );
+  }
+
+  it("replaces the title text and keeps the actions menu and right-panel toggle", () => {
+    registerTitles("conductor", (app) => {
+      app.slots.experimental_threadHeaderTitle({
+        id: "breadcrumb",
+        component: Breadcrumb,
+      });
+    });
+    renderHeader();
+
+    const title = screen.getByTestId("plugin-title");
+    expect(JSON.parse(title.dataset.props ?? "null")).toEqual({
+      threadId: THREAD_ID,
+      projectId: "proj_header",
+      environment: { id: "env_header" },
+    });
+    expect(screen.queryByText("Core title")).toBeNull();
+    expect(title.closest("p")).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Thread actions" }),
+    ).not.toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Show right panel" }),
+    ).not.toBeNull();
+  });
+
+  it("uses the first plugin's title in plugin order", () => {
+    registerTitles("zeta", (app) => {
+      app.slots.experimental_threadHeaderTitle({
+        id: "late",
+        component: () => <span>Zeta title</span>,
+      });
+    });
+    registerTitles("alpha", (app) => {
+      app.slots.experimental_threadHeaderTitle({
+        id: "early",
+        component: () => <span>Alpha title</span>,
+      });
+    });
+    renderHeader();
+
+    expect(screen.getByText("Alpha title")).not.toBeNull();
+    expect(screen.queryByText("Zeta title")).toBeNull();
+  });
+
+  it("falls back to the core title when the plugin title crashes", () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    registerTitles("conductor", (app) => {
+      app.slots.experimental_threadHeaderTitle({
+        id: "breadcrumb",
+        component: Crashes,
+      });
+    });
+    renderHeader();
+
+    expect(screen.getByText("Core title")).not.toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Thread actions" }),
+    ).not.toBeNull();
+  });
+
+  it("shows the rename editor while renaming and the plugin title after", async () => {
+    registerTitles("conductor", (app) => {
+      app.slots.experimental_threadHeaderTitle({
+        id: "breadcrumb",
+        component: Breadcrumb,
+      });
+    });
+    const menuArgs: ThreadDetailHeaderActionsMenuArgs[] = [];
+    renderHeader({}, menuArgs);
+
+    fireEvent.doubleClick(screen.getByTestId("plugin-title"));
+    expect(screen.queryByRole("textbox", { name: "Thread name" })).toBeNull();
+
+    menuArgs.at(-1)?.requestRename(THREAD_ID);
+    menuArgs
+      .at(-1)
+      ?.onCloseAutoFocus(new Event("focusout", { cancelable: true }));
+    const input = await screen.findByRole("textbox", { name: "Thread name" });
+    expect(input).toHaveProperty("value", "Core title");
+    expect(screen.queryByTestId("plugin-title")).toBeNull();
+
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(await screen.findByTestId("plugin-title")).not.toBeNull();
+  });
+
+  it("starts a pane drag from the title but not from its controls", () => {
+    registerTitles("conductor", (app) => {
+      app.slots.experimental_threadHeaderTitle({
+        id: "breadcrumb",
+        component: Breadcrumb,
+      });
+    });
+    const beginPaneDrag = vi.fn();
+    renderHeader({ isSplitPane: true, beginPaneDrag });
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: "acme" }), {
+      button: 0,
+    });
+    expect(beginPaneDrag).not.toHaveBeenCalled();
+
+    fireEvent.pointerDown(screen.getByText("› feature-x"), { button: 0 });
+    expect(beginPaneDrag).toHaveBeenCalledOnce();
+  });
 });
