@@ -126,7 +126,9 @@ function rig(
     capability?: "absent" | "command-only" | "startable";
     directStart?: "allow" | "deny" | "default";
     manifest?: AlephManifest;
-    notifySink?: (message: string) => Promise<void>;
+    notifySink?: ((message: string) => Promise<void>) & {
+      configured?: boolean;
+    };
     state?: Record<string, unknown> | null;
     threads?: number;
   } = {},
@@ -796,6 +798,22 @@ describe("aleph update direct start policy", () => {
 });
 
 describe("aleph update install requests", () => {
+  it("exposes no recipient truthfully and records command delivery separately from request time", async () => {
+    const missing = rig();
+    expect(
+      (await missing.service.getStatus()).overview?.requestRecipientConfigured,
+    ).toBe(false);
+    const notifySink = Object.assign(async () => {}, { configured: true });
+    const { service } = rig({ notifySink });
+    expect(
+      (await service.getStatus()).overview?.requestRecipientConfigured,
+    ).toBe(true);
+    await service.requestInstall(await body(service));
+    const status = await service.getStatus();
+    expect(status.overview?.requestDelivery).toBe("sent");
+    expect(status.installRequest.requestedAt).toBe(new Date(NOW).toISOString());
+  });
+
   it("records one request and never starts a unit", async () => {
     const { service, system, requests } = rig({ directStart: "deny" });
     const status = await service.getStatus();
@@ -922,6 +940,9 @@ describe("aleph update install requests", () => {
     const record = await service.requestInstall(await body(service));
     expect(record.state).toBe("requested");
     expect(requests.rows).toHaveLength(1);
+    expect((await service.getStatus()).overview?.requestDelivery).toBe(
+      "failed",
+    );
     expect(notices).toEqual([]);
     await service.cancelInstall({ nonce: NONCE });
     await service.requestInstall(await body(service, OTHER_NONCE));

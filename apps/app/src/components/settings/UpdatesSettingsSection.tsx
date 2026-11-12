@@ -1,3 +1,5 @@
+import { systemAlephUpdateQueryKey } from "@/hooks/queries/query-keys";
+import { AlephOverviewView } from "./AlephOverview";
 import {
   useEffect,
   useRef,
@@ -2331,39 +2333,64 @@ export function UpdatesSettingsSection() {
 
   return (
     <div className="space-y-6">
-      <BbUpdatesCard>
-        {serverRunsSeparately && desktopRowNeedsAttention(desktopInfo) ? (
-          <>
-            {desktopClientRow}
-            {releaseNotesPanel("desktop")}
-          </>
-        ) : null}
-        {showAlephUpdateRow && alephStatus !== null ? (
-          <AlephUpdateRow name="bb server" status={alephStatus} />
-        ) : (
-          serverAppRow
-        )}
-        {releaseNotesPanel("server")}
-        {updateWhenIdleEnabled &&
-        !showAlephUpdateRow &&
-        appUpdate !== undefined &&
-        (appUpdate.support.kind === "supported" ||
-          appUpdate.desktopUpdateSupported === true) ? (
-          <AutoAppUpdateSetting
-            label={
-              serverRunsSeparately
-                ? "Restart and update the server automatically"
-                : "Restart and update bb automatically"
-            }
-            checked={
-              setAutoAppUpdate.isPending
-                ? (setAutoAppUpdate.variables ?? appUpdate.autoUpdate)
-                : appUpdate.autoUpdate
-            }
-            onCheckedChange={(enabled) => setAutoAppUpdate.mutate(enabled)}
-          />
-        ) : null}
-      </BbUpdatesCard>
+      {isAlephAppVersion(inventory.systemVersion?.currentVersion ?? "") ? (
+        <AlephOverviewView
+          desktopVersion={isDesktop ? (desktopInfo?.version ?? null) : null}
+          runningVersion={inventory.systemVersion?.currentVersion ?? null}
+          overview={alephStatus?.overview}
+          refreshing={isChecking}
+          onRefresh={() => {
+            handleCheckForUpdates();
+            void queryClient.invalidateQueries({
+              queryKey: systemAlephUpdateQueryKey(),
+            });
+          }}
+          server={
+            alephStatus ? (
+              <AlephUpdateRow name="Server" status={alephStatus} />
+            ) : (
+              <p className="px-4 py-3 text-sm">
+                Server {inventory.systemVersion?.currentVersion} · Update status
+                unavailable
+              </p>
+            )
+          }
+        />
+      ) : (
+        <BbUpdatesCard>
+          {serverRunsSeparately && desktopRowNeedsAttention(desktopInfo) ? (
+            <>
+              {desktopClientRow}
+              {releaseNotesPanel("desktop")}
+            </>
+          ) : null}
+          {showAlephUpdateRow && alephStatus !== null ? (
+            <AlephUpdateRow name="bb server" status={alephStatus} />
+          ) : (
+            serverAppRow
+          )}
+          {releaseNotesPanel("server")}
+          {updateWhenIdleEnabled &&
+          !showAlephUpdateRow &&
+          appUpdate !== undefined &&
+          (appUpdate.support.kind === "supported" ||
+            appUpdate.desktopUpdateSupported === true) ? (
+            <AutoAppUpdateSetting
+              label={
+                serverRunsSeparately
+                  ? "Restart and update the server automatically"
+                  : "Restart and update bb automatically"
+              }
+              checked={
+                setAutoAppUpdate.isPending
+                  ? (setAutoAppUpdate.variables ?? appUpdate.autoUpdate)
+                  : appUpdate.autoUpdate
+              }
+              onCheckedChange={(enabled) => setAutoAppUpdate.mutate(enabled)}
+            />
+          ) : null}
+        </BbUpdatesCard>
+      )}
 
       <ProviderCliUpdatesSection
         machines={inventory.machines}

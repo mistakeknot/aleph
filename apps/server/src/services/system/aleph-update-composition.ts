@@ -10,7 +10,9 @@ import {
   type AlephUpdateService,
 } from "./aleph-update.js";
 
-export type AlephUpdateNoticeSink = (message: string) => Promise<void>;
+export type AlephUpdateNoticeSink = ((message: string) => Promise<void>) & {
+  configured?: boolean;
+};
 
 export const noopAlephUpdateNotice: AlephUpdateNoticeSink = async () => {};
 
