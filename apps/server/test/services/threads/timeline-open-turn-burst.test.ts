@@ -207,7 +207,7 @@ function runBurst(coalesce: boolean): BurstResult {
             built.profile.totalDurationMs,
           );
           clock += built.profile.totalDurationMs;
-          return built.response;
+          return { expiresAt: null, response: built.response };
         },
         coalesce,
         maxSeq,

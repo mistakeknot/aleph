@@ -1138,3 +1138,11 @@ agent-priority	M	apps/host-daemon/src/app.test.ts
 agent-priority	M	packages/process-utils/src/workload-priority.ts
 agent-priority	M	packages/process-utils/test/workload-priority.test.ts
 timeline-build-bound	M	apps/server/src/services/threads/thread-head-state.ts
+build-config	M	.github/workflows/ci.yml
+build-config	D	.github/workflows/query-plan-audit.yml
+timeline-build-bound	M	apps/server/test/services/threads/timeline-cache.test.ts
+build-config	M	apps/app/src/lib/plugin-frontend-reload.test.ts
+build-config	M	apps/server/src/services/system/query-plan-audit.ts
+worktree-saved-work	M	packages/environment-provider-host/src/git.ts
+fork-owned-migrations	M	packages/db/src/query-plan-allowlist.ts
+worktree-saved-work	M	plugins/environment-git-worktree/host.test.ts

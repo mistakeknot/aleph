@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  deleteOwnedBranch,
   encodeSavedWorkBranch,
   removeWorktree,
   saveUncommittedWork,
@@ -242,6 +243,20 @@ describe("removeWorktree saves uncommitted work (mk-rygli)", () => {
         process.env.GIT_WORK_TREE = other;
         process.env.GIT_INDEX_FILE = join(other, ".git", "index");
         await removeWorktree({ path: worktree });
+        expect(
+          await deleteOwnedBranch({
+            repositoryPath: repo,
+            branchName: "feature",
+            baseBranch: "main",
+          }),
+        ).toBe("unpushed-commits");
+        expect(
+          await deleteOwnedBranch({
+            repositoryPath: repo,
+            branchName: "main",
+            baseBranch: "main",
+          }),
+        ).toBe("checked-out");
       } finally {
         for (const [key, value] of saved) {
           if (value === undefined) delete process.env[key];

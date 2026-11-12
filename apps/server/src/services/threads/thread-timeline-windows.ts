@@ -179,8 +179,9 @@ export function createThreadTimelineWindows(
       surfaceOptions,
     ).cacheKey;
     const rewriteGeneration = getThreadEventRewriteGeneration(thread.id);
-    const buildFull = () =>
-      timelineCache.getOrBuild(
+    const buildFull = () => {
+      let expiresAt: number | null = null;
+      const response = timelineCache.getOrBuild(
         thread.id,
         buildThreadTimelineCacheKey(keyArgs),
         buildThreadTimelineCacheRevision({
@@ -193,6 +194,7 @@ export function createThreadTimelineWindows(
         (previous) => {
           const {
             cost,
+            expiresAt,
             profile,
             response: built,
           } = buildThreadTimelineWithProfile(deps.db, thread, {
@@ -209,10 +211,18 @@ export function createThreadTimelineWindows(
             }),
             previous,
           );
-          return { ...window, tag: timelineWindowTag(window) };
+          return {
+            expiresAt,
+            response: { ...window, tag: timelineWindowTag(window) },
+          };
+        },
+        (deadline) => {
+          expiresAt = deadline;
         },
       );
-    if (request.page.kind !== "latest") return buildFull();
+      return { expiresAt, response };
+    };
+    if (request.page.kind !== "latest") return buildFull().response;
     const { response } = buildCoalescer.serve({
       build: buildFull,
       coalesce:

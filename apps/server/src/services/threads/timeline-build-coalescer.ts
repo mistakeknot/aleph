@@ -23,7 +23,7 @@ interface TimelineBuildCoalescerOptions {
 }
 
 interface TimelineBuildCoalescerServeArgs {
-  build: () => ThreadTimelineResponse;
+  build: () => { expiresAt: number | null; response: ThreadTimelineResponse };
   coalesce: boolean;
   maxSeq: number;
   paramsKey: string;
@@ -45,6 +45,7 @@ interface TimelineBuildCoalescer {
 }
 
 interface CoalescerEntry {
+  expiresAt: number | null;
   builtAt: number;
   bytes: number;
   buildMs: number;
@@ -132,7 +133,11 @@ export function createTimelineBuildCoalescer(
     serve(args) {
       const entry = entries.get(args.paramsKey);
       const current = now();
-      if (entry !== undefined && entry.threadId === args.threadId) {
+      if (
+        entry !== undefined &&
+        entry.threadId === args.threadId &&
+        (entry.expiresAt === null || Date.now() < entry.expiresAt)
+      ) {
         if (entry.maxSeq === args.maxSeq) {
           touch(args.paramsKey, entry);
           return { response: entry.response, stale: false };
@@ -156,9 +161,10 @@ export function createTimelineBuildCoalescer(
         }
       }
       const startedAt = now();
-      const response = args.build();
+      const { expiresAt, response } = args.build();
       const finishedAt = now();
       store(args.paramsKey, {
+        expiresAt,
         buildMs: finishedAt - startedAt,
         builtAt: finishedAt,
         bytes: Buffer.byteLength(JSON.stringify(response), "utf8"),
