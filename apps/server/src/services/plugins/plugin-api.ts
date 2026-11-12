@@ -24,6 +24,7 @@ import {
   listPluginKvKeys,
   setPluginKvValue,
   type DbConnection,
+  type WalCheckpointer,
 } from "@bb/db";
 import type { ThreadEventItemPresentation } from "@bb/domain";
 import type {
@@ -502,6 +503,7 @@ export function createPluginApi(options: {
   logger: ServerLogger;
   db: DbConnection;
   dataDir: string;
+  walCheckpointer: Pick<WalCheckpointer, "attach" | "detach"> | null;
   getSdk: () => BbSdk | undefined;
   getMachineEnrollments: () => MachineEnrollments;
   getAppUrl: () => string | null;
@@ -582,6 +584,7 @@ export function createPluginApi(options: {
     logger,
     db,
     dataDir,
+    walCheckpointer,
     getSdk,
     getAppUrl,
     getLoopbackBaseUrl,
@@ -767,6 +770,7 @@ export function createPluginApi(options: {
       if (databaseHandle) {
         const index = databaseHandles.indexOf(databaseHandle);
         if (index !== -1) databaseHandles.splice(index, 1);
+        void walCheckpointer?.detach(databaseHandle);
       }
       const dir = join(dataDir, "plugins", pluginId);
       mkdirSync(dir, { recursive: true });
@@ -774,6 +778,7 @@ export function createPluginApi(options: {
       database.pragma("auto_vacuum = INCREMENTAL");
       database.pragma("journal_mode = WAL");
       database.pragma("busy_timeout = 5000");
+      walCheckpointer?.attach(database);
       databaseHandle = database;
       databaseHandles.push(database);
       return database;

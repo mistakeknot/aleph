@@ -35,8 +35,9 @@ function pruningItemKey(item: ThreadPruningItem): string {
 
 export function threadPruningSweep(
   deps: Pick<AppDeps, "db" | "hub" | "logger">,
-  limits: ThreadPruningSweepLimits,
+  overrides: Partial<ThreadPruningSweepLimits>,
 ): ItemSweep {
+  const limits = { ...THREAD_PRUNING_SWEEP_LIMITS, ...overrides };
   const startedAt = performance.now();
   let advances = 0;
   const withinBudget = () =>
@@ -73,36 +74,29 @@ export function threadPruningSweep(
     },
     key: pruningItemKey,
     process: async (item) => {
-      let removed = 0;
-      try {
-        while (withinBudget()) {
-          const busy = !isDatabaseMaintenanceIdle(
-            getDatabaseMaintenanceActivity(deps.db),
-          );
-          const advanceStartedAt = performance.now();
-          const result = advanceThreadPruning(deps.db, {
-            policy: item.policy,
-            batchSize: busy ? limits.busyBatchSize : limits.idleBatchSize,
-          });
-          const advanceElapsedMs = performance.now() - advanceStartedAt;
-          advances += 1;
-          removed += result.removed;
-          if (advanceElapsedMs >= 50)
-            deps.logger.warn(
-              { ...result, advanceElapsedMs, busy },
-              "Slow thread pruning advance",
-            );
-          deps.logger.debug(
+      while (withinBudget()) {
+        const busy = !isDatabaseMaintenanceIdle(
+          getDatabaseMaintenanceActivity(deps.db),
+        );
+        const advanceStartedAt = performance.now();
+        const result = advanceThreadPruning(deps.db, {
+          policy: item.policy,
+          batchSize: busy ? limits.busyBatchSize : limits.idleBatchSize,
+        });
+        const advanceElapsedMs = performance.now() - advanceStartedAt;
+        advances += 1;
+        if (advanceElapsedMs >= 50)
+          deps.logger.warn(
             { ...result, advanceElapsedMs, busy },
-            "Thread pruning policy advanced",
+            "Slow thread pruning advance",
           );
-          if (result.threadId !== item.threadId || result.action !== "advanced")
-            return;
-          await new Promise<void>((resolve) => setImmediate(resolve));
-        }
-      } finally {
-        if (removed > 0)
-          deps.hub.notifyThread(item.threadId, ["history-compacted"]);
+        deps.logger.debug(
+          { ...result, advanceElapsedMs, busy },
+          "Thread pruning policy advanced",
+        );
+        if (result.threadId !== item.threadId || result.action !== "advanced")
+          return;
+        await new Promise<void>((resolve) => setImmediate(resolve));
       }
     },
   });
