@@ -5,6 +5,11 @@ import {
   disposeAgentProcessScopes,
   prepareAgentProcessScopes,
 } from "./agent-process-scope.js";
+import {
+  readAgentCpuPriority,
+  setAgentWorkloadsLowered,
+  writeAgentCpuPriority,
+} from "@bb/process-utils";
 import { startDesktopBrowserBroker } from "./desktop-browser-broker.js";
 import {
   EXTRA_WORKSPACE_WRITE_ROOTS_ENV,
@@ -269,6 +274,7 @@ interface MaybeInvalidateSessionArgs {
 export async function createHostDaemonApp(
   options: CreateHostDaemonAppOptions,
 ): Promise<HostDaemonApp> {
+  setAgentWorkloadsLowered(readAgentCpuPriority(options.dataDir));
   const machineEnvironment = new MachineEnvironment(
     process.env,
     options.runtimeShellEnv ?? {},
@@ -936,6 +942,10 @@ export async function createHostDaemonApp(
       machineEnvironment.replace(environment.entries),
     onIdleProviderSessionTimeout: (value) =>
       idleProviderSessionReaper.setTimeoutMinutes(value),
+    onAgentCpuPriority: (enabled) => {
+      setAgentWorkloadsLowered(enabled);
+      writeAgentCpuPriority(options.dataDir, enabled);
+    },
     createWebSocket: options.createWebSocket,
     getActiveThreads: () => runtimeManager.listActiveThreads(),
     getUndeliveredEventThreadIds: () => eventSink.listUndeliveredThreadIds(),

@@ -1131,6 +1131,11 @@ const EXPERIMENT_DEFINITIONS: Record<
   ExperimentKey,
   { label: string; description: string }
 > = {
+  agentCpuPriority: {
+    label: "Lower agent CPU priority",
+    description:
+      "Keep bb responsive when agents saturate the CPU. Agent processes, setup and teardown scripts, and the builds and tests they launch run at a lower CPU priority; on macOS the bb server and machine daemon also get app-level scheduling. Terminals keep normal priority. Turning it on or off takes effect after restarting bb, including restarts for updates.",
+  },
   compactExpiredCache: {
     label: "Compact before resuming expired sessions",
     description:
@@ -1185,6 +1190,11 @@ const EXPERIMENT_DEFINITIONS: Record<
     label: "Update when idle",
     description:
       "Adds a Restart and update bb automatically switch to the Updates page. While it is on, bb checks for updates every hour and restarts into a new version once no thread is running, waiting again if a thread starts before it restarts. Skip this version keeps a version from installing until a newer one appears. bb updates app apply --when-idle waits for threads once from the CLI.",
+  },
+  walCheckpointWorker: {
+    label: "Background database checkpoints",
+    description:
+      "Copy recent writes into bb's database files on a background thread instead of during a save, so heavy writing doesn't pause the server. Applies immediately.",
   },
 };
 export function visibleExperimentKeys(

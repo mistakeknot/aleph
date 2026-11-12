@@ -22,6 +22,7 @@ import {
   setSkippedAppUpdate,
   listRunningThreads,
   setAppSettings,
+  startWalCheckpointer,
   type DbConnection,
 } from "@bb/db";
 import { defaultFeatureFlags } from "@bb/domain";
@@ -352,6 +353,7 @@ export async function createTestAppHarness(
       set: (key) => setSkippedAppUpdate(db, key),
     },
   });
+  const walCheckpointer = startWalCheckpointer({ logger });
   const deps: ServerAppDeps = {
     alephUpdate: alephUpdateService ?? null,
     appUpdate,
@@ -396,6 +398,7 @@ export async function createTestAppHarness(
     terminalSessions,
     watchInterests,
     sharedPorts,
+    walCheckpointer,
   };
   enableDeferredWorkTrackingForTesting(config);
   const { app, pluginCatalogService, pluginService, serverMove } =
@@ -416,6 +419,7 @@ export async function createTestAppHarness(
       clearAllThreadProvisionSchedules();
       setPluginEnvironmentProviderBridge(undefined);
       await pluginService.stop();
+      await walCheckpointer.stop();
       await rm(dataDir, {
         recursive: true,
         force: true,

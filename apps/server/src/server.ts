@@ -796,6 +796,7 @@ export function createApp(
     db: deps.db,
     hub: deps.hub,
     logger: deps.logger,
+    walCheckpointer: deps.walCheckpointer,
     telemetry: deps.telemetry,
     pendingInteractions: deps.pendingInteractions,
     dataDir: deps.config.dataDir,

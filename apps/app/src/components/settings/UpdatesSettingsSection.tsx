@@ -894,7 +894,7 @@ function InAppUpdateRow({
       <RowStateCaption state="in-progress">Restarting</RowStateCaption>,
     );
   }
-  if (status.scheduled !== null) {
+  if (status.scheduled != null) {
     return row(
       name,
       onCancelScheduled === null || onApply === null ? null : (

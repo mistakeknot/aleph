@@ -264,3 +264,14 @@ The paged timeline added eight exported db functions that read `events`. Every c
 | listStoredTimelineItemEventRowsByItems @ events.ts:3823    | R   | head-state rows for selected items            | timeline.ts:1028               | yes            | **HYDRATE** (timeline) |
 
 | deleteThreadPurgeBatch | EXCLUDE from hydration: threadPurgeSweep holds a history pin while deleting an already-deleted thread, then retires its orphaned cold segments without reading the archive. |
+
+## Batch 2 reader additions (mk-8lcd6.62)
+
+| function                                     | R/W/D | selects                                                   | callers                                 | cold-reachable?               | class                                                                                                        |
+| -------------------------------------------- | ----- | --------------------------------------------------------- | --------------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| listStoredEventRowMetadata                   | R     | event identity, type, scope and sequence without payloads | thread-fork-history.ts source selection | no: archived sources rejected | **EXCLUDE** (requireLiveSourceThread rejects archived/deleted sources; the history pin spans the paged copy) |
+| getLatestModelFallbackRowSinceTurnRequest    | R     | latest fallback since latest turn request                 | thread-head-state.ts                    | yes                           | **HYDRATE** (head-state route and timeline read gates); pinned snapshots use the bounded fallback selector   |
+| getContextWindowUsagePruningBoundarySequence | R     | latest completed context clear and its usage predecessor  | usage pruning                           | yes                           | **GLOBAL** (pruning transaction defers cold threads before invoking this selector)                           |
+| findUnprunableThreadEventSequence            | R     | earliest retained event outside the pruning type set      | timeline-selection-memo.ts budget floor | yes                           | **HYDRATE** (timeline gates)                                                                                 |
+
+The head-state route hydrates and pins history before its direct state reads. The event-list and event-wait routes retain their existing gates; the wait holds its pin through every awaited loop iteration. Metadata-only plugin reads remain independent of archive availability.

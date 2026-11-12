@@ -80,6 +80,7 @@ import {
   scheduleThreadProvisioningAdvance,
 } from "./thread-provisioning.js";
 import {
+  FORK_HISTORY_COPY_MARK,
   threadForkDescriptorSchema,
   threadProvisionEnvironmentIntentSchema,
 } from "./thread-startup-store.js";
@@ -113,6 +114,7 @@ import { markTurnTraceSpan } from "../system/turn-trace.js";
 export const pendingThreadStartContextSchema = z.object({
   environmentIntent: threadProvisionEnvironmentIntentSchema,
   fork: threadForkDescriptorSchema.nullable(),
+  historyCopy: z.literal(FORK_HISTORY_COPY_MARK).optional(),
   /** Provider-facing input when it differs from the persisted start seed. */
   providerInput: z.array(promptInputSchema).optional(),
   startedOnBehalfOf: startedOnBehalfOfSchema.nullable(),
@@ -381,6 +383,16 @@ async function runDispatchAttempt(
   // recover from, rather than the 409 that used to make a stop a dead end for
   // everything the user lined up behind it.
   ensureThreadIsWritable(thread, true);
+  if (
+    thread.status === "pending" &&
+    readPendingThreadStartContext(deps, thread.id)?.historyCopy !== undefined
+  ) {
+    throw new ApiError(
+      409,
+      "fork_history_copying",
+      "This fork is still copying its history; send the message again once it finishes",
+    );
+  }
   assertThreadHostAcceptsWork(deps.db, thread);
   // Non-bypassable: runs unconditionally, ahead of plugin policy below, so a
   // provisional successor cannot dispatch native work via a missing plugin
@@ -489,9 +501,7 @@ async function runDispatchAttempt(
     deliveryMode: run.deliveryMode,
   };
 
-  const retriesGoFirst = getExperiments(
-    deps.db,
-  ).resumeThreadsAfterRestart;
+  const retriesGoFirst = getExperiments(deps.db).resumeThreadsAfterRestart;
   const waitOn = (
     waitingOn: QueuedMessageWaitingOn,
     sendAt: number | null,

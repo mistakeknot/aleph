@@ -53,6 +53,7 @@ const READ_ROUTES = [
   ["timeline", "timeline"],
   ["events list", "events?limit=100&types=system%2Ferror"],
   ["context", "context"],
+  ["head state", "head-state"],
   ["conversation outline", "conversation-outline"],
 ] as const;
 

@@ -3,6 +3,7 @@ import type { ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import {
+  deprioritizeAgentWorkload,
   preferOutOfMemoryKill,
   sanitizeInheritedChildProcessEnv,
   spawnManagedProcess,
@@ -430,6 +431,7 @@ export class RuntimeProviderProcessManager {
       processKey: args.processKey,
       providerId: args.providerId,
     });
+    deprioritizeAgentWorkload(child.pid);
     preferOutOfMemoryKill(child.pid);
     let finalizeExit: () => void = () => undefined;
     const exitFinalized = new Promise<void>((resolve) => {
