@@ -1368,7 +1368,7 @@ async function smokeInstalledPackage({ binDir, packageDir, workDir }) {
   await timed("plugin host worker bundle", () =>
     smokePluginHostWorkerBundle(packageDir),
   );
-  if (process.platform === "linux" || process.platform === "darwin") {
+  if (["linux", "darwin", "win32"].includes(process.platform)) {
     const results = await Promise.allSettled([
       timed("full stack", () => smokeFullStack(binDir, workDir)),
       timed("daemon join", () => smokeDaemonJoin(binDir)),

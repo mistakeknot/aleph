@@ -290,10 +290,9 @@ export function createStorage(
   };
   function read(hostId: string): Scan | null {
     const row = db
-      .prepare<
-        [string],
-        { result_json: string }
-      >("SELECT result_json FROM scans WHERE host_id = ?")
+      .prepare<[string], { result_json: string }>(
+        "SELECT result_json FROM scans WHERE host_id = ?",
+      )
       .get(hostId);
     return row ? cachedScanSchema.parse(JSON.parse(row.result_json)) : null;
   }
@@ -1465,10 +1464,9 @@ export function createStorage(
       hostId = (await bb.sdk.threads.storageLocation({ threadId })).hostId;
     } else {
       const matches = db
-        .prepare<
-          [string],
-          { host_id: string }
-        >("SELECT host_id FROM scans WHERE EXISTS (SELECT 1 FROM json_each(scans.result_json, '$.entries') WHERE json_extract(value, '$.name') = ?)")
+        .prepare<[string], { host_id: string }>(
+          "SELECT host_id FROM scans WHERE EXISTS (SELECT 1 FROM json_each(scans.result_json, '$.entries') WHERE json_extract(value, '$.name') = ?)",
+        )
         .all(threadId);
       const match = matches[0];
       if (
@@ -1509,16 +1507,42 @@ export function createStorage(
           `This thread’s storage contains the workspace ${workspace}, which an environment still uses`,
         );
       }
+      const removedBytes =
+        archivedAt === null
+          ? null
+          : await measureThreadStorage(hostId, rootPath, threadId);
       await worker.call(
         "discard",
         { rootPath, names: [threadId], recreate: true },
         { hostId, signal: lifecycle.signal },
       );
       forget(hostId, { entries: new Set([threadId]) });
+      if (archivedAt !== null)
+        bb.log.info(
+          `Cleared archived storage for thread ${threadId} (archived_at ${new Date(archivedAt).toISOString()}): removed ${removedBytes} bytes`,
+        );
       return { ok: true as const };
     } finally {
       release();
     }
+  }
+  async function measureThreadStorage(
+    hostId: string,
+    rootPath: string,
+    threadId: string,
+  ) {
+    const directory = `${rootPath.replace(/[\\/]$/, "")}/${threadId}`;
+    const result = await worker.call(
+      "measure",
+      {
+        targets: [{ path: directory, perChild: false }],
+        largeFileMinBytes: null,
+        timeoutMs: 29 * 60_000,
+      },
+      { hostId, timeoutMs: 30 * 60_000, signal: lifecycle.signal },
+    );
+    const measured = result.targets.find((target) => target.path === directory);
+    return measured?.outcome === "measured" ? measured.sizeBytes : 0;
   }
   let cleaningArchives = false;
   function queueArchivedStorage(threadId: string, archivedAt: number) {
@@ -1551,7 +1575,9 @@ export function createStorage(
       .prepare<
         [number],
         { thread_id: string; archived_at: number; failure_count: number }
-      >("SELECT thread_id, archived_at, failure_count FROM archive_cleanup WHERE next_attempt_at <= ? ORDER BY archived_at")
+      >(
+        "SELECT thread_id, archived_at, failure_count FROM archive_cleanup WHERE next_attempt_at <= ? ORDER BY archived_at",
+      )
       .all(Date.now());
     for (const entry of pending) {
       if (lifecycle.signal.aborted) return;

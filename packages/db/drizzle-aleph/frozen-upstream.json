@@ -620,6 +620,10 @@
     {
       "tag": "0153_sweep_item_failures",
       "sha256": "3988923282f618cff346fcc057b7eb9a5b79f6af8f39332385a898ca46660336"
+    },
+    {
+      "tag": "0154_thread_purges",
+      "sha256": "56cc25956150a5875f257d690109c2d7a042421efdc0f182df8e1f43bb6ec818"
     }
   ]
 }

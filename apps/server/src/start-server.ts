@@ -497,6 +497,7 @@ export async function runServer(
   );
   const performanceDiagnostics = await startGatedPerformanceDiagnostics({
     allowed: serverConfig.BB_PERF_DIAGNOSTICS,
+    codeOwners: () => pluginService.listCodeOwners(),
     dataDir: serverConfig.BB_DATA_DIR,
     db,
     hub,

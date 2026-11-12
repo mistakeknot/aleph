@@ -864,10 +864,38 @@ describe("slow query index plans", () => {
       const insertEvent = db.$client.prepare(`INSERT INTO events
         (id, thread_id, scope_kind, sequence, type, item_id, item_kind, data, created_at)
         VALUES (?, ?, 'thread', ?, ?, ?, ?, '{}', 0)`);
-      insertEvent.run("parent-started", thread.id, 1, "item/started", "parent", "toolCall");
-      insertEvent.run("unrelated-started", thread.id, 2, "item/started", "other", "toolCall");
-      insertEvent.run("parent-message", thread.id, 3, "item/started", "parent", "agentMessage");
-      insertEvent.run("parent-completed", thread.id, 4, "item/completed", "parent", "toolCall");
+      insertEvent.run(
+        "parent-started",
+        thread.id,
+        1,
+        "item/started",
+        "parent",
+        "toolCall",
+      );
+      insertEvent.run(
+        "unrelated-started",
+        thread.id,
+        2,
+        "item/started",
+        "other",
+        "toolCall",
+      );
+      insertEvent.run(
+        "parent-message",
+        thread.id,
+        3,
+        "item/started",
+        "parent",
+        "agentMessage",
+      );
+      insertEvent.run(
+        "parent-completed",
+        thread.id,
+        4,
+        "item/completed",
+        "parent",
+        "toolCall",
+      );
 
       const captured = captureStatements(db, () => {
         expect(
@@ -885,6 +913,40 @@ describe("slow query index plans", () => {
     } finally {
       db.$client.close();
     }
+  });
+
+  it("keeps the parent index when the parented read excludes loaded turns", () => {
+    const { db, thread } = setup();
+
+    const [query] = captureStatements(db, () => {
+      listStoredEventRowsByParentToolCallIds(db, {
+        beforeSequence: 10_000,
+        excludeDiagnosticEvents: true,
+        excludedTurnIds: Array.from(
+          { length: 300 },
+          (_, index) => `turn-${index}`,
+        ),
+        excludedTypes: ["thread/contextWindowUsage/updated"],
+        maxInlineOutputChars: 32_000,
+        parentToolCallIds: ["parent-a", "parent-b"],
+        sequenceStart: 0,
+        threadId: thread.id,
+      });
+    });
+    if (!query) {
+      throw new Error("Expected the parented timeline row lookup SQL");
+    }
+    const details = queryPlanDetails({
+      db,
+      params: query.params,
+      sql: query.sql,
+    });
+    expect(details).toMatch(
+      /SEARCH events USING INDEX events_parent_tool_call_thread_parent_sequence_idx \(thread_id=\? AND parent_tool_call_id=\? AND sequence>\? AND sequence<\?\)/u,
+    );
+    expect(details).not.toMatch(/\bSCAN events\b/u);
+
+    db.$client.close();
   });
 
   it("seeks each missing delegating parent through the thread-and-item index", () => {

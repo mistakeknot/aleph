@@ -60,15 +60,9 @@ import {
   formatAppUpdateTarget,
   isDesktopOwnedServer,
   pendingAppUpdateResult,
-  runningThreadCountFromError,
-  runningThreadsWarning,
   runningThreadsCaption,
   scheduledAppUpdateCaption,
 } from "@/components/app-update/app-update-presentation";
-import {
-  ConfirmDeleteDialog,
-  ConfirmDeleteDialogContent,
-} from "@bb/shared-ui/confirm-delete-dialog";
 import { SplitButton } from "@/components/ui/split-button";
 import { appToast } from "@/components/ui/app-toast";
 import { BbLogo } from "@/components/ui/bb-logo";
@@ -82,12 +76,13 @@ import { refreshHostProviderCliStatus } from "@/hooks/cache-owners/provider-cli-
 import { hydrateAppUpdateStatus } from "@/hooks/cache-owners/app-update-cache-owner";
 import { hydrateSystemVersionCache } from "@/hooks/cache-owners/system-version-cache-owner";
 import {
-  useApplyAppUpdate,
   useCancelScheduledAppUpdate,
   useSetAutoAppUpdate,
 } from "@/hooks/mutations/app-update-mutations";
 import { useAppUpdateStatus } from "@/hooks/queries/app-update-queries";
 import { useRetryHostUpdate } from "@/hooks/mutations/host-mutations";
+import { useStartPluginUpdates } from "@/hooks/useStartPluginUpdates";
+import { useStartAppUpdate } from "@/components/app-update/useStartAppUpdate";
 import {
   useUpdateInventory,
   type UpdateInventoryMachine,
@@ -99,12 +94,9 @@ import { Link } from "react-router-dom";
 import { getPluginDetailRoutePath } from "@/lib/route-paths";
 import {
   isActivePluginUpdateJob,
-  startPluginUpdate,
   usePluginUpdateJobs,
 } from "@/hooks/queries/plugin-update-job-queries";
-import { applyPluginUpdateJob } from "@/hooks/cache-owners/plugin-cache-owner";
 import { PluginIcon } from "@/components/plugin/PluginIcon";
-import { pluginAdminErrorMessage } from "@/lib/plugin-admin-error";
 import { useHostDaemon } from "@/hooks/useHostDaemon";
 import { useDesktopUpdateInfo } from "@/hooks/useDesktopUpdateInfo";
 import { copyToClipboardWithToast } from "@/lib/clipboard";
@@ -2113,12 +2105,9 @@ export function UpdatesSettingsSection() {
   const { failuresByJobKey, queuedJobKeys, runningJobKey, startInstall } =
     useProviderCliInstallRunner();
   const appUpdateStatus = useAppUpdateStatus();
-  const applyAppUpdate = useApplyAppUpdate();
+  const appUpdateStart = useStartAppUpdate();
   const setAutoAppUpdate = useSetAutoAppUpdate();
   const cancelScheduledAppUpdate = useCancelScheduledAppUpdate();
-  const [confirmingAppUpdateThreads, setConfirmingAppUpdateThreads] = useState<
-    number | null
-  >(null);
   const appUpdate = appUpdateStatus.data;
   const alephStatus = useAlephUpdateRowStatus(
     isAlephAppVersion(inventory.systemVersion?.currentVersion ?? ""),
@@ -2134,43 +2123,9 @@ export function UpdatesSettingsSection() {
       .map((job) => job.pluginId),
   );
 
-  function startPluginUpdates(pluginIds: readonly string[]): void {
-    for (const pluginId of pluginIds) {
-      const item = inventory.plugins?.items.find(
-        (candidate) => candidate.plugin.id === pluginId,
-      );
-      const name = item === undefined ? pluginId : pluginDisplayName(item);
-      void startPluginUpdate(pluginId).then(
-        (job) => applyPluginUpdateJob({ queryClient, job }),
-        (error: unknown) => {
-          appToast.error("Plugin update failed", {
-            description: `${name} — ${pluginAdminErrorMessage(error)}`,
-          });
-        },
-      );
-    }
-  }
+  const startPluginUpdates = useStartPluginUpdates(inventory.plugins);
   const experiments = useSystemConfig().data?.experiments;
   const updateWhenIdleEnabled = experiments?.updateWhenIdle === true;
-  const threadsResumeAfterRestart =
-    experiments?.resumeThreadsAfterRestart === true;
-
-  function startAppUpdate(): void {
-    const runningThreadCount = appUpdate?.runningThreadCount ?? 0;
-    if (runningThreadCount > 0) {
-      setConfirmingAppUpdateThreads(runningThreadCount);
-      return;
-    }
-    applyAppUpdate.mutate(
-      { confirmInterruptingThreads: false },
-      {
-        onError: (error) => {
-          const count = runningThreadCountFromError(error);
-          if (count !== null) setConfirmingAppUpdateThreads(count);
-        },
-      },
-    );
-  }
 
   const connectedHostIds = inventory.machines
     .filter((machine) => machine.host.status === "connected")
@@ -2323,12 +2278,12 @@ export function UpdatesSettingsSection() {
       appUpdate={
         useServerUpdate || desktopInfo === null ? appUpdate : undefined
       }
-      applyPending={applyAppUpdate.isPending}
+      applyPending={appUpdateStart.pending}
       cancelScheduledPending={cancelScheduledAppUpdate.isPending}
       desktopInfo={useServerUpdate ? null : desktopInfo}
       isDesktop={!useServerUpdate && isDesktop}
       isChecking={isChecking}
-      onApplyAppUpdate={startAppUpdate}
+      onApplyAppUpdate={appUpdateStart.start}
       onCancelScheduledAppUpdate={() => cancelScheduledAppUpdate.mutate()}
       onRetryAppCheck={handleCheckForUpdates}
       onShowAppUpdateResult={openAppUpdateResultDetails}
@@ -2436,29 +2391,7 @@ export function UpdatesSettingsSection() {
           onStartUpdates={startPluginUpdates}
         />
       )}
-      <ConfirmDeleteDialog
-        open={confirmingAppUpdateThreads !== null}
-        onOpenChange={(open) => {
-          if (!open) setConfirmingAppUpdateThreads(null);
-        }}
-      >
-        <ConfirmDeleteDialogContent
-          title="Update bb now?"
-          description={runningThreadsWarning(
-            confirmingAppUpdateThreads ?? 0,
-            threadsResumeAfterRestart,
-          )}
-          confirmLabel="Update and restart"
-          pending={applyAppUpdate.isPending}
-          onCancel={() => setConfirmingAppUpdateThreads(null)}
-          onConfirm={() => {
-            applyAppUpdate.mutate(
-              { confirmInterruptingThreads: true },
-              { onSettled: () => setConfirmingAppUpdateThreads(null) },
-            );
-          }}
-        />
-      </ConfirmDeleteDialog>
+      {appUpdateStart.confirmDialog}
     </div>
   );
 }

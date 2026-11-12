@@ -120,7 +120,12 @@ import type {
 } from "@bb/db";
 import { ApiError } from "../../errors.js";
 import { roundDurationMs } from "@bb/process-utils";
-import { runEventLoopWorkSync } from "../system/event-loop-work.js";
+import {
+  finishMainThreadCost,
+  runEventLoopWorkSync,
+  startMainThreadCost,
+  type MainThreadCost,
+} from "../system/event-loop-work.js";
 import { parseStoredEvent } from "./thread-data.js";
 import { withCompactionOffer } from "./compaction-offer.js";
 import { decodeStoredEventRowCached } from "./stored-event-decode-cache.js";
@@ -325,20 +330,31 @@ interface TimelineWindowParentedRowsArgs extends TimelineWindowRowsArgs {
   excludeDiagnosticEvents: boolean;
   source: TimelineSelectionRowSource;
   maxInlineOutputChars: InlineOutputCharLimit;
-  lookups?: TimelineWindowParentedRowsLookups;
   sequenceBounds: {
     beforeSequence: number | undefined;
     sequenceStart: number;
   } | null;
+  lookups: TimelineWindowParentedRowLookups;
+}
+
+interface TimelineWindowParentedRowLookups {
+  childToolCallIds: Set<string>;
+  loadedTurnIds: ReadonlySet<string>;
+  parentToolCallIds: Set<string>;
+}
+
+function createTimelineWindowParentedRowLookups(
+  loadedTurnIds: ReadonlySet<string>,
+): TimelineWindowParentedRowLookups {
+  return {
+    childToolCallIds: new Set(),
+    loadedTurnIds,
+    parentToolCallIds: new Set(),
+  };
 }
 
 interface TimelineWindowParentedRowsResult {
   rows: StoredEventRow[];
-}
-
-interface TimelineWindowParentedRowsLookups {
-  fetchedChildToolCallIds: Set<string>;
-  lookedUpParentToolCallIds: Set<string>;
 }
 
 interface SelectClientRequestContextRowsArgs {
@@ -585,25 +601,23 @@ function ensureTimelineWindowParentedRows(
   let rows = [...args.rows];
   const rowIds = new Set(rows.map((row) => row.id));
   const visibleToolCallIds = new Set(collectStoredDelegatingItemIds(rows));
-  const fetchedChildToolCallIds =
-    args.lookups?.fetchedChildToolCallIds ?? new Set<string>();
-  const lookedUpParentToolCallIds =
-    args.lookups?.lookedUpParentToolCallIds ?? new Set<string>();
+  const { lookups } = args;
 
   while (true) {
     const toolCallIdsToFetch = [...visibleToolCallIds].filter(
-      (toolCallId) => !fetchedChildToolCallIds.has(toolCallId),
+      (toolCallId) => !lookups.childToolCallIds.has(toolCallId),
     );
     if (toolCallIdsToFetch.length === 0) {
       break;
     }
     for (const toolCallId of toolCallIdsToFetch) {
-      fetchedChildToolCallIds.add(toolCallId);
+      lookups.childToolCallIds.add(toolCallId);
     }
 
     const childSequenceBounds = args.sequenceBounds;
     const childRows = args.source.listChildRows({
       beforeSequence: childSequenceBounds?.beforeSequence,
+      excludedTurnIds: [...lookups.loadedTurnIds],
       excludedTypes: THREAD_TIMELINE_EXCLUDED_EVENT_TYPES,
       excludeDiagnosticEvents: args.excludeDiagnosticEvents,
       maxInlineOutputChars: args.maxInlineOutputChars,
@@ -627,10 +641,10 @@ function ensureTimelineWindowParentedRows(
   const missingParentToolCallIds = collectStoredParentToolCallIds(rows).filter(
     (parentToolCallId) =>
       !visibleToolCallIds.has(parentToolCallId) &&
-      !lookedUpParentToolCallIds.has(parentToolCallId),
+      !lookups.parentToolCallIds.has(parentToolCallId),
   );
   for (const parentToolCallId of missingParentToolCallIds) {
-    lookedUpParentToolCallIds.add(parentToolCallId);
+    lookups.parentToolCallIds.add(parentToolCallId);
   }
   const parentRows = args.source.listParentRows({
     itemIds: missingParentToolCallIds,
@@ -1197,10 +1211,9 @@ function selectStandardTimelineEventRows(
   let rowHeadroom = 2 * turnRowCap;
   const cappedTurnIds = new Set<string>();
   const completedTurnSummaryCounts = new Map<string, number>();
-  const parentedRowsLookups: TimelineWindowParentedRowsLookups = {
-    fetchedChildToolCallIds: new Set(),
-    lookedUpParentToolCallIds: new Set(),
-  };
+  const fullyLoadedTurns = new Set<string>();
+  const parentedRowLookups =
+    createTimelineWindowParentedRowLookups(fullyLoadedTurns);
   rows = measureThreadTimelineStage(profile, "group-context-query", () => {
     let selectedRows = rows;
     for (;;) {
@@ -1301,10 +1314,16 @@ function selectStandardTimelineEventRows(
         }),
         ...completedTurnFirstItems,
       ]);
+      for (const turnId of completedTurnIds) fullyLoadedTurns.add(turnId);
+      for (const turnId of openTurns.keys()) {
+        if (beforeSequence === maxSeq + 1 && !cappedTurnIds.has(turnId)) {
+          fullyLoadedTurns.add(turnId);
+        }
+      }
       selectedRows = ensureTimelineWindowParentedRows(db, {
         threadId: thread.id,
         rows: selectedRows,
-        lookups: parentedRowsLookups,
+        lookups: parentedRowLookups,
         source,
         maxInlineOutputChars,
         excludeDiagnosticEvents,
@@ -1893,9 +1912,14 @@ export function buildThreadTimelineWithProfile(
   db: DbConnection,
   thread: Thread,
   options: BuildThreadTimelineOptions,
-): { profile: ThreadTimelineBuildProfile; response: ThreadTimelineWindow } {
-  return runEventLoopWorkSync(`timeline-build ${thread.id}`, () =>
-    db.transaction(() => {
+): {
+  cost: MainThreadCost;
+  profile: ThreadTimelineBuildProfile;
+  response: ThreadTimelineWindow;
+} {
+  return runEventLoopWorkSync(`timeline-build ${thread.id}`, () => {
+    const started = startMainThreadCost();
+    const built = db.transaction(() => {
       const result = buildThreadTimelineInternal(db, thread, options);
       if (options.summaryOnly) return result;
       for (
@@ -1934,8 +1958,9 @@ export function buildThreadTimelineWithProfile(
         );
       }
       return result;
-    }),
-  );
+    });
+    return { ...built, cost: finishMainThreadCost(started) };
+  });
 }
 
 interface BuildThreadConversationOutlineOptions {
@@ -2558,6 +2583,7 @@ function buildTimelineTurnSummaryDetailsPage(
   });
   const eventRowsWithParentedChildren = ensureTimelineWindowParentedRows(db, {
     excludeDiagnosticEvents: !includeDiagnosticOperations,
+    lookups: createTimelineWindowParentedRowLookups(new Set()),
     source: databaseTimelineRowSource(db),
     maxInlineOutputChars: detailsInlineOutputLimit,
     sequenceBounds: {
