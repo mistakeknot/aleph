@@ -1,3 +1,4 @@
+import { alephInstallEligibility } from "@bb/server-contract";
 import type { ReactNode } from "react";
 import type {
   SystemAlephRecoverRequest,
@@ -124,13 +125,9 @@ export function AlephUpdateRowView({
         : alephSelectionText(status.selection));
   const busy = request.pending !== null;
   const candidate = alephRequestButton(status);
+  const eligibility = alephInstallEligibility(status);
   const requestButton =
-    status.overview?.requestRecipientConfigured === true &&
-    !status.overview.stale &&
-    status.overview.qualification?.result === "passed" &&
-    status.overview.qualification.version === status.target?.version &&
-    status.selection === "available" &&
-    status.installRequest.state !== "requested"
+    eligibility.eligible && status.installRequest.state !== "requested"
       ? candidate
       : { kind: "hidden" as const };
   const installRequest = status.installRequest;
@@ -290,6 +287,11 @@ export function AlephUpdateRowView({
         </span>
       </div>
       <div className="flex flex-col gap-2 px-4 pb-3.5 sm:pl-13 text-xs text-muted-foreground [overflow-wrap:anywhere]">
+        {!eligibility.eligible &&
+        status.selection === "available" &&
+        status.installRequest.state !== "requested" ? (
+          <span>{eligibility.message}</span>
+        ) : null}
         {status.overview?.requestRecipientConfigured !== true ? (
           <span>
             Request delivery is unavailable. An operator notification recipient

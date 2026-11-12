@@ -1,3 +1,4 @@
+import { alephInstallEligibility } from "@bb/server-contract";
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -453,3 +454,49 @@ it.each(["no recipient", "unqualified", "stale"])(
     ).toBeNull();
   },
 );
+
+it.each([
+  "overview-unavailable",
+  "recipient-unconfigured",
+  "evidence-stale",
+  "qualification-unavailable",
+  "qualification-failed",
+  "qualification-mismatch",
+  "target-unavailable",
+  "installed-unavailable",
+  "version-not-comparable",
+  "target-not-newer",
+])("uses the shared %s rejection in the UI", (reason) => {
+  const value: SystemAlephUpdateStatus = {
+    ...AVAILABLE,
+    capability: "request-only" as const,
+    overview: {
+      ...AVAILABLE.overview!,
+      qualification: { ...AVAILABLE.overview!.qualification! },
+    },
+  };
+  if (reason === "overview-unavailable") delete value.overview;
+  if (reason === "recipient-unconfigured")
+    value.overview!.requestRecipientConfigured = false;
+  if (reason === "evidence-stale") value.overview!.stale = true;
+  if (reason === "qualification-unavailable")
+    value.overview!.qualification = null;
+  if (reason === "qualification-failed")
+    value.overview!.qualification!.result = "failed";
+  if (reason === "qualification-mismatch")
+    value.overview!.qualification!.version = "0.44.0+aleph.0.5.2";
+  if (reason === "target-unavailable") value.target = null;
+  if (reason === "installed-unavailable") value.installed = null;
+  if (reason === "version-not-comparable")
+    value.installed = { aleph: "3", version: "unknown" };
+  if (reason === "target-not-newer")
+    value.installed = { aleph: "0.5.4", version: value.target!.version };
+  const eligibility = alephInstallEligibility(value);
+  expect(eligibility).toMatchObject({ eligible: false, reason });
+  view({ status: value });
+  expect(
+    screen.queryByRole("button", { name: "Request server update" }),
+  ).toBeNull();
+  if (!eligibility.eligible && reason !== "target-unavailable")
+    expect(screen.getByText(eligibility.message)).toBeTruthy();
+});

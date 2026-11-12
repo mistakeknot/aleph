@@ -33,3 +33,18 @@ nor start an installation. Request delivery reports successful command completio
 failure or unavailable, separately from the persisted request time. Delivery
 outcomes are process-local and become unavailable on restart; timestamps alone
 are not proof of delivery.
+
+The server enforces install-request eligibility through the same
+`alephInstallEligibility` contract function used by the UI. New requests require
+an available signed target, fresh overview evidence, a configured notification
+recipient, passed qualification matching the target version, and a target newer
+than the known installed version. Numeric version components are compared as
+numbers; unknown or mixed Aleph suffix schemes are not guessed.
+
+A rejected request returns HTTP 409 with code `aleph_request_ineligible`, a
+human-readable message and `details.reason` from
+`alephInstallIneligibleReasonSchema`. Target/digest races retain
+`aleph_request_stale`. The server rereads evidence at submission, so a prior
+eligible status does not grant permission to submit later. Replays of an existing
+matching nonce and cancellation remain available after eligibility changes.
+Requests only record intent and never start installation.

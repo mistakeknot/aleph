@@ -40,7 +40,10 @@ import type {
   SystemAlephUpdateRun,
   SystemAlephUpdateStatus,
 } from "@bb/server-contract";
-import { ALEPH_NO_MANIFEST_PUBLISHED_DETAIL } from "@bb/server-contract";
+import {
+  alephInstallEligibility,
+  ALEPH_NO_MANIFEST_PUBLISHED_DETAIL,
+} from "@bb/server-contract";
 import { readAlephOverview } from "./aleph-overview.js";
 import { ApiError } from "../../errors.js";
 import type { ServerLogger } from "../../types.js";
@@ -662,26 +665,29 @@ export function createAlephUpdateService(
   let previousOverview: SystemAlephUpdateStatus["overview"];
   const deliveries = new Map<string, "sent" | "failed">();
 
+  async function readOverview() {
+    const overview = await readAlephOverview({
+      runningVersion: args.appVersion,
+      read: () => system.readFile(join(paths.floorStateDir, "overview.json")),
+      now: now(),
+      ...(previousOverview === undefined ? {} : { previous: previousOverview }),
+    });
+    previousOverview = overview;
+    overview.requestRecipientConfigured = args.notify?.configured === true;
+    const pending = currentRequest();
+    overview.requestDelivery =
+      pending.nonce === null
+        ? "unavailable"
+        : (deliveries.get(pending.nonce) ?? "unavailable");
+    return overview;
+  }
+
   function getStatus(): Promise<SystemAlephUpdateStatus> {
     return exclusive(async () => {
       const status = await readSelection();
       reconcileRequests(status);
       const latest = (await readRuns(null))[0];
-      const overview = await readAlephOverview({
-        runningVersion: args.appVersion,
-        read: () => system.readFile(join(paths.floorStateDir, "overview.json")),
-        now: now(),
-        ...(previousOverview === undefined
-          ? {}
-          : { previous: previousOverview }),
-      });
-      previousOverview = overview;
-      overview.requestRecipientConfigured = args.notify?.configured === true;
-      const pending = currentRequest();
-      overview.requestDelivery =
-        pending.nonce === null
-          ? "unavailable"
-          : (deliveries.get(pending.nonce) ?? "unavailable");
+      const overview = await readOverview();
       return {
         overview,
         ...status,
@@ -770,15 +776,26 @@ export function createAlephUpdateService(
       const status = await readSelection();
       reconcileRequests(status);
       if (
-        status.selection !== "available" ||
-        status.target === null ||
-        status.target.version !== request.target ||
-        status.target.manifestDigest !== request.manifestDigest
+        status.target !== null &&
+        (status.target.version !== request.target ||
+          status.target.manifestDigest !== request.manifestDigest)
       ) {
         throw new ApiError(
           409,
           "aleph_request_stale",
           "That release is no longer the available update. Refresh and try again.",
+        );
+      }
+      const eligibility = alephInstallEligibility({
+        ...status,
+        overview: await readOverview(),
+      });
+      if (!eligibility.eligible) {
+        throw new ApiError(
+          409,
+          "aleph_request_ineligible",
+          eligibility.message,
+          { details: { reason: eligibility.reason } },
         );
       }
       const record: StoredAlephInstallRequest = {

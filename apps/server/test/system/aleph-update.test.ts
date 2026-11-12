@@ -22,7 +22,12 @@ import {
   type AlephUpdateSystem,
 } from "../../src/services/system/aleph-update.js";
 import type { StoredAlephInstallRequest } from "@bb/db";
-import { testLogger } from "../helpers/test-app.js";
+import {
+  alephInstallEligibility,
+  alephOverviewExportSchema,
+  alephInstallIneligibleErrorSchema,
+} from "@bb/server-contract";
+import { testLogger, withTestHarness } from "../helpers/test-app.js";
 
 const NOW = Date.parse("2026-10-10T00:00:00Z");
 const NONCE = "0123456789abcdef0123456789abcdef";
@@ -172,6 +177,22 @@ function rig(
   );
   let accepted: AlephManifest | Error = manifest;
   const requests = memoryStore();
+  system.files.set(
+    "/floor/overview.json",
+    JSON.stringify({
+      installation: null,
+      upstream: null,
+      sync: null,
+      summary: null,
+      qualification: {
+        version: "0.44.0+aleph.0.5.4",
+        commit: "a".repeat(40),
+        result: "passed",
+        source: "qualification",
+        checkedAt: new Date(NOW).toISOString(),
+      },
+    }),
+  );
   const clock = { now: NOW };
   const service = createAlephUpdateService({
     accept: async () => {
@@ -184,9 +205,12 @@ function rig(
     logger: testLogger,
     notify:
       options.notifySink ??
-      (async (message) => {
-        notices.push(message);
-      }),
+      Object.assign(
+        async (message: string) => {
+          notices.push(message);
+        },
+        { configured: true },
+      ),
     ...(options.directStart === "default"
       ? {}
       : { directStart: options.directStart ?? "allow" }),
@@ -799,7 +823,7 @@ describe("aleph update direct start policy", () => {
 
 describe("aleph update install requests", () => {
   it("exposes no recipient truthfully and records command delivery separately from request time", async () => {
-    const missing = rig();
+    const missing = rig({ notifySink: async () => {} });
     expect(
       (await missing.service.getStatus()).overview?.requestRecipientConfigured,
     ).toBe(false);
@@ -932,10 +956,13 @@ describe("aleph update install requests", () => {
     let attempts = 0;
     const { service, notices, requests } = rig({
       directStart: "deny",
-      notifySink: async () => {
-        attempts += 1;
-        throw new Error("hook down");
-      },
+      notifySink: Object.assign(
+        async () => {
+          attempts += 1;
+          throw new Error("hook down");
+        },
+        { configured: true },
+      ),
     });
     const record = await service.requestInstall(await body(service));
     expect(record.state).toBe("requested");
@@ -980,4 +1007,157 @@ describe("aleph update install requests", () => {
       }),
     ).rejects.toMatchObject({ body: { code: "aleph_request_unavailable" } });
   });
+});
+
+describe("server-owned request eligibility", () => {
+  it.each([
+    "recipient-unconfigured",
+    "overview-unavailable",
+    "evidence-stale",
+    "qualification-unavailable",
+    "qualification-failed",
+    "qualification-mismatch",
+    "version-not-comparable",
+    "target-not-newer",
+    "target-unavailable",
+  ])(
+    "rejects the %s condition with the same API and status reason",
+    async (reason) => {
+      const made = rig({
+        directStart: "deny",
+        ...(reason === "recipient-unconfigured"
+          ? { notifySink: async () => {} }
+          : {}),
+      });
+      const raw = made.system.files.get("/floor/overview.json")!;
+      const data = alephOverviewExportSchema.parse(JSON.parse(raw));
+      if (reason === "overview-unavailable")
+        made.system.files.delete("/floor/overview.json");
+      const input = await body(made.service);
+      const expectedReason =
+        reason === "version-not-comparable" || reason === "target-not-newer"
+          ? "target-unavailable"
+          : reason;
+      if (reason === "target-unavailable")
+        made.system.files.delete(`${PUBLISH}/current.json`);
+      if (reason === "target-not-newer" || reason === "version-not-comparable")
+        made.system.files.set(
+          `${STATE}/state.json`,
+          JSON.stringify(
+            installedState({
+              installed: {
+                aleph: "0.5.3",
+                version:
+                  reason === "target-not-newer"
+                    ? "0.44.0+aleph.0.5.4"
+                    : "unknown",
+              },
+            }),
+          ),
+        );
+      if (reason === "overview-unavailable")
+        made.system.files.delete("/floor/overview.json");
+      else {
+        if (reason === "evidence-stale")
+          data.qualification!.checkedAt = "2026-01-01T00:00:00Z";
+        if (reason === "qualification-unavailable") data.qualification = null;
+        if (reason === "qualification-failed")
+          data.qualification!.result = "failed";
+        if (reason === "qualification-mismatch")
+          data.qualification!.version = "0.44.0+aleph.0.5.2";
+        made.system.files.set("/floor/overview.json", JSON.stringify(data));
+      }
+      await expect(made.service.requestInstall(input)).rejects.toMatchObject({
+        status: 409,
+        body: {
+          code: "aleph_request_ineligible",
+          details: { reason: expectedReason },
+        },
+      });
+      const status = await made.service.getStatus();
+      expect(alephInstallEligibility(status)).toMatchObject({
+        eligible: false,
+        reason: expectedReason,
+      });
+      await withTestHarness(
+        { alephUpdateService: made.service },
+        async ({ app }) => {
+          const response = await app.request(
+            "/api/v1/system/aleph-update/request",
+            {
+              method: "POST",
+              headers: {
+                "content-type": "application/json",
+                "x-aleph-update": "1",
+                "x-bb-gate-auth": "session",
+                origin: "http://localhost",
+              },
+              body: JSON.stringify(input),
+            },
+          );
+          expect(response.status).toBe(409);
+          expect(
+            alephInstallIneligibleErrorSchema.parse(await response.json()),
+          ).toMatchObject({
+            code: "aleph_request_ineligible",
+            message: expect.any(String),
+            details: { reason: expectedReason },
+          });
+        },
+      );
+      expect(made.requests.rows).toHaveLength(0);
+      expect(made.system.started).toEqual([]);
+    },
+  );
+  it("rechecks evidence after status reads while replay and cancel remain usable", async () => {
+    const made = rig({ directStart: "deny" });
+    const input = await body(made.service);
+    made.system.files.delete("/floor/overview.json");
+    await expect(made.service.requestInstall(input)).rejects.toMatchObject({
+      body: { code: "aleph_request_ineligible" },
+    });
+    const eligible = rig({ directStart: "deny" });
+    const request = await body(eligible.service);
+    await eligible.service.requestInstall(request);
+    eligible.system.files.delete("/floor/overview.json");
+    expect((await eligible.service.requestInstall(request)).state).toBe(
+      "requested",
+    );
+    expect(
+      (await eligible.service.cancelInstall({ nonce: request.nonce })).state,
+    ).toBe("none");
+  });
+});
+
+it("accepts eligible HTTP requests and cancels after eligibility disappears", async () => {
+  const made = rig({ directStart: "deny" });
+  const input = await body(made.service);
+  await withTestHarness(
+    { alephUpdateService: made.service },
+    async ({ app }) => {
+      const headers = {
+        "content-type": "application/json",
+        "x-aleph-update": "1",
+        "x-bb-gate-auth": "session",
+        origin: "http://localhost",
+      };
+      const response = await app.request(
+        "/api/v1/system/aleph-update/request",
+        { method: "POST", headers, body: JSON.stringify(input) },
+      );
+      expect(response.status).toBe(200);
+      made.system.files.delete("/floor/overview.json");
+      expect(
+        (
+          await app.request("/api/v1/system/aleph-update/request/cancel", {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ nonce: input.nonce }),
+          })
+        ).status,
+      ).toBe(200);
+    },
+  );
+  expect(made.requests.rows[0]?.state).toBe("cancelled");
+  expect(made.system.started).toEqual([]);
 });

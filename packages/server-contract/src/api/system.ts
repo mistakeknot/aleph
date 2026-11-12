@@ -914,6 +914,115 @@ export type SystemAlephUpdateStatus = z.infer<
   typeof systemAlephUpdateStatusSchema
 >;
 
+export const alephInstallIneligibleReasonSchema = z.enum([
+  "target-unavailable",
+  "overview-unavailable",
+  "recipient-unconfigured",
+  "evidence-stale",
+  "qualification-unavailable",
+  "qualification-failed",
+  "qualification-mismatch",
+  "installed-unavailable",
+  "version-not-comparable",
+  "target-not-newer",
+]);
+export type AlephInstallIneligibleReason = z.infer<
+  typeof alephInstallIneligibleReasonSchema
+>;
+export const alephInstallIneligibleErrorSchema = z.object({
+  code: z.literal("aleph_request_ineligible"),
+  message: z.string(),
+  details: z.object({ reason: alephInstallIneligibleReasonSchema }),
+});
+export type AlephInstallIneligibleError = z.infer<
+  typeof alephInstallIneligibleErrorSchema
+>;
+const ALEPH_INSTALL_REASONS: Record<AlephInstallIneligibleReason, string> = {
+  "target-unavailable": "No signed update target is available to request.",
+  "overview-unavailable":
+    "Update request eligibility is unavailable. Refresh status before requesting.",
+  "recipient-unconfigured":
+    "An operator notification recipient must be configured before requesting an update.",
+  "evidence-stale":
+    "Update evidence is stale. Refresh status before requesting.",
+  "qualification-unavailable":
+    "Qualification evidence is unavailable for this update.",
+  "qualification-failed": "This update has not passed qualification.",
+  "qualification-mismatch":
+    "Qualification evidence does not match the available update.",
+  "installed-unavailable": "The installed server version is unavailable.",
+  "version-not-comparable":
+    "The installed and target versions cannot be compared safely.",
+  "target-not-newer":
+    "The available target is not newer than the installed server.",
+};
+
+function compareAlephRequestVersions(
+  target: string,
+  installed: string,
+): number | null {
+  const parse = (value: string) =>
+    /^(\d+\.\d+\.\d+)\+aleph\.(\d+(?:\.\d+)*)$/u.exec(value);
+  const left = parse(target);
+  const right = parse(installed);
+  if (
+    !left ||
+    !right ||
+    left[2]!.split(".").length !== right[2]!.split(".").length
+  )
+    return null;
+  const compare = (a: string, b: string) => {
+    const x = a.split(".").map(BigInt);
+    const y = b.split(".").map(BigInt);
+    if (x.length !== y.length) return null;
+    for (let i = 0; i < x.length; i++) {
+      if (x[i]! > y[i]!) return 1;
+      if (x[i]! < y[i]!) return -1;
+    }
+    return 0;
+  };
+  const upstream = compare(left[1]!, right[1]!);
+  return upstream === 0 ? compare(left[2]!, right[2]!) : upstream;
+}
+
+export function alephInstallEligibility(
+  status: Pick<
+    SystemAlephUpdateStatus,
+    "selection" | "target" | "installed" | "overview"
+  >,
+):
+  | { eligible: true }
+  | { eligible: false; reason: AlephInstallIneligibleReason; message: string } {
+  const refuse = (reason: AlephInstallIneligibleReason) => ({
+    eligible: false as const,
+    reason,
+    message: ALEPH_INSTALL_REASONS[reason],
+  });
+  if (status.selection !== "available" || !status.target)
+    return refuse("target-unavailable");
+  const data = status.overview;
+  if (
+    !data ||
+    (data.stale && !data.qualification && !data.installation && !data.upstream)
+  )
+    return refuse("overview-unavailable");
+  if (!data.requestRecipientConfigured) return refuse("recipient-unconfigured");
+  if (data.stale) return refuse("evidence-stale");
+  if (!data.qualification) return refuse("qualification-unavailable");
+  if (data.qualification.result !== "passed")
+    return refuse("qualification-failed");
+  if (data.qualification.version !== status.target.version)
+    return refuse("qualification-mismatch");
+  if (!status.installed) return refuse("installed-unavailable");
+  const compared = compareAlephRequestVersions(
+    status.target.version,
+    status.installed.version,
+  );
+  if (compared === null) return refuse("version-not-comparable");
+  if (compared <= 0) return refuse("target-not-newer");
+  return { eligible: true };
+}
+
 const alephVersionFieldSchema = z.string().min(1).max(32);
 
 export const systemAlephUpdateRequestSchema = z.object({

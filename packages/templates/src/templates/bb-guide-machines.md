@@ -214,9 +214,12 @@ Unavailable evidence remains null; it never supplies an installable target.
 The server reads a validated `aleph-update/overview.json` export in its data
 directory. The export contains nullable installation, qualification, upstream,
 sync and summary sections; see `docs/aleph-updates-overview.md` for its format.
-Requests appear only for a newer signed target with matching passed qualification,
+The server enforces request eligibility; the UI shares that policy. Requests
+appear only for a newer signed target with matching passed qualification,
 fresh evidence and a configured notification recipient. A request records intent;
-it does not start installation. Delivery outcomes become unavailable after a
+it does not start installation. Ineligible API requests return HTTP 409 with
+`aleph_request_ineligible`, a displayable message and `details.reason`. Existing
+request replay and cancellation remain usable when eligibility changes. Delivery outcomes become unavailable after a
 server restart; a notification attempt is never inferred from a request timestamp.
 
 Machine selectors accept either an exact machine ID or an unambiguous machine
