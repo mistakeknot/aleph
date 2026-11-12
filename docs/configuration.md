@@ -1171,9 +1171,9 @@ bb stores only the experiments you set; the others follow the shipped default.
 The `earlyAdopter` general setting (the Become an early adopter banner on
 Settings → Experiments, `bb settings general earlyAdopter on`) switches the
 shipped default to the early adopter default: experiments marked Early adopter
-(currently `timelinePush`, `compactExpiredCache`, `pluginUpdates`,
-`skipFocusedThreadNotifications`, `threadRowMetadata`, and `updateWhenIdle`)
-turn on, and the rest stay off. An experiment you set yourself keeps your value
+(currently `compactExpiredCache`, `dismissReadNotifications`,
+`narrowPluginCss`, `pluginUpdates`, `skipFocusedThreadNotifications`,
+`threadRowMetadata`, and `updateWhenIdle`) turn on, and the rest stay off. An experiment you set yourself keeps your value
 either way.
 `/system/config` and `sdk.system.config()` return the resolved values in
 `experiments`.
@@ -1186,7 +1186,7 @@ either way.
   next send passes `compactFirst` so the server runs `/compact` and queues the
   message behind it. Clicking the chip keeps the full history for that one
   send.
-- `dismissReadNotifications` makes the push-notifications plugin remove a
+- `dismissReadNotifications` (on for early adopters) makes the push-notifications plugin remove a
   thread's notifications once the thread is read on any client (opened, marked
   read, or sent a message). Registered phones and tablets get a silent push
   (`{"kind":"dismiss","threadId":…}`; `_contentAvailable` on iOS, data-only on
@@ -1194,9 +1194,9 @@ either way.
   delivered notifications, and open web and desktop clients close the system
   notification they are showing for it. Phones need a mobile app version with
   the background task; an older Android app in the foreground would list the
-  silent push as a blank notification, so it is off for early adopters too.
+  silent push as a blank notification.
   The plugin reads it on each delivery and read, so a toggle applies live.
-- `narrowPluginCss` makes the app request each plugin's
+- `narrowPluginCss` (on for early adopters) makes the app request each plugin's
   stylesheet with `css-scope=owned-root-v1`. bb then serves utilities that
   match only inside that plugin's own roots, not inside any root without a
   plugin id, which makes style recalculation cheaper with many plugins. A
@@ -1268,6 +1268,7 @@ either way.
   plugin releases can go out ahead of a retry scheduled for later (for example
   a provider-retry row waiting hours for a subscription window) and overtake
   it; with it, those rows wait for the retry.
+
 - `threadContextCard` moves a running thread's
   details into the thread context card at the upper-right of its pane: bb's parent
   thread and child threads, the Git plugin's changes, which open the Diff tab,
@@ -1295,12 +1296,6 @@ either way.
   plugin reads it with
   `experimental_useExperiment("skipFocusedThreadNotifications")` and follows a
   toggle live.
-- `timelinePush` makes an open thread view subscribe to its latest timeline
-  window over the WebSocket (`thread-timeline` subscription target); the server
-  pushes the full window once, then row deltas after new events, instead of the
-  client refetching the latest window after every update. A missed push falls
-  back to the delta request used when it is off. Open views follow a toggle
-  live.
 - `updateWhenIdle` (on for early adopters) lets bb update itself once no
   thread is running instead of interrupting them. Settings → Updates gains an
   "Restart and update bb automatically" switch ("Restart and update the server
@@ -1348,8 +1343,8 @@ that is still running or has no answer puts it above the first row after your
 read point, and the divider never lands on your own message.
 
 Timeline builds slower than 150 ms log `Thread timeline build blocked the event
-loop`, and event-loop stalls over 500 ms log `Event loop stalled`, both at
-`info`.
+loop` with main-thread CPU time and context-switch counts, and event-loop
+stalls over 500 ms log `Event loop stalled`, both at `info`.
 
 ## Event archive
 
@@ -1720,12 +1715,12 @@ Each thread takes the first of these that matches:
 
 1. A row whose `threadId` is the thread's id.
 2. The thread title's prefix. When the title reads `<Name> | ...`, `<Name>` is
-   the text before the first ` | `, trimmed. The badge is the designation of the
+   the text before the first `|`, trimmed. The badge is the designation of the
    approved row whose `name` or `aliases` entry matches `<Name>`. Matching
    lowercases both sides and keeps only letters and digits, so "Mind State",
    "Mind-State" and "mindstate" are equal. If two approved rows give the same
    name different designations, that name matches nothing; rows that agree on
-   the designation do not conflict. A title with no ` | ` has no prefix. A row
+   the designation do not conflict. A title with no `|` has no prefix. A row
    with only a `name` (no `projectId` or `threadId`) is enough for this step.
 3. A row whose `projectId` is the thread's project id.
 
