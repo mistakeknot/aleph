@@ -2382,6 +2382,14 @@ describe("Account Pool plugin", () => {
         reason:
           "Claude Code limits Opus to a 200k context window behind a custom base URL; the hub forwards to Anthropic's API",
       },
+      {
+        name: "BB_CLAUDE_MODELS_URL",
+        value: {
+          serverPath: "/api/v1/plugins/account-pool/http/claude/v1/models",
+        },
+        reason:
+          "Claude Code lists only its cached models behind a custom base URL; bb lists the pooled accounts' models from the hub",
+      },
       ...BLANK_PARENT_MARKERS,
     ]);
     await expect(
@@ -2418,6 +2426,59 @@ describe("Account Pool plugin", () => {
     ]);
     expect(off.exitCode).toBe(0);
     expect(await resolveToken(fixture.host)).toBe(fixture.key);
+  });
+
+  it("lists Claude models through the hub with a pooled account's credentials", async () => {
+    const seen: Array<{
+      url: string | undefined;
+      authorization: string | undefined;
+    }> = [];
+    const upstream = await startUpstream(async (request, response) => {
+      await readRequestBody(request);
+      seen.push({
+        url: request.url,
+        authorization: request.headers.authorization,
+      });
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end('{"data":[],"has_more":false,"last_id":null}');
+    });
+    cleanups.push(upstream.close);
+    const fixture = await createFixture({
+      upstreamUrl: upstream.url,
+      source: "oauth",
+      options: { claudeLogin: async () => claudeCredentials() },
+    });
+    const entries = await fixture.host.harness.behavior.resolveProviderEnv(
+      "claude-code",
+      { threadId: null, projectId: null, hostId: "host-one" },
+    );
+    const modelsUrl = entries.find(
+      (entry) => entry.name === "BB_CLAUDE_MODELS_URL",
+    )?.value;
+    expect(modelsUrl).toEqual({
+      serverPath: "/api/v1/plugins/account-pool/http/claude/v1/models",
+    });
+
+    const response = await fixture.host.harness.behavior.fetchHttp(
+      "GET",
+      "/claude/v1/models?limit=1000",
+      {
+        headers: {
+          authorization: `Bearer ${fixture.key}`,
+          "anthropic-version": "2023-06-01",
+        },
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      data: [],
+      has_more: false,
+      last_id: null,
+    });
+    expect(seen).toEqual([
+      { url: "/v1/models?limit=1000", authorization: "Bearer oauth-access" },
+    ]);
   });
 
   it("routes thread-less Codex model listing through the hub without recording a thread route", async () => {
@@ -4591,9 +4652,7 @@ describe("Account Pool plugin", () => {
     const upstreamKey = (init: RequestInit | undefined) => {
       const headers = new Headers(init?.headers);
       return (
-        headers.get("x-api-key") ??
-        headers.get("authorization")?.slice(7) ??
-        ""
+        headers.get("x-api-key") ?? headers.get("authorization")?.slice(7) ?? ""
       );
     };
 
@@ -6091,10 +6150,10 @@ describe("Account Pool plugin", () => {
               : reason === "network error"
                 ? ["sk-first", "sk-first", "sk-first", "sk-first"]
                 : [
-                  "sk-first",
-                  "sk-second",
-                  reason === "family quota" ? "sk-first" : "sk-second",
-                ],
+                    "sk-first",
+                    "sk-second",
+                    reason === "family quota" ? "sk-first" : "sk-second",
+                  ],
           );
         } finally {
           finishOld();
@@ -7213,7 +7272,10 @@ describe("sequential pool recovery", () => {
         fetch: async (_input, init) => {
           attempts.push(new Headers(init?.headers).get("x-api-key"));
           return outage
-            ? Response.json({}, { status: 503, headers: { "retry-after": "0" } })
+            ? Response.json(
+                {},
+                { status: 503, headers: { "retry-after": "0" } },
+              )
             : Response.json({});
         },
       },
@@ -8536,6 +8598,7 @@ describe("Account Pool nested proxy", () => {
       "ANTHROPIC_BASE_URL",
       "ANTHROPIC_AUTH_TOKEN",
       "CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST",
+      "BB_CLAUDE_MODELS_URL",
     ],
     codex: ["CODEX_OPENAI_BASE_URL", "CODEX_POOL_AUTH_TOKEN"],
   } as const;
@@ -8615,6 +8678,7 @@ describe("Account Pool nested proxy", () => {
       "CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST",
       "ENABLE_TOOL_SEARCH",
       "_CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL",
+      "BB_CLAUDE_MODELS_URL",
       "ENABLE_PROMPT_CACHING_1H",
       "BB_ACCOUNT_POOL_PARENT_URL",
       "BB_ACCOUNT_POOL_PARENT_TOKEN",
@@ -8637,6 +8701,7 @@ describe("Account Pool nested proxy", () => {
         "CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST",
         "ENABLE_TOOL_SEARCH",
         "_CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL",
+        "BB_CLAUDE_MODELS_URL",
         "ENABLE_PROMPT_CACHING_1H",
       ],
     },

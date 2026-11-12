@@ -7,7 +7,7 @@ import type { PluginListItem } from "@/hooks/queries/plugin-settings-queries";
 import { pluginNeedsAttention } from "@/hooks/usePluginAttention";
 import { cn } from "@bb/shared-ui/lib/utils";
 import {
-  pluginRowSignal,
+  pluginRowSignals,
   pluginRuntimeStatusPresentation,
 } from "./plugin-status";
 import { PluginRowSignalView, PluginSignalLogo } from "./PluginRowSignal";
@@ -87,9 +87,8 @@ export function InstalledPluginRow({
 }) {
   const { toggle, enabled } = usePluginEnabledMutation(plugin);
   const isLocal = plugin.source.startsWith("path:");
-  const signal = pluginRowSignal(plugin);
-  const statusSignal = signal?.kind === "status" ? signal : null;
-  const updateSignal = signal?.kind === "update" ? signal : null;
+  const { status: statusSignal, update: updateSignal } =
+    pluginRowSignals(plugin);
   const runtimeStatus = pluginRuntimeStatusPresentation(plugin);
   const notRunning = pluginNeedsAttention({
     enabled: enabled === true,

@@ -628,6 +628,10 @@
     {
       "tag": "0155_declare_project_sources_default_index",
       "sha256": "1253dfa5ae43984d194d94d4e518c6ca7454c8363074b091e2158067c8ece5e4"
+    },
+    {
+      "tag": "0156_plugin_failure_labels",
+      "sha256": "31f31680cf2f00fe4dbb4d26570882656a366f940a2f70f2bcbbf4c6e2232b3d"
     }
   ]
 }

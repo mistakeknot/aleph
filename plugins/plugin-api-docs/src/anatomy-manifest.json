@@ -34,11 +34,18 @@
       "sources": [
         {
           "path": "apps/app/src/components/thread/timeline/MessageMetadata.tsx",
-          "anchors": ["aria-label=\"Message metadata\"", "<PluginSlotMount", "<slot.component message={message} />"]
+          "anchors": [
+            "aria-label=\"Message metadata\"",
+            "<PluginSlotMount",
+            "<slot.component message={message} />"
+          ]
         },
         {
           "path": "apps/app/src/components/thread/timeline/ThreadTimelineRows.tsx",
-          "anchors": ["<MessageMetadata placement=\"above\" {...metadata} />", "slots: messageMetadata"]
+          "anchors": [
+            "<MessageMetadata placement=\"above\" {...metadata} />",
+            "slots: messageMetadata"
+          ]
         }
       ]
     },
@@ -185,13 +192,83 @@
         },
         {
           "path": "apps/app/src/views/thread-detail/ThreadDetailView.tsx",
-          "anchors": ["<ThreadContextCardProvider", "<ThreadContextCardHeaderButton />", "CORE_THREAD_CONTEXT_CARD_ROWS"]
+          "anchors": [
+            "<ThreadContextCardProvider",
+            "<ThreadContextCardHeaderButton />",
+            "CORE_THREAD_CONTEXT_CARD_ROWS"
+          ]
         },
         {
           "path": "apps/app/src/components/plugin/PluginThreadContextCard.test.tsx",
           "anchors": [
             "orders rows by group, then order, core first on a tie, and puts titled sections below them",
             "mounts one scoped instance per pane and drops only a crashing section"
+          ]
+        }
+      ]
+    },
+    "thread-header-title": {
+      "groupId": "app-shell",
+      "fidelity": "anchor",
+      "responsiveStrategy": "scale-together",
+      "requiredStates": ["anchor"],
+      "labels": {
+        "anchor": ["checkout › flaky-tests"]
+      },
+      "fixtureClassAnchors": [
+        "flex h-6.5 min-w-0 items-center gap-1 px-1 text-foreground"
+      ],
+      "sources": [
+        {
+          "path": "apps/app/src/components/plugin/PluginThreadHeaderTitle.tsx",
+          "anchors": [
+            "slotKind=\"threadHeaderTitle\"",
+            "crashFallback={fallback}"
+          ]
+        },
+        {
+          "path": "apps/app/src/views/thread-detail/ThreadDetailHeader.tsx",
+          "anchors": [
+            "<PluginThreadHeaderTitle",
+            "isInteractiveTitleTarget(event)"
+          ]
+        },
+        {
+          "path": "apps/app/src/views/thread-detail/ThreadDetailHeader.test.tsx",
+          "anchors": [
+            "falls back to the core title when the plugin title crashes",
+            "shows the rename editor while renaming and the plugin title after"
+          ]
+        }
+      ]
+    },
+    "thread-header-row": {
+      "groupId": "app-shell",
+      "fidelity": "anchor",
+      "responsiveStrategy": "scale-together",
+      "requiredStates": ["anchor"],
+      "labels": {
+        "anchor": ["Review retries"]
+      },
+      "fixtureClassAnchors": ["border-b border-border-hairline"],
+      "sources": [
+        {
+          "path": "apps/app/src/components/plugin/PluginThreadHeaderRows.tsx",
+          "anchors": [
+            "slotKind=\"threadHeaderRow\"",
+            "crashFallback={null}",
+            "className=\"flex w-full min-w-0 shrink-0 flex-col\""
+          ]
+        },
+        {
+          "path": "apps/app/src/views/thread-detail/ThreadDetailView.tsx",
+          "anchors": ["<PluginThreadHeaderRows"]
+        },
+        {
+          "path": "apps/app/src/views/thread-detail/ThreadDetailView.contract.test.tsx",
+          "anchors": [
+            "stacks rows by order between the thread header and the timeline",
+            "drops only a crashing row and keeps the thread view"
           ]
         }
       ]
@@ -349,7 +426,10 @@
         },
         {
           "path": "plugins/thread-list/app/rows/ThreadRow.tsx",
-          "anchors": ["<ThreadRowMetadata thread={thread} />", "showRowMetadata"]
+          "anchors": [
+            "<ThreadRowMetadata thread={thread} />",
+            "showRowMetadata"
+          ]
         },
         {
           "path": "plugins/github-pr-status/app.tsx",
@@ -357,7 +437,10 @@
         },
         {
           "path": "plugins/github-pr-status/ui/PullRequestRowMetadata.tsx",
-          "anchors": ["export function usePullRequestRows", "enabled: keys.length > 0"]
+          "anchors": [
+            "export function usePullRequestRows",
+            "enabled: keys.length > 0"
+          ]
         }
       ]
     },

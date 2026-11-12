@@ -81,12 +81,14 @@ const availabilityThreadIdsSchema = z
       .regex(/^[A-Za-z0-9_-]+$/u),
   )
   .max(1);
+const CLAUDE_MODELS_ROUTE = "/claude/v1/models";
 
 const PROVIDER_ROUTING_ENV: Record<PoolProvider, readonly string[]> = {
   claude: [
     "ANTHROPIC_BASE_URL",
     "ANTHROPIC_AUTH_TOKEN",
     "CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST",
+    "BB_CLAUDE_MODELS_URL",
   ],
   codex: ["CODEX_OPENAI_BASE_URL", "CODEX_POOL_AUTH_TOKEN"],
 };
@@ -507,6 +509,12 @@ export function createAccountPoolPlugin(
           reason:
             "Claude Code limits Opus to a 200k context window behind a custom base URL; the hub forwards to Anthropic's API",
         },
+        {
+          name: "BB_CLAUDE_MODELS_URL",
+          value: { serverPath: `${HUB_BASE_PATH}${CLAUDE_MODELS_ROUTE}` },
+          reason:
+            "Claude Code lists only its cached models behind a custom base URL; bb lists the pooled accounts' models from the hub",
+        },
         ...(await subscriptionCacheEntries()),
       ]),
     );
@@ -588,6 +596,12 @@ export function createAccountPoolPlugin(
         { auth: "none" },
       );
     }
+    bb.http.route(
+      "GET",
+      CLAUDE_MODELS_ROUTE,
+      (context) => hub.handle(context.req.raw, "claude", CLAUDE_MODELS_ROUTE),
+      { auth: "none" },
+    );
     bb.http.route(
       "GET",
       "/v1/models",

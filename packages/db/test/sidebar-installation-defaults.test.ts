@@ -16,6 +16,7 @@ import {
   dropPluginEnabledFollowsDefaultColumn,
   dropThreadParentNotificationsColumn,
   dropQueuedMessageDeliveryColumns,
+  dropPluginFailureLabelColumns,
   dropThreadStatusChangedAtColumn,
   dropQueuedMessageEditHeldUntilColumn,
   rewindThreadPruningWork,
@@ -117,6 +118,7 @@ describe.each(["project", "thread", "preference"] as const)(
           dropThreadParentNotificationsColumn(db);
           dropQueuedMessageDeliveryColumns(db);
           dropThreadStatusChangedAtColumn(db);
+          dropPluginFailureLabelColumns(db);
           db.$client
             .prepare("DELETE FROM __drizzle_migrations WHERE created_at >= ?")
             .run(SIDEBAR_INSTALLATION_DEFAULTS_MIGRATION_TIMESTAMP);

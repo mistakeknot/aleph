@@ -1241,7 +1241,13 @@ function StandalonePaneContent({
         {panelChrome ? (
           <div className="flex h-full min-h-0 flex-col">
             <AppPageHeader
-              center={<PluginPanelHeaderCenter chrome={panelChrome} />}
+              center={
+                <PluginPanelHeaderCenter
+                  chrome={panelChrome}
+                  panel={panel}
+                  subPath={content.subPath}
+                />
+              }
               actions={
                 panel ? (
                   <PluginPanelHeaderActions
@@ -1391,7 +1397,13 @@ function NonThreadPaneContent({
               onPointerDown={beginPaneDrag ? handlePointerDown : undefined}
             >
               {panelChrome ? (
-                <PluginPanelHeaderCenter chrome={panelChrome} />
+                <PluginPanelHeaderCenter
+                  chrome={panelChrome}
+                  panel={panel}
+                  subPath={
+                    content.kind === "plugin-panel" ? content.subPath : ""
+                  }
+                />
               ) : (
                 <p
                   className={cn(

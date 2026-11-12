@@ -799,6 +799,7 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
     registrationMatchesForActivation,
     emptyPluginUpdateState,
     sourceFingerprint,
+    installedUpdateVersion,
     syncCliSkill,
     notifyPluginsChanged,
   });
@@ -991,9 +992,11 @@ export function createPluginService(deps: PluginServiceDeps): PluginService {
         ? {
             version: row.lastFailureVersion,
             label:
+              row.lastFailureLabel ??
               [persisted?.candidate, persisted?.blocked].find(
                 (version) => version?.version === row.lastFailureVersion,
-              )?.label ?? pluginVersionLabelForRow(row, row.lastFailureVersion),
+              )?.label ??
+              pluginVersionLabelForRow(row, row.lastFailureVersion),
             at: row.lastFailureAt,
             detail: row.lastFailureDetail,
           }

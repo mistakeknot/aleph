@@ -541,7 +541,6 @@ no-upstream-updates	A	apps/server/src/services/system/ioskeley-mono-font.ts
 no-upstream-updates	M	apps/server/src/services/system/periodic-sweeps.ts
 plugin-surface	M	apps/app/src/components/plugin/PluginSidebarFooterItems.test.tsx
 plugin-surface	M	apps/app/src/components/plugin/PluginSidebarFooterItems.tsx
-plugin-surface	M	apps/app/src/components/plugin/management/InstalledPluginsTab.tsx
 plugin-surface	M	apps/app/src/components/plugin/management/PluginMarketplaceListing.tsx
 plugin-surface	M	apps/app/src/lib/plugin-sdk-hooks.ts
 plugin-surface	M	apps/app/src/lib/plugin-sidebar-threads.test.ts
@@ -1153,9 +1152,7 @@ build-config	M	apps/app/src/components/thread/timeline/ThreadTimelineRows.tsx
 fork-owned-migrations	M	packages/db/test/diff-viewed-handoff-migration.test.ts
 account-pooler	M	plugins/account-pool/src/account-login.test.ts
 gc-window-diagnostics	M	packages/process-utils/src/performance-diagnostics.ts
-build-config	M	apps/app/src/components/plugin/plugin-slot-mounts.test.tsx
 build-config	M	apps/app/src/components/project/ProjectActionsProvider.tsx
-build-config	M	apps/app/src/components/provider-cli/provider-cli-install.test.ts
 build-config	M	apps/app/src/views/SkillsView.test.tsx
 build-config	M	apps/server/src/routes/hosts.ts
 build-config	M	apps/server/src/services/lib/job-registry.ts
@@ -1166,3 +1163,5 @@ build-config	M	apps/web/src/landing/cta.tsx
 build-config	M	packages/sdk/src/areas/hosts.ts
 build-config	M	packages/sdk/src/job-wait.ts
 build-config	M	plugins/git/host/workspace-reads.ts
+build-config	M	apps/host-daemon/src/command-handlers/discover-repos.test.ts
+build-config	M	plugins/plugin-api-docs/src/anatomy-manifest.json
