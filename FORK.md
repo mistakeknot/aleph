@@ -838,3 +838,7 @@ length up to a one-hour cap.
   worker or reviewer agents.
 - [Critical user journeys](docs/cujs/README.md)
 - [Roadmap](docs/aleph-roadmap.md) and [backlog](docs/aleph-backlog.md)
+
+The upstream paced-purge sync adds 0154 (`thread_purges`), a new queue table.
+Its SQL and journal timestamp remain upstream's, and it joins
+`frozen-upstream.json` without adding or renumbering an Aleph step.

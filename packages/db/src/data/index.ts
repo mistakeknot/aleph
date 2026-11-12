@@ -171,6 +171,11 @@ export {
 } from "./app-settings.js";
 export { getStoredThreadTabs, replaceStoredThreadTabs } from "./thread-tabs.js";
 export {
+  deleteThreadPurgeBatch,
+  nextThreadPurge,
+  requestThreadPurge,
+} from "./thread-purges.js";
+export {
   deleteSweepItemFailures,
   deleteSweepItemFailuresOfUnknownSweeps,
   getSweepItemFailure,

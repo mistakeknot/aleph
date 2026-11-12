@@ -1,3 +1,4 @@
+import { eventColdSegments } from "../../src/schema.js";
 import { describe, expect, it } from "vitest";
 import { THREAD_CONTEXT_CLEAR_OPERATION } from "@bb/domain";
 import { createEnvironment } from "../../src/data/environments.js";
@@ -734,6 +735,25 @@ describe("cold move and rehydrate", () => {
 
     expect(markOrphanedEventColdSegments(db, NOW)).toEqual(["seg-1"]);
     expect(getEventColdSegment(db, "seg-1")?.lifecycle).toBe("orphaned");
+  });
+
+  it("retires only the deleted thread selected by a scoped purge", () => {
+    const { db, thread } = eligibleThread();
+    const { args } = prepareMove(db, thread.id);
+    runColdTransition(db, thread.id, () => commitColdMoveInTransaction(db, args));
+    db.insert(eventColdSegments).values({
+      ...getEventColdSegment(db, "seg-1")!,
+      segmentId: "other-segment",
+      threadId: "other-deleted-thread",
+      path: "event-archive/other-segment.jsonl.zst",
+    }).run();
+    expect(markOrphanedEventColdSegments(db, NOW, thread.id)).toEqual([]);
+    db.$client.prepare("DELETE FROM threads WHERE id = ?").run(thread.id);
+    expect(markOrphanedEventColdSegments(db, NOW, thread.id)).toEqual(["seg-1"]);
+    expect(getEventColdSegment(db, "seg-1")).toMatchObject({ lifecycle: "orphaned", endedAt: NOW });
+    expect(getThreadEventColdStateRow(db, thread.id)).toBeNull();
+    expect(getEventColdSegment(db, "other-segment")?.lifecycle).toBe("live");
+    expect(markOrphanedEventColdSegments(db, NOW)).toEqual(["other-segment"]);
   });
 
   it("refuses to start inside an open transaction", () => {
