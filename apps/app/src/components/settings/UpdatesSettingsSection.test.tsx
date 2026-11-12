@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { overviewFixture } from "./AlephOverview.fixture";
 import {
   act,
   cleanup,
@@ -3178,19 +3179,17 @@ describe("UpdatesSettingsSection on an Aleph build", () => {
     upgradeCommand: null,
   };
 
-  function expectAppRowChecksOff(): void {
-    const appRow = document
-      .querySelector('[data-bb-update-role="app"]')
-      ?.closest("div");
-    expect(appRow).not.toBeNull();
+  function expectUnavailableOverview(): void {
+    expect(screen.getByRole("region", { name: "Your Aleph" })).toBeTruthy();
+    expect(screen.getByText("Qualification status unavailable")).toBeTruthy();
+    expect(screen.getByText("Sync status unavailable")).toBeTruthy();
     expect(
-      appRow?.querySelector('[data-update-state="checks-off"]'),
-    ).not.toBeNull();
-    expect(
-      appRow?.querySelector('[data-update-state="up-to-date"]'),
+      document.querySelector('[data-update-state="up-to-date"]'),
     ).toBeNull();
-    expect(appRow?.textContent).toContain("Update checks off");
-    expect(appRow?.textContent).not.toContain("Up to date");
+    expect(screen.queryByText("Up to date")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Request server update" }),
+    ).toBeNull();
   }
 
   it("does not expose upstream release notes for an Aleph server with a numeric target", async () => {
@@ -3215,7 +3214,7 @@ describe("UpdatesSettingsSection on an Aleph build", () => {
     vi.stubGlobal("fetch", fetchNotes);
     renderSection();
     await waitFor(() => expect(sdk.system.appUpdate).toHaveBeenCalled());
-    await screen.findByText("0.49.0");
+    await screen.findByText(/Server 0.43.4\+aleph.2/);
     expect(
       screen.queryByRole("button", { name: /Changelog for bb/ }),
     ).toBeNull();
@@ -3228,7 +3227,7 @@ describe("UpdatesSettingsSection on an Aleph build", () => {
     );
   });
 
-  it("says checks are off instead of up to date on the web", async () => {
+  it("shows unavailable evidence instead of up to date on the web", async () => {
     useWebApp();
     useUpdateInventoryMock.mockReturnValue(
       makeInventory({ systemVersion: alephVersion }),
@@ -3240,10 +3239,10 @@ describe("UpdatesSettingsSection on an Aleph build", () => {
     await waitFor(() => {
       expect(sdk.system.version).toHaveBeenCalled();
     });
-    await waitFor(expectAppRowChecksOff);
+    await waitFor(expectUnavailableOverview);
   });
 
-  it("says checks are off when the launcher manages npm updates", async () => {
+  it("shows unavailable evidence when the launcher manages npm updates", async () => {
     useWebApp();
     useUpdateInventoryMock.mockReturnValue(
       makeInventory({ systemVersion: alephVersion }),
@@ -3261,7 +3260,7 @@ describe("UpdatesSettingsSection on an Aleph build", () => {
     await waitFor(() => {
       expect(sdk.system.appUpdate).toHaveBeenCalled();
     });
-    await waitFor(expectAppRowChecksOff);
+    await waitFor(expectUnavailableOverview);
   });
 
   it("shows the Aleph update row with its own state and action", async () => {
@@ -3300,7 +3299,7 @@ describe("UpdatesSettingsSection on an Aleph build", () => {
     expect(document.querySelector('[data-bb-update-role="app"]')).toBeNull();
   });
 
-  it("keeps the checks-off row when the Aleph update channel is unavailable", async () => {
+  it("keeps the installation overview when the Aleph update channel is unavailable", async () => {
     useWebApp();
     useUpdateInventoryMock.mockReturnValue(
       makeInventory({ systemVersion: alephVersion }),
@@ -3319,7 +3318,7 @@ describe("UpdatesSettingsSection on an Aleph build", () => {
     await waitFor(() => {
       expect(alephApiMock.fetchAlephUpdateStatus).toHaveBeenCalled();
     });
-    await waitFor(expectAppRowChecksOff);
+    await waitFor(expectUnavailableOverview);
   });
 
   it("does not expose upstream notes for a numeric pending version on Aleph desktop", async () => {
@@ -3351,7 +3350,7 @@ describe("UpdatesSettingsSection on an Aleph build", () => {
     expect(fetchNotes).not.toHaveBeenCalled();
   });
 
-  it("says checks are off on the Aleph desktop app", async () => {
+  it("shows desktop limitations without an inactive update button", async () => {
     const desktopInfo: BbDesktopInfo = {
       downloadState: "idle",
       lastCheckedAt: null,
@@ -3376,13 +3375,69 @@ describe("UpdatesSettingsSection on an Aleph build", () => {
 
     renderSection();
 
-    await waitFor(expectAppRowChecksOff);
-    const button = screen.getByRole("button", { name: "Update Aleph" });
-    expect((button as HTMLButtonElement).disabled).toBe(true);
+    await waitFor(expectUnavailableOverview);
+    expect(screen.queryByRole("button", { name: "Update Aleph" })).toBeNull();
     expect(
-      screen.getAllByText(
-        "Desktop self-update is not enabled for Aleph builds yet",
-      ).length,
-    ).toBeGreaterThan(0);
+      screen.getByText("This device · Self-update not available yet"),
+    ).toBeTruthy();
+    expect(screen.getByText("Update options")).toBeTruthy();
   });
+  it.each(["available", "recovery-required"] as const)(
+    "keeps signed %s actions out of an embedded Aleph desktop",
+    async (selection) => {
+      const desktopInfo: BbDesktopInfo = {
+        downloadState: "idle",
+        lastCheckedAt: null,
+        latestVersion: null,
+        pendingVersion: null,
+        platform: "macos",
+        updateAvailable: false,
+        updateDownloaded: false,
+        version: alephVersion.currentVersion,
+      };
+      useDesktopUpdateInfoMock.mockReturnValue({
+        desktopApi: null,
+        desktopInfo,
+        isDesktop: true,
+      });
+      hostDaemon.localDaemonHostId = "host_primary";
+      useUpdateInventoryMock.mockReturnValue(
+        makeInventory({ desktopInfo, systemVersion: alephVersion }),
+      );
+      vi.mocked(sdk.system.appUpdate).mockResolvedValue(
+        makeAppUpdateStatus({
+          support: { kind: "unsupported", reason: "desktop" },
+        }),
+      );
+      alephApiMock.fetchAlephUpdateStatus.mockResolvedValue({
+        ...overviewFixture,
+        capability: "startable",
+        selection,
+        installed: { aleph: "1", version: alephVersion.currentVersion },
+        predecessor: { aleph: "0", version: "0.43.4+aleph.0" },
+        target: {
+          aleph: "3",
+          version: "0.43.4+aleph.3",
+          manifestDigest: "e".repeat(64),
+        },
+      });
+      renderSection();
+      expect(
+        await screen.findByText(
+          /Updates are managed with this desktop installation/,
+        ),
+      ).toBeTruthy();
+      expect(
+        document.querySelector('[data-bb-update-role="aleph"]'),
+      ).toBeNull();
+      expect(
+        screen.queryByRole("button", {
+          name: /^(Update|Show command|Roll back|Recover|Request server update)/,
+        }),
+      ).toBeNull();
+      expect(
+        screen.getByText("This device · Self-update not available yet"),
+      ).toBeTruthy();
+    },
+  );
 });

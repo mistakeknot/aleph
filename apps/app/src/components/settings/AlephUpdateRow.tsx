@@ -308,6 +308,9 @@ export function AlephUpdateRowView({
           </span>
         ) : null}
         {wrapperManaged ? (
+          <span>Automatic update feed not configured</span>
+        ) : null}
+        {wrapperManaged ? (
           <span>{ALEPH_WRAPPER_NOTE}</span>
         ) : (
           <>

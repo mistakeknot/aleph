@@ -1,4 +1,4 @@
-import { systemAlephUpdateQueryKey } from "@/hooks/queries/query-keys";
+import { invalidateAlephUpdateStatus } from "@/hooks/cache-owners/app-update-cache-owner";
 import { AlephOverviewView } from "./AlephOverview";
 import {
   useEffect,
@@ -2341,17 +2341,17 @@ export function UpdatesSettingsSection() {
           refreshing={isChecking}
           onRefresh={() => {
             handleCheckForUpdates();
-            void queryClient.invalidateQueries({
-              queryKey: systemAlephUpdateQueryKey(),
-            });
+            invalidateAlephUpdateStatus({ queryClient });
           }}
           server={
-            alephStatus ? (
+            alephStatus && showAlephUpdateRow ? (
               <AlephUpdateRow name="Server" status={alephStatus} />
             ) : (
               <p className="px-4 py-3 text-sm">
-                Server {inventory.systemVersion?.currentVersion} · Update status
-                unavailable
+                Server {inventory.systemVersion?.currentVersion} ·{" "}
+                {desktopInfo !== null && !serverRunsSeparately
+                  ? "Updates are managed with this desktop installation."
+                  : "Update status unavailable"}
               </p>
             )
           }
