@@ -1161,3 +1161,69 @@ it("accepts eligible HTTP requests and cancels after eligibility disappears", as
   expect(made.requests.rows[0]?.state).toBe("cancelled");
   expect(made.system.started).toEqual([]);
 });
+
+describe("missing-state comparison source parity", () => {
+  it.each([
+    ["0.44.0+aleph.0.5.3", "available", true],
+    ["0.49.0+aleph.1", "not-comparable", false],
+  ] as const)(
+    "uses the running %s for selector and request policy",
+    async (appVersion, selection, eligible) => {
+      const made = rig({ appVersion, state: null, directStart: "deny" });
+      expect(made.system.files.has(`${STATE}/state.json`)).toBe(false);
+      const status = await made.service.getStatus();
+      expect(status).toMatchObject({
+        comparisonVersion: appVersion,
+        selection,
+      });
+      expect(status.installed === null).toBe(!eligible);
+      expect(alephInstallEligibility(status).eligible).toBe(eligible);
+      const input = {
+        nonce: NONCE,
+        target: "0.44.0+aleph.0.5.4",
+        manifestDigest: manifestDigest(
+          made.system.files.get(`${PUBLISH}/${GEN}manifest.json`)!,
+        ),
+      };
+      if (eligible)
+        expect((await made.service.requestInstall(input)).state).toBe(
+          "requested",
+        );
+      else
+        await expect(made.service.requestInstall(input)).rejects.toMatchObject({
+          body: {
+            code: "aleph_request_ineligible",
+            details: { reason: "target-unavailable" },
+          },
+        });
+      await withTestHarness(
+        { alephUpdateService: made.service },
+        async ({ app }) => {
+          const response = await app.request(
+            "/api/v1/system/aleph-update/request",
+            {
+              method: "POST",
+              headers: {
+                "content-type": "application/json",
+                "x-aleph-update": "1",
+                "x-bb-gate-auth": "session",
+                origin: "http://localhost",
+              },
+              body: JSON.stringify(input),
+            },
+          );
+          expect(response.status).toBe(eligible ? 200 : 409);
+          expect(await response.json()).toMatchObject(
+            eligible
+              ? { state: "requested" }
+              : {
+                  code: "aleph_request_ineligible",
+                  details: { reason: "target-unavailable" },
+                },
+          );
+        },
+      );
+      expect(made.system.started).toEqual([]);
+    },
+  );
+});

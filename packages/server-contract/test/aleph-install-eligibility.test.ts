@@ -56,3 +56,23 @@ it.each([
     );
   },
 );
+
+it("uses the selector comparison input even without an installed record", () => {
+  const status = input("0.49.0+aleph.1", "0.49.0+aleph.2");
+  status.installed = null;
+  status.comparisonVersion = "0.49.0+aleph.1";
+  expect(alephInstallEligibility(status)).toEqual({ eligible: true });
+});
+it("uses the raw running version for legacy responses without a comparison field", () => {
+  const status = input("0.49.0+aleph.1", "0.49.0+aleph.2");
+  status.installed = null;
+  expect(alephInstallEligibility(status)).toEqual({ eligible: true });
+});
+it("preserves explicit comparison unavailability rather than guessing from overview", () => {
+  const status = input("0.49.0+aleph.1", "0.49.0+aleph.2");
+  status.comparisonVersion = null;
+  expect(alephInstallEligibility(status)).toMatchObject({
+    eligible: false,
+    reason: "installed-unavailable",
+  });
+});
