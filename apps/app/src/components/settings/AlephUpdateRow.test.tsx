@@ -486,7 +486,10 @@ it.each([
   if (reason === "qualification-mismatch")
     value.overview!.qualification!.version = "0.44.0+aleph.0.5.2";
   if (reason === "target-unavailable") value.target = null;
-  if (reason === "installed-unavailable") value.installed = null;
+  if (reason === "installed-unavailable") {
+    value.installed = null;
+    value.comparisonVersion = null;
+  }
   if (reason === "version-not-comparable")
     value.installed = { aleph: "3", version: "unknown" };
   if (reason === "target-not-newer")
@@ -499,4 +502,35 @@ it.each([
   ).toBeNull();
   if (!eligibility.eligible && reason !== "target-unavailable")
     expect(screen.getByText(eligibility.message)).toBeTruthy();
+});
+
+it("offers the request using the same comparison version without an installed record", () => {
+  const value = {
+    ...AVAILABLE,
+    capability: "request-only" as const,
+    installed: null,
+    comparisonVersion: "0.44.0+aleph.0.5.3",
+  };
+  expect(alephInstallEligibility(value)).toEqual({ eligible: true });
+  view({ status: value });
+  expect(
+    screen.getByRole("button", { name: "Request server update" }),
+  ).toBeTruthy();
+});
+it("keeps an unparsed running version refused when the selector cannot compare it", () => {
+  const value = {
+    ...AVAILABLE,
+    installed: null,
+    comparisonVersion: "0.49.0+aleph.1",
+    selection: "not-comparable" as const,
+    target: null,
+  };
+  expect(alephInstallEligibility(value)).toMatchObject({
+    eligible: false,
+    reason: "target-unavailable",
+  });
+  view({ status: value });
+  expect(
+    screen.queryByRole("button", { name: "Request server update" }),
+  ).toBeNull();
 });

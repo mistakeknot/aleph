@@ -898,6 +898,7 @@ export const alephOverviewSchema = alephOverviewExportSchema.extend({
 export type AlephOverview = z.infer<typeof alephOverviewSchema>;
 
 export const systemAlephUpdateStatusSchema = z.object({
+  comparisonVersion: z.string().nullable().optional(),
   overview: alephOverviewSchema.optional(),
   activeThreadCount: z.number().int().nonnegative(),
   capability: alephUpdateCapabilitySchema,
@@ -988,7 +989,7 @@ function compareAlephRequestVersions(
 export function alephInstallEligibility(
   status: Pick<
     SystemAlephUpdateStatus,
-    "selection" | "target" | "installed" | "overview"
+    "selection" | "target" | "installed" | "overview" | "comparisonVersion"
   >,
 ):
   | { eligible: true }
@@ -1013,10 +1014,14 @@ export function alephInstallEligibility(
     return refuse("qualification-failed");
   if (data.qualification.version !== status.target.version)
     return refuse("qualification-mismatch");
-  if (!status.installed) return refuse("installed-unavailable");
+  const comparisonVersion =
+    status.comparisonVersion !== undefined
+      ? status.comparisonVersion
+      : (status.installed?.version ?? data.runningVersion ?? null);
+  if (comparisonVersion === null) return refuse("installed-unavailable");
   const compared = compareAlephRequestVersions(
     status.target.version,
-    status.installed.version,
+    comparisonVersion,
   );
   if (compared === null) return refuse("version-not-comparable");
   if (compared <= 0) return refuse("target-not-newer");

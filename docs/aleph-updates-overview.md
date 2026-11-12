@@ -48,3 +48,12 @@ human-readable message and `details.reason` from
 eligible status does not grant permission to submit later. Replays of an existing
 matching nonce and cancellation remain available after eligibility changes.
 Requests only record intent and never start installation.
+
+`comparisonVersion` on the update status is the exact installed-version input
+used by the signed selector: the installed record's version, or the full running
+app version when no installed record is available. Request eligibility uses this
+same value independently of receipt availability. An explicit null means the
+comparison input is unavailable. For older responses without this field, the
+shared policy falls back to the installed record and then overview.runningVersion.
+This does not change version parsing or turn a non-comparable signed selection
+into an available update.

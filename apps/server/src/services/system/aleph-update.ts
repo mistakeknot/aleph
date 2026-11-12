@@ -542,7 +542,9 @@ export function createAlephUpdateService(
     const installed =
       rootState.installed ??
       (running === null ? null : { aleph: running, version: args.appVersion });
+    const comparisonVersion = installed?.version ?? args.appVersion;
     const base = {
+      comparisonVersion,
       activeThreadCount: args.countRunningThreads(),
       capability,
       installed,
@@ -591,7 +593,7 @@ export function createAlephUpdateService(
     const result = selectAlephUpdate({
       artifactKey: artifactKey(platform),
       entries,
-      installedVersion: installed?.version ?? args.appVersion,
+      installedVersion: comparisonVersion,
       revocations: manifest.revocations,
     });
     const release = manifest.releases.find(
