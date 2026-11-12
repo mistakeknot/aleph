@@ -68,6 +68,7 @@ const SYSTEM_APP_UPDATE_QUERY_KEY = "systemAppUpdate";
 const SYSTEM_ALEPH_UPDATE_QUERY_KEY = "systemAlephUpdate";
 const SERVER_MOVE_STATUS_QUERY_KEY = "serverMoveStatus";
 const HOST_PROVIDER_CLI_STATUS_QUERY_KEY = "hostProviderCliStatus";
+const HOST_PROVIDER_CLI_INSTALL_JOBS_QUERY_KEY = "hostProviderCliInstallJobs";
 const SYSTEM_PROVIDER_STATES_QUERY_KEY = "systemProviderStates";
 const HOST_PATH_EXISTENCE_QUERY_KEY = "hostPathExistence";
 const PROJECT_SKILLS_QUERY_KEY = "projectSkills";
@@ -431,6 +432,13 @@ type HostProviderCliStatusQueryKey = readonly [
 ];
 type AllHostProviderCliStatusQueryKeyPrefix = readonly [
   typeof HOST_PROVIDER_CLI_STATUS_QUERY_KEY,
+];
+type HostProviderCliInstallJobsQueryKey = readonly [
+  typeof HOST_PROVIDER_CLI_INSTALL_JOBS_QUERY_KEY,
+  string,
+];
+type AllHostProviderCliInstallJobsQueryKeyPrefix = readonly [
+  typeof HOST_PROVIDER_CLI_INSTALL_JOBS_QUERY_KEY,
 ];
 type SystemProviderStatesQueryKey = readonly [
   typeof SYSTEM_PROVIDER_STATES_QUERY_KEY,
@@ -1036,6 +1044,16 @@ export function hostProviderCliStatusQueryKey(
 
 export function allHostProviderCliStatusQueryKeyPrefix(): AllHostProviderCliStatusQueryKeyPrefix {
   return [HOST_PROVIDER_CLI_STATUS_QUERY_KEY];
+}
+
+export function hostProviderCliInstallJobsQueryKey(
+  hostId: string,
+): HostProviderCliInstallJobsQueryKey {
+  return [HOST_PROVIDER_CLI_INSTALL_JOBS_QUERY_KEY, hostId];
+}
+
+export function allHostProviderCliInstallJobsQueryKeyPrefix(): AllHostProviderCliInstallJobsQueryKeyPrefix {
+  return [HOST_PROVIDER_CLI_INSTALL_JOBS_QUERY_KEY];
 }
 
 export function systemProviderStatesQueryKey(

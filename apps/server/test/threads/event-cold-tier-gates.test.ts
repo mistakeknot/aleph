@@ -70,6 +70,47 @@ function coldDeps(harness: TestAppHarness): EventColdTierDeps {
 }
 
 describe("cold tier pins around hot-path operations", () => {
+  it("keeps rehydrated plugin interaction history pinned until the interaction settles", async () => {
+    await withTestHarness(async (harness) => {
+      const { ids, thread } = seedFixture(harness);
+      forceColdEligible(harness.db, ids);
+      expect((await attemptColdMove(harness, thread.id)).outcome).toBe("moved");
+      const controller = new AbortController();
+      const pending = harness.deps.pendingInteractions.requestPluginInteraction(
+        {
+          pluginId: "history-pin-test",
+          threadId: thread.id,
+          rendererId: "history-pin-test",
+          title: "History pin",
+          payload: {},
+          presentation: {
+            label: { pending: "Waiting", completed: "Completed" },
+            icon: { glyph: "Toolbox" },
+          },
+          describeSubmission: null,
+          timeoutMs: 10_000,
+          owner: { pluginId: "history-pin-test" },
+          signal: controller.signal,
+        },
+      );
+      try {
+        await vi.waitFor(() => {
+          expect(
+            harness.deps.pendingInteractions.listPendingThreadInteractions(
+              thread.id,
+            ),
+          ).toHaveLength(1);
+        });
+        expect(isThreadEventsCold(harness.db, thread.id)).toBe(false);
+        expect(getThreadHistoryPinCount(thread.id)).toBeGreaterThan(0);
+      } finally {
+        controller.abort();
+        await pending;
+      }
+      expect(getThreadHistoryPinCount(thread.id)).toBe(0);
+    });
+  });
+
   it("withHotThreadHistory refuses a move while suspended and releases after success and failure", async () => {
     await withTestHarness(async (harness) => {
       const { ids, thread } = seedFixture(harness);

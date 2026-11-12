@@ -368,8 +368,10 @@ export function startLiveHostCommand<
   const execution =
     args.execution ?? createLiveHostCommandExecution(args.hostId);
   const releaseHistoryPin = pinLiveHostCommandThread(args.command);
-  void runLiveHostCommand(deps, { ...args, execution })
-    .catch((error) => {
+  void (async () => {
+    try {
+      await runLiveHostCommand(deps, { ...args, execution });
+    } catch (error) {
       const normalized =
         error instanceof Error ? error : new Error(String(error));
       const handlerArgs: LiveHostCommandErrorHandlerArgs<TType> = {
@@ -391,8 +393,7 @@ export function startLiveHostCommand<
         return;
       }
       args.onError?.(handlerArgs);
-    })
-    .finally(async () => {
+    } finally {
       try {
         await args.onSettled?.();
       } catch (error) {
@@ -403,5 +404,6 @@ export function startLiveHostCommand<
       } finally {
         releaseHistoryPin();
       }
-    });
+    }
+  })();
 }

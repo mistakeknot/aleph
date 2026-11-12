@@ -1224,7 +1224,7 @@ describe("useComposer", () => {
       return (
         <button
           type="button"
-          onClick={() => navigate("/threads/thr_owned_next")}
+          onClick={() => void navigate("/threads/thr_owned_next")}
         >
           change-owned-scope
         </button>
@@ -1587,7 +1587,11 @@ describe("useComposer().experimental_setSelection", () => {
       }),
     );
     const host = {
-      scope: { kind: "thread", threadId: "thr_own_selection", environment: null },
+      scope: {
+        kind: "thread",
+        threadId: "thr_own_selection",
+        environment: null,
+      },
       textEffectKey: "thread:thr_own_selection",
       getSelection: () => selection,
       subscribeSelection: (listener: () => void) => {
@@ -1711,11 +1715,11 @@ describe("PluginPanelView routes", () => {
         ],
       }),
     );
-    applyPluginCss("demo", "/demo.css?h=route");
+    void applyPluginCss("demo", "/demo.css?h=route");
     function LeavePanel() {
       const navigate = useNavigate();
       return (
-        <button type="button" onClick={() => navigate("/")}>
+        <button type="button" onClick={() => void navigate("/")}>
           Leave panel
         </button>
       );
@@ -1831,7 +1835,7 @@ describe("plugin panel shared title bar and full-bleed body", () => {
       return <button type="button">Toggle sidebar</button>;
     }
     const panel = panelSlot({ headerContent: Accessory });
-    applyPluginCss("demo", "/demo.css?h=header");
+    void applyPluginCss("demo", "/demo.css?h=header");
     const view = render(
       <>
         <PluginPanelHeaderCenter chrome={panel} />
@@ -2135,7 +2139,10 @@ describe("plugin thread panel actions", () => {
       opened.push(args.paramsJson);
     };
     function BothActionsHarness() {
-      const { actions } = useThreadFixedTabs({ threadId: "thr_one", environmentId: null });
+      const { actions } = useThreadFixedTabs({
+        threadId: "thr_one",
+        environmentId: null,
+      });
       const { newThreadPanelActions } = usePluginSlots();
       const threadEntries = usePluginPanelActions({
         actions,

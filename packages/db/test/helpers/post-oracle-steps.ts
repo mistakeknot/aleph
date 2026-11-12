@@ -20,6 +20,7 @@ export const POST_ORACLE_UPSTREAM_TAGS = [
   "0152_small_storage_cleanups",
   "0153_sweep_item_failures",
   "0154_thread_purges",
+  "0155_declare_project_sources_default_index",
 ] as const;
 
 export function applyPostOracleSteps(sqlite: Database.Database): void {

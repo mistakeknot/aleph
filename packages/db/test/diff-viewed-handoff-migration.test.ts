@@ -20,12 +20,13 @@ function databaseBeforeHandoff(
     .prepare("DELETE FROM __drizzle_migrations WHERE created_at >= ?")
     .run(handoffMigrationWhen);
   db.$client
-    .prepare("DELETE FROM __bb_migration_ledger WHERE tag IN (?, ?, ?, ?)")
+    .prepare("DELETE FROM __bb_migration_ledger WHERE tag IN (?, ?, ?, ?, ?)")
     .run(
       "0151_hand_diff_viewed_files_to_git_plugin",
       "0152_small_storage_cleanups",
       "0153_sweep_item_failures",
       "0154_thread_purges",
+      "0155_declare_project_sources_default_index",
     );
   return db;
 }

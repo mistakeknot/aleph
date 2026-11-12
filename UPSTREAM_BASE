@@ -1,4 +1,4 @@
 upstream: get-bb/bb
-commit: f8893ee23ca5b94e980ba280c68cce57e6b05f5d
+commit: bb8c2afd784949990e24ce18bcf8b81478464f6a
 release: 0.49.0
 aleph: 0.9.0

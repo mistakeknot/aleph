@@ -116,17 +116,12 @@ export function ProjectActionsProvider({
         onSuccess: () => {
           closeDeleteDialog();
           if (routeProjectId === projectId) {
-            navigate(getRootComposeRoutePath(), { replace: true });
+            void navigate(getRootComposeRoutePath(), { replace: true });
           }
         },
       });
     },
-    [
-      closeDeleteDialog,
-      deleteProjectMutate,
-      navigate,
-      routeProjectId,
-    ],
+    [closeDeleteDialog, deleteProjectMutate, navigate, routeProjectId],
   );
 
   const requestAddLocalPath = useCallback(

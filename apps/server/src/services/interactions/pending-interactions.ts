@@ -545,7 +545,7 @@ export class PendingInteractionLifecycle {
         throw new ApiError(404, "invalid_request", "Thread does not exist");
       }
       await ensureThreadEventsHot(this.deps, args.threadId);
-      return this.requestHotPluginInteraction(args);
+      return await this.requestHotPluginInteraction(args);
     } finally {
       releaseHistoryPin();
     }

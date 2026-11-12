@@ -134,7 +134,7 @@ function exportedEventsReaders(): string[] {
     const callees = new Map(
       functions.map((fn) => [fn.name, calledNames(fn.body)]),
     );
-    for (let changed = true; changed; ) {
+    for (let changed = true; changed;) {
       changed = false;
       for (const fn of functions) {
         if (touching.has(fn.name)) continue;
@@ -177,7 +177,7 @@ describe("cold tier reader audit guard", () => {
 
 const PLAN_LISTED_ENVIRONMENT_WRITERS = [
   "bindEnvironmentPath",
-  "findBlockingEnvironmentPathClaim",
+  "findBlockingClaim",
   "markProviderEnvironmentAttached",
   "releaseFinishedEnvironmentPreparationOwners",
   "reserveEnvironment",

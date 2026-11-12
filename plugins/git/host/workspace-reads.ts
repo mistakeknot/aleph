@@ -201,7 +201,7 @@ function remember<V>(
   key: string,
   value: V,
   limit: number,
-): V {
+): void {
   map.delete(key);
   map.set(key, value);
   while (map.size > limit) {
@@ -209,7 +209,6 @@ function remember<V>(
     if (oldest.done === true) break;
     map.delete(oldest.value);
   }
-  return value;
 }
 
 function cachedRead<T>(
@@ -572,10 +571,7 @@ export class WorkspaceReads {
     Promise<string | undefined>
   >();
   private readonly commitReads = new Map<string, Promise<string | null>>();
-  private readonly mergeBaseReads = new Map<
-    string,
-    Promise<string>
-  >();
+  private readonly mergeBaseReads = new Map<string, Promise<string>>();
   private readonly trackedEntriesByDiff = new Map<
     string,
     Promise<RawDiffEntry[]>
@@ -655,9 +651,12 @@ export class WorkspaceReads {
 
   private async requireStatusSnapshot(
     work: string,
-  ): Promise<StatusSnapshot & { parsed: NonNullable<StatusSnapshot["parsed"]> }> {
+  ): Promise<
+    StatusSnapshot & { parsed: NonNullable<StatusSnapshot["parsed"]> }
+  > {
     const snapshot = await this.statusSnapshot(work);
-    if (snapshot.parsed === null) throw statusFailure(snapshot.result, this.path);
+    if (snapshot.parsed === null)
+      throw statusFailure(snapshot.result, this.path);
     return { ...snapshot, parsed: snapshot.parsed };
   }
 
@@ -679,8 +678,7 @@ export class WorkspaceReads {
     mergeBaseBranch: string,
   ): Promise<string> {
     const snapshot = await this.requireStatusSnapshot(freshness.work);
-    const read = () =>
-      readMergeBaseRef(this.path, mergeBaseBranch, {});
+    const read = () => readMergeBaseRef(this.path, mergeBaseBranch, {});
     const headOid = snapshot.parsed.headOid;
     return headOid === null
       ? read()
@@ -768,7 +766,14 @@ export class WorkspaceReads {
             return new Map<string, UntrackedFileStat>();
           }
           const result = await this.runGit(
-            ["diff", "--no-ext-diff", "--raw", "--numstat", "--no-abbrev", "-z"],
+            [
+              "diff",
+              "--no-ext-diff",
+              "--raw",
+              "--numstat",
+              "--no-abbrev",
+              "-z",
+            ],
             {
               cwd: this.path,
               env,
@@ -781,7 +786,9 @@ export class WorkspaceReads {
           );
           const { raw, numstat } = splitRawNumstatZ(result.stdout);
           const rawByPath = new Map(
-            parseRawDiffEntriesZ(raw).map((entry) => [entry.path, entry] as const),
+            parseRawDiffEntriesZ(raw).map(
+              (entry) => [entry.path, entry] as const,
+            ),
           );
           const numstatByPath = new Map(
             parseNumstatEntriesZ(numstat).map(
@@ -817,7 +824,10 @@ export class WorkspaceReads {
   private async withRetainedUntrackedIndex<T>(
     work: string,
     relativePaths: readonly string[],
-    read: (env: NodeJS.ProcessEnv, indexedPaths: readonly string[]) => Promise<T>,
+    read: (
+      env: NodeJS.ProcessEnv,
+      indexedPaths: readonly string[],
+    ) => Promise<T>,
     options: { signal?: AbortSignal; timeoutMs?: number } = {},
   ): Promise<T> {
     return this.withTemporaryUntrackedIndex(
@@ -846,7 +856,10 @@ export class WorkspaceReads {
   private async readFromRetainedUntrackedIndex<T>(
     work: string,
     relativePaths: readonly string[],
-    read: (env: NodeJS.ProcessEnv, indexedPaths: readonly string[]) => Promise<T>,
+    read: (
+      env: NodeJS.ProcessEnv,
+      indexedPaths: readonly string[],
+    ) => Promise<T>,
   ): Promise<{ value: T } | null> {
     const retained = this.retainedIndex;
     if (
@@ -900,7 +913,7 @@ export class WorkspaceReads {
         args,
         {
           ...options,
-            env: { ...READ_ONLY_GIT_ENV, ...indexEnv, ...options.env },
+          env: { ...READ_ONLY_GIT_ENV, ...indexEnv, ...options.env },
         },
         recordFormat,
         maxRecords,
@@ -949,9 +962,12 @@ export class WorkspaceReads {
       throw error;
     });
     if (stats === null) return null;
-    const signature = [stats.size, stats.mtimeMs, stats.ctimeMs, stats.ino].join(
-      ":",
-    );
+    const signature = [
+      stats.size,
+      stats.mtimeMs,
+      stats.ctimeMs,
+      stats.ino,
+    ].join(":");
     let copy = this.indexCopy;
     if (copy?.signature !== signature) {
       if (copy !== null) {
@@ -1012,10 +1028,14 @@ export class WorkspaceReads {
     const { freshness } = options;
     const snapshotRead = this.statusSnapshot(freshness.work);
     const otherReads = Promise.all([
-      createUncommittedDiffRunner(this.path, this.gitRunner, this.gitRunner)(
-        (baseRef) => ["diff", "--numstat", "-z", baseRef, "--"],
-        { cwd: this.path, timeoutMs: WORKSPACE_STATUS_GIT_TIMEOUT_MS },
-      ).then((result) => result.stdout),
+      createUncommittedDiffRunner(
+        this.path,
+        this.gitRunner,
+        this.gitRunner,
+      )((baseRef) => ["diff", "--numstat", "-z", baseRef, "--"], {
+        cwd: this.path,
+        timeoutMs: WORKSPACE_STATUS_GIT_TIMEOUT_MS,
+      }).then((result) => result.stdout),
       this.defaultBranch(freshness.refs),
       mergeBaseBranch
         ? snapshotRead.then((snapshot) =>
@@ -1360,7 +1380,9 @@ export class WorkspaceReads {
       ? new Set(
           (
             await this.requireStatusSnapshot(args.freshness.work)
-          ).untrackedPaths.filter((relativePath) => requested.has(relativePath)),
+          ).untrackedPaths.filter((relativePath) =>
+            requested.has(relativePath),
+          ),
         )
       : new Set<string>();
 
@@ -1810,7 +1832,9 @@ export class WorkspaceReads {
           const stats = await lstatFileOrSymlink(
             path.join(this.path, relativePath),
           );
-          return stats === null ? null : { path: relativePath, size: stats.size };
+          return stats === null
+            ? null
+            : { path: relativePath, size: stats.size };
         }),
       );
       const eligible = candidates.filter(
@@ -1895,8 +1919,7 @@ export class WorkspaceReads {
       TRACKED_ENTRIES_LIMIT,
     );
     const trackedTruncated =
-      combined.recordLimitReached ||
-      enumeratedTrackedEntries.length > maxFiles;
+      combined.recordLimitReached || enumeratedTrackedEntries.length > maxFiles;
     const trackedEntries = enumeratedTrackedEntries.slice(0, maxFiles);
 
     const remainingFileSlots = maxFiles - trackedEntries.length;
@@ -2023,7 +2046,14 @@ export class WorkspaceReads {
       const [onlyPath] = indexedPaths;
       if (indexedPaths.length === 1 && onlyPath !== undefined) {
         const result = await this.runGit(
-          ["diff", "--no-ext-diff", "--binary", ...whitespaceArgs, "--", ...pathspec],
+          [
+            "diff",
+            "--no-ext-diff",
+            "--binary",
+            ...whitespaceArgs,
+            "--",
+            ...pathspec,
+          ],
           {
             ...buildDiffOutputGitOptions(this.path, args.maxBytesPerFile),
             env,
@@ -2045,11 +2075,21 @@ export class WorkspaceReads {
           { cwd: this.path, env },
         ),
         this.runGit(
-          ["diff", "--no-ext-diff", "--binary", ...whitespaceArgs, "--", ...pathspec],
+          [
+            "diff",
+            "--no-ext-diff",
+            "--binary",
+            ...whitespaceArgs,
+            "--",
+            ...pathspec,
+          ],
           {
             ...buildDiffOutputGitOptions(
               this.path,
-              combinedPageBufferBudget(indexedPaths.length, args.maxBytesPerFile),
+              combinedPageBufferBudget(
+                indexedPaths.length,
+                args.maxBytesPerFile,
+              ),
             ),
             env,
           },

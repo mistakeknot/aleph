@@ -78,6 +78,10 @@ import { clearThreadContext } from "./thread-context-clear.js";
 import { assertAdmittedDestinationInTransaction } from "./retired-ingress.js";
 import { withThreadSendGuard } from "./thread-context-mutation-guard.js";
 import {
+  settleInFlightTurnRequest,
+  trackInFlightTurnRequest,
+} from "../../internal/turn-completed-events.js";
+import {
   prependDeferredFirstTurnContext,
   requireDeferredFirstTurnContextCurrent,
   resolveDeferredFirstTurnContext,
@@ -806,18 +810,25 @@ async function sendHotThreadMessageWithoutContextClear(
       target,
       thread,
     });
+    trackInFlightTurnRequest(thread.id);
     deps.hub.notifyThread(
       thread.id,
       queuedRequest.request.notificationChanges,
       queuedRequest.request.notificationMetadata,
     );
+    const onHistoryReplacementSettled =
+      args.historyReplacement?.onCommandSettled;
     startLiveHostCommand(deps, {
       command: command.command,
       hostId: readyEnvironment.hostId,
       timeoutMs: LIVE_DAEMON_COMMAND_TIMEOUT_MS,
-      ...(args.historyReplacement?.onCommandSettled !== undefined
-        ? { onSettled: args.historyReplacement.onCommandSettled }
-        : {}),
+      onSettled: async () => {
+        try {
+          await onHistoryReplacementSettled?.();
+        } finally {
+          await settleInFlightTurnRequest(deps, thread.id);
+        }
+      },
       onError: ({ error }) => {
         deps.logger.warn(
           { err: error, threadId: thread.id },
@@ -886,6 +897,7 @@ async function sendHotThreadMessageWithoutContextClear(
     target,
     thread,
   });
+  trackInFlightTurnRequest(thread.id);
   deps.hub.notifyThread(
     thread.id,
     queuedRequest.request.notificationChanges,
@@ -901,6 +913,7 @@ async function sendHotThreadMessageWithoutContextClear(
         "Live turn submit command failed",
       );
     },
+    onSettled: () => settleInFlightTurnRequest(deps, thread.id),
   });
   if (shouldCaptureUserMessageSent) {
     captureUserMessageSentTelemetry(deps, {

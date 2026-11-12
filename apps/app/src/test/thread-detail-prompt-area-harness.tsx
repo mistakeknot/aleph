@@ -335,13 +335,18 @@ vi.mock("@/components/promptbox/FollowUpPromptBox", async () => {
               type="button"
               onClick={() => {
                 // The real composer surfaces a rejected submit itself.
-                void Promise.resolve(composer.onSubmit()).catch(() => undefined);
+                void Promise.resolve(composer.onSubmit()).catch(
+                  () => undefined,
+                );
               }}
             >
               Submit composer
             </button>
             {composer.canModifierSubmit ? (
-              <button type="button" onClick={() => composer.onModifierSubmit()}>
+              <button
+                type="button"
+                onClick={() => void composer.onModifierSubmit()}
+              >
                 Modifier submit
               </button>
             ) : null}
@@ -634,10 +639,7 @@ vi.mock("@/hooks/useThreadCreationOptions", async () => {
         reasoningOptions: promptAreaMocks.unknownReasoning
           ? []
           : [{ value: "medium", label: "Medium" }],
-        resolveReasoningForModel: (
-          _model: string,
-          reasoningLevel: string,
-        ) => ({
+        resolveReasoningForModel: (_model: string, reasoningLevel: string) => ({
           reasoningLevel,
           reasoningOptions: [{ value: reasoningLevel, label: reasoningLevel }],
         }),

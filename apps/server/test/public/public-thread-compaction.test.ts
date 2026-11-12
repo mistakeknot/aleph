@@ -251,13 +251,16 @@ describe("public thread compaction", () => {
         data: { providerThreadId, status: "completed" },
       });
       const completion = applyTurnCompletedEvent(harness.deps, {
-        threadId: thread.id,
-        providerThreadId,
-        type: "turn/completed",
-        scope: turnScope(compactionTurnId),
-        status: "completed",
+        afterIdle: null,
+        payload: {
+          threadId: thread.id,
+          providerThreadId,
+          type: "turn/completed",
+          scope: turnScope(compactionTurnId),
+          status: "completed",
+        },
       });
-      expect(completion.nextStatus).toBe("idle");
+      expect(completion).toEqual({ kind: "settled", nextStatus: "idle" });
       expect(
         await sendNextQueuedMessageIfPresent(harness.deps, {
           threadId: thread.id,
@@ -477,13 +480,16 @@ describe("public thread compaction", () => {
         },
       });
       const completion = applyTurnCompletedEvent(harness.deps, {
-        threadId: thread.id,
-        providerThreadId: "provider-thread-queue",
-        type: "turn/completed",
-        scope: turnScope(compactionTurnId),
-        status: "completed",
+        afterIdle: null,
+        payload: {
+          threadId: thread.id,
+          providerThreadId: "provider-thread-queue",
+          type: "turn/completed",
+          scope: turnScope(compactionTurnId),
+          status: "completed",
+        },
       });
-      expect(completion.nextStatus).toBe("idle");
+      expect(completion).toEqual({ kind: "settled", nextStatus: "idle" });
       expect(
         await sendNextQueuedMessageIfPresent(harness.deps, {
           threadId: thread.id,
@@ -597,11 +603,14 @@ describe("public thread compaction", () => {
           },
         });
         applyTurnCompletedEvent(harness.deps, {
-          threadId: thread.id,
-          providerThreadId: "provider-notice-compaction",
-          type: "turn/completed",
-          scope: turnScope(turnId),
-          status: "completed",
+          afterIdle: null,
+          payload: {
+            threadId: thread.id,
+            providerThreadId: "provider-notice-compaction",
+            type: "turn/completed",
+            scope: turnScope(turnId),
+            status: "completed",
+          },
         });
         expect(
           await sendNextQueuedMessageIfPresent(harness.deps, {
@@ -714,11 +723,14 @@ describe("public thread compaction", () => {
         },
       });
       applyTurnCompletedEvent(harness.deps, {
-        threadId: thread.id,
-        providerThreadId: "provider-thread-compact-first",
-        type: "turn/completed",
-        scope: turnScope(compactionTurnId),
-        status: "completed",
+        afterIdle: null,
+        payload: {
+          threadId: thread.id,
+          providerThreadId: "provider-thread-compact-first",
+          type: "turn/completed",
+          scope: turnScope(compactionTurnId),
+          status: "completed",
+        },
       });
       expect(
         await sendNextQueuedMessageIfPresent(harness.deps, {
