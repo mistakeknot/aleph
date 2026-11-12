@@ -41,6 +41,7 @@ import type {
   SystemAlephUpdateStatus,
 } from "@bb/server-contract";
 import { ALEPH_NO_MANIFEST_PUBLISHED_DETAIL } from "@bb/server-contract";
+import { readAlephOverview } from "./aleph-overview.js";
 import { ApiError } from "../../errors.js";
 import type { ServerLogger } from "../../types.js";
 
@@ -153,7 +154,7 @@ interface CreateAlephUpdateServiceArgs {
   countRunningThreads: () => number;
   directStart?: AlephDirectStartPolicy;
   logger: ServerLogger;
-  notify?: (message: string) => Promise<void>;
+  notify?: ((message: string) => Promise<void>) & { configured?: boolean };
   now?: () => number;
   paths: AlephUpdatePaths;
   platform?: NodeJS.Platform;
@@ -526,7 +527,7 @@ export function createAlephUpdateService(
 
   type SelectionStatus = Omit<
     SystemAlephUpdateStatus,
-    "installRequest" | "lastRun"
+    "installRequest" | "lastRun" | "overview"
   >;
 
   async function readSelection(): Promise<SelectionStatus> {
@@ -658,12 +659,31 @@ export function createAlephUpdateService(
     return requestView(visible[0]);
   }
 
+  let previousOverview: SystemAlephUpdateStatus["overview"];
+  const deliveries = new Map<string, "sent" | "failed">();
+
   function getStatus(): Promise<SystemAlephUpdateStatus> {
     return exclusive(async () => {
       const status = await readSelection();
       reconcileRequests(status);
       const latest = (await readRuns(null))[0];
+      const overview = await readAlephOverview({
+        runningVersion: args.appVersion,
+        read: () => system.readFile(join(paths.floorStateDir, "overview.json")),
+        now: now(),
+        ...(previousOverview === undefined
+          ? {}
+          : { previous: previousOverview }),
+      });
+      previousOverview = overview;
+      overview.requestRecipientConfigured = args.notify?.configured === true;
+      const pending = currentRequest();
+      overview.requestDelivery =
+        pending.nonce === null
+          ? "unavailable"
+          : (deliveries.get(pending.nonce) ?? "unavailable");
       return {
+        overview,
         ...status,
         installRequest: currentRequest(),
         lastRun: latest === undefined ? null : runView(latest),
@@ -721,7 +741,9 @@ export function createAlephUpdateService(
     announcedAt.set(record.manifestDigest, claimedAt);
     try {
       await args.notify(`Aleph install requested for ${record.target}`);
+      if (args.notify.configured === true) deliveries.set(record.nonce, "sent");
     } catch (error) {
+      deliveries.set(record.nonce, "failed");
       args.logger.warn({ err: error }, "aleph install request notice failed");
     }
   }

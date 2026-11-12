@@ -207,6 +207,18 @@ request: no shell, one line of at most 512 bytes on stdin, killed after five
 seconds, and only `PATH`, `HOME`, and `LANG` in its environment. Unset or
 invalid, no notice is sent.
 
+Aleph Settings → Updates separates the running version, qualification evidence,
+and the signed automatic update feed. `bb updates aleph --json` and
+`sdk.system.alephUpdateStatus()` expose the same read-only `overview` snapshot.
+Unavailable evidence remains null; it never supplies an installable target.
+The server reads a validated `aleph-update/overview.json` export in its data
+directory. The export contains nullable installation, qualification, upstream,
+sync and summary sections; see `docs/aleph-updates-overview.md` for its format.
+Requests appear only for a newer signed target with matching passed qualification,
+fresh evidence and a configured notification recipient. A request records intent;
+it does not start installation. Delivery outcomes become unavailable after a
+server restart; a notification attempt is never inferred from a request timestamp.
+
 Machine selectors accept either an exact machine ID or an unambiguous machine
 name. `--host` is an alias for `--machine`.
 

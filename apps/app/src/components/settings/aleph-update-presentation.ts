@@ -102,7 +102,7 @@ export const ALEPH_REQUEST_RECOVERY_REASON = "Recover first";
 export const ALEPH_REQUEST_MIGRATION_REASON =
   "Needs a database migration; requires the gated install";
 export const ALEPH_REQUEST_UNQUALIFIED_REASON =
-  "No release has been qualified yet";
+  "Automatic update feed not configured";
 
 export function alephRequestButton(status: {
   capability: AlephUpdateCapability;

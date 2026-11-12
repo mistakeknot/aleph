@@ -35,6 +35,23 @@ function status(
 
 const AVAILABLE = status({
   selection: "available",
+  overview: {
+    runningVersion: "0.44.0+aleph.0.5.3",
+    installation: null,
+    upstream: null,
+    sync: null,
+    summary: null,
+    qualification: {
+      source: "qualification",
+      checkedAt: "2026-10-10T00:00:00Z",
+      version: "0.44.0+aleph.0.5.4",
+      commit: "a".repeat(40),
+      result: "passed",
+    },
+    stale: false,
+    requestRecipientConfigured: true,
+    requestDelivery: "unavailable",
+  },
   target: {
     aleph: "0.5.4",
     manifestDigest: DIGEST,
@@ -136,7 +153,7 @@ describe("AlephUpdateRowView", () => {
     expect(screen.queryByRole("button", { name: /^Update/u })).toBeNull();
     expect(screen.queryByRole("button", { name: /show command/i })).toBeNull();
     fireEvent.click(
-      screen.getByRole("button", { name: "Request update to 0.5.4" }),
+      screen.getByRole("button", { name: "Request server update" }),
     );
     expect(onRequestInstall).toHaveBeenCalledWith(AVAILABLE.target);
   });
@@ -157,8 +174,9 @@ describe("AlephUpdateRowView", () => {
         },
       },
     });
-    const button = screen.getByRole("button", { name: "Request update" });
-    expect((button as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      screen.queryByRole("button", { name: "Request server update" }),
+    ).toBeNull();
     expect(
       screen.getAllByText(/requested; waiting for the gated install/iu).length,
     ).toBeGreaterThan(0);
@@ -281,14 +299,16 @@ describe("AlephUpdateRowView", () => {
     expect(
       screen.getByText("Installed by the Aleph release wrapper"),
     ).toBeTruthy();
-    expect(screen.getByText("0.5.3")).toBeTruthy();
+    expect(screen.getByText("0.44.0+aleph.0.5.3")).toBeTruthy();
     expect(screen.queryByText(/helper is not installed/u)).toBeNull();
     expect(screen.queryByText(/No update manifest/u)).toBeNull();
-    const requestButton = screen.getByRole("button", {
-      name: "Request update",
-    });
-    expect((requestButton as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByText("No release has been qualified yet")).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Request server update" }),
+    ).toBeNull();
+    expect(
+      screen.getByText("Automatic update feed not configured"),
+    ).toBeTruthy();
+    expect(screen.queryByText("No release has been qualified yet")).toBeNull();
   });
 
   it("keeps the error when the publication is incomplete and no helper exists", () => {
@@ -410,3 +430,26 @@ describe("AlephUpdateRowView", () => {
     expect(screen.getByText("Update failed and was rolled back")).toBeTruthy();
   });
 });
+
+it.each(["no recipient", "unqualified", "stale"])(
+  "hides request for %s",
+  (reason) => {
+    const overview = AVAILABLE.overview!;
+    view({
+      status: {
+        ...AVAILABLE,
+        capability: "request-only",
+        overview: {
+          ...overview,
+          requestRecipientConfigured: reason !== "no recipient",
+          qualification:
+            reason === "unqualified" ? null : overview.qualification,
+          stale: reason === "stale",
+        },
+      },
+    });
+    expect(
+      screen.queryByRole("button", { name: "Request server update" }),
+    ).toBeNull();
+  },
+);

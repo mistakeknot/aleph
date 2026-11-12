@@ -44,29 +44,33 @@ export function createAlephUpdateNotifyFromEnv(
   options: { timeoutMs?: number } = {},
 ): AlephUpdateNoticeSink {
   const argv = parseArgv(env[ALEPH_UPDATE_NOTIFY_COMMAND_ENV]);
-  if (argv === null) return async () => {};
+  if (argv === null)
+    return Object.assign(async () => {}, { configured: false });
   const [file, ...rest] = argv as [string, ...string[]];
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  return (message) =>
-    new Promise<void>((resolve, reject) => {
-      const child = spawn(file, rest, {
-        env: childEnvironment(env),
-        killSignal: "SIGKILL",
-        shell: false,
-        stdio: ["pipe", "ignore", "ignore"],
-        timeout: timeoutMs,
-      });
-      child.once("error", reject);
-      child.once("close", (code, signal) => {
-        if (code === 0) resolve();
-        else
-          reject(
-            new Error(
-              `aleph update notice command ended with ${signal ?? `code ${code}`}`,
-            ),
-          );
-      });
-      child.stdin.on("error", () => {});
-      child.stdin.end(bound(message));
-    });
+  return Object.assign(
+    (message: string) =>
+      new Promise<void>((resolve, reject) => {
+        const child = spawn(file, rest, {
+          env: childEnvironment(env),
+          killSignal: "SIGKILL",
+          shell: false,
+          stdio: ["pipe", "ignore", "ignore"],
+          timeout: timeoutMs,
+        });
+        child.once("error", reject);
+        child.once("close", (code, signal) => {
+          if (code === 0) resolve();
+          else
+            reject(
+              new Error(
+                `aleph update notice command ended with ${signal ?? `code ${code}`}`,
+              ),
+            );
+        });
+        child.stdin.on("error", () => {});
+        child.stdin.end(bound(message));
+      }),
+    { configured: true },
+  );
 }

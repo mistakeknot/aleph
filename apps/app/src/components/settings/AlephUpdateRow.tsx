@@ -83,7 +83,7 @@ function ActionButton({
         variant="outline"
         size="sm"
         disabled={disabled}
-        className="h-6 shrink-0 gap-1.5 px-2 text-xs"
+        className="min-h-11 sm:min-h-8 shrink-0 gap-1.5 px-2 text-xs"
         onClick={onClick}
       >
         {children}
@@ -104,7 +104,8 @@ export function AlephUpdateRowView({
   onRecover,
   onDismiss,
 }: AlephUpdateRowViewProps) {
-  const wrapperManaged = isAlephWrapperManaged(status);
+  const wrapperManaged =
+    status.overview === undefined && isAlephWrapperManaged(status);
   const recovering =
     status.selection === "recovering" ||
     status.selection === "recovery-required";
@@ -112,9 +113,26 @@ export function AlephUpdateRowView({
     (recovering ? null : alephInstallRequestLabel(status.installRequest)) ??
     (wrapperManaged
       ? { label: ALEPH_WRAPPER_LABEL, tone: "neutral" as const }
-      : alephSelectionText(status.selection));
+      : status.overview &&
+          status.selection === "manifest-missing" &&
+          (status.detail === null ||
+            status.detail === "No update manifest has been published.")
+        ? {
+            label: "Automatic update feed not configured",
+            tone: "neutral" as const,
+          }
+        : alephSelectionText(status.selection));
   const busy = request.pending !== null;
-  const requestButton = alephRequestButton(status);
+  const candidate = alephRequestButton(status);
+  const requestButton =
+    status.overview?.requestRecipientConfigured === true &&
+    !status.overview.stale &&
+    status.overview.qualification?.result === "passed" &&
+    status.overview.qualification.version === status.target?.version &&
+    status.selection === "available" &&
+    status.installRequest.state !== "requested"
+      ? candidate
+      : { kind: "hidden" as const };
   const installRequest = status.installRequest;
   const installText = alephInstallRequestText(installRequest);
   const installOpen = installRequest.state === "requested";
@@ -157,7 +175,7 @@ export function AlephUpdateRowView({
     <div className="min-w-0" data-bb-update-role="aleph">
       <div
         className={cn(
-          "grid min-w-0 grid-cols-[1.5rem_minmax(0,1fr)_auto] items-center gap-3 py-2 text-sm first:pt-0 last:pb-0",
+          "grid min-w-0 grid-cols-[1.5rem_minmax(0,1fr)] sm:grid-cols-[1.5rem_minmax(0,1fr)_auto] items-start gap-3 px-4 py-3.5 text-sm [overflow-wrap:anywhere]",
         )}
       >
         <span
@@ -170,10 +188,10 @@ export function AlephUpdateRowView({
           <span className="truncate text-sm font-medium text-foreground">
             {name}
           </span>
-          {installed === null ? null : (
+          {status.overview || installed !== null ? (
             <span className="min-w-0 shrink text-2xs text-muted-foreground">
-              {installed.aleph}
-              {target !== null && target.aleph !== installed.aleph ? (
+              {status.overview?.runningVersion ?? installed?.version}
+              {target !== null && target.aleph !== installed?.aleph ? (
                 <>
                   <span className="px-1">→</span>
                   <span className="font-semibold text-version-upgrade">
@@ -182,10 +200,12 @@ export function AlephUpdateRowView({
                 </>
               ) : null}
             </span>
+          ) : (
+            <span>Version unavailable</span>
           )}
           <span
             className={cn(
-              "shrink-0 text-xs font-semibold",
+              "min-w-0 text-xs font-medium",
               selection.tone === "error"
                 ? "text-destructive"
                 : "text-subtle-foreground",
@@ -194,7 +214,13 @@ export function AlephUpdateRowView({
             {selection.label}
           </span>
         </span>
-        <span className="ml-auto flex shrink-0 items-center justify-end gap-1">
+        <span className="col-start-2 flex flex-col items-start gap-2 sm:col-start-auto">
+          {requestButton.kind === "request" ? (
+            <span className="max-w-64 text-xs text-muted-foreground">
+              Records a request for your Aleph operator; does not start an
+              installation.
+            </span>
+          ) : null}
           {busy ? (
             <Icon aria-hidden name="Loading" className="size-3 animate-spin" />
           ) : null}
@@ -220,7 +246,7 @@ export function AlephUpdateRowView({
                 if (status.target !== null) onRequestInstall(status.target);
               }}
             >
-              {requestButton.label}
+              Request server update
             </ActionButton>
           ) : null}
           {installOpen && installRequest.nonce !== null ? (
@@ -263,13 +289,42 @@ export function AlephUpdateRowView({
           ) : null}
         </span>
       </div>
-      <div className="flex flex-col gap-1 pb-2 pl-9 text-xs text-muted-foreground">
+      <div className="flex flex-col gap-2 px-4 pb-3.5 sm:pl-13 text-xs text-muted-foreground [overflow-wrap:anywhere]">
+        {status.overview?.requestRecipientConfigured !== true ? (
+          <span>
+            Request delivery is unavailable. An operator notification recipient
+            must be configured before requesting an update.
+          </span>
+        ) : null}
+
+        {installRequest.requestedAt ? (
+          <span>
+            Requested {new Date(installRequest.requestedAt).toLocaleString()} ·{" "}
+            {status.overview?.requestDelivery === "sent"
+              ? "Operator notification sent"
+              : status.overview?.requestDelivery === "failed"
+                ? "Operator notification failed"
+                : "Notification delivery outcome unavailable"}
+          </span>
+        ) : null}
+        {wrapperManaged ? (
+          <span>Automatic update feed not configured</span>
+        ) : null}
         {wrapperManaged ? (
           <span>{ALEPH_WRAPPER_NOTE}</span>
         ) : (
           <>
-            <span>{alephCapabilityText(status.capability)}</span>
-            {status.detail === null ? null : <span>{status.detail}</span>}
+            <span>
+              {status.selection === "manifest-missing" && status.overview
+                ? "Updates are installed by your Aleph operator."
+                : alephCapabilityText(status.capability)}
+            </span>
+            {status.detail === null ||
+            (status.overview &&
+              status.detail ===
+                "No update manifest has been published.") ? null : (
+              <span>{status.detail}</span>
+            )}
           </>
         )}
         {interrupt && (showUpdate || showRollback) ? (
@@ -338,5 +393,9 @@ export function AlephUpdateRow({
 
 export function useAlephUpdateRowStatus(enabled: boolean) {
   const query = useAlephUpdateStatus({ enabled });
-  return enabled ? (query.data ?? null) : null;
+  if (!enabled || !query.data) return null;
+  if (query.isError && query.data.overview) {
+    return { ...query.data, overview: { ...query.data.overview, stale: true } };
+  }
+  return query.data;
 }

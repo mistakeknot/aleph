@@ -841,7 +841,64 @@ export const systemAlephUpdateRunSchema = z.object({
 });
 export type SystemAlephUpdateRun = z.infer<typeof systemAlephUpdateRunSchema>;
 
+const alephOverviewSourceSchema = z.object({
+  source: z.string().min(1).max(100),
+  checkedAt: z.iso.datetime(),
+});
+const alephOverviewCommitSchema = z.string().regex(/^[0-9a-f]{40}$/u);
+export const alephOverviewExportSchema = z.object({
+  installation: alephOverviewSourceSchema
+    .extend({
+      version: z.string().min(1).max(100),
+      commit: alephOverviewCommitSchema,
+      installedAt: z.iso.datetime().nullable(),
+    })
+    .nullable(),
+  qualification: alephOverviewSourceSchema
+    .extend({
+      version: z.string().min(1).max(100),
+      commit: alephOverviewCommitSchema,
+      result: z.enum(["passed", "failed"]),
+    })
+    .nullable(),
+  upstream: alephOverviewSourceSchema
+    .extend({
+      release: z.string().min(1).max(100),
+      base: alephOverviewCommitSchema,
+      head: alephOverviewCommitSchema,
+      firstParentGap: z.number().int().nonnegative(),
+    })
+    .nullable(),
+  sync: alephOverviewSourceSchema
+    .extend({
+      heartbeatAt: z.iso.datetime(),
+      phase: z.enum([
+        "integrating",
+        "qualifying",
+        "awaiting-review",
+        "idle",
+        "blocked",
+      ]),
+    })
+    .nullable(),
+  summary: z
+    .object({
+      version: z.string().min(1).max(100),
+      commit: alephOverviewCommitSchema,
+      text: z.string().min(1).max(8000),
+    })
+    .nullable(),
+});
+export const alephOverviewSchema = alephOverviewExportSchema.extend({
+  runningVersion: z.string(),
+  stale: z.boolean(),
+  requestRecipientConfigured: z.boolean(),
+  requestDelivery: z.enum(["sent", "failed", "unavailable"]),
+});
+export type AlephOverview = z.infer<typeof alephOverviewSchema>;
+
 export const systemAlephUpdateStatusSchema = z.object({
+  overview: alephOverviewSchema.optional(),
   activeThreadCount: z.number().int().nonnegative(),
   capability: alephUpdateCapabilitySchema,
   detail: z.string().nullable(),
