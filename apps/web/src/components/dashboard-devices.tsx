@@ -58,7 +58,7 @@ function ConfirmRemoval({
 }) {
   const [busy, setBusy] = useState(false);
   return (
-    <Overlay onClose={onCancel}>
+    <Overlay onClose={() => !busy && onCancel()}>
       <h4 className="mb-1.5 text-base font-semibold">{title}</h4>
       <p className="mb-4 text-sm text-muted-foreground">{body}</p>
       <div className="flex justify-end gap-2">
