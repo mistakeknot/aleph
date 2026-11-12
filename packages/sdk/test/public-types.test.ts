@@ -271,6 +271,8 @@ type ExpectedHostsKey =
   | "experimental_discoverRepos"
   | "get"
   | "installProviderCli"
+  | "experimental_startProviderCliInstall"
+  | "experimental_providerCliInstallJobs"
   | "list"
   | "experimental_listProviders"
   | "pathsExist"

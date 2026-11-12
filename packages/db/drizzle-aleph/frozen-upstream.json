@@ -624,6 +624,10 @@
     {
       "tag": "0154_thread_purges",
       "sha256": "56cc25956150a5875f257d690109c2d7a042421efdc0f182df8e1f43bb6ec818"
+    },
+    {
+      "tag": "0155_declare_project_sources_default_index",
+      "sha256": "1253dfa5ae43984d194d94d4e518c6ca7454c8363074b091e2158067c8ece5e4"
     }
   ]
 }

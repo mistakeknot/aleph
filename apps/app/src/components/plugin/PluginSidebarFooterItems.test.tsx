@@ -438,7 +438,9 @@ describe("PluginSidebarFooterItems", () => {
       );
       renderWithProviders(<FooterHarness />);
       const trigger = screen.getByRole("button", { name: "Provider usage" });
-      const advance = (ms: number) => act(() => vi.advanceTimersByTime(ms));
+      const advance = (ms: number) => {
+        void act(() => vi.advanceTimersByTime(ms));
+      };
 
       fireEvent.pointerOver(trigger, { pointerType: "touch" });
       advance(1000);
@@ -504,7 +506,7 @@ describe("PluginSidebarFooterItems", () => {
         expect(trigger.getAttribute("aria-pressed")).toBe("false");
 
         fireEvent.pointerOver(trigger, { pointerType: "mouse" });
-        act(() => vi.advanceTimersByTime(300));
+        void act(() => vi.advanceTimersByTime(300));
         const panel = screen.getByTestId(panelId);
         expect(panel.getAttribute("data-pinned")).toBe("false");
         expect(trigger.getAttribute("aria-pressed")).toBe("false");
@@ -649,7 +651,7 @@ describe("PluginSidebarFooterItems", () => {
           screen.getByRole("button", { name: "Provider usage" }),
           { pointerType: "mouse" },
         );
-        act(() => vi.advanceTimersByTime(300));
+        void act(() => vi.advanceTimersByTime(300));
         fireEvent.pointerDown(document.body);
         expect(screen.getByText("Provider usage content")).toBeDefined();
       } finally {
@@ -706,7 +708,9 @@ describe("PluginSidebarFooterItems", () => {
         composer: screen.getByLabelText("Composer"),
       };
     }
-    const advance = (ms: number) => act(() => vi.advanceTimersByTime(ms));
+    const advance = (ms: number) => {
+      void act(() => vi.advanceTimersByTime(ms));
+    };
 
     it("keeps focus in the composer when a preview closes after an earlier pinned close", () => {
       vi.useFakeTimers();

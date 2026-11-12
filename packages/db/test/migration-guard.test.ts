@@ -1357,7 +1357,13 @@ describe("guardPlan", () => {
     it("refuses a control character in a new Aleph step", () => {
       const input = extend(
         [],
-        [alephStep("A0015", "0154_thread_purges", lastWhen + 1)],
+        [
+          alephStep(
+            "A0015",
+            "0155_declare_project_sources_default_index",
+            lastWhen + 1,
+          ),
+        ],
       );
       expect(() =>
         guardInput(
@@ -1371,7 +1377,13 @@ describe("guardPlan", () => {
     it("accepts a new Aleph step without control characters", () => {
       const input = extend(
         [],
-        [alephStep("A0015", "0154_thread_purges", lastWhen + 1)],
+        [
+          alephStep(
+            "A0015",
+            "0155_declare_project_sources_default_index",
+            lastWhen + 1,
+          ),
+        ],
       );
       expect(() =>
         guardInput(input, "SELECT 1;", "CREATE TABLE intended_new_table(id);"),
@@ -1425,7 +1437,11 @@ describe("guardPlan", () => {
         buildMigrationPlan(input)
           .steps.map((step) => step.id)
           .slice(-3),
-      ).toEqual(["0154_thread_purges", "0148_first", "A0015"]);
+      ).toEqual([
+        "0155_declare_project_sources_default_index",
+        "0148_first",
+        "A0015",
+      ]);
       expect(() => guardInput(input)).not.toThrow();
     });
 
@@ -1457,7 +1473,11 @@ describe("guardPlan", () => {
         aleph: [
           ...base.aleph,
           {
-            ...alephStep("A0015", "0154_thread_purges", lastWhen + 20),
+            ...alephStep(
+              "A0015",
+              "0155_declare_project_sources_default_index",
+              lastWhen + 20,
+            ),
             supersedes: "0148_first",
           },
         ],

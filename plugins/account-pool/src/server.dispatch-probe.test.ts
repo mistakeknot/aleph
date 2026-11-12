@@ -61,38 +61,40 @@ it.runIf(Boolean(clavainRoot)).each(["claude", "codex"] as const)(
     });
     const requests: string[] = [];
     const upstreamRequests: string[] = [];
-    const server = createServer(async (request, response) => {
-      const url = (request.url ?? "").replace(
-        "/api/v1/plugins/account-pool/http",
-        "",
-      );
-      requests.push(`${request.method} ${url}`);
-      try {
-        if (request.method !== "GET" && request.method !== "POST")
-          throw new Error("Unexpected method");
-        const chunks: Buffer[] = [];
-        for await (const chunk of request) chunks.push(Buffer.from(chunk));
-        const result = await host.harness.behavior.fetchHttp(
-          request.method,
-          url,
-          {
-            headers: {
-              "x-bb-account-pool-token": String(
-                request.headers["x-bb-account-pool-token"] ?? "",
-              ),
-              "content-type": "application/json",
-            },
-            ...(request.method === "POST"
-              ? { body: Buffer.concat(chunks).toString("utf8") }
-              : {}),
-          },
+    const server = createServer((request, response) => {
+      void (async () => {
+        const url = (request.url ?? "").replace(
+          "/api/v1/plugins/account-pool/http",
+          "",
         );
-        response.writeHead(result.status, Object.fromEntries(result.headers));
-        response.end(await result.text());
-      } catch {
-        response.writeHead(500);
-        response.end();
-      }
+        requests.push(`${request.method} ${url}`);
+        try {
+          if (request.method !== "GET" && request.method !== "POST")
+            throw new Error("Unexpected method");
+          const chunks: Buffer[] = [];
+          for await (const chunk of request) chunks.push(Buffer.from(chunk));
+          const result = await host.harness.behavior.fetchHttp(
+            request.method,
+            url,
+            {
+              headers: {
+                "x-bb-account-pool-token": String(
+                  request.headers["x-bb-account-pool-token"] ?? "",
+                ),
+                "content-type": "application/json",
+              },
+              ...(request.method === "POST"
+                ? { body: Buffer.concat(chunks).toString("utf8") }
+                : {}),
+            },
+          );
+          response.writeHead(result.status, Object.fromEntries(result.headers));
+          response.end(await result.text());
+        } catch {
+          response.writeHead(500);
+          response.end();
+        }
+      })();
     });
     try {
       const secretDir = path.join(

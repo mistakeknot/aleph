@@ -6,6 +6,9 @@ export type PathNonce = { param: { nonce: string } };
 export type PathThreadAndQueuedMessage = {
   param: { id: string; queuedMessageId: string };
 };
+export type PathIdAndJobId = {
+  param: { id: string; jobId: string };
+};
 export type PathIdAndFilePath = {
   param: { id: string; filePath: string };
 };

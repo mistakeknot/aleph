@@ -91,6 +91,7 @@ import {
 import { useSystemConfig } from "@/hooks/queries/system-queries";
 import { useWorkspaceOpenTargets } from "@/hooks/useWorkspaceOpenTargets";
 import { isDesktopBrowserAvailable } from "@/lib/bb-desktop";
+import { showMutationErrorToast } from "@/lib/mutation-errors";
 import {
   FAVICON_COLOR_VALUES,
   getFaviconGlyphHref,
@@ -512,6 +513,11 @@ export function LocalOpenTargetSettingsSection({
     setAccessRequestPending(true);
     try {
       await onRequestAccess();
+    } catch (error) {
+      showMutationErrorToast({
+        error,
+        fallbackMessage: "Failed to connect to bb on this device",
+      });
     } finally {
       setAccessRequestPending(false);
     }
@@ -567,7 +573,7 @@ export function LocalOpenTargetSettingsSection({
             variant="outline"
             size="sm"
             disabled={accessRequestPending || accessDenied}
-            onClick={handleRequestAccess}
+            onClick={() => void handleRequestAccess()}
           >
             {buttonLabel}
           </Button>
@@ -1343,7 +1349,7 @@ export function SettingsView() {
         disabled={systemConfigQuery.data === undefined}
         generalSettings={generalSettings}
         onGeneralSettingsChange={(next) =>
-          updateGeneralSettingsMutation.mutateAsync(next)
+          updateGeneralSettingsMutation.mutateAsync(next).catch(() => undefined)
         }
       />
     );
@@ -1370,7 +1376,7 @@ export function SettingsView() {
         onAppearanceThemePrefetch={appThemePreview.prefetchThemes}
         onAppearanceThemePreview={appThemePreview.previewTheme}
         onCreatePalette={() =>
-          navigate(getRootComposeRoutePath(), {
+          void navigate(getRootComposeRoutePath(), {
             state: {
               focusPrompt: true,
               initialPrompt: CREATE_CUSTOM_PALETTE_PROMPT,

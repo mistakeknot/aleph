@@ -4958,7 +4958,7 @@ describe("public thread data routes", () => {
       );
 
       await new Promise((resolve) => setTimeout(resolve, 20));
-      await harness.deps.db
+      harness.deps.db
         .update(threadRows)
         .set({ status: "idle" })
         .where(eq(threadRows.id, thread.id))

@@ -1305,7 +1305,7 @@ async function authenticateConnectTarget(
     remoteServerUrl,
   });
   if (localResult.ok) {
-    void ensureDesktopMachineEnrolled();
+    ensureDesktopMachineEnrolled();
   }
   return localResult;
 }

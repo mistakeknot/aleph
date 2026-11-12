@@ -77,9 +77,7 @@ export function DesktopDownloadIcon({
       <HugeiconsIcon icon={WindowsSolidIcon} className="btn-ic" aria-hidden />
     );
   }
-  return (
-    <HugeiconsIcon icon={AppleSolidIcon} className="btn-ic" aria-hidden />
-  );
+  return <HugeiconsIcon icon={AppleSolidIcon} className="btn-ic" aria-hidden />;
 }
 
 export function DesktopDownloadButton({
@@ -246,7 +244,11 @@ export function EmailSignup({ placement }: { placement: CtaPlacement }) {
   }
 
   return (
-    <form className="subscribe-form" onSubmit={submit} noValidate>
+    <form
+      className="subscribe-form"
+      onSubmit={(event) => void submit(event)}
+      noValidate
+    >
       <input
         id={SUBSCRIBE_EMAIL_ID}
         className="subscribe-input"

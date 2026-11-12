@@ -895,7 +895,7 @@ function ExternalNav({ to }: { to: string }) {
     <button
       type="button"
       data-testid="external-nav"
-      onClick={() => navigate(to)}
+      onClick={() => void navigate(to)}
     >
       go
     </button>
