@@ -112,8 +112,11 @@ describe("dashboard connected apps", () => {
       serverId: "server-b",
       serverHandle: "secondary",
     });
-    const pending = Promise.withResolvers<void>();
-    const onRevoke = vi.fn(() => pending.promise);
+    let resolvePending: () => void;
+    const pending = new Promise<void>((resolve) => {
+      resolvePending = resolve;
+    });
+    const onRevoke = vi.fn(() => pending);
     render([firstGrant, secondGrant], onRevoke);
 
     const first = rowNamed(container, "Client A · primary");
@@ -145,8 +148,8 @@ describe("dashboard connected apps", () => {
       expect(buttonNamed(second, "Disconnect…").disabled).toBe(false);
     } finally {
       await act(async () => {
-        pending.resolve();
-        await pending.promise;
+        resolvePending();
+        await pending;
       });
     }
     expect(container.querySelector("h4")).toBeNull();
