@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { ThreadTimelineResponse } from "@bb/server-contract";
 import {
   createTimelineBuildCoalescer,
@@ -21,7 +21,12 @@ function responseAt(maxSeq: number): ThreadTimelineResponse {
 }
 
 function createHarness(
-  options: { buildMs?: number; maxBytes?: number; maxEntries?: number } = {},
+  options: {
+    buildMs?: number;
+    expiresAt?: number | null;
+    maxBytes?: number;
+    maxEntries?: number;
+  } = {},
 ): Harness {
   let clock = 0;
   const timers: { at: number; cancelled: boolean; run: () => void }[] = [];
@@ -60,7 +65,10 @@ function createHarness(
         build: () => {
           builds.push(maxSeq);
           clock += options.buildMs ?? 100;
-          return responseAt(maxSeq);
+          return {
+            expiresAt: options.expiresAt ?? null,
+            response: responseAt(maxSeq),
+          };
         },
         coalesce: overrides.coalesce ?? true,
         maxSeq,
@@ -72,6 +80,23 @@ function createHarness(
 }
 
 describe("timeline build coalescer", () => {
+  it.each([10, 11])("rebuilds an expired output for sequence %i", (maxSeq) => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
+    try {
+      const harness = createHarness({ expiresAt: 1_100 });
+      const first = harness.serve(10);
+      now.mockReturnValue(1_099);
+      expect(harness.serve(maxSeq).response).toBe(first.response);
+      now.mockReturnValue(1_100);
+      const fresh = harness.serve(maxSeq);
+      expect(fresh.response).not.toBe(first.response);
+      expect(fresh.stale).toBe(false);
+      expect(harness.builds).toEqual([10, maxSeq]);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
   it("serves the same snapshot for an unchanged maxSeq", () => {
     const harness = createHarness();
     const first = harness.serve(10);
@@ -184,8 +209,13 @@ describe("timeline build coalescer", () => {
     const harness = createHarness();
     const text = "é".repeat(100);
     harness.coalescer.serve({
-      build: () =>
-        ({ maxSeq: 1, rows: [text] }) as unknown as ThreadTimelineResponse,
+      build: () => ({
+        expiresAt: null,
+        response: {
+          maxSeq: 1,
+          rows: [text],
+        } as unknown as ThreadTimelineResponse,
+      }),
       coalesce: false,
       maxSeq: 1,
       paramsKey: "utf8",
@@ -208,11 +238,13 @@ describe("timeline build coalescer", () => {
     }
     expect(harness.coalescer.size).toBe(2);
     harness.coalescer.serve({
-      build: () =>
-        ({
+      build: () => ({
+        expiresAt: null,
+        response: {
           maxSeq: 10,
           rows: ["x".repeat(20)],
-        }) as unknown as ThreadTimelineResponse,
+        } as unknown as ThreadTimelineResponse,
+      }),
       coalesce: false,
       maxSeq: 10,
       paramsKey: "big",

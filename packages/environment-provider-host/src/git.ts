@@ -19,6 +19,7 @@ export interface RunGitOptions extends GitProcessOptions {
   allowFailure?: boolean;
   env?: NodeJS.ProcessEnv;
   signal?: AbortSignal;
+  input?: string;
 }
 
 type GitRepositoryState = "not_git" | "no_commits" | "has_commits";
@@ -58,7 +59,7 @@ export async function readGitRepositoryState(
 export async function findWorktreeForBranch(
   cwd: string,
   branchName: string,
-  options: GitTimeoutOptions = {},
+  options: GitTimeoutOptions & Pick<RunGitOptions, "env" | "signal"> = {},
 ): Promise<string | null> {
   await ensureGitRepo(cwd, options);
   const result = await runGit(["worktree", "list", "--porcelain"], {

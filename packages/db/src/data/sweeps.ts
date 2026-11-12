@@ -751,7 +751,7 @@ export function isThreadPastCompletedEventOutputSweeps(
   >(
     `
       SELECT created_at, id
-      FROM events
+      FROM events INDEXED BY events_thread_type_sequence_idx
       WHERE thread_id = ? AND type = ? AND item_kind = ?
       ORDER BY created_at DESC, id DESC
       LIMIT 1
