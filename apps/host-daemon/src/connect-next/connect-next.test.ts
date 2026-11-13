@@ -164,7 +164,10 @@ describe("checkNextConfig", () => {
   it("refuses to send the machine credential anywhere else", () => {
     expect(checkNextConfig(null, NEXT)).toContain("no trusted");
     expect(
-      checkNextConfig("example.test", { ...NEXT, domain: "next.example.test:444" }),
+      checkNextConfig("example.test", {
+        ...NEXT,
+        domain: "next.example.test:444",
+      }),
     ).toContain("gate port");
     expect(
       checkNextConfig("getbb.app", { ...NEXT, domain: "next.evil.test" }),

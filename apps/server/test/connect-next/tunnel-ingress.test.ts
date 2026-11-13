@@ -29,6 +29,7 @@ import {
   waitFor,
 } from "@bb/frp-client/testing";
 import { NextTunnel } from "bb-plugin-bb--connect-next/src/tunnel.js";
+import { AnnotationTunnel } from "@bb/connect-client/annotations/annotation-tunnel";
 import { tunnelIngressHeaders } from "../../src/services/connect-next/tunnel-ingress.js";
 import type { BbPluginApi } from "../../src/services/plugins/plugin-api.js";
 import { seedHost } from "../helpers/seed.js";
@@ -777,6 +778,10 @@ describe("bb connect next tunnel ingress", () => {
       logs.push(message);
     };
     const tunnel = new NextTunnel({
+      annotations: new AnnotationTunnel(
+        { list: async () => [], change: async () => [] },
+        () => null,
+      ),
       frpDir: join(workDir, "frp"),
       serverOverride: {
         protocol: "websocket",
