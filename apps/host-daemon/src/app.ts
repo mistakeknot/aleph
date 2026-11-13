@@ -548,6 +548,11 @@ export async function createHostDaemonApp(
     },
   });
   const connectTunnel = new ConnectTunnelClient({
+    annotations: {
+      list: ({ port, url }) => serverClient.annotations({ port, url }),
+      change: ({ port, url }, change) =>
+        serverClient.annotations({ port, url, change }),
+    },
     serverUrl: options.serverUrl,
     hostName: options.hostName,
     machineCredential: options.serverHeaders?.["x-bb-connect-machine"],
@@ -567,6 +572,12 @@ export async function createHostDaemonApp(
     },
   });
   const machineNextTunnel = new MachineNextTunnel({
+    fetchFn: options.fetchFn,
+    annotations: {
+      list: ({ port, url }) => serverClient.annotations({ port, url }),
+      change: ({ port, url }, change) =>
+        serverClient.annotations({ port, url, change }),
+    },
     frpDir: machineNextFrpDir(options.dataDir),
     trustedBaseDomain: () => {
       try {

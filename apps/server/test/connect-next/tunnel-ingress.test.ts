@@ -777,6 +777,18 @@ describe("bb connect next tunnel ingress", () => {
       logs.push(message);
     };
     const tunnel = new NextTunnel({
+      annotations: {
+        intercept: async () => {
+          throw new Error(
+            "Primary-address fixture must not invoke share annotations",
+          );
+        },
+        transform: async () => {
+          throw new Error(
+            "Primary-address fixture must not transform a share response",
+          );
+        },
+      },
       frpDir: join(workDir, "frp"),
       serverOverride: {
         protocol: "websocket",

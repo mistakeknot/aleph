@@ -1,6 +1,17 @@
+import { AnnotationTunnel } from "@bb/connect-client/annotations/annotation-tunnel";
+import type { AnnotationStore } from "@bb/connect-client/annotations/annotation-store";
+import {
+  openShareIngress,
+  ShareIngressSet,
+  trustedShareKeys,
+  shareKeysUrl,
+} from "@bb/frp-client/share-ingress";
+import { gateAudienceForMachine } from "@bb/tunnel-contract/next";
+import { z } from "zod";
 import path from "node:path";
 import {
   FrpcSupervisor,
+  loopbackTarget,
   type FrpProxy,
   type FrpcPrepared,
   type FrpcSupervisorOptions,
@@ -27,6 +38,9 @@ export type MachineNextSupervisor = Pick<
 >;
 
 export interface MachineNextTunnelOptions {
+  annotations?: Pick<AnnotationStore, "list" | "change">;
+  fetchFn?: typeof fetch;
+  openShareIngress?: typeof openShareIngress;
   frpDir: string;
   trustedBaseDomain: () => string | null;
   machineCredential: string | undefined;
@@ -44,6 +58,8 @@ export interface MachineNextTunnelOptions {
 interface Session {
   config: HostDaemonConnectNextConfig;
   supervisor: MachineNextSupervisor;
+  shares: ShareIngressSet;
+  audience: string | null;
 }
 
 const STATE_FOR: Record<
@@ -66,13 +82,15 @@ function hostnameOf(domain: string): string {
 export function machineShareProxies(
   label: string,
   ports: readonly number[],
+  ingressFor?: (port: number) => string | undefined,
 ): FrpProxy[] {
   return ports.map((port) => ({
     name: `${MACHINE_SHARE_PROXY_PREFIX}${port}`,
     subdomain: `${label}--${port}`,
-    localIP: "127.0.0.1",
-    localPort: port,
-    hostHeaderRewrite: `127.0.0.1:${port}`,
+    ...(ingressFor
+      ? loopbackTarget(ingressFor(port)!)
+      : { localIP: "127.0.0.1", localPort: port }),
+    hostHeaderRewrite: ingressFor ? null : `127.0.0.1:${port}`,
   }));
 }
 
@@ -90,6 +108,12 @@ export function checkNextConfig(
     domainHost = hostnameOf(config.domain);
   } catch {
     return `the connect next domain ${config.domain} is not a host name`;
+  }
+  if (
+    new URL(`https://${config.domain}`).port !==
+    new URL(`https://${trustedBaseDomain}`).port
+  ) {
+    return "the connect next gate port does not match the trusted enrollment";
   }
   if (domainHost !== trustedHost && domainHost !== `next.${trustedHost}`) {
     return `the connect next domain ${config.domain} is not next.${trustedHost}, the domain this machine enrolled with`;
@@ -167,7 +191,11 @@ export class MachineNextTunnel {
     this.ports = next;
     const session = this.session;
     if (session !== null && !wasEmpty && next.length > 0) {
-      const reloaded = session.supervisor.proxiesChanged();
+      const reloaded = (
+        session.audience === null
+          ? Promise.resolve()
+          : session.shares.sync(next)
+      ).then(() => session.supervisor.proxiesChanged());
       this.publish();
       return reloaded;
     }
@@ -184,7 +212,7 @@ export class MachineNextTunnel {
       since: supervised?.since ?? this.idleSince,
       shares:
         supervised?.proxies.map((proxy) => ({
-          port: proxy.localPort,
+          port: Number(proxy.name.slice(MACHINE_SHARE_PROXY_PREFIX.length)),
           state: proxy.state,
           error: proxy.error,
         })) ?? [],
@@ -256,6 +284,7 @@ export class MachineNextTunnel {
         }
         this.session = null;
         this.idleSince = Date.now();
+        await current.shares.close();
         await current.supervisor.stop();
         this.options.logger.info(
           { label: this.label },
@@ -269,6 +298,7 @@ export class MachineNextTunnel {
   }
 
   private async closeLastShare(session: Session): Promise<void> {
+    await session.shares.sync([]);
     await session.supervisor.proxiesChanged();
     const lingerMs = this.options.lastShareLingerMs ?? LAST_SHARE_LINGER_MS;
     if (lingerMs > 0) {
@@ -282,9 +312,15 @@ export class MachineNextTunnel {
       primaryProxy: null,
       resolveBinary: () => this.options.resolveBinary(),
       trustedCertificates: () => this.options.trustedCertificates(),
-      prepare: () => this.prepare(config),
+      prepare: () => this.prepare(session),
       proxies: () =>
-        this.label === null ? [] : machineShareProxies(this.label, this.ports),
+        this.label === null
+          ? []
+          : machineShareProxies(
+              this.label,
+              this.ports.filter((port) => session.shares.get(port)),
+              (port) => session.shares.get(port)?.baseUrl,
+            ),
       log: {
         info: (message) => this.options.logger.debug({}, message),
         warn: (message) =>
@@ -300,7 +336,53 @@ export class MachineNextTunnel {
     const supervisor =
       this.options.createSupervisor?.(supervisorOptions) ??
       new FrpcSupervisor(supervisorOptions);
-    const session: Session = { config, supervisor };
+    const protocol = connectPublicProtocol(config.domain);
+    const trustedBaseDomain = this.options.trustedBaseDomain();
+    const keys =
+      trustedBaseDomain === null
+        ? async () => {
+            throw new Error("Missing trusted enrollment");
+          }
+        : trustedShareKeys(
+            shareKeysUrl(
+              `${connectPublicProtocol(trustedBaseDomain)}//${trustedBaseDomain.replace(/^next\./i, "")}`,
+            ),
+            this.options.fetchFn,
+          );
+    const session: Session = {
+      config,
+      supervisor,
+      audience: null,
+      shares: new ShareIngressSet(async (port) => {
+        const registered = () =>
+          this.session === session &&
+          this.wanted() !== null &&
+          JSON.stringify(this.config) === JSON.stringify(config) &&
+          this.ports.includes(port);
+        const store = this.options.annotations ?? {
+          list: async () => {
+            throw new Error("Annotation store unavailable");
+          },
+          change: async () => {
+            throw new Error("Annotation store unavailable");
+          },
+        };
+        return (this.options.openShareIngress ?? openShareIngress)({
+          get audience() {
+            return session.audience;
+          },
+          publicOrigin: `${protocol}//${this.label}--${port}.${config.domain}`,
+          port,
+          keys,
+          registered,
+          annotations: new AnnotationTunnel(store, (requested) =>
+            requested === port && registered()
+              ? `${protocol}//${this.label}--${port}.${config.domain}`
+              : null,
+          ),
+        });
+      }),
+    };
     this.session = session;
     this.options.logger.info(
       { domain: config.domain, ports: this.ports },
@@ -309,9 +391,8 @@ export class MachineNextTunnel {
     supervisor.start();
   }
 
-  private async prepare(
-    config: HostDaemonConnectNextConfig,
-  ): Promise<FrpcPrepared> {
+  private async prepare(session: Session): Promise<FrpcPrepared> {
+    const { config } = session;
     const credential = this.machineCredential;
     if (credential === undefined) {
       return {
@@ -326,6 +407,34 @@ export class MachineNextTunnel {
       this.label = identity.label;
       this.publish();
     }
+    if (session.audience === null) {
+      const response = await (this.options.fetchFn ?? fetch)(
+        `${connectPublicProtocol(config.domain)}//${config.domain}/api/connect/machine-label`,
+        {
+          method: "POST",
+          redirect: "error",
+          signal: AbortSignal.timeout(10000),
+          headers: {
+            "content-type": "application/json",
+            "x-bb-connect-machine": credential,
+          },
+          body: JSON.stringify({ desiredName: identity.label }),
+        },
+      );
+      if (!response.ok) throw new Error("Machine identity verification failed");
+      const verified = z
+        .object({
+          label: z.literal(identity.label),
+          machineId: z.string().min(1).optional(),
+        })
+        .parse(await response.json());
+      session.audience = verified.machineId
+        ? gateAudienceForMachine(verified.machineId)
+        : null;
+    }
+    if (this.session !== session || this.wanted() === null)
+      throw new Error("Machine tunnel stopped");
+    await session.shares.sync(this.ports);
     return {
       kind: "launch",
       server: config.server,

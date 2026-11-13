@@ -124,9 +124,21 @@ export async function assignMachineLabelForCredential(
   credential: string,
   desiredName: string,
 ): Promise<string | null> {
+  return (
+    (await assignMachineIdentityForCredential(db, credential, desiredName))
+      ?.label ?? null
+  );
+}
+
+export async function assignMachineIdentityForCredential(
+  db: ConnectDb,
+  credential: string,
+  desiredName: string,
+): Promise<{ label: string; machineId: string } | null> {
   const verified = await verifyMachineCredentialDetails(credential, db);
   if (!verified) return null;
-  return assignMachineLabel(db, verified.machineId, desiredName);
+  const label = await assignMachineLabel(db, verified.machineId, desiredName);
+  return label === null ? null : { label, machineId: verified.machineId };
 }
 
 function jsonError(error: string, status: number): Response {
@@ -153,11 +165,11 @@ export async function handleAssignMachineLabel(
     return jsonError("invalid_request", 400);
   }
 
-  const label = await assignMachineLabelForCredential(
+  const identity = await assignMachineIdentityForCredential(
     db,
     credential,
     body.desiredName,
   );
-  if (label === null) return jsonError("unauthorized", 401);
-  return Response.json({ label });
+  if (identity === null) return jsonError("unauthorized", 401);
+  return Response.json(identity);
 }

@@ -633,3 +633,61 @@ describe("dynamic tool cancellation", () => {
     ).not.toHaveProperty("signal");
   });
 });
+
+it("persists annotations through the enrolled host session and validates server results", async () => {
+  const fetchFn = vi.fn<FetchFn>(async () => Response.json([]));
+  let sessionId = "session-a";
+  const client = createServerClient({
+    fetchFn,
+    getSessionId: () => sessionId,
+    hostKey: "host-key",
+    serverHeaders: { "x-bb-connect-machine": "machine-key" },
+    logger: createLogger(),
+    serverUrl: "https://server.example.test",
+  });
+  await expect(
+    client.annotations({
+      port: 3000,
+      url: "https://machine--3000.example.test/page",
+    }),
+  ).resolves.toEqual([]);
+  const [url, init] = fetchFn.mock.calls[0]!;
+  expect(url).toBe(
+    "https://server.example.test/internal/session/connect-annotations",
+  );
+  expect(new Headers(init?.headers).get("authorization")).toBe(
+    "Bearer host-key",
+  );
+  expect(new Headers(init?.headers).get("x-bb-connect-machine")).toBe(
+    "machine-key",
+  );
+  expect(init?.redirect).toBe("error");
+  expect(JSON.parse(String(init?.body))).toEqual({
+    sessionId: "session-a",
+    port: 3000,
+    url: "https://machine--3000.example.test/page",
+  });
+  sessionId = "";
+  await expect(
+    client.annotations({
+      port: 3000,
+      url: "https://machine--3000.example.test/page",
+    }),
+  ).rejects.toThrow("session is not open");
+  expect(fetchFn).toHaveBeenCalledTimes(1);
+  sessionId = "session-b";
+  fetchFn.mockResolvedValueOnce(Response.json([{ id: "invalid" }]));
+  await expect(
+    client.annotations({
+      port: 3000,
+      url: "https://machine--3000.example.test/page",
+    }),
+  ).rejects.toThrow();
+  fetchFn.mockResolvedValueOnce(new Response("Denied", { status: 403 }));
+  await expect(
+    client.annotations({
+      port: 3000,
+      url: "https://machine--3000.example.test/page",
+    }),
+  ).rejects.toMatchObject({ status: 403 });
+});

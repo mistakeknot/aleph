@@ -1,3 +1,4 @@
+import { registerInternalConnectAnnotationRoutes } from "./internal/connect-annotations.js";
 import { createPluginUpdateJobs } from "./services/plugins/plugin-update-jobs.js";
 import { registerPluginUpdateJobRoutes } from "./routes/plugin-update-jobs.js";
 import {
@@ -970,6 +971,7 @@ export function createApp(
 
   const internalApi = new Hono();
   registerInternalHostRoutes(internalApi, deps);
+  registerInternalConnectAnnotationRoutes(internalApi, deps, pluginService);
   registerInternalSessionRoutes(internalApi, deps, pluginService, {
     movedTo: () => serverMove.movedTo(),
     pendingMoveId: () => pendingServerMove?.moveId ?? null,

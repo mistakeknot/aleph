@@ -1,5 +1,9 @@
+import { AnnotationTunnel } from "../../../packages/connect-client/src/annotations/annotation-tunnel.js";
+import { connectAnnotationSchema } from "../../../packages/connect-client/src/annotations/annotation-store.js";
+import { z } from "zod";
+import { nextSiteForAccount } from "./next-site.js";
 import path from "node:path";
-import type { BbPluginApi } from "@get-bb/plugin-sdk";
+import type { BbPluginApi, JsonValue } from "@get-bb/plugin-sdk";
 import {
   createAccountClient,
   watchAccount,
@@ -24,6 +28,7 @@ import { CONNECT_NEXT_REALTIME_CHANNEL } from "./types.js";
 
 export interface ConnectNextPluginOptions {
   env?: NodeJS.ProcessEnv;
+  fetchFn?: typeof fetch;
   openIngress?: OpenTunnelIngress;
   download?: DownloadArchive;
   trustedCertificates?: () => Promise<string[]>;
@@ -52,7 +57,35 @@ export function createConnectNextPlugin(
       path.join(bb.server.experimental_dataDir, "plugins", bb.pluginId);
     const account = createAccountClient(() => bb.sdk);
     const sharesClient = createSharesClient(() => bb.sdk);
+    let annotationIdentity: { label: string; baseUrl: string } | null = null;
+    let annotationPorts: number[] = [];
+    const callAnnotations = (method: string, input: JsonValue) =>
+      bb.sdk.plugins.callRpc({
+        pluginId: "connect",
+        method,
+        input,
+        outputSchema: z.array(connectAnnotationSchema),
+      });
+    const annotations = new AnnotationTunnel(
+      {
+        list: (scope) =>
+          callAnnotations("connect.experimental_annotations.list", scope),
+        change: (scope, change) =>
+          callAnnotations("connect.experimental_annotations.change", {
+            ...scope,
+            change,
+          }),
+      },
+      (port) =>
+        annotationIdentity && annotationPorts.includes(port)
+          ? nextSiteForAccount(annotationIdentity.baseUrl).origin(
+              `${annotationIdentity.label}--${port}`,
+            )
+          : null,
+    );
     const tunnel = new NextTunnel({
+      annotations,
+      fetchFn: options.fetchFn,
       frpDir: path.join(dataDir(), "frp"),
       serverOverride,
       enabled: initial.enabled,
@@ -112,6 +145,9 @@ export function createConnectNextPlugin(
                 account,
                 log: bb.log,
                 onAccount: (next) => {
+                  annotationIdentity = next
+                    ? { label: next.serverLabel, baseUrl: next.baseUrl }
+                    : null;
                   void tunnel.setIdentity(
                     next === null
                       ? null
@@ -131,6 +167,7 @@ export function createConnectNextPlugin(
                 shares: sharesClient,
                 log: bb.log,
                 onPorts: (ports) => {
+                  annotationPorts = ports;
                   void tunnel.setSharePorts(ports);
                 },
                 ...retry,

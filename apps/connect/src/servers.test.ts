@@ -26,6 +26,7 @@ import {
 import {
   assignMachineLabel,
   assignMachineLabelForCredential,
+  assignMachineIdentityForCredential,
   sanitizeMachineLabelBase,
 } from "./machine-label.js";
 import { SECURE_SESSION_COOKIE } from "./cloud-dev.js";
@@ -459,12 +460,21 @@ describe("machine label assignment", () => {
     await expect(
       assignMachineLabelForCredential(db, credential, "Sawyer Air"),
     ).resolves.toBe("sawyer-air");
+    await expect(
+      assignMachineIdentityForCredential(db, credential, "Other Label"),
+    ).resolves.toEqual({ label: "sawyer-air", machineId: "machine-auth" });
+    await expect(
+      assignMachineIdentityForCredential(db, "invalid", "Other Label"),
+    ).resolves.toBeNull();
     await db
       .update(machine)
       .set({ revokedAt: now, subdomain: null })
       .where(eq(machine.id, "machine-auth"));
     await expect(
       assignMachineLabelForCredential(db, credential, "Sawyer Air"),
+    ).resolves.toBeNull();
+    await expect(
+      assignMachineIdentityForCredential(db, credential, "Other Label"),
     ).resolves.toBeNull();
   });
 

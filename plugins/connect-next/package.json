@@ -31,7 +31,8 @@
     "@bb/shared-ui": "workspace:*",
     "@bb/tunnel-contract": "workspace:*",
     "bb-plugin-bb-account": "workspace:*",
-    "zod": "^4.6.7"
+    "zod": "^4.6.7",
+    "@bb/connect-client": "workspace:*"
   },
   "devDependencies": {
     "@bb/plugin-build": "workspace:*",
