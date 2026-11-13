@@ -330,6 +330,10 @@ function PromptVariant({
           setExecution({
             ...execution,
             ...update,
+            checkCommand:
+              update.checkCommand === null
+                ? undefined
+                : (update.checkCommand ?? execution.checkCommand),
             serviceTier: update.serviceTier ?? undefined,
           });
           setEditing(false);

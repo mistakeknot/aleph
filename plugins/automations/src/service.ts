@@ -21,6 +21,7 @@ import {
   type Db,
 } from "./data.js";
 import { createAutomationId } from "./ids.js";
+import { supportsPreRunCheck, UNSUPPORTED_CHECK } from "./pre-run-check.js";
 import {
   providerRoutingForEnvironment,
   resolvePermissionMode,
@@ -516,6 +517,9 @@ function applyAgentExecutionUpdate(
   } else if (update.serviceTier !== undefined) {
     next.serviceTier = update.serviceTier;
   }
+  if (update.checkCommand === null) delete next.checkCommand;
+  else if (update.checkCommand !== undefined)
+    next.checkCommand = update.checkCommand;
   if (update.target === undefined) return next;
   if (update.target.type === "target-thread") {
     return { ...next, targetThreadId: update.target.threadId };
@@ -668,6 +672,15 @@ export function createAutomationService(args: {
         );
       }
       const automationId = createAutomationId();
+      if (
+        payload.execution.mode === "agent" &&
+        payload.execution.checkCommand !== undefined &&
+        !supportsPreRunCheck(
+          payload.execution,
+          (await bb.sdk.system.config()).primaryHostId,
+        )
+      )
+        throw new Error(UNSUPPORTED_CHECK);
       const stored = await resolveStoredExecution({
         pluginDataDir,
         automationId,
@@ -819,6 +832,16 @@ export function createAutomationService(args: {
           currentAutomation.problem,
         );
       }
+      const checkedExecution = patch.execution ?? currentExecution;
+      if (
+        checkedExecution.mode === "agent" &&
+        checkedExecution.checkCommand !== undefined &&
+        !supportsPreRunCheck(
+          checkedExecution,
+          (await bb.sdk.system.config()).primaryHostId,
+        )
+      )
+        throw new Error(UNSUPPORTED_CHECK);
       let updated: AutomationRow | null;
       try {
         updated = updateAutomation(db, {

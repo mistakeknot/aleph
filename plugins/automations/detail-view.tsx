@@ -503,6 +503,9 @@ export function AgentAutomationDefinition({
   onUpdate: (update: AgentExecutionUpdate) => Promise<void>;
 }) {
   const [prompt, setPrompt] = useState(execution.prompt);
+  const [checkCommand, setCheckCommand] = useState(
+    execution.checkCommand ?? "",
+  );
   const [providerModel, setProviderModel] = useState(() =>
     providerModelValue(execution),
   );
@@ -511,11 +514,13 @@ export function AgentAutomationDefinition({
   );
   useEffect(() => {
     setPrompt(execution.prompt);
+    setCheckCommand(execution.checkCommand ?? "");
     setProviderModel(providerModelValue(execution));
     setPermissionMode(execution.permissionMode);
     // oxlint-disable-next-line react/exhaustive-deps
   }, [
     execution.model,
+    execution.checkCommand,
     execution.permissionMode,
     execution.prompt,
     execution.providerId,
@@ -525,6 +530,7 @@ export function AgentAutomationDefinition({
   const pickerRouting = providerModelRouting(execution.environment);
   const trimmedPrompt = prompt.trim();
   const dirty =
+    checkCommand !== (execution.checkCommand ?? "") ||
     prompt !== execution.prompt ||
     providerModel.providerId !== execution.providerId ||
     providerModel.model !== execution.model ||
@@ -589,6 +595,9 @@ export function AgentAutomationDefinition({
         if (!dirty || trimmedPrompt.length === 0) return;
         void onUpdate({
           prompt: trimmedPrompt,
+          ...(checkCommand === (execution.checkCommand ?? "")
+            ? {}
+            : { checkCommand: checkCommand.trim() || null }),
           providerId: providerModel.providerId,
           model: providerModel.model,
           reasoningLevel: providerModel.reasoningLevel,
@@ -604,6 +613,19 @@ export function AgentAutomationDefinition({
         disabled={pending}
         className="min-h-28 resize-none border-0 bg-transparent px-4 pb-1 pr-14 pt-3 text-sm leading-relaxed shadow-none focus-visible:ring-0"
       />
+      <label className="block px-4 py-2 text-sm">
+        Pre-run check (optional)
+        <input
+          value={checkCommand}
+          onChange={(event) => setCheckCommand(event.target.value)}
+          disabled={pending}
+          className="block w-full rounded border border-border bg-background px-2 py-1"
+        />
+        <span className="text-xs text-muted-foreground">
+          Scheduled runs proceed only on exit 0. Local full-access paths only;
+          Run now bypasses this check.
+        </span>
+      </label>
       <div
         data-automation-prompt-action-row=""
         className="flex min-w-0 shrink-0 items-center gap-3 pb-2 pl-3.5 pr-2 pt-1.5"

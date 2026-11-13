@@ -141,6 +141,15 @@ const AGENT_OPTIONS = {
     description:
       "Permission mode; defaults to the provider's best of auto then full",
   },
+  "check-command": {
+    type: "string",
+    description:
+      "Optional scheduled pre-run shell check; exit 0 proceeds. Local full-access paths only. Run now bypasses it.",
+  },
+  "clear-check-command": {
+    type: "boolean",
+    description: "Remove the scheduled pre-run check",
+  },
   "target-thread": {
     type: "string",
     placeholder: "thread-id",
@@ -224,6 +233,8 @@ interface AgentOptionValues {
   "service-tier": string | undefined;
   "clear-service-tier": boolean | undefined;
   "permission-mode": PermissionMode | undefined;
+  "check-command": string | undefined;
+  "clear-check-command": boolean | undefined;
   "target-thread": string | undefined;
   environment: string | undefined;
   "new-environment": "worktree" | undefined;
@@ -667,6 +678,9 @@ async function buildExecution(
       execution: {
         mode: "agent",
         prompt,
+        ...(options["check-command"] === undefined
+          ? {}
+          : { checkCommand: options["check-command"] }),
         providerId: provider,
         model,
         reasoningLevel: options.reasoning ?? "medium",
@@ -685,6 +699,8 @@ async function buildExecution(
     };
   }
   if (
+    options["check-command"] !== undefined ||
+    options["clear-check-command"] === true ||
     options.provider !== undefined ||
     options.model !== undefined ||
     options.reasoning !== undefined ||
@@ -745,6 +761,11 @@ const SCRIPT_UPDATE_OPTION_NAMES = [
 ] as const;
 
 function hasAgentOptions(options: AgentOptionValues): boolean {
+  if (
+    options["check-command"] !== undefined ||
+    options["clear-check-command"] === true
+  )
+    return true;
   return [
     options.prompt,
     options.provider,
@@ -827,6 +848,9 @@ async function buildAgentExecutionUpdate(
   if (options["permission-mode"] !== undefined) {
     update.permissionMode = options["permission-mode"];
   }
+  if (options["clear-check-command"]) update.checkCommand = null;
+  else if (options["check-command"] !== undefined)
+    update.checkCommand = options["check-command"];
   if (options["target-thread"] !== undefined) {
     update.target = {
       type: "target-thread",

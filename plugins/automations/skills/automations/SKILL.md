@@ -5,6 +5,8 @@ description: "Schedule or manage recurring and one-shot BB agent or script autom
 
 # Automations
 
+Scheduled agent runs can set `execution.checkCommand` through the SDK or `--check-command` through the CLI. Exit 0 proceeds; nonzero exits, timeout (60 seconds), or spawn failure skip quietly and appear in history with the exit code and last 2 KB of stderr. Manual run bypasses the check. Use only full-access, explicit absolute unmanaged paths on the server host, without a branch operation or target thread. Other environments are rejected. Update with `--clear-check-command` to remove it. Checks inherit the server process environment; keep secrets out of stderr.
+
 An automation is a scheduled task. When due it runs in one of two modes:
 
 agent Spawn a thread or re-prompt a target thread with a configured prompt.
