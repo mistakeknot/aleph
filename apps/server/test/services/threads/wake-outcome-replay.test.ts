@@ -97,7 +97,7 @@ describe("durable wake effect acknowledgements", () => {
           operations.filter(
             (row) => JSON.parse(row.data).operation === "wake.turn-outcome.v1",
           ),
-        ).toHaveLength(1);
+        ).toHaveLength(0);
         const path = join(directory, "replay.sqlite");
         await original.$client.backup(path);
         original.$client.close();

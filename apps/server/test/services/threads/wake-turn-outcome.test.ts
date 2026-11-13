@@ -70,6 +70,48 @@ function reduce(
 describe("normalized wake turn effects", () => {
   it.each([
     {
+      name: "headers only",
+      diff: "--- a/example.txt\n+++ b/example.txt\n",
+      changed: false,
+    },
+    {
+      name: "removed dash-leading content",
+      diff: "--- a/example.txt\n+++ b/example.txt\n@@ -1 +0,0 @@\n---leading-content\n",
+      changed: true,
+    },
+    {
+      name: "added plus-leading content",
+      diff: "--- a/example.txt\n+++ b/example.txt\n@@ -0,0 +1 @@\n+++leading-content\n",
+      changed: true,
+    },
+    {
+      name: "removed header-like content inside a hunk",
+      diff: "--- a/example.txt\n+++ b/example.txt\n@@ -1 +0,0 @@\n--- looks-like-a-header\n",
+      changed: true,
+    },
+    {
+      name: "added header-like content inside a hunk",
+      diff: "--- a/example.txt\n+++ b/example.txt\n@@ -0,0 +1 @@\n+++ looks-like-a-header\n",
+      changed: true,
+    },
+  ])("distinguishes diff headers from $name", ({ diff, changed }) => {
+    const change: ThreadEventItem = {
+      type: "fileChange",
+      id: "diff-1",
+      status: "completed",
+      approvalStatus: null,
+      changes: [{ path: "example.txt", kind: "update", diff }],
+    };
+    expect(reduce([started, item(change), completed])).toMatchObject({
+      changedAnything: changed,
+      effectKinds: changed ? ["file"] : [],
+      toolCount: 1,
+      coverage: { tools: "complete", effects: "complete" },
+    });
+  });
+
+  it.each([
+    {
       name: "no-tool response",
       items: [],
       changedAnything: false,

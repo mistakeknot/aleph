@@ -689,6 +689,7 @@ export interface ThreadsArea {
   editMessage(args: ThreadEditMessageArgs): Promise<ThreadEditMessageResult>;
   experimental_wakeOutcomes(input: {
     threadId: string;
+    cursor?: string;
   }): Promise<WakeOutcomesResponse>;
   events: ThreadEventsArea;
   fork(args: ThreadForkArgs): Promise<ThreadForkResult>;
@@ -1501,6 +1502,7 @@ export function createThreadsArea(args: CreateSdkAreaArgs): ThreadsArea {
         await transport.readJson(
           transport.api.v1.threads[":id"]["wake-outcomes"].$get({
             param: { id: input.threadId },
+            query: { cursor: input.cursor },
           }),
         ),
       );

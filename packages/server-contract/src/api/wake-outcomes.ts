@@ -9,6 +9,10 @@ export const wakeEffectKindSchema = z.enum([
   "outbound_message",
 ]);
 const coverageSchema = z.enum(["complete", "partial", "unknown"]);
+export const wakeOutcomesQuerySchema = z.object({
+  cursor: z.string().min(1).max(2048).optional(),
+});
+export type WakeOutcomesQuery = z.infer<typeof wakeOutcomesQuerySchema>;
 export const wakeTurnOutcomeSchema = z.object({
   turnId: z.string(),
   completed: z.boolean(),
@@ -49,6 +53,7 @@ export const wakeTurnOutcomeSchema = z.object({
     .max(32),
 });
 export const wakeOutcomesResponseSchema = z.object({
+  nextCursor: z.string().nullable(),
   outcomes: z.array(wakeTurnOutcomeSchema).max(100),
   truncated: z.boolean(),
   summary: z.object({

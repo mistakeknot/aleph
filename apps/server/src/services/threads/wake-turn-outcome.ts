@@ -10,8 +10,19 @@ import {
   type WakeTurnOutcome,
   type WakeOutcomesResponse,
 } from "@bb/server-contract";
-import { and, asc, eq, isNotNull, min, notExists, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  isNotNull,
+  lt,
+  min,
+  notExists,
+  sql,
+} from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
+import { z } from "zod";
 import type { AppDeps } from "../../types.js";
 import { parseStoredEvent } from "./thread-data.js";
 import { appendThreadEventInTransaction } from "./thread-events.js";
@@ -19,10 +30,49 @@ import { appendThreadEventInTransaction } from "./thread-events.js";
 type Deps = Pick<AppDeps, "db" | "hub">;
 type EffectKind = WakeTurnOutcome["effectKinds"][number];
 
-export class IncompleteWakeOutcomeError extends Error {
+export class InvalidWakeOutcomeCursorError extends Error {
   constructor() {
-    super("Wake outcome identity or completion evidence is incomplete");
+    super("Invalid wake outcome cursor");
   }
+}
+
+const cursorSchema = z
+  .object({
+    version: z.literal(1),
+    threadId: z.string().min(1),
+    sequence: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  })
+  .strict();
+
+function decodeCursor(
+  cursor: string | undefined,
+  threadId: string,
+): number | null {
+  if (cursor === undefined) return null;
+  try {
+    if (cursor.length > 2048 || !/^[A-Za-z0-9_-]+$/.test(cursor))
+      throw new InvalidWakeOutcomeCursorError();
+    const bytes = Buffer.from(cursor, "base64url");
+    if (bytes.toString("base64url") !== cursor)
+      throw new InvalidWakeOutcomeCursorError();
+    const value = cursorSchema.parse(JSON.parse(bytes.toString("utf8")));
+    if (value.threadId !== threadId) throw new InvalidWakeOutcomeCursorError();
+    return value.sequence;
+  } catch {
+    throw new InvalidWakeOutcomeCursorError();
+  }
+}
+
+function diffHasChange(diff: string): boolean {
+  let inHunk = false;
+  for (const line of diff.split("\n")) {
+    if (line.startsWith("diff --git ")) inHunk = false;
+    if (line.startsWith("@@")) inHunk = true;
+    if (!/^[+-]/.test(line)) continue;
+    if (!inHunk && /^(---|\+\+\+)/.test(line)) continue;
+    return true;
+  }
+  return false;
 }
 
 const toolTypes = new Set<ThreadEventItem["type"]>([
@@ -110,13 +160,7 @@ export function reduceWakeTurnOutcome({
       if (item.status !== "completed") continue;
       if (
         item.changes.some(
-          (change) =>
-            change.diff !== undefined &&
-            change.diff
-              .split("\n")
-              .some(
-                (line) => /^[+-]/.test(line) && !/^(---|\+\+\+)/.test(line),
-              ),
+          (change) => change.diff !== undefined && diffHasChange(change.diff),
         )
       )
         effects.add("file");
@@ -302,8 +346,32 @@ export function recordAcknowledgedWakeEffect(
 
 export function readWakeOutcomes(
   deps: Deps,
-  { threadId, snapshotTurnId }: { threadId: string; snapshotTurnId?: string },
+  input: { threadId: string; snapshotTurnId?: string; cursor?: string },
 ): WakeOutcomesResponse {
+  return collectWakeOutcomes(deps, input, false);
+}
+
+export function recordSettledWakeOutcome(
+  deps: Deps,
+  input: { threadId: string; snapshotTurnId: string },
+): void {
+  collectWakeOutcomes(deps, input, true);
+}
+
+function collectWakeOutcomes(
+  deps: Deps,
+  {
+    threadId,
+    snapshotTurnId,
+    cursor,
+  }: {
+    threadId: string;
+    snapshotTurnId?: string;
+    cursor?: string;
+  },
+  settlement: boolean,
+): WakeOutcomesResponse {
+  const beforeSequence = decodeCursor(cursor, threadId);
   const types = [
     "turn/started",
     "turn/completed",
@@ -314,6 +382,7 @@ export function readWakeOutcomes(
     "provider/unhandled",
   ] as const;
   const starts = alias(eventTable, "wake_turn_starts");
+  const earlier = alias(eventTable, "wake_turn_earlier");
   const candidates =
     snapshotTurnId === undefined
       ? types.flatMap((type) =>
@@ -329,6 +398,25 @@ export function readWakeOutcomes(
                 eq(eventTable.type, type),
                 eq(eventTable.scopeKind, "turn"),
                 isNotNull(eventTable.turnId),
+                beforeSequence === null
+                  ? undefined
+                  : lt(eventTable.sequence, beforeSequence),
+                ...types.map((earlierType) =>
+                  notExists(
+                    deps.db
+                      .select({ id: earlier.id })
+                      .from(earlier)
+                      .where(
+                        and(
+                          eq(earlier.threadId, threadId),
+                          eq(earlier.turnId, eventTable.turnId),
+                          eq(earlier.type, earlierType),
+                          eq(earlier.scopeKind, "turn"),
+                          lt(earlier.sequence, eventTable.sequence),
+                        ),
+                      ),
+                  ),
+                ),
                 notExists(
                   deps.db
                     .select({ id: starts.id })
@@ -345,12 +433,12 @@ export function readWakeOutcomes(
               ),
             )
             .groupBy(eventTable.turnId)
-            .orderBy(asc(min(eventTable.sequence)))
+            .orderBy(desc(min(eventTable.sequence)))
             .limit(101)
             .all(),
         )
       : [];
-  candidates.sort((a, b) => a.sequence! - b.sequence!);
+  candidates.sort((a, b) => b.sequence! - a.sequence!);
   const turnIds = [
     ...new Set(
       candidates.flatMap((row) => (row.turnId === null ? [] : [row.turnId])),
@@ -393,30 +481,41 @@ export function readWakeOutcomes(
         .all(),
     ),
   );
-  let incompleteDecode = false;
+  const incompleteDecode = new Set<string>();
+  const criticalDecode = new Set<string>();
+  const unknownFirstAcceptance = new Set<string>();
   const decoded = new Map<number, ThreadEvent>();
-  const decode = (row: StoredEventRow): void => {
-    if (decoded.has(row.sequence)) return;
+  const decode = (row: StoredEventRow, targets: readonly string[]): boolean => {
+    if (decoded.has(row.sequence)) return true;
     try {
       decoded.set(row.sequence, parseStoredEvent(row));
+      return true;
     } catch {
+      for (const turnId of targets) incompleteDecode.add(turnId);
       if (
         row.type === "turn/started" ||
         row.type === "turn/completed" ||
         row.type === "turn/input/accepted"
       ) {
-        throw new IncompleteWakeOutcomeError();
+        for (const turnId of targets) criticalDecode.add(turnId);
       }
-      incompleteDecode = true;
+      return false;
     }
   };
-  for (const row of rows) decode(row);
+  for (const row of rows) decode(row, row.turnId === null ? [] : [row.turnId]);
   const requestIds = new Set(
     [...decoded.values()].flatMap((event) =>
       event.type === "turn/input/accepted" ? [event.clientRequestId] : [],
     ),
   );
   for (const requestId of requestIds) {
+    const targets = [...decoded.values()].flatMap((event) =>
+      event.type === "turn/input/accepted" &&
+      event.clientRequestId === requestId &&
+      event.scope.kind === "turn"
+        ? [event.scope.turnId]
+        : [],
+    );
     const request = deps.db
       .select()
       .from(eventTable)
@@ -430,7 +529,7 @@ export function readWakeOutcomes(
       .orderBy(asc(eventTable.sequence))
       .limit(1)
       .get();
-    if (request) decode(request);
+    if (request) decode(request, targets);
     const firstAcceptance = deps.db
       .select()
       .from(eventTable)
@@ -445,7 +544,13 @@ export function readWakeOutcomes(
       .orderBy(asc(eventTable.sequence))
       .limit(1)
       .get();
-    if (firstAcceptance) decode(firstAcceptance);
+    if (!firstAcceptance || !decode(firstAcceptance, targets)) {
+      unknownFirstAcceptance.add(requestId);
+      for (const turnId of targets) {
+        incompleteDecode.add(turnId);
+        criticalDecode.add(turnId);
+      }
+    }
   }
   const events = [...decoded.entries()]
     .sort(([a], [b]) => a - b)
@@ -457,17 +562,27 @@ export function readWakeOutcomes(
       events,
       telemetry: "unknown",
     });
-    if (incompleteDecode) {
+    if (incompleteDecode.has(turnId)) {
       outcome.wakeCause = "unknown";
       outcome.coverage.attribution = "unknown";
     }
+    if (criticalDecode.has(turnId)) outcome.completed = false;
+    outcome.requests = outcome.requests.filter(
+      (request) => !unknownFirstAcceptance.has(request.requestId),
+    );
     const hasStart = events.some(
       (event) =>
         event.type === "turn/started" &&
+        !event.parentToolCallId &&
         event.scope.kind === "turn" &&
         event.scope.turnId === turnId,
     );
-    if (outcome.completed && hasStart) {
+    if (
+      settlement &&
+      outcome.completed &&
+      hasStart &&
+      !criticalDecode.has(turnId)
+    ) {
       appendOperationOnce(deps, turnId, {
         threadId,
         scope: turnScope(turnId),
@@ -477,7 +592,7 @@ export function readWakeOutcomes(
           operationId: turnId,
           status: "completed",
           message: "Observed turn outcome",
-          metadata: outcome,
+          metadata: { ...outcome, origin: "settlement" },
         },
       });
     }
@@ -486,6 +601,16 @@ export function readWakeOutcomes(
   const complete = outcomes.filter((outcome) => outcome.completed);
   return {
     outcomes,
+    nextCursor:
+      snapshotTurnId === undefined && turnIds.length > 100
+        ? Buffer.from(
+            JSON.stringify({
+              version: 1,
+              threadId,
+              sequence: candidates[99]!.sequence,
+            }),
+          ).toString("base64url")
+        : null,
     truncated: snapshotTurnId === undefined && turnIds.length > 100,
     summary: {
       completedTurns: complete.length,

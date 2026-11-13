@@ -215,10 +215,15 @@ workflow, retry, restart, interaction, or unknown. Omission records unknown.
 never use prompt text, credentials, tokens, or cookies. Scheduling changes
 when delivery happens, not its cause. Queue edits preserve original attribution.
 
-`bb thread wake-outcomes <threadId> [--json]` reports accepted causes,
+`bb thread wake-outcomes <threadId> [--cursor <cursor>] [--json]` reports accepted causes,
 first accepting turns, whole-turn and post-accept tool counts, observed effects,
 and coverage. Unknown is distinct from false or zero. Mixed causes retain the
 earliest primary reference. A steer has a partial observation window.
-Reports recompute late events; persisted snapshots remain immutable.
-The first 100 turns are returned with a truncation flag; rates describe that
-set only. These are observed effects, not usefulness or savings.
+Reports recompute late events without writes or notifications; only settlement
+records immutable snapshots. Missing snapshots and incomplete observations
+retain unknown coverage. The newest 100 root turns are returned first, ordered
+by each turn's earliest retained event rather than last activity. Pass nextCursor
+to --cursor to page toward older turns; null ends the walk. Human output prints
+the next cursor too. Cursors are thread-bound; invalid cursors are rejected.
+Rates describe completed turns in the returned page only. These are observed
+effects, not usefulness or savings.

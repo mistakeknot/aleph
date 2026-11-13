@@ -169,6 +169,7 @@ describe("wake outcomes at real ingestion boundaries", () => {
       const sealed = snapshots();
       expect(sealed).toHaveLength(1);
       expect(JSON.parse(sealed[0]!.data).metadata).toMatchObject({
+        origin: "settlement",
         changedAnything: "unknown",
         toolCount: null,
         coverage: { tools: "unknown", effects: "unknown" },

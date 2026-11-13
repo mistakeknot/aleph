@@ -5034,12 +5034,19 @@ never contain prompt text or secrets. These fields are immutable during edits.
 
 ## Observed wake outcomes
 
-`PluginBbSdk.threads.experimental_wakeOutcomes({ threadId })` reads the core
+`PluginBbSdk.threads.experimental_wakeOutcomes({ threadId, cursor? })` reads the core
 GET /threads/:id/wake-outcomes report. The core CLI uses the same SDK member;
 plugins inherit it through the existing SDK adapter. The report exposes bounded
 attribution, tri-state effects, explicit coverage, and per-request first-turn
 and steer-window counts. It contains no prompt or tool payloads.
-Stabilization requires replay and late-event validation, independent review,
+Pages contain at most 100 root turns, newest first by earliest retained event
+across discovery types. Pass the nullable nextCursor to read older pages;
+invalid or wrong-thread cursors return 400. GET never writes or notifies,
+including for missing snapshots; settlement alone records immutable snapshots
+with origin settlement. Live coverage remains unknown without an exhaustive
+telemetry contract. Malformed evidence is isolated to affected turns.
+Stabilization requires replay, full cursor walks with late old-turn events,
+read-only and malformed-evidence isolation validation, independent review,
 and a bounded real-provider coverage canary. Exact-turn task/card/outbound
 caller instrumentation remains unavailable in the current RPC/send contexts.
 See [the contract](wake-outcomes.md) for immutable snapshot/read semantics.

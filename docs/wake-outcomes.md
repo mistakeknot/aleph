@@ -1,8 +1,12 @@
 # Observed wake outcomes
 
 The server exposes GET /api/v1/threads/:id/wake-outcomes. The CLI
-`bb thread wake-outcomes <threadId> --json` and SDK
-`threads.experimental_wakeOutcomes({ threadId })` use that same report.
+`bb thread wake-outcomes <threadId> [--cursor <cursor>] --json` and SDK
+`threads.experimental_wakeOutcomes({ threadId, cursor? })` use that same report.
+Omit cursor for the newest page. Pass the returned nextCursor unchanged to
+read older turns; null means there is no further page. Human CLI output also
+prints the next cursor. Invalid, unsupported-version, and wrong-thread cursors
+return HTTP 400.
 These observations measure effects, not usefulness, accepted outcomes, savings,
 or wasted work. Read-only research can be useful.
 
@@ -49,21 +53,40 @@ Adapter capability support that can establish exhaustive observation and retenti
 is deferred; until that contract exists, live coverage remains unknown.
 
 The normalized root completion path records one server-owned
-wake.turn-outcome.v1 system operation. Report reads also backfill missing
-snapshots after replay or restart. Stored snapshots are immutable and describe
+wake.turn-outcome.v1 system operation with metadata.origin set to settlement.
+Only explicit settlement records snapshots, idempotently. Report reads never
+write rows or notify the hub; there is no read or restart backfill.
+Stored snapshots are immutable and describe
 the observations available at first recording. Reports recompute from retained
 events, so late items and acknowledgments can change a report without rewriting
-the snapshot or any account-pool receipt. Report reads hydrate cold history
-through the existing public thread reader.
+the snapshot or any account-pool receipt. Reports read locally retained history
+without hydrating cold history, because hydration can write data. Missing or
+archived observations remain unknown; a missing snapshot does not establish
+complete coverage.
 If a turn's start has been pruned, the report still derives its retained outcome
-but does not backfill a snapshot: appending a turn-scoped event requires a stored
+but settlement cannot record a snapshot: appending a turn-scoped event requires a stored
 start. Existing snapshots remain unchanged.
 
-The response contains at most the first 100 observed turns and declares truncated
-when more exist. Rates describe completed turns in the returned set only; empty
+Malformed evidence degrades only its affected turn. Malformed request rows
+degrade turns accepting that request; an undecodable first acceptance also
+suppresses the request's first-turn claim. Undecodable critical identity or
+completion evidence prevents settlement snapshots and completed counts for
+affected turns. Valid effect proof survives malformed unrelated items.
+Settlement diagnostics use finite error categories, never exception text or
+row contents.
+
+The response contains at most the newest 100 root turns and declares truncated
+when older turns remain, with a nullable nextCursor. Rates describe completed
+turns in the returned page only; empty
 denominators are null. Turn discovery uses per-type equality queries that return
-at most 101 grouped turn IDs each, ordered by first sequence. Their bounded union
-selects the first 100 turns; a 101st distinct turn establishes truncation.
+at most 101 grouped turn IDs each. Before applying cursor bounds or candidate
+limits, each candidate must be its turn's earliest retained sequence across
+all discovery types. Their bounded union sorts these global anchors descending
+and selects 100 turns; a 101st distinct turn establishes truncation.
+The opaque versioned cursor is bound to the thread and the last returned anchor.
+Later events on old turns cannot move them onto newer pages or crowd out older
+turns. Pruning can change retained anchors; paging is not a historical snapshot
+across retention changes.
 Nested turns with retained parent start evidence are excluded in SQL. Incomplete
 turns and terminal turns without a start remain eligible. Completion snapshots
 skip discovery and read only their exact target turn; their result is not a

@@ -1,4 +1,4 @@
-import { events, type AppendStoredThreadEventArgs } from "@bb/db";
+import { events, getThread, type AppendStoredThreadEventArgs } from "@bb/db";
 import {
   turnScope,
   type ThreadEventItem,
@@ -6,8 +6,9 @@ import {
   type WakeAttribution,
 } from "@bb/domain";
 import { and, eq } from "drizzle-orm";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
+import { applyTurnCompletedEvent } from "../../src/internal/turn-completed-events.js";
 import {
   appendClientTurnEvent,
   appendThreadEvent,
@@ -17,6 +18,7 @@ import { seedThreadFixture } from "../helpers/seed.js";
 import { withTestHarness, type TestAppHarness } from "../helpers/test-app.js";
 
 const reportSchema = z.object({
+  nextCursor: z.string().nullable(),
   outcomes: z.array(
     z.object({
       turnId: z.string(),
@@ -25,7 +27,11 @@ const reportSchema = z.object({
       toolCount: z.number().nullable(),
       changedAnything: z.union([z.boolean(), z.literal("unknown")]),
       effectKinds: z.array(z.string()),
-      coverage: z.object({ tools: z.string(), effects: z.string() }),
+      coverage: z.object({
+        tools: z.string(),
+        effects: z.string(),
+        attribution: z.string(),
+      }),
       requests: z.array(
         z.object({
           requestId: z.string(),
@@ -69,6 +75,18 @@ function fixture(harness: TestAppHarness) {
       type: "turn/completed",
       scope: turnScope(turnId),
       data: { providerThreadId: "provider-1", status: "completed" },
+    });
+  }
+  function settle(turnId: string) {
+    return applyTurnCompletedEvent(harness.deps, {
+      afterIdle: null,
+      payload: {
+        type: "turn/completed",
+        threadId: thread.id,
+        providerThreadId: "provider-1",
+        scope: turnScope(turnId),
+        status: "completed",
+      },
     });
   }
   function finishThenPruneStart(turnId: string) {
@@ -131,9 +149,9 @@ function fixture(harness: TestAppHarness) {
       data: { providerThreadId: "provider-1", clientRequestId: requestId },
     });
   }
-  async function report() {
+  async function report(cursor?: string) {
     const response = await harness.app.request(
-      `/api/v1/threads/${thread.id}/wake-outcomes`,
+      `/api/v1/threads/${thread.id}/wake-outcomes${cursor === undefined ? "" : `?${new URLSearchParams({ cursor })}`}`,
     );
     expect(response.status).toBe(200);
     const body: unknown = await response.json();
@@ -158,6 +176,7 @@ function fixture(harness: TestAppHarness) {
     thread,
     start,
     finish,
+    settle,
     finishThenPruneStart,
     item,
     request,
@@ -184,6 +203,181 @@ const write: ThreadEventItem = {
 };
 
 describe("wake outcome report HTTP contract", () => {
+  it("walks 205 turns newest first with a stable first-sequence cursor", async () => {
+    await withTestHarness(async (harness) => {
+      const f = fixture(harness);
+      const ids = Array.from(
+        { length: 205 },
+        (_, index) => `page-turn-${index}`,
+      );
+      for (const id of ids) {
+        f.start(id);
+        f.finish(id);
+      }
+      const first = await f.report();
+      expect(first.outcomes.map((row) => row.turnId)).toEqual(
+        ids.slice(105).reverse(),
+      );
+      expect(first.summary.completedTurns).toBe(100);
+      expect(first.nextCursor).toEqual(expect.any(String));
+      f.item(ids[0]!, write);
+      f.finish(ids[0]!);
+      f.start("new-arrival");
+      f.finish("new-arrival");
+      const second = await f.report(first.nextCursor!);
+      expect(second.outcomes.map((row) => row.turnId)).toEqual(
+        ids.slice(5, 105).reverse(),
+      );
+      expect(second.nextCursor).toEqual(expect.any(String));
+      const third = await f.report(second.nextCursor!);
+      expect(third.outcomes.map((row) => row.turnId)).toEqual(
+        ids.slice(0, 5).reverse(),
+      );
+      expect(third.nextCursor).toBeNull();
+      expect(third.summary.completedTurns).toBe(5);
+      const seen = [
+        ...first.outcomes,
+        ...second.outcomes,
+        ...third.outcomes,
+      ].map((row) => row.turnId);
+      expect(seen).toEqual([...ids].reverse());
+      expect(new Set(seen).size).toBe(205);
+      expect((await f.report()).outcomes[0]?.turnId).toBe("new-arrival");
+      expect(f.outcomeEvents()).toEqual([]);
+
+      const other = fixture(harness);
+      const wrongThread = await harness.app.request(
+        `/api/v1/threads/${other.thread.id}/wake-outcomes?${new URLSearchParams({ cursor: first.nextCursor! })}`,
+      );
+      expect(wrongThread.status).toBe(400);
+    });
+  });
+
+  it.each([
+    "",
+    "not-a-cursor",
+    "%%%",
+    Buffer.from(
+      JSON.stringify({ version: 999, threadId: "thread-1", sequence: -1 }),
+    ).toString("base64url"),
+  ])(
+    "rejects an invalid cursor rather than silently returning the newest page: %s",
+    async (cursor) => {
+      await withTestHarness(async (harness) => {
+        const f = fixture(harness);
+        f.start("turn-1");
+        const response = await harness.app.request(
+          `/api/v1/threads/${f.thread.id}/wake-outcomes?${new URLSearchParams({ cursor })}`,
+        );
+        expect(response.status).toBe(400);
+        expect(f.outcomeEvents()).toEqual([]);
+      });
+    },
+  );
+
+  it("reads missing snapshots twice without changing rows or notifying the hub", async () => {
+    await withTestHarness(async (harness) => {
+      const f = fixture(harness);
+      const request = f.request({ wakeCause: "message", wakeRef: "read-only" });
+      f.start("turn-1");
+      f.accept("turn-1", request);
+      f.finish("turn-1");
+      const rows = () =>
+        harness.db
+          .select()
+          .from(events)
+          .where(eq(events.threadId, f.thread.id))
+          .all();
+      const before = rows();
+      const threadBefore = getThread(harness.db, f.thread.id);
+      const notify = vi.spyOn(harness.deps.hub, "notifyThread");
+      try {
+        const first = await f.report();
+        expect(first.outcomes[0]).toMatchObject({
+          toolCount: null,
+          changedAnything: "unknown",
+          coverage: { tools: "unknown", effects: "unknown" },
+        });
+        expect(await f.report()).toEqual(first);
+        expect(rows()).toEqual(before);
+        expect(getThread(harness.db, f.thread.id)).toEqual(threadBefore);
+        expect(notify).not.toHaveBeenCalled();
+        expect(f.outcomeEvents()).toEqual([]);
+        f.settle("turn-1");
+        const snapshots = f.outcomeEvents();
+        expect(snapshots).toHaveLength(1);
+        expect(JSON.parse(snapshots[0]!.data).metadata).toMatchObject({
+          turnId: "turn-1",
+          origin: "settlement",
+        });
+        f.settle("turn-1");
+        expect(f.outcomeEvents()).toEqual(snapshots);
+        const afterSettlement = rows();
+        notify.mockClear();
+        await f.report();
+        await f.report();
+        expect(rows()).toEqual(afterSettlement);
+        expect(notify).not.toHaveBeenCalled();
+      } finally {
+        notify.mockRestore();
+      }
+    });
+  });
+
+  it.each([
+    "turn/started",
+    "turn/completed",
+    "turn/input/accepted",
+    "item/completed",
+  ] as const)("isolates malformed %s evidence to its turn", async (type) => {
+    await withTestHarness(async (harness) => {
+      const f = fixture(harness);
+      for (const id of ["damaged", "healthy"]) {
+        const request = f.request({ wakeCause: "card_pick", wakeRef: id });
+        f.start(id);
+        f.accept(id, request);
+        f.item(id, read);
+        f.finish(id);
+      }
+      const healthy = (await f.report()).outcomes.find(
+        (row) => row.turnId === "healthy",
+      );
+      harness.db
+        .update(events)
+        .set({ data: JSON.stringify({ privateBody: "must-not-escape" }) })
+        .where(
+          and(
+            eq(events.threadId, f.thread.id),
+            eq(events.turnId, "damaged"),
+            eq(events.type, type),
+          ),
+        )
+        .run();
+      const report = await f.report();
+      expect(report.outcomes).toHaveLength(2);
+      expect(report.outcomes.find((row) => row.turnId === "healthy")).toEqual(
+        healthy,
+      );
+      expect(healthy).toMatchObject({
+        wakeCause: "card_pick",
+        coverage: { attribution: "complete" },
+      });
+      expect(
+        report.outcomes.find((row) => row.turnId === "damaged"),
+      ).toMatchObject({
+        toolCount: null,
+        changedAnything: "unknown",
+        coverage: {
+          tools: "unknown",
+          effects: "unknown",
+          attribution: "unknown",
+        },
+      });
+      expect(JSON.stringify(report)).not.toContain("must-not-escape");
+      expect(f.outcomeEvents()).toEqual([]);
+    });
+  });
+
   it("bounds turn selection without dropping incomplete or missing-start terminal turns", async () => {
     await withTestHarness(async (harness) => {
       const f = fixture(harness);
@@ -206,15 +400,15 @@ describe("wake outcome report HTTP contract", () => {
       expect(await response.json()).toMatchObject({ truncated: false });
       const first = await f.report();
       expect(first.outcomes).toHaveLength(100);
-      expect(first.outcomes.slice(0, 2)).toMatchObject([
+      expect(first.outcomes.slice(-2)).toMatchObject([
         {
-          turnId: "missing-start",
+          turnId: "incomplete",
           toolCount: null,
           changedAnything: "unknown",
           coverage: { tools: "unknown", effects: "unknown" },
         },
         {
-          turnId: "incomplete",
+          turnId: "missing-start",
           toolCount: null,
           changedAnything: "unknown",
           coverage: { tools: "unknown", effects: "unknown" },
@@ -226,7 +420,10 @@ describe("wake outcome report HTTP contract", () => {
         `/api/v1/threads/${f.thread.id}/wake-outcomes`,
       );
       expect(await overflow.json()).toMatchObject({ truncated: true });
-      expect((await f.report()).outcomes).toEqual(first.outcomes);
+      const next = await f.report();
+      expect(next.outcomes[0]?.turnId).toBe("overflow-missing-start");
+      expect(next.outcomes.slice(1)).toEqual(first.outcomes.slice(0, 99));
+      expect(next.nextCursor).toEqual(expect.any(String));
     });
   });
 
@@ -244,6 +441,7 @@ describe("wake outcome report HTTP contract", () => {
       f.start("target");
       f.accept("target", requestId);
       f.finish("target");
+      f.settle("target");
       const readTarget = () =>
         readWakeOutcomes(harness.deps, {
           threadId: f.thread.id,
@@ -313,6 +511,7 @@ describe("wake outcome report HTTP contract", () => {
     await withTestHarness(async (harness) => {
       const f = fixture(harness);
       expect(await f.report()).toEqual({
+        nextCursor: null,
         outcomes: [],
         summary: {
           completedTurns: 0,
@@ -389,6 +588,7 @@ describe("wake outcome report HTTP contract", () => {
       f.accept("turn-1", request);
       f.item("turn-1", read);
       f.finish("turn-1");
+      f.settle("turn-1");
       const first = await f.report();
       expect(first.outcomes[0]).toMatchObject({
         toolCount: null,
@@ -422,6 +622,7 @@ describe("wake outcome report HTTP contract", () => {
       f.accept("turn-original", original);
       f.item("turn-original", { ...write, status: "failed" });
       f.finish("turn-original");
+      f.settle("turn-original");
       const retry = f.request(
         { wakeCause: "restart", retainedCause: "card_pick", wakeRef: "pick-1" },
         { requestId: original, attempt: 2 },
@@ -430,6 +631,7 @@ describe("wake outcome report HTTP contract", () => {
       f.accept("turn-retry", retry);
       f.item("turn-retry", write);
       f.finish("turn-retry");
+      f.settle("turn-retry");
       const report = await f.report();
       expect(report.outcomes).toHaveLength(2);
       expect(
@@ -489,7 +691,7 @@ describe("wake outcome report HTTP contract", () => {
         wakeRef: null,
         requests: [],
       });
-      expect(f.outcomeEvents()).toHaveLength(1);
+      expect(f.outcomeEvents()).toEqual([]);
     });
   });
 });

@@ -1,5 +1,5 @@
 import {
-  IncompleteWakeOutcomeError,
+  InvalidWakeOutcomeCursorError,
   readWakeOutcomes,
 } from "../../services/threads/wake-turn-outcome.js";
 import {
@@ -247,16 +247,20 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
     });
   });
 
-  get(routes.wakeOutcomes, (context) =>
-    withHotPublicThread(context.req.param("id"), (thread) => {
-      try {
-        return context.json(readWakeOutcomes(deps, { threadId: thread.id }));
-      } catch (error) {
-        if (!(error instanceof IncompleteWakeOutcomeError)) throw error;
-        throw new ApiError(500, "internal_error", error.message);
-      }
-    }),
-  );
+  get(routes.wakeOutcomes, (context, query) => {
+    const thread = requirePublicThread(deps.db, context.req.param("id"));
+    try {
+      return context.json(
+        readWakeOutcomes(deps, {
+          threadId: thread.id,
+          cursor: query.cursor,
+        }),
+      );
+    } catch (error) {
+      if (!(error instanceof InvalidWakeOutcomeCursorError)) throw error;
+      throw new ApiError(400, "invalid_request", error.message);
+    }
+  });
 
   get(routes.headState, (context) => {
     return withHotPublicThread(context.req.param("id"), (thread) => {

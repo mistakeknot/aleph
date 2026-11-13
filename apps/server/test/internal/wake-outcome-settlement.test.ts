@@ -1,6 +1,6 @@
 import { getThread, listEvents } from "@bb/db";
 import { turnScope } from "@bb/domain";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { applyTurnCompletedEvent } from "../../src/internal/turn-completed-events.js";
 import { appendThreadEvent } from "../../src/services/threads/thread-events.js";
 import {
@@ -11,7 +11,7 @@ import { seedStoredEvent, seedThreadFixture } from "../helpers/seed.js";
 import { withTestHarness } from "../helpers/test-app.js";
 
 describe("optional wake telemetry during settlement", () => {
-  it("settles legacy completions and fails reports without inventing completion counts", async () => {
+  it("settles legacy completions and reports unknown without inventing completion counts", async () => {
     await withTestHarness(async (harness) => {
       const { thread } = seedThreadFixture(harness, {
         thread: { status: "active" },
@@ -46,11 +46,24 @@ describe("optional wake telemetry during settlement", () => {
       const response = await harness.app.request(
         `/api/v1/threads/${thread.id}/wake-outcomes`,
       );
-      expect(response.status).toBe(500);
-      expect(await response.json()).toEqual({
-        code: "internal_error",
-        message: "Wake outcome identity or completion evidence is incomplete",
+      expect(response.status).toBe(200);
+      const report = await response.json();
+      expect(report).toMatchObject({
+        outcomes: [
+          {
+            turnId: "turn-1",
+            completed: false,
+            toolCount: null,
+            changedAnything: "unknown",
+          },
+        ],
+        summary: {
+          completedTurns: 0,
+          unknownCauseRate: null,
+          unknownEffectRate: null,
+        },
       });
+      expect(JSON.stringify(report)).not.toContain("must-not-escape");
       expect(listEvents(harness.db, { threadId: thread.id })).toEqual(before);
     });
   });
@@ -128,7 +141,10 @@ describe("optional wake telemetry during settlement", () => {
             JSON.parse(row.data).operation === "wake.turn-outcome.v1",
         );
         expect(snapshots).toHaveLength(1);
-        expect(JSON.parse(snapshots[0]!.data).metadata).toMatchObject(expected);
+        expect(JSON.parse(snapshots[0]!.data).metadata).toMatchObject({
+          ...expected,
+          origin: "settlement",
+        });
       });
     },
   );
@@ -156,18 +172,30 @@ describe("optional wake telemetry during settlement", () => {
           AND json_extract(NEW.data, '$.operation') = 'wake.turn-outcome.v1'
         BEGIN SELECT RAISE(ABORT, 'private snapshot failure'); END;
       `);
-      expect(
-        applyTurnCompletedEvent(harness.deps, {
-          afterIdle: null,
-          payload: {
-            type: "turn/completed",
-            threadId: thread.id,
-            providerThreadId: "provider-1",
-            scope: turnScope("turn-1"),
-            status: "completed",
-          },
-        }),
-      ).toEqual({ kind: "settled", nextStatus: "idle" });
+      const warn = vi.spyOn(harness.deps.logger, "warn");
+      try {
+        expect(
+          applyTurnCompletedEvent(harness.deps, {
+            afterIdle: null,
+            payload: {
+              type: "turn/completed",
+              threadId: thread.id,
+              providerThreadId: "provider-1",
+              scope: turnScope("turn-1"),
+              status: "completed",
+            },
+          }),
+        ).toEqual({ kind: "settled", nextStatus: "idle" });
+        expect(warn).toHaveBeenCalledWith(
+          { threadId: thread.id, turnId: "turn-1", errorName: "SqliteError" },
+          "Wake outcome snapshot unavailable during turn settlement",
+        );
+        expect(JSON.stringify(warn.mock.calls)).not.toContain(
+          "private snapshot failure",
+        );
+      } finally {
+        warn.mockRestore();
+      }
       expect(getThread(harness.db, thread.id)?.status).toBe("idle");
       expect(
         listEvents(harness.db, { threadId: thread.id }).map((row) => row.type),
@@ -179,7 +207,7 @@ describe("optional wake telemetry during settlement", () => {
       readWakeOutcomes(harness.deps, { threadId: thread.id });
       expect(
         listEvents(harness.db, { threadId: thread.id }).map((row) => row.type),
-      ).toEqual(["turn/started", "turn/completed", "system/operation"]);
+      ).toEqual(["turn/started", "turn/completed"]);
     });
   });
 });
