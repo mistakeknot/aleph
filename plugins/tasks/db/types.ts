@@ -42,6 +42,7 @@ export interface Task {
   key: string;
   title: string;
   description: string;
+  report?: string | null;
   status: TaskStatus;
   priority: TaskPriority;
   dueDate: string | null;
@@ -156,6 +157,7 @@ export interface CreateTaskInput {
   projectId: string;
   title: string;
   description?: string;
+  report?: string | null;
   status?: TaskStatus;
   priority?: TaskPriority;
   dueDate?: string | null;
@@ -165,6 +167,7 @@ export interface CreateTaskInput {
 export interface UpdateTaskInput {
   title?: string;
   description?: string;
+  report?: string | null;
   status?: TaskStatus;
   priority?: TaskPriority;
   dueDate?: string | null;

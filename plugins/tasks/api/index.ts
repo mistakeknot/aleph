@@ -727,6 +727,7 @@ export function registerHandlers(
             projectId: input.projectId,
             title: input.title,
             description: input.description,
+            report: input.report,
             status: input.status,
             priority: input.priority,
             dueDate: input.dueDate,
@@ -770,6 +771,7 @@ export function registerHandlers(
           const updated = store.tasks.updateTask(current.id, {
             title: input.title,
             description: input.description,
+            report: input.report,
             status: input.status,
             priority: input.priority,
             dueDate: input.dueDate,

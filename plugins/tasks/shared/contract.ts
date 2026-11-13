@@ -129,6 +129,7 @@ const taskSchema = z
     key: z.string(),
     title: z.string(),
     description: z.string(),
+    report: z.string().nullable().optional(),
     status: taskStatusSchema,
     priority: taskPrioritySchema,
     dueDate: dueDateSchema.nullable(),
@@ -303,6 +304,7 @@ const updateTaskInputSchema = z
     taskId: idSchema,
     title: nonBlankStringSchema.optional(),
     description: z.string().optional(),
+    report: z.string().nullable().optional(),
     status: taskStatusSchema.optional(),
     priority: taskPrioritySchema.optional(),
     dueDate: dueDateSchema.nullable().optional(),
@@ -315,6 +317,7 @@ const updateTaskInputSchema = z
     (input) =>
       input.title !== undefined ||
       input.description !== undefined ||
+      input.report !== undefined ||
       input.status !== undefined ||
       input.priority !== undefined ||
       input.dueDate !== undefined ||
@@ -499,6 +502,7 @@ export const tasksRpcContract = defineRpcContract({
         projectId: idSchema,
         title: nonBlankStringSchema,
         description: z.string().default(""),
+        report: z.string().nullable().default(null),
         status: taskStatusSchema.default("backlog"),
         priority: taskPrioritySchema.default("none"),
         dueDate: dueDateSchema.nullable().default(null),

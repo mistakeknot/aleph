@@ -23,6 +23,7 @@ import {
   type DescriptionSaver,
 } from "./description-save.js";
 import { StatusIcon } from "./meta.js";
+import { ReportSection } from "./report.js";
 import { STATUS_LABELS } from "../list/lib.js";
 import {
   InlineProperties,
@@ -212,6 +213,10 @@ function TaskDetail({ task }: { task: Task }) {
   const subtasksRef = useRef<HTMLElement>(null);
 
   const [draft, setDraft] = useState<{ taskId: string; markdown: string }>();
+  const [reportDraft, setReportDraft] = useState<{
+    taskId: string;
+    markdown: string;
+  }>();
   const rpcRef = useRef(rpc);
   rpcRef.current = rpc;
   const pushRef = useRef(push);
@@ -232,6 +237,20 @@ function TaskDetail({ task }: { task: Task }) {
   });
 
   const projects = useTasksQuery("listProjects", {}, selectProjects);
+  const reportSaverRef = useRef<DescriptionSaver | null>(null);
+  reportSaverRef.current ??= createDescriptionSaver({
+    save: async (taskId, markdown) => {
+      const result = await rpcRef.current.call("updateTask", {
+        taskId,
+        report: markdown,
+      });
+      return result.ok
+        ? { ok: true }
+        : { ok: false, errorMessage: result.error.message };
+    },
+    onError: (message) => pushRef.current(message),
+    delayMs: DESCRIPTION_SAVE_DELAY_MS,
+  });
   const project = projects.data?.find((entry) => entry.id === task.projectId);
 
   const parent = useTasksQuery(
@@ -288,6 +307,7 @@ function TaskDetail({ task }: { task: Task }) {
 
   const moveToProject = async (projectId: string) => {
     saverRef.current?.flush(task.id);
+    reportSaverRef.current?.flush(task.id);
     try {
       const result = await rpc.call("moveTaskToProject", {
         taskId: task.id,
@@ -312,7 +332,10 @@ function TaskDetail({ task }: { task: Task }) {
   };
 
   useEffect(() => {
-    return () => saverRef.current?.flush(task.id);
+    return () => {
+      saverRef.current?.flush(task.id);
+      reportSaverRef.current?.flush(task.id);
+    };
   }, [task.id]);
 
   const uploadForTask = async (file: File) => {
@@ -416,6 +439,32 @@ function TaskDetail({ task }: { task: Task }) {
             mentionItems={mentionItems}
             onOpenThread={(threadId) => navigate.toThread(threadId)}
           />
+
+          <ReportSection
+            status={task.status}
+            report={
+              reportDraft?.taskId === task.id
+                ? reportDraft.markdown
+                : task.report
+            }
+          >
+            <TasksEditor
+              value={
+                reportDraft?.taskId === task.id
+                  ? reportDraft.markdown
+                  : (task.report ?? "")
+              }
+              onChange={(markdown) => {
+                setReportDraft({ taskId: task.id, markdown });
+                reportSaverRef.current?.onChange(task.id, markdown);
+              }}
+              variant="doc"
+              className="min-h-24"
+              placeholder="Add a report… summary, changes, checks, and proof"
+              mentionItems={mentionItems}
+              onOpenThread={(threadId) => navigate.toThread(threadId)}
+            />
+          </ReportSection>
 
           <div className="mb-1 mt-3 flex items-center gap-1">
             <button

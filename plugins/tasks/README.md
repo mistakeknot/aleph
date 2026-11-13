@@ -146,6 +146,13 @@ Tasks skill, which directs the worker to read and update the tracked task.
 
 ## Known limitations
 
+Tasks keep the description (the ask) separate from the optional Markdown
+report (the result). RPC `createTask` and `updateTask` accept `report`; use
+`null` or an empty string to clear it. The CLI accepts `--report` on `create`
+and `update`, including an empty string to clear. The detail view displays and
+edits the report alongside the description. Done tasks with an empty report
+show "Closed without a report"; closing is still allowed.
+
 - The **Auto** delegation preset is deferred; choose an explicit preset.
 - List filters are local UI state and are not persisted in the URL.
 
