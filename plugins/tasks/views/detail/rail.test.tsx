@@ -94,6 +94,24 @@ function railProps(
 }
 
 describe("project rail control", () => {
+  it("shows the local return time and lets the user cancel it", () => {
+    const updates: unknown[] = [];
+    const at = "2026-12-01T14:00:00.000Z";
+    const slot = renderSlot(
+      { component: RailHarness },
+      {
+        ...railProps(null),
+        task: { ...task, returnAt: at, returnThreadId: "thr_setter" },
+        onUpdate: (update) => updates.push(update),
+      },
+      { rpc: { listBbProjects: () => ({ bbProjects: [] }) } },
+    );
+    expect(
+      slot.getByText(`Returns at ${new Date(at).toLocaleString()}`),
+    ).toBeTruthy();
+    fireEvent.click(slot.getByRole("button", { name: "Cancel return time" }));
+    expect(updates).toEqual([{ returnAt: null }]);
+  });
   it("moves the task only when a different project is picked", async () => {
     const moves: string[] = [];
     const slot = renderSlot(

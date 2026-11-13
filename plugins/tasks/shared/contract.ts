@@ -130,6 +130,8 @@ const taskSchema = z
     title: z.string(),
     description: z.string(),
     report: z.string().nullable().optional(),
+    returnAt: z.string().nullable().optional(),
+    returnThreadId: z.string().nullable().optional(),
     status: taskStatusSchema,
     priority: taskPrioritySchema,
     dueDate: dueDateSchema.nullable(),
@@ -305,6 +307,8 @@ const updateTaskInputSchema = z
     title: nonBlankStringSchema.optional(),
     description: z.string().optional(),
     report: z.string().nullable().optional(),
+    returnAt: z.string().nullable().optional(),
+    returnThreadId: z.string().nullable().optional(),
     status: taskStatusSchema.optional(),
     priority: taskPrioritySchema.optional(),
     dueDate: dueDateSchema.nullable().optional(),
@@ -318,6 +322,7 @@ const updateTaskInputSchema = z
       input.title !== undefined ||
       input.description !== undefined ||
       input.report !== undefined ||
+      input.returnAt !== undefined ||
       input.status !== undefined ||
       input.priority !== undefined ||
       input.dueDate !== undefined ||
