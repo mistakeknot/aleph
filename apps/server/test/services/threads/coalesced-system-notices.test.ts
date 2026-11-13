@@ -175,7 +175,7 @@ it("replays bounded mixed coalesced provenance without losing notice state", () 
       wakeCause: "timer",
       wakeRef: "deadline-2",
     });
-    expect(mixed).toMatchObject({ wakeCause: "unknown", wakeRef: null });
+    expect(mixed).toMatchObject({ wakeCause: "unknown", wakeRef: "note-1" });
     expect(JSON.parse(mixed!.coalesceState!)).toMatchObject({
       state: ["first", "second"],
       wake: {
@@ -196,7 +196,8 @@ it("replays bounded mixed coalesced provenance without losing notice state", () 
     expect(stored.wake.sources).toHaveLength(32);
     expect(stored.wake.truncated).toBe(true);
     expect(stored.state).toHaveLength(37);
-    expect(row).toMatchObject({ wakeCause: "unknown", wakeRef: null });
+    expect(row).toMatchObject({ wakeCause: "unknown", wakeRef: "note-1" });
+    expect(stored.wake.wakeRef).toBe("note-1");
   } finally {
     db.$client.close();
   }
