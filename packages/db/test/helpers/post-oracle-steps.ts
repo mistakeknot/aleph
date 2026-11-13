@@ -34,4 +34,11 @@ export function applyPostOracleSteps(sqlite: Database.Database): void {
       if (statement.trim() !== "") sqlite.exec(statement);
     }
   }
+  const wakeSql = readFileSync(
+    join(sourceFolders.alephFolder, "A0015_queue_wake_cause.sql"),
+    "utf8",
+  );
+  for (const statement of wakeSql.split("--> statement-breakpoint")) {
+    if (statement.trim() !== "") sqlite.exec(statement);
+  }
 }

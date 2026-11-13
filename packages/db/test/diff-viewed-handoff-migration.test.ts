@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createConnection, migrate } from "../src/index.js";
 import {
   dropPluginFailureLabelColumns,
+  dropQueueWakeColumns,
   restoreDiffViewedFilesTable,
 } from "./helpers/rewind.js";
 
@@ -14,6 +15,7 @@ function databaseBeforeHandoff(
   migrate(db);
   restoreDiffViewedFilesTable(db);
   dropPluginFailureLabelColumns(db);
+  dropQueueWakeColumns(db);
   db.$client.pragma("foreign_keys = OFF");
   const insert = db.$client.prepare(
     "INSERT INTO diff_viewed_files (environment_id, target_key, path, revision, updated_at) VALUES (?, ?, ?, ?, ?)",
@@ -25,7 +27,7 @@ function databaseBeforeHandoff(
     .run(handoffMigrationWhen);
   db.$client
     .prepare(
-      "DELETE FROM __bb_migration_ledger WHERE tag IN (?, ?, ?, ?, ?, ?)",
+      "DELETE FROM __bb_migration_ledger WHERE tag IN (?, ?, ?, ?, ?, ?, ?)",
     )
     .run(
       "0151_hand_diff_viewed_files_to_git_plugin",
@@ -34,6 +36,7 @@ function databaseBeforeHandoff(
       "0154_thread_purges",
       "0155_declare_project_sources_default_index",
       "0156_plugin_failure_labels",
+      "A0015",
     );
   return db;
 }

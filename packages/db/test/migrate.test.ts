@@ -1,3 +1,5 @@
+import { loadMigrationPlan } from "../src/migration-plan.js";
+import { sourceFolders } from "./helpers/plan-apply.js";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { dropTransferLedgerSchema } from "./helpers/drop-transfer-ledger.js";
 import { legacyOracleFolder } from "./helpers/plan-apply.js";
@@ -12,6 +14,7 @@ import {
   dropThreadParentNotificationsColumn,
   dropQueuedMessageDeliveryColumns,
   dropPluginFailureLabelColumns,
+  dropQueueWakeColumns,
   dropThreadStatusChangedAtColumn,
   restoreDiffViewedFilesTable,
   dropQueuedMessageEditHeldUntilColumn,
@@ -252,15 +255,9 @@ const legacyCompatDir = legacyOracleFolder();
 
 // The oracle folder is pinned before the newest upstream steps, so the latest
 // applied `created_at` comes from whichever journal reaches further.
-const latestMigrationWhen = Math.max(
-  ...[legacyCompatDir, resolve(import.meta.dirname, "../drizzle")].flatMap(
-    (folder) =>
-      (
-        JSON.parse(
-          readFileSync(resolve(folder, "meta/_journal.json"), "utf-8"),
-        ) as { entries: { when: number }[] }
-      ).entries.map((entry) => entry.when),
-  ),
+const latestMigrationWhen = loadMigrationPlan(sourceFolders).steps.reduce(
+  (ceiling, step) => Math.max(ceiling + 1, step.when),
+  0,
 );
 
 const threadStatusChangedAtMigrationWhen = (
@@ -634,6 +631,7 @@ function migrateFromLegacyHistory(db: DbConnection): void {
 // treats them as pending instead of as recorded-but-unledgered.
 function rewindPostOracleSteps(db: DbConnection): void {
   dropPluginFailureLabelColumns(db);
+  dropQueueWakeColumns(db);
   dropQueuedMessageDeliveryColumns(db);
   dropThreadStatusChangedAtColumn(db);
   restoreDiffViewedFilesTable(db);
@@ -754,6 +752,7 @@ function rewindEnvironmentProvisioningMigration(db: DbConnection): void {
   dropQueuedMessageDeliveryColumns(db);
   dropThreadStatusChangedAtColumn(db);
   dropPluginFailureLabelColumns(db);
+  dropQueueWakeColumns(db);
   db.$client.exec("DROP TRIGGER IF EXISTS threads_lifecycle_owner_insert");
   db.$client.exec("DROP TRIGGER IF EXISTS threads_lifecycle_owner_immutable");
   db.$client.exec("DROP INDEX IF EXISTS threads_lifecycle_owner_idx");
@@ -804,6 +803,7 @@ function dropQueuedMessageAttemptColumns(db: DbConnection): void {
   dropQueuedMessageDeliveryColumns(db);
   dropThreadStatusChangedAtColumn(db);
   dropPluginFailureLabelColumns(db);
+  dropQueueWakeColumns(db);
   const columns = db.$client
     .prepare<[], TableInfoRow>("PRAGMA table_info(queued_thread_messages)")
     .all();
@@ -909,6 +909,7 @@ function rewindMachineProvidersMigration(db: DbConnection): void {
   dropQueuedMessageDeliveryColumns(db);
   dropThreadStatusChangedAtColumn(db);
   dropPluginFailureLabelColumns(db);
+  dropQueueWakeColumns(db);
   db.$client.exec("DROP TABLE IF EXISTS ui_preference_defaults");
   db.$client.exec("DROP TABLE IF EXISTS idempotent_thread_operations");
   dropTransferLedgerSchema(db);
@@ -2660,6 +2661,7 @@ describe("migrate", () => {
       });
       dropThreadStatusChangedAtColumn(db);
       dropPluginFailureLabelColumns(db);
+      dropQueueWakeColumns(db);
       restoreDiffViewedFilesTable(db);
       db.$client
         .prepare<[number, string]>(
@@ -2672,7 +2674,7 @@ describe("migrate", () => {
         )
         .run(threadStatusChangedAtMigrationWhen);
       db.$client.exec(
-        "DELETE FROM __bb_migration_ledger WHERE tag IN ('A0014', '0150_thread_status_changed_at', '0151_hand_diff_viewed_files_to_git_plugin', '0152_small_storage_cleanups', '0153_sweep_item_failures', '0154_thread_purges', '0155_declare_project_sources_default_index', '0156_plugin_failure_labels')",
+        "DELETE FROM __bb_migration_ledger WHERE tag IN ('A0015', 'A0014', '0150_thread_status_changed_at', '0151_hand_diff_viewed_files_to_git_plugin', '0152_small_storage_cleanups', '0153_sweep_item_failures', '0154_thread_purges', '0155_declare_project_sources_default_index', '0156_plugin_failure_labels')",
       );
 
       migrate(db);
@@ -3493,6 +3495,7 @@ describe("migrate", () => {
       dropQueuedMessageDeliveryColumns(db);
       dropThreadStatusChangedAtColumn(db);
       dropPluginFailureLabelColumns(db);
+      dropQueueWakeColumns(db);
       db.$client.prepare("DROP INDEX projects_deleted_idx").run();
       db.$client.prepare("ALTER TABLE projects DROP COLUMN deleted_at").run();
       db.$client.prepare("ALTER TABLE events ADD producer_event_id text").run();
@@ -3910,6 +3913,7 @@ describe("migrate", () => {
         )
         .run(projectSourcesDefaultIndexMigrationWhen);
       dropPluginFailureLabelColumns(db);
+      dropQueueWakeColumns(db);
 
       expect(() => migrate(db)).not.toThrow();
       expect(
