@@ -29,7 +29,9 @@ describe("task reports", () => {
       db.exec("ALTER TABLE tasks DROP COLUMN report");
     }
     db.exec("DELETE FROM schema_version WHERE version > 8");
-    const before = db.prepare("SELECT * FROM tasks").all();
+    const before = db
+      .prepare<[], Record<string, unknown>>("SELECT * FROM tasks")
+      .all();
     try {
       const migrated = createTasksStore(db);
       expect(migrated.getTask(task.id)).toMatchObject({
