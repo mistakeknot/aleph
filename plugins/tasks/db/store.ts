@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
+import { parseReturnTime } from "../shared/return-time";
 import { initializeTasksSchema } from "./schema";
 import {
   TASKS_PAGE_DEFAULT_LIMIT,
@@ -82,6 +83,8 @@ interface TaskRow {
   title: string;
   description: string;
   report: string | null;
+  return_at: string | null;
+  return_thread_id: string | null;
   status: Task["status"];
   priority: Task["priority"];
   due_date: string | null;
@@ -362,6 +365,8 @@ function taskFromRow(row: TaskRow): Task {
     title: row.title,
     description: row.description,
     report: row.report,
+    returnAt: row.return_at,
+    returnThreadId: row.return_thread_id,
     status: row.status,
     priority: row.priority,
     dueDate: row.due_date,
@@ -1096,6 +1101,36 @@ export function createTasksStore(db: PluginDatabase) {
     (id: string, input: UpdateTaskInput): Task => {
       const current = requireTask(id);
       const status = input.status ?? current.status;
+      let returnAt = current.returnAt ?? null;
+      let returnThreadId = current.returnThreadId ?? null;
+      let returnActivity: string | null = null;
+      if (input.returnAt !== undefined) {
+        if (input.returnAt === null) {
+          if (returnAt !== null) returnActivity = "Return time cancelled";
+          returnAt = null;
+          returnThreadId = null;
+        } else {
+          if (status === "done" || status === "canceled")
+            throw new Error("Closed tasks cannot have a return time");
+          if (
+            !input.returnThreadId ||
+            !/^thr_[a-zA-Z0-9_-]+$/.test(input.returnThreadId)
+          )
+            throw new Error("A valid setting thread id is required");
+          const parsed = parseReturnTime(input.returnAt);
+          returnActivity = `Return time ${returnAt === null ? "set" : "replaced"}: ${parsed}`;
+          returnAt = parsed;
+          returnThreadId = input.returnThreadId;
+        }
+      } else if (input.returnThreadId !== undefined) {
+        throw new Error("Setting thread requires a return time");
+      }
+      if ((status === "done" || status === "canceled") && returnAt !== null) {
+        returnAt = null;
+        returnThreadId = null;
+        returnActivity = "Return time cancelled: task closed";
+      }
+
       const parentTaskId =
         input.parentTaskId === undefined
           ? current.parentTaskId
@@ -1151,6 +1186,16 @@ export function createTasksStore(db: PluginDatabase) {
         nowIso(),
         id,
       );
+      db.prepare(
+        "UPDATE tasks SET return_at = ?, return_thread_id = ? WHERE id = ?",
+      ).run(returnAt, returnThreadId, id);
+      if (returnActivity !== null)
+        createComment({
+          taskId: id,
+          kind: "system",
+          authorName: "Tasks",
+          body: returnActivity,
+        });
       return requireTask(id);
     },
   );
@@ -1346,6 +1391,12 @@ export function createTasksStore(db: PluginDatabase) {
         UPDATE tasks SET status = ?, position = ?, updated_at = ? WHERE id = ?
       `,
       ).run(input.status, position, nowIso(), id);
+      if (
+        (input.status === "done" || input.status === "canceled") &&
+        task.returnAt != null
+      ) {
+        return updateTask(id, { status: input.status });
+      }
       return requireTask(id);
     },
   );

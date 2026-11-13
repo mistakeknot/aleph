@@ -43,6 +43,8 @@ export interface Task {
   title: string;
   description: string;
   report?: string | null;
+  returnAt?: string | null;
+  returnThreadId?: string | null;
   status: TaskStatus;
   priority: TaskPriority;
   dueDate: string | null;
@@ -168,6 +170,8 @@ export interface UpdateTaskInput {
   title?: string;
   description?: string;
   report?: string | null;
+  returnAt?: string | null;
+  returnThreadId?: string | null;
   status?: TaskStatus;
   priority?: TaskPriority;
   dueDate?: string | null;

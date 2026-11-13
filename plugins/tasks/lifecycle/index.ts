@@ -6,7 +6,7 @@ import {
 } from "../api";
 import type { TaskThread, TaskThreadLiveStatus } from "../db";
 import { createSystemComment } from "../delegate";
-import { errorMessage } from "../shared/errors";
+import { errorMessage, sdkErrorCode } from "../shared/errors";
 
 const TERMINAL_LIVE_STATUSES = new Set<TaskThreadLiveStatus>(["completed"]);
 
@@ -45,13 +45,6 @@ function statusCommentBody(
   const outcome =
     liveStatus === "completed" ? "completed — final message posted" : "failed";
   return `Thread "${thread.title}" ${outcome} · ${thread.threadId}`;
-}
-
-function sdkErrorCode(error: unknown): string | undefined {
-  if (typeof error !== "object" || error === null || !("code" in error)) {
-    return undefined;
-  }
-  return typeof error.code === "string" ? error.code : undefined;
 }
 
 function transitionThread(

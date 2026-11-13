@@ -58,6 +58,7 @@ export interface TaskPropertyUpdate {
   status?: TaskStatus;
   priority?: TaskPriority;
   dueDate?: string | null;
+  returnAt?: null;
   labelIds?: string[];
 }
 
@@ -69,6 +70,26 @@ interface TaskPropertiesProps {
   threads: TaskThread[];
   onUpdate: (update: TaskPropertyUpdate) => void;
   onMoveToProject: (projectId: string) => void;
+}
+
+function ReturnTime({
+  task,
+  onUpdate,
+}: Pick<TaskPropertiesProps, "task" | "onUpdate">) {
+  if (!task.returnAt) return null;
+  return (
+    <div className="flex items-center gap-2 py-1 text-xs text-muted-foreground">
+      <span>Returns at {new Date(task.returnAt).toLocaleString()}</span>
+      <button
+        type="button"
+        aria-label="Cancel return time"
+        className="rounded-sm px-1 hover:bg-state-hover hover:text-foreground"
+        onClick={() => onUpdate({ returnAt: null })}
+      >
+        Cancel
+      </button>
+    </div>
+  );
 }
 
 function LabelChip({ label }: { label: Label }) {
@@ -536,6 +557,7 @@ export function PropertiesRail({
         onUpdate={onUpdate}
         triggerClassName={RAIL_ROW_CLASS}
       />
+      <ReturnTime task={task} onUpdate={onUpdate} />
 
       <div className="mb-1 mt-3 text-2xs font-semibold text-muted-foreground">
         Labels
@@ -663,6 +685,7 @@ export function InlineProperties({
         onUpdate={onUpdate}
         triggerClassName={CHIP_CLASS}
       />
+      <ReturnTime task={task} onUpdate={onUpdate} />
       {taskLabels.map((label) => (
         <LabelChip key={label.id} label={label} />
       ))}

@@ -106,6 +106,30 @@ For task dispatch and execution presets, read
    bb tasks detach ABC-12 --thread thr_dead_predecessor
    ```
 
+## Return to a task later
+
+Use a task return time when waiting for results, rather than keeping a loop
+running. From the working thread:
+
+```sh
+bb tasks update ABC-12 --return-at "in 2h"
+bb tasks update ABC-12 --return-at "at 14:00 UTC"
+bb tasks update ABC-12 --no-return
+```
+
+The task records one UTC time and the invoking thread; setting again replaces
+both. Times must be 1 minute to 30 days ahead. An ISO timestamp ending in `Z`
+also works. Outside a thread, pass `--return-thread thr_example`. Inspect with
+`bb tasks show ABC-12`; the task detail view also lets the user cancel.
+Closing the task cancels the return. The existing scheduler checks every
+minute and catches overdue times on startup. An archived or missing thread
+produces a missed-return activity line instead of a wake.
+
+Transient delivery failures retry on scheduled ticks, for up to 24 hours
+after the return time. Continued failure then records a missed delivery and
+clears the time. A restart immediately after a wake is accepted can duplicate
+it; delivery is at least once. Check the task's current state when resuming.
+
 ## Link tasks in responses
 
 When your answer refers the user to a task — including a task you just

@@ -1583,6 +1583,9 @@ export function registerTasksCli(
                 ]),
                 `Description\n${task.description || "(none)"}`,
                 `Report\n${task.report || "(none)"}`,
+                ...(task.returnAt
+                  ? [`Returns at ${task.returnAt} (${task.returnThreadId})`]
+                  : []),
                 ...(task.status === "done" && !task.report?.trim()
                   ? ["Closed without a report"]
                   : []),
@@ -1692,6 +1695,21 @@ export function registerTasksCli(
               description: "New due date as a calendar date, YYYY-MM-DD",
             },
             "no-due": { type: "boolean", description: "Clear the due date" },
+            "return-at": {
+              type: "string",
+              placeholder: "time",
+              description:
+                "Return in 2h, at 14:00 UTC, or at a UTC ISO timestamp (1 minute to 30 days ahead)",
+            },
+            "return-thread": {
+              type: "string",
+              placeholder: "thread-id",
+              description: "Thread to wake; defaults to the invoking thread",
+            },
+            "no-return": {
+              type: "boolean",
+              description: "Cancel the task return time",
+            },
             parent: {
               type: "string",
               placeholder: "key-or-id",
@@ -1776,6 +1794,20 @@ export function registerTasksCli(
                 input.options["add-label"].length > 0 ||
                 input.options["remove-label"].length > 0;
               if (
+                input.options["no-return"] &&
+                input.options["return-at"] !== undefined
+              )
+                throw new CliError(
+                  "--return-at and --no-return cannot be combined",
+                );
+              if (
+                input.options["return-thread"] !== undefined &&
+                input.options["return-at"] === undefined
+              )
+                throw new CliError("--return-thread requires --return-at");
+              if (
+                input.options["return-at"] === undefined &&
+                !input.options["no-return"] &&
                 input.options.status === undefined &&
                 input.options.priority === undefined &&
                 input.options.title === undefined &&
@@ -1800,6 +1832,15 @@ export function registerTasksCli(
                     title: input.options.title,
                     description,
                     report: input.options.report,
+                    returnAt: input.options["no-return"]
+                      ? null
+                      : input.options["return-at"],
+                    returnThreadId:
+                      input.options["return-at"] === undefined
+                        ? undefined
+                        : (input.options["return-thread"] ??
+                          ctx.threadId ??
+                          process.env.BB_THREAD_ID),
                     dueDate: noDue ? null : dueDate,
                     parentTaskId:
                       parentAddress === undefined && !noParent

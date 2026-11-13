@@ -772,6 +772,8 @@ export function registerHandlers(
             title: input.title,
             description: input.description,
             report: input.report,
+            returnAt: input.returnAt,
+            returnThreadId: input.returnThreadId,
             status: input.status,
             priority: input.priority,
             dueDate: input.dueDate,
@@ -814,7 +816,9 @@ export function registerHandlers(
           ...(result.task.parentTaskId === current.parentTaskId
             ? []
             : [TASK_META_TAG]),
-          ...(result.systemCommentsWritten > 0
+          ...(result.systemCommentsWritten > 0 ||
+          input.returnAt !== undefined ||
+          current.returnAt !== result.task.returnAt
             ? [commentsTag(result.task.id)]
             : []),
         ]);
