@@ -423,6 +423,9 @@ Beyond upstream, Aleph carries:
 - **Tasks reports (mk-ddtv5.3).** A separate optional result report, exposed
   through task RPC, CLI and detail view, with a computed marker for tasks
   done without a report. One nullable text column; existing asks stay intact.
+- **Tasks progress notes storage (mk-ddtv5.4).** Additive `progress_notes`
+  table and task-ordered index, prepared ahead of the feature. Comments are
+  untouched and nothing reads or writes the table yet.
 
 - **Account Pooler 0.1.2.** Thread availability bound to the thread's owning
   machine (403 on refusal, 503 on failed lookups, no caching); `bb pool exec`
