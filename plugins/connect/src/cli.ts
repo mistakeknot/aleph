@@ -257,9 +257,13 @@ export function registerConnectCli(args: {
         annotations: cliCommand({
           summary: "List page notes, or apply a JSON annotation change",
           options: {
+            host: {
+              type: "string",
+              description: "Machine host ID; omit for server-host notes",
+            },
             port: {
               type: "string",
-              description: "Shared server port",
+              description: "Shared port",
               required: true,
             },
             url: {
@@ -277,6 +281,7 @@ export function registerConnectCli(args: {
             attempt(async () => {
               if (!args.annotations) throw new Error("Annotations unavailable");
               const scope = annotationScopeSchema.parse({
+                hostId: input.options.host,
                 port: Number(input.options.port),
                 url: input.options.url,
               });

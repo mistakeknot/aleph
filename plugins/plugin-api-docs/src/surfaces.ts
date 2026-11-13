@@ -1083,7 +1083,7 @@ export const SURFACE_GROUPS: SurfaceGroup[] = [
         summary: "Read and edit owner notes on a shared preview page.",
         experimental: true,
         bullets: [
-          "Call connect.experimental_annotations.list with { port, url }, or connect.experimental_annotations.change with { port, url, change } through the connect plugin RPC.",
+          "Call connect.experimental_annotations.list with { port, url, hostId? }, or connect.experimental_annotations.change with { port, url, hostId?, change } through the connect plugin RPC. Omit hostId for server-host notes; pass an enrolled host ID for legacy machine notes.",
           "Changes use annotation, annotation-update or annotation-delete messages. The overlay and CLI share this storage path; no operation delivers a thread message.",
           "Current overlay coverage is legacy shares on the server host. Machine and connect-next previews remain unchanged.",
         ],

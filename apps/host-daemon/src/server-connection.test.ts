@@ -98,6 +98,7 @@ function createServerClientFixture(args: CreateServerClientFixtureArgs = {}) {
     throw new Error("Unexpected server client call");
   };
   const serverClient = {
+    annotations: unused,
     openSession,
     fetchProjectAttachment: unused,
     fetchSkillTreeManifest: unused,

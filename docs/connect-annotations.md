@@ -1,13 +1,13 @@
 # Connect page notes
 
-Legacy connect shares on the bb server host offer an annotation overlay to the
+Legacy connect shares on the bb server and enrolled machine hosts offer an annotation overlay to the
 signed-in owner. Comment mode selects an element, saves a page note and shows
 numbered author pins. Show all comments includes notes whose element is missing
 or whose text changed, marked outdated; those notes do not jump to another
 element. The disabled Send to thread checkbox announces that sending arrives
 in the next update. There is no thread delivery operation.
 
-Notes live in additive connect plugin KV entries keyed by server port and exact
+Notes live in additive connect plugin KV entries keyed by host, port and exact
 page URL, including query and fragment. Existing share state is unchanged.
 Notes retain selector, text snippet, bounds, viewport, comment and author. Crop
 capture is unavailable in an ordinary preview browser; each note records that
@@ -27,8 +27,11 @@ same-origin JSON for mutations. Prototype code shares the preview origin and
 can read or edit that preview's notes; it receives no platform credentials or
 thread-send capability.
 
-Anonymous, machine and OAuth visitors are excluded. Host-daemon shares do not
-install the callbacks. Connect-next FRP shares currently point directly to the
+Anonymous, machine and OAuth visitors are excluded. Enrolled legacy daemons
+install the callbacks on their authenticated outbound tunnel and persist through
+the active enrolled host session. The server verifies the session owner and
+registered host, port and page origin. Server-host notes retain their existing
+storage keys. Connect-next FRP shares currently point directly to the
 preview port; they bypass the server's assertion-verifying ingress, which rejects
 non-null share targets. They remain unchanged until a verified share ingress is
 implemented. These routes do not yet have annotation coverage.

@@ -8,6 +8,10 @@
       "source": "./src/index.ts",
       "types": "./src/index.ts",
       "default": "./src/index.ts"
+    },
+    "./annotations/*": {
+      "types": "./src/annotations/*.ts",
+      "default": "./src/annotations/*.ts"
     }
   },
   "types": "./src/index.ts",

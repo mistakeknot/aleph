@@ -1,5 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { execFileSync } from "node:child_process";
 import { pageMessageSchema } from "./annotations.js";
 import {
   buildActivateExpression,
@@ -51,6 +54,46 @@ afterEach(() => {
 });
 
 describe("agent annotations page script", () => {
+  it("boots when the module is compiled with retained function names", async () => {
+    const compiled = execFileSync(
+      process.execPath,
+      [
+        "-e",
+        "process.stdout.write(require('esbuild').transformSync(require('node:fs').readFileSync(0, 'utf8'), {loader:'ts',format:'cjs',keepNames:true}).code)",
+      ],
+      {
+        input: readFileSync(
+          path.resolve(
+            __dirname,
+            "../../packages/connect-client/src/annotations/page-script.ts",
+          ),
+          "utf8",
+        ),
+        encoding: "utf8",
+      },
+    );
+    const module = { exports: {} };
+    new Function("module", "exports", compiled)(module, module.exports);
+    const build = Reflect.get(module.exports, "buildConnectAnnotationsScript");
+    if (typeof build !== "function") throw new Error("Missing script builder");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, json: async () => [] }),
+    );
+    Object.defineProperty(ShadowRoot.prototype, "adoptedStyleSheets", {
+      configurable: true,
+      writable: true,
+      value: [],
+    });
+    const original = CSSStyleSheet.prototype.replaceSync;
+    CSSStyleSheet.prototype.replaceSync = () => {};
+    try {
+      expect(() => evaluate(build("/__bb_annotations"), null)).not.toThrow();
+    } finally {
+      CSSStyleSheet.prototype.replaceSync = original;
+      vi.unstubAllGlobals();
+    }
+  });
   it("offers a connect comment toggle without enabling thread delivery", async () => {
     const fetcher = vi
       .fn()

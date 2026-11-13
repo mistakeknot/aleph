@@ -3547,6 +3547,9 @@ importers:
 
   plugins/agent-annotations:
     dependencies:
+      '@bb/connect-client':
+        specifier: workspace:*
+        version: link:../../packages/connect-client
       '@bb/shared-ui':
         specifier: workspace:*
         version: link:../../packages/shared-ui

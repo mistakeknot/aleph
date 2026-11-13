@@ -1,7 +1,13 @@
+import {
+  annotationScopeSchema,
+  annotationChangeSchema,
+  connectAnnotationSchema,
+} from "@bb/connect-client/annotations/annotation-store";
 import pRetry, { AbortError } from "p-retry";
 import { z } from "zod";
 import {
   HOST_DAEMON_PROTOCOL_VERSION,
+  hostDaemonConnectAnnotationsRequestSchema,
   SERVER_MOVED_ERROR_CODE,
   serverMovedErrorDetailsSchema,
   hostDaemonEventBatchResponseSchema,
@@ -202,6 +208,11 @@ interface OpenSessionArgs {
 }
 
 export interface ServerClient {
+  annotations(input: {
+    port: number;
+    url: string;
+    change?: z.infer<typeof annotationChangeSchema>;
+  }): Promise<z.infer<typeof connectAnnotationSchema>[]>;
   openSession(args: OpenSessionArgs): Promise<HostDaemonSessionOpenResponse>;
   fetchProjectAttachment(
     args: FetchProjectAttachmentArgs,
@@ -365,6 +376,35 @@ export function createServerClient(
   }
 
   return {
+    async annotations(input) {
+      const { port, url } = annotationScopeSchema.parse({
+        port: input.port,
+        url: input.url,
+      });
+      const change =
+        input.change === undefined
+          ? undefined
+          : annotationChangeSchema.parse(input.change);
+      const response = await fetchFn(
+        buildInternalUrl("/session/connect-annotations"),
+        {
+          method: "POST",
+          headers: headers(),
+          redirect: "error",
+          body: JSON.stringify(
+            hostDaemonConnectAnnotationsRequestSchema.parse({
+              sessionId: requireSessionId(),
+              port,
+              url,
+              change,
+            }),
+          ),
+        },
+      );
+      if (!response.ok)
+        throw await createResponseError("access share annotations", response);
+      return z.array(connectAnnotationSchema).parse(await response.json());
+    },
     async openSession(
       args: OpenSessionArgs,
     ): Promise<HostDaemonSessionOpenResponse> {

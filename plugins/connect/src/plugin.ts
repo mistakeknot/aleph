@@ -30,7 +30,11 @@ import {
 } from "./server-shares.js";
 import { ShareRegistry } from "./shares.js";
 import { sharePublicUrl } from "./shares.js";
-import { AnnotationStore, annotationRpcContract } from "./annotation-store.js";
+import {
+  AnnotationStore,
+  annotationRpcContract,
+  requireDeclaredAnnotationShare,
+} from "./annotation-store.js";
 import { AnnotationTunnel } from "./annotation-tunnel.js";
 import { ConnectTunnel } from "./tunnel.js";
 import {
@@ -93,10 +97,20 @@ export function createConnectPlugin(options: ConnectPluginOptions = {}) {
     });
 
     const recheckServerAccess = createServerAccessRecheck(bb);
-    const annotations = new AnnotationStore(bb.storage.kv, (port) => {
-      if (!shares.hasServerPort(port))
-        throw new Error("This server port is not shared");
-    });
+    const annotations = new AnnotationStore(
+      bb.storage.kv,
+      async (port, scope) => {
+        if (scope.hostId !== undefined) {
+          requireDeclaredAnnotationShare(
+            scope,
+            await shares.list(scope.hostId),
+          );
+          return;
+        }
+        if (!shares.hasServerPort(port))
+          throw new Error("This server port is not shared");
+      },
+    );
     const annotationTunnel = new AnnotationTunnel(annotations, (port) => {
       const identity = tunnel.getIdentity();
       return identity && shares.hasServerPort(port)
@@ -107,7 +121,10 @@ export function createConnectPlugin(options: ConnectPluginOptions = {}) {
       "connect.experimental_annotations.list": async (input) =>
         annotations.list(input),
       "connect.experimental_annotations.change": async (input) =>
-        annotations.change({ port: input.port, url: input.url }, input.change),
+        annotations.change(
+          { hostId: input.hostId, port: input.port, url: input.url },
+          input.change,
+        ),
     });
     tunnel = new ConnectTunnel({
       annotations: annotationTunnel,

@@ -1038,6 +1038,13 @@ export type HostDaemonSkillTreeContentRequest = z.infer<
 >;
 
 export type HostDaemonInternalSchema = {
+  "/session/connect-annotations": {
+    $post: Endpoint<
+      { json: z.infer<typeof hostDaemonConnectAnnotationsRequestSchema> },
+      z.infer<typeof jsonValueSchema>[],
+      200
+    >;
+  };
   "/skills/tree/:hash": {
     $get: Endpoint<Record<never, never>, HostDaemonSkillTreeManifest, 200>;
   };
@@ -1135,3 +1142,15 @@ export function hasHostDaemonWebSocketProtocol(
     HOST_DAEMON_WEBSOCKET_PROTOCOL,
   );
 }
+
+export const hostDaemonConnectAnnotationsRequestSchema = z
+  .object({
+    sessionId: z.string().min(1),
+    port: z.number().int().min(1).max(65535),
+    url: z
+      .url()
+      .max(4096)
+      .refine((value) => /^https?:\/\//.test(value)),
+    change: jsonValueSchema.optional(),
+  })
+  .strict();

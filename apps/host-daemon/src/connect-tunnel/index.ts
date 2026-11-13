@@ -1,3 +1,5 @@
+import { AnnotationTunnel } from "@bb/connect-client/annotations/annotation-tunnel";
+import type { AnnotationStore } from "@bb/connect-client/annotations/annotation-store";
 import { WebSocket as NodeWebSocket } from "ws";
 import {
   PROTOCOL_VERSION,
@@ -41,6 +43,7 @@ export type ConnectTunnelFetch = (
 ) => Promise<Response>;
 
 interface ConnectTunnelClientOptions {
+  annotations?: Pick<AnnotationStore, "list" | "change">;
   serverUrl: string;
   hostName: string;
   machineCredential?: string;
@@ -400,7 +403,22 @@ export class ConnectTunnelClient {
       connectedAt = Date.now();
       this.state = "connected";
       this.lastError = null;
+      const annotations = this.options.annotations
+        ? new AnnotationTunnel(this.options.annotations, (port) =>
+            this.hasConnectIntent() &&
+            this.socket === socket &&
+            this.ports.has(port)
+              ? buildMachineSharePublicOrigin(identity, port)
+              : null,
+          )
+        : undefined;
       socketSession = new TunnelSession({
+        ...(annotations
+          ? {
+              interceptHttp: annotations.intercept.bind(annotations),
+              transformResponse: annotations.transform.bind(annotations),
+            }
+          : {}),
         tunnel: socket,
         log: {
           warn: (message) =>
