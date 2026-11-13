@@ -1355,10 +1355,7 @@ describe("guardPlan", () => {
     });
 
     it("refuses a control character in a new Aleph step", () => {
-      const input = extend(
-        [],
-        [alephStep("A0016", "0156_plugin_failure_labels", lastWhen + 1)],
-      );
+      const input = extend([], [alephStep("A0016", "A0015", lastWhen + 1)]);
       expect(() =>
         guardInput(
           input,
@@ -1369,10 +1366,7 @@ describe("guardPlan", () => {
     });
 
     it("accepts a new Aleph step without control characters", () => {
-      const input = extend(
-        [],
-        [alephStep("A0016", "0156_plugin_failure_labels", lastWhen + 1)],
-      );
+      const input = extend([], [alephStep("A0016", "A0015", lastWhen + 1)]);
       expect(() =>
         guardInput(input, "SELECT 1;", "CREATE TABLE intended_new_table(id);"),
       ).not.toThrow();
@@ -1425,7 +1419,7 @@ describe("guardPlan", () => {
         buildMigrationPlan(input)
           .steps.map((step) => step.id)
           .slice(-3),
-      ).toEqual(["0156_plugin_failure_labels", "0148_first", "A0016"]);
+      ).toEqual(["A0015", "0148_first", "A0016"]);
       expect(() => guardInput(input)).not.toThrow();
     });
 
@@ -1457,7 +1451,7 @@ describe("guardPlan", () => {
         aleph: [
           ...base.aleph,
           {
-            ...alephStep("A0016", "0156_plugin_failure_labels", lastWhen + 20),
+            ...alephStep("A0016", "A0015", lastWhen + 20),
             supersedes: "0148_first",
           },
         ],

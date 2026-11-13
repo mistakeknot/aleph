@@ -92,7 +92,7 @@
     {
       "id": "A0015",
       "file": "A0015_queue_wake_cause.sql",
-      "after": "A0014",
+      "after": "0156_plugin_failure_labels",
       "when": 1794340346215
     }
   ]

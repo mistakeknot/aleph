@@ -733,18 +733,10 @@ function alephFolderWithSteps(
   for (const step of extra) {
     const last = manifest.steps[manifest.steps.length - 1];
     if (last === undefined) throw new Error("Manifest is empty");
-    const first = !extra.some(
-      (other) =>
-        other !== step && manifest.steps.some((s) => s.id === other.id),
-    );
     manifest.steps.push({
       id: step.id,
       file: `${step.id}_synthetic.sql`,
-      after: first
-        ? lastUpstream.tag === "0148_queued_message_delivery_mode"
-          ? "A0012"
-          : lastUpstream.tag
-        : last.id,
+      after: last.id,
       when: Math.max(last.when, lastUpstream.when) + 1000,
     });
     writeFileSync(join(alephFolder, `${step.id}_synthetic.sql`), step.sql);

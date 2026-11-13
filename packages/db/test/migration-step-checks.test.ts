@@ -57,10 +57,7 @@ function alephFolderWithA0016(sql: string, checks?: object): string {
   manifest.steps.push({
     id: "A0016",
     file: "A0016_synthetic.sql",
-    after:
-      lastUpstream.tag === "0148_queued_message_delivery_mode"
-        ? "A0012"
-        : lastUpstream.tag,
+    after: last.id,
     when: Math.max(last.when, lastUpstream.when) + 1000,
   });
   writeFileSync(manifestPath, JSON.stringify(manifest));
