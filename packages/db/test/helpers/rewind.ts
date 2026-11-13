@@ -171,6 +171,16 @@ export function dropThreadStatusChangedAtColumn(db: DbConnection): void {
   }
 }
 
+export function dropQueueWakeColumns(db: DbConnection): void {
+  const columns = db.$client
+    .prepare<[], { name: string }>("PRAGMA table_info(queued_thread_messages)")
+    .all();
+  for (const name of ["wake_cause", "wake_ref"]) {
+    if (columns.some((column) => column.name === name))
+      db.$client.exec(`ALTER TABLE queued_thread_messages DROP COLUMN ${name}`);
+  }
+}
+
 export function dropPluginFailureLabelColumns(db: DbConnection): void {
   for (const [table, column] of [
     ["plugins", "last_failure_label"],

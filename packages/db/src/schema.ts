@@ -1128,6 +1128,8 @@ export const queuedThreadMessages = sqliteTable(
   {
     id: text("id").primaryKey(),
     systemNotice: text("system_notice"),
+    wakeCause: text("wake_cause").notNull().default("unknown"),
+    wakeRef: text("wake_ref"),
     threadId: text("thread_id")
       .notNull()
       .references(() => threads.id, { onDelete: "cascade" }),

@@ -1,3 +1,4 @@
+import { queuedMessageWakeSchema } from "@bb/domain";
 import { createHash, randomUUID } from "node:crypto";
 import { and, asc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { ProjectAttachmentError } from "@bb/domain";
@@ -276,6 +277,7 @@ export function retireQueuedThreadMessages(
               threadId: args.targetThreadId,
               slotForSourceRowId: row.id,
               content: JSON.parse(row.content) as PromptInput[],
+              ...queuedMessageWakeSchema.parse(row),
               senderThreadId: row.senderThreadId,
               origin: row.origin,
               originPluginId: row.originPluginId,
