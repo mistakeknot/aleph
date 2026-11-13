@@ -1,3 +1,4 @@
+import { pushCountsSchema } from "./push-counts.js";
 import { defineRpcContract } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import {
@@ -173,6 +174,10 @@ export const listPushSubscriptionsOutputSchema = z
   .strict();
 
 export const pushNotificationsRpcContract = defineRpcContract({
+  "notifications.counts": {
+    input: z.object({ threadId: z.string().min(1) }).strict(),
+    output: pushCountsSchema,
+  },
   "notifications.test": {
     input: z.object({ channel: clientChannelSchema }).strict(),
     output: z.object({ ok: z.literal(true) }).strict(),

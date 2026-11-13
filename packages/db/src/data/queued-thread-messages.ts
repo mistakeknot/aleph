@@ -29,9 +29,11 @@ import {
   isQueuedMessageFailedState,
   projectAttachmentPaths,
   queuedMessageStateFor,
+  queuedMessageWakeSchema,
 } from "@bb/domain";
 import type {
   QueuedMessageDeliveryMode,
+  QueuedMessageWake,
   QueuedMessageLifecycleEventType,
   QueuedMessageLifecycleFrom,
   QueuedMessageState,
@@ -67,7 +69,7 @@ import { createOrderKeyAfter, createOrderKeyBetween } from "./order-keys.js";
 import { queryInSqliteVariableBatches } from "./sqlite-variable-batches.js";
 import { liveThread } from "./threads.js";
 
-export interface CreateQueuedThreadMessageInput {
+export interface CreateQueuedThreadMessageInput extends Partial<QueuedMessageWake> {
   threadId: string;
   id?: string;
   originId?: string;
@@ -1018,6 +1020,7 @@ export function createQueuedThreadMessageInTransaction(
       originId,
       threadId: input.threadId,
       content: JSON.stringify(input.content),
+      ...queuedMessageWakeSchema.parse(input),
       senderThreadId: input.senderThreadId ?? null,
       origin: input.origin ?? null,
       originPluginId: input.originPluginId ?? null,
@@ -3098,6 +3101,7 @@ export function transferQueuedThreadMessageInTransaction(
     threadVerified: args.targetVerified,
     threadId: args.targetThreadId,
     content: JSON.parse(source.content) as PromptInput[],
+    ...queuedMessageWakeSchema.parse(source),
     senderThreadId: source.senderThreadId,
     origin: source.origin,
     originPluginId: source.originPluginId,

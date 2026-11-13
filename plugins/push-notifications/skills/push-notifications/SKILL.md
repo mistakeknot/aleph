@@ -94,3 +94,5 @@ target client.
 
 Inspect `status` before changing a channel, and change only the requested
 channel or device.
+
+Read automatic push attempts for a thread with `bb push-notifications counts --thread ID --json`, or call plugin RPC `notifications.counts` with `{ threadId: ID }`. The result has question, turn-end and error totals plus firstAt/lastAt timestamps (null before any attempts). Counts follow existing filtering and coalescing and count each selected alert once across devices. Disabled channels and failed delivery still count attempts, not confirmed receipt. Manual sends, blockers, tests and dismissals are excluded. The counter stores no message text and changes no push behavior.

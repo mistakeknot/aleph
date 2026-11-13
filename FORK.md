@@ -648,7 +648,7 @@ preceding ceiling, and no Aleph step was added.
 `migration-step-checks.ts` and `legacy-migration-chain.ts`) replaces the single
 Drizzle journal with two namespaces: the frozen upstream folder
 (`drizzle/`, pinned by `drizzle-aleph/frozen-upstream.json`) and the
-fork-owned folder `packages/db/drizzle-aleph/` (`A0001` to `A0014`, ordered by
+fork-owned folder `packages/db/drizzle-aleph/` (`A0001` to `A0015`, ordered by
 `manifest.json`, checked by `step-checks.json`; `A0010` is the event cold tier that
 main carries as upstream-numbered `0152_event_cold_tier`, which the legacy chain
 maps to it). Applied steps are recorded in
@@ -849,3 +849,17 @@ length up to a one-hour cap.
 The upstream paced-purge sync adds 0154 (`thread_purges`), a new queue table.
 Its SQL and journal timestamp remain upstream's, and it joins
 `frozen-upstream.json` without adding or renumbering an Aleph step.
+
+### Queue wake attribution (mk-ddtv5.7.4.19)
+
+Fork-owned `A0015_queue_wake_cause` anchors after `0156_plugin_failure_labels`
+(the full plan tail) and adds only
+`wake_cause` (text, non-null, default `unknown`) and nullable `wake_ref`.
+The DDL and snapshot come from Drizzle generation against the current schema
+baseline; existing upstream snapshot drift is tracked separately in
+mk-ddtv5.7.4.19.1. The domain validates the closed cause enum and a 200-character
+reference bound. Existing queue rows retain their content and gain unknown/null
+attribution. This is a design choice for the protected migration slice.
+
+Design choice: append after the full plan tail so an existing database never
+sees a missing ledger entry inserted before already-applied steps.

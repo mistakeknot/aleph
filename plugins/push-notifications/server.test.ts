@@ -474,6 +474,70 @@ describe("push subscription RPC and CLI", () => {
 });
 
 describe("push sender", () => {
+  it("counts one selected alert across devices and exposes the same RPC and CLI totals", async () => {
+    const host = await setup();
+    try {
+      await host.addSubscription();
+      await host.addSubscription("ExponentPushToken[tablet]", "Tablet");
+      const thread = host.setThread();
+      await host.harness.behavior.emitThreadEvent("thread.idle", {
+        thread,
+        lastAssistantText: "Private preview",
+      });
+      await host.harness.behavior.emitThreadEvent("thread.idle", {
+        thread,
+        lastAssistantText: "Private preview",
+      });
+      await vi.waitFor(() => expect(host.expo.requests).toHaveLength(1));
+      const counts = await host.harness.behavior.callRpc(
+        "notifications.counts",
+        { threadId: thread.id },
+      );
+      expect(counts).toMatchObject({ question: 0, "turn-end": 1, error: 0 });
+      const cli = await host.harness.behavior.runCli([
+        "counts",
+        "--thread",
+        thread.id,
+        "--json",
+      ]);
+      expect(cli.exitCode).toBe(0);
+      expect(JSON.parse(cli.stdout)).toEqual(counts);
+      expect(JSON.stringify(counts)).not.toContain("Private preview");
+      await host.harness.behavior.callRpc("notifications.send", {
+        title: "Manual",
+        threadId: thread.id,
+      });
+      expect(
+        await host.harness.behavior.callRpc("notifications.counts", {
+          threadId: thread.id,
+        }),
+      ).toEqual(counts);
+    } finally {
+      await host.cleanup();
+    }
+  });
+
+  it("delivers even when counter storage fails", async () => {
+    const host = await setup();
+    try {
+      await host.addSubscription();
+      const thread = host.setThread();
+      await host.bb.storage.kv.set(`push-count:${thread.id}`, {
+        invalid: true,
+      });
+      await host.harness.behavior.emitThreadEvent("thread.idle", {
+        thread,
+        lastAssistantText: "Done",
+      });
+      await vi.waitFor(() => expect(host.expo.requests).toHaveLength(1));
+      expect(await host.bb.storage.kv.get(`push-count:${thread.id}`)).toEqual({
+        invalid: true,
+      });
+    } finally {
+      await host.cleanup();
+    }
+  });
+
   it("sends a root idle preview to each device and reads the relay setting at flush", async () => {
     const host = await setup();
     try {
