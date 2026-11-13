@@ -10,6 +10,7 @@ export const projectTasksTag = (projectId: string) => `tasks:${projectId}`;
 export const labelsTag = (projectId: string) => `labels:${projectId}`;
 export const taskTag = (taskId: string) => `task:${taskId}`;
 export const commentsTag = (taskId: string) => `comments:${taskId}`;
+export const progressNotesTag = (taskId: string) => `progress-notes:${taskId}`;
 export const commentTag = (commentId: string) => `comment:${commentId}`;
 export const attachmentsTag = (taskId: string) => `attachments:${taskId}`;
 export const threadsTag = (taskId: string) => `threads:${taskId}`;

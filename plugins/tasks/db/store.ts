@@ -23,6 +23,7 @@ import type {
   CreateCommentInput,
   CreateFolderInput,
   CreateLabelInput,
+  CreateProgressNoteInput,
   CreatePresetInput,
   CreateProjectInput,
   CreateTaskInput,
@@ -34,6 +35,7 @@ import type {
   MoveTaskToProjectResult,
   Preset,
   PresetEnvironmentKind,
+  ProgressNote,
   Project,
   Task,
   TaskLabel,
@@ -129,6 +131,17 @@ interface CommentRow {
   thread_id: string | null;
   body: string;
   notified_count: number;
+  created_at: string;
+}
+
+interface ProgressNoteRow {
+  id: string;
+  task_id: string;
+  author_name: string;
+  preset_name: string | null;
+  thread_id: string | null;
+  body: string;
+  proof_url: string | null;
   created_at: string;
 }
 
@@ -400,6 +413,19 @@ function commentFromRow(row: CommentRow): Comment {
     threadId: row.thread_id,
     body: row.body,
     notifiedCount: row.notified_count,
+    createdAt: row.created_at,
+  };
+}
+
+function progressNoteFromRow(row: ProgressNoteRow): ProgressNote {
+  return {
+    id: row.id,
+    taskId: row.task_id,
+    authorName: row.author_name,
+    presetName: row.preset_name,
+    threadId: row.thread_id,
+    body: row.body,
+    proofUrl: row.proof_url,
     createdAt: row.created_at,
   };
 }
@@ -1601,6 +1627,59 @@ export function createTasksStore(db: PluginDatabase) {
     return requireComment(id);
   }
 
+  function createProgressNote(input: CreateProgressNoteInput): ProgressNote {
+    const id = createUlid();
+    requireTask(input.taskId);
+    db.prepare<
+      [
+        string,
+        string,
+        string,
+        string | null,
+        string | null,
+        string,
+        string | null,
+        string,
+      ]
+    >(
+      `
+      INSERT INTO progress_notes (
+        id, task_id, author_name, preset_name, thread_id, body, proof_url,
+        created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+    ).run(
+      id,
+      input.taskId,
+      requireNonEmpty(input.authorName, "Progress note authorName"),
+      input.presetName,
+      validateThreadId(input.threadId),
+      requireNonEmpty(input.body, "Progress note body"),
+      input.proofUrl,
+      nowIso(),
+    );
+    const row = db
+      .prepare<[string], ProgressNoteRow>(
+        "SELECT * FROM progress_notes WHERE id = ?",
+      )
+      .get(id);
+    if (!row) throw new Error(`Progress note not found: ${id}`);
+    return progressNoteFromRow(row);
+  }
+
+  function listProgressNotes(taskId: string): ProgressNote[] {
+    return db
+      .prepare<[string], ProgressNoteRow>(
+        `
+        SELECT * FROM progress_notes
+        WHERE task_id = ?
+        ORDER BY created_at, id
+      `,
+      )
+      .all(taskId)
+      .map(progressNoteFromRow);
+  }
+
   function getAttachment(id: string): Attachment | undefined {
     const row = getAttachmentRow.get(id);
     return row ? attachmentFromRow(row) : undefined;
@@ -2033,6 +2112,8 @@ export function createTasksStore(db: PluginDatabase) {
     listComments,
     getLatestAgentComment,
     updateComment,
+    createProgressNote,
+    listProgressNotes,
     createAttachment,
     getAttachment,
     listAttachmentsForTask,

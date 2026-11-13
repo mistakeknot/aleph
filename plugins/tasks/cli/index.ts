@@ -1532,6 +1532,14 @@ export function registerTasksCli(
                   }),
                 ),
               ).comments;
+              const progressNotes =
+                tasksRpcContract.listProgressNotes.output.parse(
+                  await domain.listProgressNotes(
+                    tasksRpcContract.listProgressNotes.input.parse({
+                      taskId: task.id,
+                    }),
+                  ),
+                ).progressNotes;
               const attachments = await listTaskAttachments(
                 domain,
                 task.id,
@@ -1563,6 +1571,7 @@ export function registerTasksCli(
                   pullRequests,
                   pullRequestUnavailableThreadIds: unavailableThreadIds,
                   comments,
+                  progressNotes,
                 });
               }
               return [
@@ -1640,6 +1649,16 @@ export function registerTasksCli(
                     comment.threadTitle ?? comment.authorName,
                     comment.provider?.name ?? "-",
                     comment.body,
+                  ]),
+                  "(none)",
+                )}`,
+                `Progress\n${table(
+                  ["TIME", "AUTHOR", "BODY", "PROOF"],
+                  progressNotes.map((note) => [
+                    note.createdAt,
+                    note.authorName,
+                    note.body,
+                    note.proofUrl ?? "-",
                   ]),
                   "(none)",
                 )}`,
@@ -1978,6 +1997,92 @@ export function registerTasksCli(
               return input.options.json
                 ? JSON.stringify({ comment })
                 : `Commented on ${task.key}  ${comment.id}`;
+            });
+          },
+        }),
+
+        progress: cliCommand({
+          summary:
+            "Record a quiet progress note on a task; nobody is notified or woken",
+          positionals: [KEY_POSITIONAL],
+          options: {
+            body: {
+              type: "string",
+              placeholder: "text",
+              aliases: ["message", "text", "content"],
+              description:
+                "Progress text, 1-2000 characters after trimming; use --body-file for longer prose (exactly one of the two)",
+            },
+            "body-file": {
+              type: "string",
+              placeholder: "path",
+              description:
+                "Read the progress text from this UTF-8 file on the invoking machine",
+            },
+            "proof-url": {
+              type: "string",
+              placeholder: "url",
+              description:
+                "Optional http(s) link to evidence such as a run, pull request, or log; up to 2048 characters and never fetched",
+            },
+            author: {
+              type: "string",
+              placeholder: "name",
+              description:
+                "Display name for the note; defaults to the invoking thread or cli",
+            },
+            machine: MACHINE_OPTION,
+            json: JSON_OPTION,
+          },
+          constraints: [
+            { kind: "exactly-one", options: ["body", "body-file"] },
+            { kind: "requires", option: "machine", needs: ["body-file"] },
+          ],
+          run(input, ctx) {
+            return guard(async () => {
+              const task = await resolveTask(
+                domain,
+                input.positionals["key-or-id"],
+              );
+              const bodyFile = input.options["body-file"];
+              const clientHostId =
+                bodyFile !== undefined
+                  ? await resolveClientHostId(
+                      bb,
+                      domain,
+                      input.options.machine,
+                      ctx,
+                    )
+                  : undefined;
+              const body = await readTextOption(
+                bb,
+                ctx,
+                clientHostId,
+                input.options.body,
+                bodyFile,
+              );
+              if (body === undefined) {
+                throw new CliError("missing required --body or --body-file", {
+                  code: "missing_required",
+                });
+              }
+              const { progressNote } =
+                tasksRpcContract.createProgressNote.output.parse(
+                  await domain.createProgressNote(
+                    tasksRpcContract.createProgressNote.input.parse({
+                      taskId: task.id,
+                      body,
+                      ...(input.options["proof-url"] === undefined
+                        ? {}
+                        : { proofUrl: input.options["proof-url"] }),
+                      authorName: input.options.author ?? taskAuthor(ctx),
+                      threadId: ctx.threadId ?? null,
+                    }),
+                  ),
+                );
+              return input.options.json
+                ? JSON.stringify({ progressNote })
+                : `Recorded progress on ${task.key}  ${progressNote.id}`;
             });
           },
         }),

@@ -37,12 +37,22 @@ For task dispatch and execution presets, read
    bb tasks attachment get <attachment-id> --out <path>
    ```
 
-3. Do the work. Post one substantive comment at each meaningful milestone,
-   such as a completed investigation, an implementation ready for validation,
-   or a concrete blocker:
+3. Do the work. Record intermediate progress as quiet progress notes. They
+   show in the task's activity as Progress and notify no one, so use them for
+   each meaningful step, with an optional proof link:
 
    ```sh
-   bb tasks comment ABC-12 --body "Implemented the change; focused validation now passes."
+   bb tasks progress ABC-12 --body "Parser reads the new field." --proof-url https://example.test/runs/7
+   ```
+
+   A note body is 1-2000 characters (use `--body-file` for longer text). The
+   proof URL must be http(s), up to 2048 characters, and is never fetched.
+   Notes never change status or the latest responding agent. Post a comment
+   only when someone needs to read or act on it, such as a question, a
+   concrete blocker, or work ready for review:
+
+   ```sh
+   bb tasks comment ABC-12 --body "Implemented the change; ready for review."
    ```
 
    Add `--notify` only when the new comment should be delivered to the thread

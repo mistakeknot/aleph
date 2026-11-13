@@ -238,6 +238,7 @@ describe("task pager", () => {
           listAttachments: () => ({ attachments: [] }),
           listTaskThreads: () => ({ taskThreads: [] }),
           listComments: () => ({ comments: [] }),
+          listProgressNotes: () => ({ progressNotes: [] }),
         }),
       },
     );
@@ -274,6 +275,7 @@ describe("tasks app shell", () => {
           listAttachments: () => ({ attachments: [] }),
           listTaskThreads: () => ({ taskThreads: [] }),
           listComments: () => ({ comments: [] }),
+          listProgressNotes: () => ({ progressNotes: [] }),
         }),
       },
     );
@@ -307,6 +309,7 @@ describe("tasks app shell", () => {
           listAttachments: () => ({ attachments: [] }),
           listTaskThreads: () => ({ taskThreads: [] }),
           listComments: () => ({ comments: [] }),
+          listProgressNotes: () => ({ progressNotes: [] }),
         }),
       },
     );
@@ -420,6 +423,7 @@ describe("tasks app shell", () => {
           listAttachments: () => ({ attachments: [] }),
           listTaskThreads: () => ({ taskThreads: [] }),
           listComments: () => ({ comments: [] }),
+          listProgressNotes: () => ({ progressNotes: [] }),
         }),
       },
     );
@@ -506,6 +510,7 @@ describe("tasks app shell", () => {
           listAttachments: () => ({ attachments: [] }),
           listTaskThreads: () => ({ taskThreads: [] }),
           listComments: () => ({ comments: [] }),
+          listProgressNotes: () => ({ progressNotes: [] }),
         }),
       },
     );
@@ -550,6 +555,7 @@ describe("tasks app shell", () => {
           listAttachments: () => ({ attachments: [] }),
           listTaskThreads: () => ({ taskThreads: [] }),
           listComments: () => ({ comments: [] }),
+          listProgressNotes: () => ({ progressNotes: [] }),
         }),
       },
     );
@@ -872,6 +878,7 @@ describe("tasks app shell", () => {
           listAttachments: () => ({ attachments: [] }),
           listTaskThreads: () => ({ taskThreads: [] }),
           listComments: () => ({ comments: [] }),
+          listProgressNotes: () => ({ progressNotes: [] }),
         }),
       },
     );
@@ -895,6 +902,7 @@ describe("tasks app shell", () => {
       listAttachments: () => ({ attachments: [] }),
       listTaskThreads: () => ({ taskThreads: [] }),
       listComments: () => ({ comments: [] }),
+      listProgressNotes: () => ({ progressNotes: [] }),
     });
     const Panel = app.navPanels[0]!.component;
     const slot = renderSlot(
@@ -945,6 +953,7 @@ describe("tasks app shell", () => {
         listAttachments: () => ({ attachments: [] }),
         listTaskThreads: () => ({ taskThreads: [] }),
         listComments: () => ({ comments: [] }),
+        listProgressNotes: () => ({ progressNotes: [] }),
       });
       const Panel = app.navPanels[0]!.component;
       const slot = renderSlot(
@@ -986,6 +995,7 @@ describe("tasks app shell", () => {
           listAttachments: () => ({ attachments: [] }),
           listTaskThreads: () => ({ taskThreads: [] }),
           listComments: () => ({ comments: [] }),
+          listProgressNotes: () => ({ progressNotes: [] }),
         }),
       },
     );
