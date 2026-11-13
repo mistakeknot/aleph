@@ -283,6 +283,7 @@ function runsFor(
             ? "manual"
             : "schedule",
       skipReason: script && status === "skipped" ? "empty output" : null,
+      outcome: null,
       error:
         status === "failed"
           ? script
@@ -330,6 +331,10 @@ function PromptVariant({
           setExecution({
             ...execution,
             ...update,
+            checkCommand:
+              update.checkCommand === null
+                ? undefined
+                : (update.checkCommand ?? execution.checkCommand),
             serviceTier: update.serviceTier ?? undefined,
           });
           setEditing(false);
@@ -709,6 +714,7 @@ function failedAutomationRuns(): AutomationRunResponse[] {
     trigger: "schedule",
     skipReason: null,
     output: null,
+    outcome: null,
     exitCode: null,
   } as const;
   const previous = now - 12 * 3_600_000;

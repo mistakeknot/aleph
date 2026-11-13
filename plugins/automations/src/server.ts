@@ -1,5 +1,6 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
-import { migrations } from "./data.js";
+import { migrations, listRunningAutomationRunsByThread } from "./data.js";
+import { readThreadOutcome } from "./outcome.js";
 import { ingestLegacyImport } from "./legacy-import.js";
 import { pluginDataDirFromDb } from "./path.js";
 import { automationRpcContract, createRpcHandlers } from "./rpc.js";
@@ -61,10 +62,12 @@ export default async function plugin(bb: BbPluginApi) {
   );
   registerAutomationCli({ bb, service });
 
-  bb.events.on("thread.idle", ({ thread }) => {
+  bb.events.on("thread.idle", async ({ thread }) => {
+    if (listRunningAutomationRunsByThread(db, thread.id).length === 0) return;
     closeAutomationRunForSettledThread(bb, db, {
       threadId: thread.id,
       status: "idle",
+      outcome: await readThreadOutcome(bb, thread.id),
     });
   });
   bb.events.on("thread.failed", ({ thread, error }) => {
@@ -82,7 +85,9 @@ export default async function plugin(bb: BbPluginApi) {
   bb.background.service("automation-sweep", {
     async start(signal) {
       try {
-        await reconcileRunningAutomationRuns(bb, db);
+        await reconcileRunningAutomationRuns(bb, db, (threadId) =>
+          readThreadOutcome(bb, threadId),
+        );
       } catch (error) {
         bb.log.error(
           `Automation startup reconciliation failed: ${errorMessage(error)}`,

@@ -182,6 +182,7 @@ describe("Automation detail recipe", () => {
       trigger: "schedule",
       skipReason: null,
       output: null,
+      outcome: null,
       exitCode: null,
       scheduledFor: 1_800_000_000_000,
       startedAt: 1_800_000_000_000,

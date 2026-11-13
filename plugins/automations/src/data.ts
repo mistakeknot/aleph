@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import { oneLineOutcome } from "./outcome.js";
 import { createAutomationId, createAutomationRunId } from "./ids.js";
 import {
   automationExecutionSchema,
@@ -31,7 +32,7 @@ const AUTOMATION_COLUMNS = `id, project_id AS projectId, target_thread_id AS tar
 
 const AUTOMATION_RUN_COLUMNS = `id, automation_id AS automationId, run_mode AS runMode,
   thread_id AS threadId, status, trigger, skip_reason AS skipReason,
-  error, output, exit_code AS exitCode,
+  error, output, outcome, exit_code AS exitCode,
   idempotency_key AS idempotencyKey, scheduled_for AS scheduledFor,
   started_at AS startedAt, finished_at AS finishedAt`;
 
@@ -90,6 +91,7 @@ export interface AutomationRunRow {
   skipReason: string | null;
   error: string | null;
   output: string | null;
+  outcome: string | null;
   exitCode: number | null;
   idempotencyKey: string | null;
   scheduledFor: number;
@@ -235,6 +237,7 @@ export const migrations = [
      ON automation_runs(automation_id)
      WHERE status = 'running';`,
   `DROP TABLE IF EXISTS automation_thread_marks;`,
+  `ALTER TABLE automation_runs ADD COLUMN outcome TEXT;`,
 ];
 
 function automationRetryDelayMs(consecutiveFailures: number): number {
@@ -420,6 +423,7 @@ export function toAutomationRunResponse(
     skipReason: row.skipReason,
     error: row.error,
     output: row.output,
+    outcome: row.outcome,
     exitCode: row.exitCode,
     scheduledFor: row.scheduledFor,
     startedAt: row.startedAt,
@@ -764,6 +768,13 @@ export function claimAutomationScheduledRun(
     });
     const run = getAutomationRun(db, runId);
     if (!run) throw new Error("failed to create automation run");
+    if (skip && row.runMode === "agent") {
+      run.outcome = oneLineOutcome(`skipped (${args.skipReason})`);
+      statement(db, "UPDATE automation_runs SET outcome = ? WHERE id = ?").run(
+        run.outcome,
+        runId,
+      );
+    }
     return { advanced: true, automation: requiredAutomationRow(updated), run };
   })();
 }
@@ -824,6 +835,7 @@ export function closeAutomationRun(
     skipReason?: string | null;
     error?: string | null;
     output?: string | null;
+    outcome?: string | null;
     exitCode?: number | null;
     threadId?: string | null;
     now: number;
@@ -839,6 +851,7 @@ export function closeAutomationRun(
          skip_reason = @skipReason,
          error = @error,
          output = @output,
+         outcome = @outcome,
          exit_code = @exitCode,
          thread_id = CASE WHEN @hasThreadId THEN @threadId ELSE thread_id END,
          finished_at = @now
@@ -849,6 +862,16 @@ export function closeAutomationRun(
       skipReason: args.skipReason ?? null,
       error: args.error ?? null,
       output: args.output ?? null,
+      outcome:
+        existing.runMode !== "agent"
+          ? null
+          : oneLineOutcome(
+              args.status === "failed"
+                ? `failed: ${args.error ?? "Turn failed"}`
+                : args.status === "skipped"
+                  ? `skipped (${args.skipReason ?? "unknown reason"})`
+                  : (args.outcome ?? ""),
+            ),
       exitCode: args.exitCode ?? null,
       hasThreadId: args.threadId === undefined ? 0 : 1,
       threadId: args.threadId ?? null,
@@ -948,7 +971,7 @@ export function createManualRun(
   })();
 }
 
-function getAutomationRun(db: Db, id: string): AutomationRunRow | null {
+export function getAutomationRun(db: Db, id: string): AutomationRunRow | null {
   return optionalRunRow(
     statement(
       db,

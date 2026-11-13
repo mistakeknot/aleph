@@ -158,6 +158,7 @@ const automationAgentExecutionSchema = z
   .object({
     mode: z.literal("agent"),
     prompt: z.string().min(1),
+    checkCommand: z.string().trim().min(1).max(8192).optional(),
     providerId: z.string().min(1),
     model: z.string().min(1),
     reasoningLevel: reasoningLevelSchema.default("medium"),
@@ -295,6 +296,7 @@ const agentExecutionTargetSchema = z.discriminatedUnion("type", [
 
 const agentExecutionUpdateSchema = z
   .object({
+    checkCommand: z.string().trim().min(1).max(8192).nullable().optional(),
     prompt: z.string().min(1).optional(),
     providerId: z.string().min(1).optional(),
     model: z.string().min(1).optional(),
@@ -306,6 +308,7 @@ const agentExecutionUpdateSchema = z
   .strict()
   .refine(
     (value) =>
+      value.checkCommand !== undefined ||
       value.prompt !== undefined ||
       value.providerId !== undefined ||
       value.model !== undefined ||
@@ -420,6 +423,7 @@ export const automationRunResponseSchema = z
     skipReason: z.string().nullable(),
     error: z.string().nullable(),
     output: z.string().nullable(),
+    outcome: z.string().nullable().default(null),
     exitCode: z.number().int().nullable(),
     scheduledFor: z.number(),
     startedAt: z.number(),
