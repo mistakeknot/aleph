@@ -47,6 +47,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  Reflect.get(globalThis, "__bbConnectAnnotationsCleanup")?.();
+  Reflect.deleteProperty(globalThis, "__bbConnectAnnotationsCleanup");
   evaluate(buildControllerExpression("deactivate"), null);
   Reflect.deleteProperty(globalThis, "__bbAgentAnnotations");
   document.querySelector("bb-agent-annotations")?.remove();
@@ -119,6 +121,12 @@ describe("agent annotations page script", () => {
       );
       expect(toggle.textContent).toContain("0");
       toggle.click();
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+      expect(toggle.textContent).toContain("Comment");
+      expect(toggle.getAttribute("aria-pressed")).toBe("false");
+      toggle.click();
       button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       const checkbox = requireElement(
         shadowRoot().querySelector<HTMLInputElement>('input[type="checkbox"]'),
@@ -130,6 +138,38 @@ describe("agent annotations page script", () => {
       expect(
         fetcher.mock.calls.every((call) => call[1]?.method !== "POST"),
       ).toBe(true);
+      const textarea = requireElement(shadowRoot().querySelector("textarea"));
+      textarea.value = "Stay on the original page";
+      textarea.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          ctrlKey: true,
+          bubbles: true,
+        }),
+      );
+      for (const route of ["/second?q=1", "/third#anchor"]) {
+        history.pushState({}, "", route);
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(fetcher.mock.lastCall?.[0]).toBe(
+          `/__bb_annotations?url=${encodeURIComponent(location.href)}`,
+        );
+        expect(shadowRoot().querySelector("textarea")).toBeNull();
+      }
+      expect(
+        fetcher.mock.calls.every((call) => call[1]?.method !== "POST"),
+      ).toBe(true);
+      history.replaceState({}, "", "/replacement");
+      expect(fetcher.mock.lastCall?.[0]).toContain(
+        encodeURIComponent("/replacement"),
+      );
+      location.hash = "fragment";
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+      expect(fetcher.mock.lastCall?.[0]).toContain(
+        encodeURIComponent("#fragment"),
+      );
+      history.replaceState({}, "", "/");
+      window.dispatchEvent(new PopStateEvent("popstate"));
     } finally {
       vi.unstubAllGlobals();
       Reflect.deleteProperty(ShadowRoot.prototype, "adoptedStyleSheets");

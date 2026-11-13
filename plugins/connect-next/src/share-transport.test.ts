@@ -18,6 +18,7 @@ async function setup(
   open?: (
     options: ShareIngressOptions,
   ) => Promise<{ baseUrl: string; close(): Promise<void> }>,
+  availability = { keys: true, machineId: true },
 ) {
   const pair = await generateGateKeyPair("test");
   const values = new Map<string, unknown>();
@@ -45,10 +46,18 @@ async function setup(
       }),
     };
   };
-  const fetchFn: typeof fetch = async (input) =>
-    String(input).includes("machine-label")
-      ? Response.json({ label: "preview", machineId: "test" })
+  const keyUrls: string[] = [];
+  const fetchFn: typeof fetch = async (input) => {
+    if (!String(input).includes("machine-label")) keyUrls.push(String(input));
+    if (!String(input).includes("machine-label") && !availability.keys)
+      throw new Error("Keys offline");
+    return String(input).includes("machine-label")
+      ? Response.json({
+          label: "preview",
+          ...(availability.machineId ? { machineId: "test" } : {}),
+        })
       : Response.json({ keys: [pair.publicKey] });
+  };
   const common = {
     frpDir: "/unused",
     resolveBinary: async () => "/unused",
@@ -119,6 +128,7 @@ async function setup(
       ...overrides,
     });
   return {
+    keyUrls,
     get supervisor() {
       return supervisor;
     },
@@ -130,6 +140,26 @@ async function setup(
 }
 
 for (const kind of ["server", "machine"] as const) {
+  it(`${kind} production caller honors the configured key resource`, async () => {
+    vi.stubEnv(
+      "BB_CONNECT_GATE_KEYS_URL",
+      "https://keys.example.test/custom.json",
+    );
+    const captured: ShareIngressOptions[] = [];
+    const fixture = await setup(kind, 3000, async (options) => {
+      captured.push(options);
+      return { baseUrl: "http://127.0.0.1:41000", close: async () => {} };
+    });
+    try {
+      await captured[0]!.keys();
+      expect(fixture.keyUrls).toEqual([
+        "https://keys.example.test/custom.json",
+      ]);
+    } finally {
+      await fixture.stop();
+      vi.unstubAllEnvs();
+    }
+  });
   it(`${kind} production FRP registration uses an ingress and revokes it`, async () => {
     const captured: ShareIngressOptions[] = [];
     const close = vi.fn(async () => {});
@@ -144,6 +174,10 @@ for (const kind of ["server", "machine"] as const) {
           .find((proxy) => proxy.name === "share-3000"),
       ).toMatchObject({ localPort: 41000, hostHeaderRewrite: null });
       expect(captured[0]?.audience).toBe(`${kind}:test`);
+      await captured[0]!.keys();
+      expect(fixture.keyUrls).toEqual([
+        "https://example.test/.well-known/bb-connect-gate-keys.json",
+      ]);
       expect(captured[0]?.registered()).toBe(true);
       await fixture.ports([]);
       expect(captured[0]?.registered()).toBe(false);
@@ -201,7 +235,8 @@ for (const kind of ["server", "machine"] as const) {
     );
     const address = preview.address();
     if (!address || typeof address === "string") throw new Error("No preview");
-    const fixture = await setup(kind, address.port);
+    const availability = { keys: false, machineId: kind !== "machine" };
+    const fixture = await setup(kind, address.port, undefined, availability);
     const proxy = fixture.supervisor
       .proxies()
       .find((proxy) => proxy.name === `share-${address.port}`)!;
@@ -215,11 +250,28 @@ for (const kind of ["server", "machine"] as const) {
       });
     try {
       expect(proxy.localPort).not.toBe(address.port);
+      const plain = await get("/");
+      expect(plain.status).toBe(200);
+      expect(await plain.text()).toBe(html);
+      expect(
+        (
+          await get(
+            "/__bb_annotations?url=" + encodeURIComponent(fixture.origin),
+          )
+        ).status,
+      ).toBe(403);
+      availability.machineId = true;
+      await fixture.supervisor.prepare();
+      expect(await (await get("/")).text()).toBe(html);
+      availability.keys = true;
+      const now = Date.now();
+      vi.spyOn(Date, "now").mockImplementation(() => now + 6000);
       const owner = await get("/");
       expect(owner.headers.get("content-security-policy")).toBe(
         "script-src 'nonce-test'",
       );
       expect(await owner.text()).toContain("__bb_annotations");
+      vi.restoreAllMocks();
       for (const auth of ["public", "machine", "oauth"]) {
         const response = await get("/", {
           kind: auth,
@@ -314,6 +366,7 @@ for (const kind of ["server", "machine"] as const) {
     } finally {
       await fixture.stop();
       preview.closeAllConnections();
+      vi.restoreAllMocks();
       await new Promise<void>((resolve) => preview.close(() => resolve()));
     }
   });

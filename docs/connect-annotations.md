@@ -1,6 +1,6 @@
 # Connect page notes
 
-Legacy connect shares on the bb server and enrolled machine hosts offer an annotation overlay to the
+Legacy and connect-next shares on the bb server and enrolled machine hosts offer an annotation overlay to the
 signed-in owner. Comment mode selects an element, saves a page note and shows
 numbered author pins. Show all comments includes notes whose element is missing
 or whose text changed, marked outdated; those notes do not jump to another
@@ -38,11 +38,29 @@ public, machine and OAuth requests retain preview behavior without note access.
 Share removal and shutdown close the ingress and its active connections. Machine
 notes use the same authenticated server persistence route. The gate's authenticated
 machine-label response supplies the machine ID used for audience verification;
-older gates without that field fail closed until updated.
+older gates without that field retain plain previews without annotation authority.
+Deploy the additive machine ID response in apps/connect before updating daemons.
+Unavailable key infrastructure also retains plain previews without notes or
+script injection; invalid assertions are denied. Keys use the configured
+`BB_CONNECT_GATE_KEYS_URL`, or the trusted account apex (trusted enrollment on
+daemons), without redirects. Unknown signing keys trigger one deduplicated,
+rate-bounded refresh. The note endpoint never gains authority in fallback.
+
+The authoritative server store permits at most 64 page URLs and 2 MiB per host
+and port, with global ceilings of 1,024 page keys and 32 MiB. The serialized
+index is capped at 240 KiB and may fill before the page-count ceiling. Each
+serialized page is limited to 192 KiB and writes to 60 per minute per host and
+port. UI, SDK, CLI and daemon writes share these limits. Capacity is reserved
+before page writes; failed writes can conservatively retain reservations.
+Deleting notes releases bytes after a successful write, but empty page keys
+remain counted. No TTL or unshare deletion applies. Existing application data
+needs no migration. SPA route changes clear and reload notes for the exact new
+URL and discard stale queued writes; dispatched writes retain their original URL.
 
 Only complete successful UTF-8 HTML with a declared content length up to 1 MiB
 is eligible. Compressed, chunked, unknown-length, partial, attachment, oversized
-and meta-policy responses pass through unchanged. Existing CSP headers are
+and documents containing any `meta http-equiv` markup pass through unchanged,
+including streamed framework responses. Existing CSP headers are
 preserved. Every applicable script policy must permit the same existing nonce;
 otherwise injection is skipped. A policy with no script restriction needs no
 additional permission. Sandbox and Trusted Types policies are excluded. Shadow
@@ -55,4 +73,5 @@ Focused unit and DOM tests cover eligibility, nonce intersection, authorization,
 page isolation, note mutations and the disabled send control. Release acceptance
 also requires a real gate-to-tunnel fixture, CSP behavior in a browser, legacy
 desktop annotation regression checks and independent security review. A local
-unit-test pass does not establish those results.
+unit-test pass does not establish those results. Deployed, cross-browser and
+throughput acceptance remain unverified.

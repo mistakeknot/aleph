@@ -1,5 +1,40 @@
 import { describe, expect, it } from "vitest";
 import { annotationHtml } from "./annotation-html.js";
+import { JSDOM } from "jsdom";
+
+it("inserts at the parsed body end without changing scripts or trailing raw text", () => {
+  for (const suffix of [
+    "<!-- </body> -->",
+    '<script>window.trailing = "</body>";</script>',
+    "<textarea></body></textarea>",
+  ]) {
+    const html =
+      '<!doctype html><html><body><!-- </body> --><script>window.nativeRan = "</body>";</script></body>' +
+      suffix +
+      "</html>";
+    const result = annotationHtml(
+      [
+        ["content-type", "text/html"],
+        ["content-length", String(Buffer.byteLength(html))],
+      ],
+      Buffer.from(html),
+      "window.overlayRan = true;",
+      200,
+    );
+    expect(result).not.toBeNull();
+    expect(
+      result!.body
+        .toString()
+        .replace("<script>window.overlayRan = true;</script>", ""),
+    ).toBe(html);
+    const dom = new JSDOM(result!.body.toString(), {
+      runScripts: "dangerously",
+    });
+    expect(dom.window.nativeRan).toBe("</body>");
+    expect(dom.window.overlayRan).toBe(true);
+    dom.window.close();
+  }
+});
 
 describe("annotation HTML eligibility", () => {
   const html = Buffer.from("<!doctype html><html><body>Preview</body></html>");

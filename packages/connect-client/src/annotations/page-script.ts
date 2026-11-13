@@ -679,6 +679,7 @@ function installAgentAnnotations(
       reposition();
       syncLoop();
     }
+    renderList();
     return state();
   }
 
@@ -788,16 +789,28 @@ function connectBridge(
   endpoint: string,
 ): void {
   if (!("adoptedStyleSheets" in ShadowRoot.prototype)) return;
+  const previousCleanup = Reflect.get(
+    globalThis,
+    "__bbConnectAnnotationsCleanup",
+  );
+  if (typeof previousCleanup === "function") previousCleanup();
   let queue = Promise.resolve();
-  const page = location.href;
-  const url = `${endpoint}?url=${encodeURIComponent(page)}`;
+  let page = location.href;
+  let generation = 0;
   const status = (message: string) => {
     const node = document
       .querySelector("bb-agent-annotations")
       ?.shadowRoot?.querySelector(".connect-status");
     if (node) node.textContent = message;
   };
-  const reload = async (init?: RequestInit) => {
+  const reload = async (init?: RequestInit, expected = generation) => {
+    if (expected !== generation) return;
+    if (page !== location.href) {
+      navigate();
+      return;
+    }
+    const requestedPage = location.href;
+    const url = `${endpoint}?url=${encodeURIComponent(location.href)}`;
     const response = await fetch(url, {
       credentials: "same-origin",
       cache: "no-store",
@@ -805,6 +818,7 @@ function connectBridge(
     });
     if (!response.ok) throw new Error("Notes could not be saved or loaded");
     const records = await response.json();
+    if (expected !== generation || requestedPage !== location.href) return;
     const controller: AnnotationController = Reflect.get(
       globalThis,
       "__bbAgentAnnotations",
@@ -821,13 +835,17 @@ function connectBridge(
           Reflect.get(data, "type") === "state"
         )
           return;
+        const expected = generation;
         queue = queue
           .then(() =>
-            reload({
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify(data),
-            }),
+            reload(
+              {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify(data),
+              },
+              expected,
+            ),
           )
           .catch(() => status("Notes could not be saved. Reload to retry."));
       },
@@ -846,6 +864,42 @@ function connectBridge(
     },
     true,
   );
+  const navigate = () => {
+    if (page === location.href) return;
+    page = location.href;
+    generation++;
+    const controller: AnnotationController = Reflect.get(
+      globalThis,
+      "__bbAgentAnnotations",
+    );
+    controller.restore([]);
+    queue = reload().catch(() =>
+      status("Notes could not be loaded. Reload to retry."),
+    );
+  };
+  const restoreHistory: Array<() => void> = [];
+  for (const method of ["pushState", "replaceState"] as const) {
+    const original = history[method];
+    const wrapped = function (
+      this: History,
+      ...args: Parameters<History[typeof method]>
+    ) {
+      original.apply(this, args);
+      navigate();
+    };
+    history[method] = wrapped;
+    restoreHistory.push(() => {
+      if (history[method] === wrapped) history[method] = original;
+    });
+  }
+  window.addEventListener("popstate", navigate);
+  window.addEventListener("hashchange", navigate);
+  Reflect.set(globalThis, "__bbConnectAnnotationsCleanup", () => {
+    generation++;
+    for (const restore of restoreHistory) restore();
+    window.removeEventListener("popstate", navigate);
+    window.removeEventListener("hashchange", navigate);
+  });
   queue = reload().catch(() =>
     status("Notes could not be loaded. Reload to retry."),
   );

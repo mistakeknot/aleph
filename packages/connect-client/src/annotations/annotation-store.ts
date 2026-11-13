@@ -92,7 +92,57 @@ export class AnnotationStore {
         if (change.type === "annotation-delete") records.splice(index, 1);
         else records[index] = { ...records[index]!, comment: change.comment };
       }
-      await this.kv.set(this.key(scope), records);
+      const key = this.key(scope);
+      const share = createHash("sha256")
+        .update(JSON.stringify([scope.hostId ?? null, scope.port]))
+        .digest("hex");
+      const bytes = Buffer.byteLength(JSON.stringify(records));
+      if (bytes > 192 * 1024)
+        throw new Error("Page annotation byte limit reached");
+      const indexKey = "annotations.index.v1";
+      const index = z
+        .object({
+          pages: z.record(
+            z.string(),
+            z.object({ share: z.string(), bytes: z.number().nonnegative() }),
+          ),
+          rates: z.record(
+            z.string(),
+            z.object({ start: z.number(), count: z.number() }),
+          ),
+        })
+        .parse((await this.kv.get(indexKey)) ?? { pages: {}, rates: {} });
+      const previous = index.pages[key];
+      const reservation = Math.max(previous?.bytes ?? 0, bytes);
+      const pages = Object.values(index.pages);
+      const own = pages.filter((page) => page.share === share);
+      if (!previous && (pages.length >= 1024 || own.length >= 64))
+        throw new Error("Annotation page quota reached");
+      const growth = reservation - (previous?.bytes ?? 0);
+      if (
+        pages.reduce((sum, page) => sum + page.bytes, 0) + growth >
+          32 * 1024 * 1024 ||
+        own.reduce((sum, page) => sum + page.bytes, 0) + growth >
+          2 * 1024 * 1024
+      )
+        throw new Error("Annotation storage quota reached");
+      const now = Date.now();
+      const rate = index.rates[share];
+      if (rate && now - rate.start < 60000 && rate.count >= 60)
+        throw new Error("Annotation write rate exceeded");
+      index.rates[share] =
+        rate && now - rate.start < 60000
+          ? { start: rate.start, count: rate.count + 1 }
+          : { start: now, count: 1 };
+      index.pages[key] = { share, bytes: reservation };
+      if (Buffer.byteLength(JSON.stringify(index)) > 240 * 1024)
+        throw new Error("Annotation index quota reached");
+      await this.kv.set(indexKey, index);
+      await this.kv.set(key, records);
+      if (bytes < reservation) {
+        index.pages[key] = { share, bytes };
+        await this.kv.set(indexKey, index);
+      }
       return records;
     });
     this.queue = work.catch(() => {});

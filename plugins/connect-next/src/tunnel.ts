@@ -2,6 +2,7 @@ import {
   openShareIngress,
   ShareIngressSet,
   trustedShareKeys,
+  shareKeysUrl,
   type ShareAnnotations,
 } from "@bb/frp-client/share-ingress";
 import type {
@@ -300,9 +301,7 @@ export class NextTunnel {
         return;
       }
       const keys = trustedShareKeys(
-        new URL(identity.baseUrl).protocol +
-          "//" +
-          nextSiteForAccount(identity.baseUrl).domain,
+        shareKeysUrl(identity.baseUrl),
         this.options.fetchFn,
       );
       const session: Session = {

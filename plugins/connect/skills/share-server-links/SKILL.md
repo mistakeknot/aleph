@@ -5,14 +5,20 @@ description: "Expose a local HTTP server through BB Connect and give the user it
 
 # Share local server links via bb connect
 
-Server-host and enrolled machine legacy shares support owner page notes. Use
+Server-host and enrolled machine legacy and connect-next shares support owner page notes. Use
 `bb connect annotations --port <port> --url <exact-page-url>` to list notes as JSON.
 Add `--host <host-id>` for machine notes; omitting it selects server-host notes.
 Pass `--change '<json>'` to apply an `annotation` message containing the full page
 annotation, an `annotation-update` with `id` and `comment`, or an
 `annotation-delete` with `id`. The CLI and preview overlay use the same store.
-No command sends notes to a thread. Connect-next previews do not yet inject the
-annotation overlay.
+No command sends notes to a thread. The Send to thread checkbox stays disabled;
+browser crop capture is unavailable. Overlay injection requires complete UTF-8
+HTML with a declared length up to 1 MiB. Compressed, streamed, partial,
+attachment and `meta http-equiv` documents are excluded. Existing CSP is retained:
+all applicable script restrictions must share an existing nonce; sandbox and
+Trusted Types policies exclude injection. Missing annotation keys or machine ID
+retain plain connect-next previews without notes. Deployed, cross-browser and
+throughput acceptance remain unverified.
 
 When you start an HTTP server the user should open, give them a connect share
 URL — not a localhost URL. Shares work from threads running on any enrolled

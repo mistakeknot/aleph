@@ -11,10 +11,15 @@ import {
 } from "@bb/tunnel-contract/next";
 
 type Headers = [string, string][];
+class ShareKeysUnavailable extends Error {
+  constructor(readonly keys: ReadonlyMap<string, CryptoKey>) {
+    super("Gate keys unavailable");
+  }
+}
 export interface ShareVerification {
-  audience: string;
+  audience: string | null;
   port: number;
-  keys(): Promise<ReadonlyMap<string, CryptoKey>>;
+  keys(refresh?: boolean): Promise<ReadonlyMap<string, CryptoKey>>;
   registered(): boolean;
   nowSeconds?(): number;
 }
@@ -62,44 +67,110 @@ export async function verifyShareRequest(
     ([name]) => name.toLowerCase() === GATE_ASSERTION_HEADER,
   );
   if (tokens.length !== 1) return null;
-  const result = await verifyGateAssertion(tokens[0]![1], {
-    keys: await options.keys(),
-    audience: options.audience,
+  const expectedAudience = options.audience;
+  let claimedAudience: string;
+  try {
+    const claims: unknown = JSON.parse(
+      Buffer.from(tokens[0]![1].split(".")[0]!, "base64url").toString("utf8"),
+    );
+    if (
+      typeof claims !== "object" ||
+      claims === null ||
+      (expectedAudience !== null &&
+        Reflect.get(claims, "aud") !== expectedAudience) ||
+      Reflect.get(claims, "htm") !== method.toUpperCase() ||
+      Reflect.get(claims, "htu") !== path ||
+      Reflect.get(claims, "target") !== String(options.port)
+    )
+      return null;
+    const audience: unknown = Reflect.get(claims, "aud");
+    if (typeof audience !== "string") return null;
+    claimedAudience = audience;
+  } catch {
+    return null;
+  }
+  const input = {
+    audience: expectedAudience ?? claimedAudience,
     method,
     pathAndQuery: path,
     nowSeconds: options.nowSeconds?.() ?? Math.floor(Date.now() / 1000),
-  });
+  };
+  let keys: ReadonlyMap<string, CryptoKey>;
+  try {
+    keys = await options.keys();
+  } catch (error) {
+    const parsed = await verifyGateAssertion(tokens[0]![1], {
+      ...input,
+      keys: error instanceof ShareKeysUnavailable ? error.keys : new Map(),
+    });
+    return (parsed.ok || parsed.reason === "unknown_key") &&
+      options.registered()
+      ? { kind: "unavailable" as const }
+      : null;
+  }
+  let result = await verifyGateAssertion(tokens[0]![1], { ...input, keys });
+  if (!result.ok && result.reason === "unknown_key") {
+    try {
+      keys = await options.keys(true);
+    } catch {
+      return options.registered() ? { kind: "unavailable" as const } : null;
+    }
+    result = await verifyGateAssertion(tokens[0]![1], { ...input, keys });
+  }
   return result.ok &&
     result.claims.target === String(options.port) &&
     options.registered()
-    ? result.claims
+    ? expectedAudience === null
+      ? { kind: "unavailable" as const }
+      : result.claims
     : null;
 }
 
-export function trustedShareKeys(
-  origin: string,
-  fetchFn: typeof fetch = fetch,
-) {
+export function trustedShareKeys(url: string, fetchFn: typeof fetch = fetch) {
   let keys: ReadonlyMap<string, CryptoKey> = new Map();
   let loaded = 0;
   let pending: Promise<ReadonlyMap<string, CryptoKey>> | null = null;
-  return (): Promise<ReadonlyMap<string, CryptoKey>> => {
-    if (Date.now() - loaded < 60000) return Promise.resolve(keys);
+  let lastRefresh = -Infinity;
+  let failedAt = -Infinity;
+  return (refresh = false): Promise<ReadonlyMap<string, CryptoKey>> => {
+    if (pending) return pending;
+    if (Date.now() - failedAt < 5000) {
+      return Promise.reject(new ShareKeysUnavailable(keys));
+    }
+    if (refresh && Date.now() - lastRefresh < 60000)
+      return Promise.resolve(keys);
+    if (!refresh && Date.now() - loaded < 60000) return Promise.resolve(keys);
+    if (refresh) lastRefresh = Date.now();
     return (pending ??= (async () => {
-      const response = await fetchFn(new URL(GATE_KEYS_PATH, origin), {
+      const response = await fetchFn(url, {
         redirect: "error",
         signal: AbortSignal.timeout(10000),
       });
       if (!response.ok) throw new Error("Gate keys unavailable");
       const parsed = parseGateKeySet(await response.json());
       if (!parsed) throw new Error("Invalid gate keys");
-      keys = await importGateKeySet(parsed);
+      const imported = await importGateKeySet(parsed);
+      if (imported.size === 0) throw new Error("Gate keys unavailable");
+      keys = imported;
       loaded = Date.now();
+      failedAt = -Infinity;
       return keys;
-    })().finally(() => {
-      pending = null;
-    }));
+    })()
+      .catch(() => {
+        failedAt = Date.now();
+        throw new ShareKeysUnavailable(keys);
+      })
+      .finally(() => {
+        pending = null;
+      }));
   };
+}
+
+export function shareKeysUrl(accountOrigin: string): string {
+  return (
+    process.env.BB_CONNECT_GATE_KEYS_URL ||
+    new URL(GATE_KEYS_PATH, accountOrigin).href
+  );
 }
 
 export async function openShareIngress(
@@ -143,6 +214,7 @@ export async function openShareIngress(
     };
     return {
       meta,
+      annotationsAvailable: claims.kind !== "unavailable",
       headers: [
         ...preview,
         ["host", `127.0.0.1:${options.port}`],
@@ -171,6 +243,11 @@ export async function openShareIngress(
       }
       const { meta, headers } = verifiedRequest;
       if (meta.path.split("?", 1)[0] === "/__bb_annotations") {
+        if (!verifiedRequest.annotationsAvailable) {
+          outgoing.writeHead(403);
+          outgoing.end();
+          return;
+        }
         const chunks: Buffer[] = [];
         let length = 0;
         for await (const chunk of incoming) {
@@ -208,10 +285,9 @@ export async function openShareIngress(
       });
       upstream.on("response", (response) => {
         void (async () => {
-          const transformed = await options.annotations.transform(
-            meta,
-            response,
-          );
+          const transformed = verifiedRequest.annotationsAvailable
+            ? await options.annotations.transform(meta, response)
+            : { headers: raw(response), body: response };
           outgoing.writeHead(
             response.statusCode ?? 502,
             transformed.headers.flat(),

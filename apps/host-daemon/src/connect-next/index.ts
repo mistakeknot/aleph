@@ -4,6 +4,7 @@ import {
   openShareIngress,
   ShareIngressSet,
   trustedShareKeys,
+  shareKeysUrl,
 } from "@bb/frp-client/share-ingress";
 import { gateAudienceForMachine } from "@bb/tunnel-contract/next";
 import { z } from "zod";
@@ -336,16 +337,23 @@ export class MachineNextTunnel {
       this.options.createSupervisor?.(supervisorOptions) ??
       new FrpcSupervisor(supervisorOptions);
     const protocol = connectPublicProtocol(config.domain);
-    const keys = trustedShareKeys(
-      `${protocol}//${config.domain}`,
-      this.options.fetchFn,
-    );
+    const trustedBaseDomain = this.options.trustedBaseDomain();
+    const keys =
+      trustedBaseDomain === null
+        ? async () => {
+            throw new Error("Missing trusted enrollment");
+          }
+        : trustedShareKeys(
+            shareKeysUrl(
+              `${connectPublicProtocol(trustedBaseDomain)}//${trustedBaseDomain}`,
+            ),
+            this.options.fetchFn,
+          );
     const session: Session = {
       config,
       supervisor,
       audience: null,
       shares: new ShareIngressSet(async (port) => {
-        if (!session.audience) throw new Error("Missing machine audience");
         const registered = () =>
           this.session === session &&
           this.wanted() !== null &&
@@ -360,7 +368,9 @@ export class MachineNextTunnel {
           },
         };
         return (this.options.openShareIngress ?? openShareIngress)({
-          audience: session.audience,
+          get audience() {
+            return session.audience;
+          },
           publicOrigin: `${protocol}//${this.label}--${port}.${config.domain}`,
           port,
           keys,
@@ -415,10 +425,12 @@ export class MachineNextTunnel {
       const verified = z
         .object({
           label: z.literal(identity.label),
-          machineId: z.string().min(1),
+          machineId: z.string().min(1).optional(),
         })
         .parse(await response.json());
-      session.audience = gateAudienceForMachine(verified.machineId);
+      session.audience = verified.machineId
+        ? gateAudienceForMachine(verified.machineId)
+        : null;
     }
     if (this.session !== session || this.wanted() === null)
       throw new Error("Machine tunnel stopped");

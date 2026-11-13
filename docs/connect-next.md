@@ -1,5 +1,13 @@
 # bb connect next (Fly)
 
+Owner page notes support server and enrolled machine shares. Roll out the
+additive `machineId` response from apps/connect before updating daemons. Older
+responses retain plain previews without notes; annotation key outages also
+retain plain preview proxying. Invalid assertions remain denied. Key discovery
+uses `BB_CONNECT_GATE_KEYS_URL` or the trusted account apex, without redirects.
+See [page-note boundaries and quotas](connect-annotations.md) for HTML/CSP
+exclusions and outstanding deployed, cross-browser and throughput acceptance.
+
 bb connect next is an opt-in second way in to a bb server, next to the Cloudflare gate (`apps/connect`).
 A server with the `connect-next` plugin enabled answers at `https://<label>.next.getbb.app` as well as
 `https://<label>.getbb.app` (staging: `https://<label>.next.vibecodethis.site`; the plugin derives the

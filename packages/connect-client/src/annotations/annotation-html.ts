@@ -1,3 +1,4 @@
+import { parse } from "parse5";
 type HeaderPair = [string, string];
 
 export const MAX_ANNOTATION_HTML_BYTES = 1024 * 1024;
@@ -36,10 +37,20 @@ export function annotationHtml(
   )
     return null;
   const html = body.toString("utf8");
+  const document = parse(html, { sourceCodeLocationInfo: true });
+  const root = document.childNodes.find((node) => node.nodeName === "html");
+  const bodyNode =
+    root && "childNodes" in root
+      ? root.childNodes.find((node) => node.nodeName === "body")
+      : undefined;
+  const offset =
+    bodyNode && "tagName" in bodyNode
+      ? bodyNode.sourceCodeLocation?.endTag?.startOffset
+      : undefined;
   if (
     !Buffer.from(html).equals(body) ||
     /<meta\b[^>]*http-equiv/i.test(html) ||
-    !/<\/body\s*>/i.test(html)
+    offset === undefined
   )
     return null;
   const policies = headers
@@ -72,7 +83,7 @@ export function annotationHtml(
   }
   const nonce = nonces?.[0];
   const tag = `<script${nonce ? ` nonce="${nonce}"` : ""}>${script.replace(/<\/script/gi, "<\\/script")}</script>`;
-  const output = Buffer.from(html.replace(/<\/body\s*>/i, (end) => tag + end));
+  const output = Buffer.from(html.slice(0, offset) + tag + html.slice(offset));
   const retained = headers.filter(
     ([key]) =>
       ![
