@@ -15,8 +15,9 @@ outside a bb thread must use the current pool on the server's primary enrolled
 host. Only allowlisted `codex exec` and `claude --print` options are accepted;
 all caller Codex config/profile/provider overrides are rejected. The host pins
 the pooled provider inside `exec`. The command exits with the child status.
-Claude receives host-owned `--setting-sources user` and host-managed provider
-routing. Caller settings-source overrides are rejected. Its config directory
+Claude receives `--setting-sources user` by default and host-managed provider
+routing. Dispatch may select exactly `project,local`, replacing that default
+without adding user settings. Its config directory
 is anchored to the daemon environment, not the caller cwd; the daemon's user
 hooks/plugins remain trusted operator code. See the reference for this boundary.
 A confirmed, provider-pinned child start adds a
@@ -34,6 +35,29 @@ Files must be regular, non-symlink direct children of that directory on the
 Linux enrolled host and are limited to 8 MiB. Root, home, Codex credential
 directories, their ancestors and their descendants are forbidden. See the reference for the
 argument allowlist and descriptor-based file boundary.
+
+Exec requires a live calling thread on the primary host. Its absolute cwd must
+exist there; missing thread provenance or a different host is refused. Raw piped
+stdin is not forwarded. Use `--prompt-file <absolute-path>` before `--` for a
+regular, non-symlink prompt file directly in canonical caller cwd, at most 8 MiB.
+Do not combine it with `--stdin-file`; prompt bytes become child stdin, never argv.
+Use `--output-file <absolute-path>` to stream stdout into a new file directly in
+canonical cwd, and stderr into its `.stderr` sibling. Both are exclusive-created
+with mode 0600; existing files and symlinks are refused. Partial files remain on
+failure. Token redaction holds incomplete token prefixes between chunks. Streamed
+runs have no 900 KB limit; default buffered runs retain it. The child deadline is
+`--timeout-seconds 1..3600`, default 3600; the CLI retains the child exit status.
+
+Claude print mode can appear after other options. Dispatch accepts effort
+`low|medium|high|xhigh|max`, permission mode `dontAsk`, allowed tools `Bash` or
+`Bash,Edit,Write,NotebookEdit`, and disallowed tools
+`Edit,Write,NotebookEdit,Agent,Task,Skill`, `Edit,Write,NotebookEdit`, or
+`Agent,Task,Skill`. Output format is `text|json|stream-json`; `--verbose` requires
+`stream-json`. One `--add-dir` may name a canonical existing directory within
+canonical cwd, including cwd itself. Relative paths, traversal, symlink aliases,
+outside directories and duplicate grants are refused. Plans outside cwd must be
+copied into cwd first. Thread-storage roots are not exposed by this SDK path.
+Permission bypass flags, `acceptEdits`, and free-form tool lists are refused.
 
 For thread-bound eligibility before cross-provider dispatch, use the authenticated
 `/availability?threadId=<id>` route described in the reference. A provider-wide

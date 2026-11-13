@@ -540,7 +540,21 @@ function sdkStubs() {
         },
       ],
     },
+    environments: {
+      get: async () => ({
+        id: "env-one",
+        projectId: "project-one",
+        status: "ready",
+        hostId: "host-one",
+      }),
+    },
     threads: {
+      get: async () => ({
+        id: "thread-one",
+        projectId: "project-one",
+        deletedAt: null,
+        environmentId: "env-one",
+      }),
       events: {
         list: async () => [
           {
@@ -9037,6 +9051,54 @@ describe("nested launch opt-in", () => {
 });
 
 describe("pool exec CLI", () => {
+  it.each([
+    "missing",
+    "remote",
+    "deleted",
+    "destroyed",
+    "no-cwd",
+    "bad-timeout",
+  ])("refuses %s caller provenance before host dispatch", async (mode) => {
+    const hostRpc = vi.fn();
+    const fixture = await createFixture({
+      upstreamUrl: "https://example.com",
+      hostRpc,
+      beforePlugin(host) {
+        if (mode === "remote" || mode === "destroyed")
+          host.harness.sdk.stub("environments.get", async () => ({
+            id: "env-one",
+            projectId: "project-one",
+            status: mode === "destroyed" ? "destroyed" : "ready",
+            hostId: mode === "remote" ? "host-two" : "host-one",
+          }));
+        if (mode === "deleted")
+          host.harness.sdk.stub("threads.get", async () => ({
+            id: "thread-one",
+            projectId: "project-one",
+            deletedAt: "today",
+            environmentId: "env-one",
+          }));
+      },
+    });
+    const result = await fixture.host.harness.behavior.runCli(
+      [
+        "exec",
+        ...(mode === "bad-timeout" ? ["--timeout-seconds", "3601"] : []),
+        "--",
+        "claude",
+        "-p",
+      ],
+      {
+        ...(mode === "missing" ? {} : { threadId: "thread-one" }),
+        ...(mode === "no-cwd" ? {} : { cwd: "/work" }),
+      },
+    );
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(
+      "requires a live thread on the primary host",
+    );
+    expect(hostRpc).not.toHaveBeenCalled();
+  });
   it("rejects caller config at root or exec before dispatch and without a pooled marker", async () => {
     const hostRpc = vi.fn();
     const fixture = await createFixture({
@@ -9114,7 +9176,7 @@ describe("pool exec CLI", () => {
           "exec",
           "hello",
         ],
-        { cwd: "/work" },
+        { cwd: "/work", threadId: "thread-one" },
       );
 
       expect(result).toEqual({
@@ -9235,13 +9297,10 @@ describe("pool exec CLI", () => {
         throw new Error("socket closed");
       },
     });
-    const lost = await dispatched.host.harness.behavior.runCli([
-      "exec",
-      "--",
-      "claude",
-      "--print",
-      "hello",
-    ]);
+    const lost = await dispatched.host.harness.behavior.runCli(
+      ["exec", "--", "claude", "--print", "hello"],
+      { cwd: "/work", threadId: "thread-one" },
+    );
     expect(lost.exitCode).toBe(1);
     expect(lost.stderr).not.toContain("transport=pooled");
     expect(lost.stderr).toContain("transport=pool-unconfirmed provider=claude");

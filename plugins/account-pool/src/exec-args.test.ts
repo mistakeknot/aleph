@@ -39,14 +39,10 @@ describe("pool exec argument allowlist", () => {
     for (const args of [
       ["--print", "--settings={}"],
       ["--setting-sources", "project", "--print", "hello"],
-      ["--print", "--setting-sources", "project,local", "hello"],
-      ["--print", "--setting-sources=project,local", "hello"],
       ["--print", "--resume=id"],
       ["--print", "--agents={}"],
       ["--print", "--mcp-config=x.json"],
       ["--print", "--mcp-config", "x.json", "hello"],
-      ["--print", "--allowedTools", "Bash"],
-      ["--print", "--allowedTools=Bash"],
       ["--print", "--tools", "Bash", "hello"],
       ["--print", "--tools=default"],
       ["--print", "--tools"],
@@ -307,10 +303,9 @@ describe("restrictive Claude reviewer arguments", () => {
   });
 
   it.each([
-    ["--add-dir", "/tmp"],
+    ["--add-dir", "relative"],
     ["--settings", "{}"],
     ["--plugin-dir", "/tmp"],
-    ["--allowedTools", "Bash"],
     ["--allowed-tools", "Bash"],
     ["--tools", "Bash"],
     ["--permission-mode", "bypassPermissions"],
@@ -382,5 +377,65 @@ describe("restrictive Claude reviewer arguments", () => {
       "--",
       "-",
     ]);
+  });
+});
+
+describe("bounded dispatch arguments", () => {
+  it.each([
+    ["--effort", "low"],
+    ["--effort", "medium"],
+    ["--effort", "high"],
+    ["--effort", "xhigh"],
+    ["--effort", "max"],
+    ["--model", "model-id"],
+    ["--permission-mode", "dontAsk"],
+    ["--allowedTools", "Bash"],
+    ["--allowedTools", "Bash,Edit,Write,NotebookEdit"],
+    ["--disallowedTools", "Edit,Write,NotebookEdit,Agent,Task,Skill"],
+    ["--disallowedTools", "Edit,Write,NotebookEdit"],
+    ["--disallowedTools", "Agent,Task,Skill"],
+    ["--output-format", "text"],
+    ["--output-format", "json"],
+    ["--output-format", "stream-json"],
+    ["--setting-sources", "project,local"],
+  ])("accepts %s %s with print last and stdin prompt", (flag, value) => {
+    expect(parsePoolExecArgs("claude", [flag, value, "-p"])).toEqual([
+      `${flag}=${value}`,
+      "-p",
+    ]);
+  });
+  it.each([
+    ["--permission-mode", "default"],
+    ["--permission-mode", "acceptEdits"],
+    ["--permission-mode", "bypassPermissions"],
+    ["--allowedTools", "*"],
+    ["--allowedTools", "Bash(*)"],
+    ["--disallowedTools", "Edit"],
+    ["--effort", "ultra"],
+    ["--verbose"],
+    ["--output-format=json", "--verbose"],
+    ["--setting-sources=project,local", "--setting-sources=project,local"],
+  ])("refuses unsafe dispatch options %j", (...args) => {
+    expect(parsePoolExecArgs("claude", [...args, "-p"])).toBeNull();
+  });
+  it("accepts verbose streaming", () => {
+    expect(
+      parsePoolExecArgs("claude", [
+        "--verbose",
+        "--output-format=stream-json",
+        "-p",
+      ]),
+    ).not.toBeNull();
+  });
+  it("bounds add-dir count and rejects traversal or relative spelling", () => {
+    expect(parsePoolExecArgs("claude", ["--add-dir=/work/plan", "-p"])).toEqual(
+      ["--add-dir=/work/plan", "-p"],
+    );
+    for (const options of [
+      ["--add-dir=relative"],
+      ["--add-dir=/work/../outside"],
+      ["--add-dir=/work/a", "--add-dir=/work/b"],
+    ])
+      expect(parsePoolExecArgs("claude", [...options, "-p"])).toBeNull();
   });
 });

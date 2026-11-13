@@ -91,6 +91,9 @@ export type PoolCommandExecutor = (
     provider: PoolProvider;
     args: string[];
     stdinPath: string | null;
+    promptPath: string | null;
+    outputPath: string | null;
+    timeoutSeconds: number;
   },
   context: PluginCliContext,
 ) => Promise<PoolCommandResult>;
@@ -374,6 +377,20 @@ export function registerPoolCli(
             "Runs the command on this bb server's enrolled primary host. Credentials remain in the child environment and are never printed.",
           passthrough: true,
           options: {
+            "prompt-file": {
+              type: "string",
+              description:
+                "Read up to 8 MiB of stdin from an absolute regular file directly in caller cwd",
+            },
+            "output-file": {
+              type: "string",
+              description:
+                "Stream stdout to a new absolute file in caller cwd, stderr to its .stderr sibling",
+            },
+            "timeout-seconds": {
+              type: "string",
+              description: "Child deadline, 1–3600 seconds (default 3600)",
+            },
             "stdin-file": {
               type: "string",
               placeholder: "absolute-path",
@@ -408,7 +425,16 @@ export function registerPoolCli(
                 });
               }
               const result = await executePoolCommand(
-                { provider, args, stdinPath: stdinPath ?? null },
+                {
+                  provider,
+                  args,
+                  stdinPath: stdinPath ?? null,
+                  promptPath: input.options["prompt-file"] ?? null,
+                  outputPath: input.options["output-file"] ?? null,
+                  timeoutSeconds: Number(
+                    input.options["timeout-seconds"] ?? "3600",
+                  ),
+                },
                 context,
               );
               if (!result.started) {

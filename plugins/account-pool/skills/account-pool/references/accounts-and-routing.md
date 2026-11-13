@@ -150,8 +150,7 @@ Codex callers may supply `--model`, `--sandbox` (read-only or workspace-write),
 `--cd`, `--output-schema`, `--output-last-message`, `--color` (auto, always, never),
 `--json`, `--ephemeral`, `--ignore-user-config`, `--ignore-rules`, and one prompt
 or `-` for stdin. Value options accept separate or `--key=value` forms. Claude
-must start with `--print` or `-p`; it accepts `--model`, `--output-format` (text
-or json), `--max-turns`, `--json-schema`, `--system-prompt`, and one prompt.
+must include `--print` or `-p`; it accepts `--model`, `--output-format` (text, json or stream-json), `--max-turns`, `--json-schema`, `--system-prompt`, and one prompt.
 Restriction flags are `--safe-mode`, `--no-session-persistence`, `--no-chrome`,
 `--strict-mcp-config`, and `--disable-slash-commands`. `--tools` and
 `--setting-sources` accept only an empty value. `--mcp-config` accepts only
@@ -164,9 +163,7 @@ Claude receives `--setting-sources user` after argument validation by default;
 an explicit empty `--setting-sources` instead suppresses all settings sources,
 and is accepted only together with `--tools=` (empty) and `--strict-mcp-config`
 in the same command, because it also drops user-settings protections.
-Non-empty caller source lists and `--settings` are rejected: project and local
-settings cannot replace the endpoint, run their hooks/helpers, or select another
-provider. The host also sets `CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST=1` to prevent
+The exact caller source list `project,local` replaces the user default; other non-empty source lists and `--settings` are rejected: host-managed routing prevents settings from replacing the endpoint or provider. Selecting project/local settings enables their hooks and helpers, as in dispatch; these are trusted caller code. The host also sets `CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST=1` to prevent
 settings-file provider/auth/endpoint variables from overriding its route, and
 sets inherited Bedrock, Vertex and Foundry selectors to `0`.
 

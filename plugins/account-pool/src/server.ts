@@ -368,6 +368,44 @@ export function createAccountPoolPlugin(
           };
         }
         const token = await hubTokens.forHost(primaryHostId);
+        try {
+          if (!context.threadId || !context.cwd)
+            throw new Error("missing thread or cwd");
+          const thread = await bb.sdk.threads.get({
+            threadId: context.threadId,
+          });
+          if (
+            thread.id !== context.threadId ||
+            thread.deletedAt !== null ||
+            thread.environmentId === null
+          )
+            throw new Error("invalid thread");
+          const environment = await bb.sdk.environments.get({
+            environmentId: thread.environmentId,
+          });
+          if (
+            environment.id !== thread.environmentId ||
+            environment.projectId !== thread.projectId ||
+            environment.status === "destroyed" ||
+            environment.hostId !== primaryHostId
+          )
+            throw new Error("caller is not on primary host");
+          if (
+            !Number.isInteger(request.timeoutSeconds) ||
+            request.timeoutSeconds < 1 ||
+            request.timeoutSeconds > 3600
+          )
+            throw new Error("timeout must be 1–3600 seconds");
+        } catch {
+          return {
+            started: false,
+            providerPinned: false,
+            exitCode: 1,
+            stdout: "",
+            stderr:
+              "Pool exec requires a live thread on the primary host and its caller cwd, with a timeout of 1–3600 seconds.\n",
+          };
+        }
         const baseUrl = `${bb.server.loopbackBaseUrl}${HUB_BASE_PATH}${request.provider === "codex" ? "/v1" : ""}`;
         try {
           return await poolExecHost.call(
@@ -384,7 +422,7 @@ export function createAccountPoolPlugin(
               ...(context.signal === undefined
                 ? {}
                 : { signal: context.signal }),
-              timeoutMs: 30 * 60 * 1_000,
+              timeoutMs: (request.timeoutSeconds + 30) * 1000,
             },
           );
         } catch {

@@ -15,6 +15,7 @@ const CODEX_VALUES: Record<string, readonly string[] | null> = {
   "--color": ["always", "never", "auto"],
 };
 const CLAUDE_FLAGS = new Set([
+  "--verbose",
   "--print",
   "-p",
   "--strict-mcp-config",
@@ -25,7 +26,16 @@ const CLAUDE_FLAGS = new Set([
 ]);
 const CLAUDE_VALUES: Record<string, readonly string[] | null> = {
   "--model": null,
-  "--output-format": ["text", "json"],
+  "--add-dir": null,
+  "--output-format": ["text", "json", "stream-json"],
+  "--effort": ["low", "medium", "high", "xhigh", "max"],
+  "--permission-mode": ["dontAsk"],
+  "--allowedTools": ["Bash", "Bash,Edit,Write,NotebookEdit"],
+  "--disallowedTools": [
+    "Edit,Write,NotebookEdit,Agent,Task,Skill",
+    "Edit,Write,NotebookEdit",
+    "Agent,Task,Skill",
+  ],
   "--max-turns": null,
   "--json-schema": null,
   "--system-prompt": null,
@@ -70,7 +80,11 @@ function parseUnguardedPoolExecArgs(
   args: readonly string[],
 ): string[] | null {
   if (provider === "codex" && args[0] !== "exec") return null;
-  if (provider === "claude" && args[0] !== "--print" && args[0] !== "-p")
+  if (
+    provider === "claude" &&
+    !args.includes("--print") &&
+    !args.includes("-p")
+  )
     return null;
   const flags = provider === "codex" ? CODEX_FLAGS : CLAUDE_FLAGS;
   const values = provider === "codex" ? CODEX_VALUES : CLAUDE_VALUES;
@@ -98,8 +112,13 @@ function parseUnguardedPoolExecArgs(
       (key === "--tools" || key === "--setting-sources")
     ) {
       const emptyValue = equals < 0 ? args[++index] : arg.slice(equals + 1);
-      if (emptyValue !== "") return null;
-      options.push(`${key}=`);
+      if (
+        emptyValue !== "" &&
+        !(key === "--setting-sources" && emptyValue === "project,local")
+      )
+        return null;
+      if (options.some((option) => option.startsWith(`${key}=`))) return null;
+      options.push(`${key}=${emptyValue}`);
       continue;
     }
     if (provider === "claude" && key === "--mcp-config") {
@@ -132,9 +151,25 @@ function parseUnguardedPoolExecArgs(
     if (!Object.hasOwn(values, key)) return null;
     const value = equals < 0 ? args[++index] : arg.slice(equals + 1);
     if (!value || value.startsWith("-")) return null;
+    if (
+      provider === "claude" &&
+      options.some((option) => option.startsWith(`${key}=`))
+    )
+      return null;
+    if (
+      provider === "claude" &&
+      key === "--add-dir" &&
+      (!value.startsWith("/") || value.split("/").includes(".."))
+    )
+      return null;
     const choices = values[key];
     if (choices && !choices.includes(value)) return null;
     options.push(`${key}=${value}`);
   }
+  if (
+    options.includes("--verbose") &&
+    !options.includes("--output-format=stream-json")
+  )
+    return null;
   return prompt === undefined ? options : [...options, "--", prompt];
 }

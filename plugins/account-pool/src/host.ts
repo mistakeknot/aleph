@@ -5,6 +5,11 @@ import { experimental_defineHostEntry } from "@get-bb/plugin-sdk/host";
 import { poolExecHostContract } from "./exec-contract.js";
 import { parsePoolExecArgs, poolExecArgsRefusal } from "./exec-args.js";
 import { readPoolInput } from "./exec-input.js";
+import {
+  createExecOutput,
+  readExecPrompt,
+  validateExecDirectory,
+} from "./exec-files.js";
 
 const OUTPUT_LIMIT_BYTES = 900_000;
 
@@ -101,7 +106,27 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
             stderr: `${poolExecArgsRefusal(input.provider, input.args) ?? `${input.provider} arguments are not permitted by the Account Pooler execution allowlist.`}\n`,
           };
         }
+        let cwd: string;
+        let output: Awaited<ReturnType<typeof createExecOutput>> | undefined;
         let stdin: Buffer<ArrayBufferLike> = Buffer.alloc(0);
+        try {
+          cwd = await validateExecDirectory(input.cwd, permittedArgs);
+          if (input.promptPath !== null) {
+            if (input.stdinPath !== null)
+              throw new Error("Choose only one stdin source");
+            stdin = await readExecPrompt(cwd, input.promptPath);
+          }
+          if (input.outputPath !== null)
+            output = await createExecOutput(cwd, input.outputPath, input.token);
+        } catch (error) {
+          return {
+            started: false,
+            providerPinned: false,
+            exitCode: 1,
+            stdout: "",
+            stderr: `Invalid pool exec files or cwd: ${redact(error instanceof Error ? error.message : String(error), input.token)}\n`,
+          };
+        }
         if (input.stdinPath !== null) {
           try {
             stdin = await (deps.readInput ?? readPoolInput)(
@@ -110,6 +135,7 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
               deps.env,
             );
           } catch (error) {
+            output?.close();
             return {
               started: false,
               providerPinned: false,
@@ -139,22 +165,27 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
             env.ANTHROPIC_BASE_URL = input.baseUrl;
             env.ANTHROPIC_AUTH_TOKEN = input.token;
             env.ENABLE_TOOL_SEARCH = "true";
-            const emptySources = args.includes("--setting-sources=");
+            const sources = args.find((arg) =>
+              arg.startsWith("--setting-sources="),
+            );
             args = [
               "--setting-sources",
-              emptySources ? "" : "user",
-              ...args.filter((arg) => arg !== "--setting-sources="),
+              sources === undefined
+                ? "user"
+                : sources.slice("--setting-sources=".length),
+              ...args.filter((arg) => !arg.startsWith("--setting-sources=")),
             ];
           }
 
           let child: PoolExecChild;
           try {
             child = deps.spawn(input.provider, args, {
-              ...(input.cwd === null ? {} : { cwd: input.cwd }),
+              cwd,
               env,
               stdio: ["pipe", "pipe", "pipe"],
             });
           } catch (error) {
+            output?.close();
             resolve({
               started: false,
               providerPinned: false,
@@ -170,17 +201,48 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
           let settled = false;
           let outputBytes = 0;
           let outputOverflow = false;
+          let outputError = "";
+          let timedOut = false;
+          let forceTimer: ReturnType<typeof setTimeout> | undefined;
+          const stop = () => {
+            child.kill("SIGTERM");
+            forceTimer ??= setTimeout(() => child.kill("SIGKILL"), 5000);
+            forceTimer.unref();
+          };
+          const timer = setTimeout(() => {
+            timedOut = true;
+            stop();
+          }, input.timeoutSeconds * 1000);
+          timer.unref();
+          const finishOutput = () => {
+            clearTimeout(timer);
+            clearTimeout(forceTimer);
+            try {
+              output?.close();
+            } catch {
+              outputError = "Unable to finish pool exec output file";
+            }
+          };
           const stdout: Buffer[] = [];
           const stderr: Buffer[] = [];
           const append = (target: Buffer[], chunk: unknown): void => {
-            if (outputOverflow) return;
+            if (outputOverflow || outputError) return;
             const buffer = Buffer.isBuffer(chunk)
               ? chunk
               : Buffer.from(String(chunk));
+            if (output) {
+              try {
+                output.write(target === stdout ? "stdout" : "stderr", buffer);
+              } catch {
+                outputError = "Unable to write pool exec output file";
+                stop();
+              }
+              return;
+            }
             outputBytes += buffer.length;
             if (outputBytes > OUTPUT_LIMIT_BYTES) {
               outputOverflow = true;
-              child.kill("SIGTERM");
+              stop();
               return;
             }
             target.push(buffer);
@@ -191,9 +253,10 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
           child.stdin.end(stdin);
 
           const cancel = (): void => {
-            child.kill("SIGTERM");
+            stop();
           };
           context.signal.addEventListener("abort", cancel, { once: true });
+          if (context.signal.aborted) cancel();
           child.once("spawn", () => {
             started = true;
           });
@@ -201,6 +264,7 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
             if (settled) return;
             settled = true;
             active.delete(child);
+            finishOutput();
             context.signal.removeEventListener("abort", cancel);
             resolve({
               started,
@@ -214,14 +278,15 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
             if (settled) return;
             settled = true;
             active.delete(child);
+            finishOutput();
             context.signal.removeEventListener("abort", cancel);
-            if (outputOverflow) {
+            if (outputOverflow || outputError || timedOut) {
               resolve({
                 started: true,
                 providerPinned: started,
                 exitCode: 1,
                 stdout: "",
-                stderr: `${input.provider} output exceeded the safe bb pool exec limit.\n`,
+                stderr: `${outputError || (timedOut ? "Pool exec timeout exceeded" : `${input.provider} output exceeded the safe bb pool exec limit.`)}\n`,
               });
               return;
             }
