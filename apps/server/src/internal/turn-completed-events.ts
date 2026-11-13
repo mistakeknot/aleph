@@ -1,4 +1,5 @@
 import { getThread, hasRootStoredTurnStarted } from "@bb/db";
+import { recordSettledWakeOutcome } from "../services/threads/wake-turn-outcome.js";
 import {
   requireThreadEventScopeTurnId,
   type ThreadEvent,
@@ -98,10 +99,39 @@ function applyTurnCompletion(
   return nextStatus;
 }
 
+function snapshotErrorCategory(
+  error: unknown,
+): "SqliteError" | "SnapshotError" {
+  let current = error;
+  for (let depth = 0; depth < 8 && current instanceof Error; depth += 1) {
+    if (current.name === "SqliteError") {
+      return "SqliteError";
+    }
+    current = current.cause;
+  }
+  return "SnapshotError";
+}
+
 export function applyTurnCompletedEvent(
   deps: TurnCompletionDeps,
   { afterIdle, payload }: ApplyTurnCompletedEventArgs,
 ): TurnCompletedTransition {
+  const snapshotTurnId = requireThreadEventScopeTurnId(payload);
+  try {
+    recordSettledWakeOutcome(deps, {
+      threadId: payload.threadId,
+      snapshotTurnId,
+    });
+  } catch (error) {
+    deps.logger.warn(
+      {
+        threadId: payload.threadId,
+        turnId: snapshotTurnId,
+        errorName: snapshotErrorCategory(error),
+      },
+      "Wake outcome snapshot unavailable during turn settlement",
+    );
+  }
   rejectUnconfirmedSteersAfterTurnCompleted(deps, payload.threadId);
   const lifecycleEvent = lifecycleEventForTurnCompletion(payload.status);
   if (inFlightTurnRequestCountByThreadId.has(payload.threadId)) {

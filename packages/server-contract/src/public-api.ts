@@ -1,4 +1,9 @@
 import {
+  wakeOutcomesQuerySchema,
+  type WakeOutcomesQuery,
+  type WakeOutcomesResponse,
+} from "./api/wake-outcomes.js";
+import {
   machineEnvironmentSetSchema,
   machineEnvironmentDeleteSchema,
   type MachineEnvironmentSet,
@@ -1908,6 +1913,14 @@ export const publicApiRoutes = {
       method: "get",
       request: noRequest<PathId>(),
       response: jsonResponse<ThreadContextResponse>(),
+    }),
+    wakeOutcomes: defineRoute({
+      path: "/threads/:id/wake-outcomes",
+      method: "get",
+      request: optionalQueryRequest<PathId, WakeOutcomesQuery>(
+        wakeOutcomesQuerySchema,
+      ),
+      response: jsonResponse<WakeOutcomesResponse>(),
     }),
     headState: defineRoute({
       path: "/threads/:id/head-state",

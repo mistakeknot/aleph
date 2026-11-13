@@ -706,6 +706,7 @@ describe("queued wake lifecycle", () => {
           { wakeCause: "message", wakeRef: "message" },
           { wakeCause: "timer", wakeRef: "timer" },
         ],
+        wakeRef: "message",
       });
     });
   });

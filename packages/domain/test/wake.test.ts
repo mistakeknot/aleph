@@ -21,6 +21,7 @@ describe("wake provenance", () => {
     });
     expect(mixed).toMatchObject({
       wakeCause: "unknown",
+      wakeRef: "pick",
       truncated: false,
       sources: [
         { wakeCause: "card_pick", wakeRef: "pick" },
@@ -35,9 +36,38 @@ describe("wake provenance", () => {
       });
     expect(overflow).toMatchObject({
       wakeCause: "unknown",
-      wakeRef: null,
+      wakeRef: "pick",
       truncated: true,
     });
     expect(overflow.sources).toHaveLength(32);
+  });
+
+  it("bounds incoming aggregate sources and explicitly marks lost coverage while retaining the primary ref", () => {
+    const wakeSources = Array.from({ length: 40 }, (_, index) => ({
+      wakeCause: "card_pick" as const,
+      wakeRef: `pick-${index}`,
+    }));
+    const result = wakeAttribution({
+      wakeCause: "card_pick",
+      wakeRef: "pick-0",
+      wakeSources,
+    });
+    expect(result).toMatchObject({
+      wakeCause: "unknown",
+      wakeRef: "pick-0",
+      wakeSourcesTruncated: true,
+      wakeSources: wakeSources.slice(0, 32),
+    });
+    expect(wakeAttribution(result)).toEqual(result);
+  });
+
+  it("does not replace a missing primary ref with a later ref", () => {
+    const first = mergeWakeProvenance(null, { wakeCause: "message" });
+    expect(
+      mergeWakeProvenance(first, { wakeCause: "timer", wakeRef: "later" }),
+    ).toMatchObject({
+      wakeCause: "unknown",
+      wakeRef: null,
+    });
   });
 });

@@ -408,6 +408,7 @@ type ExpectedThemeKey =
 type ExpectedThreadSectionsKey = "create" | "delete" | "list" | "update";
 
 type ExpectedThreadsKey =
+  | "experimental_wakeOutcomes"
   | "experimental_listAncestors"
   | "experimental_listDescendants"
   | "experimental_listCascade"

@@ -59,6 +59,8 @@ describe("extractThreadTimelineModelFallback", () => {
           source: "tell",
           initiator: "user",
           senderThreadId: null,
+          wakeCause: "unknown",
+          wakeRef: null,
           input: [{ type: "text", text: "continue", mentions: [] }],
           target: { kind: "new-turn" },
           request: { method: "turn/start", params: {} },

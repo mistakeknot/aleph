@@ -698,6 +698,8 @@ export function createTimelineEventFactory(
           source: args.source ?? "tell",
           initiator,
           senderThreadId,
+          wakeCause: "unknown",
+          wakeRef: null,
           ...(args.systemMessageKind !== undefined
             ? { systemMessageKind: args.systemMessageKind }
             : {}),

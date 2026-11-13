@@ -1029,7 +1029,12 @@ describe("internal event and tool-call routes", () => {
           .orderBy(events.sequence)
           .all()
           .map((event) => event.type),
-      ).toEqual(["turn/started", "turn/completed", "turn/completed"]);
+      ).toEqual([
+        "turn/started",
+        "turn/completed",
+        "system/operation",
+        "turn/completed",
+      ]);
 
       const timelineResponse = await harness.app.request(
         `/api/v1/threads/${thread.id}/timeline`,

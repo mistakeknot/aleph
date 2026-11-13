@@ -15,6 +15,9 @@ export const wakeCauseSchema = z.enum([
 export type WakeCause = z.infer<typeof wakeCauseSchema>;
 export const wakeRefSchema = z
   .string()
+  .describe(
+    "Primary reference: the earliest accepted source, retained for mixed and truncated provenance",
+  )
   .max(200)
   .refine((value) => value.length <= 200, "Must be at most 200 UTF-16 units");
 export const wakeFields = {
@@ -29,24 +32,31 @@ export function readWake(value: { wakeCause?: unknown; wakeRef?: unknown }) {
   return z.object(storedWakeFields).parse(value);
 }
 
+export type EarliestAcceptedPrimaryWakeRef = string;
+
 export interface WakeAttribution {
   wakeCause?: WakeCause;
-  wakeRef?: string | null;
+  wakeRef?: EarliestAcceptedPrimaryWakeRef | null;
   retainedCause?: WakeCause;
   wakeSourcesTruncated?: boolean;
   wakeSources?: { wakeCause: WakeCause; wakeRef: string | null }[];
 }
 export function wakeAttribution(value: WakeAttribution) {
+  const truncated =
+    value.wakeSourcesTruncated === true ||
+    (value.wakeSources?.length ?? 0) > 32;
   return {
-    wakeCause: wakeCauseSchema.parse(value.wakeCause ?? "unknown"),
+    wakeCause: truncated
+      ? ("unknown" as const)
+      : wakeCauseSchema.parse(value.wakeCause ?? "unknown"),
     wakeRef:
       value.wakeRef == null ? undefined : wakeRefSchema.parse(value.wakeRef),
     ...(value.retainedCause === undefined
       ? {}
       : { retainedCause: wakeCauseSchema.parse(value.retainedCause) }),
-    ...(value.wakeSourcesTruncated === undefined
+    ...(value.wakeSourcesTruncated === undefined && !truncated
       ? {}
-      : { wakeSourcesTruncated: value.wakeSourcesTruncated }),
+      : { wakeSourcesTruncated: truncated }),
     ...(value.wakeSources === undefined
       ? {}
       : {
@@ -57,7 +67,8 @@ export function wakeAttribution(value: WakeAttribution) {
                 wakeRef: wakeRefSchema.nullable(),
               }),
             )
-            .parse(value.wakeSources),
+            .parse(value.wakeSources)
+            .slice(0, 32),
         }),
   };
 }
@@ -70,16 +81,22 @@ export function mergeWakeProvenance(
   previous: z.infer<typeof wakeProvenanceSchema> | null,
   next: WakeAttribution,
 ) {
-  const all = [...(previous?.sources ?? []), readWake(wakeAttribution(next))];
-  const truncated = (previous?.truncated ?? false) || all.length > 32;
+  const normalized = wakeAttribution(next);
+  const all = [
+    ...(previous?.sources ?? []),
+    ...(normalized.wakeSources?.length
+      ? normalized.wakeSources
+      : [readWake(normalized)]),
+  ];
+  const truncated =
+    (previous?.truncated ?? false) ||
+    normalized.wakeSourcesTruncated === true ||
+    all.length > 32;
   const sources = all.slice(0, 32);
   const wakeCause =
     !truncated && new Set(sources.map((source) => source.wakeCause)).size === 1
       ? sources[0]!.wakeCause
       : "unknown";
-  const wakeRef =
-    !truncated && new Set(sources.map((source) => source.wakeRef)).size === 1
-      ? sources[0]!.wakeRef
-      : null;
+  const wakeRef = sources[0]?.wakeRef ?? null;
   return { sources, truncated, wakeCause, wakeRef };
 }
