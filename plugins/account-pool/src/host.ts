@@ -5,6 +5,7 @@ import { experimental_defineHostEntry } from "@get-bb/plugin-sdk/host";
 import { poolExecHostContract } from "./exec-contract.js";
 import { parsePoolExecArgs, poolExecArgsRefusal } from "./exec-args.js";
 import { readPoolInput } from "./exec-input.js";
+import { claudeEnvironment, verifyClaudeScrub } from "./claude-env.js";
 import {
   createExecOutput,
   readExecPrompt,
@@ -29,6 +30,7 @@ interface PoolExecChild {
 interface PoolExecHostDependencies {
   env: NodeJS.ProcessEnv;
   readInput?: typeof readPoolInput;
+  checkClaudeScrub?: typeof verifyClaudeScrub;
   spawn(
     command: string,
     args: readonly string[],
@@ -106,6 +108,20 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
             stderr: `${poolExecArgsRefusal(input.provider, input.args) ?? `${input.provider} arguments are not permitted by the Account Pooler execution allowlist.`}\n`,
           };
         }
+        if (
+          input.provider === "claude" &&
+          !permittedArgs.includes("--tools=") &&
+          !(await (deps.checkClaudeScrub ?? verifyClaudeScrub)(deps.env))
+        ) {
+          return {
+            started: false,
+            providerPinned: false,
+            exitCode: 1,
+            stdout: "",
+            stderr:
+              "Pool exec refused: tool-capable Claude requires verified Claude Code 2.1.323 subprocess env scrubbing and working Linux bubblewrap isolation. Tool-free --print --tools= may still run.\n",
+          };
+        }
         let cwd: string;
         let output: Awaited<ReturnType<typeof createExecOutput>> | undefined;
         let stdin: Buffer<ArrayBufferLike> = Buffer.alloc(0);
@@ -153,7 +169,10 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
           }
         }
         return new Promise((resolve) => {
-          const env = { ...deps.env };
+          const env =
+            input.provider === "claude"
+              ? claudeEnvironment(deps.env)
+              : { ...deps.env };
           let args = permittedArgs;
           if (input.provider === "codex") {
             delete env.OPENAI_API_KEY;

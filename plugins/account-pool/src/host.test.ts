@@ -13,7 +13,13 @@ import path from "node:path";
 import { PassThrough } from "node:stream";
 import { experimental_createHostEntryHarness } from "@get-bb/plugin-sdk/testing/host";
 import { describe, expect, it, vi } from "vitest";
-import { createAccountPoolHostEntry } from "./host.js";
+import { createAccountPoolHostEntry as actualHostEntry } from "./host.js";
+
+function createAccountPoolHostEntry(
+  deps: Parameters<typeof actualHostEntry>[0],
+) {
+  return actualHostEntry({ checkClaudeScrub: async () => true, ...deps });
+}
 
 function fakeChild() {
   const child = new EventEmitter() as EventEmitter & {
@@ -30,6 +36,84 @@ function fakeChild() {
 }
 
 describe("Account Pooler host exec", () => {
+  it.each([
+    ["--print"],
+    ["--print", "--allowedTools=Bash", "--permission-mode=dontAsk"],
+  ])(
+    "refuses a tool-capable seat when scrubbing is unavailable: %j",
+    async (...args) => {
+      const spawn = vi.fn(() => fakeChild());
+      const harness = experimental_createHostEntryHarness(
+        createAccountPoolHostEntry({
+          spawn,
+          env: {},
+          checkClaudeScrub: async () => false,
+        }),
+      );
+      const result = await harness.experimental_call("run", {
+        provider: "claude",
+        args,
+        cwd: process.cwd(),
+        workspacePath: process.cwd(),
+        stdinDir: null,
+        stdinPath: null,
+        token: "synthetic-secret",
+        baseUrl: "http://127.0.0.1",
+      });
+      expect(result).toMatchObject({ started: false, exitCode: 1 });
+      expect(result.stderr).toContain("subprocess env scrubbing");
+      expect(spawn).not.toHaveBeenCalled();
+    },
+  );
+
+  it("permits a tool-free print seat when scrubbing is unavailable", async () => {
+    const child = fakeChild();
+    const spawn = vi.fn(
+      (
+        _command: string,
+        _args: readonly string[],
+        _options: { env: NodeJS.ProcessEnv },
+      ) => child,
+    );
+    const harness = experimental_createHostEntryHarness(
+      createAccountPoolHostEntry({
+        spawn,
+        env: { PATH: "/bin", BB_SECRET: "excluded", NODE_OPTIONS: "excluded" },
+        checkClaudeScrub: async () => false,
+      }),
+    );
+    const pending = harness.experimental_call("run", {
+      provider: "claude",
+      args: ["--print", "--tools="],
+      cwd: process.cwd(),
+      workspacePath: process.cwd(),
+      stdinDir: null,
+      stdinPath: null,
+      token: "synthetic-secret",
+      baseUrl: "http://127.0.0.1",
+    });
+    await vi.waitFor(() => expect(spawn).toHaveBeenCalledOnce());
+    child.emit("spawn");
+    child.emit("close", 0, null);
+    expect((await pending).started).toBe(true);
+    expect(Object.keys(spawn.mock.calls[0]![2].env).sort()).toEqual(
+      [
+        "PATH",
+        "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB",
+        "CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST",
+        "CLAUDE_CODE_USE_BEDROCK",
+        "CLAUDE_CODE_USE_VERTEX",
+        "CLAUDE_CODE_USE_FOUNDRY",
+        "ANTHROPIC_BASE_URL",
+        "ANTHROPIC_AUTH_TOKEN",
+        "ENABLE_TOOL_SEARCH",
+      ].sort(),
+    );
+    expect(spawn.mock.calls[0]![2].env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB).toBe(
+      "1",
+    );
+  });
+
   it("streams large output, forwards cwd prompt stdin, and keeps dispatch settings", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "pool-run-"));
     try {

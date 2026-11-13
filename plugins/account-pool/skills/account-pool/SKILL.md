@@ -24,6 +24,27 @@ configuration, so project MCP servers do not load. Clavain dispatch does not
 pass MCP configuration for review or execution seats.
 The config directory is anchored to the daemon environment, not the caller cwd; the daemon's user
 hooks/plugins remain trusted operator code. See the reference for this boundary.
+Claude children inherit only PATH (executable lookup), HOME (runtime state),
+LANG and LC_* (locale), TERM (terminal behavior), TMPDIR (temporary files),
+USER (user identity), SHELL (tool shell), and the daemon-anchored
+CLAUDE_CONFIG_DIR (operator settings). Other daemon variables, including
+credentials and runtime injection variables, are excluded. The host adds
+ANTHROPIC_BASE_URL and ANTHROPIC_AUTH_TOKEN for pooled routing,
+CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST=1, CLAUDE_CODE_USE_BEDROCK=0,
+CLAUDE_CODE_USE_VERTEX=0, CLAUDE_CODE_USE_FOUNDRY=0 (provider pinning),
+ENABLE_TOOL_SEARCH=true (tool discovery), and
+CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 (credential isolation for tools).
+
+Tool-capable launches require Linux, the verified Claude Code 2.1.323 release,
+and a successful bubblewrap user/PID namespace probe. Unknown versions fail
+closed until verified. The check runs before passing a pool token to Claude;
+probe failures return a fixed error without subprocess output. This version's
+scrub mode removes ANTHROPIC_AUTH_TOKEN from tool subprocesses and isolates
+protected paths; merely omitting other daemon secrets does not protect this
+token. Explicit --print --tools= launches remain available without the
+preflight, but keep the scrub variable set (Claude can itself refuse startup
+if bubblewrap is missing). No host permissions or sandbox policy are changed.
+
 A confirmed, provider-pinned child start adds a
 `bb-pool-exec: transport=pooled provider=<provider>` stderr marker; an
 unavailable pool or a host found offline before dispatch fails without that
