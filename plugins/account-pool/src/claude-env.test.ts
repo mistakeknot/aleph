@@ -17,6 +17,7 @@ describe("Claude pool environment", () => {
       NODE_OPTIONS: "injection",
       AWS_SECRET_ACCESS_KEY: "excluded",
       CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "0",
+      DISABLE_AUTOUPDATER: "0",
       BB_SECRET: "excluded",
     });
     expect(Object.keys(env).sort()).toEqual(
@@ -31,9 +32,11 @@ describe("Claude pool environment", () => {
         "SHELL",
         "CLAUDE_CONFIG_DIR",
         "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB",
+        "DISABLE_AUTOUPDATER",
       ].sort(),
     );
     expect(env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB).toBe("1");
+    expect(env.DISABLE_AUTOUPDATER).toBe("1");
   });
 
   it.each(["2.1.322 (Claude Code)", "unknown"])(
@@ -45,18 +48,22 @@ describe("Claude pool environment", () => {
     },
   );
 
-  it("refuses missing or unusable bubblewrap", async () => {
-    await expect(
-      verifyClaudeScrub(
-        {},
-        async (command) => {
-          if (command === "claude") return "2.1.323 (Claude Code)";
-          throw new Error("isolation unavailable");
-        },
-        "linux",
-      ),
-    ).resolves.toBe(false);
-  });
+  it.each(["bwrap", "socat", "rg"])(
+    "refuses missing or unusable %s",
+    async (missing) => {
+      await expect(
+        verifyClaudeScrub(
+          {},
+          async (command) => {
+            if (command === "claude") return "2.1.323 (Claude Code)";
+            if (command === missing) throw new Error("isolation unavailable");
+            return "";
+          },
+          "linux",
+        ),
+      ).resolves.toBe(false);
+    },
+  );
 
   it("requires a successful isolation probe with the scrubbed environment", async () => {
     const names: string[] = [];
@@ -71,7 +78,7 @@ describe("Claude pool environment", () => {
         "linux",
       ),
     ).resolves.toBe(true);
-    expect(names).toEqual(["claude", "bwrap"]);
+    expect(names).toEqual(["claude", "socat", "rg", "bwrap"]);
   });
 
   it("fails closed on unsupported platforms", async () => {

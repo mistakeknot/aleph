@@ -23,6 +23,7 @@ export function claudeEnvironment(
       env[name] = value;
   }
   env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB = "1";
+  env.DISABLE_AUTOUPDATER = "1";
   return env;
 }
 
@@ -55,11 +56,15 @@ export async function verifyClaudeScrub(
   try {
     const version = (await probe("claude", ["--version"], env)).trim();
     if (!/^2\.1\.323 \(Claude Code\)$/.test(version)) return false;
+    await probe("socat", ["-V"], env);
+    await probe("rg", ["--version"], env);
     await probe(
       "bwrap",
       [
         "--unshare-user",
+        "--disable-userns",
         "--unshare-pid",
+        "--unshare-net",
         "--ro-bind",
         "/",
         "/",

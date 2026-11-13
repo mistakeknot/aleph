@@ -32,18 +32,25 @@ credentials and runtime injection variables, are excluded. The host adds
 ANTHROPIC_BASE_URL and ANTHROPIC_AUTH_TOKEN for pooled routing,
 CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST=1, CLAUDE_CODE_USE_BEDROCK=0,
 CLAUDE_CODE_USE_VERTEX=0, CLAUDE_CODE_USE_FOUNDRY=0 (provider pinning),
-ENABLE_TOOL_SEARCH=true (tool discovery), and
+ENABLE_TOOL_SEARCH=true (tool discovery), DISABLE_AUTOUPDATER=1 (keep the
+verified executable from updating itself), and
 CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 (credential isolation for tools).
 
 Tool-capable launches require Linux, the verified Claude Code 2.1.323 release,
-and a successful bubblewrap user/PID namespace probe. Unknown versions fail
+working socat and ripgrep executables, and a successful bubblewrap user/PID/network
+namespace probe with nested user namespaces disabled. Unknown versions fail
 closed until verified. The check runs before passing a pool token to Claude;
 probe failures return a fixed error without subprocess output. This version's
 scrub mode removes ANTHROPIC_AUTH_TOKEN from tool subprocesses and isolates
 protected paths; merely omitting other daemon secrets does not protect this
 token. Explicit --print --tools= launches remain available without the
 preflight, but keep the scrub variable set (Claude can itself refuse startup
-if bubblewrap is missing). No host permissions or sandbox policy are changed.
+if bubblewrap is missing). Proxy, certificate, XDG and other tuning variables are deliberately excluded;
+hosts that need those variables need a separately reviewed allowlist change.
+The preflight checks dependencies and namespace primitives, not every possible
+operator sandbox setting. Claude itself must refuse a tool when its scrub
+sandbox cannot initialize. Rollout still requires a successful live tool canary.
+No host permissions or sandbox policy are changed.
 
 A confirmed, provider-pinned child start adds a
 `bb-pool-exec: transport=pooled provider=<provider>` stderr marker; an

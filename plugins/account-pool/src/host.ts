@@ -119,7 +119,7 @@ export function createAccountPoolHostEntry(deps: PoolExecHostDependencies) {
             exitCode: 1,
             stdout: "",
             stderr:
-              "Pool exec refused: tool-capable Claude requires verified Claude Code 2.1.323 subprocess env scrubbing and working Linux bubblewrap isolation. Tool-free --print --tools= may still run.\n",
+              "Pool exec refused: tool-capable Claude requires verified Claude Code 2.1.323 subprocess env scrubbing, socat, ripgrep and working Linux bubblewrap isolation. Tool-free --print --tools= may still run.\n",
           };
         }
         let cwd: string;
