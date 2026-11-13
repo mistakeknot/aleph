@@ -607,7 +607,7 @@ describe("delegation seed prompt", () => {
 
       ## Report-back contract
 
-      You are working on task TASK-1. Use the bb tasks CLI: comment substantive updates (bb tasks comment TASK-1 --body ...), attach result artifacts, set status when done (bb tasks update TASK-1 --status in_review) or explain blockage in a comment. Your thread is already attached to the task.
+      You are working on task TASK-1. Use the bb tasks CLI: record intermediate progress quietly (bb tasks progress TASK-1 --body ... [--proof-url URL]; nobody is notified), comment only when someone needs to read or act on it (bb tasks comment TASK-1 --body ...), attach result artifacts, and set status when done (bb tasks update TASK-1 --status in_review) or explain blockage in a comment. Your thread is already attached to the task.
 
       ## Preset instructions
 

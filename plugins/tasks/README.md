@@ -60,6 +60,30 @@ When run from a thread, the CLI preserves that agent thread and any explicit
 `--author`; notification still targets the prior latest responder rather than
 the newly recorded agent comment itself.
 
+## Progress notes
+
+Agents record intermediate progress without interrupting anyone:
+
+```sh
+bb tasks progress PROD-1 --body "Parser reads the new field."
+bb tasks progress PROD-1 --body-file ./step.md --proof-url https://example.test/runs/7
+```
+
+A progress note is a separate quiet entry. It is stored apart from comments, so
+it never notifies, steers or wakes a thread, never changes task status, and
+never becomes the latest responding agent that `--notify` targets. Task
+activity shows it chronologically among comments, marked **Progress**, with the
+proof link when one was given. `bb tasks show PROD-1` lists notes under
+**Progress** (`progressNotes` in JSON). Use a comment only when someone needs to
+read or act on it.
+
+The body is trimmed and must be 1-2000 characters. `--proof-url` is optional,
+must be an `http` or `https` URL of at most 2048 characters, and is never
+fetched. `--author` overrides the display name; inside a thread the CLI records
+that thread like `bb tasks comment`. RPC `createProgressNote` and
+`listProgressNotes` back the CLI and SDK; the Tasks UI has no progress
+composer.
+
 ## CLI reference
 
 Run `bb tasks --help` or `bb tasks <command> --help` for exact options; help
@@ -84,10 +108,11 @@ machine; pass `--machine <id-or-name>` to target another enrolled machine.
 | `bb tasks folder create\|list\|update\|delete` | Organize tracker projects into nested folders. Deleting a folder moves its projects and subfolders to the top level; no tasks are deleted. |
 | `bb tasks create`                              | Create a task with description, priority, labels, due date, optional parent, and file attachments (repeatable `--attach <path>`).          |
 | `bb tasks list`                                | Page/filter tasks by project, status, priority, label, active agents, or search text; supports `--sort`, `--limit`, and `--cursor`.        |
-| `bb tasks show <key-or-id>`                    | Show the complete task record, including comments, attachments, subtasks, and attached threads.                                            |
+| `bb tasks show <key-or-id>`                    | Show the complete task record, including comments, progress notes, attachments, subtasks, and attached threads.                            |
 | `bb tasks update <key-or-id>`                  | Update status, priority, title, description, due date, or labels.                                                                          |
 | `bb tasks move <key-or-id>`                    | Move a task and its sub-tasks to `--project`. Moved tasks get new keys; old keys keep resolving, and labels are matched by name.           |
 | `bb tasks comment <key-or-id>`                 | Add a Markdown comment from inline text or a file; optionally notify the latest responding task agent.                                     |
+| `bb tasks progress <key-or-id>`                | Record a quiet progress note from inline text or a file, with an optional proof URL. Nobody is notified.                                   |
 | `bb tasks attachment add\|get\|list\|remove`   | Add, fetch, list, or remove attachments. Referenced attachments require `remove --remove-references`.                                      |
 | `bb tasks preset list\|create\|update\|delete` | Manage reusable agent execution presets.                                                                                                   |
 | `bb tasks delegate <key>`                      | Start and attach a new agent thread using a preset.                                                                                        |

@@ -172,6 +172,7 @@ function baseRpc(
     },
     listTaskThreads: () => ({ taskThreads: [] }),
     listComments: () => ({ comments: [] }),
+    listProgressNotes: () => ({ progressNotes: [] }),
     listAttachments: () => ({ attachments: [] }),
     ...overrides,
   };

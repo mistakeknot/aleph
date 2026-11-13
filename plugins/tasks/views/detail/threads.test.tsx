@@ -83,6 +83,7 @@ function detailRpc(overrides: Record<string, unknown> = {}) {
       unavailableThreadIds: [],
     }),
     listComments: () => ({ comments: [] }),
+    listProgressNotes: () => ({ progressNotes: [] }),
     listBbProjects: () => ({ bbProjects: [] }),
     ...overrides,
   };

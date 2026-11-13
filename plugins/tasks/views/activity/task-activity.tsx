@@ -14,7 +14,11 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { TasksEditor } from "../../editor/tasks-editor.js";
-import { experimental_saveFile, useBbNavigate } from "@get-bb/plugin-sdk/app";
+import {
+  experimental_saveFile,
+  UrlLink,
+  useBbNavigate,
+} from "@get-bb/plugin-sdk/app";
 import {
   useMentionItems,
   useTasksQuery,
@@ -34,6 +38,7 @@ import type {
   Attachment,
   Comment,
   DisplayComment,
+  ProgressNote,
 } from "../../shared/contract.js";
 import { errorMessage } from "../../shared/errors.js";
 import {
@@ -70,8 +75,39 @@ export function activityFeedEntries(
   }));
 }
 
+type TimelineEntry =
+  | { type: "comment"; entry: FeedEntry }
+  | { type: "progress"; note: ProgressNote };
+
+export function activityTimeline(
+  entries: readonly FeedEntry[],
+  notes: readonly ProgressNote[],
+): TimelineEntry[] {
+  const timeline: TimelineEntry[] = [];
+  let commentIndex = 0;
+  let noteIndex = 0;
+  while (commentIndex < entries.length || noteIndex < notes.length) {
+    const entry = entries[commentIndex];
+    const note = notes[noteIndex];
+    if (
+      entry !== undefined &&
+      (note === undefined ||
+        Date.parse(entry.comment.createdAt) <= Date.parse(note.createdAt))
+    ) {
+      timeline.push({ type: "comment", entry });
+      commentIndex += 1;
+    } else if (note !== undefined) {
+      timeline.push({ type: "progress", note });
+      noteIndex += 1;
+    }
+  }
+  return timeline;
+}
+
 const selectComments = (result: { comments: DisplayComment[] }) =>
   result.comments;
+const selectProgressNotes = (result: { progressNotes: ProgressNote[] }) =>
+  result.progressNotes;
 const selectAttachments = (result: { attachments: Attachment[] }) =>
   result.attachments;
 
@@ -82,17 +118,28 @@ function useActivityFeed(taskId: string) {
     { commentsOfTaskId: taskId },
     selectAttachments,
   );
+  const progressNotes = useTasksQuery(
+    "listProgressNotes",
+    { taskId },
+    selectProgressNotes,
+  );
   const data = useMemo(
     () =>
-      comments.data === undefined || attachments.data === undefined
+      comments.data === undefined ||
+      attachments.data === undefined ||
+      progressNotes.data === undefined
         ? undefined
-        : activityFeedEntries(comments.data, attachments.data),
-    [comments.data, attachments.data],
+        : {
+            entries: activityFeedEntries(comments.data, attachments.data),
+            notes: progressNotes.data,
+          },
+    [comments.data, attachments.data, progressNotes.data],
   );
   return {
     data,
-    error: comments.error ?? attachments.error,
-    isLoading: comments.isLoading || attachments.isLoading,
+    error: comments.error ?? attachments.error ?? progressNotes.error,
+    isLoading:
+      comments.isLoading || attachments.isLoading || progressNotes.isLoading,
   };
 }
 
@@ -252,6 +299,48 @@ function SystemEvent({ comment, nowMs }: { comment: Comment; nowMs: number }) {
           {formatRelativeTime(comment.createdAt, nowMs)}
         </span>
       </span>
+    </div>
+  );
+}
+
+function ProgressNoteCard({
+  note,
+  nowMs,
+}: {
+  note: ProgressNote;
+  nowMs: number;
+}) {
+  return (
+    <div className="relative mb-3.5 flex gap-2.5">
+      <span
+        aria-hidden
+        className="z-[1] mx-[7px] mt-1.5 size-2 shrink-0 rounded-full border-2 border-primary bg-card"
+      />
+      <div className="min-w-0 flex-1">
+        <div className="mb-0.5 flex items-baseline gap-1.5 text-xs">
+          <span className="rounded-sm bg-secondary px-1 py-px text-2xs font-semibold text-muted-foreground">
+            Progress
+          </span>
+          <span className="truncate font-semibold">{note.authorName}</span>
+          <time className="text-2xs text-muted-foreground">
+            {formatRelativeTime(note.createdAt, nowMs)}
+          </time>
+        </div>
+        <p className="m-0 whitespace-pre-wrap break-words text-sm text-muted-foreground">
+          {note.body}
+        </p>
+        {note.proofUrl === null ? null : (
+          <UrlLink
+            href={note.proofUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={note.proofUrl}
+            className="mt-1 block truncate text-xs text-primary hover:underline"
+          >
+            {note.proofUrl}
+          </UrlLink>
+        )}
+      </div>
     </div>
   );
 }
@@ -499,7 +588,11 @@ interface TaskActivityProps {
 export function TaskActivity({ taskId }: TaskActivityProps) {
   const feed = useActivityFeed(taskId);
   const nowMs = useNowTick();
-  const entries = useMemo(() => feed.data ?? [], [feed.data]);
+  const entries = useMemo(() => feed.data?.entries ?? [], [feed.data]);
+  const timeline = useMemo(
+    () => activityTimeline(entries, feed.data?.notes ?? []),
+    [entries, feed.data],
+  );
   const notificationTarget = useMemo(
     () => agentNotificationTarget(entries.map((entry) => entry.comment)),
     [entries],
@@ -512,25 +605,35 @@ export function TaskActivity({ taskId }: TaskActivityProps) {
       <div
         className={cn(
           "relative",
-          entries.length > 0 &&
+          timeline.length > 0 &&
             "before:absolute before:bottom-1.5 before:left-[11px] before:top-1.5 before:w-px before:bg-border-hairline",
         )}
       >
         {feed.error ? (
           <div className="text-xs text-destructive">{feed.error}</div>
         ) : null}
-        {entries.length === 0 && !feed.isLoading && !feed.error ? (
+        {timeline.length === 0 && !feed.isLoading && !feed.error ? (
           <div className="text-xs text-muted-foreground">No activity yet.</div>
         ) : null}
-        {entries.map((entry) =>
-          entry.comment.kind === "system" ? (
+        {timeline.map((item) =>
+          item.type === "progress" ? (
+            <ProgressNoteCard
+              key={item.note.id}
+              note={item.note}
+              nowMs={nowMs}
+            />
+          ) : item.entry.comment.kind === "system" ? (
             <SystemEvent
-              key={entry.comment.id}
-              comment={entry.comment}
+              key={item.entry.comment.id}
+              comment={item.entry.comment}
               nowMs={nowMs}
             />
           ) : (
-            <CommentCard key={entry.comment.id} entry={entry} nowMs={nowMs} />
+            <CommentCard
+              key={item.entry.comment.id}
+              entry={item.entry}
+              nowMs={nowMs}
+            />
           ),
         )}
       </div>

@@ -90,6 +90,7 @@ function renderList() {
         listTaskCardMeta: () => ({ cards: [] }),
         listTaskThreads: () => ({ taskThreads: [] }),
         listComments: () => ({ comments: [] }),
+        listProgressNotes: () => ({ progressNotes: [] }),
         listAttachments: () => ({ attachments: [] }),
       },
     },

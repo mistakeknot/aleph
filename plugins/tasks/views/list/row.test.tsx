@@ -88,6 +88,7 @@ function renderList(tasks: Task[], options: Options = {}) {
         listTaskCardMeta: () => ({ cards: [] }),
         listTaskThreads: () => ({ taskThreads: [] }),
         listComments: () => ({ comments: [] }),
+        listProgressNotes: () => ({ progressNotes: [] }),
         listAttachments: () => ({ attachments: [] }),
         moveTaskToProject: (raw) => {
           if (!options.moveTaskToProject) throw new Error("Unexpected move");
