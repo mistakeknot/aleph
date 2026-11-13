@@ -417,6 +417,8 @@ Beyond upstream, Aleph carries:
   per task, edited through RPC or CLI and shown with cancellation in the detail
   view. The existing plugin scheduler checks due rows and startup recovers
   overdue returns. Activity records changes and delivery; closing cancels it.
+  Delivery retries on scheduled ticks within a 24-hour failure window and is
+  at least once; a crash after acceptance can duplicate a wake (mk-ddtv5.6.11).
 
 - **Tasks reports (mk-ddtv5.3).** A separate optional result report, exposed
   through task RPC, CLI and detail view, with a computed marker for tasks

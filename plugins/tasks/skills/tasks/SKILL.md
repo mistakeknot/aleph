@@ -125,6 +125,11 @@ Closing the task cancels the return. The existing scheduler checks every
 minute and catches overdue times on startup. An archived or missing thread
 produces a missed-return activity line instead of a wake.
 
+Transient delivery failures retry on scheduled ticks, for up to 24 hours
+after the return time. Continued failure then records a missed delivery and
+clears the time. A restart immediately after a wake is accepted can duplicate
+it; delivery is at least once. Check the task's current state when resuming.
+
 ## Link tasks in responses
 
 When your answer refers the user to a task — including a task you just

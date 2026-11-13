@@ -131,6 +131,14 @@ cancels its return. The existing scheduler checks every minute, and startup
 checks overdue tasks. An archived or missing target records a missed return
 without waking another thread.
 
+Transient lookup and send failures keep the return pending until the next
+scheduled tick. If delivery still fails at least 24 hours after the return
+time, it clears with `return time missed: delivery failed`. A successful
+delivery clears only the matching return, preserving a replacement or
+cancellation made while sending. Delivery is at least once: a server stop
+after the wake is accepted but before the task is cleared can produce a
+duplicate wake after restart. Exact-once delivery is tracked in mk-ddtv5.6.11.
+
 ## Agents, delegation, and presets
 
 Linking a Tasks project to a bb project enables delegation. Open a task, choose

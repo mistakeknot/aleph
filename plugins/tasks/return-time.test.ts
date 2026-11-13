@@ -16,7 +16,10 @@ function setup(
       threads: {
         get: async ({ threadId }) => {
           await beforeGet?.();
-          if (unavailable === "gone") throw new Error("Thread not found");
+          if (unavailable === "gone")
+            throw Object.assign(new Error("Thread not found"), {
+              code: "thread_not_found",
+            });
           return makeThreadResponse({
             id: threadId,
             archivedAt: unavailable === "archived" ? 1 : null,
@@ -237,7 +240,7 @@ describe("task return times", () => {
           ]);
         expect(store.listComments(task.id).map((c) => c.body)).toEqual([
           unavailable
-            ? "Return time missed: thread unavailable"
+            ? "return time missed: thread unavailable"
             : "Return time fired",
         ]);
       } finally {

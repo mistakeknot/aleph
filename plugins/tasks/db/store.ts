@@ -1391,6 +1391,12 @@ export function createTasksStore(db: PluginDatabase) {
         UPDATE tasks SET status = ?, position = ?, updated_at = ? WHERE id = ?
       `,
       ).run(input.status, position, nowIso(), id);
+      if (
+        (input.status === "done" || input.status === "canceled") &&
+        task.returnAt != null
+      ) {
+        return updateTask(id, { status: input.status });
+      }
       return requireTask(id);
     },
   );
