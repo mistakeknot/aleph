@@ -8,6 +8,10 @@
       "source": "./src/index.ts",
       "types": "./src/index.ts",
       "default": "./src/index.ts"
+    },
+    "./annotations/*": {
+      "types": "./src/annotations/*.ts",
+      "default": "./src/annotations/*.ts"
     }
   },
   "types": "./src/index.ts",
@@ -18,6 +22,7 @@
     "test": "vitest run --config vitest.config.ts"
   },
   "dependencies": {
+    "parse5": "8.1.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {

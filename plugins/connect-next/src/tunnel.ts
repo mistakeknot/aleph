@@ -1,3 +1,10 @@
+import {
+  openShareIngress,
+  ShareIngressSet,
+  trustedShareKeys,
+  shareKeysUrl,
+  type ShareAnnotations,
+} from "@bb/frp-client/share-ingress";
 import type {
   InternalDoNotUsePluginHostNextTunnelStatus,
   InternalDoNotUsePluginNextTunnelConfig,
@@ -10,6 +17,7 @@ import {
   type FrpProxy,
   type FrpcPrepared,
   type FrpcSupervisorStatus,
+  type FrpcSupervisorOptions,
   type FrpcTiming,
   type TunnelServer,
 } from "@bb/frp-client";
@@ -29,6 +37,15 @@ export const FRP_PROXY_NAME = "bb";
 export type NextTunnelTiming = Omit<FrpcTiming, "reloadTimeoutMs">;
 
 export interface NextTunnelOptions {
+  annotations: ShareAnnotations;
+  fetchFn?: typeof fetch;
+  openShareIngress?: typeof openShareIngress;
+  createSupervisor?: (
+    options: FrpcSupervisorOptions,
+  ) => Pick<
+    FrpcSupervisor,
+    "start" | "stop" | "status" | "proxiesChanged" | "childPid"
+  >;
   frpDir: string;
   serverOverride: TunnelServer | null;
   enabled: boolean;
@@ -60,7 +77,11 @@ interface Session {
   generation: number;
   identity: ServerIdentity;
   ingress: TunnelIngress | null;
-  supervisor: FrpcSupervisor;
+  shares: ShareIngressSet;
+  supervisor: Pick<
+    FrpcSupervisor,
+    "start" | "stop" | "status" | "proxiesChanged" | "childPid"
+  >;
 }
 
 function errorText(error: unknown): string {
@@ -138,7 +159,9 @@ export class NextTunnel {
     this.sharePorts = next;
     const session = this.session;
     if (session === null) return this.work;
-    return session.supervisor.proxiesChanged();
+    return session.shares
+      .sync(next)
+      .then(() => session.supervisor.proxiesChanged());
   }
 
   idle(): Promise<void> {
@@ -253,8 +276,13 @@ export class NextTunnel {
     return supervised.proxies
       .filter((proxy) => proxy.name !== FRP_PROXY_NAME)
       .map((proxy) => ({
-        port: proxy.localPort,
-        url: site.origin(shareSubdomain(identity.label, proxy.localPort)),
+        port: Number(proxy.name.slice("share-".length)),
+        url: site.origin(
+          shareSubdomain(
+            identity.label,
+            Number(proxy.name.slice("share-".length)),
+          ),
+        ),
         state: proxy.state,
         error: proxy.error,
       }));
@@ -272,11 +300,31 @@ export class NextTunnel {
         this.publish();
         return;
       }
+      const keys = trustedShareKeys(
+        shareKeysUrl(identity.baseUrl),
+        this.options.fetchFn,
+      );
       const session: Session = {
+        shares: new ShareIngressSet((port) =>
+          (this.options.openShareIngress ?? openShareIngress)({
+            audience: gateAudienceForServer(identity.serverId),
+            publicOrigin: nextSiteForAccount(identity.baseUrl).origin(
+              shareSubdomain(identity.label, port),
+            ),
+            port,
+            keys,
+            registered: () =>
+              this.current(session) && this.sharePorts.includes(port),
+            annotations: this.options.annotations,
+          }),
+        ),
         generation,
         identity,
         ingress: null,
-        supervisor: new FrpcSupervisor({
+        supervisor: (
+          this.options.createSupervisor ??
+          ((options) => new FrpcSupervisor(options))
+        )({
           frpDir: this.options.frpDir,
           primaryProxy: FRP_PROXY_NAME,
           resolveBinary: () => this.options.resolveBinary(),
@@ -325,6 +373,7 @@ export class NextTunnel {
       }
       session.ingress = ingress;
     }
+    await session.shares.sync(this.sharePorts);
     return {
       kind: "launch",
       server: this.serverFor(identity),
@@ -343,13 +392,14 @@ export class NextTunnel {
         ...loopbackTarget(session.ingress.baseUrl),
         hostHeaderRewrite: null,
       },
-      ...this.sharePorts.map((port) => ({
-        name: shareProxyName(port),
-        subdomain: shareSubdomain(label, port),
-        localIP: "127.0.0.1",
-        localPort: port,
-        hostHeaderRewrite: `127.0.0.1:${port}`,
-      })),
+      ...this.sharePorts
+        .filter((port) => session.shares.get(port))
+        .map((port) => ({
+          name: shareProxyName(port),
+          subdomain: shareSubdomain(label, port),
+          ...loopbackTarget(session.shares.get(port)!.baseUrl),
+          hostHeaderRewrite: null,
+        })),
     ];
   }
 
@@ -358,6 +408,7 @@ export class NextTunnel {
     if (session === null) return;
     this.session = null;
     this.idleSince = Date.now();
+    await session.shares.close();
     await session.supervisor.stop();
     if (session.ingress !== null) {
       const ingress = session.ingress;

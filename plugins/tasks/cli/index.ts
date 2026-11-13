@@ -1162,6 +1162,12 @@ export function registerTasksCli(
               description:
                 "Markdown description; use --description-file for long text",
             },
+            report: {
+              type: "string",
+              placeholder: "markdown",
+              description:
+                "Result report in Markdown; an empty string clears it",
+            },
             "description-file": {
               type: "string",
               placeholder: "path",
@@ -1258,6 +1264,7 @@ export function registerTasksCli(
               const created = tasksRpcContract.createTask.input.parse({
                 projectId: project.id,
                 title: input.options.title,
+                report: input.options.report,
                 description:
                   (await readTextOption(
                     bb,
@@ -1575,6 +1582,10 @@ export function registerTasksCli(
                   ["Updated", task.updatedAt],
                 ]),
                 `Description\n${task.description || "(none)"}`,
+                `Report\n${task.report || "(none)"}`,
+                ...(task.status === "done" && !task.report?.trim()
+                  ? ["Closed without a report"]
+                  : []),
                 `Sub-tasks\n${table(
                   ["KEY", "STATUS", "PRIORITY", "TITLE"],
                   subtasks.map((subtask) => [
@@ -1661,6 +1672,12 @@ export function registerTasksCli(
               aliases: ["body", "details", "text", "content"],
               description:
                 "Replacement markdown description; use --description-file for long text",
+            },
+            report: {
+              type: "string",
+              placeholder: "markdown",
+              description:
+                "Replacement result report in Markdown; an empty string clears it",
             },
             "description-file": {
               type: "string",
@@ -1763,6 +1780,7 @@ export function registerTasksCli(
                 input.options.priority === undefined &&
                 input.options.title === undefined &&
                 description === undefined &&
+                input.options.report === undefined &&
                 dueDate === undefined &&
                 !noDue &&
                 parentAddress === undefined &&
@@ -1781,6 +1799,7 @@ export function registerTasksCli(
                     priority: input.options.priority,
                     title: input.options.title,
                     description,
+                    report: input.options.report,
                     dueDate: noDue ? null : dueDate,
                     parentTaskId:
                       parentAddress === undefined && !noParent

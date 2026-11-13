@@ -29,6 +29,13 @@ import {
   createServerSharesHandlers,
 } from "./server-shares.js";
 import { ShareRegistry } from "./shares.js";
+import { sharePublicUrl } from "./shares.js";
+import {
+  AnnotationStore,
+  annotationRpcContract,
+  requireDeclaredAnnotationShare,
+} from "./annotation-store.js";
+import { AnnotationTunnel } from "./annotation-tunnel.js";
 import { ConnectTunnel } from "./tunnel.js";
 import {
   CONNECT_REALTIME_CHANNEL,
@@ -90,7 +97,37 @@ export function createConnectPlugin(options: ConnectPluginOptions = {}) {
     });
 
     const recheckServerAccess = createServerAccessRecheck(bb);
+    const annotations = new AnnotationStore(
+      bb.storage.kv,
+      async (port, scope) => {
+        if (scope.hostId !== undefined) {
+          requireDeclaredAnnotationShare(
+            scope,
+            await shares.list(scope.hostId),
+          );
+          return;
+        }
+        if (!shares.hasServerPort(port))
+          throw new Error("This server port is not shared");
+      },
+    );
+    const annotationTunnel = new AnnotationTunnel(annotations, (port) => {
+      const identity = tunnel.getIdentity();
+      return identity && shares.hasServerPort(port)
+        ? new URL(sharePublicUrl(identity, port)).origin
+        : null;
+    });
+    bb.rpc.register(annotationRpcContract, {
+      "connect.experimental_annotations.list": async (input) =>
+        annotations.list(input),
+      "connect.experimental_annotations.change": async (input) =>
+        annotations.change(
+          { hostId: input.hostId, port: input.port, url: input.url },
+          input.change,
+        ),
+    });
     tunnel = new ConnectTunnel({
+      annotations: annotationTunnel,
       shares,
       readCredential: () => account.connectCredential(),
       confirmRefusedCredential: (credential) =>
@@ -142,6 +179,7 @@ export function createConnectPlugin(options: ConnectPluginOptions = {}) {
       }),
     );
     registerConnectCli({
+      annotations,
       bb,
       tunnel,
       account,

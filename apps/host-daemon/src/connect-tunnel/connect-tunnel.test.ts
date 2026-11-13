@@ -571,3 +571,97 @@ describe("ConnectTunnelClient", () => {
     client.shutdown();
   });
 });
+
+it("serves legacy daemon annotation HTML and notes over the production tunnel", async () => {
+  const html = "<html><body>Preview</body></html>";
+  const originServer = createServer((_request, response) => {
+    response.writeHead(200, {
+      "content-type": "text/html",
+      "content-length": String(Buffer.byteLength(html)),
+    });
+    response.end(html);
+  });
+  const port = await listen(originServer);
+  const gateServer = createServer();
+  const gatePort = await listen(gateServer);
+  const gate = attachGate(gateServer);
+  let gateSocket: WebSocket | undefined;
+  const frames: Frame[] = [];
+  gate.on("connection", (socket) => {
+    gateSocket = socket;
+    socket.on("message", (data: RawData, binary: boolean) => {
+      if (binary) frames.push(decodeFrame(rawDataBuffer(data)));
+    });
+  });
+  const reads: unknown[] = [];
+  const client = new ConnectTunnelClient({
+    serverUrl: "https://server.example.test",
+    hostName: "Machine",
+    machineCredential: "credential",
+    logger,
+    fetchFn: labelFetch([], "machine"),
+    createWebSocket: tunnelFactory({ gatePort, requestedUrls: [] }),
+    annotations: {
+      list: async (scope) => {
+        reads.push(scope);
+        return [];
+      },
+      change: async () => [],
+    },
+  });
+  try {
+    client.replaceShareSet({ generation: 1, ports: [port] });
+    await waitFor(
+      () => client.status().state === "connected" && !!gateSocket,
+      "annotation tunnel",
+    );
+    const origin = `https://machine--${port}.example.test`;
+    const send = async (streamId: number, path: string, owner: boolean) => {
+      sendOpenHttp(gateSocket!, {
+        type: "open-http",
+        streamId,
+        method: "GET",
+        path,
+        target: String(port),
+        headers: owner ? [["x-bb-gate-auth", "session"]] : [],
+        hasBody: false,
+      });
+      await waitFor(
+        () =>
+          frames.some(
+            (frame) => frame.type === "body-end" && frame.streamId === streamId,
+          ),
+        "annotation response",
+      );
+      return frames.filter(
+        (frame) => "streamId" in frame && frame.streamId === streamId,
+      );
+    };
+    const ownerPage = await send(1, "/page", true);
+    expect(
+      Buffer.concat(
+        ownerPage.flatMap((frame) =>
+          frame.type === "body-chunk" ? [frame.data] : [],
+        ),
+      ).toString(),
+    ).toContain("/__bb_annotations");
+    const anonymousPage = await send(3, "/page", false);
+    expect(
+      Buffer.concat(
+        anonymousPage.flatMap((frame) =>
+          frame.type === "body-chunk" ? [frame.data] : [],
+        ),
+      ).toString(),
+    ).toBe(html);
+    const endpoint = `/__bb_annotations?url=${encodeURIComponent(origin + "/page")}`;
+    await send(5, endpoint, true);
+    expect(reads).toEqual([{ port, url: origin + "/page" }]);
+    const rejected = await send(7, endpoint, false);
+    expect(rejected).toContainEqual(
+      expect.objectContaining({ type: "resp-head", status: 403 }),
+    );
+    expect(reads).toHaveLength(1);
+  } finally {
+    client.shutdown();
+  }
+});

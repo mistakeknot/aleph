@@ -30,6 +30,7 @@ import {
 } from "./shares.js";
 import type { ShareHost } from "./hosts.js";
 import type { ConnectStateName, ConnectStatus, ShareListing } from "./types.js";
+import type { AnnotationTunnel } from "./annotation-tunnel.js";
 
 const TUNNEL_HANDSHAKE_TIMEOUT_MS = 10_000;
 const TUNNEL_CLOSE_GRACE_MS = 1_000;
@@ -44,6 +45,7 @@ export interface ConnectIdentity {
 }
 
 interface ConnectTunnelOptions {
+  annotations?: AnnotationTunnel;
   shares: ShareRegistry;
   readCredential: () => Promise<SharedCredential | null>;
   confirmRefusedCredential: (credential: string) => Promise<unknown>;
@@ -507,6 +509,16 @@ export class ConnectTunnel {
       this.nextRetryAt = null;
       this.options.log.info(`tunnel connected ${JSON.stringify(diagnostics)}`);
       this.session = new TunnelSession({
+        interceptHttp: (meta, body) =>
+          this.options.annotations?.intercept(meta, body) ??
+          Promise.resolve(null),
+        ...(this.options.annotations
+          ? {
+              transformResponse: this.options.annotations.transform.bind(
+                this.options.annotations,
+              ),
+            }
+          : {}),
         tunnel,
         log: this.options.log,
         resolveOrigin: (target) => this.resolveStreamOrigin(target),

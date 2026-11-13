@@ -134,6 +134,14 @@ interface TunnelSessionOptions {
   onRemoteClientsChange?: (remoteClients: number) => void;
   onActivity?: (at: number) => void;
   monotonicNow?: () => number;
+  interceptHttp?: (
+    meta: OpenHttpFrame,
+    body: Buffer | undefined,
+  ) => Promise<{ status: number; headers: HeaderPair[]; body: Buffer } | null>;
+  transformResponse?: (
+    meta: OpenHttpFrame,
+    response: IncomingMessage,
+  ) => Promise<{ headers: HeaderPair[]; body: AsyncIterable<Uint8Array> }>;
 }
 
 export class TunnelSession {
@@ -428,6 +436,21 @@ export class TunnelSession {
     try {
       const startedAt = performance.now();
       const body = meta.hasBody ? Buffer.concat(stream.chunks) : undefined;
+      const intercepted = await this.options.interceptHttp?.(meta, body);
+      if (intercepted) {
+        this.send({
+          type: "resp-head",
+          streamId,
+          status: intercepted.status,
+          headers: intercepted.headers,
+        });
+        for (const frame of chunkBody(streamId, intercepted.body)) {
+          this.send(frame);
+          await this.waitForSendBuffer(stream.abort.signal);
+        }
+        this.send({ type: "body-end", streamId });
+        return;
+      }
       const res = await requestOriginHttp({
         url: new URL(`${resolved.origin.replace(/\/$/u, "")}${meta.path}`),
         method: meta.method,
@@ -437,7 +460,8 @@ export class TunnelSession {
       });
       this.refusedOrigins.delete(resolved.origin);
       const originTtfbMs = performance.now() - startedAt;
-      const respHeaders = responseHeaderPairs(res);
+      const transformed = await this.options.transformResponse?.(meta, res);
+      const respHeaders = transformed?.headers ?? responseHeaderPairs(res);
       const initialThreadLoad = isInitialThreadLoad(meta.path);
       if (initialThreadLoad) {
         respHeaders.push([
@@ -452,7 +476,7 @@ export class TunnelSession {
         headers: respHeaders,
       });
       let responseBytes = 0;
-      for await (const chunk of res) {
+      for await (const chunk of transformed?.body ?? res) {
         const value =
           chunk instanceof Uint8Array ? chunk : Buffer.from(String(chunk));
         responseBytes += value.byteLength;

@@ -242,6 +242,7 @@ const MIGRATIONS = [
     ALTER TABLE presets DROP COLUMN service_tier;
     ALTER TABLE presets RENAME COLUMN service_tier_open TO service_tier;
   `,
+  `ALTER TABLE tasks ADD COLUMN report TEXT;`,
 ] as const;
 
 export function initializeTasksSchema(db: PluginDatabase): void {

@@ -1,3 +1,7 @@
+import {
+  generateGateKeyPair,
+  signGateAssertion,
+} from "@bb/tunnel-contract/next";
 import * as fs from "node:fs/promises";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
@@ -17,7 +21,7 @@ import {
   processAlive,
   startFrps,
   startGateHooks,
-  vhostGet,
+  vhostGet as unsignedVhostGet,
   waitFor,
   type RunningFrps,
 } from "@bb/frp-client/testing";
@@ -114,6 +118,11 @@ function fakeRunner(
   const statuses: HostDaemonConnectNextStatus[] = [];
   const runner = new MachineNextTunnel({
     frpDir: "/unused",
+    fetchFn: shareFetch,
+    openShareIngress: async () => ({
+      baseUrl: "http://127.0.0.1:41000",
+      close: async () => {},
+    }),
     trustedBaseDomain: () =>
       overrides.trustedBaseDomain === undefined
         ? "getbb.app"
@@ -154,6 +163,12 @@ describe("checkNextConfig", () => {
 
   it("refuses to send the machine credential anywhere else", () => {
     expect(checkNextConfig(null, NEXT)).toContain("no trusted");
+    expect(
+      checkNextConfig("example.test", {
+        ...NEXT,
+        domain: "next.example.test:444",
+      }),
+    ).toContain("gate port");
     expect(
       checkNextConfig("getbb.app", { ...NEXT, domain: "next.evil.test" }),
     ).toContain("is not next.getbb.app");
@@ -402,6 +417,7 @@ describe("MachineNextTunnel with real frpc and frps", () => {
     const prepared: FrpcPrepared[] = [];
     const runner = new MachineNextTunnel({
       frpDir,
+      fetchFn: shareFetch,
       createSupervisor: (options) =>
         new FrpcSupervisor({
           ...options,
@@ -513,8 +529,7 @@ describe("MachineNextTunnel with real frpc and frps", () => {
           type: "http",
           subdomain: `${LABEL}--${second.port}`,
           localIP: "127.0.0.1",
-          localPort: second.port,
-          hostHeaderRewrite: `127.0.0.1:${second.port}`,
+          localPort: expect.any(Number),
         },
       ],
     });
@@ -554,3 +569,25 @@ describe("MachineNextTunnel with real frpc and frps", () => {
     );
   }, 60_000);
 });
+
+const shareSigningKey = generateGateKeyPair("share-test");
+async function vhostGet(port: number, label: string, path: string) {
+  const target = label.split("--")[1];
+  if (!target) return unsignedVhostGet(port, label, path);
+  const pair = await shareSigningKey;
+  const token = await signGateAssertion(pair.signingKey, {
+    audience: `machine:${"test-machine"}`,
+    subject: "owner",
+    kind: "public",
+    method: "GET",
+    pathAndQuery: path,
+    target,
+    oauth: null,
+    nowSeconds: Math.floor(Date.now() / 1000),
+  });
+  return unsignedVhostGet(port, label, path, { "x-bb-gate-assertion": token });
+}
+const shareFetch: typeof fetch = async (input) =>
+  String(input).includes("machine-label")
+    ? Response.json({ label: LABEL, machineId: "test-machine" })
+    : Response.json({ keys: [(await shareSigningKey).publicKey] });

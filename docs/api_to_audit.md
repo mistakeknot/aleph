@@ -5006,3 +5006,18 @@ precedence, bounded discovery failure, and module-ABI preservation after Node
 replacement. Settle the shared process-local instance lifecycle across SDK
 bundle versions and whether `bundledNpmCli` belongs on the public surface before
 removing the prefix.
+
+## Connect page-note RPCs
+
+`connect.experimental_annotations.list` takes `{ port, url, hostId? }` and returns page
+notes. `connect.experimental_annotations.change` additionally takes a validated
+annotation create, update or delete message. Both are registered by connect and
+use the same `AnnotationStore` as its CLI and tunneled preview controls. They
+never send thread messages. Stabilization requires verified share ingress across
+legacy server, machine and connect-next routing, browser CSP coverage, bounded
+storage lifecycle and independent authorization review.
+
+Legacy machine annotation persistence uses the same connect RPC and store as the
+CLI and server overlay. Optional `hostId` selects enrolled machine notes; omission
+preserves server-host storage. The internal host route derives `hostId` from an
+authenticated active session and rejects caller-supplied host IDs.

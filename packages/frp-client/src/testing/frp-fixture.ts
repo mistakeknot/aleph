@@ -292,6 +292,7 @@ export function vhostGet(
   vhostPort: number,
   label: string,
   pathAndQuery: string,
+  headers: Record<string, string> = {},
 ): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
     const request = http.request(
@@ -300,7 +301,7 @@ export function vhostGet(
         port: vhostPort,
         path: pathAndQuery,
         method: "GET",
-        headers: { host: `${label}.${VHOST_DOMAIN}` },
+        headers: { ...headers, host: `${label}.${VHOST_DOMAIN}` },
         agent: false,
       },
       (response) => {

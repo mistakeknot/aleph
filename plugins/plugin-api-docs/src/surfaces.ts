@@ -1063,6 +1063,7 @@ export const SURFACE_GROUPS: SurfaceGroup[] = [
       {
         title: "Data & platform",
         surfaceIds: [
+          "connect-page-notes",
           "storage",
           "bb-sdk",
           "thread-plugin-metadata",
@@ -1613,6 +1614,19 @@ export const SURFACE_GROUPS: SurfaceGroup[] = [
           "Pi provider",
         ],
         experimental: true,
+      },
+      {
+        id: "connect-page-notes",
+        title: "Connect page notes",
+        summary:
+          "Provide owner notes on shared preview pages. With this, a plugin can:",
+        experimental: true,
+        bullets: [
+          "List, add, update, and delete page notes through the connect plugin RPC",
+          "Read notes from legacy and connect-next previews on server and enrolled machine hosts",
+          "Use the same note store as the overlay and CLI, without sending thread messages",
+        ],
+        apiSymbols: ["bb.sdk.plugins.callRpc"],
       },
       {
         id: "storage",

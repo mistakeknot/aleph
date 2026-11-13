@@ -1,10 +1,14 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { execFileSync } from "node:child_process";
 import { pageMessageSchema } from "./annotations.js";
 import {
   buildActivateExpression,
   buildControllerExpression,
   buildReactProbeExpression,
+  buildConnectAnnotationsScript,
 } from "./page-script.js";
 
 interface Bridge {
@@ -43,6 +47,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  Reflect.get(globalThis, "__bbConnectAnnotationsCleanup")?.();
+  Reflect.deleteProperty(globalThis, "__bbConnectAnnotationsCleanup");
   evaluate(buildControllerExpression("deactivate"), null);
   Reflect.deleteProperty(globalThis, "__bbAgentAnnotations");
   document.querySelector("bb-agent-annotations")?.remove();
@@ -50,6 +56,173 @@ afterEach(() => {
 });
 
 describe("agent annotations page script", () => {
+  it("boots when the module is compiled with retained function names", async () => {
+    const compiled = execFileSync(
+      process.execPath,
+      [
+        "-e",
+        "process.stdout.write(require('esbuild').transformSync(require('node:fs').readFileSync(0, 'utf8'), {loader:'ts',format:'cjs',keepNames:true}).code)",
+      ],
+      {
+        input: readFileSync(
+          path.resolve(
+            __dirname,
+            "../../packages/connect-client/src/annotations/page-script.ts",
+          ),
+          "utf8",
+        ),
+        encoding: "utf8",
+      },
+    );
+    const module = { exports: {} };
+    new Function("module", "exports", compiled)(module, module.exports);
+    const build = Reflect.get(module.exports, "buildConnectAnnotationsScript");
+    if (typeof build !== "function") throw new Error("Missing script builder");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, json: async () => [] }),
+    );
+    Object.defineProperty(ShadowRoot.prototype, "adoptedStyleSheets", {
+      configurable: true,
+      writable: true,
+      value: [],
+    });
+    const original = CSSStyleSheet.prototype.replaceSync;
+    CSSStyleSheet.prototype.replaceSync = () => {};
+    try {
+      expect(() => evaluate(build("/__bb_annotations"), null)).not.toThrow();
+    } finally {
+      CSSStyleSheet.prototype.replaceSync = original;
+      vi.unstubAllGlobals();
+    }
+  });
+  it("offers a connect comment toggle without enabling thread delivery", async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValue({ ok: true, json: async () => [] });
+    vi.stubGlobal("fetch", fetcher);
+    Object.defineProperty(ShadowRoot.prototype, "adoptedStyleSheets", {
+      configurable: true,
+      writable: true,
+      value: [],
+    });
+    vi.stubGlobal(
+      "CSSStyleSheet",
+      class {
+        replaceSync() {}
+      },
+    );
+    try {
+      new Function(buildConnectAnnotationsScript("/__bb_annotations"))();
+      await Promise.resolve();
+      await Promise.resolve();
+      const toggle = requireElement(
+        shadowRoot().querySelector<HTMLButtonElement>(".connect-toggle"),
+      );
+      expect(toggle.textContent).toContain("0");
+      toggle.click();
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+      expect(toggle.textContent).toContain("Comment");
+      expect(toggle.getAttribute("aria-pressed")).toBe("false");
+      toggle.click();
+      button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      const checkbox = requireElement(
+        shadowRoot().querySelector<HTMLInputElement>('input[type="checkbox"]'),
+      );
+      expect(checkbox.disabled).toBe(true);
+      expect(checkbox.parentElement?.textContent).toContain(
+        "sending arrives in next update",
+      );
+      expect(
+        fetcher.mock.calls.every((call) => call[1]?.method !== "POST"),
+      ).toBe(true);
+      const textarea = requireElement(shadowRoot().querySelector("textarea"));
+      textarea.value = "Stay on the original page";
+      textarea.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          ctrlKey: true,
+          bubbles: true,
+        }),
+      );
+      for (const route of ["/second?q=1", "/third#anchor"]) {
+        history.pushState({}, "", route);
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(fetcher.mock.lastCall?.[0]).toBe(
+          `/__bb_annotations?url=${encodeURIComponent(location.href)}`,
+        );
+        expect(shadowRoot().querySelector("textarea")).toBeNull();
+        expect(
+          shadowRoot().querySelector(".connect-status")?.textContent,
+        ).toContain("Unsent note discarded because the page changed");
+      }
+      expect(
+        fetcher.mock.calls.every((call) => call[1]?.method !== "POST"),
+      ).toBe(true);
+      history.replaceState({}, "", "/replacement");
+      expect(fetcher.mock.lastCall?.[0]).toContain(
+        encodeURIComponent("/replacement"),
+      );
+      location.hash = "fragment";
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+      expect(fetcher.mock.lastCall?.[0]).toContain(
+        encodeURIComponent("#fragment"),
+      );
+      history.replaceState({}, "", "/");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    } finally {
+      vi.unstubAllGlobals();
+      Reflect.deleteProperty(ShadowRoot.prototype, "adoptedStyleSheets");
+    }
+  });
+  it("lists missing anchors as outdated without scrolling", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, json: async () => [] }),
+    );
+    Object.defineProperty(ShadowRoot.prototype, "adoptedStyleSheets", {
+      configurable: true,
+      writable: true,
+      value: [],
+    });
+    vi.stubGlobal(
+      "CSSStyleSheet",
+      class {
+        replaceSync() {}
+      },
+    );
+    try {
+      new Function(buildConnectAnnotationsScript("/__bb_annotations"))();
+      await new Promise<void>((resolve) => queueMicrotask(resolve));
+      const controller = Reflect.get(globalThis, "__bbAgentAnnotations");
+      controller.restore([
+        {
+          id: "missing",
+          number: 4,
+          author: "Owner",
+          comment: "Move this",
+          url: location.href,
+          title: "Page",
+          viewport: { width: 800, height: 600 },
+          element: { selector: "#gone", text: "Gone" },
+        },
+      ]);
+      expect(shadowRoot().querySelector(".pin")).toBeNull();
+      const record = requireElement(
+        shadowRoot().querySelector<HTMLButtonElement>(".connect-row"),
+      );
+      expect(record.textContent).toContain("(outdated)");
+      record.click();
+      expect(controller.state().active).toBe(false);
+      expect(shadowRoot().querySelector(".editor")).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+      Reflect.deleteProperty(ShadowRoot.prototype, "adoptedStyleSheets");
+    }
+  });
   it("selects the clicked element, captures a comment, and posts its context", () => {
     const messages: unknown[] = [];
     const bridge: Bridge = { postMessage: (data) => messages.push(data) };

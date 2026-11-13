@@ -1,3 +1,7 @@
+import {
+  generateGateKeyPair,
+  signGateAssertion,
+} from "@bb/tunnel-contract/next";
 import * as fs from "node:fs/promises";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
@@ -23,7 +27,7 @@ import {
   startGateHooks,
   startOrigin,
   startTlsFront,
-  vhostGet,
+  vhostGet as unsignedVhostGet,
   waitFor,
   type RunningFrps,
 } from "@bb/frp-client/testing";
@@ -106,6 +110,7 @@ async function load(options: {
   });
   let tunnel: NextTunnel | null = null;
   await createConnectNextPlugin({
+    fetchFn: shareFetch,
     env: {
       BB_CONNECT_NEXT_SERVER: options.server,
       BB_CONNECT_FRPC: binaries.frpc,
@@ -507,9 +512,8 @@ describe("connect next with real frpc and frps", () => {
           name: `share-${dev.port}`,
           type: "http",
           localIP: "127.0.0.1",
-          localPort: dev.port,
+          localPort: expect.any(Number),
           subdomain: `${LABEL}--${dev.port}`,
-          hostHeaderRewrite: `127.0.0.1:${dev.port}`,
         },
       ]);
     } finally {
@@ -595,3 +599,25 @@ describe.runIf(await opensslAvailable())(
     }, 90_000);
   },
 );
+
+const shareSigningKey = generateGateKeyPair("share-test");
+async function vhostGet(port: number, label: string, path: string) {
+  const target = label.split("--")[1];
+  if (!target) return unsignedVhostGet(port, label, path);
+  const pair = await shareSigningKey;
+  const token = await signGateAssertion(pair.signingKey, {
+    audience: `server:${SERVER_ID}`,
+    subject: "owner",
+    kind: "public",
+    method: "GET",
+    pathAndQuery: path,
+    target,
+    oauth: null,
+    nowSeconds: Math.floor(Date.now() / 1000),
+  });
+  return unsignedVhostGet(port, label, path, { "x-bb-gate-assertion": token });
+}
+const shareFetch: typeof fetch = async (input) =>
+  String(input).includes("machine-label")
+    ? Response.json({ label: LABEL, machineId: "test-machine" })
+    : Response.json({ keys: [(await shareSigningKey).publicKey] });

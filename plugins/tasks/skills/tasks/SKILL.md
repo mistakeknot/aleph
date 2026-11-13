@@ -63,7 +63,14 @@ For task dispatch and execution presets, read
    Read `references/attachments.md` for comment attachments, initial files,
    removal rules, and machine selection.
 
-5. Set the status to match the completion criteria. Use `done` when they are
+5. When finishing delegated work, write a short report: summary, what changed
+   (before and after), what you checked and how, and links to proof such as a
+   PR, receipt, test log, or screenshot. Keep the description as the ask; save
+   the result separately with `bb tasks update ABC-12 --report "…"` (an empty
+   string clears it). `create` also accepts `--report`. Closing as `done`
+   without a report is allowed and shows "Closed without a report".
+
+   Set the status to match the completion criteria. Use `done` when they are
    met, or `in_review` when required review remains:
 
    ```sh
