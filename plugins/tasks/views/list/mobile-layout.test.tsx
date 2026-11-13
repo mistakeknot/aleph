@@ -84,6 +84,7 @@ function renderList() {
         }),
         listTaskThreads: () => ({ taskThreads: [workerThread] }),
         listComments: () => ({ comments: [] }),
+        listProgressNotes: () => ({ progressNotes: [] }),
         listAttachments: () => ({ attachments: [] }),
       },
     },

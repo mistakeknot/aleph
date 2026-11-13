@@ -181,7 +181,12 @@ describe("@task mention provider", () => {
       expect(context).toContain(
         "first run: bb tasks attach MEN-1 (attaches THIS thread so the task shows you as working)",
       );
-      expect(context).toContain("bb tasks comment MEN-1 --body ...");
+      expect(context).toContain(
+        "Record intermediate progress quietly via bb tasks progress MEN-1 --body ...",
+      );
+      expect(context).toContain(
+        "use bb tasks comment MEN-1 --body ... only when someone needs to read or act on it",
+      );
       expect(context).toContain("bb tasks update MEN-1 --status ...");
     } finally {
       await harness.dispose();

@@ -4,6 +4,7 @@ import {
   createTasksStore,
   type Attachment as StoredAttachment,
   type Comment as StoredComment,
+  type ProgressNote as StoredProgressNote,
   type Task as StoredTask,
   type TasksStore,
 } from "../db";
@@ -33,6 +34,7 @@ import {
   labelsTag,
   projectTag,
   projectTasksChangedTags,
+  progressNotesTag,
   projectTasksTag,
   pullRequestsTag,
   taskChangedTags,
@@ -211,6 +213,10 @@ export function invalidateTaskChanged(
 
 export function invalidateComments(bb: BbPluginApi, taskId: string): void {
   invalidate(bb, [commentsTag(taskId)]);
+}
+
+export function invalidateProgressNotes(bb: BbPluginApi, taskId: string): void {
+  invalidate(bb, [progressNotesTag(taskId)]);
 }
 
 export function invalidateThreads(bb: BbPluginApi, taskId: string): void {
@@ -499,6 +505,27 @@ export async function createComment(
     );
   });
   return comment;
+}
+
+interface CreateProgressNoteInput {
+  taskId: string;
+  authorName: string;
+  presetName: string | null;
+  threadId: string | null;
+  body: string;
+  proofUrl: string | null;
+}
+
+export function createProgressNote(
+  bb: BbPluginApi,
+  store: TasksApiStore,
+  input: CreateProgressNoteInput,
+): StoredProgressNote {
+  const progressNote = store.transaction(() =>
+    store.tasks.createProgressNote(input),
+  );
+  invalidateProgressNotes(bb, input.taskId);
+  return progressNote;
 }
 
 interface TaskPullRequestsResult {
@@ -976,6 +1003,20 @@ export function registerHandlers(
         awaitDelivery: false,
       });
       return { comment };
+    },
+    createProgressNote(input) {
+      const progressNote = createProgressNote(bb, store, {
+        taskId: input.taskId,
+        authorName: input.authorName,
+        presetName: null,
+        threadId: input.threadId,
+        body: input.body,
+        proofUrl: input.proofUrl ?? null,
+      });
+      return { progressNote };
+    },
+    listProgressNotes(input) {
+      return { progressNotes: store.tasks.listProgressNotes(input.taskId) };
     },
     async listComments(input) {
       const comments = store.tasks.listComments(input.taskId);

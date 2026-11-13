@@ -48,6 +48,7 @@ function taskDetailRpc(getTaskByKey: () => { task: typeof task }) {
     listTaskThreads: () => ({ taskThreads: [] }),
     listPresets: () => ({ presets: [] }),
     listComments: () => ({ comments: [] }),
+    listProgressNotes: () => ({ progressNotes: [] }),
     searchThreads: () => ({ threads: [] }),
   };
 }

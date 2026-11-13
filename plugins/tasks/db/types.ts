@@ -78,6 +78,17 @@ export interface Comment {
   createdAt: string;
 }
 
+export interface ProgressNote {
+  id: string;
+  taskId: string;
+  authorName: string;
+  presetName: string | null;
+  threadId: string | null;
+  body: string;
+  proofUrl: string | null;
+  createdAt: string;
+}
+
 export interface Attachment {
   id: string;
   taskId: string | null;
@@ -225,6 +236,15 @@ export interface CreateCommentInput {
   presetName?: string | null;
   threadId?: string | null;
   body: string;
+}
+
+export interface CreateProgressNoteInput {
+  taskId: string;
+  authorName: string;
+  presetName: string | null;
+  threadId: string | null;
+  body: string;
+  proofUrl: string | null;
 }
 
 export interface UpdateCommentInput {

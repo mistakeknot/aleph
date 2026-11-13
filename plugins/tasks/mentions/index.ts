@@ -188,7 +188,7 @@ ${formatThreads(store.tasks.listTaskThreads(task.id))}
 
 ## Action contract
 
-You can act on this task with the bb tasks CLI. If you begin working on it, first run: bb tasks attach ${task.key} (attaches THIS thread so the task shows you as working). Comment substantive updates via bb tasks comment ${task.key} --body ... and set status via bb tasks update ${task.key} --status ...
+You can act on this task with the bb tasks CLI. If you begin working on it, first run: bb tasks attach ${task.key} (attaches THIS thread so the task shows you as working). Record intermediate progress quietly via bb tasks progress ${task.key} --body ..., use bb tasks comment ${task.key} --body ... only when someone needs to read or act on it, and set status via bb tasks update ${task.key} --status ...
 `;
 }
 

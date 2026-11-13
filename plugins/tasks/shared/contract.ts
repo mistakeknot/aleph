@@ -16,6 +16,7 @@ import {
   commentTag,
   commentsTag,
   labelsTag,
+  progressNotesTag,
   pullRequestsTag,
   taskListTags,
   taskReadTags,
@@ -187,6 +188,49 @@ const displayCommentSchema = commentSchema
   .extend({
     threadTitle: z.string().nullable(),
     provider: commentProviderSchema.nullable(),
+  })
+  .strict();
+
+export const PROGRESS_NOTE_BODY_MAX_LENGTH = 2000;
+export const PROGRESS_NOTE_PROOF_URL_MAX_LENGTH = 2048;
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const { protocol } = new URL(value);
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+const progressNoteBodySchema = z
+  .string()
+  .trim()
+  .min(1, "Progress note body cannot be empty")
+  .max(
+    PROGRESS_NOTE_BODY_MAX_LENGTH,
+    `Progress note body must be at most ${PROGRESS_NOTE_BODY_MAX_LENGTH} characters`,
+  );
+
+const progressNoteProofUrlSchema = z
+  .string()
+  .trim()
+  .max(
+    PROGRESS_NOTE_PROOF_URL_MAX_LENGTH,
+    `Proof URL must be at most ${PROGRESS_NOTE_PROOF_URL_MAX_LENGTH} characters`,
+  )
+  .refine(isHttpUrl, "Proof URL must be an http or https URL");
+
+const progressNoteSchema = z
+  .object({
+    id: idSchema,
+    taskId: idSchema,
+    authorName: z.string(),
+    presetName: z.string().nullable(),
+    threadId: z.string().startsWith("thr_").nullable(),
+    body: z.string(),
+    proofUrl: z.string().nullable(),
+    createdAt: z.string(),
   })
   .strict();
 
@@ -634,6 +678,25 @@ export const tasksRpcContract = defineRpcContract({
     input: z.object({ taskId: idSchema }).strict(),
     output: z.object({ comments: z.array(displayCommentSchema) }).strict(),
   },
+  createProgressNote: {
+    experimental_description:
+      "Record a quiet progress note on a task. Notes are stored apart from comments and never notify, steer or wake any thread, change status, or become the latest responding agent.",
+    input: z
+      .object({
+        taskId: idSchema,
+        body: progressNoteBodySchema,
+        proofUrl: progressNoteProofUrlSchema.optional(),
+        authorName: nonBlankStringSchema.default("You"),
+        threadId: z.string().startsWith("thr_").nullable().default(null),
+      })
+      .strict(),
+    output: z.object({ progressNote: progressNoteSchema }).strict(),
+  },
+  listProgressNotes: {
+    tags: (input) => [progressNotesTag(input.taskId)],
+    input: z.object({ taskId: idSchema }).strict(),
+    output: z.object({ progressNotes: z.array(progressNoteSchema) }).strict(),
+  },
   listAttachments: {
     tags: (input) =>
       "taskId" in input
@@ -822,6 +885,7 @@ export type Label = z.infer<typeof labelSchema>;
 export type Comment = z.infer<typeof commentSchema>;
 export type CommentProvider = z.infer<typeof commentProviderSchema>;
 export type DisplayComment = z.infer<typeof displayCommentSchema>;
+export type ProgressNote = z.infer<typeof progressNoteSchema>;
 export type Attachment = z.infer<typeof attachmentSchema>;
 export type TaskThread = z.infer<typeof taskThreadSchema>;
 export type TaskPullRequest = z.infer<typeof taskPullRequestSchema>;
