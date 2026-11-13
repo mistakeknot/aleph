@@ -1,3 +1,4 @@
+import { applyPostOracleSteps } from "./helpers/post-oracle-steps.js";
 import { createHash } from "node:crypto";
 import {
   cpSync,
@@ -61,6 +62,7 @@ const POST_ORACLE_PLAN_IDS = [
   "A0012",
   "A0013",
   "A0014",
+  "A0015",
   "0151_hand_diff_viewed_files_to_git_plugin",
   "0152_small_storage_cleanups",
   "0153_sweep_item_failures",
@@ -354,14 +356,7 @@ describe("the real migration plan", () => {
     const planned = applyPlan();
     try {
       applyFolder(legacy, legacyDrizzleFolder);
-      for (const tag of POST_ORACLE_UPSTREAM) {
-        legacy.exec(
-          readFileSync(
-            join(sourceFolders.upstreamFolder, `${tag}.sql`),
-            "utf8",
-          ).replaceAll("--> statement-breakpoint", ""),
-        );
-      }
+      applyPostOracleSteps(legacy);
       expect(describeSchema(planned)).toEqual(describeSchema(legacy));
       expect(describeSequences(planned)).toEqual(describeSequences(legacy));
     } finally {
@@ -373,7 +368,7 @@ describe("the real migration plan", () => {
   it("reads each source file's hash into the plan", () => {
     const input = loadMigrationPlanInput(sourceFolders);
     expect(input.upstream).toHaveLength(157);
-    expect(input.aleph).toHaveLength(14);
+    expect(input.aleph).toHaveLength(15);
     const plan = loadMigrationPlan(sourceFolders);
     for (const step of plan.steps) {
       if (POST_ORACLE_PLAN_IDS.includes(step.id)) continue;

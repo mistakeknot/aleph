@@ -88,6 +88,12 @@
       "after": "A0013",
       "when": 1793664307128,
       "supersedes": "0150_thread_status_changed_at"
+    },
+    {
+      "id": "A0015",
+      "file": "A0015_queue_wake_cause.sql",
+      "after": "0156_plugin_failure_labels",
+      "when": 1794340346215
     }
   ]
 }

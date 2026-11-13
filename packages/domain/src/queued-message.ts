@@ -218,3 +218,26 @@ export const queuedMessageSystemNoticeSchema = z.object({
 export type QueuedMessageSystemNotice = z.infer<
   typeof queuedMessageSystemNoticeSchema
 >;
+
+export const queuedMessageWakeCauseSchema = z.enum([
+  "card_pick",
+  "merge",
+  "review",
+  "timer",
+  "message",
+  "workflow",
+  "retry",
+  "restart",
+  "interaction",
+  "unknown",
+]);
+export const QUEUED_MESSAGE_WAKE_REF_MAX_LENGTH = 200;
+export const queuedMessageWakeSchema = z.object({
+  wakeCause: queuedMessageWakeCauseSchema.default("unknown"),
+  wakeRef: z
+    .string()
+    .max(QUEUED_MESSAGE_WAKE_REF_MAX_LENGTH)
+    .nullable()
+    .default(null),
+});
+export type QueuedMessageWake = z.infer<typeof queuedMessageWakeSchema>;
