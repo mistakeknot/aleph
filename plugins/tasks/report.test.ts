@@ -29,6 +29,8 @@ describe("task reports", () => {
       db.exec("ALTER TABLE tasks DROP COLUMN report");
     }
     db.exec("DELETE FROM schema_version WHERE version > 8");
+    db.exec("ALTER TABLE tasks DROP COLUMN return_at");
+    db.exec("ALTER TABLE tasks DROP COLUMN return_thread_id");
     const before = db
       .prepare<[], Record<string, unknown>>("SELECT * FROM tasks")
       .all();
@@ -40,7 +42,12 @@ describe("task reports", () => {
         status: "done",
       });
       expect(db.prepare("SELECT * FROM tasks").all()).toEqual(
-        before.map((row) => ({ ...row, report: null })),
+        before.map((row) => ({
+          ...row,
+          report: null,
+          return_at: null,
+          return_thread_id: null,
+        })),
       );
       expect(createTasksStore(db).getTask(task.id)).toEqual(
         migrated.getTask(task.id),
